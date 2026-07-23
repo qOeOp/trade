@@ -22,8 +22,8 @@ last_verified: 2026-07-23 CST
 | J01–J07 job graph、cadence、health、lease、idempotency | 常驻 program profile 仍关闭 domain jobs 与 live write |
 | trade plan、action intent、trigger expiry、execution gate | 没有独立的短期条件监控任务生命周期 |
 | J04 supervisor、Replay、forward、review、durable RD state | 已有 bounded autonomy refill；真实 provider/kill-restart/长时 J04-J05-J07 soak 尚未闭合 |
-| 既有 owner toolset、本地 stdio MCP 与 loopback HTTP allowlist | HTTP 尚未进入 server composition；TLS/rotation/OpenClaw/soak 未闭合 |
-| SQLite owner stores 与 artifact catalog | 没有 volume、备份恢复；被 durable ref 引用的 artifact 仍可能落在 `tmp/` |
+| 既有 owner toolset、本地 stdio MCP 与 loopback HTTP allowlist | HTTP resident/audit/rotation 已验证，但尚未进入 manager composition；TLS/OpenClaw/长时 soak 未闭合 |
+| SQLite owner stores 与 artifact catalog | 本机真实 online backup/隔离 restore 已过；外部介质与被 durable ref 引用的 `tmp/` artifact 迁移仍未闭合 |
 
 核心缺口不是更多 tool，而是一个可验证的 runtime profile，把既有 owner 按依赖装配成长期运行程序。
 
@@ -31,17 +31,17 @@ last_verified: 2026-07-23 CST
 
 并行准备的 P1.27 不改变该 soak：新增 one-shot `catalog_hygiene_canary` 固定 profile，未来只允许一次 J06 owner scan 与 `artifact_catalog` 写入；GC、`--yes`、任意 root、J01–J05/J07、live write 和真实通知均无入口。当前只完成代码/fixture，真实 canary 必须等待 P1.26 终态与 lease release。
 
-S1 截至 2026-07-23 已从“提案散点”进入可执行实现：三个正式 foreground entrypoint、Linux/macOS 固定 profile、systemd/launchd render、通用 preflight/status、合成生命周期与恢复演练均已落地。只读 public smoke 已跨两个 control cycle 保持同一 L2 epoch、同一 fencing token，comparable parity mismatch 未增加。macOS/launchd 现为正式单机采用路径，不要求另有 Linux；当前仍缺本机 launchd 安装/故障注入和真实 durable volume restore。
+S1 截至 2026-07-23 已完成 macOS no-live 主机纵切：三个正式 foreground entrypoint 从 committed immutable release 由 launchd 常驻；只读 status、consumer-only restart、public/full-shadow soak 和真实 online backup/隔离 restore 均通过。owner/consumer 同 epoch，累计 parity `9/9 match`；既有 `50061` L2 未被接管。Linux systemd 保留同合同的 render/fixture，不是 macOS 完成门；外部备份介质、整机重启与长时 crash-loop 仍待验证。
 
 S3 已新增独立 `full_shadow` 固定 profile：同一 fenced supervisor/wakeup 可启用 J01–J07、强制 cadence due、保留 owner active/state gate，并永久关闭 exchange live write 与真实通知。干净 HEAD 的临时 SQLite/captured-owner 双周期 fixture 已得到 7/7 enabled、Agent/program `2/2 match`、零重复 job/incident；同槽重启 terminal skip 且 fencing token `1→2`，未出现 live command。当前版本化 server config 仍是 `shadow_program`；published owner CLI smoke、故障注入与长时观察完成前不得切换。
 
 S4/S5 已形成首个本地闭环：J04 路由先读 `plan_next`，ready/terminal 不调用模型；active empty/unready queue 才调用固定 Model Gateway，domain assessment 通过后以 `updated_at` CAS 原子入队，再委托既有 supervisor。模型失败不写 state/Trial，identical replay 幂等，stale/conflict fail closed；真实 provider、进程 kill/restart 单 Trial/Result 与 J04/J05/J07 长时 soak 仍是采用门。
 
-S6 已新增 loopback-only Operator HTTP：Bearer + 独立 controlled approval、固定 read/write rate、exact route/payload 和 ops pre/post audit；当前只开放 tool search、RD read 与 approved J04 wakeup，不含 exchange/live/promotion/任意 command。Bun resident、真实 audit 回读、token rotation、TLS/process-manager/OpenClaw client 与 soak 尚未完成。
+S6 已新增 loopback-only Operator HTTP：Bearer + 独立 controlled approval、固定 read/write rate、exact route/payload 和 ops pre/post audit；当前只开放 tool search、RD read 与 approved J04 wakeup，不含 exchange/live/promotion/任意 command。Bun resident、真实 audit 回读和 API/approval token 重启轮换已通过，且 smoke 不调用 controlled owner；TLS、manager secret facility、OpenClaw client 与长时 soak 尚未完成。
 
-S7 已新增机器可判定的 no-live release gate，并完成本机合成 lifecycle/recovery、full-shadow、R&D CAS/idempotency 与 Operator HTTP policy 演练。当前最大已验证 authority 仅为 `no_live_local_rehearsal`；Darwin/launchd 与 Linux/systemd 均可成为合法 host/manager pair，当前实际 manager、真实 volume/provider/resident/soak 证据缺失时采用 fail closed。该 gate 无论结果如何都不能开放 exchange write 或自动 promotion。
+S7 已新增机器可判定的 no-live release gate。本机已补齐 launchd install、真实 volume restore、public/full-shadow soak、Operator resident/audit/rotation；pending 从 7 项收敛为真实模型 provider smoke 与 R&D kill/restart 单 Trial/Result 两项。因两项未授权执行，当前最大 authority 仍是 `no_live_local_rehearsal`；该 gate 无论结果如何都不能开放 exchange write 或自动 promotion。
 
-本机 Darwin arm64 采用检查已确认 Bun、Rust binaries、foreground entries、owner path 与 safety 可用，正式 launchd labels 尚未安装；当前唯一 manager 前置阻断是仓库处于 Downloads 受保护目录且尚无明确隐私授权。可选择授予权限或把 release 移到非受保护目录，不再要求迁移到 Linux。
+本机 Darwin arm64 已把 committed release staging 到非受保护用户数据目录，并安装三个固定 launchd labels；因此不再从 Downloads workspace 取得无人值守 authority。manager plist/hash 与 release manifest 绑定，当前三个 unit active。
 
 后续冲突审计发现现有独立 L2 已占用 `50061`，因此 macOS profile 使用隔离 `51061`，且 preflight 新增 listener availability。server launchd manager 只允许三个固定 label，拒绝 loaded duplicate、plist drift 与 blocked preflight，bootstrap 失败时只回滚本次创建的 labels/plists。
 
@@ -240,8 +240,8 @@ validate config/secrets/volumes
 | S3 full shadow runtime | program cadence 启用 J01–J07，但 exchange write 保持关闭 | 与 Agent 路径 parity；长时无重复 job/双写；incident 可查询 |
 | S4 model gateway | 已实现 SiliconFlow adapter + R&D hypothesis semantic task + domain assessment | 本地 schema/预算/超时/redaction/eval 已过；真实 capability/dataset parity/server secret/soak 待闭合 |
 | S5 research autonomy | 已实现 J04 bounded refill + CAS queue + existing supervisor delegation；J05/J07 保持独立 cadence | 本地 stopped/blocked/no-write/duplicate/stale 门已过；真实 provider、kill/restart 单 Trial/Result 与长时 soak 待闭合 |
-| S6 operator convergence | 已实现 loopback HTTP allowlist，与 MCP 同样委托既有 owner；OpenClaw 仅保留 client 角色 | 本地 auth/approval/rate/pre-audit 门已过；Bun resident、audit 回读、rotation/TLS/process-manager/OpenClaw fixture/soak 待闭合 |
-| S7 no-live host adoption | release gate 聚合 lifecycle/recovery/full-shadow/R&D/operator/deployment 证据 | 本地演练已过；本机 launchd 或 Linux systemd、真实 restore/provider/resident/soak 后仅可进入人工变更评审 |
+| S6 operator convergence | 已实现 loopback HTTP allowlist，与 MCP 同样委托既有 owner；Bun resident、真实 audit 与 token rotation 已过；OpenClaw 仅保留 client 角色 | TLS、manager secret facility、OpenClaw fixture 与长时 soak 待闭合 |
+| S7 no-live host adoption | release gate 聚合 lifecycle/recovery/full-shadow/R&D/operator/deployment 证据；macOS launchd、真实 restore 与 soak 已过 | 真实 provider 与 R&D kill/restart 单 Trial/Result 后也仅可进入人工变更评审 |
 | post-S7 live cutover | 独立授权后按 job 逐项开放 authority | shadow soak、reconcile、kill/restart、backup/restore、catalog canary 与 live-small canary 全通过 |
 
 每个切片独立提交、验证和回滚。S2 不等待 LLM；S4 不等待 OpenClaw；S7 不因“所有进程能启动”自动成立，也不包含 live authority。

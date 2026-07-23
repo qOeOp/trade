@@ -37,6 +37,6 @@ last_verified: 2026-07-23 CST
 
 ## 4. 当前证据与采用门
 
-离线测试已覆盖 unknown route、Bearer、body/shape、read/write rate limit、独立 approval、pre-audit fail closed、owner allowlist 与 audit secret/body redaction；模块 typecheck 和 registry/architecture checks 已通过。
+离线 policy 测试已覆盖 unknown route、Bearer、body/shape、read/write rate limit、独立 approval、pre-audit fail closed、owner allowlist 与 audit secret/body redaction。2026-07-23 又以 immutable macOS release 完成真实 Bun resident smoke：只监听 loopback；两次合法只读请求在真实 `ops_runtime.db` 形成 `accepted/completed` 共 4 条闭环 audit；重启换 key 后旧 API token 返回 `401`、旧 approval token 返回 `403`，新 approval 仅到达无效 payload 的 `400` 门，未调用 J04 owner、模型或交易写。可重复入口为 `operator-http/src/scripts/resident-smoke.ts`，输出不含 token、绝对路径或原始 body。
 
-仍未完成 Bun-native resident server smoke、真实 ops DB audit 回读、token rotation/revocation、TLS reverse proxy、multi-process/distributed rate limit、systemd secret injection、OpenClaw client fixture 与有界 soak。因此保持 `active-partial`，当前 `profile/server-runtime.json` 尚未装配 operator unit；关闭 HTTP/MCP 不影响现有 program runtime。
+仍未完成 TLS reverse proxy、multi-process/distributed rate limit、systemd/launchd secret facility、OpenClaw client fixture 与长时 soak。因此保持 `active-partial`，当前 server profile 的三个 launchd unit 不含 operator；HTTP 关闭或凭据轮换不影响既有 program runtime。

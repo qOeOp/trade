@@ -12,12 +12,12 @@ last_verified: 2026-07-23 CST
 
 本文冻结 [Server Runtime Implementation Plan](../architecture/migrations/server-runtime-implementation-plan.md) S1 的首个可部署 profile：在单台 macOS 或 Linux 主机上装配现有 Rust L2、resident L2 consumer 与 `shadow_program` control runtime。它只闭合进程、配置、依赖、健康和停机，不复制 scheduler、领域计算或 store authority。
 
-当前已形成首个 no-live composition root：版本化 Linux/macOS profile、三个 foreground entrypoint、closed-world validator、deterministic systemd/launchd renderer、只读 preflight/status，以及有界 lifecycle/public-smoke/recovery fixture。它尚未在本机 launchd 或目标 Linux systemd 安装并取得 process authority。
+当前已形成首个 no-live composition root：版本化 Linux/macOS profile、三个 foreground entrypoint、closed-world validator、deterministic systemd/launchd renderer、只读 preflight/status，以及有界 lifecycle/public-smoke/recovery fixture。2026-07-23 已从非受保护目录的 immutable release 在本机安装三个 per-user launchd agent 并取得 no-live process authority；Linux systemd 仍只有确定性 render/fixture，不是本机采用前置。
 
 | 单元 | 当前能力 | 剩余采用门 |
 | --- | --- | --- |
-| L2 owner | 正式 foreground supervisor、exact Rust child、signal drain、raw/gRPC/health/admission | 本机 launchd 或 Linux systemd 安装、真实 unit restart 与 volume recovery |
-| L2 consumer | 正式 foreground supervisor、worker restart、snapshot/watch、latest health | 当前平台 unit 故障注入；不得连坐 L2 owner |
+| L2 owner | 正式 foreground supervisor、exact Rust child、signal drain、raw/gRPC/health/admission | 已由 launchd 常驻；真实 owner restart/新 epoch 恢复仍需长时门 |
+| L2 consumer | 正式 foreground supervisor、worker restart、snapshot/watch、latest health | launchd 独立重启已证明不连坐 owner；长期 crash-loop soak 待闭合 |
 | control runtime | foreground cadence、lease/fencing、signal drain、聚合 status | 仍固定 `shadow_program`；J01–J07 与 live write 关闭 |
 
 首个 production target 允许 **macOS launchd** 或 **Linux systemd** 装配同一组仓库 foreground entrypoint。`profile/server-runtime-macos.json` 与 `profile/server-runtime.json` 只分离 manager-specific identity，不分叉业务命令和 authority。Docker 不是 S1 前置：SQLite、artifact、Rust/Bun build 与 runtime receipts 先在单节点闭合；容器化只能复用同一进程合同，不能建立第二套启动语义。
@@ -157,19 +157,19 @@ S1 不做自动滚动升级、双实例交接或 active-active；SQLite 单 owne
 | R2 | Linux systemd 四 units 与 macOS launchd 三 agents 确定性 render；unknown/path/env/live-write fail closed | 当前 host render/install diff |
 | R3 | release preflight 与 owner/process-manager 聚合 status | 本机 launchctl 或 Linux systemctl unit status 验证 |
 | R4 | 合成进程实跑 ordering、consumer restart isolation、反向 drain、无 orphan | 无 |
-| R5 | 2026-07-23 本机只读 public smoke：两个 control cycle、同 epoch、parity mismatch `0 -> 0`、同 fencing token | launchd/systemd active、operator-controlled consumer fault injection、无双 lease复核 |
-| R6 | 合成三 DB `VACUUM INTO`、raw/artifact/profile hash 与 restore integrity/ref closure 通过 | 真实 volume、真实 owner schema/artifact refs、外部备份介质恢复 |
+| R5 | 本机 launchd active；public soak 跨周期同 epoch，parity `9/9`；consumer-only restart 不改变 owner epoch；full-shadow 两轮均 2 completed/5 gated skip、零失败/重复/live command | 长时 crash-loop 与主机重启 soak |
+| R6 | 对运行中三个真实 owner SQLite 做 online backup；raw finalized segment/profile/release manifest 一并闭包；隔离 restore 后 3/3 integrity、6/6 hash/ref 通过 | 外部备份介质与整机灾难恢复 |
 
 完成 S1 只表示可无人值守运行 **no-live-write shadow profile**。它不表示策略已经使用 L2、不表示 R&D/LLM 已自治，也不授权真实下单；这些分别由后续 watch、model gateway、research autonomy 与 per-job live cutover 采用门负责。
 
 ## 11. 当前 Release Gate
 
-2026-07-23 的本机演练已闭合 lifecycle、合成 recovery、full-shadow、R&D CAS/idempotency 和 Operator HTTP policy 的本地证据，结论固定为 `maximum_verified_authority=no_live_local_rehearsal`。一次性证据见 [Server No-Live Rehearsal](../history/server-no-live-rehearsal-2026-07-23.md)。
+2026-07-23 的本机采用已闭合 immutable staging、Bun-native foreground、三个 launchd agent、readiness、consumer 独立重启、真实在线备份/恢复、public/full-shadow soak，以及 Operator HTTP resident/audit/token rotation。实际常驻 release 为提交 `a2089f8197d3` 的隔离副本，使用 `127.0.0.1:51061`；当前 status 为 owner/consumer 同 epoch、process units active、control lease active，累计 parity `9/9 match`。一次性证据见 [macOS No-Live Host Adoption](../history/macos-no-live-host-adoption-2026-07-23.md)。
 
-当前 Darwin arm64 本机已通过 Bun、Rust binaries、foreground entries、owner DB parents、data/tmp 权限和 no-live safety preflight；三个正式 launchd label 均未安装。仓库位于 macOS 受保护的 Downloads 范围，故 launchd preflight 只剩 `launchd_source_privacy` 阻断：必须先授予明确隐私权限，或把只读 release 移到非受保护目录。该阻断不否定 macOS 兼容性，也不阻止显式前台验证，但在解除前不能宣称无人值守。
+workspace 仍位于 Downloads，但 launchd 不再从 workspace 启动；immutable release 位于非受保护用户数据目录。三个固定 label 的 plist/hash 与 release manifest 相互绑定，安装、component restart 和卸载只允许该 closed-world 集合。现有独立 `127.0.0.1:50061` L2 未被停止、接管或复用。
 
 本机已有独立 L2 进程监听 `127.0.0.1:50061`，不得停止或接管。macOS staged profile 固定使用隔离端口 `127.0.0.1:51061`；preflight 必须通过 listener availability，避免 process manager 启动后才进入 crash loop。
 
 macOS 正式采用不直接从可编辑 workspace 启动。release staging 只归档 committed HEAD，清除 archive 中任何 `data/` 下的 SQLite runtime state，绑定 `bun.lock`、复制当前 build workspace 的依赖闭包与两个带 hash 的 Rust binaries，并初始化空 `data/`；目标必须是不存在、非受保护且不与仓库互相包含的绝对目录。manifest 不记录本机绝对路径，失败只清理本次新建的 partial target。
 
-主机采用仍被以下证据阻断：本机 launchd 或 Linux systemd 实际安装、真实 durable volume restore、public soak、真实模型 provider smoke、R&D kill/restart 单 Trial/Result、Operator HTTP resident 与 audit roundtrip。macOS/launchd 是完整合法路径，不要求另有 Linux；即使这些证据全部通过，gate 也只允许进入人工变更评审。catalog canary 需显式 operator run，live canary 与 exchange write 需另行授权，不属于本 gate。
+最新 release gate 已把 pending 从 7 项压缩为 2 项：`model_provider_smoke_not_passed` 与 `rd_kill_restart_single_trial_result_not_passed`。前者涉及真实 credential/cost，后者涉及真实 R&D worker 终态，本次均未擅自执行；因此机器结论仍是 `server_no_live_adoption=blocked`、`maximum_verified_authority=no_live_local_rehearsal`。即便两项以后通过，也只进入人工变更评审；catalog canary、live-small canary 与 exchange write 均需各自显式授权。

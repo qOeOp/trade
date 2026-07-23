@@ -44,6 +44,8 @@ foreground supervisor
 
 ## 4. 当前证据与采用门
 
-干净 HEAD 已通过 trade-flow typecheck、固定 profile/输入收窄测试和双周期 supervisor fixture：7/7 job enabled、全部 cadence due、Agent/program `2/2 match`、无 live command、两条 cycle audit、零重复 job、零 incident；同槽重启只返回 terminal skip，owner command 数不增加，supervisor fencing token `1→2`。该 fixture 使用临时 SQLite 与捕获 executor，证明编排/恢复语义，不证明真实 owner 长时稳定性。
+干净 HEAD 已通过 trade-flow typecheck、固定 profile/输入收窄测试和双周期 supervisor fixture：7/7 job enabled、全部 cadence due、Agent/program `2/2 match`、无 live command、两条 cycle audit、零重复 job、零 incident；同槽重启只返回 terminal skip，owner command 数不增加，supervisor fencing token `1→2`。
 
-进入服务器 profile 前仍需按顺序完成：临时 owner DB 的 published CLI no-live smoke；故障/重启下无重复 job/双写；有界 soak 的 parity/incident/readiness 报告；随后才可把版本化 server config 从 `shadow_program` 改为 `full_shadow`。任一门失败均保持当前 server profile 不变。
+2026-07-23 又在已安装的 immutable macOS release 上暂停唯一 control label，使用同一真实 owner DB/lease 执行两轮 bounded `full_shadow`，随后恢复 label。program/agent 两路每轮均为 7 jobs：2 completed、5 由 owner state gate 跳过、0 failed/blocked；duplicate ticket 为 0，恢复后 owner/consumer 同 epoch、lease active、累计 parity `9/9 match`。该证据证明 published CLI、真实 DB 审计与有界恢复，不证明长时 J01–J07/R&D/provider 稳定性。
+
+版本化 server config 继续保持 `shadow_program`。切换前仍需真实模型 provider 门、R&D kill/restart 单 Trial/Result、长时 crash-loop/host-restart soak 与人工变更评审；任何一项失败都保持现状，且 `full_shadow` 永远不开放 exchange write。

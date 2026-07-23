@@ -3,7 +3,7 @@ title: Risk Control Contract
 role: runtime-feature-contract
 status: active-partial
 owner: live-execution-control
-last_verified: 2026-07-22 CST
+last_verified: 2026-07-23 CST
 ---
 
 # Risk Control Contract
@@ -27,6 +27,7 @@ last_verified: 2026-07-22 CST
 | 类别 | Guard |
 | --- | --- |
 | 事实与完整性 | `G-OBS-FRESH`、`G-PLAN-INTENT-COMPLETE`、`G-PLAN-VERDICT-COMPLETE` |
+| Authority 绑定 | `G-RUNTIME-POLICY-AUTHORIZATION`、`G-PORTFOLIO-PROJECTION-AUTHORITY` |
 | 资格与模式 | `G-SETUP-LIVE-PERMISSION`、`G-KILL-SWITCH` |
 | 账户风险 | `G-RISK-OPEN-CAP`、`G-RISK-DAY-FLOOR`、`G-MAX-CONCURRENT-RISK-FLOWS` |
 | 单笔 / 单标的 | `G-MAX-SINGLE-TRADE-RISK`、`G-MAX-ENTRY-NOTIONAL`、`G-MAX-SYMBOL-NOTIONAL`、`G-SINGLE-POSITION-LEVERAGE-CAP` |
@@ -42,6 +43,7 @@ Guard 的输入 shape、默认值和 verdict 以 preflight contract 测试为准
 mode / kill switch / risk lock
   -> facts freshness and plan completeness
   -> strategy live permission
+  -> current runtime-policy authorization + complete/fresh portfolio owner projection
   -> account / position / exposure limits
   -> churn / lane constraints
   -> order structure
@@ -63,7 +65,8 @@ mode / kill switch / risk lock
 
 ## 6. Fail-closed
 
-- facts stale、schema invalid、unknown order、unmatched position、policy missing：新增风险 blocked。
+- facts stale、schema invalid、unknown order、unmatched position、policy/authorization missing：新增风险 blocked。
+- 新增风险必须同时持有未过期且绑定当前 policy hash、account ref/scope 的 runtime authorization，以及 30 秒内、complete、未 risk-lock、已 reconcile 的 portfolio owner projection；防御/无动作不因这两项新增门被误阻断。
 - exchange submit 未确认：不得写 filled position；进入 confirm/reconcile。
 - `unknown / needs_review`：保持 risk lock，直到 owner recovery 或明确人工处理。
 - safe mode 不妨碍明确的 reduce / close / cancel / protection 修复。
