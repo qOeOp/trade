@@ -1,8 +1,7 @@
-import * as typescriptModule from "typescript"
+import { createRequire } from "node:module"
 import type { CallExpression, Node, ScriptKind } from "typescript"
 
-const ts = (typescriptModule as typeof typescriptModule & { default?: typeof typescriptModule }).default
-  ?? typescriptModule
+const ts = createRequire(import.meta.url)("typescript") as typeof import("typescript")
 
 interface SourceInspectionHandlers {
   onSpecifier(specifier: string): void

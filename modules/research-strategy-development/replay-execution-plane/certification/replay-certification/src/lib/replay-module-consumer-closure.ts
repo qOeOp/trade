@@ -1,15 +1,14 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { createHash } from "node:crypto"
+import { createRequire } from "node:module"
 import { dirname, join, normalize, relative } from "node:path"
-import * as typescriptModule from "typescript"
 import type { Node, ScriptKind, SourceFile } from "typescript"
 import {
   REPLAY_CERTIFICATION_OWNER,
   REPLAY_PLANE_ROOT,
 } from "./replay-certification"
 
-const ts = (typescriptModule as typeof typescriptModule & { default?: typeof typescriptModule }).default
-  ?? typescriptModule
+const ts = createRequire(import.meta.url)("typescript") as typeof import("typescript")
 
 export type ReplayModuleClassification =
   | "canonical-runtime"
