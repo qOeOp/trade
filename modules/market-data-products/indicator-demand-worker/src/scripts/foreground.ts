@@ -184,11 +184,14 @@ export async function main(argv: string[]): Promise<number> {
           },
           run_provider: async (_target, source, providerArgs) => {
             const manifestPath = resolve(root, source.manifest_path)
-            const response = await runJson([
-              "go", "run", "./src/scripts",
-              "--manifest", manifestPath,
-              ...providerArgs,
-            ], resolve(root, "modules/market-data-products/tech-indicators"))
+            const providerRoot = resolve(root, "modules/market-data-products/tech-indicators")
+            const compiledProvider = resolve(providerRoot, "target/release/tech-indicators")
+            const response = await runJson(
+              existsSync(compiledProvider)
+                ? [compiledProvider, "--manifest", manifestPath, ...providerArgs]
+                : ["go", "run", "./src/scripts", "--manifest", manifestPath, ...providerArgs],
+              providerRoot,
+            )
             if (response.ok !== true) throw new Error("indicator provider returned failure")
             return asRecord(response.data)
           },
