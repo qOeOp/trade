@@ -16,11 +16,16 @@ import {
   assertReplayDecisionHarnessWorkerResponseV10Contract,
   type ReplayDecisionHarnessWorkerResponseV10Contract,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-response-v10-contract"
+import {
+  assertReplayRegisteredAttemptDispatchAuthority,
+  type ReplayRegisteredAttemptDispatchAuthority,
+} from "../../../../research-control-plane/contracts/src/lib/replay-registered-attempt-dispatch-authority"
 
 export interface ReplayDecisionHarnessExecutionEnvelopeInput {
   source_response_contract: ReplayDecisionHarnessWorkerResponseV10Contract
   logical_request_id: string
   attempt_lease: ReplayAttemptLeaseSnapshot
+  registered_dispatch_authority?: ReplayRegisteredAttemptDispatchAuthority
   predecessor_execution_envelope?: ReplayDecisionHarnessExecutionEnvelope
 }
 
@@ -72,13 +77,14 @@ function buildBodyWithoutId(
   }
   const predecessor = input.predecessor_execution_envelope
   if (predecessor) assertSuccessor(predecessor, request.logical_request_id, request.request_hash, lease)
+  const registered = resolveRegisteredDispatchLineage(input, lease, contextBinding.request_hash)
   return {
     schema_version: REPLAY_DECISION_HARNESS_EXECUTION_ENVELOPE_SCHEMA_VERSION,
     envelope_policy_version: REPLAY_DECISION_HARNESS_EXECUTION_ENVELOPE_POLICY_VERSION,
     scope: "pre_transport_non_economic_attempt_bound_worker_request_envelope",
     owner: "replay_runner_execution_admission",
     purpose: "bind_one_logical_worker_request_to_one_exact_control_plane_attempt_lease_generation",
-    parent_validation: "embedded_r4_109_contract_request_selection_and_control_plane_lease",
+    parent_validation: "embedded_worker_request_control_plane_registered_dispatch_and_lease",
     source_response_contract_id: source.contract_id,
     source_response_contract_hash: source.contract_hash,
     source_response_contract: structuredClone(source),
@@ -89,6 +95,11 @@ function buildBodyWithoutId(
     worker_request_hash: request.request_hash,
     request_context_hash: request.request_context_hash,
     replay_execution_request_hash: contextBinding.request_hash,
+    request_registration_id: registered.request_registration_id,
+    request_registration_hash: registered.request_registration_hash,
+    root_registered_dispatch_authority_id: registered.authority_id,
+    root_registered_dispatch_authority_hash: registered.authority_hash,
+    registered_dispatch_lineage_policy: "root_authority_exact_successors_inherit_same_attempt_registration",
     run_id: request.run_id,
     trial_id: request.request_context.trial_id,
     reservation_ref: contextBinding.reservation_ref,
@@ -124,6 +135,47 @@ function buildBodyWithoutId(
     order_authority: "none",
     economic_authority: "none",
     trial_authority: "none",
+  }
+}
+
+function resolveRegisteredDispatchLineage(
+  input: ReplayDecisionHarnessExecutionEnvelopeInput,
+  lease: ReplayAttemptLeaseSnapshot,
+  replayRequestHash: string,
+): {
+  request_registration_id: string
+  request_registration_hash: string
+  authority_id: string
+  authority_hash: string
+} {
+  const predecessor = input.predecessor_execution_envelope
+  if (predecessor) {
+    if (input.registered_dispatch_authority) {
+      throw new Error("decision harness Execution Envelope successor must inherit root registered dispatch lineage")
+    }
+    return {
+      request_registration_id: predecessor.request_registration_id,
+      request_registration_hash: predecessor.request_registration_hash,
+      authority_id: predecessor.root_registered_dispatch_authority_id,
+      authority_hash: predecessor.root_registered_dispatch_authority_hash,
+    }
+  }
+  const authority = input.registered_dispatch_authority
+  if (!authority) {
+    throw new Error("decision harness Execution Envelope root requires registered dispatch authority")
+  }
+  assertReplayRegisteredAttemptDispatchAuthority(authority)
+  if (authority.attempt_id !== lease.attempt_id || authority.attempt_ordinal !== lease.attempt_ordinal
+      || authority.worker_id !== lease.worker_id || authority.lease_generation !== lease.lease_generation
+      || authority.attempt_lease_hash !== hashReplayAttemptLeaseSnapshot(lease)
+      || authority.replay_execution_request_hash !== replayRequestHash) {
+    throw new Error("decision harness Execution Envelope registered dispatch authority does not match root Lease")
+  }
+  return {
+    request_registration_id: authority.request_registration_id,
+    request_registration_hash: authority.request_registration_hash,
+    authority_id: authority.authority_id,
+    authority_hash: authority.authority_hash,
   }
 }
 

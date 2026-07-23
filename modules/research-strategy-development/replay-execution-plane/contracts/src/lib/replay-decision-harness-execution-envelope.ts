@@ -14,8 +14,8 @@ import {
   requireReplayCrossSourceUtc as requireUtc,
 } from "./replay-cross-source-ordering"
 
-export const REPLAY_DECISION_HARNESS_EXECUTION_ENVELOPE_SCHEMA_VERSION = "trade.rd-replay-decision-harness-execution-envelope.v1" as const
-export const REPLAY_DECISION_HARNESS_EXECUTION_ENVELOPE_POLICY_VERSION = "rd-replay-decision-harness-execution-envelope-v1" as const
+export const REPLAY_DECISION_HARNESS_EXECUTION_ENVELOPE_SCHEMA_VERSION = "trade.rd-replay-decision-harness-execution-envelope.v2" as const
+export const REPLAY_DECISION_HARNESS_EXECUTION_ENVELOPE_POLICY_VERSION = "rd-replay-decision-harness-execution-envelope-v2" as const
 export const REPLAY_ATTEMPT_LEASE_INPUT_SCHEMA_VERSION = "trade.rd-replay-attempt-lease.v1" as const
 
 // Replay owns this immutable inbound wire view, not the Control Plane source type.
@@ -45,7 +45,7 @@ export interface ReplayDecisionHarnessExecutionEnvelope {
   scope: "pre_transport_non_economic_attempt_bound_worker_request_envelope"
   owner: "replay_runner_execution_admission"
   purpose: "bind_one_logical_worker_request_to_one_exact_control_plane_attempt_lease_generation"
-  parent_validation: "embedded_r4_109_contract_request_selection_and_control_plane_lease"
+  parent_validation: "embedded_worker_request_control_plane_registered_dispatch_and_lease"
   source_response_contract_id: string
   source_response_contract_hash: string
   source_response_contract: ReplayDecisionHarnessWorkerResponseV10Contract
@@ -56,6 +56,11 @@ export interface ReplayDecisionHarnessExecutionEnvelope {
   worker_request_hash: string
   request_context_hash: string
   replay_execution_request_hash: string
+  request_registration_id: string
+  request_registration_hash: string
+  root_registered_dispatch_authority_id: string
+  root_registered_dispatch_authority_hash: string
+  registered_dispatch_lineage_policy: "root_authority_exact_successors_inherit_same_attempt_registration"
   run_id: string
   trial_id: string
   reservation_ref: string
@@ -112,7 +117,7 @@ export function assertReplayDecisionHarnessExecutionEnvelope(
       || value.scope !== "pre_transport_non_economic_attempt_bound_worker_request_envelope"
       || value.owner !== "replay_runner_execution_admission"
       || value.purpose !== "bind_one_logical_worker_request_to_one_exact_control_plane_attempt_lease_generation"
-      || value.parent_validation !== "embedded_r4_109_contract_request_selection_and_control_plane_lease"
+      || value.parent_validation !== "embedded_worker_request_control_plane_registered_dispatch_and_lease"
       || value.worker_protocol_version !== REPLAY_DECISION_HARNESS_TARGET_WORKER_PROTOCOL_VERSION
       || value.worker_request_schema_version !== REPLAY_DECISION_HARNESS_TARGET_WORKER_REQUEST_SCHEMA_VERSION
       || value.worker_response_schema_version !== REPLAY_DECISION_HARNESS_TARGET_WORKER_RESPONSE_SCHEMA_VERSION
@@ -123,6 +128,8 @@ export function assertReplayDecisionHarnessExecutionEnvelope(
       || value.same_generation_policy !== "same_inputs_create_identical_envelope"
       || value.cross_attempt_retry_policy !== "new_attempt_requires_new_root_envelope_logical_request_stable"
       || value.reproducibility_pair_policy !== "shared_envelope_distinct_future_process_receipts"
+      || value.registered_dispatch_lineage_policy
+        !== "root_authority_exact_successors_inherit_same_attempt_registration"
       || value.lease_freshness_at_dispatch !== "not_evaluated_requires_future_transport_admission"
       || value.process_instance_identity !== "not_materialized"
       || value.transport_admission !== "not_granted" || value.transport !== "forbidden"
@@ -133,12 +140,14 @@ export function assertReplayDecisionHarnessExecutionEnvelope(
     throw new Error("unsupported decision harness Execution Envelope authority")
   }
   for (const item of [value.envelope_id, value.source_response_contract_id, value.run_id, value.trial_id,
-    value.reservation_ref, value.attempt_id, value.worker_id]) {
+    value.reservation_ref, value.attempt_id, value.worker_id, value.request_registration_id,
+    value.root_registered_dispatch_authority_id]) {
     requireText(item, "decision harness Execution Envelope identity")
   }
   for (const item of [value.envelope_hash, value.source_response_contract_hash, value.logical_request_id,
     value.worker_request_hash, value.request_context_hash, value.replay_execution_request_hash,
-    value.reservation_hash, value.attempt_lease_hash]) {
+    value.reservation_hash, value.attempt_lease_hash, value.request_registration_hash,
+    value.root_registered_dispatch_authority_hash]) {
     requireHash(item, "decision harness Execution Envelope hash")
   }
   if (value.predecessor_execution_envelope_hash !== null) {
@@ -224,8 +233,10 @@ const FIELDS = ["attempt_id", "attempt_lease", "attempt_lease_hash", "attempt_le
   "heartbeat_at", "lease_expires_at", "lease_freshness_at_dispatch", "lease_generation",
   "lease_generation_policy", "lease_renewal_policy", "logical_request_id", "order_authority", "owner",
   "parent_validation", "predecessor_execution_envelope_hash", "process_instance_identity", "purpose",
-  "replay_execution_request_hash", "reproducibility_pair_policy", "request_context_hash", "reservation_hash",
+  "registered_dispatch_lineage_policy", "replay_execution_request_hash", "reproducibility_pair_policy",
+  "request_context_hash", "request_registration_hash", "request_registration_id", "reservation_hash",
   "reservation_ref", "response_admission", "response_instance", "run_id", "same_generation_policy",
+  "root_registered_dispatch_authority_hash", "root_registered_dispatch_authority_id",
   "schema_version", "scope", "signal_authority", "source_response_contract", "source_response_contract_hash",
   "source_response_contract_id", "succession_kind", "transport", "transport_admission", "trial_authority",
   "trial_id", "worker_id", "worker_identity_semantics", "worker_protocol_version", "worker_request_hash",

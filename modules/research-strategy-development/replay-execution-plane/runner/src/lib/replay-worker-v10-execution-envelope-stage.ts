@@ -18,6 +18,11 @@ import type {
   ReplayDecisionHarnessWorkerResponseV10Contract,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-response-v10-contract"
 import {
+  REPLAY_REQUEST_REGISTRATION_RECORD_SCHEMA_VERSION,
+  createReplayRequestRegistrationRecord,
+} from "../../../../research-control-plane/contracts/src/lib/replay-request-registration"
+import { createReplayRegisteredAttemptDispatchAuthority } from "../../../../research-control-plane/contracts/src/lib/replay-registered-attempt-dispatch-authority"
+import {
   assertReplayDecisionHarnessExecutionEnvelopeLineage,
   buildReplayDecisionHarnessExecutionEnvelope,
 } from "./replay-decision-harness-execution-envelope"
@@ -64,6 +69,7 @@ export function runReplayWorkerV10ExecutionEnvelopeStage(
     source_response_contract: responseV10Contract,
     logical_request_id: firstRequestV10.logical_request_id,
     attempt_lease: attemptLease,
+    registered_dispatch_authority: registeredDispatchAuthorityFor(attemptLease),
   }
   const executionEnvelope = buildReplayDecisionHarnessExecutionEnvelope(envelopeInput)
   expect(executionEnvelope.owner).toBe("replay_runner_execution_admission")
@@ -102,7 +108,8 @@ export function runReplayWorkerV10ExecutionEnvelopeStage(
     lease_expires_at: "2026-07-14T00:07:00Z",
   }
   const successorInput = {
-    ...envelopeInput,
+    source_response_contract: responseV10Contract,
+    logical_request_id: firstRequestV10.logical_request_id,
     attempt_lease: renewedLease,
     predecessor_execution_envelope: executionEnvelope,
   }
@@ -111,6 +118,10 @@ export function runReplayWorkerV10ExecutionEnvelopeStage(
   expect(successorEnvelope.predecessor_execution_envelope_hash).toBe(executionEnvelope.envelope_hash)
   expect(successorEnvelope.logical_request_id).toBe(executionEnvelope.logical_request_id)
   expect(successorEnvelope.worker_request_hash).toBe(executionEnvelope.worker_request_hash)
+  expect(successorEnvelope.request_registration_id).toBe(executionEnvelope.request_registration_id)
+  expect(successorEnvelope.request_registration_hash).toBe(executionEnvelope.request_registration_hash)
+  expect(successorEnvelope.root_registered_dispatch_authority_hash)
+    .toBe(executionEnvelope.root_registered_dispatch_authority_hash)
   expect(successorEnvelope.lease_generation).toBe(3)
   expect(successorEnvelope.envelope_hash).not.toBe(executionEnvelope.envelope_hash)
   expect(() => assertReplayDecisionHarnessExecutionEnvelopeLineage(successorEnvelope, successorInput)).not.toThrow()
@@ -135,12 +146,26 @@ export function runReplayWorkerV10ExecutionEnvelopeStage(
   const retryEnvelope = buildReplayDecisionHarnessExecutionEnvelope({
     ...envelopeInput,
     attempt_lease: retryLease,
+    registered_dispatch_authority: registeredDispatchAuthorityFor(retryLease),
   })
   expect(retryEnvelope.succession_kind).toBe("root_binding")
   expect(retryEnvelope.predecessor_execution_envelope_hash).toBeNull()
   expect(retryEnvelope.logical_request_id).toBe(executionEnvelope.logical_request_id)
   expect(retryEnvelope.attempt_id).not.toBe(executionEnvelope.attempt_id)
+  expect(retryEnvelope.request_registration_id).toBe(executionEnvelope.request_registration_id)
+  expect(retryEnvelope.request_registration_hash).toBe(executionEnvelope.request_registration_hash)
+  expect(retryEnvelope.root_registered_dispatch_authority_hash)
+    .not.toBe(executionEnvelope.root_registered_dispatch_authority_hash)
   expect(retryEnvelope.envelope_hash).not.toBe(executionEnvelope.envelope_hash)
+  expect(() => buildReplayDecisionHarnessExecutionEnvelope({
+    source_response_contract: responseV10Contract,
+    logical_request_id: firstRequestV10.logical_request_id,
+    attempt_lease: attemptLease,
+  })).toThrow("root requires registered dispatch authority")
+  expect(() => buildReplayDecisionHarnessExecutionEnvelope({
+    ...successorInput,
+    registered_dispatch_authority: registeredDispatchAuthorityFor(renewedLease),
+  })).toThrow("successor must inherit root registered dispatch lineage")
   expect(() => buildReplayDecisionHarnessExecutionEnvelope({
     ...envelopeInput,
     attempt_lease: { ...attemptLease, request_hash: "b".repeat(64) },
@@ -163,3 +188,43 @@ export function runReplayWorkerV10ExecutionEnvelopeStage(
   }
 }
 
+function registeredDispatchAuthorityFor(lease: ReplayAttemptLeaseSnapshot) {
+  const registration = createReplayRequestRegistrationRecord({
+    schema_version: REPLAY_REQUEST_REGISTRATION_RECORD_SCHEMA_VERSION,
+    registration_id: `worker-v10-registration-${lease.request_hash.slice(0, 24)}`,
+    reservation_admission_id: `worker-v10-reservation-admission-${lease.request_hash.slice(0, 24)}`,
+    reservation_admission_hash: "1".repeat(64),
+    trial_id: lease.trial_id,
+    run_id: lease.run_id,
+    reservation_ref: lease.reservation_ref,
+    reservation_hash: lease.reservation_hash,
+    execution_spec_hash: "2".repeat(64),
+    request_idempotency_key: `worker-v10-request-${lease.request_hash.slice(0, 24)}`,
+    request_hash: lease.request_hash,
+    replay_request: { schema_version: "worker-v10-authority-fixture", run_id: lease.run_id },
+    dataset_manifest_hash: "3".repeat(64),
+    registered_at: lease.claimed_at,
+  })
+  const discriminator = `${lease.attempt_id}-${lease.lease_generation}`
+  return createReplayRegisteredAttemptDispatchAuthority({
+    authority_id: `worker-v10-registered-dispatch-${discriminator}`,
+    authority_ref: `authority://worker-v10-registered-dispatch/${discriminator}`,
+    request_registration_id: registration.registration_id,
+    request_registration_hash: registration.registration_hash,
+    request_registration: registration,
+    replay_execution_request_hash: registration.request_hash,
+    trial_id: lease.trial_id,
+    run_id: lease.run_id,
+    reservation_ref: lease.reservation_ref,
+    reservation_hash: lease.reservation_hash,
+    attempt_id: lease.attempt_id,
+    attempt_ordinal: lease.attempt_ordinal,
+    worker_id: lease.worker_id,
+    attempt_status: lease.status,
+    lease_generation: lease.lease_generation,
+    attempt_lease_hash: hashReplayAttemptLeaseSnapshot(lease),
+    attempt_lease: lease,
+    issued_at: lease.heartbeat_at,
+    valid_before: lease.lease_expires_at,
+  })
+}
