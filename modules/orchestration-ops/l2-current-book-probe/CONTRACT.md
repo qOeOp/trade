@@ -24,6 +24,7 @@ Programmatic, read-only operations consumer for one active L2 owner observation.
 - Does not read runtime receipts, PIDs, paths, gRPC endpoints, raw segments, owner SQLite, or Binance directly.
 - Does not write databases, artifacts, config, catalog state, or exchange state.
 - Agent, LLM, MCP, Kafka, Replay, RD, strategy, and execution are not runtime dependencies.
+- Soft disk pressure may retain a fresh/live non-economic snapshot path when the owner explicitly reports `control_ready=true` and `source_read_ready=true`; other degraded owner states remain blocked. Runtime/economic health gates may still reject the degraded owner.
 
 ## Failure semantics
 
