@@ -249,11 +249,24 @@ export class OpenClawAgentHost implements AgentHostPort {
     startedMs: number,
   ): Promise<void> {
     if (readAgentRun(this.options.db, request.run_id)?.result) return
+    const toolCalls = Math.min(
+      readAgentRunToolUsage(
+        this.options.db,
+        request.run_id,
+        request.request_hash,
+      ).tool_calls,
+      request.budget.max_tool_calls,
+    )
     await this.complete(
       request,
       failure === "cancelled" ? "cancelled" : "failed",
       startedMs,
       failure,
+      [],
+      {
+        tool_calls: toolCalls,
+        turns: Math.min(toolCalls + 1, request.budget.max_turns),
+      },
     )
   }
 
