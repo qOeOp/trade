@@ -164,6 +164,46 @@ export function processIsAlive(pid: number): boolean {
   }
 }
 
+export function processMatchesL2Supervisor(pid: number, runtimeDirectory: string): boolean {
+  const text = readProcessCommand(pid)
+  if (text == null) return false
+  return text.includes("l2-order-book-service/src/scripts/runtime-supervisor.ts")
+    && commandHasArgument(text, "--runtime-dir", runtimeDirectory)
+}
+
+export function processMatchesL2Service(pid: number, receipt: LaunchReceipt): boolean {
+  const text = readProcessCommand(pid)
+  if (text == null) return false
+  return text.includes(receipt.service_binary)
+    && text.includes("l2-order-book-service")
+    && text.includes("--yes-public-network")
+    && commandHasArgument(text, "--symbol", receipt.config.symbol)
+    && commandHasArgument(text, "--output-base", receipt.config.output_base)
+    && commandHasArgument(text, "--listen", receipt.config.listen)
+}
+
+function readProcessCommand(pid: number): string | null {
+  if (!processIsAlive(pid)) return null
+  const command = Bun.spawnSync({
+    cmd: ["ps", "-ww", "-p", String(pid), "-o", "command="],
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  if (command.exitCode !== 0) return null
+  const text = command.stdout.toString().trim()
+  return text.length === 0 ? null : text
+}
+
+function commandHasArgument(command: string, name: string, value: string): boolean {
+  const escapedName = escapeRegExp(name)
+  const escapedValue = escapeRegExp(value)
+  return new RegExp(`(?:^|\\s)${escapedName}(?:=|\\s+)(?:"${escapedValue}"|'${escapedValue}'|${escapedValue})(?:\\s|$)`).test(command)
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
 export function parseProcessResourceSample(value: string): { rss_bytes: number; cpu_percent: number } {
   const [rssText, cpuText] = value.trim().split(/\s+/)
   const rssKiB = Number(rssText)

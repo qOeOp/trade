@@ -6,7 +6,7 @@ import {
   L2_RUNTIME_STATE_SCHEMA,
   L2_TERMINAL_STATE_SCHEMA,
   assertRuntimeRef,
-  processIsAlive,
+  processMatchesL2Supervisor,
   validateLaunchConfig,
   type LaunchReceipt,
   type RuntimeState,
@@ -18,7 +18,15 @@ export interface ActiveL2Runtime {
   terminal: Record<string, unknown> | null
 }
 
-export function findUniqueActiveL2Runtime(root: string): ActiveL2Runtime | null {
+export interface ActiveL2RuntimeLookupOptions {
+  symbol?: string
+  process_matches_supervisor?: (pid: number, runtimeDirectory: string) => boolean
+}
+
+export function findUniqueActiveL2Runtime(
+  root: string,
+  options: ActiveL2RuntimeLookupOptions = {},
+): ActiveL2Runtime | null {
   const runtimeRoot = assertRuntimeRef(root, "tmp/l2-order-book-service/runtime")
   if (!existsSync(runtimeRoot)) return null
   const active: ActiveL2Runtime[] = []
@@ -27,7 +35,9 @@ export function findUniqueActiveL2Runtime(root: string): ActiveL2Runtime | null 
     if (!existsSync(receiptPath)) continue
     const receipt = JSON.parse(readFileSync(receiptPath, "utf8")) as LaunchReceipt
     if (receipt.schema_version !== L2_LAUNCH_RECEIPT_SCHEMA) throw new Error("unsupported L2 launch receipt")
-    if (!processIsAlive(receipt.supervisor_pid)) continue
+    if (options.symbol != null && receipt.config.symbol !== options.symbol) continue
+    const processMatches = options.process_matches_supervisor ?? processMatchesL2Supervisor
+    if (!processMatches(receipt.supervisor_pid, receipt.runtime_directory)) continue
     validateLaunchConfig(receipt.config)
     const statePath = assertRuntimeRef(root, receipt.runtime_state_path)
     if (!existsSync(statePath)) continue

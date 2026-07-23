@@ -1,6 +1,17 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { assertMarketDataDbRef, assertOutputRef, assertRuntimeRef, parseLaunchConfigArgs, parseProcessResourceSample, validateLaunchConfig, type LaunchConfig } from "./runtime-contract"
+import {
+  assertMarketDataDbRef,
+  assertOutputRef,
+  assertRuntimeRef,
+  parseLaunchConfigArgs,
+  parseProcessResourceSample,
+  processMatchesL2Service,
+  processMatchesL2Supervisor,
+  validateLaunchConfig,
+  type LaunchConfig,
+  type LaunchReceipt,
+} from "./runtime-contract"
 
 const config: LaunchConfig = {
   symbol: "BTCUSDT",
@@ -47,4 +58,53 @@ test("L2 launch arguments are closed-world and integer exact", () => {
   assert.throws(() => parseLaunchConfigArgs(["--unknown", "value"]), /unknown argument/)
   assert.throws(() => parseLaunchConfigArgs(["--symbol", "BTCUSDT", "--symbol", "ETHUSDT"]), /duplicate argument/)
   assert.throws(() => parseLaunchConfigArgs(["--restart-limit", "1.5"]), /invalid integer/)
+})
+
+test("L2 process identity requires the exact role and receipt arguments, not only a live PID", async () => {
+  const runtimeDirectory = "tmp/l2-order-book-service/runtime/identity-test"
+  const receipt: LaunchReceipt = {
+    schema_version: "trade.l2-service-launch-receipt.v1",
+    launched_at: "2026-07-23T00:00:00.000Z",
+    supervisor_pid: 2,
+    runtime_directory: runtimeDirectory,
+    runtime_state_path: `${runtimeDirectory}/runtime-state.json`,
+    terminal_state_path: `${runtimeDirectory}/terminal-state.json`,
+    log_path: `${runtimeDirectory}/supervisor.log`,
+    service_binary: "modules/market-data-products/l2-order-book-service/target/release/l2-order-book-service",
+    query_binary: "modules/market-data-products/l2-order-book-service/target/release/l2-order-book-query",
+    config,
+  }
+  const supervisor = Bun.spawn({
+    cmd: [
+      process.execPath, "-e", "await Bun.sleep(10000)",
+      "l2-order-book-service/src/scripts/runtime-supervisor.ts",
+      "--runtime-dir", runtimeDirectory,
+    ],
+    stdout: "ignore",
+    stderr: "ignore",
+  })
+  const service = Bun.spawn({
+    cmd: [
+      process.execPath, "-e", "await Bun.sleep(10000)",
+      receipt.service_binary,
+      "--yes-public-network",
+      "--symbol", config.symbol,
+      "--output-base", config.output_base,
+      "--listen", config.listen,
+    ],
+    stdout: "ignore",
+    stderr: "ignore",
+  })
+  try {
+    await Bun.sleep(50)
+    assert.equal(processMatchesL2Supervisor(supervisor.pid, runtimeDirectory), true)
+    assert.equal(processMatchesL2Supervisor(supervisor.pid, `${runtimeDirectory}-other`), false)
+    assert.equal(processMatchesL2Service(service.pid, receipt), true)
+    assert.equal(processMatchesL2Service(service.pid, { ...receipt, config: { ...config, symbol: "ETHUSDT" } }), false)
+    assert.equal(processMatchesL2Service(process.pid, receipt), false)
+  } finally {
+    supervisor.kill("SIGTERM")
+    service.kill("SIGTERM")
+    await Promise.all([supervisor.exited, service.exited])
+  }
 })

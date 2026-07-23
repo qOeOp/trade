@@ -2,13 +2,18 @@
 
 import { readFileSync } from "node:fs"
 import { repoRoot } from "../../../../contracts/runtime-core/src/paths"
-import { L2_LAUNCH_RECEIPT_SCHEMA, assertRuntimeRef, processIsAlive, type LaunchReceipt } from "../control/runtime-contract"
+import {
+  L2_LAUNCH_RECEIPT_SCHEMA,
+  assertRuntimeRef,
+  processMatchesL2Supervisor,
+  type LaunchReceipt,
+} from "../control/runtime-contract"
 
 const root = repoRoot()
 const receiptRef = requiredArg(process.argv.slice(2), "--receipt")
 const receipt = JSON.parse(readFileSync(assertRuntimeRef(root, receiptRef), "utf8")) as LaunchReceipt
 if (receipt.schema_version !== L2_LAUNCH_RECEIPT_SCHEMA) throw new Error("unsupported L2 launch receipt")
-if (!processIsAlive(receipt.supervisor_pid)) {
+if (!processMatchesL2Supervisor(receipt.supervisor_pid, receipt.runtime_directory)) {
   process.stdout.write(`${JSON.stringify({ ok: true, status: "already_stopped", supervisor_pid: receipt.supervisor_pid })}\n`)
   process.exit(0)
 }

@@ -8,7 +8,8 @@ import {
   L2_RUNTIME_STATE_SCHEMA,
   L2_TERMINAL_STATE_SCHEMA,
   assertRuntimeRef,
-  processIsAlive,
+  processMatchesL2Service,
+  processMatchesL2Supervisor,
   type LaunchReceipt,
   type RuntimeState,
 } from "../control/runtime-contract"
@@ -24,8 +25,8 @@ const state = existsSync(statePath) ? JSON.parse(readFileSync(statePath, "utf8")
 if (state != null && state.schema_version !== L2_RUNTIME_STATE_SCHEMA) throw new Error("unsupported L2 runtime state")
 const terminal = existsSync(terminalPath) ? JSON.parse(readFileSync(terminalPath, "utf8")) as Record<string, unknown> : null
 if (terminal != null && terminal.schema_version !== L2_TERMINAL_STATE_SCHEMA) throw new Error("unsupported L2 terminal state")
-const supervisorAlive = processIsAlive(receipt.supervisor_pid)
-const serviceAlive = state?.service_pid != null && processIsAlive(state.service_pid)
+const supervisorAlive = processMatchesL2Supervisor(receipt.supervisor_pid, receipt.runtime_directory)
+const serviceAlive = state?.service_pid != null && processMatchesL2Service(state.service_pid, receipt)
 let health: unknown = null
 let healthError = ""
 if (serviceAlive) {
