@@ -165,7 +165,7 @@ export async function main(argv: string[]): Promise<number> {
               manifest_path: stringField(exported.manifest_path),
             }
           },
-          feature_exists: async (target, source) => {
+          read_existing_feature: async (target, source) => {
             const response = await storeCommand("list_feature_manifests", {
               symbol: target.symbol,
               timeframe: target.timeframe,
@@ -176,7 +176,11 @@ export async function main(argv: string[]): Promise<number> {
               throw new Error("feature manifest owner response identity drifted")
             }
             const manifests = Array.isArray(response.manifests) ? response.manifests.map(asRecord) : []
-            return manifests.some((manifest) => manifest.source_manifest_id === source.slice_ref)
+            const existing = manifests.find((manifest) => manifest.source_manifest_id === source.slice_ref)
+            return existing == null ? null : {
+              content_hash: stringField(existing.content_hash),
+              source_ref: `market-feature://${stringField(existing.feature_manifest_id)}`,
+            }
           },
           run_provider: async (_target, source, providerArgs) => {
             const manifestPath = resolve(root, source.manifest_path)
@@ -227,6 +231,7 @@ export async function main(argv: string[]): Promise<number> {
           existing_count: result.existing_count,
           failed_count: result.failed_count,
           deferred_count: result.deferred_count,
+          fact_count: result.facts.length,
           failure_classes: [...new Set(
             result.outcomes
               .filter((outcome) => outcome.status === "failed" || outcome.status === "source_incomplete")

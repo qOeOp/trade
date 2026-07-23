@@ -4,7 +4,14 @@ import {
   indicatorProviderArgs,
   type IndicatorFeatureArtifact,
 } from "../../../../contracts/market-data-demand-contract/src/indicator-feature-contract"
-import { compileOhlcvCoverageAudit } from "../../../../contracts/market-data-demand-contract/src/ohlcv-coverage-contract"
+import {
+  compileOhlcvCoverageAudit,
+  timeframeMilliseconds,
+} from "../../../../contracts/market-data-demand-contract/src/ohlcv-coverage-contract"
+import {
+  buildMarketDataFactRef,
+  type MarketDataFactRef,
+} from "../../../../contracts/market-data-demand-contract/src/market-data-fact-contract"
 import { buildIndicatorDemandTargets, type IndicatorDemandTarget } from "./indicator-demand-plan"
 
 export type IndicatorSourceSlice = IndicatorFeatureArtifact["source"] & { manifest_path: string }
@@ -13,7 +20,10 @@ export interface IndicatorDemandWorkerDependencies {
   read_subscription_plan: (observedAt: string) => Promise<unknown>
   audit_coverage: (target: IndicatorDemandTarget, observedAt: string) => Promise<unknown>
   export_slice: (target: IndicatorDemandTarget, observedAt: string) => Promise<IndicatorSourceSlice>
-  feature_exists: (target: IndicatorDemandTarget, source: IndicatorSourceSlice) => Promise<boolean>
+  read_existing_feature: (
+    target: IndicatorDemandTarget,
+    source: IndicatorSourceSlice,
+  ) => Promise<{ content_hash: string; source_ref: string } | null>
   run_provider: (target: IndicatorDemandTarget, source: IndicatorSourceSlice, args: string[]) => Promise<unknown>
   admit_artifact: (
     target: IndicatorDemandTarget,
@@ -35,6 +45,7 @@ export interface IndicatorDemandCycleResult {
   existing_count: number
   failed_count: number
   deferred_count: number
+  facts: MarketDataFactRef[]
   outcomes: Array<{
     target_id: string
     status: "source_incomplete" | "created" | "existing" | "failed"
@@ -54,6 +65,7 @@ export async function runIndicatorDemandCycle(
   const sourceValue = await dependencies.read_subscription_plan(input.observed_at)
   const { source, targets } = buildIndicatorDemandTargets(sourceValue)
   const outcomes: IndicatorDemandCycleResult["outcomes"] = []
+  const facts: MarketDataFactRef[] = []
   const ready: IndicatorDemandTarget[] = []
   for (const target of targets) {
     const audit = compileOhlcvCoverageAudit(await dependencies.audit_coverage(target, input.observed_at))
@@ -81,13 +93,15 @@ export async function runIndicatorDemandCycle(
     try {
       const sourceSlice = await dependencies.export_slice(target, input.observed_at)
       validateSourceSlice(target, sourceSlice)
-      if (await dependencies.feature_exists(target, sourceSlice)) {
+      const existing = await dependencies.read_existing_feature(target, sourceSlice)
+      if (existing != null) {
         outcomes.push({
           target_id: target.target_id,
           status: "existing",
-          artifact_hash: "",
+          artifact_hash: existing.content_hash,
           reason: "same_source_and_feature_set_already_admitted",
         })
+        facts.push(buildFeatureFact(target, source.plan_hash, existing.source_ref, existing.content_hash, input.observed_at))
         continue
       }
       const providerReport = await dependencies.run_provider(
@@ -111,6 +125,13 @@ export async function runIndicatorDemandCycle(
         artifact_hash: artifact.content_hash,
         reason: "deterministic_feature_artifact_admitted",
       })
+      facts.push(buildFeatureFact(
+        target,
+        source.plan_hash,
+        `market-feature://indicator-feature:${artifact.content_hash}`,
+        artifact.content_hash,
+        input.observed_at,
+      ))
     } catch (error) {
       outcomes.push({
         target_id: target.target_id,
@@ -140,9 +161,51 @@ export async function runIndicatorDemandCycle(
     existing_count: outcomes.filter((outcome) => outcome.status === "existing").length,
     failed_count: failedCount,
     deferred_count: Math.max(0, ready.length - selected.length),
+    facts: facts.sort((left, right) => left.fact_hash.localeCompare(right.fact_hash)),
     outcomes,
     lifecycle_authority: "market_data_owner",
   }
+}
+
+function buildFeatureFact(
+  target: IndicatorDemandTarget,
+  sourcePlanHash: string,
+  sourceRef: string,
+  contentHash: string,
+  observedAt: string,
+): MarketDataFactRef {
+  const endExclusive = target.end_open_time + timeframeMilliseconds(target.timeframe)
+  return buildMarketDataFactRef({
+    product: "indicator_set",
+    venue: "binance_usdm",
+    symbol: target.symbol,
+    requirement: {
+      timeframe: target.timeframe,
+      indicator_set_ref: target.feature_set_ref,
+      minimum_depth: null,
+    },
+    consumer_binding: {
+      demand_ids: target.demand_ids,
+      source_plan_hash: sourcePlanHash,
+    },
+    source: {
+      ref: sourceRef,
+      content_hash: contentHash,
+    },
+    coverage: {
+      kind: "half_open",
+      start_at: new Date(target.start_open_time).toISOString(),
+      end_at: new Date(endExclusive).toISOString(),
+      completeness: "complete",
+    },
+    freshness: {
+      kind: "immutable",
+      as_of: new Date(endExclusive).toISOString(),
+      observed_at: observedAt,
+      max_freshness_ms: null,
+      status: "not_applicable",
+    },
+  })
 }
 
 function validateSourceSlice(target: IndicatorDemandTarget, source: IndicatorSourceSlice): void {
