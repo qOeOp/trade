@@ -23,6 +23,20 @@ const HYPOTHESIS_CONTRACT = z.record(z.string(), z.unknown()).refine(
   (value) => JSON.stringify(value).length <= 200_000,
   "hypothesis contract exceeds 200 KB",
 )
+const PLANNER_PROPOSAL_PREPARE = z.object({
+  proposal_id: z.string().trim().min(1).max(160),
+  hypothesis_id: z.string().trim().min(1).max(160),
+  universe_node_id: z.string().trim().min(1).max(160),
+  objective: z.string().trim().min(1).max(2_000),
+  dataset_requirements: z.array(z.string().trim().min(1).max(160)).min(1).max(32),
+  candidate_space: z.record(z.string(), z.unknown()).refine(
+    (value) => Object.keys(value).length > 0 && JSON.stringify(value).length <= 200_000,
+    "candidate_space must be non-empty and at most 200 KB",
+  ),
+  trial_budget: z.number().int().min(1).max(10_000),
+  evaluation_protocol_ref: z.string().trim().min(1).max(500),
+  created_at: z.string().datetime({ offset: false }),
+}).strict()
 
 export type TradeMcpProfile = "interactive" | "planner" | "developer" | "reviewer" | "explanation"
 
@@ -157,6 +171,13 @@ export function createTradeMcpServer(
     annotations: READ_ONLY_ANNOTATIONS,
   }, async ({ hypothesis_contract }) => result(await researchJobs.prepareHypothesis(hypothesis_contract)))
 
+  registerTool("research_planner_proposal_prepare", {
+    title: "Build a canonical Control Plane Planner Proposal",
+    description: "Validate one proposal body against the current authoritative Planner context and return the canonical self-hashed submission without writing state.",
+    inputSchema: PLANNER_PROPOSAL_PREPARE,
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, async (input) => result(await researchJobs.preparePlannerProposal(input)))
+
   registerTool("research_hypothesis_brief", {
     title: "Build an R&D hypothesis design brief",
     description: "Read one durable RD program and its Control Plane planning context, then render the owner designer context and prompt without generating a hypothesis or writing state.",
@@ -224,7 +245,12 @@ function allowedTools(profile: TradeMcpProfile): ReadonlySet<string> {
     ])
   }
   if (profile === "planner") {
-    return new Set([...READ_TOOLS, "research_hypothesis_prepare", "research_hypothesis_brief"])
+    return new Set([
+      ...READ_TOOLS,
+      "research_hypothesis_prepare",
+      "research_hypothesis_brief",
+      "research_planner_proposal_prepare",
+    ])
   }
   if (profile === "developer") {
     return new Set([

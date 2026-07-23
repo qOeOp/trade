@@ -22,6 +22,18 @@ export interface ResearchJobSubmitInput {
   hypothesis_contract?: JSONRecord
 }
 
+export interface PlannerProposalPrepareInput {
+  proposal_id: string
+  hypothesis_id: string
+  universe_node_id: string
+  objective: string
+  dataset_requirements: string[]
+  candidate_space: JSONRecord
+  trial_budget: number
+  evaluation_protocol_ref: string
+  created_at: string
+}
+
 export interface ResearchJobServiceOptions {
   execute?: OwnerCliExecutor
   start?: OwnerCliStarter
@@ -183,6 +195,30 @@ export class ResearchJobService {
       warnings,
       blocked_reason: stringField(queueItem.blocked_reason) || null,
       queue_item: queueItem,
+    }
+  }
+
+  async preparePlannerProposal(
+    input: PlannerProposalPrepareInput,
+  ): Promise<JSONRecord> {
+    const response = ownerData(await this.execute({
+      script: "modules/research-strategy-development/research-control-plane/state-store/src/scripts/main.ts",
+      args: [
+        "--db",
+        this.rdStateDbPath,
+        "--action",
+        "prepare_planner_proposal",
+        "--json",
+        JSON.stringify(input),
+      ],
+    }))
+    const proposal = asRecord(response.proposal)
+    if (Object.keys(proposal).length === 0) {
+      throw new Error("Planner proposal owner returned no proposal")
+    }
+    return {
+      schema_version: "trade.agent-mcp.planner-proposal-prepare-result.v1",
+      proposal,
     }
   }
 
