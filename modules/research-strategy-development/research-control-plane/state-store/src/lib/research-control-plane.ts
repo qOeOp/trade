@@ -561,9 +561,13 @@ export function applyReviewerDecision(db: Database, decision: ReviewerDecisionWr
       throw new Error("review decision requires exactly one primary result")
     }
     const resultQuery = db.query(`
-      SELECT result_id, experiment_id, result_scope, trial_id, stage_id, artifact_ref
-      FROM rd_experiment_result
-      WHERE result_id = $result_id
+      SELECT result.result_id, result.experiment_id, result.result_scope,
+             result.trial_id, result.stage_id, result.artifact_ref,
+             classification.evidence_kind
+      FROM rd_experiment_result AS result
+      LEFT JOIN rd_evaluation_evidence_classification AS classification
+        ON classification.result_id = result.result_id
+      WHERE result.result_id = $result_id
     `)
     const results = decision.evidence.map((link) => {
       const result = resultQuery.get({ $result_id: link.result_id }) as ReviewResultRow | null
@@ -576,6 +580,10 @@ export function applyReviewerDecision(db: Database, decision: ReviewerDecisionWr
     if (primaryResult?.stage_id !== rule.requires_result_stage_id) {
       throw new Error("primary review evidence does not satisfy the transition result stage")
     }
+    if (results.some((result) => result.evidence_kind == null)) {
+      throw new Error("review evidence requires authoritative evidence classification")
+    }
+    assertReviewEvidencePolicy(decision.decision, primaryResult?.evidence_kind ?? null)
 
     let frozenCandidate: FrozenCandidateRow | null = null
     if (decision.decision === "accept_for_draft") {
@@ -827,11 +835,26 @@ interface ReviewResultRow {
   trial_id: string | null
   stage_id: string
   artifact_ref: string
+  evidence_kind: string | null
 }
 
 interface FrozenCandidateRow {
   candidate_id: string
   candidate_identity_hash: string
+}
+
+function assertReviewEvidencePolicy(
+  decision: ReviewerDecisionWrite["decision"],
+  primaryKind: string | null,
+): void {
+  if (decision === "accept_for_draft" || decision === "accept_for_forward") {
+    if (primaryKind !== "mechanical_replay") {
+      throw new Error(`${decision} requires mechanical_replay primary evidence`)
+    }
+  }
+  if (decision === "accept_for_shadow_candidate" && primaryKind !== "forward_observation") {
+    throw new Error("accept_for_shadow_candidate requires forward_observation primary evidence")
+  }
 }
 
 function projectReviewerDecisionKnowledge(
