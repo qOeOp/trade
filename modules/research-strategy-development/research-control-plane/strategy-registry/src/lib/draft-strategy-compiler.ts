@@ -45,11 +45,25 @@ interface SourceRow {
   parameter_assignment_json: string
   proposal_submission_json: string
   replay_request_json: string
+  source_revision: string
+  source_provenance_hash: string
+  agent_run_request_hash: string
+  agent_run_result_hash: string
 }
 
 export interface CompiledDraftStrategyInput extends MaterializeDraftStrategyInput {
   compiler_version: typeof DRAFT_STRATEGY_COMPILER_VERSION
   compiler_input_hash: string
+  source_revision: string
+  source_provenance_hash: string
+  agent_run_evidence: {
+    request_hash: string
+    result_hash: string
+  }
+  replay_code_evidence: {
+    decision_harness_build_artifact_hash: string
+    decision_harness_runtime_executable_hash: string
+  }
 }
 
 export function compileDraftStrategyInput(
@@ -92,6 +106,16 @@ export function compileDraftStrategyInput(
     fingerprint.result_hash,
     "primary_result_hash",
   )
+  const replayCodeEvidence = {
+    decision_harness_build_artifact_hash: digest(
+      fingerprint.decision_harness_build_artifact_hash,
+      "decision_harness_build_artifact_hash",
+    ),
+    decision_harness_runtime_executable_hash: digest(
+      fingerprint.decision_harness_runtime_executable_hash,
+      "decision_harness_runtime_executable_hash",
+    ),
+  }
   if (fingerprint.candidate_hash !== selectedCandidateHash
       || fingerprint.experiment_contract_hash !== row.contract_hash) {
     throw new Error("Replay Result fingerprint drifted from selected Candidate")
@@ -165,11 +189,41 @@ export function compileDraftStrategyInput(
     selected_candidate_hash: selectedCandidateHash,
     authorization,
     policy_source: policySource,
+    source_revision: revision(row.source_revision),
+    source_provenance_hash: digest(
+      row.source_provenance_hash,
+      "source_provenance_hash",
+    ),
+    agent_run_request_hash: digest(
+      row.agent_run_request_hash,
+      "agent_run_request_hash",
+    ),
+    agent_run_result_hash: digest(
+      row.agent_run_result_hash,
+      "agent_run_result_hash",
+    ),
+    replay_code_evidence: replayCodeEvidence,
   }
   const compilerInputHash = canonicalHash(compilerInput)
   return {
     compiler_version: DRAFT_STRATEGY_COMPILER_VERSION,
     compiler_input_hash: compilerInputHash,
+    source_revision: revision(row.source_revision),
+    source_provenance_hash: digest(
+      row.source_provenance_hash,
+      "source_provenance_hash",
+    ),
+    agent_run_evidence: {
+      request_hash: digest(
+        row.agent_run_request_hash,
+        "agent_run_request_hash",
+      ),
+      result_hash: digest(
+        row.agent_run_result_hash,
+        "agent_run_result_hash",
+      ),
+    },
+    replay_code_evidence: replayCodeEvidence,
     draft_id: `draft:${compilerInputHash.slice(0, 32)}`,
     strategy_version: `draft-${compilerInputHash.slice(0, 16)}`,
     idempotency_key: `strategy-registry:${row.decision_id}`,
@@ -235,6 +289,29 @@ export function assertDraftStrategyCompilerSourceSchema(db: Database): void {
       "run_id",
       "replay_request_json",
     ],
+    rd_developer_contract_freeze: [
+      "validation_id",
+      "experiment_id",
+    ],
+    rd_developer_contract_draft_validation: [
+      "validation_id",
+      "brief_id",
+      "draft_revision",
+    ],
+    rd_developer_contract_draft: [
+      "brief_id",
+      "draft_revision",
+      "developer_run_id",
+    ],
+    rd_developer_agent_draft_provenance: [
+      "brief_id",
+      "draft_revision",
+      "developer_run_id",
+      "source_revision",
+      "provenance_hash",
+      "agent_run_request_hash",
+      "agent_run_result_hash",
+    ],
   }
   for (const [table, columns] of Object.entries(required)) {
     const actual = new Set(
@@ -269,7 +346,11 @@ function readSource(db: Database, decisionId: string): SourceRow {
            candidate.candidate_identity_hash,
            candidate.parameter_assignment_json,
            planner.submission_json AS proposal_submission_json,
-           registration.replay_request_json
+           registration.replay_request_json,
+           provenance.source_revision,
+           provenance.provenance_hash AS source_provenance_hash,
+           provenance.agent_run_request_hash,
+           provenance.agent_run_result_hash
     FROM rd_review_decision AS decision
     JOIN rd_experiment_contract AS experiment
       ON experiment.experiment_id=decision.experiment_id
@@ -288,6 +369,17 @@ function readSource(db: Database, decisionId: string): SourceRow {
     JOIN rd_replay_request_registration AS registration
       ON registration.trial_id=experiment.selected_trial_id
       AND registration.run_id=result.run_id
+    JOIN rd_developer_contract_freeze AS freeze
+      ON freeze.experiment_id=experiment.experiment_id
+    JOIN rd_developer_contract_draft_validation AS validation
+      ON validation.validation_id=freeze.validation_id
+    JOIN rd_developer_contract_draft AS draft
+      ON draft.brief_id=validation.brief_id
+      AND draft.draft_revision=validation.draft_revision
+    JOIN rd_developer_agent_draft_provenance AS provenance
+      ON provenance.brief_id=draft.brief_id
+      AND provenance.draft_revision=draft.draft_revision
+      AND provenance.developer_run_id=draft.developer_run_id
     WHERE decision.decision_id=$decision_id
       AND decision.decision='accept_for_draft'
   `).get({ $decision_id: decisionId }) as SourceRow | null
@@ -334,6 +426,14 @@ function utc(value: unknown, field: string): string {
   const date = new Date(text)
   if (!Number.isFinite(date.getTime()) || date.toISOString() !== text) {
     throw new Error(`${field} must be canonical UTC`)
+  }
+  return text
+}
+
+function revision(value: unknown): string {
+  const text = nonEmpty(value, "source_revision")
+  if (!/^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/.test(text)) {
+    throw new Error("source_revision is invalid")
   }
   return text
 }

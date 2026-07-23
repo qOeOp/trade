@@ -14,6 +14,8 @@ export const DEVELOPER_CONTRACT_DRAFT_RECEIPT_SCHEMA_VERSION =
   "trade.rd-developer-contract-draft-receipt.v1" as const
 export const DEVELOPER_CONTRACT_DRAFT_INTAKE_POLICY_VERSION =
   "rd-developer-contract-draft-intake-v1" as const
+export const DEVELOPER_AGENT_DRAFT_PROVENANCE_SCHEMA_VERSION =
+  "trade.rd-developer-agent-draft-provenance.v1" as const
 export const DEVELOPER_EXPERIMENT_CONTRACT_DRAFT_PAYLOAD_SCHEMA_VERSION =
   "trade.rd-experiment-contract-draft-payload.v1" as const
 export const TARGET_EXPERIMENT_CONTRACT_SCHEMA_VERSION =
@@ -84,6 +86,24 @@ export interface DeveloperContractDraftIntakeRequest extends JSONRecord {
   idempotency_key: string
   recorded_at: string
   submission: DeveloperContractDraftSubmission
+  agent_provenance?: DeveloperAgentDraftProvenance
+}
+
+export interface DeveloperAgentDraftProvenanceBody extends JSONRecord {
+  schema_version: typeof DEVELOPER_AGENT_DRAFT_PROVENANCE_SCHEMA_VERSION
+  developer_run_id: string
+  agent_run_request_hash: string
+  agent_run_result_hash: string
+  agent_submission_hash: string
+  contract_draft_submission_hash: string
+  source_revision: string
+  authority_scope: "source_binding_only"
+  recorded_at: string
+}
+
+export interface DeveloperAgentDraftProvenance
+  extends DeveloperAgentDraftProvenanceBody {
+  provenance_hash: string
 }
 
 export interface DeveloperContractDraftReceiptBody extends JSONRecord {
@@ -219,11 +239,15 @@ export function assertDeveloperContractDraftIntakeRequest(value: DeveloperContra
   }
   if (!isRecord(value.submission)) throw new Error("Developer Contract Draft intake requires submission")
   assertDeveloperContractDraftSubmission(value.submission as DeveloperContractDraftSubmission)
+  const provenance = value.agent_provenance == null
+    ? undefined
+    : assertDeveloperAgentDraftProvenance(value.agent_provenance)
   const expected: DeveloperContractDraftIntakeRequest = {
     schema_version: DEVELOPER_CONTRACT_DRAFT_INTAKE_REQUEST_SCHEMA_VERSION,
     idempotency_key: required(value.idempotency_key, "idempotency_key"),
     recorded_at: utc(value.recorded_at, "recorded_at"),
     submission: value.submission,
+    ...(provenance == null ? {} : { agent_provenance: provenance }),
   }
   if (Date.parse(value.submission.created_at) > Date.parse(expected.recorded_at)) {
     throw new Error("Developer Contract Draft timestamps must satisfy created_at <= recorded_at")
@@ -231,6 +255,60 @@ export function assertDeveloperContractDraftIntakeRequest(value: DeveloperContra
   if (canonicalNfcJson(value) !== canonicalNfcJson(expected)) {
     throw new Error("Developer Contract Draft intake request is non-canonical")
   }
+}
+
+export function createDeveloperAgentDraftProvenance(
+  input: DeveloperAgentDraftProvenanceBody,
+): DeveloperAgentDraftProvenance {
+  if (input.schema_version !== DEVELOPER_AGENT_DRAFT_PROVENANCE_SCHEMA_VERSION
+      || input.authority_scope !== "source_binding_only") {
+    throw new Error("unsupported Developer Agent Draft provenance")
+  }
+  const body: DeveloperAgentDraftProvenanceBody = {
+    schema_version: DEVELOPER_AGENT_DRAFT_PROVENANCE_SCHEMA_VERSION,
+    developer_run_id: required(input.developer_run_id, "developer_run_id"),
+    agent_run_request_hash: digest(
+      input.agent_run_request_hash,
+      "agent_run_request_hash",
+    ),
+    agent_run_result_hash: digest(
+      input.agent_run_result_hash,
+      "agent_run_result_hash",
+    ),
+    agent_submission_hash: digest(
+      input.agent_submission_hash,
+      "agent_submission_hash",
+    ),
+    contract_draft_submission_hash: digest(
+      input.contract_draft_submission_hash,
+      "contract_draft_submission_hash",
+    ),
+    source_revision: revision(input.source_revision),
+    authority_scope: "source_binding_only",
+    recorded_at: utc(input.recorded_at, "recorded_at"),
+  }
+  return {
+    ...body,
+    provenance_hash: canonicalControlPlaneHash(body),
+  }
+}
+
+export function assertDeveloperAgentDraftProvenance(
+  value: DeveloperAgentDraftProvenance,
+): DeveloperAgentDraftProvenance {
+  if (!isRecord(value)) {
+    throw new Error("Developer Agent Draft provenance must be an object")
+  }
+  const { provenance_hash: _hash, ...body } = value
+  const expected = createDeveloperAgentDraftProvenance(
+    body as DeveloperAgentDraftProvenanceBody,
+  )
+  if (canonicalNfcJson(value) !== canonicalNfcJson(expected)) {
+    throw new Error(
+      "Developer Agent Draft provenance is non-canonical or hash-drifted",
+    )
+  }
+  return expected
 }
 
 export function createDeveloperContractDraftReceipt(
@@ -282,6 +360,14 @@ export function positiveInteger(value: number, field: string): number {
 export function digest(value: string, field: string): string {
   const normalized = required(value, field)
   if (!/^[a-f0-9]{64}$/.test(normalized)) throw new Error(`${field} must be a lowercase sha256 digest`)
+  return normalized
+}
+
+function revision(value: string): string {
+  const normalized = required(value, "source_revision")
+  if (!/^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/.test(normalized)) {
+    throw new Error("source_revision is invalid")
+  }
   return normalized
 }
 

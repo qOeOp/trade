@@ -148,6 +148,47 @@ test("container source package binds committed source and excludes workspace sta
       sha256(readFileSync(candidateArchive)),
     )
     verifyChecksums(candidateTarget)
+
+    const strategyTarget = resolve(root, "strategy-candidate-package")
+    const strategyOriginManifest = resolve(root, "strategy-origin.json")
+    const strategyOriginHash = "b".repeat(64)
+    writeFileSync(strategyOriginManifest, `${JSON.stringify({
+      schema_version: "trade.rd-strategy-source-adoption-manifest.v1",
+      status: "candidate_certified",
+      candidate_source_revision: commit,
+      manifest_hash: strategyOriginHash,
+      source_archive: {
+        sha256: sha256(readFileSync(candidateArchive)),
+      },
+    })}\n`)
+    const strategyResult = createServerContainerSourcePackageFromArchive({
+      repository_root: repository,
+      target_root: strategyTarget,
+      source_archive_path: candidateArchive,
+      source_archive_sha256: sha256(readFileSync(candidateArchive)),
+      source_commit: commit,
+      source_origin_manifest_path: strategyOriginManifest,
+      source_origin: {
+        kind: "certified_strategy_source_candidate",
+        manifest_ref:
+          "data/release-candidates/strategy-adoptions/fixture/manifest.json",
+        manifest_sha256: strategyOriginHash,
+      },
+      created_at: "2026-07-23T10:02:00.000Z",
+    })
+    assert.equal(strategyResult.source_commit, commit)
+    const strategyManifest = JSON.parse(
+      readFileSync(resolve(strategyTarget, "release-manifest.json"), "utf8"),
+    ) as Record<string, any>
+    assert.equal(
+      strategyManifest.source_origin.kind,
+      "certified_strategy_source_candidate",
+    )
+    assert.equal(
+      strategyManifest.source_origin.manifest_sha256,
+      strategyOriginHash,
+    )
+    verifyChecksums(strategyTarget)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

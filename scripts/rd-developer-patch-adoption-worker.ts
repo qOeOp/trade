@@ -14,8 +14,16 @@ import {
   ensureAgentRunStoreSchema,
 } from "../modules/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
 import {
+  ensureStrategySourceAdoptionStoreSchema,
+  listRecoverableStrategySourceAdoptions,
+} from "../modules/orchestration-ops/ops-runtime-store/src/lib/strategy-source-adoption-store"
+import {
   runDeveloperPatchAdoption,
 } from "./lib/rd-developer-patch-adoption"
+import {
+  discoverAndQueueStrategySourceCandidates,
+  runStrategySourceAdoption,
+} from "./lib/rd-strategy-source-adoption"
 
 async function main(): Promise<void> {
   const input = parseArgs(Bun.argv.slice(2))
@@ -27,6 +35,7 @@ async function main(): Promise<void> {
   db.exec("PRAGMA busy_timeout=5000")
   db.exec("PRAGMA foreign_keys=ON")
   ensureAgentRunStoreSchema(db)
+  ensureStrategySourceAdoptionStoreSchema(db)
   let closing = false
   const close = () => {
     closing = true
@@ -42,42 +51,83 @@ async function main(): Promise<void> {
   try {
     while (!closing) {
       const next = listRecoverableAgentPatchAdoptions(db, 1)[0]
-      if (!next) {
-        await delay(input.poll_interval_ms)
-        continue
+      if (next) {
+        try {
+          const result = await runDeveloperPatchAdoption({
+            db,
+            repository_root: root,
+            adoption_id: next.adoption_id,
+            run_id: next.run_id,
+            workspace_slot: "candidate",
+            run_package_check: (check) =>
+              runIsolatedAgentWorkspacePackageCheck({
+                socket_path: input.checker_socket,
+                ...check,
+              }),
+            run_suite_check: (check) =>
+              runIsolatedAgentWorkspaceSuiteCheck({
+                socket_path: input.checker_socket,
+                ...check,
+              }),
+          })
+          console.log(JSON.stringify({
+            schema_version: "trade.agent-patch-adoption-worker-result.v1",
+            adoption_id: result.adoption_id,
+            status: "candidate_certified",
+            manifest_sha256: result.manifest_sha256,
+          }))
+        } catch (error) {
+          console.error(JSON.stringify({
+            schema_version: "trade.agent-patch-adoption-worker-error.v1",
+            adoption_id: next.adoption_id,
+            error_class: error instanceof Error ? error.name : "Error",
+          }))
+          await delay(input.poll_interval_ms)
+        }
       }
       try {
-        const result = await runDeveloperPatchAdoption({
+        discoverAndQueueStrategySourceCandidates({
           db,
           repository_root: root,
-          adoption_id: next.adoption_id,
-          run_id: next.run_id,
-          workspace_slot: "candidate",
-          run_package_check: (check) =>
-            runIsolatedAgentWorkspacePackageCheck({
-              socket_path: input.checker_socket,
-              ...check,
-            }),
-          run_suite_check: (check) =>
-            runIsolatedAgentWorkspaceSuiteCheck({
-              socket_path: input.checker_socket,
-              ...check,
-            }),
+          limit: 100,
         })
-        console.log(JSON.stringify({
-          schema_version: "trade.agent-patch-adoption-worker-result.v1",
-          adoption_id: result.adoption_id,
-          status: "candidate_certified",
-          manifest_sha256: result.manifest_sha256,
-        }))
       } catch (error) {
         console.error(JSON.stringify({
-          schema_version: "trade.agent-patch-adoption-worker-error.v1",
-          adoption_id: next.adoption_id,
+          schema_version: "trade.strategy-source-discovery-worker-error.v1",
           error_class: error instanceof Error ? error.name : "Error",
         }))
-        await delay(input.poll_interval_ms)
       }
+      const strategy = listRecoverableStrategySourceAdoptions(db, 1)[0]
+      if (strategy) {
+        try {
+          const result = await runStrategySourceAdoption({
+            db,
+            repository_root: root,
+            adoption_id: strategy.adoption_id,
+            workspace_slot: "candidate",
+            run_suite_check: (check) =>
+              runIsolatedAgentWorkspaceSuiteCheck({
+                socket_path: input.checker_socket,
+                ...check,
+              }),
+          })
+          console.log(JSON.stringify({
+            schema_version: "trade.strategy-source-adoption-worker-result.v1",
+            adoption_id: result.adoption_id,
+            status: "candidate_certified",
+            manifest_hash: result.manifest.manifest_hash,
+          }))
+        } catch (error) {
+          console.error(JSON.stringify({
+            schema_version: "trade.strategy-source-adoption-worker-error.v1",
+            adoption_id: strategy.adoption_id,
+            error_class: error instanceof Error ? error.name : "Error",
+          }))
+          await delay(input.poll_interval_ms)
+          continue
+        }
+      }
+      if (!next && !strategy) await delay(input.poll_interval_ms)
     }
   } finally {
     if (existsSync(input.ready_file)) rmSync(input.ready_file)

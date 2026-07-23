@@ -4,7 +4,7 @@ import { runCandidateReleasePackageCli } from "./lib/candidate-release-package-c
 
 if (import.meta.main) {
   try {
-    runCandidateReleasePackageCli("developer_patch", Bun.argv.slice(2))
+    runCandidateReleasePackageCli("strategy_source", Bun.argv.slice(2))
   } catch (error) {
     console.error(JSON.stringify({
       ok: false,

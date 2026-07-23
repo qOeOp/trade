@@ -10,6 +10,10 @@ const compose = readFileSync(resolve(root, "deploy/server/compose.yaml"), "utf8"
 const operatorCompose = readFileSync(resolve(root, "deploy/server/compose.operator.yaml"), "utf8")
 const agentCompose = readFileSync(resolve(root, "deploy/server/compose.agent.yaml"), "utf8")
 const acceptance = readFileSync(resolve(root, "deploy/server/container-acceptance.sh"), "utf8")
+const adoptionWorker = readFileSync(
+  resolve(root, "scripts/rd-developer-patch-adoption-worker.ts"),
+  "utf8",
+)
 const openClawConfig = JSON.parse(
   readFileSync(resolve(root, "deploy/server/openclaw.json"), "utf8"),
 ) as Record<string, unknown>
@@ -132,8 +136,10 @@ test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds De
     .split("\n  agent-host:")[0]!
   assert.doesNotMatch(
     adopterBlock,
-    /trade-data:\/app\/data|rd_state\.db|data_catalog\.db|trade\.db/,
+    /trade-data:\/app\/data|rd_state\.db|data_catalog\.db|trade\.db|\/app\/strategies/,
   )
+  assert.match(adoptionWorker, /discoverAndQueueStrategySourceCandidates/)
+  assert.match(adoptionWorker, /runStrategySourceAdoption/)
   const registryBlock = agentCompose
     .split("\n  strategy-registry-worker:")[1]!
     .split("\n  agent-mcp-planner:")[0]!

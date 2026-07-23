@@ -96,5 +96,28 @@ function createOwnerSourceSchema(db: Database): void {
       run_id TEXT NOT NULL,
       replay_request_json TEXT NOT NULL
     );
+    CREATE TABLE rd_developer_contract_freeze(
+      validation_id TEXT NOT NULL,
+      experiment_id TEXT NOT NULL
+    );
+    CREATE TABLE rd_developer_contract_draft_validation(
+      validation_id TEXT NOT NULL,
+      brief_id TEXT NOT NULL,
+      draft_revision INTEGER NOT NULL
+    );
+    CREATE TABLE rd_developer_contract_draft(
+      brief_id TEXT NOT NULL,
+      draft_revision INTEGER NOT NULL,
+      developer_run_id TEXT NOT NULL
+    );
+    CREATE TABLE rd_developer_agent_draft_provenance(
+      brief_id TEXT NOT NULL,
+      draft_revision INTEGER NOT NULL,
+      developer_run_id TEXT NOT NULL,
+      source_revision TEXT NOT NULL,
+      provenance_hash TEXT NOT NULL,
+      agent_run_request_hash TEXT NOT NULL,
+      agent_run_result_hash TEXT NOT NULL
+    );
   `)
 }

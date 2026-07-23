@@ -38,6 +38,8 @@ test("Registry queue reconciles, fences, retries, and completes one accepted dec
     draft_id: "draft-old",
     strategy_ref: "old",
     strategy_policy_hash: "a".repeat(64),
+    candidate_manifest_ref: "data/release-candidates/old.json",
+    candidate_manifest_hash: "c".repeat(64),
   })).toThrow("lease expired")
   completeStrategyRegistryJob(db, {
     lease: second!,
@@ -46,6 +48,15 @@ test("Registry queue reconciles, fences, retries, and completes one accepted dec
     draft_id: "draft-1",
     strategy_ref: "data/release-candidates/strategy.md",
     strategy_policy_hash: "b".repeat(64),
+    candidate_manifest_ref: "data/release-candidates/candidate.json",
+    candidate_manifest_hash: "d".repeat(64),
+  })
+  expect(db.query(`
+    SELECT candidate_manifest_ref, candidate_manifest_hash
+    FROM rd_strategy_registry_job WHERE decision_id='decision-1'
+  `).get()).toEqual({
+    candidate_manifest_ref: "data/release-candidates/candidate.json",
+    candidate_manifest_hash: "d".repeat(64),
   })
   expect(claimStrategyRegistryJob(db, {
     worker_id: "worker-3",

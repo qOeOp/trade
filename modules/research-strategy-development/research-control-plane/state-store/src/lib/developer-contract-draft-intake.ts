@@ -7,6 +7,7 @@ import {
   DEVELOPER_DEVELOPMENT_BRIEF_SCHEMA_VERSION,
   TARGET_EXPERIMENT_CONTRACT_SCHEMA_VERSION,
   assertDeveloperContractDraftIntakeRequest,
+  assertDeveloperAgentDraftProvenance,
   assertDeveloperContractDraftReceipt,
   assertDeveloperDevelopmentBrief,
   assertDeveloperDevelopmentBriefIssueRequest,
@@ -182,16 +183,23 @@ export function receiveDeveloperContractDraft(
     }
 
     const naturalReplay = db.query(`
-      SELECT developer_run_id, submission_hash, receipt_json
-      FROM rd_developer_contract_draft
-      WHERE brief_id = $brief_id AND draft_revision = $draft_revision
+      SELECT draft.developer_run_id, draft.submission_hash, draft.receipt_json,
+             provenance.provenance_hash
+      FROM rd_developer_contract_draft AS draft
+      LEFT JOIN rd_developer_agent_draft_provenance AS provenance
+        ON provenance.brief_id=draft.brief_id
+        AND provenance.draft_revision=draft.draft_revision
+      WHERE draft.brief_id = $brief_id
+        AND draft.draft_revision = $draft_revision
     `).get({
       $brief_id: submission.brief_id,
       $draft_revision: submission.draft_revision,
     }) as NaturalDraftReplayRow | null
     if (naturalReplay) {
       if (naturalReplay.developer_run_id === submission.developer_run_id
-          && naturalReplay.submission_hash === submission.submission_hash) {
+          && naturalReplay.submission_hash === submission.submission_hash
+          && naturalReplay.provenance_hash
+            === (request.agent_provenance?.provenance_hash ?? null)) {
         return parseReceipt(naturalReplay.receipt_json)
       }
       throw new Error("Developer Contract Draft revision already exists with different content or provenance")
@@ -247,6 +255,45 @@ export function receiveDeveloperContractDraft(
       $created_at: submission.created_at,
       $recorded_at: request.recorded_at,
     })
+    if (request.agent_provenance) {
+      const provenance = assertDeveloperAgentDraftProvenance(
+        request.agent_provenance,
+      )
+      if (provenance.developer_run_id !== submission.developer_run_id
+          || provenance.contract_draft_submission_hash
+            !== submission.submission_hash
+          || provenance.recorded_at !== request.recorded_at) {
+        throw new Error(
+          "Developer Agent Draft provenance drifted from intake",
+        )
+      }
+      db.query(`
+        INSERT INTO rd_developer_agent_draft_provenance(
+          brief_id, draft_revision, developer_run_id, source_revision,
+          agent_run_request_hash, agent_run_result_hash, agent_submission_hash,
+          contract_draft_submission_hash, provenance_hash, provenance_json,
+          recorded_at
+        ) VALUES (
+          $brief_id, $draft_revision, $developer_run_id, $source_revision,
+          $agent_run_request_hash, $agent_run_result_hash, $agent_submission_hash,
+          $contract_draft_submission_hash, $provenance_hash, $provenance_json,
+          $recorded_at
+        )
+      `).run({
+        $brief_id: submission.brief_id,
+        $draft_revision: submission.draft_revision,
+        $developer_run_id: provenance.developer_run_id,
+        $source_revision: provenance.source_revision,
+        $agent_run_request_hash: provenance.agent_run_request_hash,
+        $agent_run_result_hash: provenance.agent_run_result_hash,
+        $agent_submission_hash: provenance.agent_submission_hash,
+        $contract_draft_submission_hash:
+          provenance.contract_draft_submission_hash,
+        $provenance_hash: provenance.provenance_hash,
+        $provenance_json: JSON.stringify(provenance),
+        $recorded_at: provenance.recorded_at,
+      })
+    }
     return receipt
   })
   return receive.immediate()
@@ -337,4 +384,9 @@ interface ProposalRevisionRow {
   latest_revision: number
 }
 interface BriefForDraftRow { brief_json: string; latest_proposal_revision: number }
-interface NaturalDraftReplayRow { developer_run_id: string; submission_hash: string; receipt_json: string }
+interface NaturalDraftReplayRow {
+  developer_run_id: string
+  submission_hash: string
+  receipt_json: string
+  provenance_hash: string | null
+}

@@ -54,7 +54,9 @@ export interface CreateServerContainerSourcePackageFromArchiveInput
   source_commit: string
   source_origin_manifest_path: string
   source_origin: {
-    kind: "certified_agent_patch_candidate"
+    kind:
+      | "certified_agent_patch_candidate"
+      | "certified_strategy_source_candidate"
     manifest_ref: string
     manifest_sha256: string
   }
@@ -101,7 +103,10 @@ export function createServerContainerSourcePackageFromArchive(
     throw new Error("certified source archive identity drifted")
   }
   if (!input.source_origin
-    || input.source_origin.kind !== "certified_agent_patch_candidate"
+    || ![
+      "certified_agent_patch_candidate",
+      "certified_strategy_source_candidate",
+    ].includes(input.source_origin.kind)
     || !safeRef(input.source_origin.manifest_ref)
     || !/^[a-f0-9]{64}$/.test(input.source_origin.manifest_sha256)) {
     throw new Error("certified source origin is invalid")
@@ -115,12 +120,19 @@ export function createServerContainerSourcePackageFromArchive(
     "certified source origin manifest",
   )
   const originArchive = record(originManifest.source_archive)
-  if (originManifest.schema_version
-      !== "trade.rd-developer-patch-adoption-manifest.v1"
-    || originManifest.status !== "candidate_certified"
-    || originManifest.candidate_source_revision !== commit
-    || originManifest.manifest_sha256 !== input.source_origin.manifest_sha256
-    || originArchive.sha256 !== archiveHash) {
+  const expectedSchema = input.source_origin.kind
+    === "certified_agent_patch_candidate"
+    ? "trade.rd-developer-patch-adoption-manifest.v1"
+    : "trade.rd-strategy-source-adoption-manifest.v1"
+  const declaredManifestHash = input.source_origin.kind
+    === "certified_agent_patch_candidate"
+    ? originManifest.manifest_sha256
+    : originManifest.manifest_hash
+  if (originManifest.schema_version !== expectedSchema
+      || originManifest.status !== "candidate_certified"
+      || originManifest.candidate_source_revision !== commit
+      || declaredManifestHash !== input.source_origin.manifest_sha256
+      || originArchive.sha256 !== archiveHash) {
     throw new Error("certified source origin manifest identity drifted")
   }
   const packagedOrigin = {

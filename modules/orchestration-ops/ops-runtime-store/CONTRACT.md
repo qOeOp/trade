@@ -17,6 +17,7 @@ Owns `ops_runtime_store`, the orchestration observability store for cycle, job, 
 - Persist Agent Run request identity, lifecycle events, sanitized Host session refs, and terminal result. Duplicate request/idempotency identity is create-or-identical; event sequences and terminal closure fail closed.
 - Persist immutable create-or-identical Agent workspace execution scopes as bounded canonical JSON bound to run/request/scope hashes; this is operational authorization evidence with `domain_authority=none`, not a patch or owner fact.
 - Persist one restart-readable patch-adoption lifecycle per completed Developer Run. A terminal candidate result binds exact run/request/scope/patch and release manifest identity; it grants no merge, deploy, strategy, Replay, promotion, or trading authority.
+- Persist a separate restart-readable Strategy source-adoption lifecycle keyed by the Registry candidate manifest hash. It binds source revision、exact Strategy bytes and terminal certified source archive without pretending the Strategy candidate is an Agent code patch; it grants no checkout advance、hot load、deploy、Forward、promotion or trading authority.
 
 ## Boundaries
 

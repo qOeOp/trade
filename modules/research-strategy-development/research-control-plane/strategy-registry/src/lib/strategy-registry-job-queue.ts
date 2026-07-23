@@ -21,6 +21,8 @@ export function ensureStrategyRegistryJobQueueSchema(db: Database): void {
       draft_id TEXT,
       strategy_ref TEXT,
       strategy_policy_hash TEXT,
+      candidate_manifest_ref TEXT,
+      candidate_manifest_hash TEXT,
       last_error TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -35,6 +37,21 @@ export function ensureStrategyRegistryJobQueueSchema(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_rd_strategy_registry_job_claim
       ON rd_strategy_registry_job(status, created_at, job_id);
   `)
+  const columns = new Set(
+    (db.query("PRAGMA table_info(rd_strategy_registry_job)").all() as Array<{
+      name: string
+    }>).map((column) => column.name),
+  )
+  if (!columns.has("candidate_manifest_ref")) {
+    db.exec(
+      "ALTER TABLE rd_strategy_registry_job ADD COLUMN candidate_manifest_ref TEXT",
+    )
+  }
+  if (!columns.has("candidate_manifest_hash")) {
+    db.exec(
+      "ALTER TABLE rd_strategy_registry_job ADD COLUMN candidate_manifest_hash TEXT",
+    )
+  }
 }
 
 export function reconcileAcceptedDraftJobs(
@@ -132,13 +149,17 @@ export function completeStrategyRegistryJob(
     draft_id: string
     strategy_ref: string
     strategy_policy_hash: string
+    candidate_manifest_ref: string
+    candidate_manifest_hash: string
   },
 ): void {
   const update = db.query(`
     UPDATE rd_strategy_registry_job
     SET status='completed', lease_owner=NULL, lease_expires_at=NULL,
         draft_id=$draft_id, strategy_ref=$strategy_ref,
-        strategy_policy_hash=$strategy_policy_hash, last_error=NULL,
+        strategy_policy_hash=$strategy_policy_hash,
+        candidate_manifest_ref=$candidate_manifest_ref,
+        candidate_manifest_hash=$candidate_manifest_hash, last_error=NULL,
         updated_at=$completed_at, completed_at=$completed_at
     WHERE job_id=$job_id AND status='processing'
       AND lease_owner=$worker_id AND lease_generation=$lease_generation
@@ -146,6 +167,15 @@ export function completeStrategyRegistryJob(
     $draft_id: input.draft_id,
     $strategy_ref: input.strategy_ref,
     $strategy_policy_hash: input.strategy_policy_hash,
+    $candidate_manifest_ref: boundedText(
+      input.candidate_manifest_ref,
+      "candidate_manifest_ref",
+      4_096,
+    ),
+    $candidate_manifest_hash: digest(
+      input.candidate_manifest_hash,
+      "candidate_manifest_hash",
+    ),
     $completed_at: instant(input.completed_at, "completed_at"),
     $job_id: input.lease.job_id,
     $worker_id: identifier(input.worker_id, "worker_id"),
@@ -230,4 +260,12 @@ function boundedText(value: unknown, field: string, maximum: number): string {
     throw new Error(`${field} is invalid`)
   }
   return value
+}
+
+function digest(value: unknown, field: string): string {
+  const text = boundedText(value, field, 64)
+  if (!/^[a-f0-9]{64}$/.test(text)) {
+    throw new Error(`${field} must be sha256`)
+  }
+  return text
 }

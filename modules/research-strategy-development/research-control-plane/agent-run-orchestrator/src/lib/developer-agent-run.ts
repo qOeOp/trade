@@ -16,6 +16,8 @@ import {
 } from "../../../contracts/src/lib/developer-agent-submission"
 import {
   assertDeveloperDevelopmentBrief,
+  createDeveloperAgentDraftProvenance,
+  DEVELOPER_AGENT_DRAFT_PROVENANCE_SCHEMA_VERSION,
   DEVELOPER_CONTRACT_DRAFT_INTAKE_REQUEST_SCHEMA_VERSION,
   DEVELOPER_DEVELOPMENT_BRIEF_ISSUE_REQUEST_SCHEMA_VERSION,
   type DeveloperContractDraftReceipt,
@@ -280,6 +282,18 @@ export function admitDeveloperAgentResult(input: {
     idempotency_key: `agent-developer-draft:${input.prepared.request.run_id}:${submission.draft_revision}`,
     recorded_at: recordedAt,
     submission: submission.contract_draft,
+    agent_provenance: createDeveloperAgentDraftProvenance({
+      schema_version: DEVELOPER_AGENT_DRAFT_PROVENANCE_SCHEMA_VERSION,
+      developer_run_id: submission.developer_run_id,
+      agent_run_request_hash: input.prepared.request.request_hash,
+      agent_run_result_hash: input.result.result_hash,
+      agent_submission_hash: submission.submission_hash,
+      contract_draft_submission_hash:
+        submission.contract_draft.submission_hash,
+      source_revision: submission.source_revision,
+      authority_scope: "source_binding_only",
+      recorded_at: recordedAt,
+    }),
   })
   return {
     schema_version: "trade.rd-developer-agent-admission.v1",

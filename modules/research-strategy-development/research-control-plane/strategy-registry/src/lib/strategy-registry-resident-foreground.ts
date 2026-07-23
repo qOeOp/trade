@@ -109,6 +109,8 @@ function unavailable(): StrategyRegistryResidentCycleResult {
     decision_id: null,
     draft_id: null,
     strategy_ref: null,
+    candidate_manifest_ref: null,
+    candidate_manifest_hash: null,
     failure_class: "resident_cycle_unavailable",
     release_authority: "none",
     deployment_authority: "none",

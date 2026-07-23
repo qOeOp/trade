@@ -6,10 +6,22 @@ import { join } from "node:path"
 import { hashIdentityPayload } from "../../../contracts/src/lib/research-identity-hash"
 import { compileDraftStrategyInput } from "./draft-strategy-compiler"
 import { materializeDraftStrategy } from "./strategy-registry"
+import {
+  publishStrategySourceCandidate,
+} from "./strategy-source-candidate"
+import {
+  assertStrategySourceCandidate,
+  type StrategySourceCandidate,
+} from "../../../contracts/src/lib/strategy-source-candidate-contract"
 
 const CONTRACT_HASH = "a".repeat(64)
 const GROUP_HASH = "b".repeat(64)
 const RESULT_HASH = "c".repeat(64)
+const BUILD_HASH = "d".repeat(64)
+const EXECUTABLE_HASH = "e".repeat(64)
+const PROVENANCE_HASH = "f".repeat(64)
+const AGENT_REQUEST_HASH = "1".repeat(64)
+const AGENT_RESULT_HASH = "2".repeat(64)
 const PARAMS = {
   lookback_bars: 20,
   reward_risk: 2,
@@ -21,9 +33,10 @@ test("Registry compiler derives one Draft solely from accepted owner facts", () 
   const db = fixture()
   const root = mkdtempSync(join(tmpdir(), "rd-registry-compiler-"))
   try {
+    const strategyRoot = join(root, "strategies")
     const compiled = compileDraftStrategyInput(db, {
       decision_id: "decision-1",
-      strategy_root: root,
+      strategy_root: strategyRoot,
     })
     expect(compiled.authorization.primary_result_id).toBe("result-1")
     expect(compiled.authorization.selected_candidate_id).toBe("candidate-1")
@@ -32,6 +45,12 @@ test("Registry compiler derives one Draft solely from accepted owner facts", () 
       "Test a bounded closed-candle momentum mechanism.",
     )
     expect(compiled.policy_source.candidate.timeframe).toBe("4h")
+    expect(compiled.source_revision).toBe("0123456789abcdef")
+    expect(compiled.source_provenance_hash).toBe(PROVENANCE_HASH)
+    expect(compiled.replay_code_evidence).toEqual({
+      decision_harness_build_artifact_hash: BUILD_HASH,
+      decision_harness_runtime_executable_hash: EXECUTABLE_HASH,
+    })
     const binding = materializeDraftStrategy(db, compiled)
     expect(binding.materialization_status).toBe("ready")
     expect(readFileSync(binding.strategy_ref, "utf8")).toContain(
@@ -41,9 +60,35 @@ test("Registry compiler derives one Draft solely from accepted owner facts", () 
       db,
       compileDraftStrategyInput(db, {
         decision_id: "decision-1",
-        strategy_root: root,
+        strategy_root: strategyRoot,
       }),
     )).toEqual(binding)
+    const candidate = publishStrategySourceCandidate({
+      decision_root: root,
+      compiled,
+      binding,
+    })
+    expect(candidate.manifest.strategy_source.ref).toBe(
+      `strategies/${binding.strategy_ref.split("/").at(-1)}`,
+    )
+    expect(candidate.manifest.strategy_source.sha256).toBe(
+      binding.strategy_policy_hash,
+    )
+    expect(candidate.manifest.authority).toEqual({
+      release_authority: "candidate_source_only",
+      deployment_authority: "none",
+      trading_authority: false,
+    })
+    expect(() => assertStrategySourceCandidate(candidate.manifest)).not.toThrow()
+    const persisted = JSON.parse(
+      readFileSync(candidate.manifest_ref, "utf8"),
+    ) as StrategySourceCandidate
+    expect(persisted).toEqual(candidate.manifest)
+    expect(publishStrategySourceCandidate({
+      decision_root: root,
+      compiled,
+      binding,
+    })).toEqual(candidate)
   } finally {
     db.close()
     rmSync(root, { recursive: true, force: true })
@@ -135,6 +180,29 @@ function fixture(): Database {
       run_id TEXT NOT NULL,
       replay_request_json TEXT NOT NULL
     );
+    CREATE TABLE rd_developer_contract_freeze(
+      validation_id TEXT NOT NULL,
+      experiment_id TEXT NOT NULL
+    );
+    CREATE TABLE rd_developer_contract_draft_validation(
+      validation_id TEXT NOT NULL,
+      brief_id TEXT NOT NULL,
+      draft_revision INTEGER NOT NULL
+    );
+    CREATE TABLE rd_developer_contract_draft(
+      brief_id TEXT NOT NULL,
+      draft_revision INTEGER NOT NULL,
+      developer_run_id TEXT NOT NULL
+    );
+    CREATE TABLE rd_developer_agent_draft_provenance(
+      brief_id TEXT NOT NULL,
+      draft_revision INTEGER NOT NULL,
+      developer_run_id TEXT NOT NULL,
+      source_revision TEXT NOT NULL,
+      provenance_hash TEXT NOT NULL,
+      agent_run_request_hash TEXT NOT NULL,
+      agent_run_result_hash TEXT NOT NULL
+    );
   `)
   const candidateHash = hashIdentityPayload(PARAMS)
   db.query(`
@@ -173,6 +241,8 @@ function fixture(): Database {
           result_hash: RESULT_HASH,
           candidate_hash: candidateHash,
           experiment_contract_hash: CONTRACT_HASH,
+          decision_harness_build_artifact_hash: BUILD_HASH,
+          decision_harness_runtime_executable_hash: EXECUTABLE_HASH,
         },
       },
     }),
@@ -207,6 +277,31 @@ function fixture(): Database {
       candidate_id: "candidate-1",
       timeframe: "4h",
     }),
+  })
+  db.query(`
+    INSERT INTO rd_developer_contract_freeze VALUES (
+      'validation-1', 'experiment-1'
+    )
+  `).run()
+  db.query(`
+    INSERT INTO rd_developer_contract_draft_validation VALUES (
+      'validation-1', 'brief-1', 1
+    )
+  `).run()
+  db.query(`
+    INSERT INTO rd_developer_contract_draft VALUES (
+      'brief-1', 1, 'developer-run-1'
+    )
+  `).run()
+  db.query(`
+    INSERT INTO rd_developer_agent_draft_provenance VALUES (
+      'brief-1', 1, 'developer-run-1', '0123456789abcdef',
+      $provenance_hash, $agent_request_hash, $agent_result_hash
+    )
+  `).run({
+    $provenance_hash: PROVENANCE_HASH,
+    $agent_request_hash: AGENT_REQUEST_HASH,
+    $agent_result_hash: AGENT_RESULT_HASH,
   })
   return db
 }

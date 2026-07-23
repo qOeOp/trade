@@ -8,6 +8,8 @@ Owns deterministic, authorized Draft Strategy materialization and registration i
 - Render structured policy source through the deterministic policy renderer.
 - Reconcile accepted decisions through a durable, fenced, bounded-retry queue.
 - Lint, hash, create-if-absent write, fsync, and register the Draft Strategy source; a crash between file and DB commits must recover only the identical bytes.
+- Require automatic candidates to trace through Freeze/Validation/Draft to immutable Agent source provenance and through the formal Replay fingerprint to both build-artifact and runtime-executable hashes.
+- Publish a self-hashed `candidate.json` beside the isolated Strategy source. The manifest uses a portable relative source ref and binds exact bytes、compiler input、Agent request/result、source revision and Replay code evidence.
 - Make idempotent retries return the same ready binding.
 - Prevent Forward admission until `strategy_ref` and `strategy_policy_hash` are ready.
 
@@ -15,4 +17,4 @@ Owns deterministic, authorized Draft Strategy materialization and registration i
 
 - Does not select the Candidate, interpret Replay metrics, or promote beyond `draft`.
 - The resident profile writes only to the durable release-candidate root; it never mutates the running image's `strategies/`.
-- Does not adopt candidate source into Git, build a new image, deploy, promote, or trade. Those remain explicit release, deployment, governance, and execution authorities.
+- Does not adopt candidate source into Git, build a new image, deploy, promote, or trade. The Ops source adopter may later reconstruct the exact frozen revision in an isolated worktree; those remain distinct release、deployment、governance and execution authorities.

@@ -25,6 +25,7 @@ import {
   ensureStrategyRegistrySchema,
   materializeDraftStrategy,
 } from "./strategy-registry"
+import { publishStrategySourceCandidate } from "./strategy-source-candidate"
 
 export const STRATEGY_REGISTRY_RESIDENT_CYCLE_SCHEMA =
   "trade.rd-strategy-registry-resident-cycle.v1" as const
@@ -44,6 +45,8 @@ export interface StrategyRegistryResidentCycleResult {
   decision_id: string | null
   draft_id: string | null
   strategy_ref: string | null
+  candidate_manifest_ref: string | null
+  candidate_manifest_hash: string | null
   failure_class: string | null
   release_authority: "candidate_source_only" | "none"
   deployment_authority: "none"
@@ -97,13 +100,17 @@ export function runStrategyRegistryResidentCycle(input: {
     const decisionRoot = join(
       input.config.candidate_root,
       createHash("sha256").update(lease.decision_id).digest("hex").slice(0, 32),
-      "strategies",
     )
     const compiled = dependencies.compile(db, {
       decision_id: lease.decision_id,
-      strategy_root: decisionRoot,
+      strategy_root: join(decisionRoot, "strategies"),
     })
     const binding = dependencies.materialize(db, compiled)
+    const candidate = publishStrategySourceCandidate({
+      decision_root: decisionRoot,
+      compiled,
+      binding,
+    })
     completeStrategyRegistryJob(db, {
       lease,
       worker_id: workerId,
@@ -111,6 +118,8 @@ export function runStrategyRegistryResidentCycle(input: {
       draft_id: binding.draft_id,
       strategy_ref: binding.strategy_ref,
       strategy_policy_hash: binding.strategy_policy_hash,
+      candidate_manifest_ref: candidate.manifest_ref,
+      candidate_manifest_hash: candidate.manifest.manifest_hash,
     })
     return {
       schema_version: STRATEGY_REGISTRY_RESIDENT_CYCLE_SCHEMA,
@@ -119,6 +128,8 @@ export function runStrategyRegistryResidentCycle(input: {
       decision_id: lease.decision_id,
       draft_id: binding.draft_id,
       strategy_ref: binding.strategy_ref,
+      candidate_manifest_ref: candidate.manifest_ref,
+      candidate_manifest_hash: candidate.manifest.manifest_hash,
       failure_class: null,
       release_authority: "candidate_source_only",
       deployment_authority: "none",
@@ -143,6 +154,8 @@ export function runStrategyRegistryResidentCycle(input: {
       decision_id: lease.decision_id,
       draft_id: null,
       strategy_ref: null,
+      candidate_manifest_ref: null,
+      candidate_manifest_hash: null,
       failure_class: permanent
         ? "owner_contract_drift"
         : "candidate_storage_unavailable",
@@ -167,6 +180,8 @@ function idle(): StrategyRegistryResidentCycleResult {
     decision_id: null,
     draft_id: null,
     strategy_ref: null,
+    candidate_manifest_ref: null,
+    candidate_manifest_hash: null,
     failure_class: null,
     release_authority: "none",
     deployment_authority: "none",

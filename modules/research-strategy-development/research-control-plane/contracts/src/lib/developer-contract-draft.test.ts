@@ -3,12 +3,15 @@ import {
   DEVELOPER_CONTRACT_DRAFT_INTAKE_POLICY_VERSION,
   DEVELOPER_CONTRACT_DRAFT_RECEIPT_SCHEMA_VERSION,
   DEVELOPER_CONTRACT_DRAFT_SUBMISSION_SCHEMA_VERSION,
+  DEVELOPER_AGENT_DRAFT_PROVENANCE_SCHEMA_VERSION,
   DEVELOPER_DEVELOPMENT_BRIEF_SCHEMA_VERSION,
   DEVELOPER_EXPERIMENT_CONTRACT_DRAFT_PAYLOAD_SCHEMA_VERSION,
   TARGET_EXPERIMENT_CONTRACT_SCHEMA_VERSION,
   assertDeveloperContractDraftSubmission,
+  assertDeveloperAgentDraftProvenance,
   assertDeveloperDevelopmentBrief,
   createDeveloperContractDraftReceipt,
+  createDeveloperAgentDraftProvenance,
   createDeveloperContractDraftSubmission,
   createDeveloperDevelopmentBrief,
 } from "./developer-contract-draft"
@@ -65,6 +68,26 @@ test("Developer Development Brief freezes Proposal scope without execution autho
   expect(() => assertDeveloperDevelopmentBrief(value)).not.toThrow()
   expect(() => assertDeveloperDevelopmentBrief({ ...value, max_trial_budget: 3 }))
     .toThrow("hash-drifted")
+})
+
+test("Developer Agent Draft provenance binds its source revision without release authority", () => {
+  const provenance = createDeveloperAgentDraftProvenance({
+    schema_version: DEVELOPER_AGENT_DRAFT_PROVENANCE_SCHEMA_VERSION,
+    developer_run_id: "developer-run-1",
+    agent_run_request_hash: "3".repeat(64),
+    agent_run_result_hash: "4".repeat(64),
+    agent_submission_hash: "5".repeat(64),
+    contract_draft_submission_hash: "6".repeat(64),
+    source_revision: "0123456789abcdef",
+    authority_scope: "source_binding_only",
+    recorded_at: "2026-07-22T12:06:00Z",
+  })
+  expect(provenance.provenance_hash).toHaveLength(64)
+  expect(() => assertDeveloperAgentDraftProvenance(provenance)).not.toThrow()
+  expect(() => assertDeveloperAgentDraftProvenance({
+    ...provenance,
+    source_revision: "other",
+  })).toThrow("hash-drifted")
 })
 
 test("Developer Contract Draft and received-unvalidated Receipt are self-hashed", () => {

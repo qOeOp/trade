@@ -272,6 +272,35 @@ CREATE TABLE IF NOT EXISTS rd_developer_contract_draft (
   FOREIGN KEY (brief_id) REFERENCES rd_developer_development_brief(brief_id)
 );
 
+CREATE TABLE IF NOT EXISTS rd_developer_agent_draft_provenance (
+  brief_id TEXT NOT NULL,
+  draft_revision INTEGER NOT NULL,
+  developer_run_id TEXT NOT NULL UNIQUE,
+  source_revision TEXT NOT NULL,
+  agent_run_request_hash TEXT NOT NULL UNIQUE,
+  agent_run_result_hash TEXT NOT NULL UNIQUE,
+  agent_submission_hash TEXT NOT NULL UNIQUE,
+  contract_draft_submission_hash TEXT NOT NULL UNIQUE,
+  provenance_hash TEXT NOT NULL UNIQUE,
+  provenance_json TEXT NOT NULL CHECK(json_valid(provenance_json)),
+  recorded_at TEXT NOT NULL,
+  PRIMARY KEY (brief_id, draft_revision),
+  FOREIGN KEY (brief_id, draft_revision)
+    REFERENCES rd_developer_contract_draft(brief_id, draft_revision)
+);
+
+CREATE TRIGGER IF NOT EXISTS rd_developer_agent_draft_provenance_no_update
+BEFORE UPDATE ON rd_developer_agent_draft_provenance
+BEGIN
+  SELECT RAISE(ABORT, 'Developer Agent Draft provenance is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS rd_developer_agent_draft_provenance_no_delete
+BEFORE DELETE ON rd_developer_agent_draft_provenance
+BEGIN
+  SELECT RAISE(ABORT, 'Developer Agent Draft provenance is immutable');
+END;
+
 CREATE TABLE IF NOT EXISTS rd_developer_contract_draft_validation (
   validation_id TEXT PRIMARY KEY,
   brief_id TEXT NOT NULL,

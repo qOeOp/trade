@@ -129,6 +129,27 @@ test("Developer Agent capability assessment and draft enter the existing unvalid
       (db.query("SELECT COUNT(*) AS count FROM rd_developer_contract_draft").get() as { count: number }).count,
       1,
     )
+    const provenance = db.query(`
+      SELECT source_revision, agent_run_request_hash, agent_run_result_hash,
+             agent_submission_hash, contract_draft_submission_hash
+      FROM rd_developer_agent_draft_provenance
+      WHERE developer_run_id = $developer_run_id
+    `).get({
+      $developer_run_id: prepared.request.run_id,
+    }) as {
+      source_revision: string
+      agent_run_request_hash: string
+      agent_run_result_hash: string
+      agent_submission_hash: string
+      contract_draft_submission_hash: string
+    }
+    assert.deepEqual(provenance, {
+      source_revision: prepared.request.source_revision,
+      agent_run_request_hash: prepared.request.request_hash,
+      agent_run_result_hash: completionValue.result.result_hash,
+      agent_submission_hash: submission.submission_hash,
+      contract_draft_submission_hash: draft.submission_hash,
+    })
   } finally {
     db.close()
   }
