@@ -12,6 +12,7 @@
         "modules/orchestration-ops/watch-task-runtime",
         "modules/orchestration-ops/model-gateway",
         "modules/orchestration-ops/agent-host-codex",
+        "modules/orchestration-ops/agent-workspace-manager",
         "modules/orchestration-ops/operator-http",
         "modules/orchestration-ops/runtime-health-guard",
         "modules/orchestration-ops/l2-current-book-probe",
