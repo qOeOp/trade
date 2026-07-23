@@ -2,6 +2,8 @@ services:
   runtime:
     env_file:
       - ${TRADE_AGENT_HOST_HTTP_SECRET_ENV_FILE:?set TRADE_AGENT_HOST_HTTP_SECRET_ENV_FILE}
+    environment:
+      TRADE_ENVIRONMENT_ID: ${TRADE_ENVIRONMENT_ID:-server:primary}
     networks:
       - agent-control
 
@@ -75,6 +77,8 @@ services:
     env_file:
       - ${TRADE_AGENT_HOST_HTTP_SECRET_ENV_FILE:?set TRADE_AGENT_HOST_HTTP_SECRET_ENV_FILE}
       - ${TRADE_OPENCLAW_GATEWAY_SECRET_ENV_FILE:?set TRADE_OPENCLAW_GATEWAY_SECRET_ENV_FILE}
+    environment:
+      TRADE_ENVIRONMENT_ID: ${TRADE_ENVIRONMENT_ID:-server:primary}
     volumes:
       - trade-data:/app/data
       - trade-runtime-tmp:/app/tmp
@@ -95,6 +99,8 @@ services:
       - agent-host:7313
       - --gateway-url
       - http://openclaw:18789
+      - --ops-db
+      - data/ops_runtime.db
     healthcheck:
       test:
         - CMD
@@ -128,6 +134,12 @@ services:
       cpus: 1.0
       env_file:
         - ${TRADE_MCP_HTTP_SECRET_ENV_FILE:?set TRADE_MCP_HTTP_SECRET_ENV_FILE}
+      environment:
+        TRADE_MCP_CATALOG_DB: data/data_catalog.db
+        TRADE_ENVIRONMENT_ID: ${TRADE_ENVIRONMENT_ID:-server:primary}
+        TRADE_MCP_OPS_DB: data/ops_runtime.db
+        TRADE_MCP_RD_STATE_DB: data/rd_state.db
+        TRADE_MCP_TRADE_DB: data/trade.db
       volumes:
         - trade-data:/app/data
         - trade-runtime-tmp:/app/tmp

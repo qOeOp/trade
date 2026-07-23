@@ -77,6 +77,17 @@ test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds De
   assert.match(agentCompose, /agent-mcp-planner:[\s\S]*--profile[\s\S]*planner-proposal/)
   assert.match(agentCompose, /agent-mcp-developer:[\s\S]*--profile[\s\S]*developer-contract/)
   assert.match(agentCompose, /agent-mcp-reviewer:[\s\S]*--profile[\s\S]*reviewer-decision/)
+  assert.match(agentCompose, /agent-host:[\s\S]*--ops-db\s*\n\s*- data\/ops_runtime\.db/)
+  assert.match(agentCompose, /TRADE_MCP_OPS_DB: data\/ops_runtime\.db/)
+  assert.match(agentCompose, /TRADE_MCP_RD_STATE_DB: data\/rd_state\.db/)
+  assert.match(agentCompose, /TRADE_MCP_CATALOG_DB: data\/data_catalog\.db/)
+  assert.match(agentCompose, /TRADE_MCP_TRADE_DB: data\/trade\.db/)
+  assert.match(compose, /TRADE_ENVIRONMENT_ID: \$\{TRADE_ENVIRONMENT_ID:-server:primary\}/)
+  assert.equal(
+    agentCompose.match(/TRADE_ENVIRONMENT_ID: \$\{TRADE_ENVIRONMENT_ID:-server:primary\}/g)?.length,
+    3,
+  )
+  assert.match(operatorCompose, /TRADE_ENVIRONMENT_ID: \$\{TRADE_ENVIRONMENT_ID:-server:primary\}/)
   assert.doesNotMatch(serialized, /sk-[A-Za-z0-9_-]{12,}/)
   assert.match(serialized, /"deny":\[[^\]]*"exec"[^\]]*"process"[^\]]*"code_execution"/)
 })

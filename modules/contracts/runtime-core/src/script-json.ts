@@ -65,7 +65,13 @@ export function readDbActionJsonArgs(
   defaults: { dbPath: string; action?: string },
   printHelp: () => void,
 ): DbActionJsonArgs {
-  const config: DbActionJsonArgs = { dbPath: defaults.dbPath, environmentId: "local:local", migrateIdentity: false, action: defaults.action ?? "init", json: {} }
+  const config: DbActionJsonArgs = {
+    dbPath: defaults.dbPath,
+    environmentId: process.env.TRADE_ENVIRONMENT_ID ?? "local:local",
+    migrateIdentity: false,
+    action: defaults.action ?? "init",
+    json: {},
+  }
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     switch (arg) {
@@ -86,7 +92,11 @@ export function readDbActionJsonArgs(
 }
 
 export function readDbJsonArgs(argv: string[], defaultDbPath: string, printHelp: () => void): DbJsonArgs {
-  const config: DbJsonArgs = { dbPath: defaultDbPath, environmentId: "local:local", json: {} }
+  const config: DbJsonArgs = {
+    dbPath: defaultDbPath,
+    environmentId: process.env.TRADE_ENVIRONMENT_ID ?? "local:local",
+    json: {},
+  }
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     switch (arg) {

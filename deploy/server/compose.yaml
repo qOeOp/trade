@@ -34,6 +34,8 @@ services:
     stop_grace_period: 45s
     mem_limit: 2g
     cpus: 2.0
+    environment:
+      TRADE_ENVIRONMENT_ID: ${TRADE_ENVIRONMENT_ID:-server:primary}
     volumes:
       - trade-data:/app/data
       - trade-l2:/app/data/l2
