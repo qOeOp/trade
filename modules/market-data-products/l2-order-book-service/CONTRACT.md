@@ -8,13 +8,14 @@ Production candidate owner for one public Binance USD-M L2 stream.
 - Per-epoch sequence validation, bounded ingest queue, current order book, and freshness state.
 - Raw TL2S segments plus create-new epoch manifest proposals.
 - Loopback / private-network gRPC reads for current book, bounded watermarks, and health.
-- TypeScript/Bun process control for release build, detached launch, bounded restart backoff, exact-PID stop, runtime state, and create-new terminal receipt.
+- TypeScript/Bun process control for release build, detached launch, bounded restart backoff, command-identity-verified stop/status, runtime state, and create-new terminal receipt. A live reused PID is never accepted as this service、supervisor or consumer.
 - Periodic invocation of the `market-data-store` owner reconcile surface; the service supervisor observes admission health but never implements admission rules or writes owner SQLite directly.
-- Filesystem available-space soft/hard watermarks. Soft pressure degrades readiness; hard pressure prevents startup or drains the child and terminates failed before more raw backlog is accepted.
+- Filesystem available-space soft/hard watermarks. Soft pressure keeps existing non-economic reads operational while degrading owner health; hard/unknown pressure prevents or drains the Rust child, then keeps the foreground supervisor alive in bounded in-process recheck instead of creating an external-manager restart storm.
 - Periodic child RSS/CPU sampling with current/max values in runtime state; observability failure degrades control readiness without inventing a healthy sample.
 - A typed active-owner health read that selects exactly one live supervisor, combines its control state with the fixed loopback Rust health binary, requires control-state freshness derived from configured sampling intervals, and removes process IDs and repository paths from the response.
 - A typed active-owner current-book read that fixes the loopback endpoint, symbol, release query binary, and 1,500ms deadline; caller input is limited to bounded depth and freshness.
 - A bounded active-owner watermark watch with caller limits `1..100` events / `100..5000ms`, owner-fixed deadline overhead, latest-only coalescing semantics, and typed epoch/resync transitions.
+- Dry-run-by-default runtime GC that rechecks exact supervisor command identity and atomically moves old inactive receipt directories out of the active scan root; it does not delete durable market evidence.
 
 ## Boundaries
 
@@ -36,7 +37,7 @@ Production candidate owner for one public Binance USD-M L2 stream.
 - The read port reports non-live / stale state as unavailable and never presents the last value as fresh.
 - Slow watch clients consume only the latest bounded watermark and cannot backpressure ingestion.
 - A service-process crash is restarted with bounded exponential delay; startup salvages any valid orphan partial prefix and always creates a new snapshot/epoch. A finite requested duration or verified operator stop is a successful terminal state, not a crash.
-- Disk status unavailable is fail-closed. Retention never means deleting un-compacted or referenced raw evidence; admission assigns `raw_hot/non-deletable` until a separate compactor/GC contract exists.
+- Disk hard/unknown status is fail-closed for new raw ingestion but not represented by repeated process exits. Retention never means deleting un-compacted or referenced raw evidence; admission assigns `raw_hot/non-deletable` until a separate compactor/GC contract exists.
 
 ## Commands
 
@@ -49,6 +50,8 @@ Production candidate owner for one public Binance USD-M L2 stream.
 - `bun src/scripts/owner-health.ts`
 - `bun src/scripts/owner-current-book.ts --depth 20 --max-freshness-ms 1000`
 - `bun src/scripts/owner-book-watch.ts --max-events 20 --watch-ms 1000`
+- `bun src/scripts/runtime-gc.ts` (plan only)
+- `bun src/scripts/runtime-gc.ts --apply` (archive old inactive runtime receipts)
 - `bun src/scripts/stop.ts --receipt tmp/l2-order-book-service/runtime/<launch>/launch-receipt.json`
 - `bun run check`
 - `cargo fmt --all -- --check`
