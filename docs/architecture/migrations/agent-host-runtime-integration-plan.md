@@ -263,8 +263,8 @@ Host 运行状态属于 ops plane。是否新增 durable store、复用 `ops_run
 | P0 基线与施工护栏 | active | 冻结环境、当前能力和评测输入 | 基线可重跑；不读取或打印 secret |
 | P1 Agent Run 合同 | complete | provider / Host 中立的 request、event、result 与 policy | contract tests、恶意输入和 identity replay 全过 |
 | P2 Provider / Codex capability | active-partial | 分离 SiliconFlow wire 能力与 Codex protocol 能力 | capability matrix 可归因；不以 prompt 掩盖协议失败 |
-| P3 Direct Codex adapter | active-partial | Program 可提交、观察、取消和恢复有界 Codex Run | stdio / local socket kill-restart 与 structured result 通过 |
-| P4 MCP 与 Developer sandbox | pending | 私有能力面和每 Run 隔离 worktree | 无 production RW / secret / owner DB；patch 可审阅 |
+| P3 Direct Codex adapter | active-partial | Program 可提交、观察、取消和失败关闭有界 Codex Run | 真实 structured turn 与 daemon transport 待采用 |
+| P4 MCP 与 Developer sandbox | active-partial | 私有 MCP、角色投影与每 Run 隔离 worktree 已落地 | 容器读隔离 / cgroup 与真实 Developer 纵切待采用 |
 | P5 R&D Agent 纵切 | pending | Planner → Developer → Replay → Reviewer → Registry | 失败后二次修订、重启和单 owner effect 通过 |
 | P6 OpenClaw 与容器 | pending | OpenClaw-Codex、alternate runtime 与 no-live Compose fixture | 固定版本、最小权限、独立启停和恢复通过 |
 | P7 Bake-off 与可靠性 | pending | 公平比较、故障注入、资源 / 磁盘与长时运行 | 无 authority violation；形成采用或拒绝证据 |
@@ -299,7 +299,9 @@ Host 运行状态属于 ops plane。是否新增 durable store、复用 `ops_run
 
 P1 已落地 `modules/contracts/agent-run-contract`：request / event / result 均为 canonical hash 合同，四类 profile 使用 closed-world capability，输入输出只携带有 hash / bytes 的 refs，raw reasoning、额外 Host payload、secret-like 内容、绝对路径、身份漂移、事件断序、budget 超限和 uncertain-effect 自动重试全部 fail closed。`AgentHostPort` 再固定 submit / events / status / steer / approve / cancel / result，重复 submit 保持同一 request identity；当前 8 项 contract / fake-host 测试通过。该包不进入 `toolset.json`，因为它没有可执行 authority surface。
 
-本机 P2/P3 首个协议纵切已固定 `codex-cli 0.144.6` 与 stable generated TypeScript bundle hash `ae3056…8e2`。`modules/orchestration-ops/agent-host-codex` 不复制 generated bindings，只实现有界 JSONL correlation、server-request 默认拒绝、read-only / isolated workspace-write 映射、无网络 sandbox 和 reasoning / delta / raw payload 过滤；7 项 package 测试通过。真实 stdio probe 已完成 `initialize → initialized → thread/start(ephemeral/read-only)`，零 protocol error、零 server request、只输出 thread ID 的 SHA-256，未持久化 raw payload。Turn / interrupt、SiliconFlow custom provider、structured result、kill/restart 和 run registry 仍未完成，因此 P2/P3 保持 `active-partial`。
+本机 P2/P3 已固定 `codex-cli 0.144.6` 与 stable generated TypeScript bundle hash `ae3056…8e2`。`agent-host-codex` 已实现 App Server client、Host port、deadline / cancel / interrupt、sanitized event、external output sink 和 ops-owned durable run registry；重复 submit 不重复启动，Developer 中断以 `tool_effect_uncertain` 关闭。真实 stdio probe 已完成 initialize / ephemeral thread 与默认 provider read-only turn；SiliconFlow 因 Responses 404 仍不能驱动 Codex。尚缺真实 structured Developer turn、daemon transport 与 P5 纵切，因此 P2/P3 仍为 `active-partial`。
+
+P4 当前已复用同一 `createTradeMcpServer` registry 支持 stdio 与 bearer-authenticated stateless Streamable HTTP；HTTP 有 loopback/private bind、Host/origin、body 与 rate gate，且按四类 Agent profile 投影最小工具集。`agent-workspace-manager` 已提供 frozen-revision worktree、write-prefix / symlink / secret-data denial、固定 package check、bounded patch、container mount plan 和 active-run-aware GC。macOS 本地 worktree 不构成读隔离证据；只有 Developer container 不挂 production repo / home / owner DB / secret / Docker socket 且网络关闭后，P4 才能完成。
 
 同日 provider / Host 分层探测进一步得到：SiliconFlow `Qwen/Qwen3.5-27B` 的 Chat JSON、SSE stream、single tool、同轮 multi-tool 与 tool-result continuation 全部通过，Responses endpoint 为 `404/unsupported_endpoint`；Direct Codex 默认 provider 的 read-only turn 完成且零 protocol error。Codex custom SiliconFlow profile 能完成 initialize / thread，但 turn 失败；强制 `wire_api="chat"` 在 config/startup 被拒绝。当前 blocker 因而是 `Codex 0.144.6 requires Responses × SiliconFlow lacks Responses`，不能归因成模型或 adapter 质量，也不通过 fork Codex 临时掩盖。OpenClaw alternate Chat runtime 仍可进入公平评测，OpenClaw-managed Codex 只有换 Responses-compatible provider 后才可与 direct Codex 同 provider 比较。
 
