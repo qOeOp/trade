@@ -22,7 +22,7 @@
 | `exchange-gateway` | 10 | 10 | exchange_runtime_store | - |
 | `live-decision-planning` | 8 | 8 | - | J03:slow_track_market_watch |
 | `live-execution-control` | 11 | 11 | - | J01:account_reconcile_guard, J02:fast_track_guard |
-| `research-strategy-development` | 55 | 55 | research_state_store | J04:rd_strategy_supervisor, J05:rd_forward_shadow_trackers |
+| `research-strategy-development` | 56 | 56 | research_state_store | J04:rd_strategy_supervisor, J05:rd_forward_shadow_trackers |
 | `governance-review-compliance` | 5 | 5 | governance_ledger | J07:closed_flow_review_sweep |
 | `artifact-knowledge` | 1 | 1 | artifact_catalog | J06:catalog_hygiene_scan |
 
