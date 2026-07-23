@@ -3,31 +3,44 @@ set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
 secret_dir="${repo_root}/.secrets"
-secret_file="${secret_dir}/agent-host.env"
+legacy_file="${secret_dir}/agent-host.env"
+gateway_file="${secret_dir}/openclaw-gateway.env"
+mcp_file="${secret_dir}/agent-mcp-http.env"
+host_file="${secret_dir}/agent-host-http.env"
 
 mkdir -p "${secret_dir}"
 chmod 700 "${secret_dir}"
 
 umask 077
-touch "${secret_file}"
-chmod 600 "${secret_file}"
+touch "${legacy_file}"
+chmod 600 "${legacy_file}"
 
-added=0
-ensure_token() {
+created=0
+prepare_scoped_token() {
   local name="$1"
-  if grep -q "^${name}=" "${secret_file}"; then
+  local target="$2"
+  touch "${target}"
+  chmod 600 "${target}"
+  if grep -q "^${name}=" "${target}"; then
     return
   fi
-  printf '%s=%s\n' "${name}" "$(openssl rand -hex 32)" >> "${secret_file}"
-  added=$((added + 1))
+  local value=""
+  if grep -q "^${name}=" "${legacy_file}"; then
+    value="$(sed -n "s/^${name}=//p" "${legacy_file}" | head -n 1)"
+  fi
+  if [[ -z "${value}" ]]; then
+    value="$(openssl rand -hex 32)"
+  fi
+  printf '%s=%s\n' "${name}" "${value}" >> "${target}"
+  created=$((created + 1))
 }
 
-ensure_token "OPENCLAW_GATEWAY_TOKEN"
-ensure_token "TRADE_MCP_HTTP_TOKEN"
-ensure_token "TRADE_AGENT_HOST_HTTP_TOKEN"
+prepare_scoped_token "OPENCLAW_GATEWAY_TOKEN" "${gateway_file}"
+prepare_scoped_token "TRADE_MCP_HTTP_TOKEN" "${mcp_file}"
+prepare_scoped_token "TRADE_AGENT_HOST_HTTP_TOKEN" "${host_file}"
 
-if [[ "${added}" -eq 0 ]]; then
-  printf '%s\n' "agent Host secret file already complete"
+if [[ "${created}" -eq 0 ]]; then
+  printf '%s\n' "scoped Agent secret files already complete"
 else
-  printf '%s\n' "added ${added} missing Agent Host secret variable(s)"
+  printf '%s\n' "prepared ${created} scoped Agent secret file(s)"
 fi
