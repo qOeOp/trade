@@ -2,10 +2,13 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs"
 import { dirname, join, normalize } from "node:path"
-import * as ts from "typescript"
+import * as typescriptModule from "typescript"
 import { inspectModuleReferences, isJavaScriptOrTypeScript, isTestSource, scriptKind } from "./lib/source-import-inspection"
 
 type JSONRecord = Record<string, unknown>
+
+const ts = (typescriptModule as typeof typescriptModule & { default?: typeof typescriptModule }).default
+  ?? typescriptModule
 
 interface ToolPackage {
   entry: string
