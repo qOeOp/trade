@@ -246,18 +246,205 @@ validate config/secrets/volumes
 
 每个切片独立提交、验证和回滚。S2 不等待 LLM；S4 不等待 OpenClaw；S7 不因“所有进程能启动”自动成立，也不包含 live authority。可替换 Codex/OpenClaw Host 的采用走独立的 [Agent Host Runtime plan](./agent-host-runtime-integration-plan.md)，不是 S7 的前置条件，也不得反向修改 Program/Owner authority。
 
-### 9.1 剩余执行队列
+### 9.1 完整服务器交付账本
 
-严格按门禁顺序继续，不以新增框架绕过失败项：
+目标交付物不是单个 adapter，而是一套可在远程 Linux 服务器长期运行、经模拟和分阶段采用的无人值守交易系统。按 `D0 → D12` 连续施工；Agent Host 子步骤以 [Agent Host Runtime plan](./agent-host-runtime-integration-plan.md) 的 `P0–P8` 为准。每个阶段都必须包含 scoped diff review、changed/full quality、secret scan、workspace / artifact cleanup 和目标态 / 当前态文档核对。
 
-1. 已完成：credential 修正后执行固定 `bun run provider:smoke`，`passed=true`、marker 精确匹配、64 tokens、无执行 authority。
-2. 新会话加载 `trade-agent` MCP 后，以同一稳定 request identity 启动一个 bounded J04；在已形成 durable Trial、Result 尚未发布的窗口终止 worker，再由 owner workflow 恢复。验收只允许一个 Trial、一个 Result、无重复 artifact/预算消费，且终态由 gate 判定，不以进程退出码代替。
-3. 将上述两份真实证据写入 release evidence，重跑 `server-runtime-release-gate`；预期最高只到 `eligible_for_manual_change_review / no_live_server_shadow`，live 与 promotion 必须仍为 false。
-4. 完成 no-live 人工变更评审后，才评估把版本化 server profile 从 `shadow_program` 改为 `full_shadow`；先单 job authority、保留 Agent fallback，不批量切换。
-5. 后续可靠性依次处理 provider dataset parity、脱敏 usage/trace、rate-limit/circuit breaker、manager secret facility、Operator TLS/OpenClaw fixture 与长时 J04/J05/J07 soak；这些不阻塞 deterministic stream/reconcile，但各自完成前不得扩大语义或网络 authority。
-6. L2 多 symbol、Replay consumer cutover 与 broker adoption 独立推进；只有出现多个 durable consumer、offset replay、backpressure/DLQ 的实证需求，才评测 NATS/Kafka。LangGraph/Temporal 同样只在现有有界状态机无法清晰表达时进入 adoption gate。
+| 阶段 | 状态 | 交付目标 | 阶段 gate |
+| --- | --- | --- | --- |
+| D0 基线与总合同 | active | 冻结现状、任务矩阵、风险与外部采用门 | 所有缺口有 owner / test / exit condition |
+| D1 No-live composition | active-partial | 单命令装配全部确定性 resident / scheduled 进程 | 重启、drain、lease、restore 不重复 effect |
+| D2 市场数据供给 | active-partial | typed demand registry 已完成；继续多 symbol、L2/OHLCV/indicator lifecycle | coverage / freshness / retention 可审计 |
+| D3 在线决策循环 | active-partial | J01/J02/J03、watch、账户级候选仲裁 | 无 fresh facts / contract / risk 即 no_action |
+| D4 执行与恢复 | active-partial | preflight、execution、confirm/reconcile、保护 / 减风险 | 重投不重复下单；未知事实锁风险 |
+| D5 长期策略工厂 | active-partial | Planner/Developer/Replay/Reviewer/Registry/Forward | Codex 式多轮研发不退化；单 Trial / Result |
+| D6 策略治理闭环 | pending | review 成熟度、pause/retire/improve、旧 flow 兼容 | 生命周期决定可回指证据和精确版本 |
+| D7 存储、GC 与灾备 | active-partial | owner-authorized GC、L2 retention、备份 / 恢复 | 空间自愈；受保护事实零误删 |
+| D8 运维、安全与可观察性 | active-partial | health、incident、trace、secret、operator surface | 最小权限、脱敏、可轮换、可告警 |
+| D9 Agent / MCP runtime | active-migration | Codex kernel、OpenClaw Gateway 候选、私有 MCP | Host 离线不影响确定性安全链 |
+| D10 远程容器交付 | active-partial | 固定镜像、Compose/systemd、volume/network/secret | 干净主机可部署、回滚和恢复 |
+| D11 模拟、shadow 与可靠性 | pending | 仿真、故障注入、长时 soak、资源与漂移验证 | 无双写、无 silent stale、无 authority violation |
+| D12 live-small 与生产采用 | pending | 逐 job canary、风险限额、生产 runbook | 外部权限齐备且全部 live gate 通过 |
 
-第 1 项已闭合。第 2 项仍要求某次执行会话实际加载 `trade-agent` MCP；这是该 kill/restart 验证的会话前置条件，不是系统必须依赖 Codex MCP 才能常驻运行的架构结论，也不阻塞独立 Agent Host adapter/评测施工。其余能在原会话安全完成的代码、回归、J06 canary 与 release 复判均已完成。
+#### D0 基线与总合同
+
+| ID | 步骤 | 完成证据 |
+| --- | --- | --- |
+| D0.1 | 保存 dirty-worktree scoped baseline，保护既有改动 | path-scoped status / diff |
+| D0.2 | 盘点每个 resident、J01–J07、watch、worker、owner store、port、volume 和 secret | machine-readable inventory |
+| D0.3 | 将产品故事映射到实现 owner、当前证据、缺口和测试 | coverage matrix |
+| D0.4 | 固定 no-live、full-shadow、live-small、production 四级 profile authority | profile validation tests |
+| D0.5 | 固定外部门：远程主机、Binance key、IP allowlist、账户 / 风险参数、告警目的地 | deployment prerequisite contract |
+| D0.6 | 固定每阶段质量门、清理、artifact retention 和回滚 | engineering contract parity |
+| D0.7 | 跑全仓基线并区分既有失败 / 环境缺口 / 本轮回归 | baseline evidence |
+
+#### D1 No-live composition
+
+| ID | 步骤 | 完成证据 |
+| --- | --- | --- |
+| D1.1 | 统一 release staging、config compile、volume / port / binary preflight | immutable release manifest |
+| D1.2 | 装配 L2 owner、resident consumer、control supervisor、research workers、operator gateway | no-live process graph |
+| D1.3 | 每个长期进程只保留一个 restart authority；manager 与内部 supervisor 不互相拉扯 | crash-loop tests |
+| D1.4 | 实现 startup ordering、readiness、drain 与 bounded shutdown | lifecycle fixture |
+| D1.5 | 验证 fenced lease、stale recovery、同槽重启和 DB busy | monotonic token / no duplicate |
+| D1.6 | 验证 host reboot / process kill 后从 owner state 恢复 | recovery fixture |
+| D1.7 | 聚合 release gate，但保持 domain jobs / live write 关闭 | no-live adoption artifact |
+
+#### D2 市场数据供给
+
+| ID | 步骤 | 完成证据 |
+| --- | --- | --- |
+| D2.1 | 定义 Runtime / R&D data-demand contract、priority、lease、release | complete：strict contract + owner registry / CLI tests |
+| D2.2 | 将固定单 symbol L2 扩为 owner-managed bounded multi-symbol capacity | active-partial：slot / eviction / readiness / drain tests + no-demand foreground fixture；真实双流与 profile cutover 待完成 |
+| D2.3 | 合并 active exposure、候选和 R&D 的兼容需求；调用方不控制 daemon | demand reconciliation |
+| D2.4 | 完成 L2 reconnect、gap/new epoch、current book、bounded watch 与 readiness | fault / freshness tests |
+| D2.5 | 将 OHLCV sync / gap fill 纳入 Program cadence | watermark / retry tests |
+| D2.6 | 将 indicators / features 纳入 source watermark 与 deterministic recompute | stale / recompute tests |
+| D2.7 | 统一 market fact refs、coverage、freshness 和 consumer binding | owner-issued refs |
+| D2.8 | 完成 raw finalize / compaction / reference closure / retention release | no premature delete |
+| D2.9 | 只有实测多 durable consumer backlog 才评估 broker | adoption evidence or rejection |
+
+#### D3 在线决策循环
+
+| ID | 步骤 | 完成证据 |
+| --- | --- | --- |
+| D3.1 | J01 每周期先 reconcile account/order/fill/position facts | unknown fact risk lock |
+| D3.2 | J02 只管理 active flow、保护和明确减风险 | no new thesis / risk tests |
+| D3.3 | J03 以全市场粗筛 → 候选深化 → setup / intent 运行 | no indiscriminate L2 |
+| D3.4 | active-plan watch 覆盖 trigger、invalidation、expiry、cancel 和 restart | deterministic watch suite |
+| D3.5 | setup TTL、instrument tradability 与候选失效释放数据需求 | stale opportunity tests |
+| D3.6 | 实现账户级候选排序、相关暴露、资金互斥与统一分配 | multi-setup fixtures |
+| D3.7 | 固定 setup / lane / flow identity 和精确 strategy version binding | replay / duplicate tests |
+| D3.8 | 每轮 no_action / blocked / skipped 具备 owner reason 与 refs | explainability assertions |
+
+#### D4 执行与恢复
+
+| ID | 步骤 | 完成证据 |
+| --- | --- | --- |
+| D4.1 | 补齐 risk-control 未统一接入的 fresh facts、exposure、market-quality 与成本门 | preflight matrix |
+| D4.2 | intent → execution contract → router → exchange owner 保持单一路径 | no bypass test |
+| D4.3 | Binance write 使用稳定 idempotency、精确授权和最小 credential | duplicate request tests |
+| D4.4 | submit 后必须 confirm 或进入 reconcile；只由 fill 改变 position | uncertain submit fixtures |
+| D4.5 | partial fill、cancel/replace、保护修复、reduce / close 保持事件可追踪 | flow projection tests |
+| D4.6 | exchange/API outage、rate limit、clock drift、规则变化 fail closed | failure matrix |
+| D4.7 | retired / paused 策略的已有 exposure 仍可防御和闭合 | legacy-flow safety tests |
+| D4.8 | live capability 默认编译为 false；不得被 Agent / 容器化隐式开启 | profile / secret gate |
+
+#### D5 长期策略工厂
+
+| ID | 步骤 | 完成证据 |
+| --- | --- | --- |
+| D5.1 | 将 Factory durable lifecycle 与 Campaign / Agent Run / Trial 局部终态分离 | restart / queue tests |
+| D5.2 | 接入 cited research finding、失败、review 与 improvement request | provenance-separated inputs |
+| D5.3 | Planner 生成 typed hypothesis 并经过既有 admission | no direct state write |
+| D5.4 | Developer 做 family / data / Replay / Runtime capability assessment | blocker classification |
+| D5.5 | Developer 在隔离 worktree 改 MD / code / tests | patch / test evidence |
+| D5.6 | owner 冻结 data、reserve Trial、执行 deterministic Replay | single Trial / Result |
+| D5.7 | Agent 阅读失败 artifact 并二次修改或 reject | non-regression fixture |
+| D5.8 | Reviewer 基于登记 evidence 提交 decision | typed review |
+| D5.9 | Registry / Forward / Governance 沿正式入口接纳 | no automatic promotion |
+| D5.10 | mechanical Replay、Agent-assisted evaluation 和 Forward evidence 分权 | evidence-kind gates |
+| D5.11 | 完成 kill/restart、provider outage、duplicate 和 locked-holdout 测试 | long-running Factory evidence |
+
+#### D6 策略治理闭环
+
+| ID | 步骤 | 完成证据 |
+| --- | --- | --- |
+| D6.1 | 汇总 closed-flow review，区分 thesis/data/execution/guard/cost/process | attribution contract |
+| D6.2 | 定义最小独立样本、时间跨度、regime、成本完整度和 execution maturity | decision-ready gate |
+| D6.3 | 实现 keep / observe / pause / retire / improve owner transition | lifecycle tests |
+| D6.4 | retired 版本禁止新 setup / forward / live，但历史证据保留 | fail-closed tests |
+| D6.5 | improvement request 回到 Factory 并形成新 version | no in-place mutation |
+| D6.6 | 新 release 不重新解释旧 active flow；旧实现按依赖回收 | compatibility gate |
+| D6.7 | Agent 只提建议，Governance owner 写最终 decision | authority test |
+
+#### D7 存储、GC 与灾备
+
+| ID | 步骤 | 完成证据 |
+| --- | --- | --- |
+| D7.1 | 建立 owner store / artifact / cache / tmp / L2 raw 容量分类账 | capacity inventory |
+| D7.2 | Program 定期触发 artifact owner dry-run / delete gate | deterministic GC |
+| D7.3 | 保护 active flow、Trial、dataset、evidence、incident 和 durable refs | reference-closure tests |
+| D7.4 | L2 使用专属 compaction / retention / deletion authority | raw safety tests |
+| D7.5 | soft watermark 自动回收；hard line 只局部阻断非必要写入 / 新风险 | pressure tests |
+| D7.6 | SQLite backup、WAL/checkpoint、integrity 与隔离 restore | byte/hash verified restore |
+| D7.7 | DB 与被引用 artifact 一致备份，不留下指向丢失 `tmp/` 的 durable ref | disaster recovery fixture |
+| D7.8 | 未知大文件只允许 Agent 建议，owner 决定删除 | no natural-language delete |
+
+#### D8 运维、安全与可观察性
+
+| ID | 步骤 | 完成证据 |
+| --- | --- | --- |
+| D8.1 | health 分离 process、owner、data freshness、capability、profile readiness | readiness model |
+| D8.2 | trace 关联 cycle/job/Agent/tool/Trial/Result/flow/exchange command | bounded audit lookup |
+| D8.3 | 统一 retry、backoff、circuit breaker、rate / token / cost budgets | failure budget tests |
+| D8.4 | secret facility 按服务注入，支持轮换；不进入 image/log/DB/prompt | secret scan / rotation |
+| D8.5 | Operator API 通过 VPN/TLS/private ingress、鉴权、approval 与 rate limit | network/security tests |
+| D8.6 | incident 分类、告警抑制、升级和恢复确认 | incident fixtures |
+| D8.7 | 日志 / metrics / artifacts 有大小、retention 与脱敏边界 | pressure / leakage tests |
+| D8.8 | 运行账户 / 订单 / 持仓 / 数据 stale / disk / Agent backlog 的值守检查 | unattended dashboard/CLI evidence |
+
+#### D9 Agent 与 MCP runtime
+
+本阶段按 [Agent Host Runtime plan](./agent-host-runtime-integration-plan.md) 的 `P0–P8` 执行；它必须同时满足：
+
+- Codex App Server 是代码研发基线；OpenClaw 是外层 Gateway 候选，不替代 Program。
+- Developer sandbox 是采用前置条件，Planner / Reviewer 默认只读。
+- private MCP 复用相同 owner capability registry；Agent Host 无 production repo RW、owner DB、Binance key 或 scheduler authority。
+- Host/provider 全部离线时，L2、J01/J02、防御执行、GC 与确定性 jobs 继续。
+
+#### D10 远程容器交付
+
+| ID | 步骤 | 完成证据 |
+| --- | --- | --- |
+| D10.1 | 创建 pinned multi-stage images；非 root、read-only rootfs、最小 package | image scan |
+| D10.2 | Compose 首版只表达进程、network、volume、secret 和 health，不表达业务 cadence | config audit |
+| D10.3 | control、L2、Agent、Developer job 与备份 volume / network 隔离 | trust-boundary tests |
+| D10.4 | 生成 systemd / Compose 启停、drain、backup、restore 和 rollback 命令 | clean-host rehearsal |
+| D10.5 | config migration、schema migration 和 release compatibility fail closed | upgrade / downgrade fixture |
+| D10.6 | 锁定 CPU/memory/PID/file/log limits 与 restart policy | resource kill tests |
+| D10.7 | 构建离线 / 可复验部署包、SBOM、hash 和版本 manifest | artifact verification |
+| D10.8 | 在真实 Linux runner / 服务器运行 no-live restore + restart rehearsal | remote adoption evidence |
+
+#### D11 模拟、shadow 与可靠性
+
+| ID | 步骤 | 完成证据 |
+| --- | --- | --- |
+| D11.1 | 历史 Replay 回归覆盖策略、成本、风险和 execution assumptions | deterministic regression |
+| D11.2 | exchange adapter 使用 fixture / testnet / shadow command 验证，不产生真钱动作 | no-live execution evidence |
+| D11.3 | full-shadow 启用 J01–J07 和真实 public/private reads，write 始终 false | job / fact parity |
+| D11.4 | 注入进程、主机、L2、provider、MCP、DB、network 和磁盘故障 | failure matrix |
+| D11.5 | 重投、cancel race、unknown submit、stale facts 和 clock drift | fail-closed report |
+| D11.6 | 长时 soak 观察 restart、memory、disk、backlog、token/cost 和 state growth | bounded soak artifact |
+| D11.7 | 审查 false positive / no_action / missed cadence / degraded recovery 并迭代 | review ledger |
+| D11.8 | clean revision 重跑全部采用证据和全仓质量门 | release candidate |
+
+#### D12 live-small 与生产采用
+
+| ID | 步骤 | 完成证据 |
+| --- | --- | --- |
+| D12.1 | 校验远程主机、备份目的地、时间同步、private ingress 与告警通道 | deployment prerequisites |
+| D12.2 | 校验 Binance key 无提现权限、最小 read/trade、IP allowlist 与轮换方案 | credential attestation |
+| D12.3 | 冻结账户、symbol、strategy、notional、daily loss、exposure、order 与 kill-switch limits | signed risk profile |
+| D12.4 | 先开 private read + reconcile，保持 write false | account parity soak |
+| D12.5 | 单策略 / 单 symbol / 最小 notional live-small canary | confirm/reconcile/stop evidence |
+| D12.6 | 注入 canary 后重启、网络失败和重复请求，证明不双单且保护可恢复 | live fault evidence |
+| D12.7 | 按 job / strategy 独立扩大 authority，任何 gate 失败自动回退 shadow / safe mode | staged adoption ledger |
+| D12.8 | 完成值守 runbook、自动 backup/GC/health/incident 与定期演练 | unattended operations |
+| D12.9 | 只有所有 gate 通过才标记 production adopted；否则交付保持可部署 shadow 候选 | explicit adoption decision |
+
+D0–D9 和 D10 的可审查部署包可以在没有远程主机的当前环境持续完成。D10.8 与 D12 必须有真实 Linux 运行环境；D12 还必须由用户提供最小权限 Binance credential、账户 / 风险参数和 live-small 明确授权。这些外部门不会被测试 key、模拟成交或“容器运行正常”替代。
+
+### 9.2 当前立即执行队列
+
+严格按门禁继续，不以新增框架绕过失败项：
+
+1. 完成 D0 inventory / coverage / profile authority 与全仓基线。
+2. 复判现有 S1–S7 证据，删除只剩历史价值的即时状态描述，保留可复跑 gate。
+3. 完成真实 J04 kill/restart 单 Trial / Result 证据并重跑 no-live release gate；当前因 `trade-agent` MCP surface 未加载而有证据地暂停，不以 CLI 绕过。
+4. D2.1 typed demand / lease / release / reconciliation 已闭合；继续 D2.2–D2.8，不先等待 Agent / Docker。
+5. 并行推进 D9 的 P0–P5 本机工作；Docker/OpenClaw 不阻塞 direct Codex 与 R&D 纵切。
+6. 每完成一个阶段更新本账本状态；阶段全部完成后自动进入下一阶段。
 
 ## 10. 完成定义
 
