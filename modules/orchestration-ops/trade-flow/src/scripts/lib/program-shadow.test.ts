@@ -105,7 +105,7 @@ test("program shadow executes only the fixed ops lifecycle profile", async () =>
 test("program catalog hygiene canary enables only J06 without GC or live writes", async () => {
   const fixture = createFixture("program-shadow-j06-canary-")
   try {
-    const executed: Array<{ cwd: string; argv: string[] }> = []
+    const executed: Array<{ cwd: string; argv: string[]; timeout_ms?: number }> = []
     const result = await runProgramShadowWakeup(
       fixture.tradeDb,
       fixture.tradeDbPath,
@@ -115,8 +115,8 @@ test("program catalog hygiene canary enables only J06 without GC or live writes"
         ops_runtime_db: fixture.opsDbPath,
         runtime_profile: "catalog_hygiene_canary",
       },
-      async (command): Promise<CommandExecutionResult> => {
-        executed.push({ cwd: command.cwd, argv: command.argv })
+      async (command, options): Promise<CommandExecutionResult> => {
+        executed.push({ cwd: command.cwd, argv: command.argv, timeout_ms: options?.timeoutMs })
         if (command.cwd === "modules/orchestration-ops/runtime-health-guard") return healthResult()
         if (command.cwd === "modules/artifact-knowledge/artifact-catalog") {
           return {
@@ -146,6 +146,7 @@ test("program catalog hygiene canary enables only J06 without GC or live writes"
 
     assert.equal(result.runtime_profile, "catalog_hygiene_canary")
     assert.equal(result.outcome, "executed")
+    assert.equal(result.business_status, "completed")
     assert.deepEqual(result.safety, {
       domain_jobs_enabled: true,
       enabled_domain_jobs: ["catalog_hygiene_scan"],
@@ -169,6 +170,7 @@ test("program catalog hygiene canary enables only J06 without GC or live writes"
     assert.equal(catalogCommands[0].argv.includes("--catalog-gc"), false)
     assert.equal(catalogCommands[0].argv.includes("--artifact-gc"), false)
     assert.equal(catalogCommands[0].argv.includes("--yes"), false)
+    assert.equal(executed.every((command) => command.timeout_ms === 90_000), true)
   } finally {
     fixture.close()
   }
