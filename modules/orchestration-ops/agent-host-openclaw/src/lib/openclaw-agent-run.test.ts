@@ -57,6 +57,30 @@ test("OpenClaw Host rejects silent embedded fallback and uncertain Developer res
   fixture.db.close()
 })
 
+test("OpenClaw Host accepts the pinned 2026.7.1 embedded result shape", () => {
+  assert.equal(parseOpenClawOutput(JSON.stringify({
+    payloads: [{ text: "{\"status\":\"ok\"}", mediaUrl: null }],
+    meta: {
+      aborted: false,
+      agentMeta: {
+        provider: "siliconflow",
+        model: "Qwen/Qwen3.5-27B",
+        agentHarnessId: "openclaw",
+      },
+      executionTrace: {
+        runner: "embedded",
+        fallbackUsed: false,
+        attempts: [{
+          provider: "siliconflow",
+          model: "Qwen/Qwen3.5-27B",
+          result: "success",
+          stage: "assistant",
+        }],
+      },
+    },
+  }), "embedded"), "{\"status\":\"ok\"}")
+})
+
 function hostFor(
   db: Database,
   execute: (

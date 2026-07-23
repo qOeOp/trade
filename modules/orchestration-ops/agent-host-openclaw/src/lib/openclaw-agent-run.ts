@@ -273,9 +273,21 @@ export function parseOpenClawOutput(
   const meta = result.meta && typeof result.meta === "object" && !Array.isArray(result.meta)
     ? result.meta as Record<string, unknown>
     : {}
-  const observedTransport = meta.transport === "embedded" ? "embedded" : "gateway"
+  const trace = meta.executionTrace && typeof meta.executionTrace === "object"
+    && !Array.isArray(meta.executionTrace)
+    ? meta.executionTrace as Record<string, unknown>
+    : {}
+  const observedTransport = meta.transport === "embedded" || trace.runner === "embedded"
+    ? "embedded"
+    : meta.transport === "gateway" || trace.runner === "gateway" || gateway
+      ? "gateway"
+      : null
+  if (!observedTransport) throw new Error("OpenClaw result did not attest its transport")
   if (observedTransport !== expectedTransport) {
     throw new Error(`OpenClaw transport drifted: expected ${expectedTransport}, observed ${observedTransport}`)
+  }
+  if (trace.fallbackUsed === true || meta.fallbackFrom != null) {
+    throw new Error("OpenClaw result used an undeclared transport or provider fallback")
   }
   if (gateway && value.status !== "ok") throw new Error("OpenClaw Gateway result is not ok")
   const payloads = result.payloads
