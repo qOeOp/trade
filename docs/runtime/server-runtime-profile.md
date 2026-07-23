@@ -142,6 +142,7 @@ S1 不做自动滚动升级、双实例交接或 active-active；SQLite 单 owne
 - `bun run server:public-smoke`：只读等待两个不同 control cycle，不发送信号；
 - `bun run server:verify-recovery`：只对合成 DB/raw/artifact/profile 执行备份恢复，不读取活跃 owner 数据；
 - `bun run server:release-gate -- --input <evidence.json>`：验证 no-live 采用证据；最多返回 `eligible_for_manual_change_review`，永不授予 exchange write 或自动 promotion；
+- `bun run server:stage-release -- --target-root <absolute-path>`：从 committed HEAD 原子生成不可覆盖 release，复制 lock-bound dependencies 与固定 Rust binaries，创建空 runtime roots；不复制现有 owner DB，不安装或启动 manager；
 - `stop/start/restart`：由当前 profile 的 launchd/systemd 执行，composition CLI 只允许固定 label/unit；
 - `backup-check`：验证 DB 与被引用 artifact 的备份闭包，不直接上传外部存储。
 
@@ -165,5 +166,7 @@ S1 不做自动滚动升级、双实例交接或 active-active；SQLite 单 owne
 2026-07-23 的本机演练已闭合 lifecycle、合成 recovery、full-shadow、R&D CAS/idempotency 和 Operator HTTP policy 的本地证据，结论固定为 `maximum_verified_authority=no_live_local_rehearsal`。一次性证据见 [Server No-Live Rehearsal](../history/server-no-live-rehearsal-2026-07-23.md)。
 
 当前 Darwin arm64 本机已通过 Bun、Rust binaries、foreground entries、owner DB parents、data/tmp 权限和 no-live safety preflight；三个正式 launchd label 均未安装。仓库位于 macOS 受保护的 Downloads 范围，故 launchd preflight 只剩 `launchd_source_privacy` 阻断：必须先授予明确隐私权限，或把只读 release 移到非受保护目录。该阻断不否定 macOS 兼容性，也不阻止显式前台验证，但在解除前不能宣称无人值守。
+
+macOS 正式采用不直接从可编辑 workspace 启动。release staging 只归档 committed HEAD，绑定 `bun.lock`、复制当前 build workspace 的依赖闭包与两个带 hash 的 Rust binaries，并初始化空 `data/`；目标必须是不存在、非受保护且不与仓库互相包含的绝对目录。manifest 不记录本机绝对路径，失败只清理本次新建的 partial target。
 
 主机采用仍被以下证据阻断：本机 launchd 或 Linux systemd 实际安装、真实 durable volume restore、public soak、真实模型 provider smoke、R&D kill/restart 单 Trial/Result、Operator HTTP resident 与 audit roundtrip。macOS/launchd 是完整合法路径，不要求另有 Linux；即使这些证据全部通过，gate 也只允许进入人工变更评审。catalog canary 需显式 operator run，live canary 与 exchange write 需另行授权，不属于本 gate。
