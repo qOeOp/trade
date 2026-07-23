@@ -16,6 +16,7 @@ Owns `ops_runtime_store`, the orchestration observability store for cycle, job, 
 - Persist bounded Watch Task definitions, compare-and-set lifecycle state, counters, typed handoff, terminal reason, and append-only transitions; `triggered` carries no execution authority.
 - Persist Agent Run request identity, lifecycle events, sanitized Host session refs, and terminal result. Duplicate request/idempotency identity is create-or-identical; event sequences and terminal closure fail closed.
 - Persist immutable create-or-identical Agent workspace execution scopes as bounded canonical JSON bound to run/request/scope hashes; this is operational authorization evidence with `domain_authority=none`, not a patch or owner fact.
+- Persist one restart-readable patch-adoption lifecycle per completed Developer Run. A terminal candidate result binds exact run/request/scope/patch and release manifest identity; it grants no merge, deploy, strategy, Replay, promotion, or trading authority.
 
 ## Boundaries
 

@@ -101,6 +101,11 @@ test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds De
   assert.match(agentCompose, /agent-host-code:[\s\S]*openclaw-workspace-http\.ts/)
   assert.match(agentCompose, /agent-workspace-checker:[\s\S]*network_mode: none/)
   assert.match(agentCompose, /agent-workspace-checker:[\s\S]*agent-workspace-checker\.ts/)
+  assert.match(agentCompose, /agent-release-checker:[\s\S]*network_mode: none/)
+  assert.match(agentCompose, /agent-release-checker:[\s\S]*release-checker\.sock/)
+  assert.match(agentCompose, /agent-patch-adopter:[\s\S]*network_mode: none/)
+  assert.match(agentCompose, /agent-patch-adopter:[\s\S]*rd-developer-patch-adoption-worker\.ts/)
+  assert.match(agentCompose, /trade-release-candidates:\/app\/data\/release-candidates/)
   assert.match(agentCompose, /agent-code-workspace:\/app\/tmp\/agent-workspace-slots/)
   assert.match(agentCompose, /agent-code-workspace:\/workspace/)
   assert.match(agentCompose, /agent-code-control:\/app\/control/)
@@ -115,6 +120,13 @@ test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds De
     .split("\n  agent-host-code:")[1]!
     .split("\n  agent-mcp-planner:")[0]!
   assert.doesNotMatch(codeHostBlock, /trade-data:\/app\/data/)
+  const adopterBlock = agentCompose
+    .split("\n  agent-patch-adopter:")[1]!
+    .split("\n  agent-host:")[0]!
+  assert.doesNotMatch(
+    adopterBlock,
+    /trade-data:\/app\/data|rd_state\.db|data_catalog\.db|trade\.db/,
+  )
   assert.match(agentCompose, /TRADE_MCP_RD_STATE_DB: data\/rd_state\.db/)
   assert.match(agentCompose, /TRADE_MCP_CATALOG_DB: data\/data_catalog\.db/)
   assert.match(agentCompose, /TRADE_MCP_TRADE_DB: data\/trade\.db/)

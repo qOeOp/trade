@@ -15,6 +15,7 @@ import type {
   AgentRunLifecycleStatus,
   AgentRunStatus,
 } from "../../../../contracts/agent-run-contract/src/agent-host-port"
+import { ensureAgentPatchAdoptionStoreSchema } from "./agent-patch-adoption-store"
 import { ensureAgentWorkspaceScopeStoreSchema } from "./agent-workspace-scope-store"
 
 export interface AgentRunOperationalRecord {
@@ -130,6 +131,7 @@ export function ensureAgentRunStoreSchema(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_agent_run_tool_result_run
     ON agent_run_tool_result(run_id, occurred_at, call_id)
   `)
+  ensureAgentPatchAdoptionStoreSchema(db)
 }
 
 export function recordAgentRunToolCall(db: Database, input: {

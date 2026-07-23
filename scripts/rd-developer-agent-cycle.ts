@@ -28,6 +28,9 @@ import {
 } from "../modules/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/developer-agent-cycle-cli"
 import type { PreparedDeveloperAgentRun } from "../modules/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/developer-agent-run"
 import { resolveDeveloperWorkspacePolicy } from "../modules/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/developer-workspace-policy"
+import {
+  queueDeveloperPatchAdoption,
+} from "./lib/rd-developer-patch-adoption-queue"
 
 async function main(): Promise<void> {
   const input = parseArgs(Bun.argv.slice(2))
@@ -71,7 +74,16 @@ async function main(): Promise<void> {
       data_snapshot_binding: input.data_snapshot_binding,
       poll_interval_ms: input.poll_interval_ms,
     })
-    console.log(JSON.stringify({ ok: true, result }))
+    const adoption = result.admission.status === "patch_ready"
+      ? queueDeveloperPatchAdoption(opsDb, result)
+      : null
+    console.log(JSON.stringify({
+      ok: true,
+      result: {
+        ...result,
+        patch_adoption: adoption,
+      },
+    }))
   } finally {
     opsDb.close()
     researchDb.close()

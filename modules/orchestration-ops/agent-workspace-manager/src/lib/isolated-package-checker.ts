@@ -4,6 +4,7 @@ import {
   lstatSync,
   realpathSync,
   rmSync,
+  symlinkSync,
 } from "node:fs"
 import { createConnection, createServer } from "node:net"
 import { resolve, sep } from "node:path"
@@ -19,13 +20,33 @@ export interface RunningAgentWorkspaceChecker {
   close(): Promise<void>
 }
 
+export type AgentWorkspaceSuite =
+  | "repository_quality"
+  | "replay_independent_release_audit"
+
+export interface AgentWorkspaceSuiteCheck {
+  schema_version: "trade.agent-workspace-suite-check.v1"
+  suite: AgentWorkspaceSuite
+  exit_code: number
+  timed_out: boolean
+  output_sha256: string
+  output_bytes: number
+}
+
 export function startIsolatedAgentWorkspaceChecker(input: {
   socket_path: string
   workspace_root: string
+  dependency_root?: string
   report_error?: (error: Error) => void
 }): Promise<RunningAgentWorkspaceChecker> {
   const socketPath = absoluteSocketPath(input.socket_path)
   const workspaceRoot = resolve(input.workspace_root)
+  const dependencyRoot = input.dependency_root == null
+    ? null
+    : realpathSync(resolve(input.dependency_root))
+  if (dependencyRoot && !lstatSync(dependencyRoot).isDirectory()) {
+    throw new Error("checker dependency root is not a directory")
+  }
   removeStaleSocket(socketPath)
   let busy = false
   const server = createServer((socket) => {
@@ -49,7 +70,7 @@ export function startIsolatedAgentWorkspaceChecker(input: {
         return
       }
       busy = true
-      void executeCheck(workspaceRoot, text.slice(0, newline))
+      void executeCheck(workspaceRoot, dependencyRoot, text.slice(0, newline))
         .then((check) => socket.end(`${JSON.stringify({ ok: true, check })}\n`))
         .catch((error) => {
           input.report_error?.(
@@ -123,14 +144,62 @@ export async function runIsolatedAgentWorkspacePackageCheck(input: {
   return parsed.check
 }
 
+export async function runIsolatedAgentWorkspaceSuiteCheck(input: {
+  socket_path: string
+  workspace: AgentWorkspace
+  suite: AgentWorkspaceSuite
+  timeout_ms?: number
+  max_output_bytes?: number
+}): Promise<AgentWorkspaceSuiteCheck> {
+  const suite = workspaceSuite(input.suite)
+  const request = {
+    schema_version: "trade.agent-workspace-suite-check-request.v1",
+    request_id: `${input.workspace.run_id}:${suite}`,
+    suite,
+    timeout_ms: boundedInteger(
+      input.timeout_ms ?? (suite === "repository_quality" ? 7_200_000 : 1_200_000),
+      1_000,
+      7_200_000,
+      "timeout_ms",
+    ),
+    max_output_bytes: boundedInteger(
+      input.max_output_bytes ?? 16 * 1024 * 1024,
+      1_024,
+      32 * 1024 * 1024,
+      "max_output_bytes",
+    ),
+  }
+  const response = await exchange(
+    absoluteSocketPath(input.socket_path),
+    `${JSON.stringify(request)}\n`,
+    request.timeout_ms + 5_000,
+  )
+  const parsed = JSON.parse(response) as {
+    ok?: unknown
+    check?: AgentWorkspaceSuiteCheck
+  }
+  if (parsed.ok !== true || !parsed.check
+    || parsed.check.schema_version !== "trade.agent-workspace-suite-check.v1"
+    || parsed.check.suite !== suite) {
+    throw new Error("Isolated Agent workspace checker rejected the suite")
+  }
+  return parsed.check
+}
+
 async function executeCheck(
   workspaceRoot: string,
+  dependencyRoot: string | null,
   text: string,
-): Promise<AgentWorkspacePackageCheck> {
+): Promise<AgentWorkspacePackageCheck | AgentWorkspaceSuiteCheck> {
   const value = JSON.parse(text) as Record<string, unknown>
-  if (value.schema_version !== "trade.agent-workspace-check-request.v1"
-    || typeof value.request_id !== "string"
+  if (typeof value.request_id !== "string"
     || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(value.request_id)) {
+    throw new Error("checker request is invalid")
+  }
+  if (value.schema_version === "trade.agent-workspace-suite-check-request.v1") {
+    return executeSuiteCheck(workspaceRoot, dependencyRoot, value)
+  }
+  if (value.schema_version !== "trade.agent-workspace-check-request.v1") {
     throw new Error("checker request is invalid")
   }
   const packagePath = repoPath(value.package_path)
@@ -157,9 +226,75 @@ async function executeCheck(
   if (!existsSync(resolve(packageRoot, "package.json"))) {
     throw new Error("checker package.json is missing")
   }
+  const result = await withDependencyLink(
+    materializedWorkspaceRoot,
+    dependencyRoot,
+    () => runCheckCommand({
+      command: [process.execPath, "--no-install", "run", "check"],
+      cwd: packageRoot,
+      timeout_ms: timeoutMs,
+      max_output_bytes: maxOutputBytes,
+    }),
+  )
+  return {
+    schema_version: "trade.agent-workspace-check.v1",
+    package_path: packagePath,
+    ...result,
+  }
+}
+
+async function executeSuiteCheck(
+  workspaceRoot: string,
+  dependencyRoot: string | null,
+  value: Record<string, unknown>,
+): Promise<AgentWorkspaceSuiteCheck> {
+  const suite = workspaceSuite(value.suite)
+  const timeoutMs = boundedInteger(
+    value.timeout_ms,
+    1_000,
+    7_200_000,
+    "timeout_ms",
+  )
+  const maxOutputBytes = boundedInteger(
+    value.max_output_bytes,
+    1_024,
+    32 * 1024 * 1024,
+    "max_output_bytes",
+  )
+  const materializedWorkspaceRoot = realpathSync(workspaceRoot)
+  const command = suite === "repository_quality"
+    ? ["/bin/sh", "scripts/quality-check.sh"]
+    : [
+        process.execPath,
+        "--no-install",
+        "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/src/scripts/main.ts",
+      ]
+  const result = await withDependencyLink(
+    materializedWorkspaceRoot,
+    dependencyRoot,
+    () => runCheckCommand({
+      command,
+      cwd: materializedWorkspaceRoot,
+      timeout_ms: timeoutMs,
+      max_output_bytes: maxOutputBytes,
+    }),
+  )
+  return {
+    schema_version: "trade.agent-workspace-suite-check.v1",
+    suite,
+    ...result,
+  }
+}
+
+async function runCheckCommand(input: {
+  command: string[]
+  cwd: string
+  timeout_ms: number
+  max_output_bytes: number
+}): Promise<Omit<AgentWorkspaceSuiteCheck, "schema_version" | "suite">> {
   const child = Bun.spawn({
-    cmd: [process.execPath, "--no-install", "run", "check"],
-    cwd: packageRoot,
+    cmd: input.command,
+    cwd: input.cwd,
     env: sanitizedEnvironment(),
     stdin: "ignore",
     stdout: "pipe",
@@ -169,21 +304,54 @@ async function executeCheck(
   const timer = setTimeout(() => {
     timedOut = true
     child.kill("SIGKILL")
-  }, timeoutMs)
+  }, input.timeout_ms)
   const [stdout, stderr, exitCode] = await Promise.all([
-    readBounded(child.stdout, maxOutputBytes, () => child.kill("SIGKILL")),
-    readBounded(child.stderr, maxOutputBytes, () => child.kill("SIGKILL")),
+    readBounded(
+      child.stdout,
+      input.max_output_bytes,
+      () => child.kill("SIGKILL"),
+    ),
+    readBounded(
+      child.stderr,
+      input.max_output_bytes,
+      () => child.kill("SIGKILL"),
+    ),
     child.exited,
   ])
   clearTimeout(timer)
   const output = Buffer.concat([stdout, stderr])
+  if (output.byteLength > input.max_output_bytes) {
+    throw new Error("checker output exceeds byte limit")
+  }
   return {
-    schema_version: "trade.agent-workspace-check.v1",
-    package_path: packagePath,
     exit_code: exitCode,
     timed_out: timedOut,
     output_sha256: createHash("sha256").update(output).digest("hex"),
     output_bytes: output.byteLength,
+  }
+}
+
+async function withDependencyLink<T>(
+  workspaceRoot: string,
+  dependencyRoot: string | null,
+  run: () => Promise<T>,
+): Promise<T> {
+  if (!dependencyRoot) return run()
+  const link = resolve(workspaceRoot, "node_modules")
+  let created = false
+  if (existsSync(link)) {
+    if (!lstatSync(link).isSymbolicLink()
+      || realpathSync(link) !== dependencyRoot) {
+      throw new Error("checker dependency link drifted")
+    }
+  } else {
+    symlinkSync(dependencyRoot, link, "dir")
+    created = true
+  }
+  try {
+    return await run()
+  } finally {
+    if (created && existsSync(link)) rmSync(link)
   }
 }
 
@@ -273,6 +441,15 @@ function repoPath(value: unknown): string {
     throw new Error("checker package path is invalid")
   }
   return path
+}
+
+function workspaceSuite(value: unknown): AgentWorkspaceSuite {
+  if (!["repository_quality", "replay_independent_release_audit"].includes(
+    String(value),
+  )) {
+    throw new Error("checker suite is invalid")
+  }
+  return value as AgentWorkspaceSuite
 }
 
 function boundedInteger(

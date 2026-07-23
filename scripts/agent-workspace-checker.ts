@@ -9,6 +9,9 @@ async function main(): Promise<void> {
   const checker = await startIsolatedAgentWorkspaceChecker({
     socket_path: input.socket_path,
     workspace_root: input.workspace_root,
+    ...(input.dependency_root == null
+      ? {}
+      : { dependency_root: input.dependency_root }),
     report_error: (error) => {
       console.error(JSON.stringify({
         schema_version: "trade.agent-workspace-checker-error.v1",
@@ -34,6 +37,7 @@ async function main(): Promise<void> {
 function parseArgs(argv: string[]): {
   socket_path: string
   workspace_root: string
+  dependency_root: string | null
 } {
   const values = new Map<string, string>()
   for (let index = 0; index < argv.length; index += 2) {
@@ -53,6 +57,9 @@ function parseArgs(argv: string[]): {
       values.get("workspace-root") ?? "/workspace/active",
       "workspace_root",
     ),
+    dependency_root: values.has("dependency-root")
+      ? absolutePath(values.get("dependency-root")!, "dependency_root")
+      : null,
   }
 }
 

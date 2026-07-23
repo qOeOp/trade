@@ -82,12 +82,13 @@ services:
     volumes:
       - agent-code-workspace:/workspace
       - agent-code-control:/control
+      - trade-release-candidates:/release-candidates
     entrypoint:
       - /bin/sh
       - -eu
       - -c
     command:
-      - chown 1000:10001 /workspace && chmod 2770 /workspace && chown 10001:10001 /control && chmod 770 /control
+      - chown 1000:10001 /workspace && chmod 2770 /workspace && chown 10001:10001 /control /release-candidates && chmod 770 /control /release-candidates
 
   agent-workspace-checker:
     image: trade-developer-runtime:${TRADE_IMAGE_TAG:-local}
@@ -117,6 +118,8 @@ services:
       - /control/checker.sock
       - --workspace-root
       - /workspace/active
+      - --dependency-root
+      - /app/node_modules
     healthcheck:
       test:
         - CMD
@@ -124,6 +127,102 @@ services:
         - -c
         - test -S /control/checker.sock
       interval: 10s
+      timeout: 3s
+      retries: 4
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
+  agent-release-checker:
+    image: trade-developer-runtime:${TRADE_IMAGE_TAG:-local}
+    restart: always
+    read_only: true
+    user: "10001:10001"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m
+    pids_limit: 512
+    mem_limit: 4g
+    cpus: 2.0
+    volumes:
+      - agent-code-workspace:/workspace
+      - agent-code-control:/control
+    depends_on:
+      agent-code-volume-init:
+        condition: service_completed_successfully
+    command:
+      - bun
+      - scripts/agent-workspace-checker.ts
+      - --socket-path
+      - /control/release-checker.sock
+      - --workspace-root
+      - /workspace/candidate
+      - --dependency-root
+      - /app/node_modules
+    healthcheck:
+      test:
+        - CMD
+        - /bin/sh
+        - -c
+        - test -S /control/release-checker.sock
+      interval: 10s
+      timeout: 3s
+      retries: 4
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
+  agent-patch-adopter:
+    image: trade-developer-runtime:${TRADE_IMAGE_TAG:-local}
+    restart: always
+    stop_grace_period: 30s
+    user: "10001:10001"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m
+    pids_limit: 512
+    mem_limit: 4g
+    cpus: 2.0
+    environment:
+      TRADE_AGENT_OPS_DB: data/ops/ops_runtime.db
+      TRADE_AGENT_RELEASE_CHECKER_SOCKET: /app/control/release-checker.sock
+    volumes:
+      - trade-ops:/app/data/ops
+      - trade-agent-artifacts:/app/data/artifacts/agent-runs
+      - trade-release-candidates:/app/data/release-candidates
+      - agent-code-workspace:/app/tmp/agent-workspace-slots
+      - agent-code-control:/app/control
+    depends_on:
+      agent-code-volume-init:
+        condition: service_completed_successfully
+      agent-release-checker:
+        condition: service_healthy
+    command:
+      - bun
+      - scripts/rd-developer-patch-adoption-worker.ts
+      - --ready-file
+      - /app/control/adopter.ready
+    healthcheck:
+      test:
+        - CMD
+        - /bin/sh
+        - -c
+        - test -f /app/control/adopter.ready
+      interval: 15s
       timeout: 3s
       retries: 4
       start_period: 10s
@@ -367,3 +466,4 @@ volumes:
   openclaw-state:
   agent-code-workspace:
   agent-code-control:
+  trade-release-candidates:

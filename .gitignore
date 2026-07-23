@@ -20,6 +20,7 @@ data/l2/
 data/artifacts/
 data/rd/
 data/rd-datasets/
+data/release-candidates/
 data/calibration-panel-*/
 data/validation-panel-*/
 data/external-panel-*/
