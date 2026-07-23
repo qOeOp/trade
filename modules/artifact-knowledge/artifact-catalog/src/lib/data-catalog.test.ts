@@ -289,6 +289,38 @@ test("data catalog initializes schema and scans datasets, runs, artifacts, and l
   }
 })
 
+test("data catalog skips live partials and tolerates files disappearing after enumeration", () => {
+  const dir = mkdtempSync(join(tmpdir(), "data-catalog-live-race-"))
+  try {
+    const catalogDbPath = join(dir, "data_catalog.db")
+    const root = join(dir, "data")
+    mkdirSync(root, { recursive: true })
+    writeFileSync(join(root, "epoch-0001-segment-000001.tl2s"), "finalized")
+    writeFileSync(join(root, "epoch-0001-segment-000002.tl2s.partial.123.456"), "in-flight")
+    writeFileSync(join(root, "state.db-wal"), "sqlite-sidecar")
+    const disappearing = join(root, "enumerated-then-missing.json")
+    writeFileSync(disappearing, "{}")
+
+    const result = scanDataCatalog(
+      { catalogDbPath, roots: [root], now: "2026-07-23T00:00:00.000Z" },
+      { beforeArtifact: (path) => { if (path === disappearing) rmSync(path) } },
+    )
+
+    assert.equal(result.scanned_files, 2)
+    assert.equal(result.transient_files_skipped, 2)
+    assert.equal(result.files_disappeared, 1)
+    assert.equal(result.artifacts_upserted, 1)
+    const db = new Database(catalogDbPath)
+    try {
+      assert.equal(count(db, "artifact"), 1)
+    } finally {
+      db.close()
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("data catalog classifies strategy data split reports without panel pollution", () => {
   const dir = mkdtempSync(join(tmpdir(), "data-catalog-split-report-"))
   try {
