@@ -6,6 +6,7 @@ import {
 } from "../../../contracts/src/lib/certified-strategy-source-binding"
 import {
   admitCertifiedStrategySourceForForward,
+  listForwardSourceAdmissions,
   readForwardSourceAdmission,
 } from "./forward-source-admission"
 import { applySystemTransition } from "./research-control-plane-operations"
@@ -47,6 +48,7 @@ test("certified source admission transitions Draft to Forward exactly once", () 
   })
   expect(admitted).toEqual(binding)
   expect(readForwardSourceAdmission(db, binding.admission_id)).toEqual(binding)
+  expect(listForwardSourceAdmissions(db)).toEqual([binding])
   expect(db.query(`
     SELECT lifecycle_state, lifecycle_version
     FROM rd_experiment_contract WHERE experiment_id='experiment-1'

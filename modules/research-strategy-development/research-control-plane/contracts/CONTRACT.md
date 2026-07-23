@@ -36,6 +36,7 @@ Owns the stable cross-plane identity and Draft Strategy authorization contracts.
 - Define the only authorization accepted by Strategy Registry: an `accept_for_draft` Reviewer Decision bound to one completed Trial and primary Result.
 - Define the registered Draft Strategy binding consumed by Forward Evidence Plane.
 - Define self-hashed `Certified Strategy Source Binding v1` as the only source identity accepted by Forward admission. It joins the exact Draft/Decision/policy hash to Registry candidate、Ops certification manifest、candidate source revision/archive and historical Replay build/runtime hashes while granting only `source_binding_only`; deployment and trading authority remain absent.
+- Define self-hashed `Forward Observation Program v1`. It derives one symbol/timeframe and the first strictly post-freeze candle boundary from the certified source、Draft freeze and exact historical Replay registration. Its only active output is a renewable Research-priority OHLCV demand；it cannot create a Forward Session、Dataset/Reservation、Replay authority、deployment or trade.
 - Reject incomplete or mutable-looking boundary objects before owner commands run.
 
 ## Boundaries

@@ -18,6 +18,10 @@ const forwardSourceWorker = readFileSync(
   resolve(root, "scripts/rd-forward-source-admission-worker.ts"),
   "utf8",
 )
+const forwardMarketDataWorker = readFileSync(
+  resolve(root, "scripts/rd-forward-market-data-demand-worker.ts"),
+  "utf8",
+)
 const openClawConfig = JSON.parse(
   readFileSync(resolve(root, "deploy/server/openclaw.json"), "utf8"),
 ) as Record<string, unknown>
@@ -116,6 +120,8 @@ test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds De
   assert.match(agentCompose, /strategy-registry-worker:[\s\S]*trade-release-candidates:\/app\/data\/release-candidates/)
   assert.match(agentCompose, /forward-source-admission-worker:[\s\S]*network_mode: none/)
   assert.match(agentCompose, /forward-source-admission-worker:[\s\S]*rd-forward-source-admission-worker\.ts/)
+  assert.match(agentCompose, /forward-market-data-worker:[\s\S]*network_mode: none/)
+  assert.match(agentCompose, /forward-market-data-worker:[\s\S]*rd-forward-market-data-demand-worker\.ts/)
   assert.match(agentCompose, /agent-workspace-checker:[\s\S]*network_mode: none/)
   assert.match(agentCompose, /agent-workspace-checker:[\s\S]*agent-workspace-checker\.ts/)
   assert.match(agentCompose, /agent-release-checker:[\s\S]*network_mode: none/)
@@ -148,6 +154,14 @@ test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds De
   assert.match(adoptionWorker, /runStrategySourceAdoption/)
   assert.match(forwardSourceWorker, /listCertifiedStrategySourceAdoptions/)
   assert.match(forwardSourceWorker, /admitCertifiedStrategyAdoptionToForward/)
+  assert.match(
+    forwardMarketDataWorker,
+    /reconcileForwardObservationPrograms/,
+  )
+  assert.match(
+    forwardMarketDataWorker,
+    /recordForwardMarketDataDemandDelivery/,
+  )
   const forwardSourceBlock = agentCompose
     .split("\n  forward-source-admission-worker:")[1]!
     .split("\n  agent-mcp-planner:")[0]!
@@ -160,6 +174,18 @@ test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds De
   assert.doesNotMatch(
     forwardSourceBlock,
     /\/app\/strategies|agent-control|TRADE_AGENT_HOST_HTTP_TOKEN/,
+  )
+  const forwardMarketDataBlock = agentCompose
+    .split("\n  forward-market-data-worker:")[1]!
+    .split("\n  agent-mcp-planner:")[0]!
+  assert.match(forwardMarketDataBlock, /trade-data:\/app\/data/)
+  assert.match(
+    forwardMarketDataBlock,
+    /forward_session_authority==="none"/,
+  )
+  assert.doesNotMatch(
+    forwardMarketDataBlock,
+    /agent-control|trade-ops|release-candidates|TRADE_AGENT_HOST_HTTP_TOKEN/,
   )
   const registryBlock = agentCompose
     .split("\n  strategy-registry-worker:")[1]!

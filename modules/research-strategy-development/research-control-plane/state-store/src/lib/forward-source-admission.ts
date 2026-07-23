@@ -184,6 +184,27 @@ export function readForwardSourceAdmission(
   return binding
 }
 
+export function listForwardSourceAdmissions(
+  db: Database,
+  limit = 1_000,
+): CertifiedStrategySourceBinding[] {
+  ensureForwardSourceAdmissionSchema(db)
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10_000) {
+    throw new Error("Forward source admission limit is invalid")
+  }
+  const rows = db.query(`
+    SELECT binding_json FROM rd_forward_source_admission
+    ORDER BY admission_id COLLATE BINARY
+    LIMIT $limit
+  `).all({ $limit: limit }) as Array<{ binding_json: string }>
+  return rows.map((row) => {
+    const binding = JSON.parse(row.binding_json) as
+      CertifiedStrategySourceBinding
+    assertCertifiedStrategySourceBinding(binding)
+    return binding
+  })
+}
+
 function requireForwardSourceAdmission(
   db: Database,
   admissionId: string,

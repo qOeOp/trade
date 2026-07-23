@@ -1359,3 +1359,45 @@ BEGIN SELECT RAISE(ABORT, 'Forward source admission is immutable'); END;
 CREATE TRIGGER IF NOT EXISTS rd_forward_source_admission_no_delete
 BEFORE DELETE ON rd_forward_source_admission
 BEGIN SELECT RAISE(ABORT, 'Forward source admission is durable'); END;
+
+CREATE TABLE IF NOT EXISTS rd_forward_observation_program (
+  program_id TEXT PRIMARY KEY,
+  source_admission_id TEXT NOT NULL UNIQUE,
+  source_binding_hash TEXT NOT NULL UNIQUE,
+  experiment_id TEXT NOT NULL UNIQUE,
+  draft_id TEXT NOT NULL UNIQUE,
+  selected_trial_id TEXT NOT NULL,
+  historical_request_registration_id TEXT NOT NULL UNIQUE,
+  historical_request_hash TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  timeframe TEXT NOT NULL,
+  frozen_at TEXT NOT NULL,
+  first_observation_open_time TEXT NOT NULL,
+  market_data_demand_id TEXT NOT NULL UNIQUE,
+  program_hash TEXT NOT NULL UNIQUE,
+  program_json TEXT NOT NULL CHECK(json_valid(program_json)),
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (source_admission_id)
+    REFERENCES rd_forward_source_admission(admission_id),
+  FOREIGN KEY (experiment_id)
+    REFERENCES rd_experiment_contract(experiment_id),
+  FOREIGN KEY (draft_id) REFERENCES rd_strategy_draft(draft_id),
+  FOREIGN KEY (historical_request_registration_id)
+    REFERENCES rd_replay_request_registration(registration_id)
+);
+
+CREATE TABLE IF NOT EXISTS rd_forward_market_data_demand_delivery (
+  demand_hash TEXT PRIMARY KEY,
+  program_id TEXT NOT NULL,
+  demand_id TEXT NOT NULL,
+  demand_json TEXT NOT NULL CHECK(json_valid(demand_json)),
+  lease_issued_at TEXT NOT NULL,
+  lease_expires_at TEXT NOT NULL,
+  owner_commit_status TEXT NOT NULL CHECK(owner_commit_status IN (
+    'created', 'renewed', 'existing'
+  )),
+  accepted_at TEXT NOT NULL,
+  UNIQUE(program_id, lease_issued_at),
+  FOREIGN KEY (program_id)
+    REFERENCES rd_forward_observation_program(program_id)
+);
