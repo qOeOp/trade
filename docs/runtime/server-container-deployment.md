@@ -12,8 +12,8 @@ last_verified: 2026-07-23 CST
 
 `deploy/server/` 已形成首个 Linux no-live 容器纵切：
 
-- 固定 Bun `1.3.13`、Rust `1.97.1` 与 lockfile，镜像内编译两个 L2 release binary；
-- 单一 runtime 容器在同一 PID、loopback 与文件 namespace 内按 `L2 owner → resident consumer → control runtime` 启动；
+- 固定 Bun `1.3.13`、Rust `1.97.1`、Go `1.25` 与 lockfile，镜像内编译两个 L2 release binary 和指标 provider；
+- 单一 runtime 容器在同一 PID、loopback 与文件 namespace 内按 `control runtime → demand-driven L2 manager → OHLCV worker → indicator worker` 启动；没有需求时数据 worker 保持空闲，出现 Runtime / R&D 的 owner-backed lease 后才创建有界 symbol 供给；
 - 每项必须通过自身 owner readiness 后才启动下一项；任一已 ready 顶层进程意外退出，组内反向 drain 并让 Docker 重启整个 composition；
 - `SIGTERM` 反向 drain，镜像使用 `tini`、非 root 用户、只读根文件系统、零 Linux capability、`no-new-privileges`、资源与日志上限；
 - DB、L2 raw、普通 tmp、受保护 artifact 与 panel 使用分离 named volume；
@@ -38,7 +38,7 @@ docker compose -f deploy/server/compose.yaml exec runtime \
   bun modules/orchestration-ops/trade-flow/src/scripts/server-runtime-container-status.ts
 ```
 
-健康必须同时满足 L2 owner healthy、consumer healthy 与 control supervisor lease active。`container running` 或单一 HTTP 200 不等于 ready。
+健康必须同时满足 control supervisor lease active、market-data manager 以及 OHLCV / indicator resident worker 的新鲜 running state；具体 symbol 的 L2/OHLCV/indicator 可用性仍由对应 demand fact 的 coverage/freshness 证明。`container running` 或单一 HTTP 200 不等于 ready。
 
 停止与删除容器不删除 named volume：
 
