@@ -44,9 +44,9 @@
     {
       "role": "cross-process-reproducibility",
       "path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-cross-process-reproducibility-bundle.json",
-      "content_sha256": "5c24d45b0f3a4b65bff0c915bdd6843e93ef9adda081d0b3f232b55a28c7281b",
+      "content_sha256": "755f5491aec59aaf2ccaae705a2f6d04970e83f7396484d3d7742c11dc40574d",
       "authority_hash_field": "bundle_sha256",
-      "authority_hash": "d4c63500ee195c81640fa3dd39012d575842c23a3f0ba3eb2ae8a04da3ac4764"
+      "authority_hash": "26e0e3fc29c20aff354e7425bbff3ce183a69d8d1cf097efc6a407104f229465"
     },
     {
       "role": "historical-artifact-migration-registry",
@@ -65,23 +65,23 @@
     {
       "role": "publication-crash-recovery",
       "path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-publication-crash-recovery-bundle.json",
-      "content_sha256": "bc7aaffb4d4e7f93ed3053c1137b84f3c155126b1fdcfb5b60ce92bdc6e0c5cd",
+      "content_sha256": "7e8cace03b408e242fa5c5a3bf0a21f5c27af9897838cd1afe95c55294bd3335",
       "authority_hash_field": "bundle_sha256",
-      "authority_hash": "6b4405386fd641e1fe62ea46c24baa4b8767c44863cc7b6bbda1d5d2fdbd9028"
+      "authority_hash": "c38208865af17b69e096d71dd745e2151ffb5c5e9bd21f3c2ec543876d3522b8"
     },
     {
       "role": "capacity-performance-envelope",
       "path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-capacity-performance-envelope.json",
-      "content_sha256": "6912aead763219d1f1270d52b5e7a63a209f5890e624e04813b422c61858212e",
+      "content_sha256": "24a73d28f54b55b91c1f87fc765923676fa9fce8257ac8831d9934f14a604e6b",
       "authority_hash_field": "bundle_sha256",
-      "authority_hash": "4cb3054c5c808199de8a0aa1ddf05ec751f2e83a0d21a5034d5921d87b689701"
+      "authority_hash": "80df6d679dd024388bc6971fca6056f2a956329cf2fe47e36f5f5390ea330664"
     },
     {
       "role": "fault-corruption-recovery",
       "path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-fault-corruption-recovery-bundle.json",
-      "content_sha256": "735baf038f1e7aba3c85433d784413aae71267b1f5c8b14e152f3c13039ad7fc",
+      "content_sha256": "66101685f33f64c269e14e6e930e059c58eac7cd10dcfe52d21e11db72861532",
       "authority_hash_field": "bundle_sha256",
-      "authority_hash": "01ad5b1a77a7fd275834c8f364e5e62863c85f6025cb7da66309aa43697899ff"
+      "authority_hash": "3157e6296015330e43a6e353d2c4ddc182ff1fbe078d2c6c23a43c312440d215"
     },
     {
       "role": "operational-readiness",
@@ -113,7 +113,7 @@
       "checkpoint_mode": "resumable-engine-checkpoint-v32",
       "golden_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.test.ts",
       "golden_test_name": "runner atomically commits artifacts and retries idempotently",
-      "golden_source_sha256": "d7f535d4ce52adfc6bfefcea3572b3f8694e445de9f05dbb2c68c6611ed2d0d1",
+      "golden_source_sha256": "6d8202ed515aed186f033e9092543e4aa84840699e0ab69a2f76fe51e5540a4c",
       "timeout_ms": 25000
     },
     {
@@ -133,5 +133,5 @@
     "fixture-pack-does-not-authorize-release-without-independent-audit",
     "remote-distributed-store-shadow-live-and-real-account-evidence-out-of-scope"
   ],
-  "pack_sha256": "353f097897e5948dc43a9f0bc18b089b2fe8c343175ce8b93b300a94d214576e"
+  "pack_sha256": "160cc9485e186b8e8c05286464acdf52f465ca939d2711f9b99f058ac531ab6a"
 }

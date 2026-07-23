@@ -4,8 +4,8 @@
   "subject": {
     "owner": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification",
     "fixture_pack_path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-release-candidate-fixture-pack.json",
-    "fixture_pack_content_sha256": "ac03e097ff67bdcf1d83fea4f2935f21901e7dfbc085eebb4dd36356a968dfa1",
-    "fixture_pack_sha256": "353f097897e5948dc43a9f0bc18b089b2fe8c343175ce8b93b300a94d214576e"
+    "fixture_pack_content_sha256": "1524ea6c40d6bc548a7e134c3c20df33196f5989b2bebcbfb44f54e3fd152076",
+    "fixture_pack_sha256": "160cc9485e186b8e8c05286464acdf52f465ca939d2711f9b99f058ac531ab6a"
   },
   "independence_policy": "auditor-outside-subject-owner-no-subject-implementation-import",
   "verification_policy": "independent-pack-and-component-rehash-negative-challenges-then-full-certify",
@@ -75,5 +75,5 @@
     "audit-does-not-expand-public-profiles-or-simulator-semantics",
     "remote-distributed-store-shadow-live-and-real-account-evidence-out-of-scope"
   ],
-  "audit_manifest_sha256": "f560434502fe1e47914232e2284c91368e5c21dcc4f84c2bab484166efee5449"
+  "audit_manifest_sha256": "70c6eef34de554ec10d24cdad12f54c3e42770f649b4e6e70ad31f91402654f2"
 }

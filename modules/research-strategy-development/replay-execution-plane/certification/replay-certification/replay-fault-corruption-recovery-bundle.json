@@ -40,7 +40,7 @@
       "fault_kind": "committed-payload-corruption",
       "evidence_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.test.ts",
       "evidence_test_name": "runner fences stale Attempt leases and verifies every committed artifact file",
-      "evidence_source_sha256": "d7f535d4ce52adfc6bfefcea3572b3f8694e445de9f05dbb2c68c6611ed2d0d1",
+      "evidence_source_sha256": "6d8202ed515aed186f033e9092543e4aa84840699e0ab69a2f76fe51e5540a4c",
       "expected_detection": "artifact-file-hash-mismatch-on-idempotent-read",
       "expected_authority_outcome": "corrupt-commit-rejected",
       "recovery_class": "fresh-attempt-rebuild-required",
@@ -120,5 +120,5 @@
     "integrated-and-terminal-profiles-have-no-checkpoint-and-require-full-rerun",
     "cross-host-cross-runtime-and-concurrent-fault-schedules-not-certified"
   ],
-  "bundle_sha256": "01ad5b1a77a7fd275834c8f364e5e62863c85f6025cb7da66309aa43697899ff"
+  "bundle_sha256": "3157e6296015330e43a6e353d2c4ddc182ff1fbe078d2c6c23a43c312440d215"
 }
