@@ -1,10 +1,10 @@
 import { existsSync, readFileSync } from "node:fs"
-import { dirname, join, relative } from "node:path"
+import { dirname, join } from "node:path"
 import { Database } from "bun:sqlite"
 import { buildJobTicket, type ProtocolToolsetEntry } from "../../../../../contracts/protocol-fabric/src/protocol-fabric"
 import { buildLifecycleProcessorRecord, buildLifecycleProcessorSpec } from "../../../../../contracts/runtime-core/src/lifecycle"
 import { activeFlows as readActiveFlows, activeFlowsAsync as readActiveFlowsAsync } from "./flow-projector-client"
-import { displayPath, repoRoot, resolveRepoPath } from "../../../../../contracts/runtime-core/src/paths"
+import { displayPath, repoRoot } from "../../../../../contracts/runtime-core/src/paths"
 
 type JSONRecord = Record<string, unknown>
 
@@ -142,9 +142,11 @@ export function buildAutomationCyclePlan(
   const catalogRoots = configuredCatalogRoots.length > 0 ? configuredCatalogRoots : ["./data", "./tmp"]
   const catalogDb = displayPath(stringField(input.catalog_db) || DEFAULT_CATALOG_DB)
   const opsRuntimeDb = displayPath(stringField(input.ops_runtime_db) || DEFAULT_OPS_RUNTIME_DB)
-  const healthOpsRuntimeDbArg = toolRelativePath(opsRuntimeDb, "modules/orchestration-ops/runtime-health-guard")
-  const notifyOpsRuntimeDbArg = toolRelativePath(opsRuntimeDb, "modules/orchestration-ops/ops-notify-dispatch")
-  const reviewOpsRuntimeDbArg = toolRelativePath(opsRuntimeDb, "modules/orchestration-ops/control-effectiveness-review")
+  // Lifecycle owners resolve relative DB inputs from repoRoot(), not from their
+  // command cwd. Preserve the canonical repo-relative path across the port.
+  const healthOpsRuntimeDbArg = opsRuntimeDb
+  const notifyOpsRuntimeDbArg = opsRuntimeDb
+  const reviewOpsRuntimeDbArg = opsRuntimeDb
   const governanceDb = displayPath(stringField(input.governance_db) || DEFAULT_GOVERNANCE_DB)
   const cycleId = input.cycle_id || `automation-cycle-${generatedAt.replace(/[:.]/g, "-")}`
   const activeChainIds = activeFlows.map((flow) => stringField(flow.chain_id)).filter(Boolean)
@@ -729,10 +731,6 @@ function rdStrategySupervisorJob(input: {
 
 function shellCommand(argv: string[]): string {
   return argv.map(shellQuote).join(" ")
-}
-
-function toolRelativePath(path: string, toolCwd: string): string {
-  return relative(join(repoRoot(), toolCwd), resolveRepoPath(path)) || "."
 }
 
 function commandFromToolJob(toolJob: JSONRecord): string {
