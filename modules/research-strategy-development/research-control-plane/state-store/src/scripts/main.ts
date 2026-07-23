@@ -181,6 +181,14 @@ export function run(args: Args): JSONRecord {
       const developerRunId = stringField(args.json.developer_run_id)
       const draftRevision = numberField(args.json.draft_revision)
       const createdAt = stringField(args.json.created_at)
+      const proposedDraft = asRecord(args.json.draft_json)
+      const ownerBoundDraft: JSONRecord = {
+        ...proposedDraft,
+        schema_version: "trade.rd-experiment-contract-draft-payload.v1",
+        canonical_node_id: brief.universe_node_id,
+        required_data: brief.dataset_requirements,
+        candidate_space: brief.candidate_space,
+      }
       const contractDraft = blocked
         ? null
         : buildDeveloperContractDraftSubmission({
@@ -188,7 +196,7 @@ export function run(args: Args): JSONRecord {
             developer_run_id: developerRunId,
             draft_revision: draftRevision,
             requested_trial_budget: numberField(args.json.requested_trial_budget),
-            draft_json: asRecord(args.json.draft_json),
+            draft_json: ownerBoundDraft,
             created_at: createdAt,
           })
       const submission = createDeveloperAgentSubmission({
