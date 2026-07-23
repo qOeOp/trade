@@ -2713,14 +2713,15 @@
         "rd-loop-supervisor",
         "rd-autonomous-loop",
         "experiment-evaluation",
-        "compatibility-mechanical-replay"
+        "compatibility-mechanical-replay",
+        "formal-replay-orchestration"
       ],
       "capability_class": [
         "A",
         "E"
       ],
       "path": "modules/research-strategy-development/research-control-plane/program-supervisor",
-      "purpose": "Run native J04 rd_strategy_supervisor or execute one immutable current-contract compatibility Evaluation Work Package from durable RD state.",
+      "purpose": "Run native J04 rd_strategy_supervisor, execute one immutable compatibility Evaluation Work Package, or orchestrate one registered formal Replay job from durable RD state.",
       "command": {
         "cwd": "modules/research-strategy-development/research-control-plane/program-supervisor",
         "argv": [
@@ -2747,6 +2748,7 @@
       "notes": [
         "Orchestrates plan_next, rd-loop-runner / rd-campaign-runner execution, explicit RD state writeback, and optional draft strategy policy creation.",
         "The alternate --evaluation-job mode consumes an owner-compiled Work Package, completes already-reserved Trials, and publishes compatibility_mechanical_replay evidence; it never claims formal Replay authority or permits positive promotion.",
+        "The alternate --formal-replay-job mode crosses registered Attempt Admission and Replay Execution owner CLIs, then atomically publishes only replay_owner/mechanical_replay evidence; it grants no Review, Registry, Forward, deployment, or trading authority.",
         "Returns a domain-runtime job result owned by research-strategy-development for J04."
       ],
       "module_type": "atomic",

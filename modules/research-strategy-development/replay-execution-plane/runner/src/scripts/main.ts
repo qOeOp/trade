@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 
-import { errorResponse, printScriptResult, readFlagValue, readJsonObject, successResponse } from "../../../../../contracts/runtime-core/src/script-json"
+import { errorResponse, printScriptResult, readFlagValue, readJsonObject, readJsonObjectFile, successResponse } from "../../../../../contracts/runtime-core/src/script-json"
 import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
+import { assertProjectRuntimePath, resolveRepoPath } from "../../../../../contracts/runtime-core/src/paths"
 import type { ReplayResumeAuthorizationSnapshot, TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 import type { ReplayRegisteredAttemptDispatchAuthority } from "../../../../research-control-plane/contracts/src/lib/replay-registered-attempt-dispatch-authority"
 import type { ReplayDatasetManifest, ReplayFundingEvent, ReplayMarkEvent, ReplayMarketBar, ReplaySupplementalFact } from "../../../contracts/src/lib/replay-contracts"
@@ -44,11 +45,20 @@ export function run(argv: string[]): JSONRecord {
 }
 
 function parse(argv: string[]): JSONRecord {
+  let input: JSONRecord | null = null
   for (let index = 0; index < argv.length; index += 1) {
-    if (argv[index] === "--json") return readJsonObject(readFlagValue(argv, ++index, "--json"))
-    throw new Error(`unknown flag: ${argv[index]}`)
+    if (argv[index] === "--json") {
+      if (input) throw new Error("Replay execution accepts one input source")
+      input = readJsonObject(readFlagValue(argv, ++index, "--json"))
+    } else if (argv[index] === "--input") {
+      if (input) throw new Error("Replay execution accepts one input source")
+      const ref = readFlagValue(argv, ++index, "--input")
+      assertProjectRuntimePath(ref)
+      input = readJsonObjectFile(resolveRepoPath(ref))
+    } else throw new Error(`unknown flag: ${argv[index]}`)
   }
-  throw new Error("Replay execution requires --json")
+  if (!input) throw new Error("Replay execution requires --json or --input")
+  return input
 }
 
 function record(value: unknown): JSONRecord { return value && typeof value === "object" && !Array.isArray(value) ? value as JSONRecord : {} }
