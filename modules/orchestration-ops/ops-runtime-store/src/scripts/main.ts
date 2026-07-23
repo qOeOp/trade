@@ -37,6 +37,11 @@ import {
 } from "../lib/watch-task-store"
 import type { WatchTaskEvaluation } from "../../../../contracts/watch-task-contract/src/watch-task-contract"
 import { displayPath } from "../../../../contracts/runtime-core/src/paths"
+import {
+  ensureAgentRunStoreSchema,
+  readAgentRunToolUsage,
+  recordAgentRunToolCall,
+} from "../lib/agent-run-store"
 
 type Args = DbActionJsonArgs
 
@@ -73,6 +78,7 @@ export function run(args: Args): JSONRecord {
   try {
     ensureDatabaseIdentity(db, buildDatabaseIdentity(args.environmentId, "ops_runtime_store"), { allowLegacyMigration: args.migrateIdentity })
     ensureOpsRuntimeSchema(db)
+    ensureAgentRunStoreSchema(db)
     if (args.action === "init") {
       return { ok: true, action: "init", db: displayPath(args.dbPath), environment_id: args.environmentId, store_id: "ops_runtime_store" }
     }
@@ -111,6 +117,31 @@ export function run(args: Args): JSONRecord {
       const cycle = buildCycleRun(args.json)
       upsertCycleRun(db, cycle)
       return { ok: true, action: args.action, cycle }
+    }
+    if (args.action === "record_agent_tool_call") {
+      return {
+        ok: true,
+        action: args.action,
+        usage: recordAgentRunToolCall(db, {
+          call_id: stringField(args.json.call_id),
+          run_id: stringField(args.json.run_id),
+          request_hash: stringField(args.json.request_hash),
+          task_profile: stringField(args.json.task_profile) as "planner" | "developer" | "reviewer" | "explanation",
+          tool_name: stringField(args.json.tool_name),
+          occurred_at: stringField(args.json.occurred_at),
+        }),
+      }
+    }
+    if (args.action === "read_agent_tool_usage") {
+      return {
+        ok: true,
+        action: args.action,
+        usage: readAgentRunToolUsage(
+          db,
+          stringField(args.json.run_id),
+          stringField(args.json.request_hash),
+        ),
+      }
     }
     if (args.action === "record_job") {
       const job = buildJobRun(args.json)
@@ -177,7 +208,7 @@ export function run(args: Args): JSONRecord {
 function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/ops_runtime.db --action init",
-    "actions: init | record_cycle | record_job | record_message | list_messages | record_incident | list_incidents | update_incident | list_incident_events | acquire_lock | read_lock | renew_lock | release_lock | summary | parity_status | watch_create | watch_read | watch_arm | watch_apply_evaluation | watch_handoff | watch_complete | watch_cancel",
+    "actions: init | record_cycle | record_job | record_message | list_messages | record_incident | list_incidents | update_incident | list_incident_events | acquire_lock | read_lock | renew_lock | release_lock | summary | parity_status | record_agent_tool_call | read_agent_tool_usage | watch_create | watch_read | watch_arm | watch_apply_evaluation | watch_handoff | watch_complete | watch_cancel",
   ].join("\n"))
 }
 

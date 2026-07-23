@@ -27,6 +27,12 @@ export interface AgentRunOperationalRecord {
   result: AgentRunResult | null
 }
 
+export interface AgentRunToolUsage {
+  run_id: string
+  request_hash: string
+  tool_calls: number
+}
+
 export function ensureAgentRunStoreSchema(db: Database): void {
   db.run(`
     CREATE TABLE IF NOT EXISTS agent_run (
@@ -57,6 +63,98 @@ export function ensureAgentRunStoreSchema(db: Database): void {
     )
   `)
   db.run("CREATE INDEX IF NOT EXISTS idx_agent_run_status ON agent_run(status, updated_at)")
+  db.run(`
+    CREATE TABLE IF NOT EXISTS agent_run_tool_call (
+      call_id       TEXT PRIMARY KEY,
+      run_id        TEXT NOT NULL,
+      request_hash  TEXT NOT NULL,
+      task_profile  TEXT NOT NULL,
+      tool_name     TEXT NOT NULL,
+      occurred_at   TEXT NOT NULL,
+      FOREIGN KEY(run_id) REFERENCES agent_run(run_id)
+    )
+  `)
+  db.run(`
+    CREATE TRIGGER IF NOT EXISTS prevent_agent_run_tool_call_update
+    BEFORE UPDATE ON agent_run_tool_call
+    BEGIN SELECT RAISE(ABORT, 'Agent Run tool-call evidence is immutable'); END
+  `)
+  db.run(`
+    CREATE TRIGGER IF NOT EXISTS prevent_agent_run_tool_call_delete
+    BEFORE DELETE ON agent_run_tool_call
+    BEGIN SELECT RAISE(ABORT, 'Agent Run tool-call evidence is immutable'); END
+  `)
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_agent_run_tool_call_run
+    ON agent_run_tool_call(run_id, occurred_at, call_id)
+  `)
+}
+
+export function recordAgentRunToolCall(db: Database, input: {
+  call_id: string
+  run_id: string
+  request_hash: string
+  task_profile: AgentRunRequest["task_profile"]
+  tool_name: string
+  occurred_at: string
+}): AgentRunToolUsage {
+  validateOpaque(input.call_id, "call_id")
+  validateOpaque(input.run_id, "run_id")
+  if (!/^[a-f0-9]{64}$/.test(input.request_hash)) {
+    throw new Error("request_hash is invalid")
+  }
+  if (!["planner", "developer", "reviewer", "explanation"].includes(input.task_profile)) {
+    throw new Error("task_profile is invalid")
+  }
+  if (!/^[a-z][a-z0-9_]{0,127}$/.test(input.tool_name)) {
+    throw new Error("tool_name is invalid")
+  }
+  canonicalTime(input.occurred_at, "occurred_at")
+  const run = requireAgentRun(db, input.run_id)
+  if (run.request.request_hash !== input.request_hash
+    || run.request.task_profile !== input.task_profile) {
+    throw new Error("Agent Run tool-call identity drifted")
+  }
+  if (run.result || !["accepted", "running"].includes(run.status)) {
+    throw new Error("Agent Run tool call is outside an active run")
+  }
+  db.query(`
+    INSERT INTO agent_run_tool_call(
+      call_id, run_id, request_hash, task_profile, tool_name, occurred_at
+    ) VALUES (
+      $call_id, $run_id, $request_hash, $task_profile, $tool_name, $occurred_at
+    )
+  `).run({
+    $call_id: input.call_id,
+    $run_id: input.run_id,
+    $request_hash: input.request_hash,
+    $task_profile: input.task_profile,
+    $tool_name: input.tool_name,
+    $occurred_at: input.occurred_at,
+  })
+  return readAgentRunToolUsage(db, input.run_id, input.request_hash)
+}
+
+export function readAgentRunToolUsage(
+  db: Database,
+  runId: string,
+  requestHash: string,
+): AgentRunToolUsage {
+  validateOpaque(runId, "run_id")
+  if (!/^[a-f0-9]{64}$/.test(requestHash)) throw new Error("request_hash is invalid")
+  const run = requireAgentRun(db, runId)
+  if (run.request.request_hash !== requestHash) {
+    throw new Error("Agent Run tool usage identity drifted")
+  }
+  const row = db.query(`
+    SELECT COUNT(*) AS tool_calls
+    FROM agent_run_tool_call
+    WHERE run_id=$run_id AND request_hash=$request_hash
+  `).get({
+    $run_id: runId,
+    $request_hash: requestHash,
+  }) as { tool_calls: number }
+  return { run_id: runId, request_hash: requestHash, tool_calls: row.tool_calls }
 }
 
 export function admitAgentRun(
