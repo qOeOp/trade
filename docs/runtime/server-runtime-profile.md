@@ -10,7 +10,7 @@ last_verified: 2026-07-23 CST
 
 ## 1. Authority 与采用范围
 
-本文冻结 [Server Runtime Implementation Plan](../architecture/migrations/server-runtime-implementation-plan.md) S1 的首个可部署 profile：在单台 macOS 或 Linux 主机上装配现有 Rust L2、resident L2 consumer 与 `shadow_program` control runtime。它只闭合进程、配置、依赖、健康和停机，不复制 scheduler、领域计算或 store authority。
+本文冻结 [Server Runtime Implementation Plan](../architecture/migrations/server-runtime-implementation-plan.md) S1 的首个可部署 profile。host-native legacy profile 在单台 macOS 或 Linux 主机上装配固定 symbol 的 Rust L2、resident L2 consumer 与 `shadow_program` control runtime；新的 Linux container profile 改为装配 control runtime、demand-driven L2 manager、OHLCV worker 与 indicator worker。二者都只闭合进程、配置、依赖、健康和停机，不复制 scheduler、领域计算或 store authority。
 
 当前已形成首个 no-live composition root：版本化 Linux/macOS profile、三个 foreground entrypoint、closed-world validator、deterministic systemd/launchd renderer、容器 foreground composition、只读 preflight/status，以及有界 lifecycle/public-smoke/recovery fixture。2026-07-23 已从非受保护目录的 immutable release 在本机安装三个 per-user launchd agent 并取得 no-live process authority；Linux systemd 与容器仍只有 render / 静态合同 / composition fixture，不是本机采用前置。
 
@@ -20,21 +20,22 @@ last_verified: 2026-07-23 CST
 | L2 consumer | 正式 foreground supervisor、worker restart、snapshot/watch、latest health | launchd 独立重启已证明不连坐 owner；长期 crash-loop soak 待闭合 |
 | control runtime | foreground cadence、lease/fencing、signal drain、聚合 status | 仍固定 `shadow_program`；J01–J07 与 live write 关闭 |
 
-首个 production target 允许 **macOS launchd**、**Linux systemd** 或 Linux Docker 装配同一组仓库 foreground entrypoint。`profile/server-runtime-macos.json` 与 `profile/server-runtime.json` 只分离 manager-specific identity，不分叉业务命令和 authority。Docker 纵切已复用 Linux profile，并以一个容器保持当前 PID / loopback owner 语义；Docker 只重启 composition，内部按 readiness 启动和反向 drain。当前尚无真实容器采用证据，精确运行与限制见 [Server Container Deployment](./server-container-deployment.md)。
+首个 production target 允许 **macOS launchd**、**Linux systemd** 或 Linux Docker。`profile/server-runtime-macos.json` 与 `profile/server-runtime.json` 是 host-native legacy 入口；`profile/server-runtime-container.json` 是服务器目标入口，已经把固定单 symbol pair 替换为 demand-driven market-data residents。Docker 以一个容器保持现有 PID / loopback owner 语义；Docker 只重启 composition，内部按 readiness 启动和反向 drain。当前尚无真实容器采用证据，精确运行与限制见 [Server Container Deployment](./server-container-deployment.md)。
 
 ## 2. 唯一进程 authority
 
 ```text
 launchd | systemd | Docker
-  -> l2-owner foreground supervisor -> exact Rust child
-  -> l2-consumer foreground supervisor -> exact consumer worker
   -> control-runtime foreground supervisor -> bounded owner commands
+  -> market-data manager -> bounded per-symbol L2 owner + consumer pairs
+  -> OHLCV demand worker -> owner-backed gap fill
+  -> indicator demand worker -> deterministic Go provider
 ```
 
 - process manager 只负责 unit 的 start、stop、restart/backoff；业务依赖仍由 owner readiness/epoch/lease fail closed。
 - 每个仓库 supervisor 只管理自己的 exact child、业务 lease、状态投影与 drain；不得 daemonize、写 PID file 或重启 sibling。
 - composition root 只负责 preflight、render/install profile 和聚合 status；它不是常驻第四层 supervisor。
-- 容器例外是一个透明 foreground group：只管理三个 exact 顶层 child、readiness 顺序与反向 drain；任一 child 意外退出即让组失败，由 Docker 重启整个 group，不在内部重启 sibling。
+- 容器例外是一个透明 foreground group：只管理四个 exact 顶层 child、readiness 顺序与反向 drain；任一 child 意外退出即让组失败，由 Docker 重启整个 group，不在内部重启 sibling。
 - `launch.ts`、`consumer-launch.ts` 与旧 program-only launchd wrapper 继续用于开发/运维验证，不得作为 server unit entrypoint，因为它们会 detached 后返回。
 - MCP、HTTP、OpenClaw、Codex 和 LLM 均不是 daemon parent，也不能取得 signal、PID 或 restart authority。
 
