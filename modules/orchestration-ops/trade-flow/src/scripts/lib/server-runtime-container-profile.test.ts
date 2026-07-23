@@ -21,10 +21,12 @@ test("container profile composes demand-driven market data and no-live control",
   assert.equal(profile.market_data_runtime.l2.max_instances, 3)
   assert.equal(profile.safety.live_writes_allowed, false)
   assert.match(serverRuntimeContainerProfileHash(profile), /^[a-f0-9]{64}$/)
+  const specs = serverRuntimeContainerProcessSpecs(profile, "/opt/trade", "/usr/bin/bun")
   assert.deepEqual(
-    serverRuntimeContainerProcessSpecs(profile, "/opt/trade", "/usr/bin/bun").map((item) => item.id),
+    specs.map((item) => item.id),
     ["control-runtime", "market-data-manager", "ohlcv-worker", "indicator-worker"],
   )
+  assert.match(specs[0]!.command.at(-1)!, /"runtime_profile":"demand_driven_shadow"/)
 })
 
 test("container profile rejects live widening, DB collision, and invalid L2 capacity", () => {
