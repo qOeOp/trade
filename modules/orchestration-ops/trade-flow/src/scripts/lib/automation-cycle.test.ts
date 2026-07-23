@@ -196,7 +196,7 @@ test("automation cycle plan derives L2 owner and resident-consumer checks from e
     const healthInput = asRecord(asRecord(healthSpec.payload).json)
     assert.equal(healthInput.require_l2_ready, true)
     assert.equal(healthInput.require_l2_watch_consumer_ready, true)
-    assert.equal(asArray(asRecord(healthSpec.command_spec).argv)[3], "../../../data/ops_runtime.db")
+    assert.equal(asArray(asRecord(healthSpec.command_spec).argv)[3], "data/ops_runtime.db")
     const jobs = asArray(result.jobs).map(asRecord)
     assert.deepEqual(jobs.find((job) => job.job_id === "slow_track_market_watch")?.required_health_checks, [
       "l2_service:owner_health",
