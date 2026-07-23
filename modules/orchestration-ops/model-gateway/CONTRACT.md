@@ -3,7 +3,8 @@
 ## Responsibility
 
 - Execute one bounded provider-neutral model task through a fixed profile and the `SILICONFLOW_API_KEY` process secret.
-- Enforce capability, timeout, retry, input/output/token budgets, JSON parsing, truncation handling, redacted trace refs, and typed failure classes.
+- Enforce capability, timeout, retry, input/output/token budgets, non-thinking JSON generation, JSON parsing, truncation handling, redacted trace refs, and typed failure classes.
+- Provide a fixed, argument-free `provider:smoke` probe that requires an exact JSON semantic marker and returns only the sanitized task result; it does not persist evidence or grant authority.
 
 ## Boundaries
 
