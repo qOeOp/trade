@@ -44,6 +44,8 @@ request 不携带 provider、model、credential、路径、命令或 tool choice
 
 版本化 [model-gateway profile](../../profile/model-gateway.json) 固定国内站 `https://api.siliconflow.cn/v1`、model 和 `json_object` capability；密钥只从进程环境 `SILICONFLOW_API_KEY` 读取。Qwen JSON task 固定 `enable_thinking=false`，避免 reasoning 消耗有界 output budget 后留下空 content。仓库文件、CLI payload、artifact、trace、incident 与测试 fixture 不得包含真实 key。服务器部署应通过 credential facility 注入，不把 `.env` 当长期 authority。
 
+2026-07-23 的真实 capability probe 使用同一 profile 验证 Chat JSON、SSE stream、single tool、同轮 multi-tool 与 tool-result continuation 均为 `200/passed`；`/responses` 明确返回 `404/unsupported_endpoint`。因此 SiliconFlow 当前可承载 Direct Model Task 与使用 Chat wire 的 Agent runtime 候选，但不能直接承载只接受 Responses custom provider 的 Codex `0.144.6`。该结论是 wire compatibility，不是模型质量或长期采用结论；probe 只持久化状态 / reason / HTTP code，不保存 raw response。
+
 ## 5. 当前证据与采用门
 
 当前 typecheck 与编译后离线测试覆盖 canonical request/result、secret-like prompt、hash/authority/identity 漂移、credential 缺失、限次恢复、429/503、截断、无效 JSON/usage、token 超限、有效 hypothesis、领域 schema 失败及 provider failure；全链 authority 始终为 `none`。
