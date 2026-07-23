@@ -43,6 +43,8 @@ S7 已新增机器可判定的 no-live release gate，并完成本机合成 life
 
 本机 Darwin arm64 采用检查已确认 Bun、Rust binaries、foreground entries、owner path 与 safety 可用，正式 launchd labels 尚未安装；当前唯一 manager 前置阻断是仓库处于 Downloads 受保护目录且尚无明确隐私授权。可选择授予权限或把 release 移到非受保护目录，不再要求迁移到 Linux。
 
+后续冲突审计发现现有独立 L2 已占用 `50061`，因此 macOS profile 使用隔离 `51061`，且 preflight 新增 listener availability。server launchd manager 只允许三个固定 label，拒绝 loaded duplicate、plist drift 与 blocked preflight，bootstrap 失败时只回滚本次创建的 labels/plists。
+
 为避免把可编辑 workspace 直接交给 launchd，macOS 采用新增 immutable release staging：只取 committed HEAD，绑定 dependency lock 与 Rust binary hashes，使用全新 runtime roots，不复制现有 owner 数据。staged release 通过自身 preflight 后才可进入 plist diff/install。
 
 ## 3. 运行工作模型
