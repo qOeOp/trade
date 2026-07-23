@@ -1,0 +1,10 @@
+{
+  "name": "agent-run-contract",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test ./src/*.test.ts",
+    "check": "bun run typecheck && bun run test"
+  }
+}
