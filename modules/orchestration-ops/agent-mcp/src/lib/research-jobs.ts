@@ -50,8 +50,8 @@ export interface DeveloperSubmissionPrepareInput {
     | "tool_blocked"
   reason_code: string
   required_capabilities: string[]
-  requested_trial_budget: number
-  draft_json: JSONRecord | string
+  requested_trial_budget?: number
+  draft_json?: JSONRecord | string
   requested_at: string
 }
 
@@ -285,7 +285,9 @@ export class ResearchJobService {
       task_profile: "developer",
       tool_name: "research_developer_submission_prepare",
     })
-    const draftJson = parseDraftJson(input.draft_json)
+    const blocked = input.implementation_mode === "data_blocked"
+      || input.implementation_mode === "tool_blocked"
+    const draftJson = blocked ? undefined : parseDraftJson(requiredDraftJson(input.draft_json))
     const response = ownerData(await this.execute({
       script: "modules/research-strategy-development/research-control-plane/state-store/src/scripts/main.ts",
       args: [
@@ -294,7 +296,10 @@ export class ResearchJobService {
         "--action",
         "prepare_developer_agent_submission",
         "--json",
-        JSON.stringify({ ...input, draft_json: draftJson }),
+        JSON.stringify({
+          ...input,
+          ...(draftJson ? { draft_json: draftJson } : {}),
+        }),
       ],
     }))
     const submission = asRecord(response.submission)
@@ -526,6 +531,11 @@ function parseDraftJson(value: JSONRecord | string): JSONRecord {
   const result = asRecord(parsed)
   if (Object.keys(result).length === 0) throw new Error("draft_json must be non-empty")
   return result
+}
+
+function requiredDraftJson(value: JSONRecord | string | undefined): JSONRecord | string {
+  if (value == null) throw new Error("non-blocked Developer submission requires draft_json")
+  return value
 }
 
 function buildResearchJobGraphInput(

@@ -21,6 +21,12 @@ import {
   type PlannerProposalSubmission,
 } from "../../../contracts/src/lib/planner-proposal-submission"
 import { buildPlannerProposal } from "../../../../agent-roles/planner/src/lib/planner-role"
+import {
+  assessCandidateSpaceCompatibility,
+  listStrategyFamilyCapabilities,
+  readStrategyFamilyCapability,
+  type StrategyFamilyCapability,
+} from "../../../../agent-roles/developer/strategy-family-engine/src/lib/strategy-family-capability"
 import { admitPlannerProposal } from "../../../state-store/src/lib/planner-proposal-intake"
 
 export const PLANNER_AGENT_CONTEXT_PACK_SCHEMA =
@@ -36,6 +42,7 @@ export interface PlannerAgentContextPackBody {
   planner_run_id: string
   objective: string
   control_plane_context: PlannerControlPlaneContextSnapshot
+  strategy_family_capabilities: StrategyFamilyCapability[]
   requested_at: string
 }
 
@@ -55,11 +62,12 @@ const PLANNER_INSTRUCTION = [
   "Call research_planner_proposal_prepare exactly once with context-pack planner_run_id and the outer run.request_hash unchanged plus your selected bounded proposal body, then return its proposal field exactly; do not calculate or alter hashes yourself.",
   "Copy the run objective exactly into objective, use data_surfaces.slug values such as ohlcv rather than surface_id values, and pass context-pack requested_at unchanged as requested_at; the owner binds it as created_at.",
   "Select one active canonical and only ready linked data surfaces.",
+  "If the selected canonical has a ready strategy_family_capability, candidate_space axis names and scalar values must conform to that capability's parameter_axes; do not invent aliases for implementation parameters.",
   "Do not create Trial, Result, strategy files, lifecycle decisions, or domain effects.",
 ].join("\n")
 
 export function createPlannerAgentContextPack(
-  input: PlannerAgentContextPackBody,
+  input: Omit<PlannerAgentContextPackBody, "strategy_family_capabilities">,
 ): PlannerAgentContextPack {
   if (input.schema_version !== PLANNER_AGENT_CONTEXT_PACK_SCHEMA) {
     throw new Error("Planner Agent context pack schema is unsupported")
@@ -70,6 +78,7 @@ export function createPlannerAgentContextPack(
     planner_run_id: identifier(input.planner_run_id, "planner_run_id"),
     objective: boundedText(input.objective, 1, 2_000, "objective"),
     control_plane_context: structuredClone(input.control_plane_context),
+    strategy_family_capabilities: listStrategyFamilyCapabilities(),
     requested_at: utc(input.requested_at, "requested_at"),
   }
   return { ...body, context_pack_hash: digestText(canonicalJson(body)) }
@@ -167,6 +176,21 @@ function validateProposalAgainstPack(
   if (proposal.objective !== pack.objective) throw new Error("Planner proposal objective drifted")
   if (Date.parse(proposal.created_at) < Date.parse(pack.requested_at)) {
     throw new Error("Planner proposal predates its context pack")
+  }
+  const family = readStrategyFamilyCapability(proposal.universe_node_id)
+  if (family) {
+    const compatibility = assessCandidateSpaceCompatibility(proposal.candidate_space, family)
+    if (!compatibility.compatible) {
+      throw new Error([
+        "Planner proposal candidate space is incompatible with ready family implementation",
+        ...compatibility.unsupported_axes.map((axis) => `unsupported:${axis}`),
+        ...compatibility.invalid_axes.map((axis) => `invalid:${axis}`),
+      ].join("; "))
+    }
+    const required = [...proposal.dataset_requirements].sort()
+    if (JSON.stringify(required) !== JSON.stringify(family.required_data)) {
+      throw new Error("Planner proposal data requirements drift from ready family implementation")
+    }
   }
   const rebuilt = buildPlannerProposal({
     proposal_id: proposal.proposal_id,

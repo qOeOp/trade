@@ -15,6 +15,10 @@ import {
 import { createAgentArtifactCliPort } from "../lib/agent-artifact-cli-port"
 import { AgentHostHttpClient } from "../lib/agent-host-http-client"
 import { runDeveloperAgentCycle } from "../lib/developer-agent-cycle"
+import {
+  createDeveloperDataSnapshotBinding,
+  type DeveloperDataSnapshotBinding,
+} from "../lib/developer-capability-assessment"
 
 async function main(): Promise<void> {
   const input = parseArgs(Bun.argv.slice(2))
@@ -44,6 +48,7 @@ async function main(): Promise<void> {
         ? { predecessor_run_id: input.predecessor_run_id }
         : {}),
       replay_result_refs: input.replay_result_refs,
+      data_snapshot_binding: input.data_snapshot_binding,
       poll_interval_ms: input.poll_interval_ms,
     })
     console.log(JSON.stringify({ ok: true, result }))
@@ -68,6 +73,7 @@ function parseArgs(argv: string[]): {
   brief_id: string
   predecessor_run_id: string | null
   replay_result_refs: AgentArtifactRef[]
+  data_snapshot_binding: DeveloperDataSnapshotBinding | null
   poll_interval_ms: number
 } {
   const value = parseAgentCyclePayload(argv, "Developer")
@@ -78,7 +84,16 @@ function parseArgs(argv: string[]): {
     brief_id: identifier(value.brief_id, "brief_id"),
     predecessor_run_id: nullableIdentifier(value.predecessor_run_id, "predecessor_run_id"),
     replay_result_refs: artifactRefs(value.replay_result_refs),
+    data_snapshot_binding: dataSnapshotBinding(value.data_snapshot_binding),
   }
+}
+
+function dataSnapshotBinding(value: unknown): DeveloperDataSnapshotBinding | null {
+  if (value == null) return null
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("data_snapshot_binding must be an object")
+  }
+  return createDeveloperDataSnapshotBinding(value as DeveloperDataSnapshotBinding)
 }
 
 function artifactRefs(value: unknown): AgentArtifactRef[] {

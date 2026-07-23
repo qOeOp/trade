@@ -25,6 +25,11 @@ import {
   receiveDeveloperContractDraft,
 } from "../../../state-store/src/lib/developer-contract-draft-intake"
 import type { AgentArtifactPort } from "./planner-agent-run"
+import {
+  createDeveloperCapabilityAssessment,
+  type DeveloperCapabilityAssessment,
+  type DeveloperDataSnapshotBinding,
+} from "./developer-capability-assessment"
 
 export const DEVELOPER_AGENT_CONTEXT_PACK_SCHEMA =
   "trade.rd-developer-agent-context-pack.v1" as const
@@ -34,6 +39,7 @@ export interface DeveloperAgentContextPack {
   developer_run_id: string
   source_revision: string
   brief: DeveloperDevelopmentBrief
+  capability_assessment: DeveloperCapabilityAssessment
   next_draft_revision: number
   predecessor_run_id: string | null
   replay_result_refs: AgentArtifactRef[]
@@ -58,8 +64,10 @@ export interface DeveloperAgentAdmission {
 const DEVELOPER_INSTRUCTION = [
   "Act as the bounded R&D Developer in the isolated workspace.",
   "Assess whether the admitted mechanism uses an existing implementation, needs only a contract, needs code changes, or is blocked by data/tool coverage.",
+  "The context-pack capability_assessment is deterministic and authoritative. Copy its required_mode, reason_code, and required_capabilities exactly; never claim stronger coverage.",
   "For this contract-design capability, call research_developer_submission_prepare exactly once with the context-pack developer_run_id, brief_id, source_revision, and predecessor_run_id plus the outer run.request_hash unchanged.",
   "Choose only existing_implementation, contract_only, data_blocked, or tool_blocked; code_change_required is not available through this read-only capability and evidence for it must never be fabricated.",
+  "For data_blocked or tool_blocked, omit draft_json and requested_trial_budget; the canonical tool will return a blocked submission without a fabricated Contract Draft.",
   "For a non-blocked submission, design draft_json within the Brief candidate space and keep requested_trial_budget at or below the Brief maximum; the owner tool binds schema_version, canonical_node_id, required_data, and candidate_space from the Brief.",
   "Use context-pack next_draft_revision exactly and pass context-pack requested_at unchanged as requested_at; the owner binds it as created_at.",
   "Return only the submission object returned by the tool, exactly and without prose or edits.",
@@ -81,6 +89,7 @@ export function prepareDeveloperAgentRun(input: {
   artifacts: AgentArtifactPort
   predecessor_run_id?: string
   replay_result_refs?: AgentArtifactRef[]
+  data_snapshot_binding?: DeveloperDataSnapshotBinding | null
   max_wall_time_ms?: number
 }): PreparedDeveloperAgentRun {
   const requestedAt = utc(input.requested_at, "requested_at")
@@ -92,11 +101,18 @@ export function prepareDeveloperAgentRun(input: {
     requested_at: requestedAt,
   })
   const nextDraftRevision = readNextDraftRevision(input.db, brief.brief_id)
+  const sourceRevision = revision(input.source_revision)
+  const capabilityAssessment = createDeveloperCapabilityAssessment({
+    brief,
+    source_revision: sourceRevision,
+    data_snapshot_binding: input.data_snapshot_binding,
+  })
   const body = {
     schema_version: DEVELOPER_AGENT_CONTEXT_PACK_SCHEMA,
     developer_run_id: identifier(input.developer_run_id, "developer_run_id"),
-    source_revision: revision(input.source_revision),
+    source_revision: sourceRevision,
     brief,
+    capability_assessment: capabilityAssessment,
     next_draft_revision: nextDraftRevision,
     predecessor_run_id: input.predecessor_run_id == null
       ? null
@@ -241,6 +257,14 @@ function validateSubmissionBindings(
     || submission.source_revision !== prepared.request.source_revision
     || submission.predecessor_run_id !== pack.predecessor_run_id) {
     throw new Error("Developer Agent submission identity drifted")
+  }
+  if (submission.capability_assessment.implementation_mode
+      !== pack.capability_assessment.required_mode
+    || submission.capability_assessment.reason_code
+      !== pack.capability_assessment.reason_code
+    || canonicalJson(submission.capability_assessment.required_capabilities)
+      !== canonicalJson(pack.capability_assessment.required_capabilities)) {
+    throw new Error("Developer Agent capability assessment drifted from deterministic evidence")
   }
   if (Date.parse(submission.created_at) < Date.parse(pack.requested_at)) {
     throw new Error("Developer Agent submission predates its context pack")

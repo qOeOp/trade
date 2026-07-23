@@ -27,6 +27,10 @@ import {
   prepareDeveloperAgentRun,
 } from "./developer-agent-run"
 import { memoryArtifacts } from "./agent-artifact-port.test-fixture"
+import {
+  DEVELOPER_DATA_SNAPSHOT_BINDING_SCHEMA_VERSION,
+  createDeveloperDataSnapshotBinding,
+} from "./developer-capability-assessment"
 
 test("Developer Agent capability assessment and draft enter the existing unvalidated intake only once", () => {
   const db = new Database(":memory:")
@@ -45,6 +49,13 @@ test("Developer Agent capability assessment and draft enter the existing unvalid
       proposal_revision: 1,
       brief_id: "brief-agent-1",
       artifacts,
+      data_snapshot_binding: createDeveloperDataSnapshotBinding({
+        schema_version: DEVELOPER_DATA_SNAPSHOT_BINDING_SCHEMA_VERSION,
+        snapshot_ref: "dataset://btc-4h/discovery/v1",
+        snapshot_hash: "a".repeat(64),
+        dataset_kinds: ["ohlcv"],
+        evidence_ref: "artifact://dataset-manifest/a",
+      }),
     })
     const draft = buildDeveloperContractDraftSubmission({
       brief: prepared.context_pack.brief,
@@ -67,9 +78,9 @@ test("Developer Agent capability assessment and draft enter the existing unvalid
       draft_revision: 1,
       predecessor_run_id: null,
       capability_assessment: {
-        implementation_mode: "existing_implementation",
-        reason_code: "family_coverage_ready",
-        required_capabilities: ["ohlcv", "time-series-momentum"],
+        implementation_mode: prepared.context_pack.capability_assessment.required_mode,
+        reason_code: prepared.context_pack.capability_assessment.reason_code,
+        required_capabilities: prepared.context_pack.capability_assessment.required_capabilities,
       },
       contract_draft: draft,
       workspace_patch: null,
@@ -152,9 +163,9 @@ test("Developer code-change and blocked modes cannot smuggle incomplete effects"
       draft_revision: 1,
       predecessor_run_id: null,
       capability_assessment: {
-        implementation_mode: "data_blocked",
-        reason_code: "required_surface_missing",
-        required_capabilities: ["funding-history"],
+        implementation_mode: prepared.context_pack.capability_assessment.required_mode,
+        reason_code: prepared.context_pack.capability_assessment.reason_code,
+        required_capabilities: prepared.context_pack.capability_assessment.required_capabilities,
       },
       contract_draft: null,
       workspace_patch: null,
@@ -191,7 +202,7 @@ function seedProposal(db: Database) {
     universe_node_id: "canonical:trend/time-series-trend/time-series-momentum",
     objective: "Test one bounded time-series momentum mechanism",
     dataset_requirements: ["ohlcv"],
-    candidate_space: { lookback: [20, 40] },
+    candidate_space: { lookback_bars: [20, 40] },
     trial_budget: 2,
     evaluation_protocol_ref: "protocol://historical-v1",
     control_plane_context: context,

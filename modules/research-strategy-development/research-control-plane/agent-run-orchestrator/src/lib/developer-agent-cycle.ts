@@ -7,6 +7,7 @@ import {
 } from "./developer-agent-run"
 import { executeAgentRunThroughHost } from "./agent-run-host-execution"
 import type { AgentArtifactPort } from "./planner-agent-run"
+import type { DeveloperDataSnapshotBinding } from "./developer-capability-assessment"
 
 export async function runDeveloperAgentCycle(input: {
   db: Database
@@ -23,6 +24,7 @@ export async function runDeveloperAgentCycle(input: {
   brief_id: string
   predecessor_run_id?: string
   replay_result_refs?: AgentArtifactRef[]
+  data_snapshot_binding?: DeveloperDataSnapshotBinding | null
   poll_interval_ms?: number
   signal?: AbortSignal
 }) {
@@ -43,6 +45,9 @@ export async function runDeveloperAgentCycle(input: {
       : {}),
     ...(input.replay_result_refs
       ? { replay_result_refs: input.replay_result_refs }
+      : {}),
+    ...(input.data_snapshot_binding
+      ? { data_snapshot_binding: input.data_snapshot_binding }
       : {}),
   })
   const completed = await executeAgentRunThroughHost({

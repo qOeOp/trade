@@ -46,31 +46,36 @@ const PLANNER_PROPOSAL_PREPARE = z.object({
   evaluation_protocol_ref: z.string().trim().min(1).max(500),
   requested_at: z.string().datetime({ offset: false }),
 }).strict()
-const DEVELOPER_SUBMISSION_PREPARE = z.object({
+const DEVELOPER_SUBMISSION_PREPARE_BASE = z.object({
   developer_run_id: z.string().trim().min(1).max(160),
   request_hash: z.string().regex(/^[a-f0-9]{64}$/),
   brief_id: z.string().trim().min(1).max(160),
   source_revision: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/),
   draft_revision: z.number().int().min(1).max(1_000_000),
   predecessor_run_id: z.string().trim().min(1).max(160).nullable(),
-  implementation_mode: z.enum([
-    "existing_implementation",
-    "contract_only",
-    "data_blocked",
-    "tool_blocked",
-  ]),
   reason_code: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/),
   required_capabilities: z.array(z.string().trim().min(1).max(200)).max(64),
-  requested_trial_budget: z.number().int().min(1).max(10_000),
-  draft_json: z.union([
-    z.record(z.string(), z.unknown()).refine(
-      (value) => Object.keys(value).length > 0 && JSON.stringify(value).length <= 500_000,
-      "draft_json must be non-empty and at most 500 KB",
-    ),
-    z.string().min(2).max(500_000),
-  ]),
   requested_at: z.string().datetime({ offset: false }),
-}).strict()
+})
+const DEVELOPER_DRAFT_JSON = z.union([
+  z.record(z.string(), z.unknown()).refine(
+    (value) => Object.keys(value).length > 0 && JSON.stringify(value).length <= 500_000,
+    "draft_json must be non-empty and at most 500 KB",
+  ),
+  z.string().min(2).max(500_000),
+])
+const DEVELOPER_SUBMISSION_PREPARE = z.discriminatedUnion("implementation_mode", [
+  DEVELOPER_SUBMISSION_PREPARE_BASE.extend({
+    implementation_mode: z.enum(["existing_implementation", "contract_only"]),
+    requested_trial_budget: z.number().int().min(1).max(10_000),
+    draft_json: DEVELOPER_DRAFT_JSON,
+  }).strict(),
+  DEVELOPER_SUBMISSION_PREPARE_BASE.extend({
+    implementation_mode: z.enum(["data_blocked", "tool_blocked"]),
+    requested_trial_budget: z.number().int().min(1).max(10_000).optional(),
+    draft_json: DEVELOPER_DRAFT_JSON.optional(),
+  }).strict(),
+])
 const REVIEWER_SUBMISSION_PREPARE = z.object({
   reviewer_run_id: z.string().trim().min(1).max(160),
   request_hash: z.string().regex(/^[a-f0-9]{64}$/),
