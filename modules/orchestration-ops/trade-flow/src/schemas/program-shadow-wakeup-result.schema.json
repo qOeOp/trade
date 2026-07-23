@@ -9,6 +9,7 @@
     "runtime_profile",
     "cycle_id",
     "outcome",
+    "business_status",
     "reason",
     "safety",
     "lease"
@@ -20,6 +21,7 @@
     "outcome": {
       "enum": ["executed", "recovered_running", "skipped_lock", "skipped_terminal", "ops_store_busy"]
     },
+    "business_status": { "enum": ["completed", "failed", "blocked", "skipped"] },
     "reason": { "type": "string", "minLength": 1 },
     "safety": {
       "type": "object",

@@ -18,6 +18,8 @@ import {
 const SHADOW_LOCK_KEY = "program-runtime-shadow"
 const SHADOW_LEASE_MS = 5 * 60 * 1000
 const SQLITE_BUSY_TIMEOUT_MS = 1_000
+const OPS_ONLY_COMMAND_TIMEOUT_MS = 30_000
+const DOMAIN_COMMAND_TIMEOUT_MS = 90_000
 const TERMINAL_CYCLE_STATUSES = new Set(["completed", "failed", "blocked"])
 const ALLOWED_INPUT_KEYS = new Set([
   "cycle_id",
@@ -143,17 +145,18 @@ export async function runProgramShadowWakeup(
       throw new Error("program shadow lost its fenced lease before cycle completion")
     }
     lockReleased = releaseOpsLock(opsDb, SHADOW_LOCK_KEY, holderId, fencingToken)
+    const executionReason = runtimeProfile === "catalog_hygiene_canary"
+      ? "executed the fixed J06 catalog hygiene canary profile"
+      : runtimeProfile === "full_shadow"
+        ? "executed the fixed J01-J07 no-live full shadow profile"
+        : "executed the fixed no-domain-job shadow profile"
     return shadowResult({
       runtimeProfile,
       cycleId,
       outcome: recoveredRunningCycle ? "recovered_running" : "executed",
-        reason: recoveredRunningCycle
+      reason: recoveredRunningCycle
         ? "recovered a non-terminal cycle after acquiring its expired or released lease"
-        : runtimeProfile === "catalog_hygiene_canary"
-          ? "executed the fixed J06 catalog hygiene canary profile"
-          : runtimeProfile === "full_shadow"
-            ? "executed the fixed J01-J07 no-live full shadow profile"
-            : "executed the fixed no-domain-job shadow profile",
+        : graph.ok === true ? executionReason : `${executionReason}; job graph completed with failures`,
       lockAcquired: true,
       lockReleased,
       fencingToken,
@@ -209,7 +212,9 @@ function fixedShadowGraphInput(
     cycle_id: cycleId,
     now,
     ops_runtime_db: opsRuntimeDbPath,
-    command_timeout_ms: 30_000,
+    command_timeout_ms: runtimeProfile === "shadow_program"
+      ? OPS_ONLY_COMMAND_TIMEOUT_MS
+      : DOMAIN_COMMAND_TIMEOUT_MS,
     execute_jobs: true,
     allow_live_writes: false,
     include_runtime_health: true,
@@ -263,11 +268,19 @@ function shadowResult(input: {
   graph?: JSONRecord
   fencingToken?: number
 }): JSONRecord {
+  const businessStatus = input.graph
+    ? input.graph.ok === true ? "completed" : "failed"
+    : input.outcome === "skipped_terminal"
+      ? input.priorStatus || "skipped"
+      : input.outcome === "ops_store_busy"
+        ? "blocked"
+        : "skipped"
   return {
     schema_version: "trade-flow.program-shadow-wakeup-result.v1",
     runtime_profile: input.runtimeProfile,
     cycle_id: input.cycleId,
     outcome: input.outcome,
+    business_status: businessStatus,
     reason: input.reason,
     safety: {
       domain_jobs_enabled: input.runtimeProfile !== "shadow_program",
