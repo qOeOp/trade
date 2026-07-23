@@ -907,6 +907,52 @@
       }
     },
     {
+      "id": "decision.account-candidate-arbiter",
+      "domain": "live-decision-planning",
+      "intent": [
+        "account-candidate-ranking",
+        "capital-mutual-exclusion",
+        "correlation-risk-allocation"
+      ],
+      "capability_class": [
+        "V"
+      ],
+      "path": "modules/live-decision-planning/account-candidate-arbiter",
+      "purpose": "Rank already-qualified setup versions and produce one account-scoped, self-hashed risk-unit allocation proposal.",
+      "command": {
+        "cwd": "modules/live-decision-planning/account-candidate-arbiter",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Consumes owner-qualified candidates and exact strategy/plan/market-fact hashes; never turns scan scores into setups.",
+        "Uses integer risk units and rejects rather than partially resizing; output is proposal-only with no capital reservation or execution authority."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "live-decision-planning.account-candidate-arbiter",
+      "requires_preflight": false,
+      "concurrency_group": "decision-allocation",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
       "id": "trade-flow.observe",
       "domain": "live-decision-planning",
       "intent": [
