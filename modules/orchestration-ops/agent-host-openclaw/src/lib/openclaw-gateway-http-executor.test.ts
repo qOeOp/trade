@@ -20,14 +20,19 @@ test("Gateway HTTP executor routes one private Agent Run and normalizes output",
       observed = new Request(request, init)
       return Response.json({
         id: "resp-1",
-        output: [{
-          type: "message",
-          content: [{ type: "output_text", text: "{\"status\":\"ok\"}" }],
-        }],
+        output: [
+          { type: "function_call", name: "owner_read", call_id: "call-1" },
+          {
+            type: "message",
+            content: [{ type: "output_text", text: "{\"status\":\"ok\"}" }],
+          },
+        ],
       })
     },
   })
   assert.equal(result.exit_code, 0)
+  assert.equal(result.tool_calls, 1)
+  assert.equal(result.model_turns, 2)
   assert.equal(parseOpenClawOutput(result.stdout, "gateway"), "{\"status\":\"ok\"}")
   assert.equal(observed!.url, "http://openclaw:18789/v1/responses")
   assert.equal(observed!.headers.get("x-openclaw-agent-id"), "rd-planner")

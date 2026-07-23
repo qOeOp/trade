@@ -59,6 +59,7 @@ export async function executeOpenClawGatewayHttp(input: {
     }
     const parsed = JSON.parse(body) as Record<string, unknown>
     const text = visibleOutputText(parsed)
+    const toolCalls = toolCallCount(parsed)
     return {
       exit_code: 0,
       stdout: JSON.stringify({
@@ -74,6 +75,8 @@ export async function executeOpenClawGatewayHttp(input: {
       }),
       stderr: "",
       interrupted: false,
+      tool_calls: toolCalls,
+      model_turns: toolCalls + 1,
     }
   } catch (error) {
     if (input.signal.aborted) {
@@ -88,6 +91,13 @@ export async function executeOpenClawGatewayHttp(input: {
       interrupted: false,
     }
   }
+}
+
+function toolCallCount(value: Record<string, unknown>): number {
+  if (!Array.isArray(value.output)) return 0
+  return value.output.filter((item) =>
+    item && typeof item === "object" && !Array.isArray(item)
+    && (item as Record<string, unknown>).type === "function_call").length
 }
 
 function endpoint(value: string): string {

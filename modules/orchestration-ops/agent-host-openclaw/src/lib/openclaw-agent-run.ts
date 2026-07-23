@@ -39,6 +39,8 @@ export interface OpenClawExecutionResult {
   stdout: string
   stderr: string
   interrupted: boolean
+  tool_calls?: number
+  model_turns?: number
 }
 
 export interface OpenClawAgentHostOptions {
@@ -176,13 +178,36 @@ export class OpenClawAgentHost implements AgentHostPort {
         return await this.fail(request, classifyFailure(result.stderr), startedMs)
       }
       const text = parseOpenClawOutput(result.stdout, this.expectedTransport())
+      const toolCalls = boundedUsage(
+        result.tool_calls ?? 0,
+        request.budget.max_tool_calls,
+        "tool calls",
+      )
+      const modelTurns = boundedUsage(
+        result.model_turns ?? 1,
+        request.budget.max_turns,
+        "model turns",
+      )
       const output = await this.options.store_output(request, text)
       if (output.bytes > request.budget.max_output_bytes) {
         return await this.fail(request, "budget_exhausted", startedMs)
       }
-      await this.complete(request, "completed", startedMs, undefined, [output])
-    } catch {
-      await this.fail(request, controller.signal.aborted ? "cancelled" : "host_unavailable", startedMs)
+      await this.complete(
+        request,
+        "completed",
+        startedMs,
+        undefined,
+        [output],
+        { tool_calls: toolCalls, turns: modelTurns },
+      )
+    } catch (error) {
+      await this.fail(
+        request,
+        controller.signal.aborted
+          ? "cancelled"
+          : classifyCaughtFailure(error),
+        startedMs,
+      )
     } finally {
       this.active.delete(request.run_id)
     }
@@ -221,6 +246,10 @@ export class OpenClawAgentHost implements AgentHostPort {
     startedMs: number,
     failure?: AgentRunFailureClass,
     outputRefs: AgentArtifactRef[] = [],
+    observedUsage: { tool_calls: number; turns: number } = {
+      tool_calls: 0,
+      turns: 0,
+    },
   ): Promise<void> {
     const record = readAgentRun(this.options.db, request.run_id)
     if (!record || record.result) return
@@ -250,8 +279,8 @@ export class OpenClawAgentHost implements AgentHostPort {
           this.now().getTime() - startedMs,
           request.budget.max_wall_time_ms,
         )),
-        turns: 1,
-        tool_calls: 0,
+        turns: observedUsage.turns,
+        tool_calls: observedUsage.tool_calls,
         input_bytes: request.instruction_ref.bytes
           + request.input_refs.reduce((sum, ref) => sum + ref.bytes, 0),
         output_bytes: outputRefs.reduce((sum, ref) => sum + ref.bytes, 0),
@@ -323,4 +352,24 @@ function classifyFailure(stderr: string): AgentRunFailureClass {
   }
   if (/sandbox|permission denied/i.test(stderr)) return "sandbox_failed"
   return "host_unavailable"
+}
+
+function classifyCaughtFailure(error: unknown): AgentRunFailureClass {
+  const message = error instanceof Error ? error.message : String(error)
+  if (/output|payload|result|transport drift|fallback|json|artifact|byte budget/i.test(message)) {
+    return "validation_failed"
+  }
+  return "host_unavailable"
+}
+
+function boundedUsage(
+  value: number,
+  maximum: number,
+  field: string,
+): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`OpenClaw ${field} metadata is invalid`)
+  }
+  if (value > maximum) throw new Error(`OpenClaw ${field} exceeded Agent Run budget`)
+  return value
 }
