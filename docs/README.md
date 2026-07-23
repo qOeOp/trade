@@ -29,11 +29,13 @@ last_verified: 2026-07-23 CST
 | 用户如何使用 | [product/user-story.md](./product/user-story.md) |
 | 系统当前如何分域 | [architecture/design-architecture.md](./architecture/design-architecture.md) |
 | 哪些域可以互相传什么 | [architecture/architecture-communication-v2.mmd](./architecture/architecture-communication-v2.mmd) |
+| 消息如何物理传递、何时拆服务或采用 broker、各 runtime 用什么语言 | [architecture/physical-runtime-transport.md](./architecture/physical-runtime-transport.md) |
 | profile、账户、资金和凭证归谁 | [architecture/architecture-data-trust-v2.mmd](./architecture/architecture-data-trust-v2.mmd) |
 | 当前 J01–J07 如何调度 | [architecture/architecture-runtime-v2.mmd](./architecture/architecture-runtime-v2.mmd) |
 | 当前模块、job、store、rail | [architecture/architecture-manifest.json](./architecture/architecture-manifest.json) |
 | 代码与蓝图是否漂移 | [architecture/generated/architecture-drift-report.md](./architecture/generated/architecture-drift-report.md) |
 | 一体化服务器如何装配与施工 | [architecture/migrations/server-runtime-implementation-plan.md](./architecture/migrations/server-runtime-implementation-plan.md) |
+| Agent Host 如何选择、切换与评测，Codex/OpenClaw/LangGraph 各在什么位置 | [architecture/migrations/agent-host-runtime-integration-plan.md](./architecture/migrations/agent-host-runtime-integration-plan.md) |
 | 一个模块如何调用 | [architecture/tool-layout.md](./architecture/tool-layout.md) → `toolset.json` → module `CONTRACT.md` |
 | 一个大功能如何运行 | [runtime](./runtime/) 下对应合同 |
 | R&D 如何演进 | [research](./research/) 下对应 architecture / strategy / reliability 文档 |
