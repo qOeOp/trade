@@ -21,7 +21,7 @@ Owns `market_data_store` for market manifests、typed Runtime / R&D market-data 
 - Audit a bounded timeframe-aligned canonical-candle open range as a self-hashed coverage projection, including exact leading/interior/trailing gaps. A fetch receipt is never substituted for a zero-gap audit.
 - Export bounded canonical-candle slices as content-addressed immutable CSV/manifest artifacts and return only the owner slice ref plus manifest metadata to cross-domain consumers.
 - Insert funding events keyed by exchange/symbol/funding time.
-- Register feature manifests derived from source manifests.
+- Admit feature manifests derived from immutable source manifests create-or-identical; the same manifest identity may not drift in source、feature set、symbol、timeframe、content hash、path or generation time.
 - Commit self-hashed instrument-status Acquisition Receipt v1 with ordered attempt history and exact response payload bytes; preserve terminal failures and create-or-identical retries.
 - Commit finalized venue instrument-status Archive v3 with create-or-identical CAS; preserve ordered transitions, acquisition-bound source-batch manifests, batch content/hash chain, declared coverage/finality, continuity audit, and archive hash.
 - Admit a Source Batch only when it binds a stored, successful `historical_event_archive` receipt whose venue/symbol/window/watermark/raw hash/count and payload all match. A `current_snapshot_only` receipt is never promotable.
