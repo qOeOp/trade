@@ -104,6 +104,43 @@ cycle start / health / lock
 
 J01–J07 是当前 runtime projection，不是永久产品分域。新增、合并或改 cadence 只要不迁移事实 owner，不构成顶层 domain 变更。
 
+### 4.1 三个长期闭环
+
+Program 目标上同时维持三个长期闭环，但每次工作仍由有界 job / run 完成：
+
+| 闭环 | 长期 owner 语义 | 有界工作 | 当前实现差距 |
+| --- | --- | --- | --- |
+| 市场数据供给 | 接纳 Runtime / R&D 数据需求，维护采集、readiness、coverage、immutable source 与安全释放 | scan、补数、订阅协调、segment finalize、dataset export、owner GC | L2 只有固定单 symbol production candidate；尚无多 symbol demand reconciliation 和 raw release / GC |
+| 在线交易 | 慢轨全市场发现，候选深化，快轨守护 active flow，执行后确认、对账和复盘 | J01/J02/J03、preflight、execution、J07 | 慢轨粗筛已存在；当前 server profile 未启用完整 domain jobs，L2 尚未进入交易 authority |
+| 策略工厂 | 持续吸收 research finding、实验失败、forward/live evidence 和 improvement request，推进新 hypothesis / version | Campaign、Agent Run、Trial、Replay、Forward、Review | 当前 J04 只补一次 hypothesis 并受 program terminal 状态停止；论文 finding、代码开发、retire 与 review 回流未闭合 |
+
+“长期”不等于一个永久 Agent session，也不等于无界计算。Program / Control Plane 保存 durable state 并持续选择工作；Agent Host 只执行带 deadline、预算、能力 allowlist 和结构化结果的短生命周期任务。
+
+L2 等高频数据采用需求驱动而非调用驱动：
+
+```text
+market scan / active flow / position / RD
+  -> typed data need
+  -> Market Data owner reconciles resident collection
+  -> readiness / coverage
+  -> current read or finalized historical source
+```
+
+调用方不直接拉起 Rust owner，不注入 endpoint/path，也不能把 current-book snapshot 当历史 Replay source。全市场发现先用低成本 scan / OHLCV；只有晋级候选、active exposure 或明确研究任务才扩大 L2 采集。
+
+容量治理也是 owner-driven，不是“磁盘满后人工删文件”：
+
+```text
+periodic inventory / soft watermark
+  -> classify by owner + lineage + ref/pin + retention + rebuildability
+  -> compact / delete owner-authorized candidates
+  -> remeasure
+  -> defer low-priority new writes if still constrained
+  -> hard line: stop nonessential writes/new risk, preserve defense and evidence
+```
+
+Agent 可协助解释未知大文件或提出清理候选，但没有文件删除 authority。通用 artifact GC 只处理其合同内可重建 artifact；L2 raw 必须经过 Market Data finalize、compaction、跨 consumer reference closure 和 retention release 后才进入专属 GC。active flow、未完成 Trial、冻结 dataset、review evidence、durable store 与 incomplete incident fail closed 保留。
+
 ## 5. 在线链
 
 ```text
@@ -118,6 +155,7 @@ exchange + market facts + state projection + runtime authorization
   -> confirmation / reconcile
   -> trade event / projection
   -> closed-flow REVIEW
+  -> lifecycle evidence / improvement request
 ```
 
 | Stage | Owner | Durable result |
@@ -130,10 +168,15 @@ exchange + market facts + state projection + runtime authorization
 
 慢轨可生成 setup 和 thesis；快轨只继承并守护 active flow。未知订单、无法归属的仓位或 reconcile failure 形成 risk lock，新增风险停止，防御动作仍需审计。
 
+多个 setup 同时通过单标的资格时，必须先由账户级 capital allocation 对现有 exposure、相关风险、流动性和候选集统一裁决；单个 setup 合格不等于拥有资金。候选在等待 L2、Agent 或资金期间持续受 TTL、instrument status、freshness 和 invalidation 约束，失效后释放短期数据需求且不创建空 flow。
+
+单笔 closed-flow review 只形成 evidence。Governance 必须按精确 strategy version、regime、样本成熟度和 execution attribution 评审后，才能 keep / pause / retire 或提出 improvement request；不能因一次亏损自动退役。退役只禁止该版本产生新 setup / forward / live 动作，既有 exposure 仍由 reconcile、快轨和减风险路径管理至闭合。
+
 ## 6. Research 链
 
 ```text
-Universe / Knowledge / Proposal
+Research Source / cited Finding / Runtime Lesson
+  -> Universe / Proposal
   -> immutable Experiment Contract
   -> reserved Trial
   -> Replay Execution Result
@@ -142,12 +185,21 @@ Universe / Knowledge / Proposal
   -> Draft Strategy binding
   -> Forward Result
   -> Governance evidence intake / promotion
+  -> keep / pause / retire / improvement request
+  -> next hypothesis or version
 ```
 
-- Research Control Plane 是 Contract、Trial、Result、Review、lifecycle 和 Draft authorization 的单写者。
+- Research Control Plane 是 Contract、Trial、Result、Research Review、research lifecycle 和 Draft authorization 的单写者；策略 `draft / shadow / live-small / paused / retired` lifecycle 仍属于 Governance。
+- 外层 R&D Factory 长期运行；Campaign / Agent Run / Trial 的预算耗尽、blocked 或 candidate found 是局部终态，不应永久终止 Factory。
+- 局部 token、trial、compute、并行度和 locked holdout 预算仍必须存在；持续研发不能退化为无界 Agent loop 或自动参数搜索。
 - Research 读取 OHLCV 时只消费 `market-data.store` 生成的内容寻址 slice manifest；兼容 DB locator 只传给 owner，不形成 Research 物理表权限。
+- Research 使用历史 L2 时只消费 finalized manifest / source ref；需要未来微观结构证据时先声明采集需求，不能从 current-book port 追溯过去。
+- cited finding 是 hypothesis 的外部依据，不是本项目实验结果；source / citation authority 属于 `artifact-knowledge`，MCP 只可提供 owner-backed search/query adapter。
 - Replay / Forward 是证据执行面，不生成 hypothesis，不决定 promotion。
 - Agent Roles 只提交 Proposal / Candidate request / Decision，不直接写权威事实。
+- family 是 Universe 中稳定的机制身份；family implementation 才是某 engine / release 的代码。策略版本由 MD source、compiled contract、证据和 implementation / Agent policy binding 组成。目标 engine 已有实现时只物化新策略版本；实现不足或机制新增时才走 capability assessment、隔离 patch、CI、code review、release 与重新验证。
+- MD 叙事不自动等于可执行代码。机器 Trade Contract 编译为 Strategy IR；无法机械表达但被明确接纳的语义条款只能进入有界 Agent-assisted proposal，随后仍经过确定性 owner validation / preflight，且不能冒充 Replay parity。
+- 新 release 不重新解释已有 flow；在线事件、review 与 recovery 必须能回到精确 MD / compiled contract / implementation / Agent policy binding，旧兼容能力在依赖闭合前不得清除。
 - compatibility 实现只为 parity 和迁移服务，不自动获得长期 authority。
 
 ## 7. Store、Message Class 与 Rail
