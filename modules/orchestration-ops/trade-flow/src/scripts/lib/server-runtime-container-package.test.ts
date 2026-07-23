@@ -8,6 +8,13 @@ const root = repoRoot()
 const dockerfile = readFileSync(resolve(root, "deploy/server/Dockerfile"), "utf8")
 const compose = readFileSync(resolve(root, "deploy/server/compose.yaml"), "utf8")
 const operatorCompose = readFileSync(resolve(root, "deploy/server/compose.operator.yaml"), "utf8")
+const agentCompose = readFileSync(resolve(root, "deploy/server/compose.agent.yaml"), "utf8")
+const openClawConfig = JSON.parse(
+  readFileSync(resolve(root, "deploy/server/openclaw.json"), "utf8"),
+) as Record<string, unknown>
+const openClawLock = JSON.parse(
+  readFileSync(resolve(root, "deploy/server/openclaw-dependency.json"), "utf8"),
+) as Record<string, unknown>
 const ignore = readFileSync(resolve(root, ".dockerignore"), "utf8")
 
 test("server image locks toolchains, builds native providers, and drops root", () => {
@@ -41,4 +48,24 @@ test("server build context excludes runtime state, credentials, dependencies, an
   for (const entry of [".git", ".secrets", "data", "tmp", "node_modules", "**/target"]) {
     assert.equal(ignore.split(/\r?\n/).includes(entry), true, `missing dockerignore entry ${entry}`)
   }
+})
+
+test("OpenClaw overlay is digest-pinned, private, secret-ref only, and excludes Developer", () => {
+  assert.equal(openClawLock.version, "2026.7.1")
+  assert.equal(
+    openClawLock.image_index_digest,
+    "sha256:6a31d44b2944e7adcd2b582bf6fb463111264ebca97a0201795b799135bd102c",
+  )
+  assert.match(agentCompose, /openclaw@sha256:6a31d44b2944e7adcd2b582bf6fb463111264ebca97a0201795b799135bd102c/)
+  assert.match(agentCompose, /agent-control:\s*\n\s*internal: true/)
+  assert.match(agentCompose, /TRADE_SILICONFLOW_SECRET_ENV_FILE/)
+  assert.match(agentCompose, /TRADE_AGENT_HOST_SECRET_ENV_FILE/)
+  assert.match(agentCompose, /\/health"\)/)
+  assert.doesNotMatch(agentCompose, /\bports:|privileged:|docker\.sock|SILICONFLOW_API_KEY\s*:/)
+  const serialized = JSON.stringify(openClawConfig)
+  assert.match(serialized, /"id":"SILICONFLOW_API_KEY"/)
+  assert.match(serialized, /"id":"OPENCLAW_GATEWAY_TOKEN"/)
+  assert.match(serialized, /"Authorization":"Bearer \$\{TRADE_MCP_HTTP_TOKEN\}"/)
+  assert.doesNotMatch(serialized, /rd-developer|sk-[A-Za-z0-9_-]{12,}/)
+  assert.match(serialized, /"deny":\[[^\]]*"exec"[^\]]*"process"[^\]]*"code_execution"/)
 })
