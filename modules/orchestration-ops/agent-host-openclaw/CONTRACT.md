@@ -5,6 +5,8 @@
 - Execute one provider-neutral Agent Run through an explicitly selected OpenClaw Gateway agent and session.
 - Use the Agent Run id as OpenClaw idempotency/session identity, persist normalized lifecycle in the ops-owned registry, and store only the final typed text through the shared artifact sink.
 - Distinguish Gateway execution from OpenClaw embedded fallback; embedded fallback is a named alternate profile and is never silently counted as Gateway evidence.
+- Re-read instruction and input refs from the content-addressed Agent Artifact Store, digest-check them, and wrap them in one canonical untrusted-data envelope before execution.
+- Require exactly one JSON object on success and canonicalize it into the immutable Agent Artifact Store before closing the Run.
 
 ## Boundaries
 
