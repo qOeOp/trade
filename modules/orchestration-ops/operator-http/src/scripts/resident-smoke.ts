@@ -35,6 +35,7 @@ export async function runResidentSmoke(args: Args): Promise<JSONRecord> {
   const entrypoint = resolve(args.releaseRoot, "modules/orchestration-ops/operator-http/src/scripts/main.ts")
   const databasePath = resolve(args.releaseRoot, "data/ops_runtime.db")
   if (!existsSync(entrypoint) || !existsSync(databasePath)) throw new Error("release operator entrypoint or ops database is unavailable")
+  assertListenerAvailable()
 
   const firstApiToken = token()
   const firstApprovalToken = token()
@@ -202,6 +203,17 @@ function parseArgs(argv: string[]): Args {
 
 function assertStatus(response: Response, expected: number, label: string): void {
   if (response.status !== expected) throw new Error(`${label} returned unexpected status`)
+}
+
+function assertListenerAvailable(): void {
+  let probe: ReturnType<typeof Bun.serve> | undefined
+  try {
+    probe = Bun.serve({ hostname: "127.0.0.1", port: 8787, fetch: () => new Response(null, { status: 503 }) })
+  } catch {
+    throw new Error("operator listener is already occupied")
+  } finally {
+    probe?.stop(true)
+  }
 }
 
 function token(): string { return randomBytes(32).toString("base64url") }
