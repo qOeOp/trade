@@ -41,6 +41,7 @@ export function evaluateServerRuntimeRelease(evidence: ServerRuntimeReleaseEvide
   if (evidence.deployment.process_manager !== expectedManager) throw new Error("host platform and process manager do not match")
 
   const pending: string[] = []
+  if (evidence.host_platform !== "linux") pending.push("linux_server_rehearsal_not_run")
   if (!evidence.deployment.process_manager_installed) pending.push("process_manager_not_installed")
   if (!evidence.deployment.public_soak_passed) pending.push("server_public_soak_not_passed")
   if (!evidence.deployment.real_volume_restore_passed) pending.push("real_volume_restore_not_passed")
@@ -56,7 +57,9 @@ export function evaluateServerRuntimeRelease(evidence: ServerRuntimeReleaseEvide
     local_no_live_rehearsal: "passed",
     server_no_live_adoption: pending.length === 0 ? "eligible_for_manual_change_review" : "blocked",
     pending_server_gates: pending,
-    maximum_verified_authority: pending.length === 0 ? "no_live_server_shadow" : "no_live_local_rehearsal",
+    maximum_verified_authority: pending.length === 0
+      ? "no_live_server_shadow"
+      : "no_live_local_rehearsal",
     catalog_canary: pending.length === 0 ? "eligible_for_explicit_operator_run" : "blocked",
     live_cutover: "forbidden_without_separate_user_approval_and_canary_evidence",
     live_writes_allowed: false,
@@ -64,6 +67,7 @@ export function evaluateServerRuntimeRelease(evidence: ServerRuntimeReleaseEvide
     limitations: [
       "this_gate_never_grants_exchange_write_or_strategy_promotion_authority",
       "synthetic_lifecycle_and_recovery_do_not_prove_target_server_readiness",
+      "darwin_rehearsal_never_substitutes_for_linux_server_adoption",
       "manual_change_review_is_required_even_when_all_no_live_gates_pass",
     ],
   }

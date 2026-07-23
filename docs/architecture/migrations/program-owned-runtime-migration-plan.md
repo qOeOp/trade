@@ -61,7 +61,7 @@ P3 J06 one-shot canary（P1.29，2026-07-23）：隔离预演确认 `data + tmp`
 
 P3 J06 resident cadence（P1.30，2026-07-23）：`catalog_hygiene_canary` 已进入同一 fenced supervisor，domain-enabled child 保持 90 秒硬截止，interval 合同上限扩至 24 小时以支持每日 reconciliation；Agent 对照只回放同一 owner result，不触发第二次扫描。真实 60 秒加速证据连续完成 `02:54` / `02:56` 两轮：`attempted=executed=2`、`failed=0`，共享输入 parity `2/2 match`、零 mismatch；每轮仅 J06 completed、其余 6 job skipped，3/3 lifecycle processor completed、零 incident，末轮 inner token `91` 与 supervisor lease 均释放。允许写面仍只有 `artifact_catalog`，`live_writes_allowed=false`、notify dry-run；60 秒仅用于迁移证据，生产建议 cadence 为每日。P1.30 已闭合。
 
-S7 真实门复判（2026-07-23）：model gateway 的固定无参数 provider smoke 精确验证 JSON object semantic marker，只返回脱敏、`execution_authority=none` 的 typed result。首次 SiliconFlow 调用以 `provider_http_401` fail closed；credential 修正后同一探针一次完成，48 input + 16 output = 64 tokens，marker 精确匹配，provider capability 门闭合。R&D kill/restart 门要求 `trade-agent` MCP owner workflow；当前会话未加载该 surface，故未以任意 CLI 绕过。release gate 以既有 full-shadow `9/9` parity、launchd/restore/public soak/Operator 证据重算后，只保留 `rd_kill_restart_single_trial_result_not_passed`，最大 authority 仍为 `no_live_local_rehearsal`。
+S7 真实门复判（2026-07-23）：model gateway 的固定无参数 provider smoke 精确验证 JSON object semantic marker，只返回脱敏、`execution_authority=none` 的 typed result。首次 SiliconFlow 调用以 `provider_http_401` fail closed；credential 修正后同一探针一次完成，48 input + 16 output = 64 tokens，marker 精确匹配。R&D owner 另以真实子进程运行实际 candidate loop，在 Trial/Result 已原子提交、调用方未确认时 `SIGKILL`；重启前删除源 manifest 后仍从 Control Plane 幂等读回相同 Result，库内保持 1 个 completed Trial / 1 个 Result。该证据关闭 Darwin 本机 kill/restart 门，不替代 Linux server adoption；release gate 现强制 Darwin 增列 `linux_server_rehearsal_not_run`，不得再误报 `no_live_server_shadow`。
 
 ## 3. 不变量
 
@@ -371,7 +371,8 @@ R&D 纵切无 Binance write，且已有 schema / queue / budget / holdout gate�
 - 已实现：SQLite busy typed failure、真实进程崩溃后的 stale takeover、共享 owner-result replay 的 Agent/program parity、immutable observation ledger 与只读 owner/MCP status。
 - 已实现：closed-world J06 canary 已完成 one-shot 与两轮 fenced resident cadence；catalog live partial/SQLite sidecar 被排除，允许写面仅为 `artifact_catalog`。
 - 已实现：immutable release、launchd no-live 部署、真实 restore、public/full-shadow soak 与 Operator resident/audit/rotation。
-- 待闭合：真实模型 provider 与 R&D kill/restart 单 Trial/Result；通过后也只进入人工 no-live 变更评审，不自动切换 job authority。
+- 已实现：真实模型 provider 与 R&D post-commit/pre-ack `SIGKILL` 恢复后单一 Trial / Result。
+- 待闭合：真实 Linux systemd / 容器 restore、restart 与 soak；通过后也只进入人工 no-live 变更评审，不自动切换 job authority。
 
 退出：无双写、无重复 job、可停止/恢复；再逐 job 切换 authority。
 

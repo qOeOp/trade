@@ -35,11 +35,11 @@ S1 截至 2026-07-23 已完成 macOS no-live 主机纵切：三个正式 foregro
 
 S3 已新增独立 `full_shadow` 固定 profile：同一 fenced supervisor/wakeup 可启用 J01–J07、强制 cadence due、保留 owner active/state gate，并永久关闭 exchange live write 与真实通知。干净 HEAD 的临时 SQLite/captured-owner 双周期 fixture 已得到 7/7 enabled、Agent/program `2/2 match`、零重复 job/incident；同槽重启 terminal skip 且 fencing token `1→2`，未出现 live command。当前版本化 server config 仍是 `shadow_program`；published owner CLI smoke、故障注入与长时观察完成前不得切换。
 
-S4/S5 已形成首个本地闭环：J04 路由先读 `plan_next`，ready/terminal 不调用模型；active empty/unready queue 才调用固定 Model Gateway，domain assessment 通过后以 `updated_at` CAS 原子入队，再委托既有 supervisor。模型失败不写 state/Trial，identical replay 幂等，stale/conflict fail closed；真实 provider probe 已通过，进程 kill/restart 单 Trial/Result 与 J04/J05/J07 长时 soak 仍是采用门。
+S4/S5 已形成首个本地闭环：J04 路由先读 `plan_next`，ready/terminal 不调用模型；active empty/unready queue 才调用固定 Model Gateway，domain assessment 通过后以 `updated_at` CAS 原子入队，再委托既有 supervisor。模型失败不写 state/Trial，identical replay 幂等，stale/conflict fail closed；真实 provider probe 已通过。真实 R&D owner 子进程另完成 post-commit/pre-ack `SIGKILL`：重启前移除源 manifest 仍幂等读回同一 Result，数据库保持单一 completed Trial / Result。J04/J05/J07 长时 soak 与 Linux 采用仍待闭合。
 
 S6 已新增 loopback-only Operator HTTP：Bearer + 独立 controlled approval、固定 read/write rate、exact route/payload 和 ops pre/post audit；当前只开放 tool search、RD read 与 approved J04 wakeup，不含 exchange/live/promotion/任意 command。Bun resident、真实 audit 回读和 API/approval token 重启轮换已通过，且 smoke 不调用 controlled owner；TLS、manager secret facility、OpenClaw client 与长时 soak 尚未完成。
 
-S7 已新增机器可判定的 no-live release gate。本机已补齐 launchd install、真实 volume restore、public/full-shadow soak、Operator resident/audit/rotation。2026-07-23 固定 SiliconFlow probe 在 credential 修正后一次完成，64 tokens、精确 JSON marker、`execution_authority=none`，provider 门已闭合；R&D gate 因当前会话未加载 `trade-agent` MCP owner surface，按研究工作流边界未用任意 CLI 替代。机器复判只剩 R&D kill/restart 单 Trial/Result，当前最大 authority 保留 `no_live_local_rehearsal`；该 gate 无论结果如何都不能开放 exchange write 或自动 promotion。
+S7 已新增机器可判定的 no-live release gate。本机已补齐 launchd install、真实 volume restore、public/full-shadow soak、Operator resident/audit/rotation、SiliconFlow probe 与 R&D kill/restart 单 Trial/Result。平台边界已收紧：Darwin 全绿仍只能证明 `no_live_local_rehearsal`，并以 `linux_server_rehearsal_not_run` 阻断 server adoption；只有真实 Linux systemd / 容器证据才可进入 `no_live_server_shadow` 人工变更评审。该 gate 无论结果如何都不能开放 exchange write 或自动 promotion。
 
 本机 Darwin arm64 已把 committed release staging 到非受保护用户数据目录，并安装三个固定 launchd labels；因此不再从 Downloads workspace 取得无人值守 authority。manager plist/hash 与 release manifest 绑定，当前三个 unit active。
 
@@ -344,7 +344,7 @@ validate config/secrets/volumes
 | D5.8 | Reviewer 基于登记 evidence 提交 decision | complete at historical compatibility stage：Result classification→bounded context→typed modify→lifecycle / lesson 幂等写回 |
 | D5.9 | Registry / Forward / Governance 沿正式入口接纳 | no automatic promotion |
 | D5.10 | mechanical Replay、Agent-assisted evaluation 和 Forward evidence 分权 | active-partial：compatibility evidence 明确无 formal Replay / promotion authority；certified Replay 与 Forward gate 待闭合 |
-| D5.11 | 完成 kill/restart、provider outage、duplicate 和 locked-holdout 测试 | active-partial：Host terminal recovery、context oversize fail/retry、SQLite bounded busy wait 与 locked-holdout zero-use 已验证；kill/restart / outage / 长时 Factory 待完成 |
+| D5.11 | 完成 kill/restart、provider outage、duplicate 和 locked-holdout 测试 | active-partial：Host terminal recovery、R&D post-commit/pre-ack `SIGKILL` 单 Trial/Result、context oversize fail/retry、SQLite bounded busy wait 与 locked-holdout zero-use 已验证；mid-execution kill、outage / 长时 Factory 待完成 |
 
 #### D6 策略治理闭环
 
@@ -441,9 +441,9 @@ D0–D9 和 D10 的可审查部署包可以在没有远程主机的当前环境�
 
 1. 完成 D0 inventory / coverage / profile authority 与全仓基线。
 2. 复判现有 S1–S7 证据，删除只剩历史价值的即时状态描述，保留可复跑 gate。
-3. 完成真实 J04 kill/restart 单 Trial / Result 证据并重跑 no-live release gate；当前因 `trade-agent` MCP surface 未加载而有证据地暂停，不以 CLI 绕过。
+3. 已完成真实 R&D owner post-commit/pre-ack `SIGKILL` 后单 Trial / Result 恢复；继续补 J04/J05/J07 长时 cadence soak。
 4. D2.1 typed demand / lease / release / reconciliation 已闭合；继续 D2.2–D2.8，不先等待 Agent / Docker。
-5. 并行推进 D9 的 P0–P5 本机工作；Docker/OpenClaw 不阻塞 direct Codex 与 R&D 纵切。
+5. 并行推进 D9 的 P0–P5 与 D10 Linux 部署包；本机无 Docker 不阻塞静态合同、fixture 与离线包，但不替代 D10.8。
 6. 每完成一个阶段更新本账本状态；阶段全部完成后自动进入下一阶段。
 
 ## 10. 完成定义
