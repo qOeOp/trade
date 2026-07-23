@@ -15,6 +15,7 @@ export * from "./l2-admission-reconciler"
 export * from "./l2-compaction"
 export * from "./l2-referrer-receipt"
 export * from "./market-data-demand-registry"
+export * from "./ohlcv-coverage-audit"
 
 export const INSTRUMENT_STATUS_ARCHIVE_SCHEMA_VERSION = "trade.market-data-instrument-status-archive.v3" as const
 export const INSTRUMENT_STATUS_SOURCE_BATCH_SCHEMA_VERSION = "trade.market-data-instrument-status-source-batch.v2" as const
@@ -1311,6 +1312,37 @@ export function upsertFeatureManifest(db: Database, manifest: FeatureManifest): 
     $manifest_path: manifest.manifest_path,
     $generated_at: manifest.generated_at,
   })
+}
+
+export function admitFeatureManifest(db: Database, manifest: FeatureManifest): "created" | "existing" {
+  validateFeatureManifest(manifest)
+  const existing = readFeatureManifest(db, manifest.feature_manifest_id)
+  if (existing != null) {
+    if (JSON.stringify(existing) !== JSON.stringify(manifest)) {
+      throw new Error("feature manifest identity collision")
+    }
+    return "existing"
+  }
+  db.query(`
+    INSERT INTO feature_manifest(
+      feature_manifest_id, source_manifest_id, feature_set_id, symbol, timeframe,
+      content_hash, manifest_path, generated_at
+    )
+    VALUES (
+      $feature_manifest_id, $source_manifest_id, $feature_set_id, $symbol, $timeframe,
+      $content_hash, $manifest_path, $generated_at
+    )
+  `).run({
+    $feature_manifest_id: manifest.feature_manifest_id,
+    $source_manifest_id: manifest.source_manifest_id,
+    $feature_set_id: manifest.feature_set_id,
+    $symbol: manifest.symbol ?? null,
+    $timeframe: manifest.timeframe ?? null,
+    $content_hash: manifest.content_hash,
+    $manifest_path: manifest.manifest_path,
+    $generated_at: manifest.generated_at,
+  })
+  return "created"
 }
 
 export function readMarketManifest(db: Database, manifestId: string): MarketManifest | null {

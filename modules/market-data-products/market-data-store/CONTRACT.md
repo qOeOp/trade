@@ -6,7 +6,7 @@ Owns `market_data_store` for market manifests、typed Runtime / R&D market-data 
 
 - Create and migrate the market data / OHLCV store schemas.
 - Upsert source/data manifests by content hash.
-- Register create-or-identical、self-hashed market-data demands; preserve explicit terminal release; deterministically reconcile non-released demands by priority、lease / defensive grace、bounded symbol capacity and strictest merged requirement. The result is a no-lifecycle-authority subscription proposal, not daemon control or readiness evidence.
+- Register or renew self-hashed market-data demands under one stable semantic identity; renewal may only advance the lease、atomically updates the current projection and archives the prior body/hash. Preserve explicit terminal release; deterministically reconcile non-released demands by priority、lease / defensive grace、bounded symbol capacity and strictest merged requirement. The result is a no-lifecycle-authority subscription proposal, not daemon control or readiness evidence.
 - Admit only `complete` Rust L2 epoch proposals after exact snapshot hash, snapshot update id, TL2S header/frame CRC, segment byte/hash/count, sibling-ref, repo runtime-path, and epoch count closure checks; commit epoch plus segment index create-or-identical.
 - Label admitted L2 scope as `epoch_contiguous` and external completeness as `not_verified`; preserve but reject `incomplete` proposals from the formal Replay/RD source catalog.
 - Reconcile finalized manifest trees idempotently, deduplicate observations by path plus exact content hash, and preserve bounded rejection reasons for incomplete or invalid proposals.
@@ -18,6 +18,7 @@ Owns `market_data_store` for market manifests、typed Runtime / R&D market-data 
 - Deterministically audit one epoch's owner retention state and every registered Market Data L2 referrer as a self-hashed read projection. Distinguish raw、compacted without registered referrers、and compacted with registered referrers while always returning `deletion_eligible=false` and `forbidden_no_gc_authority`.
 - List audit summaries in binary `epoch_id` order through a cursor-bounded、maximum-50 page built inside one owner read transaction. Page counts are page-local, pagination is not a cross-call snapshot, and the self-hashed page never emits deletion candidates.
 - Insert canonical candles into `ohlcv_store` keyed by exchange/symbol/timeframe/open time.
+- Audit a bounded timeframe-aligned canonical-candle open range as a self-hashed coverage projection, including exact leading/interior/trailing gaps. A fetch receipt is never substituted for a zero-gap audit.
 - Export bounded canonical-candle slices as content-addressed immutable CSV/manifest artifacts and return only the owner slice ref plus manifest metadata to cross-domain consumers.
 - Insert funding events keyed by exchange/symbol/funding time.
 - Register feature manifests derived from source manifests.

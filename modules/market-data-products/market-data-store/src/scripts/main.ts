@@ -6,11 +6,13 @@ import { dirname } from "node:path"
 import {
   buildCanonicalCandles,
   admitL2EpochManifest,
+  admitFeatureManifest,
   admitL2CompactionProposal,
   buildFeatureManifest,
   buildFundingEvents,
   buildInstrumentStatusArchive,
   buildMarketManifest,
+  auditCanonicalCandleCoverage,
   auditL2RetentionReferenceClosure,
   commitInstrumentStatusArchive,
   ensureMarketDataSchema,
@@ -246,6 +248,15 @@ export function run(args: Args): JSONRecord {
       upsertFeatureManifest(db, manifest)
       return { ok: true, action: args.action, manifest }
     }
+    if (args.action === "admit_feature_manifest") {
+      const manifest = buildFeatureManifest(args.json)
+      return {
+        ok: true,
+        action: args.action,
+        commit_status: admitFeatureManifest(db, manifest),
+        manifest,
+      }
+    }
     if (args.action === "commit_instrument_status_archive") {
       const archive = buildInstrumentStatusArchive(args.json)
       const commit_status = commitInstrumentStatusArchive(db, archive)
@@ -344,6 +355,21 @@ export function run(args: Args): JSONRecord {
         }),
       }))
     }
+    if (args.action === "audit_candle_coverage") {
+      return withOhlcvDb(args.ohlcvDbPath, args.environmentId, (ohlcvDb) => ({
+        ok: true,
+        action: args.action,
+        audit: auditCanonicalCandleCoverage(ohlcvDb, {
+          exchange: stringField(args.json.exchange) || "binanceusdm",
+          symbol: stringField(args.json.symbol),
+          timeframe: stringField(args.json.timeframe),
+          start_open_time: requiredNumber(args.json.start_open_time, "start_open_time"),
+          end_open_time: requiredNumber(args.json.end_open_time, "end_open_time"),
+          max_gap_ranges: optionalNumber(args.json.max_gap_ranges),
+          observed_at: stringField(args.json.observed_at) || undefined,
+        }),
+      }))
+    }
     if (args.action === "read_candles") {
       return withOhlcvDb(args.ohlcvDbPath, args.environmentId, (ohlcvDb) => ({
         ok: true,
@@ -404,7 +430,7 @@ export function run(args: Args): JSONRecord {
 function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/market_data.db --ohlcv-db data/ohlcv.db --action init",
-    "actions: init | upsert_manifest | admit_l2_epoch_manifest | reconcile_l2_epoch_manifests | prepare_l2_compaction_job | admit_l2_compaction_proposal | register_l2_experiment_attachment_referrer | audit_l2_retention_reference_closure | list_l2_retention_reference_audits | register_market_data_demand | put_market_data_demand | release_market_data_demand | read_market_data_demand | reconcile_market_data_demands | upsert_candles | upsert_funding | upsert_feature_manifest | commit_instrument_status_archive | read_manifest | read_l2_epoch_manifest | read_l2_compaction | read_l2_compacted_epoch_source | read_l2_experiment_attachment_referrer | read_funding | read_instrument_status_acquisition_receipt | read_instrument_status_archive | read_latest_candle | read_candles | export_candle_slice | read_feature_manifest | list_feature_manifests",
+    "actions: init | upsert_manifest | admit_l2_epoch_manifest | reconcile_l2_epoch_manifests | prepare_l2_compaction_job | admit_l2_compaction_proposal | register_l2_experiment_attachment_referrer | audit_l2_retention_reference_closure | list_l2_retention_reference_audits | register_market_data_demand | put_market_data_demand | release_market_data_demand | read_market_data_demand | reconcile_market_data_demands | upsert_candles | upsert_funding | upsert_feature_manifest | admit_feature_manifest | commit_instrument_status_archive | read_manifest | read_l2_epoch_manifest | read_l2_compaction | read_l2_compacted_epoch_source | read_l2_experiment_attachment_referrer | read_funding | read_instrument_status_acquisition_receipt | read_instrument_status_archive | read_latest_candle | audit_candle_coverage | read_candles | export_candle_slice | read_feature_manifest | list_feature_manifests",
   ].join("\n"))
 }
 
@@ -423,6 +449,12 @@ function withOhlcvDb<T>(dbPath: string, environmentId: string, fn: (db: Database
 function optionalNumber(value: unknown): number | undefined {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : undefined
+}
+
+function requiredNumber(value: unknown, field: string): number {
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error(`${field} must be a non-negative integer`)
+  return parsed
 }
 
 if (import.meta.main) {

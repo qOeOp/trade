@@ -211,7 +211,7 @@ test("market data store CLI exposes only typed L2 referrer and retention-audit a
   }
 })
 
-test("market data store CLI registers, reconciles, reads, and releases typed demands", () => {
+test("market data store CLI creates, renews, reconciles, reads, and releases typed demands", () => {
   const dir = mkdtempSync(join(tmpdir(), "market-data-demand-cli-"))
   const dbPath = join(dir, "market.db")
   const demand = buildMarketDataDemand({
@@ -240,10 +240,31 @@ test("market data store CLI registers, reconciles, reads, and releases typed dem
   try {
     const registered = run(parseArgs([
       "--db", dbPath,
-      "--action", "register_market_data_demand",
-      "--json", JSON.stringify({ demand, registered_at: "2026-07-23T00:00:01.000Z" }),
+      "--action", "put_market_data_demand",
+      "--json", JSON.stringify({ demand, committed_at: "2026-07-23T00:00:01.000Z" }),
     ])) as { commit_status: string }
     assert.equal(registered.commit_status, "created")
+    const renewedDemand = buildMarketDataDemand({
+      demand_id: demand.demand_id,
+      consumer_owner: demand.consumer_owner,
+      consumer_kind: demand.consumer_kind,
+      subject_ref: demand.subject_ref,
+      venue: demand.venue,
+      symbol: demand.symbol,
+      priority: demand.priority,
+      requirements: demand.requirements,
+      lease: {
+        issued_at: "2026-07-23T00:01:00.000Z",
+        expires_at: "2026-07-23T01:01:00.000Z",
+        renewal_grace_ms: 0,
+      },
+    })
+    const renewed = run(parseArgs([
+      "--db", dbPath,
+      "--action", "put_market_data_demand",
+      "--json", JSON.stringify({ demand: renewedDemand, committed_at: "2026-07-23T00:01:01.000Z" }),
+    ])) as { commit_status: string }
+    assert.equal(renewed.commit_status, "renewed")
     const plan = run(parseArgs([
       "--db", dbPath,
       "--action", "reconcile_market_data_demands",
@@ -264,7 +285,7 @@ test("market data store CLI registers, reconciles, reads, and releases typed dem
         release: {
           schema_version: "trade.market-data-demand-release.v1",
           demand_id: demand.demand_id,
-          demand_hash: demand.demand_hash,
+          demand_hash: renewedDemand.demand_hash,
           released_at: "2026-07-23T00:20:00.000Z",
           reason: "subject_cancelled",
         },
