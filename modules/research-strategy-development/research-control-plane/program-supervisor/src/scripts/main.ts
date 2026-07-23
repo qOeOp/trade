@@ -7,6 +7,12 @@ import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
 import { strategyHypothesisToQueueItem } from "../../../../../contracts/strategy-hypothesis-contract/src/strategy-hypothesis-contract"
 import { runRdProgramStateCommand } from "../../../program-control/src/lib/rd-program-state"
 import { runRdSupervisorLoop } from "../lib/rd-supervisor-runner"
+import {
+  executeCompatibilityEvaluationWorkPackage,
+} from "../lib/compatibility-evaluation-runner"
+import {
+  COMPATIBILITY_EVALUATION_RUN_REQUEST_SCHEMA_VERSION,
+} from "../../../contracts/src/lib/experiment-evaluation-work-package"
 
 interface Config {
   dbPath: string
@@ -14,6 +20,7 @@ interface Config {
   catalogDbPath: string
   input: JSONRecord
   supervisorJob: boolean
+  evaluationJob: boolean
 }
 
 interface SupervisorJobInput {
@@ -42,9 +49,17 @@ export function run(argv: string[]): JSONRecord {
     process.chdir(repoRoot())
     const config = parseArgs(argv)
     assertRuntimeOutputPaths(config.dbPath, config.catalogDbPath)
-    return successResponse(SCHEMA_VERSION, config.supervisorJob
+    const data = config.evaluationJob
+      ? runEvaluationJob(config)
+      : config.supervisorJob
       ? runSupervisorJob(config)
-      : runRdSupervisorLoop({ path: rdProgramRef(config.programId), dbPath: config.dbPath, input: config.input, catalogDbPath: config.catalogDbPath }))
+      : runRdSupervisorLoop({
+          path: rdProgramRef(config.programId),
+          dbPath: config.dbPath,
+          input: config.input,
+          catalogDbPath: config.catalogDbPath,
+        })
+    return successResponse(SCHEMA_VERSION, data)
   } catch (error) {
     return errorResponse(SCHEMA_VERSION, error)
   } finally {
@@ -53,7 +68,14 @@ export function run(argv: string[]): JSONRecord {
 }
 
 function parseArgs(argv: string[]): Config {
-  const config: Config = { dbPath: "./data/rd_state.db", programId: "rd-program", catalogDbPath: "./data/data_catalog.db", input: {}, supervisorJob: false }
+  const config: Config = {
+    dbPath: "./data/rd_state.db",
+    programId: "rd-program",
+    catalogDbPath: "./data/data_catalog.db",
+    input: {},
+    supervisorJob: false,
+    evaluationJob: false,
+  }
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     switch (arg) {
@@ -75,13 +97,37 @@ function parseArgs(argv: string[]): Config {
       case "--supervisor-job":
         config.supervisorJob = true
         break
+      case "--evaluation-job":
+        config.evaluationJob = true
+        break
       case "--help":
         exitWithHelp()
       default:
         throw new Error(`unknown flag: ${arg}`)
     }
   }
+  if (config.supervisorJob && config.evaluationJob) {
+    throw new Error("--supervisor-job and --evaluation-job are mutually exclusive")
+  }
   return config
+}
+
+function runEvaluationJob(config: Config): JSONRecord {
+  const input = config.input
+  const artifactRoot = stringField(input.artifact_root)
+  const catalogDbPath = stringField(input.catalog_db_path) || config.catalogDbPath
+  assertRuntimeOutputPaths(artifactRoot, catalogDbPath)
+  return executeCompatibilityEvaluationWorkPackage(config.dbPath, {
+    schema_version: COMPATIBILITY_EVALUATION_RUN_REQUEST_SCHEMA_VERSION,
+    package_id: stringField(input.package_id),
+    package_hash: stringField(input.package_hash),
+    environment_id: stringField(input.environment_id)
+      || process.env.TRADE_ENVIRONMENT_ID
+      || "local:local",
+    artifact_root: artifactRoot,
+    catalog_db_path: catalogDbPath,
+    completed_at: stringField(input.completed_at),
+  })
 }
 
 function runSupervisorJob(config: Config): JSONRecord {
@@ -220,6 +266,7 @@ function printHelp(): void {
   console.log(`Usage:
   bun src/scripts/main.ts --db ./data/rd_state.db --program-id rd-program --json '{"max_iterations":10}'
   bun src/scripts/main.ts --supervisor-job --db ./data/rd_state.db --program-id rd-program --json '{"cycle_id":"cycle","goal":{"objective":"find edge"}}'
+  bun src/scripts/main.ts --evaluation-job --db ./data/rd_state.db --json '{"package_id":"evaluation-package:...","package_hash":"...","artifact_root":"tmp/artifacts/strategy-rnd","completed_at":"..."}'
 `)
 }
 

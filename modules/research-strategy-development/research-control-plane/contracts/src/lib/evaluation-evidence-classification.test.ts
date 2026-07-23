@@ -28,4 +28,15 @@ test("evaluation evidence classification binds kind to its authoritative produce
     ...classification,
     evidence_hash: "b".repeat(64),
   }), /hash-drifted/)
+  const compatibility = createEvaluationEvidenceClassification({
+    ...classification,
+    result_id: "result-compatibility",
+    evidence_kind: "compatibility_mechanical_replay",
+    producer: "compatibility_evaluation_owner",
+  })
+  assert.equal(compatibility.evidence_kind, "compatibility_mechanical_replay")
+  assert.throws(() => createEvaluationEvidenceClassification({
+    ...compatibility,
+    producer: "replay_owner",
+  }), /not authoritative/)
 })

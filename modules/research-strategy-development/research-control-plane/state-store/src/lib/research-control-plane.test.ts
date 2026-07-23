@@ -159,6 +159,7 @@ import {
 } from "../../../contracts/src/lib/evaluation-evidence-classification"
 import {
   RESEARCH_LIFECYCLE_RULE_VERSION,
+  ensureResearchControlPlaneSchema,
   validateUniverseSeed,
 } from "./research-control-plane-schema"
 import {
@@ -328,6 +329,7 @@ test("control plane schema initializes frozen stages and lifecycle rules", () =>
       "rd_developer_contract_freeze",
       "rd_experiment_trial_plan",
       "rd_experiment_trial_plan_item",
+      "rd_experiment_evaluation_work_package",
       "rd_proposal_revision",
       "rd_trial_group",
       "rd_experiment_contract",
@@ -355,6 +357,55 @@ test("control plane schema initializes frozen stages and lifecycle rules", () =>
     }
     assert.equal(count(db, "rd_result_stage"), 8)
     assert.equal(count(db, "rd_lifecycle_transition_rule") >= 20, true)
+  } finally {
+    db.close()
+  }
+})
+
+test("control plane schema migrates the legacy evaluation classification policy", () => {
+  const db = new Database(":memory:")
+  db.exec(`
+    CREATE TABLE rd_evaluation_evidence_classification (
+      result_id TEXT PRIMARY KEY,
+      experiment_id TEXT NOT NULL,
+      evidence_kind TEXT NOT NULL CHECK(evidence_kind IN (
+        'mechanical_replay', 'agent_assisted_historical', 'forward_observation'
+      )),
+      producer TEXT NOT NULL CHECK(producer IN (
+        'replay_owner', 'agent_evaluation_owner', 'forward_owner'
+      )),
+      artifact_ref TEXT NOT NULL,
+      evidence_hash TEXT NOT NULL,
+      policy_version TEXT NOT NULL,
+      classification_json TEXT NOT NULL CHECK(json_valid(classification_json)),
+      classification_hash TEXT NOT NULL UNIQUE,
+      classified_at TEXT NOT NULL
+    );
+  `)
+  try {
+    ensureResearchControlPlaneSchema(db)
+    const definition = db.query(`
+      SELECT sql FROM sqlite_master
+      WHERE type='table' AND name='rd_evaluation_evidence_classification'
+    `).get() as { sql: string }
+    assert.match(definition.sql, /compatibility_mechanical_replay/)
+    assert.match(definition.sql, /compatibility_evaluation_owner/)
+    db.exec("PRAGMA foreign_keys = OFF")
+    assert.doesNotThrow(() => db.query(`
+      INSERT INTO rd_evaluation_evidence_classification(
+        result_id, experiment_id, evidence_kind, producer, artifact_ref,
+        evidence_hash, policy_version, classification_json,
+        classification_hash, classified_at
+      ) VALUES (
+        'result-compatibility', 'experiment-compatibility',
+        'compatibility_mechanical_replay', 'compatibility_evaluation_owner',
+        'tmp/result.json', $hash, 'trade.rd-evaluation-evidence-classification-policy.v1',
+        '{}', $classification_hash, '2026-07-23T00:00:00.000Z'
+      )
+    `).run({
+      $hash: "a".repeat(64),
+      $classification_hash: "b".repeat(64),
+    }))
   } finally {
     db.close()
   }
@@ -1385,6 +1436,25 @@ test("experiment facts enforce trial identity, sentinel, freeze, and append-only
       () => applyReviewerDecision(db, reviewerDecision()),
       /requires mechanical_replay/,
     )
+    insertExperimentResult(db, "result-compatibility", "historical_validation")
+    registerEvaluationEvidenceClassification(db, createEvaluationEvidenceClassification({
+      schema_version: EVALUATION_EVIDENCE_CLASSIFICATION_SCHEMA,
+      policy_version: EVALUATION_EVIDENCE_POLICY_VERSION,
+      result_id: "result-compatibility",
+      experiment_id: "experiment-1",
+      evidence_kind: "compatibility_mechanical_replay",
+      producer: "compatibility_evaluation_owner",
+      artifact_ref: "artifact://result-compatibility",
+      evidence_hash: "c".repeat(64),
+      classified_at: "2026-07-14T03:20:00.000Z",
+    }))
+    assert.throws(() => applyReviewerDecision(db, reviewerDecision({
+      decision_id: "decision-compatibility-no-promote",
+      idempotency_key: "decision-key-compatibility-no-promote",
+      lifecycle_event_id: "event-compatibility-no-promote",
+      lifecycle_idempotency_key: "event-key-compatibility-no-promote",
+      evidence: [{ result_id: "result-compatibility", evidence_role: "primary" }],
+    })), /requires mechanical_replay/)
     insertExperimentResult(db, "result-mechanical", "historical_validation")
     registerEvaluationEvidenceClassification(db, createEvaluationEvidenceClassification({
       schema_version: EVALUATION_EVIDENCE_CLASSIFICATION_SCHEMA,

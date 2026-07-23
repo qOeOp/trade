@@ -221,7 +221,15 @@ function dataBinding() {
     exchange: "binanceusdm",
     segment: "discovery",
     timeframe: "4h",
+    row_count: 500,
+    first_open_at: "2026-01-01T00:00:00.000Z",
+    last_open_at: "2026-03-01T00:00:00.000Z",
+    report_ref: "tmp/splits/split-1/report.json",
+    report_hash: "b".repeat(64),
     manifest_ref: "data/rd-datasets/split-1/btcusdt/discovery/manifest.json",
+    manifest_hash: "c".repeat(64),
+    content_ref: "data/rd-datasets/split-1/btcusdt/discovery/4h.csv",
+    content_hash: "d".repeat(64),
     evidence_ref: "agent-artifact://durable/a",
   })
 }

@@ -257,7 +257,7 @@ function resultWriteFromBoundary(
   }
 }
 
-function aggregateEvidenceFingerprint(
+export function aggregateEvidenceFingerprint(
   boundary: JSONRecord,
   result: JSONRecord,
   trials: JSONRecord[],

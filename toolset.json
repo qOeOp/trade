@@ -1958,7 +1958,7 @@
         "A"
       ],
       "path": "modules/research-strategy-development/research-control-plane/state-store",
-      "purpose": "Record RD program, hypothesis, trial, holdout-use, and lesson rows in research_state_store.",
+      "purpose": "Own durable RD program and Control Plane authority facts, including immutable current-contract Evaluation Work Packages.",
       "command": {
         "cwd": "modules/research-strategy-development/research-control-plane/state-store",
         "argv": [
@@ -1980,7 +1980,7 @@
         "config": false
       },
       "notes": [
-        "Owns durable RD state rows; experiment artifacts remain in artifact/catalog stores."
+        "Owns durable RD state rows plus immutable Proposal/Brief/Freeze/Trial Plan/Evaluation Work Package/Result authority facts; experiment artifacts remain in artifact/catalog stores."
       ],
       "module_type": "atomic",
       "owner_scope": "research-strategy-development.research-state-store",
@@ -2711,14 +2711,16 @@
       "intent": [
         "rd-supervisor",
         "rd-loop-supervisor",
-        "rd-autonomous-loop"
+        "rd-autonomous-loop",
+        "experiment-evaluation",
+        "compatibility-mechanical-replay"
       ],
       "capability_class": [
         "A",
         "E"
       ],
       "path": "modules/research-strategy-development/research-control-plane/program-supervisor",
-      "purpose": "Run native J04 rd_strategy_supervisor from durable RD state or initialize the supervised R&D program state.",
+      "purpose": "Run native J04 rd_strategy_supervisor or execute one immutable current-contract compatibility Evaluation Work Package from durable RD state.",
       "command": {
         "cwd": "modules/research-strategy-development/research-control-plane/program-supervisor",
         "argv": [
@@ -2744,6 +2746,7 @@
       },
       "notes": [
         "Orchestrates plan_next, rd-loop-runner / rd-campaign-runner execution, explicit RD state writeback, and optional draft strategy policy creation.",
+        "The alternate --evaluation-job mode consumes an owner-compiled Work Package, completes already-reserved Trials, and publishes compatibility_mechanical_replay evidence; it never claims formal Replay authority or permits positive promotion.",
         "Returns a domain-runtime job result owned by research-strategy-development for J04."
       ],
       "module_type": "atomic",

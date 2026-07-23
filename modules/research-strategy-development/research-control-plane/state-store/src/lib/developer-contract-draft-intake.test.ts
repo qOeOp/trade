@@ -1,5 +1,15 @@
 import { Database } from "bun:sqlite"
 import { expect, test } from "bun:test"
+import { createHash } from "node:crypto"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
+import { join } from "node:path"
 import {
   DEVELOPER_CONTRACT_DRAFT_INTAKE_REQUEST_SCHEMA_VERSION,
   DEVELOPER_CONTRACT_DRAFT_SUBMISSION_SCHEMA_VERSION,
@@ -8,7 +18,22 @@ import {
   TARGET_EXPERIMENT_CONTRACT_SCHEMA_VERSION,
   createDeveloperContractDraftSubmission,
 } from "../../../contracts/src/lib/developer-contract-draft"
-import { readFamilyEvaluationProtocol } from "../../../../../contracts/rd-agent-capability-contract/src/rd-agent-capability-contract"
+import {
+  DEVELOPER_DATA_SNAPSHOT_BINDING_SCHEMA_VERSION,
+  createDeveloperDataSnapshotBinding,
+  readFamilyEvaluationProtocol,
+  readStrategyFamilyCapability,
+} from "../../../../../contracts/rd-agent-capability-contract/src/rd-agent-capability-contract"
+import {
+  displayPath,
+  repoRoot,
+  resolveRepoPath,
+} from "../../../../../contracts/runtime-core/src/paths"
+import { runOwnerToolRecordSync } from "../../../../../contracts/runtime-core/src/owner-tool-client"
+import {
+  buildDatabaseIdentity,
+  ensureDatabaseIdentity,
+} from "../../../../../contracts/runtime-core/src/database-identity"
 import {
   DEVELOPER_CONTRACT_DRAFT_VALIDATION_REQUEST_SCHEMA_VERSION,
 } from "../../../contracts/src/lib/developer-contract-draft-validation"
@@ -97,6 +122,18 @@ import {
   renewReplayAttemptLease,
 } from "./replay-attempt-authority"
 import { REPLAY_ATTEMPT_ADMISSION_REQUEST_SCHEMA_VERSION } from "../../../contracts/src/lib/replay-attempt-admission"
+import {
+  DEVELOPER_SEMANTIC_CONTRACT_SCHEMA_VERSION,
+  compileDeveloperContractDraft,
+} from "./developer-contract-owner-compiler"
+import {
+  compileExperimentEvaluationWorkPackage,
+  readExperimentEvaluationWorkPackage,
+} from "./experiment-evaluation-work-package"
+import {
+  EXPERIMENT_EVALUATION_WORK_PACKAGE_START_SCHEMA_VERSION,
+  COMPATIBILITY_EVALUATION_RUN_REQUEST_SCHEMA_VERSION,
+} from "../../../contracts/src/lib/experiment-evaluation-work-package"
 
 const REPLAY_HASH = "2".repeat(64)
 const REPLAY_PROVIDER_CERTIFICATION = createReplayInstrumentStatusProviderCertificationSnapshot({
@@ -126,7 +163,12 @@ function openDb(): Database {
   return db
 }
 
-function admitProposal(db: Database, proposalRevision = 1, objective = "Test one bounded mechanism") {
+function admitProposal(
+  db: Database,
+  proposalRevision = 1,
+  objective = "Test one bounded mechanism",
+  candidateSpace?: Record<string, unknown>,
+) {
   const context = readPlannerControlPlaneContext(db)
   const protocol = requiredEvaluationProtocol()
   const proposal = createPlannerProposalSubmission({
@@ -137,7 +179,8 @@ function admitProposal(db: Database, proposalRevision = 1, objective = "Test one
     universe_node_id: "canonical:trend/time-series-trend/time-series-momentum",
     objective,
     dataset_requirements: ["ohlcv"],
-    candidate_space: proposalRevision === 1 ? { lookback: [20, 40] } : { lookback: [20] },
+    candidate_space: candidateSpace
+      ?? (proposalRevision === 1 ? { lookback: [20, 40] } : { lookback: [20] }),
     trial_budget: 2,
     evaluation_protocol_ref: protocol.protocol_ref,
     control_plane_context_hash: context.context_hash,
@@ -811,6 +854,237 @@ test("Control Plane compiles a complete Trial Plan from the immutable Freeze wit
     expect(count(db, "rd_trial")).toBe(freeze.candidates.length)
   } finally {
     db.close()
+  }
+})
+
+test("Control Plane compiles one immutable compatibility evaluation work package from current Contract facts", () => {
+  const root = mkdtempSync(join(repoRoot(), "tmp", "test-runs", "evaluation-work-package-"))
+  const dataRoot = join(root, "btcusdt", "discovery")
+  mkdirSync(dataRoot, { recursive: true })
+  const csv = "date,timestamp,open,high,low,close,volume\n2026-01-01T00:00:00.000Z,1767225600000,1,2,1,2,10\n"
+  const contentHash = createHash("sha256").update(csv).digest("hex")
+  const contentPath = join(dataRoot, "4h.csv")
+  writeFileSync(contentPath, csv)
+  const manifestPath = join(dataRoot, "manifest.json")
+  const manifest = JSON.stringify({
+    schema_version: 2,
+    symbol: "BTCUSDT",
+    requested_symbol: "BTCUSDT",
+    split: { split_id: "split-work-package", segment: "discovery" },
+    timeframes: {
+      "4h": { file: "4h.csv", rows: 1, content_sha256: contentHash },
+    },
+  })
+  writeFileSync(manifestPath, manifest)
+  const reportPath = join(root, "report.json")
+  const report = JSON.stringify({ schema_version: "fixture.v1", split_id: "split-work-package" })
+  writeFileSync(reportPath, report)
+  const binding = createDeveloperDataSnapshotBinding({
+    schema_version: DEVELOPER_DATA_SNAPSHOT_BINDING_SCHEMA_VERSION,
+    snapshot_ref: "dataset-split://split-work-package/BTCUSDT/discovery/4h",
+    snapshot_hash: "4".repeat(64),
+    dataset_kinds: ["ohlcv"],
+    hypothesis_id: "hypothesis-1",
+    symbol: "BTCUSDT",
+    exchange: "binanceusdm",
+    segment: "discovery",
+    timeframe: "4h",
+    row_count: 1,
+    first_open_at: "2026-01-01T00:00:00.000Z",
+    last_open_at: "2026-01-01T00:00:00.000Z",
+    report_ref: displayPath(reportPath),
+    report_hash: createHash("sha256").update(report).digest("hex"),
+    manifest_ref: displayPath(manifestPath),
+    manifest_hash: createHash("sha256").update(manifest).digest("hex"),
+    content_ref: displayPath(contentPath),
+    content_hash: contentHash,
+    evidence_ref: "dataset-split://split-work-package/BTCUSDT/discovery/4h",
+  })
+  const dbPath = join(root, "rd.db")
+  const db = new Database(dbPath)
+  ensureDatabaseIdentity(
+    db,
+    buildDatabaseIdentity("local:evaluation-work-package-test", "research_state_store"),
+  )
+  ensureResearchStateSchema(db)
+  seedDefaultResearchControlPlane(db, "2026-07-22T12:00:00Z")
+  try {
+    admitProposal(
+      db,
+      1,
+      "Test bounded time-series momentum",
+      { lookback_bars: [20], side: ["long"] },
+    )
+    const brief = issueBrief(db)
+    const family = readStrategyFamilyCapability(brief.universe_node_id)
+    if (!family) throw new Error("test family capability is missing")
+    const compiledDraft = compileDeveloperContractDraft({
+      brief,
+      source_revision: "abc123",
+      draft_revision: 1,
+      requested_trial_budget: 2,
+      family_capability: family,
+      data_snapshot_binding: binding,
+      semantic_contract: {
+        schema_version: DEVELOPER_SEMANTIC_CONTRACT_SCHEMA_VERSION,
+        hypothesis: {
+          proposed_market_mechanism: "Slow positioning adjustment may extend directional displacement.",
+          falsifiable_prediction: "The bounded momentum family may retain positive expectancy after exact costs.",
+          null_hypothesis: "Directional displacement contains no repeatable information after costs.",
+        },
+        economic_rationale: {
+          proposed_edge_source: "Fragmented reactions could delay complete price adjustment.",
+          persistence_rationale: "Participant constraints might spread positioning changes across later bars.",
+          failure_modes: ["Fast arbitrage may remove continuation before the next executable open."],
+        },
+        evaluation_question: "Does the predeclared family survive every registered evidence gate?",
+      },
+      created_at: "2026-07-22T12:05:00Z",
+    })
+    const submission = draft(brief, { draft_json: compiledDraft })
+    receive(db, submission)
+    const validation = validateDeveloperContractDraft(db, {
+      schema_version: DEVELOPER_CONTRACT_DRAFT_VALIDATION_REQUEST_SCHEMA_VERSION,
+      validation_id: "validation-evaluation-work-package",
+      brief_id: brief.brief_id,
+      draft_revision: 1,
+      idempotency_key: "validation-evaluation-work-package-key",
+      validated_at: "2026-07-22T12:07:00Z",
+    })
+    expect(validation.status).toBe("valid")
+    const freeze = freezeDeveloperExperimentContract(db, {
+      schema_version: DEVELOPER_CONTRACT_FREEZE_REQUEST_SCHEMA_VERSION,
+      freeze_id: "freeze-evaluation-work-package",
+      validation_id: validation.validation_id,
+      validation_hash: validation.validation_hash,
+      experiment_id: "experiment-evaluation-work-package",
+      bootstrap_lifecycle_event_id: "event-evaluation-work-package-register",
+      bootstrap_lifecycle_idempotency_key: "event-evaluation-work-package-register-key",
+      idempotency_key: "freeze-evaluation-work-package-key",
+      frozen_at: "2026-07-22T12:08:00Z",
+    })
+    const plan = startFrozenExperimentTrialPlan(db, {
+      schema_version: FROZEN_EXPERIMENT_TRIAL_PLAN_START_SCHEMA_VERSION,
+      freeze_id: freeze.freeze_id,
+      planned_at: "2026-07-22T12:09:00Z",
+    })
+    const start = {
+      schema_version: EXPERIMENT_EVALUATION_WORK_PACKAGE_START_SCHEMA_VERSION,
+      plan_id: plan.plan_id,
+      plan_hash: plan.plan_hash,
+      compiled_at: "2026-07-22T12:10:00Z",
+    } as const
+    const work = compileExperimentEvaluationWorkPackage(db, start, () => ({
+      runtime_policy: {
+        source_hash: `sha256:${"5".repeat(64)}`,
+        cost_model: {
+          fee_bps: 2,
+          slippage_bps: 1,
+          adverse_funding_bps_per_8h: 1,
+        },
+      },
+      policy_snapshot_ref: {
+        cost_model_ref: "policy_registry:cost_model/test/5",
+      },
+    }))
+
+    expect(compileExperimentEvaluationWorkPackage(db, start)).toEqual(work)
+    expect(readExperimentEvaluationWorkPackage(db, work.package_id)).toEqual(work)
+    expect(work.trials).toHaveLength(1)
+    expect(work.evaluation_policy.fee_bps).toBe(2)
+    expect(work.data_snapshot_binding.content_hash).toBe(contentHash)
+    expect(work.evidence_kind).toBe("compatibility_mechanical_replay")
+    expect(work.formal_replay_execution_authority).toBe("none")
+    expect(() => db.query(`
+      UPDATE rd_experiment_evaluation_work_package SET evaluation_policy_hash='drift'
+    `).run()).toThrow("immutable")
+    const executionRequest = {
+      schema_version: COMPATIBILITY_EVALUATION_RUN_REQUEST_SCHEMA_VERSION,
+      package_id: work.package_id,
+      package_hash: work.package_hash,
+      environment_id: "local:evaluation-work-package-test",
+      artifact_root: displayPath(join(root, "artifacts")),
+      catalog_db_path: displayPath(join(root, "catalog.db")),
+      completed_at: "2026-07-22T12:11:00.000Z",
+    } as const
+    const evaluationOwnerArgs = [
+      "--evaluation-job",
+      "--db",
+      displayPath(dbPath),
+      "--json",
+      JSON.stringify(executionRequest),
+    ]
+    db.exec(`
+      CREATE TRIGGER inject_compatibility_publication_failure
+      BEFORE INSERT ON rd_evaluation_evidence_classification
+      BEGIN SELECT RAISE(ABORT, 'injected compatibility publication failure'); END;
+    `)
+    expect(() => runOwnerToolRecordSync(
+      "research.rd-supervisor",
+      evaluationOwnerArgs,
+      "compatibility evaluation owner",
+    ))
+      .toThrow("injected compatibility publication failure")
+    const catalog = new Database(resolveRepoPath(executionRequest.catalog_db_path), {
+      readonly: true,
+    })
+    const artifactRow = catalog.query(`
+      SELECT a.path
+      FROM artifact a
+      JOIN artifact_ref r ON r.artifact_id=a.artifact_id
+      WHERE r.referrer_type='run' AND r.referrer_id=$run_id AND r.role='output'
+    `).get({ $run_id: work.batch_run_id }) as { path: string } | null
+    catalog.close()
+    if (!artifactRow) throw new Error("interrupted evaluation artifact was not cataloged")
+    const interruptedArtifactPath = resolveRepoPath(artifactRow.path)
+    expect(existsSync(interruptedArtifactPath)).toBe(true)
+    expect(count(db, "rd_experiment_result")).toBe(0)
+    expect(db.query(`
+      SELECT DISTINCT status FROM rd_trial WHERE trial_group_id=$trial_group_id
+    `).all({ $trial_group_id: work.trial_group_id })).toEqual([{ status: "reserved" }])
+    db.exec("DROP TRIGGER inject_compatibility_publication_failure")
+    const interruptedArtifact = readFileSync(interruptedArtifactPath)
+    writeFileSync(interruptedArtifactPath, Buffer.concat([
+      interruptedArtifact,
+      Buffer.from("\n"),
+    ]))
+    expect(() => runOwnerToolRecordSync(
+      "research.rd-supervisor",
+      evaluationOwnerArgs,
+      "compatibility evaluation owner",
+    )).toThrow("content hash drifted")
+    writeFileSync(interruptedArtifactPath, interruptedArtifact)
+    const execution = runOwnerToolRecordSync(
+      "research.rd-supervisor",
+      evaluationOwnerArgs,
+      "compatibility evaluation owner",
+    ) as {
+      evidence_kind: string
+      outcome: string
+      recovered_artifact: boolean
+      result_id: string
+    }
+    expect(execution.evidence_kind).toBe("compatibility_mechanical_replay")
+    expect(execution.outcome).toBe("no_promote")
+    expect(execution.recovered_artifact).toBe(true)
+    expect(db.query(`
+      SELECT result_type_id FROM rd_experiment_result WHERE result_id=$result_id
+    `).get({ $result_id: execution.result_id })).toEqual({
+      result_type_id: "compatibility_mechanical_replay",
+    })
+    expect(db.query(`
+      SELECT evidence_kind, producer
+      FROM rd_evaluation_evidence_classification WHERE result_id=$result_id
+    `).get({ $result_id: execution.result_id })).toEqual({
+      evidence_kind: "compatibility_mechanical_replay",
+      producer: "compatibility_evaluation_owner",
+    })
+    expect(db.query(`
+      SELECT DISTINCT status FROM rd_trial WHERE trial_group_id=$trial_group_id
+    `).all({ $trial_group_id: work.trial_group_id })).toEqual([{ status: "completed" }])
+  } finally {
+    db.close()
+    rmSync(root, { recursive: true, force: true })
   }
 })
 

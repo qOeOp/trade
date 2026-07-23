@@ -415,7 +415,7 @@ function evaluationProtocolRef(familyId: string): string {
 }
 
 export const DEVELOPER_DATA_SNAPSHOT_BINDING_SCHEMA_VERSION =
-  "trade.rd-developer-data-snapshot-binding.v2" as const
+  "trade.rd-developer-data-snapshot-binding.v3" as const
 
 export interface DeveloperDataSnapshotBindingBody extends JSONRecord {
   schema_version: typeof DEVELOPER_DATA_SNAPSHOT_BINDING_SCHEMA_VERSION
@@ -427,7 +427,15 @@ export interface DeveloperDataSnapshotBindingBody extends JSONRecord {
   exchange: string
   segment: "discovery" | "validation"
   timeframe: string
+  row_count: number
+  first_open_at: string
+  last_open_at: string
+  report_ref: string
+  report_hash: string
   manifest_ref: string
+  manifest_hash: string
+  content_ref: string
+  content_hash: string
   evidence_ref: string
 }
 
@@ -451,8 +459,19 @@ export function createDeveloperDataSnapshotBinding(
     exchange: nonempty(input.exchange, "exchange"),
     segment: dataSegment(input.segment),
     timeframe: nonempty(input.timeframe, "timeframe"),
-    manifest_ref: nonempty(input.manifest_ref, "manifest_ref"),
+    row_count: positiveInteger(input.row_count, "row_count"),
+    first_open_at: utc(input.first_open_at, "first_open_at"),
+    last_open_at: utc(input.last_open_at, "last_open_at"),
+    report_ref: runtimePath(input.report_ref, "report_ref"),
+    report_hash: digest(input.report_hash, "report_hash"),
+    manifest_ref: runtimePath(input.manifest_ref, "manifest_ref"),
+    manifest_hash: digest(input.manifest_hash, "manifest_hash"),
+    content_ref: runtimePath(input.content_ref, "content_ref"),
+    content_hash: digest(input.content_hash, "content_hash"),
     evidence_ref: nonempty(input.evidence_ref, "evidence_ref"),
+  }
+  if (Date.parse(body.first_open_at) > Date.parse(body.last_open_at)) {
+    throw new Error("Developer data snapshot time range is invalid")
   }
   return { ...body, binding_hash: canonicalHash(body) }
 }
@@ -479,6 +498,34 @@ function dataSegment(value: string): "discovery" | "validation" {
     throw new Error("Developer data snapshot segment is unsupported")
   }
   return value
+}
+
+function positiveInteger(value: number, field: string): number {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new Error(`${field} must be a positive integer`)
+  }
+  return value
+}
+
+function utc(value: string, field: string): string {
+  const normalized = nonempty(value, field)
+  const parsed = new Date(normalized)
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString() !== normalized) {
+    throw new Error(`${field} must be canonical UTC`)
+  }
+  return normalized
+}
+
+function runtimePath(value: string, field: string): string {
+  const normalized = nonempty(value, field)
+  if (normalized.startsWith("/") || normalized.split(/[\\/]/).includes("..")) {
+    throw new Error(`${field} must be a repository-relative runtime path`)
+  }
+  const top = normalized.split(/[\\/]/)[0]
+  if (top !== "data" && top !== "tmp") {
+    throw new Error(`${field} must stay under data/ or tmp/`)
+  }
+  return normalized
 }
 
 function nonempty(value: string, field: string): string {

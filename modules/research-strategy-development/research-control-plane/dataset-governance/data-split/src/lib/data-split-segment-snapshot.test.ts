@@ -3,7 +3,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { afterEach, expect, test } from "bun:test"
 import { displayPath, repoRoot } from "../../../../../../contracts/runtime-core/src/paths"
-import { bindDataSplitSegmentSnapshot } from "./data-split-segment-snapshot"
+import {
+  bindDataSplitSegmentSnapshot,
+  developerDataBindingFromSegmentSnapshot,
+} from "./data-split-segment-snapshot"
+import { run as runSegmentSnapshot } from "../scripts/segment-snapshot"
 
 const roots: string[] = []
 
@@ -60,6 +64,49 @@ test("data split owner binds exact report, manifest, and content without opening
   expect(snapshot.content_hash).toBe(contentHash)
   expect(snapshot.snapshot_ref).toBe("dataset-split://split-1/BTCUSDT/discovery/4h")
   expect(snapshot.snapshot_hash).toMatch(/^[a-f0-9]{64}$/)
+  const binding = developerDataBindingFromSegmentSnapshot({
+    snapshot,
+    dataset_kinds: ["ohlcv"],
+    exchange: "binanceusdm",
+  })
+  expect(binding.schema_version).toBe("trade.rd-developer-data-snapshot-binding.v3")
+  expect(binding.content_hash).toBe(contentHash)
+  expect(binding.manifest_hash).toBe(snapshot.manifest_hash)
+  expect(binding.binding_hash).toMatch(/^[a-f0-9]{64}$/)
+
+  const response = await runSegmentSnapshot([
+    "--json",
+    JSON.stringify({
+      report_path: displayPath(reportPath),
+      dataset_id: "BTCUSDT",
+      segment: "discovery",
+      timeframe: "4h",
+      exchange: "binanceusdm",
+      dataset_kinds: ["ohlcv"],
+    }),
+  ]) as {
+    ok: true
+    data: {
+      snapshot: { snapshot_hash: string }
+      data_snapshot_binding: { schema_version: string; binding_hash: string }
+    }
+  }
+  expect(response.ok).toBe(true)
+  expect(response.data.snapshot.snapshot_hash).toBe(snapshot.snapshot_hash)
+  expect(response.data.data_snapshot_binding.schema_version)
+    .toBe("trade.rd-developer-data-snapshot-binding.v3")
+  expect(response.data.data_snapshot_binding.binding_hash).toBe(binding.binding_hash)
+  const partialResponse = await runSegmentSnapshot([
+    "--json",
+    JSON.stringify({
+      report_path: displayPath(reportPath),
+      dataset_id: "BTCUSDT",
+      segment: "discovery",
+      timeframe: "4h",
+      exchange: "binanceusdm",
+    }),
+  ])
+  expect(partialResponse.ok).toBe(false)
 
   writeFileSync(join(discovery, "4h.csv"), `${csv}tampered\n`)
   await expect(bindDataSplitSegmentSnapshot({

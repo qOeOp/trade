@@ -344,6 +344,24 @@ CREATE TABLE IF NOT EXISTS rd_experiment_trial_plan_item (
   FOREIGN KEY (trial_id) REFERENCES rd_trial(trial_id)
 );
 
+CREATE TABLE IF NOT EXISTS rd_experiment_evaluation_work_package (
+  package_id TEXT PRIMARY KEY,
+  plan_id TEXT NOT NULL UNIQUE,
+  plan_hash TEXT NOT NULL UNIQUE,
+  experiment_id TEXT NOT NULL UNIQUE,
+  trial_group_id TEXT NOT NULL UNIQUE,
+  evaluation_protocol_hash TEXT NOT NULL,
+  family_capability_hash TEXT NOT NULL,
+  data_snapshot_binding_hash TEXT NOT NULL,
+  evaluation_policy_hash TEXT NOT NULL,
+  package_hash TEXT NOT NULL UNIQUE,
+  package_json TEXT NOT NULL CHECK(json_valid(package_json)),
+  compiled_at TEXT NOT NULL,
+  FOREIGN KEY (plan_id) REFERENCES rd_experiment_trial_plan(plan_id),
+  FOREIGN KEY (experiment_id) REFERENCES rd_experiment_contract(experiment_id),
+  FOREIGN KEY (trial_group_id) REFERENCES rd_trial_group(trial_group_id)
+);
+
 CREATE TABLE IF NOT EXISTS rd_replay_trial_reservation_admission (
   admission_id TEXT PRIMARY KEY,
   plan_id TEXT NOT NULL,
@@ -1310,10 +1328,12 @@ CREATE TABLE IF NOT EXISTS rd_evaluation_evidence_classification (
   result_id TEXT PRIMARY KEY,
   experiment_id TEXT NOT NULL,
   evidence_kind TEXT NOT NULL CHECK(evidence_kind IN (
-    'mechanical_replay', 'agent_assisted_historical', 'forward_observation'
+    'mechanical_replay', 'compatibility_mechanical_replay',
+    'agent_assisted_historical', 'forward_observation'
   )),
   producer TEXT NOT NULL CHECK(producer IN (
-    'replay_owner', 'agent_evaluation_owner', 'forward_owner'
+    'replay_owner', 'compatibility_evaluation_owner',
+    'agent_evaluation_owner', 'forward_owner'
   )),
   artifact_ref TEXT NOT NULL,
   evidence_hash TEXT NOT NULL,
@@ -1772,6 +1792,13 @@ CREATE TRIGGER IF NOT EXISTS prevent_experiment_trial_plan_item_delete
 BEFORE DELETE ON rd_experiment_trial_plan_item
 BEGIN SELECT RAISE(ABORT, 'Experiment Trial Plan item is immutable'); END;
 
+CREATE TRIGGER IF NOT EXISTS prevent_experiment_evaluation_work_package_update
+BEFORE UPDATE ON rd_experiment_evaluation_work_package
+BEGIN SELECT RAISE(ABORT, 'Experiment Evaluation Work Package is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS prevent_experiment_evaluation_work_package_delete
+BEFORE DELETE ON rd_experiment_evaluation_work_package
+BEGIN SELECT RAISE(ABORT, 'Experiment Evaluation Work Package is immutable'); END;
+
 CREATE TRIGGER IF NOT EXISTS prevent_replay_trial_reservation_admission_update
 BEFORE UPDATE ON rd_replay_trial_reservation_admission
 BEGIN SELECT RAISE(ABORT, 'Replay Trial Reservation Admission Record is immutable'); END;
@@ -1849,6 +1876,7 @@ const RESULT_STAGE_SEED: ReadonlyArray<readonly [string, number, number]> = [
 
 const RESULT_TYPE_SEED: ReadonlyArray<readonly [string, string]> = [
   ["replay", "Historical replay result"],
+  ["compatibility_mechanical_replay", "Compatibility mechanical research replay result"],
   ["panel", "Cross-asset panel result"],
   ["negative_control", "Negative-control result"],
   ["parameter_stability", "Parameter-stability result"],
@@ -1890,6 +1918,7 @@ const LIFECYCLE_RULE_SEED: ReadonlyArray<readonly [string, string, string, strin
 ]
 
 export function ensureResearchControlPlaneSchema(db: Database): void {
+  migrateEvaluationEvidenceClassificationPolicy(db)
   db.exec(CONTROL_PLANE_SCHEMA_SQL)
   migrateReplayCheckpointReceiptStoragePolicy(db)
   migrateReplayAttemptRequestRegistrationBinding(db)
@@ -1897,6 +1926,54 @@ export function ensureResearchControlPlaneSchema(db: Database): void {
   seedResultTypes(db)
   seedLifecycleRules(db)
   validateLifecycleRuleSeed(db)
+}
+
+function migrateEvaluationEvidenceClassificationPolicy(db: Database): void {
+  const row = db.query(`
+    SELECT sql FROM sqlite_master
+    WHERE type='table' AND name='rd_evaluation_evidence_classification'
+  `).get() as { sql: string } | null
+  if (!row || row.sql.includes("compatibility_mechanical_replay")) return
+  const migrate = db.transaction(() => {
+    db.exec(`
+      ALTER TABLE rd_evaluation_evidence_classification
+      RENAME TO rd_evaluation_evidence_classification_legacy;
+
+      CREATE TABLE rd_evaluation_evidence_classification (
+        result_id TEXT PRIMARY KEY,
+        experiment_id TEXT NOT NULL,
+        evidence_kind TEXT NOT NULL CHECK(evidence_kind IN (
+          'mechanical_replay', 'compatibility_mechanical_replay',
+          'agent_assisted_historical', 'forward_observation'
+        )),
+        producer TEXT NOT NULL CHECK(producer IN (
+          'replay_owner', 'compatibility_evaluation_owner',
+          'agent_evaluation_owner', 'forward_owner'
+        )),
+        artifact_ref TEXT NOT NULL,
+        evidence_hash TEXT NOT NULL,
+        policy_version TEXT NOT NULL,
+        classification_json TEXT NOT NULL CHECK(json_valid(classification_json)),
+        classification_hash TEXT NOT NULL UNIQUE,
+        classified_at TEXT NOT NULL,
+        FOREIGN KEY (result_id, experiment_id)
+          REFERENCES rd_experiment_result(result_id, experiment_id)
+      );
+
+      INSERT INTO rd_evaluation_evidence_classification(
+        result_id, experiment_id, evidence_kind, producer, artifact_ref,
+        evidence_hash, policy_version, classification_json,
+        classification_hash, classified_at
+      )
+      SELECT result_id, experiment_id, evidence_kind, producer, artifact_ref,
+             evidence_hash, policy_version, classification_json,
+             classification_hash, classified_at
+      FROM rd_evaluation_evidence_classification_legacy;
+
+      DROP TABLE rd_evaluation_evidence_classification_legacy;
+    `)
+  })
+  migrate.immediate()
 }
 
 function migrateReplayAttemptRequestRegistrationBinding(db: Database): void {

@@ -232,6 +232,7 @@ function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTo
     "modules/research-strategy-development/research-control-plane/program-supervisor -> modules/research-strategy-development/agent-roles/developer/rd-campaign-runner",
     "modules/research-strategy-development/research-control-plane/program-supervisor -> modules/research-strategy-development/agent-roles/developer/rd-loop-runner",
     "modules/research-strategy-development/research-control-plane/program-supervisor -> modules/research-strategy-development/research-control-plane/program-control",
+    "modules/research-strategy-development/research-control-plane/program-supervisor -> modules/research-strategy-development/research-control-plane/contracts",
     "modules/research-strategy-development/research-control-plane/program-supervisor -> modules/research-strategy-development/research-control-plane/state-store",
     "modules/research-strategy-development/research-control-plane/program-supervisor -> modules/research-strategy-development/research-control-plane/strategy-policy-writer",
     "modules/research-strategy-development/research-control-plane/replay-recovery -> modules/research-strategy-development/replay-execution-plane/runner",

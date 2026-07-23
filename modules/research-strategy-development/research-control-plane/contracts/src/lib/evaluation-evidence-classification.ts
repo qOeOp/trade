@@ -8,11 +8,13 @@ export const EVALUATION_EVIDENCE_POLICY_VERSION =
 
 export type EvaluationEvidenceKind =
   | "mechanical_replay"
+  | "compatibility_mechanical_replay"
   | "agent_assisted_historical"
   | "forward_observation"
 
 export type EvaluationEvidenceProducer =
   | "replay_owner"
+  | "compatibility_evaluation_owner"
   | "agent_evaluation_owner"
   | "forward_owner"
 
@@ -46,6 +48,7 @@ export function createEvaluationEvidenceClassification(
   const producer = evidenceProducer(input.producer)
   const expectedProducer: Record<EvaluationEvidenceKind, EvaluationEvidenceProducer> = {
     mechanical_replay: "replay_owner",
+    compatibility_mechanical_replay: "compatibility_evaluation_owner",
     agent_assisted_historical: "agent_evaluation_owner",
     forward_observation: "forward_owner",
   }
@@ -80,14 +83,24 @@ export function assertEvaluationEvidenceClassification(
 }
 
 function kind(value: string): EvaluationEvidenceKind {
-  if (!["mechanical_replay", "agent_assisted_historical", "forward_observation"].includes(value)) {
+  if (![
+    "mechanical_replay",
+    "compatibility_mechanical_replay",
+    "agent_assisted_historical",
+    "forward_observation",
+  ].includes(value)) {
     throw new Error("evaluation evidence kind is unsupported")
   }
   return value as EvaluationEvidenceKind
 }
 
 function evidenceProducer(value: string): EvaluationEvidenceProducer {
-  if (!["replay_owner", "agent_evaluation_owner", "forward_owner"].includes(value)) {
+  if (![
+    "replay_owner",
+    "compatibility_evaluation_owner",
+    "agent_evaluation_owner",
+    "forward_owner",
+  ].includes(value)) {
     throw new Error("evaluation evidence producer is unsupported")
   }
   return value as EvaluationEvidenceProducer

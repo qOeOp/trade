@@ -12,6 +12,11 @@ import {
   repoRoot,
 } from "../../../../../../contracts/runtime-core/src/paths"
 import type { JSONRecord } from "../../../../../../contracts/runtime-core/src/json"
+import {
+  DEVELOPER_DATA_SNAPSHOT_BINDING_SCHEMA_VERSION,
+  createDeveloperDataSnapshotBinding,
+  type DeveloperDataSnapshotBinding,
+} from "../../../../../../contracts/rd-agent-capability-contract/src/rd-agent-capability-contract"
 
 export const DATA_SPLIT_SEGMENT_SNAPSHOT_SCHEMA_VERSION =
   "trade.rd-data-split-segment-snapshot.v1" as const
@@ -124,6 +129,45 @@ export async function bindDataSplitSegmentSnapshot(input: {
     content_hash: contentHash,
   }
   return { ...body, snapshot_hash: canonicalHash(body) }
+}
+
+export function developerDataBindingFromSegmentSnapshot(input: {
+  snapshot: DataSplitSegmentSnapshot
+  dataset_kinds: string[]
+  exchange: string
+  evidence_ref?: string
+}): DeveloperDataSnapshotBinding {
+  const snapshot = input.snapshot
+  if (snapshot.schema_version !== DATA_SPLIT_SEGMENT_SNAPSHOT_SCHEMA_VERSION
+      || canonicalHash(withoutSnapshotHash(snapshot)) !== snapshot.snapshot_hash) {
+    throw new Error("Data Split Segment Snapshot is non-canonical or hash-drifted")
+  }
+  return createDeveloperDataSnapshotBinding({
+    schema_version: DEVELOPER_DATA_SNAPSHOT_BINDING_SCHEMA_VERSION,
+    snapshot_ref: snapshot.snapshot_ref,
+    snapshot_hash: snapshot.snapshot_hash,
+    dataset_kinds: input.dataset_kinds,
+    hypothesis_id: snapshot.hypothesis_id,
+    symbol: snapshot.symbol,
+    exchange: input.exchange,
+    segment: snapshot.segment,
+    timeframe: snapshot.timeframe,
+    row_count: snapshot.row_count,
+    first_open_at: snapshot.first_open_at,
+    last_open_at: snapshot.last_open_at,
+    report_ref: snapshot.report_ref,
+    report_hash: snapshot.report_hash,
+    manifest_ref: snapshot.manifest_ref,
+    manifest_hash: snapshot.manifest_hash,
+    content_ref: snapshot.content_ref,
+    content_hash: snapshot.content_hash,
+    evidence_ref: input.evidence_ref ?? snapshot.snapshot_ref,
+  })
+}
+
+function withoutSnapshotHash(snapshot: DataSplitSegmentSnapshot): JSONRecord {
+  const { snapshot_hash: _hash, ...body } = snapshot
+  return body
 }
 
 function safeRuntimeFile(root: string, path: string, field: string): string {

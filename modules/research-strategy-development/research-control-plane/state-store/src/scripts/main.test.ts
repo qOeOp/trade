@@ -242,6 +242,13 @@ test("research state store CLI admits a bounded Planner Proposal without materia
       "--db", dbPath, "--action", "start_frozen_experiment_trial_plan", "--json", "{}",
     ])), /freeze_id is required/)
     assert.throws(() => run(parseArgs([
+      "--db", dbPath, "--action", "compile_experiment_evaluation_work_package", "--json", "{}",
+    ])), /plan_id is required/)
+    assert.throws(() => run(parseArgs([
+      "--db", dbPath, "--action", "read_experiment_evaluation_work_package",
+      "--json", JSON.stringify({ package_id: "missing-package" }),
+    ])), /Work Package is missing/)
+    assert.throws(() => run(parseArgs([
       "--db", dbPath, "--action", "admit_replay_trial_reservation", "--json", "{}",
     ])), /unsupported Replay Trial Reservation Admission request/)
     assert.throws(() => run(parseArgs([

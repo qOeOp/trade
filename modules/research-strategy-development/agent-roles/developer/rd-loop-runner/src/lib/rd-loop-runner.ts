@@ -41,8 +41,7 @@ interface StrategyRndLoopReport {
 function runStrategyRndLoop(input: StrategyRndLoopInput): StrategyRndLoopReport {
   const created_at = input.now || new Date().toISOString()
   const runId = input.runId || `rnd-${created_at.replace(/[^0-9]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`
-  const artifactRoot = resolveRepoPath(input.artifactRoot || "./tmp/artifacts/strategy-rnd")
-  const artifactPath = join(artifactRoot, `${safeFileName(runId)}.json`)
+  const artifactPath = strategyRndArtifactPath(runId, input.artifactRoot)
   const artifactRef = displayPath(artifactPath)
   const catalogDbPath = input.catalogDbPath || defaultCatalogDbPathForGeneratedPath(artifactRef)
   const ledgerRef = catalogDbPath
@@ -92,6 +91,13 @@ function runStrategyRndLoop(input: StrategyRndLoopInput): StrategyRndLoopReport 
   return rdProgramState ? { ...report, rd_program_state: rdProgramState } : report
 }
 
+function strategyRndArtifactPath(runId: string, artifactRoot?: string): string {
+  return join(
+    resolveRepoPath(artifactRoot || "./tmp/artifacts/strategy-rnd"),
+    `${safeFileName(runId)}.json`,
+  )
+}
+
 function maybeUpdateRdProgramState(programRef: string | undefined, dbPath: string | undefined, catalogDbPath: string, result: JSONRecord, now: string): RdProgramStateCommandResult | undefined {
   if (!programRef) {
     return undefined
@@ -127,5 +133,6 @@ function maybeUpdateRdProgramState(programRef: string | undefined, dbPath: strin
 export {
   maybeUpdateRdProgramState,
   runStrategyRndLoop,
+  strategyRndArtifactPath,
   type StrategyRndLoopReport,
 }
