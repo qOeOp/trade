@@ -101,6 +101,7 @@ import {
 import type {
   EvaluationEvidenceClassification,
 } from "../../../contracts/src/lib/evaluation-evidence-classification"
+import { buildPlannerProposal } from "../../../../agent-roles/planner/src/lib/planner-role"
 
 type Args = DbActionJsonArgs
 
@@ -151,6 +152,21 @@ export function run(args: Args): JSONRecord {
     if (args.action === "admit_planner_proposal") {
       const admission = admitPlannerProposal(db, args.json as unknown as PlannerProposalIntakeRequest)
       return { ok: true, action: args.action, admission }
+    }
+    if (args.action === "prepare_planner_proposal") {
+      const proposal = buildPlannerProposal({
+        proposal_id: stringField(args.json.proposal_id),
+        hypothesis_id: stringField(args.json.hypothesis_id),
+        universe_node_id: stringField(args.json.universe_node_id),
+        objective: stringField(args.json.objective),
+        dataset_requirements: stringArray(args.json.dataset_requirements),
+        candidate_space: asRecord(args.json.candidate_space),
+        trial_budget: numberField(args.json.trial_budget),
+        evaluation_protocol_ref: stringField(args.json.evaluation_protocol_ref),
+        control_plane_context: readPlannerControlPlaneContext(db),
+        created_at: stringField(args.json.created_at),
+      })
+      return { ok: true, action: args.action, proposal }
     }
     if (args.action === "read_planner_proposal_admission") {
       const admission = readPlannerProposalAdmission(
@@ -355,8 +371,22 @@ function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/rd_state.db --action init",
     "actions: init | upsert_program | upsert_hypothesis | record_trial | record_holdout_use | record_lesson | read_program",
-    "control-plane: seed_default_control_plane | seed_universe | upsert_data_surface | link_universe_data_surface | upsert_pipeline_registry_item | upsert_universe_coverage | read_planning_context | admit_planner_proposal | read_planner_proposal_admission | issue_developer_development_brief | read_developer_development_brief | receive_developer_contract_draft | read_developer_contract_draft_receipt | validate_developer_contract_draft | read_developer_contract_draft_validation | freeze_developer_experiment_contract | read_developer_contract_freeze | start_experiment_trial_plan | read_experiment_trial_plan | admit_replay_trial_reservation | read_replay_trial_reservation_admission | register_replay_execution_request | read_replay_request_registration | issue_replay_l2_experiment_attachment | read_replay_l2_experiment_attachment | append_proposal_revision | materialize_proposal | register_trial_group | materialize_generated_candidate | transition_trial_group | register_experiment | reserve_trial | finish_trial | append_result | register_evaluation_evidence_classification | read_evaluation_evidence_classification | append_lesson | apply_reviewer_decision | apply_system_transition | open_blocker | close_blocker | check_lifecycle_projection | rebuild_lifecycle_projection",
+    "control-plane: seed_default_control_plane | seed_universe | upsert_data_surface | link_universe_data_surface | upsert_pipeline_registry_item | upsert_universe_coverage | read_planning_context | prepare_planner_proposal | admit_planner_proposal | read_planner_proposal_admission | issue_developer_development_brief | read_developer_development_brief | receive_developer_contract_draft | read_developer_contract_draft_receipt | validate_developer_contract_draft | read_developer_contract_draft_validation | freeze_developer_experiment_contract | read_developer_contract_freeze | start_experiment_trial_plan | read_experiment_trial_plan | admit_replay_trial_reservation | read_replay_trial_reservation_admission | register_replay_execution_request | read_replay_request_registration | issue_replay_l2_experiment_attachment | read_replay_l2_experiment_attachment | append_proposal_revision | materialize_proposal | register_trial_group | materialize_generated_candidate | transition_trial_group | register_experiment | reserve_trial | finish_trial | append_result | register_evaluation_evidence_classification | read_evaluation_evidence_classification | append_lesson | apply_reviewer_decision | apply_system_transition | open_blocker | close_blocker | check_lifecycle_projection | rebuild_lifecycle_projection",
   ].join("\n"))
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    throw new Error("dataset_requirements must be a string array")
+  }
+  return value as string[]
+}
+
+function asRecord(value: unknown): JSONRecord {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("candidate_space must be an object")
+  }
+  return value as JSONRecord
 }
 
 if (import.meta.main) {
