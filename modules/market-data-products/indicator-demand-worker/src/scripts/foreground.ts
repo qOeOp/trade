@@ -30,6 +30,32 @@ interface Args {
 
 const STATE_SCHEMA = "trade.indicator-demand-worker-state.v1" as const
 
+export function indicatorProviderCommand(
+  root: string,
+  manifestPath: string,
+  providerArgs: string[],
+): { command: string[]; cwd: string } {
+  const providerRoot = resolve(root, "modules/market-data-products/tech-indicators")
+  const catalogPath = resolve(providerRoot, "src/scripts/indicator_catalog.json")
+  const compiledProvider = resolve(providerRoot, "target/release/tech-indicators")
+  return {
+    command: existsSync(compiledProvider)
+      ? [
+          compiledProvider,
+          "--manifest", manifestPath,
+          "--catalog", catalogPath,
+          ...providerArgs,
+        ]
+      : [
+          "go", "run", "./src/scripts",
+          "--manifest", manifestPath,
+          "--catalog", catalogPath,
+          ...providerArgs,
+        ],
+    cwd: providerRoot,
+  }
+}
+
 export function parseArgs(argv: string[]): Args {
   const values = new Map<string, string>()
   for (let index = 0; index < argv.length; index += 2) {
@@ -184,14 +210,8 @@ export async function main(argv: string[]): Promise<number> {
           },
           run_provider: async (_target, source, providerArgs) => {
             const manifestPath = resolve(root, source.manifest_path)
-            const providerRoot = resolve(root, "modules/market-data-products/tech-indicators")
-            const compiledProvider = resolve(providerRoot, "target/release/tech-indicators")
-            const response = await runJson(
-              existsSync(compiledProvider)
-                ? [compiledProvider, "--manifest", manifestPath, ...providerArgs]
-                : ["go", "run", "./src/scripts", "--manifest", manifestPath, ...providerArgs],
-              providerRoot,
-            )
+            const provider = indicatorProviderCommand(root, manifestPath, providerArgs)
+            const response = await runJson(provider.command, provider.cwd)
             if (response.ok !== true) throw new Error("indicator provider returned failure")
             return asRecord(response.data)
           },
