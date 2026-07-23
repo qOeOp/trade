@@ -8,18 +8,26 @@ secret_file="${secret_dir}/agent-host.env"
 mkdir -p "${secret_dir}"
 chmod 700 "${secret_dir}"
 
-if [[ -e "${secret_file}" ]]; then
-  chmod 600 "${secret_file}"
-  printf '%s\n' "agent Host secret file already exists"
-  exit 0
-fi
-
 umask 077
-gateway_token="$(openssl rand -hex 32)"
-mcp_token="$(openssl rand -hex 32)"
-{
-  printf 'OPENCLAW_GATEWAY_TOKEN=%s\n' "${gateway_token}"
-  printf 'TRADE_MCP_HTTP_TOKEN=%s\n' "${mcp_token}"
-} > "${secret_file}"
+touch "${secret_file}"
 chmod 600 "${secret_file}"
-printf '%s\n' "created .secrets/agent-host.env"
+
+added=0
+ensure_token() {
+  local name="$1"
+  if grep -q "^${name}=" "${secret_file}"; then
+    return
+  fi
+  printf '%s=%s\n' "${name}" "$(openssl rand -hex 32)" >> "${secret_file}"
+  added=$((added + 1))
+}
+
+ensure_token "OPENCLAW_GATEWAY_TOKEN"
+ensure_token "TRADE_MCP_HTTP_TOKEN"
+ensure_token "TRADE_AGENT_HOST_HTTP_TOKEN"
+
+if [[ "${added}" -eq 0 ]]; then
+  printf '%s\n' "agent Host secret file already complete"
+else
+  printf '%s\n' "added ${added} missing Agent Host secret variable(s)"
+fi
