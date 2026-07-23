@@ -25,7 +25,7 @@ last_verified: 2026-07-23 CST
 | 架构旧稿与施工 | `legacy-design-architecture.md`、`legacy-blueprint-code-migration-plan.md`、`architecture-cleanup-plan.md`、`module-structure-refactor-plan.md` |
 | R&D 详细演进 | `legacy-rd-*.md` |
 | 审查与基线 | `documentation-audit.md`、`architecture-inventory.md`、`nofx-design-absorption.md` |
-| 运行演练 | `server-no-live-rehearsal-2026-07-23.md` |
+| 运行演练 | `server-no-live-rehearsal-2026-07-23.md`、`macos-no-live-release-staging-2026-07-23.md` |
 | v1 图 | `architecture-v1/` |
 
 历史文件保留原始细节并补充替代入口；不为“看起来整洁”删除仍有决策价值的上下文。
