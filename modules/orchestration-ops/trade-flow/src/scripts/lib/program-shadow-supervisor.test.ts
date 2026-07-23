@@ -10,7 +10,11 @@ import {
   readRuntimeParityObservations,
 } from "../../../../ops-runtime-store/src/lib/ops-runtime-store"
 import { ensureSchema as ensureEventStoreSchema } from "../../../../../portfolio-execution-state/event-store/src/lib/event-store"
-import { buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../../contracts/runtime-core/src/database-identity"
+import {
+  buildDatabaseIdentity,
+  ensureDatabaseIdentity,
+  inspectDatabaseIdentity,
+} from "../../../../../contracts/runtime-core/src/database-identity"
 import type { CommandExecutionResult } from "./job-graph-runner"
 import { createParityCommandRecorder } from "./program-shadow-parity"
 import { runProgramShadowSupervisor } from "./program-shadow-supervisor"
@@ -18,6 +22,11 @@ import { runProgramShadowSupervisor } from "./program-shadow-supervisor"
 function ensureSchema(db: Database): void {
   ensureDatabaseIdentity(db, buildDatabaseIdentity("local:local", "trade_event_store"))
   ensureEventStoreSchema(db)
+}
+
+function ensureOpsSchema(db: Database): void {
+  ensureDatabaseIdentity(db, buildDatabaseIdentity("local:local", "ops_runtime_store"))
+  ensureOpsRuntimeSchema(db)
 }
 
 test("program shadow supervisor runs stable cadence slots and releases its fenced lease", async () => {
@@ -60,6 +69,7 @@ test("program shadow supervisor runs stable cadence slots and releases its fence
 
     const opsDb = new Database(fixture.opsDbPath)
     try {
+      assert.deepEqual(inspectDatabaseIdentity(opsDb), buildDatabaseIdentity("local:local", "ops_runtime_store"))
       assert.equal(readOpsLock(opsDb, "program-runtime-shadow-supervisor"), null)
     } finally {
       opsDb.close()
@@ -352,7 +362,7 @@ test("program shadow supervisor refuses a second active owner", async () => {
   try {
     const opsDb = new Database(fixture.opsDbPath)
     try {
-      ensureOpsRuntimeSchema(opsDb)
+      ensureOpsSchema(opsDb)
       assert.equal(acquireOpsLock(opsDb, {
         lock_key: "program-runtime-shadow-supervisor",
         holder_id: "existing-supervisor",
@@ -386,7 +396,7 @@ test("program shadow supervisor recovers the expired lease of a crashed owner", 
   try {
     const opsDb = new Database(fixture.opsDbPath)
     try {
-      ensureOpsRuntimeSchema(opsDb)
+      ensureOpsSchema(opsDb)
       const abandoned = acquireOpsLock(opsDb, {
         lock_key: "program-runtime-shadow-supervisor",
         holder_id: "crashed-supervisor",
@@ -425,7 +435,7 @@ test("program shadow supervisor returns a bounded blocked result while SQLite st
   const fixture = createFixture("program-shadow-supervisor-busy-")
   const blocker = new Database(fixture.opsDbPath)
   try {
-    ensureOpsRuntimeSchema(blocker)
+    ensureOpsSchema(blocker)
     blocker.run("BEGIN EXCLUSIVE")
     let executions = 0
     const startedAt = Date.now()
@@ -474,7 +484,7 @@ test("program shadow supervisor stops when a newer fencing generation takes over
           now = new Date(now.getTime() + 121_000)
           const contenderDb = new Database(fixture.opsDbPath)
           try {
-            ensureOpsRuntimeSchema(contenderDb)
+            ensureOpsSchema(contenderDb)
             const takeover = acquireOpsLock(contenderDb, {
               lock_key: "program-runtime-shadow-supervisor",
               holder_id: "newer-supervisor",
