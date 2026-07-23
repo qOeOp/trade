@@ -375,11 +375,18 @@ test("Developer preparation loads immutable Agent Run context and sends only own
     start: () => ({ pid: 1, log_path: "tmp/unused.log" }),
   })
   const semantic = {
-    schema_version: "trade.rd-developer-semantic-contract.v2" as const,
-    hypothesis: { claim: "trend persists" },
-    economic_rationale: { mechanism: "slow adjustment" },
-    evaluation_intent: { metric: "net return" },
-    rejection_criteria: ["does not exceed costs"],
+    schema_version: "trade.rd-developer-semantic-contract.v3" as const,
+    hypothesis: {
+      proposed_market_mechanism: "Directional displacement may persist after new information.",
+      falsifiable_prediction: "The family may retain cost-adjusted out-of-sample expectancy.",
+      null_hypothesis: "The displacement may contain no repeatable directional information.",
+    },
+    economic_rationale: {
+      proposed_edge_source: "Slow positioning adjustment may extend directional moves.",
+      persistence_rationale: "Fragmented reactions might delay complete price adjustment.",
+      failure_modes: ["Fast arbitrage may remove the proposed continuation effect."],
+    },
+    evaluation_question: "Does the bounded family survive all referenced evidence gates?",
   }
   const prepared = await service.prepareDeveloperSubmission({
     developer_run_id: body.developer_run_id,

@@ -22,19 +22,26 @@ import { RESEARCH_CONTRACT_VALIDATOR_VERSION } from "./research-contract-validat
 import { compileDeveloperContractFreezeTrialGroup } from "./developer-contract-freeze-compiler"
 
 export const DEVELOPER_SEMANTIC_CONTRACT_SCHEMA_VERSION =
-  "trade.rd-developer-semantic-contract.v2" as const
+  "trade.rd-developer-semantic-contract.v3" as const
 export const DEVELOPER_EXPERIMENT_ASSUMPTIONS_SCHEMA_VERSION =
   "trade.rd-developer-experiment-assumptions.v1" as const
 export const DEVELOPER_CONTRACT_OWNER_COMPILER_VERSION =
-  "trade.rd-developer-contract-owner-compiler.v1" as const
+  "trade.rd-developer-contract-owner-compiler.v2" as const
 export const RESEARCH_SCOPE_POLICY_VERSION = "trade-flow.rd-scope.v1" as const
 
 export interface DeveloperSemanticContract extends JSONRecord {
   schema_version: typeof DEVELOPER_SEMANTIC_CONTRACT_SCHEMA_VERSION
-  hypothesis: JSONRecord
-  economic_rationale: JSONRecord
-  evaluation_intent: JSONRecord
-  rejection_criteria: string[]
+  hypothesis: {
+    proposed_market_mechanism: string
+    falsifiable_prediction: string
+    null_hypothesis: string
+  }
+  economic_rationale: {
+    proposed_edge_source: string
+    persistence_rationale: string
+    failure_modes: string[]
+  }
+  evaluation_question: string
 }
 
 export interface DeveloperExperimentAssumptions extends JSONRecord {
@@ -162,7 +169,10 @@ export function compileDeveloperContractDraft(input: {
       feature_definition: structuredClone(family.implementation_contract.feature_definition),
       target_definition: {
         objective: input.brief.objective,
-        evaluation_intent: structuredClone(semantic.evaluation_intent),
+        evaluation_intent: compileEvaluationIntent(
+          semantic.evaluation_question,
+          input.brief.evaluation_protocol_ref,
+        ),
       },
       forecast_definition: {
         predeclared_hypothesis: structuredClone(semantic.hypothesis),
@@ -191,11 +201,18 @@ export function compileDeveloperContractDraft(input: {
         evaluation_protocol_ref: input.brief.evaluation_protocol_ref,
       },
       validation_plan: {
-        evaluation_intent: structuredClone(semantic.evaluation_intent),
+        evaluation_intent: compileEvaluationIntent(
+          semantic.evaluation_question,
+          input.brief.evaluation_protocol_ref,
+        ),
         evaluation_protocol_ref: input.brief.evaluation_protocol_ref,
         data_segment: data.segment,
       },
-      rejection_criteria: semantic.rejection_criteria,
+      rejection_criteria: [
+        "Reject when the referenced evaluation protocol reports any blocking gate.",
+        "Reject when no predeclared candidate has positive cost-adjusted out-of-sample expectancy.",
+        "Reject on insufficient evidence, negative-control failure, excessive drawdown, cost fragility, regime fragility, parameter fragility, or selection-bias veto.",
+      ],
       trial_group_ref: {
         trial_group_id: group.trial_group_id,
         group_hash: group.group_hash,
@@ -292,18 +309,103 @@ function semanticContract(value: DeveloperSemanticContract): DeveloperSemanticCo
       || value.schema_version !== DEVELOPER_SEMANTIC_CONTRACT_SCHEMA_VERSION) {
     throw new Error("Developer semantic contract schema is unsupported")
   }
-  const objectFields = ["hypothesis", "economic_rationale", "evaluation_intent"] as const
-  for (const field of objectFields) {
-    if (!isRecord(value[field]) || Object.keys(value[field]).length === 0) {
-      throw new Error(`Developer semantic contract ${field} must be a non-empty object`)
+  if (!isRecord(value.hypothesis)
+      || !hasExactKeys(value.hypothesis, [
+        "proposed_market_mechanism",
+        "falsifiable_prediction",
+        "null_hypothesis",
+      ])) {
+    throw new Error("Developer semantic contract hypothesis fields are invalid")
+  }
+  if (!isRecord(value.economic_rationale)
+      || !hasExactKeys(value.economic_rationale, [
+        "proposed_edge_source",
+        "persistence_rationale",
+        "failure_modes",
+      ])
+      || !Array.isArray(value.economic_rationale.failure_modes)
+      || value.economic_rationale.failure_modes.length < 1
+      || value.economic_rationale.failure_modes.length > 8) {
+    throw new Error("Developer semantic contract economic_rationale fields are invalid")
+  }
+  const narratives = [
+    value.hypothesis.proposed_market_mechanism,
+    value.hypothesis.falsifiable_prediction,
+    value.hypothesis.null_hypothesis,
+    value.economic_rationale.proposed_edge_source,
+    value.economic_rationale.persistence_rationale,
+    value.evaluation_question,
+    ...value.economic_rationale.failure_modes,
+  ]
+  for (const narrative of narratives) {
+    semanticNarrative(narrative)
+  }
+  for (const provisional of [
+    value.hypothesis.proposed_market_mechanism,
+    value.hypothesis.falsifiable_prediction,
+    value.economic_rationale.proposed_edge_source,
+    value.economic_rationale.persistence_rationale,
+  ]) {
+    if (!/\b(?:may|might|could|would|hypothes(?:is|ized)|test whether)\b/i.test(provisional)) {
+      throw new Error("Developer semantic mechanism and prediction must remain explicitly provisional")
     }
   }
-  if (!Array.isArray(value.rejection_criteria)
-      || value.rejection_criteria.length === 0
-      || value.rejection_criteria.some((item) => typeof item !== "string" || !item.trim())) {
-    throw new Error("Developer semantic contract rejection_criteria must be non-empty strings")
+  if (!value.evaluation_question.endsWith("?")) {
+    throw new Error("Developer semantic evaluation_question must be a question")
   }
   return structuredClone(value)
+}
+
+function compileEvaluationIntent(
+  evaluationQuestion: string,
+  evaluationProtocolRef: string,
+): JSONRecord {
+  return {
+    evaluation_question: evaluationQuestion,
+    protocol_authority: evaluationProtocolRef,
+    candidate_selection: "predeclared_assignments_only",
+    required_evidence: [
+      "out_of_sample_expectancy",
+      "profit_factor",
+      "drawdown",
+      "cost_stress",
+      "regime_robustness",
+      "parameter_stability",
+      "negative_controls",
+      "selection_bias",
+    ],
+    thresholds: "owned_by_referenced_evaluation_protocol_and_engine_gates",
+  }
+}
+
+function semanticNarrative(value: unknown): string {
+  if (typeof value !== "string"
+      || value.trim() !== value
+      || value.length < 12
+      || value.length > 800) {
+    throw new Error("Developer semantic narrative must be a bounded non-empty string")
+  }
+  if (/[0-9%$€£¥]/u.test(value)) {
+    throw new Error("Developer semantic narrative must not preclaim numeric results or parameters")
+  }
+  const forbidden = [
+    /\bstatistically significant\b/i,
+    /\boptimal\b/i,
+    /\bproven\b/i,
+    /\bguarantee(?:d|s)?\b/i,
+    /\bprotects? capital\b/i,
+    /\blocks? in gains?\b/i,
+    /\bcreates? positive expectancy\b/i,
+    /\b(?:lookback_bars|threshold_atr|stop_atr|max_risk_atr|reward_risk|break_even_after_r|break_even_offset_r)\b/i,
+  ]
+  if (forbidden.some((pattern) => pattern.test(value))) {
+    throw new Error("Developer semantic narrative contains an unsupported preclaim or implementation detail")
+  }
+  return value
+}
+
+function hasExactKeys(value: JSONRecord, expected: string[]): boolean {
+  return JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expected].sort())
 }
 
 function quantileIndexes(total: bigint, count: number): bigint[] {

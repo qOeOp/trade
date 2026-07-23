@@ -46,16 +46,19 @@ const PLANNER_PROPOSAL_PREPARE = z.object({
   evaluation_protocol_ref: z.string().trim().min(1).max(500),
   requested_at: z.string().datetime({ offset: false }),
 }).strict()
-const NONEMPTY_SEMANTIC_RECORD = z.record(z.string(), z.unknown()).refine(
-  (value) => Object.keys(value).length > 0,
-  "semantic field must be a non-empty object",
-)
 const DEVELOPER_SEMANTIC_CONTRACT = z.object({
-  schema_version: z.literal("trade.rd-developer-semantic-contract.v2"),
-  hypothesis: NONEMPTY_SEMANTIC_RECORD,
-  economic_rationale: NONEMPTY_SEMANTIC_RECORD,
-  evaluation_intent: NONEMPTY_SEMANTIC_RECORD,
-  rejection_criteria: z.array(z.string().trim().min(1).max(2_000)).min(1).max(32),
+  schema_version: z.literal("trade.rd-developer-semantic-contract.v3"),
+  hypothesis: z.object({
+    proposed_market_mechanism: z.string().trim().min(12).max(800),
+    falsifiable_prediction: z.string().trim().min(12).max(800),
+    null_hypothesis: z.string().trim().min(12).max(800),
+  }).strict(),
+  economic_rationale: z.object({
+    proposed_edge_source: z.string().trim().min(12).max(800),
+    persistence_rationale: z.string().trim().min(12).max(800),
+    failure_modes: z.array(z.string().trim().min(12).max(800)).min(1).max(8),
+  }).strict(),
+  evaluation_question: z.string().trim().min(12).max(800),
 }).strict()
 const DEVELOPER_SUBMISSION_PREPARE = z.object({
   developer_run_id: z.string().trim().min(1).max(160),

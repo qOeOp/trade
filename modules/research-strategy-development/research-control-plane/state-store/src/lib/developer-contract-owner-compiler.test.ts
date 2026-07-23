@@ -120,6 +120,41 @@ describe("Developer contract owner compiler", () => {
       created_at: "2026-07-23T13:00:00.000Z",
     })).toThrow("explicit supplemental requirement binding")
   })
+
+  test("rejects semantic preclaims and implementation details before Draft intake", () => {
+    const compile = (semanticContract: DeveloperSemanticContract) =>
+      compileDeveloperContractDraft({
+        brief,
+        source_revision: "413a4abe",
+        draft_revision: 2,
+        requested_trial_budget: 8,
+        family_capability: family(),
+        data_snapshot_binding: dataBinding(),
+        semantic_contract: semanticContract,
+        created_at: "2026-07-23T13:00:00.000Z",
+      })
+    expect(() => compile({
+      ...semantic(),
+      hypothesis: {
+        ...semantic().hypothesis,
+        falsifiable_prediction: "The optimal 50 bar setting is statistically significant.",
+      },
+    })).toThrow("must not preclaim numeric results or parameters")
+    expect(() => compile({
+      ...semantic(),
+      economic_rationale: {
+        ...semantic().economic_rationale,
+        persistence_rationale: "The break_even_after_r control protects capital after reversal.",
+      },
+    })).toThrow("unsupported preclaim or implementation detail")
+    expect(() => compile({
+      ...semantic(),
+      hypothesis: {
+        ...semantic().hypothesis,
+        proposed_market_mechanism: "Directional displacement persists after new information.",
+      },
+    })).toThrow("must remain explicitly provisional")
+  })
 })
 
 const candidateSpace = {
@@ -177,12 +212,16 @@ function dataBinding() {
 function semantic(): DeveloperSemanticContract {
   return {
     schema_version: DEVELOPER_SEMANTIC_CONTRACT_SCHEMA_VERSION,
-    hypothesis: { falsifiable_claim: "4h trend persistence exceeds declared costs" },
-    economic_rationale: { mechanism: "gradual positioning adjustment" },
-    evaluation_intent: {
-      primary_metric: "net return after exact reserved costs",
-      negative_control: "side flip",
+    hypothesis: {
+      proposed_market_mechanism: "Volatility-normalized displacement may persist after a directional shock.",
+      falsifiable_prediction: "The predeclared momentum family may retain positive cost-adjusted out-of-sample expectancy.",
+      null_hypothesis: "The observed displacement may contain no repeatable directional information after costs.",
     },
-    rejection_criteria: ["net result fails to exceed declared transaction costs"],
+    economic_rationale: {
+      proposed_edge_source: "Slow positioning adjustment may extend directional price moves.",
+      persistence_rationale: "Fragmented reactions to new information might delay complete price adjustment.",
+      failure_modes: ["Fast arbitrage may remove the continuation effect before execution."],
+    },
+    evaluation_question: "Does the bounded family survive the referenced evidence gates after exact costs?",
   }
 }

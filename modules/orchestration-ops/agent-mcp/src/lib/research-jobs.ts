@@ -16,11 +16,18 @@ const DEVELOPER_AGENT_CONTEXT_PACK_SCHEMA =
   "trade.rd-developer-agent-context-pack.v1" as const
 
 interface DeveloperSemanticContract extends JSONRecord {
-  schema_version: "trade.rd-developer-semantic-contract.v2"
-  hypothesis: JSONRecord
-  economic_rationale: JSONRecord
-  evaluation_intent: JSONRecord
-  rejection_criteria: string[]
+  schema_version: "trade.rd-developer-semantic-contract.v3"
+  hypothesis: {
+    proposed_market_mechanism: string
+    falsifiable_prediction: string
+    null_hypothesis: string
+  }
+  economic_rationale: {
+    proposed_edge_source: string
+    persistence_rationale: string
+    failure_modes: string[]
+  }
+  evaluation_question: string
 }
 
 interface DeveloperAgentContextPack extends JSONRecord {
