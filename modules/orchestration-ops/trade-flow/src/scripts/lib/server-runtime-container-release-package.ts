@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import { spawnSync } from "node:child_process"
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -16,7 +17,7 @@ import { assertServerRuntimeReleaseTarget } from "./server-runtime-release-stage
 type JSONRecord = Record<string, unknown>
 
 export const SERVER_CONTAINER_SOURCE_PACKAGE_SCHEMA =
-  "trade.server-container-source-package.v1" as const
+  "trade.server-container-source-package.v2" as const
 
 export const SERVER_CONTAINER_SOURCE_PACKAGE_CRITICAL_REFS = [
   ".dockerignore",
@@ -46,13 +47,119 @@ export interface CreateServerContainerSourcePackageInput {
   created_at?: string
 }
 
+export interface CreateServerContainerSourcePackageFromArchiveInput
+  extends CreateServerContainerSourcePackageInput {
+  source_archive_path: string
+  source_archive_sha256: string
+  source_commit: string
+  source_origin_manifest_path: string
+  source_origin: {
+    kind: "certified_agent_patch_candidate"
+    manifest_ref: string
+    manifest_sha256: string
+  }
+}
+
 export function createServerContainerSourcePackage(
   input: CreateServerContainerSourcePackageInput,
 ): JSONRecord {
   const repositoryRoot = resolve(input.repository_root)
-  const targetRoot = assertServerRuntimeReleaseTarget(repositoryRoot, input.target_root)
   const commit = gitText(repositoryRoot, ["rev-parse", "HEAD"]).trim()
   if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error("git HEAD is not a full commit hash")
+  return packageSourceArchive({
+    repository_root: repositoryRoot,
+    target_root: input.target_root,
+    source_commit: commit,
+    created_at: input.created_at,
+    source_origin: {
+      kind: "committed_head",
+      ref: `git:${commit}`,
+    },
+    additional_files: [],
+    write_archive: (path) => git(repositoryRoot, [
+      "archive",
+      "--format=tar",
+      `--output=${path}`,
+      commit,
+    ]),
+  })
+}
+
+export function createServerContainerSourcePackageFromArchive(
+  input: CreateServerContainerSourcePackageFromArchiveInput,
+): JSONRecord {
+  const repositoryRoot = resolve(input.repository_root)
+  const archivePath = resolve(input.source_archive_path)
+  const originManifestPath = resolve(input.source_origin_manifest_path)
+  const commit = fullCommit(input.source_commit)
+  const archiveHash = digest(
+    input.source_archive_sha256,
+    "source_archive_sha256",
+  )
+  if (!existsSync(archivePath) || !statSync(archivePath).isFile()
+    || fileHash(archivePath) !== archiveHash) {
+    throw new Error("certified source archive identity drifted")
+  }
+  if (!input.source_origin
+    || input.source_origin.kind !== "certified_agent_patch_candidate"
+    || !safeRef(input.source_origin.manifest_ref)
+    || !/^[a-f0-9]{64}$/.test(input.source_origin.manifest_sha256)) {
+    throw new Error("certified source origin is invalid")
+  }
+  if (!existsSync(originManifestPath)
+    || !statSync(originManifestPath).isFile()) {
+    throw new Error("certified source origin manifest is missing")
+  }
+  const originManifest = parseJsonRecord(
+    readFileSync(originManifestPath, "utf8"),
+    "certified source origin manifest",
+  )
+  const originArchive = record(originManifest.source_archive)
+  if (originManifest.schema_version
+      !== "trade.rd-developer-patch-adoption-manifest.v1"
+    || originManifest.status !== "candidate_certified"
+    || originManifest.candidate_source_revision !== commit
+    || originManifest.manifest_sha256 !== input.source_origin.manifest_sha256
+    || originArchive.sha256 !== archiveHash) {
+    throw new Error("certified source origin manifest identity drifted")
+  }
+  const packagedOrigin = {
+    ...structuredClone(input.source_origin),
+    packaged_manifest_ref: "source-adoption-manifest.json",
+    packaged_manifest_file_sha256: fileHash(originManifestPath),
+  }
+  return packageSourceArchive({
+    repository_root: repositoryRoot,
+    target_root: input.target_root,
+    source_commit: commit,
+    created_at: input.created_at,
+    source_origin: packagedOrigin,
+    additional_files: [{
+      ref: "source-adoption-manifest.json",
+      source_path: originManifestPath,
+    }],
+    write_archive: (path) => copyFileSync(archivePath, path),
+  })
+}
+
+function packageSourceArchive(input: {
+  repository_root: string
+  target_root: string
+  source_commit: string
+  created_at?: string
+  source_origin: JSONRecord
+  additional_files: Array<{
+    ref: string
+    source_path: string
+  }>
+  write_archive(path: string): void
+}): JSONRecord {
+  const repositoryRoot = resolve(input.repository_root)
+  const targetRoot = assertServerRuntimeReleaseTarget(
+    repositoryRoot,
+    input.target_root,
+  )
+  const commit = fullCommit(input.source_commit)
   const createdAt = canonicalTime(input.created_at ?? new Date().toISOString())
   const partialRoot = `${targetRoot}.partial-${process.pid}`
   if (existsSync(partialRoot)) throw new Error("container source package temporary path already exists")
@@ -60,17 +167,12 @@ export function createServerContainerSourcePackage(
   mkdirSync(partialRoot, { recursive: false, mode: 0o700 })
   try {
     const sourceArchive = resolve(partialRoot, "source.tar")
-    git(repositoryRoot, [
-      "archive",
-      "--format=tar",
-      `--output=${sourceArchive}`,
-      commit,
-    ])
+    input.write_archive(sourceArchive)
     assertArchiveSafety(sourceArchive)
 
-    const acceptance = gitBytes(
-      repositoryRoot,
-      ["show", `${commit}:deploy/server/container-acceptance.sh`],
+    const acceptance = archiveBytes(
+      sourceArchive,
+      "deploy/server/container-acceptance.sh",
     )
     const acceptancePath = resolve(partialRoot, "container-acceptance.sh")
     writeFileSync(acceptancePath, acceptance, { mode: 0o700 })
@@ -78,15 +180,29 @@ export function createServerContainerSourcePackage(
 
     const sourceCommitPath = resolve(partialRoot, "SOURCE_COMMIT")
     writeFileSync(sourceCommitPath, `${commit}\n`, { mode: 0o600 })
+    const sourceOriginPath = resolve(partialRoot, "source-origin.json")
+    writeFileSync(
+      sourceOriginPath,
+      `${JSON.stringify(input.source_origin, null, 2)}\n`,
+      { mode: 0o600 },
+    )
+    for (const extra of input.additional_files) {
+      if (!/^[a-z0-9][a-z0-9.-]*$/.test(extra.ref)) {
+        throw new Error("container source package additional file ref is invalid")
+      }
+      copyFileSync(extra.source_path, resolve(partialRoot, extra.ref))
+      chmodSync(resolve(partialRoot, extra.ref), 0o600)
+    }
     const manifest = {
       schema_version: SERVER_CONTAINER_SOURCE_PACKAGE_SCHEMA,
       package_id: commit.slice(0, 12),
       source_commit: commit,
+      source_origin: input.source_origin,
       created_at: createdAt,
       source_archive: fileEvidence(partialRoot, "source.tar"),
       critical_contracts: SERVER_CONTAINER_SOURCE_PACKAGE_CRITICAL_REFS.map((ref) => ({
         ref,
-        sha256: hashBytes(gitBytes(repositoryRoot, ["show", `${commit}:${ref}`])),
+        sha256: hashBytes(archiveBytes(sourceArchive, ref)),
       })),
       toolchains: {
         bun: "1.3.13",
@@ -122,6 +238,8 @@ export function createServerContainerSourcePackage(
       "source.tar",
       "container-acceptance.sh",
       "SOURCE_COMMIT",
+      "source-origin.json",
+      ...input.additional_files.map((entry) => entry.ref),
       "release-manifest.json",
       "README.md",
     ]
@@ -152,9 +270,33 @@ function assertArchiveSafety(archivePath: string): void {
     .toString("utf8")
     .split(/\r?\n/)
     .filter(Boolean)
+  if (entries.length < 1 || new Set(entries).size !== entries.length) {
+    throw new Error("source archive entries are empty or duplicated")
+  }
+  const unsafe = entries.find((entry) =>
+    entry.startsWith("/")
+    || entry.includes("\\")
+    || entry.split("/").includes(".."))
+  if (unsafe) throw new Error(`source archive contains unsafe path: ${unsafe}`)
   const forbidden = entries.find((entry) =>
     FORBIDDEN_ARCHIVE_PREFIXES.some((prefix) => entry === prefix.slice(0, -1) || entry.startsWith(prefix)))
   if (forbidden) throw new Error(`source archive contains forbidden runtime path: ${forbidden}`)
+  const missing = SERVER_CONTAINER_SOURCE_PACKAGE_CRITICAL_REFS.find(
+    (ref) => !entries.includes(ref),
+  )
+  if (missing) throw new Error(`source archive is missing critical contract: ${missing}`)
+  const listing = commandBytes(["tar", "-tvf", archivePath], process.cwd())
+    .toString("utf8")
+    .split(/\r?\n/)
+    .filter(Boolean)
+  if (listing.length !== entries.length
+    || listing.some((line) => !/^[-d]/.test(line))) {
+    throw new Error("source archive contains links or special files")
+  }
+}
+
+function archiveBytes(archivePath: string, ref: string): Buffer {
+  return commandBytes(["tar", "-xOf", archivePath, ref], process.cwd())
 }
 
 function fileEvidence(root: string, ref: string): JSONRecord {
@@ -169,8 +311,11 @@ function fileEvidence(root: string, ref: string): JSONRecord {
 function packageReadme(commit: string): string {
   return `# Trade server source package
 
-This package contains only committed source at \`${commit}\`. It has no credentials,
-runtime databases, build output, image digest, or live-trading authority.
+This package contains one immutable source snapshot identified as \`${commit}\`.
+\`source-origin.json\` states whether it came from committed HEAD or an independently
+certified Agent patch candidate. Candidate packages also carry the exact adoption
+manifest as \`source-adoption-manifest.json\`. It has no credentials, runtime databases,
+build output, image digest, or live-trading authority.
 
 On a Linux Docker host:
 
@@ -231,4 +376,41 @@ function canonicalTime(value: string): string {
     throw new Error("created_at must be canonical UTC")
   }
   return value
+}
+
+function fullCommit(value: string): string {
+  if (!/^[a-f0-9]{40}$/.test(value)) {
+    throw new Error("source_commit is not a full commit hash")
+  }
+  return value
+}
+
+function digest(value: string, field: string): string {
+  if (!/^[a-f0-9]{64}$/.test(value)) throw new Error(`${field} is invalid`)
+  return value
+}
+
+function safeRef(value: string): boolean {
+  return typeof value === "string"
+    && value.length > 0
+    && !value.startsWith("/")
+    && !value.includes("\0")
+    && !value.split("/").includes("..")
+}
+
+function parseJsonRecord(value: string, field: string): JSONRecord {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(value)
+  } catch {
+    throw new Error(`${field} is not valid JSON`)
+  }
+  return record(parsed)
+}
+
+function record(value: unknown): JSONRecord {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("expected a JSON object")
+  }
+  return value as JSONRecord
 }

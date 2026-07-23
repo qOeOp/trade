@@ -14,6 +14,7 @@ import { dirname, resolve } from "node:path"
 import test from "node:test"
 import {
   createServerContainerSourcePackage,
+  createServerContainerSourcePackageFromArchive,
   SERVER_CONTAINER_SOURCE_PACKAGE_CRITICAL_REFS,
   SERVER_CONTAINER_SOURCE_PACKAGE_SCHEMA,
 } from "./server-runtime-container-release-package"
@@ -93,6 +94,59 @@ test("container source package binds committed source and excludes workspace sta
       fixtureContent("deploy/server/Dockerfile"),
     )
     verifyChecksums(target)
+
+    const candidateTarget = resolve(root, "candidate-package")
+    const candidateArchive = resolve(target, "source.tar")
+    const candidateOriginManifest = resolve(root, "candidate-origin.json")
+    const candidateOriginHash = "a".repeat(64)
+    writeFileSync(candidateOriginManifest, `${JSON.stringify({
+      schema_version: "trade.rd-developer-patch-adoption-manifest.v1",
+      status: "candidate_certified",
+      candidate_source_revision: commit,
+      manifest_sha256: candidateOriginHash,
+      source_archive: {
+        sha256: sha256(readFileSync(candidateArchive)),
+      },
+    })}\n`)
+    const candidateResult = createServerContainerSourcePackageFromArchive({
+      repository_root: repository,
+      target_root: candidateTarget,
+      source_archive_path: candidateArchive,
+      source_archive_sha256: sha256(readFileSync(candidateArchive)),
+      source_commit: commit,
+      source_origin_manifest_path: candidateOriginManifest,
+      source_origin: {
+        kind: "certified_agent_patch_candidate",
+        manifest_ref: "data/release-candidates/adoption-fixture/manifest.json",
+        manifest_sha256: candidateOriginHash,
+      },
+      created_at: "2026-07-23T10:01:00.000Z",
+    })
+    assert.equal(candidateResult.source_commit, commit)
+    const candidateManifest = JSON.parse(
+      readFileSync(resolve(candidateTarget, "release-manifest.json"), "utf8"),
+    ) as Record<string, any>
+    assert.equal(
+      candidateManifest.source_origin.kind,
+      "certified_agent_patch_candidate",
+    )
+    assert.equal(
+      candidateManifest.source_origin.manifest_sha256,
+      candidateOriginHash,
+    )
+    assert.equal(
+      candidateManifest.source_origin.packaged_manifest_ref,
+      "source-adoption-manifest.json",
+    )
+    assert.deepEqual(
+      readFileSync(resolve(candidateTarget, "source-adoption-manifest.json")),
+      readFileSync(candidateOriginManifest),
+    )
+    assert.equal(
+      sha256(readFileSync(resolve(candidateTarget, "source.tar"))),
+      sha256(readFileSync(candidateArchive)),
+    )
+    verifyChecksums(candidateTarget)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -109,7 +163,7 @@ function fixtureContent(
 
 function verifyChecksums(root: string): void {
   const lines = readFileSync(resolve(root, "SHA256SUMS"), "utf8").trim().split("\n")
-  assert.equal(lines.length, 5)
+  assert.equal(lines.length >= 6, true)
   for (const line of lines) {
     const match = /^([a-f0-9]{64})  ([A-Za-z0-9._-]+)$/.exec(line)
     assert.ok(match)

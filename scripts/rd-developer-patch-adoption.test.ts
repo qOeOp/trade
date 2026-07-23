@@ -38,6 +38,9 @@ import {
   readAgentPatchAdoption,
 } from "../modules/orchestration-ops/ops-runtime-store/src/lib/agent-patch-adoption-store"
 import {
+  SERVER_CONTAINER_SOURCE_PACKAGE_CRITICAL_REFS,
+} from "../modules/orchestration-ops/trade-flow/src/scripts/lib/server-runtime-container-release-package"
+import {
   registerAgentWorkspaceExecutionScope,
 } from "../modules/orchestration-ops/ops-runtime-store/src/lib/agent-workspace-scope-store"
 import {
@@ -51,9 +54,13 @@ import {
 import {
   queueDeveloperPatchAdoption,
 } from "./lib/rd-developer-patch-adoption-queue"
+import {
+  createDeveloperCandidateServerPackage,
+} from "./lib/rd-developer-candidate-release-package"
 
 test("Developer patch adoption certifies an exact isolated candidate without advancing the source checkout", async () => {
   const fixture = await completedDeveloperRun(false)
+  const packageRoot = `${fixture.root}-server-package`
   try {
     const sourceHead = gitText(fixture.root, ["rev-parse", "HEAD"]).trim()
     const result = await adopt(fixture)
@@ -89,9 +96,43 @@ test("Developer patch adoption certifies an exact isolated candidate without adv
 
     const replayed = await adopt(fixture)
     assert.deepEqual(replayed, result)
+
+    const packaged = createDeveloperCandidateServerPackage({
+      db: fixture.db,
+      repository_root: fixture.root,
+      adoption_id: fixture.adoptionId,
+      target_root: packageRoot,
+      created_at: "2026-07-23T01:24:00.000Z",
+    })
+    assert.equal(
+      packaged.candidate_source_revision,
+      result.candidate_source_revision,
+    )
+    assert.equal(packaged.deployment_authority, "none")
+    assert.equal(packaged.trading_authority, false)
+    assert.equal(
+      readFileSync(join(packageRoot, "SOURCE_COMMIT"), "utf8"),
+      `${result.candidate_source_revision}\n`,
+    )
+    const releaseManifest = JSON.parse(
+      readFileSync(join(packageRoot, "release-manifest.json"), "utf8"),
+    )
+    assert.equal(
+      releaseManifest.source_origin.manifest_sha256,
+      result.manifest_sha256,
+    )
+    assert.equal(
+      releaseManifest.source_origin.packaged_manifest_ref,
+      "source-adoption-manifest.json",
+    )
+    assert.deepEqual(
+      readFileSync(join(packageRoot, "source-adoption-manifest.json")),
+      readFileSync(manifestPath),
+    )
   } finally {
     fixture.db.close()
     rmSync(fixture.root, { recursive: true, force: true })
+    rmSync(packageRoot, { recursive: true, force: true })
   }
 })
 
@@ -138,6 +179,11 @@ async function completedDeveloperRun(changeDependencyManifest: boolean): Promise
     join(root, "modules", "sample", "src", "value.ts"),
     "export const value = 1\n",
   )
+  for (const ref of SERVER_CONTAINER_SOURCE_PACKAGE_CRITICAL_REFS) {
+    const path = join(root, ref)
+    mkdirSync(resolve(path, ".."), { recursive: true })
+    writeFileSync(path, criticalFixture(ref))
+  }
   git(root, ["init", "-q"])
   git(root, ["config", "user.name", "Fixture"])
   git(root, ["config", "user.email", "fixture@example.invalid"])
@@ -316,6 +362,16 @@ async function completedDeveloperRun(changeDependencyManifest: boolean): Promise
   assert.equal(queued.adoption_id, adoptionId)
   assert.equal(queued.status, "accepted")
   return { root, db, runId, adoptionId }
+}
+
+function criticalFixture(
+  ref: typeof SERVER_CONTAINER_SOURCE_PACKAGE_CRITICAL_REFS[number],
+): string {
+  if (ref === "deploy/server/container-acceptance.sh") {
+    return "#!/bin/sh\nset -eu\n"
+  }
+  if (ref.endsWith(".json") || ref === "package.json") return "{}\n"
+  return `${ref}\n`
 }
 
 function adopt(fixture: {

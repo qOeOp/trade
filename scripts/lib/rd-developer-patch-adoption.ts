@@ -101,6 +101,14 @@ export interface DeveloperPatchAdoptionResult
   manifest: DeveloperPatchAdoptionManifest
 }
 
+export function readCertifiedDeveloperPatchAdoption(
+  repositoryRoot: string,
+  result: AgentPatchAdoptionResultProjection,
+): DeveloperPatchAdoptionResult {
+  const root = realpathSync(resolve(repositoryRoot))
+  return readCompletedAdoption(root, result)
+}
+
 export async function runDeveloperPatchAdoption(input: {
   db: Database
   repository_root: string

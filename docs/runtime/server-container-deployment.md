@@ -30,14 +30,25 @@ Operator、Agent Host 与 Developer sandbox 仍必须独立，因为它们持有
 
 ## 3. 离线 source package 与 Linux 验收
 
-发布者只能从 committed `HEAD` 生成新路径：
+普通发布者只能从 committed `HEAD` 生成新路径：
 
 ```bash
 bun modules/orchestration-ops/trade-flow/src/scripts/server-runtime-container-release-package.ts \
   --target-root /absolute/new/trade-container-package
 ```
 
-包内只有 `source.tar`、提交号、manifest、说明、Linux 验收入口与 `SHA256SUMS`；不包含 dirty working tree、credential、owner DB、runtime state、依赖或本机 binary。manifest 以 `source_package_only` 明示 image digest、SBOM、provenance 和容器 smoke 尚未完成。
+包内只有 `source.tar`、提交号、来源记录、manifest、说明、Linux 验收入口与 `SHA256SUMS`；不包含 dirty working tree、credential、owner DB、runtime state、依赖或本机 binary。v2 包固定携带 `source-origin.json`；Agent 候选另携带原样 `source-adoption-manifest.json`，两者都进入校验和，故传离认证主机后仍可核验来源。manifest 以 `source_package_only` 明示 image digest、SBOM、provenance 和容器 smoke 尚未完成。
+
+Developer 代码候选不能绕过同一入口。只有 Ops 中已是 `candidate_certified`、且 archive/manifest/patch/check evidence 全部重验通过的 adoption，才能转换成相同包型：
+
+```bash
+bun scripts/rd-developer-candidate-release-package.ts --json '{
+  "adoption_id":"<developer-run-id>:candidate",
+  "target_root":"/absolute/new/trade-candidate-package"
+}'
+```
+
+该包的 `source_origin` 绑定 adoption manifest hash，`SOURCE_COMMIT` 使用确定性 candidate revision；后续仍必须完整运行 Linux no-live acceptance。命令不 merge、不替换 container、不写 owner DB，也不授予 deployment / trading authority。
 
 传到 Linux 后为 source 与 evidence 选择全新绝对路径：
 
@@ -104,6 +115,8 @@ Operator 仅监听服务器 `127.0.0.1:8787`；远程访问走 SSH tunnel / VPN�
 | `trade-runtime-tmp` | 可再建 cache、log、runtime receipt | 不得成为唯一 durable ref |
 | `trade-artifacts` | 被 R&D / evidence 引用的 artifact | 与 catalog / ledger 一起备份恢复 |
 | `trade-panels` | validation / calibration / holdout workspace | ref / pin 闭包后才能清理 |
+| `trade-agent-artifacts` | Agent Run immutable input/output evidence | 与 Ops Agent Run/adoption identity 一起备份恢复 |
+| `trade-release-candidates` | certified patch manifest 与 source archive | 只有无 active adoption 且无 release ref 才能按 owner GC |
 
 镜像升级必须创建新 digest，先做 no-live preflight 与备份，再替换 container；失败回滚旧 digest与原 volume。不得把 runtime volume bake 入 image，也不得用 Git checkout 回滚 owner DB。
 
