@@ -4,10 +4,12 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { repoRoot } from "../../../../contracts/runtime-core/src/paths"
 import { readServerRuntimeContainerStatus } from "./lib/server-runtime-container-status"
-import { parseServerRuntimeProfile } from "./lib/server-runtime-profile"
+import { parseServerRuntimeContainerProfile } from "./lib/server-runtime-container-profile"
 
 const root = repoRoot()
-const profile = parseServerRuntimeProfile(JSON.parse(readFileSync(resolve(root, "profile/server-runtime.json"), "utf8")))
+const profile = parseServerRuntimeContainerProfile(JSON.parse(
+  readFileSync(resolve(root, "profile/server-runtime-container.json"), "utf8"),
+))
 const status = await readServerRuntimeContainerStatus(profile, root, process.execPath, async (command) => {
   const child = Bun.spawn({
     cmd: command,
