@@ -23,6 +23,7 @@ program-owned runtime
 - LLM 只进入显式语义任务，输出 typed proposal；不直写 owner store，不调用 Binance write。
 - MCP 继续作为北向 Agent 接口，不充当内部总线、实时 transport 或 LLM runtime。
 - L2 接收、序列校验、订单簿重建、落盘和派生特征完全不依赖 LLM。
+- Codex/OpenClaw/LangGraph 的 Host 选择、隔离和同条件评测由 [Agent Host Runtime plan](./agent-host-runtime-integration-plan.md) 独立承接；无论选择结果如何，本计划的 Program/Owner authority 不变。
 - 本文是提案，不修改当前 [Design Architecture](../design-architecture.md)、manifest 或产品 authority；每项技术只有通过采用门才进入 active contract。
 
 ## 2. 当前基线与缺口
@@ -53,6 +54,14 @@ P3 一小时终态更正（2026-07-23）：上述 bounded observation 的 immuta
 P4 full-shadow 实施检查点（2026-07-23）：新增 closed-world `full_shadow` profile，在同一 supervisor/wakeup lease 下启用固定 J01–J07、强制 cadence due，并保留各 owner 的 active/work gate；`allow_live_writes=false`、dry-run notify、L2 owner/consumer readiness 均不可放宽。共享结果 parity 现覆盖 cycle 派生 `run_id`；干净 HEAD 双周期 fixture 为 `2/2 match`、零重复 job/incident，同槽重启 terminal skip 且 fencing token `1→2`。当前 server config 未切换，published CLI、故障注入与长时证据仍是采用门。
 
 P3 首个 domain canary 准备（P1.27，2026-07-23）：one-shot wakeup 新增 closed-world `catalog_hygiene_canary` profile，只强制现有 owner-native J06 `catalog_hygiene_scan`，唯一允许写面为 `artifact_catalog`；其余 J01–J05/J07、live write 与真实通知继续关闭，固定命令不包含 catalog/artifact GC、`--yes` 或 caller-supplied root。该 profile 当前只完成代码与 fixture，不进入正在运行的 P1.26 soak，也未执行真实 catalog canary；只有一小时 parity、lease release 与终态审计闭合后才允许一次真实运行。
+
+P3 L2 availability gate（P1.28，2026-07-23）：production-like immutable release 在 `02:15:28Z..02:30:30Z` 完成 696 个 watch cycle / 7,461 event，watch/snapshot failure、retry、reconnect、worker restart、resync 全部零增量；Rust owner 全窗 running、attempt/consecutive failure 零增量，RSS 稳定在约 15MB。dirty workspace 对照同窗 793 cycle / 8,563 event，1 次 typed watch failure 后自动恢复且 owner 未重启；release loopback 额外连续 24 次真实 watch 全部成功。故 availability 采用门以 production-like release clean window、owner 零 restart/incident、consumer live/fresh 终态组合判定，不把 `timed_out=true` 或可恢复瞬时错误误判为永久故障。P1.28 已闭合，允许进入一次 J06 metadata-only canary；所有 exchange live write 与真实通知继续关闭。
+
+P3 J06 one-shot canary（P1.29，2026-07-23）：隔离预演确认 `data + tmp` 当前为约 4.1 万文件，原 30 秒 child bound 正好形成截止竞态，故 ops-only profile 保持 30 秒，domain-enabled profile 固定 90 秒。首次真实运行的 J06 owner job 成功但三个 lifecycle processor 因把 repo-relative DB 再换算为 tool-relative 路径而失败；第二次 processor 全通过，但 live L2 `.partial.*` 在枚举后 finalize/移走使 catalog fail closed。现 lifecycle DB 参数统一保留 repo-relative owner contract；catalog 明确跳过 unfinalized partial、SQLite sidecar 与 `.DS_Store`，并报告 transient/disappeared 计数。终次 cycle `program-canary-j06-20260723t025000z` 在 36.6 秒内完成：J06 扫描/写入 37,321 条、跳过 3,933 个 transient、零 disappeared，3/3 processor completed、其余 6 job disabled/skipped、零 incident，inner fencing token `89` 正常释放；`business_status=completed` 与 graph `ok=true` 明确区分“入口已执行”和“业务图成功”。全程无 GC、文件删除、exchange write 或真实通知。P1.29 已闭合。
+
+P3 J06 resident cadence（P1.30，2026-07-23）：`catalog_hygiene_canary` 已进入同一 fenced supervisor，domain-enabled child 保持 90 秒硬截止，interval 合同上限扩至 24 小时以支持每日 reconciliation；Agent 对照只回放同一 owner result，不触发第二次扫描。真实 60 秒加速证据连续完成 `02:54` / `02:56` 两轮：`attempted=executed=2`、`failed=0`，共享输入 parity `2/2 match`、零 mismatch；每轮仅 J06 completed、其余 6 job skipped，3/3 lifecycle processor completed、零 incident，末轮 inner token `91` 与 supervisor lease 均释放。允许写面仍只有 `artifact_catalog`，`live_writes_allowed=false`、notify dry-run；60 秒仅用于迁移证据，生产建议 cadence 为每日。P1.30 已闭合。
+
+S7 真实门复判（2026-07-23）：model gateway 的固定无参数 provider smoke 精确验证 JSON object semantic marker，只返回脱敏、`execution_authority=none` 的 typed result。首次 SiliconFlow 调用以 `provider_http_401` fail closed；credential 修正后同一探针一次完成，48 input + 16 output = 64 tokens，marker 精确匹配，provider capability 门闭合。R&D kill/restart 门要求 `trade-agent` MCP owner workflow；当前会话未加载该 surface，故未以任意 CLI 绕过。release gate 以既有 full-shadow `9/9` parity、launchd/restore/public soak/Operator 证据重算后，只保留 `rd_kill_restart_single_trial_result_not_passed`，最大 authority 仍为 `no_live_local_rehearsal`。
 
 ## 3. 不变量
 
@@ -360,8 +369,9 @@ R&D 纵切无 Binance write，且已有 schema / queue / budget / holdout gate�
 - 已实现：前台常驻 supervisor 调用既有 job graph；Agent 路径保持可用。
 - 已实现：`shadow_program` 固定禁用 domain/live-write，具备 heartbeat、fencing、稳定槽、child timeout、terminal idempotency 与 signal drain。
 - 已实现：SQLite busy typed failure、真实进程崩溃后的 stale takeover、共享 owner-result replay 的 Agent/program parity、immutable observation ledger 与只读 owner/MCP status。
-- 已准备：closed-world one-shot J06 catalog hygiene canary；尚未真实执行，也未进入 resident cadence。
-- 待闭合：外部 process manager deployment 与迁移期长时并行观察；随后才可逐 job 评估 authority 切换。
+- 已实现：closed-world J06 canary 已完成 one-shot 与两轮 fenced resident cadence；catalog live partial/SQLite sidecar 被排除，允许写面仅为 `artifact_catalog`。
+- 已实现：immutable release、launchd no-live 部署、真实 restore、public/full-shadow soak 与 Operator resident/audit/rotation。
+- 待闭合：真实模型 provider 与 R&D kill/restart 单 Trial/Result；通过后也只进入人工 no-live 变更评审，不自动切换 job authority。
 
 退出：无双写、无重复 job、可停止/恢复；再逐 job 切换 authority。
 
@@ -370,7 +380,9 @@ R&D 纵切无 Binance write，且已有 schema / queue / budget / holdout gate�
 - 已实现：provider-neutral request/result contract、固定 SiliconFlow `/v1/chat/completions` profile、JSON Object capability、credential lookup、timeout、限次 transient retry、token/input/output budget、hash/identity、typed failure 与脱敏结果。
 - 已实现：R&D hypothesis domain adapter 与离线 eval；有效 proposal 仍需 designer lint/data-family binding，网关和 adapter 均不写 RD state。
 - 已证明：credential/provider outage、invalid envelope/usage/JSON、truncation、budget、identity/schema/authority drift 一律 fail closed，不推进 owner state。
-- 待闭合：真实 key 单次 capability smoke、固定 dataset 的 Agent/API quality-cost-latency parity、脱敏 usage/trace 持久化、rate backoff/circuit breaker 与 server secret/soak。
+- 已实现：固定无参数 provider smoke，要求精确 JSON semantic marker，便于 credential 更新后原样复跑。
+- 已证明：credential 修正后固定真实调用一次完成，64 tokens、精确 marker、无执行 authority；provider capability smoke 已闭合。
+- 待闭合：固定 dataset 的 Agent/API quality-cost-latency parity、脱敏 usage/trace 持久化、rate backoff/circuit breaker 与 server secret/soak。
 
 退出：Agent 与 API 生成在固定 dataset 上可比较；schema/authority 失败为零。
 
