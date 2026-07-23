@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
 import { CodexJsonlPeer } from "./codex-jsonl-peer"
+import { drainCodexStream, pumpCodexJsonLines } from "./codex-streams"
 import { CODEX_APP_SERVER_BASELINE } from "./codex-agent-run-mapping"
 
 type JSONRecord = Record<string, unknown>
@@ -71,11 +72,11 @@ export async function runCodexStdioProbe(input: {
       terminalResolve?.({ status, failure: status === "failed" ? classifyFailure(turn.error) : "none" })
     },
   })
-  const stdoutPump = pumpLines(child.stdout, (line) => {
+  const stdoutPump = pumpCodexJsonLines(child.stdout, (line) => {
     if (isServerRequest(line)) denied += 1
     peer.feed(line)
   }).finally(() => peer.close("Codex App Server stdout closed"))
-  const stderrPump = drain(child.stderr)
+  const stderrPump = drainCodexStream(child.stderr)
   try {
     const initialized = record(await peer.request("initialize", {
       clientInfo: { name: "trade_agent_host_probe", title: "Trade Agent Host Probe", version: "0.1.0" },
@@ -134,34 +135,6 @@ export async function runCodexStdioProbe(input: {
     child.kill("SIGTERM")
     await terminateWithin(child, 2_000)
     await Promise.allSettled([stdoutPump, stderrPump])
-  }
-}
-
-async function pumpLines(stream: ReadableStream<Uint8Array>, consume: (line: string) => void): Promise<void> {
-  const reader = stream.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ""
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    while (true) {
-      const newline = buffer.indexOf("\n")
-      if (newline < 0) break
-      const line = buffer.slice(0, newline).trim()
-      buffer = buffer.slice(newline + 1)
-      if (line) consume(line)
-    }
-    if (buffer.length > 4 * 1024 * 1024) throw new Error("Codex App Server stdout line exceeded limit")
-  }
-  const trailing = `${buffer}${decoder.decode()}`.trim()
-  if (trailing) consume(trailing)
-}
-
-async function drain(stream: ReadableStream<Uint8Array>): Promise<void> {
-  const reader = stream.getReader()
-  while (!(await reader.read()).done) {
-    // App Server stderr is intentionally discarded by this sanitized probe.
   }
 }
 

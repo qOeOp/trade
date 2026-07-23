@@ -1,4 +1,5 @@
 import { CodexJsonlPeer } from "./codex-jsonl-peer"
+import { drainCodexStream, pumpCodexJsonLines } from "./codex-streams"
 
 type JSONRecord = Record<string, unknown>
 
@@ -49,8 +50,8 @@ export class CodexAppServerClient implements CodexAppServerClientPort {
       onNotification: options.on_notification,
       onProtocolError: (error) => options.on_exit(error),
     })
-    this.stdoutPump = pumpLines(this.child.stdout, (line) => this.peer.feed(line))
-    this.stderrPump = drain(this.child.stderr)
+    this.stdoutPump = pumpCodexJsonLines(this.child.stdout, (line) => this.peer.feed(line))
+    this.stderrPump = drainCodexStream(this.child.stderr)
     void this.child.exited.then((code) => {
       this.peer.close(`Codex App Server exited with code ${code}`)
       if (!this.closed) options.on_exit(code === 0 ? null : new Error(`Codex App Server exited with code ${code}`))
@@ -106,34 +107,6 @@ export class CodexAppServerClient implements CodexAppServerClientPort {
       }, 2_000)),
     ])
     await Promise.allSettled([this.stdoutPump, this.stderrPump])
-  }
-}
-
-async function pumpLines(stream: ReadableStream<Uint8Array>, consume: (line: string) => void): Promise<void> {
-  const reader = stream.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ""
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    while (true) {
-      const newline = buffer.indexOf("\n")
-      if (newline < 0) break
-      const line = buffer.slice(0, newline).trim()
-      buffer = buffer.slice(newline + 1)
-      if (line) consume(line)
-    }
-    if (buffer.length > 4 * 1024 * 1024) throw new Error("Codex App Server stdout line exceeded limit")
-  }
-  const trailing = `${buffer}${decoder.decode()}`.trim()
-  if (trailing) consume(trailing)
-}
-
-async function drain(stream: ReadableStream<Uint8Array>): Promise<void> {
-  const reader = stream.getReader()
-  while (!(await reader.read()).done) {
-    // stderr is deliberately drained but not persisted by the sanitized client.
   }
 }
 
