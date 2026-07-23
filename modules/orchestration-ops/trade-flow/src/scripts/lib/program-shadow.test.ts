@@ -102,6 +102,55 @@ test("program shadow executes only the fixed ops lifecycle profile", async () =>
   }
 })
 
+test("demand-driven shadow leaves per-symbol L2 readiness to the market-data demand owner", async () => {
+  const fixture = createFixture("program-demand-driven-shadow-")
+  try {
+    const executed: Array<{ cwd: string; argv: string[] }> = []
+    const result = await runProgramShadowWakeup(
+      fixture.tradeDb,
+      fixture.tradeDbPath,
+      {
+        cycle_id: "demand-driven-shadow-cycle",
+        now: "2026-07-23T01:02:00Z",
+        ops_runtime_db: fixture.opsDbPath,
+        runtime_profile: "demand_driven_shadow",
+      },
+      async (command): Promise<CommandExecutionResult> => {
+        executed.push({ cwd: command.cwd, argv: command.argv })
+        return command.cwd === "modules/orchestration-ops/runtime-health-guard"
+          ? healthResult()
+          : { exit_code: 0, stdout: JSON.stringify({ ok: true }), stderr: "" }
+      },
+      fixedDependencies("holder-demand-driven"),
+    )
+    const graph = result.job_graph as {
+      plan: { lifecycle_processors: Array<{ processor_id: string; command_spec: { argv: string[] } }> }
+    }
+    const healthProcessor = graph.plan.lifecycle_processors.find((item) => item.processor_id === "runtime_health_guard")
+    const healthPayload = jsonArg(healthProcessor?.command_spec.argv ?? [])
+    assert.equal(result.runtime_profile, "demand_driven_shadow")
+    assert.equal(result.business_status, "completed")
+    assert.equal(healthPayload.require_l2_ready, false)
+    assert.equal(healthPayload.require_l2_watch_consumer_ready, false)
+    assert.deepEqual(result.safety, {
+      domain_jobs_enabled: false,
+      enabled_domain_jobs: [],
+      allowed_domain_writes: [],
+      live_writes_allowed: false,
+      notify_dry_run: true,
+      l2_owner_health_required: false,
+      l2_consumer_health_required: false,
+    })
+    assert.deepEqual(executed.map((item) => item.cwd), [
+      "modules/orchestration-ops/runtime-health-guard",
+      "modules/orchestration-ops/control-effectiveness-review",
+      "modules/orchestration-ops/ops-notify-dispatch",
+    ])
+  } finally {
+    fixture.close()
+  }
+})
+
 test("program catalog hygiene canary enables only J06 without GC or live writes", async () => {
   const fixture = createFixture("program-shadow-j06-canary-")
   try {
@@ -383,7 +432,7 @@ test("program shadow rejects caller attempts to widen its write scope", async ()
           runtime_profile: "all_domain_jobs",
         },
       ),
-      /runtime_profile must be shadow_program, catalog_hygiene_canary, or full_shadow/,
+      /runtime_profile must be shadow_program, demand_driven_shadow, catalog_hygiene_canary, or full_shadow/,
     )
     await assert.rejects(
       runProgramShadowWakeup(
