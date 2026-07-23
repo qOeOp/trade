@@ -4,7 +4,7 @@ import {
   buildMarketDataDemand,
   reconcileMarketDataDemands,
 } from "../../../../contracts/market-data-demand-contract/src/market-data-demand-contract"
-import { emptyCoverageAudit } from "./ohlcv-demand-test-fixtures"
+import { buildOhlcvCoverageAuditFixture } from "../../../../contracts/market-data-demand-contract/src/ohlcv-coverage-test-fixtures"
 import { runOhlcvDemandCycle } from "./worker-cycle"
 
 test("OHLCV demand cycle audits before issuing one bounded gap fill", async () => {
@@ -19,7 +19,7 @@ test("OHLCV demand cycle audits before issuing one bounded gap fill", async () =
     read_subscription_plan: async () => source,
     audit_coverage: async (target) => {
       calls.push(`audit:${target.target_id}`)
-      return emptyCoverageAudit(target, observedAt)
+      return buildOhlcvCoverageAuditFixture(target, observedAt)
     },
     fetch_gap: async (job) => {
       calls.push(`fetch:${job.symbol}:${job.timeframe}:${job.limit}`)
@@ -42,7 +42,7 @@ test("OHLCV demand cycle surfaces owner fetch failure without advancing coverage
     max_rows_per_job: 10,
   }, {
     read_subscription_plan: async () => source,
-    audit_coverage: async (target) => emptyCoverageAudit(target, observedAt),
+    audit_coverage: async (target) => buildOhlcvCoverageAuditFixture(target, observedAt),
     fetch_gap: async () => ({ ok: false, reason: "public_api_timeout" }),
   })
   assert.equal(result.status, "degraded")

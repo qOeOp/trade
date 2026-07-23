@@ -4,8 +4,8 @@ import {
   buildMarketDataDemand,
   reconcileMarketDataDemands,
 } from "../../../../contracts/market-data-demand-contract/src/market-data-demand-contract"
+import { buildOhlcvCoverageAuditFixture } from "../../../../contracts/market-data-demand-contract/src/ohlcv-coverage-test-fixtures"
 import { buildOhlcvCoverageTargets, buildOhlcvDemandSyncPlan } from "./ohlcv-demand-plan"
-import { emptyCoverageAudit } from "./ohlcv-demand-test-fixtures"
 
 test("OHLCV targets use half-open requested coverage and latest closed candle", () => {
   const historical = source("2026-07-23T10:30:00.000Z", "2026-07-20T00:00:00.000Z", "2026-07-23T08:00:00.000Z")
@@ -24,7 +24,7 @@ test("OHLCV targets use half-open requested coverage and latest closed candle", 
 test("OHLCV plan fills the first exact owner-audited gap and skips complete targets", () => {
   const plan = source("2026-07-23T10:30:00.000Z", "2026-07-23T05:00:00.000Z", null)
   const target = buildOhlcvCoverageTargets(plan).targets[0]!
-  const missing = emptyCoverageAudit(target, plan.observed_at)
+  const missing = buildOhlcvCoverageAuditFixture(target, plan.observed_at)
   const sync = buildOhlcvDemandSyncPlan({ source_plan: plan, coverage_audits: [missing], max_rows_per_job: 3 })
   assert.equal(sync.fetch_jobs.length, 1)
   assert.equal(sync.fetch_jobs[0]?.since_ts, target.start_open_time)
