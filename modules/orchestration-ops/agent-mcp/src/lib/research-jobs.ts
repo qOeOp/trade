@@ -23,6 +23,8 @@ export interface ResearchJobSubmitInput {
 }
 
 export interface PlannerProposalPrepareInput {
+  planner_run_id: string
+  request_hash: string
   proposal_id: string
   hypothesis_id: string
   universe_node_id: string
@@ -31,11 +33,12 @@ export interface PlannerProposalPrepareInput {
   candidate_space: JSONRecord
   trial_budget: number
   evaluation_protocol_ref: string
-  created_at: string
+  requested_at: string
 }
 
 export interface DeveloperSubmissionPrepareInput {
   developer_run_id: string
+  request_hash: string
   brief_id: string
   source_revision: string
   draft_revision: number
@@ -48,7 +51,34 @@ export interface DeveloperSubmissionPrepareInput {
   reason_code: string
   required_capabilities: string[]
   requested_trial_budget: number
-  draft_json: JSONRecord
+  draft_json: JSONRecord | string
+  requested_at: string
+}
+
+export interface ReviewerSubmissionPrepareInput {
+  reviewer_run_id: string
+  request_hash: string
+  experiment_id: string
+  expected_version: number
+  stage_id: string
+  decision:
+    | "reject"
+    | "modify"
+    | "accept_for_draft"
+    | "accept_for_forward"
+    | "accept_for_shadow_candidate"
+  evidence: Array<{
+    result_id: string
+    evidence_role:
+      | "primary"
+      | "supporting"
+      | "negative_control"
+      | "cost"
+      | "stability"
+      | "holdout"
+  }>
+  selected_trial_id: string | null
+  rationale: string
   requested_at: string
 }
 
@@ -219,6 +249,12 @@ export class ResearchJobService {
   async preparePlannerProposal(
     input: PlannerProposalPrepareInput,
   ): Promise<JSONRecord> {
+    await this.recordAgentToolCall({
+      run_id: input.planner_run_id,
+      request_hash: input.request_hash,
+      task_profile: "planner",
+      tool_name: "research_planner_proposal_prepare",
+    })
     const response = ownerData(await this.execute({
       script: "modules/research-strategy-development/research-control-plane/state-store/src/scripts/main.ts",
       args: [
@@ -243,6 +279,13 @@ export class ResearchJobService {
   async prepareDeveloperSubmission(
     input: DeveloperSubmissionPrepareInput,
   ): Promise<JSONRecord> {
+    await this.recordAgentToolCall({
+      run_id: input.developer_run_id,
+      request_hash: input.request_hash,
+      task_profile: "developer",
+      tool_name: "research_developer_submission_prepare",
+    })
+    const draftJson = parseDraftJson(input.draft_json)
     const response = ownerData(await this.execute({
       script: "modules/research-strategy-development/research-control-plane/state-store/src/scripts/main.ts",
       args: [
@@ -251,7 +294,7 @@ export class ResearchJobService {
         "--action",
         "prepare_developer_agent_submission",
         "--json",
-        JSON.stringify(input),
+        JSON.stringify({ ...input, draft_json: draftJson }),
       ],
     }))
     const submission = asRecord(response.submission)
@@ -261,6 +304,63 @@ export class ResearchJobService {
     return {
       schema_version: "trade.agent-mcp.developer-submission-prepare-result.v1",
       submission,
+    }
+  }
+
+  async prepareReviewerSubmission(
+    input: ReviewerSubmissionPrepareInput,
+  ): Promise<JSONRecord> {
+    await this.recordAgentToolCall({
+      run_id: input.reviewer_run_id,
+      request_hash: input.request_hash,
+      task_profile: "reviewer",
+      tool_name: "research_reviewer_submission_prepare",
+    })
+    const response = ownerData(await this.execute({
+      script: "modules/research-strategy-development/research-control-plane/state-store/src/scripts/main.ts",
+      args: [
+        "--db",
+        this.rdStateDbPath,
+        "--action",
+        "prepare_reviewer_agent_submission",
+        "--json",
+        JSON.stringify(input),
+      ],
+    }))
+    const submission = asRecord(response.submission)
+    if (Object.keys(submission).length === 0) {
+      throw new Error("Reviewer submission owner returned no submission")
+    }
+    return {
+      schema_version: "trade.agent-mcp.reviewer-submission-prepare-result.v1",
+      submission,
+    }
+  }
+
+  private async recordAgentToolCall(input: {
+    run_id: string
+    request_hash: string
+    task_profile: "planner" | "developer" | "reviewer" | "explanation"
+    tool_name: string
+  }): Promise<void> {
+    const response = ownerData(await this.execute({
+      script: "modules/orchestration-ops/ops-runtime-store/src/scripts/main.ts",
+      args: [
+        "--db",
+        this.opsRuntimeDbPath,
+        "--action",
+        "record_agent_tool_call",
+        "--json",
+        JSON.stringify({
+          call_id: `agent-tool:${randomUUID()}`,
+          ...input,
+          occurred_at: new Date().toISOString(),
+        }),
+      ],
+    }))
+    const usage = asRecord(response.usage)
+    if (Number(usage.tool_calls) < 1) {
+      throw new Error("Agent tool-call owner did not attest usage")
     }
   }
 
@@ -412,6 +512,20 @@ export class ResearchJobService {
       throw error
     }
   }
+}
+
+function parseDraftJson(value: JSONRecord | string): JSONRecord {
+  if (typeof value !== "string") return asRecord(value)
+  if (value.length > 500_000) throw new Error("draft_json exceeds 500 KB")
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(value)
+  } catch {
+    throw new Error("draft_json string must contain one JSON object")
+  }
+  const result = asRecord(parsed)
+  if (Object.keys(result).length === 0) throw new Error("draft_json must be non-empty")
+  return result
 }
 
 function buildResearchJobGraphInput(

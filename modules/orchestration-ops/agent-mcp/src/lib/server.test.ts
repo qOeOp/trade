@@ -18,7 +18,9 @@ test("MCP task profiles project a closed capability subset", async () => {
       "research_job_status",
       "research_job_submit",
     ],
+    "developer-contract": ["research_developer_submission_prepare"],
     reviewer: ["research_job_result", "research_job_status"],
+    "reviewer-decision": ["research_reviewer_submission_prepare"],
     explanation: [],
   }
   for (const [profile, additions] of Object.entries(expected)) {
@@ -29,7 +31,10 @@ test("MCP task profiles project a closed capability subset", async () => {
     await client.connect(clientTransport)
     try {
       const tools = (await client.listTools()).tools.map((tool) => tool.name)
-      assert.ok(tools.includes("artifact_read"))
+      assert.equal(
+        tools.includes("artifact_read"),
+        profile !== "developer-contract" && profile !== "reviewer-decision",
+      )
       assert.equal(tools.includes("research_job_submit"), profile === "developer")
       assert.deepEqual(
         tools.filter((tool) => tool.startsWith("research_")).sort(),

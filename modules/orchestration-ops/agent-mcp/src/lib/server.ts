@@ -24,6 +24,8 @@ const HYPOTHESIS_CONTRACT = z.record(z.string(), z.unknown()).refine(
   "hypothesis contract exceeds 200 KB",
 )
 const PLANNER_PROPOSAL_PREPARE = z.object({
+  planner_run_id: z.string().trim().min(1).max(160),
+  request_hash: z.string().regex(/^[a-f0-9]{64}$/),
   proposal_id: z.string().trim().min(1).max(160),
   hypothesis_id: z.string().trim().min(1).max(160),
   universe_node_id: z.string().trim().min(1).max(160),
@@ -35,10 +37,11 @@ const PLANNER_PROPOSAL_PREPARE = z.object({
   ),
   trial_budget: z.number().int().min(1).max(10_000),
   evaluation_protocol_ref: z.string().trim().min(1).max(500),
-  created_at: z.string().datetime({ offset: false }),
+  requested_at: z.string().datetime({ offset: false }),
 }).strict()
 const DEVELOPER_SUBMISSION_PREPARE = z.object({
   developer_run_id: z.string().trim().min(1).max(160),
+  request_hash: z.string().regex(/^[a-f0-9]{64}$/),
   brief_id: z.string().trim().min(1).max(160),
   source_revision: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/),
   draft_revision: z.number().int().min(1).max(1_000_000),
@@ -52,14 +55,52 @@ const DEVELOPER_SUBMISSION_PREPARE = z.object({
   reason_code: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/),
   required_capabilities: z.array(z.string().trim().min(1).max(200)).max(64),
   requested_trial_budget: z.number().int().min(1).max(10_000),
-  draft_json: z.record(z.string(), z.unknown()).refine(
-    (value) => Object.keys(value).length > 0 && JSON.stringify(value).length <= 500_000,
-    "draft_json must be non-empty and at most 500 KB",
-  ),
+  draft_json: z.union([
+    z.record(z.string(), z.unknown()).refine(
+      (value) => Object.keys(value).length > 0 && JSON.stringify(value).length <= 500_000,
+      "draft_json must be non-empty and at most 500 KB",
+    ),
+    z.string().min(2).max(500_000),
+  ]),
+  requested_at: z.string().datetime({ offset: false }),
+}).strict()
+const REVIEWER_SUBMISSION_PREPARE = z.object({
+  reviewer_run_id: z.string().trim().min(1).max(160),
+  request_hash: z.string().regex(/^[a-f0-9]{64}$/),
+  experiment_id: z.string().trim().min(1).max(160),
+  expected_version: z.number().int().min(1).max(1_000_000),
+  stage_id: z.string().trim().min(1).max(160),
+  decision: z.enum([
+    "reject",
+    "modify",
+    "accept_for_draft",
+    "accept_for_forward",
+    "accept_for_shadow_candidate",
+  ]),
+  evidence: z.array(z.object({
+    result_id: z.string().trim().min(1).max(160),
+    evidence_role: z.enum([
+      "primary",
+      "supporting",
+      "negative_control",
+      "cost",
+      "stability",
+      "holdout",
+    ]),
+  }).strict()).min(1).max(32),
+  selected_trial_id: z.string().trim().min(1).max(160).nullable(),
+  rationale: z.string().trim().min(1).max(8_000),
   requested_at: z.string().datetime({ offset: false }),
 }).strict()
 
-export type TradeMcpProfile = "interactive" | "planner" | "developer" | "reviewer" | "explanation"
+export type TradeMcpProfile =
+  | "interactive"
+  | "planner"
+  | "developer"
+  | "developer-contract"
+  | "reviewer-decision"
+  | "reviewer"
+  | "explanation"
 
 export function createTradeMcpServer(
   service = new ReadToolService(),
@@ -206,6 +247,13 @@ export function createTradeMcpServer(
     annotations: READ_ONLY_ANNOTATIONS,
   }, async (input) => result(await researchJobs.prepareDeveloperSubmission(input)))
 
+  registerTool("research_reviewer_submission_prepare", {
+    title: "Build a canonical Reviewer submission",
+    description: "Bind one evidence-grounded Reviewer decision to the supplied experiment lifecycle identity and return a canonical self-hashed submission without writing lifecycle state.",
+    inputSchema: REVIEWER_SUBMISSION_PREPARE,
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, async (input) => result(await researchJobs.prepareReviewerSubmission(input)))
+
   registerTool("research_hypothesis_brief", {
     title: "Build an R&D hypothesis design brief",
     description: "Read one durable RD program and its Control Plane planning context, then render the owner designer context and prompt without generating a hypothesis or writing state.",
@@ -289,6 +337,12 @@ function allowedTools(profile: TradeMcpProfile): ReadonlySet<string> {
       "research_job_status",
       "research_job_result",
     ])
+  }
+  if (profile === "developer-contract") {
+    return new Set(["research_developer_submission_prepare"])
+  }
+  if (profile === "reviewer-decision") {
+    return new Set(["research_reviewer_submission_prepare"])
   }
   if (profile === "reviewer") return new Set([...READ_TOOLS, "research_job_status", "research_job_result"])
   return new Set(READ_TOOLS)
