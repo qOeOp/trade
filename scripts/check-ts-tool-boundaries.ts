@@ -125,6 +125,7 @@ function isAllowedCrossToolImport(file: string, sourceTool: string, targetTool: 
     "modules/orchestration-ops/ops-notify-dispatch -> modules/orchestration-ops/ops-runtime-store",
     "modules/orchestration-ops/control-effectiveness-review -> modules/orchestration-ops/ops-runtime-store",
     "modules/orchestration-ops/domain-bus -> modules/orchestration-ops/ops-runtime-store",
+    "modules/orchestration-ops/agent-host-codex -> modules/orchestration-ops/ops-runtime-store",
     "modules/orchestration-ops/trade-flow -> modules/orchestration-ops/ops-runtime-store",
     "modules/governance-review-compliance/closed-flow-review-sweep -> modules/governance-review-compliance/governance-ledger",
   ])
