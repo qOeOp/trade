@@ -46,6 +46,17 @@ export function ensureMarketDataDemandRegistrySchema(db: Database): void {
     )
   `)
   db.run("CREATE INDEX IF NOT EXISTS idx_market_data_demand_status ON market_data_demand(status, demand_id)")
+  db.run(`
+    CREATE TABLE IF NOT EXISTS market_data_demand_renewal (
+      demand_id       TEXT NOT NULL,
+      prior_hash      TEXT NOT NULL,
+      renewed_hash    TEXT NOT NULL,
+      prior_body_json TEXT NOT NULL CHECK(json_valid(prior_body_json)),
+      renewed_at      TEXT NOT NULL,
+      PRIMARY KEY(demand_id, renewed_hash),
+      FOREIGN KEY(demand_id) REFERENCES market_data_demand(demand_id)
+    )
+  `)
 }
 
 export function registerMarketDataDemand(
@@ -79,6 +90,71 @@ export function registerMarketDataDemand(
       $registered_at: observedAt,
     })
     return "created"
+  })()
+}
+
+export function putMarketDataDemand(
+  db: Database,
+  value: unknown,
+  committedAt?: string,
+): "created" | "renewed" | "existing" {
+  const demand = compileMarketDataDemand(value)
+  const observedAt = committedAt == null ? new Date().toISOString() : canonicalTime(committedAt, "committed_at")
+  if (Date.parse(observedAt) < Date.parse(demand.lease.issued_at)) {
+    throw new Error("market data demand cannot be committed before lease issuance")
+  }
+  return db.transaction((): "created" | "renewed" | "existing" => {
+    const existing = readRow(db, demand.demand_id)
+    if (existing == null) {
+      registerMarketDataDemand(db, demand, observedAt)
+      return "created"
+    }
+    if (existing.demand_hash === demand.demand_hash && existing.body_json === JSON.stringify(demand)) {
+      return "existing"
+    }
+    const historical = db.query(`
+      SELECT 1 AS found
+      FROM market_data_demand_renewal
+      WHERE demand_id = $demand_id AND renewed_hash = $renewed_hash
+      LIMIT 1
+    `).get({
+      $demand_id: demand.demand_id,
+      $renewed_hash: demand.demand_hash,
+    }) as { found: number } | null
+    if (historical != null) return "existing"
+    if (existing.status !== "active") throw new Error("released market data demand cannot be renewed")
+    const prior = compileMarketDataDemand(JSON.parse(existing.body_json))
+    if (JSON.stringify(demandIdentity(prior)) !== JSON.stringify(demandIdentity(demand))) {
+      throw new Error("market data demand renewal may only extend the same semantic demand")
+    }
+    if (Date.parse(demand.lease.issued_at) <= Date.parse(prior.lease.issued_at)
+      || Date.parse(demand.lease.expires_at) <= Date.parse(prior.lease.expires_at)) {
+      throw new Error("market data demand renewal must strictly advance its lease")
+    }
+    db.query(`
+      INSERT INTO market_data_demand_renewal (
+        demand_id, prior_hash, renewed_hash, prior_body_json, renewed_at
+      ) VALUES (
+        $demand_id, $prior_hash, $renewed_hash, $prior_body_json, $renewed_at
+      )
+    `).run({
+      $demand_id: demand.demand_id,
+      $prior_hash: prior.demand_hash,
+      $renewed_hash: demand.demand_hash,
+      $prior_body_json: JSON.stringify(prior),
+      $renewed_at: observedAt,
+    })
+    db.query(`
+      UPDATE market_data_demand
+      SET demand_hash = $demand_hash, body_json = $body_json, registered_at = $registered_at
+      WHERE demand_id = $demand_id AND status = 'active'
+    `).run({
+      $demand_hash: demand.demand_hash,
+      $body_json: JSON.stringify(demand),
+      $registered_at: observedAt,
+      $demand_id: demand.demand_id,
+    })
+    return "renewed"
   })()
 }
 
@@ -183,6 +259,11 @@ function readRow(db: Database, demandId: string): DemandRow | null {
     FROM market_data_demand
     WHERE demand_id = $demand_id
   `).get({ $demand_id: demandId }) as DemandRow | null
+}
+
+function demandIdentity(demand: MarketDataDemand): Omit<MarketDataDemand, "lease" | "demand_hash"> {
+  const { lease: _lease, demand_hash: _demandHash, ...identity } = demand
+  return identity
 }
 
 function record(value: unknown, field: string): Record<string, unknown> {

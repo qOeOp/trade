@@ -6,10 +6,40 @@ import {
   MARKET_DATA_DEMAND_RELEASE_SCHEMA,
   ensureMarketDataDemandRegistrySchema,
   readMarketDataDemand,
+  putMarketDataDemand,
   reconcileRegisteredMarketDataDemands,
   registerMarketDataDemand,
   releaseMarketDataDemand,
 } from "./market-data-demand-registry"
+
+test("owner put renews only the lease of one stable semantic demand", () => {
+  const db = new Database(":memory:")
+  ensureMarketDataDemandRegistrySchema(db)
+  const first = fixture()
+  const renewed = fixture({
+    lease: {
+      issued_at: "2026-07-23T00:01:00.000Z",
+      expires_at: "2026-07-23T01:01:00.000Z",
+      renewal_grace_ms: 0,
+    },
+  })
+  try {
+    assert.equal(putMarketDataDemand(db, first, "2026-07-23T00:00:01.000Z"), "created")
+    assert.equal(putMarketDataDemand(db, renewed, "2026-07-23T00:01:01.000Z"), "renewed")
+    assert.equal(putMarketDataDemand(db, renewed, "2026-07-23T00:01:02.000Z"), "existing")
+    assert.equal(readMarketDataDemand(db, first.demand_id)?.demand.demand_hash, renewed.demand_hash)
+    assert.throws(() => putMarketDataDemand(db, fixture({
+      symbol: "ETHUSDT",
+      lease: {
+        issued_at: "2026-07-23T00:02:00.000Z",
+        expires_at: "2026-07-23T01:02:00.000Z",
+        renewal_grace_ms: 0,
+      },
+    }), "2026-07-23T00:02:01.000Z"), /same semantic demand/)
+  } finally {
+    db.close()
+  }
+})
 
 test("registry creates or reuses exact demand and rejects identity drift", () => {
   const db = new Database(":memory:")
