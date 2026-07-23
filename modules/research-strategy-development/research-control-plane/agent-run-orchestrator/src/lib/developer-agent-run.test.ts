@@ -1,5 +1,4 @@
 import assert from "node:assert/strict"
-import { createHash } from "node:crypto"
 import test from "node:test"
 import { Database } from "bun:sqlite"
 import {
@@ -27,7 +26,7 @@ import {
   admitDeveloperAgentResult,
   prepareDeveloperAgentRun,
 } from "./developer-agent-run"
-import type { AgentArtifactPort } from "./planner-agent-run"
+import { memoryArtifacts } from "./agent-artifact-port.test-fixture"
 
 test("Developer Agent capability assessment and draft enter the existing unvalidated intake only once", () => {
   const db = new Database(":memory:")
@@ -259,27 +258,4 @@ function completion(request: AgentRunRequest, outputs: AgentArtifactRef[]) {
     },
   })
   return { events, result }
-}
-
-function memoryArtifacts(): AgentArtifactPort {
-  const content = new Map<string, string>()
-  return {
-    put(text, mediaType) {
-      const bytes = Buffer.from(text)
-      const sha256 = createHash("sha256").update(bytes).digest("hex")
-      const artifact: AgentArtifactRef = {
-        ref: `memory-artifact://${sha256}`,
-        sha256,
-        media_type: mediaType,
-        bytes: bytes.byteLength,
-      }
-      content.set(artifact.ref, text)
-      return artifact
-    },
-    read(artifact) {
-      const text = content.get(artifact.ref)
-      if (text == null) throw new Error("missing artifact")
-      return text
-    },
-  }
 }
