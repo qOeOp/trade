@@ -2,7 +2,36 @@ import { Database } from "bun:sqlite"
 import assert from "node:assert/strict"
 import test from "node:test"
 import { appendPlanEvent, ensureSchema } from "../../../event-store/src/lib/event-store"
-import { buildPortfolioAccountProjection, reduceFlowState } from "./flow-projector"
+import { buildPortfolioAccountProjection, listActiveFlows, reduceFlowState } from "./flow-projector"
+
+test("active flow projection exposes the canonical symbol needed by defensive data owners", () => {
+  const db = new Database(":memory:")
+  ensureSchema(db)
+  try {
+    appendPlanEvent(db, {
+      event_key: "observe-active-symbol-1",
+      chain_id: "flow-active-symbol",
+      kind: "observe",
+      created_at: "2026-07-23T00:00:00.000Z",
+      body_json: {
+        symbol: "btcusdt",
+        strategy_ref: "strategy://trend/1",
+        side: "long",
+      },
+    })
+    assert.deepEqual(listActiveFlows(db).map((flow) => ({
+      chain_id: flow.chain_id,
+      symbol: flow.symbol,
+      position_state: flow.current_position_state,
+    })), [{
+      chain_id: "flow-active-symbol",
+      symbol: "BTCUSDT",
+      position_state: "flat",
+    }])
+  } finally {
+    db.close()
+  }
+})
 
 test("portfolio account projection returns owner-backed zero state for an empty account scope", () => {
   const db = new Database(":memory:")

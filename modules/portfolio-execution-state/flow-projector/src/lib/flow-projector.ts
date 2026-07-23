@@ -15,6 +15,7 @@ export const FLOW_POSITION_STATES = ["flat", "long", "short"] as const
 
 export interface ActiveFlowSummary {
   chain_id: string
+  symbol: string
   event_count: number
   lane_key: string
   latest_observe_event_key: string
@@ -277,8 +278,11 @@ function summarizeActiveFlow(db: Database, chainId: string): ActiveFlowSummary {
   const latestSlow = latestSlowObserve(events)
   const latestObserveBody = asRecord(latestObserve?.body_json)
   const position = asRecord(state.current_position)
+  const observeSymbol = stringField(latestObserveBody.symbol).toUpperCase()
+  const positionSymbol = stringField(position.symbol).toUpperCase()
   return {
     chain_id: chainId,
+    symbol: positionSymbol || observeSymbol,
     event_count: events.length,
     lane_key: laneKeyFromObserve(latestObserveBody),
     latest_observe_event_key: stringField(latestObserve?.event_key),
