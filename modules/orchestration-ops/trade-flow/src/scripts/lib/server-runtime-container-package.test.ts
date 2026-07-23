@@ -10,13 +10,17 @@ const compose = readFileSync(resolve(root, "deploy/server/compose.yaml"), "utf8"
 const operatorCompose = readFileSync(resolve(root, "deploy/server/compose.operator.yaml"), "utf8")
 const ignore = readFileSync(resolve(root, ".dockerignore"), "utf8")
 
-test("server image locks toolchains, builds Rust with its lock, and drops root", () => {
+test("server image locks toolchains, builds native providers, and drops root", () => {
   assert.match(dockerfile, /ARG RUST_VERSION=1\.97\.1/)
   assert.match(dockerfile, /ARG BUN_VERSION=1\.3\.13/)
+  assert.match(dockerfile, /ARG GO_VERSION=1\.25/)
   assert.match(dockerfile, /cargo build[\s\S]*--locked[\s\S]*--release/)
+  assert.match(dockerfile, /CGO_ENABLED=0 go build[\s\S]*target\/release\/tech-indicators/)
+  assert.match(dockerfile, /COPY --from=indicator-builder[\s\S]*target\/release\/tech-indicators/)
   assert.match(dockerfile, /bun install --frozen-lockfile --production/)
   assert.match(dockerfile, /USER 10001:10001/)
   assert.match(dockerfile, /ENTRYPOINT \["\/usr\/bin\/tini", "--"\]/)
+  assert.match(dockerfile, /profile\/server-runtime-container\.json/)
   assert.doesNotMatch(dockerfile, /API_KEY|API_SECRET|sk-[a-z0-9]/i)
 })
 
