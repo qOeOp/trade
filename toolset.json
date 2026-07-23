@@ -2717,14 +2717,16 @@
         "experiment-evaluation",
         "compatibility-mechanical-replay",
         "formal-replay-data-preparation",
-        "formal-replay-orchestration"
+        "formal-replay-orchestration",
+        "formal-replay-queue",
+        "formal-replay-resident-worker"
       ],
       "capability_class": [
         "A",
         "E"
       ],
       "path": "modules/research-strategy-development/research-control-plane/program-supervisor",
-      "purpose": "Run native J04 rd_strategy_supervisor, execute one immutable compatibility Evaluation Work Package, prepare registered formal Replay data, or orchestrate one registered formal Replay job from durable RD state.",
+      "purpose": "Run native J04 rd_strategy_supervisor, execute one immutable compatibility Evaluation Work Package, prepare or enqueue registered formal Replay data, and run one or residently consume formal Replay jobs from durable RD state.",
       "command": {
         "cwd": "modules/research-strategy-development/research-control-plane/program-supervisor",
         "argv": [
@@ -2753,6 +2755,7 @@
         "The alternate --evaluation-job mode consumes an owner-compiled Work Package, completes already-reserved Trials, and publishes compatibility_mechanical_replay evidence; it never claims formal Replay authority or permits positive promotion.",
         "The alternate --formal-replay-prepare-job mode binds one exact Developer Data Snapshot to one Registration and delegates immutable bundle compilation to the Replay owner without opening an Attempt.",
         "The alternate --formal-replay-job mode crosses registered Attempt Admission and Replay Execution owner CLIs, then atomically publishes only replay_owner/mechanical_replay evidence; it grants no Review, Registry, Forward, deployment, or trading authority.",
+        "The queue modes use immutable work identity and a single fenced active slot. The foreground entry resumes the same generation after process restart and rotates execution identity only after queue-lease expiry; it remains no-live and cannot auto-promote.",
         "Returns a domain-runtime job result owned by research-strategy-development for J04."
       ],
       "module_type": "atomic",

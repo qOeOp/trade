@@ -35,6 +35,7 @@
   "shutdown_grace_seconds": 45,
   "safety": {
     "domain_jobs_enabled": false,
+    "formal_replay_jobs_enabled": true,
     "live_writes_allowed": false,
     "notify_dry_run": true
   }

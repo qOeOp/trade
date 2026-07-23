@@ -219,6 +219,7 @@ function packageSourceArchive(input: {
       },
       safety: {
         domain_jobs_enabled: false,
+        formal_replay_jobs_enabled: true,
         live_writes_allowed: false,
         credentials_included: false,
         runtime_state_included: false,

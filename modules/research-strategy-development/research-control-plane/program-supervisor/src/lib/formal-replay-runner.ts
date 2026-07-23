@@ -587,7 +587,7 @@ function completedResult(
   return {
     schema_version: "trade.rd-formal-replay-job-result.v1",
     status: "completed",
-    execution_id: request.execution_id,
+    execution_id: executionIdFromAttempt(attemptId),
     request_registration_id: context.registration.registration_id,
     attempt_id: attemptId,
     result_id: resultId,
@@ -600,6 +600,14 @@ function completedResult(
     deployment_authority: "none",
     trading_authority: false,
   }
+}
+
+function executionIdFromAttempt(attemptId: string): string {
+  const prefix = "formal-replay-attempt:"
+  if (!attemptId.startsWith(prefix) || attemptId.length === prefix.length) {
+    throw new Error("persisted formal Replay Attempt identity is invalid")
+  }
+  return attemptId.slice(prefix.length)
 }
 
 function parseRequest(value: JSONRecord): FormalReplayJobRequest {

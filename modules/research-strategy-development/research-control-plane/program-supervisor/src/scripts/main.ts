@@ -19,6 +19,13 @@ import {
 import {
   prepareFormalReplayData,
 } from "../lib/formal-replay-data-preparer"
+import {
+  runFormalReplayResidentCycle,
+} from "../lib/formal-replay-resident-worker"
+import {
+  enqueueFormalReplayWork,
+  readFormalReplayWorkStatus,
+} from "../lib/formal-replay-queue-service"
 
 interface Config {
   dbPath: string
@@ -29,6 +36,9 @@ interface Config {
   evaluationJob: boolean
   formalReplayPrepareJob: boolean
   formalReplayJob: boolean
+  formalReplayEnqueueJob: boolean
+  formalReplayStatusJob: boolean
+  formalReplayWorkerOnce: boolean
 }
 
 interface SupervisorJobInput {
@@ -57,7 +67,19 @@ export function run(argv: string[]): JSONRecord {
     process.chdir(repoRoot())
     const config = parseArgs(argv)
     assertRuntimeOutputPaths(config.dbPath, config.catalogDbPath)
-    const data = config.formalReplayPrepareJob
+    const data = config.formalReplayEnqueueJob
+      ? enqueueFormalReplayWork(config.dbPath, config.input)
+      : config.formalReplayStatusJob
+      ? readFormalReplayWorkStatus(config.dbPath, config.input)
+      : config.formalReplayWorkerOnce
+      ? runFormalReplayResidentCycle(config.dbPath, {
+          environment_id: environmentId(config.input),
+          queue_worker_id: stringField(config.input.queue_worker_id),
+          queue_lease_duration_ms: numericField(
+            config.input.queue_lease_duration_ms,
+          ),
+        })
+      : config.formalReplayPrepareJob
       ? prepareFormalReplayData(config.dbPath, config.input)
       : config.formalReplayJob
       ? runFormalReplayJob(config.dbPath, config.input)
@@ -90,6 +112,9 @@ function parseArgs(argv: string[]): Config {
     evaluationJob: false,
     formalReplayPrepareJob: false,
     formalReplayJob: false,
+    formalReplayEnqueueJob: false,
+    formalReplayStatusJob: false,
+    formalReplayWorkerOnce: false,
   }
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
@@ -121,6 +146,15 @@ function parseArgs(argv: string[]): Config {
       case "--formal-replay-prepare-job":
         config.formalReplayPrepareJob = true
         break
+      case "--formal-replay-enqueue-job":
+        config.formalReplayEnqueueJob = true
+        break
+      case "--formal-replay-status-job":
+        config.formalReplayStatusJob = true
+        break
+      case "--formal-replay-worker-once":
+        config.formalReplayWorkerOnce = true
+        break
       case "--help":
         exitWithHelp()
       default:
@@ -132,6 +166,9 @@ function parseArgs(argv: string[]): Config {
     config.evaluationJob,
     config.formalReplayPrepareJob,
     config.formalReplayJob,
+    config.formalReplayEnqueueJob,
+    config.formalReplayStatusJob,
+    config.formalReplayWorkerOnce,
   ]
     .filter(Boolean).length > 1) {
     throw new Error("job modes are mutually exclusive")
@@ -273,6 +310,10 @@ function stringField(value: unknown): string {
   return typeof value === "string" ? value : ""
 }
 
+function numericField(value: unknown): number {
+  return typeof value === "number" ? value : Number.NaN
+}
+
 function iterationResultRefs(value: JSONRecord): string[] {
   const iterations = Array.isArray(value.iterations) ? value.iterations.map(asRecord) : []
   const finalState = asRecord(value.final_state)
@@ -308,6 +349,9 @@ function printHelp(): void {
   bun src/scripts/main.ts --evaluation-job --db ./data/rd_state.db --json '{"package_id":"evaluation-package:...","package_hash":"...","artifact_root":"tmp/artifacts/strategy-rnd","completed_at":"..."}'
   bun src/scripts/main.ts --formal-replay-prepare-job --db ./data/rd_state.db --input tmp/formal-replay-data-prepare.json
   bun src/scripts/main.ts --formal-replay-job --db ./data/rd_state.db --input tmp/formal-replay-job.json
+  bun src/scripts/main.ts --formal-replay-enqueue-job --db ./data/rd_state.db --input tmp/formal-replay-queue-work.json
+  bun src/scripts/main.ts --formal-replay-status-job --db ./data/rd_state.db --json '{"job_id":"job-1","environment_id":"local:local"}'
+  bun src/scripts/main.ts --formal-replay-worker-once --db ./data/rd_state.db --json '{"queue_worker_id":"formal-replay-resident-1","queue_lease_duration_ms":18000000,"environment_id":"local:local"}'
 `)
 }
 

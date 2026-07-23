@@ -74,6 +74,7 @@ test("container source package binds committed source and excludes workspace sta
     assert.equal(manifest.adoption.sbom_ref, null)
     assert.equal(manifest.safety.credentials_included, false)
     assert.equal(manifest.safety.runtime_state_included, false)
+    assert.equal(manifest.safety.formal_replay_jobs_enabled, true)
     assert.equal(manifest.safety.working_tree_included, false)
     assert.equal(
       manifest.critical_contracts.length,

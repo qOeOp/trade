@@ -25,7 +25,7 @@ test("container foreground starts in dependency order and drains in reverse on s
     },
     ready: async (component) => {
       events.push(`ready:${component}`)
-      if (component === "indicator-worker") controller.abort()
+      if (component === "formal-replay-worker") controller.abort()
       return true
     },
     sleep: async () => undefined,
@@ -34,15 +34,23 @@ test("container foreground starts in dependency order and drains in reverse on s
   const result = await resultPromise
   assert.equal(result.status, "completed")
   assert.equal(result.reason, "signal")
-  assert.deepEqual(result.started_components, ["control-runtime", "market-data-manager", "ohlcv-worker", "indicator-worker"])
-  assert.deepEqual(result.ready_components, ["control-runtime", "market-data-manager", "ohlcv-worker", "indicator-worker"])
+  assert.deepEqual(result.started_components, [
+    "control-runtime", "market-data-manager", "ohlcv-worker",
+    "indicator-worker", "formal-replay-worker",
+  ])
+  assert.deepEqual(result.ready_components, [
+    "control-runtime", "market-data-manager", "ohlcv-worker",
+    "indicator-worker", "formal-replay-worker",
+  ])
   assert.equal(result.all_children_stopped, true)
   assert.deepEqual(events, [
     "start:control-runtime", "ready:control-runtime",
     "start:market-data-manager", "ready:market-data-manager",
     "start:ohlcv-worker", "ready:ohlcv-worker",
     "start:indicator-worker", "ready:indicator-worker",
-    "kill:indicator-worker:SIGTERM", "kill:ohlcv-worker:SIGTERM",
+    "start:formal-replay-worker", "ready:formal-replay-worker",
+    "kill:formal-replay-worker:SIGTERM", "kill:indicator-worker:SIGTERM",
+    "kill:ohlcv-worker:SIGTERM",
     "kill:market-data-manager:SIGTERM", "kill:control-runtime:SIGTERM",
   ])
 })
@@ -54,7 +62,7 @@ test("container foreground fails the group when a ready component exits", async 
     spawn: (spec) => {
       const child = new FakeChild(spec.id, events)
       children.set(spec.id, child)
-      if (spec.id === "indicator-worker") queueMicrotask(() => child.exit(0))
+      if (spec.id === "formal-replay-worker") queueMicrotask(() => child.exit(0))
       return child
     },
     ready: async () => true,
@@ -64,7 +72,7 @@ test("container foreground fails the group when a ready component exits", async 
   const result = await resultPromise
   assert.equal(result.status, "failed")
   assert.equal(result.reason, "component_exit")
-  assert.equal(result.failed_component, "indicator-worker")
+  assert.equal(result.failed_component, "formal-replay-worker")
   assert.equal(result.exit_code, 0)
   assert.equal(result.all_children_stopped, true)
 })

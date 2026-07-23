@@ -35,7 +35,13 @@ export interface ServerRuntimeContainerForegroundResult {
   live_writes_allowed: false
 }
 
-const START_ORDER: ComponentId[] = ["control-runtime", "market-data-manager", "ohlcv-worker", "indicator-worker"]
+const START_ORDER: ComponentId[] = [
+  "control-runtime",
+  "market-data-manager",
+  "ohlcv-worker",
+  "indicator-worker",
+  "formal-replay-worker",
+]
 
 export async function runServerRuntimeContainerForeground(
   profile: ServerRuntimeContainerProfile,

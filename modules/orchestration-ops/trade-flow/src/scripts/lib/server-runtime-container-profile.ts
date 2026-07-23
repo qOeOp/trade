@@ -39,6 +39,7 @@ export interface ServerRuntimeContainerProfile {
   shutdown_grace_seconds: number
   safety: {
     domain_jobs_enabled: false
+    formal_replay_jobs_enabled: true
     live_writes_allowed: false
     notify_dry_run: true
   }
@@ -74,14 +75,28 @@ export function parseServerRuntimeContainerProfile(value: unknown): ServerRuntim
   const control = record(root.control_runtime, "control_runtime")
   exact(control, ["trade_db", "ops_runtime_db", "interval_seconds", "observe_agent_parity"], "control_runtime")
   const safety = record(root.safety, "safety")
-  exact(safety, ["domain_jobs_enabled", "live_writes_allowed", "notify_dry_run"], "safety")
-  if (safety.domain_jobs_enabled !== false || safety.live_writes_allowed !== false || safety.notify_dry_run !== true) {
+  exact(safety, [
+    "domain_jobs_enabled",
+    "formal_replay_jobs_enabled",
+    "live_writes_allowed",
+    "notify_dry_run",
+  ], "safety")
+  if (safety.domain_jobs_enabled !== false
+      || safety.formal_replay_jobs_enabled !== true
+      || safety.live_writes_allowed !== false
+      || safety.notify_dry_run !== true) {
     throw new Error("server container shadow safety cannot be widened")
   }
   if (typeof control.observe_agent_parity !== "boolean") throw new Error("observe_agent_parity must be boolean")
   const tradeDb = dbRef(control.trade_db, "control_runtime.trade_db")
   const opsDb = dbRef(control.ops_runtime_db, "control_runtime.ops_runtime_db")
-  if (new Set([tradeDb, opsDb, market.market_data_db, market.ohlcv_db]).size !== 4) {
+  if (new Set([
+    tradeDb,
+    opsDb,
+    market.market_data_db,
+    market.ohlcv_db,
+    "data/rd_state.db",
+  ]).size !== 5) {
     throw new Error("server container owner databases must use distinct paths")
   }
   return {
@@ -119,7 +134,12 @@ export function parseServerRuntimeContainerProfile(value: unknown): ServerRuntim
       observe_agent_parity: control.observe_agent_parity,
     },
     shutdown_grace_seconds: integer(root.shutdown_grace_seconds, 5, 300, "shutdown_grace_seconds"),
-    safety: { domain_jobs_enabled: false, live_writes_allowed: false, notify_dry_run: true },
+    safety: {
+      domain_jobs_enabled: false,
+      formal_replay_jobs_enabled: true,
+      live_writes_allowed: false,
+      notify_dry_run: true,
+    },
   }
 }
 

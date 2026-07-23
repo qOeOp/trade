@@ -13,18 +13,18 @@ last_verified: 2026-07-23 CST
 `deploy/server/` 已形成首个 Linux no-live 容器纵切：
 
 - 固定 Bun `1.3.13`、Rust `1.97.1`、Go `1.25` 与 lockfile，镜像内编译两个 L2 release binary 和指标 provider；
-- 单一 runtime 容器在同一 PID、loopback 与文件 namespace 内按 `control runtime → demand-driven L2 manager → OHLCV worker → indicator worker` 启动；没有需求时数据 worker 保持空闲，出现 Runtime / R&D 的 owner-backed lease 后才创建有界 symbol 供给；
+- 单一 runtime 容器在同一 PID、loopback 与文件 namespace 内按 `control runtime → demand-driven L2 manager → OHLCV worker → indicator worker → formal Replay worker` 启动；没有需求时数据与 Replay worker 保持空闲，只有 owner-backed demand / immutable Replay queue work 才进入有界计算；
 - 每项必须通过自身 owner readiness 后才启动下一项；任一已 ready 顶层进程意外退出，组内反向 drain 并让 Docker 重启整个 composition；
 - `SIGTERM` 反向 drain，镜像使用 `tini`、非 root 用户、只读根文件系统、零 Linux capability、`no-new-privileges`、资源与日志上限；
 - DB、L2 raw、普通 tmp、受保护 artifact 与 panel 使用分离 named volume；
 - Operator HTTP 是独立 opt-in override，使用单独 env file，只绑定 Linux host loopback，不向 runtime 注入模型或 operator secret。
 - Agent overlay 已拆出 semantic Host、code Host、OpenClaw、四个 role-scoped MCP 与无网络 workspace checker；Ops DB、Agent artifact、code workspace/control 使用独立 volume，Host 不挂 Trade/R&D/Catalog DB。镜像内 source revision 映射只为 frozen worktree，不把内部 snapshot commit 冒充发布 commit。
 
-该纵切仍是 `active-partial`：当前环境没有 Docker executable，因此只有 Dockerfile / Compose 静态合同、TypeScript/fault fixture、真实本机 OpenClaw Gateway code smoke，以及从 committed HEAD 生成的可校验 source package；尚无真实 Linux image build、container kill/restart、volume permission/cgroup、restore 或 soak 证据。它保持 `domain_jobs_enabled=false`、`live_writes_allowed=false`，不能部署为实盘。
+该纵切仍是 `active-partial`：当前环境没有 Docker executable，因此只有 Dockerfile / Compose 静态合同、TypeScript/fault fixture、真实本机 OpenClaw Gateway code smoke，以及从 committed HEAD 生成的可校验 source package；尚无真实 Linux image build、container kill/restart、volume permission/cgroup、restore 或 soak 证据。它保持 J01–J07 `domain_jobs_enabled=false`，只显式启用无交易权限的 queued formal Replay，且 `live_writes_allowed=false`，不能部署为实盘。
 
 ## 2. 为什么 runtime 先同容器
 
-当前 L2 owner health 同时验证 supervisor / service PID、runtime receipt 与 loopback gRPC；直接拆成多个默认容器会让 PID 与 `127.0.0.1` 语义失真。首版以一个容器承载三个确定性长期进程，Docker 只管理一个 foreground composition；这不是把领域 owner 合并，也不阻止未来在 owner port 网络化后拆容器。
+当前 L2 owner health 同时验证 supervisor / service PID、runtime receipt 与 loopback gRPC；直接拆成多个默认容器会让 PID 与 `127.0.0.1` 语义失真。首版以一个容器承载五个确定性长期进程，Docker 只管理一个 foreground composition；这不是把领域 owner 合并，也不阻止未来在 owner port 网络化后拆容器。
 
 Operator、Agent Host 与 Developer sandbox 仍必须独立，因为它们持有不同 secret 或代码执行权限。不得通过 `pid: host`、Docker socket、`privileged` 或共享宿主机 home 来绕过当前 owner contract。
 
@@ -74,7 +74,7 @@ docker compose -f deploy/server/compose.yaml exec runtime \
   bun modules/orchestration-ops/trade-flow/src/scripts/server-runtime-container-status.ts
 ```
 
-健康必须同时满足 control supervisor lease active、market-data manager 以及 OHLCV / indicator resident worker 的新鲜 running state；具体 symbol 的 L2/OHLCV/indicator 可用性仍由对应 demand fact 的 coverage/freshness 证明。`container running` 或单一 HTTP 200 不等于 ready。
+健康必须同时满足 control supervisor lease active、market-data manager、OHLCV / indicator worker 与 formal Replay resident worker 的新鲜 running heartbeat；具体 symbol 的 L2/OHLCV/indicator 可用性仍由对应 demand fact 的 coverage/freshness 证明，Replay heartbeat 也不代表存在或通过了策略 Result。`container running` 或单一 HTTP 200 不等于 ready。
 
 停止与删除容器不删除 named volume：
 

@@ -6,6 +6,7 @@ export type ServerRuntimeContainerComponent =
   | "market-data-manager"
   | "ohlcv-worker"
   | "indicator-worker"
+  | "formal-replay-worker"
 
 export interface ServerRuntimeContainerProcessSpec {
   id: ServerRuntimeContainerComponent
@@ -79,6 +80,22 @@ export function serverRuntimeContainerProcessSpecs(
         "--max-bars", String(market.indicator_worker.max_bars),
         "--interval-ms", String(market.indicator_worker.interval_ms),
         "--command-timeout-ms", String(market.indicator_worker.command_timeout_ms),
+      ],
+    },
+    {
+      id: "formal-replay-worker",
+      description: "Durable formal Replay queue worker",
+      command: [
+        bun,
+        resolve(
+          root,
+          "modules/research-strategy-development/research-control-plane/program-supervisor/src/scripts/formal-replay-foreground.ts",
+        ),
+        "--db", "data/rd_state.db",
+        "--worker-id", `formal-replay:${profile.deployment_id}`,
+        "--queue-lease-duration-ms", "18000000",
+        "--state-path", "tmp/runtime/formal-replay-worker/state.json",
+        "--interval-ms", "5000",
       ],
     },
   ]
