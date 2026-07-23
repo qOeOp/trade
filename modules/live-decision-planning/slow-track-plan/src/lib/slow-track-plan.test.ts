@@ -4,6 +4,7 @@ import { isAbsolute, join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
 import type { Runner } from "../../../../contracts/runtime-core/src/tool-runner"
+import type { MarketDataDemand } from "../../../../contracts/market-data-demand-contract/src/market-data-demand-contract"
 import { runSlowTrackWorkflowDryRun } from "./slow-track-plan"
 
 test("slow track workflow dry-run builds real watchlist without live action", async () => {
@@ -22,7 +23,7 @@ test("slow track workflow dry-run builds real watchlist without live action", as
     "---\nstrategy_id: S-BTC\nname: BTC Live\nstatus: live-small\ntags: [btc, usdm]\n---\nbody\n",
   )
   const calls: Array<{ command: string[]; cwd?: string }> = []
-  const admittedDemandSymbols: string[] = []
+  const admittedDemands: MarketDataDemand[] = []
   const runner: Runner = async (command, options) => {
     calls.push({ command, cwd: options?.cwd })
     if (options?.cwd?.endsWith("exchange-gateway/binance-read/account-snapshot")) {
@@ -115,7 +116,7 @@ test("slow track workflow dry-run builds real watchlist without live action", as
       runtimePolicyLoader: testRuntimePolicy,
       runner,
       marketDataDemandWriter: async (demand) => {
-        admittedDemandSymbols.push(demand.symbol)
+        admittedDemands.push(demand)
         return {
           ok: true,
           data: {
@@ -132,7 +133,20 @@ test("slow track workflow dry-run builds real watchlist without live action", as
     assert.equal((result.trade_decision as { target_action: string }).target_action, "no_action")
     assert.equal((result.strategy_pool as { live_small_ready: unknown[] }).live_small_ready.length, 1)
     assert.equal((result.watchlist as unknown[]).length, 2)
-    assert.deepEqual(admittedDemandSymbols.sort(), ["BTCUSDT", "ETHUSDT"])
+    assert.deepEqual(admittedDemands.map((demand) => demand.symbol).sort(), ["BTCUSDT", "ETHUSDT"])
+    assert.equal(admittedDemands[0]?.requirements.length, 7)
+    assert.deepEqual(
+      admittedDemands[0]?.requirements.map((requirement) => `${requirement.product}:${requirement.timeframe ?? "point"}`),
+      [
+        "l2_book:point",
+        "ohlcv:1d",
+        "indicator_set:1d",
+        "ohlcv:4h",
+        "indicator_set:4h",
+        "ohlcv:1h",
+        "indicator_set:1h",
+      ],
+    )
     assert.equal((result.market_data_demands as { accepted_count: number }).accepted_count, 2)
     assert.equal((result.market_data_demands as { lifecycle_authority: string }).lifecycle_authority, "none")
     assert.equal((result.decision_input_bundle as { schema_version: string }).schema_version, "decision-input-bundle.v1")
