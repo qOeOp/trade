@@ -1,0 +1,136 @@
+services:
+  openclaw:
+    image: ghcr.io/openclaw/openclaw@sha256:6a31d44b2944e7adcd2b582bf6fb463111264ebca97a0201795b799135bd102c
+    restart: always
+    stop_grace_period: 60s
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m
+    pids_limit: 512
+    mem_limit: 3g
+    cpus: 2.0
+    environment:
+      OPENCLAW_STATE_DIR: /home/node/.openclaw
+      OPENCLAW_CONFIG_PATH: /home/node/.openclaw/openclaw.json
+      OPENCLAW_DISABLE_BONJOUR: "1"
+    env_file:
+      - ${TRADE_SILICONFLOW_SECRET_ENV_FILE:?set TRADE_SILICONFLOW_SECRET_ENV_FILE}
+      - ${TRADE_AGENT_HOST_SECRET_ENV_FILE:?set TRADE_AGENT_HOST_SECRET_ENV_FILE}
+    volumes:
+      - openclaw-state:/home/node/.openclaw
+      - ./openclaw.json:/home/node/.openclaw/openclaw.json:ro
+    networks:
+      - agent-control
+      - agent-egress
+    depends_on:
+      agent-mcp-planner:
+        condition: service_healthy
+      agent-mcp-reviewer:
+        condition: service_healthy
+      agent-mcp-explanation:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch("http://127.0.0.1:18789/readyz").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
+  agent-mcp-planner:
+    <<: &agent-mcp
+      image: trade-runtime:${TRADE_IMAGE_TAG:-local}
+      restart: always
+      stop_grace_period: 15s
+      read_only: true
+      cap_drop:
+        - ALL
+      security_opt:
+        - no-new-privileges:true
+      tmpfs:
+        - /tmp:rw,noexec,nosuid,nodev,size=128m
+      pids_limit: 256
+      mem_limit: 1g
+      cpus: 1.0
+      env_file:
+        - ${TRADE_AGENT_HOST_SECRET_ENV_FILE:?set TRADE_AGENT_HOST_SECRET_ENV_FILE}
+      volumes:
+        - trade-data:/app/data
+        - trade-runtime-tmp:/app/tmp
+        - trade-artifacts:/app/data/artifacts
+      networks:
+        - agent-control
+      healthcheck:
+        test:
+          - CMD
+          - bun
+          - -e
+          - fetch("http://127.0.0.1:7312/health").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))
+        interval: 20s
+        timeout: 5s
+        retries: 4
+        start_period: 20s
+      logging:
+        driver: json-file
+        options:
+          max-size: 20m
+          max-file: "5"
+    command:
+      - bun
+      - modules/orchestration-ops/agent-mcp/src/scripts/http.ts
+      - --host
+      - 0.0.0.0
+      - --port
+      - "7312"
+      - --profile
+      - planner
+      - --allowed-hosts
+      - agent-mcp-planner:7312
+
+  agent-mcp-reviewer:
+    <<: *agent-mcp
+    command:
+      - bun
+      - modules/orchestration-ops/agent-mcp/src/scripts/http.ts
+      - --host
+      - 0.0.0.0
+      - --port
+      - "7312"
+      - --profile
+      - reviewer
+      - --allowed-hosts
+      - agent-mcp-reviewer:7312
+
+  agent-mcp-explanation:
+    <<: *agent-mcp
+    command:
+      - bun
+      - modules/orchestration-ops/agent-mcp/src/scripts/http.ts
+      - --host
+      - 0.0.0.0
+      - --port
+      - "7312"
+      - --profile
+      - explanation
+      - --allowed-hosts
+      - agent-mcp-explanation:7312
+
+networks:
+  agent-control:
+    internal: true
+  agent-egress:
+
+volumes:
+  openclaw-state:
