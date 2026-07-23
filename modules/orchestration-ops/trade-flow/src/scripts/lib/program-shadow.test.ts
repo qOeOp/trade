@@ -323,7 +323,7 @@ test("program shadow skips an active lease", async () => {
   try {
     const opsDb = new Database(fixture.opsDbPath)
     try {
-      ensureOpsRuntimeSchema(opsDb)
+      ensureOpsSchema(opsDb)
       const lock = acquireOpsLock(opsDb, {
         lock_key: "program-runtime-shadow",
         holder_id: "other-runtime",
@@ -363,7 +363,7 @@ test("program shadow recovers a running cycle after a stale lease", async () => 
   try {
     const opsDb = new Database(fixture.opsDbPath)
     try {
-      ensureOpsRuntimeSchema(opsDb)
+      ensureOpsSchema(opsDb)
       upsertCycleRun(opsDb, buildCycleRun({
         cycle_id: "shadow-cycle-recover",
         now: "2026-07-23T00:50:00Z",
@@ -518,7 +518,7 @@ test("program shadow returns a bounded result while the ops store stays busy", a
   const fixture = createFixture("program-shadow-busy-")
   const blocker = new Database(fixture.opsDbPath)
   try {
-    ensureOpsRuntimeSchema(blocker)
+    ensureOpsSchema(blocker)
     blocker.run("BEGIN EXCLUSIVE")
     const startedAt = Date.now()
     const result = await runProgramShadowWakeup(
@@ -572,6 +572,11 @@ function fixedDependencies(holderId: string): { clock: () => Date; holderId: () 
     clock: () => FIXED_CLOCK,
     holderId: () => holderId,
   }
+}
+
+function ensureOpsSchema(db: Database): void {
+  ensureDatabaseIdentity(db, buildDatabaseIdentity("local:local", "ops_runtime_store"))
+  ensureOpsRuntimeSchema(db)
 }
 
 function createFixture(prefix: string): {
