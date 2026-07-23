@@ -14,6 +14,7 @@ import {
   type LaunchConfig,
   type RuntimeState,
 } from "../control/runtime-contract"
+import { planL2DiskPressure } from "../control/disk-pressure-policy"
 
 const root = repoRoot()
 const args = parseArgs(process.argv.slice(2))
@@ -28,7 +29,8 @@ const terminalPath = resolve(runtimeDirectory, "terminal-state.json")
 let child: ReturnType<typeof Bun.spawn> | undefined
 let stopRequested = false
 let signalName = ""
-let fatalReason = ""
+let cancelPendingDelay: (() => void) | undefined
+let diskPauseReason = ""
 let diskStatus: RuntimeState["disk_status"] = "unknown"
 let diskAvailableBytes: number | null = null
 let diskLastError = ""
@@ -49,6 +51,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     stopRequested = true
     signalName = signal
     writeState("stopping", null)
+    cancelPendingDelay?.()
     child?.kill("SIGTERM")
   })
 }
@@ -60,12 +63,12 @@ let terminalStatus: "completed" | "failed" = "failed"
 let terminalReason = "supervisor_failed"
 try {
   while (!stopRequested) {
-    const initialDiskStatus = sampleDisk()
-    if (initialDiskStatus === "hard_limit" || initialDiskStatus === "unknown") {
-      terminalReason = initialDiskStatus === "hard_limit"
-        ? `disk_hard_limit:${diskAvailableBytes ?? "unknown"}`
-        : `disk_status_unavailable:${diskLastError}`
-      break
+    const diskPlan = planL2DiskPressure(sampleDisk(), config.disk_check_interval_ms)
+    if (diskPlan.action === "wait") {
+      const nextCheck = new Date(Date.now() + diskPlan.recheck_delay_ms).toISOString()
+      writeState("backoff", nextCheck)
+      await waitForNextAttempt(diskPlan.recheck_delay_ms)
+      continue
     }
     if (config.admission_interval_ms > 0 && admissionLastCheckedAt == null) runAdmission()
     attempt += 1
@@ -100,8 +103,9 @@ try {
       if (now - lastDiskCheckAt >= config.disk_check_interval_ms) {
         lastDiskCheckAt = now
         const observedDiskStatus = sampleDisk()
-        if ((observedDiskStatus === "hard_limit" || observedDiskStatus === "unknown") && !fatalReason) {
-          fatalReason = observedDiskStatus === "hard_limit"
+        const observedDiskPlan = planL2DiskPressure(observedDiskStatus, config.disk_check_interval_ms)
+        if (observedDiskPlan.action === "wait" && !diskPauseReason) {
+          diskPauseReason = observedDiskStatus === "hard_limit"
             ? `disk_hard_limit:${diskAvailableBytes ?? "unknown"}`
             : `disk_status_unavailable:${diskLastError}`
           child?.kill("SIGTERM")
@@ -115,7 +119,7 @@ try {
         lastResourceCheckAt = now
         sampleResources()
       }
-      writeState(fatalReason ? "stopping" : "running", null)
+      writeState(diskPauseReason ? "stopping" : "running", null)
     }, Math.min(
       config.disk_check_interval_ms,
       config.admission_interval_ms || config.disk_check_interval_ms,
@@ -125,9 +129,13 @@ try {
     clearInterval(monitor)
     child = undefined
     if (config.admission_interval_ms > 0) runAdmission()
-    if (fatalReason) {
-      terminalReason = fatalReason
-      break
+    if (diskPauseReason) {
+      const recheckDelayMs = planL2DiskPressure(diskStatus, config.disk_check_interval_ms).recheck_delay_ms
+      const nextCheck = new Date(Date.now() + recheckDelayMs).toISOString()
+      diskPauseReason = ""
+      writeState("backoff", nextCheck)
+      await waitForNextAttempt(recheckDelayMs)
+      continue
     }
     if (stopRequested) {
       terminalStatus = "completed"
@@ -147,7 +155,11 @@ try {
     const delayMs = Math.min(30_000, 250 * 2 ** Math.min(consecutiveFailures - 1, 7))
     const nextRestart = new Date(Date.now() + delayMs).toISOString()
     writeState("backoff", nextRestart)
-    await Bun.sleep(delayMs)
+    await waitForNextAttempt(delayMs)
+  }
+  if (stopRequested) {
+    terminalStatus = "completed"
+    terminalReason = signalName || "operator_stop"
   }
 } catch (error) {
   terminalReason = error instanceof Error ? error.message : String(error)
@@ -289,6 +301,18 @@ function existingAncestor(path: string): string {
 
 function safeCount(value: unknown): number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0
+}
+
+async function waitForNextAttempt(delayMs: number): Promise<void> {
+  if (stopRequested) return
+  await new Promise<void>((resolveDelay) => {
+    const timer = setTimeout(resolveDelay, delayMs)
+    cancelPendingDelay = () => {
+      clearTimeout(timer)
+      resolveDelay()
+    }
+  })
+  cancelPendingDelay = undefined
 }
 
 function parseArgs(argv: string[]): { runtimeDir: string; serviceBinary: string; config: string } {

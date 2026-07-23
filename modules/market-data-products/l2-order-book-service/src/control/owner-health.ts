@@ -113,16 +113,19 @@ export function buildL2OwnerHealth(input: {
     input.receipt.config.admission_interval_ms,
   ) * 3
   const controlStateFresh = stateAgeMs <= stateStaleAfterMs
-  const controlReady = controlStateFresh && input.runtime_state.disk_status === "healthy"
+  const diskOperational = input.runtime_state.disk_status === "healthy"
+    || input.runtime_state.disk_status === "soft_limit"
+  const controlReady = controlStateFresh && diskOperational
     && (input.runtime_state.admission_status === "ready" || input.runtime_state.admission_status === "disabled")
     && input.runtime_state.resource_last_error === ""
   const sourceReadReady = source?.read_ready === true
   const overallReady = input.supervisor_alive && input.service_alive && controlReady && sourceReadReady
+  const pressureDegraded = input.runtime_state.disk_status === "soft_limit"
   const terminalStatus = input.terminal_state?.status
   const status: L2OwnerHealth["status"] = terminalStatus === "completed" ? "stopped"
     : terminalStatus === "failed" ? "failed"
       : !input.supervisor_alive ? "orphaned"
-        : overallReady ? "healthy"
+        : overallReady && !pressureDegraded ? "healthy"
           : input.runtime_state.status === "starting" && !input.service_alive ? "starting"
             : "degraded"
   return {

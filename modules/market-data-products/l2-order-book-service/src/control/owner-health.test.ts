@@ -102,8 +102,9 @@ test("L2 owner health degrades on control pressure and fails closed on identity 
     source_health: source,
   })
   assert.equal(health.status, "degraded")
-  assert.equal(health.readiness.control_ready, false)
-  assert.equal(health.readiness.overall_ready, false)
+  assert.equal(health.readiness.control_ready, true)
+  assert.equal(health.readiness.source_read_ready, true)
+  assert.equal(health.readiness.overall_ready, true)
   const stale = buildL2OwnerHealth({
     observed_at: "2026-07-22T00:03:00Z",
     receipt,
