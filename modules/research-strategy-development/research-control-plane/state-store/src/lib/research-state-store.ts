@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite"
 import { asRecord, numberField, stringField, type JSONRecord } from "../../../../../contracts/runtime-core/src/json"
 import { ensureFormalReplayJobQueueSchema } from "./formal-replay-job-queue"
 import { ensureResearchControlPlaneSchema } from "./research-control-plane-schema"
+import { ensureReviewerAgentJobQueueSchema } from "./reviewer-agent-job-queue"
 
 export interface RdProgram {
   program_id: string
@@ -114,6 +115,7 @@ export function ensureResearchStateSchema(db: Database): void {
   db.run("CREATE INDEX IF NOT EXISTS idx_rd_program_trial_program_time ON rd_program_trial(program_id, created_at DESC)")
   ensureFormalReplayJobQueueSchema(db)
   ensureResearchControlPlaneSchema(db)
+  ensureReviewerAgentJobQueueSchema(db)
 }
 
 export function upsertRdProgram(db: Database, program: RdProgram): void {

@@ -358,6 +358,57 @@ services:
         max-size: 20m
         max-file: "5"
 
+  reviewer-agent-worker:
+    image: trade-runtime:${TRADE_IMAGE_TAG:-local}
+    restart: always
+    stop_grace_period: 45s
+    read_only: true
+    user: "10001:10001"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 1.0
+    env_file:
+      - ${TRADE_AGENT_HOST_HTTP_SECRET_ENV_FILE:?set TRADE_AGENT_HOST_HTTP_SECRET_ENV_FILE}
+    environment:
+      TRADE_ENVIRONMENT_ID: ${TRADE_ENVIRONMENT_ID:-server:primary}
+    volumes:
+      - trade-data:/app/data
+      - trade-runtime-tmp:/app/tmp
+      - trade-agent-artifacts:/app/data/artifacts/agent-runs
+    networks:
+      - agent-control
+    depends_on:
+      agent-host:
+        condition: service_healthy
+    command:
+      - bun
+      - modules/research-strategy-development/research-control-plane/agent-run-orchestrator/src/scripts/reviewer-resident.ts
+      - --host-url
+      - http://agent-host:7313
+      - --worker-id
+      - reviewer-agent:${TRADE_DEPLOYMENT_ID:-server-primary}
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - const s=JSON.parse(await Bun.file("tmp/runtime/reviewer-agent-worker/state.json").text());process.exit(s.status==="running"&&Date.now()-Date.parse(s.updated_at)<20000&&!s.trading_authority?0:1)
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
   agent-mcp-planner:
     <<: &agent-mcp
       image: trade-runtime:${TRADE_IMAGE_TAG:-local}

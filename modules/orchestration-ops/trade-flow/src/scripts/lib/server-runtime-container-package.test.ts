@@ -99,6 +99,10 @@ test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds De
   assert.match(agentCompose, /agent-mcp-reviewer:[\s\S]*--profile[\s\S]*reviewer-decision/)
   assert.match(agentCompose, /agent-host:[\s\S]*--ops-db\s*\n\s*- data\/ops\/ops_runtime\.db/)
   assert.match(agentCompose, /agent-host-code:[\s\S]*openclaw-workspace-http\.ts/)
+  assert.match(agentCompose, /reviewer-agent-worker:[\s\S]*reviewer-resident\.ts/)
+  assert.match(agentCompose, /reviewer-agent-worker:[\s\S]*http:\/\/agent-host:7313/)
+  assert.match(agentCompose, /reviewer-agent-worker:[\s\S]*trade-data:\/app\/data/)
+  assert.match(agentCompose, /reviewer-agent-worker:[\s\S]*trading_authority/)
   assert.match(agentCompose, /agent-workspace-checker:[\s\S]*network_mode: none/)
   assert.match(agentCompose, /agent-workspace-checker:[\s\S]*agent-workspace-checker\.ts/)
   assert.match(agentCompose, /agent-release-checker:[\s\S]*network_mode: none/)
@@ -118,7 +122,7 @@ test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds De
   assert.doesNotMatch(semanticHostBlock, /trade-data:\/app\/data/)
   const codeHostBlock = agentCompose
     .split("\n  agent-host-code:")[1]!
-    .split("\n  agent-mcp-planner:")[0]!
+    .split("\n  reviewer-agent-worker:")[0]!
   assert.doesNotMatch(codeHostBlock, /trade-data:\/app\/data/)
   const adopterBlock = agentCompose
     .split("\n  agent-patch-adopter:")[1]!
@@ -133,7 +137,7 @@ test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds De
   assert.match(compose, /TRADE_ENVIRONMENT_ID: \$\{TRADE_ENVIRONMENT_ID:-server:primary\}/)
   assert.equal(
     agentCompose.match(/TRADE_ENVIRONMENT_ID: \$\{TRADE_ENVIRONMENT_ID:-server:primary\}/g)?.length,
-    4,
+    5,
   )
   assert.match(operatorCompose, /TRADE_ENVIRONMENT_ID: \$\{TRADE_ENVIRONMENT_ID:-server:primary\}/)
   assert.doesNotMatch(serialized, /sk-[A-Za-z0-9_-]{12,}/)

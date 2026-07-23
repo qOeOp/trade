@@ -21,7 +21,7 @@ last_verified: 2026-07-23 CST
 | Rust public L2 WebSocket、book、raw segment、gRPC/read owner | 多 symbol 与正式服务器托管；L2 尚未成为策略或执行 authority |
 | J01–J07 job graph、cadence、health、lease、idempotency | 常驻 program profile 仍关闭 domain jobs 与 live write |
 | trade plan、action intent、trigger expiry、execution gate | 没有独立的短期条件监控任务生命周期 |
-| J04 supervisor、Replay、forward、review、durable RD state | bounded autonomy refill 与 formal Replay resident queue 已闭合；真实 Manifest provider、Reviewer/Forward 自动接线、长时 J04-J05-J07 soak 尚未闭合 |
+| J04 supervisor、Replay、forward、review、durable RD state | bounded autonomy refill、formal Replay resident queue 与 Replay→Reviewer 常驻唤醒已闭合；真实 Manifest provider、Registry/Forward 自动接线、长时 J04-J05-J07 soak 尚未闭合 |
 | 既有 owner toolset、本地 stdio MCP 与 loopback HTTP allowlist | HTTP resident/audit/rotation 已验证，但尚未进入 manager composition；TLS/OpenClaw/长时 soak 未闭合 |
 | SQLite owner stores 与 artifact catalog | 本机真实 online backup/隔离 restore 已过；外部介质与被 durable ref 引用的 `tmp/` artifact 迁移仍未闭合 |
 
@@ -35,7 +35,7 @@ S1 截至 2026-07-23 已完成 macOS no-live 主机纵切：三个正式 foregro
 
 S3 已新增独立 `full_shadow` 固定 profile：同一 fenced supervisor/wakeup 可启用 J01–J07、强制 cadence due、保留 owner active/state gate，并永久关闭 exchange live write 与真实通知。干净 HEAD 的临时 SQLite/captured-owner 双周期 fixture 已得到 7/7 enabled、Agent/program `2/2 match`、零重复 job/incident；同槽重启 terminal skip 且 fencing token `1→2`，未出现 live command。当前版本化 server config 仍是 `shadow_program`；published owner CLI smoke、故障注入与长时观察完成前不得切换。
 
-S4/S5 已形成首个本地闭环：J04 路由先读 `plan_next`，ready/terminal 不调用模型；active empty/unready queue 才调用固定 Model Gateway，domain assessment 通过后以 `updated_at` CAS 原子入队，再委托既有 supervisor。模型失败不写 state/Trial，identical replay 幂等，stale/conflict fail closed；真实 provider probe 已通过。真实 R&D owner 子进程另完成 post-commit/pre-ack `SIGKILL`：重启前移除源 manifest 仍幂等读回同一 Result，数据库保持单一 completed Trial / Result。formal Replay 也已有独立 durable single-slot queue、generation fencing、同 worker restart resume 与容器前台 worker；这不替代真实 mid-Replay kill、Manifest provider、J04/J05/J07 长时 soak 或 Linux 采用。
+S4/S5 已形成首个本地闭环：J04 路由先读 `plan_next`，ready/terminal 不调用模型；active empty/unready queue 才调用固定 Model Gateway，domain assessment 通过后以 `updated_at` CAS 原子入队，再委托既有 supervisor。模型失败不写 state/Trial，identical replay 幂等，stale/conflict fail closed；真实 provider probe 已通过。真实 R&D owner 子进程另完成 post-commit/pre-ack `SIGKILL`：重启前移除源 manifest 仍幂等读回同一 Result，数据库保持单一 completed Trial / Result。formal Replay 已有 durable single-slot queue、generation fencing、同 worker restart resume 与容器前台 worker；Agent overlay 另以独立 fenced queue 把 classified Result 唤醒为 Reviewer Agent Run，Host 故障不阻塞 base runtime，owner 已提交 Decision 可恢复。它仍不替代真实 mid-Replay kill、Manifest provider、Registry/Forward、J04/J05/J07 长时 soak 或 Linux 采用。
 
 S6 已新增 loopback-only Operator HTTP：Bearer + 独立 controlled approval、固定 read/write rate、exact route/payload 和 ops pre/post audit；当前只开放 tool search、RD read 与 approved J04 wakeup，不含 exchange/live/promotion/任意 command。Bun resident、真实 audit 回读和 API/approval token 重启轮换已通过，且 smoke 不调用 controlled owner；TLS、manager secret facility、OpenClaw client 与长时 soak 尚未完成。
 
