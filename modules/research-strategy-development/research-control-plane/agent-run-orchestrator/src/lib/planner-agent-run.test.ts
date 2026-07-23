@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto"
 import test from "node:test"
 import assert from "node:assert/strict"
 import { Database } from "bun:sqlite"
@@ -15,8 +14,8 @@ import { readPlannerControlPlaneContext } from "../../../state-store/src/lib/res
 import {
   admitPlannerAgentResult,
   preparePlannerAgentRun,
-  type AgentArtifactPort,
 } from "./planner-agent-run"
+import { memoryArtifacts } from "./agent-artifact-port.test-fixture"
 
 test("Planner Agent context reaches existing owner admission without direct Agent state writes", () => {
   const db = new Database(":memory:")
@@ -178,28 +177,5 @@ function completion(request: ReturnType<typeof preparePlannerAgentRun>["request"
         output_bytes: output.bytes,
       },
     }),
-  }
-}
-
-function memoryArtifacts(): AgentArtifactPort {
-  const content = new Map<string, string>()
-  return {
-    put(text, mediaType) {
-      const bytes = Buffer.from(text)
-      const sha256 = createHash("sha256").update(bytes).digest("hex")
-      const artifact: AgentArtifactRef = {
-        ref: `memory-artifact://${sha256}`,
-        sha256,
-        media_type: mediaType,
-        bytes: bytes.byteLength,
-      }
-      content.set(artifact.ref, text)
-      return artifact
-    },
-    read(artifact) {
-      const text = content.get(artifact.ref)
-      if (text == null) throw new Error("missing artifact")
-      return text
-    },
   }
 }
