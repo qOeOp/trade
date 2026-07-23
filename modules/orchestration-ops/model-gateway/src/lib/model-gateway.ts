@@ -8,7 +8,7 @@ import {
 export interface ModelGatewayProfile {
   schema_version: "trade.model-gateway-profile.v1"
   provider: "siliconflow"
-  base_url: "https://api.siliconflow.com/v1"
+  base_url: "https://api.siliconflow.cn/v1"
   model: string
   capabilities: ["json_object"]
   api_key_env: "SILICONFLOW_API_KEY"
@@ -47,6 +47,7 @@ export async function runModelTask(
           ],
           stream: false,
           max_tokens: request.budget.max_output_tokens,
+          enable_thinking: false,
           response_format: { type: "json_object" },
         }),
       }, request.budget.timeout_ms)
@@ -105,7 +106,7 @@ export function compileProfile(value: unknown): ModelGatewayProfile {
   const input = record(value)
   exact(input, ["schema_version", "provider", "base_url", "model", "capabilities", "api_key_env"])
   if (input.schema_version !== "trade.model-gateway-profile.v1" || input.provider !== "siliconflow") throw new Error("model gateway profile is unsupported")
-  if (input.base_url !== "https://api.siliconflow.com/v1") throw new Error("model gateway base_url is unsupported")
+  if (input.base_url !== "https://api.siliconflow.cn/v1") throw new Error("model gateway base_url is unsupported")
   if (input.api_key_env !== "SILICONFLOW_API_KEY") throw new Error("model gateway secret binding is unsupported")
   if (!Array.isArray(input.capabilities) || input.capabilities.length !== 1 || input.capabilities[0] !== "json_object") {
     throw new Error("model gateway capability registry is unsupported")
@@ -114,7 +115,7 @@ export function compileProfile(value: unknown): ModelGatewayProfile {
   return {
     schema_version: "trade.model-gateway-profile.v1",
     provider: "siliconflow",
-    base_url: "https://api.siliconflow.com/v1",
+    base_url: "https://api.siliconflow.cn/v1",
     model,
     capabilities: ["json_object"],
     api_key_env: "SILICONFLOW_API_KEY",
