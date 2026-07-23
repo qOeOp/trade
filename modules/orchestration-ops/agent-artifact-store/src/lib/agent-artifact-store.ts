@@ -132,7 +132,7 @@ function boundedText(value: string): string {
 }
 
 function rejectSecretLike(value: string): void {
-  if (/(?:sk|pk|rk)[-_][A-Za-z0-9_-]{12,}/i.test(value)
+  if (/\b(?:sk|pk|rk)[-_][A-Za-z0-9_-]{12,}/i.test(value)
     || /authorization\s*:\s*(?:bearer|basic)\s+\S+/i.test(value)
     || /-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(value)
     || /\b(?:password|api[_-]?key|secret|token)\s*[:=]\s*["']?\S{8,}/i.test(value)) {

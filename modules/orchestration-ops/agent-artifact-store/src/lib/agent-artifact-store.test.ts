@@ -41,6 +41,12 @@ test("Agent artifact reads reject drift, secrets, collisions, and symlinked root
       media_type: "text/plain",
       text: "api_key=sk-abcdefghijklmnopqrstuv",
     }), /secret-like/)
+    assert.doesNotThrow(() => writeAgentTextArtifact({
+      repository_root: root,
+      storage: "temporary",
+      media_type: "application/json",
+      text: "{\"risk_adjusted_return\":0.15}",
+    }))
     const artifact = writeAgentTextArtifact({
       repository_root: root,
       storage: "temporary",
