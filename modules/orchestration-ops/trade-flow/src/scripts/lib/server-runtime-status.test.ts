@@ -85,8 +85,18 @@ test("server runtime status recognizes active launchd agents on macOS", () => {
   assert.equal(Object.keys(result.process_units).every((unit) => unit.startsWith("com.trade.server-shadow.")), true)
 })
 
+test("server runtime status recognizes inactive launchd agents instead of reporting an unknown state", () => {
+  const result = readServerRuntimeStatus(
+    macProfile, root, process.execPath,
+    fixtureExecutor({ unitState: "inactive", consumerEpoch: "epoch-1", leaseActive: true }),
+    "2026-07-23T00:00:00Z",
+  )
+  assert.equal(result.status, "not_ready")
+  assert.equal(Object.values(result.process_units).every((unit) => unit.status === "inactive"), true)
+})
+
 function fixtureExecutor(input: {
-  unitState: "active" | "unavailable"
+  unitState: "active" | "inactive" | "unavailable"
   consumerEpoch: string
   leaseActive: boolean
 }): ServerRuntimeCommandExecutor {
@@ -99,17 +109,21 @@ function fixtureExecutor(input: {
     if (command[0] === "launchctl") {
       return input.unitState === "active"
         ? { exit_code: 0, stdout: "state = running\n" }
+        : input.unitState === "inactive"
+          ? { exit_code: 0, stdout: "state = not running\n" }
         : { exit_code: 1, stdout: "" }
     }
     const script = command[1] ?? ""
     if (script.endsWith("owner-health.ts")) {
       return json({ ok: true, health: {
+        status: "healthy",
         readiness: { overall_ready: true },
         source: { stream_epoch: "epoch-1" },
       } })
     }
     if (script.endsWith("consumer-read.ts")) {
       return json({ ok: true, consumer: {
+        status: "healthy",
         readiness: { overall_ready: true },
         latest_baseline: { stream_epoch: input.consumerEpoch },
       } })

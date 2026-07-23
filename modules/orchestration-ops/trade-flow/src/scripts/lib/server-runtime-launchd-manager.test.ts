@@ -44,3 +44,32 @@ test("server launchd manager plan is path-redacted and install fails closed on b
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test("server launchd manager projects a loaded but stopped agent as not running", () => {
+  const root = mkdtempSync(resolve(tmpdir(), "trade-launchd-manager-"))
+  const agents = resolve(root, "agents")
+  mkdirSync(resolve(root, "profile"), { recursive: true })
+  writeFileSync(resolve(root, "profile/server-runtime-macos.json"), readFileSync(
+    resolve(repoRoot(), "profile/server-runtime-macos.json"), "utf8",
+  ))
+  writeFileSync(resolve(root, "release-manifest.json"), JSON.stringify({
+    schema_version: "trade.server-runtime-release-manifest.v1",
+    release_id: "fixture-release",
+    profile_ref: "profile/server-runtime-macos.json",
+    data_seed: "empty_runtime_roots_only",
+    safety: { domain_jobs_enabled: false, live_writes_allowed: false, notify_dry_run: true },
+  }))
+  try {
+    const plan = inspectServerRuntimeLaunchd({
+      release_root: root,
+      bun_path: "/usr/bin/false",
+      launch_agents_directory: agents,
+      uid: 501,
+      execute: () => ({ exit_code: 0, stdout: "state = not running\n", stderr: "" }),
+    })
+    assert.equal((plan.units as Array<Record<string, unknown>>).every((unit) => unit.loaded === true), true)
+    assert.equal((plan.units as Array<Record<string, unknown>>).every((unit) => unit.state === "not running"), true)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

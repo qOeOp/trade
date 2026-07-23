@@ -125,6 +125,7 @@ export function readServerRuntimeStatus(
   const consumer = record(consumerEnvelope.consumer)
   const l2Ready = record(l2.readiness).overall_ready === true
   const consumerReady = record(consumer.readiness).overall_ready === true
+  const componentsHealthy = l2.status === "healthy" && consumer.status === "healthy"
   const l2Epoch = stringField(record(l2.source).stream_epoch)
   const consumerEpoch = stringField(record(consumer.latest_baseline).stream_epoch)
   const epochsMatch = Boolean(l2Epoch && consumerEpoch && l2Epoch === consumerEpoch)
@@ -134,8 +135,8 @@ export function readServerRuntimeStatus(
   const managerObservable = unitValues.every((unit) => unit.status !== "unavailable")
   const unitsActive = managerObservable && unitValues.every((unit) => unit.status === "active")
   const ownerReady = l2Ready && consumerReady && epochsMatch && controlLeaseActive
-  const status = ownerReady && unitsActive ? "ready"
-    : ownerReady && !managerObservable ? "degraded"
+  const status = ownerReady && unitsActive && componentsHealthy ? "ready"
+    : ownerReady && (unitsActive || !managerObservable) ? "degraded"
       : "not_ready"
   return {
     schema_version: "trade.server-runtime-status.v1",
@@ -196,9 +197,9 @@ function unitState(
     if (uid === undefined) return { status: "unavailable", reason: "launchd_user_domain_unavailable" }
     const result = execute(["launchctl", "print", `gui/${uid}/${unit}`], cwd, 3_000)
     if (result.exit_code !== 0) return { status: "unavailable", reason: "process_manager_unavailable" }
-    const state = /\bstate\s*=\s*(running|waiting|exited)\b/.exec(result.stdout)?.[1]
+    const state = /\bstate\s*=\s*(not running|running|waiting|exited)\b/.exec(result.stdout)?.[1]
     if (state === "running") return { status: "active" }
-    if (state === "waiting" || state === "exited") return { status: "inactive" }
+    if (state === "not running" || state === "waiting" || state === "exited") return { status: "inactive" }
     return { status: "unavailable", reason: "unit_state_invalid" }
   }
   const result = execute(["systemctl", "show", unit, "--property=ActiveState", "--value"], cwd, 3_000)

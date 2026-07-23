@@ -175,7 +175,7 @@ function managerProjection(context: ReturnType<typeof loadContext>, action: stri
 function serviceState(execute: LaunchdCommandExecutor, target: string): { loaded: boolean; state: string } {
   const result = execute(["/bin/launchctl", "print", target])
   if (result.exit_code !== 0) return { loaded: false, state: "not_loaded" }
-  const state = /\bstate\s*=\s*(running|waiting|exited)\b/.exec(result.stdout)?.[1] ?? "loaded_unknown"
+  const state = /\bstate\s*=\s*(not running|running|waiting|exited)\b/.exec(result.stdout)?.[1] ?? "loaded_unknown"
   return { loaded: true, state }
 }
 
