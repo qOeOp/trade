@@ -11,6 +11,7 @@
 - Opt-in resident Agent/program parity observation: each eligible program cycle samples owner commands once, independently builds the legacy Agent shadow graph by replaying those exact results, compares canonical projections, and records immutable evidence in the existing ops store.
 - macOS launchd rendering/install lifecycle with restart ownership outside the runtime and no PID file; installation fails closed for protected Desktop/Documents/Downloads source paths unless the operator confirms the OS privacy grant.
 - Closed-world no-live server profile validation and deterministic Linux systemd unit rendering; rendering writes only repository `tmp/`, never installs or starts units, and exposes no arbitrary command/environment surface.
+- Linux container foreground composition over the same closed-world profile: dependency-ordered owner readiness, reverse signal drain, group failure on any unexpected top-level component exit, and owner-level aggregate health without live-write authority.
 - Read-only server preflight/status aggregation over fixed owner health, cross-owner L2 epoch identity, fenced control lease, and systemd unit state; unavailable process-manager state degrades rather than inventing readiness.
 - Bounded synthetic process-manager lifecycle fixture proving dependency-gated start order, consumer restart isolation, reverse drain, and no surviving managed child without touching real runtime owners or systemd.
 - Read-only bounded public-market smoke requires two distinct healthy control cycles with stable L2 epoch/fenced lease and no new comparable parity mismatch; real systemd fault injection remains an explicit server gate.
@@ -38,7 +39,7 @@
 - The full-shadow profile forces all seven cadence gates but preserves each job's owner-defined active/work checks and write scope; it cannot select another job, pass arbitrary commands, enable live exchange writes, or emit real notifications.
 - Runtime parity tests implementation semantics under shared captured owner results; sequential reads of changing live health are retained as legacy observations but are not comparable-input evidence.
 - Automation planning uses the registered flow-projector owner port through a bounded asynchronous child; a blocked owner read fails the cycle instead of trapping the supervisor in synchronous process wait.
-- The resident supervisor delegates restart/backoff and OS process lifetime to an external process manager; it owns no PID file or detached-process authority.
+- The resident supervisor delegates restart/backoff and OS process lifetime to an external process manager; the container composition only owns its exact foreground children and delegates group restart to Docker, with no PID file or detached-process authority.
 - Bounded migration observation may be hosted by an operator-owned terminal multiplexer when local launchd cannot read a macOS-protected repository path; this is observation evidence, not the production restart contract.
 
 ## Forbidden
