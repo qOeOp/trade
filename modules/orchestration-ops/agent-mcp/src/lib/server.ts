@@ -37,6 +37,27 @@ const PLANNER_PROPOSAL_PREPARE = z.object({
   evaluation_protocol_ref: z.string().trim().min(1).max(500),
   created_at: z.string().datetime({ offset: false }),
 }).strict()
+const DEVELOPER_SUBMISSION_PREPARE = z.object({
+  developer_run_id: z.string().trim().min(1).max(160),
+  brief_id: z.string().trim().min(1).max(160),
+  source_revision: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/),
+  draft_revision: z.number().int().min(1).max(1_000_000),
+  predecessor_run_id: z.string().trim().min(1).max(160).nullable(),
+  implementation_mode: z.enum([
+    "existing_implementation",
+    "contract_only",
+    "data_blocked",
+    "tool_blocked",
+  ]),
+  reason_code: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/),
+  required_capabilities: z.array(z.string().trim().min(1).max(200)).max(64),
+  requested_trial_budget: z.number().int().min(1).max(10_000),
+  draft_json: z.record(z.string(), z.unknown()).refine(
+    (value) => Object.keys(value).length > 0 && JSON.stringify(value).length <= 500_000,
+    "draft_json must be non-empty and at most 500 KB",
+  ),
+  created_at: z.string().datetime({ offset: false }),
+}).strict()
 
 export type TradeMcpProfile = "interactive" | "planner" | "developer" | "reviewer" | "explanation"
 
@@ -178,6 +199,13 @@ export function createTradeMcpServer(
     annotations: READ_ONLY_ANNOTATIONS,
   }, async (input) => result(await researchJobs.preparePlannerProposal(input)))
 
+  registerTool("research_developer_submission_prepare", {
+    title: "Build a canonical Developer submission",
+    description: "Bind one contract-only, existing-implementation, or blocked Developer assessment to the authoritative Brief and return a canonical self-hashed submission without applying code, reserving a Trial, or writing Control Plane state.",
+    inputSchema: DEVELOPER_SUBMISSION_PREPARE,
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, async (input) => result(await researchJobs.prepareDeveloperSubmission(input)))
+
   registerTool("research_hypothesis_brief", {
     title: "Build an R&D hypothesis design brief",
     description: "Read one durable RD program and its Control Plane planning context, then render the owner designer context and prompt without generating a hypothesis or writing state.",
@@ -256,6 +284,7 @@ function allowedTools(profile: TradeMcpProfile): ReadonlySet<string> {
     return new Set([
       ...READ_TOOLS,
       "research_hypothesis_prepare",
+      "research_developer_submission_prepare",
       "research_job_submit",
       "research_job_status",
       "research_job_result",

@@ -11,7 +11,13 @@ test("MCP task profiles project a closed capability subset", async () => {
       "research_hypothesis_prepare",
       "research_planner_proposal_prepare",
     ],
-    developer: ["research_hypothesis_prepare", "research_job_result", "research_job_status", "research_job_submit"],
+    developer: [
+      "research_developer_submission_prepare",
+      "research_hypothesis_prepare",
+      "research_job_result",
+      "research_job_status",
+      "research_job_submit",
+    ],
     reviewer: ["research_job_result", "research_job_status"],
     explanation: [],
   }

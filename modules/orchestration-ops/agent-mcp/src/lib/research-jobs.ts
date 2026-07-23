@@ -34,6 +34,24 @@ export interface PlannerProposalPrepareInput {
   created_at: string
 }
 
+export interface DeveloperSubmissionPrepareInput {
+  developer_run_id: string
+  brief_id: string
+  source_revision: string
+  draft_revision: number
+  predecessor_run_id: string | null
+  implementation_mode:
+    | "existing_implementation"
+    | "contract_only"
+    | "data_blocked"
+    | "tool_blocked"
+  reason_code: string
+  required_capabilities: string[]
+  requested_trial_budget: number
+  draft_json: JSONRecord
+  created_at: string
+}
+
 export interface ResearchJobServiceOptions {
   execute?: OwnerCliExecutor
   start?: OwnerCliStarter
@@ -219,6 +237,30 @@ export class ResearchJobService {
     return {
       schema_version: "trade.agent-mcp.planner-proposal-prepare-result.v1",
       proposal,
+    }
+  }
+
+  async prepareDeveloperSubmission(
+    input: DeveloperSubmissionPrepareInput,
+  ): Promise<JSONRecord> {
+    const response = ownerData(await this.execute({
+      script: "modules/research-strategy-development/research-control-plane/state-store/src/scripts/main.ts",
+      args: [
+        "--db",
+        this.rdStateDbPath,
+        "--action",
+        "prepare_developer_agent_submission",
+        "--json",
+        JSON.stringify(input),
+      ],
+    }))
+    const submission = asRecord(response.submission)
+    if (Object.keys(submission).length === 0) {
+      throw new Error("Developer submission owner returned no submission")
+    }
+    return {
+      schema_version: "trade.agent-mcp.developer-submission-prepare-result.v1",
+      submission,
     }
   }
 
