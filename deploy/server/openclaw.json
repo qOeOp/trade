@@ -105,6 +105,7 @@
         "fallbacks": []
       },
       "skills": [],
+      "skipBootstrap": true,
       "timeoutSeconds": 600,
       "thinkingDefault": "high",
       "reasoningDefault": "off",

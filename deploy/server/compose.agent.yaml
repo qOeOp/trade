@@ -169,7 +169,7 @@ services:
       - --port
       - "7312"
       - --profile
-      - reviewer
+      - reviewer-decision
       - --allowed-hosts
       - agent-mcp-reviewer:7312
 
@@ -183,7 +183,7 @@ services:
       - --port
       - "7312"
       - --profile
-      - developer
+      - developer-contract
       - --allowed-hosts
       - agent-mcp-developer:7312
 
