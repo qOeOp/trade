@@ -34,8 +34,6 @@ export async function executeOpenClawCli(input: {
       messagePath,
       "--timeout",
       String(input.request.timeout_seconds),
-      "--run-id",
-      input.request.run_id,
       "--json",
       ...(input.request.transport === "embedded" ? ["--local"] : []),
     ],
