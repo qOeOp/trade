@@ -36,6 +36,10 @@ export function runForwardEvidenceSession(input: ForwardEvidenceRunInput): Forwa
       data_watermark: admission.data_watermark,
       forward_dataset_hash: admission.forward_dataset_hash,
       simulator_policy_version: admission.replay_request.simulator_policy.version,
+      certified_source_binding_hash:
+        admission.certified_source.binding_hash,
+      candidate_source_revision:
+        admission.certified_source.candidate_source_revision,
     },
   })
   try {

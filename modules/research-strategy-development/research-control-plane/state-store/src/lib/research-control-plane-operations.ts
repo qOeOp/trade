@@ -647,6 +647,22 @@ export function applySystemTransition(db: Database, input: {
 }): void {
   requireUtc(input.created_at)
   const write = db.transaction(() => {
+    if (input.trigger_value === "certified_source_admitted") {
+      const admission = db.query(`
+        SELECT binding_hash FROM rd_forward_source_admission
+        WHERE experiment_id=$experiment_id
+      `).get({
+        $experiment_id: input.experiment_id,
+      }) as { binding_hash: string } | null
+      if (!admission
+          || input.trigger_type !== "system"
+          || input.trigger_ref
+            !== `forward-source://${admission.binding_hash}`) {
+        throw new Error(
+          "certified source transition requires its immutable Forward admission",
+        )
+      }
+    }
     const replay = db.query(`
       SELECT event_id, experiment_id FROM rd_lifecycle_event WHERE idempotency_key=$key
     `).get({ $key: input.idempotency_key }) as { event_id: string; experiment_id: string } | null

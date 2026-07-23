@@ -242,6 +242,13 @@ export function readStrategySourceAdoption(
   adoptionIdValue: string,
 ): StrategySourceAdoptionRecord | undefined {
   ensureStrategySourceAdoptionStoreSchema(db)
+  return readStrategySourceAdoptionReadonly(db, adoptionIdValue)
+}
+
+export function readStrategySourceAdoptionReadonly(
+  db: Database,
+  adoptionIdValue: string,
+): StrategySourceAdoptionRecord | undefined {
   const row = db.query(`
     SELECT * FROM strategy_source_adoption WHERE adoption_id=$adoption_id
   `).get({
@@ -262,6 +269,22 @@ export function listRecoverableStrategySourceAdoptions(
     SELECT * FROM strategy_source_adoption
     WHERE status IN ('accepted', 'validating', 'failed')
     ORDER BY accepted_at, adoption_id
+    LIMIT $limit
+  `).all({ $limit: limitValue }) as Array<Record<string, unknown>>)
+    .map(projection)
+}
+
+export function listCertifiedStrategySourceAdoptions(
+  db: Database,
+  limitValue: number,
+): StrategySourceAdoptionRecord[] {
+  if (!Number.isSafeInteger(limitValue) || limitValue < 1 || limitValue > 1_000) {
+    throw new Error("Strategy source adoption certified limit is invalid")
+  }
+  return (db.query(`
+    SELECT * FROM strategy_source_adoption
+    WHERE status='candidate_certified' AND result_json IS NOT NULL
+    ORDER BY updated_at, adoption_id
     LIMIT $limit
   `).all({ $limit: limitValue }) as Array<Record<string, unknown>>)
     .map(projection)

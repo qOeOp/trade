@@ -1336,3 +1336,26 @@ CREATE TABLE IF NOT EXISTS rd_strategy_draft (
   updated_at TEXT NOT NULL,
   UNIQUE(strategy_id, strategy_version)
 );
+
+CREATE TABLE IF NOT EXISTS rd_forward_source_admission (
+  admission_id TEXT PRIMARY KEY,
+  experiment_id TEXT NOT NULL UNIQUE,
+  decision_id TEXT NOT NULL UNIQUE,
+  draft_id TEXT NOT NULL UNIQUE,
+  binding_hash TEXT NOT NULL UNIQUE,
+  binding_json TEXT NOT NULL CHECK(json_valid(binding_json)),
+  admitted_at TEXT NOT NULL,
+  FOREIGN KEY (experiment_id)
+    REFERENCES rd_experiment_contract(experiment_id),
+  FOREIGN KEY (decision_id)
+    REFERENCES rd_review_decision(decision_id),
+  FOREIGN KEY (draft_id)
+    REFERENCES rd_strategy_draft(draft_id)
+);
+
+CREATE TRIGGER IF NOT EXISTS rd_forward_source_admission_no_update
+BEFORE UPDATE ON rd_forward_source_admission
+BEGIN SELECT RAISE(ABORT, 'Forward source admission is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS rd_forward_source_admission_no_delete
+BEFORE DELETE ON rd_forward_source_admission
+BEGIN SELECT RAISE(ABORT, 'Forward source admission is durable'); END;

@@ -35,6 +35,7 @@ Owns the stable cross-plane identity and Draft Strategy authorization contracts.
 - Define capsule-bound Spawn Boundary Revalidation Request/Receipt v1. Replay supplies only immutable capsule/authority hashes and expected Attempt fencing identity；Control Plane internally brackets one direct current-Attempt transaction with its own wall/monotonic clock and returns the exact active Lease. The Receipt grants one immediate spawn candidate transition, not process-start evidence、dispatch、Harness or economic authority, and cannot prove absence of cancellation after its completed read.
 - Define the only authorization accepted by Strategy Registry: an `accept_for_draft` Reviewer Decision bound to one completed Trial and primary Result.
 - Define the registered Draft Strategy binding consumed by Forward Evidence Plane.
+- Define self-hashed `Certified Strategy Source Binding v1` as the only source identity accepted by Forward admission. It joins the exact Draft/Decision/policy hash to Registry candidate、Ops certification manifest、candidate source revision/archive and historical Replay build/runtime hashes while granting only `source_binding_only`; deployment and trading authority remain absent.
 - Reject incomplete or mutable-looking boundary objects before owner commands run.
 
 ## Boundaries

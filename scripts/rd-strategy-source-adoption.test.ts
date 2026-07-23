@@ -35,6 +35,9 @@ import {
   runStrategySourceAdoption,
   StrategyAdoptionError,
 } from "./lib/rd-strategy-source-adoption"
+import {
+  admitCertifiedStrategyAdoptionToForward,
+} from "./lib/rd-forward-source-admission"
 
 test("Strategy source adoption certifies an isolated source revision without hot loading", async () => {
   const root = mkdtempSync(join(tmpdir(), "rd-strategy-adoption-"))
@@ -192,6 +195,45 @@ test("Strategy source adoption certifies an isolated source revision without hot
       existsSync(join(root, result.result!.source_archive_ref)),
       true,
     )
+    const researchDb = forwardResearchFixture({
+      candidate_manifest_ref: manifestRef,
+      candidate_manifest_hash: manifest.manifest_hash,
+      strategy_ref: sourcePath,
+      strategy_hash: sourceHash,
+    })
+    try {
+      const binding = admitCertifiedStrategyAdoptionToForward({
+        research_db: researchDb,
+        ops_db: db,
+        repository_root: root,
+        adoption_id: queued.adoption_id,
+        admitted_at: "2026-07-23T02:05:00.000Z",
+      })
+      assert.equal(binding.source_adoption_id, queued.adoption_id)
+      assert.equal(
+        binding.candidate_source_revision,
+        result.result!.candidate_source_revision,
+      )
+      assert.deepEqual(researchDb.query(`
+        SELECT lifecycle_state, lifecycle_version
+        FROM rd_experiment_contract WHERE experiment_id='experiment-1'
+      `).get(), {
+        lifecycle_state: "forward_observation",
+        lifecycle_version: 5,
+      })
+      assert.deepEqual(
+        admitCertifiedStrategyAdoptionToForward({
+          research_db: researchDb,
+          ops_db: db,
+          repository_root: root,
+          adoption_id: queued.adoption_id,
+          admitted_at: "2026-07-23T02:06:00.000Z",
+        }),
+        binding,
+      )
+    } finally {
+      researchDb.close()
+    }
     const packageRoot = join(root, "tmp", "strategy-server-package")
     const packaged = createStrategyCandidateServerPackage({
       db,
@@ -256,6 +298,111 @@ test("Strategy source queue rejects byte drift before durable admission", () => 
 function clock(values: string[]): () => Date {
   let index = 0
   return () => new Date(values[Math.min(index++, values.length - 1)]!)
+}
+
+function forwardResearchFixture(input: {
+  candidate_manifest_ref: string
+  candidate_manifest_hash: string
+  strategy_ref: string
+  strategy_hash: string
+}): Database {
+  const db = new Database(":memory:")
+  db.exec(`
+    PRAGMA foreign_keys=ON;
+    CREATE TABLE rd_experiment_contract(
+      experiment_id TEXT PRIMARY KEY,
+      lifecycle_state TEXT NOT NULL,
+      lifecycle_version INTEGER NOT NULL,
+      lifecycle_rule_version TEXT NOT NULL,
+      suspended_from_state TEXT,
+      last_lifecycle_event_id TEXT,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE rd_review_decision(
+      decision_id TEXT PRIMARY KEY,
+      experiment_id TEXT NOT NULL,
+      decision TEXT NOT NULL
+    );
+    CREATE TABLE rd_strategy_draft(
+      draft_id TEXT PRIMARY KEY,
+      strategy_id TEXT NOT NULL,
+      strategy_version TEXT NOT NULL,
+      strategy_ref TEXT NOT NULL,
+      strategy_policy_hash TEXT NOT NULL,
+      materialization_status TEXT NOT NULL
+    );
+    CREATE TABLE rd_strategy_registry_job(
+      job_id TEXT PRIMARY KEY,
+      decision_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      draft_id TEXT,
+      strategy_ref TEXT,
+      strategy_policy_hash TEXT,
+      candidate_manifest_ref TEXT,
+      candidate_manifest_hash TEXT
+    );
+    CREATE TABLE rd_lifecycle_transition_rule(
+      rule_id TEXT PRIMARY KEY,
+      rule_version TEXT NOT NULL,
+      current_state TEXT NOT NULL,
+      trigger_type TEXT NOT NULL,
+      trigger_value TEXT NOT NULL,
+      next_state TEXT NOT NULL,
+      requires_result_stage_id TEXT NOT NULL,
+      requires_fresh_fingerprint INTEGER NOT NULL
+    );
+    CREATE TABLE rd_lifecycle_event(
+      event_id TEXT PRIMARY KEY,
+      experiment_id TEXT NOT NULL,
+      sequence_no INTEGER NOT NULL,
+      transition_rule_id TEXT NOT NULL,
+      trigger_ref TEXT NOT NULL,
+      current_state TEXT NOT NULL,
+      next_state TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL
+    );
+  `)
+  db.query(`
+    INSERT INTO rd_experiment_contract VALUES(
+      'experiment-1', 'draft_frozen', 4,
+      'trade-flow.rd-lifecycle-rules.v1', NULL, NULL,
+      '2026-07-23T02:00:00.000Z'
+    )
+  `).run()
+  db.query(`
+    INSERT INTO rd_review_decision VALUES(
+      'decision-1', 'experiment-1', 'accept_for_draft'
+    )
+  `).run()
+  db.query(`
+    INSERT INTO rd_strategy_draft VALUES(
+      'draft-1', 'S-CANDIDATE-ONE', 'draft-1',
+      $strategy_ref, $strategy_hash, 'ready'
+    )
+  `).run({
+    $strategy_ref: input.strategy_ref,
+    $strategy_hash: input.strategy_hash,
+  })
+  db.query(`
+    INSERT INTO rd_strategy_registry_job VALUES(
+      'registry:decision-1', 'decision-1', 'completed', 'draft-1',
+      $strategy_ref, $strategy_hash, $candidate_ref, $candidate_hash
+    )
+  `).run({
+    $strategy_ref: input.strategy_ref,
+    $strategy_hash: input.strategy_hash,
+    $candidate_ref: input.candidate_manifest_ref,
+    $candidate_hash: input.candidate_manifest_hash,
+  })
+  db.query(`
+    INSERT INTO rd_lifecycle_transition_rule VALUES(
+      'trade-flow.rd-lifecycle-rules.v1:start-forward-certified-source',
+      'trade-flow.rd-lifecycle-rules.v1', 'draft_frozen', 'system',
+      'certified_source_admitted', 'forward_observation', '__any__', 0
+    )
+  `).run()
+  return db
 }
 
 function criticalFixture(

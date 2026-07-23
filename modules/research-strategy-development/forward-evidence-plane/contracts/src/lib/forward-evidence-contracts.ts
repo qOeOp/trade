@@ -1,7 +1,11 @@
 import { assertStrategyDraftBinding, assertTrialReservationSnapshot, hashTrialReservationSnapshot, type StrategyDraftBinding, type TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 import { assertReplayExecutionRequest, type ReplayExecutionRequest, type ReplayResult } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
+import {
+  assertCertifiedStrategySourceBinding,
+  type CertifiedStrategySourceBinding,
+} from "../../../../research-control-plane/contracts/src/lib/certified-strategy-source-binding"
 
-export const FORWARD_ADMISSION_SCHEMA_VERSION = "trade.rd-forward-admission-request.v2" as const
+export const FORWARD_ADMISSION_SCHEMA_VERSION = "trade.rd-forward-admission-request.v3" as const
 export const FORWARD_RESULT_SCHEMA_VERSION = "trade.rd-forward-result.v1" as const
 
 export interface ForwardAdmissionRequest {
@@ -13,6 +17,7 @@ export interface ForwardAdmissionRequest {
   data_watermark: string
   forward_dataset_hash: string
   draft: StrategyDraftBinding
+  certified_source: CertifiedStrategySourceBinding
   replay_request: ReplayExecutionRequest
   replay_trial_reservation: TrialReservationSnapshot
 }
@@ -33,6 +38,8 @@ export interface ForwardEvidenceResult {
     data_watermark: string
     forward_dataset_hash: string
     simulator_policy_version: string
+    certified_source_binding_hash: string
+    candidate_source_revision: string
     replay_result_hash?: string
   }
   limitations: Array<{ code: string; detail: string }>
@@ -54,10 +61,24 @@ export function assertForwardAdmissionRequest(value: ForwardAdmissionRequest): v
   }
   if (!/^[a-f0-9]{64}$/.test(value.forward_dataset_hash)) throw new Error("forward_dataset_hash must be sha256")
   assertStrategyDraftBinding(value.draft)
+  assertCertifiedStrategySourceBinding(value.certified_source)
   assertReplayExecutionRequest(value.replay_request)
   assertTrialReservationSnapshot(value.replay_trial_reservation)
   const identity = value.draft.authorization.identity
+  const source = value.certified_source
   const replay = value.replay_request
+  if (source.experiment_id !== identity.experiment_id
+      || source.decision_id !== value.draft.authorization.decision_id
+      || source.draft_id !== value.draft.draft_id
+      || source.strategy_id !== value.draft.strategy_id
+      || source.strategy_version !== value.draft.strategy_version
+      || !draftRefMatches(
+        value.draft.strategy_ref,
+        source.strategy_source_ref,
+      )
+      || source.strategy_source_hash !== value.draft.strategy_policy_hash) {
+    throw new Error("Forward certified Strategy source binding mismatch")
+  }
   if (value.replay_trial_reservation.reservation_ref !== replay.trial_reservation_ref
       || hashTrialReservationSnapshot(value.replay_trial_reservation) !== replay.trial_reservation_hash) {
     throw new Error("Forward Replay Trial Reservation mismatch")
@@ -69,4 +90,10 @@ export function assertForwardAdmissionRequest(value: ForwardAdmissionRequest): v
   if (Date.parse(replay.order.signal_time) <= frozenAt || Date.parse(replay.order.earliest_executable_time) <= frozenAt) {
     throw new Error("Forward signal and execution must be strictly post-freeze")
   }
+}
+
+function draftRefMatches(draftRef: string, certifiedRef: string): boolean {
+  const normalized = draftRef.replaceAll("\\", "/")
+  return normalized === certifiedRef
+    || normalized.endsWith(`/${certifiedRef}`)
 }

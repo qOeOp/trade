@@ -2,6 +2,7 @@ import { expect, test } from "bun:test"
 import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, DRAFT_AUTHORIZATION_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION, REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION, STRATEGY_DRAFT_BINDING_SCHEMA_VERSION, TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, createReplayInstrumentStatusProviderCertificationSnapshot, hashTrialReservationSnapshot, type ReplayAttemptLeaseSnapshot, type TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 import { REPLAY_CERTIFIED_CAPABILITIES, REPLAY_DATASET_MANIFEST_SCHEMA_VERSION, REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION, REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION, REPLAY_NO_DECISION_MARKET_INPUT, REPLAY_NO_DECISION_MARKET_INPUT_HASH, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH, REPLAY_REQUEST_SCHEMA_VERSION, REPLAY_SIMULATOR_POLICY_VERSION, REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION, canonicalHash, createReplayInstrumentStatusProvenance, createReplaySingleDecisionSchedule, replayDatasetHash, replayExecutionSpecHash, type ReplayDatasetManifest, type ReplayExecutionRequest, type ReplayMarketBar } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
 import { FORWARD_ADMISSION_SCHEMA_VERSION, type ForwardAdmissionRequest } from "../../../contracts/src/lib/forward-evidence-contracts"
+import { CERTIFIED_STRATEGY_SOURCE_BINDING_SCHEMA_VERSION, createCertifiedStrategySourceBinding } from "../../../../research-control-plane/contracts/src/lib/certified-strategy-source-binding"
 import { runForwardEvidenceSession } from "./forward-evidence-runner"
 
 const HASH = "e".repeat(64)
@@ -49,6 +50,29 @@ function admission(dataHash: string): ForwardAdmissionRequest {
     schema_version: FORWARD_ADMISSION_SCHEMA_VERSION, session_id: "session-1", idempotency_key: "forward-1", forward_reservation_id: "reservation-1",
     frozen_at: "2026-07-14T08:00:00Z", data_watermark: "2026-07-14T20:00:00Z", forward_dataset_hash: dataHash,
     draft: { schema_version: STRATEGY_DRAFT_BINDING_SCHEMA_VERSION, draft_id: "draft-1", strategy_id: "S-CANDIDATE-1", strategy_version: "1", strategy_ref: "strategies/candidate-1.md", strategy_policy_hash: HASH, materialization_status: "ready", created_at: "2026-07-14T08:00:00Z", authorization },
+    certified_source: createCertifiedStrategySourceBinding({
+      schema_version: CERTIFIED_STRATEGY_SOURCE_BINDING_SCHEMA_VERSION,
+      admission_id: "forward-source-1", experiment_id: "experiment-1",
+      decision_id: "decision-1", draft_id: "draft-1",
+      strategy_id: "S-CANDIDATE-1", strategy_version: "1",
+      strategy_source_ref: "strategies/candidate-1.md",
+      strategy_source_hash: HASH,
+      source_candidate_manifest_ref: "data/release-candidates/source/candidate.json",
+      source_candidate_manifest_hash: HASH,
+      source_adoption_id: "strategy:adoption-1",
+      source_adoption_manifest_ref: "data/release-candidates/adopted/manifest.json",
+      source_adoption_manifest_hash: HASH,
+      candidate_source_revision: "a".repeat(40),
+      source_archive_ref: "data/release-candidates/adopted/source.tar",
+      source_archive_hash: HASH,
+      historical_replay_build_artifact_hash: HASH,
+      historical_replay_runtime_executable_hash: HASH,
+      certified_at: "2026-07-14T09:00:00.000Z",
+      authority: {
+        forward_evidence_authority: "source_binding_only",
+        deployment_authority: "none", trading_authority: false,
+      },
+    }),
     replay_request: replayRequest,
     replay_trial_reservation: replayTrialReservation,
   }

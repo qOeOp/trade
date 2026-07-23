@@ -14,6 +14,10 @@ const adoptionWorker = readFileSync(
   resolve(root, "scripts/rd-developer-patch-adoption-worker.ts"),
   "utf8",
 )
+const forwardSourceWorker = readFileSync(
+  resolve(root, "scripts/rd-forward-source-admission-worker.ts"),
+  "utf8",
+)
 const openClawConfig = JSON.parse(
   readFileSync(resolve(root, "deploy/server/openclaw.json"), "utf8"),
 ) as Record<string, unknown>
@@ -110,6 +114,8 @@ test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds De
   assert.match(agentCompose, /strategy-registry-worker:[\s\S]*strategy-registry\/src\/scripts\/resident\.ts/)
   assert.match(agentCompose, /strategy-registry-worker:[\s\S]*network_mode: none/)
   assert.match(agentCompose, /strategy-registry-worker:[\s\S]*trade-release-candidates:\/app\/data\/release-candidates/)
+  assert.match(agentCompose, /forward-source-admission-worker:[\s\S]*network_mode: none/)
+  assert.match(agentCompose, /forward-source-admission-worker:[\s\S]*rd-forward-source-admission-worker\.ts/)
   assert.match(agentCompose, /agent-workspace-checker:[\s\S]*network_mode: none/)
   assert.match(agentCompose, /agent-workspace-checker:[\s\S]*agent-workspace-checker\.ts/)
   assert.match(agentCompose, /agent-release-checker:[\s\S]*network_mode: none/)
@@ -140,6 +146,21 @@ test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds De
   )
   assert.match(adoptionWorker, /discoverAndQueueStrategySourceCandidates/)
   assert.match(adoptionWorker, /runStrategySourceAdoption/)
+  assert.match(forwardSourceWorker, /listCertifiedStrategySourceAdoptions/)
+  assert.match(forwardSourceWorker, /admitCertifiedStrategyAdoptionToForward/)
+  const forwardSourceBlock = agentCompose
+    .split("\n  forward-source-admission-worker:")[1]!
+    .split("\n  agent-mcp-planner:")[0]!
+  assert.match(forwardSourceBlock, /trade-data:\/app\/data/)
+  assert.match(forwardSourceBlock, /trade-ops:\/app\/data\/ops:ro/)
+  assert.match(
+    forwardSourceBlock,
+    /trade-release-candidates:\/app\/data\/release-candidates:ro/,
+  )
+  assert.doesNotMatch(
+    forwardSourceBlock,
+    /\/app\/strategies|agent-control|TRADE_AGENT_HOST_HTTP_TOKEN/,
+  )
   const registryBlock = agentCompose
     .split("\n  strategy-registry-worker:")[1]!
     .split("\n  agent-mcp-planner:")[0]!

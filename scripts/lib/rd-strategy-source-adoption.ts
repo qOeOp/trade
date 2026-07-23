@@ -545,8 +545,10 @@ function persistCandidatePackage(input: {
       { flag: "wx", mode: 0o600 },
     )
     if (existsSync(target)) {
-      const existing = readCertifiedManifest(resolve(target, "manifest.json"))
-      assertCertifiedPackage(input.root, existing)
+      const existing = readCertifiedStrategySourceAdoptionManifest(
+        resolve(target, "manifest.json"),
+      )
+      assertCertifiedStrategySourceAdoptionPackage(input.root, existing)
       rmSync(partial, { recursive: true, force: true })
       if (canonicalJson(existing) !== canonicalJson(manifest)) {
         throw new StrategyAdoptionError(
@@ -577,8 +579,8 @@ function findPersistedManifest(
     "manifest.json",
   )
   if (!existsSync(path)) return null
-  const manifest = readCertifiedManifest(path)
-  assertCertifiedPackage(root, manifest)
+  const manifest = readCertifiedStrategySourceAdoptionManifest(path)
+  assertCertifiedStrategySourceAdoptionPackage(root, manifest)
   if (manifest.adoption_id !== adoption.adoption_id
       || manifest.source_candidate.manifest_hash !== source.manifest_hash) {
     throw new StrategyAdoptionError(
@@ -596,8 +598,8 @@ function readCompleted(
   const result = record.result!
   const path = resolve(root, result.certified_manifest_ref)
   assertInside(root, path)
-  const manifest = readCertifiedManifest(path)
-  assertCertifiedPackage(root, manifest)
+  const manifest = readCertifiedStrategySourceAdoptionManifest(path)
+  assertCertifiedStrategySourceAdoptionPackage(root, manifest)
   if (canonicalJson(resultProjection(manifest)) !== canonicalJson(result)) {
     throw new StrategyAdoptionError(
       "validation_failed",
@@ -607,11 +609,13 @@ function readCompleted(
   return { ...record, manifest }
 }
 
-function readCertifiedManifest(path: string): StrategySourceAdoptionManifest {
+export function readCertifiedStrategySourceAdoptionManifest(
+  path: string,
+): StrategySourceAdoptionManifest {
   return JSON.parse(readFileSync(path, "utf8")) as StrategySourceAdoptionManifest
 }
 
-function assertCertifiedPackage(
+export function assertCertifiedStrategySourceAdoptionPackage(
   root: string,
   manifest: StrategySourceAdoptionManifest,
 ): void {
@@ -654,6 +658,8 @@ function assertCertifiedPackage(
   const archivePath = resolve(root, manifest.source_archive.ref)
   assertInside(root, archivePath)
   if (!existsSync(archivePath)
+      || !lstatSync(archivePath).isFile()
+      || lstatSync(archivePath).isSymbolicLink()
       || statSync(archivePath).size !== manifest.source_archive.bytes
       || fileHash(archivePath) !== manifest.source_archive.sha256) {
     throw new StrategyAdoptionError(

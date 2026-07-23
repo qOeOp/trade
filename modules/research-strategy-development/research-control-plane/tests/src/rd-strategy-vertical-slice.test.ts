@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { existsSync, mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 import { Database } from "bun:sqlite"
 import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION, REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION, TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, createReplayInstrumentStatusProviderCertificationSnapshot, hashTrialReservationSnapshot } from "../../contracts/src/lib/control-plane-contracts"
 import type { ReplayAttemptLeaseSnapshot, ResearchIdentityBinding, TrialReservationSnapshot } from "../../contracts/src/lib/control-plane-contracts"
@@ -16,6 +16,7 @@ import { materializeDraftStrategy } from "../../strategy-registry/src/lib/strate
 import { SOURCE_SCHEMA_VERSION } from "../../strategy-policy-writer/src/lib/strategy-policy-writer"
 import { runForwardEvidenceSession } from "../../../forward-evidence-plane/runner/src/lib/forward-evidence-runner"
 import { FORWARD_ADMISSION_SCHEMA_VERSION as FORWARD_SCHEMA_VERSION } from "../../../forward-evidence-plane/contracts/src/lib/forward-evidence-contracts"
+import { CERTIFIED_STRATEGY_SOURCE_BINDING_SCHEMA_VERSION, createCertifiedStrategySourceBinding } from "../../contracts/src/lib/certified-strategy-source-binding"
 import { readPlannerControlPlaneContext } from "../../state-store/src/lib/research-control-plane-operations"
 import { admitPlannerProposal } from "../../state-store/src/lib/planner-proposal-intake"
 import { ensureResearchStateSchema } from "../../state-store/src/lib/research-state-store"
@@ -178,7 +179,10 @@ test("Contract to Replay to Review to landed Draft to Forward is auditable", () 
     candidate_frozen_at: "2026-07-14T08:00:00Z", explicit_decision: "accept_for_draft", identity, result: replay.result,
   })
   const db = new Database(":memory:")
-  const strategyRoot = mkdtempSync(join(tmpdir(), "rd-vertical-strategies-"))
+  const strategyRoot = join(
+    mkdtempSync(join(tmpdir(), "rd-vertical-strategies-")),
+    "strategies",
+  )
   const draft = materializeDraftStrategy(db, {
     draft_id: "draft-1", strategy_version: "1", idempotency_key: "draft-key-1",
     strategy_root: strategyRoot, created_at: "2026-07-14T08:00:00Z", authorization,
@@ -206,6 +210,35 @@ test("Contract to Replay to Review to landed Draft to Forward is auditable", () 
     admission: {
       schema_version: FORWARD_SCHEMA_VERSION, session_id: "forward-session-1", idempotency_key: "forward-key-1", forward_reservation_id: "forward-reservation-1",
       frozen_at: "2026-07-14T08:00:00Z", data_watermark: "2026-07-14T20:00:00Z", forward_dataset_hash: forwardDataHash, draft, replay_request: forwardRequest,
+      certified_source: createCertifiedStrategySourceBinding({
+        schema_version: CERTIFIED_STRATEGY_SOURCE_BINDING_SCHEMA_VERSION,
+        admission_id: "forward-source-1",
+        experiment_id: identity.experiment_id,
+        decision_id: authorization.decision_id,
+        draft_id: draft.draft_id,
+        strategy_id: draft.strategy_id,
+        strategy_version: draft.strategy_version,
+        strategy_source_ref: `strategies/${basename(draft.strategy_ref)}`,
+        strategy_source_hash: draft.strategy_policy_hash,
+        source_candidate_manifest_ref:
+          "data/release-candidates/source/candidate.json",
+        source_candidate_manifest_hash: HASH,
+        source_adoption_id: "strategy:adoption-1",
+        source_adoption_manifest_ref:
+          "data/release-candidates/adopted/manifest.json",
+        source_adoption_manifest_hash: HASH,
+        candidate_source_revision: "a".repeat(40),
+        source_archive_ref:
+          "data/release-candidates/adopted/source.tar",
+        source_archive_hash: HASH,
+        historical_replay_build_artifact_hash: HASH,
+        historical_replay_runtime_executable_hash: HASH,
+        certified_at: "2026-07-14T09:00:00.000Z",
+        authority: {
+          forward_evidence_authority: "source_binding_only",
+          deployment_authority: "none", trading_authority: false,
+        },
+      }),
       replay_trial_reservation: forwardReservation,
     },
     replay_attempt_lease: attemptLease(forwardRequest, forwardReservation, "forward-attempt-1", "2026-07-14T12:00:00Z"),

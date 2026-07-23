@@ -113,6 +113,7 @@ export function prepareReviewerAgentRun(input: {
     FROM rd_lifecycle_transition_rule
     WHERE current_state=$current_state
       AND trigger_type='reviewer'
+      AND trigger_value!='accept_for_forward'
       AND requires_result_stage_id=$stage_id
     ORDER BY trigger_value
   `).all({

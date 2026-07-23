@@ -1920,7 +1920,7 @@ const LIFECYCLE_RULE_SEED: ReadonlyArray<readonly [string, string, string, strin
   ["discovery-reject", "discovery", "reviewer", "reject", "rejected", "historical_validation"],
   ["discovery-modify", "discovery", "reviewer", "modify", "needs_modification", "historical_validation"],
   ["freeze-draft", "discovery", "reviewer", "accept_for_draft", "draft_frozen", "historical_validation"],
-  ["start-forward", "draft_frozen", "reviewer", "accept_for_forward", "forward_observation", "historical_validation"],
+  ["start-forward-certified-source", "draft_frozen", "system", "certified_source_admitted", "forward_observation", "__any__"],
   ["forward-reject", "forward_observation", "reviewer", "reject", "invalidated", "forward_observation"],
   ["forward-modify", "forward_observation", "reviewer", "modify", "needs_modification", "forward_observation"],
   ["shadow-candidate", "forward_observation", "reviewer", "accept_for_shadow_candidate", "shadow_candidate", "forward_observation"],

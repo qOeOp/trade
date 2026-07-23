@@ -455,6 +455,54 @@ services:
         max-size: 20m
         max-file: "5"
 
+  forward-source-admission-worker:
+    image: trade-runtime:${TRADE_IMAGE_TAG:-local}
+    restart: always
+    stop_grace_period: 30s
+    read_only: true
+    user: "10001:10001"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 0.5
+    environment:
+      TRADE_RD_STATE_DB: data/rd_state.db
+      TRADE_AGENT_OPS_DB: data/ops/ops_runtime.db
+    volumes:
+      - trade-data:/app/data
+      - trade-ops:/app/data/ops:ro
+      - trade-runtime-tmp:/app/tmp
+      - trade-release-candidates:/app/data/release-candidates:ro
+    depends_on:
+      agent-patch-adopter:
+        condition: service_healthy
+      strategy-registry-worker:
+        condition: service_healthy
+    command:
+      - bun
+      - scripts/rd-forward-source-admission-worker.ts
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - const s=JSON.parse(await Bun.file("tmp/runtime/forward-source-admission-worker/state.json").text());process.exit(s.status==="running"&&Date.now()-Date.parse(s.updated_at)<20000&&s.deployment_authority==="none"&&!s.trading_authority?0:1)
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
   agent-mcp-planner:
     <<: &agent-mcp
       image: trade-runtime:${TRADE_IMAGE_TAG:-local}

@@ -4,6 +4,7 @@ import {
   admitStrategySourceAdoption,
   completeStrategySourceAdoption,
   ensureStrategySourceAdoptionStoreSchema,
+  listCertifiedStrategySourceAdoptions,
   listRecoverableStrategySourceAdoptions,
   readStrategySourceAdoption,
   startStrategySourceAdoption,
@@ -54,6 +55,7 @@ test("Strategy source adoption is immutable, restart-readable, and terminally bo
   })
   expect(completed.status).toBe("candidate_certified")
   expect(listRecoverableStrategySourceAdoptions(db, 1)).toEqual([])
+  expect(listCertifiedStrategySourceAdoptions(db, 1)).toEqual([completed])
   expect(readStrategySourceAdoption(db, accepted.adoption_id)?.result)
     .toEqual(completed.result)
   expect(() => db.query(`

@@ -518,6 +518,11 @@ export function registerExperiment(db: Database, experiment: ExperimentRegistrat
 
 export function applyReviewerDecision(db: Database, decision: ReviewerDecisionWrite): void {
   validateReviewerDecision(decision)
+  if (decision.decision === "accept_for_forward") {
+    throw new Error(
+      "accept_for_forward is superseded by certified Strategy source admission",
+    )
+  }
   const write = db.transaction(() => {
     const replay = db.query(`
       SELECT decision_id, experiment_id FROM rd_review_decision WHERE idempotency_key=$key

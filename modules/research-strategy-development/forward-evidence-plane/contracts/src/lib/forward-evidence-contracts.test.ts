@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test"
 import { FORWARD_ADMISSION_SCHEMA_VERSION, assertForwardAdmissionRequest, type ForwardAdmissionRequest } from "./forward-evidence-contracts"
+import { CERTIFIED_STRATEGY_SOURCE_BINDING_SCHEMA_VERSION, createCertifiedStrategySourceBinding } from "../../../../research-control-plane/contracts/src/lib/certified-strategy-source-binding"
 import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, DRAFT_AUTHORIZATION_SCHEMA_VERSION, REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION, STRATEGY_DRAFT_BINDING_SCHEMA_VERSION, TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, createReplayInstrumentStatusProviderCertificationSnapshot, hashTrialReservationSnapshot, type TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 import { REPLAY_CERTIFIED_CAPABILITIES, REPLAY_NO_DECISION_MARKET_INPUT, REPLAY_NO_DECISION_MARKET_INPUT_HASH, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH, REPLAY_REQUEST_SCHEMA_VERSION, REPLAY_SIMULATOR_POLICY_VERSION, canonicalHash, createReplaySingleDecisionSchedule, replayExecutionSpecHash, type ReplayExecutionRequest } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
 
@@ -34,6 +35,22 @@ function fixture(): ForwardAdmissionRequest {
     schema_version: FORWARD_ADMISSION_SCHEMA_VERSION,
     session_id: "forward-1", idempotency_key: "forward-key-1", forward_reservation_id: "reservation-1",
     frozen_at: "2026-07-14T08:00:00Z", data_watermark: "2026-07-14T16:00:00Z", forward_dataset_hash: HASH, draft,
+    certified_source: createCertifiedStrategySourceBinding({
+      schema_version: CERTIFIED_STRATEGY_SOURCE_BINDING_SCHEMA_VERSION,
+      admission_id: "forward-source-1", experiment_id: authorization.identity.experiment_id,
+      decision_id: authorization.decision_id, draft_id: draft.draft_id,
+      strategy_id: draft.strategy_id, strategy_version: draft.strategy_version,
+      strategy_source_ref: draft.strategy_ref, strategy_source_hash: draft.strategy_policy_hash,
+      source_candidate_manifest_ref: "data/release-candidates/source/candidate.json",
+      source_candidate_manifest_hash: HASH, source_adoption_id: "strategy:adoption-1",
+      source_adoption_manifest_ref: "data/release-candidates/adopted/manifest.json",
+      source_adoption_manifest_hash: HASH, candidate_source_revision: "a".repeat(40),
+      source_archive_ref: "data/release-candidates/adopted/source.tar",
+      source_archive_hash: HASH, historical_replay_build_artifact_hash: HASH,
+      historical_replay_runtime_executable_hash: HASH,
+      certified_at: "2026-07-14T09:00:00.000Z",
+      authority: { forward_evidence_authority: "source_binding_only", deployment_authority: "none", trading_authority: false },
+    }),
     replay_request: replayRequest,
     replay_trial_reservation: replayTrialReservation,
   }
@@ -55,4 +72,10 @@ function marginPolicy() { return { policy_id: "fixture", version: "rd-replay-iso
 test("Forward admission binds a ready strategy version and post-freeze Replay", () => {
   expect(() => assertForwardAdmissionRequest(fixture())).not.toThrow()
   expect(() => assertForwardAdmissionRequest({ ...fixture(), frozen_at: "2026-07-14T13:00:00Z" })).toThrow()
+  const drifted = fixture()
+  drifted.certified_source = {
+    ...drifted.certified_source,
+    strategy_source_hash: "a".repeat(64),
+  }
+  expect(() => assertForwardAdmissionRequest(drifted)).toThrow()
 })

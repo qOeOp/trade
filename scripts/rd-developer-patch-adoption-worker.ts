@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs"
-import { dirname, resolve, sep } from "node:path"
+import { dirname, resolve } from "node:path"
 import { Database } from "bun:sqlite"
 import {
   runIsolatedAgentWorkspacePackageCheck,
@@ -24,11 +24,18 @@ import {
   discoverAndQueueStrategySourceCandidates,
   runStrategySourceAdoption,
 } from "./lib/rd-strategy-source-adoption"
+import {
+  resolveWorkerDataPath,
+  workerAbsolutePath,
+  workerBoundedInteger,
+  workerDelay,
+  workerRepoPath,
+} from "./lib/resident-worker-cli"
 
 async function main(): Promise<void> {
   const input = parseArgs(Bun.argv.slice(2))
   const root = realpathSync(resolve(input.repository_root))
-  const dbPath = resolveInsideData(root, input.ops_db)
+  const dbPath = resolveWorkerDataPath(root, input.ops_db, "Patch adoption worker DB")
   mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 })
   const db = new Database(dbPath, { create: true })
   db.exec("PRAGMA journal_mode=WAL")
@@ -82,7 +89,7 @@ async function main(): Promise<void> {
             adoption_id: next.adoption_id,
             error_class: error instanceof Error ? error.name : "Error",
           }))
-          await delay(input.poll_interval_ms)
+          await workerDelay(input.poll_interval_ms)
         }
       }
       try {
@@ -123,11 +130,11 @@ async function main(): Promise<void> {
             adoption_id: strategy.adoption_id,
             error_class: error instanceof Error ? error.name : "Error",
           }))
-          await delay(input.poll_interval_ms)
+          await workerDelay(input.poll_interval_ms)
           continue
         }
       }
-      if (!next && !strategy) await delay(input.poll_interval_ms)
+      if (!next && !strategy) await workerDelay(input.poll_interval_ms)
     }
   } finally {
     if (existsSync(input.ready_file)) rmSync(input.ready_file)
@@ -155,70 +162,29 @@ function parseArgs(argv: string[]): {
     repository_root: values.get("repository-root")
       || process.env.TRADE_REPO_ROOT
       || process.cwd(),
-    ops_db: repoPath(
+    ops_db: workerRepoPath(
       values.get("ops-db")
         || process.env.TRADE_AGENT_OPS_DB
         || "data/ops/ops_runtime.db",
       "ops_db",
     ),
-    checker_socket: absolutePath(
+    checker_socket: workerAbsolutePath(
       values.get("checker-socket")
         || process.env.TRADE_AGENT_RELEASE_CHECKER_SOCKET
         || "/app/control/release-checker.sock",
       "checker_socket",
     ),
-    ready_file: absolutePath(
+    ready_file: workerAbsolutePath(
       values.get("ready-file") || "/app/control/adopter.ready",
       "ready_file",
     ),
-    poll_interval_ms: boundedInteger(
+    poll_interval_ms: workerBoundedInteger(
       values.get("poll-interval-ms") ?? "5000",
       100,
       60_000,
       "poll_interval_ms",
     ),
   }
-}
-
-function resolveInsideData(root: string, value: string): string {
-  const path = resolve(root, value)
-  const dataRoot = resolve(root, "data")
-  if (path !== dataRoot && !path.startsWith(`${dataRoot}${sep}`)) {
-    throw new Error("Patch adoption worker DB escaped data root")
-  }
-  return path
-}
-
-function repoPath(value: string, field: string): string {
-  if (!value || value.startsWith("/") || value.split("/").includes("..")
-    || value.includes("\0")) {
-    throw new Error(`${field} is invalid`)
-  }
-  return value
-}
-
-function absolutePath(value: string, field: string): string {
-  if (!value.startsWith("/") || value.includes("\0") || value.length > 512) {
-    throw new Error(`${field} is invalid`)
-  }
-  return value
-}
-
-function boundedInteger(
-  value: string,
-  minimum: number,
-  maximum: number,
-  field: string,
-): number {
-  const number = Number(value)
-  if (!Number.isSafeInteger(number) || number < minimum || number > maximum) {
-    throw new Error(`${field} is invalid`)
-  }
-  return number
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds))
 }
 
 if (import.meta.main) {
