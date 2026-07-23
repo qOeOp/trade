@@ -1,6 +1,6 @@
 # Ops Runtime Store Contract
 
-Owns `ops_runtime_store`, the orchestration observability store for cycle, job, health, notify, incident, lock, and runtime-parity records.
+Owns `ops_runtime_store`, the orchestration observability store for cycle, job, health, notify, incident, lock, runtime-parity, and provider-neutral Agent Run operational records.
 
 ## Responsibilities
 
@@ -14,6 +14,7 @@ Owns `ops_runtime_store`, the orchestration observability store for cycle, job, 
 - Record immutable Agent/program parity observations, including both canonical projection hashes and diagnostic projections; a repeated observation id is accepted only when byte-equivalent after row decoding.
 - Expose a compact read-only parity status projection with raw, shared-input-comparable, and legacy-sequential counts, latest hashes/basis, and fenced supervisor lease state; omit holder identity and diagnostic detail.
 - Persist bounded Watch Task definitions, compare-and-set lifecycle state, counters, typed handoff, terminal reason, and append-only transitions; `triggered` carries no execution authority.
+- Persist Agent Run request identity, lifecycle events, sanitized Host session refs, and terminal result. Duplicate request/idempotency identity is create-or-identical; event sequences and terminal closure fail closed.
 
 ## Boundaries
 
@@ -23,3 +24,4 @@ Owns `ops_runtime_store`, the orchestration observability store for cycle, job, 
 - Exposes append/update observability helpers only.
 - Incident status changes are operational acknowledgements, not trading verdicts.
 - Parity observations compare runtime semantics only; they do not authorize domain jobs, strategy promotion, exchange writes, or execution cutover.
+- Agent Run rows contain operational refs and canonical contracts only; they do not contain prompts, raw reasoning, provider payloads, owner facts, credentials, patches, or domain authority.
