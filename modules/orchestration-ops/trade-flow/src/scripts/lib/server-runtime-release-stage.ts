@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process"
 import {
   chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, renameSync,
-  rmSync, statSync, writeFileSync,
+  readdirSync, rmSync, statSync, writeFileSync,
 } from "node:fs"
 import { createHash } from "node:crypto"
 import { dirname, isAbsolute, relative, resolve } from "node:path"
@@ -37,6 +37,7 @@ export function stageServerRuntimeRelease(input: StageServerRuntimeReleaseInput)
     command(["git", "archive", "--format=tar", `--output=${archivePath}`, commit], repositoryRoot)
     command(["tar", "-xf", archivePath, "-C", partialRoot], repositoryRoot)
     rmSync(archivePath)
+    const removedRuntimeStateFileCount = purgeArchivedRuntimeState(partialRoot)
     const nodeModules = resolve(repositoryRoot, "node_modules")
     if (!existsSync(nodeModules)) throw new Error("node_modules is missing from the build workspace")
     cpSync(nodeModules, resolve(partialRoot, "node_modules"), { recursive: true, errorOnExist: true })
@@ -53,6 +54,7 @@ export function stageServerRuntimeRelease(input: StageServerRuntimeReleaseInput)
       dependencies: "copied_from_build_workspace_and_bound_to_bun_lock",
       binaries,
       data_seed: "empty_runtime_roots_only",
+      removed_runtime_state_file_count: removedRuntimeStateFileCount,
       safety: { domain_jobs_enabled: false, live_writes_allowed: false, notify_dry_run: true },
     }
     writeFileSync(resolve(partialRoot, "release-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 })
@@ -87,6 +89,40 @@ export function assertServerRuntimeReleaseTarget(repositoryRootValue: string, ta
   if (isMacOsProtectedUserPath(targetRoot, userHome)) throw new Error("target_root must not use a macOS protected user path")
   if (existsSync(targetRoot)) throw new Error("target_root already exists; releases are immutable")
   return targetRoot
+}
+
+export function isArchivedRuntimeStateRef(ref: string): boolean {
+  const normalized = ref.replaceAll("\\", "/")
+  return normalized.split("/").includes("data") && /\.db(?:-(?:wal|shm))?$/.test(normalized)
+}
+
+function purgeArchivedRuntimeState(root: string): number {
+  let removed = 0
+  const topLevelData = resolve(root, "data")
+  if (existsSync(topLevelData)) {
+    removed += countFiles(topLevelData)
+    rmSync(topLevelData, { recursive: true })
+  }
+  const visit = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = resolve(directory, entry.name)
+      if (entry.isDirectory()) visit(path)
+      else if (entry.isFile() && isArchivedRuntimeStateRef(relative(root, path))) {
+        rmSync(path)
+        removed += 1
+      }
+    }
+  }
+  visit(root)
+  return removed
+}
+
+function countFiles(directory: string): number {
+  let count = 0
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    count += entry.isDirectory() ? countFiles(resolve(directory, entry.name)) : entry.isFile() ? 1 : 0
+  }
+  return count
 }
 
 function copyExecutable(repositoryRoot: string, targetRoot: string, ref: typeof BINARY_REFS[number]): JSONRecord {

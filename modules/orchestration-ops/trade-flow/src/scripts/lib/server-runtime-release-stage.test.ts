@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { resolve } from "node:path"
 import test from "node:test"
-import { assertServerRuntimeReleaseTarget } from "./server-runtime-release-stage"
+import { assertServerRuntimeReleaseTarget, isArchivedRuntimeStateRef } from "./server-runtime-release-stage"
 
 test("release target must be absolute, non-existing, unprotected, and outside the repository", () => {
   const root = mkdtempSync(resolve(tmpdir(), "trade-release-target-"))
@@ -23,4 +23,12 @@ test("release target must be absolute, non-existing, unprotected, and outside th
 
 test("release target rejects broad roots", () => {
   assert.throws(() => assertServerRuntimeReleaseTarget("/opt/trade-source", "/"), /too broad/)
+})
+
+test("release staging identifies owner SQLite state anywhere under a data directory", () => {
+  assert.equal(isArchivedRuntimeStateRef("data/trade.db-wal"), true)
+  assert.equal(isArchivedRuntimeStateRef("modules/example/data/state.db"), true)
+  assert.equal(isArchivedRuntimeStateRef("modules/example/data/state.db-shm"), true)
+  assert.equal(isArchivedRuntimeStateRef("modules/example/fixtures/state.db"), false)
+  assert.equal(isArchivedRuntimeStateRef("docs/data/readme.md"), false)
 })
