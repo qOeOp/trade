@@ -167,6 +167,6 @@ S1 不做自动滚动升级、双实例交接或 active-active；SQLite 单 owne
 
 当前 Darwin arm64 本机已通过 Bun、Rust binaries、foreground entries、owner DB parents、data/tmp 权限和 no-live safety preflight；三个正式 launchd label 均未安装。仓库位于 macOS 受保护的 Downloads 范围，故 launchd preflight 只剩 `launchd_source_privacy` 阻断：必须先授予明确隐私权限，或把只读 release 移到非受保护目录。该阻断不否定 macOS 兼容性，也不阻止显式前台验证，但在解除前不能宣称无人值守。
 
-macOS 正式采用不直接从可编辑 workspace 启动。release staging 只归档 committed HEAD，绑定 `bun.lock`、复制当前 build workspace 的依赖闭包与两个带 hash 的 Rust binaries，并初始化空 `data/`；目标必须是不存在、非受保护且不与仓库互相包含的绝对目录。manifest 不记录本机绝对路径，失败只清理本次新建的 partial target。
+macOS 正式采用不直接从可编辑 workspace 启动。release staging 只归档 committed HEAD，清除 archive 中任何 `data/` 下的 SQLite runtime state，绑定 `bun.lock`、复制当前 build workspace 的依赖闭包与两个带 hash 的 Rust binaries，并初始化空 `data/`；目标必须是不存在、非受保护且不与仓库互相包含的绝对目录。manifest 不记录本机绝对路径，失败只清理本次新建的 partial target。
 
 主机采用仍被以下证据阻断：本机 launchd 或 Linux systemd 实际安装、真实 durable volume restore、public soak、真实模型 provider smoke、R&D kill/restart 单 Trial/Result、Operator HTTP resident 与 audit roundtrip。macOS/launchd 是完整合法路径，不要求另有 Linux；即使这些证据全部通过，gate 也只允许进入人工变更评审。catalog canary 需显式 operator run，live canary 与 exchange write 需另行授权，不属于本 gate。
