@@ -165,7 +165,21 @@ check_typescript_tools() {
     [ -f "$package" ] || continue
     dir="$(dirname "$package")"
     if grep -q '"check"' "$package"; then
-      (cd "$dir" && bun run check)
+      if [ "$dir" = "modules/research-strategy-development/replay-execution-plane/runner" ]; then
+        bun scripts/run-cached-quality-check.ts \
+          --cache-id replay-runner-heavyweight \
+          --workdir "$dir" \
+          --input package.json \
+          --input bun.lock \
+          --input scripts/run-cached-quality-check.ts \
+          --input scripts/run-exclusive-test.sh \
+          --input scripts/quality-lock.sh \
+          --input modules/contracts \
+          --input modules/research-strategy-development \
+          -- bun run check
+      else
+        (cd "$dir" && bun run check)
+      fi
     fi
   done
 }
