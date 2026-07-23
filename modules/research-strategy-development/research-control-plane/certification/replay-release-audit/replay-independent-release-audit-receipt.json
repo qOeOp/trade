@@ -1,8 +1,8 @@
 {
   "schema_version": "trade.rd-replay-independent-release-audit-receipt.v1",
   "verdict": "passed-within-declared-evidence-envelope",
-  "audit_manifest_sha256": "f560434502fe1e47914232e2284c91368e5c21dcc4f84c2bab484166efee5449",
-  "subject_pack_sha256": "353f097897e5948dc43a9f0bc18b089b2fe8c343175ce8b93b300a94d214576e",
+  "audit_manifest_sha256": "1f92fa1b7665fa11a876081eb0f257f4a16cfc319bb62393d55923da0fb7b7e1",
+  "subject_pack_sha256": "160cc9485e186b8e8c05286464acdf52f465ca939d2711f9b99f058ac531ab6a",
   "runtime": {
     "name": "bun",
     "version": "1.3.13"
@@ -24,14 +24,14 @@
   "commands": [
     {
       "role": "subject-full-certification",
-      "process_id": 14449,
+      "process_id": 58886,
       "exit_code": 0,
-      "stdout_sha256": "fd5b9e6400ecc1d3dc73603e051354d7bfa6711147a0de26d8d58bba184cd547",
-      "stderr_sha256": "7ac743d41b852ed3073a93cc1702c2d71909dc6513b700e2e5eeded1fcdb18bf"
+      "stdout_sha256": "7b8cdd3061722f75556c4f68e1248bbdbef5c7c6cde96b8c9085a53d563db148",
+      "stderr_sha256": "89bc9368fa1f8cfd45d87d995e74a7a76d55de21cb088cd3e74c4ff7c64a7966"
     },
     {
       "role": "repository-audit-prerequisite-check",
-      "process_id": 26897,
+      "process_id": 88644,
       "exit_code": 0,
       "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -43,5 +43,5 @@
     "audit-does-not-expand-public-profiles-or-simulator-semantics",
     "remote-distributed-store-shadow-live-and-real-account-evidence-out-of-scope"
   ],
-  "receipt_sha256": "aa4c5168877cb844619d94af818e735d98b4cce1bc2319f674d30df17e351d01"
+  "receipt_sha256": "1cbaa5edfdbae497ac1652d773599f5848d8de4a77bbe913d414580e73d99016"
 }
