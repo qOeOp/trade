@@ -111,8 +111,8 @@ export function preparePlannerAgentRun(input: {
     budget: {
       deadline_at: utc(input.deadline_at, "deadline_at"),
       max_wall_time_ms: boundedInteger(input.max_wall_time_ms ?? 600_000, 1_000, 7_200_000, "max_wall_time_ms"),
-      max_turns: 32,
-      max_tool_calls: 64,
+      max_turns: 4,
+      max_tool_calls: 2,
       max_input_bytes: instructionRef.bytes + contextRef.bytes,
       max_output_bytes: 256 * 1024,
     },

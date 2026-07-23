@@ -140,8 +140,8 @@ export function prepareReviewerAgentRun(input: {
     budget: {
       deadline_at: utc(input.deadline_at, "deadline_at"),
       max_wall_time_ms: boundedInteger(input.max_wall_time_ms ?? 900_000, 1_000, 3_600_000),
-      max_turns: 64,
-      max_tool_calls: 128,
+      max_turns: 4,
+      max_tool_calls: 2,
       max_input_bytes: instructionRef.bytes + contextRef.bytes,
       max_output_bytes: 1024 * 1024,
     },

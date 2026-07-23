@@ -124,8 +124,8 @@ export function prepareDeveloperAgentRun(input: {
     budget: {
       deadline_at: utc(input.deadline_at, "deadline_at"),
       max_wall_time_ms: boundedInteger(input.max_wall_time_ms ?? 1_800_000, 1_000, 7_200_000, "max_wall_time_ms"),
-      max_turns: 128,
-      max_tool_calls: 512,
+      max_turns: 4,
+      max_tool_calls: 2,
       max_input_bytes: instructionRef.bytes + contextRef.bytes
         + body.replay_result_refs.reduce((sum, ref) => sum + ref.bytes, 0),
       max_output_bytes: 4 * 1024 * 1024,

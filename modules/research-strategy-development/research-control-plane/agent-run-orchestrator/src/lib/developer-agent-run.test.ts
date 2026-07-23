@@ -251,7 +251,7 @@ function completion(request: AgentRunRequest, outputs: AgentArtifactRef[]) {
     usage: {
       wall_time_ms: 419_000,
       turns: 2,
-      tool_calls: 3,
+      tool_calls: 1,
       input_bytes: request.instruction_ref.bytes
         + request.input_refs.reduce((sum, ref) => sum + ref.bytes, 0),
       output_bytes: outputs.reduce((sum, ref) => sum + ref.bytes, 0),
