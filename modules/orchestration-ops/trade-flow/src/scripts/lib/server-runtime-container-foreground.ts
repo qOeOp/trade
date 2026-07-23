@@ -1,9 +1,13 @@
-import type { ServerRuntimeProfile } from "./server-runtime-profile"
-import { serverRuntimeProcessSpecs, type ServerRuntimeProcessSpec } from "./server-runtime-processes"
+import type { ServerRuntimeContainerProfile } from "./server-runtime-container-profile"
+import {
+  serverRuntimeContainerProcessSpecs,
+  type ServerRuntimeContainerComponent,
+  type ServerRuntimeContainerProcessSpec,
+} from "./server-runtime-container-processes"
 
 export const SERVER_RUNTIME_CONTAINER_FOREGROUND_SCHEMA = "trade.server-runtime-container-foreground.v1" as const
 
-type ComponentId = ServerRuntimeProcessSpec["id"]
+type ComponentId = ServerRuntimeContainerComponent
 
 export interface ContainerRuntimeChild {
   readonly exitCode: number | null
@@ -12,7 +16,7 @@ export interface ContainerRuntimeChild {
 }
 
 export interface ContainerRuntimeDependencies {
-  spawn?: (spec: ServerRuntimeProcessSpec) => ContainerRuntimeChild
+  spawn?: (spec: ServerRuntimeContainerProcessSpec) => ContainerRuntimeChild
   ready?: (component: ComponentId) => Promise<boolean>
   sleep?: (milliseconds: number) => Promise<void>
   signal?: AbortSignal
@@ -31,15 +35,15 @@ export interface ServerRuntimeContainerForegroundResult {
   live_writes_allowed: false
 }
 
-const START_ORDER: ComponentId[] = ["l2-owner", "l2-consumer", "control-runtime"]
+const START_ORDER: ComponentId[] = ["control-runtime", "market-data-manager", "ohlcv-worker", "indicator-worker"]
 
 export async function runServerRuntimeContainerForeground(
-  profile: ServerRuntimeProfile,
+  profile: ServerRuntimeContainerProfile,
   releaseRoot: string,
   bunPath: string,
   dependencies: ContainerRuntimeDependencies,
   readinessTimeoutMs = 60_000,
-  shutdownGraceMs = profile.process_manager.shutdown_grace_seconds * 1_000,
+  shutdownGraceMs = profile.shutdown_grace_seconds * 1_000,
 ): Promise<ServerRuntimeContainerForegroundResult> {
   if (!Number.isSafeInteger(readinessTimeoutMs) || readinessTimeoutMs < 100 || readinessTimeoutMs > 300_000) {
     throw new Error("readiness timeout must be an integer from 100 to 300000")
@@ -50,7 +54,7 @@ export async function runServerRuntimeContainerForeground(
   if (!dependencies.spawn || !dependencies.ready) throw new Error("container runtime spawn and readiness dependencies are required")
   const sleep = dependencies.sleep ?? ((milliseconds: number) => Bun.sleep(milliseconds))
   const clock = dependencies.clock ?? Date.now
-  const specs = new Map(serverRuntimeProcessSpecs(profile, releaseRoot, bunPath).map((spec) => [spec.id, spec]))
+  const specs = new Map(serverRuntimeContainerProcessSpecs(profile, releaseRoot, bunPath).map((spec) => [spec.id, spec]))
   const children = new Map<ComponentId, ContainerRuntimeChild>()
   const started: ComponentId[] = []
   const ready: ComponentId[] = []

@@ -8,12 +8,12 @@ import {
   type ContainerRuntimeChild,
 } from "./lib/server-runtime-container-foreground"
 import { readServerRuntimeContainerComponentReady } from "./lib/server-runtime-container-status"
-import { parseServerRuntimeProfile } from "./lib/server-runtime-profile"
-import type { ServerRuntimeProcessSpec } from "./lib/server-runtime-processes"
+import { parseServerRuntimeContainerProfile } from "./lib/server-runtime-container-profile"
+import type { ServerRuntimeContainerProcessSpec } from "./lib/server-runtime-container-processes"
 
 const root = repoRoot()
 const profileRef = profileArg(Bun.argv.slice(2))
-const profile = parseServerRuntimeProfile(JSON.parse(readFileSync(resolve(root, profileRef), "utf8")))
+const profile = parseServerRuntimeContainerProfile(JSON.parse(readFileSync(resolve(root, profileRef), "utf8")))
 const controller = new AbortController()
 const requestStop = (): void => controller.abort()
 process.on("SIGINT", requestStop)
@@ -32,7 +32,7 @@ try {
   process.off("SIGTERM", requestStop)
 }
 
-function spawnComponent(spec: ServerRuntimeProcessSpec): ContainerRuntimeChild {
+function spawnComponent(spec: ServerRuntimeContainerProcessSpec): ContainerRuntimeChild {
   return Bun.spawn({
     cmd: spec.command,
     cwd: root,
@@ -43,7 +43,7 @@ function spawnComponent(spec: ServerRuntimeProcessSpec): ContainerRuntimeChild {
   })
 }
 
-async function componentReady(component: ServerRuntimeProcessSpec["id"]): Promise<boolean> {
+async function componentReady(component: ServerRuntimeContainerProcessSpec["id"]): Promise<boolean> {
   return readServerRuntimeContainerComponentReady(component, profile, root, process.execPath, async (command) => {
     const child = Bun.spawn({
       cmd: command,
@@ -59,9 +59,9 @@ async function componentReady(component: ServerRuntimeProcessSpec["id"]): Promis
 }
 
 function profileArg(argv: string[]): string {
-  if (argv.length === 0) return "profile/server-runtime.json"
-  if (argv.length !== 2 || argv[0] !== "--profile" || argv[1] !== "profile/server-runtime.json") {
-    throw new Error("usage: --profile profile/server-runtime.json")
+  if (argv.length === 0) return "profile/server-runtime-container.json"
+  if (argv.length !== 2 || argv[0] !== "--profile" || argv[1] !== "profile/server-runtime-container.json") {
+    throw new Error("usage: --profile profile/server-runtime-container.json")
   }
   return argv[1]
 }
