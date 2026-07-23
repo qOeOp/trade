@@ -19,6 +19,7 @@ data/l2/
 # Legacy generated data paths retained so older local commands do not leak data.
 data/artifacts/
 data/rd/
+data/rd-datasets/
 data/calibration-panel-*/
 data/validation-panel-*/
 data/external-panel-*/

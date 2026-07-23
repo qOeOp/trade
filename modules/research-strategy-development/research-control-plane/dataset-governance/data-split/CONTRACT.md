@@ -20,6 +20,7 @@ atomic module
 
 - Split segment manifests and CSV files.
 - `StrategyDataSplitReport`.
+- A read-only, self-hashed discovery / validation segment snapshot that re-verifies the report, manifest, and CSV content.
 
 ## Boundaries
 
@@ -27,4 +28,5 @@ atomic module
 - Does not write `trade.db`.
 - Does not open or query `ohlcv_store`; database-path input is a compatibility locator passed to the market-data owner and never read by Research.
 - Large candle payloads cross the domain boundary only as immutable slice manifest refs.
+- Segment snapshot binding never opens `locked_holdout`; it accepts only discovery or validation and fails on content drift.
 - Uses `contracts/catalog-contract` for catalog writes.

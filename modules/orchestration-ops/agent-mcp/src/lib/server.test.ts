@@ -31,7 +31,8 @@ test("MCP task profiles project a closed capability subset", async () => {
     await server.connect(serverTransport)
     await client.connect(clientTransport)
     try {
-      const tools = (await client.listTools()).tools.map((tool) => tool.name)
+      const listed = (await client.listTools()).tools
+      const tools = listed.map((tool) => tool.name)
       assert.equal(
         tools.includes("artifact_read"),
         profile !== "planner-proposal"
@@ -43,6 +44,13 @@ test("MCP task profiles project a closed capability subset", async () => {
         tools.filter((tool) => tool.startsWith("research_")).sort(),
         additions.sort(),
       )
+      if (profile === "developer-contract") {
+        const schema = listed.find(
+          (tool) => tool.name === "research_developer_submission_prepare",
+        )?.inputSchema as { properties?: Record<string, unknown> } | undefined
+        assert.ok(schema?.properties?.implementation_mode)
+        assert.ok(schema?.properties?.developer_run_id)
+      }
     } finally {
       await client.close()
       await server.close()

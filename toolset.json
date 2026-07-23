@@ -2438,6 +2438,51 @@
       }
     },
     {
+      "id": "research.data-split-segment-snapshot",
+      "domain": "research-strategy-development",
+      "intent": [
+        "bind-data-snapshot",
+        "verify-split-segment",
+        "dataset-evidence"
+      ],
+      "capability_class": [
+        "V"
+      ],
+      "path": "modules/research-strategy-development/research-control-plane/dataset-governance/data-split",
+      "purpose": "Bind one discovery or validation split segment to its exact report, manifest, and content hashes without opening locked holdout.",
+      "command": {
+        "cwd": "modules/research-strategy-development/research-control-plane/dataset-governance/data-split",
+        "argv": [
+          "bun",
+          "src/scripts/segment-snapshot.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Read-only data-governance proof; rehashes report, manifest, and segment content and rejects locked holdout."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "research.data-split",
+      "requires_preflight": false,
+      "concurrency_group": "research-artifact",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/research-strategy-development/research-control-plane/dataset-governance/data-split/src/schemas/data-split-segment-snapshot.schema.json"
+      }
+    },
+    {
       "id": "research.signal-evaluator",
       "domain": "research-strategy-development",
       "intent": [

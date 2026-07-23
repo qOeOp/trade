@@ -54,6 +54,10 @@ test("Developer Agent capability assessment and draft enter the existing unvalid
         snapshot_ref: "dataset://btc-4h/discovery/v1",
         snapshot_hash: "a".repeat(64),
         dataset_kinds: ["ohlcv"],
+        hypothesis_id: proposal.hypothesis_id,
+        segment: "discovery",
+        timeframe: "4h",
+        manifest_ref: "data/rd-datasets/example/discovery/manifest.json",
         evidence_ref: "artifact://dataset-manifest/a",
       }),
     })

@@ -18,6 +18,10 @@ export interface DeveloperDataSnapshotBindingBody extends JSONRecord {
   snapshot_ref: string
   snapshot_hash: string
   dataset_kinds: string[]
+  hypothesis_id: string
+  segment: "discovery" | "validation"
+  timeframe: string
+  manifest_ref: string
   evidence_ref: string
 }
 
@@ -52,6 +56,10 @@ export function createDeveloperDataSnapshotBinding(
     snapshot_ref: nonempty(input.snapshot_ref, "snapshot_ref"),
     snapshot_hash: digest(input.snapshot_hash, "snapshot_hash"),
     dataset_kinds: uniqueStrings(input.dataset_kinds, "dataset_kinds"),
+    hypothesis_id: nonempty(input.hypothesis_id, "hypothesis_id"),
+    segment: segment(input.segment),
+    timeframe: nonempty(input.timeframe, "timeframe"),
+    manifest_ref: nonempty(input.manifest_ref, "manifest_ref"),
     evidence_ref: nonempty(input.evidence_ref, "evidence_ref"),
   }
   return { ...body, binding_hash: canonicalHash(body) }
@@ -74,6 +82,9 @@ export function createDeveloperCapabilityAssessment(input: {
     }
     if (!sameStrings(binding.dataset_kinds, input.brief.dataset_requirements)) {
       throw new Error("Developer data snapshot binding does not satisfy Brief data requirements")
+    }
+    if (binding.hypothesis_id !== input.brief.hypothesis_id) {
+      throw new Error("Developer data snapshot binding belongs to another hypothesis")
     }
   }
 
@@ -137,6 +148,13 @@ function digest(value: string, field: string): string {
   const normalized = nonempty(value, field)
   if (!/^[a-f0-9]{64}$/.test(normalized)) throw new Error(`${field} must be a lowercase sha256 digest`)
   return normalized
+}
+
+function segment(value: string): "discovery" | "validation" {
+  if (value !== "discovery" && value !== "validation") {
+    throw new Error("Developer data snapshot segment is unsupported")
+  }
+  return value
 }
 
 function revision(value: string): string {
