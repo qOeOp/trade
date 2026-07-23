@@ -22,6 +22,7 @@ last_verified: 2026-07-23 CST
 - 领域 owner 拥有状态与写权限，MCP / HTTP 只暴露受控能力。
 - Agent 负责有界语义任务与交互协作；Codex、OpenClaw 或其他 runtime 可以替换，但不能改变业务权限。
 - 单次结构化模型任务、交互式 Agent 与确定性代码是三种执行形态，不互相伪装。
+- 目标可在远程单机容器中长期运行；容器、Agent Host 或模型退出不能使 L2、数据维护、对账和风险链失去独立恢复能力。
 
 它不是：
 
@@ -32,7 +33,15 @@ last_verified: 2026-07-23 CST
 
 用户负责配置边界、选择 Agent Host、处理重大异常和审阅策略变化；program runtime 在授权范围内推进事实链与工作链。Agent Host 离线只会阻断依赖语义能力的任务，不得中断 L2、对账、风险守护或已授权的确定性 job。
 
-## 3. 两条闭环
+## 3. 三条常驻闭环
+
+市场数据供给闭环：
+
+```text
+Runtime / R&D data need -> owner reconciles collection
+  -> readiness / coverage -> bounded consumption
+  -> durable source / release
+```
 
 在线交易闭环：
 
@@ -41,15 +50,23 @@ OBSERVE -> PLAN -> PREFLIGHT -> EXECUTE
   -> CONFIRM / RECONCILE -> REVIEW
 ```
 
-策略验证闭环：
+策略工厂闭环：
 
 ```text
-hypothesis -> frozen experiment -> Replay evidence
+research finding / runtime lesson -> hypothesis -> frozen experiment
+  -> Replay evidence
   -> Forward / shadow evidence -> governance decision
-  -> live-small evidence -> review -> next hypothesis / policy change
+  -> live-small evidence -> review -> keep / pause / retire / improve
 ```
 
-两条链通过 typed refs 和 governance 连接，不共享 authority：研究结果不能直接变成交易授权，在线盈亏也不能反向覆盖研究历史。
+三条链通过 typed refs、readiness 和 governance 连接，不共享 authority：
+
+- Market Data 根据已接纳需求维持采集与 immutable source，不根据一次查询临时伪造历史数据，也不产生交易动作。
+- Runtime 用低成本全市场事实粗筛，再为少量候选、active flow 和持仓取得所需的细粒度事实；快轨不承担全市场发现。
+- R&D Factory 长期存在，但每个 Campaign、Agent Run、Trial 和 holdout 使用仍有界、可恢复、可审计；局部预算耗尽或找到候选不等于关闭整个策略研发能力。
+- 迁移到服务器后，策略研发仍须保留“理解策略与代码、在隔离 worktree 修改、测试、请求 Replay、解释失败并继续修订”的 Agent 能力；不能退化成一次模型 JSON 调用。Replay 与证据登记仍由确定性 owner 执行。
+- Program 与数据 owner 持续管理存储容量：先安全回收过期、无引用且可重建的数据；磁盘硬线只在 GC / compaction 无法恢复后局部保护新写入，不能成为常态人工停机理由。
+- 研究结果不能直接变成交易授权；在线交易证据不能覆盖研究历史，只能经 Review / Governance 形成 lifecycle decision、policy feedback 或下一轮研发输入。
 
 ## 4. 核心原则
 
@@ -66,6 +83,9 @@ Agent 负责提出判断，tool 提供事实，确定性代码执行硬约束，
 | 对象 | 产品意义 |
 | --- | --- |
 | `strategy` | 可版本化规则模板，不等于实盘资格 |
+| `strategy family` | Strategy Universe 中的稳定机制身份；可以尚无代码实现 |
+| `strategy implementation` | 某 engine / release 对 family 或 semantic policy 的可执行实现 |
+| `strategy version` | MD policy、编译合同、证据与实现绑定的冻结实例；不回写旧 flow |
 | `setup` | strategy 下一个可证伪机会，live 动作必须绑定 |
 | `lane` | `strategy_ref + symbol + side` 的运行槽位 |
 | `flow` | 一笔机会 / 暴露从观察到闭合的生命周期 |
