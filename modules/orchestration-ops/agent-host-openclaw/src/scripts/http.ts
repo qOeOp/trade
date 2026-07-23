@@ -28,7 +28,7 @@ async function main(): Promise<void> {
   const host = new OpenClawAgentHost({
     db,
     host_profile: "openclaw-gateway",
-    allowed_task_profiles: ["planner", "reviewer", "explanation"],
+    allowed_task_profiles: ["planner", "developer", "reviewer", "explanation"],
     agent_ids: {
       planner: "rd-planner",
       developer: "rd-developer",
@@ -72,10 +72,12 @@ async function main(): Promise<void> {
   const shutdown = () => {
     if (closing) return
     closing = true
-    void server.stop().finally(() => {
+    void (async () => {
+      await server.stop()
+      await host.close()
       db.close()
       process.exit(0)
-    })
+    })()
   }
   process.on("SIGINT", shutdown)
   process.on("SIGTERM", shutdown)
