@@ -15,10 +15,10 @@
 
 | Domain | Manifest modules | Package-backed modules | Owns stores | Owns jobs |
 | --- | ---: | ---: | --- | --- |
-| `orchestration-ops` | 11 | 11 | ops_runtime_store | - |
+| `orchestration-ops` | 12 | 12 | ops_runtime_store | - |
 | `policy-risk` | 2 | 2 | policy_registry | - |
 | `portfolio-execution-state` | 2 | 2 | trade_event_store, flow_read_models | - |
-| `market-data-products` | 16 | 12 | market_data_store, ohlcv_store | - |
+| `market-data-products` | 17 | 13 | market_data_store, ohlcv_store | - |
 | `exchange-gateway` | 10 | 10 | exchange_runtime_store | - |
 | `live-decision-planning` | 7 | 7 | - | J03:slow_track_market_watch |
 | `live-execution-control` | 11 | 11 | - | J01:account_reconcile_guard, J02:fast_track_guard |
