@@ -16,10 +16,16 @@ interface CatalogScanInput {
   maxHashBytes?: number
 }
 
+interface CatalogScanDependencies {
+  beforeArtifact?: (path: string) => void
+}
+
 interface CatalogScanResult {
   catalog_db_path: string
   roots: string[]
   scanned_files: number
+  transient_files_skipped: number
+  files_disappeared: number
   artifacts_upserted: number
   datasets_upserted: number
   runs_upserted: number
@@ -178,7 +184,7 @@ function initDataCatalog(catalogDbPath: string, environmentId = "local:local", a
   return { initialized: true, catalog_db_path: displayPath(catalogDbPath), environment_id: environmentId, store_id: "artifact_catalog" }
 }
 
-function scanDataCatalog(input: CatalogScanInput): CatalogScanResult {
+function scanDataCatalog(input: CatalogScanInput, dependencies: CatalogScanDependencies = {}): CatalogScanResult {
   const catalogDbPath = resolveRepoPath(input.catalogDbPath || "./data/data_catalog.db")
   const roots = (input.roots.length > 0 ? input.roots : ["./data"]).map((root) => resolveRepoPath(root))
   const now = input.now ? new Date(input.now) : new Date()
@@ -192,6 +198,8 @@ function scanDataCatalog(input: CatalogScanInput): CatalogScanResult {
     catalog_db_path: displayPath(catalogDbPath),
     roots: roots.map((root) => displayPath(root)),
     scanned_files: 0,
+    transient_files_skipped: 0,
+    files_disappeared: 0,
     artifacts_upserted: 0,
     datasets_upserted: 0,
     runs_upserted: 0,
@@ -209,12 +217,22 @@ function scanDataCatalog(input: CatalogScanInput): CatalogScanResult {
     ensureDataCatalogSchema(db)
     const scanOne = db.transaction((files: string[]) => {
       for (const path of files) {
+        if (isTransientCatalogFile(path)) {
+          result.transient_files_skipped += 1
+          continue
+        }
         result.scanned_files += 1
-        const artifact = artifactRecord(path, input.maxHashBytes ?? DEFAULT_MAX_HASH_BYTES, now)
-        upsertArtifact(db, artifact)
-        result.artifacts_upserted += 1
+        try {
+          dependencies.beforeArtifact?.(path)
+          const artifact = artifactRecord(path, input.maxHashBytes ?? DEFAULT_MAX_HASH_BYTES, now)
+          upsertArtifact(db, artifact)
+          result.artifacts_upserted += 1
 
-        addExtractionCounts(result, extractArtifactMetadata(db, artifact.artifact_id, path, now))
+          addExtractionCounts(result, extractArtifactMetadata(db, artifact.artifact_id, path, now))
+        } catch (error) {
+          if (!isMissingFileError(error)) throw error
+          result.files_disappeared += 1
+        }
       }
     })
     for (const root of roots) {
@@ -227,6 +245,19 @@ function scanDataCatalog(input: CatalogScanInput): CatalogScanResult {
     db.close()
   }
   return result
+}
+
+function isTransientCatalogFile(path: string): boolean {
+  const name = path.slice(path.lastIndexOf("/") + 1)
+  return name === ".DS_Store"
+    || name.includes(".partial.")
+    || name.endsWith("-journal")
+    || name.endsWith("-shm")
+    || name.endsWith("-wal")
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return error instanceof Error && ["ENOENT", "ESTALE"].includes(String((error as Error & { code?: unknown }).code))
 }
 
 function registerCatalogArtifact(input: CatalogRegisterArtifactInput): CatalogRegisterArtifactResult {

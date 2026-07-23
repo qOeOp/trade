@@ -44,6 +44,8 @@ export function runCatalogHygieneJob(input: CatalogHygieneJobInput): CatalogHygi
       ticket_no: ticketNo,
       catalog_db_path: scan.catalog_db_path,
       scanned_files: scan.scanned_files,
+      transient_files_skipped: scan.transient_files_skipped,
+      files_disappeared: scan.files_disappeared,
       artifacts_upserted: scan.artifacts_upserted,
     },
   })
