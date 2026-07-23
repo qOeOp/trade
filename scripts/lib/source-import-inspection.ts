@@ -1,7 +1,4 @@
-import { createRequire } from "node:module"
-import type { CallExpression, Node, ScriptKind } from "typescript"
-
-const ts = createRequire(import.meta.url)("typescript") as typeof import("typescript")
+import * as ts from "typescript"
 
 interface SourceInspectionHandlers {
   onSpecifier(specifier: string): void
@@ -9,7 +6,7 @@ interface SourceInspectionHandlers {
   onForbiddenRuntime?(kind: "eval" | "new Function"): void
 }
 
-function inspectModuleReferences(node: Node, handlers: SourceInspectionHandlers): void {
+function inspectModuleReferences(node: ts.Node, handlers: SourceInspectionHandlers): void {
   if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
     && node.moduleSpecifier
     && ts.isStringLiteral(node.moduleSpecifier)) {
@@ -31,7 +28,7 @@ function inspectModuleReferences(node: Node, handlers: SourceInspectionHandlers)
 }
 
 function inspectCallArgument(
-  node: CallExpression,
+  node: ts.CallExpression,
   kind: "dynamic import" | "require",
   handlers: SourceInspectionHandlers,
 ): void {
@@ -48,7 +45,7 @@ function isTestSource(path: string): boolean {
   return /(?:^|\/)(?:test|tests)(?:\/|$)/.test(path) || /\.(?:test|spec)\.[^.]+$/.test(path)
 }
 
-function scriptKind(path: string): ScriptKind {
+function scriptKind(path: string): ts.ScriptKind {
   if (path.endsWith(".tsx")) return ts.ScriptKind.TSX
   if (path.endsWith(".jsx")) return ts.ScriptKind.JSX
   if (/\.(?:js|mjs|cjs)$/.test(path)) return ts.ScriptKind.JS

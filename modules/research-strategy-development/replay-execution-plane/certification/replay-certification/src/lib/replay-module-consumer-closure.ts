@@ -1,14 +1,11 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { createHash } from "node:crypto"
-import { createRequire } from "node:module"
 import { dirname, join, normalize, relative } from "node:path"
-import type { Node, ScriptKind, SourceFile } from "typescript"
+import * as ts from "typescript"
 import {
   REPLAY_CERTIFICATION_OWNER,
   REPLAY_PLANE_ROOT,
 } from "./replay-certification"
-
-const ts = createRequire(import.meta.url)("typescript") as typeof import("typescript")
 
 export type ReplayModuleClassification =
   | "canonical-runtime"
@@ -188,9 +185,9 @@ function resolveProviderPackage(
   return packageNames.get(specifier) ?? null
 }
 
-function staticModuleSpecifiers(source: SourceFile): string[] {
+function staticModuleSpecifiers(source: ts.SourceFile): string[] {
   const values: string[] = []
-  const visit = (node: Node): void => {
+  const visit = (node: ts.Node): void => {
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
         && node.moduleSpecifier && ts.isStringLiteralLike(node.moduleSpecifier)) {
       values.push(node.moduleSpecifier.text)
@@ -245,7 +242,7 @@ function packageName(repoRoot: string, packagePath: string): string {
   return value.name
 }
 
-function scriptKind(path: string): ScriptKind {
+function scriptKind(path: string): ts.ScriptKind {
   if (path.endsWith(".tsx")) return ts.ScriptKind.TSX
   if (path.endsWith(".jsx")) return ts.ScriptKind.JSX
   if (path.endsWith(".js") || path.endsWith(".mjs") || path.endsWith(".cjs")) return ts.ScriptKind.JS

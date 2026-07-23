@@ -1,13 +1,11 @@
 #!/usr/bin/env bun
 
 import { readdirSync, readFileSync, statSync } from "node:fs"
-import { createRequire } from "node:module"
 import { dirname, join, normalize } from "node:path"
+import * as ts from "typescript"
 import { inspectModuleReferences, isJavaScriptOrTypeScript, isTestSource, scriptKind } from "./lib/source-import-inspection"
 
 type JSONRecord = Record<string, unknown>
-
-const ts = createRequire(import.meta.url)("typescript") as typeof import("typescript")
 
 interface ToolPackage {
   entry: string

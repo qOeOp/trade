@@ -2,13 +2,11 @@
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 import { createHash } from "node:crypto"
-import { createRequire } from "node:module"
 import { dirname, join, normalize } from "node:path"
+import * as ts from "typescript"
 import { inspectModuleReferences, isJavaScriptOrTypeScript, isTestSource, scriptKind } from "./lib/source-import-inspection"
 
 type JSONRecord = Record<string, unknown>
-
-const ts = createRequire(import.meta.url)("typescript") as typeof import("typescript")
 
 interface DomainRecord {
   id: string

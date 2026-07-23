@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, readdirSync, rmSync, statSync } from "node:fs"
-import { dirname, extname, join, resolve } from "node:path"
+import { basename, dirname, extname, join, relative, resolve } from "node:path"
 import { Database } from "bun:sqlite"
 import { assertProjectRuntimePath, displayPath, resolveRepoPath } from "../../../../contracts/runtime-core/src/paths"
 import { assertDatabaseIdentity, buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../contracts/runtime-core/src/database-identity"
@@ -215,7 +215,7 @@ function scanDataCatalog(input: CatalogScanInput, dependencies: CatalogScanDepen
 
   try {
     ensureDataCatalogSchema(db)
-    const scanOne = db.transaction((files: string[]) => {
+    const scanOne = db.transaction((files: string[], root: string) => {
       for (const path of files) {
         if (isTransientCatalogFile(path)) {
           result.transient_files_skipped += 1
@@ -224,7 +224,7 @@ function scanDataCatalog(input: CatalogScanInput, dependencies: CatalogScanDepen
         result.scanned_files += 1
         try {
           dependencies.beforeArtifact?.(path)
-          const artifact = artifactRecord(path, input.maxHashBytes ?? DEFAULT_MAX_HASH_BYTES, now)
+          const artifact = artifactRecord(path, input.maxHashBytes ?? DEFAULT_MAX_HASH_BYTES, now, root)
           upsertArtifact(db, artifact)
           result.artifacts_upserted += 1
 
@@ -239,7 +239,7 @@ function scanDataCatalog(input: CatalogScanInput, dependencies: CatalogScanDepen
       if (!existsSync(root)) {
         continue
       }
-      scanOne(walkFiles(root).filter((path) => resolve(path) !== resolve(catalogDbPath)))
+      scanOne(walkFiles(root).filter((path) => resolve(path) !== resolve(catalogDbPath)), root)
     }
   } finally {
     db.close()
@@ -908,7 +908,7 @@ function addExtractionCounts(result: CatalogScanResult, counts: ArtifactExtracti
   result.cron_runs_upserted += counts.cronRuns
 }
 
-function artifactRecord(path: string, maxHashBytes: number, now: Date): {
+function artifactRecord(path: string, maxHashBytes: number, now: Date, retentionRoot?: string): {
   artifact_id: string
   path: string
   type: string
@@ -922,6 +922,9 @@ function artifactRecord(path: string, maxHashBytes: number, now: Date): {
   const fsPath = resolveRepoPath(path)
   const stat = statSync(fsPath)
   const relPath = displayPath(fsPath)
+  const retentionPath = retentionRoot
+    ? relative(resolve(retentionRoot), fsPath).split("\\").join("/")
+    : relPath.startsWith("../") ? basename(fsPath) : relPath
   const contentHash = stat.size <= maxHashBytes ? sha256File(fsPath) : null
   const summary = {
     mtime: stat.mtime.toISOString(),
@@ -934,7 +937,7 @@ function artifactRecord(path: string, maxHashBytes: number, now: Date): {
     bytes: stat.size,
     content_hash: contentHash,
     schema_id: schemaIDFor(relPath),
-    retention_class: retentionClassFor(relPath),
+    retention_class: retentionClassFor(retentionPath),
     created_at: now.toISOString(),
     summary_json: JSON.stringify(summary),
   }

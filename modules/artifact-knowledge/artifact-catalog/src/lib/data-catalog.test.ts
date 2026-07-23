@@ -11,7 +11,7 @@ test("data catalog initializes schema and scans datasets, runs, artifacts, and l
   const dir = mkdtempSync(join(tmpdir(), "data-catalog-"))
   try {
     const catalogDbPath = join(dir, "data_catalog.db")
-    const root = join(dir, "data")
+    const root = join(dir, "tmp", "data")
     const ohlcvDir = join(root, "ohlcv", "BTCUSDT")
     mkdirSync(ohlcvDir, { recursive: true })
     const csvPath = join(ohlcvDir, "4h.csv")
