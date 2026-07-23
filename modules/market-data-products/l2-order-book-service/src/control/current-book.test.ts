@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import test from "node:test"
-import { buildL2OwnerCurrentBook } from "./current-book"
+import { buildL2MarketDataFactRef, buildL2OwnerCurrentBook } from "./current-book"
 
 const bids = [["118000.1", "0.5"], ["117999.9", "1"]]
 const asks = [["118000.2", "0.4"], ["118000.3", "0.8"]]
@@ -41,7 +41,7 @@ test("L2 owner current-book preserves bounded depth and timestamps as non-econom
 })
 
 test("L2 owner current-book fails closed on freshness, order, hash, time, or identity drift", () => {
-  assert.throws(() => build({ ...query, freshness_ms: 1_001 }), /freshness limit/)
+  assert.throws(() => build({ ...query, freshness_ms: 1_001 }), /freshness/)
   const crossedBids = [["118000.2", "1"], ["117999.9", "1"]]
   assert.throws(() => build({
     ...query,
@@ -55,11 +55,39 @@ test("L2 owner current-book fails closed on freshness, order, hash, time, or ide
   assert.throws(() => build({ ...query, published_at_ms: query.local_receive_time_ms - 1 }), /local time order/)
   assert.throws(() => build({ ...query, book_hash: "b".repeat(64) }), /bounded hash drifted/)
   assert.throws(() => build({ ...query, best_bid: ["118000", "1"] }), /best level drifted/)
+  assert.throws(() => buildL2OwnerCurrentBook({
+    observed_at: "2026-07-22T06:00:02.000Z",
+    expected_symbol: "BTCUSDT",
+    requested_depth: 20,
+    max_freshness_ms: 1_000,
+    query_result: query,
+  }), /freshness limit/)
+})
+
+test("L2 current-book fact binds one fresh owner snapshot to exact demands and depth", () => {
+  const book = build(query)
+  const fact = buildL2MarketDataFactRef({
+    book,
+    demand_ids: ["active-flow-a", "research-b"],
+    source_plan_hash: "f".repeat(64),
+    minimum_depth: 2,
+  })
+  assert.equal(fact.product, "l2_book")
+  assert.equal(fact.source.content_hash, book.book_hash)
+  assert.deepEqual(fact.consumer_binding.demand_ids, ["active-flow-a", "research-b"])
+  assert.equal(fact.coverage.completeness, "live_point")
+  assert.equal(fact.domain_authority, "none")
+  assert.throws(() => buildL2MarketDataFactRef({
+    book,
+    demand_ids: ["research-b", "active-flow-a"],
+    source_plan_hash: "f".repeat(64),
+    minimum_depth: 2,
+  }), /sorted and unique/)
 })
 
 function build(queryResult: unknown) {
   return buildL2OwnerCurrentBook({
-    observed_at: "2026-07-22T13:00:01Z",
+    observed_at: "2026-07-22T06:00:01.000Z",
     expected_symbol: "BTCUSDT",
     requested_depth: 20,
     max_freshness_ms: 1_000,

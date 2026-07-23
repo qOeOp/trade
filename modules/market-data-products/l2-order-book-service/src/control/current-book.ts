@@ -1,4 +1,8 @@
 import { createHash } from "node:crypto"
+import {
+  buildMarketDataFactRef,
+  type MarketDataFactRef,
+} from "../../../../contracts/market-data-demand-contract/src/market-data-fact-contract"
 import { boundedInteger, nonNegativeInteger, positiveInteger, record, requireUtc, text } from "./validation"
 
 export const L2_OWNER_CURRENT_BOOK_SCHEMA = "trade.l2-owner-current-book.v1" as const
@@ -36,6 +40,49 @@ export interface L2OwnerCurrentBook {
   execution_compatible: false
   authority: "market_data_read_only"
   limitations: string[]
+}
+
+export function buildL2MarketDataFactRef(input: {
+  book: L2OwnerCurrentBook
+  demand_ids: string[]
+  source_plan_hash: string
+  minimum_depth: number
+}): MarketDataFactRef {
+  boundedInteger(input.minimum_depth, 1, L2_CURRENT_BOOK_MAX_DEPTH, "minimum_depth")
+  if (input.book.bid_levels < input.minimum_depth || input.book.ask_levels < input.minimum_depth) {
+    throw new Error("L2 current-book does not satisfy the bound consumer depth")
+  }
+  return buildMarketDataFactRef({
+    product: "l2_book",
+    venue: "binance_usdm",
+    symbol: input.book.symbol,
+    requirement: {
+      timeframe: null,
+      indicator_set_ref: null,
+      minimum_depth: input.minimum_depth,
+    },
+    consumer_binding: {
+      demand_ids: input.demand_ids,
+      source_plan_hash: input.source_plan_hash,
+    },
+    source: {
+      ref: `l2-book://${input.book.symbol}/${input.book.stream_epoch}/${input.book.last_update_id}`,
+      content_hash: input.book.book_hash,
+    },
+    coverage: {
+      kind: "point",
+      start_at: new Date(input.book.local_receive_time_ms).toISOString(),
+      end_at: null,
+      completeness: "live_point",
+    },
+    freshness: {
+      kind: "live",
+      as_of: new Date(input.book.local_receive_time_ms).toISOString(),
+      observed_at: input.book.observed_at,
+      max_freshness_ms: input.book.max_freshness_ms,
+      status: "fresh",
+    },
+  })
 }
 
 type PriceTuple = [string, string]
@@ -76,6 +123,9 @@ export function buildL2OwnerCurrentBook(input: {
   }
   if (freshnessMs > observedAtMs - localReceiveTimeMs) {
     throw new Error("L2 current-book freshness is inconsistent with receive time")
+  }
+  if (observedAtMs - localReceiveTimeMs > input.max_freshness_ms) {
+    throw new Error("L2 current-book exceeds consumer freshness limit")
   }
   if (freshnessMs > input.max_freshness_ms) throw new Error("L2 current-book exceeds consumer freshness limit")
   if (bidLevels < 1 || askLevels < 1 || bidLevels > input.requested_depth || askLevels > input.requested_depth) {
