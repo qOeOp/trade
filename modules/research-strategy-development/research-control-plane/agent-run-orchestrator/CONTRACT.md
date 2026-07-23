@@ -11,4 +11,5 @@
 - This module does not implement a model loop, Host transport, workspace, Replay engine, Trial/Result store, strategy materialization, promotion, or exchange write.
 - Agent output always has `domain_authority=none`; only existing state-store, Replay, Registry, Forward, and Governance owners may commit effects.
 - Host transcript, chain-of-thought, arbitrary files, secrets, locked holdout contents, and unregistered evidence are never accepted as Control Plane facts.
-- The initial vertical slice covers Planner context/request/admission. Developer revision and Reviewer evidence gates are added behind the same contract without bypassing current owner APIs.
+- Planner context/admission, Developer capability/draft intake, and Reviewer evidence/lifecycle admission are implemented behind the same contract without bypassing current owner APIs.
+- Developer patches remain review artifacts only; this module neither applies them nor treats Agent-assisted historical evaluation as mechanical Replay.
