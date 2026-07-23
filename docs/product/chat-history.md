@@ -3,7 +3,7 @@ title: Chat History Product Insights
 role: product-source-material
 status: source-material
 owner: product
-last_verified: 2026-07-22 CST
+last_verified: 2026-07-23 CST
 ---
 
 # Chat History — 产品洞察库
@@ -237,6 +237,19 @@ RAVE skill 降级链路：build-skills.sh 打包失败 → 复用已编好的 bi
 - 并行边界按写入冲突划分：R&D / catalog / 只读观察可并行；`trade.db` 写入、交易动作和 review 封口必须串行。
 - 平仓 review 是事件驱动的收尾阶段：等待交易与对账完成后，发现“已闭合且未 review”才分发 reviewer；低频 sweep 仅补漏，不单独占一条长期 automation。
 - supervisor 高频唤醒不等于所有任务高频运行；slow / R&D / catalog 继续由 cadence gate 控制，避免 token 与 API 浪费。
+
+---
+
+## 十三、从 Agent 工作区演进为可替换 Host 的长期运行系统
+
+**核心发现（2026-07-23）**
+
+- 项目最初依赖 Codex 工作区推进，随着 L2、常驻 supervisor、模型 API、MCP 和微服务边界出现，产品已从“Agent 驱动自动化”演进为“程序拥有运行、Agent 增强判断”。
+- 用户担心自建 Agent runtime 丢失 Codex 的代码理解、工具循环、审批和上下文体验，因此目标不是重写一个缩水 Codex，而是保留统一 owner/MCP 边界，用 adapter 评测和切换成熟 Host。
+- Codex 适合作为开发与交互基线；OpenClaw 是可直接对接 OpenAI-compatible provider 的常驻 Host 候选；LangGraph 只解决确有 checkpoint、interrupt 和固定多轮状态机的任务，不承担整个系统调度。
+- Agent、代码和 MCP 不是三选一：确定性代码守住事实、风险和执行，MCP 暴露能力，Agent Host 负责任务循环；单次结构化模型调用继续走更窄的 Model Gateway。
+- Host/provider 离线不能带走系统生命线：L2、reconcile、risk 与确定性 job 继续运行；依赖语义能力的任务必须有界阻断、恢复和去重。
+- 是否采用某个 Host 必须通过同模型、同工具、同任务和同预算的质量、安全、恢复、延迟与成本评测，不凭流行度固定长期架构。
 
 ---
 
