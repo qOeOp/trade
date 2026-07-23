@@ -3,27 +3,34 @@ title: Product Vision
 role: product-contract
 status: active
 owner: product
-last_verified: 2026-07-22 CST
+last_verified: 2026-07-23 CST
 ---
 
 # Product Vision
 
 ## 1. 北极星
 
-让 agent 在无人持续盯盘时，也能基于新鲜事实、已验证策略、明确风险和可恢复执行，克制地推进 Binance USDM 单账户 4H+ swing；该停时可靠地停，该做时留下完整证据。
+让程序在无人持续盯盘、Agent 暂时离线或模型不可用时，仍能基于新鲜事实、已验证策略、明确风险和可恢复执行，克制地推进 Binance USDM 单账户 4H+ swing；需要语义判断时再调用受约束的 Agent，该停时可靠地停，该做时留下完整证据。
 
 系统的价值不是产生更多交易，而是提高每次判断和动作的可解释性、可重复性与可纠错性。
 
 ## 2. 产品形态
 
-本项目是一组运行在 agent 工作区里的 domain-owned tools、contracts 和自动化入口，不是：
+本项目是 **program-owned、agent-augmented、host-portable** 的长期运行交易与策略迭代系统：
 
-- SaaS、UI、看板或多终端产品。
+- 常驻程序拥有 cadence、事实恢复、风险硬门和确定性执行。
+- 领域 owner 拥有状态与写权限，MCP / HTTP 只暴露受控能力。
+- Agent 负责有界语义任务与交互协作；Codex、OpenClaw 或其他 runtime 可以替换，但不能改变业务权限。
+- 单次结构化模型任务、交互式 Agent 与确定性代码是三种执行形态，不互相伪装。
+
+它不是：
+
+- 通用 Agent 平台、聊天产品、SaaS、看板或多终端产品。
 - 多账户 / 多交易所平台。
 - 高频、做市或通用回测平台。
 - 让模型无界搜索并自动升格策略的系统。
 
-用户负责配置边界、处理重大异常和审阅策略变化；automation 负责在授权范围内推进事实链与工作链。
+用户负责配置边界、选择 Agent Host、处理重大异常和审阅策略变化；program runtime 在授权范围内推进事实链与工作链。Agent Host 离线只会阻断依赖语义能力的任务，不得中断 L2、对账、风险守护或已授权的确定性 job。
 
 ## 3. 两条闭环
 
@@ -52,7 +59,7 @@ hypothesis -> frozen experiment -> Replay evidence
 - No stop / invalidation, no added risk.
 - No reconciliation, no added risk.
 
-agent 负责提出判断，tool 提供事实，确定性代码执行硬约束，交易所事实最终覆盖本地在线 projection。
+Agent 负责提出判断，tool 提供事实，确定性代码执行硬约束，交易所事实最终覆盖本地在线 projection。Agent session、prompt、checkpoint 和自然语言 memory 都不是业务 authority。
 
 ## 5. 核心对象
 
@@ -88,9 +95,13 @@ agent 负责提出判断，tool 提供事实，确定性代码执行硬约束，
 - Replay / shadow / live-small 的差异可归因。
 - 失败、no_action、no_promote 和 blocked 都能形成可复用信息。
 - 策略或 policy 变化不会改写旧证据。
+- 替换或关闭 Agent Host 不需要迁移领域状态，也不会停止不依赖模型的常驻能力。
+- 每次模型或 Agent 参与都能回到输入 refs、能力边界、预算、版本、审批和结构化结果。
 
 如果关键问题只能靠聊天记忆回答，产品仍未达到目标。
 
 ## 8. 演进约束
 
-先闭合真实使用中暴露的事实、权限、执行和证据缺口，再增加 family、tool 或模拟能力。不预先固定尚未决定的流程、记录模型和组织结构，也不把一次实验结论写成长期制度。
+先闭合真实使用中暴露的事实、权限、执行和证据缺口，再增加 family、tool、Agent Host 或模拟能力。不预先固定尚未决定的流程、记录模型和组织结构，也不把一次实验结论写成长期制度。
+
+Agent Host 的采用以同一模型、同一能力面、同一任务集下的质量、安全、恢复和成本证据为准；产品合同只固定可替换边界，不预先指定 Codex、OpenClaw、LangGraph 或单一 provider 为永久答案。

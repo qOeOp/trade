@@ -3,14 +3,14 @@ title: Product Requirements Document
 role: product-contract
 status: active
 owner: product
-last_verified: 2026-07-22 CST
+last_verified: 2026-07-23 CST
 ---
 
 # PRD
 
 ## 1. 产品
 
-本项目是 agent-operated 的 Binance USDM 单账户 4H+ swing 自动化工作区。它在可审计事实、策略资格、确定性风险门、受控执行和复盘证据之间推进交易，不是面向外部用户的平台。
+本项目是 program-owned、agent-augmented 的 Binance USDM 单账户 4H+ swing 长期运行系统。它在可审计事实、策略资格、确定性风险门、受控执行和复盘证据之间推进交易，并允许在同一 owner 能力面上切换 Agent Host；它不是面向外部用户的通用 Agent 或交易平台。
 
 成功不是“持续产生订单”，而是：该做时能安全执行，不该做时能明确拒绝，异常后能从交易所事实恢复，每次结果都能回到策略与控制系统。
 
@@ -22,15 +22,19 @@ last_verified: 2026-07-22 CST
 - 4H+ swing 为主；快轨只守护 active flow、触发和防御动作。
 - strategy lifecycle：`draft -> shadow -> live-small -> paused`。
 - 单一 automation 入口，按 cadence 和权限分发独立 domain job。
+- 常驻 program runtime 不依赖交互式 Agent 存活；模型不可用时确定性安全链继续运行。
+- 有界模型任务、交互式 Agent Host 与代码执行共享 typed owner ports，但拥有不同预算和权限。
+- Codex、OpenClaw、LangGraph 等候选只通过 adapter 接入，不成为 scheduler、store 或业务 authority。
 - 在线交易、R&D、governance、artifact 生命周期分离。
-- 本地 SQLite + repo-relative artifact/ref；不建设远程服务平台。
+- 本地 SQLite + repo-relative artifact/ref；北向接口按需采用本机 MCP / authenticated HTTP，不建设通用远程服务平台。
 
 非目标：
 
-- UI、SaaS、多租户、多账户、多交易所。
+- 自建通用聊天 UI、Agent 市场、SaaS、多租户、多账户、多交易所。
 - 高频、做市、无界参数搜索、自动策略升格。
 - 用聊天记录、临时 artifact 或自然语言摘要替代交易事实。
 - 让 research、market scan 或快轨直接触发新增风险。
+- 让 Agent Host 持有 Binance write、owner DB、scheduler 或 promotion 权限。
 
 ## 3. 核心对象
 
@@ -50,7 +54,17 @@ last_verified: 2026-07-22 CST
 
 ## 4. 运行模型
 
-外部只有一个 automation 入口。它生成本轮 job graph，不内联交易、研究或治理判断。
+外部只有一个 automation 入口。它生成本轮 job graph，不内联交易、研究或治理判断。program runtime 是 cadence、lease、恢复和进程生命周期的 authority；Agent Host 只在 job 明确声明需要语义能力时接收一次有界任务。
+
+运行形态：
+
+| 形态 | 适用 | 权限边界 |
+| --- | --- | --- |
+| deterministic program | L2、reconcile、risk、execution、固定 job graph | 领域 owner 合同内运行；不等待 LLM |
+| bounded model task | 单次结构化 hypothesis、分类或摘要 | 只返回 typed proposal；`execution_authority=none` |
+| Agent Host | 多轮工具协作、代码理解、人工审批与复杂研究 | 只能调用 allowlisted MCP / owner ports；session/checkpoint 不是业务事实 |
+
+Host 的选择是部署与任务策略，不改变下表中的 Job authority：
 
 | Job | 结果 | 不允许 |
 | --- | --- | --- |
@@ -159,5 +173,7 @@ Binance exchange facts
 - 本地状态与 Binance 不一致时，谁恢复、写了什么、何时解除 risk lock？
 - 一个策略为什么能进入 shadow / live-small，证据是否 fresh？
 - 一次失败进入了 trade review、control review 还是 R&D lesson？
+- Agent Host 关闭或替换后，哪些任务继续、哪些任务阻断、是否产生重复副作用？
+- 一次 Agent 结果使用了哪个 provider/model、prompt/toolset 版本、输入 refs、预算和审批？
 
 这些问题若只能靠聊天记忆回答，即视为产品合同未满足。
