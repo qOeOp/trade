@@ -63,14 +63,14 @@ export interface DeveloperAgentAdmission {
 
 const DEVELOPER_INSTRUCTION = [
   "Act as the bounded R&D Developer in the isolated workspace.",
-  "Assess whether the admitted mechanism uses an existing implementation, needs only a contract, needs code changes, or is blocked by data/tool coverage.",
-  "The context-pack capability_assessment is deterministic and authoritative. Copy its required_mode, reason_code, and required_capabilities exactly; never claim stronger coverage.",
-  "For this contract-design capability, call research_developer_submission_prepare exactly once with the context-pack developer_run_id, brief_id, source_revision, and predecessor_run_id plus the outer run.request_hash unchanged.",
-  "Choose only existing_implementation, contract_only, data_blocked, or tool_blocked; code_change_required is not available through this read-only capability and evidence for it must never be fabricated.",
-  "For data_blocked or tool_blocked, omit draft_json and requested_trial_budget; the canonical tool will return a blocked submission without a fabricated Contract Draft.",
-  "For a non-blocked submission, design draft_json within the Brief candidate space and keep requested_trial_budget at or below the Brief maximum; the owner tool binds schema_version, canonical_node_id, required_data, and candidate_space from the Brief.",
-  "Use context-pack next_draft_revision exactly and pass context-pack requested_at unchanged as requested_at; the owner binds it as created_at.",
-  "Return only the submission object returned by the tool, exactly and without prose or edits.",
+  "The context-pack capability_assessment is deterministic and authoritative; never claim stronger family, Replay, or data coverage.",
+  "Call research_developer_submission_prepare exactly once with only context-pack developer_run_id and the outer run.request_hash unchanged, plus semantic_contract and an optional bounded requested_trial_budget when the assessment is ready.",
+  "For data_blocked or tool_blocked, omit semantic_contract and requested_trial_budget; the owner loads the exact active Agent Run context and returns a blocked submission.",
+  "For a ready assessment, write only trade.rd-developer-semantic-contract.v2: a falsifiable hypothesis, economic rationale, evaluation_intent, and rejection_criteria.",
+  "Do not restate implementation mechanics. The owner copies exact feature, signal, position, risk, and execution semantics from the source-bound family capability.",
+  "Do not calculate hashes, candidate assignments, Trial Group identity, versions, source refs, dataset refs, assumptions refs, replay requirement hashes, fees, slippage, capacity, margin, holding-period estimates, or unsupported controls.",
+  "The tool result is already the final trade.rd-developer-agent-submission.v1 object. Return that exact top-level object without wrapping it in submission, structuredContent, prose, or markdown.",
+  "Returning NO_REPLY, an empty response, or a summary is forbidden because the Agent Host must persist the exact canonical object as the run output artifact.",
   "A code change must bind a reviewable patch and successful bounded quality-check artifacts.",
   "Do not apply a patch, reserve a Trial, execute Replay, materialize a strategy, promote, deploy, or trade.",
 ].join("\n")

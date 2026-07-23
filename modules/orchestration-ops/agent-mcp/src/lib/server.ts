@@ -46,54 +46,23 @@ const PLANNER_PROPOSAL_PREPARE = z.object({
   evaluation_protocol_ref: z.string().trim().min(1).max(500),
   requested_at: z.string().datetime({ offset: false }),
 }).strict()
+const NONEMPTY_SEMANTIC_RECORD = z.record(z.string(), z.unknown()).refine(
+  (value) => Object.keys(value).length > 0,
+  "semantic field must be a non-empty object",
+)
+const DEVELOPER_SEMANTIC_CONTRACT = z.object({
+  schema_version: z.literal("trade.rd-developer-semantic-contract.v2"),
+  hypothesis: NONEMPTY_SEMANTIC_RECORD,
+  economic_rationale: NONEMPTY_SEMANTIC_RECORD,
+  evaluation_intent: NONEMPTY_SEMANTIC_RECORD,
+  rejection_criteria: z.array(z.string().trim().min(1).max(2_000)).min(1).max(32),
+}).strict()
 const DEVELOPER_SUBMISSION_PREPARE = z.object({
   developer_run_id: z.string().trim().min(1).max(160),
   request_hash: z.string().regex(/^[a-f0-9]{64}$/),
-  brief_id: z.string().trim().min(1).max(160),
-  source_revision: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/),
-  draft_revision: z.number().int().min(1).max(1_000_000),
-  predecessor_run_id: z.string().trim().min(1).max(160).nullable(),
-  implementation_mode: z.enum([
-    "existing_implementation",
-    "contract_only",
-    "data_blocked",
-    "tool_blocked",
-  ]),
-  reason_code: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/),
-  required_capabilities: z.array(z.string().trim().min(1).max(200)).max(64),
   requested_trial_budget: z.number().int().min(1).max(10_000).optional(),
-  draft_json: z.union([
-    z.record(z.string(), z.unknown()).refine(
-      (value) => Object.keys(value).length > 0 && JSON.stringify(value).length <= 500_000,
-      "draft_json must be non-empty and at most 500 KB",
-    ),
-    z.string().min(2).max(500_000),
-  ]).optional(),
-  requested_at: z.string().datetime({ offset: false }),
-}).strict().superRefine((value, context) => {
-  const blocked = value.implementation_mode === "data_blocked"
-    || value.implementation_mode === "tool_blocked"
-  if (!blocked && value.requested_trial_budget == null) {
-    context.addIssue({
-      code: "custom",
-      path: ["requested_trial_budget"],
-      message: "non-blocked Developer submission requires requested_trial_budget",
-    })
-  }
-  if (!blocked && value.draft_json == null) {
-    context.addIssue({
-      code: "custom",
-      path: ["draft_json"],
-      message: "non-blocked Developer submission requires draft_json",
-    })
-  }
-  if (blocked && (value.requested_trial_budget != null || value.draft_json != null)) {
-    context.addIssue({
-      code: "custom",
-      message: "blocked Developer submission must omit draft_json and requested_trial_budget",
-    })
-  }
-})
+  semantic_contract: DEVELOPER_SEMANTIC_CONTRACT.optional(),
+}).strict()
 const REVIEWER_SUBMISSION_PREPARE = z.object({
   reviewer_run_id: z.string().trim().min(1).max(160),
   request_hash: z.string().regex(/^[a-f0-9]{64}$/),
@@ -273,7 +242,7 @@ export function createTradeMcpServer(
 
   registerTool("research_developer_submission_prepare", {
     title: "Build a canonical Developer submission",
-    description: "Bind one contract-only, existing-implementation, or blocked Developer assessment to the authoritative Brief, append immutable Agent Run tool-use evidence, and return a canonical self-hashed submission without applying code, reserving a Trial, or writing R&D domain state.",
+    description: "Load the exact active Developer context from the Agent Run owner, compile semantic strategy intent into an identity-bound experiment draft, append immutable tool-use evidence, and return a canonical submission without applying code, reserving a Trial, or writing R&D domain state.",
     inputSchema: DEVELOPER_SUBMISSION_PREPARE,
     annotations: AUDITED_PREPARATION_ANNOTATIONS,
   }, async (input) => result(await researchJobs.prepareDeveloperSubmission(input)))

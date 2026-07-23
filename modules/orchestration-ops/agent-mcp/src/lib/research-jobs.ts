@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { assertProjectRuntimePath } from "../../../../contracts/runtime-core/src/paths"
+import { canonicalHash } from "../../../../contracts/runtime-core/src/canonical-json"
+import type { AgentArtifactRef } from "../../../../contracts/agent-run-contract/src/agent-run-contract"
 import {
   executeOwnerCli,
   startOwnerCli,
@@ -9,6 +11,39 @@ import {
 } from "./owner-cli"
 
 type JSONRecord = Record<string, unknown>
+
+const DEVELOPER_AGENT_CONTEXT_PACK_SCHEMA =
+  "trade.rd-developer-agent-context-pack.v1" as const
+
+interface DeveloperSemanticContract extends JSONRecord {
+  schema_version: "trade.rd-developer-semantic-contract.v2"
+  hypothesis: JSONRecord
+  economic_rationale: JSONRecord
+  evaluation_intent: JSONRecord
+  rejection_criteria: string[]
+}
+
+interface DeveloperAgentContextPack extends JSONRecord {
+  schema_version: typeof DEVELOPER_AGENT_CONTEXT_PACK_SCHEMA
+  developer_run_id: string
+  source_revision: string
+  brief: JSONRecord & {
+    brief_id: string
+    max_trial_budget: number
+  }
+  capability_assessment: JSONRecord & {
+    required_mode: "existing_implementation" | "data_blocked" | "tool_blocked"
+    reason_code: string
+    required_capabilities: string[]
+    family_capability: JSONRecord | null
+    data_snapshot_binding: JSONRecord | null
+  }
+  next_draft_revision: number
+  predecessor_run_id: string | null
+  replay_result_refs: AgentArtifactRef[]
+  requested_at: string
+  context_pack_hash: string
+}
 
 export interface ResearchJobSubmitInput {
   request_id: string
@@ -39,20 +74,8 @@ export interface PlannerProposalPrepareInput {
 export interface DeveloperSubmissionPrepareInput {
   developer_run_id: string
   request_hash: string
-  brief_id: string
-  source_revision: string
-  draft_revision: number
-  predecessor_run_id: string | null
-  implementation_mode:
-    | "existing_implementation"
-    | "contract_only"
-    | "data_blocked"
-    | "tool_blocked"
-  reason_code: string
-  required_capabilities: string[]
   requested_trial_budget?: number
-  draft_json?: JSONRecord | string
-  requested_at: string
+  semantic_contract?: DeveloperSemanticContract
 }
 
 export interface ReviewerSubmissionPrepareInput {
@@ -285,9 +308,22 @@ export class ResearchJobService {
       task_profile: "developer",
       tool_name: "research_developer_submission_prepare",
     })
-    const blocked = input.implementation_mode === "data_blocked"
-      || input.implementation_mode === "tool_blocked"
-    const draftJson = blocked ? undefined : parseDraftJson(requiredDraftJson(input.draft_json))
+    const context = await this.readDeveloperAgentContext(input.developer_run_id, input.request_hash)
+    const assessment = context.capability_assessment
+    const blocked = assessment.required_mode === "data_blocked"
+      || assessment.required_mode === "tool_blocked"
+    if (blocked && (input.semantic_contract || input.requested_trial_budget != null)) {
+      throw new Error("blocked Developer submission must omit semantic contract and trial budget")
+    }
+    if (!blocked && !input.semantic_contract) {
+      throw new Error("ready Developer submission requires semantic_contract")
+    }
+    if (!blocked && !assessment.family_capability) {
+      throw new Error("ready Developer context omitted family capability")
+    }
+    if (!blocked && !assessment.data_snapshot_binding) {
+      throw new Error("ready Developer context omitted data snapshot binding")
+    }
     const response = ownerData(await this.execute({
       script: "modules/research-strategy-development/research-control-plane/state-store/src/scripts/main.ts",
       args: [
@@ -297,8 +333,21 @@ export class ResearchJobService {
         "prepare_developer_agent_submission",
         "--json",
         JSON.stringify({
-          ...input,
-          ...(draftJson ? { draft_json: draftJson } : {}),
+          developer_run_id: context.developer_run_id,
+          brief_id: context.brief.brief_id,
+          source_revision: context.source_revision,
+          draft_revision: context.next_draft_revision,
+          predecessor_run_id: context.predecessor_run_id,
+          implementation_mode: assessment.required_mode,
+          reason_code: assessment.reason_code,
+          required_capabilities: assessment.required_capabilities,
+          requested_at: context.requested_at,
+          ...(!blocked ? {
+            requested_trial_budget: input.requested_trial_budget ?? context.brief.max_trial_budget,
+            semantic_contract: input.semantic_contract,
+            family_capability: assessment.family_capability,
+            data_snapshot_binding: assessment.data_snapshot_binding,
+          } : {}),
         }),
       ],
     }))
@@ -306,10 +355,49 @@ export class ResearchJobService {
     if (Object.keys(submission).length === 0) {
       throw new Error("Developer submission owner returned no submission")
     }
-    return {
-      schema_version: "trade.agent-mcp.developer-submission-prepare-result.v1",
-      submission,
+    return submission
+  }
+
+  private async readDeveloperAgentContext(
+    runId: string,
+    requestHash: string,
+  ): Promise<DeveloperAgentContextPack> {
+    const response = ownerData(await this.runOps("read_agent_run", { run_id: runId }))
+    const agentRun = asRecord(response.agent_run)
+    const request = asRecord(agentRun.request)
+    if (request.run_id !== runId
+        || request.request_hash !== requestHash
+        || request.task_profile !== "developer") {
+      throw new Error("Developer Agent Run identity drifted")
     }
+    if (!["accepted", "running"].includes(stringField(agentRun.status))) {
+      throw new Error("Developer Agent Run is not active")
+    }
+    const refs = Array.isArray(request.input_refs) ? request.input_refs : []
+    const contextRef = refs[0] as AgentArtifactRef | undefined
+    if (!contextRef || contextRef.media_type !== "application/json") {
+      throw new Error("Developer Agent Run context artifact is missing")
+    }
+    const artifactResponse = await this.execute({
+      script: "modules/orchestration-ops/agent-artifact-store/src/scripts/main.ts",
+      args: ["--repository-root", "."],
+      stdin_json: { action: "read_text", artifact: contextRef },
+    })
+    if (typeof artifactResponse.text !== "string") {
+      throw new Error("Developer context artifact owner returned no text")
+    }
+    const value = JSON.parse(artifactResponse.text)
+    const context = asRecord(value) as unknown as DeveloperAgentContextPack
+    if (context.schema_version !== DEVELOPER_AGENT_CONTEXT_PACK_SCHEMA
+        || context.developer_run_id !== runId) {
+      throw new Error("Developer context identity drifted")
+    }
+    const { context_pack_hash: packHash, ...body } = context
+    if (!/^[a-f0-9]{64}$/.test(packHash)
+        || canonicalHash(body) !== packHash) {
+      throw new Error("Developer context artifact hash drifted")
+    }
+    return context
   }
 
   async prepareReviewerSubmission(
@@ -517,25 +605,6 @@ export class ResearchJobService {
       throw error
     }
   }
-}
-
-function parseDraftJson(value: JSONRecord | string): JSONRecord {
-  if (typeof value !== "string") return asRecord(value)
-  if (value.length > 500_000) throw new Error("draft_json exceeds 500 KB")
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(value)
-  } catch {
-    throw new Error("draft_json string must contain one JSON object")
-  }
-  const result = asRecord(parsed)
-  if (Object.keys(result).length === 0) throw new Error("draft_json must be non-empty")
-  return result
-}
-
-function requiredDraftJson(value: JSONRecord | string | undefined): JSONRecord | string {
-  if (value == null) throw new Error("non-blocked Developer submission requires draft_json")
-  return value
 }
 
 function buildResearchJobGraphInput(

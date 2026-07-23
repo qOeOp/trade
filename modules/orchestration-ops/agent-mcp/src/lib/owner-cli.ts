@@ -6,6 +6,7 @@ import { assertProjectRuntimePath, displayPath, repoRoot } from "../../../../con
 export interface OwnerCliCommand {
   script: string
   args: string[]
+  stdin_json?: unknown
 }
 
 export type OwnerCliExecutor = (command: OwnerCliCommand) => Promise<Record<string, unknown>>
@@ -31,6 +32,9 @@ export async function executeOwnerCli(
     cmd: [process.execPath, script, ...command.args],
     cwd: root,
     env: process.env,
+    stdin: command.stdin_json === undefined
+      ? "ignore"
+      : new Blob([JSON.stringify(command.stdin_json)]),
     stdout: "pipe",
     stderr: "pipe",
   })

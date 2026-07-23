@@ -103,11 +103,19 @@ import type {
 } from "../../../contracts/src/lib/evaluation-evidence-classification"
 import { buildPlannerProposal } from "../../../../agent-roles/planner/src/lib/planner-role"
 import { buildDeveloperContractDraftSubmission } from "../../../../agent-roles/developer/src/lib/developer-role"
+import type {
+  DeveloperDataSnapshotBinding,
+  StrategyFamilyCapability,
+} from "../../../../../contracts/rd-agent-capability-contract/src/rd-agent-capability-contract"
 import {
   createDeveloperAgentSubmission,
   DEVELOPER_AGENT_SUBMISSION_SCHEMA,
   type DeveloperImplementationMode,
 } from "../../../contracts/src/lib/developer-agent-submission"
+import {
+  compileDeveloperContractDraft,
+  type DeveloperSemanticContract,
+} from "../lib/developer-contract-owner-compiler"
 import {
   createReviewerAgentSubmission,
   REVIEWER_AGENT_SUBMISSION_SCHEMA,
@@ -194,13 +202,16 @@ export function run(args: Args): JSONRecord {
             developer_run_id: developerRunId,
             draft_revision: draftRevision,
             requested_trial_budget: numberField(args.json.requested_trial_budget),
-            draft_json: {
-              ...asRecord(args.json.draft_json),
-              schema_version: "trade.rd-experiment-contract-draft-payload.v1",
-              canonical_node_id: brief.universe_node_id,
-              required_data: brief.dataset_requirements,
-              candidate_space: brief.candidate_space,
-            },
+            draft_json: compileDeveloperContractDraft({
+              brief,
+              source_revision: stringField(args.json.source_revision),
+              draft_revision: draftRevision,
+              requested_trial_budget: numberField(args.json.requested_trial_budget),
+              family_capability: args.json.family_capability as StrategyFamilyCapability,
+              data_snapshot_binding: args.json.data_snapshot_binding as DeveloperDataSnapshotBinding,
+              semantic_contract: args.json.semantic_contract as DeveloperSemanticContract,
+              created_at: createdAt,
+            }),
             created_at: createdAt,
           })
       const submission = createDeveloperAgentSubmission({

@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import type { OwnerCliCommand } from "./owner-cli"
 import { ResearchJobService } from "./research-jobs"
+import { canonicalHash } from "../../../../contracts/runtime-core/src/canonical-json"
 
 type JSONRecord = Record<string, unknown>
 
@@ -306,6 +307,95 @@ test("research status preserves a blocked J04 inside a failed aggregate cycle", 
   const result = await service.result("Blocked-01")
   assert.equal(result.status, "blocked")
   assert.equal(result.cycle_status, "failed")
+})
+
+test("Developer preparation loads immutable Agent Run context and sends only owner-derived identity", async () => {
+  const body = {
+    schema_version: "trade.rd-developer-agent-context-pack.v1",
+    developer_run_id: "developer-context-bound-1",
+    source_revision: "413a4abe",
+    brief: {
+      brief_id: "brief-context-bound-1",
+      brief_hash: "a".repeat(64),
+      max_trial_budget: 8,
+    },
+    capability_assessment: {
+      required_mode: "existing_implementation",
+      reason_code: "existing_replay_implementation_and_data_ready",
+      required_capabilities: ["dataset_snapshot", "replay_implementation"],
+      family_capability: {
+        canonical_node_id: "canonical:trend/time-series-trend/time-series-momentum",
+        family_id: "time_series_momentum_v1",
+      },
+      data_snapshot_binding: {
+        snapshot_ref: "dataset-split://split/BTCUSDT/discovery/4h",
+      },
+    },
+    next_draft_revision: 2,
+    predecessor_run_id: "developer-context-bound-0",
+    replay_result_refs: [],
+    requested_at: "2026-07-23T13:00:00.000Z",
+  }
+  const context = { ...body, context_pack_hash: canonicalHash(body) }
+  const contextRef = {
+    ref: `agent-artifact://temporary/${"d".repeat(64)}`,
+    sha256: "d".repeat(64),
+    media_type: "application/json" as const,
+    bytes: JSON.stringify(context).length,
+  }
+  let statePayload: JSONRecord | undefined
+  const service = new ResearchJobService({
+    execute: async (command) => {
+      if (command.script.includes("agent-artifact-store")) {
+        assert.deepEqual(command.stdin_json, { action: "read_text", artifact: contextRef })
+        return { ok: true, action: "read_text", artifact: contextRef, text: JSON.stringify(context) }
+      }
+      const action = argAfter(command.args, "--action")
+      const payload = JSON.parse(argAfter(command.args, "--json")) as JSONRecord
+      if (command.script.includes("ops-runtime-store")) {
+        if (action === "record_agent_tool_call") return { ok: true, usage: { tool_calls: 1 } }
+        if (action === "read_agent_run") {
+          return {
+            ok: true,
+            agent_run: {
+              status: "running",
+              request: {
+                run_id: body.developer_run_id,
+                request_hash: "b".repeat(64),
+                task_profile: "developer",
+                input_refs: [contextRef],
+              },
+            },
+          }
+        }
+      }
+      statePayload = payload
+      return { ok: true, submission: { submission_hash: "c".repeat(64) } }
+    },
+    start: () => ({ pid: 1, log_path: "tmp/unused.log" }),
+  })
+  const semantic = {
+    schema_version: "trade.rd-developer-semantic-contract.v2" as const,
+    hypothesis: { claim: "trend persists" },
+    economic_rationale: { mechanism: "slow adjustment" },
+    evaluation_intent: { metric: "net return" },
+    rejection_criteria: ["does not exceed costs"],
+  }
+  const prepared = await service.prepareDeveloperSubmission({
+    developer_run_id: body.developer_run_id,
+    request_hash: "b".repeat(64),
+    requested_trial_budget: 4,
+    semantic_contract: semantic,
+  })
+  assert.equal(statePayload?.brief_id, body.brief.brief_id)
+  assert.equal(statePayload?.source_revision, body.source_revision)
+  assert.equal(statePayload?.draft_revision, 2)
+  assert.equal(statePayload?.implementation_mode, "existing_implementation")
+  assert.equal(statePayload?.requested_at, body.requested_at)
+  assert.equal(statePayload?.requested_trial_budget, 4)
+  assert.deepEqual(statePayload?.semantic_contract, semantic)
+  assert.equal(prepared.submission_hash, "c".repeat(64))
+  assert.equal(prepared.submission, undefined)
 })
 
 function argAfter(args: string[], name: string): string {

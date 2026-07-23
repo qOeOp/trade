@@ -26,7 +26,7 @@ import {
   listStrategyFamilyCapabilities,
   readStrategyFamilyCapability,
   type StrategyFamilyCapability,
-} from "../../../../agent-roles/developer/strategy-family-engine/src/lib/strategy-family-capability"
+} from "../../../../../contracts/rd-agent-capability-contract/src/rd-agent-capability-contract"
 import { admitPlannerProposal } from "../../../state-store/src/lib/planner-proposal-intake"
 
 export const PLANNER_AGENT_CONTEXT_PACK_SCHEMA =

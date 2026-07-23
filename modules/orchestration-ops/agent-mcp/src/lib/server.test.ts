@@ -48,7 +48,7 @@ test("MCP task profiles project a closed capability subset", async () => {
         const schema = listed.find(
           (tool) => tool.name === "research_developer_submission_prepare",
         )?.inputSchema as { properties?: Record<string, unknown> } | undefined
-        assert.ok(schema?.properties?.implementation_mode)
+        assert.ok(schema?.properties?.semantic_contract)
         assert.ok(schema?.properties?.developer_run_id)
       }
     } finally {

@@ -36,5 +36,22 @@ describe("strategy family capability registry", () => {
       unsupported_axes: ["lookback_period"],
       invalid_axes: ["threshold_atr"],
     })
+    expect(family?.parameter_axes.find((axis) => axis.name === "threshold_atr"))
+      .toMatchObject({ minimum: 0, exclusive_minimum: true })
+    expect(family?.implementation_contract).toMatchObject({
+      feature_definition: {
+        formula: "(close[index] - close[index-lookback_bars]) / ATR14[index]",
+        visibility: "closed_candle_only",
+      },
+      risk_rule: {
+        entry_risk_gate: "reject unless 0 < abs(entry-stop) <= max_risk_atr*ATR14",
+        target: "entry plus or minus abs(entry-stop)*reward_risk",
+      },
+      execution_rule: {
+        order_authority: "family emits a signal only and has no exchange-write authority",
+      },
+    })
+    expect(assessCandidateSpaceCompatibility({ threshold_atr: [0] }, family!))
+      .toMatchObject({ compatible: false, invalid_axes: ["threshold_atr"] })
   })
 })

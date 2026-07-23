@@ -30,6 +30,8 @@ test("Developer capability assessment separates proposal, data, and ready paths"
     snapshot_hash: HASH,
     dataset_kinds: ["ohlcv"],
     hypothesis_id: "hypothesis-1",
+    symbol: "BTCUSDT",
+    exchange: "binanceusdm",
     segment: "discovery",
     timeframe: "4h",
     manifest_ref: "data/rd-datasets/example/discovery/manifest.json",

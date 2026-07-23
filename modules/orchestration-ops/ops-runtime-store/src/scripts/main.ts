@@ -39,6 +39,7 @@ import type { WatchTaskEvaluation } from "../../../../contracts/watch-task-contr
 import { displayPath } from "../../../../contracts/runtime-core/src/paths"
 import {
   ensureAgentRunStoreSchema,
+  readAgentRun,
   readAgentRunToolUsage,
   recordAgentRunToolCall,
 } from "../lib/agent-run-store"
@@ -143,6 +144,12 @@ export function run(args: Args): JSONRecord {
         ),
       }
     }
+    if (args.action === "read_agent_run") {
+      const runId = stringField(args.json.run_id)
+      const agentRun = readAgentRun(db, runId)
+      if (!agentRun) throw new Error(`Agent Run not found: ${runId}`)
+      return { ok: true, action: args.action, agent_run: agentRun }
+    }
     if (args.action === "record_job") {
       const job = buildJobRun(args.json)
       upsertJobRun(db, job)
@@ -208,7 +215,7 @@ export function run(args: Args): JSONRecord {
 function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/ops_runtime.db --action init",
-    "actions: init | record_cycle | record_job | record_message | list_messages | record_incident | list_incidents | update_incident | list_incident_events | acquire_lock | read_lock | renew_lock | release_lock | summary | parity_status | record_agent_tool_call | read_agent_tool_usage | watch_create | watch_read | watch_arm | watch_apply_evaluation | watch_handoff | watch_complete | watch_cancel",
+    "actions: init | record_cycle | record_job | record_message | list_messages | record_incident | list_incidents | update_incident | list_incident_events | acquire_lock | read_lock | renew_lock | release_lock | summary | parity_status | record_agent_tool_call | read_agent_tool_usage | read_agent_run | watch_create | watch_read | watch_arm | watch_apply_evaluation | watch_handoff | watch_complete | watch_cancel",
   ].join("\n"))
 }
 

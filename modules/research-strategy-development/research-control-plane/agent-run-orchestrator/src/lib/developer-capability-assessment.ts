@@ -2,32 +2,21 @@ import { canonicalHash } from "../../../../../contracts/runtime-core/src/canonic
 import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
 import {
   assessCandidateSpaceCompatibility,
+  createDeveloperDataSnapshotBinding,
   readStrategyFamilyCapability,
   type CandidateSpaceCompatibility,
+  type DeveloperDataSnapshotBinding,
   type StrategyFamilyCapability,
-} from "../../../../agent-roles/developer/strategy-family-engine/src/lib/strategy-family-capability"
+} from "../../../../../contracts/rd-agent-capability-contract/src/rd-agent-capability-contract"
 import type { DeveloperDevelopmentBrief } from "../../../contracts/src/lib/developer-contract-draft"
 
-export const DEVELOPER_DATA_SNAPSHOT_BINDING_SCHEMA_VERSION =
-  "trade.rd-developer-data-snapshot-binding.v1" as const
+export {
+  createDeveloperDataSnapshotBinding,
+  DEVELOPER_DATA_SNAPSHOT_BINDING_SCHEMA_VERSION,
+  type DeveloperDataSnapshotBinding,
+} from "../../../../../contracts/rd-agent-capability-contract/src/rd-agent-capability-contract"
 export const DEVELOPER_CAPABILITY_ASSESSMENT_SCHEMA_VERSION =
   "trade.rd-developer-capability-assessment.v1" as const
-
-export interface DeveloperDataSnapshotBindingBody extends JSONRecord {
-  schema_version: typeof DEVELOPER_DATA_SNAPSHOT_BINDING_SCHEMA_VERSION
-  snapshot_ref: string
-  snapshot_hash: string
-  dataset_kinds: string[]
-  hypothesis_id: string
-  segment: "discovery" | "validation"
-  timeframe: string
-  manifest_ref: string
-  evidence_ref: string
-}
-
-export interface DeveloperDataSnapshotBinding extends DeveloperDataSnapshotBindingBody {
-  binding_hash: string
-}
 
 export interface DeveloperCapabilityAssessmentBody extends JSONRecord {
   schema_version: typeof DEVELOPER_CAPABILITY_ASSESSMENT_SCHEMA_VERSION
@@ -43,26 +32,6 @@ export interface DeveloperCapabilityAssessmentBody extends JSONRecord {
 
 export interface DeveloperCapabilityAssessment extends DeveloperCapabilityAssessmentBody {
   assessment_hash: string
-}
-
-export function createDeveloperDataSnapshotBinding(
-  input: DeveloperDataSnapshotBindingBody,
-): DeveloperDataSnapshotBinding {
-  if (input.schema_version !== DEVELOPER_DATA_SNAPSHOT_BINDING_SCHEMA_VERSION) {
-    throw new Error("Developer data snapshot binding schema is unsupported")
-  }
-  const body: DeveloperDataSnapshotBindingBody = {
-    schema_version: DEVELOPER_DATA_SNAPSHOT_BINDING_SCHEMA_VERSION,
-    snapshot_ref: nonempty(input.snapshot_ref, "snapshot_ref"),
-    snapshot_hash: digest(input.snapshot_hash, "snapshot_hash"),
-    dataset_kinds: uniqueStrings(input.dataset_kinds, "dataset_kinds"),
-    hypothesis_id: nonempty(input.hypothesis_id, "hypothesis_id"),
-    segment: segment(input.segment),
-    timeframe: nonempty(input.timeframe, "timeframe"),
-    manifest_ref: nonempty(input.manifest_ref, "manifest_ref"),
-    evidence_ref: nonempty(input.evidence_ref, "evidence_ref"),
-  }
-  return { ...body, binding_hash: canonicalHash(body) }
 }
 
 export function createDeveloperCapabilityAssessment(input: {
@@ -131,30 +100,8 @@ export function createDeveloperCapabilityAssessment(input: {
   return { ...body, assessment_hash: canonicalHash(body) }
 }
 
-function uniqueStrings(values: string[], field: string): string[] {
-  if (!Array.isArray(values)) throw new Error(`${field} must be an array`)
-  const normalized = values.map((value) => nonempty(value, field)).sort()
-  if (normalized.length === 0 || new Set(normalized).size !== normalized.length) {
-    throw new Error(`${field} must be non-empty and unique`)
-  }
-  return normalized
-}
-
 function sameStrings(left: string[], right: string[]): boolean {
   return JSON.stringify([...left].sort()) === JSON.stringify([...right].sort())
-}
-
-function digest(value: string, field: string): string {
-  const normalized = nonempty(value, field)
-  if (!/^[a-f0-9]{64}$/.test(normalized)) throw new Error(`${field} must be a lowercase sha256 digest`)
-  return normalized
-}
-
-function segment(value: string): "discovery" | "validation" {
-  if (value !== "discovery" && value !== "validation") {
-    throw new Error("Developer data snapshot segment is unsupported")
-  }
-  return value
 }
 
 function revision(value: string): string {

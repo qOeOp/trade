@@ -55,6 +55,8 @@ test("Developer Agent capability assessment and draft enter the existing unvalid
         snapshot_hash: "a".repeat(64),
         dataset_kinds: ["ohlcv"],
         hypothesis_id: proposal.hypothesis_id,
+        symbol: "BTCUSDT",
+        exchange: "binanceusdm",
         segment: "discovery",
         timeframe: "4h",
         manifest_ref: "data/rd-datasets/example/discovery/manifest.json",
