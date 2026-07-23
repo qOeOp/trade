@@ -46,6 +46,7 @@ product contract
 - 交易所事实优先于本地投影；投影必须可从权威事件重建。
 - research 不写 `trade.db`，不调用 Binance write；market data 不输出交易动作。
 - 新增风险必须经过 registered policy、短期 runtime authorization、fresh account facts、account-scoped portfolio projection、preflight、execution contract 和 bounded execution capability。
+- Agent Host、MCP、HTTP 和单次模型任务都是北向 capability consumer；它们不拥有 cadence、domain state、长期授权或 exchange side effect。
 - 生成图和目录只是投影，不能反向创造产品边界。
 
 ## 3. 顶层责任域
@@ -157,6 +158,8 @@ Universe / Knowledge / Proposal
 
 Rail 是协议 namespace，不等于 broker、队列或物理 transport。每个 domain envelope 已强制声明 `interaction`；不能只凭 rail 名称推断权限：
 
+当前物理基线、message route SLO、delivery / ordering / replay、service 拆分门、broker 采用门与语言边界见 [Physical Runtime and Transport Decision](./physical-runtime-transport.md)。`domain-bus` 当前只做 control envelope audit，不是 worker dispatcher 或高吞吐 broker；顶层 domain 也不自动对应独立网络服务。
+
 | Message class | Semantics | Core constraint |
 | --- | --- | --- |
 | `command` | 指定唯一 target 执行动作 | targeted、bounded capability、idempotent |
@@ -208,6 +211,8 @@ Rail 是协议 namespace，不等于 broker、队列或物理 transport。每个
 - Replay 已有受限 certified vertical slice；未认证的 queue/depth partial、通用 multi-order、remote transport 等不得表述为已支持。
 - compatibility 子树仍存在时，只能缩减，不能新增 authority 语义。
 - 多策略组合级资本竞争、相关性约束和资金 reservation authority 尚未决定；当前只有 policy cap、decision proposal、state projection 与 execution preflight，不提前新增 portfolio allocator。
+- 当前仍是单节点模块化 runtime 加已批准的独立 Rust L2 数据面；broker、跨节点服务拆分和 exchange write 独立 trust unit 都必须经过 [physical transport adoption gate](./physical-runtime-transport.md)，不得把目标态冒充当前部署。
+- 当前 Agent 北向事实只有外部 Codex/MCP 操作和受限 Model Gateway task；常驻可替换 Host 尚未采用。[Agent Host Runtime plan](./migrations/agent-host-runtime-integration-plan.md) 只定义 proposed adapter/评测路径，不新增 domain、store 或当前部署单元。
 
 ## 10. 变更合同
 
