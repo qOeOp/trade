@@ -1,6 +1,15 @@
 import { expect, test } from "bun:test"
 import { Database } from "bun:sqlite"
 import {
+  buildOhlcvCoverageAuditFixture,
+} from "../../../../../contracts/market-data-demand-contract/src/ohlcv-coverage-test-fixtures"
+import {
+  reconcileMarketDataDemands,
+} from "../../../../../contracts/market-data-demand-contract/src/market-data-demand-contract"
+import {
+  createForwardObservationCandleSegment,
+} from "../../../contracts/src/lib/forward-observation-candle-segment"
+import {
   buildForwardObservationMarketDataDemand,
   createForwardObservationProgram,
 } from "../../../contracts/src/lib/forward-observation-program"
@@ -11,6 +20,11 @@ import {
   readLatestForwardMarketDataDemandDelivery,
   recordForwardMarketDataDemandDelivery,
 } from "./forward-observation-program"
+import {
+  admitForwardObservationCandleSegment,
+  listForwardObservationCandleSegments,
+  readLatestForwardObservationCandleSegment,
+} from "./forward-observation-candle-segment"
 
 const HASH = "a".repeat(64)
 
@@ -67,6 +81,57 @@ test("Forward observation program rejects historical Replay identity drift", () 
   db.close()
 })
 
+test("Forward candle segment registry enforces the durable gapless owner-evidence chain", () => {
+  const db = fixtureDb()
+  const program = admitForwardObservationProgram(db, fixtureProgram())
+  const demand = buildForwardObservationMarketDataDemand(program, {
+    issued_at: "2026-07-23T03:00:00.000Z",
+  })
+  const acceptedAt = "2026-07-23T03:00:01.000Z"
+  recordForwardMarketDataDemandDelivery(db, {
+    program_id: program.program_id,
+    demand,
+    owner_commit_status: "created",
+    accepted_at: acceptedAt,
+  })
+  const start = Date.parse(program.first_observation_open_time)
+  const segment = createForwardObservationCandleSegment({
+    program,
+    previous_segment: null,
+    demand,
+    demand_accepted_at: acceptedAt,
+    subscription_plan: reconcileMarketDataDemands({
+      demands: [demand],
+      observed_at: "2026-07-23T08:01:00.000Z",
+      max_symbols: 20,
+    }),
+    coverage_audit: buildOhlcvCoverageAuditFixture({
+      symbol: program.symbol,
+      timeframe: program.timeframe,
+      start_open_time: start,
+      end_open_time: start,
+    }, "2026-07-23T08:01:00.000Z", true),
+    candle_slice: fixtureSlice(start),
+    created_at: "2026-07-23T08:01:00.000Z",
+  })
+  expect(admitForwardObservationCandleSegment(db, segment))
+    .toBe("created")
+  expect(admitForwardObservationCandleSegment(db, segment))
+    .toBe("existing")
+  expect(readLatestForwardObservationCandleSegment(
+    db,
+    program.program_id,
+  )).toEqual(segment)
+  expect(listForwardObservationCandleSegments(
+    db,
+    program.program_id,
+  )).toEqual([segment])
+  expect(() => db.query(`
+    UPDATE rd_forward_observation_candle_segment SET row_count=2
+  `).run()).toThrow()
+  db.close()
+})
+
 function fixtureProgram() {
   return createForwardObservationProgram({
     program_id: "forward-program-1",
@@ -87,6 +152,20 @@ function fixtureProgram() {
     market_data_demand_id: "rd-forward:source-1",
     created_at: "2026-07-23T02:00:00.000Z",
   })
+}
+
+function fixtureSlice(openTime: number) {
+  const hash = "b".repeat(64)
+  return {
+    schema_version: "market-data.candle-slice-export.v1" as const,
+    slice_ref: `market-data://candle-slice/${hash}`,
+    manifest_path:
+      `data/artifacts/market-data/candle-slices/${hash}/manifest.json`,
+    content_sha256: hash,
+    rows: 1,
+    first_open_ts: openTime,
+    last_open_ts: openTime,
+  }
 }
 
 function fixtureDb(): Database {

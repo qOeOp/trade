@@ -1401,3 +1401,31 @@ CREATE TABLE IF NOT EXISTS rd_forward_market_data_demand_delivery (
   FOREIGN KEY (program_id)
     REFERENCES rd_forward_observation_program(program_id)
 );
+
+CREATE TABLE IF NOT EXISTS rd_forward_observation_candle_segment (
+  segment_id TEXT PRIMARY KEY,
+  segment_hash TEXT NOT NULL UNIQUE,
+  program_id TEXT NOT NULL,
+  program_hash TEXT NOT NULL,
+  previous_segment_id TEXT,
+  previous_segment_hash TEXT,
+  demand_hash TEXT NOT NULL,
+  subscription_plan_hash TEXT NOT NULL,
+  coverage_audit_hash TEXT NOT NULL,
+  market_data_fact_hash TEXT NOT NULL UNIQUE,
+  candle_slice_ref TEXT NOT NULL,
+  candle_slice_content_sha256 TEXT NOT NULL,
+  start_open_time TEXT NOT NULL,
+  end_open_time TEXT NOT NULL,
+  data_watermark TEXT NOT NULL,
+  row_count INTEGER NOT NULL CHECK(row_count > 0),
+  segment_json TEXT NOT NULL CHECK(json_valid(segment_json)),
+  created_at TEXT NOT NULL,
+  UNIQUE(program_id, data_watermark),
+  FOREIGN KEY (program_id)
+    REFERENCES rd_forward_observation_program(program_id),
+  FOREIGN KEY (previous_segment_id)
+    REFERENCES rd_forward_observation_candle_segment(segment_id),
+  FOREIGN KEY (demand_hash)
+    REFERENCES rd_forward_market_data_demand_delivery(demand_hash)
+);

@@ -37,6 +37,7 @@ Owns the stable cross-plane identity and Draft Strategy authorization contracts.
 - Define the registered Draft Strategy binding consumed by Forward Evidence Plane.
 - Define self-hashed `Certified Strategy Source Binding v1` as the only source identity accepted by Forward admission. It joins the exact Draft/Decision/policy hash to Registry candidate、Ops certification manifest、candidate source revision/archive and historical Replay build/runtime hashes while granting only `source_binding_only`; deployment and trading authority remain absent.
 - Define self-hashed `Forward Observation Program v1`. It derives one symbol/timeframe and the first strictly post-freeze candle boundary from the certified source、Draft freeze and exact historical Replay registration. Its only active output is a renewable Research-priority OHLCV demand；it cannot create a Forward Session、Dataset/Reservation、Replay authority、deployment or trade.
+- Define self-hashed `Forward Observation Candle Segment v1`. Each segment binds the exact accepted demand、owner subscription plan、zero-gap coverage audit、derived `MarketDataFactRef` and immutable candle-slice export into a gapless predecessor chain of strictly post-freeze closed candles. It is only a scalable dataset-materialization segment；it is not yet a Replay Dataset Manifest、Forward admission、Reservation、Session、Result、deployment or trading authority.
 - Reject incomplete or mutable-looking boundary objects before owner commands run.
 
 ## Boundaries

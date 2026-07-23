@@ -29,10 +29,10 @@ import {
 } from "./lib/rd-forward-observation-program"
 import {
   resolveWorkerDataPath,
-  workerAbsolutePath,
   workerBoundedInteger,
   workerDelay,
-  workerRepoPath,
+  workerFlagValues,
+  workerResearchMarketDataPaths,
 } from "./lib/resident-worker-cli"
 
 async function main(): Promise<void> {
@@ -244,7 +244,6 @@ function parseArgs(argv: string[]): {
   renew_before_ms: number
   max_programs_per_cycle: number
 } {
-  const values = new Map<string, string>()
   const allowed = new Set([
     "repository-root",
     "research-db",
@@ -258,50 +257,15 @@ function parseArgs(argv: string[]): {
     "renew-before-ms",
     "max-programs-per-cycle",
   ])
-  for (let index = 0; index < argv.length; index += 2) {
-    const flag = argv[index]
-    const value = argv[index + 1]
-    if (!flag?.startsWith("--") || value == null) {
-      throw new Error(
-        "Forward market-data worker arguments must be --key value pairs",
-      )
-    }
-    const key = flag.slice(2)
-    if (!allowed.has(key)) throw new Error(`unknown argument: ${flag}`)
-    if (values.has(key)) throw new Error(`duplicate argument: ${flag}`)
-    values.set(key, value)
-  }
+  const values = workerFlagValues(
+    argv,
+    allowed,
+    "Forward market-data worker",
+  )
   return {
-    repository_root: values.get("repository-root")
-      || process.env.TRADE_REPO_ROOT
-      || process.cwd(),
-    research_db: workerRepoPath(
-      values.get("research-db")
-        || process.env.TRADE_RD_STATE_DB
-        || "data/rd_state.db",
-      "research_db",
-    ),
-    market_data_db: workerRepoPath(
-      values.get("market-data-db")
-        || process.env.TRADE_MARKET_DATA_DB
-        || "data/market_data.db",
-      "market_data_db",
-    ),
-    ohlcv_db: workerRepoPath(
-      values.get("ohlcv-db")
-        || process.env.TRADE_OHLCV_DB
-        || "data/ohlcv.db",
-      "ohlcv_db",
-    ),
-    ready_file: workerAbsolutePath(
-      values.get("ready-file")
-        || "/app/tmp/runtime/forward-market-data-worker/ready",
-      "ready_file",
-    ),
-    state_file: workerAbsolutePath(
-      values.get("state-file")
-        || "/app/tmp/runtime/forward-market-data-worker/state.json",
-      "state_file",
+    ...workerResearchMarketDataPaths(
+      values,
+      "forward-market-data-worker",
     ),
     poll_interval_ms: workerBoundedInteger(
       values.get("poll-interval-ms") ?? "60000",

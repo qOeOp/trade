@@ -358,6 +358,37 @@ export function readLatestForwardMarketDataDemandDelivery(
   }
 }
 
+export function readForwardMarketDataDemandDelivery(
+  db: Database,
+  demandHash: string,
+): ForwardMarketDataDemandDelivery | undefined {
+  ensureForwardObservationProgramSchema(db)
+  const row = db.query(`
+    SELECT program_id, demand_json, owner_commit_status, accepted_at
+    FROM rd_forward_market_data_demand_delivery
+    WHERE demand_hash=$demand_hash
+  `).get({
+    $demand_hash: digest(demandHash, "demand_hash"),
+  }) as {
+    program_id: string
+    demand_json: string
+    owner_commit_status:
+      ForwardMarketDataDemandDelivery["owner_commit_status"]
+    accepted_at: string
+  } | null
+  if (!row) return undefined
+  const program = requireForwardObservationProgram(db, row.program_id)
+  return {
+    program_id: program.program_id,
+    demand: assertForwardObservationMarketDataDemand(
+      program,
+      JSON.parse(row.demand_json),
+    ),
+    owner_commit_status: row.owner_commit_status,
+    accepted_at: utc(row.accepted_at, "stored accepted_at"),
+  }
+}
+
 function requireForwardObservationProgram(
   db: Database,
   programId: string,
@@ -371,6 +402,13 @@ function identifier(value: unknown, field: string): string {
   if (typeof value !== "string"
       || !/^[A-Za-z0-9][A-Za-z0-9:._-]{0,191}$/.test(value)) {
     throw new Error(`${field} is invalid`)
+  }
+  return value
+}
+
+function digest(value: unknown, field: string): string {
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) {
+    throw new Error(`${field} must be sha256`)
   }
   return value
 }

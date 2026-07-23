@@ -550,6 +550,53 @@ services:
         max-size: 20m
         max-file: "5"
 
+  forward-candle-segment-worker:
+    image: trade-runtime:${TRADE_IMAGE_TAG:-local}
+    restart: always
+    stop_grace_period: 30s
+    read_only: true
+    user: "10001:10001"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 0.5
+    environment:
+      TRADE_RD_STATE_DB: data/rd_state.db
+      TRADE_MARKET_DATA_DB: data/market_data.db
+      TRADE_OHLCV_DB: data/ohlcv.db
+    volumes:
+      - trade-data:/app/data
+      - trade-runtime-tmp:/app/tmp
+    depends_on:
+      runtime:
+        condition: service_healthy
+      forward-market-data-worker:
+        condition: service_healthy
+    command:
+      - bun
+      - scripts/rd-forward-candle-segment-worker.ts
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - const s=JSON.parse(await Bun.file("tmp/runtime/forward-candle-segment-worker/state.json").text());process.exit(s.status==="running"&&Date.now()-Date.parse(s.updated_at)<150000&&s.forward_dataset_materialization_authority==="segment_only"&&s.forward_replay_admission_authority==="none"&&s.deployment_authority==="none"&&!s.trading_authority?0:1)
+      interval: 30s
+      timeout: 5s
+      retries: 4
+      start_period: 45s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
   agent-mcp-planner:
     <<: &agent-mcp
       image: trade-runtime:${TRADE_IMAGE_TAG:-local}
