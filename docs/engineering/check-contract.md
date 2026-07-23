@@ -38,7 +38,7 @@ last_verified: 2026-07-24 CST
 | `replay-runner-worker-v10` | `modules/research-strategy-development/replay-execution-plane/runner` | `bun run test:worker-v10` | 单实例运行深证据链集成测试，并输出阶段耗时 |
 | `replay-runner-remaining` | `modules/research-strategy-development/replay-execution-plane/runner` | `bun run test:remaining` | 不与巨型 worker-v10 场景混跑的其余 runner 回归 |
 | `replay-semantic` | repo root | `bun run check:replay-semantic` | worker-v10 核心确定性、authority、resume、Artifact 与切换语义；不运行 release closure |
-| `replay-release` | repo root | `bun run check:replay-release` | maturity evidence closure + Plane 全部 canonical/compatibility package certification |
+| `replay-release` | repo root | `bun run check:replay-release` | maturity evidence closure + Plane 全部 canonical/compatibility package certification；runner certification 必须包含 worker-v10 semantic，独立审计绑定裁判与 golden 测试源码 |
 | `replay-certification` | `modules/research-strategy-development/replay-execution-plane/certification/replay-certification` | `bun run certify` | Plane 内全部 canonical/compatibility package 的唯一、顺序、fail-fast certification 入口 |
 | `quality-judge-regression` | repo root | `bun test ./scripts/*.test.ts` | 用恶意反例证明架构、evidence、测试完整性审查 fail closed |
 | `development-convergence` | repo root | `bun scripts/check-convergence-budget.ts` | 恢复期冻结 module owner、registered tool、domain、store、job、rail 表面积；超出基线 hard fail |

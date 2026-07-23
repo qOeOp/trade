@@ -106,6 +106,9 @@ export function assertReplayCertificationManifest(
     if (packageJson.name !== suite.package_name || !packageJson.scripts?.check) {
       throw new Error(`Replay certification package does not expose its declared check: ${suite.package_path}`)
     }
+    if (suite.package_path === `${REPLAY_PLANE_ROOT}/runner`) {
+      assertReplayRunnerCertificationScripts(packageJson.scripts)
+    }
     const compatibilityPath = suite.package_path.includes("/compatibility/")
       || suite.package_path.includes("/certification/legacy-")
     if ((suite.classification === "compatibility") !== compatibilityPath) {
@@ -214,7 +217,7 @@ export async function runReplayCertification(
   for (const suite of manifest.suites) {
     if (scope !== "all" && suite.classification !== scope) continue
     process.stderr.write(`replay-certification: ${suite.classification} ${suite.package_path}\n`)
-    const child = Bun.spawn(["bun", "run", "check"], {
+    const child = Bun.spawn(replayCertificationCommand(suite.package_path), {
       cwd: join(repoRoot, suite.package_path),
       stdin: "ignore",
       stdout: "inherit",
@@ -222,6 +225,26 @@ export async function runReplayCertification(
     })
     const exitCode = await child.exited
     if (exitCode !== 0) throw new Error(`Replay certification failed: ${suite.package_path}`)
+  }
+}
+
+export function replayCertificationCommand(packagePath: string): string[] {
+  return packagePath === `${REPLAY_PLANE_ROOT}/runner`
+    ? ["bun", "run", "test:release"]
+    : ["bun", "run", "check"]
+}
+
+export function assertReplayRunnerCertificationScripts(scripts: Record<string, string>): void {
+  const expected = {
+    "test:release": "bun run lint && bun run test",
+    test: "bun run test:worker-v10 && bun run test:remaining",
+    "test:worker-v10": "sh ../../../../scripts/run-exclusive-test.sh replay-runner-heavyweight env REPLAY_TEST_PROFILE=1 bun test ./src/lib/replay-decision-worker-input-assembly-v4.test.ts",
+    "test:remaining": "bun run test:remaining:main && bun run test:remaining:protective-stop-cancel-cycle",
+    "test:remaining:main": "sh ../../../../scripts/run-exclusive-test.sh replay-runner-heavyweight bun test ./src/lib/replay-bar-linked-stop-entry-path-runner.test.ts ./src/lib/replay-durable-parent-validation-receipt.test.ts ./src/lib/replay-independent-lane-batch-runner.test.ts ./src/lib/replay-local-artifact-store.test.ts ./src/lib/replay-portfolio-two-fixed-partial-terminal-runner.test.ts ./src/lib/replay-trial-runner.test.ts ./src/scripts/main.test.ts --test-name-pattern '^(?!protective-stop cancel releases admission risk only after full-flat and rolls four committed cycles$).*'",
+    "test:remaining:protective-stop-cancel-cycle": "sh ../../../../scripts/run-exclusive-test.sh replay-runner-heavyweight bun test ./src/lib/replay-independent-lane-batch-runner.test.ts --test-name-pattern '^protective-stop cancel releases admission risk only after full-flat and rolls four committed cycles$'",
+  }
+  for (const [name, command] of Object.entries(expected)) {
+    if (scripts[name] !== command) throw new Error(`Replay runner certification script drifted: ${name}`)
   }
 }
 

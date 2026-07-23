@@ -25,6 +25,7 @@ export interface AuditCommand {
 interface AuditSourceBinding {
   role: string
   path: string
+  sha256: string
 }
 
 export interface ReplayIndependentReleaseAuditManifest {
@@ -34,6 +35,7 @@ export interface ReplayIndependentReleaseAuditManifest {
   independence_policy: string
   verification_policy: string
   verdict_scope: string
+  runtime: { name: "bun"; version: string }
   required_exit_gates: { m4: string[]; m5_pre_audit: string[] }
   commands: AuditCommand[]
   negative_challenges: string[]
@@ -63,6 +65,7 @@ interface AuditedProfile {
   profile: string
   golden_path: string
   golden_test_name: string
+  golden_source_sha256: string
 }
 
 interface AuditedFixturePack {
@@ -167,6 +170,13 @@ const EXPECTED_SOURCE_BINDINGS = [
   { role: "independent-auditor", path: `${REPLAY_RELEASE_AUDIT_OWNER}/src/lib/replay-independent-release-audit.ts` },
   { role: "independent-auditor-test", path: `${REPLAY_RELEASE_AUDIT_OWNER}/src/lib/replay-independent-release-audit.test.ts` },
   { role: "maturity-gate-consumer", path: "scripts/check-rd-replay-maturity-gate.ts" },
+  { role: "subject-certification-runner", path: `${SUBJECT_OWNER}/src/lib/replay-certification.ts` },
+  { role: "subject-certification-test", path: `${SUBJECT_OWNER}/src/lib/replay-certification.test.ts` },
+  { role: "runner-certification-package", path: "modules/research-strategy-development/replay-execution-plane/runner/package.json" },
+  {
+    role: "runner-worker-v10-semantic-test",
+    path: "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-decision-worker-input-assembly-v4.test.ts",
+  },
 ]
 
 const EXPECTED_LIMITATIONS = [
@@ -223,7 +233,9 @@ export function assertReplayIndependentReleaseAuditManifest(
       || manifest.subject.fixture_pack_path !== `${SUBJECT_OWNER}/replay-release-candidate-fixture-pack.json`
       || manifest.independence_policy !== "auditor-outside-subject-owner-no-subject-implementation-import"
       || manifest.verification_policy !== "independent-pack-and-component-rehash-negative-challenges-then-full-certify"
-      || manifest.verdict_scope !== "release-grade-only-within-frozen-four-profile-declared-evidence-envelope") {
+      || manifest.verdict_scope !== "release-grade-only-within-frozen-four-profile-declared-evidence-envelope"
+      || manifest.runtime.name !== "bun"
+      || manifest.runtime.version !== repositoryBunVersion(repoRoot)) {
     throw new Error("unsupported Replay independent release audit manifest")
   }
   const auditorOwner: string = manifest.owner
@@ -249,6 +261,9 @@ export function assertReplayIndependentReleaseAuditManifest(
       throw new Error(`Replay independent audit source identity drifted: ${binding.role}`)
     }
     const source = readRepoSource(repoRoot, binding.path)
+    if (sha256(source) !== binding.sha256) {
+      throw new Error(`Replay independent audit source drifted: ${binding.role}`)
+    }
     if (binding.role === "independent-auditor"
         && /from\s+["'][^"']*replay-certification\//.test(source)) {
       throw new Error("Replay independent auditor imports subject-owner implementation")
@@ -274,6 +289,9 @@ export async function runReplayIndependentReleaseAudit(
   repoRoot: string,
 ): Promise<ReplayIndependentReleaseAuditReceipt> {
   assertReplayIndependentReleaseAuditManifest(manifest, maturity, repoRoot)
+  if (Bun.version !== manifest.runtime.version) {
+    throw new Error(`Replay independent audit runtime drifted: bun ${Bun.version}`)
+  }
   const fixturePack = JSON.parse(readRepoSource(
     repoRoot,
     manifest.subject.fixture_pack_path,
@@ -307,7 +325,8 @@ export function assertReplayIndependentReleaseAuditReceipt(
       || receipt.verdict !== "passed-within-declared-evidence-envelope"
       || receipt.audit_manifest_sha256 !== manifest.audit_manifest_sha256
       || receipt.subject_pack_sha256 !== manifest.subject.fixture_pack_sha256
-      || receipt.runtime.name !== "bun" || !receipt.runtime.version) {
+      || receipt.runtime.name !== manifest.runtime.name
+      || receipt.runtime.version !== manifest.runtime.version) {
     throw new Error("unsupported Replay independent release audit receipt")
   }
   if (JSON.stringify(receipt.negative_challenges)
@@ -327,6 +346,15 @@ export function assertReplayIndependentReleaseAuditReceipt(
   if (receipt.receipt_sha256 !== sha256(stableJson(body))) {
     throw new Error("Replay independent release audit receipt hash drifted")
   }
+}
+
+function repositoryBunVersion(repoRoot: string): string {
+  const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as {
+    packageManager?: string
+  }
+  const match = /^bun@(.+)$/.exec(packageJson.packageManager ?? "")
+  if (!match) throw new Error("repository packageManager must freeze Bun")
+  return match[1]!
 }
 
 export function replayIndependentReleaseAuditManifestHash(
@@ -390,7 +418,8 @@ function assertAuditedFixturePack(pack: AuditedFixturePack, repoRoot: string): v
   })
   for (const profile of pack.profiles) {
     const source = readRepoSource(repoRoot, profile.golden_path)
-    if (!source.includes(`test(${JSON.stringify(profile.golden_test_name)}`)) {
+    if (sha256(source) !== profile.golden_source_sha256
+        || !source.includes(`test(${JSON.stringify(profile.golden_test_name)}`)) {
       throw new Error(`independently audited Replay profile golden drifted: ${profile.profile}`)
     }
   }

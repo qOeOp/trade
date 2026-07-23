@@ -4,12 +4,16 @@
   "subject": {
     "owner": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification",
     "fixture_pack_path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-release-candidate-fixture-pack.json",
-    "fixture_pack_content_sha256": "63fd40f91138751b90fe53bb742c0e00508680e2ae9bc4638d55f70cd7b9623e",
-    "fixture_pack_sha256": "129e4e7daf44b3d6460de36927f268a35a62ca07b1aa13bf0409e57353f1493d"
+    "fixture_pack_content_sha256": "b4ade6a9ed1ca6b2c48174e4d55119a9f74405648f2780c5dc4954b72d57bf88",
+    "fixture_pack_sha256": "4032144a6de77bf9ad7bf99de106956a31da1b2961d9a1e0509e24bac04f7765"
   },
   "independence_policy": "auditor-outside-subject-owner-no-subject-implementation-import",
   "verification_policy": "independent-pack-and-component-rehash-negative-challenges-then-full-certify",
   "verdict_scope": "release-grade-only-within-frozen-four-profile-declared-evidence-envelope",
+  "runtime": {
+    "name": "bun",
+    "version": "1.3.13"
+  },
   "required_exit_gates": {
     "m4": [
       "p1_through_p29_inventory_frozen",
@@ -63,15 +67,38 @@
   "source_bindings": [
     {
       "role": "independent-auditor",
-      "path": "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/src/lib/replay-independent-release-audit.ts"
+      "path": "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/src/lib/replay-independent-release-audit.ts",
+      "sha256": "92da123e6d383136927c7baf57d204d58a5da2ec06c653109f7ba2c19b952aab"
     },
     {
       "role": "independent-auditor-test",
-      "path": "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/src/lib/replay-independent-release-audit.test.ts"
+      "path": "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/src/lib/replay-independent-release-audit.test.ts",
+      "sha256": "7bf02454bca149e3e8b38fd2e64d1ca684661619d61ecb988f98ef21eaeed697"
     },
     {
       "role": "maturity-gate-consumer",
-      "path": "scripts/check-rd-replay-maturity-gate.ts"
+      "path": "scripts/check-rd-replay-maturity-gate.ts",
+      "sha256": "778e1cac39c334d4af1c2a7b6aa2bdcfc161c4b792359b8befec75a4e60095c3"
+    },
+    {
+      "role": "subject-certification-runner",
+      "path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-certification.ts",
+      "sha256": "46d35ead60361b67227df7465da1f897a39a84e3f027441532c4cb4b7baab2d9"
+    },
+    {
+      "role": "subject-certification-test",
+      "path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-certification.test.ts",
+      "sha256": "42f19da2f6e18712bf19199ec6ee86040c50e03d0855dbbfdf4a339d7fe66873"
+    },
+    {
+      "role": "runner-certification-package",
+      "path": "modules/research-strategy-development/replay-execution-plane/runner/package.json",
+      "sha256": "7aefdd3931ef5ef24bdf614dc2fac7984d354f90420fdd734451c24688a7c342"
+    },
+    {
+      "role": "runner-worker-v10-semantic-test",
+      "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-decision-worker-input-assembly-v4.test.ts",
+      "sha256": "cfc4b3fccc93a08104ba5923f1505fd6e4a1e04cb7fbb704f49349db1ec7001b"
     }
   ],
   "limitations": [
@@ -80,5 +107,5 @@
     "audit-does-not-expand-public-profiles-or-simulator-semantics",
     "remote-distributed-store-shadow-live-and-real-account-evidence-out-of-scope"
   ],
-  "audit_manifest_sha256": "0ee1051b734958a0a401471add4c3420fc4a6e8fbbdb5c86efe9b9061485bcc1"
+  "audit_manifest_sha256": "b18e2bd64284a99fc5747b09c6ca5d9c7de5189d06ccfb71a36807efd762adaa"
 }

@@ -6,9 +6,9 @@ import { join } from "node:path"
 import test from "node:test"
 import {
   hashCanonical,
-  LEGACY_REPLAY_HARNESS_IDENTITY,
   replayDataHash,
   replayHarnessHash,
+  replayHarnessSourceRefs,
 } from "./legacy-replay-identity"
 
 test("preserves the legacy canonical hash", () => {
@@ -35,9 +35,17 @@ test("binds manifest identity, candle bytes, and supplemental bytes", () => {
   assert.match(replayDataHash(manifestPath, "4h", [supplementalPath]), /^[a-f0-9]{64}$/)
 })
 
-test("binds the versioned legacy research semantic contract", () => {
+test("binds the legacy research kernel source set", () => {
   assert.match(replayHarnessHash(), /^[a-f0-9]{64}$/)
-  assert.equal(replayHarnessHash(), hashCanonical(LEGACY_REPLAY_HARNESS_IDENTITY))
-  assert.equal(LEGACY_REPLAY_HARNESS_IDENTITY.identity_policy,
-    "versioned-semantic-contract-not-implementation-source-bytes")
+  assert.ok(replayHarnessSourceRefs().includes("../contracts/runtime-core/src/paths.ts"))
+})
+
+test("binds relocated candidate and factor owners without stale kernel refs", () => {
+  const refs = replayHarnessSourceRefs()
+  assert.ok(refs.includes("agent-roles/developer/candidate-batch-engine/src/lib/strategy-rnd-batch.ts"))
+  assert.ok(refs.includes("agent-roles/developer/strategy-family-engine/src/lib/factor-engine.ts"))
+  assert.ok(refs.includes("agent-roles/developer/strategy-family-engine/src/lib/factor-research.ts"))
+  assert.ok(refs.includes("agent-roles/developer/strategy-family-engine/src/lib/rnd-families/trend-pullback.family.ts"))
+  assert.equal(refs.some((ref) => ref.includes("legacy-research-kernel/src/lib/factor-")), false)
+  assert.equal(refs.some((ref) => ref.includes("legacy-research-kernel/src/lib/rnd-")), false)
 })

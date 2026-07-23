@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { readFileSync } from "node:fs"
+import { readdirSync, readFileSync, statSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { resolveReadablePath } from "../../../../../../contracts/runtime-core/src/paths"
 import { loadManifest } from "../../../legacy-research-data/src/lib/legacy-research-data"
@@ -40,21 +40,41 @@ export function replayContentHash(manifestPath: string, timeframe: string): stri
 }
 
 export function replayHarnessHash(): string {
-  return hashCanonical(LEGACY_REPLAY_HARNESS_IDENTITY)
+  const root = join(import.meta.dir, "../../../../..")
+  const hash = createHash("sha256")
+  for (const ref of replayHarnessSourceRefs()) {
+    hash.update(ref)
+    hash.update("\n")
+    hash.update(readFileSync(join(root, ref)))
+    hash.update("\n")
+  }
+  return hash.digest("hex")
 }
 
-export const LEGACY_REPLAY_HARNESS_IDENTITY = {
-  schema_version: "trade.legacy-replay-harness-identity.v1",
-  identity_policy: "versioned-semantic-contract-not-implementation-source-bytes",
-  execution_model: "closed-candle-single-asset-research",
-  capabilities: [
-    "candidate-batch-evaluation",
-    "factor-and-strategy-family-evaluation",
-    "legacy-order-lane",
-    "manifest-bound-market-data",
-    "replay-provenance",
-  ],
-} as const
+export function replayHarnessSourceRefs(): string[] {
+  const root = join(import.meta.dir, "../../../../..")
+  const refs = [
+    "../contracts/runtime-core/src/paths.ts",
+    "replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core.ts",
+    "replay-execution-plane/compatibility/legacy-research-kernel/src/lib/strategy-replay.ts",
+    "replay-execution-plane/compatibility/legacy-research-contracts/src/lib/legacy-research-contracts.ts",
+    "replay-execution-plane/compatibility/legacy-research-decision/src/lib/legacy-research-decision.ts",
+    "replay-execution-plane/compatibility/legacy-research-order-lane/src/lib/legacy-research-order-lane.ts",
+    "replay-execution-plane/compatibility/legacy-research-strategy-fixture/src/lib/legacy-research-strategy-fixture.ts",
+    "replay-execution-plane/compatibility/legacy-replay-identity/src/lib/legacy-replay-identity.ts",
+    "replay-execution-plane/compatibility/legacy-research-data/src/lib/legacy-research-data.ts",
+    "replay-execution-plane/compatibility/legacy-research-data/src/lib/funding-events.ts",
+    "replay-execution-plane/compatibility/legacy-research-evaluation/src/lib/legacy-research-evaluation.ts",
+    "replay-execution-plane/compatibility/legacy-research-features/src/lib/legacy-research-features.ts",
+    "replay-execution-plane/compatibility/legacy-research-provenance/src/lib/legacy-research-provenance.ts",
+    ...productionSourceRefs(root, "agent-roles/developer/candidate-batch-engine/src/lib"),
+    ...productionSourceRefs(root, "agent-roles/developer/strategy-family-engine/src/lib"),
+  ]
+  for (const ref of refs) {
+    if (!statOrNull(join(root, ref))?.isFile()) throw new Error(`legacy replay harness source missing: ${ref}`)
+  }
+  return [...new Set(refs)].sort()
+}
 
 export function hashCanonical(value: unknown): string {
   return createHash("sha256").update(stableJson(value)).digest("hex")
@@ -62,6 +82,24 @@ export function hashCanonical(value: unknown): string {
 
 export function hashFile(path: string): string {
   return createHash("sha256").update(readFileSync(resolveReadablePath(path))).digest("hex")
+}
+
+function productionSourceRefs(root: string, directoryRef: string): string[] {
+  const path = join(root, directoryRef)
+  if (!statOrNull(path)?.isDirectory()) throw new Error(`legacy replay harness source directory missing: ${directoryRef}`)
+  return readdirSync(path, { withFileTypes: true }).flatMap((entry) => {
+    const childRef = `${directoryRef}/${entry.name}`
+    if (entry.isDirectory()) return productionSourceRefs(root, childRef)
+    return entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts") ? [childRef] : []
+  })
+}
+
+function statOrNull(path: string): ReturnType<typeof statSync> | null {
+  try {
+    return statSync(path)
+  } catch {
+    return null
+  }
 }
 
 function stableJson(value: unknown): string {

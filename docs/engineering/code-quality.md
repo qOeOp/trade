@@ -83,4 +83,4 @@ QUALITY_FRESH=1 scripts/quality-check.sh
 
 该缓存只减少确定性重放，不改变 package `check`、Replay certification、发布证据或 authority。
 
-Replay certification 对 fixture、manifest、Result / Artifact authority 继续使用内容寻址；对实现和测试源码只绑定公开入口、export、测试身份、协议字段及实际运行结果。源码字节、import 路径或文件排版不得冒充 Replay 语义证据。
+Replay certification 对 fixture、manifest、Result / Artifact authority 继续使用内容寻址。普通文件排版和等价 import 路径不单独充当语义证据；但发布裁判及其 golden 测试必须绑定源码 hash，Harness identity 继续绑定实际可执行源码集合，防止裁判或执行实现变化后旧收据仍被接受。

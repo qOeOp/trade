@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs"
-import { canonicalHash as hashCanonical } from "../../../../../contracts/runtime-core/src/canonical-json"
+import { hashCanonical } from "../../../../replay-execution-plane/compatibility/legacy-replay-identity/src/lib/legacy-replay-identity"
 import { loadCandlesFromManifest, loadManifest, type Candle } from "../../../../replay-execution-plane/compatibility/legacy-research-data/src/lib/legacy-research-data"
 import { buildSetupEvent, projectSetupEvents, type SetupEvent, type SetupProjection } from "./setup-event-chain"
 import { asRecord, numberOrUndefined, stringField, type JSONRecord } from "../../../../../contracts/runtime-core/src/json"

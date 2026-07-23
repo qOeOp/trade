@@ -48,6 +48,11 @@ describe("Replay independent release audit", () => {
     expect(() => assertReplayIndependentReleaseAuditManifest(drifted, maturity, repoRoot))
       .toThrow("subject fixture-pack content drifted")
 
+    const auditorDrift = structuredClone(loadReplayIndependentReleaseAuditManifest(repoRoot))
+    Object.assign(auditorDrift.source_bindings[0]!, { sha256: "0".repeat(64) })
+    expect(() => assertReplayIndependentReleaseAuditManifest(auditorDrift, maturity, repoRoot))
+      .toThrow("independent audit source drifted")
+
     const incomplete = structuredClone(maturity)
     incomplete.exit_gates.m5!.release_candidate_fixture_pack_frozen = false
     expect(() => assertReplayIndependentReleaseAuditManifest(
@@ -60,6 +65,13 @@ describe("Replay independent release audit", () => {
     receiptTamper.verdict = "unbounded-production-release" as never
     expect(() => assertReplayIndependentReleaseAuditReceipt(
       receiptTamper,
+      loadReplayIndependentReleaseAuditManifest(repoRoot),
+    )).toThrow("unsupported Replay independent release audit receipt")
+
+    const runtimeDrift = structuredClone(loadReplayIndependentReleaseAuditReceipt(repoRoot))
+    runtimeDrift.runtime.version = "0.0.0"
+    expect(() => assertReplayIndependentReleaseAuditReceipt(
+      runtimeDrift,
       loadReplayIndependentReleaseAuditManifest(repoRoot),
     )).toThrow("unsupported Replay independent release audit receipt")
   })

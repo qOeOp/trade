@@ -37,9 +37,9 @@
     {
       "role": "module-consumer-closure",
       "path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-module-consumer-closure.json",
-      "content_sha256": "55a70b4378d8156f5412e47dee1ba43091c6f11b26708749f5e79beb3314cfc1",
+      "content_sha256": "e8ded96f894d026c2da7ef01e732b0a86685b23c756306c41cd23f497d7bb33e",
       "authority_hash_field": "observed_closure_sha256",
-      "authority_hash": "c564b75ac1f757f7237cb7f3a75c474310b6157eeaa73abf66d90035e9cf9697"
+      "authority_hash": "6eedcb77ac4f8703079829adc053ff8bfa81196f995868d86c7c6aad01c3a28d"
     },
     {
       "role": "cross-process-reproducibility",
@@ -97,6 +97,7 @@
       "checkpoint_mode": "child-trial-engine-checkpoints-v32-only",
       "golden_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
       "golden_test_name": "independent capital lanes execute in canonical Plan order and aggregate evidence without shared NAV semantics",
+      "golden_source_sha256": "14242b00ae0e20d93d13fcb70ab0ba1d9fd71b0f51eda6478950fa61e21c25b3",
       "timeout_ms": 25000
     },
     {
@@ -104,6 +105,7 @@
       "checkpoint_mode": "not-supported-no-checkpoint-writer",
       "golden_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
       "golden_test_name": "integrated Portfolio makes Allocation the only entry authority and releases exposure/risk through lifecycle Artifact",
+      "golden_source_sha256": "14242b00ae0e20d93d13fcb70ab0ba1d9fd71b0f51eda6478950fa61e21c25b3",
       "timeout_ms": 30000
     },
     {
@@ -111,6 +113,7 @@
       "checkpoint_mode": "resumable-engine-checkpoint-v32",
       "golden_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.test.ts",
       "golden_test_name": "runner atomically commits artifacts and retries idempotently",
+      "golden_source_sha256": "f9d804c3e56eb954b64bd683fdf145e9a6e13d3eaff95eb44ee49f37b85e4249",
       "timeout_ms": 25000
     },
     {
@@ -118,6 +121,7 @@
       "checkpoint_mode": "not-supported-no-checkpoint-writer",
       "golden_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
       "golden_test_name": "bounded Cycle Sequence executes one, two, and three predeclared full-flat cycles without cycle-number schemas",
+      "golden_source_sha256": "14242b00ae0e20d93d13fcb70ab0ba1d9fd71b0f51eda6478950fa61e21c25b3",
       "timeout_ms": 30000
     }
   ],
@@ -129,5 +133,5 @@
     "fixture-pack-does-not-authorize-release-without-independent-audit",
     "remote-distributed-store-shadow-live-and-real-account-evidence-out-of-scope"
   ],
-  "pack_sha256": "129e4e7daf44b3d6460de36927f268a35a62ca07b1aa13bf0409e57353f1493d"
+  "pack_sha256": "4032144a6de77bf9ad7bf99de106956a31da1b2961d9a1e0509e24bac04f7765"
 }

@@ -7,6 +7,7 @@
     "typescript": "^5.9.2"
   },
   "scripts": {
+    "test:release": "bun run lint && bun run test",
     "typecheck": "tsc --noEmit",
     "lint": "bun run typecheck",
     "test": "bun run test:worker-v10 && bun run test:remaining",

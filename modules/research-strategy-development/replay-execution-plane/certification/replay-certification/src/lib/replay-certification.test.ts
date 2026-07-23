@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
   assertReplayCertificationManifest,
   assertReplayProfileEvidenceManifest,
+  assertReplayRunnerCertificationScripts,
+  replayCertificationCommand,
   discoverReplayPackageRoots,
   findReplayCertificationRepoRoot,
   loadReplayCertificationManifest,
@@ -65,6 +67,23 @@ describe("Replay certification owner", () => {
     manifest.suites.pop()
     expect(() => assertReplayCertificationManifest(manifest, repoRoot))
       .toThrow("classify every Plane package exactly once")
+  })
+
+  test("full certification runs the runner semantic suite", () => {
+    expect(replayCertificationCommand(
+      "modules/research-strategy-development/replay-execution-plane/runner",
+    )).toEqual(["bun", "run", "test:release"])
+    expect(replayCertificationCommand(
+      "modules/research-strategy-development/replay-execution-plane/accounting",
+    )).toEqual(["bun", "run", "check"])
+    const runnerPackage = JSON.parse(readFileSync(join(
+      repoRoot,
+      "modules/research-strategy-development/replay-execution-plane/runner/package.json",
+    ), "utf8")) as { scripts: Record<string, string> }
+    expect(() => assertReplayRunnerCertificationScripts(runnerPackage.scripts)).not.toThrow()
+    runnerPackage.scripts["test:worker-v10"] = "bun test ./src/lib/other.test.ts"
+    expect(() => assertReplayRunnerCertificationScripts(runnerPackage.scripts))
+      .toThrow("Replay runner certification script drifted: test:worker-v10")
   })
 
   test("binds every public profile to golden, resume, idempotency and tamper evidence", () => {
@@ -359,5 +378,11 @@ describe("Replay certification owner", () => {
     expect(() => assertReplayReleaseCandidateFixturePack(
       sourceDrift, profileEvidence, repoRoot,
     )).toThrow("profile identity drifted")
+
+    const assertionDrift = structuredClone(loadReplayReleaseCandidateFixturePack(repoRoot))
+    Object.assign(assertionDrift.profiles[0]!, { golden_source_sha256: "0".repeat(64) })
+    expect(() => assertReplayReleaseCandidateFixturePack(
+      assertionDrift, profileEvidence, repoRoot,
+    )).toThrow("profile source drifted")
   })
 })
