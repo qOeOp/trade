@@ -12,7 +12,7 @@ last_verified: 2026-07-23 CST
 
 本文冻结 [Server Runtime Implementation Plan](../architecture/migrations/server-runtime-implementation-plan.md) S1 的首个可部署 profile：在单台 macOS 或 Linux 主机上装配现有 Rust L2、resident L2 consumer 与 `shadow_program` control runtime。它只闭合进程、配置、依赖、健康和停机，不复制 scheduler、领域计算或 store authority。
 
-当前已形成首个 no-live composition root：版本化 Linux/macOS profile、三个 foreground entrypoint、closed-world validator、deterministic systemd/launchd renderer、只读 preflight/status，以及有界 lifecycle/public-smoke/recovery fixture。2026-07-23 已从非受保护目录的 immutable release 在本机安装三个 per-user launchd agent 并取得 no-live process authority；Linux systemd 仍只有确定性 render/fixture，不是本机采用前置。
+当前已形成首个 no-live composition root：版本化 Linux/macOS profile、三个 foreground entrypoint、closed-world validator、deterministic systemd/launchd renderer、容器 foreground composition、只读 preflight/status，以及有界 lifecycle/public-smoke/recovery fixture。2026-07-23 已从非受保护目录的 immutable release 在本机安装三个 per-user launchd agent 并取得 no-live process authority；Linux systemd 与容器仍只有 render / 静态合同 / composition fixture，不是本机采用前置。
 
 | 单元 | 当前能力 | 剩余采用门 |
 | --- | --- | --- |
@@ -20,12 +20,12 @@ last_verified: 2026-07-23 CST
 | L2 consumer | 正式 foreground supervisor、worker restart、snapshot/watch、latest health | launchd 独立重启已证明不连坐 owner；长期 crash-loop soak 待闭合 |
 | control runtime | foreground cadence、lease/fencing、signal drain、聚合 status | 仍固定 `shadow_program`；J01–J07 与 live write 关闭 |
 
-首个 production target 允许 **macOS launchd** 或 **Linux systemd** 装配同一组仓库 foreground entrypoint。`profile/server-runtime-macos.json` 与 `profile/server-runtime.json` 只分离 manager-specific identity，不分叉业务命令和 authority。Docker 不是 S1 前置：SQLite、artifact、Rust/Bun build 与 runtime receipts 先在单节点闭合；容器化只能复用同一进程合同，不能建立第二套启动语义。
+首个 production target 允许 **macOS launchd**、**Linux systemd** 或 Linux Docker 装配同一组仓库 foreground entrypoint。`profile/server-runtime-macos.json` 与 `profile/server-runtime.json` 只分离 manager-specific identity，不分叉业务命令和 authority。Docker 纵切已复用 Linux profile，并以一个容器保持当前 PID / loopback owner 语义；Docker 只重启 composition，内部按 readiness 启动和反向 drain。当前尚无真实容器采用证据，精确运行与限制见 [Server Container Deployment](./server-container-deployment.md)。
 
 ## 2. 唯一进程 authority
 
 ```text
-launchd | systemd
+launchd | systemd | Docker
   -> l2-owner foreground supervisor -> exact Rust child
   -> l2-consumer foreground supervisor -> exact consumer worker
   -> control-runtime foreground supervisor -> bounded owner commands
@@ -34,6 +34,7 @@ launchd | systemd
 - process manager 只负责 unit 的 start、stop、restart/backoff；业务依赖仍由 owner readiness/epoch/lease fail closed。
 - 每个仓库 supervisor 只管理自己的 exact child、业务 lease、状态投影与 drain；不得 daemonize、写 PID file 或重启 sibling。
 - composition root 只负责 preflight、render/install profile 和聚合 status；它不是常驻第四层 supervisor。
+- 容器例外是一个透明 foreground group：只管理三个 exact 顶层 child、readiness 顺序与反向 drain；任一 child 意外退出即让组失败，由 Docker 重启整个 group，不在内部重启 sibling。
 - `launch.ts`、`consumer-launch.ts` 与旧 program-only launchd wrapper 继续用于开发/运维验证，不得作为 server unit entrypoint，因为它们会 detached 后返回。
 - MCP、HTTP、OpenClaw、Codex 和 LLM 均不是 daemon parent，也不能取得 signal、PID 或 restart authority。
 
@@ -111,9 +112,12 @@ profile validate
 | consumer supervisor 退出 | process manager | 重启 consumer unit；不重启 L2 |
 | control lease lost/DB busy | control runtime | fail closed 退出；manager bounded restart |
 | model/API unavailable | future model gateway | 不影响三项 S1 deterministic unit |
-| disk hard/unknown | L2 owner | drain child 后失败；禁止扩大 raw backlog |
+| disk soft | L2 owner / capacity owner | 保持 fresh/live 非经济读取，profile 标 degraded；加速 inventory / compaction / GC |
+| disk hard/unknown | L2 owner | drain / 不启动 Rust child，foreground 原地有界重检；禁止扩大 raw backlog，不制造 manager restart storm |
 
-manager 的 restart/backoff 与仓库 child retry budget 必须分别有上限，防止内外层形成无限热循环。launchd 不提供 systemd 等价的完整 start-limit 语义，因此长期 soak 必须验证 crash loop 频率。一个 unit 失败不得级联 kill 无关 durable owner；只有显式 operator stop profile 才按反向依赖顺序整体 drain。
+上表描述当前 fail-closed 行为，不是目标容量治理的完整形态。目标在 soft watermark 先由 Program 触发 owner inventory、compaction 和 GC，回收后重新测量；只有仍达 hard line 才局部阻断新采集 / 新风险，reconcile、已有 exposure 防御和证据保全继续。L2 raw 在跨 consumer 引用闭包与 retention release 落地前仍不可删，详见 [L2 Order Book Data Plane](./l2-order-book-data-plane.md)。
+
+manager 的 restart/backoff 与仓库 child retry budget 必须分别有上限，防止内外层形成无限热循环。launchd 不提供 systemd 等价的完整 start-limit 语义；L2 foreground 因此在 disk hard/unknown 时保持单一 supervisor 等待恢复，不以失败退出把容量压力放大成目录和日志风暴。一个 unit 失败不得级联 kill 无关 durable owner；只有显式 operator stop profile 才按反向依赖顺序整体 drain。
 
 ## 8. Stop、Upgrade 与 Rollback
 
@@ -166,10 +170,12 @@ S1 不做自动滚动升级、双实例交接或 active-active；SQLite 单 owne
 
 2026-07-23 的本机采用已闭合 immutable staging、Bun-native foreground、三个 launchd agent、readiness、consumer 独立重启、真实在线备份/恢复、public/full-shadow soak，以及 Operator HTTP resident/audit/token rotation。实际常驻 release 为提交 `a2089f8197d3` 的隔离副本，使用 `127.0.0.1:51061`；采用观测点为 owner/consumer 同 epoch、process units active、control lease active、累计 parity `9/9 match`。一次性证据见 [macOS No-Live Host Adoption](../history/macos-no-live-host-adoption-2026-07-23.md)。
 
+后续真实常驻观察又暴露两类 manager / owner 相互作用：磁盘 hard watermark 曾令 L2 foreground 被 launchd 反复拉起并累计 797 个 runtime 目录；control runtime 也曾在一次超过 20 秒的周期后丢失 supervisor lease，却因保护性终态退出码为零而留在 `not running`。当前源码已改为：L2 hard / unknown pressure 由单一 supervisor 原地等待，soft pressure 不切断明确 fresh/live 的非经济读取；program supervisor 使用 120 秒 lease / 10 秒 heartbeat，systemd 与 launchd 对所有长期进程采用 always-restart，显式 stop / bootout 仍由 manager 拥有。PID reuse 修复把 active、health、status、stop 和 consumer 判活从 PID existence 收紧为 exact command identity；runtime GC 将 immutable release 的 796 个旧 receipt 原子移出 active scan、保留唯一真实 runtime，owner / consumer 随即同 epoch 恢复 healthy。新 identity / GC / manager / lease 行为仍须随下一 immutable release 做 crash / pressure 重演。
+
 workspace 仍位于 Downloads，但 launchd 不再从 workspace 启动；immutable release 位于非受保护用户数据目录。三个固定 label 的 plist/hash 与 release manifest 相互绑定，安装、component restart 和卸载只允许该 closed-world 集合。现有独立 `127.0.0.1:50061` L2 未被停止、接管或复用。
 
 本机已有独立 L2 进程监听 `127.0.0.1:50061`，不得停止或接管。macOS staged profile 固定使用隔离端口 `127.0.0.1:51061`；preflight 必须通过 listener availability，避免 process manager 启动后才进入 crash loop。
 
 macOS 正式采用不直接从可编辑 workspace 启动。release staging 只归档 committed HEAD，清除 archive 中任何 `data/` 下的 SQLite runtime state，绑定 `bun.lock`、复制当前 build workspace 的依赖闭包与两个带 hash 的 Rust binaries，并初始化空 `data/`；目标必须是不存在、非受保护且不与仓库互相包含的绝对目录。manifest 不记录本机绝对路径，失败只清理本次新建的 partial target。
 
-最新 release gate 已把 pending 从 7 项压缩为 2 项：`model_provider_smoke_not_passed` 与 `rd_kill_restart_single_trial_result_not_passed`。前者涉及真实 credential/cost，后者涉及真实 R&D worker 终态，本次均未擅自执行；因此机器结论仍是 `server_no_live_adoption=blocked`、`maximum_verified_authority=no_live_local_rehearsal`。即便两项以后通过，也只进入人工变更评审；catalog canary、live-small canary 与 exchange write 均需各自显式授权。
+最新 SiliconFlow capability probe 已证明 Chat JSON、stream、single / multi tool 与 tool-result continuation 可用；`/responses` 返回 unsupported，因此 Direct Model / 后续 chat-compatible Host 可用，但当前 Codex custom provider wire 不可用。release gate 只剩 `rd_kill_restart_single_trial_result_not_passed`；本会话未暴露 `trade-agent` MCP owner surface，按研究工作流边界未用任意 CLI 替代。因此机器结论仍是 `server_no_live_adoption=blocked`、`maximum_verified_authority=no_live_local_rehearsal`。即便该项以后通过，也只进入人工变更评审；catalog canary、live-small canary 与 exchange write 均需各自显式授权。
