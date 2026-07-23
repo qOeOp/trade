@@ -65,11 +65,12 @@ export function runReplayWorkerV10ExecutionEnvelopeStage(
     heartbeat_at: "2026-07-14T00:00:30Z",
     lease_expires_at: "2026-07-14T00:05:00Z",
   }
+  const requestRegistration = requestRegistrationFor(attemptLease)
   const envelopeInput = {
     source_response_contract: responseV10Contract,
     logical_request_id: firstRequestV10.logical_request_id,
     attempt_lease: attemptLease,
-    registered_dispatch_authority: registeredDispatchAuthorityFor(attemptLease),
+    registered_dispatch_authority: registeredDispatchAuthorityFor(attemptLease, requestRegistration),
   }
   const executionEnvelope = buildReplayDecisionHarnessExecutionEnvelope(envelopeInput)
   expect(executionEnvelope.owner).toBe("replay_runner_execution_admission")
@@ -146,7 +147,7 @@ export function runReplayWorkerV10ExecutionEnvelopeStage(
   const retryEnvelope = buildReplayDecisionHarnessExecutionEnvelope({
     ...envelopeInput,
     attempt_lease: retryLease,
-    registered_dispatch_authority: registeredDispatchAuthorityFor(retryLease),
+    registered_dispatch_authority: registeredDispatchAuthorityFor(retryLease, requestRegistration),
   })
   expect(retryEnvelope.succession_kind).toBe("root_binding")
   expect(retryEnvelope.predecessor_execution_envelope_hash).toBeNull()
@@ -164,7 +165,7 @@ export function runReplayWorkerV10ExecutionEnvelopeStage(
   })).toThrow("root requires registered dispatch authority")
   expect(() => buildReplayDecisionHarnessExecutionEnvelope({
     ...successorInput,
-    registered_dispatch_authority: registeredDispatchAuthorityFor(renewedLease),
+    registered_dispatch_authority: registeredDispatchAuthorityFor(renewedLease, requestRegistration),
   })).toThrow("successor must inherit root registered dispatch lineage")
   expect(() => buildReplayDecisionHarnessExecutionEnvelope({
     ...envelopeInput,
@@ -188,8 +189,8 @@ export function runReplayWorkerV10ExecutionEnvelopeStage(
   }
 }
 
-function registeredDispatchAuthorityFor(lease: ReplayAttemptLeaseSnapshot) {
-  const registration = createReplayRequestRegistrationRecord({
+function requestRegistrationFor(lease: ReplayAttemptLeaseSnapshot) {
+  return createReplayRequestRegistrationRecord({
     schema_version: REPLAY_REQUEST_REGISTRATION_RECORD_SCHEMA_VERSION,
     registration_id: `worker-v10-registration-${lease.request_hash.slice(0, 24)}`,
     reservation_admission_id: `worker-v10-reservation-admission-${lease.request_hash.slice(0, 24)}`,
@@ -205,6 +206,12 @@ function registeredDispatchAuthorityFor(lease: ReplayAttemptLeaseSnapshot) {
     dataset_manifest_hash: "3".repeat(64),
     registered_at: lease.claimed_at,
   })
+}
+
+function registeredDispatchAuthorityFor(
+  lease: ReplayAttemptLeaseSnapshot,
+  registration: ReturnType<typeof requestRegistrationFor>,
+) {
   const discriminator = `${lease.attempt_id}-${lease.lease_generation}`
   return createReplayRegisteredAttemptDispatchAuthority({
     authority_id: `worker-v10-registered-dispatch-${discriminator}`,
