@@ -74,6 +74,7 @@ test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds De
   assert.match(serialized, /"skipBootstrap":true/)
   assert.match(serialized, /"id":"rd-developer"/)
   assert.match(serialized, /"alsoAllow":\["trade-developer__\*"\]/)
+  assert.match(agentCompose, /agent-mcp-planner:[\s\S]*--profile[\s\S]*planner-proposal/)
   assert.match(agentCompose, /agent-mcp-developer:[\s\S]*--profile[\s\S]*developer-contract/)
   assert.match(agentCompose, /agent-mcp-reviewer:[\s\S]*--profile[\s\S]*reviewer-decision/)
   assert.doesNotMatch(serialized, /sk-[A-Za-z0-9_-]{12,}/)

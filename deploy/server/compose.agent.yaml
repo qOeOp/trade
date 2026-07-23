@@ -157,7 +157,7 @@ services:
       - --port
       - "7312"
       - --profile
-      - planner
+      - planner-proposal
       - --allowed-hosts
       - agent-mcp-planner:7312
 

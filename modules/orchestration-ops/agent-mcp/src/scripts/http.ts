@@ -46,7 +46,7 @@ function parseArgs(argv: string[]): {
   const port = Number(values.get("port") ?? 7312)
   const tokenEnv = values.get("token-env") ?? "TRADE_MCP_HTTP_TOKEN"
   const profile = values.get("profile") ?? "explanation"
-  if (!["interactive", "planner", "developer", "developer-contract", "reviewer", "reviewer-decision", "explanation"].includes(profile)) {
+  if (!["interactive", "planner", "planner-proposal", "developer", "developer-contract", "reviewer", "reviewer-decision", "explanation"].includes(profile)) {
     throw new Error("MCP HTTP profile is unsupported")
   }
   if (!/^[A-Z][A-Z0-9_]{2,127}$/.test(tokenEnv)) throw new Error("MCP HTTP token env name is invalid")

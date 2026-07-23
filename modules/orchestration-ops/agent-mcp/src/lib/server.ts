@@ -17,6 +17,13 @@ const CONTROLLED_WRITE_ANNOTATIONS = {
   openWorldHint: false,
 } as const
 
+const AUDITED_PREPARATION_ANNOTATIONS = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: false,
+} as const
+
 const REQUEST_ID = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/)
 const PROGRAM_ID = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/)
 const HYPOTHESIS_CONTRACT = z.record(z.string(), z.unknown()).refine(
@@ -96,6 +103,7 @@ const REVIEWER_SUBMISSION_PREPARE = z.object({
 export type TradeMcpProfile =
   | "interactive"
   | "planner"
+  | "planner-proposal"
   | "developer"
   | "developer-contract"
   | "reviewer-decision"
@@ -235,23 +243,23 @@ export function createTradeMcpServer(
 
   registerTool("research_planner_proposal_prepare", {
     title: "Build a canonical Control Plane Planner Proposal",
-    description: "Validate one proposal body against the current authoritative Planner context and return the canonical self-hashed submission without writing state.",
+    description: "Validate one proposal body against the current authoritative Planner context, append immutable Agent Run tool-use evidence, and return the canonical self-hashed submission without writing R&D domain state.",
     inputSchema: PLANNER_PROPOSAL_PREPARE,
-    annotations: READ_ONLY_ANNOTATIONS,
+    annotations: AUDITED_PREPARATION_ANNOTATIONS,
   }, async (input) => result(await researchJobs.preparePlannerProposal(input)))
 
   registerTool("research_developer_submission_prepare", {
     title: "Build a canonical Developer submission",
-    description: "Bind one contract-only, existing-implementation, or blocked Developer assessment to the authoritative Brief and return a canonical self-hashed submission without applying code, reserving a Trial, or writing Control Plane state.",
+    description: "Bind one contract-only, existing-implementation, or blocked Developer assessment to the authoritative Brief, append immutable Agent Run tool-use evidence, and return a canonical self-hashed submission without applying code, reserving a Trial, or writing R&D domain state.",
     inputSchema: DEVELOPER_SUBMISSION_PREPARE,
-    annotations: READ_ONLY_ANNOTATIONS,
+    annotations: AUDITED_PREPARATION_ANNOTATIONS,
   }, async (input) => result(await researchJobs.prepareDeveloperSubmission(input)))
 
   registerTool("research_reviewer_submission_prepare", {
     title: "Build a canonical Reviewer submission",
-    description: "Bind one evidence-grounded Reviewer decision to the supplied experiment lifecycle identity and return a canonical self-hashed submission without writing lifecycle state.",
+    description: "Bind one evidence-grounded Reviewer decision to the supplied experiment lifecycle identity, append immutable Agent Run tool-use evidence, and return a canonical self-hashed submission without writing R&D lifecycle state.",
     inputSchema: REVIEWER_SUBMISSION_PREPARE,
-    annotations: READ_ONLY_ANNOTATIONS,
+    annotations: AUDITED_PREPARATION_ANNOTATIONS,
   }, async (input) => result(await researchJobs.prepareReviewerSubmission(input)))
 
   registerTool("research_hypothesis_brief", {
@@ -327,6 +335,9 @@ function allowedTools(profile: TradeMcpProfile): ReadonlySet<string> {
       "research_hypothesis_brief",
       "research_planner_proposal_prepare",
     ])
+  }
+  if (profile === "planner-proposal") {
+    return new Set(["research_planner_proposal_prepare"])
   }
   if (profile === "developer") {
     return new Set([
