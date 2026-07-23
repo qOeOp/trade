@@ -22,6 +22,7 @@ import {
   readAgentRun,
   readAgentRunEvents,
   listRecoverableAgentRuns,
+  readAgentRunToolUsage,
 } from "../../../ops-runtime-store/src/lib/agent-run-store"
 
 export type OpenClawTransportExpectation = "gateway" | "embedded"
@@ -51,6 +52,11 @@ export interface OpenClawAgentHostOptions {
   materialize(request: AgentRunRequest): Promise<string>
   store_output(request: AgentRunRequest, text: string): Promise<AgentArtifactRef>
   execute(input: OpenClawExecutionRequest, signal: AbortSignal): Promise<OpenClawExecutionResult>
+  report_error?: (input: {
+    run_id: string
+    failure_class: AgentRunFailureClass
+    message: string
+  }) => void
   now?: () => Date
 }
 
@@ -178,13 +184,18 @@ export class OpenClawAgentHost implements AgentHostPort {
         return await this.fail(request, classifyFailure(result.stderr), startedMs)
       }
       const text = parseOpenClawOutput(result.stdout, this.expectedTransport())
+      const ledgerUsage = readAgentRunToolUsage(
+        this.options.db,
+        request.run_id,
+        request.request_hash,
+      )
       const toolCalls = boundedUsage(
-        result.tool_calls ?? 0,
+        Math.max(result.tool_calls ?? 0, ledgerUsage.tool_calls),
         request.budget.max_tool_calls,
         "tool calls",
       )
       const modelTurns = boundedUsage(
-        result.model_turns ?? 1,
+        Math.max(result.model_turns ?? 1, toolCalls + 1),
         request.budget.max_turns,
         "model turns",
       )
@@ -201,11 +212,17 @@ export class OpenClawAgentHost implements AgentHostPort {
         { tool_calls: toolCalls, turns: modelTurns },
       )
     } catch (error) {
+      const failureClass = controller.signal.aborted
+        ? "cancelled"
+        : classifyCaughtFailure(error)
+      this.options.report_error?.({
+        run_id: request.run_id,
+        failure_class: failureClass,
+        message: safeErrorMessage(error),
+      })
       await this.fail(
         request,
-        controller.signal.aborted
-          ? "cancelled"
-          : classifyCaughtFailure(error),
+        failureClass,
         startedMs,
       )
     } finally {
@@ -304,6 +321,11 @@ export class OpenClawAgentHost implements AgentHostPort {
   private isoNow(): string {
     return this.now().toISOString()
   }
+}
+
+function safeErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.replace(/[\r\n]+/g, " ").slice(0, 300)
 }
 
 export function parseOpenClawOutput(

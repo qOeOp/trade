@@ -4,6 +4,10 @@ import { Database } from "bun:sqlite"
 import { mkdirSync, realpathSync } from "node:fs"
 import { dirname, resolve, sep } from "node:path"
 import { ensureAgentRunStoreSchema } from "../../../ops-runtime-store/src/lib/agent-run-store"
+import {
+  buildDatabaseIdentity,
+  ensureDatabaseIdentity,
+} from "../../../../contracts/runtime-core/src/database-identity"
 import { startAgentHostHttpServer } from "../lib/agent-host-http-server"
 import {
   materializeOpenClawAgentMessage,
@@ -24,6 +28,10 @@ async function main(): Promise<void> {
   db.exec("PRAGMA journal_mode=WAL")
   db.exec("PRAGMA busy_timeout=5000")
   db.exec("PRAGMA foreign_keys=ON")
+  ensureDatabaseIdentity(
+    db,
+    buildDatabaseIdentity(input.environment_id, "ops_runtime_store"),
+  )
   ensureAgentRunStoreSchema(db)
   const host = new OpenClawAgentHost({
     db,
@@ -51,6 +59,12 @@ async function main(): Promise<void> {
         request,
         signal,
       }),
+    report_error: (error) => {
+      console.error(JSON.stringify({
+        schema_version: "trade.agent-host-run-error.v1",
+        ...error,
+      }))
+    },
   })
   const recovered = await host.recoverInterruptedRuns()
   const server = startAgentHostHttpServer({
@@ -92,6 +106,7 @@ function parseArgs(argv: string[]): {
   repository_root: string
   ops_db: string
   gateway_url: string
+  environment_id: string
 } {
   const values = new Map<string, string>()
   for (let index = 0; index < argv.length; index += 2) {
@@ -126,6 +141,9 @@ function parseArgs(argv: string[]): {
       ?? process.cwd(),
     ops_db: repoPath(values.get("ops-db") ?? "data/ops_runtime.db"),
     gateway_url: values.get("gateway-url") ?? "http://127.0.0.1:18789",
+    environment_id: values.get("environment-id")
+      ?? process.env.TRADE_ENVIRONMENT_ID
+      ?? "local:local",
   }
 }
 
