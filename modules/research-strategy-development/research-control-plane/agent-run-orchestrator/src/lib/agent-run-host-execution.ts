@@ -23,19 +23,12 @@ export async function executeAgentRunThroughHost(input: {
     throw new Error("Agent Host poll interval is invalid")
   }
   await input.host.submit(input.request)
-  const events: AgentRunEvent[] = []
   try {
     while (true) {
       if (input.signal?.aborted) {
         await input.host.cancel(input.request.run_id, input.request.request_hash)
         throw new Error("Agent Run was cancelled by caller")
       }
-      const page = await input.host.events(
-        input.request.run_id,
-        events.at(-1)?.sequence ?? 0,
-        1_000,
-      )
-      events.push(...page)
       const status = await input.host.status(input.request.run_id)
       if (status.request_hash !== input.request.request_hash) {
         throw new Error("Agent Host status identity drifted")
@@ -43,7 +36,7 @@ export async function executeAgentRunThroughHost(input: {
       if (status.terminal) {
         const result = await input.host.result(input.request.run_id)
         if (!result) throw new Error("terminal Agent Run omitted its result")
-        const finalEvents = await readRemainingEvents(input.host, input.request, events)
+        const finalEvents = await readRemainingEvents(input.host, input.request, [])
         validateAgentRunCompletion(input.request, finalEvents, result)
         return { request: input.request, events: finalEvents, result }
       }
