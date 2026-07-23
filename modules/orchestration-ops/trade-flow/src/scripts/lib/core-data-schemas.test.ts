@@ -7,11 +7,13 @@ import test from "node:test"
 import { buildObserveEvent, OBSERVE_SIDES } from "../../../../../live-decision-planning/observe-builder/src/lib/observe-builder"
 import { loadRuntime } from "./observe-flow"
 import { appendPlanEvent, ensureSchema, readFlowEvents, readLatestOrderFill, REVIEW_OUTCOMES, validateReview, type PlanEvent } from "../../../../../portfolio-execution-state/event-store/src/lib/event-store"
-import { applyReconcileDrafts, FLOW_POSITION_STATES, latestSlowObserve, reduceFlowState } from "../../../../../portfolio-execution-state/flow-projector/src/lib/flow-projector"
+import { applyReconcileDrafts, buildPortfolioAccountProjection, FLOW_POSITION_STATES, latestSlowObserve, reduceFlowState } from "../../../../../portfolio-execution-state/flow-projector/src/lib/flow-projector"
 import { cronRecoverFromTools, CRON_RECOVER_STATUSES } from "../../../../../live-execution-control/recovery-runner/src/lib/recovery-runner"
 import { runOneFlowStep } from "../../../../../live-execution-control/execution-flow-runner/src/lib/execution-flow-runner"
 import { RUN_MODES } from "../../../../../contracts/runtime-core/src/run-mode"
 import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
+import { createTestDatabaseEnvironment } from "../../../../../contracts/runtime-core/src/test-database-environment"
+import { dryRunInputFixture } from "./dry-run-test-fixture"
 
 test("flow state result schema matches reducer output", () => {
   const schema = readSchema("flow-state-result")
@@ -112,6 +114,8 @@ test("runtime load result schema matches runtime loader output", () => {
     writeFileSync(tradingConfigPath, JSON.stringify({
       schema_version: 1,
       profile_id: "test-runtime",
+      account_ref: "exchange-account://binance/live/usdm/primary",
+      account_scope: "capital-scope://retail-small-usdm",
       mode: "dry_run",
       permissions: { live_small_enabled: false, max_stage: "paper_shadow" },
       risk: {},
@@ -127,7 +131,7 @@ test("runtime load result schema matches runtime loader output", () => {
   try {
     const strategiesDir = join(dir, "strategies")
     writeFileSync(join(strategiesDir, "s-test.md"), "---\nstrategy_id: S-RUNTIME\nname: Runtime\nstatus: draft\ntags: [schema]\n---\n\n# Runtime\n")
-    const result = loadRuntime({
+    const result = loadRuntimeWithTestPolicyRegistry({
       tradingConfigPath: join(dir, "trading-config.json"),
       accountConfigPath: join(dir, "account-config.json"),
       strategiesDir,
@@ -153,6 +157,8 @@ test("runtime load result keeps trading policy and account context separate", ()
     writeFileSync(tradingConfigPath, JSON.stringify({
       schema_version: 1,
       profile_id: "test-live",
+      account_ref: "exchange-account://binance/live/usdm/primary",
+      account_scope: "capital-scope://retail-small-usdm",
       mode: "live",
       permissions: { live_small_enabled: true, max_stage: "live-small" },
       risk: {},
@@ -162,7 +168,7 @@ test("runtime load result keeps trading policy and account context separate", ()
     }))
     writeFileSync(join(strategiesDir, "s-test.md"), "---\nstrategy_id: S-RUNTIME\nstatus: draft\n---\n")
 
-    const result = loadRuntime({ tradingConfigPath, accountConfigPath, strategiesDir }) as JSONRecord
+    const result = loadRuntimeWithTestPolicyRegistry({ tradingConfigPath, accountConfigPath, strategiesDir })
 
     assert.deepEqual(result.account_config, {})
     assert.equal(asRecord(asRecord(result.runtime_policy).permissions).can_live_small, true)
@@ -270,82 +276,22 @@ function reconcileDraft(chainId: string, eventKey: string): PlanEvent {
 }
 
 function dryRunInput(): JSONRecord {
-  return {
-    now: "2026-07-08T12:00:20Z",
-    event_key: "evt-run-step-schema-1",
-    created_at: "2026-07-08T12:00:21Z",
-    target_action: "place_entry",
-    plan: {
-      symbol: "BTCUSDT",
-      side: "long",
-      setup_id: "trend-breakout",
-      direction_state: "偏多已确认",
-      execution_verdict: "等条件",
-      thesis: "4H trend is intact",
-      entry_intent: "buy breakout",
-      exit_intent: "exit below invalidation",
-      invalidation: "4H close below range",
-      stop_price: 64000,
-      risk_budget_usdt: 10,
-      expected_rr_net: 2,
-      live_permission: "live-small",
-    },
-    observe: {
-      created_at: "2026-07-08T12:00:00Z",
-      symbol: "BTCUSDT",
-      side: "long",
-      setup_id: "trend-breakout",
-      account: {
-        equity_usdt: 1000,
-      },
-    },
-    strategy: {
-      status: "live-small",
-    },
-    account_config: {
-      max_open_risk_pct: 0.1,
-      max_day_loss_pct: 0.05,
-    },
-    request: {
-      type: "STOP_MARKET",
-    },
-    aggregate_view: {
-      active_plans_risk_sum: 0,
-      current_account_open_risk_usdt: 0,
-      realized_pnl_today_usdt: 0,
-      active_plans_worst_loss_at_stop: 0,
-    },
-    execution_contract_input: {
-      source_observe_event_key: "obs-run-step-schema-1",
-      chain_id: "flow-run-step-schema-1",
-      setup_id: "trend-breakout",
-      market: "usdm",
-      symbol: "BTCUSDT",
-      side: "long",
-      position_side: "BOTH",
-      margin_mode: "isolated",
-      target_leverage: 2,
-      account_snapshot: {
-        equity_usdt: 1000,
-        available_balance_usdt: 900,
-        snapshot_at: "2026-07-08T12:00:00Z",
-      },
-      risk: {
-        risk_budget_usdt: 10,
-        stop_price: 64000,
-        invalidation: "below range",
-        expected_rr_net: 2,
-      },
-      entries: [{
-        type: "STOP_MARKET",
-        stop_price: 66000,
-        margin_usdt: 100,
-      }],
-      exchange_rules: {
-        quantity_step_size: "0.001",
-        min_qty: "0.001",
-      },
-    },
+  return dryRunInputFixture({
+    eventKey: "evt-run-step-schema-1",
+    sourceObserveEventKey: "obs-run-step-schema-1",
+    chainId: "flow-run-step-schema-1",
+  })
+}
+
+function loadRuntimeWithTestPolicyRegistry(input: Parameters<typeof loadRuntime>[0]): JSONRecord {
+  const databaseEnvironment = createTestDatabaseEnvironment("runtime-load")
+  try {
+    return loadRuntime({
+      ...input,
+      policyRegistryDbPath: databaseEnvironment.database("policy_registry.db"),
+    })
+  } finally {
+    databaseEnvironment.cleanup()
   }
 }
 
@@ -374,6 +320,7 @@ function recoveryTestRuntime(db: Database) {
     flowStateReader: (_dbPath: string, chainId: string) => reduceFlowState(db, chainId) as JSONRecord,
     latestOrderFillReader: (_dbPath: string, chainId: string) => readLatestOrderFill(db, chainId) as JSONRecord | null,
     latestSlowObserveReader: (_dbPath: string, chainId: string) => latestSlowObserve(readFlowEvents(db, chainId)) as unknown as JSONRecord | null,
+    portfolioProjectionReader: (_dbPath: string, input: { account_ref: string; account_scope: string; symbol?: string; as_of?: string }) => buildPortfolioAccountProjection(db, input),
     eventAppender: (_dbPath: string, event: JSONRecord) => {
       appendPlanEvent(db, event as unknown as PlanEvent)
       return event

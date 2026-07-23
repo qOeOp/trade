@@ -2,9 +2,8 @@ import { expect, test } from "bun:test"
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION, REPLAY_BAR_LINKED_AGGREGATE_TRADE_PATH_AUTHORITY_LIMITATIONS, REPLAY_BAR_LINKED_AGGREGATE_TRADE_PATH_AUTHORITY_SCHEMA_VERSION, REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION, REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION, REPLAY_PORTFOLIO_POST_PARTIAL_STOP_REPLACEMENT_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION, REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION, TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, createReplayAttemptCancellationSnapshot, createReplayBarLinkedAggregateTradePathAuthoritySnapshot, createReplayInstrumentStatusProviderCertificationSnapshot, createReplayPortfolioPostPartialStopReplacementCycleSequenceReservationSnapshot, createReplayResumeAuthorizationSnapshot, hashReplayAttemptLeaseSnapshot, hashTrialReservationSnapshot, type ReplayAttemptLeaseSnapshot, type ReplayResumeAuthorizationSnapshot, type TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
+import { REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION, REPLAY_BAR_LINKED_AGGREGATE_TRADE_PATH_AUTHORITY_LIMITATIONS, REPLAY_BAR_LINKED_AGGREGATE_TRADE_PATH_AUTHORITY_SCHEMA_VERSION, REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION, REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION, REPLAY_PORTFOLIO_POST_PARTIAL_STOP_REPLACEMENT_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION, REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION, createReplayAttemptCancellationSnapshot, createReplayBarLinkedAggregateTradePathAuthoritySnapshot, createReplayInstrumentStatusProviderCertificationSnapshot, createReplayPortfolioPostPartialStopReplacementCycleSequenceReservationSnapshot, createReplayResumeAuthorizationSnapshot, hashReplayAttemptLeaseSnapshot, hashTrialReservationSnapshot, type ReplayAttemptLeaseSnapshot, type ReplayResumeAuthorizationSnapshot, type TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 import {
-  REPLAY_CERTIFIED_CAPABILITIES,
   REPLAY_AGGREGATE_TRADE_EVENT_SCHEMA_VERSION,
   REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
   REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION,
@@ -112,6 +111,7 @@ import {
 } from "../../../contracts/src/lib/replay-portfolio-post-partial-stop-replacement-cycle-sequence-contracts"
 import { runReplayPortfolioPostPartialStopReplacementCycleSequence } from
   "./replay-portfolio-post-partial-stop-replacement-cycle-sequence-runner"
+import { authorizeReplayTrialRequest } from "./replay-worker-v10-request-fixture"
 
 const HASH = "b".repeat(64)
 const PROVIDER_CERTIFICATION = createReplayInstrumentStatusProviderCertificationSnapshot({
@@ -260,45 +260,37 @@ export function execute({ request }) { return { decision_output: { action: "subm
 })
 
 function authorize(requestValue: ReplayExecutionRequest): TrialReservationSnapshot {
-  const reservation: TrialReservationSnapshot = {
-    schema_version: TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION,
-    reservation_id: `reservation:${requestValue.run_id}`,
-    reservation_ref: requestValue.trial_reservation_ref,
-    issued_at: "2026-07-14T00:00:00Z",
-    expires_at: "2026-07-15T00:00:00Z",
-    status: "reserved",
-    identity: {
-      schema_version: CONTROL_PLANE_IDENTITY_SCHEMA_VERSION,
-      experiment_id: requestValue.experiment_id, trial_group_id: requestValue.trial_group_id, trial_group_hash: requestValue.trial_group_hash,
-      trial_id: requestValue.trial_id, candidate_id: requestValue.candidate_id, candidate_hash: requestValue.candidate_hash,
-      identity_hash_policy_version: requestValue.identity_hash_policy_version, experiment_contract_hash: requestValue.experiment_contract_hash,
-    },
-    trial_ordinal: 1, run_id: requestValue.run_id, counts_against_budget: true,
-    trial_accounting_policy_version: "count-all-v1", candidate_assignment_hash: HASH,
-    bindings: {
-      replay_idempotency_key: requestValue.idempotency_key,
-      execution_spec_hash: replayExecutionSpecHash(requestValue),
-      dataset_manifest_ref: requestValue.dataset_manifest_ref, dataset_hash: requestValue.dataset_hash,
-      liquidity_capacity_attestation_hash: requestValue.order.entry_execution.order_type === "market"
-        ? null
-        : requestValue.order.entry_execution.liquidity_capacity_attestation_hash,
-      supplemental_facts_hash: requestValue.supplemental_facts_hash,
-      supplemental_requirement_set_hash: requestValue.supplemental_requirement_set_hash,
-      venue_risk_policy_schedule_hash: requestValue.venue_risk_policy_schedule_hash,
-      instrument_spec_schedule_hash: requestValue.instrument_spec_schedule_hash,
-      instrument_status_schedule_hash: requestValue.instrument_status_schedule_hash,
-      instrument_status_provenance_hash: requestValue.instrument_status_provenance_hash,
-      instrument_status_provider_capability_hash: requestValue.instrument_status_provider_capability_hash,
-      instrument_status_provider_certification_hash: requestValue.instrument_status_provider_certification_hash,
-      harness_hash: requestValue.harness_hash, assumptions_hash: requestValue.assumptions_hash,
-      cost_policy_hash: canonicalHash(requestValue.cost_policy), margin_policy_hash: canonicalHash(requestValue.margin_policy),
-      simulator_policy_version: requestValue.simulator_policy.version, execution_mode: "step",
-    },
-    instrument_status_provider_certification: PROVIDER_CERTIFICATION,
-    required_capabilities: [...REPLAY_CERTIFIED_CAPABILITIES],
+  return authorizeReplayTrialRequest(requestValue, { providerCertification: PROVIDER_CERTIFICATION })
+}
+
+function closedBarLookbackRequirement() {
+  return {
+    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
+    mode: "closed_bar_lookback" as const,
+    source_kind: "ohlcv" as const,
+    fields: ["open", "high", "low", "close", "volume"] as const,
+    lookback_bars: 1,
+    visibility_policy: "close_time_at_or_before_decision_time" as const,
+    terminal_bar_policy: "close_time_equals_decision_time" as const,
+    continuity_policy: "strict_interval_grid" as const,
+    undeclared_input_policy: "reject" as const,
   }
-  requestValue.trial_reservation_hash = hashTrialReservationSnapshot(reservation)
-  return reservation
+}
+
+function pendingEntryCancelHarness(
+  order: ReplayExecutionRequest["order"],
+  intent: ReturnType<typeof createReplayEntryCancelIntent>,
+) {
+  return decisionHarness(`const initialOrder = ${JSON.stringify(order)}
+const cancelIntent = ${JSON.stringify(intent)}
+export function execute({ request_context, decision_market_input_snapshot, decision_state_snapshot }) {
+  if (decision_state_snapshot !== null) throw new Error("pending entry cancel cannot consume position state")
+  if (request_context.decision_phase === "pending_entry") {
+    return { decision_output: { action: "cancel_entry_order", order: cancelIntent }, trace: { bars_hash: decision_market_input_snapshot.bars_hash } }
+  }
+  return { decision_output: { action: "submit_initial_order", order: initialOrder }, trace: { bars_hash: decision_market_input_snapshot.bars_hash } }
+}
+`)
 }
 
 function authorized(requestValue = boundRequest()) {
@@ -396,6 +388,90 @@ function datasetManifestFor(
     last_close_time: last.close_time,
     observed_through: last.close_time,
   }
+}
+
+function pendingEntryCancelRunner(input: {
+  preSignalBar: ReplayMarketBar
+  order: ReplayExecutionRequest["order"]
+  intent: ReturnType<typeof createReplayEntryCancelIntent>
+  artifactPrefix: string
+}) {
+  const requirement = closedBarLookbackRequirement()
+  const schedule = createReplayEntryCancelDecisionSchedule(input.order)
+  const registration = pendingEntryCancelHarness(input.order, input.intent)
+  return (executionBar: ReplayMarketBar, idempotencyKey: string) => {
+    const runBars = [input.preSignalBar, executionBar]
+    const dataHash = replayDatasetHash(runBars)
+    const requestValue: ReplayExecutionRequest = {
+      ...request(), order: input.order, dataset_hash: dataHash, idempotency_key: idempotencyKey,
+      harness_hash: registration.source_bundle.bundle_hash,
+      decision_market_input_requirement: requirement,
+      decision_market_input_requirement_hash: canonicalHash(requirement),
+      decision_schedule: schedule, decision_schedule_hash: canonicalHash(schedule),
+    }
+    return runReplayTrial({
+      ...authorized(requestValue), dataset_manifest: datasetManifestFor(runBars, dataHash), bars: runBars,
+      decision_harness_registry: registration.registry,
+      artifact_root: mkdtempSync(join(tmpdir(), `${input.artifactPrefix}-${idempotencyKey}-`)),
+    })
+  }
+}
+
+function runDecisionHarnessFixture(input: {
+  marketBars: ReplayMarketBar[]
+  order: ReplayExecutionRequest["order"]
+  decisionSchedule: ReplayDecisionSchedule
+  registeredHarness: ReplayRegisteredDecisionHarness & {
+    registry: ReturnType<typeof createReplayDecisionHarnessRegistry>
+  }
+}) {
+  const requirement = closedBarLookbackRequirement()
+  const dataHash = replayDatasetHash(input.marketBars)
+  const requestValue: ReplayExecutionRequest = {
+    ...boundRequest(), dataset_hash: dataHash,
+    harness_hash: input.registeredHarness.source_bundle.bundle_hash,
+    decision_market_input_requirement: requirement,
+    decision_market_input_requirement_hash: canonicalHash(requirement),
+    decision_schedule: input.decisionSchedule,
+    decision_schedule_hash: canonicalHash(input.decisionSchedule),
+    order: input.order,
+  }
+  return {
+    requirement,
+    outcome: runReplayTrial({
+      ...authorized(requestValue),
+      dataset_manifest: datasetManifestFor(input.marketBars, dataHash),
+      bars: input.marketBars,
+      decision_harness_registry: input.registeredHarness.registry,
+    }),
+  }
+}
+
+function replayMarketBars(rows: ReadonlyArray<readonly [
+  string, string, number, number, number, number, number,
+]>): ReplayMarketBar[] {
+  return rows.map(([open_time, close_time, open, high, low, close, volume]) => ({
+    open_time, close_time, open, high, low, close, volume, closed: true,
+  }))
+}
+
+function checkpointReplayFixture() {
+  const replayBars = replayMarketBars([
+    ["2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 100, 104, 98, 102, 10],
+    ["2026-07-14T08:00:00Z", "2026-07-14T12:00:00Z", 102, 106, 99, 104, 10],
+    ["2026-07-14T12:00:00Z", "2026-07-14T16:00:00Z", 104, 111, 103, 110, 10],
+  ])
+  const dataHash = replayDatasetHash(replayBars)
+  const requestValue = { ...boundRequest(), dataset_hash: dataHash }
+  const authority = authorized(requestValue)
+  const manifest = datasetManifestFor(replayBars, dataHash)
+  const clean = runReplayTrial({ ...authority, dataset_manifest: manifest, bars: replayBars })
+  const renewedLease = attemptLease(authority.request, authority.trial_reservation, {
+    lease_generation: 3,
+    heartbeat_at: "2026-07-14T00:01:30Z",
+    lease_expires_at: "2026-07-14T00:06:30Z",
+  })
+  return { replayBars, authority, manifest, clean, renewedLease }
 }
 
 function authorizedBarLinkedStopEntryPathFixture(prices: number[]) {
@@ -1230,41 +1306,9 @@ test("runner evaluates a scheduled pending-entry Cancel Harness and marks an ear
       liquidity_capacity_attestation_hash: CAPACITY_ATTESTATION.attestation_hash,
     },
   }
-  const requirement = {
-    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
-    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
-    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
-    visibility_policy: "close_time_at_or_before_decision_time" as const,
-    terminal_bar_policy: "close_time_equals_decision_time" as const,
-    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
-  }
-  const schedule = createReplayEntryCancelDecisionSchedule(order)
-  const registration = decisionHarness(`const initialOrder = ${JSON.stringify(order)}
-const cancelIntent = ${JSON.stringify(intent)}
-export function execute({ request_context, decision_market_input_snapshot, decision_state_snapshot }) {
-  if (decision_state_snapshot !== null) throw new Error("pending entry cancel cannot consume position state")
-  if (request_context.decision_phase === "pending_entry") {
-    return { decision_output: { action: "cancel_entry_order", order: cancelIntent }, trace: { bars_hash: decision_market_input_snapshot.bars_hash } }
-  }
-  return { decision_output: { action: "submit_initial_order", order: initialOrder }, trace: { bars_hash: decision_market_input_snapshot.bars_hash } }
-}
-`)
-  const run = (executionBar: ReplayMarketBar, idempotencyKey: string) => {
-    const runBars = [preSignalBar, executionBar]
-    const dataHash = replayDatasetHash(runBars)
-    const requestValue: ReplayExecutionRequest = {
-      ...request(), order, dataset_hash: dataHash, idempotency_key: idempotencyKey,
-      harness_hash: registration.source_bundle.bundle_hash,
-      decision_market_input_requirement: requirement,
-      decision_market_input_requirement_hash: canonicalHash(requirement),
-      decision_schedule: schedule, decision_schedule_hash: canonicalHash(schedule),
-    }
-    return runReplayTrial({
-      ...authorized(requestValue), dataset_manifest: datasetManifestFor(runBars, dataHash), bars: runBars,
-      decision_harness_registry: registration.registry,
-      artifact_root: mkdtempSync(join(tmpdir(), `rd-replay-scheduled-cancel-${idempotencyKey}-`)),
-    })
-  }
+  const run = pendingEntryCancelRunner({
+    preSignalBar, order, intent, artifactPrefix: "rd-replay-scheduled-cancel",
+  })
 
   const cancelled = run({
     open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z",
@@ -1395,41 +1439,9 @@ test("runner evaluates scheduled Stop-market Cancel v2 and preserves trigger-bef
       liquidity_capacity_attestation_hash: CAPACITY_ATTESTATION.attestation_hash,
     },
   }
-  const requirement = {
-    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
-    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
-    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
-    visibility_policy: "close_time_at_or_before_decision_time" as const,
-    terminal_bar_policy: "close_time_equals_decision_time" as const,
-    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
-  }
-  const schedule = createReplayEntryCancelDecisionSchedule(order)
-  const registration = decisionHarness(`const initialOrder = ${JSON.stringify(order)}
-const cancelIntent = ${JSON.stringify(intent)}
-export function execute({ request_context, decision_market_input_snapshot, decision_state_snapshot }) {
-  if (decision_state_snapshot !== null) throw new Error("pending entry cancel cannot consume position state")
-  if (request_context.decision_phase === "pending_entry") {
-    return { decision_output: { action: "cancel_entry_order", order: cancelIntent }, trace: { bars_hash: decision_market_input_snapshot.bars_hash } }
-  }
-  return { decision_output: { action: "submit_initial_order", order: initialOrder }, trace: { bars_hash: decision_market_input_snapshot.bars_hash } }
-}
-`)
-  const run = (executionBar: ReplayMarketBar, idempotencyKey: string) => {
-    const runBars = [preSignalBar, executionBar]
-    const dataHash = replayDatasetHash(runBars)
-    const requestValue: ReplayExecutionRequest = {
-      ...request(), order, dataset_hash: dataHash, idempotency_key: idempotencyKey,
-      harness_hash: registration.source_bundle.bundle_hash,
-      decision_market_input_requirement: requirement,
-      decision_market_input_requirement_hash: canonicalHash(requirement),
-      decision_schedule: schedule, decision_schedule_hash: canonicalHash(schedule),
-    }
-    return runReplayTrial({
-      ...authorized(requestValue), dataset_manifest: datasetManifestFor(runBars, dataHash), bars: runBars,
-      decision_harness_registry: registration.registry,
-      artifact_root: mkdtempSync(join(tmpdir(), `rd-replay-scheduled-stop-cancel-${idempotencyKey}-`)),
-    })
-  }
+  const run = pendingEntryCancelRunner({
+    preSignalBar, order, intent, artifactPrefix: "rd-replay-scheduled-stop-cancel",
+  })
 
   const cancelled = run({
     open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z",
@@ -1628,46 +1640,15 @@ test("runner recomputes the frozen Order from a hash-bound closed-bar lookback w
     { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 101, high: 104, low: 100, close: 102, volume: 11, closed: true as const },
     { open_time: "2026-07-14T08:00:00Z", close_time: "2026-07-14T12:00:00Z", open: 102, high: 111, low: 101, close: 110, volume: 12, closed: true as const },
   ]
-  const requirement = {
-    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
-    mode: "closed_bar_lookback" as const,
-    source_kind: "ohlcv" as const,
-    fields: ["open", "high", "low", "close", "volume"] as const,
-    lookback_bars: 1,
-    visibility_policy: "close_time_at_or_before_decision_time" as const,
-    terminal_bar_policy: "close_time_equals_decision_time" as const,
-    continuity_policy: "strict_interval_grid" as const,
-    undeclared_input_policy: "reject" as const,
-  }
   const registeredHarness = decisionHarness(`export function execute({ request_context, decision_market_input_snapshot }) {
     if ("order" in request_context) throw new Error("request context leaked order")
     const close = decision_market_input_snapshot.bars.at(-1).close
     return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: close - 6, target_price: close + 9, entry_execution: { order_type: "market" } } }, trace: { bars_hash: decision_market_input_snapshot.bars_hash } }
   }\n`)
-  const dataHash = replayDatasetHash(marketBars)
   const order: ReplayExecutionRequest["order"] = { side: "long", quantity: 1, signal_time: "2026-07-14T04:00:00Z", earliest_executable_time: "2026-07-14T08:00:00Z", stop_price: 95, target_price: 110, entry_execution: { order_type: "market" } }
   const decisionSchedule = createReplaySingleDecisionSchedule(order)
-  const requestValue: ReplayExecutionRequest = {
-    ...boundRequest(),
-    dataset_hash: dataHash,
-    harness_hash: registeredHarness.source_bundle.bundle_hash,
-    decision_market_input_requirement: requirement,
-    decision_market_input_requirement_hash: canonicalHash(requirement),
-    decision_schedule: decisionSchedule,
-    decision_schedule_hash: canonicalHash(decisionSchedule),
-    order,
-  }
-  const manifest: ReplayDatasetManifest = {
-    ...datasetManifest(),
-    data_hash: dataHash,
-    row_count: marketBars.length,
-    first_open_time: marketBars[0].open_time,
-    last_close_time: marketBars.at(-1)!.close_time,
-    observed_through: marketBars.at(-1)!.close_time,
-  }
-  const completed = runReplayTrial({
-    ...authorized(requestValue), dataset_manifest: manifest, bars: marketBars,
-    decision_harness_registry: registeredHarness.registry,
+  const { requirement, outcome: completed } = runDecisionHarnessFixture({
+    marketBars, order, decisionSchedule, registeredHarness,
   })
   expect(completed.status).toBe("completed")
   const entry = completed.result?.decision_evidence_timeline.entries[0]
@@ -1690,14 +1671,6 @@ test("runner evaluates every frozen closed-bar boundary before one authorized in
     { open_time: "2026-07-14T08:00:00Z", close_time: "2026-07-14T12:00:00Z", open: 102, high: 105, low: 101, close: 104, volume: 12, closed: true as const },
     { open_time: "2026-07-14T12:00:00Z", close_time: "2026-07-14T16:00:00Z", open: 103, high: 111, low: 102, close: 110, volume: 13, closed: true as const },
   ]
-  const requirement = {
-    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
-    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
-    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
-    visibility_policy: "close_time_at_or_before_decision_time" as const,
-    terminal_bar_policy: "close_time_equals_decision_time" as const,
-    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
-  }
   const registeredHarness = decisionHarness(`export function execute({ request_context, decision_market_input_snapshot }) {
     if (request_context.decision_sequence === 1) return { decision_output: { action: "no_action" }, trace: { close: decision_market_input_snapshot.bars.at(-1).close } }
     const close = decision_market_input_snapshot.bars.at(-1).close
@@ -1716,21 +1689,8 @@ test("runner evaluates every frozen closed-bar boundary before one authorized in
       { decision_sequence: 2, decision_time: order.signal_time, expected_effect: "authorized_initial_order" as const, authorized_reduce_only_exit: null, authorized_protective_stop_replace: null, authorized_partial_reduce: null, authorized_order_hash: canonicalHash(order) },
     ],
   }
-  const dataHash = replayDatasetHash(marketBars)
-  const requestValue: ReplayExecutionRequest = {
-    ...boundRequest(), dataset_hash: dataHash, harness_hash: registeredHarness.source_bundle.bundle_hash,
-    decision_market_input_requirement: requirement,
-    decision_market_input_requirement_hash: canonicalHash(requirement),
-    decision_schedule: decisionSchedule, decision_schedule_hash: canonicalHash(decisionSchedule), order,
-  }
-  const manifest: ReplayDatasetManifest = {
-    ...datasetManifest(), data_hash: dataHash, row_count: marketBars.length,
-    first_open_time: marketBars[0].open_time, last_close_time: marketBars.at(-1)!.close_time,
-    observed_through: marketBars.at(-1)!.close_time,
-  }
-  const completed = runReplayTrial({
-    ...authorized(requestValue), dataset_manifest: manifest, bars: marketBars,
-    decision_harness_registry: registeredHarness.registry,
+  const { outcome: completed } = runDecisionHarnessFixture({
+    marketBars, order, decisionSchedule, registeredHarness,
   })
   expect(completed.status).toBe("completed")
   const timeline = completed.result!.decision_evidence_timeline
@@ -1746,21 +1706,14 @@ test("runner evaluates every frozen closed-bar boundary before one authorized in
 })
 
 test("runner evaluates position-open no-action from runtime state and records terminal-not-reached", () => {
-  const requirement = {
-    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
-    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
-    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
-    visibility_policy: "close_time_at_or_before_decision_time" as const,
-    terminal_bar_policy: "close_time_equals_decision_time" as const,
-    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
-  }
-  const marketBars = [
-    { open_time: "2026-07-14T00:00:00Z", close_time: "2026-07-14T04:00:00Z", open: 99, high: 102, low: 98, close: 100, volume: 10, closed: true as const },
-    { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 104, low: 99, close: 102, volume: 11, closed: true as const },
-    { open_time: "2026-07-14T08:00:00Z", close_time: "2026-07-14T12:00:00Z", open: 102, high: 105, low: 101, close: 104, volume: 12, closed: true as const },
-    { open_time: "2026-07-14T12:00:00Z", close_time: "2026-07-14T16:00:00Z", open: 103, high: 106, low: 100, close: 105, volume: 13, closed: true as const },
-    { open_time: "2026-07-14T16:00:00Z", close_time: "2026-07-14T20:00:00Z", open: 105, high: 111, low: 104, close: 110, volume: 14, closed: true as const },
-  ]
+  const requirement = closedBarLookbackRequirement()
+  const marketBars = replayMarketBars([
+    ["2026-07-14T00:00:00Z", "2026-07-14T04:00:00Z", 99, 102, 98, 100, 10],
+    ["2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 100, 104, 99, 102, 11],
+    ["2026-07-14T08:00:00Z", "2026-07-14T12:00:00Z", 102, 105, 101, 104, 12],
+    ["2026-07-14T12:00:00Z", "2026-07-14T16:00:00Z", 103, 106, 100, 105, 13],
+    ["2026-07-14T16:00:00Z", "2026-07-14T20:00:00Z", 105, 111, 104, 110, 14],
+  ])
   const registeredHarness = decisionHarness(`export function execute({ request_context, decision_state_snapshot }) {
     if (request_context.decision_phase === "position_open") {
       if (decision_state_snapshot?.position.state !== "open") throw new Error("missing runtime open state")
@@ -1873,14 +1826,7 @@ test("runner evaluates position-open no-action from runtime state and records te
 })
 
 test("runner submits one authorized full reduce-only exit and executes it at the next open", () => {
-  const requirement = {
-    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
-    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
-    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
-    visibility_policy: "close_time_at_or_before_decision_time" as const,
-    terminal_bar_policy: "close_time_equals_decision_time" as const,
-    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
-  }
+  const requirement = closedBarLookbackRequirement()
   const marketBars = [
     { open_time: "2026-07-14T00:00:00Z", close_time: "2026-07-14T04:00:00Z", open: 99, high: 102, low: 98, close: 100, volume: 10, closed: true as const },
     { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 104, low: 99, close: 102, volume: 11, closed: true as const },
@@ -2040,14 +1986,7 @@ test("runner submits one authorized full reduce-only exit and executes it at the
 }, 15_000)
 
 test("runner cancels one pending strategy exit before execution and preserves protective terminal ownership across resume", () => {
-  const requirement = {
-    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
-    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
-    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
-    visibility_policy: "close_time_at_or_before_decision_time" as const,
-    terminal_bar_policy: "close_time_equals_decision_time" as const,
-    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
-  }
+  const requirement = closedBarLookbackRequirement()
   const marketBars = [
     { open_time: "2026-07-14T00:00:00Z", close_time: "2026-07-14T04:00:00Z", open: 99, high: 102, low: 98, close: 100, volume: 10, closed: true as const },
     { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 104, low: 99, close: 102, volume: 11, closed: true as const },
@@ -2151,14 +2090,7 @@ test("runner cancels one pending strategy exit before execution and preserves pr
 
 test("runner cancels one active target, preserves the stop, and ignores later former-target touches", () => {
   const runId = "take-profit-cancel-run"
-  const requirement = {
-    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
-    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
-    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
-    visibility_policy: "close_time_at_or_before_decision_time" as const,
-    terminal_bar_policy: "close_time_equals_decision_time" as const,
-    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
-  }
+  const requirement = closedBarLookbackRequirement()
   const marketBars = [
     { open_time: "2026-07-14T00:00:00Z", close_time: "2026-07-14T04:00:00Z", open: 99, high: 102, low: 98, close: 100, volume: 10, closed: true as const },
     { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 104, low: 99, close: 102, volume: 11, closed: true as const },
@@ -2320,14 +2252,7 @@ test("runner cancels one active target, preserves the stop, and ignores later fo
 
 test("runner cancels one active protective stop, preserves the target, and ignores later former-stop touches", () => {
   const runId = "protective-stop-cancel-run"
-  const requirement = {
-    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
-    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
-    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
-    visibility_policy: "close_time_at_or_before_decision_time" as const,
-    terminal_bar_policy: "close_time_equals_decision_time" as const,
-    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
-  }
+  const requirement = closedBarLookbackRequirement()
   const marketBars = [
     { open_time: "2026-07-14T00:00:00Z", close_time: "2026-07-14T04:00:00Z", open: 99, high: 102, low: 98, close: 100, volume: 10, closed: true as const },
     { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 104, low: 99, close: 102, volume: 11, closed: true as const },
@@ -2486,14 +2411,7 @@ test("runner cancels one active protective stop, preserves the target, and ignor
 }, 15_000)
 
 test("runner partially reduces once, rebuilds full protection, then cleanly resumes to final exit", () => {
-  const requirement = {
-    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
-    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
-    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
-    visibility_policy: "close_time_at_or_before_decision_time" as const,
-    terminal_bar_policy: "close_time_equals_decision_time" as const,
-    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
-  }
+  const requirement = closedBarLookbackRequirement()
   const marketBars = [
     { open_time: "2026-07-14T00:00:00Z", close_time: "2026-07-14T04:00:00Z", open: 99, high: 102, low: 98, close: 100, volume: 10, closed: true as const },
     { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 104, low: 99, close: 102, volume: 11, closed: true as const },
@@ -2761,14 +2679,7 @@ test("runner partially reduces once, rebuilds full protection, then cleanly resu
 }, 15_000)
 
 test("runner executes two predeclared fixed partial reduces and resumes from generation three", () => {
-  const requirement = {
-    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
-    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
-    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
-    visibility_policy: "close_time_at_or_before_decision_time" as const,
-    terminal_bar_policy: "close_time_equals_decision_time" as const,
-    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
-  }
+  const requirement = closedBarLookbackRequirement()
   const bars = [
     { open_time: "2026-07-14T00:00:00Z", close_time: "2026-07-14T04:00:00Z", open: 99, high: 102, low: 98, close: 100, volume: 10, closed: true as const },
     { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 103, low: 99, close: 102, volume: 11, closed: true as const },
@@ -3581,14 +3492,7 @@ test("runner executes two predeclared fixed partial reduces and resumes from gen
 }, 30_000)
 
 test("post-partial stop replacement preserves t-minus funding and exact-risk quantity for long and short", () => {
-  const requirement = {
-    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
-    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
-    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
-    visibility_policy: "close_time_at_or_before_decision_time" as const,
-    terminal_bar_policy: "close_time_equals_decision_time" as const,
-    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
-  }
+  const requirement = closedBarLookbackRequirement()
   const times = [
     "2026-07-14T00:00:00Z", "2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z",
     "2026-07-14T12:00:00Z", "2026-07-14T16:00:00Z", "2026-07-14T20:00:00Z",
@@ -3884,14 +3788,7 @@ export function execute({ request_context, decision_state_snapshot }) {
 }, 20_000)
 
 test("runner tightens one protective stop and resumes without replaying its Harness", () => {
-  const requirement = {
-    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
-    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
-    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
-    visibility_policy: "close_time_at_or_before_decision_time" as const,
-    terminal_bar_policy: "close_time_equals_decision_time" as const,
-    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
-  }
+  const requirement = closedBarLookbackRequirement()
   const marketBars = [
     { open_time: "2026-07-14T00:00:00Z", close_time: "2026-07-14T04:00:00Z", open: 99, high: 102, low: 98, close: 100, volume: 10, closed: true as const },
     { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 104, low: 99, close: 102, volume: 11, closed: true as const },
@@ -4069,14 +3966,7 @@ test("runner tightens one protective stop and resumes without replaying its Harn
 }, 15_000)
 
 test("runner reprices one take-profit, preserves the stop, and ignores the former target", () => {
-  const requirement = {
-    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
-    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
-    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
-    visibility_policy: "close_time_at_or_before_decision_time" as const,
-    terminal_bar_policy: "close_time_equals_decision_time" as const,
-    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
-  }
+  const requirement = closedBarLookbackRequirement()
   const marketBars = [
     { open_time: "2026-07-14T00:00:00Z", close_time: "2026-07-14T04:00:00Z", open: 99, high: 102, low: 98, close: 100, volume: 10, closed: true as const },
     { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 104, low: 99, close: 102, volume: 11, closed: true as const },
@@ -4206,24 +4096,17 @@ test("runner reprices one take-profit, preserves the stop, and ignores the forme
 }, 15_000)
 
 test("runner preserves one terminal owner after stop replacement and a later strategy exit", () => {
-  const requirement = {
-    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
-    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
-    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
-    visibility_policy: "close_time_at_or_before_decision_time" as const,
-    terminal_bar_policy: "close_time_equals_decision_time" as const,
-    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
-  }
-  const marketBars = [
-    { open_time: "2026-07-14T00:00:00Z", close_time: "2026-07-14T04:00:00Z", open: 99, high: 102, low: 98, close: 100, volume: 10, closed: true as const },
-    { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 104, low: 99, close: 102, volume: 11, closed: true as const },
-    { open_time: "2026-07-14T08:00:00Z", close_time: "2026-07-14T12:00:00Z", open: 102, high: 105, low: 101, close: 104, volume: 12, closed: true as const },
-    { open_time: "2026-07-14T12:00:00Z", close_time: "2026-07-14T16:00:00Z", open: 103, high: 106, low: 100, close: 105, volume: 13, closed: true as const },
-    { open_time: "2026-07-14T16:00:00Z", close_time: "2026-07-14T20:00:00Z", open: 105, high: 108, low: 103, close: 107, volume: 14, closed: true as const },
-    { open_time: "2026-07-14T20:00:00Z", close_time: "2026-07-15T00:00:00Z", open: 107, high: 109, low: 105, close: 108, volume: 15, closed: true as const },
-    { open_time: "2026-07-15T00:00:00Z", close_time: "2026-07-15T04:00:00Z", open: 108, high: 110, low: 106, close: 109, volume: 16, closed: true as const },
-    { open_time: "2026-07-15T04:00:00Z", close_time: "2026-07-15T08:00:00Z", open: 110, high: 112, low: 108, close: 111, volume: 17, closed: true as const },
-  ]
+  const requirement = closedBarLookbackRequirement()
+  const marketBars = replayMarketBars([
+    ["2026-07-14T00:00:00Z", "2026-07-14T04:00:00Z", 99, 102, 98, 100, 10],
+    ["2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 100, 104, 99, 102, 11],
+    ["2026-07-14T08:00:00Z", "2026-07-14T12:00:00Z", 102, 105, 101, 104, 12],
+    ["2026-07-14T12:00:00Z", "2026-07-14T16:00:00Z", 103, 106, 100, 105, 13],
+    ["2026-07-14T16:00:00Z", "2026-07-14T20:00:00Z", 105, 108, 103, 107, 14],
+    ["2026-07-14T20:00:00Z", "2026-07-15T00:00:00Z", 107, 109, 105, 108, 15],
+    ["2026-07-15T00:00:00Z", "2026-07-15T04:00:00Z", 108, 110, 106, 109, 16],
+    ["2026-07-15T04:00:00Z", "2026-07-15T08:00:00Z", 110, 112, 108, 111, 17],
+  ])
   const order: ReplayExecutionRequest["order"] = {
     side: "long", quantity: 1, signal_time: "2026-07-14T08:00:00Z",
     earliest_executable_time: "2026-07-14T12:00:00Z", stop_price: 95, target_price: 120,
@@ -4331,14 +4214,7 @@ test("runner preserves one terminal owner after stop replacement and a later str
 }, 15_000)
 
 test("protective stop replacement is direction-symmetric and keeps stop-first OHLC resolution", () => {
-  const requirement = {
-    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
-    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
-    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
-    visibility_policy: "close_time_at_or_before_decision_time" as const,
-    terminal_bar_policy: "close_time_equals_decision_time" as const,
-    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
-  }
+  const requirement = closedBarLookbackRequirement()
   const longBars = [
     { open_time: "2026-07-14T00:00:00Z", close_time: "2026-07-14T04:00:00Z", open: 99, high: 102, low: 98, close: 100, volume: 10, closed: true as const },
     { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 104, low: 99, close: 102, volume: 11, closed: true as const },
@@ -4515,27 +4391,7 @@ test("runner rejects a contract-valid but uncertified remote Artifact Store befo
 })
 
 test("runner renews the fenced Attempt at source boundaries and resumes cancelled work exactly", () => {
-  const replayBars = [
-    { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 104, low: 98, close: 102, volume: 10, closed: true as const },
-    { open_time: "2026-07-14T08:00:00Z", close_time: "2026-07-14T12:00:00Z", open: 102, high: 106, low: 99, close: 104, volume: 10, closed: true as const },
-    { open_time: "2026-07-14T12:00:00Z", close_time: "2026-07-14T16:00:00Z", open: 104, high: 111, low: 103, close: 110, volume: 10, closed: true as const },
-  ]
-  const dataHash = replayDatasetHash(replayBars)
-  const requestValue = { ...boundRequest(), dataset_hash: dataHash }
-  const authority = authorized(requestValue)
-  const manifest = {
-    ...datasetManifest(),
-    data_hash: dataHash,
-    row_count: replayBars.length,
-    last_close_time: replayBars.at(-1)!.close_time,
-    observed_through: replayBars.at(-1)!.close_time,
-  }
-  const clean = runReplayTrial({ ...authority, dataset_manifest: manifest, bars: replayBars })
-  const renewedLease = attemptLease(authority.request, authority.trial_reservation, {
-    lease_generation: 3,
-    heartbeat_at: "2026-07-14T00:01:30Z",
-    lease_expires_at: "2026-07-14T00:06:30Z",
-  })
+  const { replayBars, authority, manifest, clean, renewedLease } = checkpointReplayFixture()
   let boundaryCount = 0
   const cancelled = runReplayTrial({
     ...authority,
@@ -5343,24 +5199,7 @@ test("durable coordinator persists the renewed lease when cancellation arrives l
 
 test("runner atomically publishes an attempt-local checkpoint commit and resumes it across processes", () => {
   const root = mkdtempSync(join(tmpdir(), "rd-replay-checkpoint-"))
-  const replayBars = [
-    { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 104, low: 98, close: 102, volume: 10, closed: true as const },
-    { open_time: "2026-07-14T08:00:00Z", close_time: "2026-07-14T12:00:00Z", open: 102, high: 106, low: 99, close: 104, volume: 10, closed: true as const },
-    { open_time: "2026-07-14T12:00:00Z", close_time: "2026-07-14T16:00:00Z", open: 104, high: 111, low: 103, close: 110, volume: 10, closed: true as const },
-  ]
-  const dataHash = replayDatasetHash(replayBars)
-  const requestValue = { ...boundRequest(), dataset_hash: dataHash }
-  const authority = authorized(requestValue)
-  const manifest = {
-    ...datasetManifest(), data_hash: dataHash, row_count: replayBars.length,
-    last_close_time: replayBars.at(-1)!.close_time, observed_through: replayBars.at(-1)!.close_time,
-  }
-  const clean = runReplayTrial({ ...authority, dataset_manifest: manifest, bars: replayBars })
-  const renewedLease = attemptLease(authority.request, authority.trial_reservation, {
-    lease_generation: 3,
-    heartbeat_at: "2026-07-14T00:01:30Z",
-    lease_expires_at: "2026-07-14T00:06:30Z",
-  })
+  const { replayBars, authority, manifest, clean, renewedLease } = checkpointReplayFixture()
   let boundaryCount = 0
   const receiptSubmissionOffsets: number[] = []
   const receiptSubmissionRefs: string[] = []

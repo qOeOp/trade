@@ -197,14 +197,7 @@ test("fetchKlines keeps the latest closed candles when no start time is given", 
 test("run preserves relative output paths in response and manifest", async () => {
   const tempParent = mkdtempSync(join(tmpdir(), "ohlcv-fetch-test-"))
   const relativeOutputDir = join(basename(tempParent), "market", "BTCUSDT")
-  const rows = [1, 2, 3].map((index) => ({
-    openTime: index * 14_400_000,
-    open: "1",
-    high: "2",
-    low: "0.5",
-    close: "1.5",
-    volume: "10",
-  }))
+  const rows = sampleRows("constant")
   const client = {
     futuresExchangeInfo: async () => ({ symbols: [{ symbol: "BTCUSDT", status: "TRADING" }] }),
     futuresCandles: async () => rows,
@@ -239,14 +232,7 @@ test("run preserves relative output paths in response and manifest", async () =>
 
 test("run normalizes absolute output paths in response and manifest", async () => {
   const outputDir = mkdtempSync(join(tmpdir(), "ohlcv-fetch-absolute-"))
-  const rows = [1, 2, 3].map((index) => ({
-    openTime: index * 14_400_000,
-    open: "1",
-    high: "2",
-    low: "0.5",
-    close: "1.5",
-    volume: "10",
-  }))
+  const rows = sampleRows("constant")
   const client = {
     futuresExchangeInfo: async () => ({ symbols: [{ symbol: "BTCUSDT", status: "TRADING" }] }),
     futuresCandles: async () => rows,
@@ -279,14 +265,7 @@ test("run can upsert fetched candles into market data store", async () => {
   const storeDir = mkdtempSync(join(tmpdir(), "ohlcv-fetch-store-"))
   const dbPath = join(storeDir, "market_data.db")
   const ohlcvDbPath = join(storeDir, "ohlcv.db")
-  const rows = [1, 2, 3].map((index) => ({
-    openTime: index * 14_400_000,
-    open: String(index),
-    high: String(index + 1),
-    low: String(index - 0.5),
-    close: String(index + 0.25),
-    volume: String(index * 10),
-  }))
+  const rows = sampleRows("indexed")
   const client = {
     futuresExchangeInfo: async () => ({ symbols: [{ symbol: "BTCUSDT", status: "TRADING" }] }),
     futuresCandles: async () => rows,
@@ -340,14 +319,7 @@ test("run defaults to DB persistence without exporting OHLCV files", async () =>
   const storeDir = mkdtempSync(join(tmpdir(), "ohlcv-fetch-persist-only-"))
   const dbPath = join(storeDir, "market_data.db")
   const ohlcvDbPath = join(storeDir, "ohlcv.db")
-  const rows = [1, 2, 3].map((index) => ({
-    openTime: index * 14_400_000,
-    open: String(index),
-    high: String(index + 1),
-    low: String(index - 0.5),
-    close: String(index + 0.25),
-    volume: String(index * 10),
-  }))
+  const rows = sampleRows("indexed")
   const client = {
     futuresExchangeInfo: async () => ({ symbols: [{ symbol: "BTCUSDT", status: "TRADING" }] }),
     futuresCandles: async () => rows,
@@ -372,3 +344,14 @@ test("run defaults to DB persistence without exporting OHLCV files", async () =>
   assert.equal(existsSync(join(storeDir, "manifest.json")), false)
   assert.equal(result.data.market_data_store?.candles_upserted, 3)
 })
+
+function sampleRows(mode: "constant" | "indexed") {
+  return [1, 2, 3].map((index) => ({
+    openTime: index * 14_400_000,
+    open: mode === "constant" ? "1" : String(index),
+    high: mode === "constant" ? "2" : String(index + 1),
+    low: mode === "constant" ? "0.5" : String(index - 0.5),
+    close: mode === "constant" ? "1.5" : String(index + 0.25),
+    volume: mode === "constant" ? "10" : String(index * 10),
+  }))
+}

@@ -108,7 +108,12 @@ export function request(
   }
 }
 
-export function authorizeReplayTrialRequest(requestValue: ReplayExecutionRequest): TrialReservationSnapshot {
+export function authorizeReplayTrialRequest(
+  requestValue: ReplayExecutionRequest,
+  options: {
+    providerCertification?: TrialReservationSnapshot["instrument_status_provider_certification"]
+  } = {},
+): TrialReservationSnapshot {
   const reservation: TrialReservationSnapshot = {
     schema_version: TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION,
     reservation_id: `reservation:${requestValue.run_id}`,
@@ -137,7 +142,9 @@ export function authorizeReplayTrialRequest(requestValue: ReplayExecutionRequest
       execution_spec_hash: replayExecutionSpecHash(requestValue),
       dataset_manifest_ref: requestValue.dataset_manifest_ref,
       dataset_hash: requestValue.dataset_hash,
-      liquidity_capacity_attestation_hash: null,
+      liquidity_capacity_attestation_hash: requestValue.order.entry_execution.order_type === "market"
+        ? null
+        : requestValue.order.entry_execution.liquidity_capacity_attestation_hash,
       supplemental_facts_hash: requestValue.supplemental_facts_hash,
       supplemental_requirement_set_hash: requestValue.supplemental_requirement_set_hash,
       venue_risk_policy_schedule_hash: requestValue.venue_risk_policy_schedule_hash,
@@ -153,11 +160,10 @@ export function authorizeReplayTrialRequest(requestValue: ReplayExecutionRequest
       simulator_policy_version: requestValue.simulator_policy.version,
       execution_mode: "step",
     },
-    instrument_status_provider_certification: PROVIDER_CERTIFICATION,
+    instrument_status_provider_certification: options.providerCertification ?? PROVIDER_CERTIFICATION,
     required_capabilities: [...REPLAY_CERTIFIED_CAPABILITIES],
   }
   requestValue.trial_reservation_hash = hashTrialReservationSnapshot(reservation)
   return reservation
 }
-
 

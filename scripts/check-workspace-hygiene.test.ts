@@ -6,7 +6,7 @@ describe("workspace hygiene", () => {
     expect(findWorkspaceHygieneIssues({
       trackedPaths: ["data/new.db-wal"],
       moduleRuntimePaths: [],
-    }, [])).toEqual([
+    })).toEqual([
       "tracked runtime SQLite file is forbidden: data/new.db-wal",
     ])
   })
@@ -15,25 +15,19 @@ describe("workspace hygiene", () => {
     expect(findWorkspaceHygieneIssues({
       trackedPaths: [],
       moduleRuntimePaths: ["modules/example/data/test.db-shm"],
-    }, [])).toEqual([
+    })).toEqual([
       "module-local runtime SQLite file is forbidden: modules/example/data/test.db-shm",
     ])
   })
 
-  test("keeps historical exceptions as an explicit ratchet", () => {
+  test("reports a tracked module-local runtime database through both zero-exception rules", () => {
     const path = "modules/example/data/legacy.db"
     expect(findWorkspaceHygieneIssues({
       trackedPaths: [path],
       moduleRuntimePaths: [path],
-    }, [path])).toEqual([])
-  })
-
-  test("requires stale exceptions to be removed with migrated files", () => {
-    expect(findWorkspaceHygieneIssues({
-      trackedPaths: [],
-      moduleRuntimePaths: [],
-    }, ["data/legacy.db-wal"])).toEqual([
-      "remove stale legacy tracked-runtime exception: data/legacy.db-wal",
+    })).toEqual([
+      `module-local runtime SQLite file is forbidden: ${path}`,
+      `tracked runtime SQLite file is forbidden: ${path}`,
     ])
   })
 })

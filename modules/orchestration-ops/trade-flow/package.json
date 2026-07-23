@@ -23,7 +23,7 @@
     "program-shadow:launchd-uninstall": "bun src/scripts/program-shadow-launchd.ts uninstall",
     "typecheck": "tsc --noEmit",
     "lint": "bun run typecheck",
-    "test": "bun test ./src/scripts/*.test.ts ./src/scripts/**/*.test.ts",
+    "test": "bun test ./src/scripts/**/*.test.ts",
     "check": "bun run lint && bun run test"
   }
 }

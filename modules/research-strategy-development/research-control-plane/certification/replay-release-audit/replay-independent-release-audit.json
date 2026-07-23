@@ -4,8 +4,8 @@
   "subject": {
     "owner": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification",
     "fixture_pack_path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-release-candidate-fixture-pack.json",
-    "fixture_pack_content_sha256": "1524ea6c40d6bc548a7e134c3c20df33196f5989b2bebcbfb44f54e3fd152076",
-    "fixture_pack_sha256": "160cc9485e186b8e8c05286464acdf52f465ca939d2711f9b99f058ac531ab6a"
+    "fixture_pack_content_sha256": "4d76ca598de5880bfd7863a69df3ce3a8378597049317ddceffa41b1b1e37497",
+    "fixture_pack_sha256": "98453941651ae4311d0021d4b2261e578a813da42d84bdc14301eb0b50019970"
   },
   "independence_policy": "auditor-outside-subject-owner-no-subject-implementation-import",
   "verification_policy": "independent-pack-and-component-rehash-negative-challenges-then-full-certify",
@@ -37,13 +37,21 @@
     {
       "role": "subject-full-certification",
       "cwd": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification",
-      "argv": ["bun", "run", "certify"],
+      "argv": [
+        "bun",
+        "run",
+        "certify"
+      ],
       "timeout_ms": 600000
     },
     {
       "role": "repository-audit-prerequisite-check",
       "cwd": ".",
-      "argv": ["bun", "scripts/check-rd-replay-maturity-gate.ts", "--audit-prerequisites"],
+      "argv": [
+        "bun",
+        "scripts/check-rd-replay-maturity-gate.ts",
+        "--audit-prerequisites"
+      ],
       "timeout_ms": 30000
     }
   ],
@@ -75,5 +83,5 @@
     "audit-does-not-expand-public-profiles-or-simulator-semantics",
     "remote-distributed-store-shadow-live-and-real-account-evidence-out-of-scope"
   ],
-  "audit_manifest_sha256": "1f92fa1b7665fa11a876081eb0f257f4a16cfc319bb62393d55923da0fb7b7e1"
+  "audit_manifest_sha256": "994adc831b7409f6e75dd7911352e2f846cc0ea45d86ea701c5032b0a675ee44"
 }

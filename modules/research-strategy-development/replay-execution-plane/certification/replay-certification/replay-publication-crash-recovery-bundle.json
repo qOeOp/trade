@@ -23,7 +23,7 @@
       "writer_source_sha256": "2aa414d59aad6caa6710a3955070927a60800200f3aced8d34fe514bb80b446e",
       "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
       "test_name": "independent lane failure is all-or-nothing and never publishes a partial batch Result",
-      "test_source_sha256": "7b2b3aaafed3ae79a15b9c7ca721b978c6af2fab8f061ab769b8e75c607f7733"
+      "test_source_sha256": "14242b00ae0e20d93d13fcb70ab0ba1d9fd71b0f51eda6478950fa61e21c25b3"
     },
     {
       "profile": "integrated-portfolio",
@@ -34,7 +34,7 @@
       "writer_source_sha256": "bcfdeb4f4f4b7eea99108b1ee8e5b7c6b8204ebffdad5fbfad9c1ea415114848",
       "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
       "test_name": "integrated Portfolio makes Allocation the only entry authority and releases exposure/risk through lifecycle Artifact",
-      "test_source_sha256": "7b2b3aaafed3ae79a15b9c7ca721b978c6af2fab8f061ab769b8e75c607f7733"
+      "test_source_sha256": "14242b00ae0e20d93d13fcb70ab0ba1d9fd71b0f51eda6478950fa61e21c25b3"
     },
     {
       "profile": "single-trial",
@@ -45,7 +45,7 @@
       "writer_source_sha256": "2aa414d59aad6caa6710a3955070927a60800200f3aced8d34fe514bb80b446e",
       "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.test.ts",
       "test_name": "runner atomically publishes an attempt-local checkpoint commit and resumes it across processes",
-      "test_source_sha256": "6d8202ed515aed186f033e9092543e4aa84840699e0ab69a2f76fe51e5540a4c"
+      "test_source_sha256": "57ff87f474812e284804455ee4d2ea601447c1f1787640f1b66fe8c7ff68b31b"
     },
     {
       "profile": "terminal-aware-bounded-cycle",
@@ -56,7 +56,7 @@
       "writer_source_sha256": "6d9df8111a380950e50dbccebfd0f8afa00b457cf3f9eb16f983190627a59eba",
       "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
       "test_name": "bounded Cycle Sequence executes one, two, and three predeclared full-flat cycles without cycle-number schemas",
-      "test_source_sha256": "7b2b3aaafed3ae79a15b9c7ca721b978c6af2fab8f061ab769b8e75c607f7733"
+      "test_source_sha256": "14242b00ae0e20d93d13fcb70ab0ba1d9fd71b0f51eda6478950fa61e21c25b3"
     }
   ],
   "limitations": [
@@ -66,5 +66,5 @@
     "integrated-and-terminal-cycle-recover-by-deterministic-full-rerun-without-checkpoint",
     "power-loss-and-filesystem-hardware-failure-beyond-fsync-contract-not-certified"
   ],
-  "bundle_sha256": "c38208865af17b69e096d71dd745e2151ffb5c5e9bd21f3c2ec543876d3522b8"
+  "bundle_sha256": "9d3c9cd722f05dd0f06a47f238b8f2dbf66ffe1306ea58d7cacf1d2b49c7a313"
 }

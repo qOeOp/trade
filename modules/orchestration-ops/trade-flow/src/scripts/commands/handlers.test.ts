@@ -8,7 +8,14 @@ import { handleObserveCommand } from "./observe"
 import { handleRecoveryCommand } from "./recovery"
 import { handleRuntimeCommand } from "./runtime"
 import type { CommandConfig, JSONRecord } from "./types"
-import { appendPlanEvent, ensureSchema, readFlowEvents } from "../../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import { appendPlanEvent, ensureSchema as ensureEventStoreSchema, readFlowEvents } from "../../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import { buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../../contracts/runtime-core/src/database-identity"
+import { dryRunInputFixture, executionContractInputFixture } from "../lib/dry-run-test-fixture"
+
+function ensureSchema(db: Database): void {
+  ensureDatabaseIdentity(db, buildDatabaseIdentity("local:local", "trade_event_store"))
+  ensureEventStoreSchema(db)
+}
 
 test("observe command handler builds observe events without opening trade DB", async () => {
   const response = await handleObserveCommand(baseConfig({
@@ -214,17 +221,18 @@ test("recovery command handler reduces local state and returns reconcile drafts"
   const db = new Database(":memory:")
   try {
     ensureSchema(db)
+    const dbPath = join(dir, "trade.db")
+    const fileDb = new Database(dbPath)
+    ensureSchema(fileDb)
+    fileDb.close()
     const recover = await handleRecoveryCommand(db, baseConfig({
+      dbPath,
       recoverFlow: true,
       chainId: "flow-recovery-1",
     }))
     assert.equal(recover?.ok, true)
     assert.equal((recover?.data as { event_count: number }).event_count, 0)
 
-    const dbPath = join(dir, "trade.db")
-    const fileDb = new Database(dbPath)
-    ensureSchema(fileDb)
-    fileDb.close()
     const reconcile = await handleRecoveryCommand(db, baseConfig({
       dbPath,
       reconcileFlow: true,
@@ -344,89 +352,13 @@ function appendObserve(db: Database, eventKey: string, chainId: string, created_
 }
 
 function executionContractInput(): JSONRecord {
-  return {
-    source_observe_event_key: "obs-handler-1",
-    chain_id: "flow-handler-1",
-    setup_id: "trend-breakout",
-    market: "usdm",
-    symbol: "BTCUSDT",
-    side: "long",
-    position_side: "BOTH",
-    margin_mode: "isolated",
-    target_leverage: 2,
-    account_snapshot: {
-      equity_usdt: 1000,
-      available_balance_usdt: 900,
-      snapshot_at: "2026-07-08T12:00:00Z",
-    },
-    risk: {
-      risk_budget_usdt: 10,
-      stop_price: 64000,
-      invalidation: "below range",
-      expected_rr_net: 2,
-    },
-    entries: [{
-      type: "STOP_MARKET",
-      stop_price: 66000,
-      margin_usdt: 100,
-    }],
-    exchange_rules: {
-      quantity_step_size: "0.001",
-      min_qty: "0.001",
-    },
-  }
+  return executionContractInputFixture("obs-handler-1", "flow-handler-1")
 }
 
 function dryRunInput(): JSONRecord {
-  return {
-    now: "2026-07-08T12:00:20Z",
-    event_key: "evt-handler-dry-run-1",
-    created_at: "2026-07-08T12:00:21Z",
-    target_action: "place_entry",
-    plan: {
-      symbol: "BTCUSDT",
-      side: "long",
-      setup_id: "trend-breakout",
-      direction_state: "偏多已确认",
-      execution_verdict: "等条件",
-      thesis: "4H trend is intact",
-      entry_intent: "buy breakout",
-      exit_intent: "exit below invalidation",
-      invalidation: "4H close below range",
-      stop_price: 64000,
-      risk_budget_usdt: 10,
-      expected_rr_net: 2,
-      live_permission: "live-small",
-    },
-    observe: {
-      created_at: "2026-07-08T12:00:00Z",
-      symbol: "BTCUSDT",
-      side: "long",
-      setup_id: "trend-breakout",
-      account: {
-        equity_usdt: 1000,
-      },
-    },
-    strategy: {
-      status: "live-small",
-    },
-    account_config: {
-      max_open_risk_pct: 0.1,
-      max_day_loss_pct: 0.05,
-    },
-    request: {
-      type: "STOP_MARKET",
-    },
-    aggregate_view: {
-      active_plans_risk_sum: 0,
-      current_account_open_risk_usdt: 0,
-      realized_pnl_today_usdt: 0,
-      active_plans_worst_loss_at_stop: 0,
-    },
-    execution_contract_input: {
-      ...executionContractInput(),
-      source_observe_event_key: "obs-handler-dry-run-1",
-      chain_id: "flow-handler-dry-run-1",
-    },
-  }
+  return dryRunInputFixture({
+    eventKey: "evt-handler-dry-run-1",
+    sourceObserveEventKey: "obs-handler-dry-run-1",
+    chainId: "flow-handler-dry-run-1",
+  })
 }

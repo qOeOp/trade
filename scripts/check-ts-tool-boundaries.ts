@@ -96,6 +96,9 @@ function isAllowedCrossToolImport(file: string, sourceTool: string, targetTool: 
   const alwaysAllowed = new Set([
     "modules/portfolio-execution-state/flow-projector -> modules/portfolio-execution-state/event-store",
     "modules/live-decision-planning/slow-track-plan -> modules/live-decision-planning/observe-runner",
+    "modules/live-decision-planning/slow-track-plan -> modules/live-decision-planning/decision-input-assembler",
+    "modules/live-decision-planning/slow-track-plan -> modules/live-decision-planning/trade-plan-builder",
+    "modules/live-decision-planning/slow-track-plan -> modules/live-decision-planning/action-intent-publisher",
     "modules/live-decision-planning/observe-runner -> modules/live-decision-planning/observe-builder",
     "modules/live-execution-control/fast-track-guard -> modules/live-execution-control/execution-gate",
     "modules/live-execution-control/recovery-runner -> modules/live-execution-control/execution-recorder",
@@ -106,6 +109,8 @@ function isAllowedCrossToolImport(file: string, sourceTool: string, targetTool: 
     "modules/live-execution-control/live-small-runner -> modules/live-execution-control/execution-gate",
     "modules/live-execution-control/live-small-runner -> modules/live-execution-control/execution-router",
     "modules/live-execution-control/live-small-runner -> modules/live-execution-control/execution-recorder",
+    "modules/live-execution-control/live-small-runner -> modules/live-execution-control/execution-capability",
+    "modules/live-execution-control/watch-handoff-revalidation -> modules/live-execution-control/execution-gate",
     "modules/market-data-products/ohlcv-fetch -> modules/market-data-products/market-data-store",
     "modules/market-data-products/binance-read/instrument-status-collector -> modules/market-data-products/market-data-store",
     "modules/market-data-products/aggregate-trade-provider -> modules/market-data-products/market-data-store",
@@ -124,6 +129,7 @@ function isAllowedCrossToolImport(file: string, sourceTool: string, targetTool: 
     "modules/governance-review-compliance/closed-flow-review-sweep -> modules/governance-review-compliance/governance-ledger",
   ])
   const testOnlyAllowed = new Set([
+    "modules/research-strategy-development/agent-roles/reviewer/signal-evaluator -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-data",
     "modules/research-strategy-development/research-control-plane/state-store -> modules/market-data-products/aggregate-trade-provider",
     "modules/research-strategy-development/research-control-plane/state-store -> modules/research-strategy-development/replay-execution-plane/data-adapter",
     "modules/live-decision-planning/slow-track-plan -> modules/policy-risk/runtime-policy-compiler",
@@ -139,6 +145,8 @@ function isAllowedCrossToolImport(file: string, sourceTool: string, targetTool: 
     "modules/live-execution-control/execution-flow-runner -> modules/portfolio-execution-state/flow-projector",
     "modules/live-execution-control/live-small-runner -> modules/live-decision-planning/observe-runner",
     "modules/live-execution-control/live-small-runner -> modules/portfolio-execution-state/event-store",
+    "modules/live-execution-control/live-small-runner -> modules/portfolio-execution-state/flow-projector",
+    "modules/research-strategy-development/research-control-plane/dataset-governance/data-split -> modules/market-data-products/market-data-store",
     "modules/governance-review-compliance/closed-flow-review-sweep -> modules/portfolio-execution-state/event-store",
     "modules/governance-review-compliance/closed-flow-review-sweep -> modules/portfolio-execution-state/flow-projector",
   ])
@@ -261,23 +269,50 @@ function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTo
     "modules/research-strategy-development/agent-roles/developer/strategy-family-engine -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-features",
     "modules/research-strategy-development/agent-roles/developer/strategy-family-engine -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-identity",
   ])
-  return sourceTool === "modules/research-strategy-development/research-control-plane/tests"
-    || sourceTool === "modules/research-strategy-development/replay-execution-plane/tests"
-    || allowedDomainDag.has(`${sourceTool} -> ${targetTool}`)
+  return allowedDomainDag.has(`${sourceTool} -> ${targetTool}`)
 }
 
 function isAllowedSameDomainIntegrationTestImport(file: string, sourceTool: string, targetTool: string): boolean {
-  return file.endsWith(".test.ts")
-    && sourceTool === "modules/research-strategy-development/research-control-plane/certification/legacy-integration-suite"
-    && targetTool.startsWith("modules/research-strategy-development/")
+  const explicitIntegrationEdges = new Set([
+    "modules/research-strategy-development/replay-execution-plane/tests -> modules/research-strategy-development/replay-execution-plane/contracts",
+    "modules/research-strategy-development/replay-execution-plane/tests -> modules/research-strategy-development/replay-execution-plane/runner",
+    "modules/research-strategy-development/replay-execution-plane/tests -> modules/research-strategy-development/replay-execution-plane/engine",
+    "modules/research-strategy-development/replay-execution-plane/tests -> modules/research-strategy-development/replay-execution-plane/data-adapter",
+    "modules/research-strategy-development/replay-execution-plane/tests -> modules/research-strategy-development/replay-execution-plane/accounting",
+    "modules/research-strategy-development/replay-execution-plane/tests -> modules/research-strategy-development/replay-execution-plane/metrics",
+    "modules/research-strategy-development/research-control-plane/tests -> modules/research-strategy-development/research-control-plane/contracts",
+    "modules/research-strategy-development/research-control-plane/tests -> modules/research-strategy-development/replay-execution-plane/contracts",
+    "modules/research-strategy-development/research-control-plane/tests -> modules/research-strategy-development/agent-roles/developer",
+    "modules/research-strategy-development/research-control-plane/tests -> modules/research-strategy-development/agent-roles/planner",
+    "modules/research-strategy-development/research-control-plane/tests -> modules/research-strategy-development/agent-roles/reviewer",
+    "modules/research-strategy-development/research-control-plane/tests -> modules/research-strategy-development/replay-execution-plane/runner",
+    "modules/research-strategy-development/research-control-plane/tests -> modules/research-strategy-development/research-control-plane/state-store",
+    "modules/research-strategy-development/research-control-plane/tests -> modules/research-strategy-development/research-control-plane/strategy-registry",
+    "modules/research-strategy-development/research-control-plane/tests -> modules/research-strategy-development/research-control-plane/strategy-policy-writer",
+    "modules/research-strategy-development/research-control-plane/tests -> modules/research-strategy-development/forward-evidence-plane/runner",
+    "modules/research-strategy-development/research-control-plane/tests -> modules/research-strategy-development/forward-evidence-plane/contracts",
+    "modules/research-strategy-development/research-control-plane/certification/legacy-integration-suite -> modules/research-strategy-development/research-control-plane/program-control",
+    "modules/research-strategy-development/research-control-plane/certification/legacy-integration-suite -> modules/research-strategy-development/research-control-plane/program-supervisor",
+    "modules/research-strategy-development/research-control-plane/certification/legacy-integration-suite -> modules/research-strategy-development/research-control-plane/experiment-ledger",
+    "modules/research-strategy-development/research-control-plane/certification/legacy-integration-suite -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-strategy-fixture",
+    "modules/research-strategy-development/research-control-plane/certification/legacy-integration-suite -> modules/research-strategy-development/agent-roles/developer/candidate-batch-engine",
+    "modules/research-strategy-development/research-control-plane/certification/legacy-integration-suite -> modules/research-strategy-development/agent-roles/developer/rd-loop-runner",
+    "modules/research-strategy-development/research-control-plane/certification/legacy-integration-suite -> modules/research-strategy-development/agent-roles/developer/rd-campaign-runner",
+    "modules/research-strategy-development/research-control-plane/certification/legacy-integration-suite -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-contracts",
+    "modules/research-strategy-development/research-control-plane/certification/legacy-integration-suite -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-identity",
+    "modules/research-strategy-development/research-control-plane/certification/legacy-integration-suite -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-data",
+    "modules/research-strategy-development/research-control-plane/certification/legacy-integration-suite -> modules/research-strategy-development/agent-roles/developer/strategy-family-engine",
+    "modules/research-strategy-development/research-control-plane/certification/legacy-integration-suite -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel",
+    "modules/research-strategy-development/research-control-plane/certification/legacy-integration-suite -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-decision",
+    "modules/research-strategy-development/research-control-plane/certification/legacy-integration-suite -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-order-lane",
+  ])
+  const integrationSource = sourceTool.endsWith("/tests") || file.endsWith(".test.ts")
+  return integrationSource && explicitIntegrationEdges.has(`${sourceTool} -> ${targetTool}`)
 }
 
 function isAllowedTradeFlowOrchestratorImport(file: string, sourceTool: string, targetTool: string): boolean {
   if (sourceTool !== "modules/orchestration-ops/trade-flow" || !targetTool.startsWith("modules/")) {
     return false
-  }
-  if (file.endsWith(".test.ts")) {
-    return true
   }
   const allowedByFile: Record<string, Set<string>> = {
     "modules/orchestration-ops/trade-flow/src/scripts/lib/job-graph-runner.ts": new Set([
@@ -285,7 +320,19 @@ function isAllowedTradeFlowOrchestratorImport(file: string, sourceTool: string, 
       "modules/orchestration-ops/ops-runtime-store",
     ]),
   }
+  const testOnlyAllowed = new Set([
+    "modules/live-decision-planning/observe-builder",
+    "modules/live-execution-control/execution-flow-runner",
+    "modules/live-execution-control/execution-recorder",
+    "modules/live-execution-control/execution-router",
+    "modules/live-execution-control/live-small-runner",
+    "modules/live-execution-control/reconcile-drafts",
+    "modules/live-execution-control/recovery-runner",
+    "modules/portfolio-execution-state/event-store",
+    "modules/portfolio-execution-state/flow-projector",
+  ])
   return allowedByFile[file]?.has(targetTool) === true
+    || (file.endsWith(".test.ts") && testOnlyAllowed.has(targetTool))
 }
 
 if (issues.length > 0) {

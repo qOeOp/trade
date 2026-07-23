@@ -14,14 +14,26 @@
       "entrypoint_source_sha256": "4abe6b6f3a3ad2db4bf75d6ea25c9947939bebe318e4768c15a76e827f51d1af",
       "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
       "test_name": "independent capital lanes execute in canonical Plan order and aggregate evidence without shared NAV semantics",
-      "test_source_sha256": "7b2b3aaafed3ae79a15b9c7ca721b978c6af2fab8f061ab769b8e75c607f7733",
+      "test_source_sha256": "14242b00ae0e20d93d13fcb70ab0ba1d9fd71b0f51eda6478950fa61e21c25b3",
       "certified_workload": [
-        { "unit": "batch", "count": 1 },
-        { "unit": "lane", "count": 2 },
-        { "unit": "trial", "count": 2 }
+        {
+          "unit": "batch",
+          "count": 1
+        },
+        {
+          "unit": "lane",
+          "count": 2
+        },
+        {
+          "unit": "trial",
+          "count": 2
+        }
       ],
       "runtime_hard_limits": [],
-      "undeclared_capacity_dimensions": ["maximum_lane_count", "maximum_child_trial_payload_bytes"],
+      "undeclared_capacity_dimensions": [
+        "maximum_lane_count",
+        "maximum_child_trial_payload_bytes"
+      ],
       "warmup_run_count": 1,
       "measured_run_count": 2,
       "sample_timeout_ms": 15000,
@@ -34,14 +46,27 @@
       "entrypoint_source_sha256": "c8684d1062266125647afcae0aef2e1d89edac36ecafe22c8169d11f49530c94",
       "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
       "test_name": "integrated Portfolio makes Allocation the only entry authority and releases exposure/risk through lifecycle Artifact",
-      "test_source_sha256": "7b2b3aaafed3ae79a15b9c7ca721b978c6af2fab8f061ab769b8e75c607f7733",
+      "test_source_sha256": "14242b00ae0e20d93d13fcb70ab0ba1d9fd71b0f51eda6478950fa61e21c25b3",
       "certified_workload": [
-        { "unit": "portfolio", "count": 1 },
-        { "unit": "lane", "count": 2 },
-        { "unit": "trial", "count": 2 }
+        {
+          "unit": "portfolio",
+          "count": 1
+        },
+        {
+          "unit": "lane",
+          "count": 2
+        },
+        {
+          "unit": "trial",
+          "count": 2
+        }
       ],
       "runtime_hard_limits": [],
-      "undeclared_capacity_dimensions": ["maximum_lane_count", "maximum_market_event_count", "maximum_artifact_bytes"],
+      "undeclared_capacity_dimensions": [
+        "maximum_lane_count",
+        "maximum_market_event_count",
+        "maximum_artifact_bytes"
+      ],
       "warmup_run_count": 1,
       "measured_run_count": 2,
       "sample_timeout_ms": 20000,
@@ -54,13 +79,23 @@
       "entrypoint_source_sha256": "2aa414d59aad6caa6710a3955070927a60800200f3aced8d34fe514bb80b446e",
       "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.test.ts",
       "test_name": "runner atomically commits artifacts and retries idempotently",
-      "test_source_sha256": "6d8202ed515aed186f033e9092543e4aa84840699e0ab69a2f76fe51e5540a4c",
+      "test_source_sha256": "57ff87f474812e284804455ee4d2ea601447c1f1787640f1b66fe8c7ff68b31b",
       "certified_workload": [
-        { "unit": "trial", "count": 1 },
-        { "unit": "market_bar", "count": 1 }
+        {
+          "unit": "trial",
+          "count": 1
+        },
+        {
+          "unit": "market_bar",
+          "count": 1
+        }
       ],
       "runtime_hard_limits": [],
-      "undeclared_capacity_dimensions": ["maximum_market_bar_count", "maximum_source_event_count", "maximum_artifact_bytes"],
+      "undeclared_capacity_dimensions": [
+        "maximum_market_bar_count",
+        "maximum_source_event_count",
+        "maximum_artifact_bytes"
+      ],
       "warmup_run_count": 1,
       "measured_run_count": 2,
       "sample_timeout_ms": 20000,
@@ -73,12 +108,24 @@
       "entrypoint_source_sha256": "7d5f7a468baaa5fff1ac0b6b72272b2fe4159aa4a0e64d2da9351fdb473f37e3",
       "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
       "test_name": "bounded Cycle Sequence executes one, two, and three predeclared full-flat cycles without cycle-number schemas",
-      "test_source_sha256": "7b2b3aaafed3ae79a15b9c7ca721b978c6af2fab8f061ab769b8e75c607f7733",
+      "test_source_sha256": "14242b00ae0e20d93d13fcb70ab0ba1d9fd71b0f51eda6478950fa61e21c25b3",
       "certified_workload": [
-        { "unit": "sequence", "count": 1 },
-        { "unit": "cycle", "count": 3 },
-        { "unit": "lane", "count": 6 },
-        { "unit": "trial", "count": 6 }
+        {
+          "unit": "sequence",
+          "count": 1
+        },
+        {
+          "unit": "cycle",
+          "count": 3
+        },
+        {
+          "unit": "lane",
+          "count": 6
+        },
+        {
+          "unit": "trial",
+          "count": 6
+        }
       ],
       "runtime_hard_limits": [
         {
@@ -89,7 +136,11 @@
           "evidence_export": "REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES"
         }
       ],
-      "undeclared_capacity_dimensions": ["maximum_lanes_per_cycle", "maximum_market_event_count", "maximum_artifact_bytes"],
+      "undeclared_capacity_dimensions": [
+        "maximum_lanes_per_cycle",
+        "maximum_market_event_count",
+        "maximum_artifact_bytes"
+      ],
       "warmup_run_count": 1,
       "measured_run_count": 2,
       "sample_timeout_ms": 30000,
@@ -104,5 +155,5 @@
     "peak-memory-cpu-utilization-io-throughput-and-remote-store-performance-not-certified",
     "only-terminal-cycle-count-has-an-existing-runtime-hard-limit"
   ],
-  "bundle_sha256": "80df6d679dd024388bc6971fca6056f2a956329cf2fe47e36f5f5390ea330664"
+  "bundle_sha256": "b1f5ea4eba0ca0cce6be7551863611d90ed894be64dfd4d376772dc4204b96d0"
 }

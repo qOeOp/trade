@@ -3,9 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
-  CONTROL_PLANE_IDENTITY_SCHEMA_VERSION,
   REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION,
-  REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
   REPLAY_SHARED_INITIAL_CAPITAL_RESERVATION_SCHEMA_VERSION,
   REPLAY_RUNTIME_SHARED_WALLET_RESERVATION_SCHEMA_VERSION,
   REPLAY_RUNTIME_SHARED_WALLET_LIFECYCLE_RESERVATION_SCHEMA_VERSION,
@@ -14,8 +12,6 @@ import {
   REPLAY_PORTFOLIO_ALLOCATION_RESERVATION_SCHEMA_VERSION,
   REPLAY_PORTFOLIO_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
   REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES,
-  TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION,
-  createReplayInstrumentStatusProviderCertificationSnapshot,
   createReplaySharedInitialCapitalReservationSnapshot,
   createReplayRuntimeSharedWalletReservationSnapshot,
   createReplayRuntimeSharedWalletLifecycleReservationSnapshot,
@@ -26,7 +22,6 @@ import {
   hashReplayAttemptLeaseSnapshot,
   hashTrialReservationSnapshot,
   type ReplayAttemptLeaseSnapshot,
-  type TrialReservationSnapshot,
   type ReplaySharedInitialCapitalReservationSnapshot,
 } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 import {
@@ -284,27 +279,9 @@ import { runReplayPortfolioProtectiveTerminalCycleSequenceAccounting } from
 import { executeReplayRuntimeSharedWalletRiskSlice } from "../../../engine/src/lib/replay-runtime-shared-wallet-risk-engine"
 import type { ReplayArtifactNamespace, ReplayArtifactStore } from "./replay-artifact-store"
 import type { ReplayTrialRunInput, ReplayTrialRunOutcome } from "./replay-trial-runner"
+import { createReplayLaneTestFixture } from "./replay-lane-test-fixture"
 
 const HASH = "b".repeat(64)
-const CERTIFICATION = createReplayInstrumentStatusProviderCertificationSnapshot({
-  schema_version: REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
-  certification_id: "status-provider-certification-1",
-  certification_ref: "certification://status-provider/1",
-  status: "certified",
-  certified_at: "2026-07-01T00:00:00Z",
-  valid_until: "2026-08-01T00:00:00Z",
-  certifier_id: "research-control-plane",
-  certification_policy_version: "status-provider-certification-v1",
-  provider_capability_hash: HASH,
-  producer_domain: "market-data-products",
-  producer_id: "status-provider",
-  producer_version: "v1",
-  producer_build_hash: HASH,
-  normalization_policy_version: "status-normalization-v1",
-  normalization_policy_hash: HASH,
-  allowed_source_kind: "venue_status_event_archive",
-  allowed_completeness: "complete_history",
-})
 
 function laneInput(input: {
   laneId: string
@@ -318,70 +295,9 @@ function laneInput(input: {
 } {
   const runId = `run-${input.laneId}`
   const trialId = `trial-${input.laneId}`
-  const candidateId = `candidate-${input.laneId}`
-  const request = {
-    run_id: runId,
-    symbol: input.symbol,
-    initial_cash: input.initialCash,
-    trial_id: trialId,
-    candidate_id: candidateId,
-    experiment_id: "experiment-1",
-    trial_group_id: "trial-group-1",
-    trial_group_hash: HASH,
-    candidate_hash: HASH,
-    identity_hash_policy_version: "identity-v1",
-    experiment_contract_hash: HASH,
-    trial_reservation_ref: `reservation://${trialId}`,
-    trial_reservation_hash: HASH,
-  } as ReplayExecutionRequest
-  const reservation: TrialReservationSnapshot = {
-    schema_version: TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION,
-    reservation_id: `reservation-${trialId}`,
-    reservation_ref: request.trial_reservation_ref,
-    issued_at: "2026-07-14T00:00:00Z",
-    expires_at: "2026-07-15T00:00:00Z",
-    status: "reserved",
-    identity: {
-      schema_version: CONTROL_PLANE_IDENTITY_SCHEMA_VERSION,
-      experiment_id: request.experiment_id,
-      trial_group_id: request.trial_group_id,
-      trial_group_hash: request.trial_group_hash,
-      trial_id: request.trial_id,
-      candidate_id: request.candidate_id,
-      candidate_hash: request.candidate_hash,
-      identity_hash_policy_version: request.identity_hash_policy_version,
-      experiment_contract_hash: request.experiment_contract_hash,
-    },
-    trial_ordinal: 1,
-    run_id: runId,
-    counts_against_budget: true,
-    trial_accounting_policy_version: "count-all-v1",
-    candidate_assignment_hash: HASH,
-    bindings: {
-      replay_idempotency_key: `idempotency-${input.laneId}`,
-      execution_spec_hash: HASH,
-      dataset_manifest_ref: "dataset://fixture",
-      dataset_hash: HASH,
-      liquidity_capacity_attestation_hash: null,
-      supplemental_facts_hash: HASH,
-      supplemental_requirement_set_hash: HASH,
-      venue_risk_policy_schedule_hash: HASH,
-      instrument_spec_schedule_hash: HASH,
-      instrument_status_schedule_hash: HASH,
-      instrument_status_provenance_hash: HASH,
-      instrument_status_provider_capability_hash: HASH,
-      instrument_status_provider_certification_hash: CERTIFICATION.certification_hash,
-      harness_hash: HASH,
-      assumptions_hash: HASH,
-      cost_policy_hash: HASH,
-      margin_policy_hash: HASH,
-      simulator_policy_version: "simulator-v1",
-      execution_mode: "step",
-    },
-    instrument_status_provider_certification: CERTIFICATION,
-    required_capabilities: ["step"],
-  }
-  request.trial_reservation_hash = hashTrialReservationSnapshot(reservation)
+  const base = createReplayLaneTestFixture(input)
+  const request = base.trial.request
+  const reservation = base.trial.trial_reservation
   const requestHash = canonicalHash(request)
   const lease: ReplayAttemptLeaseSnapshot = {
     schema_version: REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION,
@@ -1745,6 +1661,103 @@ function cycleSequencePlan(
     limitations: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_LIMITATIONS,
   }
   return { ...body, plan_hash: replayPortfolioCycleSequencePlanHash(body) }
+}
+
+type CycleSequenceFixture = {
+  lanes: Array<ReturnType<typeof runtimeLaneInput>>
+  allocationPlan: ReplayPortfolioAllocationPlan
+  riskPlan: ReplayRuntimeSharedWalletRiskPlan
+  entry: string
+}
+
+function prepareCycleSequenceFixture(
+  lanes: Array<ReturnType<typeof runtimeLaneInput>>,
+  portfolioId: string,
+  entry: string,
+): CycleSequenceFixture {
+  const allocationDraft = portfolioAllocationPlan(lanes)
+  const allocationBody = { ...allocationDraft, portfolio_id: portfolioId }
+  const allocationPlan = {
+    ...allocationBody,
+    plan_hash: replayPortfolioAllocationPlanHash(allocationBody),
+  }
+  const riskDraft = runtimeRiskPlan(lanes)
+  const riskBody = { ...riskDraft, portfolio_id: portfolioId }
+  const riskPlan = { ...riskBody, plan_hash: replayRuntimeSharedWalletRiskPlanHash(riskBody) }
+  return { lanes, allocationPlan, riskPlan, entry }
+}
+
+function cycleSequenceFixture(input: {
+  fixtures: CycleSequenceFixture[]
+  portfolioId: string
+  reservationId: string
+  reservationRef: string
+  expiresAt: string
+}) {
+  const reservation = createReplayPortfolioCycleSequenceReservationSnapshot({
+    schema_version: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
+    reservation_id: input.reservationId,
+    reservation_ref: input.reservationRef,
+    issued_at: "2026-07-14T00:00:30Z",
+    expires_at: input.expiresAt,
+    status: "reserved",
+    authority_id: "research-control-plane",
+    experiment_id: "experiment-1",
+    trial_group_id: "trial-group-1",
+    trial_group_hash: HASH,
+    portfolio_id: input.portfolioId,
+    settlement_asset: "USDT",
+    initial_cash: 100,
+    cycle_count: input.fixtures.length,
+    max_cycle_count: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES,
+    opening_cash_policy: "first_cycle_initial_then_predecessor_ending_available",
+    successor_eligibility_policy: "predecessor_full_flat_exposure_and_risk_zero",
+    expansion_policy: "exact_predeclared_cycles_no_runtime_append_or_search_expansion",
+    cycles: input.fixtures.map((fixture, index) => ({
+      cycle_index: index + 1,
+      allocation_plan_hash: fixture.allocationPlan.plan_hash,
+      risk_plan_hash: fixture.riskPlan.plan_hash,
+      earliest_cycle_time: fixture.entry,
+      max_gross_exposure_amount: 200,
+      max_abs_net_exposure_amount: 100,
+      max_portfolio_risk_amount: 25,
+      lanes: fixture.lanes.map((lane, laneIndex) => ({
+        lane_id: lane.lane_id,
+        priority_rank: laneIndex + 1,
+        trial_id: lane.trial.request.trial_id,
+        run_id: lane.trial.request.run_id,
+        trial_reservation_ref: lane.trial.trial_reservation.reservation_ref,
+        trial_reservation_hash: hashTrialReservationSnapshot(lane.trial.trial_reservation),
+        max_lane_risk_amount: 15,
+      })),
+    })),
+    limitations: [
+      "one_to_eight_predeclared_full_flat_cycles_only",
+      "cycle_opening_cash_is_runtime_predecessor_evidence_not_control_plane_estimate",
+      "no_partial_cross_margin_borrow_real_liquidity_fast_or_runtime_cycle_expansion",
+    ],
+  })
+  const planned = input.fixtures.map((fixture) => ({
+    ...fixture,
+    integratedPlan: integratedPortfolioPlan(
+      fixture.allocationPlan,
+      reservation.reservation_hash,
+      fixture.riskPlan,
+      reservation.reservation_hash,
+    ),
+  }))
+  return {
+    reservation,
+    planned,
+    plan: cycleSequencePlan(input.portfolioId, reservation.reservation_hash, planned),
+    cycles: planned.map((fixture, index) => ({
+      cycle_index: index + 1,
+      integrated_plan: fixture.integratedPlan,
+      allocation_plan: fixture.allocationPlan,
+      risk_plan: fixture.riskPlan,
+      lanes: [...fixture.lanes].reverse().map((lane) => ({ lane_id: lane.lane_id, trial: lane.trial })),
+    })),
+  }
 }
 
 test("independent capital lanes execute in canonical Plan order and aggregate evidence without shared NAV semantics", () => {
@@ -3570,78 +3583,19 @@ test("bounded Cycle Sequence executes one, two, and three predeclared full-flat 
       laneId: definition.ids[1], symbol: definition.symbols[1], collateral: 20, feeBps: 0,
       executableTime: definition.entry,
     }), [100, 100, 100], { markTimes: [...definition.marks] as [string, string, string] })
-    const lanes = [primary, rejected]
-    const allocationDraft = portfolioAllocationPlan(lanes)
-    const allocationBody = { ...allocationDraft, portfolio_id: portfolioId }
-    const allocationPlan = { ...allocationBody, plan_hash: replayPortfolioAllocationPlanHash(allocationBody) }
-    const riskDraft = runtimeRiskPlan(lanes)
-    const riskBody = { ...riskDraft, portfolio_id: portfolioId }
-    const riskPlan = { ...riskBody, plan_hash: replayRuntimeSharedWalletRiskPlanHash(riskBody) }
-    return { lanes, allocationPlan, riskPlan, entry: definition.entry }
+    return prepareCycleSequenceFixture([primary, rejected], portfolioId, definition.entry)
   })
   const buildInput = (count: number, store: ReplayArtifactStore) => {
     const selected = fixtures.slice(0, count)
-    const reservation = createReplayPortfolioCycleSequenceReservationSnapshot({
-      schema_version: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
-      reservation_id: `cycle-sequence-${count}`,
-      reservation_ref: `reservation://cycle-sequence/${count}`,
-      issued_at: "2026-07-14T00:00:30Z",
-      expires_at: "2026-07-14T00:10:00Z",
-      status: "reserved",
-      authority_id: "research-control-plane",
-      experiment_id: "experiment-1",
-      trial_group_id: "trial-group-1",
-      trial_group_hash: HASH,
-      portfolio_id: portfolioId,
-      settlement_asset: "USDT",
-      initial_cash: 100,
-      cycle_count: count,
-      max_cycle_count: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES,
-      opening_cash_policy: "first_cycle_initial_then_predecessor_ending_available",
-      successor_eligibility_policy: "predecessor_full_flat_exposure_and_risk_zero",
-      expansion_policy: "exact_predeclared_cycles_no_runtime_append_or_search_expansion",
-      cycles: selected.map((fixture, index) => ({
-        cycle_index: index + 1,
-        allocation_plan_hash: fixture.allocationPlan.plan_hash,
-        risk_plan_hash: fixture.riskPlan.plan_hash,
-        earliest_cycle_time: fixture.entry,
-        max_gross_exposure_amount: 200,
-        max_abs_net_exposure_amount: 100,
-        max_portfolio_risk_amount: 25,
-        lanes: fixture.lanes.map((lane, laneIndex) => ({
-          lane_id: lane.lane_id,
-          priority_rank: laneIndex + 1,
-          trial_id: lane.trial.request.trial_id,
-          run_id: lane.trial.request.run_id,
-          trial_reservation_ref: lane.trial.trial_reservation.reservation_ref,
-          trial_reservation_hash: hashTrialReservationSnapshot(lane.trial.trial_reservation),
-          max_lane_risk_amount: 15,
-        })),
-      })),
-      limitations: [
-        "one_to_eight_predeclared_full_flat_cycles_only",
-        "cycle_opening_cash_is_runtime_predecessor_evidence_not_control_plane_estimate",
-        "no_partial_cross_margin_borrow_real_liquidity_fast_or_runtime_cycle_expansion",
-      ],
+    const sequence = cycleSequenceFixture({
+      fixtures: selected,
+      portfolioId,
+      reservationId: `cycle-sequence-${count}`,
+      reservationRef: `reservation://cycle-sequence/${count}`,
+      expiresAt: "2026-07-14T00:10:00Z",
     })
-    const planned = selected.map((fixture) => ({
-      ...fixture,
-      integratedPlan: integratedPortfolioPlan(
-        fixture.allocationPlan, reservation.reservation_hash,
-        fixture.riskPlan, reservation.reservation_hash,
-      ),
-    }))
-    const plan = cycleSequencePlan(portfolioId, reservation.reservation_hash, planned)
     return {
-      plan,
-      reservation,
-      cycles: planned.map((fixture, index) => ({
-        cycle_index: index + 1,
-        integrated_plan: fixture.integratedPlan,
-        allocation_plan: fixture.allocationPlan,
-        risk_plan: fixture.riskPlan,
-        lanes: [...fixture.lanes].reverse().map((lane) => ({ lane_id: lane.lane_id, trial: lane.trial })),
-      })),
+      ...sequence,
       artifact_store: store,
     }
   }
@@ -3890,66 +3844,15 @@ test("replacement-aware terminal accounting rolls through a bounded Cycle Sequen
     const rejected = withRuntimeRisk(rejectedBase, [100, 100, 100], {
       markTimes: [...definition.marks] as [string, string, string],
     })
-    const lanes = [primary, rejected]
-    const allocationDraft = portfolioAllocationPlan(lanes)
-    const allocationBody = { ...allocationDraft, portfolio_id: portfolioId }
-    const allocationPlan = { ...allocationBody, plan_hash: replayPortfolioAllocationPlanHash(allocationBody) }
-    const riskDraft = runtimeRiskPlan(lanes)
-    const riskBody = { ...riskDraft, portfolio_id: portfolioId }
-    const riskPlan = { ...riskBody, plan_hash: replayRuntimeSharedWalletRiskPlanHash(riskBody) }
-    return { lanes, allocationPlan, riskPlan, entry: definition.entry }
+    return prepareCycleSequenceFixture([primary, rejected], portfolioId, definition.entry)
   })
-  const reservation = createReplayPortfolioCycleSequenceReservationSnapshot({
-    schema_version: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
-    reservation_id: "replacement-cycle-sequence-2",
-    reservation_ref: "reservation://replacement-cycle-sequence/2",
-    issued_at: "2026-07-14T00:00:30Z",
-    expires_at: "2026-07-14T00:10:00Z",
-    status: "reserved",
-    authority_id: "research-control-plane",
-    experiment_id: "experiment-1",
-    trial_group_id: "trial-group-1",
-    trial_group_hash: HASH,
-    portfolio_id: portfolioId,
-    settlement_asset: "USDT",
-    initial_cash: 100,
-    cycle_count: 2,
-    max_cycle_count: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES,
-    opening_cash_policy: "first_cycle_initial_then_predecessor_ending_available",
-    successor_eligibility_policy: "predecessor_full_flat_exposure_and_risk_zero",
-    expansion_policy: "exact_predeclared_cycles_no_runtime_append_or_search_expansion",
-    cycles: fixtures.map((fixture, index) => ({
-      cycle_index: index + 1,
-      allocation_plan_hash: fixture.allocationPlan.plan_hash,
-      risk_plan_hash: fixture.riskPlan.plan_hash,
-      earliest_cycle_time: fixture.entry,
-      max_gross_exposure_amount: 200,
-      max_abs_net_exposure_amount: 100,
-      max_portfolio_risk_amount: 25,
-      lanes: fixture.lanes.map((lane, laneIndex) => ({
-        lane_id: lane.lane_id,
-        priority_rank: laneIndex + 1,
-        trial_id: lane.trial.request.trial_id,
-        run_id: lane.trial.request.run_id,
-        trial_reservation_ref: lane.trial.trial_reservation.reservation_ref,
-        trial_reservation_hash: hashTrialReservationSnapshot(lane.trial.trial_reservation),
-        max_lane_risk_amount: 15,
-      })),
-    })),
-    limitations: [
-      "one_to_eight_predeclared_full_flat_cycles_only",
-      "cycle_opening_cash_is_runtime_predecessor_evidence_not_control_plane_estimate",
-      "no_partial_cross_margin_borrow_real_liquidity_fast_or_runtime_cycle_expansion",
-    ],
+  const { reservation, plan, cycles } = cycleSequenceFixture({
+    fixtures,
+    portfolioId,
+    reservationId: "replacement-cycle-sequence-2",
+    reservationRef: "reservation://replacement-cycle-sequence/2",
+    expiresAt: "2026-07-14T00:10:00Z",
   })
-  const planned = fixtures.map((fixture) => ({
-    ...fixture,
-    integratedPlan: integratedPortfolioPlan(
-      fixture.allocationPlan, reservation.reservation_hash,
-      fixture.riskPlan, reservation.reservation_hash,
-    ),
-  }))
-  const plan = cycleSequencePlan(portfolioId, reservation.reservation_hash, planned)
   const root = mkdtempSync(join(tmpdir(), "replay-replacement-cycle-sequence-"))
   const interruptedRoot = mkdtempSync(join(tmpdir(), "replay-replacement-cycle-sequence-interrupted-"))
   try {
@@ -3957,13 +3860,7 @@ test("replacement-aware terminal accounting rolls through a bounded Cycle Sequen
     const input = {
       plan,
       reservation,
-      cycles: planned.map((fixture, index) => ({
-        cycle_index: index + 1,
-        integrated_plan: fixture.integratedPlan,
-        allocation_plan: fixture.allocationPlan,
-        risk_plan: fixture.riskPlan,
-        lanes: [...fixture.lanes].reverse().map((lane) => ({ lane_id: lane.lane_id, trial: lane.trial })),
-      })),
+      cycles,
       artifact_store: store,
     }
     const outcome = runReplayPortfolioProtectiveStopReplacementCycleSequence(input)
@@ -4115,66 +4012,15 @@ test("take-profit replacement closes terminal accounting and bounded Cycle Seque
     const rejected = withRuntimeRisk(rejectedBase, [100, 100, 100], {
       markTimes: [...definition.marks] as [string, string, string],
     })
-    const lanes = [primary, rejected]
-    const allocationDraft = portfolioAllocationPlan(lanes)
-    const allocationBody = { ...allocationDraft, portfolio_id: portfolioId }
-    const allocationPlan = { ...allocationBody, plan_hash: replayPortfolioAllocationPlanHash(allocationBody) }
-    const riskDraft = runtimeRiskPlan(lanes)
-    const riskBody = { ...riskDraft, portfolio_id: portfolioId }
-    const riskPlan = { ...riskBody, plan_hash: replayRuntimeSharedWalletRiskPlanHash(riskBody) }
-    return { lanes, allocationPlan, riskPlan, entry: definition.entry }
+    return prepareCycleSequenceFixture([primary, rejected], portfolioId, definition.entry)
   })
-  const reservation = createReplayPortfolioCycleSequenceReservationSnapshot({
-    schema_version: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
-    reservation_id: "target-replacement-cycle-sequence-4",
-    reservation_ref: "reservation://target-replacement-cycle-sequence/4",
-    issued_at: "2026-07-14T00:00:30Z",
-    expires_at: "2026-07-14T00:14:00Z",
-    status: "reserved",
-    authority_id: "research-control-plane",
-    experiment_id: "experiment-1",
-    trial_group_id: "trial-group-1",
-    trial_group_hash: HASH,
-    portfolio_id: portfolioId,
-    settlement_asset: "USDT",
-    initial_cash: 100,
-    cycle_count: fixtures.length,
-    max_cycle_count: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES,
-    opening_cash_policy: "first_cycle_initial_then_predecessor_ending_available",
-    successor_eligibility_policy: "predecessor_full_flat_exposure_and_risk_zero",
-    expansion_policy: "exact_predeclared_cycles_no_runtime_append_or_search_expansion",
-    cycles: fixtures.map((fixture, index) => ({
-      cycle_index: index + 1,
-      allocation_plan_hash: fixture.allocationPlan.plan_hash,
-      risk_plan_hash: fixture.riskPlan.plan_hash,
-      earliest_cycle_time: fixture.entry,
-      max_gross_exposure_amount: 200,
-      max_abs_net_exposure_amount: 100,
-      max_portfolio_risk_amount: 25,
-      lanes: fixture.lanes.map((lane, laneIndex) => ({
-        lane_id: lane.lane_id,
-        priority_rank: laneIndex + 1,
-        trial_id: lane.trial.request.trial_id,
-        run_id: lane.trial.request.run_id,
-        trial_reservation_ref: lane.trial.trial_reservation.reservation_ref,
-        trial_reservation_hash: hashTrialReservationSnapshot(lane.trial.trial_reservation),
-        max_lane_risk_amount: 15,
-      })),
-    })),
-    limitations: [
-      "one_to_eight_predeclared_full_flat_cycles_only",
-      "cycle_opening_cash_is_runtime_predecessor_evidence_not_control_plane_estimate",
-      "no_partial_cross_margin_borrow_real_liquidity_fast_or_runtime_cycle_expansion",
-    ],
+  const { reservation, plan, cycles } = cycleSequenceFixture({
+    fixtures,
+    portfolioId,
+    reservationId: "target-replacement-cycle-sequence-4",
+    reservationRef: "reservation://target-replacement-cycle-sequence/4",
+    expiresAt: "2026-07-14T00:14:00Z",
   })
-  const planned = fixtures.map((fixture) => ({
-    ...fixture,
-    integratedPlan: integratedPortfolioPlan(
-      fixture.allocationPlan, reservation.reservation_hash,
-      fixture.riskPlan, reservation.reservation_hash,
-    ),
-  }))
-  const plan = cycleSequencePlan(portfolioId, reservation.reservation_hash, planned)
   const root = mkdtempSync(join(tmpdir(), "replay-target-replacement-cycle-sequence-"))
   const interruptedRoot = mkdtempSync(join(tmpdir(), "replay-target-replacement-cycle-interrupted-"))
   try {
@@ -4182,13 +4028,7 @@ test("take-profit replacement closes terminal accounting and bounded Cycle Seque
     const input = {
       plan,
       reservation,
-      cycles: planned.map((fixture, index) => ({
-        cycle_index: index + 1,
-        integrated_plan: fixture.integratedPlan,
-        allocation_plan: fixture.allocationPlan,
-        risk_plan: fixture.riskPlan,
-        lanes: [...fixture.lanes].reverse().map((lane) => ({ lane_id: lane.lane_id, trial: lane.trial })),
-      })),
+      cycles,
       artifact_store: store,
     }
     expect(runReplayPortfolioCycleSequence(input)).toMatchObject({
@@ -4526,52 +4366,16 @@ test("take-profit cancel rolls committed stop-preserved accounting through four 
     const rejected = withRuntimeRisk(rejectedBase, [100, 100, 100], {
       markTimes: [...definition.marks] as [string, string, string],
     })
-    const lanes = [primary, rejected]
-    const allocationDraft = portfolioAllocationPlan(lanes)
-    const allocationBody = { ...allocationDraft, portfolio_id: portfolioId }
-    const allocationPlan = { ...allocationBody, plan_hash: replayPortfolioAllocationPlanHash(allocationBody) }
-    const riskDraft = runtimeRiskPlan(lanes)
-    const riskBody = { ...riskDraft, portfolio_id: portfolioId }
-    const riskPlan = { ...riskBody, plan_hash: replayRuntimeSharedWalletRiskPlanHash(riskBody) }
-    return { lanes, allocationPlan, riskPlan, entry: definition.entry }
+    return prepareCycleSequenceFixture([primary, rejected], portfolioId, definition.entry)
   })
-  const reservation = createReplayPortfolioCycleSequenceReservationSnapshot({
-    schema_version: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
-    reservation_id: "target-cancel-cycle-sequence-4",
-    reservation_ref: "reservation://target-cancel-cycle-sequence/4",
-    issued_at: "2026-07-14T00:00:30Z", expires_at: "2026-07-14T00:14:00Z", status: "reserved",
-    authority_id: "research-control-plane", experiment_id: "experiment-1", trial_group_id: "trial-group-1",
-    trial_group_hash: HASH, portfolio_id: portfolioId, settlement_asset: "USDT", initial_cash: 100,
-    cycle_count: fixtures.length, max_cycle_count: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES,
-    opening_cash_policy: "first_cycle_initial_then_predecessor_ending_available",
-    successor_eligibility_policy: "predecessor_full_flat_exposure_and_risk_zero",
-    expansion_policy: "exact_predeclared_cycles_no_runtime_append_or_search_expansion",
-    cycles: fixtures.map((fixture, index) => ({
-      cycle_index: index + 1, allocation_plan_hash: fixture.allocationPlan.plan_hash,
-      risk_plan_hash: fixture.riskPlan.plan_hash, earliest_cycle_time: fixture.entry,
-      max_gross_exposure_amount: 200, max_abs_net_exposure_amount: 100, max_portfolio_risk_amount: 25,
-      lanes: fixture.lanes.map((lane, laneIndex) => ({ lane_id: lane.lane_id, priority_rank: laneIndex + 1,
-        trial_id: lane.trial.request.trial_id, run_id: lane.trial.request.run_id,
-        trial_reservation_ref: lane.trial.trial_reservation.reservation_ref,
-        trial_reservation_hash: hashTrialReservationSnapshot(lane.trial.trial_reservation),
-        max_lane_risk_amount: 15 })),
-    })),
-    limitations: ["one_to_eight_predeclared_full_flat_cycles_only",
-      "cycle_opening_cash_is_runtime_predecessor_evidence_not_control_plane_estimate",
-      "no_partial_cross_margin_borrow_real_liquidity_fast_or_runtime_cycle_expansion"],
-  })
-  const planned = fixtures.map((fixture) => ({ ...fixture, integratedPlan: integratedPortfolioPlan(
-    fixture.allocationPlan, reservation.reservation_hash, fixture.riskPlan, reservation.reservation_hash,
-  ) }))
-  const plan = cycleSequencePlan(portfolioId, reservation.reservation_hash, planned)
+  const { reservation, plan, cycles } = cycleSequenceFixture({ fixtures, portfolioId,
+    reservationId: "target-cancel-cycle-sequence-4",
+    reservationRef: "reservation://target-cancel-cycle-sequence/4",
+    expiresAt: "2026-07-14T00:14:00Z" })
   const root = mkdtempSync(join(tmpdir(), "replay-target-cancel-cycle-sequence-"))
   const interruptedRoot = mkdtempSync(join(tmpdir(), "replay-target-cancel-cycle-interrupted-"))
   try {
-    const input = { plan, reservation,
-      cycles: planned.map((fixture, index) => ({ cycle_index: index + 1,
-        integrated_plan: fixture.integratedPlan, allocation_plan: fixture.allocationPlan,
-        risk_plan: fixture.riskPlan,
-        lanes: [...fixture.lanes].reverse().map((lane) => ({ lane_id: lane.lane_id, trial: lane.trial })) })),
+    const input = { plan, reservation, cycles,
       artifact_store: createReplayLocalArtifactStore(root) }
     expect(runReplayPortfolioCycleSequence(input)).toMatchObject({
       status: "failed", result: null, artifact_manifest: null,
@@ -4852,52 +4656,16 @@ test("strategy-exit cancel rolls committed bracket-preserved accounting through 
       target_price: definition.side === "long" ? 110 : 90,
     })
     const rejected = withRuntimeRisk(rejectedBase, [100, 100, 100], { markTimes: marks })
-    const lanes = [primary, rejected]
-    const allocationDraft = portfolioAllocationPlan(lanes)
-    const allocationBody = { ...allocationDraft, portfolio_id: portfolioId }
-    const allocationPlan = { ...allocationBody, plan_hash: replayPortfolioAllocationPlanHash(allocationBody) }
-    const riskDraft = runtimeRiskPlan(lanes)
-    const riskBody = { ...riskDraft, portfolio_id: portfolioId }
-    const riskPlan = { ...riskBody, plan_hash: replayRuntimeSharedWalletRiskPlanHash(riskBody) }
-    return { lanes, allocationPlan, riskPlan, entry: definition.entry }
+    return prepareCycleSequenceFixture([primary, rejected], portfolioId, definition.entry)
   })
-  const reservation = createReplayPortfolioCycleSequenceReservationSnapshot({
-    schema_version: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
-    reservation_id: "strategy-exit-cancel-cycle-sequence-4",
-    reservation_ref: "reservation://strategy-exit-cancel-cycle-sequence/4",
-    issued_at: "2026-07-14T00:00:30Z", expires_at: "2026-07-14T00:14:00Z", status: "reserved",
-    authority_id: "research-control-plane", experiment_id: "experiment-1", trial_group_id: "trial-group-1",
-    trial_group_hash: HASH, portfolio_id: portfolioId, settlement_asset: "USDT", initial_cash: 100,
-    cycle_count: fixtures.length, max_cycle_count: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES,
-    opening_cash_policy: "first_cycle_initial_then_predecessor_ending_available",
-    successor_eligibility_policy: "predecessor_full_flat_exposure_and_risk_zero",
-    expansion_policy: "exact_predeclared_cycles_no_runtime_append_or_search_expansion",
-    cycles: fixtures.map((fixture, index) => ({
-      cycle_index: index + 1, allocation_plan_hash: fixture.allocationPlan.plan_hash,
-      risk_plan_hash: fixture.riskPlan.plan_hash, earliest_cycle_time: fixture.entry,
-      max_gross_exposure_amount: 200, max_abs_net_exposure_amount: 100, max_portfolio_risk_amount: 25,
-      lanes: fixture.lanes.map((lane, laneIndex) => ({ lane_id: lane.lane_id, priority_rank: laneIndex + 1,
-        trial_id: lane.trial.request.trial_id, run_id: lane.trial.request.run_id,
-        trial_reservation_ref: lane.trial.trial_reservation.reservation_ref,
-        trial_reservation_hash: hashTrialReservationSnapshot(lane.trial.trial_reservation),
-        max_lane_risk_amount: 15 })),
-    })),
-    limitations: ["one_to_eight_predeclared_full_flat_cycles_only",
-      "cycle_opening_cash_is_runtime_predecessor_evidence_not_control_plane_estimate",
-      "no_partial_cross_margin_borrow_real_liquidity_fast_or_runtime_cycle_expansion"],
-  })
-  const planned = fixtures.map((fixture) => ({ ...fixture, integratedPlan: integratedPortfolioPlan(
-    fixture.allocationPlan, reservation.reservation_hash, fixture.riskPlan, reservation.reservation_hash,
-  ) }))
-  const plan = cycleSequencePlan(portfolioId, reservation.reservation_hash, planned)
+  const { reservation, plan, cycles } = cycleSequenceFixture({ fixtures, portfolioId,
+    reservationId: "strategy-exit-cancel-cycle-sequence-4",
+    reservationRef: "reservation://strategy-exit-cancel-cycle-sequence/4",
+    expiresAt: "2026-07-14T00:14:00Z" })
   const root = mkdtempSync(join(tmpdir(), "replay-strategy-exit-cancel-cycle-sequence-"))
   const interruptedRoot = mkdtempSync(join(tmpdir(), "replay-strategy-exit-cancel-cycle-interrupted-"))
   try {
-    const input = { plan, reservation,
-      cycles: planned.map((fixture, index) => ({ cycle_index: index + 1,
-        integrated_plan: fixture.integratedPlan, allocation_plan: fixture.allocationPlan,
-        risk_plan: fixture.riskPlan,
-        lanes: [...fixture.lanes].reverse().map((lane) => ({ lane_id: lane.lane_id, trial: lane.trial })) })),
+    const input = { plan, reservation, cycles,
       artifact_store: createReplayLocalArtifactStore(root) }
     expect(runReplayPortfolioCycleSequence(input)).toMatchObject({
       status: "failed", result: null, artifact_manifest: null,
@@ -5208,52 +4976,16 @@ test("protective-stop cancel releases admission risk only after full-flat and ro
       laneId: `${definition.id}-rejected`, symbol: definition.rejected, collateral: 20, feeBps: 0,
       executableTime: definition.entry,
     }), { executableTime: markTimes[2], open: 100 }), [100, 100, 100], { markTimes })
-    const lanes = [primary, rejected]
-    const allocationDraft = portfolioAllocationPlan(lanes)
-    const allocationBody = { ...allocationDraft, portfolio_id: portfolioId }
-    const allocationPlan = { ...allocationBody, plan_hash: replayPortfolioAllocationPlanHash(allocationBody) }
-    const riskDraft = runtimeRiskPlan(lanes)
-    const riskBody = { ...riskDraft, portfolio_id: portfolioId }
-    const riskPlan = { ...riskBody, plan_hash: replayRuntimeSharedWalletRiskPlanHash(riskBody) }
-    return { lanes, allocationPlan, riskPlan, entry: definition.entry }
+    return prepareCycleSequenceFixture([primary, rejected], portfolioId, definition.entry)
   })
-  const reservation = createReplayPortfolioCycleSequenceReservationSnapshot({
-    schema_version: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
-    reservation_id: "stop-cancel-cycle-sequence-4",
-    reservation_ref: "reservation://stop-cancel-cycle-sequence/4",
-    issued_at: "2026-07-14T00:00:30Z", expires_at: "2026-07-14T00:14:00Z", status: "reserved",
-    authority_id: "research-control-plane", experiment_id: "experiment-1", trial_group_id: "trial-group-1",
-    trial_group_hash: HASH, portfolio_id: portfolioId, settlement_asset: "USDT", initial_cash: 100,
-    cycle_count: fixtures.length, max_cycle_count: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES,
-    opening_cash_policy: "first_cycle_initial_then_predecessor_ending_available",
-    successor_eligibility_policy: "predecessor_full_flat_exposure_and_risk_zero",
-    expansion_policy: "exact_predeclared_cycles_no_runtime_append_or_search_expansion",
-    cycles: fixtures.map((fixture, index) => ({
-      cycle_index: index + 1, allocation_plan_hash: fixture.allocationPlan.plan_hash,
-      risk_plan_hash: fixture.riskPlan.plan_hash, earliest_cycle_time: fixture.entry,
-      max_gross_exposure_amount: 200, max_abs_net_exposure_amount: 100, max_portfolio_risk_amount: 25,
-      lanes: fixture.lanes.map((lane, laneIndex) => ({ lane_id: lane.lane_id, priority_rank: laneIndex + 1,
-        trial_id: lane.trial.request.trial_id, run_id: lane.trial.request.run_id,
-        trial_reservation_ref: lane.trial.trial_reservation.reservation_ref,
-        trial_reservation_hash: hashTrialReservationSnapshot(lane.trial.trial_reservation),
-        max_lane_risk_amount: 15 })),
-    })),
-    limitations: ["one_to_eight_predeclared_full_flat_cycles_only",
-      "cycle_opening_cash_is_runtime_predecessor_evidence_not_control_plane_estimate",
-      "no_partial_cross_margin_borrow_real_liquidity_fast_or_runtime_cycle_expansion"],
-  })
-  const planned = fixtures.map((fixture) => ({ ...fixture, integratedPlan: integratedPortfolioPlan(
-    fixture.allocationPlan, reservation.reservation_hash, fixture.riskPlan, reservation.reservation_hash,
-  ) }))
-  const plan = cycleSequencePlan(portfolioId, reservation.reservation_hash, planned)
+  const { reservation, plan, cycles } = cycleSequenceFixture({ fixtures, portfolioId,
+    reservationId: "stop-cancel-cycle-sequence-4",
+    reservationRef: "reservation://stop-cancel-cycle-sequence/4",
+    expiresAt: "2026-07-14T00:14:00Z" })
   const root = mkdtempSync(join(tmpdir(), "replay-stop-cancel-cycle-sequence-"))
   const interruptedRoot = mkdtempSync(join(tmpdir(), "replay-stop-cancel-cycle-interrupted-"))
   try {
-    const input = { plan, reservation,
-      cycles: planned.map((fixture, index) => ({ cycle_index: index + 1,
-        integrated_plan: fixture.integratedPlan, allocation_plan: fixture.allocationPlan,
-        risk_plan: fixture.riskPlan,
-        lanes: [...fixture.lanes].reverse().map((lane) => ({ lane_id: lane.lane_id, trial: lane.trial })) })),
+    const input = { plan, reservation, cycles,
       artifact_store: createReplayLocalArtifactStore(root) }
     expect(runReplayPortfolioCycleSequence(input)).toMatchObject({
       status: "failed", result: null, artifact_manifest: null,
@@ -5538,13 +5270,7 @@ test("Portfolio fixed partial rolls four full-flat owner-keyed cash cycles", () 
       laneId: `fixed-partial-cycle-${index + 1}-rejected`, symbol: "BNBUSDT", collateral: 20,
       feeBps: 0, executableTime: entry }), { executableTime: markTimes[2], open: 100 }),
     [100, 100, 100], { markTimes })
-    const lanes = [primary, rejected]
-    const allocationDraft = portfolioAllocationPlan(lanes)
-    const allocationBody = { ...allocationDraft, portfolio_id: portfolioId }
-    const allocationPlan = { ...allocationBody, plan_hash: replayPortfolioAllocationPlanHash(allocationBody) }
-    const riskDraft = runtimeRiskPlan(lanes); const riskBody = { ...riskDraft, portfolio_id: portfolioId }
-    const riskPlan = { ...riskBody, plan_hash: replayRuntimeSharedWalletRiskPlanHash(riskBody) }
-    return { entry, lanes, allocationPlan, riskPlan }
+    return prepareCycleSequenceFixture([primary, rejected], portfolioId, entry)
   })
   const reservation = createReplayPortfolioCycleSequenceReservationSnapshot({
     schema_version: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,

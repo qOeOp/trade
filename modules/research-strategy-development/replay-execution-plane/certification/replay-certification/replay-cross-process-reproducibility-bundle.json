@@ -22,7 +22,7 @@
       "entrypoint_export": "runReplayIndependentLaneBatch",
       "entrypoint_source_sha256": "4abe6b6f3a3ad2db4bf75d6ea25c9947939bebe318e4768c15a76e827f51d1af",
       "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
-      "test_source_sha256": "7b2b3aaafed3ae79a15b9c7ca721b978c6af2fab8f061ab769b8e75c607f7733",
+      "test_source_sha256": "14242b00ae0e20d93d13fcb70ab0ba1d9fd71b0f51eda6478950fa61e21c25b3",
       "test_name": "independent capital lanes execute in canonical Plan order and aggregate evidence without shared NAV semantics",
       "checkpoint_mode": "child-trial-engine-checkpoints-v32-only",
       "resume_claim": "delegated-child-trial-checkpoint"
@@ -33,7 +33,7 @@
       "entrypoint_export": "runReplayIntegratedPortfolio",
       "entrypoint_source_sha256": "c8684d1062266125647afcae0aef2e1d89edac36ecafe22c8169d11f49530c94",
       "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
-      "test_source_sha256": "7b2b3aaafed3ae79a15b9c7ca721b978c6af2fab8f061ab769b8e75c607f7733",
+      "test_source_sha256": "14242b00ae0e20d93d13fcb70ab0ba1d9fd71b0f51eda6478950fa61e21c25b3",
       "test_name": "integrated Portfolio makes Allocation the only entry authority and releases exposure/risk through lifecycle Artifact",
       "checkpoint_mode": "not-supported-no-checkpoint-writer",
       "resume_claim": "explicit-not-supported"
@@ -44,7 +44,7 @@
       "entrypoint_export": "runReplayTrial",
       "entrypoint_source_sha256": "2aa414d59aad6caa6710a3955070927a60800200f3aced8d34fe514bb80b446e",
       "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.test.ts",
-      "test_source_sha256": "6d8202ed515aed186f033e9092543e4aa84840699e0ab69a2f76fe51e5540a4c",
+      "test_source_sha256": "57ff87f474812e284804455ee4d2ea601447c1f1787640f1b66fe8c7ff68b31b",
       "test_name": "runner atomically publishes an attempt-local checkpoint commit and resumes it across processes",
       "checkpoint_mode": "resumable-engine-checkpoint-v32",
       "resume_claim": "direct-engine-checkpoint"
@@ -55,7 +55,7 @@
       "entrypoint_export": "runReplayPortfolioProtectiveTerminalCycleSequence",
       "entrypoint_source_sha256": "7d5f7a468baaa5fff1ac0b6b72272b2fe4159aa4a0e64d2da9351fdb473f37e3",
       "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
-      "test_source_sha256": "7b2b3aaafed3ae79a15b9c7ca721b978c6af2fab8f061ab769b8e75c607f7733",
+      "test_source_sha256": "14242b00ae0e20d93d13fcb70ab0ba1d9fd71b0f51eda6478950fa61e21c25b3",
       "test_name": "bounded Cycle Sequence executes one, two, and three predeclared full-flat cycles without cycle-number schemas",
       "checkpoint_mode": "not-supported-no-checkpoint-writer",
       "resume_claim": "explicit-not-supported"
@@ -67,5 +67,5 @@
     "release-fixture-pack-freeze-is-a-separate-m5-gate",
     "remaining-m5-gates-not-certified-by-this-bundle"
   ],
-  "bundle_sha256": "26e0e3fc29c20aff354e7425bbff3ce183a69d8d1cf097efc6a407104f229465"
+  "bundle_sha256": "9a1a9f0737a035cb438325259984ad192cf216cb233eae12b04358d6e6e89b4e"
 }

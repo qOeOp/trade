@@ -13,6 +13,7 @@ import { runStrategyRndCampaign } from "../../../../../agent-roles/developer/rd-
 import { runStrategyRndLoop } from "../../../../../agent-roles/developer/rd-loop-runner/src/lib/rd-loop-runner"
 import { loadRndLedger } from "../../../../experiment-ledger/src/lib/rd-ledger"
 import { resolveRepoPath } from "../../../../../../contracts/runtime-core/src/paths"
+import { writeSyntheticReplayManifest as writeManifest } from "../../../../../replay-execution-plane/compatibility/legacy-research-data/src/lib/synthetic-replay-candles"
 
 test("strategy R&D parser normalizes factor discovery options", () => {
   const input = strategyRndBatchInputFromJson({
@@ -1001,31 +1002,6 @@ function buildFeaturePoints(count: number, value: number): Array<{ timestamp: st
   }))
 }
 
-function writeManifest(dir: string, startTimestamp = 1_700_000_000_000): string {
-  writeFileSync(join(dir, "4h.csv"), [
-    "date,timestamp,open,high,low,close,volume",
-    ...buildReplayCandles().map((item, index) => [
-      new Date(startTimestamp + index * 4 * 60 * 60 * 1000).toISOString(),
-      startTimestamp + index * 4 * 60 * 60 * 1000,
-      item.open,
-      item.high,
-      item.low,
-      item.close,
-      item.volume,
-    ].join(",")),
-  ].join("\n"))
-  const manifestPath = join(dir, "manifest.json")
-  writeFileSync(manifestPath, JSON.stringify({
-    symbol: "BTCUSDT",
-    timeframes: {
-      "4h": {
-        file: "4h.csv",
-      },
-    },
-  }))
-  return manifestPath
-}
-
 function writeFundingEventsReport(dir: string, firstTimestamp: number, lastTimestamp: number, value: number): string {
   const events = []
   for (let timestamp = firstTimestamp; timestamp <= lastTimestamp; timestamp += 8 * 60 * 60 * 1000) {
@@ -1203,27 +1179,6 @@ function relativeFixtureDrift(kind: "weak" | "benchmark" | "benchmark-weak" | "s
   if (kind === "benchmark-weak" && index >= 210) return -0.08
   if (kind === "strong-reversal") return index >= 210 && index % 8 === 0 ? -0.55 : 0.22
   return index < 210 ? 0.05 : -0.18
-}
-
-function buildReplayCandles(): Array<{ open: number; high: number; low: number; close: number; volume: number }> {
-  const candles: Array<{ open: number; high: number; low: number; close: number; volume: number }> = []
-  let close = 100
-  for (let index = 0; index < 280; index += 1) {
-    const trend = index < 240 ? 0.25 : 0.35
-    const pullback = index > 220 && index % 8 === 0 ? -3 : 0
-    const open = close
-    close = close + trend + pullback
-    const high = Math.max(open, close) + 0.5
-    const low = Math.min(open, close) - (pullback < 0 ? Math.abs(pullback) + 0.5 : 0.4)
-    candles.push({
-      open: Number(open.toFixed(2)),
-      high: Number(high.toFixed(2)),
-      low: Number(low.toFixed(2)),
-      close: Number(close.toFixed(2)),
-      volume: 1000 + index,
-    })
-  }
-  return candles
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

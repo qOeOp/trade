@@ -3,11 +3,10 @@ import { readFileSync } from "node:fs"
 import assert from "node:assert/strict"
 import test from "node:test"
 import { runLiveSmall } from "./live-small-runner"
-import { appendPlanEvent, ensureSchema, readFlowEvents, readLatestOrderFill } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
-import { buildPortfolioAccountProjection } from "../../../../portfolio-execution-state/flow-projector/src/lib/flow-projector"
+import { ensureSchema, readLatestOrderFill } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
 import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
-import type { ExecutionStateRuntime } from "../../../execution-flow-runner/src/lib/execution-flow-runner"
 import type { Runner } from "../../../../contracts/runtime-core/src/tool-runner"
+import { createStateRuntime, liveSmallInput, successTool } from "./live-small-test-fixture.test"
 
 const TEST_DB_PATH = "test://trade.db"
 
@@ -18,25 +17,33 @@ test("live-small result schema locks only the stable outer execution shell", asy
 
   const db = new Database(":memory:")
   ensureSchema(db)
-  const runner: Runner = async () => ({
-    ok: true,
-    data: {
-      ok: true,
-      data: {
-        method: "futuresCreateAlgoOrder",
-        request: {
-          symbol: "BTCUSDT",
-          side: "BUY",
-          type: "STOP_MARKET",
-          quantity: "0.001",
-          clientAlgoId: "flow-live-fixture-1-entry",
-        },
-        result: { algoId: 9001, clientAlgoId: "flow-live-fixture-1-entry" },
+  const runner: Runner = async (_command, options) => {
+    if (options?.cwd?.endsWith("/exchange-request-router")) {
+      return successTool({ route: "exchange-write-pre-adapter-gate" })
+    }
+    if (options?.cwd?.endsWith("/write-pre-adapter-gate")) {
+      return successTool({ status: "passed", issues: [] })
+    }
+    if (options?.cwd?.endsWith("/post-write-confirmation")) {
+      return successTool({
+        schema_version: "trade.protocol.exchange-command-ref.v1",
+        command_ref: "exchange-command://fixture",
+        status: "confirmed",
+      })
+    }
+    return successTool({
+      method: "futuresCreateAlgoOrder",
+      request: {
+        symbol: "BTCUSDT",
+        side: "BUY",
+        type: "STOP_MARKET",
+        quantity: "0.001",
+        clientAlgoId: "flow-live-fixture-1-entry",
       },
-    },
-    stdout: "{}",
-    stderr: "",
-  })
+      result: { algoId: 9001, clientAlgoId: "flow-live-fixture-1-entry" },
+      confirmedResult: { algoId: 9001, clientAlgoId: "flow-live-fixture-1-entry" },
+    })
+  }
 
   try {
     const skipped = await runLiveSmall(TEST_DB_PATH, {
@@ -62,18 +69,8 @@ test("live-small result schema locks only the stable outer execution shell", asy
   }
 })
 
-function stateRuntime(db: Database): ExecutionStateRuntime {
-  return {
-    eventReader: (_dbPath, chainId) => readFlowEvents(db, chainId) as unknown as Record<string, unknown>[],
-    eventAppender: (_dbPath, event) => {
-      appendPlanEvent(db, event as unknown as Parameters<typeof appendPlanEvent>[1])
-      return event
-    },
-    latestOrderFillReader: (_dbPath, chainId) => readLatestOrderFill(db, chainId),
-    flowStateReader: (_dbPath, chainId) => testFlowState(db, chainId),
-    latestSlowObserveReader: () => null,
-    portfolioProjectionReader: (_dbPath, input) => buildPortfolioAccountProjection(db, input),
-  }
+function stateRuntime(db: Database) {
+  return createStateRuntime(db, (chainId) => testFlowState(db, chainId))
 }
 
 function testFlowState(db: Database, chainId: string): JSONRecord {
@@ -82,108 +79,6 @@ function testFlowState(db: Database, chainId: string): JSONRecord {
     current_position: { state: "flat" },
     latest_order_fill: readLatestOrderFill(db, chainId),
     risk_lock: { locked: false },
-  }
-}
-
-function liveSmallInput(): JSONRecord {
-  return {
-    repoRoot: "/repo",
-    now: "2026-07-06T12:00:20+08:00",
-    event_key: "evt-live-fixture-1",
-    created_at: "2026-07-06T12:00:21Z",
-    target_action: "place_entry",
-    plan: {
-      symbol: "BTCUSDT",
-      side: "long",
-      setup_id: "trend-breakout",
-      direction_state: "偏多已确认",
-      execution_verdict: "等条件",
-      thesis: "4H trend is intact",
-      entry_intent: "buy breakout",
-      exit_intent: "exit below invalidation",
-      invalidation: "4H close below range",
-      stop_price: 64000,
-      risk_budget_usdt: 10,
-      expected_rr_net: 2,
-      live_permission: "live-small",
-    },
-    observe: {
-      created_at: "2026-07-06T12:00:00+08:00",
-      symbol: "BTCUSDT",
-      side: "long",
-      setup_id: "trend-breakout",
-      account: {
-        account_ref: "exchange-account://binance/live/usdm/primary",
-        account_scope: "capital-scope://retail-small-usdm",
-        equity_usdt: 1000,
-        snapshot_ref: "exchange-account-facts://binance/live/usdm/primary/snapshot",
-        content_hash: `sha256:${"c".repeat(64)}`,
-        as_of: "2026-07-06T12:00:00+08:00",
-        freshness: { max_age_seconds: 30 },
-      },
-    },
-    strategy: { status: "live-small" },
-    account_config: {
-      max_open_risk_pct: 0.1,
-      max_day_loss_pct: 0.05,
-    },
-    runtime_policy: {
-      schema_version: "runtime-policy.v1",
-      profile_id: "retail-small-usdm",
-      account_ref: "exchange-account://binance/live/usdm/primary",
-      account_scope: "capital-scope://retail-small-usdm",
-      source_hash: `sha256:${"a".repeat(64)}`,
-      effective_limits: {},
-      permissions: { can_live_small: true },
-    },
-    runtime_authorization: {
-      schema_version: "trade.policy.runtime-authorization.v1",
-      authorization_ref: "policy-authorization://retail-small-usdm/scope/hash",
-      content_hash: `sha256:${"b".repeat(64)}`,
-      policy_hash: `sha256:${"a".repeat(64)}`,
-      account_ref: "exchange-account://binance/live/usdm/primary",
-      account_scope: "capital-scope://retail-small-usdm",
-      issued_at: "2026-07-06T11:59:00+08:00",
-      expires_at: "2026-07-06T12:05:00+08:00",
-    },
-    request: { type: "STOP_MARKET" },
-    aggregate_view: {
-      active_plans_risk_sum: 0,
-      current_account_open_risk_usdt: 0,
-      realized_pnl_today_usdt: 0,
-      active_plans_worst_loss_at_stop: 0,
-    },
-    execution_contract_input: {
-      source_observe_event_key: "obs-live-fixture-1",
-      chain_id: "flow-live-fixture",
-      setup_id: "trend-breakout",
-      market: "usdm",
-      symbol: "BTCUSDT",
-      side: "long",
-      position_side: "BOTH",
-      margin_mode: "isolated",
-      target_leverage: 2,
-      account_snapshot: {
-        equity_usdt: 1000,
-        available_balance_usdt: 900,
-        snapshot_at: "2026-07-06T12:00:00+08:00",
-      },
-      risk: {
-        risk_budget_usdt: 10,
-        stop_price: 64000,
-        invalidation: "below range",
-        expected_rr_net: 2,
-      },
-      entries: [{
-        type: "STOP_MARKET",
-        stop_price: 66000,
-        margin_usdt: 100,
-      }],
-      exchange_rules: {
-        quantity_step_size: "0.001",
-        min_qty: "0.001",
-      },
-    },
   }
 }
 

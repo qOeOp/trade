@@ -14,34 +14,20 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const sqliteRuntimePattern = /\.(?:db|duckdb|sqlite|sqlite3)(?:-(?:shm|wal))?$/
 const sqliteSidecarPattern = /\.(?:db|duckdb|sqlite|sqlite3)-(?:shm|wal)$/
 
-// Ratchet only: these historical files predate the workspace hygiene gate.
-// Remove each exception in the same change that converts or untracks the file.
-export const legacyTrackedRuntimePaths = [
-]
-
 export function findWorkspaceHygieneIssues(
   snapshot: WorkspaceSnapshot,
-  legacyPaths: string[] = legacyTrackedRuntimePaths,
 ): string[] {
   const tracked = new Set(snapshot.trackedPaths.map(normalizePath))
   const moduleRuntime = new Set(snapshot.moduleRuntimePaths.map(normalizePath))
-  const legacy = new Set(legacyPaths.map(normalizePath))
   const issues: string[] = []
 
   for (const path of tracked) {
-    if (isTrackedRuntimePath(path) && !legacy.has(path)) {
+    if (isTrackedRuntimePath(path)) {
       issues.push(`tracked runtime SQLite file is forbidden: ${path}`)
     }
   }
   for (const path of moduleRuntime) {
-    if (!legacy.has(path)) {
-      issues.push(`module-local runtime SQLite file is forbidden: ${path}`)
-    }
-  }
-  for (const path of legacy) {
-    if (!tracked.has(path)) {
-      issues.push(`remove stale legacy tracked-runtime exception: ${path}`)
-    }
+    issues.push(`module-local runtime SQLite file is forbidden: ${path}`)
   }
 
   return issues.sort()
@@ -104,7 +90,7 @@ function main(): void {
     console.error(`workspace hygiene violations:\n${issues.join("\n")}`)
     process.exit(1)
   }
-  console.log(`workspace hygiene ok; legacy tracked runtime ratchet: ${legacyTrackedRuntimePaths.length}`)
+  console.log("workspace hygiene ok; runtime SQLite exceptions: 0")
 }
 
 if (import.meta.main) main()

@@ -4,11 +4,13 @@ type JSONRecord = Record<string, unknown>
 
 export function loadRuntimePolicyFromOwner(input: {
   tradingConfigPath?: string
+  policyRegistryDbPath?: string
 }): JSONRecord {
   const compiled = runOwnerToolRecordSync("policy.runtime-policy-compiler", [
     ...(input.tradingConfigPath ? ["--trading-config", input.tradingConfigPath] : []),
   ], "runtime policy compiler")
   const registered = runOwnerToolRecordSync("policy.registry", [
+    ...(input.policyRegistryDbPath ? ["--db", input.policyRegistryDbPath] : []),
     "--action",
     "authorize_runtime_policy",
     "--json",

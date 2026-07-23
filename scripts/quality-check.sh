@@ -76,9 +76,7 @@ check_secrets() {
 check_toolset_manifest() {
   require_cmd bun
   log "quality judge regression"
-  # Replay negative-control judges execute the full maturity scanner in subprocesses;
-  # keep their fail-closed assertions while allowing normal concurrent repository load.
-  bun test --timeout 15000 ./scripts/*.test.ts >/dev/null
+  bun test ./scripts/*.test.ts >/dev/null
   log "doc contracts"
   bun scripts/check-doc-contracts.ts >/dev/null
   log "toolset manifest"

@@ -4,6 +4,7 @@ import { loadRuntimePolicyFromOwner } from "./runtime-policy-client"
 
 interface RuntimeLoadInput {
   tradingConfigPath?: string
+  policyRegistryDbPath?: string
   accountConfigPath: string
   strategiesDir: string
 }
@@ -15,6 +16,7 @@ export function loadRuntime(input: RuntimeLoadInput): JSONRecord {
   const strategies = loadStrategies(strategiesDir)
   const { trading_config, runtime_policy, runtime_authorization } = loadRuntimePolicyFromOwner({
     tradingConfigPath: input.tradingConfigPath,
+    policyRegistryDbPath: input.policyRegistryDbPath,
   })
   return {
     trading_config,

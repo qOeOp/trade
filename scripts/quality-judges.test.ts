@@ -38,6 +38,17 @@ describe("quality judges fail closed", () => {
     expect(boundary.stderr).toContain("dynamic import must use a static string literal")
   })
 
+  test("TS boundaries do not grant tests a blanket cross-tool import pass", () => {
+    const root = architectureFixture()
+    write(root, "modules/domain-a/tool-a/src/main.test.ts", 'import "../../../domain-b/tool-b/src/main"\n')
+
+    const result = runJudge("check-ts-tool-boundaries.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("modules/domain-a/tool-a/src/main.test.ts")
+    expect(result.stderr).toContain("modules/domain-b/tool-b")
+  })
+
   test("architecture drift rejects job owner and target-domain mismatch", () => {
     const root = architectureFixture({
       jobs: [{
@@ -655,6 +666,32 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("scripts.test does not cover src/omitted.test.ts")
   })
 
+  test("duplication judge includes test code and permits zero clones", () => {
+    const root = temporaryRoot()
+    const duplicate = Array.from({ length: 24 }, (_, index) =>
+      `  const duplicatedValue${index} = sourceValue + ${index}`
+    ).join("\n")
+    write(root, "modules/domain-a/tool-a/src/first.test.ts", [
+      "export function first(sourceValue: number) {",
+      duplicate,
+      "  return duplicatedValue23",
+      "}",
+      "",
+    ].join("\n"))
+    write(root, "modules/domain-a/tool-a/src/second.test.ts", [
+      "export function second(sourceValue: number) {",
+      duplicate,
+      "  return duplicatedValue23",
+      "}",
+      "",
+    ].join("\n"))
+
+    const result = runJudge("check-duplication.ts", repoRoot, ["--root", root])
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("duplicated code fragments increased")
+  })
+
   test("Replay heavyweight tests are serial and individually exclusive", () => {
     const packageJson = JSON.parse(readFileSync(join(repoRoot,
       "modules/research-strategy-development/replay-execution-plane/runner/package.json"), "utf8")) as {
@@ -663,16 +700,17 @@ describe("quality judges fail closed", () => {
     const scripts = packageJson.scripts
 
     expect(scripts.test).toBe("bun run test:worker-v10 && bun run test:remaining")
-    expect(scripts["test:worker-v10"]).toContain(
-      "run-exclusive-test.sh replay-worker-v10",
-    )
     expect(scripts["test:remaining"]).toBe(
       "bun run test:remaining:main && bun run test:remaining:protective-stop-cancel-cycle",
     )
     expect(scripts["test:remaining:main"]).toContain("^(?!protective-stop cancel releases")
-    expect(scripts["test:remaining:protective-stop-cancel-cycle"]).toContain(
-      "run-exclusive-test.sh replay-protective-stop-cancel-cycle",
-    )
+    for (const name of [
+      "test:worker-v10",
+      "test:remaining:main",
+      "test:remaining:protective-stop-cancel-cycle",
+    ]) {
+      expect(scripts[name]).toContain("run-exclusive-test.sh replay-runner-heavyweight")
+    }
   })
 
   test("Go formatting rejects an unformatted file instead of swallowing gofmt errors", () => {

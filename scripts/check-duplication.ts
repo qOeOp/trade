@@ -1,12 +1,13 @@
 #!/usr/bin/env bun
 
 import { existsSync, readFileSync, rmSync } from "node:fs"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 
 type JSONRecord = Record<string, unknown>
 
 const MAX_DUPLICATES = 0
-const OUTPUT_DIR = "tmp/check/duplication"
+const root = resolve(readRootArgument(process.argv.slice(2)) ?? process.cwd())
+const OUTPUT_DIR = join(root, "tmp/check/duplication")
 const REPORT_PATH = join(OUTPUT_DIR, "jscpd-report.json")
 
 const args = [
@@ -22,13 +23,14 @@ const args = [
   "--format",
   "typescript,javascript,go,python,rust,bash",
   "--ignore",
-  "**/node_modules/**,**/dist/**,**/docs/**,**/data/**,**/tmp/**,**/*.test.ts",
+  "**/node_modules/**,**/dist/**,**/docs/**,**/data/**,**/tmp/**",
   "modules",
   "scripts",
 ]
 
 rmSync(OUTPUT_DIR, { recursive: true, force: true })
 const result = Bun.spawnSync(["bunx", ...args], {
+  cwd: root,
   stdout: "pipe",
   stderr: "pipe",
 })
@@ -57,4 +59,12 @@ console.log(`quality: duplicated code fragments ${duplicates.length}/${MAX_DUPLI
 
 function asRecord(value: unknown): JSONRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JSONRecord : {}
+}
+
+function readRootArgument(args: string[]): string | null {
+  if (args.length === 0) return null
+  if (args.length !== 2 || args[0] !== "--root" || !args[1]) {
+    throw new Error("usage: bun scripts/check-duplication.ts [--root <repo-root>]")
+  }
+  return args[1]
 }
