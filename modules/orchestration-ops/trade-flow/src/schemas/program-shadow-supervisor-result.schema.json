@@ -20,7 +20,7 @@
   ],
   "properties": {
     "schema_version": { "const": "trade-flow.program-shadow-supervisor-result.v1" },
-    "runtime_profile": { "enum": ["shadow_program", "full_shadow"] },
+    "runtime_profile": { "enum": ["shadow_program", "catalog_hygiene_canary", "full_shadow"] },
     "supervisor_id": { "type": "string", "minLength": 1 },
     "outcome": { "enum": ["completed", "lease_lost", "skipped_lock", "ops_store_busy"] },
     "stop_reason": { "enum": ["max_cycles", "duration", "signal", "lease_lost", "active_supervisor", "ops_store_busy"] },
@@ -30,7 +30,7 @@
       "type": "object",
       "required": ["interval_seconds", "max_cycles", "duration_seconds"],
       "properties": {
-        "interval_seconds": { "type": "integer", "minimum": 1, "maximum": 3600 },
+        "interval_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
         "max_cycles": { "type": "integer", "minimum": 0, "maximum": 100000 },
         "duration_seconds": { "type": "integer", "minimum": 0, "maximum": 86400 }
       },
@@ -110,6 +110,10 @@
     {
       "if": { "properties": { "runtime_profile": { "const": "shadow_program" } }, "required": ["runtime_profile"] },
       "then": { "properties": { "safety": { "properties": { "domain_jobs_enabled": { "const": false } } } } }
+    },
+    {
+      "if": { "properties": { "runtime_profile": { "const": "catalog_hygiene_canary" } }, "required": ["runtime_profile"] },
+      "then": { "properties": { "safety": { "properties": { "domain_jobs_enabled": { "const": true } } } } }
     },
     {
       "if": { "properties": { "runtime_profile": { "const": "full_shadow" } }, "required": ["runtime_profile"] },

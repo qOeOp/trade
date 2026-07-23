@@ -14,6 +14,7 @@ export const HELP_TEXT = `Usage:
   bun src/scripts/main.ts --db ./data/trade.db --run-job-graph --json '{"ops_runtime_db":"./data/ops_runtime.db","execute_jobs":false}'
   bun src/scripts/main.ts --db ./data/trade.db --run-program-shadow --json '{"ops_runtime_db":"./data/ops_runtime.db"}'
   bun src/scripts/main.ts --db ./data/trade.db --run-program-shadow-supervisor --json '{"ops_runtime_db":"./data/ops_runtime.db","interval_seconds":60}'
+  bun src/scripts/main.ts --db ./data/trade.db --run-program-shadow-supervisor --json '{"ops_runtime_db":"./data/ops_runtime.db","runtime_profile":"catalog_hygiene_canary","interval_seconds":86400}'
   bun src/scripts/main.ts --db ./data/trade.db --run-program-shadow-supervisor --json '{"ops_runtime_db":"./data/ops_runtime.db","runtime_profile":"full_shadow","interval_seconds":60}'
   bun src/scripts/main.ts --run-shadow-from-tools --json '{"repoRoot":"/repo","chain_id":"...","symbol":"BTCUSDT",...}'
   bun src/scripts/main.ts --run-live-small --yes --json '{"repoRoot":"/repo","plan":{...},"observe":{...},"execution_contract_input":{...}}'

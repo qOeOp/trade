@@ -369,7 +369,7 @@ function supervisorResult(input: {
     safety: {
       foreground_process: true,
       external_process_manager_required: true,
-      domain_jobs_enabled: input.input.runtime_profile === "full_shadow",
+      domain_jobs_enabled: input.input.runtime_profile !== "shadow_program",
       live_writes_allowed: false,
       notify_dry_run: true,
       drain_in_flight_cycle_on_signal: true,
@@ -388,7 +388,7 @@ function supervisorResult(input: {
 function normalizeInput(input: ProgramShadowSupervisorInput): Required<Pick<ProgramShadowSupervisorInput, "interval_seconds" | "max_cycles" | "duration_seconds">> & ProgramShadowSupervisorInput {
   return {
     ...input,
-    interval_seconds: boundedInteger(input.interval_seconds, DEFAULT_INTERVAL_SECONDS, 1, 3_600, "interval_seconds"),
+    interval_seconds: boundedInteger(input.interval_seconds, DEFAULT_INTERVAL_SECONDS, 1, 86_400, "interval_seconds"),
     max_cycles: boundedInteger(input.max_cycles, 0, 0, 100_000, "max_cycles"),
     duration_seconds: boundedInteger(input.duration_seconds, 0, 0, 86_400, "duration_seconds"),
     observe_agent_parity: input.observe_agent_parity === true,
@@ -417,8 +417,8 @@ function assertClosedWorldInput(input: JSONRecord): void {
 
 function normalizeRuntimeProfile(value: unknown): ProgramRuntimeProfile {
   const profile = stringField(value) || "shadow_program"
-  if (profile !== "shadow_program" && profile !== "full_shadow") {
-    throw new Error("supervisor runtime_profile must be shadow_program or full_shadow")
+  if (profile !== "shadow_program" && profile !== "catalog_hygiene_canary" && profile !== "full_shadow") {
+    throw new Error("supervisor runtime_profile must be shadow_program, catalog_hygiene_canary, or full_shadow")
   }
   return profile
 }

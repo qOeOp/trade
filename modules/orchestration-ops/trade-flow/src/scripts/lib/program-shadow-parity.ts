@@ -158,12 +158,13 @@ function legacyAgentShadowGraphInput(input: {
   governance_db?: string
 }): JSONRecord {
   const attemptId = input.agent_cycle_id.replace(/[^A-Za-z0-9_-]/g, "-")
+  const catalogHygieneCanary = input.runtime_profile === "catalog_hygiene_canary"
   const fullShadow = input.runtime_profile === "full_shadow"
   return {
     cycle_id: input.agent_cycle_id,
     now: input.now,
     ops_runtime_db: input.ops_runtime_db,
-    command_timeout_ms: 30_000,
+    command_timeout_ms: input.runtime_profile === "shadow_program" ? 30_000 : 90_000,
     execute_jobs: true,
     allow_live_writes: false,
     include_runtime_health: true,
@@ -173,7 +174,8 @@ function legacyAgentShadowGraphInput(input: {
     include_rd_strategy_supervisor: fullShadow,
     include_rd_trackers: fullShadow,
     include_closed_flow_review: fullShadow,
-    include_catalog_hygiene: fullShadow,
+    include_catalog_hygiene: catalogHygieneCanary || fullShadow,
+    ...(catalogHygieneCanary ? { force_jobs: ["catalog_hygiene_scan"] } : {}),
     ...(fullShadow ? {
       force_jobs: [
         "account_reconcile_guard", "fast_track_guard", "slow_track_market_watch",
