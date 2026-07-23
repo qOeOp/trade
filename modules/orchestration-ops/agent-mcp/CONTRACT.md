@@ -1,6 +1,6 @@
 # orchestration-ops/agent-mcp
 
-面向本地 Agent 的 MCP 门面；通过 stdio 暴露显式白名单读取能力与受控异步研发入口，并沿用 Owner CLI JSON 契约。
+面向 Agent Host 的 MCP 门面；通过本地 stdio 或经 bearer 认证的私有 Streamable HTTP 暴露同一显式白名单，并沿用 Owner CLI JSON 契约。
 
 ## Responsibilities
 
@@ -9,10 +9,11 @@
 - 提供 RD memory + Control Plane 的只读 designer brief、hypothesis contract 校验/queue projection，以及 J04 研发任务的幂等提交、状态读取与终态结果读取。
 - 固定调用目标、参数结构、超时和输出上限。
 - 将 MCP 请求适配到既有 Owner CLI，不复制领域逻辑。
+- 按 `planner / developer / reviewer / explanation` 投影最小 tool 子集；本地 `interactive` profile 保留当前人工 Codex 白名单。
 
 ## Boundaries
 
-- 仅支持本地 stdio，不提供网络监听。
+- stdio 仅供同机可信 Host；HTTP 默认 loopback，容器通配监听必须显式配置 Host allowlist，使用至少 32 bytes 的 bearer secret，并受 body/rate 上限约束。
 - 不提供任意命令、脚本或路径执行能力。
 - `research_job_submit` 只直接写 ops cycle/lock；后台执行必须经过既有 `trade-flow` J04 supervisor，领域写入仍由 research owner 完成。
 - MCP 不接受裸 queue item；hypothesis 必须经过 `research.strategy-hypothesis-designer validate/queue_item`，且只有 `ready=true` 才能提交。
@@ -37,5 +38,7 @@ bun modules/orchestration-ops/agent-mcp/src/scripts/main.ts
 ```
 
 MCP host 必须以 stdio 启动该命令。当前只注册：`trade_tool_search`、`trade_tool_read`、`artifact_catalog_query`、`artifact_read`、`l2_retention_reference_audit`、`l2_retention_reference_audit_page`、`l2_service_health`、`l2_book_watch_consumer_health`、`runtime_parity_status`、`rd_program_read`、`ops_cycle_summary`、`research_hypothesis_brief`、`research_hypothesis_prepare`、`research_job_submit`、`research_job_status`、`research_job_result`。
+
+私有 HTTP 入口为 `bun modules/orchestration-ops/agent-mcp/src/scripts/http.ts --profile explanation`；token 只从 `TRADE_MCP_HTTP_TOKEN` 或显式 `--token-env` 读取，不进入参数、配置输出或日志。
 
 可信仓库中的 Codex 会从 `.codex/config.toml` 加载 `trade-agent`；修改配置后需新建任务或重启当前 Codex 客户端，再用 `/mcp` 或 `codex mcp list` 检查连接。
