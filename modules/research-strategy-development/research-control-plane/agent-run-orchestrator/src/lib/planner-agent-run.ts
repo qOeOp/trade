@@ -52,6 +52,7 @@ const PLANNER_INSTRUCTION = [
   "Act as the bounded R&D Planner.",
   "Read only the supplied Control Plane context.",
   "Return one canonical trade.rd-planner-proposal-submission.v2 JSON object.",
+  "Call research_planner_proposal_prepare with your selected bounded proposal body, then return its proposal field exactly; do not calculate or alter hashes yourself.",
   "Select one active canonical and only ready linked data surfaces.",
   "Do not create Trial, Result, strategy files, lifecycle decisions, or domain effects.",
 ].join("\n")
