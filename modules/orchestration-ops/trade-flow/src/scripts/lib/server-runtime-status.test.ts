@@ -14,6 +14,7 @@ test("server runtime preflight binds release, writable roots, and closed safety"
   const result = preflightServerRuntime(profile, root, process.execPath, {
     path_check: (checkId) => ({ check_id: checkId, status: "ok", reason: "fixture" }),
     writable_directory_check: (checkId) => ({ check_id: checkId, status: "ok", reason: "fixture" }),
+    listener_check: () => ({ check_id: "l2_listener_available", status: "ok", reason: "fixture" }),
   })
   assert.equal(result.status, "ready")
   const checks = result.checks as Array<Record<string, unknown>>
@@ -24,6 +25,7 @@ test("macOS preflight keeps protected launchd source roots explicit", () => {
   const blocked = preflightServerRuntime(macProfile, root, process.execPath, {
     path_check: (checkId) => ({ check_id: checkId, status: "ok", reason: "fixture" }),
     writable_directory_check: (checkId) => ({ check_id: checkId, status: "ok", reason: "fixture" }),
+    listener_check: () => ({ check_id: "l2_listener_available", status: "ok", reason: "fixture" }),
     launchd_source_check: () => ({
       check_id: "launchd_source_privacy", status: "blocked", reason: "fixture_protected_root",
     }),
@@ -31,6 +33,16 @@ test("macOS preflight keeps protected launchd source roots explicit", () => {
   assert.equal(blocked.status, "blocked")
   const checks = blocked.checks as Array<Record<string, unknown>>
   assert.equal(checks.some((check) => check.check_id === "launchd_source_privacy" && check.status === "blocked"), true)
+})
+
+test("preflight blocks an occupied L2 listener", () => {
+  const result = preflightServerRuntime(macProfile, root, process.execPath, {
+    path_check: (checkId) => ({ check_id: checkId, status: "ok", reason: "fixture" }),
+    writable_directory_check: (checkId) => ({ check_id: checkId, status: "ok", reason: "fixture" }),
+    launchd_source_check: () => ({ check_id: "launchd_source_privacy", status: "ok", reason: "fixture" }),
+    listener_check: () => ({ check_id: "l2_listener_available", status: "blocked", reason: "listener_already_in_use" }),
+  })
+  assert.equal(result.status, "blocked")
 })
 
 test("server runtime status requires owner readiness, same epoch, lease, and active units", () => {

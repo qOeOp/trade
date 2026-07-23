@@ -17,6 +17,7 @@
     "server:stage-release": "bun src/scripts/server-runtime-release-stage.ts",
     "server:render-systemd": "bun src/scripts/server-runtime.ts --action render-systemd --profile profile/server-runtime.json",
     "server:render-launchd": "bun src/scripts/server-runtime.ts --action render-launchd --profile profile/server-runtime-macos.json",
+    "server:launchd-manager": "bun src/scripts/server-runtime-launchd-manager.ts",
     "program-shadow:launchd-install": "bun src/scripts/program-shadow-launchd.ts install",
     "program-shadow:launchd-status": "bun src/scripts/program-shadow-launchd.ts status",
     "program-shadow:launchd-uninstall": "bun src/scripts/program-shadow-launchd.ts uninstall",

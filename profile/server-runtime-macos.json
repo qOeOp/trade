@@ -5,7 +5,7 @@
   "l2_owner": {
     "symbol": "BTCUSDT",
     "output_base": "data/l2",
-    "listen": "127.0.0.1:50061",
+    "listen": "127.0.0.1:51061",
     "epoch_seconds": 86100,
     "queue_capacity": 256,
     "segment_frames": 1000,

@@ -1,6 +1,7 @@
 import { accessSync, constants, existsSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { homedir } from "node:os"
+import { spawnSync } from "node:child_process"
 import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
 import type { ServerRuntimeProfile } from "./server-runtime-profile"
 import { serverRuntimeProfileHash } from "./server-runtime-profile"
@@ -18,6 +19,7 @@ export interface ServerRuntimePreflightDependencies {
   path_check?: (checkId: string, path: string, executable?: boolean) => JSONRecord
   writable_directory_check?: (checkId: string, path: string) => JSONRecord
   launchd_source_check?: (root: string) => JSONRecord
+  listener_check?: (listen: string) => JSONRecord
 }
 
 export interface ServerRuntimeStatus extends JSONRecord {
@@ -54,6 +56,7 @@ export function preflightServerRuntime(
   const checkPath = dependencies.path_check ?? pathCheck
   const checkWritable = dependencies.writable_directory_check ?? writableDirectoryCheck
   const checkLaunchdSource = dependencies.launchd_source_check ?? launchdSourceCheck
+  const checkListener = dependencies.listener_check ?? listenerAvailabilityCheck
   const checks = [
     checkPath("bun_executable", bunPath, true),
     checkPath("l2_foreground_entry", resolve(root, "modules/market-data-products/l2-order-book-service/src/scripts/foreground.ts")),
@@ -66,6 +69,7 @@ export function preflightServerRuntime(
     checkWritable("market_db_parent_writable", dirname(resolve(root, profile.l2_owner.market_data_db))),
     checkWritable("trade_db_parent_writable", dirname(resolve(root, profile.control_runtime.trade_db))),
     checkWritable("ops_db_parent_writable", dirname(resolve(root, profile.control_runtime.ops_runtime_db))),
+    checkListener(profile.l2_owner.listen),
     {
       check_id: "safety_closed_world",
       status: profile.safety.domain_jobs_enabled === false
@@ -255,6 +259,22 @@ function launchdSourceCheck(root: string): JSONRecord {
     status: "blocked",
     reason: "protected_source_root_requires_privacy_grant_or_release_relocation",
   }
+}
+
+function listenerAvailabilityCheck(listen: string): JSONRecord {
+  const port = listen.slice(listen.lastIndexOf(":") + 1)
+  const lsof = existsSync("/usr/sbin/lsof") ? "/usr/sbin/lsof" : existsSync("/usr/bin/lsof") ? "/usr/bin/lsof" : ""
+  if (!lsof) return { check_id: "l2_listener_available", status: "blocked", reason: "listener_probe_unavailable" }
+  const result = spawnSync(lsof, ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], {
+    encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+  })
+  if (result.status === 1 && !result.stdout.trim()) {
+    return { check_id: "l2_listener_available", status: "ok", reason: "no_listening_process" }
+  }
+  if (result.status === 0 && result.stdout.trim()) {
+    return { check_id: "l2_listener_available", status: "blocked", reason: "listener_already_in_use" }
+  }
+  return { check_id: "l2_listener_available", status: "blocked", reason: "listener_availability_unknown" }
 }
 
 function record(value: unknown): JSONRecord {
