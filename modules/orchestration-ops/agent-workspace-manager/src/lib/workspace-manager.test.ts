@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
@@ -7,7 +7,9 @@ import {
   buildAgentWorkspaceMountPlan,
   captureAgentWorkspacePatch,
   createAgentWorkspace,
+  listStaleAgentWorkspaces,
   removeAgentWorkspace,
+  removeStaleAgentWorkspaces,
   runAgentWorkspacePackageCheck,
 } from "./workspace-manager"
 
@@ -42,6 +44,43 @@ test("Developer workspace freezes source, bounds writes, captures patch, and cle
   } finally {
     removeAgentWorkspace(workspace)
     assert.equal(Bun.spawnSync({ cmd: ["git", "worktree", "list", "--porcelain"], cwd: root }).stdout.toString().includes(workspace.workspace_root), false)
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test("workspace GC preserves active runs and removes only old scoped worktrees", () => {
+  const root = fixtureRepository()
+  const active = createAgentWorkspace({
+    repository_root: root,
+    run_id: "developer-active",
+    source_revision: "HEAD",
+    allowed_write_prefixes: ["modules/sample"],
+  })
+  const stale = createAgentWorkspace({
+    repository_root: root,
+    run_id: "developer-stale",
+    source_revision: "HEAD",
+    allowed_write_prefixes: ["modules/sample"],
+  })
+  const old = new Date("2026-07-20T00:00:00.000Z")
+  utimesSync(stale.workspace_root, old, old)
+  try {
+    const candidates = listStaleAgentWorkspaces({
+      repository_root: root,
+      active_run_ids: [active.run_id],
+      older_than: "2026-07-22T00:00:00.000Z",
+    })
+    assert.deepEqual(candidates.map((item) => item.run_id), [stale.run_id])
+    const result = removeStaleAgentWorkspaces({
+      repository_root: root,
+      active_run_ids: [active.run_id],
+      older_than: "2026-07-22T00:00:00.000Z",
+      apply: true,
+    })
+    assert.deepEqual(result.removed, [stale.run_id])
+    assert.equal(existsSync(active.workspace_root), true)
+  } finally {
+    removeAgentWorkspace(active)
     rmSync(root, { recursive: true, force: true })
   }
 })
