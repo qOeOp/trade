@@ -90,6 +90,8 @@ last_verified: 2026-07-23 CST
 | `tech-indicators` | 本地 OHLCV 结构、指标与轻量微观结构统计 |
 | `market-data-store` | canonical candle owner query；向 Research 导出 content-addressed、immutable candle slice manifest/ref |
 
+Runtime、execution defense 与 R&D 不再用自然语言要求“给我某币的数据”。它们提交 `trade.market-data-demand.v1`：稳定 consumer / subject ref、priority、symbol、product requirement 和 bounded lease。Market Data owner create-or-identical 登记、显式 release 并生成无生命周期 authority 的合并 proposal；`market-data-runtime-manager` 已能把其中 L2 demand 编译为 bounded per-symbol owner / consumer pair 并拥有 foreground lifecycle，但尚未替换当前固定单 symbol server profile，也不把 proposal 或进程存活冒充 coverage / freshness。
+
 `binance-market-scan` 只能回答“先看谁”。候选必须回到 `single-symbol`，并通过 setup 资格证。
 
 ## 存储
@@ -99,7 +101,9 @@ last_verified: 2026-07-23 CST
 - 微结构、aggTrades、depth、liquidation-like 输出默认只作为 refs。
 - 不新增 market snapshot 表。
 - replay / shadow 需要的数据由对应 tool 输出引用，不进入 `trade.db`。
-- 未被 refs / evidence / review / `.pin` 引用的市场 artifact 不长期保留；默认先用 `modules/artifact-knowledge/artifact-catalog --catalog-stale` 看 catalog 候选，删除走 `--catalog-gc --yes` 或 `--artifact-gc` 显式清理。
+- 未被 refs / evidence / review / `.pin` 引用且可重建的市场 artifact 不长期保留。当前入口仍先用 `modules/artifact-knowledge/artifact-catalog --catalog-stale` 看候选，删除走 `--catalog-gc --yes` 或 `--artifact-gc`；目标由 Program 周期触发 owner-authorized GC，不以磁盘不足作为日常人工阻断。
+- 自动 GC 只能删除 owner 分类为已过 retention、无引用 / pin 且可重建的对象。Agent 可以解释未知大文件并提出候选，不能绕过 lineage / reference closure / release gate 删除；active flow、冻结研究 source、review evidence、durable store 和 incomplete incident 必须保留。
+- L2 raw、manifest 和 Parquet 使用独立 retention authority；finalize / compaction、全部 consumer 引用闭包和 release 未完成前，通用 artifact GC 不得触碰。
 - Vision ZIP 只在进程内校验、解压、聚合，不落长期缓存；factor report 是唯一持久结果。
 - 大型 factor report 不整体入库；只把 source manifest、hash、bytes、summary metrics、artifact ref 写入 catalog。
 - 常驻完整 L2、完整 L2 queue、真实 liquidation、带地址标签的 exchange netflow 与完整历史 option surface 以 `capability_gaps` 明示。
