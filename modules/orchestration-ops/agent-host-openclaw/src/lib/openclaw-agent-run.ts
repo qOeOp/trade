@@ -21,6 +21,7 @@ import {
   projectAgentRunStatus,
   readAgentRun,
   readAgentRunEvents,
+  listRecoverableAgentRuns,
 } from "../../../ops-runtime-store/src/lib/agent-run-store"
 
 export type OpenClawTransportExpectation = "gateway" | "embedded"
@@ -129,6 +130,22 @@ export class OpenClawAgentHost implements AgentHostPort {
     await Promise.allSettled([...this.tasks.values()])
   }
 
+  async recoverInterruptedRuns(): Promise<number> {
+    let recovered = 0
+    for (const record of listRecoverableAgentRuns(this.options.db, 1_000)) {
+      if (record.host_profile !== this.options.host_profile) continue
+      await this.fail(
+        record.request,
+        record.request.task_profile === "developer"
+          ? "tool_effect_uncertain"
+          : "host_unavailable",
+        Date.parse(record.updated_at),
+      )
+      recovered += 1
+    }
+    return recovered
+  }
+
   private async launch(request: AgentRunRequest): Promise<void> {
     const controller = new AbortController()
     const startedMs = this.now().getTime()
@@ -136,9 +153,6 @@ export class OpenClawAgentHost implements AgentHostPort {
     try {
       this.appendStarted(request)
       const message = await this.options.materialize(request)
-      if (Buffer.byteLength(message) > request.budget.max_input_bytes) {
-        return await this.fail(request, "budget_exhausted", startedMs)
-      }
       const remainingMs = Math.min(
         request.budget.max_wall_time_ms,
         Date.parse(request.budget.deadline_at) - this.now().getTime(),
