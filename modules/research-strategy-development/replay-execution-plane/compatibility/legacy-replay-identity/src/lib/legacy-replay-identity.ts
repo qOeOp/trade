@@ -55,6 +55,7 @@ export function replayHarnessSourceRefs(): string[] {
   const root = join(import.meta.dir, "../../../../..")
   const refs = [
     "../contracts/runtime-core/src/paths.ts",
+    "replay-execution-plane/accounting/src/lib/replay-accounting.ts",
     "replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core.ts",
     "replay-execution-plane/compatibility/legacy-research-kernel/src/lib/strategy-replay.ts",
     "replay-execution-plane/compatibility/legacy-research-contracts/src/lib/legacy-research-contracts.ts",

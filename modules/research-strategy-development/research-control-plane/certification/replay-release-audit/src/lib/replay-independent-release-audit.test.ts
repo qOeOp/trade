@@ -53,6 +53,15 @@ describe("Replay independent release audit", () => {
     expect(() => assertReplayIndependentReleaseAuditManifest(auditorDrift, maturity, repoRoot))
       .toThrow("independent audit source drifted")
 
+    for (const role of ["release-gate-entry", "exclusive-test-runner"]) {
+      const executionDrift = structuredClone(loadReplayIndependentReleaseAuditManifest(repoRoot))
+      const binding = executionDrift.source_bindings.find((item) => item.role === role)
+      expect(binding).toBeDefined()
+      Object.assign(binding!, { sha256: "0".repeat(64) })
+      expect(() => assertReplayIndependentReleaseAuditManifest(executionDrift, maturity, repoRoot))
+        .toThrow("independent audit source drifted")
+    }
+
     const incomplete = structuredClone(maturity)
     incomplete.exit_gates.m5!.release_candidate_fixture_pack_frozen = false
     expect(() => assertReplayIndependentReleaseAuditManifest(

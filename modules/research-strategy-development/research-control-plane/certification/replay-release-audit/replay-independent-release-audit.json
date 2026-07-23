@@ -68,17 +68,27 @@
     {
       "role": "independent-auditor",
       "path": "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/src/lib/replay-independent-release-audit.ts",
-      "sha256": "92da123e6d383136927c7baf57d204d58a5da2ec06c653109f7ba2c19b952aab"
+      "sha256": "7ebe5c0b0f5fb8b9031de902628dcc20a894716ace72da87b49f9dcfa26710f1"
     },
     {
       "role": "independent-auditor-test",
       "path": "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/src/lib/replay-independent-release-audit.test.ts",
-      "sha256": "7bf02454bca149e3e8b38fd2e64d1ca684661619d61ecb988f98ef21eaeed697"
+      "sha256": "cca0eaea60887af05d9257a24cff1e2e635eb8edddfa16a575e0110e986972b7"
     },
     {
       "role": "maturity-gate-consumer",
       "path": "scripts/check-rd-replay-maturity-gate.ts",
       "sha256": "778e1cac39c334d4af1c2a7b6aa2bdcfc161c4b792359b8befec75a4e60095c3"
+    },
+    {
+      "role": "release-gate-entry",
+      "path": "scripts/check-replay-release.sh",
+      "sha256": "3121172162685bd8ce70201288f8c2ecb6b36bf916d11f9e859f677a0a27067f"
+    },
+    {
+      "role": "exclusive-test-runner",
+      "path": "scripts/run-exclusive-test.sh",
+      "sha256": "372d115334e2a53106527cc0127f11a23b360f7616c33caface65564dcffe55a"
     },
     {
       "role": "subject-certification-runner",
@@ -107,5 +117,5 @@
     "audit-does-not-expand-public-profiles-or-simulator-semantics",
     "remote-distributed-store-shadow-live-and-real-account-evidence-out-of-scope"
   ],
-  "audit_manifest_sha256": "b18e2bd64284a99fc5747b09c6ca5d9c7de5189d06ccfb71a36807efd762adaa"
+  "audit_manifest_sha256": "b724628130af3879bde8f5478e6328fff35d7873f1a4c6cc2224e937eb6d28dc"
 }

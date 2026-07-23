@@ -38,6 +38,7 @@ test("binds manifest identity, candle bytes, and supplemental bytes", () => {
 test("binds the legacy research kernel source set", () => {
   assert.match(replayHarnessHash(), /^[a-f0-9]{64}$/)
   assert.ok(replayHarnessSourceRefs().includes("../contracts/runtime-core/src/paths.ts"))
+  assert.ok(replayHarnessSourceRefs().includes("replay-execution-plane/accounting/src/lib/replay-accounting.ts"))
 })
 
 test("binds relocated candidate and factor owners without stale kernel refs", () => {

@@ -170,6 +170,8 @@ const EXPECTED_SOURCE_BINDINGS = [
   { role: "independent-auditor", path: `${REPLAY_RELEASE_AUDIT_OWNER}/src/lib/replay-independent-release-audit.ts` },
   { role: "independent-auditor-test", path: `${REPLAY_RELEASE_AUDIT_OWNER}/src/lib/replay-independent-release-audit.test.ts` },
   { role: "maturity-gate-consumer", path: "scripts/check-rd-replay-maturity-gate.ts" },
+  { role: "release-gate-entry", path: "scripts/check-replay-release.sh" },
+  { role: "exclusive-test-runner", path: "scripts/run-exclusive-test.sh" },
   { role: "subject-certification-runner", path: `${SUBJECT_OWNER}/src/lib/replay-certification.ts` },
   { role: "subject-certification-test", path: `${SUBJECT_OWNER}/src/lib/replay-certification.test.ts` },
   { role: "runner-certification-package", path: "modules/research-strategy-development/replay-execution-plane/runner/package.json" },
