@@ -46,7 +46,15 @@ export function buildCodexAgentRunWirePlan(
     verifyMaterialized(materialization.inputs[index]!, request.input_refs[index]!, `input[${index}]`)
   }
   const prompt = renderPrompt(request, materialization)
-  if (Buffer.byteLength(prompt) > request.budget.max_input_bytes) throw new Error("materialized Codex prompt exceeds Agent Run input budget")
+  const artifactBytes = materialization.instruction.artifact.bytes
+    + materialization.inputs.reduce(
+      (sum, input) => sum + input.artifact.bytes,
+      0,
+    )
+  const framingBytes = Buffer.byteLength(prompt) - artifactBytes
+  if (framingBytes < 0 || framingBytes > 128 * 1024) {
+    throw new Error("materialized Codex prompt framing exceeds Host limit")
+  }
   const writable = request.task_profile === "developer"
   const sandboxPolicy = writable
     ? {

@@ -21,6 +21,26 @@ test("Agent Run maps to ephemeral Codex thread with profile sandbox and no provi
   assert.equal((turn.sandboxPolicy as Record<string, unknown>).networkAccess, false)
 })
 
+test("Host framing is bounded separately from immutable input artifact bytes", () => {
+  const fixture = runFixture("planner")
+  const {
+    schema_version: _schemaVersion,
+    request_hash: _requestHash,
+    domain_authority: _domainAuthority,
+    ...source
+  } = fixture.request
+  const exact = buildAgentRunRequest({
+    ...source,
+    budget: {
+      ...fixture.request.budget,
+      max_input_bytes: fixture.request.instruction_ref.bytes
+        + fixture.request.input_refs.reduce((sum, ref) => sum + ref.bytes, 0),
+    },
+  })
+  const plan = buildCodexAgentRunWirePlan(exact, fixture.materialization)
+  assert.equal(plan.turn_start("thread-exact").threadId, "thread-exact")
+})
+
 test("read-only roles cannot receive workspace-write and Developer must use isolated workspace", () => {
   const planner = runFixture("planner")
   const plan = buildCodexAgentRunWirePlan(planner.request, planner.materialization)

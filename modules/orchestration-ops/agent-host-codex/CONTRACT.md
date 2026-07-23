@@ -6,6 +6,8 @@
 - Protocol capability probing, bounded JSONL request correlation, fail-closed server-request handling, task-profile sandbox mapping, and sanitized lifecycle normalization.
 - Implement the provider-neutral Host port over the ops-owned durable registry: submit, events, status, bounded steer, deny-only approval, cancel/interrupt, and terminal result.
 - Persist no raw prompts or responses. A completed final message is handed to exactly one external artifact strategy; Developer may return multiple Host-derived submission/patch/check refs under the same output budget. Interrupted Developer effects become `tool_effect_uncertain` rather than being replayed.
+- Proactively close durable interrupted runs on daemon startup; output finalization failure is a terminal validation failure, and post-terminal cleanup runs only after the Result is durable.
+- Compose Direct Codex with the artifact store and workspace manager only through an owner-issued, request-hash-bound execution scope. The composition ignores the model's completion prose as evidence, derives submission/patch/check refs after the turn, and removes the worktree only after durable completion.
 - Direct Codex as the attribution baseline for later OpenClaw-managed Codex comparison.
 
 ## Boundaries

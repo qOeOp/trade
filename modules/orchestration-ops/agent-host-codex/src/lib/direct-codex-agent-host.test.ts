@@ -84,6 +84,53 @@ test("Direct Codex Host persists Host-derived workspace evidence with the typed 
   fixture.db.close()
 })
 
+test("Direct Codex Host closes failed output finalization and proactively recovers interrupted runs", async () => {
+  const fixture = createFixture("developer")
+  const fake = new FakeClient("complete")
+  const terminal: string[] = []
+  const first = new DirectCodexAgentHost({
+    db: fixture.db,
+    materialize: async () => fixture.materialization,
+    store_outputs: async () => {
+      throw new Error("quality failed")
+    },
+    resolve_steer: async () => "continue",
+    create_client: (onNotification) => fake.connect(onNotification),
+    after_terminal: async (_request, result) => {
+      terminal.push(result.status)
+    },
+    now: () => new Date("2026-07-23T01:00:00.000Z"),
+  })
+  await first.submit(fixture.request)
+  const failed = await waitForResult(first, fixture.request.run_id)
+  assert.equal(failed.status, "failed")
+  assert.equal(failed.failure?.class, "validation_failed")
+  assert.deepEqual(terminal, ["failed"])
+  await first.close()
+  fixture.db.close()
+
+  const interrupted = createFixture("developer")
+  const waitingClient = new FakeClient("wait")
+  const waitingHost = createHost(
+    interrupted.db,
+    waitingClient,
+    interrupted.materialization,
+  )
+  await waitingHost.submit(interrupted.request)
+  await waitFor(() => waitingClient.turnId != null)
+  await waitingHost.close()
+  const recovering = createHost(
+    interrupted.db,
+    new FakeClient("complete"),
+    interrupted.materialization,
+  )
+  assert.equal(await recovering.recoverInterruptedRuns(), 1)
+  const recovered = await waitForResult(recovering, interrupted.request.run_id)
+  assert.equal(recovered.failure?.class, "tool_effect_uncertain")
+  await recovering.close()
+  interrupted.db.close()
+})
+
 class FakeClient implements CodexAppServerClientPort {
   private onNotification: (method: string, params: unknown) => void = () => undefined
   startCount = 0

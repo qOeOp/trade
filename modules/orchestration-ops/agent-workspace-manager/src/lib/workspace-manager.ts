@@ -2,7 +2,26 @@ import { createHash } from "node:crypto"
 import { lstatSync, mkdirSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync } from "node:fs"
 import { dirname, join, resolve, sep } from "node:path"
 import type { AgentArtifactRef } from "../../../../contracts/agent-run-contract/src/agent-run-contract"
-import { canonicalJson } from "../../../../contracts/runtime-core/src/canonical-json"
+import { canonicalHash, canonicalJson } from "../../../../contracts/runtime-core/src/canonical-json"
+
+export const AGENT_WORKSPACE_EXECUTION_SCOPE_SCHEMA =
+  "trade.agent-workspace-execution-scope.v1" as const
+
+export interface AgentWorkspaceExecutionScopeBody {
+  schema_version: typeof AGENT_WORKSPACE_EXECUTION_SCOPE_SCHEMA
+  run_id: string
+  request_hash: string
+  source_revision: string
+  allowed_write_prefixes: string[]
+  package_path: string
+  issued_at: string
+  domain_authority: "none"
+}
+
+export interface AgentWorkspaceExecutionScope
+  extends AgentWorkspaceExecutionScopeBody {
+  scope_hash: string
+}
 
 export interface AgentWorkspace {
   schema_version: "trade.agent-workspace.v1"
@@ -54,6 +73,56 @@ export interface FinalizedAgentWorkspaceEvidence {
   patch_sha256: string
   checked_at: string
   domain_authority: "none"
+}
+
+export function createAgentWorkspaceExecutionScope(
+  input: Omit<
+    AgentWorkspaceExecutionScopeBody,
+    "schema_version" | "domain_authority"
+  >,
+): AgentWorkspaceExecutionScope {
+  const prefixes = writePrefixes(input.allowed_write_prefixes)
+  const packagePath = repoPath(input.package_path, "package_path")
+  if (!packagePath.startsWith("modules/")) {
+    throw new Error("Agent workspace package path is restricted to modules")
+  }
+  if (!prefixes.some((prefix) =>
+    packagePath === prefix || packagePath.startsWith(`${prefix}/`))) {
+    throw new Error("Agent workspace package path is outside allowed prefixes")
+  }
+  const body: AgentWorkspaceExecutionScopeBody = {
+    schema_version: AGENT_WORKSPACE_EXECUTION_SCOPE_SCHEMA,
+    run_id: identifier(input.run_id, "run_id"),
+    request_hash: digest(input.request_hash, "request_hash"),
+    source_revision: revision(input.source_revision),
+    allowed_write_prefixes: prefixes,
+    package_path: packagePath,
+    issued_at: canonicalTime(input.issued_at),
+    domain_authority: "none",
+  }
+  return { ...body, scope_hash: canonicalHash(body) }
+}
+
+export function assertAgentWorkspaceExecutionScope(
+  value: AgentWorkspaceExecutionScope,
+): void {
+  if (!value || typeof value !== "object") {
+    throw new Error("Agent workspace execution scope must be an object")
+  }
+  const {
+    scope_hash: _scopeHash,
+    schema_version,
+    domain_authority,
+    ...input
+  } = value
+  if (schema_version !== AGENT_WORKSPACE_EXECUTION_SCOPE_SCHEMA
+    || domain_authority !== "none") {
+    throw new Error("Agent workspace execution scope is unsupported")
+  }
+  const expected = createAgentWorkspaceExecutionScope(input)
+  if (canonicalJson(value) !== canonicalJson(expected)) {
+    throw new Error("Agent workspace execution scope is non-canonical or hash-drifted")
+  }
 }
 
 export function createAgentWorkspace(input: {
@@ -458,6 +527,11 @@ function assertInside(root: string, target: string): void {
 
 function revision(value: string): string {
   if (!/^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/.test(value)) throw new Error("source_revision is invalid")
+  return value
+}
+
+function digest(value: string, field: string): string {
+  if (!/^[a-f0-9]{64}$/.test(value)) throw new Error(`${field} is invalid`)
   return value
 }
 

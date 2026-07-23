@@ -3,6 +3,7 @@
 ## Owns
 
 - Per-Agent-Run Git worktrees at one frozen source revision under `tmp/agent-workspaces/<run_id>`.
+- A canonical owner-issued execution scope binding one request hash and source revision to exact write prefixes and one bounded package check; the Host cannot derive this scope from model prose.
 - Closed write-prefix policy, bounded deterministic package checks, reviewable patch capture, explicit cleanup, and stale-workspace GC candidates.
 - Host-owned finalization that rejects an empty patch, failed/timed-out checks, check-induced patch mutation, or artifact-writer hash drift, then emits patch plus JSON quality evidence with no domain authority.
 - A container mount projection that exposes only the isolated worktree and an output directory to the Developer job.

@@ -7,6 +7,7 @@ import test from "node:test"
 import {
   buildAgentWorkspaceMountPlan,
   captureAgentWorkspacePatch,
+  createAgentWorkspaceExecutionScope,
   createAgentWorkspace,
   finalizeAgentWorkspaceEvidence,
   listStaleAgentWorkspaces,
@@ -14,6 +15,27 @@ import {
   removeStaleAgentWorkspaces,
   runAgentWorkspacePackageCheck,
 } from "./workspace-manager"
+
+test("workspace execution scope binds one request to exact source and check path", () => {
+  const scope = createAgentWorkspaceExecutionScope({
+    run_id: "developer-run-scope",
+    request_hash: "a".repeat(64),
+    source_revision: "0123456789abcdef",
+    allowed_write_prefixes: ["modules/sample"],
+    package_path: "modules/sample",
+    issued_at: "2026-07-23T01:00:00.000Z",
+  })
+  assert.equal(scope.scope_hash.length, 64)
+  assert.equal(scope.domain_authority, "none")
+  assert.throws(() => createAgentWorkspaceExecutionScope({
+    run_id: "developer-run-scope",
+    request_hash: "a".repeat(64),
+    source_revision: "0123456789abcdef",
+    allowed_write_prefixes: ["modules/sample"],
+    package_path: "modules/other",
+    issued_at: "2026-07-23T01:00:00.000Z",
+  }), /outside allowed prefixes/)
+})
 
 test("Developer workspace freezes source, bounds writes, captures patch, and cleans up", async () => {
   const root = fixtureRepository()

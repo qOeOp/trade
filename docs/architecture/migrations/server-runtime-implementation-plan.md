@@ -338,7 +338,7 @@ validate config/secrets/volumes
 | D5.2 | 接入 cited research finding、失败、review 与 improvement request | provenance-separated inputs |
 | D5.3 | Planner 生成 typed hypothesis 并经过既有 admission | complete：真实 OpenClaw Planner、owner-resolved protocol、trial budget / family axis gate 与 accepted revision |
 | D5.4 | Developer 做 family / data / Replay / Runtime capability assessment | complete：真实 Brief、v3 exact data snapshot、registered family/protocol assessment；missing / partial implementation 现明确路由 `code_change_required`，不会误降级成普通 tool blocker |
-| D5.5 | Developer 在隔离 worktree 改 MD / code / tests | active-partial：frozen worktree、closed write prefixes、bounded package check、Host-derived patch/check refs、`patch_ready`、GC 与 workspace-only routing 已完成；可执行 Host composition、容器读隔离和真实 Agent 二次修改待 P5 |
+| D5.5 | Developer 在隔离 worktree 改 MD / code / tests | active-partial：request-hash-bound scope、可执行 one-shot Codex composition、frozen worktree、bounded package check、durable Host-derived refs、`patch_ready`、post-Result cleanup 与 GC 已完成；默认 provider 真实临时仓库修改已通过，失败后二次修订及容器读隔离待 P5 |
 | D5.6 | owner 冻结 data、reserve Trial、执行 deterministic Replay | active-partial：6-Trial immutable Plan / Work Package 与 compatibility Result 已实跑；certified Replay reservation/worker 仍待接入 |
 | D5.7 | Agent 阅读失败 artifact 并二次修改或 reject | active-partial：Reviewer lesson 已驱动 4H→1h bounded revision；真实隔离代码 patch→重测仍待 D5.5 |
 | D5.8 | Reviewer 基于登记 evidence 提交 decision | complete at historical compatibility stage：Result classification→bounded context→typed modify→lifecycle / lesson 幂等写回 |

@@ -5,6 +5,7 @@ import {
   type AgentArtifactRef,
   type AgentRunFailureClass,
   type AgentRunRequest,
+  type AgentRunResult,
 } from "../../../../contracts/agent-run-contract/src/agent-run-contract"
 import {
   validateAgentRunApproval,
@@ -19,6 +20,7 @@ import {
   appendAgentRunEvent,
   bindAgentRunHostSession,
   completeAgentRun,
+  listRecoverableAgentRuns,
   markAgentRunCancelling,
   projectAgentRunStatus,
   readAgentRun,
@@ -38,6 +40,12 @@ export interface DirectCodexAgentHostOptions {
   materialize(request: AgentRunRequest): Promise<CodexAgentRunMaterialization>
   store_output?(request: AgentRunRequest, text: string): Promise<AgentArtifactRef>
   store_outputs?(request: AgentRunRequest, text: string): Promise<AgentArtifactRef[]>
+  after_terminal?(request: AgentRunRequest, result: AgentRunResult): Promise<void>
+  report_error?(input: {
+    run_id: string
+    failure_class: AgentRunFailureClass
+    stage: "launch" | "output_finalization" | "post_terminal"
+  }): void
   resolve_steer(input: AgentRunSteer): Promise<string>
   create_client(onNotification: (method: string, params: unknown) => void, onExit: (error: Error | null) => void): CodexAppServerClientPort
   now?: () => Date
@@ -129,6 +137,16 @@ export class DirectCodexAgentHost implements AgentHostPort {
     }
   }
 
+  async recoverInterruptedRuns(): Promise<number> {
+    let recovered = 0
+    for (const record of listRecoverableAgentRuns(this.options.db, 1_000)) {
+      if (record.host_profile !== "direct-codex") continue
+      await this.blockInterrupted(record.request)
+      recovered += 1
+    }
+    return recovered
+  }
+
   private async launch(request: AgentRunRequest): Promise<void> {
     let active: ActiveRun | null = null
     try {
@@ -174,6 +192,11 @@ export class DirectCodexAgentHost implements AgentHostPort {
         })
       }, remaining)
     } catch {
+      this.options.report_error?.({
+        run_id: request.run_id,
+        failure_class: "host_unavailable",
+        stage: "launch",
+      })
       await this.finishFailure(request, "host_unavailable")
       if (active) await active.client.close()
     }
@@ -216,9 +239,20 @@ export class DirectCodexAgentHost implements AgentHostPort {
       return
     }
     if (status === "completed") {
-      const outputs = this.options.store_outputs
-        ? await this.options.store_outputs(active.request, active.final_text!)
-        : [await this.options.store_output!(active.request, active.final_text!)]
+      let outputs: AgentArtifactRef[]
+      try {
+        outputs = this.options.store_outputs
+          ? await this.options.store_outputs(active.request, active.final_text!)
+          : [await this.options.store_output!(active.request, active.final_text!)]
+      } catch {
+        this.options.report_error?.({
+          run_id: active.request.run_id,
+          failure_class: "validation_failed",
+          stage: "output_finalization",
+        })
+        await this.finishFailure(active.request, "validation_failed")
+        return
+      }
       if (outputs.length < 1 || outputs.length > 32) {
         await this.finishFailure(active.request, "validation_failed")
         return
@@ -284,7 +318,7 @@ export class DirectCodexAgentHost implements AgentHostPort {
     })
     appendAgentRunEvent(this.options.db, terminal)
     const wallTime = Math.max(0, Math.min(this.now().getTime() - active.started_ms, active.request.budget.max_wall_time_ms))
-    completeAgentRun(this.options.db, buildAgentRunResult({
+    const result = buildAgentRunResult({
       run_id: active.request.run_id,
       trace_id: active.request.trace_id,
       request_hash: active.request.request_hash,
@@ -306,10 +340,18 @@ export class DirectCodexAgentHost implements AgentHostPort {
           effect_status: failure === "tool_effect_uncertain" ? "uncertain" : "none",
         },
       }),
-    }))
+    })
+    completeAgentRun(this.options.db, result)
     if (active.deadline_timer) clearTimeout(active.deadline_timer)
     this.active.delete(active.request.run_id)
     await active.client.close()
+    await this.options.after_terminal?.(active.request, result).catch(() => {
+      this.options.report_error?.({
+        run_id: active.request.run_id,
+        failure_class: "host_unavailable",
+        stage: "post_terminal",
+      })
+    })
   }
 
   private requireActive(runId: string, requestHash: string): ActiveRun {
