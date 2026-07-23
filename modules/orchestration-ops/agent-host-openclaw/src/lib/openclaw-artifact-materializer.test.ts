@@ -45,6 +45,12 @@ test("OpenClaw materializer resolves verified refs into one bounded message", ()
       text: "  {\"proposal\":\"bounded\"}  ",
     })
     assert.deepEqual(parseAgentJsonArtifact(root, output), { proposal: "bounded" })
+    const fenced = storeOpenClawAgentOutput({
+      repository_root: root,
+      request,
+      text: "```json\n{\"proposal\":\"bounded\"}\n```",
+    })
+    assert.deepEqual(fenced, output)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -78,7 +84,15 @@ test("OpenClaw materializer rejects ref drift and non-object output", () => {
         request,
         text: "[]",
       }),
-      /one JSON object/,
+      /not JSON|one JSON object/,
+    )
+    assert.throws(
+      () => storeOpenClawAgentOutput({
+        repository_root: root,
+        request,
+        text: "Result:\n```json\n{\"proposal\":\"bounded\"}\n```",
+      }),
+      /not JSON/,
     )
   } finally {
     rmSync(root, { recursive: true, force: true })

@@ -65,7 +65,7 @@ export function storeOpenClawAgentOutput(input: {
   text: string
   storage?: AgentArtifactStorage
 }): AgentArtifactRef {
-  const text = input.text.trim()
+  const text = unwrapSingleJsonObject(input.text)
   if (!text) throw new Error("OpenClaw Agent output is empty")
   let parsed: unknown
   try {
@@ -82,4 +82,17 @@ export function storeOpenClawAgentOutput(input: {
     media_type: "application/json",
     text: canonicalJson(parsed),
   })
+}
+
+function unwrapSingleJsonObject(value: string): string {
+  const text = value.trim()
+  if (!text) throw new Error("OpenClaw Agent output is empty")
+  if (text.startsWith("{")) return text
+  const fenced = /^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/i.exec(text)
+  if (!fenced) throw new Error("OpenClaw Agent output is not JSON")
+  const inner = fenced[1]!.trim()
+  if (!inner.startsWith("{")) {
+    throw new Error("OpenClaw Agent fenced output is not one JSON object")
+  }
+  return inner
 }

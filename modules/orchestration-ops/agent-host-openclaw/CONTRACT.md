@@ -6,7 +6,7 @@
 - Use the Agent Run id as OpenClaw idempotency/session identity, persist normalized lifecycle in the ops-owned registry, and store only the final typed text through the shared artifact sink.
 - Distinguish Gateway execution from OpenClaw embedded fallback; embedded fallback is a named alternate profile and is never silently counted as Gateway evidence.
 - Re-read instruction and input refs from the content-addressed Agent Artifact Store, digest-check them, and wrap them in one canonical untrusted-data envelope before execution.
-- Require exactly one JSON object on success and canonicalize it into the immutable Agent Artifact Store before closing the Run.
+- Require exactly one JSON object on success and canonicalize it into the immutable Agent Artifact Store before closing the Run. A single `json` Markdown fence with no surrounding prose is treated only as a presentation wrapper and deterministically removed; prose-plus-JSON and multiple payloads still fail closed.
 - The server adapter calls the Gateway's private OpenResponses endpoint with an explicit Agent id and Run-scoped session key; response bodies and bearer credentials are not retained.
 - Its bearer-authenticated Agent Run HTTP surface is private-network only; Program callers receive normalized acceptance, status, events, cancellation, and terminal results, never provider credentials or raw Gateway payloads.
 
