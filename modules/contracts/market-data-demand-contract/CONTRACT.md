@@ -6,6 +6,7 @@
 - Stable demand identity、consumer ref、priority、symbol、product requirement、lease / renewal grace 与 canonical hash。
 - 多调用方需求的确定性合并、容量选择、过期 / grace 分类和无生命周期 authority 的 subscription proposal。
 - canonical candle owner 与有界 demand worker 共享的 self-hashed OHLCV coverage audit read contract。
+- L2、OHLCV 与 indicator 共用的 self-hashed fact ref：精确绑定 demand ids / source plan、owner source/hash、coverage、freshness 和产品 requirement，固定无领域 authority。
 
 ## Boundaries
 
