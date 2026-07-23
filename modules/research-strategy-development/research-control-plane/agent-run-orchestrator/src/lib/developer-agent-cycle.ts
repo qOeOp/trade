@@ -3,6 +3,7 @@ import type { AgentArtifactRef } from "../../../../../contracts/agent-run-contra
 import type { AgentHostPort } from "../../../../../contracts/agent-run-contract/src/agent-host-port"
 import {
   admitDeveloperAgentResult,
+  type PreparedDeveloperAgentRun,
   prepareDeveloperAgentRun,
 } from "./developer-agent-run"
 import { executeAgentRunThroughHost } from "./agent-run-host-execution"
@@ -12,6 +13,10 @@ import type { DeveloperDataSnapshotBinding } from "./developer-capability-assess
 export async function runDeveloperAgentCycle(input: {
   db: Database
   host: AgentHostPort
+  workspace_host?: AgentHostPort
+  register_workspace_scope?(
+    prepared: PreparedDeveloperAgentRun,
+  ): Promise<{ scope_hash: string }> | { scope_hash: string }
   artifacts: AgentArtifactPort
   developer_run_id: string
   trace_id: string
@@ -50,13 +55,22 @@ export async function runDeveloperAgentCycle(input: {
       ? { data_snapshot_binding: input.data_snapshot_binding }
       : {}),
   })
+  let scopeHash: string | null = null
+  let host = input.host
   if (prepared.execution_route === "workspace_host") {
-    throw new Error(
-      "Developer code-change requires the isolated workspace Host cycle; semantic Host execution is forbidden",
-    )
+    if (!input.workspace_host || !input.register_workspace_scope) {
+      throw new Error(
+        "Developer code-change requires a registered scope and isolated workspace Host",
+      )
+    }
+    scopeHash = (await input.register_workspace_scope(prepared)).scope_hash
+    if (!/^[a-f0-9]{64}$/.test(scopeHash)) {
+      throw new Error("Developer workspace scope registration is invalid")
+    }
+    host = input.workspace_host
   }
   const completed = await executeAgentRunThroughHost({
-    host: input.host,
+    host,
     request: prepared.request,
     poll_interval_ms: input.poll_interval_ms,
     signal: input.signal,
@@ -78,6 +92,7 @@ export async function runDeveloperAgentCycle(input: {
     run_id: prepared.request.run_id,
     request_hash: prepared.request.request_hash,
     result_hash: completed.result.result_hash,
+    scope_hash: scopeHash,
     output_refs: completed.result.output_refs,
     admission,
   }

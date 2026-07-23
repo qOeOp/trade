@@ -31,11 +31,16 @@ services:
       - ${TRADE_MCP_HTTP_SECRET_ENV_FILE:?set TRADE_MCP_HTTP_SECRET_ENV_FILE}
     volumes:
       - openclaw-state:/home/node/.openclaw
+      - agent-code-workspace:/home/node/.openclaw/agent-workspace-slots
       - ./openclaw.json:/home/node/.openclaw/openclaw.json:ro
+    group_add:
+      - "10001"
     networks:
       - agent-control
       - agent-egress
     depends_on:
+      agent-code-volume-init:
+        condition: service_completed_successfully
       agent-mcp-planner:
         condition: service_healthy
       agent-mcp-reviewer:
@@ -54,6 +59,74 @@ services:
       timeout: 10s
       retries: 5
       start_period: 90s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
+  agent-code-volume-init:
+    image: trade-runtime:${TRADE_IMAGE_TAG:-local}
+    restart: "no"
+    read_only: true
+    user: "0:0"
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+    volumes:
+      - agent-code-workspace:/workspace
+      - agent-code-control:/control
+    entrypoint:
+      - /bin/sh
+      - -eu
+      - -c
+    command:
+      - chown 1000:10001 /workspace && chmod 2770 /workspace && chown 10001:10001 /control && chmod 770 /control
+
+  agent-workspace-checker:
+    image: trade-developer-runtime:${TRADE_IMAGE_TAG:-local}
+    restart: always
+    read_only: true
+    user: "10001:10001"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 1.5
+    volumes:
+      - agent-code-workspace:/workspace
+      - agent-code-control:/control
+    depends_on:
+      agent-code-volume-init:
+        condition: service_completed_successfully
+    command:
+      - bun
+      - scripts/agent-workspace-checker.ts
+      - --socket-path
+      - /control/checker.sock
+      - --workspace-root
+      - /workspace/active
+    healthcheck:
+      test:
+        - CMD
+        - /bin/sh
+        - -c
+        - test -S /control/checker.sock
+      interval: 10s
+      timeout: 3s
+      retries: 4
+      start_period: 10s
     logging:
       driver: json-file
       options:
@@ -80,9 +153,9 @@ services:
     environment:
       TRADE_ENVIRONMENT_ID: ${TRADE_ENVIRONMENT_ID:-server:primary}
     volumes:
-      - trade-data:/app/data
+      - trade-ops:/app/data/ops
       - trade-runtime-tmp:/app/tmp
-      - trade-artifacts:/app/data/artifacts
+      - trade-agent-artifacts:/app/data/artifacts/agent-runs
     networks:
       - agent-control
     depends_on:
@@ -100,13 +173,82 @@ services:
       - --gateway-url
       - http://openclaw:18789
       - --ops-db
-      - data/ops_runtime.db
+      - data/ops/ops_runtime.db
     healthcheck:
       test:
         - CMD
         - bun
         - -e
         - fetch("http://127.0.0.1:7313/health").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))
+      interval: 20s
+      timeout: 5s
+      retries: 4
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
+  agent-host-code:
+    build:
+      context: ../..
+      dockerfile: deploy/server/Dockerfile
+      target: developer
+      args:
+        BUN_VERSION: 1.3.13
+        RUST_VERSION: 1.97.1
+        GO_VERSION: "1.25"
+        TRADE_SOURCE_REVISION: ${TRADE_SOURCE_REVISION:-container-local}
+    image: trade-developer-runtime:${TRADE_IMAGE_TAG:-local}
+    restart: always
+    stop_grace_period: 45s
+    user: "10001:10001"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 1.5
+    env_file:
+      - ${TRADE_AGENT_HOST_HTTP_SECRET_ENV_FILE:?set TRADE_AGENT_HOST_HTTP_SECRET_ENV_FILE}
+      - ${TRADE_OPENCLAW_GATEWAY_SECRET_ENV_FILE:?set TRADE_OPENCLAW_GATEWAY_SECRET_ENV_FILE}
+    environment:
+      TRADE_ENVIRONMENT_ID: ${TRADE_ENVIRONMENT_ID:-server:primary}
+    volumes:
+      - trade-ops:/app/data/ops
+      - trade-agent-artifacts:/app/data/artifacts/agent-runs
+      - agent-code-workspace:/app/tmp/agent-workspace-slots
+      - agent-code-control:/app/control
+    networks:
+      - agent-control
+    depends_on:
+      openclaw:
+        condition: service_healthy
+      agent-workspace-checker:
+        condition: service_healthy
+    command:
+      - bun
+      - scripts/agent-host-openclaw-workspace-http.ts
+      - --host
+      - 0.0.0.0
+      - --port
+      - "7314"
+      - --allowed-hosts
+      - agent-host-code:7314
+      - --gateway-url
+      - http://openclaw:18789
+      - --ops-db
+      - data/ops/ops_runtime.db
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - fetch("http://127.0.0.1:7314/health").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))
       interval: 20s
       timeout: 5s
       retries: 4
@@ -137,13 +279,14 @@ services:
       environment:
         TRADE_MCP_CATALOG_DB: data/data_catalog.db
         TRADE_ENVIRONMENT_ID: ${TRADE_ENVIRONMENT_ID:-server:primary}
-        TRADE_MCP_OPS_DB: data/ops_runtime.db
+        TRADE_MCP_OPS_DB: data/ops/ops_runtime.db
         TRADE_MCP_RD_STATE_DB: data/rd_state.db
         TRADE_MCP_TRADE_DB: data/trade.db
       volumes:
         - trade-data:/app/data
+        - trade-ops:/app/data/ops
         - trade-runtime-tmp:/app/tmp
-        - trade-artifacts:/app/data/artifacts
+        - trade-agent-artifacts:/app/data/artifacts/agent-runs
       networks:
         - agent-control
       healthcheck:
@@ -222,3 +365,5 @@ networks:
 
 volumes:
   openclaw-state:
+  agent-code-workspace:
+  agent-code-control:

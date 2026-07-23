@@ -28,7 +28,7 @@
   },
   "control_runtime": {
     "trade_db": "data/trade.db",
-    "ops_runtime_db": "data/ops_runtime.db",
+    "ops_runtime_db": "data/ops/ops_runtime.db",
     "interval_seconds": 60,
     "observe_agent_parity": true
   },

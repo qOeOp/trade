@@ -17,7 +17,7 @@ last_verified: 2026-07-23 CST
 - `agent.mcp` 已同时提供同机 stdio 与 bearer-authenticated private HTTP profile；`ops.operator-http` 仍是 loopback-only 小型 allowlist。
 - Codex 是当前开发与人工操作环境；OpenClaw `2026.7.1` alternate Chat runtime 已完成本机 proposal-only 采用，LangGraph 未引入。
 - 仓库已有 no-live Compose / OpenClaw / Agent Host / MCP fixture，但本机没有 Docker，尚无真实 Linux 容器采用证据。
-- canonical Planner → Developer → owner freeze / Trial Plan → compatibility evaluation → Reviewer → feedback lesson 已完成两轮真实纵切；Developer assessment 已不再把 implementation gap 误报为普通 `tool_blocked`，会发出 workspace-only Agent Run capability 并禁止落入 semantic MCP 路径。正式 workspace Host 后处理、certified Replay、代码 patch 二次修订、Registry / Forward 尚未闭环。
+- canonical Planner → Developer → owner freeze / Trial Plan → compatibility evaluation → Reviewer → feedback lesson 已完成两轮真实纵切。Developer implementation gap 现进入独立 OpenClaw code Agent / workspace Host：owner scope registry、固定 worktree 槽、Host-derived patch/check/submission、无网络 checker、串行背压与重启恢复均已实现并通过真实 SiliconFlow Gateway 烟测；certified Replay 自动回送、patch review/apply/release、新 source revision、Registry / Forward 尚未闭环。
 
 目标采用三层执行模型，并服从 [Remote Container Runtime Integration](./remote-container-runtime-integration-plan.md) 的部署边界：
 
@@ -306,7 +306,7 @@ P4 当前已复用同一 `createTradeMcpServer` registry 支持 stdio 与 bearer
 
 同日 provider / Host 分层探测进一步得到：SiliconFlow `Qwen/Qwen3.5-27B` 的 Chat JSON、SSE stream、single tool、同轮 multi-tool 与 tool-result continuation 全部通过，Responses endpoint 为 `404/unsupported_endpoint`；Direct Codex 默认 provider 的 read-only turn 完成且零 protocol error。Codex custom SiliconFlow profile 能完成 initialize / thread，但 turn 失败；强制 `wire_api="chat"` 在 config/startup 被拒绝。当前 blocker 因而是 `Codex 0.144.6 requires Responses × SiliconFlow lacks Responses`，不能归因成模型或 adapter 质量，也不通过 fork Codex 临时掩盖。OpenClaw alternate Chat runtime 仍可进入公平评测，OpenClaw-managed Codex 只有换 Responses-compatible provider 后才可与 direct Codex 同 provider 比较。
 
-P5/P6 本机采用新增确定性证据：OpenClaw `2026.7.1` 通过最小 MCP role profile 驱动真实 Planner、Developer 与 Reviewer。第一轮 4H experiment 正确得到 `no_promote → modify → needs_modification` 并沉淀 Reviewer lesson；第二轮 Planner 消费该 lesson，owner 拒绝越过 protocol `max_candidates=10` 的 100-Trial 提案，再生成 6-Trial BTCUSDT 1h revision。该 revision 绑定 878 根 discovery 数据快照，完成 Draft validate/freeze、6 个 Trial reservation、immutable Evaluation Work Package、compatibility evaluation 与 Reviewer writeback；5 个候选虽有正全样本指标，但全部被 OOS / effective sample / robustness gate 拒绝，最终仍为 `no_promote → modify`，locked holdout 未打开。Reviewer 初次把 327 笔完整 trades 灌入上下文导致 405 KB 输入在模型前失败；修复后只传 hash-bound bounded summary，输入降到约 11 KB，完整 Result 留在 artifact，真实重试完成且只产生一个 lifecycle effect / lesson。并发幂等 Agent client 另增加 5 秒 SQLite busy wait，避免 owner write 瞬时冲突直接失败。模型输入未携带 evaluation protocol；owner 注入已登记的 `protocol:time-series-momentum-eval-v1`。此前 MCP/Host Ops DB、`environment_id` 与 RD/Catalog 路径分裂均已修复。Compose 仍只算静态 fixture；真实 Linux 容器健康、资源隔离、certified Replay、代码 patch 二次修订和 Registry / Forward 未采用。
+P5/P6 本机采用新增确定性证据：OpenClaw `2026.7.1` 通过最小 MCP role profile 驱动真实 Planner、Developer 与 Reviewer。两轮 experiment 均保持 owner gate 与 `no_promote → modify`，locked holdout 未打开；Reviewer 上下文已从 405 KB 高基数明细收敛为约 11 KB hash-bound summary。随后 alternate code runtime 真实通过两层烟测：embedded file-tool exact edit，以及 Gateway HTTP → immutable scope → fixed worktree → SiliconFlow Agent → no-network checker → 3 个 Host evidence refs → slot cleanup。Compose 仍只算静态 fixture；真实 Linux 容器健康/cgroup、certified Replay、patch apply/release、新 source revision 与 Registry / Forward 未采用。
 
 | ID | 步骤 | 完成证据 |
 | --- | --- | --- |
@@ -348,7 +348,7 @@ P5/P6 本机采用新增确定性证据：OpenClaw `2026.7.1` 通过最小 MCP r
 | P4.9 | 验证 Planner / Reviewer 只读，Developer 权限不外溢到 Host | role boundary tests |
 | P4.10 | 异常退出、残留 worktree、磁盘软线与 GC 清理 | recovery / cleanup report |
 
-当前 code path 不再“形有神无”：`family_implementation_missing` 与 `replay_implementation_not_ready` 确定性分类为 `code_change_required`，request 才获得 workspace read/patch/check capability；普通 semantic cycle 和 `research_developer_submission_prepare` 都显式拒绝该模式，避免 OpenClaw proposal-only profile 冒充代码 Agent。仓库级 `scripts/rd-developer-workspace-cycle.ts` outer composition 已把 Control Plane、Direct Codex、request-hash-bound write/check scope、真实 Git worktree、durable artifact、ops Run registry 与 `patch_ready` admission 装成可执行 cycle；它不属于 Research 或 Ops domain，也不是新增 owner。首轮 fixture 验证 model text 不作证据、package check 通过、Result 先持久化、随后 worktree 清理且 Draft 仍为零；二次修订 fixture 再验证 predecessor id 与其 completed Result 中唯一 patch 必须成对，Host 从同一 frozen commit 重放并复算第一版 patch，Agent 消费独立 failure artifact 后只输出相对原基线的累计第二版 patch。真实默认 provider smoke 已在独立临时仓库完成首轮，result `da1c0250…2586f`、scope `dfac2549…1d1f`、patch `6c4d1c3d…7799`，生产仓库零修改。Host 会主动关闭重启残留的 uncertain Run，output finalization 失败也不再悬挂；同时修复 artifact input budget 与 Host framing 重复计费。剩余采用门是 certified Replay 自动回送、真实模型二次修改及容器读隔离 / cgroup；SiliconFlow 仍因 Responses 404 不能直接驱动当前 Codex kernel。
+当前 code path 不再“形有神无”：`family_implementation_missing` 与 `replay_implementation_not_ready` 才获得 workspace capability；Research owner 将其映射到封闭 family/capability/state/certification 包，scope v3 绑定 1–8 个检查包并以不可变记录持久化。模块内 `developer-cycle` 仍只组合 Research 与 provider-neutral Host；server 的 semantic/code 双 Host、Ops scope 与 predecessor patch 在仓库级 `scripts/rd-developer-agent-cycle.ts` 装配，未引入 Research → Ops 反向依赖。Direct Codex fixture 已证明 predecessor Result-bound 累计二次修订；OpenClaw code profile 则只开放 `read/write/edit/apply_patch`，独立 Host 串行消费固定槽位，模型 completion 不作证据。检查在无网络、无 secret、无 owner DB 的独立进程执行，Host 比对检查前后 patch 后写 submission/diff/check refs；两个 Host 的 Compose 只挂独立 Ops 与 Agent artifact volume，不再看到 Trade/R&D/Catalog DB。真实 SiliconFlow Gateway 烟测已完成精确代码修改、检查、证据固化与清理。剩余门是 certified Replay 自动回送、patch review/apply/release、新 source revision 上的后继 reassessment，以及真实 Linux 容器/cgroup。
 
 ### P5 Planner / Developer / Replay / Reviewer 纵切
 
@@ -378,6 +378,8 @@ P5/P6 本机采用新增确定性证据：OpenClaw `2026.7.1` 通过最小 MCP r
 | P6.7 | 验证独立启停、drain、Host state loss、MCP restart 与 owner recovery | container fault suite |
 | P6.8 | 在无本地 Docker 时保留可审查 fixture；真实容器采用等待可用 runner / 远程主机 | 显式 external blocker |
 
+P6 当前已锁 OpenClaw `2026.7.1` 与 image digest，并把 semantic Agent、code Agent、workspace Host、无网络 checker、独立 Ops/artifact/workspace/control volumes 写入 no-live overlay；配置经官方 validator 通过，Gateway code smoke 使用真实 SiliconFlow 完成。由于本机仍无 Docker，这些只关闭实现与本机 Gateway gate，不关闭 P6.7/P6.8 的 Linux 容器采用门。
+
 ### P7 Bake-off、可靠性与长时验证
 
 | ID | 步骤 | 完成证据 |
@@ -404,7 +406,7 @@ P5/P6 本机采用新增确定性证据：OpenClaw `2026.7.1` 通过最小 MCP r
 | P8.6 | 归档完成计划与一次性报告，保留当前合同和可复跑 benchmark | history / current 分层正确 |
 | P8.7 | 形成下一轮仅基于真实缺口的 backlog；不自动扩大 live / promotion 权限 | adoption handoff |
 
-P0–P5 不依赖 Docker 或 OpenClaw，可以先在当前主机完成。P6 的真实容器运行若因本机无 Docker 且没有远程 runner 阻断，只阻断容器采用证据，不反向阻断已完成的 contract、Codex adapter 和 R&D 纵切。远程有限常驻前不接 J01/J02、preflight、execution、reconcile、promotion 或 locked-holdout decision；策略 `retired` 由 Governance lifecycle migration 施工，不能夹带在 Agent adapter 中。
+P6 的真实容器运行若因本机无 Docker 且没有远程 runner 阻断，只阻断容器采用证据，不反向否定已完成的 contract、Codex/OpenClaw adapter 和 R&D 纵切。远程有限常驻前不接 J01/J02、preflight、execution、reconcile、promotion 或 locked-holdout decision；策略 `retired` 由 Governance lifecycle migration 施工，不能夹带在 Agent adapter 中。
 
 ## 10. 总体验收与回滚
 

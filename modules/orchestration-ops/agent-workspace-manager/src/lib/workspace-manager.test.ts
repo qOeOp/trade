@@ -7,6 +7,7 @@ import test from "node:test"
 import {
   buildAgentWorkspaceMountPlan,
   captureAgentWorkspacePatch,
+  cleanupAgentWorkspaceSlot,
   createAgentWorkspaceExecutionScope,
   createAgentWorkspace,
   finalizeAgentWorkspaceEvidence,
@@ -17,24 +18,25 @@ import {
   seedAgentWorkspacePatch,
 } from "./workspace-manager"
 
-test("workspace execution scope binds one request to exact source and check path", () => {
+test("workspace execution scope binds one request to exact source and bounded check paths", () => {
   const scope = createAgentWorkspaceExecutionScope({
     run_id: "developer-run-scope",
     request_hash: "a".repeat(64),
     source_revision: "0123456789abcdef",
     allowed_write_prefixes: ["modules/sample"],
-    package_path: "modules/sample",
+    package_paths: ["modules/sample"],
     issued_at: "2026-07-23T01:00:00.000Z",
   })
   assert.equal(scope.scope_hash.length, 64)
   assert.equal(scope.domain_authority, "none")
   assert.equal(scope.seed_patch, null)
+  assert.deepEqual(scope.package_paths, ["modules/sample"])
   assert.throws(() => createAgentWorkspaceExecutionScope({
     run_id: "developer-run-scope",
     request_hash: "a".repeat(64),
     source_revision: "0123456789abcdef",
     allowed_write_prefixes: ["modules/sample"],
-    package_path: "modules/other",
+    package_paths: ["modules/other"],
     issued_at: "2026-07-23T01:00:00.000Z",
   }), /outside allowed prefixes/)
 })
@@ -88,6 +90,73 @@ test("workspace seed patch reconstructs one exact cumulative revision", () => {
   }
 })
 
+test("one fixed workspace slot supports a separately mounted coding agent", () => {
+  const root = fixtureRepository()
+  const slot = "openclaw-developer-code"
+  const slotRoot = join(root, "tmp", "agent-workspace-slots", slot)
+  mkdirSync(slotRoot, { recursive: true })
+  const workspace = createAgentWorkspace({
+    repository_root: root,
+    run_id: "developer-fixed-slot",
+    source_revision: "HEAD",
+    allowed_write_prefixes: ["modules/sample"],
+    workspace_slot: slot,
+  })
+  assert.equal(workspace.workspace_slot, slot)
+  assert.equal(
+    workspace.workspace_root,
+    join(
+      workspace.repository_root,
+      "tmp",
+      "agent-workspace-slots",
+      slot,
+    ),
+  )
+  assert.equal(cleanupAgentWorkspaceSlot({
+    repository_root: root,
+    workspace_slot: slot,
+  }), true)
+  assert.equal(existsSync(slotRoot), false)
+  assert.equal(cleanupAgentWorkspaceSlot({
+    repository_root: root,
+    workspace_slot: slot,
+  }), false)
+  rmSync(root, { recursive: true, force: true })
+})
+
+test("container source mapping binds an external revision to the internal snapshot", () => {
+  const root = fixtureRepository()
+  const internalCommit = Bun.spawnSync({
+    cmd: ["git", "rev-parse", "HEAD"],
+    cwd: root,
+  }).stdout.toString().trim()
+  const sourceRevision = "f".repeat(40)
+  writeFileSync(
+    join(root, ".trade-source-revision.json"),
+    JSON.stringify({
+      schema_version: "trade.container-source-revision.v1",
+      source_revision: sourceRevision,
+      internal_commit: internalCommit,
+    }),
+  )
+  const workspace = createAgentWorkspace({
+    repository_root: root,
+    run_id: "developer-container-source",
+    source_revision: sourceRevision,
+    allowed_write_prefixes: ["modules/sample"],
+  })
+  assert.equal(workspace.source_revision, sourceRevision)
+  assert.equal(workspace.source_commit, internalCommit)
+  removeAgentWorkspace(workspace)
+  assert.throws(() => createAgentWorkspace({
+    repository_root: root,
+    run_id: "developer-container-source-drift",
+    source_revision: "e".repeat(40),
+    allowed_write_prefixes: ["modules/sample"],
+  }), /mapping drifted/)
+  rmSync(root, { recursive: true, force: true })
+})
+
 test("Developer workspace freezes source, bounds writes, captures patch, and cleans up", async () => {
   const root = fixtureRepository()
   const workspace = createAgentWorkspace({
@@ -113,7 +182,7 @@ test("Developer workspace freezes source, bounds writes, captures patch, and cle
     const artifactTexts = new Map<string, string>()
     const finalized = await finalizeAgentWorkspaceEvidence({
       workspace,
-      package_path: "modules/sample",
+      package_paths: ["modules/sample"],
       checked_at: "2026-07-23T01:05:00.000Z",
       write_artifact(mediaType, text) {
         const bytes = Buffer.from(text)

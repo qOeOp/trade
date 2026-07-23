@@ -261,7 +261,7 @@ validate config/secrets/volumes
 | D6 策略治理闭环 | pending | review 成熟度、pause/retire/improve、旧 flow 兼容 | 生命周期决定可回指证据和精确版本 |
 | D7 存储、GC 与灾备 | active-partial | owner-authorized GC、L2 retention、备份 / 恢复 | 空间自愈；受保护事实零误删 |
 | D8 运维、安全与可观察性 | active-partial | health、incident、trace、secret、operator surface | 最小权限、脱敏、可轮换、可告警 |
-| D9 Agent / MCP runtime | active-partial | Codex Host port / durable registry、私有 MCP 与 workspace manager 已落地；继续 OpenClaw / R&D 采用 | Host 离线不影响确定性安全链 |
+| D9 Agent / MCP runtime | active-partial | Codex/OpenClaw Host、私有 MCP、scope registry、固定 workspace 与隔离 checker 已落地并过真实 Gateway smoke；继续 Replay/apply/release 采用 | Host 离线不影响确定性安全链 |
 | D10 远程容器交付 | active-partial | 固定镜像、Compose/systemd、volume/network/secret | 干净主机可部署、回滚和恢复 |
 | D11 模拟、shadow 与可靠性 | pending | 仿真、故障注入、长时 soak、资源与漂移验证 | 无双写、无 silent stale、无 authority violation |
 | D12 live-small 与生产采用 | pending | 逐 job canary、风险限额、生产 runbook | 外部权限齐备且全部 live gate 通过 |
@@ -391,6 +391,7 @@ validate config/secrets/volumes
 - Codex App Server 是代码研发基线；OpenClaw 是外层 Gateway 候选，不替代 Program。
 - Developer sandbox 是采用前置条件，Planner / Reviewer 默认只读。
 - private MCP 复用相同 owner capability registry；Agent Host 无 production repo RW、owner DB、Binance key 或 scheduler authority。
+- Code Agent 只编辑 owner-issued fixed worktree；Host-derived patch/check/submission 才是证据，候选检查在 no-network/no-secret/no-owner-data checker 执行。
 - Host/provider 全部离线时，L2、J01/J02、防御执行、GC 与确定性 jobs 继续。
 
 #### D10 远程容器交付

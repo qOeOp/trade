@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto"
-import { lstatSync, mkdirSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync } from "node:fs"
+import { chmodSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync } from "node:fs"
 import { dirname, join, resolve, sep } from "node:path"
 import type { AgentArtifactRef } from "../../../../contracts/agent-run-contract/src/agent-run-contract"
 import { canonicalHash, canonicalJson } from "../../../../contracts/runtime-core/src/canonical-json"
 
 export const AGENT_WORKSPACE_EXECUTION_SCOPE_SCHEMA =
-  "trade.agent-workspace-execution-scope.v2" as const
+  "trade.agent-workspace-execution-scope.v3" as const
 
 export interface AgentWorkspaceExecutionScopeBody {
   schema_version: typeof AGENT_WORKSPACE_EXECUTION_SCOPE_SCHEMA
@@ -13,7 +13,7 @@ export interface AgentWorkspaceExecutionScopeBody {
   request_hash: string
   source_revision: string
   allowed_write_prefixes: string[]
-  package_path: string
+  package_paths: string[]
   seed_patch: AgentArtifactRef | null
   issued_at: string
   domain_authority: "none"
@@ -25,8 +25,9 @@ export interface AgentWorkspaceExecutionScope
 }
 
 export interface AgentWorkspace {
-  schema_version: "trade.agent-workspace.v1"
+  schema_version: "trade.agent-workspace.v2"
   run_id: string
+  workspace_slot: string | null
   source_revision: string
   source_commit: string
   repository_root: string
@@ -70,10 +71,19 @@ export interface FinalizedAgentWorkspaceEvidence {
   patch_ref: AgentArtifactRef
   quality_check_refs: AgentArtifactRef[]
   changed_files: string[]
-  package_path: string
+  package_paths: string[]
   patch_sha256: string
   checked_at: string
   domain_authority: "none"
+}
+
+export interface AgentWorkspacePackageCheck {
+  schema_version: "trade.agent-workspace-check.v1"
+  package_path: string
+  exit_code: number
+  timed_out: boolean
+  output_sha256: string
+  output_bytes: number
 }
 
 export function createAgentWorkspaceExecutionScope(
@@ -83,13 +93,25 @@ export function createAgentWorkspaceExecutionScope(
   > & { seed_patch?: AgentArtifactRef | null },
 ): AgentWorkspaceExecutionScope {
   const prefixes = writePrefixes(input.allowed_write_prefixes)
-  const packagePath = repoPath(input.package_path, "package_path")
-  if (!packagePath.startsWith("modules/")) {
-    throw new Error("Agent workspace package path is restricted to modules")
+  if (!Array.isArray(input.package_paths)
+    || input.package_paths.length < 1
+    || input.package_paths.length > 8) {
+    throw new Error("Agent workspace package paths are invalid")
   }
-  if (!prefixes.some((prefix) =>
-    packagePath === prefix || packagePath.startsWith(`${prefix}/`))) {
-    throw new Error("Agent workspace package path is outside allowed prefixes")
+  const packagePaths = input.package_paths
+    .map((path) => repoPath(path, "package_path"))
+    .sort()
+  if (new Set(packagePaths).size !== packagePaths.length) {
+    throw new Error("Agent workspace package paths contain duplicates")
+  }
+  for (const packagePath of packagePaths) {
+    if (!packagePath.startsWith("modules/")) {
+      throw new Error("Agent workspace package path is restricted to modules")
+    }
+    if (!prefixes.some((prefix) =>
+      packagePath === prefix || packagePath.startsWith(`${prefix}/`))) {
+      throw new Error("Agent workspace package path is outside allowed prefixes")
+    }
   }
   const body: AgentWorkspaceExecutionScopeBody = {
     schema_version: AGENT_WORKSPACE_EXECUTION_SCOPE_SCHEMA,
@@ -97,7 +119,7 @@ export function createAgentWorkspaceExecutionScope(
     request_hash: digest(input.request_hash, "request_hash"),
     source_revision: revision(input.source_revision),
     allowed_write_prefixes: prefixes,
-    package_path: packagePath,
+    package_paths: packagePaths,
     seed_patch: input.seed_patch == null
       ? null
       : workspacePatchArtifact(input.seed_patch),
@@ -134,25 +156,39 @@ export function createAgentWorkspace(input: {
   run_id: string
   source_revision: string
   allowed_write_prefixes: string[]
+  workspace_slot?: string
+  group_writable?: boolean
   created_at?: string
 }): AgentWorkspace {
   const repositoryRoot = realpathSync(resolve(input.repository_root))
   const runId = identifier(input.run_id, "run_id")
   const sourceRevision = revision(input.source_revision)
   const prefixes = writePrefixes(input.allowed_write_prefixes)
-  const workspaceRoot = resolve(repositoryRoot, "tmp", "agent-workspaces", runId)
-  assertWorkspacePath(repositoryRoot, workspaceRoot, runId)
-  if (exists(workspaceRoot)) throw new Error("Agent workspace already exists")
-  const commit = git(repositoryRoot, ["rev-parse", "--verify", `${sourceRevision}^{commit}`]).trim()
+  const workspaceSlot = input.workspace_slot == null
+    ? null
+    : identifier(input.workspace_slot, "workspace_slot")
+  const workspaceRoot = workspaceSlot == null
+    ? resolve(repositoryRoot, "tmp", "agent-workspaces", runId)
+    : resolve(repositoryRoot, "tmp", "agent-workspace-slots", workspaceSlot)
+  assertWorkspacePath(repositoryRoot, workspaceRoot, runId, workspaceSlot)
+  if (exists(workspaceRoot)
+    && (workspaceSlot == null
+      || !lstatSync(workspaceRoot).isDirectory()
+      || readdirSync(workspaceRoot).length > 0)) {
+    throw new Error("Agent workspace already exists")
+  }
+  const commit = resolveSourceCommit(repositoryRoot, sourceRevision)
   if (!/^[a-f0-9]{40,64}$/.test(commit)) throw new Error("Agent workspace source commit is invalid")
   mkdirSync(dirname(workspaceRoot), { recursive: true, mode: 0o700 })
   git(repositoryRoot, ["worktree", "add", "--detach", workspaceRoot, commit])
   try {
     if (git(workspaceRoot, ["rev-parse", "HEAD"]).trim() !== commit) throw new Error("Agent workspace revision drifted")
     assertWorkspaceFilesystem(workspaceRoot)
+    if (input.group_writable === true) makeWorkspaceGroupWritable(workspaceRoot)
     return {
-      schema_version: "trade.agent-workspace.v1",
+      schema_version: "trade.agent-workspace.v2",
       run_id: runId,
+      workspace_slot: workspaceSlot,
       source_revision: sourceRevision,
       source_commit: commit,
       repository_root: repositoryRoot,
@@ -233,14 +269,7 @@ export async function runAgentWorkspacePackageCheck(input: {
   package_path: string
   timeout_ms?: number
   max_output_bytes?: number
-}): Promise<{
-  schema_version: "trade.agent-workspace-check.v1"
-  package_path: string
-  exit_code: number
-  timed_out: boolean
-  output_sha256: string
-  output_bytes: number
-}> {
+}): Promise<AgentWorkspacePackageCheck> {
   validateWorkspaceRecord(input.workspace)
   const packagePath = repoPath(input.package_path, "package_path")
   if (!packagePath.startsWith("modules/")) throw new Error("Agent package check is restricted to modules")
@@ -282,7 +311,7 @@ export async function runAgentWorkspacePackageCheck(input: {
 
 export async function finalizeAgentWorkspaceEvidence(input: {
   workspace: AgentWorkspace
-  package_path: string
+  package_paths: string[]
   checked_at?: string
   write_artifact(
     mediaType: AgentArtifactRef["media_type"],
@@ -290,21 +319,42 @@ export async function finalizeAgentWorkspaceEvidence(input: {
   ): AgentArtifactRef
   timeout_ms?: number
   max_output_bytes?: number
+  run_package_check?(input: {
+    workspace: AgentWorkspace
+    package_path: string
+    timeout_ms?: number
+    max_output_bytes?: number
+  }): Promise<AgentWorkspacePackageCheck>
 }): Promise<FinalizedAgentWorkspaceEvidence> {
   const before = captureAgentWorkspacePatch(input.workspace)
   if (before.changed_files.length < 1 || before.patch_bytes < 1) {
     throw new Error("Agent workspace produced no reviewable patch")
   }
-  const check = await runAgentWorkspacePackageCheck({
-    workspace: input.workspace,
-    package_path: input.package_path,
-    ...(input.timeout_ms == null ? {} : { timeout_ms: input.timeout_ms }),
-    ...(input.max_output_bytes == null
-      ? {}
-      : { max_output_bytes: input.max_output_bytes }),
-  })
-  if (check.timed_out || check.exit_code !== 0) {
-    throw new Error("Agent workspace package check did not pass")
+  if (!Array.isArray(input.package_paths)
+    || input.package_paths.length < 1
+    || input.package_paths.length > 8) {
+    throw new Error("Agent workspace package checks are invalid")
+  }
+  const packagePaths = [...input.package_paths].sort()
+  if (new Set(packagePaths).size !== packagePaths.length) {
+    throw new Error("Agent workspace package checks contain duplicates")
+  }
+  const checks = []
+  for (const packagePath of packagePaths) {
+    const runCheck = input.run_package_check
+      ?? runAgentWorkspacePackageCheck
+    const check = await runCheck({
+      workspace: input.workspace,
+      package_path: packagePath,
+      ...(input.timeout_ms == null ? {} : { timeout_ms: input.timeout_ms }),
+      ...(input.max_output_bytes == null
+        ? {}
+        : { max_output_bytes: input.max_output_bytes }),
+    })
+    if (check.timed_out || check.exit_code !== 0) {
+      throw new Error(`Agent workspace package check did not pass: ${packagePath}`)
+    }
+    checks.push(validatePackageCheck(check, packagePath))
   }
   const after = captureAgentWorkspacePatch(input.workspace)
   if (after.patch_sha256 !== before.patch_sha256
@@ -314,33 +364,54 @@ export async function finalizeAgentWorkspaceEvidence(input: {
   const checkedAt = canonicalTime(input.checked_at ?? new Date().toISOString())
   const patchRef = input.write_artifact("text/x-diff", before.patch_text)
   assertWrittenArtifact(patchRef, before.patch_text, "text/x-diff")
-  const checkText = canonicalJson({
-    schema_version: "trade.agent-workspace-quality-evidence.v1",
-    run_id: input.workspace.run_id,
-    source_commit: input.workspace.source_commit,
-    package_path: check.package_path,
-    patch_sha256: before.patch_sha256,
-    exit_code: check.exit_code,
-    timed_out: check.timed_out,
-    output_sha256: check.output_sha256,
-    output_bytes: check.output_bytes,
-    checked_at: checkedAt,
-    domain_authority: "none",
+  const checkRefs = checks.map((check) => {
+    const checkText = canonicalJson({
+      schema_version: "trade.agent-workspace-quality-evidence.v1",
+      run_id: input.workspace.run_id,
+      source_commit: input.workspace.source_commit,
+      package_path: check.package_path,
+      patch_sha256: before.patch_sha256,
+      exit_code: check.exit_code,
+      timed_out: check.timed_out,
+      output_sha256: check.output_sha256,
+      output_bytes: check.output_bytes,
+      checked_at: checkedAt,
+      domain_authority: "none",
+    })
+    const checkRef = input.write_artifact("application/json", checkText)
+    assertWrittenArtifact(checkRef, checkText, "application/json")
+    return checkRef
   })
-  const checkRef = input.write_artifact("application/json", checkText)
-  assertWrittenArtifact(checkRef, checkText, "application/json")
   return {
     schema_version: "trade.agent-workspace-finalized-evidence.v1",
     run_id: input.workspace.run_id,
     source_commit: input.workspace.source_commit,
     patch_ref: patchRef,
-    quality_check_refs: [checkRef],
+    quality_check_refs: checkRefs,
     changed_files: before.changed_files,
-    package_path: check.package_path,
+    package_paths: checks.map((check) => check.package_path),
     patch_sha256: before.patch_sha256,
     checked_at: checkedAt,
     domain_authority: "none",
   }
+}
+
+function validatePackageCheck(
+  value: AgentWorkspacePackageCheck,
+  packagePath: string,
+): AgentWorkspacePackageCheck {
+  if (!value || value.schema_version !== "trade.agent-workspace-check.v1"
+    || value.package_path !== packagePath
+    || !Number.isSafeInteger(value.exit_code)
+    || value.exit_code < 0
+    || typeof value.timed_out !== "boolean"
+    || !/^[a-f0-9]{64}$/.test(value.output_sha256)
+    || !Number.isSafeInteger(value.output_bytes)
+    || value.output_bytes < 0
+    || value.output_bytes > 8 * 1024 * 1024) {
+    throw new Error("Agent workspace package check result is invalid")
+  }
+  return structuredClone(value)
 }
 
 export function buildAgentWorkspaceMountPlan(workspace: AgentWorkspace, outputRoot: string): AgentWorkspaceMountPlan {
@@ -367,6 +438,24 @@ export function removeAgentWorkspace(workspace: AgentWorkspace): void {
   validateWorkspaceRecord(workspace)
   git(workspace.repository_root, ["worktree", "remove", "--force", workspace.workspace_root])
   git(workspace.repository_root, ["worktree", "prune"])
+}
+
+export function cleanupAgentWorkspaceSlot(input: {
+  repository_root: string
+  workspace_slot: string
+}): boolean {
+  const root = realpathSync(resolve(input.repository_root))
+  const slot = identifier(input.workspace_slot, "workspace_slot")
+  const path = resolve(root, "tmp", "agent-workspace-slots", slot)
+  assertWorkspacePath(root, path, "slot-cleanup", slot)
+  if (!exists(path)) return false
+  if (registeredWorktreePaths(root).has(path)) {
+    git(root, ["worktree", "remove", "--force", path])
+  } else {
+    rmSync(path, { recursive: true, force: true })
+  }
+  git(root, ["worktree", "prune"])
+  return true
 }
 
 export function listStaleAgentWorkspaces(input: {
@@ -422,8 +511,13 @@ export function removeStaleAgentWorkspaces(input: {
 }
 
 function validateWorkspaceRecord(workspace: AgentWorkspace): void {
-  if (workspace.schema_version !== "trade.agent-workspace.v1") throw new Error("Agent workspace schema is unsupported")
-  assertWorkspacePath(workspace.repository_root, workspace.workspace_root, workspace.run_id)
+  if (workspace.schema_version !== "trade.agent-workspace.v2") throw new Error("Agent workspace schema is unsupported")
+  assertWorkspacePath(
+    workspace.repository_root,
+    workspace.workspace_root,
+    workspace.run_id,
+    workspace.workspace_slot,
+  )
   if (!exists(workspace.workspace_root)) throw new Error("Agent workspace is missing")
   if (git(workspace.workspace_root, ["rev-parse", "HEAD"]).trim() !== workspace.source_commit) {
     throw new Error("Agent workspace source commit drifted")
@@ -457,6 +551,19 @@ function assertWorkspaceFilesystem(root: string): void {
     const target = resolve(dirname(path), readlinkSync(path))
     assertInside(root, target)
   })
+}
+
+function makeWorkspaceGroupWritable(root: string): void {
+  const apply = (path: string): void => {
+    const stat = lstatSync(path)
+    if (stat.isSymbolicLink()) return
+    chmodSync(path, stat.isDirectory()
+      ? (stat.mode & 0o777) | 0o070
+      : (stat.mode & 0o777) | 0o060)
+    if (!stat.isDirectory()) return
+    for (const entry of readdirSync(path)) apply(join(path, entry))
+  }
+  apply(root)
 }
 
 function assertContainedPath(root: string, path: string): void {
@@ -503,6 +610,46 @@ function registeredWorktreePaths(repositoryRoot: string): Set<string> {
   return new Set(lines
     .filter((line) => line.startsWith("worktree "))
     .map((line) => resolve(line.slice("worktree ".length))))
+}
+
+function resolveSourceCommit(
+  repositoryRoot: string,
+  sourceRevision: string,
+): string {
+  const direct = git(
+    repositoryRoot,
+    ["rev-parse", "--verify", `${sourceRevision}^{commit}`],
+    true,
+  ).trim()
+  if (/^[a-f0-9]{40,64}$/.test(direct)) return direct
+  const mappingPath = resolve(repositoryRoot, ".trade-source-revision.json")
+  if (!exists(mappingPath)) {
+    throw new Error("Agent workspace source revision is unavailable")
+  }
+  let value: unknown
+  try {
+    value = JSON.parse(readFileSync(mappingPath, "utf8"))
+  } catch {
+    throw new Error("Agent workspace source revision mapping is invalid")
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Agent workspace source revision mapping is invalid")
+  }
+  const mapping = value as Record<string, unknown>
+  if (mapping.schema_version !== "trade.container-source-revision.v1"
+    || mapping.source_revision !== sourceRevision
+    || typeof mapping.internal_commit !== "string"
+    || !/^[a-f0-9]{40,64}$/.test(mapping.internal_commit)) {
+    throw new Error("Agent workspace source revision mapping drifted")
+  }
+  const resolved = git(
+    repositoryRoot,
+    ["rev-parse", "--verify", `${mapping.internal_commit}^{commit}`],
+  ).trim()
+  if (resolved !== mapping.internal_commit) {
+    throw new Error("Agent workspace internal source commit drifted")
+  }
+  return resolved
 }
 
 async function readBounded(
@@ -563,8 +710,20 @@ function repoPath(value: string, field: string): string {
   return normalized
 }
 
-function assertWorkspacePath(repositoryRoot: string, workspaceRoot: string, runId: string): void {
-  const expected = resolve(repositoryRoot, "tmp", "agent-workspaces", identifier(runId, "run_id"))
+function assertWorkspacePath(
+  repositoryRoot: string,
+  workspaceRoot: string,
+  runId: string,
+  workspaceSlot: string | null = null,
+): void {
+  const expected = workspaceSlot == null
+    ? resolve(repositoryRoot, "tmp", "agent-workspaces", identifier(runId, "run_id"))
+    : resolve(
+        repositoryRoot,
+        "tmp",
+        "agent-workspace-slots",
+        identifier(workspaceSlot, "workspace_slot"),
+      )
   if (resolve(workspaceRoot) !== expected) throw new Error("Agent workspace path is outside its run scope")
 }
 

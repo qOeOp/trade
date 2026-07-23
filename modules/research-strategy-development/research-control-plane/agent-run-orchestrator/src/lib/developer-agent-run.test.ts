@@ -25,7 +25,9 @@ import { ensureResearchStateSchema } from "../../../state-store/src/lib/research
 import { seedDefaultResearchControlPlane } from "../../../state-store/src/lib/research-universe-default-seed"
 import {
   admitDeveloperAgentResult,
+  compileDeveloperAgentContextPack,
   createDeveloperWorkspaceAgentSubmission,
+  createDeveloperWorkspaceAgentSubmissionFromContextPack,
   prepareDeveloperAgentRun,
 } from "./developer-agent-run"
 import { memoryArtifacts } from "./agent-artifact-port.test-fixture"
@@ -269,6 +271,24 @@ test("Developer implementation gaps route to workspace Host without semantic MCP
       created_at: "2026-07-23T10:10:01.000Z",
     })
     assert.equal(submission.contract_draft, null)
+    assert.deepEqual(
+      compileDeveloperAgentContextPack(
+        JSON.parse(canonicalJson(prepared.context_pack)),
+      ),
+      prepared.context_pack,
+    )
+    const reconstructed = createDeveloperWorkspaceAgentSubmissionFromContextPack({
+      request: prepared.request,
+      context_pack: prepared.context_pack,
+      workspace_patch: patch,
+      quality_check_refs: [quality],
+      created_at: "2026-07-23T10:10:01.000Z",
+    })
+    assert.deepEqual(reconstructed, submission)
+    assert.throws(() => compileDeveloperAgentContextPack({
+      ...prepared.context_pack,
+      next_draft_revision: 2,
+    }), /hash-drifted/)
     const output = artifacts.put(canonicalJson(submission), "application/json")
     const admission = admitDeveloperAgentResult({
       db,

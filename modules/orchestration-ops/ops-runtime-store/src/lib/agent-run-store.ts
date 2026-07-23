@@ -15,6 +15,7 @@ import type {
   AgentRunLifecycleStatus,
   AgentRunStatus,
 } from "../../../../contracts/agent-run-contract/src/agent-host-port"
+import { ensureAgentWorkspaceScopeStoreSchema } from "./agent-workspace-scope-store"
 
 export interface AgentRunOperationalRecord {
   request: AgentRunRequest
@@ -46,6 +47,7 @@ export interface AgentRunToolResult {
 }
 
 export function ensureAgentRunStoreSchema(db: Database): void {
+  ensureAgentWorkspaceScopeStoreSchema(db)
   db.run(`
     CREATE TABLE IF NOT EXISTS agent_run (
       run_id          TEXT PRIMARY KEY,

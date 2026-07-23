@@ -25,10 +25,12 @@ services:
     build:
       context: ../..
       dockerfile: deploy/server/Dockerfile
+      target: runtime
       args:
         BUN_VERSION: 1.3.13
         RUST_VERSION: 1.97.1
         GO_VERSION: "1.25"
+        TRADE_SOURCE_REVISION: ${TRADE_SOURCE_REVISION:-container-local}
     image: trade-runtime:${TRADE_IMAGE_TAG:-local}
     restart: always
     stop_grace_period: 45s
@@ -36,11 +38,14 @@ services:
     cpus: 2.0
     environment:
       TRADE_ENVIRONMENT_ID: ${TRADE_ENVIRONMENT_ID:-server:primary}
+      TRADE_AGENT_OPS_DB: data/ops/ops_runtime.db
     volumes:
       - trade-data:/app/data
+      - trade-ops:/app/data/ops
       - trade-l2:/app/data/l2
       - trade-runtime-tmp:/app/tmp
       - trade-artifacts:/app/tmp/artifacts
+      - trade-agent-artifacts:/app/data/artifacts/agent-runs
       - trade-panels:/app/tmp/panels
     healthcheck:
       test:
@@ -54,7 +59,9 @@ services:
 
 volumes:
   trade-data:
+  trade-ops:
   trade-l2:
   trade-runtime-tmp:
   trade-artifacts:
+  trade-agent-artifacts:
   trade-panels:

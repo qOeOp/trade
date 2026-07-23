@@ -26,6 +26,9 @@ test("server image locks toolchains, builds native providers, and drops root", (
   assert.match(dockerfile, /CGO_ENABLED=0 go build[\s\S]*target\/release\/tech-indicators/)
   assert.match(dockerfile, /COPY --from=indicator-builder[\s\S]*target\/release\/tech-indicators/)
   assert.match(dockerfile, /bun install --frozen-lockfile --production/)
+  assert.match(dockerfile, /FROM runtime AS developer/)
+  assert.match(dockerfile, /ARG TRADE_SOURCE_REVISION=container-local/)
+  assert.match(dockerfile, /trade\.container-source-revision\.v1/)
   assert.match(dockerfile, /USER 10001:10001/)
   assert.match(dockerfile, /ENTRYPOINT \["\/usr\/bin\/tini", "--"\]/)
   assert.match(dockerfile, /profile\/server-runtime-container\.json/)
@@ -55,6 +58,7 @@ test("Linux acceptance is no-live, isolated, checksummed, and preserves recovery
   assert.match(acceptance, /sha256sum --check SHA256SUMS/)
   assert.match(acceptance, /--provenance=mode=max/)
   assert.match(acceptance, /--sbom=true/)
+  assert.match(acceptance, /--target runtime/)
   assert.match(acceptance, /--project-name "\$project_name"/)
   assert.match(acceptance, /TRADE_ENVIRONMENT_ID="server:acceptance"/)
   assert.match(acceptance, /up --detach --no-build runtime/)
@@ -86,19 +90,38 @@ test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds De
   assert.match(serialized, /"plugins":\{"enabled":false,"slots":\{"memory":"none"\}\}/)
   assert.match(serialized, /"skipBootstrap":true/)
   assert.match(serialized, /"id":"rd-developer"/)
+  assert.match(serialized, /"id":"rd-developer-code"/)
+  assert.match(serialized, /"allow":\["read","write","edit","apply_patch"\]/)
+  assert.match(serialized, /"workspaceOnly":true/)
   assert.match(serialized, /"alsoAllow":\["trade-developer__\*"\]/)
   assert.match(agentCompose, /agent-mcp-planner:[\s\S]*--profile[\s\S]*planner-proposal/)
   assert.match(agentCompose, /agent-mcp-developer:[\s\S]*--profile[\s\S]*developer-contract/)
   assert.match(agentCompose, /agent-mcp-reviewer:[\s\S]*--profile[\s\S]*reviewer-decision/)
-  assert.match(agentCompose, /agent-host:[\s\S]*--ops-db\s*\n\s*- data\/ops_runtime\.db/)
-  assert.match(agentCompose, /TRADE_MCP_OPS_DB: data\/ops_runtime\.db/)
+  assert.match(agentCompose, /agent-host:[\s\S]*--ops-db\s*\n\s*- data\/ops\/ops_runtime\.db/)
+  assert.match(agentCompose, /agent-host-code:[\s\S]*openclaw-workspace-http\.ts/)
+  assert.match(agentCompose, /agent-workspace-checker:[\s\S]*network_mode: none/)
+  assert.match(agentCompose, /agent-workspace-checker:[\s\S]*agent-workspace-checker\.ts/)
+  assert.match(agentCompose, /agent-code-workspace:\/app\/tmp\/agent-workspace-slots/)
+  assert.match(agentCompose, /agent-code-workspace:\/workspace/)
+  assert.match(agentCompose, /agent-code-control:\/app\/control/)
+  assert.match(agentCompose, /TRADE_MCP_OPS_DB: data\/ops\/ops_runtime\.db/)
+  assert.match(compose, /trade-ops:\/app\/data\/ops/)
+  assert.match(agentCompose, /trade-agent-artifacts:\/app\/data\/artifacts\/agent-runs/)
+  const semanticHostBlock = agentCompose
+    .split("\n  agent-host:")[1]!
+    .split("\n  agent-host-code:")[0]!
+  assert.doesNotMatch(semanticHostBlock, /trade-data:\/app\/data/)
+  const codeHostBlock = agentCompose
+    .split("\n  agent-host-code:")[1]!
+    .split("\n  agent-mcp-planner:")[0]!
+  assert.doesNotMatch(codeHostBlock, /trade-data:\/app\/data/)
   assert.match(agentCompose, /TRADE_MCP_RD_STATE_DB: data\/rd_state\.db/)
   assert.match(agentCompose, /TRADE_MCP_CATALOG_DB: data\/data_catalog\.db/)
   assert.match(agentCompose, /TRADE_MCP_TRADE_DB: data\/trade\.db/)
   assert.match(compose, /TRADE_ENVIRONMENT_ID: \$\{TRADE_ENVIRONMENT_ID:-server:primary\}/)
   assert.equal(
     agentCompose.match(/TRADE_ENVIRONMENT_ID: \$\{TRADE_ENVIRONMENT_ID:-server:primary\}/g)?.length,
-    3,
+    4,
   )
   assert.match(operatorCompose, /TRADE_ENVIRONMENT_ID: \$\{TRADE_ENVIRONMENT_ID:-server:primary\}/)
   assert.doesNotMatch(serialized, /sk-[A-Za-z0-9_-]{12,}/)

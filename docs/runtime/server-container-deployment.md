@@ -18,8 +18,9 @@ last_verified: 2026-07-23 CST
 - `SIGTERM` 反向 drain，镜像使用 `tini`、非 root 用户、只读根文件系统、零 Linux capability、`no-new-privileges`、资源与日志上限；
 - DB、L2 raw、普通 tmp、受保护 artifact 与 panel 使用分离 named volume；
 - Operator HTTP 是独立 opt-in override，使用单独 env file，只绑定 Linux host loopback，不向 runtime 注入模型或 operator secret。
+- Agent overlay 已拆出 semantic Host、code Host、OpenClaw、四个 role-scoped MCP 与无网络 workspace checker；Ops DB、Agent artifact、code workspace/control 使用独立 volume，Host 不挂 Trade/R&D/Catalog DB。镜像内 source revision 映射只为 frozen worktree，不把内部 snapshot commit 冒充发布 commit。
 
-该纵切仍是 `active-partial`：当前环境没有 Docker executable，因此只有 Dockerfile / Compose 静态合同、TypeScript typecheck、composition lifecycle / health fixture，以及从 committed HEAD 生成的可校验 source package；尚无真实 Linux image build、container kill/restart、volume restore 或 soak 证据。它保持 `domain_jobs_enabled=false`、`live_writes_allowed=false`，不能部署为实盘。
+该纵切仍是 `active-partial`：当前环境没有 Docker executable，因此只有 Dockerfile / Compose 静态合同、TypeScript/fault fixture、真实本机 OpenClaw Gateway code smoke，以及从 committed HEAD 生成的可校验 source package；尚无真实 Linux image build、container kill/restart、volume permission/cgroup、restore 或 soak 证据。它保持 `domain_jobs_enabled=false`、`live_writes_allowed=false`，不能部署为实盘。
 
 ## 2. 为什么 runtime 先同容器
 

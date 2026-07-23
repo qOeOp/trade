@@ -6,6 +6,7 @@
 - Validate terminal Agent output against the bound context, role submission contract, source revision, and evidence policy before calling an existing R&D owner write.
 - Preserve restart-safe seams: immutable input/output refs plus the ops-owned Agent Run registry are sufficient to resume admission without Host transcript or reasoning.
 - Reviewer 只接收有完整 summary hash / bytes / artifact ref 绑定的有界证据摘要；逐笔 trade、candle、fill 等高基数明细留在不可变 Result artifact，不随样本量线性灌入模型上下文。
+- Developer capability assessment selects semantic or workspace Host. Family implementation gaps map only to a registered closed owner policy; the Program must persist the exact scope before submitting a code run.
 
 ## Boundaries
 

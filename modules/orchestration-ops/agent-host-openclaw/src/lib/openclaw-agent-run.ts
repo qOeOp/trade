@@ -5,6 +5,7 @@ import {
   type AgentArtifactRef,
   type AgentRunFailureClass,
   type AgentRunRequest,
+  type AgentRunResult,
 } from "../../../../contracts/agent-run-contract/src/agent-run-contract"
 import type {
   AgentHostPort,
@@ -27,6 +28,9 @@ import {
 } from "../../../ops-runtime-store/src/lib/agent-run-store"
 
 export type OpenClawTransportExpectation = "gateway" | "embedded"
+export type OpenClawHostProfile =
+  | `openclaw-${OpenClawTransportExpectation}`
+  | "openclaw-workspace-gateway"
 
 export interface OpenClawExecutionRequest {
   run_id: string
@@ -47,11 +51,13 @@ export interface OpenClawExecutionResult {
 
 export interface OpenClawAgentHostOptions {
   db: Database
-  host_profile: `openclaw-${OpenClawTransportExpectation}`
+  host_profile: OpenClawHostProfile
+  transport?: OpenClawTransportExpectation
   allowed_task_profiles: AgentRunRequest["task_profile"][]
   agent_ids: Record<AgentRunRequest["task_profile"], string>
   materialize(request: AgentRunRequest): Promise<string>
-  store_output(request: AgentRunRequest, text: string): Promise<AgentArtifactRef>
+  store_output?(request: AgentRunRequest, text: string): Promise<AgentArtifactRef>
+  store_outputs?(request: AgentRunRequest, text: string): Promise<AgentArtifactRef[]>
   validate_output_ref?(
     request: AgentRunRequest,
     artifact: AgentArtifactRef,
@@ -61,9 +67,12 @@ export interface OpenClawAgentHostOptions {
     { tool_name: string; output_schema_version: string }
   >>
   execute(input: OpenClawExecutionRequest, signal: AbortSignal): Promise<OpenClawExecutionResult>
+  max_concurrent_runs?: number
+  after_terminal?(request: AgentRunRequest, result: AgentRunResult): Promise<void>
   report_error?: (input: {
     run_id: string
     failure_class: AgentRunFailureClass
+    stage: "launch" | "output_finalization" | "post_terminal"
     message: string
   }) => void
   now?: () => Date
@@ -77,14 +86,30 @@ interface ActiveRun {
 
 export class OpenClawAgentHost implements AgentHostPort {
   private readonly active = new Map<string, ActiveRun>()
+  private readonly pending = new Map<string, AgentRunRequest>()
   private readonly tasks = new Map<string, Promise<void>>()
   private readonly now: () => Date
+  private readonly maxConcurrentRuns: number
+  private closing = false
 
   constructor(private readonly options: OpenClawAgentHostOptions) {
+    if ((options.store_output == null) === (options.store_outputs == null)) {
+      throw new Error("OpenClaw Host requires exactly one output storage strategy")
+    }
+    if (!options.transport && options.host_profile === "openclaw-workspace-gateway") {
+      throw new Error("Custom OpenClaw Host profiles require an explicit transport")
+    }
+    this.maxConcurrentRuns = options.max_concurrent_runs ?? 16
+    if (!Number.isSafeInteger(this.maxConcurrentRuns)
+      || this.maxConcurrentRuns < 1
+      || this.maxConcurrentRuns > 64) {
+      throw new Error("OpenClaw Host concurrency is invalid")
+    }
     this.now = options.now ?? (() => new Date())
   }
 
   async submit(request: AgentRunRequest): Promise<AgentRunAcceptance> {
+    if (this.closing) throw new Error("OpenClaw Host is closing")
     if (!this.options.allowed_task_profiles.includes(request.task_profile)) {
       throw new Error(`OpenClaw Host profile does not allow ${request.task_profile}`)
     }
@@ -95,7 +120,9 @@ export class OpenClawAgentHost implements AgentHostPort {
       this.isoNow(),
     )
     const stored = readAgentRun(this.options.db, request.run_id)!
-    if (stored.result || this.active.has(request.run_id)) return accepted
+    if (stored.result
+      || this.active.has(request.run_id)
+      || this.pending.has(request.run_id)) return accepted
     if (accepted.replayed && stored.status === "running") {
       if (await this.recoverTerminalToolOutput(stored.request, Date.parse(stored.updated_at))) {
         return accepted
@@ -107,9 +134,7 @@ export class OpenClawAgentHost implements AgentHostPort {
       )
       return accepted
     }
-    const task = this.launch(stored.request)
-    this.tasks.set(request.run_id, task)
-    void task.finally(() => this.tasks.delete(request.run_id))
+    this.enqueue(stored.request)
     return accepted
   }
 
@@ -146,6 +171,7 @@ export class OpenClawAgentHost implements AgentHostPort {
   }
 
   async close(): Promise<void> {
+    this.closing = true
     for (const run of this.active.values()) run.controller.abort()
     await Promise.allSettled([...this.tasks.values()])
   }
@@ -154,6 +180,11 @@ export class OpenClawAgentHost implements AgentHostPort {
     let recovered = 0
     for (const record of listRecoverableAgentRuns(this.options.db, 1_000)) {
       if (record.host_profile !== this.options.host_profile) continue
+      if (record.status === "accepted") {
+        this.enqueue(record.request)
+        recovered += 1
+        continue
+      }
       if (await this.recoverTerminalToolOutput(
         record.request,
         Date.parse(record.updated_at),
@@ -171,6 +202,33 @@ export class OpenClawAgentHost implements AgentHostPort {
       recovered += 1
     }
     return recovered
+  }
+
+  private enqueue(request: AgentRunRequest): void {
+    if (this.active.has(request.run_id)
+      || this.pending.has(request.run_id)
+      || readAgentRun(this.options.db, request.run_id)?.result) return
+    this.pending.set(request.run_id, request)
+    this.drain()
+  }
+
+  private drain(): void {
+    if (this.closing) return
+    while (this.active.size < this.maxConcurrentRuns
+      && this.pending.size > 0) {
+      const next = this.pending.entries().next().value as
+        | [string, AgentRunRequest]
+        | undefined
+      if (!next) return
+      const [runId, request] = next
+      this.pending.delete(runId)
+      const task = this.launch(request)
+      this.tasks.set(runId, task)
+      void task.finally(() => {
+        this.tasks.delete(runId)
+        this.drain()
+      })
+    }
   }
 
   private async launch(request: AgentRunRequest): Promise<void> {
@@ -225,10 +283,28 @@ export class OpenClawAgentHost implements AgentHostPort {
           terminalToolOutput !== null,
         )
         : ""
-      const output = terminalToolOutput
-        ? await this.validateTerminalToolOutput(request, terminalToolOutput.artifact)
-        : await this.options.store_output(request, text)
-      if (output.bytes > request.budget.max_output_bytes) {
+      let outputs: AgentArtifactRef[]
+      try {
+        outputs = terminalToolOutput
+          ? [await this.validateTerminalToolOutput(
+              request,
+              terminalToolOutput.artifact,
+            )]
+          : this.options.store_outputs
+            ? await this.options.store_outputs(request, text)
+            : [await this.options.store_output!(request, text)]
+        validateOutputRefs(outputs)
+      } catch (error) {
+        this.options.report_error?.({
+          run_id: request.run_id,
+          failure_class: "validation_failed",
+          stage: "output_finalization",
+          message: safeErrorMessage(error),
+        })
+        return await this.fail(request, "validation_failed", startedMs)
+      }
+      if (outputs.reduce((sum, output) => sum + output.bytes, 0)
+          > request.budget.max_output_bytes) {
         return await this.fail(request, "budget_exhausted", startedMs)
       }
       await this.complete(
@@ -236,7 +312,7 @@ export class OpenClawAgentHost implements AgentHostPort {
         "completed",
         startedMs,
         undefined,
-        [output],
+        outputs,
         { tool_calls: toolCalls, turns: modelTurns },
       )
     } catch (error) {
@@ -246,6 +322,7 @@ export class OpenClawAgentHost implements AgentHostPort {
       this.options.report_error?.({
         run_id: request.run_id,
         failure_class: failureClass,
+        stage: "launch",
         message: safeErrorMessage(error),
       })
       await this.fail(
@@ -324,7 +401,7 @@ export class OpenClawAgentHost implements AgentHostPort {
       ...(status === "completed" ? {} : { failure_class: failure ?? "host_unavailable" }),
     })
     appendAgentRunEvent(this.options.db, terminal)
-    completeAgentRun(this.options.db, buildAgentRunResult({
+    const result = buildAgentRunResult({
       run_id: request.run_id,
       trace_id: request.trace_id,
       request_hash: request.request_hash,
@@ -352,10 +429,20 @@ export class OpenClawAgentHost implements AgentHostPort {
           effect_status: failure === "tool_effect_uncertain" ? "uncertain" : "none",
         },
       }),
-    }))
+    })
+    completeAgentRun(this.options.db, result)
+    await this.options.after_terminal?.(request, result).catch((error) => {
+      this.options.report_error?.({
+        run_id: request.run_id,
+        failure_class: "host_unavailable",
+        stage: "post_terminal",
+        message: safeErrorMessage(error),
+      })
+    })
   }
 
   private expectedTransport(): OpenClawTransportExpectation {
+    if (this.options.transport) return this.options.transport
     return this.options.host_profile === "openclaw-gateway" ? "gateway" : "embedded"
   }
 
@@ -420,6 +507,7 @@ export class OpenClawAgentHost implements AgentHostPort {
       this.options.report_error?.({
         run_id: request.run_id,
         failure_class: "validation_failed",
+        stage: "output_finalization",
         message: safeErrorMessage(error),
       })
       await this.fail(request, "validation_failed", startedMs)
@@ -506,4 +594,14 @@ function boundedUsage(
   }
   if (value > maximum) throw new Error(`OpenClaw ${field} exceeded Agent Run budget`)
   return value
+}
+
+function validateOutputRefs(outputs: AgentArtifactRef[]): void {
+  if (!Array.isArray(outputs) || outputs.length < 1 || outputs.length > 32) {
+    throw new Error("OpenClaw Host output refs must be bounded and non-empty")
+  }
+  const identities = outputs.map((ref) => `${ref.ref}:${ref.sha256}`)
+  if (new Set(identities).size !== identities.length) {
+    throw new Error("OpenClaw Host output refs contain duplicates")
+  }
 }

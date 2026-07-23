@@ -24,7 +24,7 @@ export interface DeveloperWorkspaceCycleInput {
   repository_root: string
   codex_path: string
   allowed_write_prefixes: string[]
-  package_path: string
+  package_paths: string[]
   developer_run_id: string
   trace_id: string
   idempotency_key: string
@@ -87,7 +87,7 @@ export async function runDeveloperWorkspaceCycle(
     request_hash: prepared.request.request_hash,
     source_revision: prepared.request.source_revision,
     allowed_write_prefixes: input.allowed_write_prefixes,
-    package_path: input.package_path,
+    package_paths: input.package_paths,
     seed_patch: input.predecessor_patch_ref ?? null,
     issued_at: input.requested_at,
   })

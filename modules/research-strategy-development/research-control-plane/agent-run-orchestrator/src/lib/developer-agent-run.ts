@@ -15,6 +15,7 @@ import {
   type DeveloperAgentSubmission,
 } from "../../../contracts/src/lib/developer-agent-submission"
 import {
+  assertDeveloperDevelopmentBrief,
   DEVELOPER_CONTRACT_DRAFT_INTAKE_REQUEST_SCHEMA_VERSION,
   DEVELOPER_DEVELOPMENT_BRIEF_ISSUE_REQUEST_SCHEMA_VERSION,
   type DeveloperContractDraftReceipt,
@@ -321,6 +322,84 @@ export function createDeveloperWorkspaceAgentSubmission(input: {
     quality_check_refs: input.quality_check_refs,
     replay_diagnosis_refs: input.replay_diagnosis_refs ?? [],
     created_at: utc(input.created_at, "created_at"),
+  })
+}
+
+export function compileDeveloperAgentContextPack(
+  value: unknown,
+): DeveloperAgentContextPack {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Developer Agent context pack must be an object")
+  }
+  const pack = value as DeveloperAgentContextPack
+  if (pack.schema_version !== DEVELOPER_AGENT_CONTEXT_PACK_SCHEMA) {
+    throw new Error("Developer Agent context pack schema is unsupported")
+  }
+  assertDeveloperDevelopmentBrief(pack.brief)
+  const expectedAssessment = createDeveloperCapabilityAssessment({
+    brief: pack.brief,
+    source_revision: pack.source_revision,
+    data_snapshot_binding: pack.capability_assessment.data_snapshot_binding,
+  })
+  if (canonicalJson(pack.capability_assessment)
+    !== canonicalJson(expectedAssessment)) {
+    throw new Error("Developer Agent capability assessment is non-canonical")
+  }
+  const body = {
+    schema_version: DEVELOPER_AGENT_CONTEXT_PACK_SCHEMA,
+    developer_run_id: identifier(pack.developer_run_id, "developer_run_id"),
+    source_revision: revision(pack.source_revision),
+    brief: pack.brief,
+    capability_assessment: expectedAssessment,
+    next_draft_revision: boundedInteger(
+      pack.next_draft_revision,
+      1,
+      1_000_000,
+      "next_draft_revision",
+    ),
+    predecessor_run_id: pack.predecessor_run_id == null
+      ? null
+      : identifier(pack.predecessor_run_id, "predecessor_run_id"),
+    replay_result_refs: artifactRefs(pack.replay_result_refs),
+    requested_at: utc(pack.requested_at, "requested_at"),
+  }
+  const expected: DeveloperAgentContextPack = {
+    ...body,
+    context_pack_hash: canonicalHash(body),
+  }
+  if (canonicalJson(pack) !== canonicalJson(expected)) {
+    throw new Error("Developer Agent context pack is non-canonical or hash-drifted")
+  }
+  return structuredClone(expected)
+}
+
+export function createDeveloperWorkspaceAgentSubmissionFromContextPack(input: {
+  request: AgentRunRequest
+  context_pack: unknown
+  workspace_patch: AgentArtifactRef
+  quality_check_refs: AgentArtifactRef[]
+  replay_diagnosis_refs?: AgentArtifactRef[]
+  created_at: string
+}): DeveloperAgentSubmission {
+  const contextPack = compileDeveloperAgentContextPack(input.context_pack)
+  if (contextPack.developer_run_id !== input.request.run_id
+    || contextPack.source_revision !== input.request.source_revision
+    || input.request.task_profile !== "developer"
+    || input.request.output_schema_version !== DEVELOPER_AGENT_SUBMISSION_SCHEMA) {
+    throw new Error("Developer Agent context pack drifted from Agent Run request")
+  }
+  return createDeveloperWorkspaceAgentSubmission({
+    prepared: {
+      request: input.request,
+      context_pack: contextPack,
+      execution_route: "workspace_host",
+    },
+    workspace_patch: input.workspace_patch,
+    quality_check_refs: input.quality_check_refs,
+    ...(input.replay_diagnosis_refs == null
+      ? {}
+      : { replay_diagnosis_refs: input.replay_diagnosis_refs }),
+    created_at: input.created_at,
   })
 }
 

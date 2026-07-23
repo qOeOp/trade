@@ -80,6 +80,8 @@ build_image() {
     --provenance=mode=max \
     --sbom=true \
     --tag "$image_tag" \
+    --target runtime \
+    --build-arg "TRADE_SOURCE_REVISION=$source_commit" \
     --file "$work_root/deploy/server/Dockerfile" \
     "$work_root"
   image_id=$(docker image inspect --format '{{.Id}}' "$image_tag")
@@ -116,6 +118,7 @@ smoke_runtime() {
   project_name="trade-acceptance-$acceptance_id"
   export TRADE_IMAGE_TAG="acceptance-$short_commit"
   export TRADE_ENVIRONMENT_ID="server:acceptance"
+  export TRADE_SOURCE_REVISION="$source_commit"
   compose() {
     docker compose \
       --project-name "$project_name" \

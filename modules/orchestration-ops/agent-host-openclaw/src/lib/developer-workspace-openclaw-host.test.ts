@@ -1,5 +1,11 @@
 import assert from "node:assert/strict"
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
@@ -15,11 +21,18 @@ import {
 import {
   createAgentWorkspaceExecutionScope,
 } from "../../../agent-workspace-manager/src/lib/workspace-manager"
+import {
+  runIsolatedAgentWorkspacePackageCheck,
+  startIsolatedAgentWorkspaceChecker,
+} from "../../../agent-workspace-manager/src/lib/isolated-package-checker"
 import { ensureAgentRunStoreSchema } from "../../../ops-runtime-store/src/lib/agent-run-store"
-import type { CodexAppServerClientPort } from "./codex-app-server-client"
-import { createDeveloperWorkspaceCodexHost } from "./developer-workspace-codex-host"
+import { createDeveloperWorkspaceOpenClawHost } from "./developer-workspace-openclaw-host"
+import type {
+  OpenClawExecutionRequest,
+  OpenClawExecutionResult,
+} from "./openclaw-agent-run"
 
-test("Developer workspace Codex composition owns worktree, check, artifacts, Result, and cleanup", async () => {
+test("Developer workspace OpenClaw composition captures Host evidence and cleans fixed slot", async () => {
   const root = fixtureRepository()
   const db = new Database(":memory:")
   ensureAgentRunStoreSchema(db)
@@ -27,7 +40,7 @@ test("Developer workspace Codex composition owns worktree, check, artifacts, Res
     repository_root: root,
     storage: "temporary",
     media_type: "text/markdown",
-    text: "Modify the bounded sample implementation and its test.",
+    text: "Modify only modules/sample/index.ts so value equals 2.",
   })
   const context = writeAgentTextArtifact({
     repository_root: root,
@@ -36,7 +49,12 @@ test("Developer workspace Codex composition owns worktree, check, artifacts, Res
     text: "{\"reason\":\"implementation_missing\"}",
   })
   const request = buildRequest(instruction, context)
-  const workspaceRoot = join(root, "tmp", "agent-workspaces", request.run_id)
+  const workspaceRoot = join(root, "tmp", "agent-workspace-slots", "active")
+  const checkerSocket = join(root, "checker.sock")
+  const checker = await startIsolatedAgentWorkspaceChecker({
+    socket_path: checkerSocket,
+    workspace_root: workspaceRoot,
+  })
   const scope = createAgentWorkspaceExecutionScope({
     run_id: request.run_id,
     request_hash: request.request_hash,
@@ -46,12 +64,10 @@ test("Developer workspace Codex composition owns worktree, check, artifacts, Res
     seed_patch: null,
     issued_at: "2026-07-23T01:00:00.000Z",
   })
-  const client = new EditingClient(workspaceRoot)
-  const errors: string[] = []
-  const host = createDeveloperWorkspaceCodexHost({
+  const executions: OpenClawExecutionRequest[] = []
+  const host = createDeveloperWorkspaceOpenClawHost({
     db,
     repository_root: root,
-    codex_path: "/unused/codex",
     resolve_scope: async () => scope,
     build_submission: ({ request: run, evidence, created_at }) => ({
       schema_version: "trade.fixture-developer-submission.v1",
@@ -61,14 +77,33 @@ test("Developer workspace Codex composition owns worktree, check, artifacts, Res
       created_at,
       domain_authority: "none",
     }),
-    create_client: (onNotification) => client.connect(onNotification),
-    report_error: (error) => errors.push(error.stage),
+    execute: async (input) => {
+      executions.push(input)
+      assert.equal(input.agent_id, "rd-developer-code")
+      assert.equal(input.transport, "gateway")
+      const envelope = JSON.parse(input.message)
+      assert.equal(
+        envelope.schema_version,
+        "trade.openclaw-workspace-agent-message.v1",
+      )
+      writeFileSync(
+        join(workspaceRoot, "modules/sample/index.ts"),
+        "export const value = 2\n",
+      )
+      return gatewayResult("Model completion is not accepted as evidence.")
+    },
+    run_package_check: (input) =>
+      runIsolatedAgentWorkspacePackageCheck({
+        socket_path: checkerSocket,
+        ...input,
+      }),
     now: () => new Date("2026-07-23T01:00:00.000Z"),
   })
   try {
     await host.submit(request)
     const result = await waitForResult(host, request.run_id)
-    assert.equal(result.status, "completed", errors.join(","))
+    assert.equal(result.status, "completed")
+    assert.equal(executions.length, 1)
     assert.deepEqual(
       result.output_refs.map((ref) => ref.media_type),
       ["application/json", "text/x-diff", "application/json"],
@@ -81,10 +116,7 @@ test("Developer workspace Codex composition owns worktree, check, artifacts, Res
       submission.quality_check_refs[0].ref,
       result.output_refs[2]!.ref,
     )
-    assert.match(
-      readAgentArtifact(root, result.output_refs[1]!).text,
-      /value = 2/,
-    )
+    assert.match(readAgentArtifact(root, result.output_refs[1]!).text, /value = 2/)
     await waitFor(() => !existsSync(workspaceRoot))
     assert.equal(
       Bun.spawnSync({
@@ -95,58 +127,20 @@ test("Developer workspace Codex composition owns worktree, check, artifacts, Res
     )
   } finally {
     await host.close()
+    await checker.close()
     db.close()
     rmSync(root, { recursive: true, force: true })
   }
 })
-
-class EditingClient implements CodexAppServerClientPort {
-  private onNotification: (method: string, params: unknown) => void =
-    () => undefined
-
-  constructor(private readonly workspaceRoot: string) {}
-
-  connect(onNotification: (method: string, params: unknown) => void): this {
-    this.onNotification = onNotification
-    return this
-  }
-
-  async initialize(): Promise<void> {}
-  async startThread(): Promise<string> {
-    return "thread-developer-workspace"
-  }
-  async startTurn(): Promise<string> {
-    writeFileSync(
-      join(this.workspaceRoot, "modules/sample/index.ts"),
-      "export const value = 2\n",
-    )
-    queueMicrotask(() => {
-      this.onNotification("item/completed", {
-        item: {
-          id: "message-developer-workspace",
-          type: "agentMessage",
-          text: "Changed the bounded implementation and ran its package check.",
-        },
-      })
-      this.onNotification("turn/completed", {
-        turn: { id: "turn-developer-workspace", status: "completed" },
-      })
-    })
-    return "turn-developer-workspace"
-  }
-  async steer(): Promise<void> {}
-  async interrupt(): Promise<void> {}
-  async close(): Promise<void> {}
-}
 
 function buildRequest(
   instruction: AgentRunRequest["instruction_ref"],
   context: AgentRunRequest["input_refs"][number],
 ): AgentRunRequest {
   return buildAgentRunRequest({
-    run_id: "developer-workspace-composition",
-    idempotency_key: "developer-workspace-composition-key",
-    trace_id: "developer-workspace-composition-trace",
+    run_id: "developer-openclaw-workspace",
+    idempotency_key: "developer-openclaw-workspace-key",
+    trace_id: "developer-openclaw-workspace-trace",
     task_profile: "developer",
     objective: "Complete one bounded implementation gap.",
     source_revision: "HEAD",
@@ -173,13 +167,10 @@ function buildRequest(
 }
 
 function fixtureRepository(): string {
-  const root = mkdtempSync(join(tmpdir(), "developer-workspace-host-"))
+  const root = mkdtempSync(join(tmpdir(), "developer-openclaw-workspace-host-"))
   mkdirSync(join(root, "modules/sample"), { recursive: true })
   writeFileSync(join(root, ".gitignore"), "data/\ntmp/\n")
-  writeFileSync(
-    join(root, "modules/sample/index.ts"),
-    "export const value = 1\n",
-  )
+  writeFileSync(join(root, "modules/sample/index.ts"), "export const value = 1\n")
   writeFileSync(join(root, "modules/sample/package.json"), JSON.stringify({
     name: "sample",
     private: true,
@@ -191,6 +182,22 @@ function fixtureRepository(): string {
   git(root, ["add", "."])
   git(root, ["commit", "-m", "fixture"])
   return root
+}
+
+function gatewayResult(text: string): OpenClawExecutionResult {
+  return {
+    exit_code: 0,
+    stdout: JSON.stringify({
+      runId: "gateway-run",
+      status: "ok",
+      result: {
+        payloads: [{ text }],
+        meta: { transport: "gateway", executionTrace: { runner: "gateway" } },
+      },
+    }),
+    stderr: "",
+    interrupted: false,
+  }
 }
 
 function git(cwd: string, args: string[]): void {
@@ -206,7 +213,7 @@ function git(cwd: string, args: string[]): void {
 }
 
 async function waitForResult(
-  host: ReturnType<typeof createDeveloperWorkspaceCodexHost>,
+  host: ReturnType<typeof createDeveloperWorkspaceOpenClawHost>,
   runId: string,
 ) {
   await waitFor(async () => (await host.result(runId)) != null)

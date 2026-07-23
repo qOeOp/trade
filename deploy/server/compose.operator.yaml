@@ -27,8 +27,10 @@ services:
       - profile/operator-http.json
     volumes:
       - trade-data:/app/data
+      - trade-ops:/app/data/ops
       - trade-runtime-tmp:/app/tmp
       - trade-artifacts:/app/tmp/artifacts
+      - trade-agent-artifacts:/app/data/artifacts/agent-runs
       - trade-panels:/app/tmp/panels
     healthcheck:
       test:

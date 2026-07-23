@@ -153,6 +153,9 @@ function integer(value: unknown, minimum: number, maximum: number, field: string
 }
 
 function dbRef(value: unknown, field: string): string {
-  if (typeof value !== "string" || !/^data\/[a-z0-9_-]+\.db$/.test(value)) throw new Error(`${field} is invalid`)
+  if (typeof value !== "string"
+    || !/^data\/(?:[a-z0-9_-]+\/)?[a-z0-9_-]+\.db$/.test(value)) {
+    throw new Error(`${field} is invalid`)
+  }
   return value
 }

@@ -13,29 +13,31 @@ import {
 } from "../../../agent-artifact-store/src/lib/agent-artifact-store"
 import {
   assertAgentWorkspaceExecutionScope,
+  cleanupAgentWorkspaceSlot,
   createAgentWorkspace,
   finalizeAgentWorkspaceEvidence,
   removeAgentWorkspace,
   seedAgentWorkspacePatch,
   type AgentWorkspace,
+  type AgentWorkspacePackageCheck,
   type AgentWorkspaceExecutionScope,
   type FinalizedAgentWorkspaceEvidence,
 } from "../../../agent-workspace-manager/src/lib/workspace-manager"
 import {
-  CodexAppServerClient,
-  type CodexAppServerClientPort,
-} from "./codex-app-server-client"
-import {
-  DirectCodexAgentHost,
-  type DirectCodexAgentHostOptions,
-} from "./direct-codex-agent-host"
+  OpenClawAgentHost,
+  type OpenClawAgentHostOptions,
+  type OpenClawExecutionRequest,
+  type OpenClawExecutionResult,
+} from "./openclaw-agent-run"
+import { materializeOpenClawWorkspaceAgentMessage } from "./openclaw-artifact-materializer"
 
-export interface DeveloperWorkspaceCodexHostOptions {
+export interface DeveloperWorkspaceOpenClawHostOptions {
   db: Database
   repository_root: string
-  codex_path: string
+  workspace_slot?: string
+  agent_id?: string
+  group_writable_workspace?: boolean
   artifact_storage?: AgentArtifactStorage
-  config_overrides?: string[]
   resolve_scope(
     request: AgentRunRequest,
   ): Promise<AgentWorkspaceExecutionScope>
@@ -44,34 +46,44 @@ export interface DeveloperWorkspaceCodexHostOptions {
     evidence: FinalizedAgentWorkspaceEvidence
     created_at: string
   }): Promise<unknown> | unknown
-  resolve_steer?(request: {
-    run_id: string
-    request_hash: string
-    message_ref: string
-    message_sha256: string
-  }): Promise<string>
-  create_client?(
-    onNotification: (method: string, params: unknown) => void,
-    onExit: (error: Error | null) => void,
-  ): CodexAppServerClientPort
+  execute(
+    input: OpenClawExecutionRequest,
+    signal: AbortSignal,
+  ): Promise<OpenClawExecutionResult>
+  run_package_check?(input: {
+    workspace: AgentWorkspace
+    package_path: string
+    timeout_ms?: number
+    max_output_bytes?: number
+  }): Promise<AgentWorkspacePackageCheck>
   after_terminal?(
     request: AgentRunRequest,
     result: AgentRunResult,
   ): Promise<void>
-  report_error?: DirectCodexAgentHostOptions["report_error"]
+  report_error?: OpenClawAgentHostOptions["report_error"]
   now?: () => Date
 }
 
-export function createDeveloperWorkspaceCodexHost(
-  options: DeveloperWorkspaceCodexHostOptions,
-): DirectCodexAgentHost {
+export function createDeveloperWorkspaceOpenClawHost(
+  options: DeveloperWorkspaceOpenClawHostOptions,
+): OpenClawAgentHost {
   const repositoryRoot = realpathSync(resolve(options.repository_root))
+  const workspaceSlot = options.workspace_slot ?? "active"
   const storage = options.artifact_storage ?? "durable"
   const workspaces = new Map<string, AgentWorkspace>()
   const now = options.now ?? (() => new Date())
 
-  return new DirectCodexAgentHost({
+  return new OpenClawAgentHost({
     db: options.db,
+    host_profile: "openclaw-workspace-gateway",
+    transport: "gateway",
+    allowed_task_profiles: ["developer"],
+    agent_ids: {
+      planner: "disabled",
+      developer: options.agent_id ?? "rd-developer-code",
+      reviewer: "disabled",
+      explanation: "disabled",
+    },
     materialize: async (request) => {
       validateDeveloperRequest(request)
       const scope = await options.resolve_scope(request)
@@ -83,6 +95,8 @@ export function createDeveloperWorkspaceCodexHost(
       const workspace = createAgentWorkspace({
         repository_root: repositoryRoot,
         run_id: request.run_id,
+        workspace_slot: workspaceSlot,
+        group_writable: options.group_writable_workspace ?? false,
         source_revision: scope.source_revision,
         allowed_write_prefixes: scope.allowed_write_prefixes,
         created_at: now().toISOString(),
@@ -96,16 +110,7 @@ export function createDeveloperWorkspaceCodexHost(
           })
         }
         workspaces.set(request.run_id, workspace)
-        return {
-          repo_root: repositoryRoot,
-          workspace_root: workspace.workspace_root,
-          instruction: readAgentArtifact(
-            repositoryRoot,
-            request.instruction_ref,
-          ),
-          inputs: request.input_refs.map((artifact) =>
-            readAgentArtifact(repositoryRoot, artifact)),
-        }
+        return materializeOpenClawWorkspaceAgentMessage(repositoryRoot, request)
       } catch (error) {
         workspaces.delete(request.run_id)
         removeAgentWorkspace(workspace)
@@ -115,7 +120,7 @@ export function createDeveloperWorkspaceCodexHost(
     store_outputs: async (request) => {
       const workspace = workspaces.get(request.run_id)
       if (!workspace) {
-        throw new Error("Developer workspace is unavailable for finalization")
+        throw new Error("Developer OpenClaw workspace is unavailable for finalization")
       }
       const scope = await options.resolve_scope(request)
       assertAgentWorkspaceExecutionScope(scope)
@@ -132,6 +137,9 @@ export function createDeveloperWorkspaceCodexHost(
             text,
           })
         },
+        ...(options.run_package_check == null
+          ? {}
+          : { run_package_check: options.run_package_check }),
       })
       const submission = await options.build_submission({
         request,
@@ -149,27 +157,18 @@ export function createDeveloperWorkspaceCodexHost(
         ...evidence.quality_check_refs,
       ]
     },
-    resolve_steer: async (input) => {
-      if (!options.resolve_steer) {
-        throw new Error("Developer workspace Host steering is disabled")
-      }
-      return options.resolve_steer(input)
-    },
-    create_client: options.create_client
-      ?? ((onNotification, onExit) => new CodexAppServerClient({
-        codex_path: options.codex_path,
-        cwd: repositoryRoot,
-        ...(options.config_overrides == null
-          ? {}
-          : { config_overrides: options.config_overrides }),
-        on_notification: onNotification,
-        on_exit: onExit,
-      })),
+    execute: options.execute,
+    max_concurrent_runs: 1,
     after_terminal: async (request, result) => {
       const workspace = workspaces.get(request.run_id)
-      if (workspace && result.status === "completed") {
+      if (workspace) {
         removeAgentWorkspace(workspace)
         workspaces.delete(request.run_id)
+      } else {
+        cleanupAgentWorkspaceSlot({
+          repository_root: repositoryRoot,
+          workspace_slot: workspaceSlot,
+        })
       }
       await options.after_terminal?.(request, result)
     },
@@ -185,7 +184,7 @@ function validateDeveloperRequest(request: AgentRunRequest): void {
     || !request.capabilities.includes("workspace_read")
     || !request.capabilities.includes("workspace_patch")
     || !request.capabilities.includes("bounded_quality_check")) {
-    throw new Error("Developer workspace Codex Host requires workspace capabilities")
+    throw new Error("Developer workspace OpenClaw Host requires workspace capabilities")
   }
 }
 

@@ -22,7 +22,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o target/release/tech-ind
 
 FROM oven/bun:${BUN_VERSION}-debian AS runtime
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends ca-certificates procps tini \
+    && apt-get install --yes --no-install-recommends ca-certificates git procps tini \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -46,13 +46,35 @@ COPY --from=indicator-builder \
     /build/modules/market-data-products/tech-indicators/target/release/tech-indicators \
     /app/modules/market-data-products/tech-indicators/target/release/tech-indicators
 
+ARG TRADE_SOURCE_REVISION=container-local
+RUN case "${TRADE_SOURCE_REVISION}" in \
+      *[!A-Za-z0-9._+-]*|"") exit 1 ;; \
+    esac \
+    && git init \
+    && git config user.email container-source@example.invalid \
+    && git config user.name "Trade Container Source" \
+    && git add -A \
+    && GIT_AUTHOR_DATE=2000-01-01T00:00:00Z \
+       GIT_COMMITTER_DATE=2000-01-01T00:00:00Z \
+       git commit -m "container source snapshot" \
+    && internal_commit="$(git rev-parse HEAD)" \
+    && printf '{"schema_version":"trade.container-source-revision.v1","source_revision":"%s","internal_commit":"%s"}\n' \
+       "${TRADE_SOURCE_REVISION}" "${internal_commit}" \
+       > /app/.trade-source-revision.json
+
 RUN groupadd --gid 10001 trade \
     && useradd --uid 10001 --gid 10001 --home-dir /nonexistent --shell /usr/sbin/nologin trade \
-    && mkdir -p /app/data/l2 /app/data/artifacts/market-data /app/tmp/artifacts /app/tmp/panels /app/tmp/server-runtime/logs \
-    && chown -R trade:trade /app/data /app/tmp
+    && mkdir -p /app/data/l2 /app/data/ops /app/data/artifacts/agent-runs /app/data/artifacts/market-data /app/tmp/artifacts /app/tmp/panels /app/tmp/server-runtime/logs /app/tmp/agent-workspace-slots \
+    && chown -R trade:trade /app/data /app/tmp \
+    && chown -R trade:trade /app/.git /app/tmp/agent-workspace-slots
 
 ENV NODE_ENV=production
 ENV TRADE_REPO_ROOT=/app
 USER 10001:10001
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["bun", "modules/orchestration-ops/trade-flow/src/scripts/server-runtime-container-foreground.ts", "--profile", "profile/server-runtime-container.json"]
+
+FROM runtime AS developer
+USER 0:0
+RUN bun install --frozen-lockfile
+USER 10001:10001

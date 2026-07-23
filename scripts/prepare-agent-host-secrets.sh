@@ -38,6 +38,7 @@ prepare_scoped_token() {
 prepare_scoped_token "OPENCLAW_GATEWAY_TOKEN" "${gateway_file}"
 prepare_scoped_token "TRADE_MCP_HTTP_TOKEN" "${mcp_file}"
 prepare_scoped_token "TRADE_AGENT_HOST_HTTP_TOKEN" "${host_file}"
+prepare_scoped_token "TRADE_AGENT_CODE_HOST_HTTP_TOKEN" "${host_file}"
 
 if [[ "${created}" -eq 0 ]]; then
   printf '%s\n' "scoped Agent secret files already complete"

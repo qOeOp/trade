@@ -151,6 +151,16 @@
         }
       },
       {
+        "id": "rd-developer-code",
+        "workspace": "/home/node/.openclaw/agent-workspace-slots/active",
+        "skills": [],
+        "tools": {
+          "profile": "coding",
+          "allow": ["read", "write", "edit", "apply_patch"],
+          "deny": ["group:runtime", "group:web", "group:sessions", "group:automation", "group:messaging", "group:nodes", "group:agents", "group:media", "group:ui"]
+        }
+      },
+      {
         "id": "ops-explanation",
         "workspace": "/home/node/.openclaw/workspaces/ops-explanation",
         "skills": [],
@@ -164,7 +174,10 @@
   },
   "tools": {
     "profile": "minimal",
-    "deny": ["browser", "canvas", "cron", "gateway", "sessions_spawn", "subagents", "exec", "process", "code_execution", "read", "write", "edit", "apply_patch"]
+    "deny": ["browser", "canvas", "cron", "gateway", "sessions_spawn", "subagents", "exec", "process", "code_execution"],
+    "fs": {
+      "workspaceOnly": true
+    }
   },
   "mcp": {
     "sessionIdleTtlMs": 600000,

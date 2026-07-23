@@ -41,7 +41,7 @@ async function main(): Promise<void> {
       repository_root: root,
       codex_path: input.codex_path,
       allowed_write_prefixes: input.allowed_write_prefixes,
-      package_path: input.package_path,
+      package_paths: input.package_paths,
       developer_run_id: input.run_id,
       trace_id: input.trace_id,
       idempotency_key: input.idempotency_key,
@@ -77,7 +77,7 @@ function parseInput(argv: string[]): {
   environment_id: string
   codex_path: string
   allowed_write_prefixes: string[]
-  package_path: string
+  package_paths: string[]
   run_id: string
   trace_id: string
   idempotency_key: string
@@ -122,7 +122,9 @@ function parseInput(argv: string[]): {
       value.allowed_write_prefixes,
       "allowed_write_prefixes",
     ),
-    package_path: repoPath(text(value.package_path), "package_path"),
+    package_paths: value.package_paths == null
+      ? [repoPath(text(value.package_path), "package_path")]
+      : paths(value.package_paths, "package_paths"),
     run_id: identifier(value.run_id, "run_id"),
     trace_id: identifier(value.trace_id, "trace_id"),
     idempotency_key: identifier(value.idempotency_key, "idempotency_key"),

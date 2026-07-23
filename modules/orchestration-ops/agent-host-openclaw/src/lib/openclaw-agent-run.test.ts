@@ -11,6 +11,7 @@ import {
   admitAgentRun,
   appendAgentRunEvent,
   ensureAgentRunStoreSchema,
+  readAgentRun,
   recordAgentRunToolCall,
   recordAgentRunToolResult,
 } from "../../../ops-runtime-store/src/lib/agent-run-store"
@@ -215,6 +216,137 @@ test("OpenClaw Host recovers a committed Developer result without rerunning the 
   fixture.db.close()
 })
 
+test("OpenClaw Host persists multiple Host-derived outputs before post-terminal cleanup", async () => {
+  const fixture = createFixture("developer")
+  const outputs = [
+    artifact("workspace-submission", "application/json", "durable"),
+    {
+      ...artifact("workspace-patch", "text/markdown", "durable"),
+      media_type: "text/x-diff" as const,
+    },
+  ]
+  let cleaned = false
+  const host = hostFor(
+    fixture.db,
+    async () => gatewayResult("Model completion is not workspace evidence."),
+    {
+      store_output: undefined,
+      store_outputs: async () => outputs,
+      after_terminal: async (request, result) => {
+        assert.equal(readAgentRun(fixture.db, request.run_id)?.result?.result_hash, result.result_hash)
+        cleaned = true
+      },
+    },
+  )
+  const result = await waitForResultAfterSubmit(host, fixture.request)
+  assert.equal(result.status, "completed")
+  assert.deepEqual(result.output_refs, outputs)
+  assert.equal(cleaned, true)
+  fixture.db.close()
+})
+
+test("OpenClaw workspace Host recovery is isolated from the semantic Gateway Host", async () => {
+  const fixture = createFixture("developer")
+  admitAgentRun(
+    fixture.db,
+    fixture.request,
+    "openclaw-gateway",
+    "2026-07-23T11:59:57.000Z",
+  )
+  appendAgentRunEvent(fixture.db, buildAgentRunEvent({
+    run_id: fixture.request.run_id,
+    trace_id: fixture.request.trace_id,
+    request_hash: fixture.request.request_hash,
+    sequence: 2,
+    occurred_at: "2026-07-23T11:59:58.000Z",
+    kind: "started",
+    summary: "OpenClaw Gateway Agent Run started.",
+  }))
+  const workspaceHost = new OpenClawAgentHost({
+    db: fixture.db,
+    host_profile: "openclaw-workspace-gateway",
+    transport: "gateway",
+    allowed_task_profiles: ["developer"],
+    agent_ids: {
+      planner: "disabled",
+      developer: "rd-developer-code",
+      reviewer: "disabled",
+      explanation: "disabled",
+    },
+    materialize: async () => "{}",
+    store_outputs: async () => [artifact("unused", "application/json", "durable")],
+    execute: async () => gatewayResult("unused"),
+    now: () => new Date("2026-07-23T12:00:00.000Z"),
+  })
+  assert.equal(await workspaceHost.recoverInterruptedRuns(), 0)
+  assert.equal((await workspaceHost.status(fixture.request.run_id)).status, "running")
+  fixture.db.close()
+})
+
+test("OpenClaw Host serializes a fixed workspace slot and resumes accepted work", async () => {
+  const fixture = createFixture("developer")
+  const second = buildAgentRunRequest({
+    run_id: "openclaw-run-developer-second",
+    idempotency_key: "openclaw-key-developer-second",
+    trace_id: "openclaw-trace-developer-second",
+    task_profile: fixture.request.task_profile,
+    objective: fixture.request.objective,
+    source_revision: fixture.request.source_revision,
+    instruction_ref: fixture.request.instruction_ref,
+    input_refs: fixture.request.input_refs,
+    output_schema_version: fixture.request.output_schema_version,
+    capabilities: fixture.request.capabilities,
+    budget: fixture.request.budget,
+    data_classification: fixture.request.data_classification,
+  })
+  let releaseFirst!: () => void
+  const firstBlocked = new Promise<void>((resolve) => {
+    releaseFirst = resolve
+  })
+  const starts: string[] = []
+  const host = hostFor(
+    fixture.db,
+    async (input) => {
+      starts.push(input.run_id)
+      if (input.run_id === fixture.request.run_id) await firstBlocked
+      return gatewayResult(
+        '{"schema_version":"trade.test-output.v1","status":"ok"}',
+      )
+    },
+    { max_concurrent_runs: 1 },
+  )
+  await host.submit(fixture.request)
+  await host.submit(second)
+  await waitFor(() => starts.length === 1)
+  assert.deepEqual(starts, [fixture.request.run_id])
+  releaseFirst()
+  await waitForResult(host, second.run_id)
+  assert.deepEqual(starts, [fixture.request.run_id, second.run_id])
+  fixture.db.close()
+
+  const recoveredFixture = createFixture("developer")
+  admitAgentRun(
+    recoveredFixture.db,
+    recoveredFixture.request,
+    "openclaw-gateway",
+    "2026-07-23T11:59:57.000Z",
+  )
+  let recoveredExecutions = 0
+  const recoveredHost = hostFor(recoveredFixture.db, async () => {
+    recoveredExecutions += 1
+    return gatewayResult(
+      '{"schema_version":"trade.test-output.v1","status":"recovered"}',
+    )
+  })
+  assert.equal(await recoveredHost.recoverInterruptedRuns(), 1)
+  assert.equal(
+    (await waitForResult(recoveredHost, recoveredFixture.request.run_id)).status,
+    "completed",
+  )
+  assert.equal(recoveredExecutions, 1)
+  recoveredFixture.db.close()
+})
+
 function hostFor(
   db: Database,
   execute: (
@@ -223,6 +355,19 @@ function hostFor(
   ) => Promise<OpenClawExecutionResult>,
   extra: Partial<ConstructorParameters<typeof OpenClawAgentHost>[0]> = {},
 ) {
+  const defaultOutput = extra.store_outputs
+    ? {}
+    : {
+        store_output: async (_request: AgentRunRequest, text: string) => {
+          const bytes = Buffer.from(text)
+          return {
+            ref: `artifact://openclaw/${createHash("sha256").update(bytes).digest("hex")}`,
+            sha256: createHash("sha256").update(bytes).digest("hex"),
+            media_type: "application/json" as const,
+            bytes: bytes.byteLength,
+          }
+        },
+      }
   return new OpenClawAgentHost({
     db,
     host_profile: "openclaw-gateway",
@@ -234,15 +379,7 @@ function hostFor(
       explanation: "ops-explanation",
     },
     materialize: async () => "<agent-run>Return the typed object.</agent-run>",
-    store_output: async (_request, text) => {
-      const bytes = Buffer.from(text)
-      return {
-        ref: `artifact://openclaw/${createHash("sha256").update(bytes).digest("hex")}`,
-        sha256: createHash("sha256").update(bytes).digest("hex"),
-        media_type: "application/json",
-        bytes: bytes.byteLength,
-      }
-    },
+    ...defaultOutput,
     execute,
     now: () => new Date("2026-07-23T12:00:00.000Z"),
     ...extra,

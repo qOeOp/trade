@@ -15,6 +15,7 @@ Owns `ops_runtime_store`, the orchestration observability store for cycle, job, 
 - Expose a compact read-only parity status projection with raw, shared-input-comparable, and legacy-sequential counts, latest hashes/basis, and fenced supervisor lease state; omit holder identity and diagnostic detail.
 - Persist bounded Watch Task definitions, compare-and-set lifecycle state, counters, typed handoff, terminal reason, and append-only transitions; `triggered` carries no execution authority.
 - Persist Agent Run request identity, lifecycle events, sanitized Host session refs, and terminal result. Duplicate request/idempotency identity is create-or-identical; event sequences and terminal closure fail closed.
+- Persist immutable create-or-identical Agent workspace execution scopes as bounded canonical JSON bound to run/request/scope hashes; this is operational authorization evidence with `domain_authority=none`, not a patch or owner fact.
 
 ## Boundaries
 
