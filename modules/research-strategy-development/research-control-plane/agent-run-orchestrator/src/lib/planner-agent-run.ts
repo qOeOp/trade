@@ -53,6 +53,7 @@ const PLANNER_INSTRUCTION = [
   "Read only the supplied Control Plane context.",
   "Return one canonical trade.rd-planner-proposal-submission.v2 JSON object.",
   "Call research_planner_proposal_prepare with your selected bounded proposal body, then return its proposal field exactly; do not calculate or alter hashes yourself.",
+  "Copy the run objective exactly into objective, use data_surfaces.slug values such as ohlcv rather than surface_id values, and set created_at no earlier than requested_at.",
   "Select one active canonical and only ready linked data surfaces.",
   "Do not create Trial, Result, strategy files, lifecycle decisions, or domain effects.",
 ].join("\n")
