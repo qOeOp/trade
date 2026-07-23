@@ -28,7 +28,8 @@ last_verified: 2026-07-23 CST
 | Check id | 目录 | 命令 | 覆盖 |
 | --- | --- | --- | --- |
 | `repo-whitespace` | repo root | `git diff --check` | 空白、冲突标记、尾随空格 |
-| `project-quality` | repo root | `scripts/quality-check.sh` | 提交前 secret / TS / Go / Rust / Python / shell / hygiene 总闸 |
+| `project-quality` | repo root | `scripts/quality-check.sh` | 提交前 secret / TS / Go / Rust / Python / shell / hygiene 总闸；本地可复用内容一致的 Replay runner 重型通过收据，`QUALITY_FRESH=1` 强制重跑，CI 永不复用 |
+| `changed-quality` | repo root | `bun scripts/quality-check-changed.ts --path <repo-relative-path>` | docs-only / 单模块日常门：全局 hygiene、secret、doc 与受影响 package；共享 contract、Replay、脚本/CI、机器 manifest 和跨语言改动 fail closed 要求总闸 |
 | `workspace-hygiene` | repo root | `bun scripts/check-workspace-hygiene.ts` | 禁止新增 tracked runtime SQLite / sidecar 与 module-local DB；历史 exception 只减不增 |
 | `workspace-side-effect` | repo root | `bun scripts/check-workspace-side-effects.ts --action capture/check --snapshot tmp/check/<name>.json` | 对 tracked + unignored 内容做前后哈希；允许进入检查前已有改动，拒绝本轮新增、删除或改写；CI preflight 额外要求 clean checkout |
 | `workspace-footprint` | repo root | `bun scripts/audit-workspace-footprint.ts --stale-days 14` | 只读分类 durable DB/data、受保护 evidence、test residue、build/dependency cache 与 external audit clone；不执行删除 |

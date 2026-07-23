@@ -61,6 +61,8 @@
 
 ## Quality Guardrails
 
-- 准备提交、跨语言改动或新增脚本后，跑 `scripts/quality-check.sh`
+- 普通 docs-only 或单模块开发先跑 `bun scripts/quality-check-changed.ts --path <本次改动路径>`；它只执行全局静态门与受影响 package，不得用它替代提交门
+- 准备提交、跨语言改动、新增/修改脚本、共享 contract、Replay execution plane 或 CI/质量基础设施后，跑 `scripts/quality-check.sh`
+- 需要忽略本机 Replay 重型通过缓存并强制重跑时，使用 `QUALITY_FRESH=1 scripts/quality-check.sh`；CI 永不复用该缓存
 - 不把 compiler / typecheck / test / vet warning 当成可忽略噪音；能修则修，不能修必须在交付说明里标明原因
 - 不把本机绝对路径写进 docs / code / helper 输出契约

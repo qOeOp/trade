@@ -57,7 +57,8 @@ scripts/quality-check.sh
 
 ## 3. 分层使用
 
-- 小改动：按 [check-contract.md](./check-contract.md) 跑最小检查
+- docs-only 或单模块日常改动：用 `bun scripts/quality-check-changed.ts --path <本次改动路径>` 跑全局静态门与受影响 package；显式路径必须属于当前 worktree diff，防止在共享 dirty worktree 中误纳入其他任务。
+- Changed gate 遇到共享 contract、Replay execution plane、脚本/CI/质量基础设施、机器架构 manifest、无 owner 文件或跨语言改动时 fail closed，并要求完整总闸。
 - 提交前：跑 `scripts/quality-check.sh`
 - 涉及真实 Binance 写接口：仍需显式 `--yes`；quality gate 不执行真实下单 / 撤单 / 调仓
 
@@ -68,3 +69,11 @@ scripts/quality-check.sh
 GitHub Actions 在 pull request 与 `main` push 上执行同一 `scripts/quality-check.sh`；本地与 CI 不存在两套裁判规则。
 
 同一仓库同一时刻只允许一个 `quality-check.sh` 实例。第二个实例必须快速失败并报告持锁 PID；异常退出遗留的死锁可在确认 owner PID 不存活后自动回收，禁止多个全量 Replay 测试争抢 CPU 后把资源竞争误判为代码慢。
+
+本地总闸对 Replay runner 重型套件使用内容寻址的通过收据：cache key 绑定全部 `research-strategy-development`、共享 contracts、测试/锁脚本、根依赖锁、Bun 版本、平台与精确命令。无关 docs、Runtime 或 L2 改动可复用 `tmp/check/quality-cache/` 中的本机收据；上述任一输入变化都会 miss 并重新执行。CI 从不复用本地收据；需要本机强制重跑时使用：
+
+```bash
+QUALITY_FRESH=1 scripts/quality-check.sh
+```
+
+该缓存只减少确定性重放，不改变 package `check`、Replay certification、发布证据或 authority。
