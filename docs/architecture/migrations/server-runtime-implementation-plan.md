@@ -35,11 +35,11 @@ S1 截至 2026-07-23 已完成 macOS no-live 主机纵切：三个正式 foregro
 
 S3 已新增独立 `full_shadow` 固定 profile：同一 fenced supervisor/wakeup 可启用 J01–J07、强制 cadence due、保留 owner active/state gate，并永久关闭 exchange live write 与真实通知。干净 HEAD 的临时 SQLite/captured-owner 双周期 fixture 已得到 7/7 enabled、Agent/program `2/2 match`、零重复 job/incident；同槽重启 terminal skip 且 fencing token `1→2`，未出现 live command。当前版本化 server config 仍是 `shadow_program`；published owner CLI smoke、故障注入与长时观察完成前不得切换。
 
-S4/S5 已形成首个本地闭环：J04 路由先读 `plan_next`，ready/terminal 不调用模型；active empty/unready queue 才调用固定 Model Gateway，domain assessment 通过后以 `updated_at` CAS 原子入队，再委托既有 supervisor。模型失败不写 state/Trial，identical replay 幂等，stale/conflict fail closed；真实 provider、进程 kill/restart 单 Trial/Result 与 J04/J05/J07 长时 soak 仍是采用门。
+S4/S5 已形成首个本地闭环：J04 路由先读 `plan_next`，ready/terminal 不调用模型；active empty/unready queue 才调用固定 Model Gateway，domain assessment 通过后以 `updated_at` CAS 原子入队，再委托既有 supervisor。模型失败不写 state/Trial，identical replay 幂等，stale/conflict fail closed；真实 provider probe 已通过，进程 kill/restart 单 Trial/Result 与 J04/J05/J07 长时 soak 仍是采用门。
 
 S6 已新增 loopback-only Operator HTTP：Bearer + 独立 controlled approval、固定 read/write rate、exact route/payload 和 ops pre/post audit；当前只开放 tool search、RD read 与 approved J04 wakeup，不含 exchange/live/promotion/任意 command。Bun resident、真实 audit 回读和 API/approval token 重启轮换已通过，且 smoke 不调用 controlled owner；TLS、manager secret facility、OpenClaw client 与长时 soak 尚未完成。
 
-S7 已新增机器可判定的 no-live release gate。本机已补齐 launchd install、真实 volume restore、public/full-shadow soak、Operator resident/audit/rotation；pending 从 7 项收敛为真实模型 provider smoke 与 R&D kill/restart 单 Trial/Result 两项。因两项未授权执行，当前最大 authority 仍是 `no_live_local_rehearsal`；该 gate 无论结果如何都不能开放 exchange write 或自动 promotion。
+S7 已新增机器可判定的 no-live release gate。本机已补齐 launchd install、真实 volume restore、public/full-shadow soak、Operator resident/audit/rotation。2026-07-23 固定 SiliconFlow probe 在 credential 修正后一次完成，64 tokens、精确 JSON marker、`execution_authority=none`，provider 门已闭合；R&D gate 因当前会话未加载 `trade-agent` MCP owner surface，按研究工作流边界未用任意 CLI 替代。机器复判只剩 R&D kill/restart 单 Trial/Result，当前最大 authority 保留 `no_live_local_rehearsal`；该 gate 无论结果如何都不能开放 exchange write 或自动 promotion。
 
 本机 Darwin arm64 已把 committed release staging 到非受保护用户数据目录，并安装三个固定 launchd labels；因此不再从 Downloads workspace 取得无人值守 authority。manager plist/hash 与 release manifest 绑定，当前三个 unit active。
 
@@ -244,7 +244,20 @@ validate config/secrets/volumes
 | S7 no-live host adoption | release gate 聚合 lifecycle/recovery/full-shadow/R&D/operator/deployment 证据；macOS launchd、真实 restore 与 soak 已过 | 真实 provider 与 R&D kill/restart 单 Trial/Result 后也仅可进入人工变更评审 |
 | post-S7 live cutover | 独立授权后按 job 逐项开放 authority | shadow soak、reconcile、kill/restart、backup/restore、catalog canary 与 live-small canary 全通过 |
 
-每个切片独立提交、验证和回滚。S2 不等待 LLM；S4 不等待 OpenClaw；S7 不因“所有进程能启动”自动成立，也不包含 live authority。
+每个切片独立提交、验证和回滚。S2 不等待 LLM；S4 不等待 OpenClaw；S7 不因“所有进程能启动”自动成立，也不包含 live authority。可替换 Codex/OpenClaw Host 的采用走独立的 [Agent Host Runtime plan](./agent-host-runtime-integration-plan.md)，不是 S7 的前置条件，也不得反向修改 Program/Owner authority。
+
+### 9.1 剩余执行队列
+
+严格按门禁顺序继续，不以新增框架绕过失败项：
+
+1. 已完成：credential 修正后执行固定 `bun run provider:smoke`，`passed=true`、marker 精确匹配、64 tokens、无执行 authority。
+2. 新会话加载 `trade-agent` MCP 后，以同一稳定 request identity 启动一个 bounded J04；在已形成 durable Trial、Result 尚未发布的窗口终止 worker，再由 owner workflow 恢复。验收只允许一个 Trial、一个 Result、无重复 artifact/预算消费，且终态由 gate 判定，不以进程退出码代替。
+3. 将上述两份真实证据写入 release evidence，重跑 `server-runtime-release-gate`；预期最高只到 `eligible_for_manual_change_review / no_live_server_shadow`，live 与 promotion 必须仍为 false。
+4. 完成 no-live 人工变更评审后，才评估把版本化 server profile 从 `shadow_program` 改为 `full_shadow`；先单 job authority、保留 Agent fallback，不批量切换。
+5. 后续可靠性依次处理 provider dataset parity、脱敏 usage/trace、rate-limit/circuit breaker、manager secret facility、Operator TLS/OpenClaw fixture 与长时 J04/J05/J07 soak；这些不阻塞 deterministic stream/reconcile，但各自完成前不得扩大语义或网络 authority。
+6. L2 多 symbol、Replay consumer cutover 与 broker adoption 独立推进；只有出现多个 durable consumer、offset replay、backpressure/DLQ 的实证需求，才评测 NATS/Kafka。LangGraph/Temporal 同样只在现有有界状态机无法清晰表达时进入 adoption gate。
+
+第 1 项已闭合。第 2 项仍要求某次执行会话实际加载 `trade-agent` MCP；这是该 kill/restart 验证的会话前置条件，不是系统必须依赖 Codex MCP 才能常驻运行的架构结论，也不阻塞独立 Agent Host adapter/评测施工。其余能在原会话安全完成的代码、回归、J06 canary 与 release 复判均已完成。
 
 ## 10. 完成定义
 
