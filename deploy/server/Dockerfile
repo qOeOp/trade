@@ -2,6 +2,7 @@
 
 ARG RUST_VERSION=1.97.1
 ARG BUN_VERSION=1.3.13
+ARG GO_VERSION=1.25
 
 FROM rust:${RUST_VERSION}-bookworm AS l2-builder
 WORKDIR /build
@@ -12,6 +13,12 @@ RUN cargo build \
     --release \
     --bins \
     --manifest-path modules/market-data-products/l2-order-book-service/Cargo.toml
+
+FROM golang:${GO_VERSION}-bookworm AS indicator-builder
+WORKDIR /build/modules/market-data-products/tech-indicators
+COPY modules/market-data-products/tech-indicators/go.mod ./
+COPY modules/market-data-products/tech-indicators/src ./src
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o target/release/tech-indicators ./src/scripts
 
 FROM oven/bun:${BUN_VERSION}-debian AS runtime
 RUN apt-get update \
@@ -35,14 +42,17 @@ COPY --from=l2-builder \
 COPY --from=l2-builder \
     /build/modules/market-data-products/l2-order-book-service/target/release/l2-order-book-query \
     /app/modules/market-data-products/l2-order-book-service/target/release/l2-order-book-query
+COPY --from=indicator-builder \
+    /build/modules/market-data-products/tech-indicators/target/release/tech-indicators \
+    /app/modules/market-data-products/tech-indicators/target/release/tech-indicators
 
 RUN groupadd --gid 10001 trade \
     && useradd --uid 10001 --gid 10001 --home-dir /nonexistent --shell /usr/sbin/nologin trade \
-    && mkdir -p /app/data/l2 /app/tmp/artifacts /app/tmp/panels /app/tmp/server-runtime/logs \
+    && mkdir -p /app/data/l2 /app/data/artifacts/market-data /app/tmp/artifacts /app/tmp/panels /app/tmp/server-runtime/logs \
     && chown -R trade:trade /app/data /app/tmp
 
 ENV NODE_ENV=production
 ENV TRADE_REPO_ROOT=/app
 USER 10001:10001
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["bun", "modules/orchestration-ops/trade-flow/src/scripts/server-runtime-container-foreground.ts", "--profile", "profile/server-runtime.json"]
+CMD ["bun", "modules/orchestration-ops/trade-flow/src/scripts/server-runtime-container-foreground.ts", "--profile", "profile/server-runtime-container.json"]
