@@ -5,7 +5,7 @@ import type { AgentArtifactRef } from "../../../../contracts/agent-run-contract/
 import { canonicalHash, canonicalJson } from "../../../../contracts/runtime-core/src/canonical-json"
 
 export const AGENT_WORKSPACE_EXECUTION_SCOPE_SCHEMA =
-  "trade.agent-workspace-execution-scope.v1" as const
+  "trade.agent-workspace-execution-scope.v2" as const
 
 export interface AgentWorkspaceExecutionScopeBody {
   schema_version: typeof AGENT_WORKSPACE_EXECUTION_SCOPE_SCHEMA
@@ -14,6 +14,7 @@ export interface AgentWorkspaceExecutionScopeBody {
   source_revision: string
   allowed_write_prefixes: string[]
   package_path: string
+  seed_patch: AgentArtifactRef | null
   issued_at: string
   domain_authority: "none"
 }
@@ -78,8 +79,8 @@ export interface FinalizedAgentWorkspaceEvidence {
 export function createAgentWorkspaceExecutionScope(
   input: Omit<
     AgentWorkspaceExecutionScopeBody,
-    "schema_version" | "domain_authority"
-  >,
+    "schema_version" | "domain_authority" | "seed_patch"
+  > & { seed_patch?: AgentArtifactRef | null },
 ): AgentWorkspaceExecutionScope {
   const prefixes = writePrefixes(input.allowed_write_prefixes)
   const packagePath = repoPath(input.package_path, "package_path")
@@ -97,6 +98,9 @@ export function createAgentWorkspaceExecutionScope(
     source_revision: revision(input.source_revision),
     allowed_write_prefixes: prefixes,
     package_path: packagePath,
+    seed_patch: input.seed_patch == null
+      ? null
+      : workspacePatchArtifact(input.seed_patch),
     issued_at: canonicalTime(input.issued_at),
     domain_authority: "none",
   }
@@ -191,6 +195,37 @@ export function captureAgentWorkspacePatch(
     patch_text: patchText,
     domain_authority: "none",
   }
+}
+
+export function seedAgentWorkspacePatch(input: {
+  workspace: AgentWorkspace
+  artifact: AgentArtifactRef
+  patch_text: string
+}): AgentWorkspacePatch {
+  validateWorkspaceRecord(input.workspace)
+  const artifact = workspacePatchArtifact(input.artifact)
+  const bytes = Buffer.from(input.patch_text)
+  if (bytes.byteLength !== artifact.bytes
+    || createHash("sha256").update(bytes).digest("hex") !== artifact.sha256) {
+    throw new Error("Agent workspace seed patch bytes drifted")
+  }
+  if (bytes.byteLength < 1) throw new Error("Agent workspace seed patch is empty")
+  gitInput(
+    input.workspace.workspace_root,
+    ["apply", "--check", "--binary", "-"],
+    bytes,
+  )
+  gitInput(
+    input.workspace.workspace_root,
+    ["apply", "--binary", "-"],
+    bytes,
+  )
+  const captured = captureAgentWorkspacePatch(input.workspace)
+  if (captured.patch_sha256 !== artifact.sha256
+    || captured.patch_bytes !== artifact.bytes) {
+    throw new Error("Agent workspace seed patch did not reproduce exactly")
+  }
+  return captured
 }
 
 export async function runAgentWorkspacePackageCheck(input: {
@@ -449,6 +484,20 @@ function git(cwd: string, args: string[], tolerateFailure = false): string {
   return result.stdout.toString()
 }
 
+function gitInput(cwd: string, args: string[], input: Buffer): string {
+  const result = Bun.spawnSync({
+    cmd: ["git", ...args],
+    cwd,
+    stdin: input,
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  if (result.exitCode !== 0) {
+    throw new Error(`Agent workspace git operation failed: ${args[0]}`)
+  }
+  return result.stdout.toString()
+}
+
 function registeredWorktreePaths(repositoryRoot: string): Set<string> {
   const lines = git(repositoryRoot, ["worktree", "list", "--porcelain"]).split("\n")
   return new Set(lines
@@ -533,6 +582,25 @@ function revision(value: string): string {
 function digest(value: string, field: string): string {
   if (!/^[a-f0-9]{64}$/.test(value)) throw new Error(`${field} is invalid`)
   return value
+}
+
+function workspacePatchArtifact(value: AgentArtifactRef): AgentArtifactRef {
+  if (!value || typeof value !== "object"
+    || typeof value.ref !== "string"
+    || value.ref.startsWith("/")
+    || value.ref.split("/").includes("..")
+    || value.media_type !== "text/x-diff"
+    || !Number.isSafeInteger(value.bytes)
+    || value.bytes < 1
+    || value.bytes > 16 * 1024 * 1024) {
+    throw new Error("seed_patch is invalid")
+  }
+  return {
+    ref: value.ref,
+    sha256: digest(value.sha256, "seed_patch.sha256"),
+    media_type: "text/x-diff",
+    bytes: value.bytes,
+  }
 }
 
 function identifier(value: string, field: string): string {

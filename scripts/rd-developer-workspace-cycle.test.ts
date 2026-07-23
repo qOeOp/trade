@@ -1,10 +1,22 @@
 import assert from "node:assert/strict"
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { Database } from "bun:sqlite"
 import { readFamilyEvaluationProtocol } from "../modules/contracts/rd-agent-capability-contract/src/rd-agent-capability-contract"
+import type { AgentArtifactRef } from "../modules/contracts/agent-run-contract/src/agent-run-contract"
+import {
+  readAgentArtifact,
+  writeAgentTextArtifact,
+} from "../modules/orchestration-ops/agent-artifact-store/src/lib/agent-artifact-store"
 import { ensureAgentRunStoreSchema } from "../modules/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
 import type { CodexAppServerClientPort } from "../modules/orchestration-ops/agent-host-codex/src/lib/codex-app-server-client"
 import { buildPlannerProposal } from "../modules/research-strategy-development/agent-roles/planner/src/lib/planner-role"
@@ -18,21 +30,25 @@ import { runDeveloperWorkspaceCycle } from "./lib/rd-developer-workspace-cycle"
 const PACKAGE_PATH =
   "modules/research-strategy-development/agent-roles/developer/strategy-family-engine"
 
-test("R&D workspace composition returns patch_ready without creating a Contract Draft", async () => {
+test("R&D workspace composition produces cumulative revisions without creating a Contract Draft", async () => {
   const root = fixtureRepository()
   const researchDb = new Database(":memory:")
   const opsDb = new Database(":memory:")
   ensureAgentRunStoreSchema(opsDb)
   const proposal = seedProposal(researchDb)
-  const workspaceRoot = join(
+  const firstWorkspaceRoot = join(
     root,
     "tmp",
     "agent-workspaces",
     "developer-workspace-rd",
   )
-  const client = new EditingClient(workspaceRoot)
+  const firstClient = new EditingClient(
+    firstWorkspaceRoot,
+    "partial",
+    "ready",
+  )
   try {
-    const result = await runDeveloperWorkspaceCycle({
+    const first = await runDeveloperWorkspaceCycle({
       research_db: researchDb,
       ops_db: opsDb,
       repository_root: root,
@@ -49,13 +65,100 @@ test("R&D workspace composition returns patch_ready without creating a Contract 
       proposal_revision: 1,
       brief_id: "brief-developer-workspace-rd",
       poll_interval_ms: 10,
-      create_client: (onNotification) => client.connect(onNotification),
+      create_client: (onNotification) => firstClient.connect(onNotification),
       now: () => new Date("2026-07-23T10:05:00.000Z"),
     })
-    assert.equal(result.admission.status, "patch_ready")
-    assert.equal(result.admission.receipt, null)
-    assert.equal(result.output_refs.length, 3)
-    assert.equal(existsSync(workspaceRoot), false)
+    assert.equal(first.admission.status, "patch_ready")
+    assert.equal(first.admission.receipt, null)
+    assert.equal(first.output_refs.length, 3)
+    assert.equal(existsSync(firstWorkspaceRoot), false)
+    const firstPatchRef = outputRef(first.output_refs, "text/x-diff")
+    const firstPatch = readAgentArtifact(root, firstPatchRef)
+    assert.match(firstPatch.text, /replayCoverage = "ready"/)
+
+    const diagnosisRef = writeAgentTextArtifact({
+      repository_root: root,
+      storage: "durable",
+      media_type: "application/json",
+      text: JSON.stringify({
+        schema_version: "trade.fixture-replay-diagnosis.v1",
+        status: "failed",
+        finding: "The ready marker must be revised after review.",
+      }),
+    })
+    const secondRunId = "developer-workspace-rd-revision-2"
+    const secondWorkspaceRoot = join(
+      root,
+      "tmp",
+      "agent-workspaces",
+      secondRunId,
+    )
+    const secondClient = new EditingClient(
+      secondWorkspaceRoot,
+      "ready",
+      "revised",
+    )
+    const second = await runDeveloperWorkspaceCycle({
+      research_db: researchDb,
+      ops_db: opsDb,
+      repository_root: root,
+      codex_path: "/unused/codex",
+      allowed_write_prefixes: [PACKAGE_PATH],
+      package_path: PACKAGE_PATH,
+      developer_run_id: secondRunId,
+      trace_id: "trace-developer-workspace-rd-revision-2",
+      idempotency_key: "developer-workspace-rd-revision-2-key",
+      source_revision: "HEAD",
+      requested_at: "2026-07-23T10:06:00.000Z",
+      deadline_at: "2026-07-24T10:36:00.000Z",
+      proposal_id: proposal.proposal_id,
+      proposal_revision: 1,
+      brief_id: "brief-developer-workspace-rd",
+      predecessor_run_id: first.run_id,
+      predecessor_patch_ref: firstPatchRef,
+      replay_result_refs: [diagnosisRef],
+      poll_interval_ms: 10,
+      create_client: (onNotification) => secondClient.connect(onNotification),
+      now: () => new Date("2026-07-23T10:07:00.000Z"),
+    })
+    assert.equal(second.admission.status, "patch_ready")
+    assert.equal(second.admission.receipt, null)
+    assert.equal(existsSync(secondWorkspaceRoot), false)
+    const secondPatchRef = outputRef(second.output_refs, "text/x-diff")
+    const secondPatch = readAgentArtifact(root, secondPatchRef)
+    assert.notEqual(secondPatchRef.sha256, firstPatchRef.sha256)
+    assert.match(secondPatch.text, /replayCoverage = "revised"/)
+    assert.doesNotMatch(secondPatch.text, /replayCoverage = "ready"/)
+    await assert.rejects(
+      runDeveloperWorkspaceCycle({
+        research_db: researchDb,
+        ops_db: opsDb,
+        repository_root: root,
+        codex_path: "/unused/codex",
+        allowed_write_prefixes: [PACKAGE_PATH],
+        package_path: PACKAGE_PATH,
+        developer_run_id: "developer-workspace-rd-forged-seed",
+        trace_id: "trace-developer-workspace-rd-forged-seed",
+        idempotency_key: "developer-workspace-rd-forged-seed-key",
+        source_revision: "HEAD",
+        requested_at: "2026-07-23T10:08:00.000Z",
+        deadline_at: "2026-07-24T10:38:00.000Z",
+        proposal_id: proposal.proposal_id,
+        proposal_revision: 1,
+        brief_id: "brief-developer-workspace-rd",
+        predecessor_run_id: first.run_id,
+        predecessor_patch_ref: {
+          ...firstPatchRef,
+          ref: `agent-artifact://durable/${"a".repeat(64)}`,
+        },
+        poll_interval_ms: 10,
+        create_client: () => {
+          throw new Error("forged predecessor must not start Codex")
+        },
+      }),
+      /seed patch is not the predecessor output/,
+    )
+
     const row = researchDb.query(
       "SELECT COUNT(*) AS count FROM rd_developer_contract_draft",
     ).get() as { count: number }
@@ -71,7 +174,11 @@ class EditingClient implements CodexAppServerClientPort {
   private onNotification: (method: string, params: unknown) => void =
     () => undefined
 
-  constructor(private readonly workspaceRoot: string) {}
+  constructor(
+    private readonly workspaceRoot: string,
+    private readonly expectedValue: string,
+    private readonly nextValue: string,
+  ) {}
 
   connect(onNotification: (method: string, params: unknown) => void): this {
     this.onNotification = onNotification
@@ -83,9 +190,18 @@ class EditingClient implements CodexAppServerClientPort {
     return "thread-rd-workspace"
   }
   async startTurn(): Promise<string> {
+    const sourcePath = join(
+      this.workspaceRoot,
+      PACKAGE_PATH,
+      "src/index.ts",
+    )
+    assert.match(
+      readFileSync(sourcePath, "utf8"),
+      new RegExp(`replayCoverage = "${this.expectedValue}"`),
+    )
     writeFileSync(
-      join(this.workspaceRoot, PACKAGE_PATH, "src/index.ts"),
-      "export const replayCoverage = \"ready\"\n",
+      sourcePath,
+      `export const replayCoverage = "${this.nextValue}"\n`,
     )
     queueMicrotask(() => {
       this.onNotification("item/completed", {
@@ -104,6 +220,15 @@ class EditingClient implements CodexAppServerClientPort {
   async steer(): Promise<void> {}
   async interrupt(): Promise<void> {}
   async close(): Promise<void> {}
+}
+
+function outputRef(
+  refs: AgentArtifactRef[],
+  mediaType: AgentArtifactRef["media_type"],
+): AgentArtifactRef {
+  const result = refs.find((ref) => ref.media_type === mediaType)
+  if (!result) throw new Error(`output artifact ${mediaType} is missing`)
+  return result
 }
 
 function seedProposal(db: Database) {

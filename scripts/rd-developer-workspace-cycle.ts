@@ -54,6 +54,9 @@ async function main(): Promise<void> {
       ...(input.predecessor_run_id == null
         ? {}
         : { predecessor_run_id: input.predecessor_run_id }),
+      ...(input.predecessor_patch_ref == null
+        ? {}
+        : { predecessor_patch_ref: input.predecessor_patch_ref }),
       replay_result_refs: input.replay_result_refs,
       ...(input.data_snapshot_binding == null
         ? {}
@@ -85,6 +88,7 @@ function parseInput(argv: string[]): {
   proposal_revision: number
   brief_id: string
   predecessor_run_id: string | null
+  predecessor_patch_ref: AgentArtifactRef | null
   replay_result_refs: AgentArtifactRef[]
   data_snapshot_binding: DeveloperDataSnapshotBinding | null
   poll_interval_ms: number
@@ -140,6 +144,9 @@ function parseInput(argv: string[]): {
     predecessor_run_id: value.predecessor_run_id == null
       ? null
       : identifier(value.predecessor_run_id, "predecessor_run_id"),
+    predecessor_patch_ref: value.predecessor_patch_ref == null
+      ? null
+      : artifactRef(value.predecessor_patch_ref, "predecessor_patch_ref"),
     replay_result_refs: artifactRefs(value.replay_result_refs),
     data_snapshot_binding: value.data_snapshot_binding == null
       ? null
@@ -160,29 +167,32 @@ function artifactRefs(value: unknown): AgentArtifactRef[] {
   if (!Array.isArray(value) || value.length > 32) {
     throw new Error("replay_result_refs must be bounded")
   }
-  return value.map((item, index) => {
-    if (!item || typeof item !== "object" || Array.isArray(item)) {
-      throw new Error(`replay_result_refs[${index}] is invalid`)
-    }
-    const ref = item as JSONRecord
-    const mediaType = text(ref.media_type)
-    const result: AgentArtifactRef = {
-      ref: repoOrOpaqueRef(ref.ref, `replay_result_refs[${index}].ref`),
-      sha256: digest(ref.sha256, `replay_result_refs[${index}].sha256`),
-      media_type: mediaType as AgentArtifactRef["media_type"],
-      bytes: integer(
-        ref.bytes,
-        0,
-        16 * 1024 * 1024,
-        `replay_result_refs[${index}].bytes`,
-      ),
-    }
-    if (!["application/json", "text/markdown", "text/x-diff", "text/plain"]
-      .includes(result.media_type)) {
-      throw new Error(`replay_result_refs[${index}].media_type is invalid`)
-    }
-    return result
-  })
+  return value.map((item, index) =>
+    artifactRef(item, `replay_result_refs[${index}]`))
+}
+
+function artifactRef(value: unknown, field: string): AgentArtifactRef {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${field} is invalid`)
+  }
+  const ref = value as JSONRecord
+  const mediaType = text(ref.media_type)
+  const result: AgentArtifactRef = {
+    ref: repoOrOpaqueRef(ref.ref, `${field}.ref`),
+    sha256: digest(ref.sha256, `${field}.sha256`),
+    media_type: mediaType as AgentArtifactRef["media_type"],
+    bytes: integer(
+      ref.bytes,
+      0,
+      16 * 1024 * 1024,
+      `${field}.bytes`,
+    ),
+  }
+  if (!["application/json", "text/markdown", "text/x-diff", "text/plain"]
+    .includes(result.media_type)) {
+    throw new Error(`${field}.media_type is invalid`)
+  }
+  return result
 }
 
 function paths(value: unknown, field: string): string[] {

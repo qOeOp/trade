@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
-import { existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
@@ -14,6 +14,7 @@ import {
   removeAgentWorkspace,
   removeStaleAgentWorkspaces,
   runAgentWorkspacePackageCheck,
+  seedAgentWorkspacePatch,
 } from "./workspace-manager"
 
 test("workspace execution scope binds one request to exact source and check path", () => {
@@ -27,6 +28,7 @@ test("workspace execution scope binds one request to exact source and check path
   })
   assert.equal(scope.scope_hash.length, 64)
   assert.equal(scope.domain_authority, "none")
+  assert.equal(scope.seed_patch, null)
   assert.throws(() => createAgentWorkspaceExecutionScope({
     run_id: "developer-run-scope",
     request_hash: "a".repeat(64),
@@ -35,6 +37,55 @@ test("workspace execution scope binds one request to exact source and check path
     package_path: "modules/other",
     issued_at: "2026-07-23T01:00:00.000Z",
   }), /outside allowed prefixes/)
+})
+
+test("workspace seed patch reconstructs one exact cumulative revision", () => {
+  const root = fixtureRepository()
+  const first = createAgentWorkspace({
+    repository_root: root,
+    run_id: "developer-seed-source",
+    source_revision: "HEAD",
+    allowed_write_prefixes: ["modules/sample"],
+  })
+  let artifact
+  let patchText
+  try {
+    writeFileSync(
+      join(first.workspace_root, "modules/sample/index.ts"),
+      "export const value = 2\n",
+    )
+    const patch = captureAgentWorkspacePatch(first)
+    artifact = {
+      ref: `agent-artifact://durable/${patch.patch_sha256}`,
+      sha256: patch.patch_sha256,
+      media_type: "text/x-diff" as const,
+      bytes: patch.patch_bytes,
+    }
+    patchText = patch.patch_text
+  } finally {
+    removeAgentWorkspace(first)
+  }
+  const second = createAgentWorkspace({
+    repository_root: root,
+    run_id: "developer-seed-target",
+    source_revision: "HEAD",
+    allowed_write_prefixes: ["modules/sample"],
+  })
+  try {
+    const seeded = seedAgentWorkspacePatch({
+      workspace: second,
+      artifact,
+      patch_text: patchText,
+    })
+    assert.equal(seeded.patch_sha256, artifact.sha256)
+    assert.match(
+      readFileSync(join(second.workspace_root, "modules/sample/index.ts"), "utf8"),
+      /value = 2/,
+    )
+  } finally {
+    removeAgentWorkspace(second)
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test("Developer workspace freezes source, bounds writes, captures patch, and cleans up", async () => {

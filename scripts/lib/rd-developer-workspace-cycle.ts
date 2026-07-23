@@ -8,6 +8,7 @@ import {
 import type { CodexAppServerClientPort } from "../../modules/orchestration-ops/agent-host-codex/src/lib/codex-app-server-client"
 import { createDeveloperWorkspaceCodexHost } from "../../modules/orchestration-ops/agent-host-codex/src/lib/developer-workspace-codex-host"
 import { createAgentWorkspaceExecutionScope } from "../../modules/orchestration-ops/agent-workspace-manager/src/lib/workspace-manager"
+import { readAgentRun } from "../../modules/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
 import {
   admitDeveloperAgentResult,
   createDeveloperWorkspaceAgentSubmission,
@@ -34,6 +35,7 @@ export interface DeveloperWorkspaceCycleInput {
   proposal_revision: number
   brief_id: string
   predecessor_run_id?: string
+  predecessor_patch_ref?: AgentArtifactRef
   replay_result_refs?: AgentArtifactRef[]
   data_snapshot_binding?: DeveloperDataSnapshotBinding | null
   poll_interval_ms?: number
@@ -50,6 +52,11 @@ export async function runDeveloperWorkspaceCycle(
   input: DeveloperWorkspaceCycleInput,
 ) {
   const artifacts = directArtifactPort(input.repository_root)
+  validatePredecessorPatch(input)
+  const replayResultRefs = mergeInputRefs(
+    input.predecessor_patch_ref,
+    input.replay_result_refs ?? [],
+  )
   const prepared = prepareDeveloperAgentRun({
     db: input.research_db,
     developer_run_id: input.developer_run_id,
@@ -65,9 +72,9 @@ export async function runDeveloperWorkspaceCycle(
     ...(input.predecessor_run_id == null
       ? {}
       : { predecessor_run_id: input.predecessor_run_id }),
-    ...(input.replay_result_refs == null
+    ...(replayResultRefs.length < 1
       ? {}
-      : { replay_result_refs: input.replay_result_refs }),
+      : { replay_result_refs: replayResultRefs }),
     ...(input.data_snapshot_binding == null
       ? {}
       : { data_snapshot_binding: input.data_snapshot_binding }),
@@ -81,6 +88,7 @@ export async function runDeveloperWorkspaceCycle(
     source_revision: prepared.request.source_revision,
     allowed_write_prefixes: input.allowed_write_prefixes,
     package_path: input.package_path,
+    seed_patch: input.predecessor_patch_ref ?? null,
     issued_at: input.requested_at,
   })
   const host = createDeveloperWorkspaceCodexHost({
@@ -136,6 +144,44 @@ export async function runDeveloperWorkspaceCycle(
   } finally {
     await host.close()
   }
+}
+
+function validatePredecessorPatch(input: DeveloperWorkspaceCycleInput): void {
+  if ((input.predecessor_run_id == null)
+    !== (input.predecessor_patch_ref == null)) {
+    throw new Error(
+      "Developer workspace predecessor_run_id and predecessor_patch_ref must be paired",
+    )
+  }
+  if (!input.predecessor_run_id || !input.predecessor_patch_ref) return
+  const predecessor = readAgentRun(input.ops_db, input.predecessor_run_id)
+  if (!predecessor?.result
+    || predecessor.result.status !== "completed"
+    || predecessor.request.task_profile !== "developer"
+    || predecessor.request.source_revision !== input.source_revision) {
+    throw new Error("Developer workspace predecessor is not one compatible completed run")
+  }
+  const expected = `${input.predecessor_patch_ref.ref}:${input.predecessor_patch_ref.sha256}`
+  const matches = predecessor.result.output_refs.filter(
+    (ref) => `${ref.ref}:${ref.sha256}` === expected
+      && ref.media_type === "text/x-diff"
+      && ref.bytes === input.predecessor_patch_ref!.bytes,
+  )
+  if (matches.length !== 1) {
+    throw new Error("Developer workspace seed patch is not the predecessor output")
+  }
+}
+
+function mergeInputRefs(
+  predecessorPatch: AgentArtifactRef | undefined,
+  refs: AgentArtifactRef[],
+): AgentArtifactRef[] {
+  const values = [...(predecessorPatch ? [predecessorPatch] : []), ...refs]
+  const keys = values.map((ref) => `${ref.ref}:${ref.sha256}`)
+  if (new Set(keys).size !== keys.length) {
+    throw new Error("Developer workspace input refs contain duplicates")
+  }
+  return values
 }
 
 function directArtifactPort(repositoryRoot: string): AgentArtifactPort {

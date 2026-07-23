@@ -43,6 +43,7 @@ test("Developer workspace Codex composition owns worktree, check, artifacts, Res
     source_revision: request.source_revision,
     allowed_write_prefixes: ["modules/sample"],
     package_path: "modules/sample",
+    seed_patch: null,
     issued_at: "2026-07-23T01:00:00.000Z",
   })
   const client = new EditingClient(workspaceRoot)

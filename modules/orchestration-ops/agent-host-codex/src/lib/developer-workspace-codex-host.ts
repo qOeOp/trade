@@ -16,6 +16,7 @@ import {
   createAgentWorkspace,
   finalizeAgentWorkspaceEvidence,
   removeAgentWorkspace,
+  seedAgentWorkspacePatch,
   type AgentWorkspace,
   type AgentWorkspaceExecutionScope,
   type FinalizedAgentWorkspaceEvidence,
@@ -76,6 +77,9 @@ export function createDeveloperWorkspaceCodexHost(
       const scope = await options.resolve_scope(request)
       assertAgentWorkspaceExecutionScope(scope)
       validateScopeBindings(scope, request)
+      const seed = scope.seed_patch == null
+        ? null
+        : readAgentArtifact(repositoryRoot, scope.seed_patch)
       const workspace = createAgentWorkspace({
         repository_root: repositoryRoot,
         run_id: request.run_id,
@@ -83,8 +87,15 @@ export function createDeveloperWorkspaceCodexHost(
         allowed_write_prefixes: scope.allowed_write_prefixes,
         created_at: now().toISOString(),
       })
-      workspaces.set(request.run_id, workspace)
       try {
+        if (seed) {
+          seedAgentWorkspacePatch({
+            workspace,
+            artifact: seed.artifact,
+            patch_text: seed.text,
+          })
+        }
+        workspaces.set(request.run_id, workspace)
         return {
           repo_root: repositoryRoot,
           workspace_root: workspace.workspace_root,
@@ -186,5 +197,14 @@ function validateScopeBindings(
     || scope.request_hash !== request.request_hash
     || scope.source_revision !== request.source_revision) {
     throw new Error("Agent workspace execution scope drifted from request")
+  }
+  if (scope.seed_patch) {
+    const expected = `${scope.seed_patch.ref}:${scope.seed_patch.sha256}`
+    const requestRefs = new Set(
+      request.input_refs.map((ref) => `${ref.ref}:${ref.sha256}`),
+    )
+    if (!requestRefs.has(expected)) {
+      throw new Error("Agent workspace seed patch is absent from request inputs")
+    }
   }
 }

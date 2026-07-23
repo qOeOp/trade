@@ -265,8 +265,8 @@ Host 运行状态属于 ops plane。是否新增 durable store、复用 `ops_run
 | P1 Agent Run 合同 | complete | provider / Host 中立的 request、event、result 与 policy | contract tests、恶意输入和 identity replay 全过 |
 | P2 Provider / Codex capability | active-partial | 分离 SiliconFlow wire 能力与 Codex protocol 能力 | capability matrix 可归因；不以 prompt 掩盖协议失败 |
 | P3 Direct Codex adapter | active-partial | Program 可提交、观察、取消和失败关闭有界 Codex Run | 真实 structured turn 与 daemon transport 待采用 |
-| P4 MCP 与 Developer sandbox | active-partial | 私有 MCP、角色投影、每 Run 隔离 worktree与 implementation-gap workspace routing 已落地 | Host patch/check 后处理、容器读隔离 / cgroup 与真实 Developer 纵切待采用 |
-| P5 R&D Agent 纵切 | active-partial | Planner → Developer → Replay → Reviewer → Registry | 两轮 Planner/Developer/compatibility evaluation/Reviewer 已实跑；certified Replay、代码二次修订、Registry 待闭环 |
+| P4 MCP 与 Developer sandbox | active-partial | 私有 MCP、角色投影、每 Run 隔离 worktree、implementation-gap routing、Host patch/check 与累计 revision seeding 已落地 | 容器读隔离 / cgroup 待远程采用 |
+| P5 R&D Agent 纵切 | active-partial | Planner → Developer → Replay → Reviewer → Registry | 两轮 Planner/Developer/compatibility evaluation/Reviewer、真实首轮 Codex patch 与确定性代码二次修订 fixture 已通过；certified Replay 自动回送、真实模型二次修改、Registry 待闭环 |
 | P6 OpenClaw 与容器 | active-partial | OpenClaw-Codex、alternate runtime 与 no-live Compose fixture | alternate runtime/fixture 已落地；真实容器采用待外部 host |
 | P7 Bake-off 与可靠性 | pending | 公平比较、故障注入、资源 / 磁盘与长时运行 | 无 authority violation；形成采用或拒绝证据 |
 | P8 收敛与采用 | pending | 默认 profile、回滚、清理、文档和运行手册 | 全仓质量门通过；目标态与当前态无漂移 |
@@ -300,7 +300,7 @@ Host 运行状态属于 ops plane。是否新增 durable store、复用 `ops_run
 
 P1 已落地 `modules/contracts/agent-run-contract`：request / event / result 均为 canonical hash 合同，四类 profile 使用 closed-world capability，输入输出只携带有 hash / bytes 的 refs，raw reasoning、额外 Host payload、secret-like 内容、绝对路径、身份漂移、事件断序、budget 超限和 uncertain-effect 自动重试全部 fail closed。`AgentHostPort` 再固定 submit / events / status / steer / approve / cancel / result，重复 submit 保持同一 request identity；当前 8 项 contract / fake-host 测试通过。该包不进入 `toolset.json`，因为它没有可执行 authority surface。
 
-本机 P2/P3 已固定 `codex-cli 0.144.6` 与 stable generated TypeScript bundle hash `ae3056…8e2`。`agent-host-codex` 已实现 App Server client、Host port、deadline / cancel / interrupt、sanitized event、external output sink 和 ops-owned durable run registry；重复 submit 不重复启动，Developer 中断以 `tool_effect_uncertain` 关闭。真实 stdio probe 已完成 initialize / ephemeral thread 与默认 provider read-only turn；2026-07-23 的隔离临时仓库 adoption smoke 又完成一次默认 provider Developer turn，约 35 秒产生 657-byte patch、package check 与 `patch_ready`，生产仓库零修改。SiliconFlow 因 Responses 404 仍不能驱动 Codex；daemon transport、失败后二次修订与远程采用尚未完成，因此 P2/P3 仍为 `active-partial`。
+本机 P2/P3 已固定 `codex-cli 0.144.6` 与 stable generated TypeScript bundle hash `ae3056…8e2`。`agent-host-codex` 已实现 App Server client、Host port、deadline / cancel / interrupt、sanitized event、external output sink 和 ops-owned durable run registry；重复 submit 不重复启动，Developer 中断以 `tool_effect_uncertain` 关闭。真实 stdio probe 已完成 initialize / ephemeral thread 与默认 provider read-only turn；2026-07-23 的隔离临时仓库 adoption smoke 又完成一次默认 provider Developer turn，约 35 秒产生 657-byte patch、package check 与 `patch_ready`，生产仓库零修改。后继 code Run 现可从该 predecessor Result 精确重放累计 patch，但真实 provider 的第二轮修改仍未采用。SiliconFlow 因 Responses 404 仍不能驱动 Codex；daemon transport 与远程采用尚未完成，因此 P2/P3 仍为 `active-partial`。
 
 P4 当前已复用同一 `createTradeMcpServer` registry 支持 stdio 与 bearer-authenticated stateless Streamable HTTP；HTTP 有 loopback/private bind、Host/origin、body 与 rate gate，且按四类 Agent profile 投影最小工具集。`agent-workspace-manager` 已提供 frozen-revision worktree、write-prefix / symlink / secret-data denial、固定 package check、bounded patch、container mount plan 和 active-run-aware GC。macOS 本地 worktree 不构成读隔离证据；只有 Developer container 不挂 production repo / home / owner DB / secret / Docker socket 且网络关闭后，P4 才能完成。
 
@@ -348,7 +348,7 @@ P5/P6 本机采用新增确定性证据：OpenClaw `2026.7.1` 通过最小 MCP r
 | P4.9 | 验证 Planner / Reviewer 只读，Developer 权限不外溢到 Host | role boundary tests |
 | P4.10 | 异常退出、残留 worktree、磁盘软线与 GC 清理 | recovery / cleanup report |
 
-当前 code path 不再“形有神无”：`family_implementation_missing` 与 `replay_implementation_not_ready` 确定性分类为 `code_change_required`，request 才获得 workspace read/patch/check capability；普通 semantic cycle 和 `research_developer_submission_prepare` 都显式拒绝该模式，避免 OpenClaw proposal-only profile 冒充代码 Agent。仓库级 `scripts/rd-developer-workspace-cycle.ts` outer composition 已把 Control Plane、Direct Codex、request-hash-bound write/check scope、真实 Git worktree、durable artifact、ops Run registry 与 `patch_ready` admission 装成可执行 one-shot；它不属于 Research 或 Ops domain，也不是新增 owner。fixture 验证 model text 不作证据、package check 通过、Result 先持久化、随后 worktree 清理且 Draft 仍为零。真实默认 provider smoke 已在独立临时仓库完成同一链路，result `da1c0250…2586f`、scope `dfac2549…1d1f`、patch `6c4d1c3d…7799`，生产仓库零修改。Host 会主动关闭重启残留的 uncertain Run，output finalization 失败也不再悬挂；同时修复 artifact input budget 与 Host framing 重复计费。剩余采用门是失败后二次修订及容器读隔离 / cgroup；SiliconFlow 仍因 Responses 404 不能直接驱动当前 Codex kernel。
+当前 code path 不再“形有神无”：`family_implementation_missing` 与 `replay_implementation_not_ready` 确定性分类为 `code_change_required`，request 才获得 workspace read/patch/check capability；普通 semantic cycle 和 `research_developer_submission_prepare` 都显式拒绝该模式，避免 OpenClaw proposal-only profile 冒充代码 Agent。仓库级 `scripts/rd-developer-workspace-cycle.ts` outer composition 已把 Control Plane、Direct Codex、request-hash-bound write/check scope、真实 Git worktree、durable artifact、ops Run registry 与 `patch_ready` admission 装成可执行 cycle；它不属于 Research 或 Ops domain，也不是新增 owner。首轮 fixture 验证 model text 不作证据、package check 通过、Result 先持久化、随后 worktree 清理且 Draft 仍为零；二次修订 fixture 再验证 predecessor id 与其 completed Result 中唯一 patch 必须成对，Host 从同一 frozen commit 重放并复算第一版 patch，Agent 消费独立 failure artifact 后只输出相对原基线的累计第二版 patch。真实默认 provider smoke 已在独立临时仓库完成首轮，result `da1c0250…2586f`、scope `dfac2549…1d1f`、patch `6c4d1c3d…7799`，生产仓库零修改。Host 会主动关闭重启残留的 uncertain Run，output finalization 失败也不再悬挂；同时修复 artifact input budget 与 Host framing 重复计费。剩余采用门是 certified Replay 自动回送、真实模型二次修改及容器读隔离 / cgroup；SiliconFlow 仍因 Responses 404 不能直接驱动当前 Codex kernel。
 
 ### P5 Planner / Developer / Replay / Reviewer 纵切
 
@@ -359,7 +359,7 @@ P5/P6 本机采用新增确定性证据：OpenClaw `2026.7.1` 通过最小 MCP r
 | P5.3 | 生成 admitted Developer brief 与 capability assessment | parameter / data / code blocker classification |
 | P5.4 | Developer 修改 MD / implementation / tests 并提交 patch | isolated patch evidence |
 | P5.5 | owner 冻结 dataset、reserve Trial、执行 deterministic Replay | 单一 Trial / Result |
-| P5.6 | 将 Result / artifact pack 返回同一 Developer Run，完成失败诊断和二次修订 | second-revision fixture |
+| P5.6 | 将 Result / artifact pack 返回后继 Developer Run，完成失败诊断和二次修订 | fixture complete：predecessor Result-bound seed + diagnosis ref + cumulative second patch；certified Replay 自动回送待采用 |
 | P5.7 | Reviewer 只消费登记 evidence，输出 typed Review Decision | owner validation |
 | P5.8 | Control Plane writeback 与 Registry draft 物化沿用正式入口 | restart / replay tests |
 | P5.9 | 实现 mechanical Replay 与 Agent-assisted evaluation 的 evidence kind / gate | 禁止证据冒充 |
