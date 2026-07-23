@@ -182,6 +182,10 @@ test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds De
     forwardDatasetCandidateWorker,
     /admitForwardDatasetCandidate/,
   )
+  assert.match(
+    forwardDatasetCandidateWorker,
+    /readForwardDatasetReadinessAssessment/,
+  )
   const forwardSourceBlock = agentCompose
     .split("\n  forward-source-admission-worker:")[1]!
     .split("\n  agent-mcp-planner:")[0]!

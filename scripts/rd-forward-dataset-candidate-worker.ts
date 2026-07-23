@@ -15,6 +15,9 @@ import {
   readLatestForwardDatasetCandidate,
 } from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/forward-dataset-candidate"
 import {
+  readForwardDatasetReadinessAssessment,
+} from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/forward-dataset-readiness-assessment"
+import {
   listForwardObservationCandleSegments,
   readLatestForwardObservationCandleSegment,
 } from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/forward-observation-candle-segment"
@@ -95,6 +98,14 @@ async function main(): Promise<void> {
               db,
               program.program_id,
             )
+            if (latest) {
+              observeReadiness(
+                db,
+                latest.candidate_id,
+                observedAt,
+                counts,
+              )
+            }
             if (latest?.head_segment_id === head.segment_id) {
               counts.unchanged_count += 1
               continue
@@ -127,6 +138,14 @@ async function main(): Promise<void> {
               verified_bars: materialized.bars,
             }) === "created") {
               counts.candidate_created_count += 1
+              if (!latest) {
+                observeReadiness(
+                  db,
+                  materialized.candidate.candidate_id,
+                  observedAt,
+                  counts,
+                )
+              }
             } else {
               counts.unchanged_count += 1
             }
@@ -254,6 +273,9 @@ interface Counts {
   segment_pending_count: number
   cadence_pending_count: number
   capacity_pending_count: number
+  readiness_pending_count: number
+  readiness_failure_count: number
+  readiness_blocker_counts: Record<string, number>
   failure_count: number
 }
 
@@ -265,7 +287,31 @@ function zeroCounts(): Counts {
     segment_pending_count: 0,
     cadence_pending_count: 0,
     capacity_pending_count: 0,
+    readiness_pending_count: 0,
+    readiness_failure_count: 0,
+    readiness_blocker_counts: {},
     failure_count: 0,
+  }
+}
+
+function observeReadiness(
+  db: Database,
+  candidateId: string,
+  assessedAt: string,
+  counts: Counts,
+): void {
+  try {
+    const assessment = readForwardDatasetReadinessAssessment(db, {
+      candidate_id: candidateId,
+      assessed_at: assessedAt,
+    })
+    counts.readiness_pending_count += 1
+    for (const blocker of assessment.blockers) {
+      counts.readiness_blocker_counts[blocker] =
+        (counts.readiness_blocker_counts[blocker] ?? 0) + 1
+    }
+  } catch {
+    counts.readiness_failure_count += 1
   }
 }
 

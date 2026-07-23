@@ -36,6 +36,9 @@ import {
   admitForwardDatasetCandidate,
   readLatestForwardDatasetCandidate,
 } from "./forward-dataset-candidate"
+import {
+  readForwardDatasetReadinessAssessment,
+} from "./forward-dataset-readiness-assessment"
 
 const HASH = "a".repeat(64)
 
@@ -146,6 +149,13 @@ test("Forward dataset candidate registry independently binds the complete segmen
   })).toBe("existing")
   expect(readLatestForwardDatasetCandidate(db, program.program_id))
     .toEqual(candidate)
+  const readiness = readForwardDatasetReadinessAssessment(db, {
+    candidate_id: candidate.candidate_id,
+    assessed_at: "2026-07-23T08:02:00.000Z",
+  })
+  expect(readiness.status).toBe("blocked_pending_components")
+  expect(readiness.blockers).toContain("funding_window_unverified")
+  expect(readiness.blockers).not.toContain("mark_window_unverified")
   expect(() => admitForwardDatasetCandidate(db, {
     candidate: {
       ...candidate,
@@ -255,9 +265,16 @@ function fixtureDb(): Database {
     );
     CREATE TABLE rd_replay_request_registration(
       registration_id TEXT PRIMARY KEY,
+      reservation_admission_id TEXT NOT NULL,
       trial_id TEXT NOT NULL,
       request_hash TEXT NOT NULL,
-      replay_request_json TEXT NOT NULL CHECK(json_valid(replay_request_json))
+      replay_request_json TEXT NOT NULL CHECK(json_valid(replay_request_json)),
+      dataset_manifest_hash TEXT NOT NULL
+    );
+    CREATE TABLE rd_replay_trial_reservation_admission(
+      admission_id TEXT PRIMARY KEY,
+      dataset_manifest_json TEXT NOT NULL
+        CHECK(json_valid(dataset_manifest_json))
     );
     CREATE TABLE rd_forward_source_admission(
       admission_id TEXT PRIMARY KEY,
@@ -289,8 +306,20 @@ function fixtureDb(): Database {
     }),
   })
   db.query(`
+    INSERT INTO rd_replay_trial_reservation_admission VALUES(
+      'reservation-admission-1', $manifest
+    )
+  `).run({
+    $manifest: JSON.stringify({
+      symbol: "BTCUSDT",
+      timeframe: "4h",
+      mark_coverage: "none",
+    }),
+  })
+  db.query(`
     INSERT INTO rd_replay_request_registration VALUES(
-      'registration-1', 'trial-1', $hash, $request
+      'registration-1', 'reservation-admission-1',
+      'trial-1', $hash, $request, $hash
     )
   `).run({
     $hash: HASH,
@@ -301,6 +330,9 @@ function fixtureDb(): Database {
       candidate_hash: HASH,
       symbol: "BTCUSDT",
       timeframe: "4h",
+      supplemental_requirement_set: {
+        mode: "none",
+      },
     }),
   })
   db.query(`
