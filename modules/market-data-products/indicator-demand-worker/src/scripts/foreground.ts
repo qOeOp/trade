@@ -227,6 +227,11 @@ export async function main(argv: string[]): Promise<number> {
           existing_count: result.existing_count,
           failed_count: result.failed_count,
           deferred_count: result.deferred_count,
+          failure_classes: [...new Set(
+            result.outcomes
+              .filter((outcome) => outcome.status === "failed" || outcome.status === "source_incomplete")
+              .map((outcome) => outcome.reason),
+          )].sort(),
           lifecycle_authority: "market_data_owner",
         })
       } catch (error) {
