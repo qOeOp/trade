@@ -5,6 +5,10 @@ import { asRecord, numberField, stringField, type JSONRecord } from "../../../..
 import { displayPath, displayPathFrom, resolvePathFrom } from "../../../../contracts/runtime-core/src/paths"
 import { runJsonCommand, runToolCommand, type Runner, type ToolCallResult } from "../../../../contracts/runtime-core/src/tool-runner"
 import { resolveRegisteredOwnerTool } from "../../../../contracts/runtime-core/src/owner-tool-registry"
+import {
+  buildMarketDataDemand,
+  type MarketDataDemand,
+} from "../../../../contracts/market-data-demand-contract/src/market-data-demand-contract"
 import { activeFlows } from "./flow-projector-client"
 import { loadRuntimePolicyFromOwner } from "./runtime-policy-client"
 import { buildDecisionChain } from "./decision-chain"
@@ -20,6 +24,7 @@ interface SlowTrackWorkflowInput {
   runner?: Runner
   activeFlowCountReader?: (dbPath: string) => number
   runtimePolicyLoader?: (tradingConfigPath: string) => JSONRecord
+  marketDataDemandWriter?: (demand: MarketDataDemand) => Promise<ToolCallResult>
 }
 
 function loadRuntime(
@@ -62,12 +67,13 @@ export async function runSlowTrackWorkflowDryRun(input: SlowTrackWorkflowInput):
   ])
 
   const candidates = extractCandidates(marketScan.data, snapshotLimit)
+  const generatedAt = new Date().toISOString()
+  const marketDataDemands = await submitCandidateMarketDataDemands(input, runner, candidates, generatedAt)
   const symbolSnapshots = await fetchSymbolSnapshots(input.repoRoot, runner, candidates)
   const technicalAnalyses = await fetchTechnicalAnalyses(input, runner, extractCandidates(marketScan.data, technicalLimit))
   const strategyPool = summarizeStrategyPool(runtime)
   const accountState = summarizeAccountState(accountSnapshot)
   const watchlist = buildWatchlist(candidates, symbolSnapshots, technicalAnalyses, strategyPool, accountState)
-  const generatedAt = new Date().toISOString()
   const decisionChain = buildDecisionChain({
     runId: input.runId,
     generatedAt,
@@ -91,6 +97,7 @@ export async function runSlowTrackWorkflowDryRun(input: SlowTrackWorkflowInput):
       summary: asRecord(asRecord(marketScan.data).summary),
       filters: asRecord(asRecord(marketScan.data).filters),
     },
+    market_data_demands: marketDataDemands,
     watchlist,
     decision_input_bundle: decisionChain.decision_input_bundle,
     trade_plan_draft: decisionChain.trade_plan_draft,
@@ -119,6 +126,74 @@ export async function runSlowTrackWorkflowDryRun(input: SlowTrackWorkflowInput):
   return {
     ...report,
     artifact_path: displayPath(artifactPath, input.repoRoot),
+  }
+}
+
+async function submitCandidateMarketDataDemands(
+  input: SlowTrackWorkflowInput,
+  runner: Runner,
+  candidates: Array<{ symbol: string; side: "long" | "short"; scan: JSONRecord }>,
+  observedAt: string,
+): Promise<JSONRecord> {
+  const issuedAt = new Date(Math.floor(Date.parse(observedAt) / 60_000) * 60_000).toISOString()
+  const demands = uniqueSymbols(candidates).map((symbol) => buildMarketDataDemand({
+    demand_id: `slow-track-candidate:${symbol.toLowerCase()}`,
+    consumer_owner: "slow-track-plan",
+    consumer_kind: "runtime",
+    subject_ref: `market-watch:symbol/${symbol}`,
+    venue: "binance_usdm",
+    symbol,
+    priority: "opportunity_candidate",
+    requirements: [{
+      product: "l2_book",
+      timeframe: null,
+      indicator_set_ref: null,
+      coverage_start: null,
+      coverage_end: null,
+      max_freshness_ms: 2_000,
+      minimum_depth: 20,
+    }],
+    lease: {
+      issued_at: issuedAt,
+      expires_at: new Date(Date.parse(issuedAt) + 15 * 60_000).toISOString(),
+      renewal_grace_ms: 0,
+    },
+  }))
+  const outcomes = await Promise.all(demands.map(async (demand) => {
+    try {
+      const result = input.marketDataDemandWriter
+        ? await input.marketDataDemandWriter(demand)
+        : await runOwnerTool(runner, input.repoRoot, "market-data.store", [
+          "--db", join(input.dataDir, "market_data.db"),
+          "--action", "put_market_data_demand",
+          "--json", JSON.stringify({ demand, committed_at: observedAt }),
+        ])
+      const data = asRecord(result.data)
+      const accepted = result.ok
+        && data.action === "put_market_data_demand"
+        && data.demand_id === demand.demand_id
+        && data.demand_hash === demand.demand_hash
+      return {
+        demand_ref: `market_data_store:demand/${demand.demand_id}`,
+        symbol: demand.symbol,
+        accepted,
+        reason: accepted ? stringField(data.commit_status) || "accepted" : result.error || "owner_response_identity_drifted",
+      }
+    } catch (error) {
+      return {
+        demand_ref: `market_data_store:demand/${demand.demand_id}`,
+        symbol: demand.symbol,
+        accepted: false,
+        reason: error instanceof Error ? error.message : String(error),
+      }
+    }
+  }))
+  return {
+    requested_count: outcomes.length,
+    accepted_count: outcomes.filter((item) => item.accepted).length,
+    failed_count: outcomes.filter((item) => !item.accepted).length,
+    outcomes,
+    lifecycle_authority: "none",
   }
 }
 

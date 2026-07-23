@@ -22,6 +22,7 @@ test("slow track workflow dry-run builds real watchlist without live action", as
     "---\nstrategy_id: S-BTC\nname: BTC Live\nstatus: live-small\ntags: [btc, usdm]\n---\nbody\n",
   )
   const calls: Array<{ command: string[]; cwd?: string }> = []
+  const admittedDemandSymbols: string[] = []
   const runner: Runner = async (command, options) => {
     calls.push({ command, cwd: options?.cwd })
     if (options?.cwd?.endsWith("exchange-gateway/binance-read/account-snapshot")) {
@@ -113,12 +114,27 @@ test("slow track workflow dry-run builds real watchlist without live action", as
       activeFlowCountReader: () => 0,
       runtimePolicyLoader: testRuntimePolicy,
       runner,
+      marketDataDemandWriter: async (demand) => {
+        admittedDemandSymbols.push(demand.symbol)
+        return {
+          ok: true,
+          data: {
+            action: "put_market_data_demand",
+            demand_id: demand.demand_id,
+            demand_hash: demand.demand_hash,
+            commit_status: "created",
+          },
+        }
+      },
     })
     assert.equal(result.mode, "analysis-only")
     assert.equal(isAbsolute(String(result.artifact_path)), false)
     assert.equal((result.trade_decision as { target_action: string }).target_action, "no_action")
     assert.equal((result.strategy_pool as { live_small_ready: unknown[] }).live_small_ready.length, 1)
     assert.equal((result.watchlist as unknown[]).length, 2)
+    assert.deepEqual(admittedDemandSymbols.sort(), ["BTCUSDT", "ETHUSDT"])
+    assert.equal((result.market_data_demands as { accepted_count: number }).accepted_count, 2)
+    assert.equal((result.market_data_demands as { lifecycle_authority: string }).lifecycle_authority, "none")
     assert.equal((result.decision_input_bundle as { schema_version: string }).schema_version, "decision-input-bundle.v1")
     assert.equal((result.trade_plan_draft as { schema_version: string }).schema_version, "trade-plan-draft.v1")
     assert.equal((result.capital_allocation_proposal as { status: string }).status, "not_allocated")
