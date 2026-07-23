@@ -1,4 +1,10 @@
 import { relative, resolve } from "node:path"
+import {
+  commandHasArgument,
+  readProcessCommand,
+} from "../../../../contracts/runtime-core/src/process-identity"
+
+export { processIsAlive } from "../../../../contracts/runtime-core/src/process-identity"
 
 export const L2_LAUNCH_RECEIPT_SCHEMA = "trade.l2-service-launch-receipt.v1" as const
 export const L2_RUNTIME_STATE_SCHEMA = "trade.l2-service-runtime-state.v1" as const
@@ -154,16 +160,6 @@ export function validateLaunchConfig(config: LaunchConfig): void {
   bounded(config.disk_soft_min_bytes, config.disk_hard_min_bytes, Number.MAX_SAFE_INTEGER, "disk_soft_min_bytes")
 }
 
-export function processIsAlive(pid: number): boolean {
-  if (!Number.isSafeInteger(pid) || pid <= 1) return false
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    return error instanceof Error && "code" in error && error.code === "EPERM"
-  }
-}
-
 export function processMatchesL2Supervisor(pid: number, runtimeDirectory: string): boolean {
   const text = readProcessCommand(pid)
   if (text == null) return false
@@ -180,28 +176,6 @@ export function processMatchesL2Service(pid: number, receipt: LaunchReceipt): bo
     && commandHasArgument(text, "--symbol", receipt.config.symbol)
     && commandHasArgument(text, "--output-base", receipt.config.output_base)
     && commandHasArgument(text, "--listen", receipt.config.listen)
-}
-
-function readProcessCommand(pid: number): string | null {
-  if (!processIsAlive(pid)) return null
-  const command = Bun.spawnSync({
-    cmd: ["ps", "-ww", "-p", String(pid), "-o", "command="],
-    stdout: "pipe",
-    stderr: "pipe",
-  })
-  if (command.exitCode !== 0) return null
-  const text = command.stdout.toString().trim()
-  return text.length === 0 ? null : text
-}
-
-function commandHasArgument(command: string, name: string, value: string): boolean {
-  const escapedName = escapeRegExp(name)
-  const escapedValue = escapeRegExp(value)
-  return new RegExp(`(?:^|\\s)${escapedName}(?:=|\\s+)(?:"${escapedValue}"|'${escapedValue}'|${escapedValue})(?:\\s|$)`).test(command)
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
 export function parseProcessResourceSample(value: string): { rss_bytes: number; cpu_percent: number } {

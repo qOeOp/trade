@@ -1,7 +1,13 @@
 import { existsSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs"
 import { relative, resolve } from "node:path"
 import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
+import {
+  commandHasArgument,
+  readProcessCommand,
+} from "../../../../contracts/runtime-core/src/process-identity"
 import type { L2BookWatchFailureClass } from "./l2-book-watch-session"
+
+export { processIsAlive } from "../../../../contracts/runtime-core/src/process-identity"
 
 export const L2_WATCH_CONSUMER_RECEIPT_SCHEMA = "trade.ops-l2-watch-consumer-launch-receipt.v1" as const
 export const L2_WATCH_CONSUMER_RUNTIME_SCHEMA = "trade.ops-l2-watch-consumer-runtime-state.v1" as const
@@ -177,16 +183,6 @@ export function carryForwardL2WatchConsumerMetrics(
   return metrics
 }
 
-export function processIsAlive(pid: number): boolean {
-  if (!Number.isSafeInteger(pid) || pid <= 1) return false
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    return error instanceof Error && "code" in error && error.code === "EPERM"
-  }
-}
-
 export function processMatchesL2WatchConsumerSupervisor(pid: number, runtimeDirectory: string): boolean {
   const command = readProcessCommand(pid)
   return command != null
@@ -343,28 +339,6 @@ function unavailableOwnerRead(observedAt: string): JSONRecord {
     writes: [],
     limitations: limitations(),
   }
-}
-
-function readProcessCommand(pid: number): string | null {
-  if (!processIsAlive(pid)) return null
-  const command = Bun.spawnSync({
-    cmd: ["ps", "-ww", "-p", String(pid), "-o", "command="],
-    stdout: "pipe",
-    stderr: "pipe",
-  })
-  if (command.exitCode !== 0) return null
-  const text = command.stdout.toString().trim()
-  return text.length === 0 ? null : text
-}
-
-function commandHasArgument(command: string, name: string, value: string): boolean {
-  const escapedName = escapeRegExp(name)
-  const escapedValue = escapeRegExp(value)
-  return new RegExp(`(?:^|\\s)${escapedName}(?:=|\\s+)(?:"${escapedValue}"|'${escapedValue}'|${escapedValue})(?:\\s|$)`).test(command)
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
 function emptyMetrics(): L2WatchConsumerObservationState["metrics"] {
