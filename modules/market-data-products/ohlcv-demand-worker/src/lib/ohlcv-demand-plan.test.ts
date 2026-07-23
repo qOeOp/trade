@@ -31,6 +31,14 @@ test("OHLCV plan fills the first exact owner-audited gap and skips complete targ
   assert.equal(sync.fetch_jobs[0]?.limit, 3)
   assert.equal(sync.fetch_jobs[0]?.lifecycle_authority, "proposal_only")
   assert.match(sync.plan_hash, /^[a-f0-9]{64}$/)
+
+  const complete = buildOhlcvCoverageAuditFixture(target, plan.observed_at, true)
+  const completed = buildOhlcvDemandSyncPlan({ source_plan: plan, coverage_audits: [complete], max_rows_per_job: 3 })
+  assert.equal(completed.fetch_jobs.length, 0)
+  assert.equal(completed.completed_facts.length, 1)
+  assert.equal(completed.completed_facts[0]?.consumer_binding.demand_ids[0], "research-btc-1h")
+  assert.equal(completed.completed_facts[0]?.coverage.end_at, "2026-07-23T10:00:00.000Z")
+  assert.equal(completed.completed_facts[0]?.domain_authority, "none")
 })
 
 function source(observedAt: string, coverageStart: string | null, coverageEnd: string | null) {

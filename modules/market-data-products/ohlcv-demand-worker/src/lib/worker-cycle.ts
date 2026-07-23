@@ -1,4 +1,5 @@
 import { buildOhlcvCoverageTargets, buildOhlcvDemandSyncPlan, type OhlcvCoverageTarget, type OhlcvFetchJob } from "./ohlcv-demand-plan"
+import type { MarketDataFactRef } from "../../../../contracts/market-data-demand-contract/src/market-data-fact-contract"
 
 export interface OhlcvDemandWorkerDependencies {
   read_subscription_plan: (observedAt: string) => Promise<unknown>
@@ -18,6 +19,7 @@ export interface OhlcvDemandCycleResult {
   executed_job_count: number
   failed_job_count: number
   deferred_job_count: number
+  facts: MarketDataFactRef[]
   outcomes: Array<{ job_id: string; symbol: string; timeframe: string; ok: boolean; reason: string }>
   lifecycle_authority: "market_data_owner"
 }
@@ -63,6 +65,7 @@ export async function runOhlcvDemandCycle(
     executed_job_count: outcomes.length,
     failed_job_count: failed,
     deferred_job_count: sync.fetch_jobs.length - outcomes.length,
+    facts: sync.completed_facts,
     outcomes,
     lifecycle_authority: "market_data_owner",
   }

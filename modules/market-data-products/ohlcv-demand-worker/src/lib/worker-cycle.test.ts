@@ -50,6 +50,26 @@ test("OHLCV demand cycle surfaces owner fetch failure without advancing coverage
   assert.equal(result.lifecycle_authority, "market_data_owner")
 })
 
+test("OHLCV demand cycle emits an owner-audited fact only after exact coverage closes", async () => {
+  const observedAt = "2026-07-23T10:30:00.000Z"
+  const source = plan(observedAt)
+  const result = await runOhlcvDemandCycle({
+    observed_at: observedAt,
+    max_jobs: 1,
+    max_rows_per_job: 10,
+  }, {
+    read_subscription_plan: async () => source,
+    audit_coverage: async (target) => buildOhlcvCoverageAuditFixture(target, observedAt, true),
+    fetch_gap: async () => {
+      throw new Error("complete coverage must not fetch")
+    },
+  })
+  assert.equal(result.complete_target_count, 1)
+  assert.equal(result.facts.length, 1)
+  assert.equal(result.facts[0]?.product, "ohlcv")
+  assert.deepEqual(result.facts[0]?.consumer_binding.demand_ids, ["research-btc-rolling"])
+})
+
 function plan(observedAt: string) {
   return reconcileMarketDataDemands({
     demands: [buildMarketDataDemand({

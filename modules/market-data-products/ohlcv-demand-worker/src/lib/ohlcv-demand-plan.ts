@@ -8,6 +8,10 @@ import {
   timeframeMilliseconds,
   type OhlcvCoverageAudit,
 } from "../../../../contracts/market-data-demand-contract/src/ohlcv-coverage-contract"
+import {
+  buildMarketDataFactRef,
+  type MarketDataFactRef,
+} from "../../../../contracts/market-data-demand-contract/src/market-data-fact-contract"
 
 export const OHLCV_DEMAND_SYNC_PLAN_SCHEMA = "trade.ohlcv-demand-sync-plan.v1" as const
 
@@ -38,6 +42,7 @@ export interface OhlcvDemandSyncPlan {
   source_plan_hash: string
   targets: OhlcvCoverageTarget[]
   completed_target_ids: string[]
+  completed_facts: MarketDataFactRef[]
   fetch_jobs: OhlcvFetchJob[]
   lifecycle_authority: "proposal_only"
   plan_hash: string
@@ -94,6 +99,7 @@ export function buildOhlcvDemandSyncPlan(input: {
     byTarget.set(targetId, audit)
   }
   const completedTargetIds: string[] = []
+  const completedFacts: MarketDataFactRef[] = []
   const fetchJobs: OhlcvFetchJob[] = []
   for (const target of targets) {
     const audit = byTarget.get(target.target_id)
@@ -106,6 +112,37 @@ export function buildOhlcvDemandSyncPlan(input: {
     }
     if (audit.complete) {
       completedTargetIds.push(target.target_id)
+      completedFacts.push(buildMarketDataFactRef({
+        product: "ohlcv",
+        venue: "binance_usdm",
+        symbol: target.symbol,
+        requirement: {
+          timeframe: target.timeframe,
+          indicator_set_ref: null,
+          minimum_depth: null,
+        },
+        consumer_binding: {
+          demand_ids: target.demand_ids,
+          source_plan_hash: source.plan_hash,
+        },
+        source: {
+          ref: audit.source_ref,
+          content_hash: audit.audit_hash,
+        },
+        coverage: {
+          kind: "half_open",
+          start_at: new Date(target.start_open_time).toISOString(),
+          end_at: new Date(target.end_open_time + audit.timeframe_ms).toISOString(),
+          completeness: "complete",
+        },
+        freshness: {
+          kind: "immutable",
+          as_of: new Date(target.end_open_time + audit.timeframe_ms).toISOString(),
+          observed_at: audit.observed_at,
+          max_freshness_ms: null,
+          status: "not_applicable",
+        },
+      }))
       continue
     }
     const gap = audit.gap_ranges[0]
@@ -131,6 +168,7 @@ export function buildOhlcvDemandSyncPlan(input: {
     source_plan_hash: source.plan_hash,
     targets,
     completed_target_ids: completedTargetIds.sort(),
+    completed_facts: completedFacts.sort((left, right) => left.fact_hash.localeCompare(right.fact_hash)),
     fetch_jobs: fetchJobs,
     lifecycle_authority: "proposal_only" as const,
   }
