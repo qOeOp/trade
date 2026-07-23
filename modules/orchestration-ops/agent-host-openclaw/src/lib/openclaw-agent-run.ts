@@ -22,6 +22,7 @@ import {
   readAgentRun,
   readAgentRunEvents,
   listRecoverableAgentRuns,
+  readAgentRunTerminalToolResult,
   readAgentRunToolUsage,
 } from "../../../ops-runtime-store/src/lib/agent-run-store"
 
@@ -51,6 +52,14 @@ export interface OpenClawAgentHostOptions {
   agent_ids: Record<AgentRunRequest["task_profile"], string>
   materialize(request: AgentRunRequest): Promise<string>
   store_output(request: AgentRunRequest, text: string): Promise<AgentArtifactRef>
+  validate_output_ref?(
+    request: AgentRunRequest,
+    artifact: AgentArtifactRef,
+  ): Promise<AgentArtifactRef>
+  terminal_tool_outputs?: Partial<Record<
+    AgentRunRequest["task_profile"],
+    { tool_name: string; output_schema_version: string }
+  >>
   execute(input: OpenClawExecutionRequest, signal: AbortSignal): Promise<OpenClawExecutionResult>
   report_error?: (input: {
     run_id: string
@@ -88,6 +97,9 @@ export class OpenClawAgentHost implements AgentHostPort {
     const stored = readAgentRun(this.options.db, request.run_id)!
     if (stored.result || this.active.has(request.run_id)) return accepted
     if (accepted.replayed && stored.status === "running") {
+      if (await this.recoverTerminalToolOutput(stored.request, Date.parse(stored.updated_at))) {
+        return accepted
+      }
       await this.fail(
         stored.request,
         stored.request.task_profile === "developer" ? "tool_effect_uncertain" : "host_unavailable",
@@ -142,6 +154,13 @@ export class OpenClawAgentHost implements AgentHostPort {
     let recovered = 0
     for (const record of listRecoverableAgentRuns(this.options.db, 1_000)) {
       if (record.host_profile !== this.options.host_profile) continue
+      if (await this.recoverTerminalToolOutput(
+        record.request,
+        Date.parse(record.updated_at),
+      )) {
+        recovered += 1
+        continue
+      }
       await this.fail(
         record.request,
         record.request.task_profile === "developer"
@@ -180,10 +199,10 @@ export class OpenClawAgentHost implements AgentHostPort {
           startedMs,
         )
       }
-      if (result.exit_code !== 0) {
+      const terminalToolOutput = this.terminalToolOutput(request)
+      if (result.exit_code !== 0 && !terminalToolOutput) {
         return await this.fail(request, classifyFailure(result.stderr), startedMs)
       }
-      const text = parseOpenClawOutput(result.stdout, this.expectedTransport())
       const ledgerUsage = readAgentRunToolUsage(
         this.options.db,
         request.run_id,
@@ -199,7 +218,16 @@ export class OpenClawAgentHost implements AgentHostPort {
         request.budget.max_turns,
         "model turns",
       )
-      const output = await this.options.store_output(request, text)
+      const text = result.exit_code === 0
+        ? parseOpenClawOutput(
+          result.stdout,
+          this.expectedTransport(),
+          terminalToolOutput !== null,
+        )
+        : ""
+      const output = terminalToolOutput
+        ? await this.validateTerminalToolOutput(request, terminalToolOutput.artifact)
+        : await this.options.store_output(request, text)
       if (output.bytes > request.budget.max_output_bytes) {
         return await this.fail(request, "budget_exhausted", startedMs)
       }
@@ -331,6 +359,74 @@ export class OpenClawAgentHost implements AgentHostPort {
     return this.options.host_profile === "openclaw-gateway" ? "gateway" : "embedded"
   }
 
+  private terminalToolOutput(request: AgentRunRequest) {
+    const config = this.options.terminal_tool_outputs?.[request.task_profile]
+    if (!config) return null
+    if (config.output_schema_version !== request.output_schema_version) {
+      return null
+    }
+    return readAgentRunTerminalToolResult(this.options.db, {
+      run_id: request.run_id,
+      request_hash: request.request_hash,
+      task_profile: request.task_profile,
+      tool_name: config.tool_name,
+      output_schema_version: config.output_schema_version,
+    })
+  }
+
+  private async validateTerminalToolOutput(
+    request: AgentRunRequest,
+    artifact: AgentArtifactRef,
+  ): Promise<AgentArtifactRef> {
+    if (!this.options.validate_output_ref) {
+      throw new Error("OpenClaw terminal tool output validator is missing")
+    }
+    return this.options.validate_output_ref(request, artifact)
+  }
+
+  private async recoverTerminalToolOutput(
+    request: AgentRunRequest,
+    startedMs: number,
+  ): Promise<boolean> {
+    try {
+      const terminal = this.terminalToolOutput(request)
+      if (!terminal) return false
+      const output = await this.validateTerminalToolOutput(request, terminal.artifact)
+      if (output.bytes > request.budget.max_output_bytes) {
+        await this.fail(request, "budget_exhausted", startedMs)
+        return true
+      }
+      const toolCalls = Math.min(
+        readAgentRunToolUsage(
+          this.options.db,
+          request.run_id,
+          request.request_hash,
+        ).tool_calls,
+        request.budget.max_tool_calls,
+      )
+      await this.complete(
+        request,
+        "completed",
+        startedMs,
+        undefined,
+        [output],
+        {
+          tool_calls: toolCalls,
+          turns: Math.min(toolCalls + 1, request.budget.max_turns),
+        },
+      )
+      return true
+    } catch (error) {
+      this.options.report_error?.({
+        run_id: request.run_id,
+        failure_class: "validation_failed",
+        message: safeErrorMessage(error),
+      })
+      await this.fail(request, "validation_failed", startedMs)
+      return true
+    }
+  }
+
   private isoNow(): string {
     return this.now().toISOString()
   }
@@ -344,6 +440,7 @@ function safeErrorMessage(error: unknown): string {
 export function parseOpenClawOutput(
   stdout: string,
   expectedTransport: OpenClawTransportExpectation,
+  allowEmptyText = false,
 ): string {
   const value = JSON.parse(stdout) as Record<string, unknown>
   const gateway = value.result && typeof value.result === "object" && !Array.isArray(value.result)
@@ -377,7 +474,9 @@ export function parseOpenClawOutput(
     throw new Error("OpenClaw payload is malformed")
   }
   const text = (payload as Record<string, unknown>).text
-  if (typeof text !== "string" || !text.trim()) throw new Error("OpenClaw payload text is missing")
+  if (typeof text !== "string" || (!allowEmptyText && !text.trim())) {
+    throw new Error("OpenClaw payload text is missing")
+  }
   return text
 }
 

@@ -16,6 +16,7 @@ import {
   materializeOpenClawAgentMessage,
   OPENCLAW_AGENT_MESSAGE_SCHEMA,
   storeOpenClawAgentOutput,
+  validateOpenClawAgentOutputArtifact,
 } from "./openclaw-artifact-materializer"
 
 test("OpenClaw materializer resolves verified refs into one bounded message", () => {
@@ -42,15 +43,23 @@ test("OpenClaw materializer resolves verified refs into one bounded message", ()
     const output = storeOpenClawAgentOutput({
       repository_root: root,
       request,
-      text: "  {\"proposal\":\"bounded\"}  ",
+      text: "  {\"schema_version\":\"trade.test-output.v1\",\"proposal\":\"bounded\"}  ",
     })
-    assert.deepEqual(parseAgentJsonArtifact(root, output), { proposal: "bounded" })
+    assert.deepEqual(parseAgentJsonArtifact(root, output), {
+      schema_version: "trade.test-output.v1",
+      proposal: "bounded",
+    })
     const fenced = storeOpenClawAgentOutput({
       repository_root: root,
       request,
-      text: "```json\n{\"proposal\":\"bounded\"}\n```",
+      text: "```json\n{\"schema_version\":\"trade.test-output.v1\",\"proposal\":\"bounded\"}\n```",
     })
     assert.deepEqual(fenced, output)
+    assert.deepEqual(validateOpenClawAgentOutputArtifact({
+      repository_root: root,
+      request,
+      artifact: output,
+    }), output)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -93,6 +102,14 @@ test("OpenClaw materializer rejects ref drift and non-object output", () => {
         text: "Result:\n```json\n{\"proposal\":\"bounded\"}\n```",
       }),
       /not JSON/,
+    )
+    assert.throws(
+      () => storeOpenClawAgentOutput({
+        repository_root: root,
+        request,
+        text: "{\"schema_version\":\"trade.wrong.v1\"}",
+      }),
+      /schema version drifted/,
     )
   } finally {
     rmSync(root, { recursive: true, force: true })

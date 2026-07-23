@@ -3,10 +3,17 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { Database } from "bun:sqlite"
 import {
+  buildAgentRunEvent,
   buildAgentRunRequest,
   type AgentRunRequest,
 } from "../../../../contracts/agent-run-contract/src/agent-run-contract"
-import { ensureAgentRunStoreSchema } from "../../../ops-runtime-store/src/lib/agent-run-store"
+import {
+  admitAgentRun,
+  appendAgentRunEvent,
+  ensureAgentRunStoreSchema,
+  recordAgentRunToolCall,
+  recordAgentRunToolResult,
+} from "../../../ops-runtime-store/src/lib/agent-run-store"
 import {
   OpenClawAgentHost,
   parseOpenClawOutput,
@@ -19,7 +26,7 @@ test("OpenClaw Gateway Host closes one typed Agent Run and replays identity", as
   let calls = 0
   const host = hostFor(fixture.db, async () => {
     calls += 1
-    return gatewayResult('{"proposal":"bounded"}')
+    return gatewayResult('{"schema_version":"trade.test-output.v1","proposal":"bounded"}')
   })
   assert.equal((await host.submit(fixture.request)).replayed, false)
   const result = await waitForResult(host, fixture.request.run_id)
@@ -81,12 +88,85 @@ test("OpenClaw Host accepts the pinned 2026.7.1 embedded result shape", () => {
   }), "embedded"), "{\"status\":\"ok\"}")
 })
 
+test("OpenClaw Developer Host completes from one attested terminal tool result", async () => {
+  const fixture = createFixture("developer")
+  const terminal = artifact("terminal-output", "application/json", "durable")
+  admitFixtureForToolResult(fixture.db, fixture.request)
+  recordAgentRunToolCall(fixture.db, {
+    call_id: "developer-terminal-call-1",
+    run_id: fixture.request.run_id,
+    request_hash: fixture.request.request_hash,
+    task_profile: "developer",
+    tool_name: "research_developer_submission_prepare",
+    occurred_at: "2026-07-23T11:59:58.000Z",
+  })
+  recordAgentRunToolResult(fixture.db, {
+    call_id: "developer-terminal-call-1",
+    run_id: fixture.request.run_id,
+    request_hash: fixture.request.request_hash,
+    task_profile: "developer",
+    tool_name: "research_developer_submission_prepare",
+    output_schema_version: fixture.request.output_schema_version,
+    artifact: terminal,
+    occurred_at: "2026-07-23T11:59:59.000Z",
+  })
+  const host = hostFor(
+    fixture.db,
+    async () => gatewayResult("NO_REPLY"),
+    {
+      terminal_tool_outputs: {
+        developer: {
+          tool_name: "research_developer_submission_prepare",
+          output_schema_version: fixture.request.output_schema_version,
+        },
+      },
+      validate_output_ref: async (_request, output) => output,
+    },
+  )
+  const result = await waitForResultAfterSubmit(host, fixture.request)
+  assert.equal(result.status, "completed")
+  assert.deepEqual(result.output_refs, [terminal])
+  fixture.db.close()
+})
+
+test("OpenClaw Host recovers a committed Developer result without rerunning the model", async () => {
+  const fixture = createFixture("developer")
+  const terminal = artifact("recoverable-terminal-output", "application/json", "durable")
+  admitFixtureForToolResult(fixture.db, fixture.request)
+  appendAgentRunEvent(fixture.db, buildAgentRunEvent({
+    run_id: fixture.request.run_id,
+    trace_id: fixture.request.trace_id,
+    request_hash: fixture.request.request_hash,
+    sequence: 2,
+    occurred_at: "2026-07-23T11:59:57.500Z",
+    kind: "started",
+    summary: "OpenClaw Gateway Agent Run started.",
+  }))
+  seedTerminalToolResult(fixture.db, fixture.request, terminal)
+  let executions = 0
+  const host = hostFor(
+    fixture.db,
+    async () => {
+      executions += 1
+      return gatewayResult("{}")
+    },
+    terminalHostOptions(fixture.request),
+  )
+  assert.equal(await host.recoverInterruptedRuns(), 1)
+  const result = await host.result(fixture.request.run_id)
+  assert.equal(result?.status, "completed")
+  assert.deepEqual(result?.output_refs, [terminal])
+  assert.equal(executions, 0)
+  fixture.db.close()
+})
+
 function hostFor(
   db: Database,
   execute: (
     input: OpenClawExecutionRequest,
     signal: AbortSignal,
   ) => Promise<OpenClawExecutionResult>,
+  extra: Partial<ConstructorParameters<typeof OpenClawAgentHost>[0]> = {},
 ) {
   return new OpenClawAgentHost({
     db,
@@ -110,6 +190,7 @@ function hostFor(
     },
     execute,
     now: () => new Date("2026-07-23T12:00:00.000Z"),
+    ...extra,
   })
 }
 
@@ -162,14 +243,67 @@ function gatewayResult(text: string): OpenClawExecutionResult {
   }
 }
 
-function artifact(text: string, media_type: "text/markdown" | "application/json" = "text/markdown") {
+function artifact(
+  text: string,
+  media_type: "text/markdown" | "application/json" = "text/markdown",
+  storage: "temporary" | "durable" = "temporary",
+) {
   const bytes = Buffer.from(text)
+  const sha256 = createHash("sha256").update(bytes).digest("hex")
   return {
-    ref: `artifact://${text}`,
-    sha256: createHash("sha256").update(bytes).digest("hex"),
+    ref: storage === "durable"
+      ? `agent-artifact://durable/${sha256}`
+      : `artifact://${text}`,
+    sha256,
     media_type,
     bytes: bytes.byteLength,
   }
+}
+
+function admitFixtureForToolResult(db: Database, request: AgentRunRequest): void {
+  admitAgentRun(db, request, "openclaw-gateway", "2026-07-23T11:59:57.000Z")
+}
+
+function seedTerminalToolResult(
+  db: Database,
+  request: AgentRunRequest,
+  terminal: ReturnType<typeof artifact>,
+): void {
+  recordAgentRunToolCall(db, {
+    call_id: "developer-recovery-call-1",
+    run_id: request.run_id,
+    request_hash: request.request_hash,
+    task_profile: "developer",
+    tool_name: "research_developer_submission_prepare",
+    occurred_at: "2026-07-23T11:59:58.000Z",
+  })
+  recordAgentRunToolResult(db, {
+    call_id: "developer-recovery-call-1",
+    run_id: request.run_id,
+    request_hash: request.request_hash,
+    task_profile: "developer",
+    tool_name: "research_developer_submission_prepare",
+    output_schema_version: request.output_schema_version,
+    artifact: terminal,
+    occurred_at: "2026-07-23T11:59:59.000Z",
+  })
+}
+
+function terminalHostOptions(request: AgentRunRequest) {
+  return {
+    terminal_tool_outputs: {
+      developer: {
+        tool_name: "research_developer_submission_prepare",
+        output_schema_version: request.output_schema_version,
+      },
+    },
+    validate_output_ref: async (_request: AgentRunRequest, output: ReturnType<typeof artifact>) => output,
+  }
+}
+
+async function waitForResultAfterSubmit(host: OpenClawAgentHost, request: AgentRunRequest) {
+  await host.submit(request)
+  return waitForResult(host, request.run_id)
 }
 
 async function waitForResult(host: OpenClawAgentHost, runId: string) {

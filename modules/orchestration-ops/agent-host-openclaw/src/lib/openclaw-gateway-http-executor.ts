@@ -58,8 +58,8 @@ export async function executeOpenClawGatewayHttp(input: {
       }
     }
     const parsed = JSON.parse(body) as Record<string, unknown>
-    const text = visibleOutputText(parsed)
     const toolCalls = toolCallCount(parsed)
+    const text = visibleOutputText(parsed, toolCalls > 0)
     return {
       exit_code: 0,
       stdout: JSON.stringify({
@@ -124,11 +124,12 @@ async function readBounded(response: Response): Promise<string> {
   return bytes.toString("utf8")
 }
 
-function visibleOutputText(value: Record<string, unknown>): string {
+function visibleOutputText(value: Record<string, unknown>, allowEmpty: boolean): string {
   if (typeof value.output_text === "string" && value.output_text.trim()) {
     return value.output_text
   }
   if (!Array.isArray(value.output)) {
+    if (allowEmpty) return ""
     throw new Error("OpenClaw Gateway response omitted output")
   }
   const parts: string[] = []
@@ -146,6 +147,7 @@ function visibleOutputText(value: Record<string, unknown>): string {
     }
   }
   if (parts.length !== 1) {
+    if (allowEmpty && parts.length === 0) return ""
     throw new Error("OpenClaw Gateway response requires exactly one visible output")
   }
   return parts[0]!

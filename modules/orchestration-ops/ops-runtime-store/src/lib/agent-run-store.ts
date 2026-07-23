@@ -6,6 +6,7 @@ import {
   compileAgentRunResult,
   validateAgentRunCompletion,
   type AgentRunEvent,
+  type AgentArtifactRef,
   type AgentRunRequest,
   type AgentRunResult,
 } from "../../../../contracts/agent-run-contract/src/agent-run-contract"
@@ -31,6 +32,17 @@ export interface AgentRunToolUsage {
   run_id: string
   request_hash: string
   tool_calls: number
+}
+
+export interface AgentRunToolResult {
+  call_id: string
+  run_id: string
+  request_hash: string
+  task_profile: AgentRunRequest["task_profile"]
+  tool_name: string
+  output_schema_version: string
+  artifact: AgentArtifactRef
+  occurred_at: string
 }
 
 export function ensureAgentRunStoreSchema(db: Database): void {
@@ -87,6 +99,34 @@ export function ensureAgentRunStoreSchema(db: Database): void {
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_agent_run_tool_call_run
     ON agent_run_tool_call(run_id, occurred_at, call_id)
+  `)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS agent_run_tool_result (
+      call_id               TEXT PRIMARY KEY,
+      run_id                TEXT NOT NULL,
+      request_hash          TEXT NOT NULL,
+      task_profile          TEXT NOT NULL,
+      tool_name             TEXT NOT NULL,
+      output_schema_version TEXT NOT NULL,
+      artifact_json         TEXT NOT NULL CHECK(json_valid(artifact_json)),
+      occurred_at           TEXT NOT NULL,
+      FOREIGN KEY(call_id) REFERENCES agent_run_tool_call(call_id),
+      FOREIGN KEY(run_id) REFERENCES agent_run(run_id)
+    )
+  `)
+  db.run(`
+    CREATE TRIGGER IF NOT EXISTS prevent_agent_run_tool_result_update
+    BEFORE UPDATE ON agent_run_tool_result
+    BEGIN SELECT RAISE(ABORT, 'Agent Run tool-result evidence is immutable'); END
+  `)
+  db.run(`
+    CREATE TRIGGER IF NOT EXISTS prevent_agent_run_tool_result_delete
+    BEFORE DELETE ON agent_run_tool_result
+    BEGIN SELECT RAISE(ABORT, 'Agent Run tool-result evidence is immutable'); END
+  `)
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_agent_run_tool_result_run
+    ON agent_run_tool_result(run_id, occurred_at, call_id)
   `)
 }
 
@@ -155,6 +195,105 @@ export function readAgentRunToolUsage(
     $request_hash: requestHash,
   }) as { tool_calls: number }
   return { run_id: runId, request_hash: requestHash, tool_calls: row.tool_calls }
+}
+
+export function recordAgentRunToolResult(db: Database, input: AgentRunToolResult): AgentRunToolResult {
+  validateOpaque(input.call_id, "call_id")
+  validateOpaque(input.run_id, "run_id")
+  if (!/^[a-f0-9]{64}$/.test(input.request_hash)) {
+    throw new Error("request_hash is invalid")
+  }
+  if (!["planner", "developer", "reviewer", "explanation"].includes(input.task_profile)) {
+    throw new Error("task_profile is invalid")
+  }
+  if (!/^[a-z][a-z0-9_]{0,127}$/.test(input.tool_name)) {
+    throw new Error("tool_name is invalid")
+  }
+  if (!/^trade\.[a-z0-9][a-z0-9._-]{0,126}\.v[1-9][0-9]*$/.test(input.output_schema_version)) {
+    throw new Error("output_schema_version is invalid")
+  }
+  canonicalTime(input.occurred_at, "occurred_at")
+  const artifact = validateToolResultArtifact(input.artifact)
+  const run = requireAgentRun(db, input.run_id)
+  if (run.request.request_hash !== input.request_hash
+    || run.request.task_profile !== input.task_profile
+    || run.request.output_schema_version !== input.output_schema_version) {
+    throw new Error("Agent Run tool-result identity drifted")
+  }
+  if (run.result || !["accepted", "running"].includes(run.status)) {
+    throw new Error("Agent Run tool result is outside an active run")
+  }
+  const call = db.query(`
+    SELECT run_id, request_hash, task_profile, tool_name
+    FROM agent_run_tool_call WHERE call_id=$call_id
+  `).get({ $call_id: input.call_id }) as {
+    run_id: string
+    request_hash: string
+    task_profile: string
+    tool_name: string
+  } | null
+  if (!call
+    || call.run_id !== input.run_id
+    || call.request_hash !== input.request_hash
+    || call.task_profile !== input.task_profile
+    || call.tool_name !== input.tool_name) {
+    throw new Error("Agent Run tool-result call identity drifted")
+  }
+  db.query(`
+    INSERT INTO agent_run_tool_result(
+      call_id, run_id, request_hash, task_profile, tool_name,
+      output_schema_version, artifact_json, occurred_at
+    ) VALUES (
+      $call_id, $run_id, $request_hash, $task_profile, $tool_name,
+      $output_schema_version, $artifact_json, $occurred_at
+    )
+  `).run({
+    $call_id: input.call_id,
+    $run_id: input.run_id,
+    $request_hash: input.request_hash,
+    $task_profile: input.task_profile,
+    $tool_name: input.tool_name,
+    $output_schema_version: input.output_schema_version,
+    $artifact_json: JSON.stringify(artifact),
+    $occurred_at: input.occurred_at,
+  })
+  return { ...input, artifact }
+}
+
+export function readAgentRunTerminalToolResult(db: Database, input: {
+  run_id: string
+  request_hash: string
+  task_profile: AgentRunRequest["task_profile"]
+  tool_name: string
+  output_schema_version: string
+}): AgentRunToolResult | null {
+  validateOpaque(input.run_id, "run_id")
+  const run = requireAgentRun(db, input.run_id)
+  if (run.request.request_hash !== input.request_hash
+    || run.request.task_profile !== input.task_profile
+    || run.request.output_schema_version !== input.output_schema_version) {
+    throw new Error("Agent Run terminal tool-result identity drifted")
+  }
+  const rows = db.query(`
+    SELECT * FROM agent_run_tool_result
+    WHERE run_id=$run_id
+      AND request_hash=$request_hash
+      AND task_profile=$task_profile
+      AND tool_name=$tool_name
+      AND output_schema_version=$output_schema_version
+    ORDER BY occurred_at ASC, call_id ASC
+    LIMIT 2
+  `).all({
+    $run_id: input.run_id,
+    $request_hash: input.request_hash,
+    $task_profile: input.task_profile,
+    $tool_name: input.tool_name,
+    $output_schema_version: input.output_schema_version,
+  }) as Array<Record<string, unknown>>
+  if (rows.length > 1) {
+    throw new Error("Agent Run has ambiguous terminal tool results")
+  }
+  return rows.length === 0 ? null : decodeToolResult(rows[0]!)
 }
 
 export function admitAgentRun(
@@ -406,6 +545,33 @@ function validateHostProfile(value: string): void {
 
 function validateOpaque(value: string, field: string): void {
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(value)) throw new Error(`${field} is invalid`)
+}
+
+function validateToolResultArtifact(value: AgentArtifactRef): AgentArtifactRef {
+  if (!value || typeof value !== "object"
+    || !/^agent-artifact:\/\/durable\/[a-f0-9]{64}$/.test(value.ref)
+    || !/^[a-f0-9]{64}$/.test(value.sha256)
+    || !value.ref.endsWith(value.sha256)
+    || value.media_type !== "application/json"
+    || !Number.isSafeInteger(value.bytes)
+    || value.bytes < 2
+    || value.bytes > 16 * 1024 * 1024) {
+    throw new Error("Agent Run tool-result artifact is invalid")
+  }
+  return structuredClone(value)
+}
+
+function decodeToolResult(row: Record<string, unknown>): AgentRunToolResult {
+  return {
+    call_id: String(row.call_id),
+    run_id: String(row.run_id),
+    request_hash: String(row.request_hash),
+    task_profile: String(row.task_profile) as AgentRunRequest["task_profile"],
+    tool_name: String(row.tool_name),
+    output_schema_version: String(row.output_schema_version),
+    artifact: validateToolResultArtifact(JSON.parse(String(row.artifact_json))),
+    occurred_at: String(row.occurred_at),
+  }
 }
 
 function canonicalTime(value: string, field: string): void {

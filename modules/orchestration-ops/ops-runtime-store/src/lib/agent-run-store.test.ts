@@ -17,8 +17,10 @@ import {
   projectAgentRunStatus,
   readAgentRun,
   readAgentRunEvents,
+  readAgentRunTerminalToolResult,
   readAgentRunToolUsage,
   recordAgentRunToolCall,
+  recordAgentRunToolResult,
 } from "./agent-run-store"
 
 const ACCEPTED_AT = "2026-07-23T01:00:00.000Z"
@@ -139,12 +141,62 @@ test("Agent Run tool-call evidence is append-only and identity-bound", () => {
   db.close()
 })
 
-function fixture() {
+test("Agent Run terminal tool result is append-only, exact, and identity-bound", () => {
+  const db = new Database(":memory:")
+  ensureAgentRunStoreSchema(db)
+  const request = fixture("developer", "trade.rd-developer-agent-submission.v1")
+  admitAgentRun(db, request, "openclaw-gateway", ACCEPTED_AT)
+  recordAgentRunToolCall(db, {
+    call_id: "agent-tool-result-call-1",
+    run_id: request.run_id,
+    request_hash: request.request_hash,
+    task_profile: "developer",
+    tool_name: "research_developer_submission_prepare",
+    occurred_at: "2026-07-23T01:00:01.000Z",
+  })
+  const artifact = {
+    ref: `agent-artifact://durable/${"c".repeat(64)}`,
+    sha256: "c".repeat(64),
+    media_type: "application/json" as const,
+    bytes: 128,
+  }
+  recordAgentRunToolResult(db, {
+    call_id: "agent-tool-result-call-1",
+    run_id: request.run_id,
+    request_hash: request.request_hash,
+    task_profile: "developer",
+    tool_name: "research_developer_submission_prepare",
+    output_schema_version: request.output_schema_version,
+    artifact,
+    occurred_at: "2026-07-23T01:00:02.000Z",
+  })
+  const result = readAgentRunTerminalToolResult(db, {
+    run_id: request.run_id,
+    request_hash: request.request_hash,
+    task_profile: "developer",
+    tool_name: "research_developer_submission_prepare",
+    output_schema_version: request.output_schema_version,
+  })
+  assert.deepEqual(result?.artifact, artifact)
+  assert.throws(() => recordAgentRunToolResult(db, {
+    ...result!,
+    request_hash: "b".repeat(64),
+  }), /identity drifted/)
+  assert.throws(() => db.run(
+    "DELETE FROM agent_run_tool_result WHERE call_id='agent-tool-result-call-1'",
+  ), /immutable/)
+  db.close()
+})
+
+function fixture(
+  taskProfile: "planner" | "developer" = "planner",
+  outputSchemaVersion = "trade.strategy-hypothesis.v1",
+) {
   return buildAgentRunRequest({
     run_id: "agent-run-registry-1",
     idempotency_key: "rd:planner:registry-1",
     trace_id: "trace-agent-run-registry-1",
-    task_profile: "planner",
+    task_profile: taskProfile,
     objective: "Produce one bounded strategy hypothesis proposal.",
     source_revision: "a2089f8197d3",
     instruction_ref: {
@@ -154,8 +206,10 @@ function fixture() {
       bytes: 128,
     },
     input_refs: [],
-    output_schema_version: "trade.strategy-hypothesis.v1",
-    capabilities: ["owner_read", "research_read"],
+    output_schema_version: outputSchemaVersion,
+    capabilities: taskProfile === "developer"
+      ? ["owner_read", "research_read", "workspace_read", "workspace_patch", "bounded_quality_check"]
+      : ["owner_read", "research_read"],
     budget: {
       deadline_at: "2026-07-23T02:00:00.000Z",
       max_wall_time_ms: 60_000,

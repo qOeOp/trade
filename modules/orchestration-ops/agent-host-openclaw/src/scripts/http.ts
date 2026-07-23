@@ -12,6 +12,7 @@ import { startAgentHostHttpServer } from "../lib/agent-host-http-server"
 import {
   materializeOpenClawAgentMessage,
   storeOpenClawAgentOutput,
+  validateOpenClawAgentOutputArtifact,
 } from "../lib/openclaw-artifact-materializer"
 import { OpenClawAgentHost } from "../lib/openclaw-agent-run"
 import { executeOpenClawGatewayHttp } from "../lib/openclaw-gateway-http-executor"
@@ -52,6 +53,18 @@ async function main(): Promise<void> {
         text,
         storage: "durable",
       }),
+    validate_output_ref: async (request, artifact) =>
+      validateOpenClawAgentOutputArtifact({
+        repository_root: repositoryRoot,
+        request,
+        artifact,
+      }),
+    terminal_tool_outputs: {
+      developer: {
+        tool_name: "research_developer_submission_prepare",
+        output_schema_version: "trade.rd-developer-agent-submission.v1",
+      },
+    },
     execute: async (request, signal) =>
       executeOpenClawGatewayHttp({
         gateway_url: input.gateway_url,

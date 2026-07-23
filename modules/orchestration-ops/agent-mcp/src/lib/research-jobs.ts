@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { assertProjectRuntimePath } from "../../../../contracts/runtime-core/src/paths"
-import { canonicalHash } from "../../../../contracts/runtime-core/src/canonical-json"
+import { canonicalHash, canonicalJson } from "../../../../contracts/runtime-core/src/canonical-json"
 import type { AgentArtifactRef } from "../../../../contracts/agent-run-contract/src/agent-run-contract"
 import {
   executeOwnerCli,
@@ -309,7 +309,7 @@ export class ResearchJobService {
   async prepareDeveloperSubmission(
     input: DeveloperSubmissionPrepareInput,
   ): Promise<JSONRecord> {
-    await this.recordAgentToolCall({
+    const callId = await this.recordAgentToolCall({
       run_id: input.developer_run_id,
       request_hash: input.request_hash,
       task_profile: "developer",
@@ -362,6 +362,29 @@ export class ResearchJobService {
     if (Object.keys(submission).length === 0) {
       throw new Error("Developer submission owner returned no submission")
     }
+    if (submission.schema_version !== "trade.rd-developer-agent-submission.v1") {
+      throw new Error("Developer submission owner schema version drifted")
+    }
+    const artifactResponse = await this.execute({
+      script: "modules/orchestration-ops/agent-artifact-store/src/scripts/main.ts",
+      args: ["--repository-root", "."],
+      stdin_json: {
+        action: "write_text",
+        storage: "durable",
+        media_type: "application/json",
+        text: canonicalJson(submission),
+      },
+    })
+    const artifact = agentArtifactRef(artifactResponse.artifact)
+    await this.recordAgentToolResult({
+      call_id: callId,
+      run_id: input.developer_run_id,
+      request_hash: input.request_hash,
+      task_profile: "developer",
+      tool_name: "research_developer_submission_prepare",
+      output_schema_version: "trade.rd-developer-agent-submission.v1",
+      artifact,
+    })
     return submission
   }
 
@@ -442,7 +465,8 @@ export class ResearchJobService {
     request_hash: string
     task_profile: "planner" | "developer" | "reviewer" | "explanation"
     tool_name: string
-  }): Promise<void> {
+  }): Promise<string> {
+    const callId = `agent-tool:${randomUUID()}`
     const response = ownerData(await this.execute({
       script: "modules/orchestration-ops/ops-runtime-store/src/scripts/main.ts",
       args: [
@@ -452,7 +476,7 @@ export class ResearchJobService {
         "record_agent_tool_call",
         "--json",
         JSON.stringify({
-          call_id: `agent-tool:${randomUUID()}`,
+          call_id: callId,
           ...input,
           occurred_at: new Date().toISOString(),
         }),
@@ -461,6 +485,36 @@ export class ResearchJobService {
     const usage = asRecord(response.usage)
     if (Number(usage.tool_calls) < 1) {
       throw new Error("Agent tool-call owner did not attest usage")
+    }
+    return callId
+  }
+
+  private async recordAgentToolResult(input: {
+    call_id: string
+    run_id: string
+    request_hash: string
+    task_profile: "developer"
+    tool_name: "research_developer_submission_prepare"
+    output_schema_version: "trade.rd-developer-agent-submission.v1"
+    artifact: AgentArtifactRef
+  }): Promise<void> {
+    const response = ownerData(await this.execute({
+      script: "modules/orchestration-ops/ops-runtime-store/src/scripts/main.ts",
+      args: [
+        "--db",
+        this.opsRuntimeDbPath,
+        "--action",
+        "record_agent_tool_result",
+        "--json",
+        JSON.stringify({
+          ...input,
+          occurred_at: new Date().toISOString(),
+        }),
+      ],
+    }))
+    const toolResult = asRecord(response.tool_result)
+    if (toolResult.call_id !== input.call_id) {
+      throw new Error("Agent tool-result owner did not attest identity")
     }
   }
 
@@ -679,6 +733,25 @@ function optionalRecord(value: unknown): JSONRecord | null {
 function ownerData(value: JSONRecord): JSONRecord {
   const data = asRecord(value.data)
   return Object.keys(data).length > 0 ? data : value
+}
+
+function agentArtifactRef(value: unknown): AgentArtifactRef {
+  const artifact = asRecord(value)
+  if (!/^agent-artifact:\/\/durable\/[a-f0-9]{64}$/.test(stringField(artifact.ref))
+    || !/^[a-f0-9]{64}$/.test(stringField(artifact.sha256))
+    || !stringField(artifact.ref).endsWith(stringField(artifact.sha256))
+    || artifact.media_type !== "application/json"
+    || !Number.isSafeInteger(artifact.bytes)
+    || Number(artifact.bytes) < 2
+    || Number(artifact.bytes) > 16 * 1024 * 1024) {
+    throw new Error("Agent Artifact Store returned an invalid terminal result ref")
+  }
+  return {
+    ref: stringField(artifact.ref),
+    sha256: stringField(artifact.sha256),
+    media_type: "application/json",
+    bytes: Number(artifact.bytes),
+  }
 }
 
 function hasReadyHypothesis(program: JSONRecord): boolean {

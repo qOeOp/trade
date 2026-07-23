@@ -76,12 +76,44 @@ export function storeOpenClawAgentOutput(input: {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("OpenClaw Agent output must be one JSON object")
   }
+  validateOutputSchema(input.request, parsed as Record<string, unknown>)
   return writeAgentTextArtifact({
     repository_root: input.repository_root,
     storage: input.storage ?? "durable",
     media_type: "application/json",
     text: canonicalJson(parsed),
   })
+}
+
+export function validateOpenClawAgentOutputArtifact(input: {
+  repository_root: string
+  request: AgentRunRequest
+  artifact: AgentArtifactRef
+}): AgentArtifactRef {
+  if (input.artifact.media_type !== "application/json") {
+    throw new Error("OpenClaw terminal tool output is not JSON")
+  }
+  const materialized = readAgentArtifact(input.repository_root, input.artifact)
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(materialized.text)
+  } catch {
+    throw new Error("OpenClaw terminal tool output is not JSON")
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("OpenClaw terminal tool output must be one JSON object")
+  }
+  validateOutputSchema(input.request, parsed as Record<string, unknown>)
+  return materialized.artifact
+}
+
+function validateOutputSchema(
+  request: AgentRunRequest,
+  parsed: Record<string, unknown>,
+): void {
+  if (parsed.schema_version !== request.output_schema_version) {
+    throw new Error("OpenClaw Agent output schema version drifted")
+  }
 }
 
 function unwrapSingleJsonObject(value: string): string {

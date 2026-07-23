@@ -81,3 +81,30 @@ test("Gateway HTTP executor redacts error bodies and closes aborts", async () =>
   assert.equal(aborted.interrupted, true)
   assert.equal(aborted.exit_code, 143)
 })
+
+test("Gateway HTTP executor preserves a successful tool-only response", async () => {
+  const result = await executeOpenClawGatewayHttp({
+    gateway_url: "http://openclaw:18789",
+    gateway_token: "d".repeat(64),
+    request: {
+      run_id: "agent-run-tool-only",
+      agent_id: "rd-developer",
+      message: "{}",
+      timeout_seconds: 30,
+      transport: "gateway",
+    },
+    signal: new AbortController().signal,
+    fetch: async () => Response.json({
+      id: "resp-tool-only",
+      output: [{
+        type: "function_call",
+        name: "research_developer_submission_prepare",
+        call_id: "call-tool-only",
+      }],
+    }),
+  })
+  assert.equal(result.exit_code, 0)
+  assert.equal(result.tool_calls, 1)
+  assert.equal(parseOpenClawOutput(result.stdout, "gateway", true), "")
+  assert.throws(() => parseOpenClawOutput(result.stdout, "gateway"), /text is missing/)
+})

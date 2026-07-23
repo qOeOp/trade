@@ -344,16 +344,33 @@ test("Developer preparation loads immutable Agent Run context and sends only own
     bytes: JSON.stringify(context).length,
   }
   let statePayload: JSONRecord | undefined
+  let terminalArtifactText = ""
+  let recordedToolResult: JSONRecord | undefined
   const service = new ResearchJobService({
     execute: async (command) => {
       if (command.script.includes("agent-artifact-store")) {
-        assert.deepEqual(command.stdin_json, { action: "read_text", artifact: contextRef })
-        return { ok: true, action: "read_text", artifact: contextRef, text: JSON.stringify(context) }
+        const artifactInput = (command.stdin_json ?? {}) as JSONRecord
+        if (artifactInput.action === "read_text") {
+          assert.deepEqual(command.stdin_json, { action: "read_text", artifact: contextRef })
+          return { ok: true, action: "read_text", artifact: contextRef, text: JSON.stringify(context) }
+        }
+        terminalArtifactText = String(artifactInput.text)
+        const artifact = {
+          ref: `agent-artifact://durable/${"e".repeat(64)}`,
+          sha256: "e".repeat(64),
+          media_type: "application/json",
+          bytes: Buffer.byteLength(terminalArtifactText),
+        }
+        return { ok: true, action: "write_text", artifact }
       }
       const action = argAfter(command.args, "--action")
       const payload = JSON.parse(argAfter(command.args, "--json")) as JSONRecord
       if (command.script.includes("ops-runtime-store")) {
         if (action === "record_agent_tool_call") return { ok: true, usage: { tool_calls: 1 } }
+        if (action === "record_agent_tool_result") {
+          recordedToolResult = payload
+          return { ok: true, tool_result: payload }
+        }
         if (action === "read_agent_run") {
           return {
             ok: true,
@@ -370,7 +387,13 @@ test("Developer preparation loads immutable Agent Run context and sends only own
         }
       }
       statePayload = payload
-      return { ok: true, submission: { submission_hash: "c".repeat(64) } }
+      return {
+        ok: true,
+        submission: {
+          schema_version: "trade.rd-developer-agent-submission.v1",
+          submission_hash: "c".repeat(64),
+        },
+      }
     },
     start: () => ({ pid: 1, log_path: "tmp/unused.log" }),
   })
@@ -403,6 +426,13 @@ test("Developer preparation loads immutable Agent Run context and sends only own
   assert.deepEqual(statePayload?.semantic_contract, semantic)
   assert.equal(prepared.submission_hash, "c".repeat(64))
   assert.equal(prepared.submission, undefined)
+  assert.equal(JSON.parse(terminalArtifactText).submission_hash, "c".repeat(64))
+  assert.equal(recordedToolResult?.tool_name, "research_developer_submission_prepare")
+  assert.equal(recordedToolResult?.output_schema_version, "trade.rd-developer-agent-submission.v1")
+  assert.equal(
+    (recordedToolResult?.artifact as JSONRecord).ref,
+    `agent-artifact://durable/${"e".repeat(64)}`,
+  )
 })
 
 function argAfter(args: string[], name: string): string {
