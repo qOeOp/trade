@@ -12,6 +12,22 @@
     },
     "controlUi": {
       "enabled": false
+    },
+    "http": {
+      "endpoints": {
+        "responses": {
+          "enabled": true,
+          "files": {
+            "allowUrl": false
+          },
+          "images": {
+            "allowUrl": false
+          }
+        },
+        "chatCompletions": {
+          "enabled": false
+        }
+      }
     }
   },
   "update": {
