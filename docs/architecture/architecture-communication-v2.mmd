@@ -1,6 +1,7 @@
 flowchart TB
-  %% Cross-domain communication lanes. Domains may appear in more than one lane;
-  %% the canonical publisher/consumer list lives in design-architecture.md.
+  %% Logical cross-domain communication lanes. Domains may appear in more than one lane;
+  %% the canonical publisher/consumer list lives in design-architecture.md;
+  %% physical transport and service boundaries live in physical-runtime-transport.md.
 
   subgraph SCHEDULE["1. Scheduling lane — targeted commands, bounded results"]
     direction LR
@@ -57,7 +58,7 @@ flowchart TB
     E_QUERY --> E_CONSUMERS["authorized consumers"]
   end
 
-  LEGEND["Route invariants<br/>rail namespace ≠ interaction class<br/>COMMAND is targeted · FACT may fan out<br/>INTENT is not authorization · REF is not store access<br/>QUERY uses owner port · large payload stays in owner artifact"]
+  LEGEND["Route invariants<br/>rail namespace ≠ interaction class · logical route ≠ network service<br/>COMMAND is targeted · FACT may fan out<br/>INTENT is not authorization · REF is not store access<br/>QUERY uses owner port · large payload stays in owner artifact"]
 
   S_ORCH ~~~ A_OPS
   A_OPS ~~~ L_MARKET
