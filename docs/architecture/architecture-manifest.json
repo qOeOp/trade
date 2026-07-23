@@ -12,6 +12,7 @@
         "modules/orchestration-ops/watch-task-runtime",
         "modules/orchestration-ops/model-gateway",
         "modules/orchestration-ops/agent-host-codex",
+        "modules/orchestration-ops/agent-host-openclaw",
         "modules/orchestration-ops/agent-artifact-store",
         "modules/orchestration-ops/agent-workspace-manager",
         "modules/orchestration-ops/operator-http",
