@@ -91,6 +91,7 @@
         "modules/live-decision-planning/decision-input-assembler",
         "modules/live-decision-planning/trade-plan-builder",
         "modules/live-decision-planning/action-intent-publisher",
+        "modules/live-decision-planning/account-candidate-arbiter",
         "modules/live-decision-planning/watch-task-compiler"
       ],
       "owns_jobs": ["J03"]

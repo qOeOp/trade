@@ -20,7 +20,7 @@
 | `portfolio-execution-state` | 2 | 2 | trade_event_store, flow_read_models | - |
 | `market-data-products` | 19 | 15 | market_data_store, ohlcv_store | - |
 | `exchange-gateway` | 10 | 10 | exchange_runtime_store | - |
-| `live-decision-planning` | 7 | 7 | - | J03:slow_track_market_watch |
+| `live-decision-planning` | 8 | 8 | - | J03:slow_track_market_watch |
 | `live-execution-control` | 11 | 11 | - | J01:account_reconcile_guard, J02:fast_track_guard |
 | `research-strategy-development` | 55 | 55 | research_state_store | J04:rd_strategy_supervisor, J05:rd_forward_shadow_trackers |
 | `governance-review-compliance` | 5 | 5 | governance_ledger | J07:closed_flow_review_sweep |
