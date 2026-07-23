@@ -134,6 +134,16 @@
         }
       },
       {
+        "id": "rd-developer",
+        "workspace": "/home/node/.openclaw/workspaces/rd-developer",
+        "skills": [],
+        "tools": {
+          "profile": "minimal",
+          "alsoAllow": ["trade-developer__*"],
+          "deny": ["group:runtime", "group:fs", "group:web", "group:sessions", "group:automation", "group:messaging", "group:nodes", "group:agents", "group:media", "group:ui"]
+        }
+      },
+      {
         "id": "ops-explanation",
         "workspace": "/home/node/.openclaw/workspaces/ops-explanation",
         "skills": [],
@@ -164,6 +174,16 @@
       },
       "trade-reviewer": {
         "url": "http://agent-mcp-reviewer:7312/mcp",
+        "transport": "streamable-http",
+        "connectTimeout": 5,
+        "timeout": 120,
+        "supportsParallelToolCalls": false,
+        "headers": {
+          "Authorization": "Bearer ${TRADE_MCP_HTTP_TOKEN}"
+        }
+      },
+      "trade-developer": {
+        "url": "http://agent-mcp-developer:7312/mcp",
         "transport": "streamable-http",
         "connectTimeout": 5,
         "timeout": 120,

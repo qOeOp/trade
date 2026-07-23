@@ -37,6 +37,8 @@ services:
         condition: service_healthy
       agent-mcp-reviewer:
         condition: service_healthy
+      agent-mcp-developer:
+        condition: service_healthy
       agent-mcp-explanation:
         condition: service_healthy
     healthcheck:
@@ -170,6 +172,20 @@ services:
       - reviewer
       - --allowed-hosts
       - agent-mcp-reviewer:7312
+
+  agent-mcp-developer:
+    <<: *agent-mcp
+    command:
+      - bun
+      - modules/orchestration-ops/agent-mcp/src/scripts/http.ts
+      - --host
+      - 0.0.0.0
+      - --port
+      - "7312"
+      - --profile
+      - developer
+      - --allowed-hosts
+      - agent-mcp-developer:7312
 
   agent-mcp-explanation:
     <<: *agent-mcp

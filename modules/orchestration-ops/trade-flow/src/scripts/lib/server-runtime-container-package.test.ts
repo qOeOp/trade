@@ -50,7 +50,7 @@ test("server build context excludes runtime state, credentials, dependencies, an
   }
 })
 
-test("OpenClaw overlay is digest-pinned, private, secret-ref only, and excludes Developer", () => {
+test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds Developer", () => {
   assert.equal(openClawLock.version, "2026.7.1")
   assert.equal(
     openClawLock.image_index_digest,
@@ -66,6 +66,9 @@ test("OpenClaw overlay is digest-pinned, private, secret-ref only, and excludes 
   assert.match(serialized, /"id":"SILICONFLOW_API_KEY"/)
   assert.match(serialized, /"id":"OPENCLAW_GATEWAY_TOKEN"/)
   assert.match(serialized, /"Authorization":"Bearer \$\{TRADE_MCP_HTTP_TOKEN\}"/)
-  assert.doesNotMatch(serialized, /rd-developer|sk-[A-Za-z0-9_-]{12,}/)
+  assert.match(serialized, /"id":"rd-developer"/)
+  assert.match(serialized, /"alsoAllow":\["trade-developer__\*"\]/)
+  assert.match(agentCompose, /agent-mcp-developer:[\s\S]*--profile[\s\S]*developer/)
+  assert.doesNotMatch(serialized, /sk-[A-Za-z0-9_-]{12,}/)
   assert.match(serialized, /"deny":\[[^\]]*"exec"[^\]]*"process"[^\]]*"code_execution"/)
 })
