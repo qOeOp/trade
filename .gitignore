@@ -4,6 +4,8 @@
 .claude/
 .codex/*
 !.codex/config.toml
+!.codex/agents/
+!.codex/agents/*.toml
 tmp/
 .env
 .secrets/

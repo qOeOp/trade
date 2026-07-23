@@ -62,6 +62,8 @@
 ## Development Convergence Guardrails
 
 - 当前处于恢复期，先修复红灯并打通已有链路，不继续扩张责任面
+- 模糊方向、跨模块功能或无人值守开发必须使用 `.agents/skills/run-autonomous-development/SKILL.md`：先形成 mission contract、真实 consumer 验收和迭代预算，再写代码
+- 同一 mission 禁止无限循环；默认一个 slice 最多 3 次实现修订，连续 2 轮验收无进展必须重做设计或以 `blocked / invalidated / budget_exhausted` 终止
 - 开工前先确定复用的 owner 与 production consumer；找不到 consumer 的实现优先接入、合并或删除
 - `module owner / registered tool / domain / store / job / rail` 不得超过 `docs/engineering/convergence-baseline.json`
 - Agent 不得自行提高 convergence baseline；只有用户明确批准后才能修改上限
