@@ -274,6 +274,14 @@ test("strategy data split parser ignores camel-case aliases", () => {
   assert.equal(input.datasets[0].manifestPath, undefined)
 })
 
+test("strategy data split parser preserves explicit deployment environment", () => {
+  const input = strategyDataSplitInputFromJson({
+    environment_id: "test:data-split",
+    datasets: [],
+  })
+  assert.equal(input.environmentId, "test:data-split")
+})
+
 function writeManifest(dir: string, symbol: string, rows: number): string {
   mkdirSync(dir, { recursive: true })
   const start = 1_700_000_000_000

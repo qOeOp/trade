@@ -750,6 +750,7 @@ test("strategy R&D loop writes artifact and catalog ledger", () => {
 
     const report = runStrategyRndLoop({
       runId: "rnd-loop-test",
+      environmentId: "test:rnd-loop",
       batchId: "batch-loop-test",
       manifestPath,
       indicatorReportPath,
@@ -762,7 +763,10 @@ test("strategy R&D loop writes artifact and catalog ledger", () => {
     assert.equal(report.run_id, "rnd-loop-test")
     assert.equal(report.ledger_ref, join(artifactRoot, "data_catalog.db"))
     assert.equal(existsSync(resolveRepoPath(report.artifact_ref)), true)
-    const ledgerRecords = loadRndLedger({ catalogDbPath: report.ledger_ref })
+    const ledgerRecords = loadRndLedger({
+      catalogDbPath: report.ledger_ref,
+      environmentId: "test:rnd-loop",
+    })
     assert.equal(ledgerRecords.length, 1)
     const record = ledgerRecords[0] as { run_id: string; artifact_ref: string; trial_count: number }
     assert.equal(record.run_id, "rnd-loop-test")
@@ -774,6 +778,14 @@ test("strategy R&D loop writes artifact and catalog ledger", () => {
     assert.equal(artifact.stop_reason, report.stop_reason)
     const catalog = new Database(join(artifactRoot, "data_catalog.db"))
     try {
+      const identity = catalog.query(`
+        SELECT environment_id, store_id
+        FROM runtime_database_identity WHERE singleton=1
+      `).get() as { environment_id: string; store_id: string }
+      assert.deepEqual(identity, {
+        environment_id: "test:rnd-loop",
+        store_id: "artifact_catalog",
+      })
       assert.equal((catalog.query("SELECT count(*) AS count FROM artifact").get() as { count: number }).count, 1)
       assert.equal((catalog.query("SELECT count(*) AS count FROM research_report WHERE report_kind='strategy_rnd_loop'").get() as { count: number }).count, 1)
       assert.equal((catalog.query("SELECT count(*) AS count FROM strategy_rnd_run WHERE run_id='rnd-loop-test'").get() as { count: number }).count, 1)

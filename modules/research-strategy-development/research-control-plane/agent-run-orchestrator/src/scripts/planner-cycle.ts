@@ -4,6 +4,7 @@ import { Database } from "bun:sqlite"
 import { ensureResearchStateSchema } from "../../../state-store/src/lib/research-state-store"
 import {
   boundedText,
+  configureAgentCycleDatabase,
   parseAgentCycleCommon,
   parseAgentCyclePayload,
   resolveAgentCyclePaths,
@@ -19,6 +20,7 @@ async function main(): Promise<void> {
   if (!token) throw new Error(`required environment variable is missing: ${input.host_token_env}`)
   const db = new Database(dbPath)
   try {
+    configureAgentCycleDatabase(db)
     ensureResearchStateSchema(db)
     const result = await runPlannerAgentCycle({
       db,

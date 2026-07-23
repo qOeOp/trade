@@ -14,12 +14,13 @@ atomic module
 
 - Source OHLCV manifests, or a `market-data.store` candle-slice owner request.
 - Split ratios, timeframe, embargo parameters, output root.
-- Optional report and catalog paths.
+- Optional report and catalog paths plus deployment `environment_id`; the CLI inherits `TRADE_ENVIRONMENT_ID`.
 
 ## Outputs
 
 - Split segment manifests and CSV files.
 - `StrategyDataSplitReport`.
+- The report and optional Catalog registration carry the same deployment environment identity.
 - A read-only, self-hashed discovery / validation segment snapshot that re-verifies the report, manifest, and CSV content.
 - When `exchange` and non-empty `dataset_kinds` are supplied, the segment-snapshot owner also emits the exact `Developer Data Snapshot Binding v3`; omitting them returns the snapshot plus a null Developer binding.
 

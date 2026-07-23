@@ -180,7 +180,7 @@ function admitProposal(
     objective,
     dataset_requirements: ["ohlcv"],
     candidate_space: candidateSpace
-      ?? (proposalRevision === 1 ? { lookback: [20, 40] } : { lookback: [20] }),
+      ?? (proposalRevision === 1 ? { lookback_bars: [20, 40] } : { lookback_bars: [20] }),
     trial_budget: 2,
     evaluation_protocol_ref: protocol.protocol_ref,
     control_plane_context_hash: context.context_hash,
@@ -245,7 +245,10 @@ function receive(db: Database, submission: ReturnType<typeof draft>, overrides: 
 
 function validDraftPayload(brief: ReturnType<typeof issueBrief>, lookback = 20) {
   const protocol = requiredEvaluationProtocol()
-  const candidateAssignments = [{ candidate_id: "candidate-1", parameters: { lookback } }]
+  const candidateAssignments = [{
+    candidate_id: "candidate-1",
+    parameters: { lookback_bars: lookback },
+  }]
   const candidateAssignmentSetHash = canonicalControlPlaneHash(candidateAssignments)
   const group = compileDeveloperContractFreezeTrialGroup({
     trial_group_id: "group-1",
@@ -634,7 +637,7 @@ test("Control Plane persists invalid Draft evidence for incomplete and out-of-sp
       validated_at: "2026-07-22T12:07:00Z",
     })
     expect(invalid.status).toBe("invalid")
-    expect(invalid.errors).toContain("candidate candidate-1 parameter lookback is outside candidate_space")
+    expect(invalid.errors).toContain("candidate candidate-1 parameter lookback_bars is outside candidate_space")
   } finally {
     outOfSpaceDb.close()
   }

@@ -30,9 +30,9 @@ function proposal(db: Database, overrides: Partial<PlannerProposalSubmissionBody
     universe_node_id: "canonical:trend/time-series-trend/time-series-momentum",
     objective: "Test one bounded time-series trend mechanism",
     dataset_requirements: ["ohlcv"],
-    candidate_space: { lookback: [20, 40] },
+    candidate_space: { lookback_bars: [20, 40] },
     trial_budget: 2,
-    evaluation_protocol_ref: "protocol://historical-v1",
+    evaluation_protocol_ref: "protocol:time-series-momentum-eval-v1",
     control_plane_context_hash: context.context_hash,
     created_at: "2026-07-22T12:01:00Z",
     ...overrides,
@@ -81,7 +81,7 @@ test("Control Plane enforces contiguous revisions and frozen Proposal scope", ()
     admitPlannerProposal(db, request(db))
     const revised = proposal(db, {
       objective: "Test the same mechanism with a narrower bounded candidate space",
-      candidate_space: { lookback: [20] },
+      candidate_space: { lookback_bars: [20] },
       created_at: "2026-07-22T12:04:00Z",
     })
     expect(() => admitPlannerProposal(db, request(db, {
@@ -115,6 +115,21 @@ test("Control Plane enforces contiguous revisions and frozen Proposal scope", ()
       recorded_at: "2026-07-22T12:09:00Z",
       proposal: changedScope,
     }))).toThrow("cannot change hypothesis or canonical")
+  } finally {
+    db.close()
+  }
+})
+
+test("Control Plane rejects proposals beyond the registered family protocol", () => {
+  const db = openDb()
+  try {
+    expect(() => admitPlannerProposal(db, request(db, {
+      proposal: proposal(db, { trial_budget: 11 }),
+    }))).toThrow("trial_budget exceeds registered evaluation maximum 10")
+    expect(() => admitPlannerProposal(db, request(db, {
+      proposal: proposal(db, { candidate_space: { invented_axis: [1] } }),
+    }))).toThrow("candidate space is incompatible")
+    expect(count(db, "rd_planner_proposal_revision")).toBe(0)
   } finally {
     db.close()
   }

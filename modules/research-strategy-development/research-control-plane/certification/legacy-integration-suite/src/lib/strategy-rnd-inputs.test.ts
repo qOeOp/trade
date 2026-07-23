@@ -3,6 +3,7 @@ import test from "node:test"
 import {
   strategyRndBatchInputFromJson,
   strategyRndCampaignInputFromJson,
+  strategyRndLoopInputFromJson,
 } from "../../../../../agent-roles/developer/candidate-batch-engine/src/lib/strategy-rnd-inputs"
 
 test("strategy R&D input parser keeps factor research option aliases", () => {
@@ -59,6 +60,21 @@ test("strategy R&D campaign parser reads canonical discovery manifest field", ()
   assert.deepEqual(input.hypotheses[0].thesisCertificate?.negativeControls, ["side_flip", "entry_lag"])
   assert.equal(input.hypotheses[0].manifestPath, "/tmp/discovery.json")
   assert.equal(input.hypotheses[0].validationManifestPath, "/tmp/validation.json")
+})
+
+test("strategy R&D execution parsers preserve explicit deployment environment", () => {
+  const loop = strategyRndLoopInputFromJson({
+    environment_id: "test:loop",
+    manifest_path: "/tmp/manifest.json",
+    candidates: [],
+  })
+  const campaign = strategyRndCampaignInputFromJson({
+    environment_id: "test:campaign",
+    hypotheses: [],
+  })
+
+  assert.equal(loop.environmentId, "test:loop")
+  assert.equal(campaign.environmentId, "test:campaign")
 })
 
 test("strategy R&D input parser ignores camel-case contract fields", () => {

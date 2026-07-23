@@ -28,6 +28,7 @@ interface StrategyDataSplitDatasetInput {
 interface StrategyDataSplitInput {
   splitId?: string
   hypothesisId?: string
+  environmentId?: string
   timeframe?: string
   outputRoot?: string
   discoveryRatio?: number
@@ -65,6 +66,7 @@ interface StrategyDataSplitReport {
   schema_version: "trade-flow.strategy-data-split.v1"
   split_id: string
   hypothesis_id: string
+  environment_id: string
   generated_at: string
   timeframe: string
   output_root: string
@@ -140,6 +142,7 @@ function runStrategyDataSplit(
     schema_version: "trade-flow.strategy-data-split.v1",
     split_id: splitId,
     hypothesis_id: input.hypothesisId || "",
+    environment_id: input.environmentId || "local:local",
     generated_at: generatedAt,
     timeframe,
     output_root: displayPath(outputRoot),
@@ -166,6 +169,7 @@ function runStrategyDataSplit(
     writeFileSync(input.reportPath, JSON.stringify(reportWithPath, null, 2) + "\n")
     const registered = registerCatalogArtifact({
       catalogDbPath: input.catalogDbPath || defaultCatalogDbPathForGeneratedPath(input.reportPath),
+      environmentId: input.environmentId,
       path: input.reportPath,
       now: generatedAt,
       referrerType: "strategy_data_split",
@@ -185,6 +189,7 @@ function strategyDataSplitInputFromJson(value: JSONRecord): StrategyDataSplitInp
   return {
     splitId: stringField(value.split_id) || undefined,
     hypothesisId: stringField(value.hypothesis_id) || undefined,
+    environmentId: stringField(value.environment_id) || process.env.TRADE_ENVIRONMENT_ID || undefined,
     timeframe: stringField(value.timeframe) || undefined,
     outputRoot: stringField(value.output_root) || undefined,
     discoveryRatio: optionalNumber(value.discovery_ratio),

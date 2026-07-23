@@ -225,6 +225,7 @@ export async function run(
 }
 
 export function parseArgs(argv: string[]): Config {
+  let exportFilesRequested = false
   const config: Config = {
     symbol: "",
     exchange: "binance",
@@ -253,9 +254,7 @@ export function parseArgs(argv: string[]): Config {
         config.outputDir = readFlagValue(argv, ++i, arg)
         break
       case "--export-files":
-        if (!config.outputDir) {
-          throw new Error("--export-files requires --output-dir")
-        }
+        exportFilesRequested = true
         break
       case "--limit": {
         const value = Number(readFlagValue(argv, ++i, arg))
@@ -289,6 +288,9 @@ export function parseArgs(argv: string[]): Config {
 
   if (!config.symbol.trim()) {
     throw new Error("--symbol is required")
+  }
+  if (exportFilesRequested && !config.outputDir) {
+    throw new Error("--export-files requires --output-dir")
   }
   if (config.limit > MAX_KLINE_PAGE_SIZE && config.sinceTS <= 0) {
     throw new Error(`--limit above ${MAX_KLINE_PAGE_SIZE} requires --since-ts`)

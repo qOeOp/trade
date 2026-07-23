@@ -19,8 +19,98 @@ import {
 import {
   admitReviewerAgentResult,
   prepareReviewerAgentRun,
+  reviewerFeedbackLesson,
+  reviewerResultSummary,
 } from "./reviewer-agent-run"
 import { memoryArtifacts } from "./agent-artifact-port.test-fixture"
+
+test("Reviewer feedback becomes a deterministic Planner lesson", () => {
+  const submission = createReviewerAgentSubmission({
+    schema_version: REVIEWER_AGENT_SUBMISSION_SCHEMA,
+    reviewer_run_id: "reviewer-feedback-1",
+    experiment_id: "experiment-feedback-1",
+    expected_version: 3,
+    stage_id: "historical_validation",
+    decision: "modify",
+    evidence: [{ result_id: "result-feedback-1", evidence_role: "primary" }],
+    selected_trial_id: null,
+    rationale: "OOS sample size is insufficient; move the next revision to panel evaluation.",
+    created_at: "2026-07-23T11:05:00.000Z",
+  })
+  const lesson = reviewerFeedbackLesson({
+    submission,
+    submission_ref: "agent-artifact://durable/reviewer-feedback",
+    hypothesis_id: "hypothesis-feedback-1",
+    recorded_at: "2026-07-23T11:05:01.000Z",
+  })
+
+  assert.equal(lesson.conclusion, "blocks")
+  assert.equal(lesson.hypothesis_id, "hypothesis-feedback-1")
+  assert.equal(lesson.lesson_ref, "agent-artifact://durable/reviewer-feedback")
+  assert.equal(lesson.metadata_json.decision, "modify")
+  assert.deepEqual(lesson.metadata_json.result_ids, ["result-feedback-1"])
+  assert.match(lesson.idempotency_key, new RegExp(submission.submission_hash))
+})
+
+test("Reviewer context keeps exact evidence identity without embedding unbounded trades", () => {
+  const trades = Array.from({ length: 2_000 }, (_, index) => ({
+    trade_id: `trade-${index}`,
+    signal_time: "2026-07-23T00:00:00.000Z",
+    entry: 100 + index,
+    exit: 101 + index,
+    diagnostics: "x".repeat(128),
+  }))
+  const fullSummary = {
+    run_id: "compatibility-run-1",
+    created_at: "2026-07-23T11:00:00.000Z",
+    artifact_ref: "tmp/artifacts/compatibility-run-1.json",
+    stop_reason: "no_promote",
+    batch: {
+      batch_id: "batch-1",
+      hypothesis: "experiment-1",
+      trial_count: 1,
+      accepted_count: 0,
+      candidate_source: "provided",
+      outcome: "no_promote",
+      winner: null,
+      candidates: [{
+        candidate_id: "candidate-1",
+        family: "time_series_momentum_v1",
+        params: { lookback_bars: 12 },
+        replay: {
+          sample_count: trades.length,
+          avg_r: -0.1,
+          total_r: -200,
+          max_drawdown_r: 20,
+          profit_factor: 0.8,
+          gate: { shadow_candidate: false, blocked_by: [{ check_id: "R-EXPECTANCY" }] },
+          trades,
+          diagnostics: {
+            assumptions: {
+              anti_overfit: { oos_stats: { sample_count: 20, avg_r: -0.2 } },
+              robustness: { cost_stress: { stats: { avg_r: -0.3 } } },
+            },
+            gate: { accepted: false, blocked_by: [{ check_id: "RND-OOS-EXPECTANCY" }] },
+          },
+        },
+      }],
+      failure_summary: { primary_failure_area: "edge_expectancy" },
+      reliability_gate: { status: "blocked", more_trials_allowed: false },
+      next_action: "Reject the mechanism.",
+    },
+  }
+
+  const summary = reviewerResultSummary(fullSummary)
+  const encoded = canonicalJson(summary)
+  assert.ok(Buffer.byteLength(encoded) <= 24 * 1024)
+  assert.doesNotMatch(encoded, /trade-1999/)
+  assert.match(encoded, /RND-OOS-EXPECTANCY/)
+  assert.match(encoded, /full_summary_hash/)
+  assert.equal(
+    (summary.omitted_detail as { full_summary_bytes: number }).full_summary_bytes,
+    Buffer.byteLength(canonicalJson(fullSummary)),
+  )
+})
 
 test("Reviewer Agent cannot promote agent-assisted historical evidence", () => {
   const db = reviewerFixture()

@@ -11,6 +11,7 @@ Run one bounded R&D campaign from a hypothesis queue. The module owns campaign-l
 - Optional calibration report
 - Optional panel negative-control report
 - Optional explicit `rd_program_ref` plus `rd_state_db` for durable research-state writeback
+- Optional deployment `environment_id`, propagated unchanged to every child loop and Catalog write
 
 ## Outputs
 

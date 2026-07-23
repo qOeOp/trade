@@ -58,6 +58,7 @@ export function run(argv: string[]): JSONRecord {
           dbPath: config.dbPath,
           input: config.input,
           catalogDbPath: config.catalogDbPath,
+          environmentId: environmentId(config.input),
         })
     return successResponse(SCHEMA_VERSION, data)
   } catch (error) {
@@ -165,7 +166,13 @@ function runSupervisorJob(config: Config): JSONRecord {
     })
     initResult = init as unknown as JSONRecord
   }
-  const runResult = runRdSupervisorLoop({ path: stateRef, dbPath, input: supervisorInput, catalogDbPath }) as unknown as JSONRecord
+  const runResult = runRdSupervisorLoop({
+    path: stateRef,
+    dbPath,
+    input: supervisorInput,
+    catalogDbPath,
+    environmentId: environmentId(input as unknown as JSONRecord),
+  }) as unknown as JSONRecord
   const data = {
     mode: initResult ? "init_loop" : "loop",
     ...(initResult ? { init: initResult } : {}),
@@ -224,6 +231,12 @@ function assertRuntimeOutputPaths(...paths: string[]): void {
   for (const path of paths) {
     if (path) assertProjectRuntimePath(path)
   }
+}
+
+function environmentId(input: JSONRecord): string {
+  return stringField(input.environment_id)
+    || process.env.TRADE_ENVIRONMENT_ID
+    || "local:local"
 }
 
 function asRecord(value: unknown): JSONRecord {

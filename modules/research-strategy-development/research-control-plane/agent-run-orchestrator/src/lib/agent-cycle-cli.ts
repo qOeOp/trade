@@ -1,6 +1,9 @@
 import { realpathSync } from "node:fs"
 import { resolve, sep } from "node:path"
+import type { Database } from "bun:sqlite"
 import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
+
+export const AGENT_CYCLE_SQLITE_BUSY_TIMEOUT_MS = 5_000
 
 export interface AgentCycleCommonInput {
   repository_root: string
@@ -14,6 +17,10 @@ export interface AgentCycleCommonInput {
   requested_at: string
   deadline_at: string
   poll_interval_ms: number
+}
+
+export function configureAgentCycleDatabase(db: Database): void {
+  db.exec(`PRAGMA busy_timeout=${AGENT_CYCLE_SQLITE_BUSY_TIMEOUT_MS}`)
 }
 
 export function parseAgentCyclePayload(

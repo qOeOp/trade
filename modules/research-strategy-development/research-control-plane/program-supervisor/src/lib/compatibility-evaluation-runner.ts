@@ -8,6 +8,7 @@ import {
   resolveRepoPath,
 } from "../../../../../contracts/runtime-core/src/paths"
 import {
+  assertDatabaseIdentity,
   buildDatabaseIdentity,
   ensureDatabaseIdentity,
 } from "../../../../../contracts/runtime-core/src/database-identity"
@@ -79,7 +80,7 @@ export function executeCompatibilityEvaluationWorkPackage(
     assertTrialsReady(db, work)
     assertRuntimeData(work)
     const execution = executeOrRecoverArtifact(work, request)
-    assertExactEvaluationResult(work, execution.result)
+    assertExactCompatibilityEvaluationResult(work, execution.result, request.environment_id)
     const summary: JSONRecord = {
       ...execution.result,
       evaluation_work_package_ref: `control-plane://evaluation-work-package/${work.package_id}`,
@@ -169,6 +170,7 @@ function executeOrRecoverArtifact(
     const artifactRef = displayPath(artifactPath)
     if (isExactCatalogedArtifact(
       request.catalog_db_path,
+      request.environment_id,
       artifactRef,
       work.batch_run_id,
     )) {
@@ -180,6 +182,7 @@ function executeOrRecoverArtifact(
   }
   const input: StrategyRndLoopInput = {
     runId: work.batch_run_id,
+    environmentId: request.environment_id,
     batchId: work.package_id,
     hypothesis: work.experiment_id,
     manifestPath: work.data_snapshot_binding.manifest_ref,
@@ -215,6 +218,7 @@ function executeOrRecoverArtifact(
 
 function isExactCatalogedArtifact(
   catalogDbPath: string,
+  environmentId: string,
   artifactRef: string,
   runId: string,
 ): boolean {
@@ -222,6 +226,10 @@ function isExactCatalogedArtifact(
   if (!existsSync(path)) return false
   const catalog = new Database(path, { readonly: true })
   try {
+    assertDatabaseIdentity(
+      catalog,
+      buildDatabaseIdentity(environmentId, "artifact_catalog"),
+    )
     const hasArtifact = catalog.query(`
       SELECT 1 AS present FROM sqlite_master
       WHERE type='table' AND name='artifact'
@@ -259,9 +267,10 @@ function isExactCatalogedArtifact(
   }
 }
 
-function assertExactEvaluationResult(
+export function assertExactCompatibilityEvaluationResult(
   work: ExperimentEvaluationWorkPackage,
   result: JSONRecord,
+  environmentId: string,
 ): void {
   if (result.run_id !== work.batch_run_id) {
     throw new Error("Compatibility Evaluation result run identity drifted")
@@ -278,7 +287,8 @@ function assertExactEvaluationResult(
     throw new Error("Compatibility Evaluation result candidate set drifted")
   }
   const input = record(result.input, "evaluation artifact input")
-  if (input.manifest_path !== work.data_snapshot_binding.manifest_ref
+  if (input.environment_id !== environmentId
+      || input.manifest_path !== work.data_snapshot_binding.manifest_ref
       || input.timeframe !== work.data_snapshot_binding.timeframe
       || input.max_hold_bars !== work.evaluation_policy.max_hold_bars
       || input.fee_bps !== work.evaluation_policy.fee_bps

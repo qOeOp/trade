@@ -43,6 +43,7 @@ interface RdSupervisorRunInput {
   dbPath?: string
   input?: JSONRecord
   catalogDbPath?: string
+  environmentId?: string
 }
 
 interface RdSupervisorRunResult {
@@ -128,7 +129,14 @@ function runRdSupervisorLoopWithDeps(input: RdSupervisorRunInput, deps: RdSuperv
       if (request.control_plane_required === true && Object.keys(asRecord(plan.payload.control_plane)).length === 0) {
         throw new Error("control_plane_required: hypothesis must bind a registered Experiment and Trial reservations")
       }
-      const result = executePlannedResearchWithControlPlane(plan.command, plan.payload, deps, input.dbPath)
+      const executionPayload = {
+        ...plan.payload,
+        environment_id: stringField(plan.payload.environment_id)
+          || input.environmentId
+          || process.env.TRADE_ENVIRONMENT_ID
+          || "local:local",
+      }
+      const result = executePlannedResearchWithControlPlane(plan.command, executionPayload, deps, input.dbPath)
       const state = readRdProgramState(input.path, input.dbPath)
       iterations.push({
         iteration: index + 1,

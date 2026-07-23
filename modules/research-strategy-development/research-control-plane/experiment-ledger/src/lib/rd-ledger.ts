@@ -48,6 +48,7 @@ export interface StrategyRndLedgerRecord {
 interface StrategyRndLedgerStore {
   catalogDbPath?: string
   ledgerPath?: string
+  environmentId?: string
 }
 
 export function buildRndLedgerRecord(input: {
@@ -100,6 +101,7 @@ export function summarizeRejectedReasons(batch: StrategyRndLedgerBatchView): Str
 
 export function redactLoopInputForArtifact(input: StrategyRndLoopInput): JSONRecord {
   return {
+    environment_id: input.environmentId,
     batch_id: input.batchId,
     hypothesis: input.hypothesis,
     manifest_path: input.manifestPath,
@@ -175,6 +177,7 @@ function stringField(value: unknown): string {
 export function loadRndLedger(input: string | StrategyRndLedgerStore): StrategyRndLedgerRecord[] {
   return listCatalogStrategyRndRuns({
     catalogDbPath: rndCatalogDbPath(input),
+    environmentId: typeof input === "string" ? undefined : input.environmentId,
     limit: 1000,
   }) as unknown as StrategyRndLedgerRecord[]
 }
@@ -194,6 +197,7 @@ export function assertHoldoutUnused(input: string | StrategyRndLedgerStore, hold
 export function appendRndLedgerRecord(input: StrategyRndLedgerStore, record: StrategyRndLedgerRecord): void {
   upsertCatalogStrategyRndRun({
     catalogDbPath: rndCatalogDbPath(input),
+    environmentId: input.environmentId,
     record: record as unknown as Record<string, unknown>,
     now: record.created_at,
   })

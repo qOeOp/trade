@@ -189,7 +189,7 @@ function parseArgs(argv: string[]): Config {
     catalogGc: false,
     artifactGc: false,
     yes: false,
-    environmentId: "local:local",
+    environmentId: process.env.TRADE_ENVIRONMENT_ID || "local:local",
     migrateIdentity: false,
     catalogDbPath: "./data/data_catalog.db",
     catalogRoots: [],

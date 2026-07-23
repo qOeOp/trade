@@ -15,6 +15,7 @@
 - Catalog DB path
 - Runtime roots under `data/` or `tmp/`
 - Artifact refs and retention settings
+- Deployment `environment_id`; CLI input or `--environment-id` overrides `TRADE_ENVIRONMENT_ID`, which overrides `local:local`.
 - Local OHLCV manifest refs for feature report generation
 
 ## Outputs
@@ -25,6 +26,7 @@
 - Registered artifact metadata
 - Feature report artifact refs
 - Domain-runtime job result with `artifact_catalog` write surface for J06
+- Every database access is bound to the exact `artifact_catalog` deployment identity and fails closed on mismatch.
 
 ## Forbidden
 

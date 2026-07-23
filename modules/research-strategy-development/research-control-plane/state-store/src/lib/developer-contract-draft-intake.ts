@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite"
+import { readFamilyEvaluationProtocol } from "../../../../../contracts/rd-agent-capability-contract/src/rd-agent-capability-contract"
 import { canonicalControlPlaneHash } from "../../../contracts/src/lib/control-plane-contracts"
 import {
   DEVELOPER_CONTRACT_DRAFT_INTAKE_POLICY_VERSION,
@@ -59,6 +60,12 @@ export function issueDeveloperDevelopmentBrief(
     }
     const proposal = parseProposal(proposalRow.submission_json)
     const admission = parseProposalAdmission(proposalRow.admission_json)
+    const protocol = readFamilyEvaluationProtocol(proposal.universe_node_id)
+    if (!protocol
+        || protocol.protocol_ref !== proposal.evaluation_protocol_ref
+        || proposal.trial_budget > protocol.discovery_policy.max_candidates) {
+      throw new Error("Developer Development Brief requires a capability-valid Planner Proposal")
+    }
     if (proposal.proposal_hash !== proposalRow.proposal_hash
         || admission.proposal_hash !== proposal.proposal_hash
         || admission.proposal_revision !== request.proposal_revision) {

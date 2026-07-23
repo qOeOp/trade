@@ -149,6 +149,7 @@ export function runStrategyRndCampaignWithDeps(
       ...hypothesis,
       runId: `${campaignId}-${hypothesis.hypothesisId}-discovery`,
       batchId: `${campaignId}-${hypothesis.hypothesisId}-discovery`,
+      environmentId: input.environmentId,
       artifactRoot,
       ledgerPath: input.ledgerPath,
       catalogDbPath,
@@ -185,6 +186,7 @@ export function runStrategyRndCampaignWithDeps(
       ...hypothesis,
       runId: `${campaignId}-${hypothesis.hypothesisId}-validation`,
       batchId: `${campaignId}-${hypothesis.hypothesisId}-validation`,
+      environmentId: input.environmentId,
       hypothesis: `External validation of frozen candidate ${winner.candidate_id}: ${hypothesis.hypothesis || ""}`.trim(),
       manifestPath: hypothesis.validationManifestPath,
       indicatorReportPath: hypothesis.validationIndicatorReportPath,
@@ -248,6 +250,7 @@ export function runStrategyRndCampaignWithDeps(
   writeFileSync(dossierPath, renderCampaignDossier(report))
   registerCatalogArtifact({
     catalogDbPath,
+    environmentId: input.environmentId,
     path: artifactRef,
     now: created_at,
     referrerType: "run",
@@ -256,6 +259,7 @@ export function runStrategyRndCampaignWithDeps(
   })
   registerCatalogArtifact({
     catalogDbPath,
+    environmentId: input.environmentId,
     path: dossierRef,
     now: created_at,
     referrerType: "run",

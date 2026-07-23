@@ -150,6 +150,33 @@ test("artifact catalog CLI reads only a hash-verified catalog ID", () => {
   }
 })
 
+test("artifact catalog CLI inherits deployment environment and preserves explicit override", () => {
+  const dir = mkdtempSync(join(tmpdir(), "artifact-catalog-environment-"))
+  const inheritedDbPath = join(dir, "inherited.db")
+  const explicitDbPath = join(dir, "explicit.db")
+  const previousEnvironment = process.env.TRADE_ENVIRONMENT_ID
+  try {
+    process.env.TRADE_ENVIRONMENT_ID = "test:catalog-inherited"
+    const inherited = run(["--catalog-init", "--catalog-db", inheritedDbPath])
+    assert.equal(inherited.ok, true)
+    assert.equal(asRecord(inherited.data).environment_id, "test:catalog-inherited")
+
+    const explicit = run([
+      "--catalog-init",
+      "--catalog-db",
+      explicitDbPath,
+      "--environment-id",
+      "test:catalog-explicit",
+    ])
+    assert.equal(explicit.ok, true)
+    assert.equal(asRecord(explicit.data).environment_id, "test:catalog-explicit")
+  } finally {
+    if (previousEnvironment === undefined) delete process.env.TRADE_ENVIRONMENT_ID
+    else process.env.TRADE_ENVIRONMENT_ID = previousEnvironment
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 function asRecord(value: unknown): JSONRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JSONRecord : {}
 }

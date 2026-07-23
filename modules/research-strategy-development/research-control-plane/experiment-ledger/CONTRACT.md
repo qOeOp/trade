@@ -8,7 +8,7 @@ Own R&D run ledger records, idempotence checks, locked-holdout keys, artifact-sa
 
 - `StrategyRndLoopInput`
 - Candidate batch summary view
-- Explicit catalog DB path or ledger path
+- Explicit catalog DB path or ledger path and the owning deployment `environment_id`
 
 ## Outputs
 
@@ -25,3 +25,4 @@ Own R&D run ledger records, idempotence checks, locked-holdout keys, artifact-sa
 - Does not write `trade.db`.
 - Does not call exchange APIs.
 - Uses `legacy-replay-identity` only for frozen market-data and canonical hashes.
+- Catalog reads and writes fail closed against a different deployment identity.

@@ -18,6 +18,7 @@ import {
   type ReviewerAgentSubmission,
 } from "../../../contracts/src/lib/reviewer-agent-submission"
 import { applyReviewerDecision } from "../../../state-store/src/lib/research-control-plane"
+import { appendResearchLesson } from "../../../state-store/src/lib/research-control-plane-operations"
 import type { AgentArtifactPort } from "./planner-agent-run"
 
 export const REVIEWER_AGENT_CONTEXT_PACK_SCHEMA =
@@ -30,6 +31,8 @@ interface ReviewerResultSnapshot {
   trial_id: string | null
   stage_id: string
   artifact_ref: string
+  summary_hash: string
+  summary_bytes: number
   summary: JSONRecord
   classification: EvaluationEvidenceClassification
 }
@@ -61,6 +64,17 @@ const REVIEWER_INSTRUCTION = [
   "Agent-assisted historical evidence is exploratory and cannot authorize acceptance for draft or forward.",
   "Do not change code, write lifecycle state, execute Replay, materialize a strategy, promote, deploy, or trade.",
 ].join("\n")
+
+const MAX_REVIEWER_RESULT_SUMMARY_BYTES = 24 * 1024
+const OMITTED_EVIDENCE_KEYS = new Set([
+  "candles",
+  "events",
+  "fills",
+  "observations",
+  "orders",
+  "raw_events",
+  "trades",
+])
 
 export function prepareReviewerAgentRun(input: {
   db: Database
@@ -193,7 +207,53 @@ export function admitReviewerAgentResult(input: {
     selected_trial_id: submission.selected_trial_id ?? undefined,
     created_at: recordedAt,
   })
+  const experiment = input.db.query(`
+    SELECT hypothesis_id
+    FROM rd_experiment_contract
+    WHERE experiment_id=$experiment_id
+  `).get({ $experiment_id: submission.experiment_id }) as {
+    hypothesis_id: string
+  } | null
+  if (!experiment) throw new Error("Reviewer feedback experiment disappeared")
+  appendResearchLesson(input.db, reviewerFeedbackLesson({
+    submission,
+    submission_ref: submissionRef.ref,
+    hypothesis_id: experiment.hypothesis_id,
+    recorded_at: recordedAt,
+  }))
   return submission
+}
+
+export function reviewerFeedbackLesson(input: {
+  submission: ReviewerAgentSubmission
+  submission_ref: string
+  hypothesis_id: string
+  recorded_at: string
+}) {
+  const submission = input.submission
+  const lessonId = `reviewer-feedback:${submission.submission_hash.slice(0, 24)}`
+  return {
+    lesson_id: lessonId,
+    experiment_id: submission.experiment_id,
+    hypothesis_id: input.hypothesis_id,
+    conclusion: (
+      submission.decision === "reject" || submission.decision === "modify"
+        ? "blocks"
+        : "supports"
+    ) as "blocks" | "supports",
+    lesson_ref: input.submission_ref,
+    metadata_json: {
+      schema_version: "trade.rd-reviewer-feedback-lesson.v1",
+      reviewer_run_id: submission.reviewer_run_id,
+      decision: submission.decision,
+      stage_id: submission.stage_id,
+      rationale: submission.rationale,
+      result_ids: submission.evidence.map((item) => item.result_id).sort(),
+      selected_trial_id: submission.selected_trial_id,
+    },
+    idempotency_key: `reviewer-feedback-lesson:${submission.submission_hash}`,
+    created_at: input.recorded_at,
+  }
 }
 
 function readResult(
@@ -225,6 +285,7 @@ function readResult(
   if (!row.classification_json) {
     throw new Error("Reviewer Agent Result lacks authoritative evidence classification")
   }
+  const fullSummary = JSON.parse(row.summary_json) as JSONRecord
   return {
     result_id: row.result_id,
     experiment_id: row.experiment_id,
@@ -232,9 +293,163 @@ function readResult(
     trial_id: row.trial_id,
     stage_id: row.stage_id,
     artifact_ref: row.artifact_ref,
-    summary: JSON.parse(row.summary_json) as JSONRecord,
+    summary_hash: canonicalHash(fullSummary),
+    summary_bytes: Buffer.byteLength(canonicalJson(fullSummary)),
+    summary: reviewerResultSummary(fullSummary),
     classification: JSON.parse(row.classification_json) as EvaluationEvidenceClassification,
   }
+}
+
+export function reviewerResultSummary(summary: JSONRecord): JSONRecord {
+  const compatibility = compatibilityResultSummary(summary)
+  if (compatibility && encodedBytes(compatibility) <= MAX_REVIEWER_RESULT_SUMMARY_BYTES) {
+    return compatibility
+  }
+  const bounded = boundedEvidenceRecord(summary, 0)
+  if (encodedBytes(bounded) <= MAX_REVIEWER_RESULT_SUMMARY_BYTES) return bounded
+  return {
+    schema_version: "trade.rd-reviewer-result-summary.digest-only.v1",
+    summary_hash: canonicalHash(summary),
+    summary_bytes: Buffer.byteLength(canonicalJson(summary)),
+    top_level_scalars: scalarFields(summary),
+    truncation_reason: "summary_exceeded_reviewer_context_limit",
+  }
+}
+
+function compatibilityResultSummary(summary: JSONRecord): JSONRecord | null {
+  const batch = jsonRecord(summary.batch)
+  if (!batch || !Array.isArray(batch.candidates)) return null
+  return {
+    schema_version: "trade.rd-reviewer-result-summary.compatibility.v1",
+    run_id: text(summary.run_id),
+    created_at: text(summary.created_at),
+    artifact_ref: text(summary.artifact_ref),
+    stop_reason: text(summary.stop_reason),
+    batch: {
+      batch_id: text(batch.batch_id),
+      hypothesis: text(batch.hypothesis),
+      trial_count: integerOrNull(batch.trial_count),
+      accepted_count: integerOrNull(batch.accepted_count),
+      candidate_source: text(batch.candidate_source),
+      outcome: text(batch.outcome),
+      winner: boundedEvidenceValue(batch.winner, 1),
+      candidates: batch.candidates.slice(0, 32).map((value) => compatibilityCandidateSummary(value)),
+      guardrails: boundedEvidenceValue(batch.guardrails, 1),
+      selection_audit: boundedEvidenceValue(batch.selection_audit, 1),
+      statistical_report: boundedEvidenceValue(batch.statistical_report, 1),
+      failure_summary: boundedEvidenceValue(batch.failure_summary, 1),
+      reliability_gate: boundedEvidenceValue(batch.reliability_gate, 1),
+      next_action: text(batch.next_action),
+    },
+    omitted_detail: {
+      fields: ["batch.candidates[].replay.trades"],
+      full_summary_hash: canonicalHash(summary),
+      full_summary_bytes: Buffer.byteLength(canonicalJson(summary)),
+    },
+  }
+}
+
+function compatibilityCandidateSummary(value: unknown): JSONRecord {
+  const candidate = jsonRecord(value) ?? {}
+  const replay = jsonRecord(candidate.replay) ?? {}
+  const diagnostics = jsonRecord(replay.diagnostics) ?? {}
+  const assumptions = jsonRecord(diagnostics.assumptions) ?? {}
+  const robustness = jsonRecord(assumptions.robustness) ?? {}
+  return {
+    candidate_id: text(candidate.candidate_id),
+    family: text(candidate.family),
+    params: boundedEvidenceValue(candidate.params, 1),
+    replay: {
+      sample_count: integerOrNull(replay.sample_count),
+      win_rate: numberOrNull(replay.win_rate),
+      avg_r: numberOrNull(replay.avg_r),
+      total_r: numberOrNull(replay.total_r),
+      max_drawdown_r: numberOrNull(replay.max_drawdown_r),
+      profit_factor: numberOrNull(replay.profit_factor),
+      expectancy_r: numberOrNull(replay.expectancy_r),
+      gate: boundedEvidenceValue(replay.gate, 1),
+      anti_overfit: boundedEvidenceValue(assumptions.anti_overfit, 1),
+      robustness: {
+        regime_slices: boundedEvidenceValue(robustness.regime_slices, 2),
+        cost_stress: boundedEvidenceValue(robustness.cost_stress, 2),
+        parameter_stability: boundedEvidenceValue(robustness.parameter_stability, 2),
+      },
+      negative_controls: boundedEvidenceValue(diagnostics.negative_controls, 1),
+      evaluation_gate: boundedEvidenceValue(diagnostics.gate, 1),
+    },
+  }
+}
+
+function boundedEvidenceRecord(value: JSONRecord, depth: number): JSONRecord {
+  const output: JSONRecord = {}
+  const entries = Object.entries(value).sort(([left], [right]) => left.localeCompare(right))
+  for (const [key, item] of entries.slice(0, 48)) {
+    if (OMITTED_EVIDENCE_KEYS.has(key)) {
+      output[`${key}_omitted`] = omittedCollection(item)
+      continue
+    }
+    output[key] = boundedEvidenceValue(item, depth + 1)
+  }
+  if (entries.length > 48) output.omitted_field_count = entries.length - 48
+  return output
+}
+
+function boundedEvidenceValue(value: unknown, depth: number): any {
+  if (value == null || typeof value === "boolean" || typeof value === "number") return value
+  if (typeof value === "string") {
+    return value.length <= 1_024 ? value : `${value.slice(0, 1_024)}…`
+  }
+  if (depth >= 6) return { omitted: true, reason: "maximum_summary_depth" }
+  if (Array.isArray(value)) {
+    const items = value.slice(0, 16).map((item) => boundedEvidenceValue(item, depth + 1))
+    if (value.length > 16) {
+      items.push({ omitted_count: value.length - 16 })
+    }
+    return items
+  }
+  const record = jsonRecord(value)
+  return record ? boundedEvidenceRecord(record, depth) : String(value)
+}
+
+function omittedCollection(value: unknown): JSONRecord {
+  return {
+    omitted: true,
+    count: Array.isArray(value) ? value.length : null,
+  }
+}
+
+function scalarFields(value: JSONRecord): JSONRecord {
+  const output: JSONRecord = {}
+  for (const [key, item] of Object.entries(value).sort(([left], [right]) => left.localeCompare(right))) {
+    if (item == null || typeof item === "boolean" || typeof item === "number") {
+      output[key] = item
+    } else if (typeof item === "string") {
+      output[key] = item.length <= 1_024 ? item : `${item.slice(0, 1_024)}…`
+    }
+  }
+  return output
+}
+
+function jsonRecord(value: unknown): JSONRecord | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as JSONRecord
+    : null
+}
+
+function encodedBytes(value: JSONRecord): number {
+  return Buffer.byteLength(canonicalJson(value))
+}
+
+function text(value: unknown): string | null {
+  return typeof value === "string" ? value : null
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null
+}
+
+function integerOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) ? value : null
 }
 
 function validateBindings(

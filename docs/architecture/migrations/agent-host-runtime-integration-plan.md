@@ -17,7 +17,7 @@ last_verified: 2026-07-23 CST
 - `agent.mcp` 已同时提供同机 stdio 与 bearer-authenticated private HTTP profile；`ops.operator-http` 仍是 loopback-only 小型 allowlist。
 - Codex 是当前开发与人工操作环境；OpenClaw `2026.7.1` alternate Chat runtime 已完成本机 proposal-only 采用，LangGraph 未引入。
 - 仓库已有 no-live Compose / OpenClaw / Agent Host / MCP fixture，但本机没有 Docker，尚无真实 Linux 容器采用证据。
-- canonical Planner 与 Developer/freeze 已完成真实纵切；Trial Plan 会拒绝旧版合同，正式 Replay bridge、Reviewer、失败后二次修订与 Registry 尚未闭环。
+- canonical Planner → Developer → owner freeze / Trial Plan → compatibility evaluation → Reviewer → feedback lesson 已完成两轮真实纵切；正式 certified Replay、代码 patch 二次修订、Registry / Forward 尚未闭环。
 
 目标采用三层执行模型，并服从 [Remote Container Runtime Integration](./remote-container-runtime-integration-plan.md) 的部署边界：
 
@@ -50,7 +50,7 @@ flowchart TB
 | L2 / OHLCV / indicators | L2 已有 Rust resident；其他能力有 owner 但未统一常驻 cadence | 全部确定性运行，不依赖 Agent |
 | 快慢轨 | 当前 server profile 仍为 `shadow_program` | J01/J02 快轨、J03 慢轨由 Program 调度 |
 | hypothesis 生成 | Direct Model Task 与 OpenClaw Planner Agent Run 均有真实本机证据 | 简单任务保留 Direct Model Task；复杂任务交给 Planner Agent Run |
-| develop / review | Developer Agent→owner compile/validate/freeze 已实跑；Reviewer 尚未实跑 | Codex App Server 作为代码研发 kernel 基线；可由 OpenClaw 常驻托管，Control Plane 接纳结果 |
+| develop / review | Developer Agent→owner compile/validate/freeze 与 Reviewer→lifecycle / Planner lesson 已实跑；大 Result 的 Reviewer 上下文已改为 hash-bound bounded summary | Codex App Server 作为代码研发 kernel 基线；可由 OpenClaw 常驻托管，Control Plane 接纳结果 |
 | Replay / 策略物化 | owner 链已存在 | 继续确定性执行；Agent 只能请求和读结果 |
 | retire | 当前策略状态未实现 | Governance owner 新增终止版本语义；Agent 只能提交建议 |
 
@@ -266,7 +266,7 @@ Host 运行状态属于 ops plane。是否新增 durable store、复用 `ops_run
 | P2 Provider / Codex capability | active-partial | 分离 SiliconFlow wire 能力与 Codex protocol 能力 | capability matrix 可归因；不以 prompt 掩盖协议失败 |
 | P3 Direct Codex adapter | active-partial | Program 可提交、观察、取消和失败关闭有界 Codex Run | 真实 structured turn 与 daemon transport 待采用 |
 | P4 MCP 与 Developer sandbox | active-partial | 私有 MCP、角色投影与每 Run 隔离 worktree 已落地 | 容器读隔离 / cgroup 与真实 Developer 纵切待采用 |
-| P5 R&D Agent 纵切 | active-partial | Planner → Developer → Replay → Reviewer → Registry | Planner/Developer 已实跑；Replay/Reviewer/二次修订待闭环 |
+| P5 R&D Agent 纵切 | active-partial | Planner → Developer → Replay → Reviewer → Registry | 两轮 Planner/Developer/compatibility evaluation/Reviewer 已实跑；certified Replay、代码二次修订、Registry 待闭环 |
 | P6 OpenClaw 与容器 | active-partial | OpenClaw-Codex、alternate runtime 与 no-live Compose fixture | alternate runtime/fixture 已落地；真实容器采用待外部 host |
 | P7 Bake-off 与可靠性 | pending | 公平比较、故障注入、资源 / 磁盘与长时运行 | 无 authority violation；形成采用或拒绝证据 |
 | P8 收敛与采用 | pending | 默认 profile、回滚、清理、文档和运行手册 | 全仓质量门通过；目标态与当前态无漂移 |
@@ -306,7 +306,7 @@ P4 当前已复用同一 `createTradeMcpServer` registry 支持 stdio 与 bearer
 
 同日 provider / Host 分层探测进一步得到：SiliconFlow `Qwen/Qwen3.5-27B` 的 Chat JSON、SSE stream、single tool、同轮 multi-tool 与 tool-result continuation 全部通过，Responses endpoint 为 `404/unsupported_endpoint`；Direct Codex 默认 provider 的 read-only turn 完成且零 protocol error。Codex custom SiliconFlow profile 能完成 initialize / thread，但 turn 失败；强制 `wire_api="chat"` 在 config/startup 被拒绝。当前 blocker 因而是 `Codex 0.144.6 requires Responses × SiliconFlow lacks Responses`，不能归因成模型或 adapter 质量，也不通过 fork Codex 临时掩盖。OpenClaw alternate Chat runtime 仍可进入公平评测，OpenClaw-managed Codex 只有换 Responses-compatible provider 后才可与 direct Codex 同 provider 比较。
 
-P5/P6 本机采用新增确定性证据：OpenClaw `2026.7.1` 通过四个最小 MCP role profile 驱动真实 Planner，Agent Run `planner-protocol-adoption-20260723-v4` 形成且只形成一次 owner tool call、一个 terminal artifact 和一个 `accepted` Control Plane admission。模型输入未携带 evaluation protocol；owner 注入已登记的 `protocol:time-series-momentum-eval-v1`。前两次失败分别暴露 MCP/Host `ops_runtime.db` 分裂与 `environment_id` 分裂；部署现已显式统一 `TRADE_ENVIRONMENT_ID` 及 MCP 的 Trade/Ops/RD/Catalog store 路径，通用 DB CLI 继承同一环境身份。Compose 仍只算静态 fixture；真实容器健康、资源隔离与故障恢复未采用。Developer v17 历史冻结合同因旧 v2 缺注册协议 hash 被当前 v3 validator 正确拒绝，不能绕过重放；下一步必须从新 Proposal/Brief 生成当前合同，再接正式 Replay。
+P5/P6 本机采用新增确定性证据：OpenClaw `2026.7.1` 通过最小 MCP role profile 驱动真实 Planner、Developer 与 Reviewer。第一轮 4H experiment 正确得到 `no_promote → modify → needs_modification` 并沉淀 Reviewer lesson；第二轮 Planner 消费该 lesson，owner 拒绝越过 protocol `max_candidates=10` 的 100-Trial 提案，再生成 6-Trial BTCUSDT 1h revision。该 revision 绑定 878 根 discovery 数据快照，完成 Draft validate/freeze、6 个 Trial reservation、immutable Evaluation Work Package、compatibility evaluation 与 Reviewer writeback；5 个候选虽有正全样本指标，但全部被 OOS / effective sample / robustness gate 拒绝，最终仍为 `no_promote → modify`，locked holdout 未打开。Reviewer 初次把 327 笔完整 trades 灌入上下文导致 405 KB 输入在模型前失败；修复后只传 hash-bound bounded summary，输入降到约 11 KB，完整 Result 留在 artifact，真实重试完成且只产生一个 lifecycle effect / lesson。并发幂等 Agent client 另增加 5 秒 SQLite busy wait，避免 owner write 瞬时冲突直接失败。模型输入未携带 evaluation protocol；owner 注入已登记的 `protocol:time-series-momentum-eval-v1`。此前 MCP/Host Ops DB、`environment_id` 与 RD/Catalog 路径分裂均已修复。Compose 仍只算静态 fixture；真实 Linux 容器健康、资源隔离、certified Replay、代码 patch 二次修订和 Registry / Forward 未采用。
 
 | ID | 步骤 | 完成证据 |
 | --- | --- | --- |

@@ -5,6 +5,7 @@ import type { AgentArtifactRef } from "../../../../../contracts/agent-run-contra
 import { ensureResearchStateSchema } from "../../../state-store/src/lib/research-state-store"
 import {
   boundedInteger,
+  configureAgentCycleDatabase,
   identifier,
   nullableIdentifier,
   parseAgentCycleCommon,
@@ -27,6 +28,7 @@ async function main(): Promise<void> {
   if (!token) throw new Error(`required environment variable is missing: ${input.host_token_env}`)
   const db = new Database(dbPath)
   try {
+    configureAgentCycleDatabase(db)
     ensureResearchStateSchema(db)
     const result = await runDeveloperAgentCycle({
       db,

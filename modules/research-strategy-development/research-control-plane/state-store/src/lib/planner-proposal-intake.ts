@@ -10,6 +10,11 @@ import {
   type PlannerProposalIntakeRequest,
 } from "../../../contracts/src/lib/planner-proposal-submission"
 import { readPlannerControlPlaneContext } from "./research-control-plane-operations"
+import {
+  assessCandidateSpaceCompatibility,
+  readFamilyEvaluationProtocol,
+  readStrategyFamilyCapability,
+} from "../../../../../contracts/rd-agent-capability-contract/src/rd-agent-capability-contract"
 
 export function admitPlannerProposal(
   db: Database,
@@ -161,6 +166,31 @@ function validateCurrentGovernance(
     if (!requirement || requirement.coverage_status !== "ready") {
       throw new Error(`Planner Proposal data surface is not ready for the selected canonical: ${slug}`)
     }
+  }
+  const family = readStrategyFamilyCapability(proposal.universe_node_id)
+  const protocol = readFamilyEvaluationProtocol(proposal.universe_node_id)
+  if (!family || !protocol) {
+    throw new Error("Planner Proposal requires a registered family capability and evaluation protocol")
+  }
+  if (proposal.evaluation_protocol_ref !== protocol.protocol_ref) {
+    throw new Error("Planner Proposal evaluation protocol drifted from the registered canonical owner")
+  }
+  if (proposal.trial_budget > protocol.discovery_policy.max_candidates) {
+    throw new Error(
+      `Planner Proposal trial_budget exceeds registered evaluation maximum ${protocol.discovery_policy.max_candidates}`,
+    )
+  }
+  const missingData = family.required_data.filter(
+    (slug) => !proposal.dataset_requirements.includes(slug),
+  )
+  if (missingData.length > 0) {
+    throw new Error(`Planner Proposal omits required family data: ${missingData.join(", ")}`)
+  }
+  const candidateSpace = assessCandidateSpaceCompatibility(proposal.candidate_space, family)
+  if (!candidateSpace.compatible) {
+    throw new Error(
+      `Planner Proposal candidate space is incompatible: unsupported=${candidateSpace.unsupported_axes.join(",")}; invalid=${candidateSpace.invalid_axes.join(",")}`,
+    )
   }
 }
 

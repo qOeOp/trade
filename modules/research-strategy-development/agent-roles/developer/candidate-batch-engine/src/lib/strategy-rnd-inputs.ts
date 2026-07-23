@@ -29,6 +29,7 @@ export interface StrategyRndBatchInput {
 
 export interface StrategyRndLoopInput extends StrategyRndBatchInput {
   runId?: string
+  environmentId?: string
   artifactRoot?: string
   ledgerPath?: string
   catalogDbPath?: string
@@ -57,6 +58,7 @@ export interface StrategyRndHypothesisCertificate {
 
 export interface StrategyRndCampaignInput {
   campaignId?: string
+  environmentId?: string
   hypotheses: StrategyRndCampaignHypothesisInput[]
   calibrationReportPath?: string
   panelReportPath?: string
@@ -106,6 +108,7 @@ export function strategyRndLoopInputFromJson(input: JSONRecord): StrategyRndLoop
   return {
     ...strategyRndBatchInputFromJson(input),
     runId: stringField(input.run_id) || undefined,
+    environmentId: stringField(input.environment_id) || process.env.TRADE_ENVIRONMENT_ID || undefined,
     artifactRoot: stringField(input.artifact_root) || undefined,
     ledgerPath: stringField(input.ledger_path) || undefined,
     catalogDbPath: stringField(input.catalog_db_path) || undefined,
@@ -118,6 +121,7 @@ export function strategyRndLoopInputFromJson(input: JSONRecord): StrategyRndLoop
 export function strategyRndCampaignInputFromJson(input: JSONRecord): StrategyRndCampaignInput {
   return {
     campaignId: stringField(input.campaign_id) || undefined,
+    environmentId: stringField(input.environment_id) || process.env.TRADE_ENVIRONMENT_ID || undefined,
     calibrationReportPath: stringField(input.calibration_report_path) || undefined,
     panelReportPath: stringField(input.panel_report_path) || undefined,
     maxTotalTrials: optionalNumber(input.max_total_trials),

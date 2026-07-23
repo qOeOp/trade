@@ -131,9 +131,9 @@ test("research state store CLI admits a bounded Planner Proposal without materia
       universe_node_id: "canonical:trend/time-series-trend/time-series-momentum",
       objective: "Test one bounded CLI mechanism",
       dataset_requirements: ["ohlcv"],
-      candidate_space: { lookback: [20, 40] },
+      candidate_space: { lookback_bars: [20, 40] },
       trial_budget: 2,
-      evaluation_protocol_ref: "protocol://historical-v1",
+      evaluation_protocol_ref: "protocol:time-series-momentum-eval-v1",
       control_plane_context_hash: read.context.context_hash,
       created_at: "2026-07-22T12:01:00Z",
     })

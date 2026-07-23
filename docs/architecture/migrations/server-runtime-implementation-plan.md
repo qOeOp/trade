@@ -336,15 +336,15 @@ validate config/secrets/volumes
 | --- | --- | --- |
 | D5.1 | 将 Factory durable lifecycle 与 Campaign / Agent Run / Trial 局部终态分离 | restart / queue tests |
 | D5.2 | 接入 cited research finding、失败、review 与 improvement request | provenance-separated inputs |
-| D5.3 | Planner 生成 typed hypothesis 并经过既有 admission | no direct state write |
-| D5.4 | Developer 做 family / data / Replay / Runtime capability assessment | blocker classification |
+| D5.3 | Planner 生成 typed hypothesis 并经过既有 admission | complete：真实 OpenClaw Planner、owner-resolved protocol、trial budget / family axis gate 与 accepted revision |
+| D5.4 | Developer 做 family / data / Replay / Runtime capability assessment | complete at registered-family seam：真实 Brief、v3 exact data snapshot、registered family/protocol assessment；新 family/code coverage 仍归 D5.5 |
 | D5.5 | Developer 在隔离 worktree 改 MD / code / tests | active-partial：frozen worktree、closed write prefixes、bounded package check、patch hash 与 GC 已完成；容器读隔离和真实 Agent 二次修改待 P5 |
-| D5.6 | owner 冻结 data、reserve Trial、执行 deterministic Replay | single Trial / Result |
-| D5.7 | Agent 阅读失败 artifact 并二次修改或 reject | non-regression fixture |
-| D5.8 | Reviewer 基于登记 evidence 提交 decision | typed review |
+| D5.6 | owner 冻结 data、reserve Trial、执行 deterministic Replay | active-partial：6-Trial immutable Plan / Work Package 与 compatibility Result 已实跑；certified Replay reservation/worker 仍待接入 |
+| D5.7 | Agent 阅读失败 artifact 并二次修改或 reject | active-partial：Reviewer lesson 已驱动 4H→1h bounded revision；真实隔离代码 patch→重测仍待 D5.5 |
+| D5.8 | Reviewer 基于登记 evidence 提交 decision | complete at historical compatibility stage：Result classification→bounded context→typed modify→lifecycle / lesson 幂等写回 |
 | D5.9 | Registry / Forward / Governance 沿正式入口接纳 | no automatic promotion |
-| D5.10 | mechanical Replay、Agent-assisted evaluation 和 Forward evidence 分权 | evidence-kind gates |
-| D5.11 | 完成 kill/restart、provider outage、duplicate 和 locked-holdout 测试 | long-running Factory evidence |
+| D5.10 | mechanical Replay、Agent-assisted evaluation 和 Forward evidence 分权 | active-partial：compatibility evidence 明确无 formal Replay / promotion authority；certified Replay 与 Forward gate 待闭合 |
+| D5.11 | 完成 kill/restart、provider outage、duplicate 和 locked-holdout 测试 | active-partial：Host terminal recovery、context oversize fail/retry、SQLite bounded busy wait 与 locked-holdout zero-use 已验证；kill/restart / outage / 长时 Factory 待完成 |
 
 #### D6 策略治理闭环
 

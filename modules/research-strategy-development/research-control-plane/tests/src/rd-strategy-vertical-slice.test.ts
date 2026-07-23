@@ -51,7 +51,7 @@ test("Control Plane context to Proposal Admission to Developer Draft remains aut
       universe_node_id: "canonical:trend/time-series-trend/time-series-momentum",
       objective: "Test one bounded time-series trend mechanism",
       dataset_requirements: ["ohlcv"],
-      candidate_space: { lookback: [20, 40] },
+      candidate_space: { lookback_bars: [20, 40] },
       trial_budget: 2,
       evaluation_protocol_ref: "protocol:time-series-momentum-eval-v1",
       control_plane_context: context,

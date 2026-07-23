@@ -21,8 +21,56 @@ import { IDENTITY_HASH_POLICY_VERSION, hashIdentityPayload } from "../../../stat
 import { runStrategyRndLoop } from "../../../../agent-roles/developer/rd-loop-runner/src/lib/rd-loop-runner"
 import { strategyRndLoopInputFromJson } from "../../../../agent-roles/developer/candidate-batch-engine/src/lib/strategy-rnd-inputs"
 import { readFamilyEvaluationProtocol } from "../../../../../contracts/rd-agent-capability-contract/src/rd-agent-capability-contract"
+import { assertExactCompatibilityEvaluationResult } from "./compatibility-evaluation-runner"
+import type { ExperimentEvaluationWorkPackage } from "../../../contracts/src/lib/experiment-evaluation-work-package"
 
 const NOW = "2026-07-14T07:00:00Z"
+
+test("compatibility evaluation artifact binds the exact deployment environment", () => {
+  const work = {
+    batch_run_id: "batch-run-1",
+    package_id: "package-1",
+    trial_count: 1,
+    trials: [{ evaluation_candidate_id: "evaluation-candidate-1" }],
+    data_snapshot_binding: {
+      manifest_ref: "tmp/discovery/manifest.json",
+      timeframe: "4h",
+    },
+    evaluation_policy: {
+      max_hold_bars: 18,
+      fee_bps: 2,
+      slippage_bps: 1,
+      adverse_funding_bps_per_8h: 1,
+      oos_split_ratio: 0.3,
+    },
+  } as unknown as ExperimentEvaluationWorkPackage
+  const result = {
+    run_id: "batch-run-1",
+    batch: {
+      batch_id: "package-1",
+      trial_count: 1,
+      candidates: [{ candidate_id: "evaluation-candidate-1" }],
+    },
+    input: {
+      environment_id: "test:exact-evaluation",
+      manifest_path: "tmp/discovery/manifest.json",
+      timeframe: "4h",
+      max_hold_bars: 18,
+      fee_bps: 2,
+      slippage_bps: 1,
+      funding_bps_per_8h: 1,
+      oos_split: 0.3,
+      search_trial_count: 1,
+    },
+  }
+
+  assert.doesNotThrow(() =>
+    assertExactCompatibilityEvaluationResult(work, result, "test:exact-evaluation"))
+  assert.throws(
+    () => assertExactCompatibilityEvaluationResult(work, result, "test:other-evaluation"),
+    /input drifted/,
+  )
+})
 
 test("supervisor reserves Trial and publishes immutable Result around Replay execution", () => {
   const dir = mkdtempSync(join(tmpdir(), "rd-control-boundary-"))

@@ -29,6 +29,25 @@ test("parseArgs rejects negative limit", () => {
   )
 })
 
+test("parseArgs accepts export flag before or after its output directory", () => {
+  const before = parseArgs([
+    "--symbol", "BTCUSDT",
+    "--export-files",
+    "--output-dir", "tmp/ohlcv-before",
+  ])
+  const after = parseArgs([
+    "--symbol", "BTCUSDT",
+    "--output-dir", "tmp/ohlcv-after",
+    "--export-files",
+  ])
+  assert.equal(before.outputDir, "tmp/ohlcv-before")
+  assert.equal(after.outputDir, "tmp/ohlcv-after")
+  assert.throws(
+    () => parseArgs(["--symbol", "BTCUSDT", "--export-files"]),
+    /requires --output-dir/,
+  )
+})
+
 test("parseArgs requires --since-ts for paginated history", () => {
   assert.throws(
     () => parseArgs(["--symbol", "BTCUSDT", "--limit", "1501"]),

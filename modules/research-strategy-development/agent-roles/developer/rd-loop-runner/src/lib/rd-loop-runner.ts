@@ -46,9 +46,9 @@ function runStrategyRndLoop(input: StrategyRndLoopInput): StrategyRndLoopReport 
   const catalogDbPath = input.catalogDbPath || defaultCatalogDbPathForGeneratedPath(artifactRef)
   const ledgerRef = catalogDbPath
   if (input.antiOverfitStage === "locked_holdout") {
-    assertHoldoutUnused({ catalogDbPath, ledgerPath: input.ledgerPath }, holdoutKeyForInput(input))
+    assertHoldoutUnused({ catalogDbPath, ledgerPath: input.ledgerPath, environmentId: input.environmentId }, holdoutKeyForInput(input))
   }
-  assertRunIdUnused({ catalogDbPath, ledgerPath: input.ledgerPath }, runId)
+  assertRunIdUnused({ catalogDbPath, ledgerPath: input.ledgerPath, environmentId: input.environmentId }, runId)
   const batch = runStrategyRndBatch(input)
   const ledgerRecord = buildRndLedgerRecord({
     input,
@@ -70,13 +70,14 @@ function runStrategyRndLoop(input: StrategyRndLoopInput): StrategyRndLoopReport 
   })
   registerCatalogArtifact({
     catalogDbPath,
+    environmentId: input.environmentId,
     path: artifactRef,
     now: created_at,
     referrerType: "run",
     referrerID: runId,
     role: "output",
   })
-  appendRndLedgerRecord({ catalogDbPath, ledgerPath: input.ledgerPath }, ledgerRecord)
+  appendRndLedgerRecord({ catalogDbPath, ledgerPath: input.ledgerPath, environmentId: input.environmentId }, ledgerRecord)
 
   const report: StrategyRndLoopReport = {
     run_id: runId,
