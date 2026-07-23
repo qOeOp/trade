@@ -3,7 +3,7 @@ title: Research Source Knowledge Integration Plan
 role: research-migration
 status: proposed
 owner: research-strategy-development
-last_verified: 2026-07-22 CST
+last_verified: 2026-07-23 CST
 p0_status: implemented
 reference_repository: https://github.com/LLMQuant/quant-mind
 reference_revision: 9c88d0612812ae29d91afaefa35244e8ad47f3f0
@@ -270,12 +270,14 @@ edge evidence 指向 canonical finding ref 或 experiment result ref。来源可
 
 ### P4 — 既有周期内运维
 
-目标：成熟后进入现有 J04/J06，不新增独立 automation。
+目标：成熟后进入现有 J04/J06 projection，并可被后续长期 R&D Factory 作为一种上游工作类型消费；不新增第二套 scheduler。
 
 - J04 只消费已 ready 的 bounded research context；source intake 失败不能破坏 R&D state。
 - J06 做 source freshness、orphan projection、broken ref、retention/pin 与 storage budget 检查。
 - 任何自动发现只产 intake candidate；网络获取、版权/许可、大小与 source kind 仍过 gate。
 - 将 ingestion/model/search 成本与 strategy trial budget 分账，避免“读了很多论文”被误计为“做了很多实验”。
+- MCP / Agent Host 只通过 artifact-knowledge owner surface 搜索 source / finding、解析 citation 和提交 intake candidate；不得拥有 PDF/finding authority、直写 catalog 或把自然语言检索结果直接塞进 RD state。
+- 一个 Campaign 的 research budget 耗尽只终止该次来源探索；长期 Factory 可在新的明确问题、数据或预算到来后创建后续工作，不循环重搜相同材料。
 
 ## 7. 预期改动面
 
