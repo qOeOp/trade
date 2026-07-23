@@ -10,13 +10,14 @@ last_verified: 2026-07-23 CST
 
 ## 1. 状态与决策
 
-本文是 active migration：目标边界已经冻结，具体 Host 采用仍由后续实测决定。目标态不得冒充当前 authority；当前有效事实仍是：
+本文是 active migration：目标边界已经冻结，完整 Host / container 采用仍由后续实测决定。目标态不得冒充当前 authority；当前有效事实是：
 
 - `program-supervisor` 常驻运行，J01–J07 与领域 owner 决定 cadence、状态和写权限。
 - `ops.model-gateway` 只执行无 tool、`execution_authority=none` 的 `research_hypothesis` 结构化任务。
-- `agent.mcp` 是同机 stdio allowlist；`ops.operator-http` 是 loopback-only 小型 allowlist。
-- Codex 是当前开发与人工操作环境；OpenClaw、LangGraph 尚未进入运行组合。
-- 仓库没有生产 Docker 编排、跨容器 MCP 或常驻 Agent Run adapter；当前 R&D autonomy 也没有接通 canonical Planner / Developer / Reviewer 链。
+- `agent.mcp` 已同时提供同机 stdio 与 bearer-authenticated private HTTP profile；`ops.operator-http` 仍是 loopback-only 小型 allowlist。
+- Codex 是当前开发与人工操作环境；OpenClaw `2026.7.1` alternate Chat runtime 已完成本机 proposal-only 采用，LangGraph 未引入。
+- 仓库已有 no-live Compose / OpenClaw / Agent Host / MCP fixture，但本机没有 Docker，尚无真实 Linux 容器采用证据。
+- canonical Planner 与 Developer/freeze 已完成真实纵切；Trial Plan 会拒绝旧版合同，正式 Replay bridge、Reviewer、失败后二次修订与 Registry 尚未闭环。
 
 目标采用三层执行模型，并服从 [Remote Container Runtime Integration](./remote-container-runtime-integration-plan.md) 的部署边界：
 
@@ -45,11 +46,11 @@ flowchart TB
 
 | 场景 | 当前 | 目标职责 |
 | --- | --- | --- |
-| 远程 Docker 常驻 | 不支持；当前是 host-native no-live profile | Compose / container manager 只负责进程与资源，Program 负责业务 cadence |
+| 远程 Docker 常驻 | 有可审查 no-live Compose fixture；尚未在 Linux/Docker 采用 | Compose / container manager 只负责进程与资源，Program 负责业务 cadence |
 | L2 / OHLCV / indicators | L2 已有 Rust resident；其他能力有 owner 但未统一常驻 cadence | 全部确定性运行，不依赖 Agent |
 | 快慢轨 | 当前 server profile 仍为 `shadow_program` | J01/J02 快轨、J03 慢轨由 Program 调度 |
-| hypothesis 生成 | 单次 Model Gateway task 已有 active-partial | 简单任务保留 Direct Model Task；复杂任务交给 Planner Agent Run |
-| develop / review | typed role contract 已有，Host 编排未接入 | Codex App Server 作为代码研发 kernel 基线；可由 OpenClaw 常驻托管，Control Plane 接纳结果 |
+| hypothesis 生成 | Direct Model Task 与 OpenClaw Planner Agent Run 均有真实本机证据 | 简单任务保留 Direct Model Task；复杂任务交给 Planner Agent Run |
+| develop / review | Developer Agent→owner compile/validate/freeze 已实跑；Reviewer 尚未实跑 | Codex App Server 作为代码研发 kernel 基线；可由 OpenClaw 常驻托管，Control Plane 接纳结果 |
 | Replay / 策略物化 | owner 链已存在 | 继续确定性执行；Agent 只能请求和读结果 |
 | retire | 当前策略状态未实现 | Governance owner 新增终止版本语义；Agent 只能提交建议 |
 
@@ -265,8 +266,8 @@ Host 运行状态属于 ops plane。是否新增 durable store、复用 `ops_run
 | P2 Provider / Codex capability | active-partial | 分离 SiliconFlow wire 能力与 Codex protocol 能力 | capability matrix 可归因；不以 prompt 掩盖协议失败 |
 | P3 Direct Codex adapter | active-partial | Program 可提交、观察、取消和失败关闭有界 Codex Run | 真实 structured turn 与 daemon transport 待采用 |
 | P4 MCP 与 Developer sandbox | active-partial | 私有 MCP、角色投影与每 Run 隔离 worktree 已落地 | 容器读隔离 / cgroup 与真实 Developer 纵切待采用 |
-| P5 R&D Agent 纵切 | pending | Planner → Developer → Replay → Reviewer → Registry | 失败后二次修订、重启和单 owner effect 通过 |
-| P6 OpenClaw 与容器 | pending | OpenClaw-Codex、alternate runtime 与 no-live Compose fixture | 固定版本、最小权限、独立启停和恢复通过 |
+| P5 R&D Agent 纵切 | active-partial | Planner → Developer → Replay → Reviewer → Registry | Planner/Developer 已实跑；Replay/Reviewer/二次修订待闭环 |
+| P6 OpenClaw 与容器 | active-partial | OpenClaw-Codex、alternate runtime 与 no-live Compose fixture | alternate runtime/fixture 已落地；真实容器采用待外部 host |
 | P7 Bake-off 与可靠性 | pending | 公平比较、故障注入、资源 / 磁盘与长时运行 | 无 authority violation；形成采用或拒绝证据 |
 | P8 收敛与采用 | pending | 默认 profile、回滚、清理、文档和运行手册 | 全仓质量门通过；目标态与当前态无漂移 |
 
@@ -304,6 +305,8 @@ P1 已落地 `modules/contracts/agent-run-contract`：request / event / result �
 P4 当前已复用同一 `createTradeMcpServer` registry 支持 stdio 与 bearer-authenticated stateless Streamable HTTP；HTTP 有 loopback/private bind、Host/origin、body 与 rate gate，且按四类 Agent profile 投影最小工具集。`agent-workspace-manager` 已提供 frozen-revision worktree、write-prefix / symlink / secret-data denial、固定 package check、bounded patch、container mount plan 和 active-run-aware GC。macOS 本地 worktree 不构成读隔离证据；只有 Developer container 不挂 production repo / home / owner DB / secret / Docker socket 且网络关闭后，P4 才能完成。
 
 同日 provider / Host 分层探测进一步得到：SiliconFlow `Qwen/Qwen3.5-27B` 的 Chat JSON、SSE stream、single tool、同轮 multi-tool 与 tool-result continuation 全部通过，Responses endpoint 为 `404/unsupported_endpoint`；Direct Codex 默认 provider 的 read-only turn 完成且零 protocol error。Codex custom SiliconFlow profile 能完成 initialize / thread，但 turn 失败；强制 `wire_api="chat"` 在 config/startup 被拒绝。当前 blocker 因而是 `Codex 0.144.6 requires Responses × SiliconFlow lacks Responses`，不能归因成模型或 adapter 质量，也不通过 fork Codex 临时掩盖。OpenClaw alternate Chat runtime 仍可进入公平评测，OpenClaw-managed Codex 只有换 Responses-compatible provider 后才可与 direct Codex 同 provider 比较。
+
+P5/P6 本机采用新增确定性证据：OpenClaw `2026.7.1` 通过四个最小 MCP role profile 驱动真实 Planner，Agent Run `planner-protocol-adoption-20260723-v4` 形成且只形成一次 owner tool call、一个 terminal artifact 和一个 `accepted` Control Plane admission。模型输入未携带 evaluation protocol；owner 注入已登记的 `protocol:time-series-momentum-eval-v1`。前两次失败分别暴露 MCP/Host `ops_runtime.db` 分裂与 `environment_id` 分裂；部署现已显式统一 `TRADE_ENVIRONMENT_ID` 及 MCP 的 Trade/Ops/RD/Catalog store 路径，通用 DB CLI 继承同一环境身份。Compose 仍只算静态 fixture；真实容器健康、资源隔离与故障恢复未采用。Developer v17 历史冻结合同因旧 v2 缺注册协议 hash 被当前 v3 validator 正确拒绝，不能绕过重放；下一步必须从新 Proposal/Brief 生成当前合同，再接正式 Replay。
 
 | ID | 步骤 | 完成证据 |
 | --- | --- | --- |
