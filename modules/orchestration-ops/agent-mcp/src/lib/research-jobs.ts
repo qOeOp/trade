@@ -49,7 +49,7 @@ export interface DeveloperSubmissionPrepareInput {
   required_capabilities: string[]
   requested_trial_budget: number
   draft_json: JSONRecord
-  created_at: string
+  requested_at: string
 }
 
 export interface ResearchJobServiceOptions {

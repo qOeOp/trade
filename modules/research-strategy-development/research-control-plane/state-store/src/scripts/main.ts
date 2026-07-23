@@ -180,7 +180,7 @@ export function run(args: Args): JSONRecord {
       const blocked = mode === "data_blocked" || mode === "tool_blocked"
       const developerRunId = stringField(args.json.developer_run_id)
       const draftRevision = numberField(args.json.draft_revision)
-      const createdAt = stringField(args.json.created_at)
+      const createdAt = stringField(args.json.requested_at)
       const proposedDraft = asRecord(args.json.draft_json)
       const ownerBoundDraft: JSONRecord = {
         ...proposedDraft,

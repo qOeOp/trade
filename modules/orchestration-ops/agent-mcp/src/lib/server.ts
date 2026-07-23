@@ -56,7 +56,7 @@ const DEVELOPER_SUBMISSION_PREPARE = z.object({
     (value) => Object.keys(value).length > 0 && JSON.stringify(value).length <= 500_000,
     "draft_json must be non-empty and at most 500 KB",
   ),
-  created_at: z.string().datetime({ offset: false }),
+  requested_at: z.string().datetime({ offset: false }),
 }).strict()
 
 export type TradeMcpProfile = "interactive" | "planner" | "developer" | "reviewer" | "explanation"
