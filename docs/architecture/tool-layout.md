@@ -49,6 +49,7 @@ Skill 可以说明如何调用既有 MCP / owner tool，但不能绕过 prefligh
 | `modules/orchestration-ops/trade-flow/` | flow domain orchestrator | 事件流、automation plan、observe、reconcile、execution orchestration | Binance 数据接入实现、交易所写接口细节、R&D 实验实现、策略复核 owner |
 | `modules/orchestration-ops/watch-task-runtime/` | bounded active-plan observer | 在 ops fenced lease 下恢复单个固定 mark-price Watch Task，调用 public snapshot owner，停在 no-authority revalidation handoff | 策略/LLM 判断、preflight/execution、exchange write、trade fact |
 | `modules/orchestration-ops/model-gateway/` | bounded model provider port | 固定 profile、credential lookup、timeout/retry/token budget、JSON Object parse 与脱敏 typed result | 领域 prompt/schema 判断、DB/event/exchange write、工具调用 |
+| `modules/orchestration-ops/agent-host-codex/` | direct Codex Host adapter | Agent Run → pinned App Server stdio、profile sandbox、JSONL correlation、sanitized events 与 capability probe | Program cadence、领域 owner、production RW、raw reasoning、provider 或 live authority |
 | `modules/orchestration-ops/operator-http/` | northbound operator adapter | loopback allowlist、auth、approval、rate limit、sanitized ops audit、fixed owner delegation | scheduler、任意 tool/command、exchange/live/promotion authority |
 | `modules/live-decision-planning/watch-task-compiler/` | plan-to-watch compiler | 校验 plan/action-intent identity、hash、lineage、expiry 后生成固定 Watch definition | 运行任务、批准风险、读取市场、执行交易 |
 | `modules/live-execution-control/watch-handoff-revalidation/` | triggered handoff revalidator | 绑定 definition/handoff/plan identity，以新 observation 复跑 trigger gate 与 plan preflight，签发 no-authority receipt | 执行批准、command compilation、exchange/event write、刷新 owner facts |
@@ -102,7 +103,7 @@ Skill 可以说明如何调用既有 MCP / owner tool，但不能绕过 prefligh
 | `modules/market-data-products/` | market data product tools | Binance public market facts、OHLCV、features、liquidity scan、microstructure refs | 账户私有状态、交易所写 side effect |
 | `modules/live-execution-control/` | deterministic guard | preflight、hard guards、decision card validation | 市场观点、交易所写接口 |
 | `modules/market-data-products/` | market analytics | indicators、structure、beta、feature report | live execution |
-| `modules/contracts/` | cross-module contracts | runtime core、execution contract、preflight contract、catalog client | 业务实现 owner |
+| `modules/contracts/` | cross-module contracts | runtime core、Agent Run、model task、execution、preflight、catalog client | 业务实现 owner |
 | `strategies/` | strategy assets | policy markdown、frontmatter、`## Trade Contract` | 运行日志、临时候选 |
 | `data/` | durable local state | `trade.db`、catalog、OHLCV、RD memory、持久 evidence refs | scratch cache |
 | `tmp/` | ephemeral artifacts | R&D reports、scan outputs、临时 market data、GC 候选 | 长期策略资产 |
