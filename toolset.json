@@ -153,7 +153,7 @@
       },
       "notes": [
         "shadow_program writes only orchestration observations; catalog_hygiene_canary delegates only J06; full_shadow delegates the fixed J01-J07 owner graph and its declared logical writes.",
-        "No profile can enable exchange live writes, real notifications, arbitrary jobs/commands, GC/--yes, or weaker required L2 service and resident-consumer health checks.",
+        "No profile can enable exchange live writes, real notifications, arbitrary jobs/commands, GC/--yes, or weaker required L2 service and resident-consumer health checks; ops-only commands are bounded to 30 seconds and domain-enabled profiles to 90 seconds.",
         "This remains the reusable one-shot entry beneath trade-flow.program-shadow-supervisor."
       ],
       "module_type": "suite",
@@ -202,8 +202,8 @@
       },
       "notes": [
         "Foreground only; launchd, systemd, Docker, or another external process manager owns restart and process lifetime.",
-        "shadow_program keeps J01-J07 disabled; full_shadow enables the fixed seven-job graph while preserving owner active gates and permanently denies exchange live writes; planning owner reads and each child command are asynchronously bounded to 30 seconds.",
-        "The one-shot catalog_hygiene_canary profile is a separate opt-in migration gate: it forces only J06, permits only artifact_catalog writes, and exposes no GC, --yes, arbitrary-root, notification, or live-write authority.",
+        "shadow_program keeps J01-J07 disabled with 30-second ops command bounds; full_shadow enables the fixed seven-job graph under 90-second domain command bounds while preserving owner active gates and permanently denying exchange live writes.",
+        "catalog_hygiene_canary can run one-shot or on a fenced resident interval up to 86400 seconds: it forces only J06, permits only artifact_catalog writes, and exposes no GC, --yes, arbitrary-root, notification, or live-write authority.",
         "The durable supervisor lease uses heartbeat renewal and fencing tokens; SIGINT/SIGTERM drains the in-flight wakeup before release.",
         "SQLite contention is bounded to a one-second busy window and returns ops_store_busy; every graph result carries a cycle-independent parity hash for Agent/program comparison.",
         "Optional resident parity observation samples owner commands once, independently builds the legacy Agent shadow graph by replaying those exact results, and stores immutable comparison evidence in ops_runtime_store; sequential live-read history remains non-comparable evidence, and launchd deployment remains an operator lifecycle outside this tool surface."
