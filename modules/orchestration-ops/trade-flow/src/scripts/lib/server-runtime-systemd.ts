@@ -88,7 +88,7 @@ Group=${manager.service_group}
 WorkingDirectory=${systemdQuote(input.root)}
 Environment=${systemdQuote(`TRADE_REPO_ROOT=${input.root}`)}
 ExecStart=${input.command.map(systemdQuote).join(" ")}
-Restart=on-failure
+Restart=always
 RestartSec=${manager.restart_seconds}
 TimeoutStopSec=${manager.shutdown_grace_seconds}
 KillMode=control-group

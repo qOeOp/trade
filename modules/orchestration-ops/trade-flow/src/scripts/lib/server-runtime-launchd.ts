@@ -84,10 +84,7 @@ ${input.command.map((argument) => `    <string>${xml(argument)}</string>`).join(
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
-  <dict>
-    <key>SuccessfulExit</key>
-    <false/>
-  </dict>
+  <true/>
   <key>ProcessType</key>
   <string>Background</string>
   <key>ThrottleInterval</key>
