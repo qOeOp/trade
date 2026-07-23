@@ -81,8 +81,10 @@ export async function readServerRuntimeContainerComponentReady(
     ])
     if (result.exit_code !== 0) return false
     try {
-      return record(record(JSON.parse(result.stdout)).parity_status).supervisor_lease != null
-        && record(record(record(JSON.parse(result.stdout)).parity_status).supervisor_lease).active === true
+      const payload = record(JSON.parse(result.stdout))
+      const parityStatus = record(payload.parity_status)
+      const supervisorLease = record(parityStatus.supervisor_lease)
+      return supervisorLease.active === true
     } catch {
       return false
     }
