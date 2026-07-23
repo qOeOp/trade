@@ -7,13 +7,17 @@ import {
   L2_WATCH_CONSUMER_RECEIPT_SCHEMA,
   assertL2WatchConsumerRuntimeRef,
   findUniqueActiveL2WatchConsumer,
+  l2WatchConsumerSymbol,
   parseL2WatchConsumerLaunchArgs,
   type L2WatchConsumerReceipt,
 } from "../lib/l2-book-watch-consumer-runtime"
 
 const root = repoRoot()
 const config = parseArgs(process.argv.slice(2))
-if (findUniqueActiveL2WatchConsumer(root) != null) throw new Error("an active L2 watch consumer already exists")
+const symbol = l2WatchConsumerSymbol(config)
+if (findUniqueActiveL2WatchConsumer(root, { symbol }) != null) {
+  throw new Error(`an active L2 watch consumer already exists for ${symbol}`)
+}
 const token = `${Date.now()}-${process.pid}`
 const runtimeRef = `tmp/l2-book-watch-consumer/runtime/${token}`
 const runtimeDirectory = assertL2WatchConsumerRuntimeRef(root, runtimeRef)

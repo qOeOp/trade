@@ -5,7 +5,7 @@ import { repoRoot } from "../../../../contracts/runtime-core/src/paths"
 import {
   L2_WATCH_CONSUMER_RECEIPT_SCHEMA,
   assertL2WatchConsumerRuntimeRef,
-  processIsAlive,
+  processMatchesL2WatchConsumerSupervisor,
   type L2WatchConsumerReceipt,
 } from "../lib/l2-book-watch-consumer-runtime"
 
@@ -13,7 +13,7 @@ const root = repoRoot()
 const receiptRef = requiredArg(process.argv.slice(2), "--receipt")
 const receipt = JSON.parse(readFileSync(assertL2WatchConsumerRuntimeRef(root, receiptRef), "utf8")) as L2WatchConsumerReceipt
 if (receipt.schema_version !== L2_WATCH_CONSUMER_RECEIPT_SCHEMA) throw new Error("unsupported L2 watch consumer receipt")
-if (!processIsAlive(receipt.supervisor_pid)) {
+if (!processMatchesL2WatchConsumerSupervisor(receipt.supervisor_pid, receipt.runtime_directory)) {
   process.stdout.write(`${JSON.stringify({ ok: true, status: "already_stopped" })}\n`)
   process.exit(0)
 }

@@ -7,6 +7,7 @@ import {
 import type { L2WatchConsumerConfig } from "./l2-book-watch-consumer-runtime"
 
 const config: L2WatchConsumerConfig = {
+  symbol: "BTCUSDT",
   max_cycles: 120,
   session_ms: 300_000,
   max_events: 20,

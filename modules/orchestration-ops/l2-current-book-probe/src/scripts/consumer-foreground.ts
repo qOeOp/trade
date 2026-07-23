@@ -10,13 +10,17 @@ import {
 } from "../lib/l2-book-watch-consumer-foreground"
 import {
   findUniqueActiveL2WatchConsumer,
+  l2WatchConsumerSymbol,
   parseL2WatchConsumerLaunchArgs,
 } from "../lib/l2-book-watch-consumer-runtime"
 
 const root = repoRoot()
 const moduleRoot = resolve(import.meta.dir, "../..")
 const config = parseL2WatchConsumerLaunchArgs(process.argv.slice(2))
-if (findUniqueActiveL2WatchConsumer(root) != null) throw new Error("an active L2 watch consumer already exists")
+const symbol = l2WatchConsumerSymbol(config)
+if (findUniqueActiveL2WatchConsumer(root, { symbol }) != null) {
+  throw new Error(`an active L2 watch consumer already exists for ${symbol}`)
+}
 const plan = buildL2WatchConsumerForegroundPlan({
   root,
   module_root: moduleRoot,

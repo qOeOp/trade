@@ -10,6 +10,7 @@ export const L2_WATCH_CONSUMER_TERMINAL_SCHEMA = "trade.ops-l2-watch-consumer-te
 export const L2_WATCH_CONSUMER_OWNER_READ_SCHEMA = "trade.ops-l2-watch-consumer-owner-read.v1" as const
 
 export interface L2WatchConsumerConfig {
+  symbol?: string
   max_cycles: number
   session_ms: number
   max_events: number
@@ -89,6 +90,9 @@ export interface ActiveL2WatchConsumer {
 let atomicWriteSequence = 0
 
 export function validateL2WatchConsumerConfig(config: L2WatchConsumerConfig): void {
+  if (config.symbol != null && !/^[A-Z0-9]{5,20}$/.test(config.symbol)) {
+    throw new Error("symbol must be an uppercase venue symbol")
+  }
   bounded(config.max_cycles, 1, 120, "max_cycles")
   bounded(config.session_ms, 2_000, 300_000, "session_ms")
   bounded(config.max_events, 1, 100, "max_events")
@@ -102,9 +106,14 @@ export function validateL2WatchConsumerConfig(config: L2WatchConsumerConfig): vo
   }
 }
 
+export function l2WatchConsumerSymbol(config: L2WatchConsumerConfig): string {
+  validateL2WatchConsumerConfig(config)
+  return config.symbol ?? "BTCUSDT"
+}
+
 export function parseL2WatchConsumerLaunchArgs(argv: string[]): L2WatchConsumerConfig {
   const allowed = new Set([
-    "max_cycles", "session_ms", "max_events", "watch_ms", "depth", "max_freshness_ms", "duration_seconds", "restart_limit",
+    "symbol", "max_cycles", "session_ms", "max_events", "watch_ms", "depth", "max_freshness_ms", "duration_seconds", "restart_limit",
   ])
   const values: Record<string, string> = {}
   for (let index = 0; index < argv.length; index += 2) {
@@ -117,6 +126,7 @@ export function parseL2WatchConsumerLaunchArgs(argv: string[]): L2WatchConsumerC
     values[field] = value
   }
   const config = {
+    symbol: values.symbol ?? "BTCUSDT",
     max_cycles: numberValue(values.max_cycles, 120),
     session_ms: numberValue(values.session_ms, 300_000),
     max_events: numberValue(values.max_events, 20),
@@ -177,7 +187,30 @@ export function processIsAlive(pid: number): boolean {
   }
 }
 
-export function findUniqueActiveL2WatchConsumer(root: string): ActiveL2WatchConsumer | null {
+export function processMatchesL2WatchConsumerSupervisor(pid: number, runtimeDirectory: string): boolean {
+  const command = readProcessCommand(pid)
+  return command != null
+    && command.includes("l2-current-book-probe/src/scripts/consumer-supervisor.ts")
+    && commandHasArgument(command, "--runtime-dir", runtimeDirectory)
+}
+
+export function processMatchesL2WatchConsumerWorker(pid: number, runtimeDirectory: string): boolean {
+  const command = readProcessCommand(pid)
+  return command != null
+    && command.includes("l2-current-book-probe/src/scripts/consumer-worker.ts")
+    && commandHasArgument(command, "--runtime-dir", runtimeDirectory)
+}
+
+export interface L2WatchConsumerProcessDependencies {
+  symbol?: string
+  process_matches_supervisor?: (pid: number, runtimeDirectory: string) => boolean
+  process_matches_worker?: (pid: number, runtimeDirectory: string) => boolean
+}
+
+export function findUniqueActiveL2WatchConsumer(
+  root: string,
+  dependencies: L2WatchConsumerProcessDependencies = {},
+): ActiveL2WatchConsumer | null {
   const runtimeRoot = assertL2WatchConsumerRuntimeRef(root, "tmp/l2-book-watch-consumer/runtime")
   if (!existsSync(runtimeRoot)) return null
   const active: ActiveL2WatchConsumer[] = []
@@ -187,7 +220,9 @@ export function findUniqueActiveL2WatchConsumer(root: string): ActiveL2WatchCons
     const receipt = JSON.parse(readFileSync(receiptPath, "utf8")) as L2WatchConsumerReceipt
     if (receipt.schema_version !== L2_WATCH_CONSUMER_RECEIPT_SCHEMA) throw new Error("unsupported L2 watch consumer receipt")
     validateL2WatchConsumerConfig(receipt.config)
-    if (!processIsAlive(receipt.supervisor_pid)) continue
+    if (dependencies.symbol != null && l2WatchConsumerSymbol(receipt.config) !== dependencies.symbol) continue
+    const processMatchesSupervisor = dependencies.process_matches_supervisor ?? processMatchesL2WatchConsumerSupervisor
+    if (!processMatchesSupervisor(receipt.supervisor_pid, receipt.runtime_directory)) continue
     const runtimePath = assertL2WatchConsumerRuntimeRef(root, receipt.runtime_state_path)
     if (!existsSync(runtimePath)) continue
     const runtime = JSON.parse(readFileSync(runtimePath, "utf8")) as L2WatchConsumerRuntimeState
@@ -214,7 +249,7 @@ export function findUniqueActiveL2WatchConsumer(root: string): ActiveL2WatchCons
 export function buildL2WatchConsumerOwnerRead(input: {
   observed_at: string
   active: ActiveL2WatchConsumer | null
-}): JSONRecord {
+}, dependencies: L2WatchConsumerProcessDependencies = {}): JSONRecord {
   requireUtc(input.observed_at, "observed_at")
   if (input.active == null) return unavailableOwnerRead(input.observed_at)
   const { receipt, runtime, observation, terminal } = input.active
@@ -228,8 +263,10 @@ export function buildL2WatchConsumerOwnerRead(input: {
   bounded(runtime.consecutive_failures, 0, Number.MAX_SAFE_INTEGER, "runtime.consecutive_failures")
   if (!new Set(["starting", "running", "backoff", "stopping"]).has(runtime.status)) throw new Error("L2 watch consumer runtime status drifted")
   if (observation != null) validateObservation(observation, runtime.consumer_pid)
-  const supervisorAlive = processIsAlive(receipt.supervisor_pid)
-  const consumerAlive = runtime.consumer_pid != null && processIsAlive(runtime.consumer_pid)
+  const processMatchesSupervisor = dependencies.process_matches_supervisor ?? processMatchesL2WatchConsumerSupervisor
+  const processMatchesWorker = dependencies.process_matches_worker ?? processMatchesL2WatchConsumerWorker
+  const supervisorAlive = processMatchesSupervisor(receipt.supervisor_pid, receipt.runtime_directory)
+  const consumerAlive = runtime.consumer_pid != null && processMatchesWorker(runtime.consumer_pid, receipt.runtime_directory)
   const stateAgeMs = Date.parse(input.observed_at) - Date.parse(runtime.updated_at)
   if (stateAgeMs < 0) throw new Error("L2 watch consumer runtime is newer than owner observation")
   const observationAgeMs = observation == null ? null : Date.parse(input.observed_at) - Date.parse(observation.updated_at)
@@ -306,6 +343,28 @@ function unavailableOwnerRead(observedAt: string): JSONRecord {
     writes: [],
     limitations: limitations(),
   }
+}
+
+function readProcessCommand(pid: number): string | null {
+  if (!processIsAlive(pid)) return null
+  const command = Bun.spawnSync({
+    cmd: ["ps", "-ww", "-p", String(pid), "-o", "command="],
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  if (command.exitCode !== 0) return null
+  const text = command.stdout.toString().trim()
+  return text.length === 0 ? null : text
+}
+
+function commandHasArgument(command: string, name: string, value: string): boolean {
+  const escapedName = escapeRegExp(name)
+  const escapedValue = escapeRegExp(value)
+  return new RegExp(`(?:^|\\s)${escapedName}(?:=|\\s+)(?:"${escapedValue}"|'${escapedValue}'|${escapedValue})(?:\\s|$)`).test(command)
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
 function emptyMetrics(): L2WatchConsumerObservationState["metrics"] {

@@ -8,6 +8,7 @@ import {
   assertL2WatchConsumerRuntimeRef,
   atomicWriteJson,
   carryForwardL2WatchConsumerMetrics,
+  l2WatchConsumerSymbol,
   validateL2WatchConsumerConfig,
   type L2WatchConsumerConfig,
   type L2WatchConsumerObservationState,
@@ -58,6 +59,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 
 while (!stopRequested) {
   const result = await runL2BookWatchSession({
+    symbol: l2WatchConsumerSymbol(config),
     max_cycles: config.max_cycles,
     session_ms: config.session_ms,
     max_events: config.max_events,
