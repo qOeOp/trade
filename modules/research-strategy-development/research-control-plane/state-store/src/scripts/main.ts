@@ -77,9 +77,11 @@ import {
 import type { DeveloperContractFreezeRequest } from "../../../contracts/src/lib/developer-contract-freeze"
 import {
   readExperimentTrialPlan,
-  startExperimentTrialPlan,
+  startFrozenExperimentTrialPlan,
 } from "../lib/experiment-trial-plan"
-import type { ExperimentTrialPlanRequest } from "../../../contracts/src/lib/experiment-trial-plan"
+import type {
+  FrozenExperimentTrialPlanStart,
+} from "../../../contracts/src/lib/experiment-trial-plan"
 import {
   admitReplayTrialReservation,
   readReplayTrialReservationAdmission,
@@ -306,8 +308,11 @@ export function run(args: Args): JSONRecord {
       const freeze = readDeveloperContractFreeze(db, stringField(args.json.freeze_id))
       return { ok: true, action: args.action, freeze }
     }
-    if (args.action === "start_experiment_trial_plan") {
-      const plan = startExperimentTrialPlan(db, args.json as unknown as ExperimentTrialPlanRequest)
+    if (args.action === "start_frozen_experiment_trial_plan") {
+      const plan = startFrozenExperimentTrialPlan(
+        db,
+        args.json as unknown as FrozenExperimentTrialPlanStart,
+      )
       return { ok: true, action: args.action, plan }
     }
     if (args.action === "read_experiment_trial_plan") {
@@ -453,7 +458,7 @@ function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/rd_state.db --action init",
     "actions: init | upsert_program | upsert_hypothesis | record_trial | record_holdout_use | record_lesson | read_program",
-    "control-plane: seed_default_control_plane | seed_universe | upsert_data_surface | link_universe_data_surface | upsert_pipeline_registry_item | upsert_universe_coverage | read_planning_context | prepare_planner_proposal | admit_planner_proposal | read_planner_proposal_admission | issue_developer_development_brief | read_developer_development_brief | prepare_developer_agent_submission | receive_developer_contract_draft | read_developer_contract_draft_receipt | validate_developer_contract_draft | read_developer_contract_draft_validation | freeze_developer_experiment_contract | read_developer_contract_freeze | start_experiment_trial_plan | read_experiment_trial_plan | admit_replay_trial_reservation | read_replay_trial_reservation_admission | register_replay_execution_request | read_replay_request_registration | issue_replay_l2_experiment_attachment | read_replay_l2_experiment_attachment | prepare_reviewer_agent_submission | append_proposal_revision | materialize_proposal | register_trial_group | materialize_generated_candidate | transition_trial_group | register_experiment | reserve_trial | finish_trial | append_result | register_evaluation_evidence_classification | read_evaluation_evidence_classification | append_lesson | apply_reviewer_decision | apply_system_transition | open_blocker | close_blocker | check_lifecycle_projection | rebuild_lifecycle_projection",
+    "control-plane: seed_default_control_plane | seed_universe | upsert_data_surface | link_universe_data_surface | upsert_pipeline_registry_item | upsert_universe_coverage | read_planning_context | prepare_planner_proposal | admit_planner_proposal | read_planner_proposal_admission | issue_developer_development_brief | read_developer_development_brief | prepare_developer_agent_submission | receive_developer_contract_draft | read_developer_contract_draft_receipt | validate_developer_contract_draft | read_developer_contract_draft_validation | freeze_developer_experiment_contract | read_developer_contract_freeze | start_frozen_experiment_trial_plan | read_experiment_trial_plan | admit_replay_trial_reservation | read_replay_trial_reservation_admission | register_replay_execution_request | read_replay_request_registration | issue_replay_l2_experiment_attachment | read_replay_l2_experiment_attachment | prepare_reviewer_agent_submission | append_proposal_revision | materialize_proposal | register_trial_group | materialize_generated_candidate | transition_trial_group | register_experiment | reserve_trial | finish_trial | append_result | register_evaluation_evidence_classification | read_evaluation_evidence_classification | append_lesson | apply_reviewer_decision | apply_system_transition | open_blocker | close_blocker | check_lifecycle_projection | rebuild_lifecycle_projection",
   ].join("\n"))
 }
 

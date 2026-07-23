@@ -200,8 +200,8 @@ test("research state store CLI admits a bounded Planner Proposal without materia
       }),
     ])), /only a valid/)
     assert.throws(() => run(parseArgs([
-      "--db", dbPath, "--action", "start_experiment_trial_plan", "--json", "{}",
-    ])), /plan_id is required/)
+      "--db", dbPath, "--action", "start_frozen_experiment_trial_plan", "--json", "{}",
+    ])), /freeze_id is required/)
     assert.throws(() => run(parseArgs([
       "--db", dbPath, "--action", "admit_replay_trial_reservation", "--json", "{}",
     ])), /unsupported Replay Trial Reservation Admission request/)

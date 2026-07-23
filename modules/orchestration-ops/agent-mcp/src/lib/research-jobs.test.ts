@@ -309,6 +309,107 @@ test("research status preserves a blocked J04 inside a failed aggregate cycle", 
   assert.equal(result.cycle_status, "failed")
 })
 
+test("Planner and Reviewer preparation persist exact terminal outputs independently of model echo", async () => {
+  const terminalTexts: string[] = []
+  const recordedResults: JSONRecord[] = []
+  const service = new ResearchJobService({
+    execute: async (command) => {
+      if (command.script.includes("agent-artifact-store")) {
+        const input = (command.stdin_json ?? {}) as JSONRecord
+        terminalTexts.push(String(input.text))
+        const sha = String(terminalTexts.length).repeat(64)
+        return {
+          ok: true,
+          artifact: {
+            ref: `agent-artifact://durable/${sha}`,
+            sha256: sha,
+            media_type: "application/json",
+            bytes: Buffer.byteLength(String(input.text)),
+          },
+        }
+      }
+      const action = argAfter(command.args, "--action")
+      const payload = JSON.parse(argAfter(command.args, "--json")) as JSONRecord
+      if (command.script.includes("ops-runtime-store")) {
+        if (action === "record_agent_tool_call") return { ok: true, usage: { tool_calls: 1 } }
+        if (action === "record_agent_tool_result") {
+          recordedResults.push(payload)
+          return { ok: true, tool_result: payload }
+        }
+      }
+      if (action === "prepare_planner_proposal") {
+        return {
+          ok: true,
+          proposal: {
+            schema_version: "trade.rd-planner-proposal-submission.v2",
+            proposal_hash: "a".repeat(64),
+          },
+        }
+      }
+      if (action === "prepare_reviewer_agent_submission") {
+        return {
+          ok: true,
+          submission: {
+            schema_version: "trade.rd-reviewer-agent-submission.v1",
+            submission_hash: "b".repeat(64),
+          },
+        }
+      }
+      throw new Error(`unexpected action: ${action}`)
+    },
+    start: () => ({ pid: 1, log_path: "tmp/unused.log" }),
+  })
+
+  const planner = await service.preparePlannerProposal({
+    planner_run_id: "planner-terminal-1",
+    request_hash: "c".repeat(64),
+    proposal_id: "proposal-terminal-1",
+    hypothesis_id: "hypothesis-terminal-1",
+    universe_node_id: "canonical:trend/time-series-trend/time-series-momentum",
+    objective: "Test a bounded family.",
+    dataset_requirements: ["ohlcv"],
+    candidate_space: { lookback_bars: [24] },
+    trial_budget: 1,
+    evaluation_protocol_ref: "evaluation-protocol://discovery-v1",
+    requested_at: "2026-07-23T12:00:00.000Z",
+  })
+  const reviewer = await service.prepareReviewerSubmission({
+    reviewer_run_id: "reviewer-terminal-1",
+    request_hash: "d".repeat(64),
+    experiment_id: "experiment-terminal-1",
+    expected_version: 2,
+    stage_id: "discovery",
+    decision: "reject",
+    evidence: [{ result_id: "result-terminal-1", evidence_role: "primary" }],
+    selected_trial_id: null,
+    rationale: "The classified evidence does not meet the frozen gate.",
+    requested_at: "2026-07-23T12:01:00.000Z",
+  })
+
+  assert.equal((planner.proposal as JSONRecord).proposal_hash, "a".repeat(64))
+  assert.equal((reviewer.submission as JSONRecord).submission_hash, "b".repeat(64))
+  assert.deepEqual(terminalTexts.map((text) => JSON.parse(text).schema_version), [
+    "trade.rd-planner-proposal-submission.v2",
+    "trade.rd-reviewer-agent-submission.v1",
+  ])
+  assert.deepEqual(recordedResults.map((result) => [
+    result.task_profile,
+    result.tool_name,
+    result.output_schema_version,
+  ]), [
+    [
+      "planner",
+      "research_planner_proposal_prepare",
+      "trade.rd-planner-proposal-submission.v2",
+    ],
+    [
+      "reviewer",
+      "research_reviewer_submission_prepare",
+      "trade.rd-reviewer-agent-submission.v1",
+    ],
+  ])
+})
+
 test("Developer preparation loads immutable Agent Run context and sends only owner-derived identity", async () => {
   const body = {
     schema_version: "trade.rd-developer-agent-context-pack.v1",

@@ -5,6 +5,8 @@ import { digest, isRecord, positiveInteger, required, utc } from "./developer-co
 
 export const EXPERIMENT_TRIAL_PLAN_REQUEST_SCHEMA_VERSION =
   "trade.rd-experiment-trial-plan-request.v1" as const
+export const FROZEN_EXPERIMENT_TRIAL_PLAN_START_SCHEMA_VERSION =
+  "trade.rd-frozen-experiment-trial-plan-start.v1" as const
 export const EXPERIMENT_TRIAL_PLAN_RECORD_SCHEMA_VERSION =
   "trade.rd-experiment-trial-plan-record.v1" as const
 export const EXPERIMENT_TRIAL_PLAN_POLICY_VERSION =
@@ -31,6 +33,12 @@ export interface ExperimentTrialPlanRequest extends JSONRecord {
   discovery_lifecycle_event_id: string
   discovery_lifecycle_idempotency_key: string
   idempotency_key: string
+  planned_at: string
+}
+
+export interface FrozenExperimentTrialPlanStart extends JSONRecord {
+  schema_version: typeof FROZEN_EXPERIMENT_TRIAL_PLAN_START_SCHEMA_VERSION
+  freeze_id: string
   planned_at: string
 }
 
@@ -85,6 +93,20 @@ export function assertExperimentTrialPlanRequest(value: ExperimentTrialPlanReque
   }
   if (canonicalNfcJson(value) !== canonicalNfcJson(expected)) {
     throw new Error("Experiment Trial Plan request is non-canonical")
+  }
+}
+
+export function assertFrozenExperimentTrialPlanStart(
+  value: FrozenExperimentTrialPlanStart,
+): void {
+  if (!isRecord(value)) throw new Error("Frozen Experiment Trial Plan start must be an object")
+  const expected: FrozenExperimentTrialPlanStart = {
+    schema_version: FROZEN_EXPERIMENT_TRIAL_PLAN_START_SCHEMA_VERSION,
+    freeze_id: required(value.freeze_id, "freeze_id"),
+    planned_at: utc(value.planned_at, "planned_at"),
+  }
+  if (canonicalNfcJson(value) !== canonicalNfcJson(expected)) {
+    throw new Error("Frozen Experiment Trial Plan start is non-canonical")
   }
 }
 

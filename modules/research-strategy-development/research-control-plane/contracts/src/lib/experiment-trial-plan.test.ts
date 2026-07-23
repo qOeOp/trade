@@ -2,7 +2,9 @@ import { expect, test } from "bun:test"
 import {
   EXPERIMENT_TRIAL_PLAN_POLICY_VERSION,
   EXPERIMENT_TRIAL_PLAN_RECORD_SCHEMA_VERSION,
+  FROZEN_EXPERIMENT_TRIAL_PLAN_START_SCHEMA_VERSION,
   assertExperimentTrialPlanRecord,
+  assertFrozenExperimentTrialPlanStart,
   createExperimentTrialPlanRecord,
 } from "./experiment-trial-plan"
 
@@ -28,4 +30,17 @@ test("Experiment Trial Plan binds bounded Control Plane Trial reservations witho
   expect(record).not.toHaveProperty("dataset_hash")
   expect(record).not.toHaveProperty("reservation_ref")
   expect(() => assertExperimentTrialPlanRecord({ ...record, trial_group_id: "drift" })).toThrow("hash-drifted")
+})
+
+test("Frozen Experiment Trial Plan start accepts only freeze identity and owner time", () => {
+  const start = {
+    schema_version: FROZEN_EXPERIMENT_TRIAL_PLAN_START_SCHEMA_VERSION,
+    freeze_id: "freeze-1",
+    planned_at: "2026-07-22T12:09:00Z",
+  } as const
+  expect(() => assertFrozenExperimentTrialPlanStart(start)).not.toThrow()
+  expect(() => assertFrozenExperimentTrialPlanStart({
+    ...start,
+    plan_id: "caller-controlled-plan",
+  })).toThrow("non-canonical")
 })

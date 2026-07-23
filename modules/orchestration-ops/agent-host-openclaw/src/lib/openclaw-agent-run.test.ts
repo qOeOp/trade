@@ -129,6 +129,61 @@ test("OpenClaw Developer Host completes from one attested terminal tool result",
   fixture.db.close()
 })
 
+test("OpenClaw Host treats Planner and Reviewer owner outputs as terminal", async () => {
+  const cases = [
+    {
+      profile: "planner" as const,
+      tool_name: "research_planner_proposal_prepare",
+      output_schema_version: "trade.rd-planner-proposal-submission.v2",
+    },
+    {
+      profile: "reviewer" as const,
+      tool_name: "research_reviewer_submission_prepare",
+      output_schema_version: "trade.rd-reviewer-agent-submission.v1",
+    },
+  ]
+  for (const item of cases) {
+    const fixture = createFixture(item.profile, item.output_schema_version)
+    const terminal = artifact(`${item.profile}-terminal-output`, "application/json", "durable")
+    admitFixtureForToolResult(fixture.db, fixture.request)
+    recordAgentRunToolCall(fixture.db, {
+      call_id: `${item.profile}-terminal-call-1`,
+      run_id: fixture.request.run_id,
+      request_hash: fixture.request.request_hash,
+      task_profile: item.profile,
+      tool_name: item.tool_name,
+      occurred_at: "2026-07-23T11:59:58.000Z",
+    })
+    recordAgentRunToolResult(fixture.db, {
+      call_id: `${item.profile}-terminal-call-1`,
+      run_id: fixture.request.run_id,
+      request_hash: fixture.request.request_hash,
+      task_profile: item.profile,
+      tool_name: item.tool_name,
+      output_schema_version: item.output_schema_version,
+      artifact: terminal,
+      occurred_at: "2026-07-23T11:59:59.000Z",
+    })
+    const host = hostFor(
+      fixture.db,
+      async () => gatewayResult("NO_REPLY"),
+      {
+        terminal_tool_outputs: {
+          [item.profile]: {
+            tool_name: item.tool_name,
+            output_schema_version: item.output_schema_version,
+          },
+        },
+        validate_output_ref: async (_request, output) => output,
+      },
+    )
+    const result = await waitForResultAfterSubmit(host, fixture.request)
+    assert.equal(result.status, "completed")
+    assert.deepEqual(result.output_refs, [terminal])
+    fixture.db.close()
+  }
+})
+
 test("OpenClaw Host recovers a committed Developer result without rerunning the model", async () => {
   const fixture = createFixture("developer")
   const terminal = artifact("recoverable-terminal-output", "application/json", "durable")
@@ -194,7 +249,10 @@ function hostFor(
   })
 }
 
-function createFixture(profile: "planner" | "developer"): {
+function createFixture(
+  profile: "planner" | "developer" | "reviewer",
+  outputSchemaVersion = "trade.test-output.v1",
+): {
   db: Database
   request: AgentRunRequest
 } {
@@ -213,7 +271,7 @@ function createFixture(profile: "planner" | "developer"): {
       source_revision: "0123456789abcdef",
       instruction_ref: instruction,
       input_refs: [context],
-      output_schema_version: "trade.test-output.v1",
+      output_schema_version: outputSchemaVersion,
       capabilities: profile === "developer"
         ? ["owner_read", "research_read", "workspace_read", "workspace_patch", "bounded_quality_check"]
         : ["owner_read", "research_read"],

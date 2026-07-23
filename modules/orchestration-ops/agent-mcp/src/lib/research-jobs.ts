@@ -279,7 +279,7 @@ export class ResearchJobService {
   async preparePlannerProposal(
     input: PlannerProposalPrepareInput,
   ): Promise<JSONRecord> {
-    await this.recordAgentToolCall({
+    const callId = await this.recordAgentToolCall({
       run_id: input.planner_run_id,
       request_hash: input.request_hash,
       task_profile: "planner",
@@ -300,6 +300,18 @@ export class ResearchJobService {
     if (Object.keys(proposal).length === 0) {
       throw new Error("Planner proposal owner returned no proposal")
     }
+    if (proposal.schema_version !== "trade.rd-planner-proposal-submission.v2") {
+      throw new Error("Planner proposal owner schema version drifted")
+    }
+    await this.persistAgentToolResult({
+      call_id: callId,
+      run_id: input.planner_run_id,
+      request_hash: input.request_hash,
+      task_profile: "planner",
+      tool_name: "research_planner_proposal_prepare",
+      output_schema_version: "trade.rd-planner-proposal-submission.v2",
+      output: proposal,
+    })
     return {
       schema_version: "trade.agent-mcp.planner-proposal-prepare-result.v1",
       proposal,
@@ -365,25 +377,14 @@ export class ResearchJobService {
     if (submission.schema_version !== "trade.rd-developer-agent-submission.v1") {
       throw new Error("Developer submission owner schema version drifted")
     }
-    const artifactResponse = await this.execute({
-      script: "modules/orchestration-ops/agent-artifact-store/src/scripts/main.ts",
-      args: ["--repository-root", "."],
-      stdin_json: {
-        action: "write_text",
-        storage: "durable",
-        media_type: "application/json",
-        text: canonicalJson(submission),
-      },
-    })
-    const artifact = agentArtifactRef(artifactResponse.artifact)
-    await this.recordAgentToolResult({
+    await this.persistAgentToolResult({
       call_id: callId,
       run_id: input.developer_run_id,
       request_hash: input.request_hash,
       task_profile: "developer",
       tool_name: "research_developer_submission_prepare",
       output_schema_version: "trade.rd-developer-agent-submission.v1",
-      artifact,
+      output: submission,
     })
     return submission
   }
@@ -433,7 +434,7 @@ export class ResearchJobService {
   async prepareReviewerSubmission(
     input: ReviewerSubmissionPrepareInput,
   ): Promise<JSONRecord> {
-    await this.recordAgentToolCall({
+    const callId = await this.recordAgentToolCall({
       run_id: input.reviewer_run_id,
       request_hash: input.request_hash,
       task_profile: "reviewer",
@@ -454,6 +455,18 @@ export class ResearchJobService {
     if (Object.keys(submission).length === 0) {
       throw new Error("Reviewer submission owner returned no submission")
     }
+    if (submission.schema_version !== "trade.rd-reviewer-agent-submission.v1") {
+      throw new Error("Reviewer submission owner schema version drifted")
+    }
+    await this.persistAgentToolResult({
+      call_id: callId,
+      run_id: input.reviewer_run_id,
+      request_hash: input.request_hash,
+      task_profile: "reviewer",
+      tool_name: "research_reviewer_submission_prepare",
+      output_schema_version: "trade.rd-reviewer-agent-submission.v1",
+      output: submission,
+    })
     return {
       schema_version: "trade.agent-mcp.reviewer-submission-prepare-result.v1",
       submission,
@@ -489,15 +502,33 @@ export class ResearchJobService {
     return callId
   }
 
-  private async recordAgentToolResult(input: {
+  private async persistAgentToolResult(input: {
     call_id: string
     run_id: string
     request_hash: string
-    task_profile: "developer"
-    tool_name: "research_developer_submission_prepare"
-    output_schema_version: "trade.rd-developer-agent-submission.v1"
-    artifact: AgentArtifactRef
+    task_profile: "planner" | "developer" | "reviewer"
+    tool_name:
+      | "research_planner_proposal_prepare"
+      | "research_developer_submission_prepare"
+      | "research_reviewer_submission_prepare"
+    output_schema_version:
+      | "trade.rd-planner-proposal-submission.v2"
+      | "trade.rd-developer-agent-submission.v1"
+      | "trade.rd-reviewer-agent-submission.v1"
+    output: JSONRecord
   }): Promise<void> {
+    const artifactResponse = await this.execute({
+      script: "modules/orchestration-ops/agent-artifact-store/src/scripts/main.ts",
+      args: ["--repository-root", "."],
+      stdin_json: {
+        action: "write_text",
+        storage: "durable",
+        media_type: "application/json",
+        text: canonicalJson(input.output),
+      },
+    })
+    const artifact = agentArtifactRef(artifactResponse.artifact)
+    const { output: _output, ...toolResultInput } = input
     const response = ownerData(await this.execute({
       script: "modules/orchestration-ops/ops-runtime-store/src/scripts/main.ts",
       args: [
@@ -507,7 +538,8 @@ export class ResearchJobService {
         "record_agent_tool_result",
         "--json",
         JSON.stringify({
-          ...input,
+          ...toolResultInput,
+          artifact,
           occurred_at: new Date().toISOString(),
         }),
       ],

@@ -32,9 +32,14 @@ import {
   validateDeveloperContractDraft,
 } from "./developer-contract-draft-validation"
 import { freezeDeveloperExperimentContract, readDeveloperContractFreeze } from "./developer-contract-freeze"
-import { readExperimentTrialPlan, startExperimentTrialPlan } from "./experiment-trial-plan"
+import {
+  readExperimentTrialPlan,
+  startExperimentTrialPlan,
+  startFrozenExperimentTrialPlan,
+} from "./experiment-trial-plan"
 import {
   EXPERIMENT_TRIAL_PLAN_REQUEST_SCHEMA_VERSION,
+  FROZEN_EXPERIMENT_TRIAL_PLAN_START_SCHEMA_VERSION,
   type ExperimentTrialPlanRequest,
 } from "../../../contracts/src/lib/experiment-trial-plan"
 import { admitPlannerProposal } from "./planner-proposal-intake"
@@ -696,6 +701,59 @@ test("Control Plane starts one frozen Experiment and reserves its complete Trial
     expect(() => db.query("UPDATE rd_experiment_trial_plan SET trial_count=2").run()).toThrow("immutable")
     expect(() => startExperimentTrialPlan(db, { ...request, planned_at: "2026-07-22T12:10:00Z" }))
       .toThrow("idempotency key already exists")
+  } finally {
+    db.close()
+  }
+})
+
+test("Control Plane compiles a complete Trial Plan from the immutable Freeze without caller identities", () => {
+  const db = openDb()
+  try {
+    admitProposal(db)
+    const brief = issueBrief(db)
+    receive(db, draft(brief, { draft_json: validDraftPayload(brief) }))
+    const validation = validateDeveloperContractDraft(db, {
+      schema_version: DEVELOPER_CONTRACT_DRAFT_VALIDATION_REQUEST_SCHEMA_VERSION,
+      validation_id: "validation-owner-trial-plan", brief_id: brief.brief_id, draft_revision: 1,
+      idempotency_key: "validation-owner-trial-plan-key", validated_at: "2026-07-22T12:07:00Z",
+    })
+    const freeze = freezeDeveloperExperimentContract(db, {
+      schema_version: DEVELOPER_CONTRACT_FREEZE_REQUEST_SCHEMA_VERSION,
+      freeze_id: "freeze-owner-trial-plan", validation_id: validation.validation_id,
+      validation_hash: validation.validation_hash, experiment_id: "experiment-owner-trial-plan",
+      bootstrap_lifecycle_event_id: "event-owner-trial-plan-register",
+      bootstrap_lifecycle_idempotency_key: "event-owner-trial-plan-register-key",
+      idempotency_key: "freeze-owner-trial-plan-key", frozen_at: "2026-07-22T12:08:00Z",
+    })
+    const plan = startFrozenExperimentTrialPlan(db, {
+      schema_version: FROZEN_EXPERIMENT_TRIAL_PLAN_START_SCHEMA_VERSION,
+      freeze_id: freeze.freeze_id,
+      planned_at: "2026-07-22T12:09:00Z",
+    })
+    const replay = startFrozenExperimentTrialPlan(db, {
+      schema_version: FROZEN_EXPERIMENT_TRIAL_PLAN_START_SCHEMA_VERSION,
+      freeze_id: freeze.freeze_id,
+      planned_at: "2026-07-22T12:10:00Z",
+    })
+
+    expect(replay).toEqual(plan)
+    expect(plan.freeze_hash).toBe(freeze.freeze_hash)
+    expect(plan.trials).toHaveLength(freeze.candidates.length)
+    expect(plan.trials.map((trial) => [
+      trial.trial_ordinal,
+      trial.candidate_id,
+      trial.candidate_identity_hash,
+    ])).toEqual(freeze.candidates.map((candidate) => [
+      candidate.candidate_ordinal,
+      candidate.candidate_id,
+      candidate.candidate_identity_hash,
+    ]))
+    expect(plan.plan_id).toContain(freeze.freeze_hash.slice(0, 16))
+    expect(plan.trials[0]!.trial_id).toContain(
+      freeze.candidates[0]!.candidate_identity_hash.slice(0, 12),
+    )
+    expect(count(db, "rd_experiment_trial_plan")).toBe(1)
+    expect(count(db, "rd_trial")).toBe(freeze.candidates.length)
   } finally {
     db.close()
   }

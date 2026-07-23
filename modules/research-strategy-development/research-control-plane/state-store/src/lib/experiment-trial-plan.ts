@@ -2,12 +2,15 @@ import { Database } from "bun:sqlite"
 import { canonicalControlPlaneHash } from "../../../contracts/src/lib/control-plane-contracts"
 import {
   EXPERIMENT_TRIAL_PLAN_POLICY_VERSION,
+  EXPERIMENT_TRIAL_PLAN_REQUEST_SCHEMA_VERSION,
   EXPERIMENT_TRIAL_PLAN_RECORD_SCHEMA_VERSION,
   assertExperimentTrialPlanRecord,
   assertExperimentTrialPlanRequest,
+  assertFrozenExperimentTrialPlanStart,
   createExperimentTrialPlanRecord,
   type ExperimentTrialPlanRecord,
   type ExperimentTrialPlanRequest,
+  type FrozenExperimentTrialPlanStart,
 } from "../../../contracts/src/lib/experiment-trial-plan"
 import {
   assertDeveloperContractFreezeRecord,
@@ -29,6 +32,49 @@ interface TrialPlanSourceRow {
   trial_accounting_policy_version: string
   group_status: string
   max_trials: number
+}
+
+export function startFrozenExperimentTrialPlan(
+  db: Database,
+  input: FrozenExperimentTrialPlanStart,
+): ExperimentTrialPlanRecord {
+  assertFrozenExperimentTrialPlanStart(input)
+  const existing = db.query(`
+    SELECT plan_json FROM rd_experiment_trial_plan WHERE freeze_id=$freeze_id
+  `).get({ $freeze_id: input.freeze_id }) as { plan_json: string } | null
+  if (existing) return parseTrialPlanRecord(existing.plan_json)
+
+  const row = db.query(`
+    SELECT freeze_json FROM rd_developer_contract_freeze WHERE freeze_id=$freeze_id
+  `).get({ $freeze_id: input.freeze_id }) as { freeze_json: string } | null
+  if (!row) throw new Error("Frozen Experiment Trial Plan requires an authoritative Contract Freeze Record")
+  const freeze = parseFreezeRecord(row.freeze_json)
+  const token = freeze.freeze_hash.slice(0, 16)
+  return startExperimentTrialPlan(db, {
+    schema_version: EXPERIMENT_TRIAL_PLAN_REQUEST_SCHEMA_VERSION,
+    plan_id: `trial-plan:${freeze.experiment_id}:${token}`,
+    freeze_id: freeze.freeze_id,
+    freeze_hash: freeze.freeze_hash,
+    experiment_id: freeze.experiment_id,
+    trial_group_id: freeze.trial_group_id,
+    trial_group_hash: freeze.trial_group_hash,
+    trials: freeze.candidates.map((candidate) => {
+      const ordinal = candidate.candidate_ordinal
+      const candidateToken = candidate.candidate_identity_hash.slice(0, 12)
+      return {
+        trial_id: `trial:${freeze.experiment_id}:${ordinal}:${candidateToken}`,
+        trial_ordinal: ordinal,
+        candidate_id: candidate.candidate_id,
+        candidate_identity_hash: candidate.candidate_identity_hash,
+        run_id: `replay:${freeze.experiment_id}:${ordinal}:${candidateToken}`,
+        trial_idempotency_key: `trial-reservation:${freeze.freeze_id}:${ordinal}:${candidateToken}`,
+      }
+    }),
+    discovery_lifecycle_event_id: `lifecycle:${freeze.experiment_id}:discovery:${token}`,
+    discovery_lifecycle_idempotency_key: `lifecycle-transition:${freeze.freeze_id}:discovery`,
+    idempotency_key: `frozen-trial-plan:${freeze.freeze_id}`,
+    planned_at: input.planned_at,
+  })
 }
 
 export function startExperimentTrialPlan(

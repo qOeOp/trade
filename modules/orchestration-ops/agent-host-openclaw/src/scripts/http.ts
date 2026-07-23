@@ -60,9 +60,17 @@ async function main(): Promise<void> {
         artifact,
       }),
     terminal_tool_outputs: {
+      planner: {
+        tool_name: "research_planner_proposal_prepare",
+        output_schema_version: "trade.rd-planner-proposal-submission.v2",
+      },
       developer: {
         tool_name: "research_developer_submission_prepare",
         output_schema_version: "trade.rd-developer-agent-submission.v1",
+      },
+      reviewer: {
+        tool_name: "research_reviewer_submission_prepare",
+        output_schema_version: "trade.rd-reviewer-agent-submission.v1",
       },
     },
     execute: async (request, signal) =>
