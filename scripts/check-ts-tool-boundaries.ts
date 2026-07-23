@@ -128,6 +128,7 @@ function isAllowedCrossToolImport(file: string, sourceTool: string, targetTool: 
     "modules/orchestration-ops/agent-host-codex -> modules/orchestration-ops/ops-runtime-store",
     "modules/orchestration-ops/agent-host-openclaw -> modules/orchestration-ops/agent-artifact-store",
     "modules/orchestration-ops/agent-host-openclaw -> modules/orchestration-ops/ops-runtime-store",
+    "modules/research-strategy-development/research-control-plane/agent-run-orchestrator -> modules/orchestration-ops/agent-artifact-store",
     "modules/orchestration-ops/trade-flow -> modules/orchestration-ops/ops-runtime-store",
     "modules/governance-review-compliance/closed-flow-review-sweep -> modules/governance-review-compliance/governance-ledger",
   ])
@@ -239,6 +240,7 @@ function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTo
     "modules/research-strategy-development/research-control-plane/replay-recovery -> modules/research-strategy-development/research-control-plane/state-store",
     "modules/research-strategy-development/replay-execution-plane/certification/legacy-replay-fingerprint -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-identity",
     "modules/research-strategy-development/research-control-plane/state-store -> modules/research-strategy-development/research-control-plane/contracts",
+    "modules/research-strategy-development/research-control-plane/state-store -> modules/research-strategy-development/agent-roles/planner",
     "modules/research-strategy-development/research-control-plane/state-store -> modules/research-strategy-development/replay-execution-plane/contracts",
     "modules/research-strategy-development/research-control-plane/strategy-registry -> modules/research-strategy-development/research-control-plane/contracts",
     "modules/research-strategy-development/research-control-plane/strategy-registry -> modules/research-strategy-development/research-control-plane/strategy-policy-writer",
