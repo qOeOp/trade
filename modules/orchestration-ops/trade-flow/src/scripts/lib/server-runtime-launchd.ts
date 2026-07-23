@@ -1,4 +1,4 @@
-import { isAbsolute, resolve } from "node:path"
+import { dirname, isAbsolute, resolve } from "node:path"
 import type { ServerRuntimeProfile } from "./server-runtime-profile"
 import { serverRuntimeProfileHash } from "./server-runtime-profile"
 import { serverRuntimeProcessSpecs } from "./server-runtime-processes"
@@ -78,6 +78,8 @@ ${input.command.map((argument) => `    <string>${xml(argument)}</string>`).join(
   <dict>
     <key>TRADE_REPO_ROOT</key>
     <string>${xml(input.root)}</string>
+    <key>PATH</key>
+    <string>${xml(`${dirname(input.command[0])}:/usr/bin:/bin:/usr/sbin:/sbin`)}</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>

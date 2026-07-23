@@ -16,6 +16,7 @@ test("launchd renderer emits three foreground agents without installing them", (
   assert.match(owner, /<key>WorkingDirectory<\/key>/)
   assert.match(owner, /\/opt\/trade &amp; local/)
   assert.match(owner, /foreground\.ts/)
+  assert.match(owner, /\/usr\/local\/bin:\/usr\/bin:\/bin:\/usr\/sbin:\/sbin/)
   assert.match(owner, /<key>SuccessfulExit<\/key>\s*<false\/>/)
   assert.doesNotMatch(owner, /API_KEY|API_SECRET/)
 })
