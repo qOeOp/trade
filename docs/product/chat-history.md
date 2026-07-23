@@ -253,6 +253,19 @@ RAVE skill 降级链路：build-skills.sh 打包失败 → 复用已编好的 bi
 
 ---
 
+## 十四、长期运行闭环的架构纠偏
+
+**核心发现（2026-07-23）**
+
+- 之前把 L2 理解成固定 `BTCUSDT` 常驻服务过窄。目标应是 Runtime / R&D 声明数据需求，Market Data owner 协调订阅、readiness、coverage、归档和安全释放；候选是短期需求，active flow、挂单与持仓是更强需求。
+- 全市场发现不等于全市场订阅 L2：慢轨先用低成本 scan / OHLCV 粗筛，只有晋级候选和真实 exposure 才进入细粒度数据漏斗。历史回测只能消费已归档 source，当前 order book 不能补造过去。
+- 之前把 J04 program 的 `budget_exhausted / candidate_found / blocked` 当成研发整体终点也过窄。长期存在的是 R&D Factory / Control Plane；Campaign、Agent Run、Trial 继续有预算和终态，但 Factory 会保存结果、等待依赖或选择下一项工作。
+- 策略研发不只调参数：它会查带 citation 的研究来源、提出假设、在需要时生成隔离代码 patch、回测、评审、forward/shadow 验证，再交给 Governance；代码进入运行时前仍须 CI、code review、release 和重新验证。
+- closed-flow review 不是交易结束后的孤立日志。单笔结果先形成 evidence，按精确策略版本、regime、样本成熟度和 execution attribution 聚合后，Governance 才能 keep / pause / retire 或向 R&D 发 improvement request；不能因一次亏损自动退役。
+- 最终产品由市场数据供给、在线交易、长期策略工厂三个常驻闭环构成。三者共享 typed refs 和 readiness，不共享 authority；Agent/MCP 是能力入口，不是事实 owner 或长期 scheduler。
+
+---
+
 ## 附录：关键交互事件索引
 
 | 日期 | 标的 | 关键事件 | 主要洞察标签 |
