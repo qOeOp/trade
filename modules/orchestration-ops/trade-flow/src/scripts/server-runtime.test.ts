@@ -26,6 +26,7 @@ test("server runtime render writes deterministic units without installing them",
   try {
     const args = parseArgs([
       "--action", "render-systemd",
+      "--profile", "profile/server-runtime.json",
       "--release-root", "/opt/trade",
       "--bun-path", "/usr/bin/bun",
       "--output-dir", token,
