@@ -11,6 +11,7 @@ import { canonicalHash, canonicalJson } from "../../../../../contracts/runtime-c
 import {
   DEVELOPER_AGENT_SUBMISSION_SCHEMA,
   assertDeveloperAgentSubmission,
+  createDeveloperAgentSubmission,
   type DeveloperAgentSubmission,
 } from "../../../contracts/src/lib/developer-agent-submission"
 import {
@@ -55,7 +56,7 @@ export interface PreparedDeveloperAgentRun {
 
 export interface DeveloperAgentAdmission {
   schema_version: "trade.rd-developer-agent-admission.v1"
-  status: "draft_received" | "blocked"
+  status: "draft_received" | "patch_ready" | "blocked"
   implementation_mode: DeveloperAgentSubmission["capability_assessment"]["implementation_mode"]
   submission_hash: string
   receipt: DeveloperContractDraftReceipt | null
@@ -255,6 +256,19 @@ export function admitDeveloperAgentResult(input: {
       patch_ref: null,
     }
   }
+  if (submission.capability_assessment.implementation_mode === "code_change_required") {
+    if (!submission.workspace_patch || submission.quality_check_refs.length < 1) {
+      throw new Error("Developer code-change submission omitted workspace evidence")
+    }
+    return {
+      schema_version: "trade.rd-developer-agent-admission.v1",
+      status: "patch_ready",
+      implementation_mode: "code_change_required",
+      submission_hash: submission.submission_hash,
+      receipt: null,
+      patch_ref: submission.workspace_patch.ref,
+    }
+  }
   if (!submission.contract_draft) throw new Error("Developer submission omitted contract draft")
   const recordedAt = utc(input.recorded_at, "recorded_at")
   if (Date.parse(input.result.finished_at) > Date.parse(recordedAt)) {
@@ -274,6 +288,40 @@ export function admitDeveloperAgentResult(input: {
     receipt,
     patch_ref: submission.workspace_patch?.ref ?? null,
   }
+}
+
+export function createDeveloperWorkspaceAgentSubmission(input: {
+  prepared: PreparedDeveloperAgentRun
+  workspace_patch: AgentArtifactRef
+  quality_check_refs: AgentArtifactRef[]
+  replay_diagnosis_refs?: AgentArtifactRef[]
+  created_at: string
+}): DeveloperAgentSubmission {
+  if (input.prepared.execution_route !== "workspace_host"
+    || input.prepared.context_pack.capability_assessment.required_mode
+      !== "code_change_required") {
+    throw new Error("Developer workspace submission requires a code-change context")
+  }
+  const pack = input.prepared.context_pack
+  return createDeveloperAgentSubmission({
+    schema_version: DEVELOPER_AGENT_SUBMISSION_SCHEMA,
+    developer_run_id: input.prepared.request.run_id,
+    brief_id: pack.brief.brief_id,
+    brief_hash: pack.brief.brief_hash,
+    source_revision: input.prepared.request.source_revision,
+    draft_revision: pack.next_draft_revision,
+    predecessor_run_id: pack.predecessor_run_id,
+    capability_assessment: {
+      implementation_mode: "code_change_required",
+      reason_code: pack.capability_assessment.reason_code,
+      required_capabilities: pack.capability_assessment.required_capabilities,
+    },
+    contract_draft: null,
+    workspace_patch: input.workspace_patch,
+    quality_check_refs: input.quality_check_refs,
+    replay_diagnosis_refs: input.replay_diagnosis_refs ?? [],
+    created_at: utc(input.created_at, "created_at"),
+  })
 }
 
 function validateSubmissionBindings(

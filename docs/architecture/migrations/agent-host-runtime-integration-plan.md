@@ -348,7 +348,7 @@ P5/P6 本机采用新增确定性证据：OpenClaw `2026.7.1` 通过最小 MCP r
 | P4.9 | 验证 Planner / Reviewer 只读，Developer 权限不外溢到 Host | role boundary tests |
 | P4.10 | 异常退出、残留 worktree、磁盘软线与 GC 清理 | recovery / cleanup report |
 
-当前 code path 不再“形有神无”：`family_implementation_missing` 与 `replay_implementation_not_ready` 确定性分类为 `code_change_required`，request 才获得 workspace read/patch/check capability；普通 semantic cycle 和 `research_developer_submission_prepare` 都显式拒绝该模式，避免 OpenClaw proposal-only profile 冒充代码 Agent。下一闭包是 workspace-capable Host 完成修改后，由 Host 捕获 patch / check artifacts 并构造 submission；模型文本不得自报 hash 或测试通过。
+当前 code path 不再“形有神无”：`family_implementation_missing` 与 `replay_implementation_not_ready` 确定性分类为 `code_change_required`，request 才获得 workspace read/patch/check capability；普通 semantic cycle 和 `research_developer_submission_prepare` 都显式拒绝该模式，避免 OpenClaw proposal-only profile 冒充代码 Agent。workspace finalizer 已能拒绝空 patch、失败/超时 check、check 导致的 patch 漂移和 artifact writer hash 漂移；Direct Codex Host 可在同一 terminal Result 中保存 Host-derived submission / patch / check refs。代码轮终态是 `patch_ready`，不写 Contract Draft；只有补丁 review / 落地后的新 source revision 才进入 semantic Contract Run。剩余闭包是把这些端口装成真实 workspace Host 进程并完成模型二次修改；模型文本不得自报 hash 或测试通过。
 
 ### P5 Planner / Developer / Replay / Reviewer 纵切
 

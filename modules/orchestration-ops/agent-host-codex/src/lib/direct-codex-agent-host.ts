@@ -36,7 +36,8 @@ type JSONRecord = Record<string, unknown>
 export interface DirectCodexAgentHostOptions {
   db: Database
   materialize(request: AgentRunRequest): Promise<CodexAgentRunMaterialization>
-  store_output(request: AgentRunRequest, text: string): Promise<AgentArtifactRef>
+  store_output?(request: AgentRunRequest, text: string): Promise<AgentArtifactRef>
+  store_outputs?(request: AgentRunRequest, text: string): Promise<AgentArtifactRef[]>
   resolve_steer(input: AgentRunSteer): Promise<string>
   create_client(onNotification: (method: string, params: unknown) => void, onExit: (error: Error | null) => void): CodexAppServerClientPort
   now?: () => Date
@@ -59,6 +60,9 @@ export class DirectCodexAgentHost implements AgentHostPort {
   private readonly now: () => Date
 
   constructor(private readonly options: DirectCodexAgentHostOptions) {
+    if ((options.store_output == null) === (options.store_outputs == null)) {
+      throw new Error("Direct Codex Host requires exactly one output storage strategy")
+    }
     this.now = options.now ?? (() => new Date())
   }
 
@@ -212,12 +216,23 @@ export class DirectCodexAgentHost implements AgentHostPort {
       return
     }
     if (status === "completed") {
-      const output = await this.options.store_output(active.request, active.final_text!)
-      if (output.bytes > active.request.budget.max_output_bytes) {
+      const outputs = this.options.store_outputs
+        ? await this.options.store_outputs(active.request, active.final_text!)
+        : [await this.options.store_output!(active.request, active.final_text!)]
+      if (outputs.length < 1 || outputs.length > 32) {
+        await this.finishFailure(active.request, "validation_failed")
+        return
+      }
+      if (new Set(outputs.map((ref) => `${ref.ref}:${ref.sha256}`)).size !== outputs.length) {
+        await this.finishFailure(active.request, "validation_failed")
+        return
+      }
+      if (outputs.reduce((sum, output) => sum + output.bytes, 0)
+          > active.request.budget.max_output_bytes) {
         await this.finishFailure(active.request, "budget_exhausted")
         return
       }
-      await this.finish(active, "completed", undefined, [output])
+      await this.finish(active, "completed", undefined, outputs)
       return
     }
     const normalized = normalizeCodexNotification({

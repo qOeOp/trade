@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { createHash } from "node:crypto"
 import { existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -7,6 +8,7 @@ import {
   buildAgentWorkspaceMountPlan,
   captureAgentWorkspacePatch,
   createAgentWorkspace,
+  finalizeAgentWorkspaceEvidence,
   listStaleAgentWorkspaces,
   removeAgentWorkspace,
   removeStaleAgentWorkspaces,
@@ -35,6 +37,28 @@ test("Developer workspace freezes source, bounds writes, captures patch, and cle
       timeout_ms: 10_000,
     })
     assert.equal(check.exit_code, 0)
+    const artifactTexts = new Map<string, string>()
+    const finalized = await finalizeAgentWorkspaceEvidence({
+      workspace,
+      package_path: "modules/sample",
+      checked_at: "2026-07-23T01:05:00.000Z",
+      write_artifact(mediaType, text) {
+        const bytes = Buffer.from(text)
+        const sha256 = createHash("sha256").update(bytes).digest("hex")
+        const ref = `agent-artifact://temporary/${sha256}`
+        artifactTexts.set(ref, text)
+        return { ref, sha256, media_type: mediaType, bytes: bytes.byteLength }
+      },
+    })
+    assert.equal(finalized.patch_ref.media_type, "text/x-diff")
+    assert.deepEqual(finalized.changed_files, patch.changed_files)
+    assert.equal(finalized.patch_sha256, patch.patch_sha256)
+    const checkEvidence = JSON.parse(
+      artifactTexts.get(finalized.quality_check_refs[0]!.ref)!,
+    )
+    assert.equal(checkEvidence.patch_sha256, patch.patch_sha256)
+    assert.equal(checkEvidence.exit_code, 0)
+    assert.equal(checkEvidence.domain_authority, "none")
     const output = join(root, "tmp", "agent-outputs", workspace.run_id)
     mkdirSync(output, { recursive: true })
     const mounts = buildAgentWorkspaceMountPlan(workspace, output)

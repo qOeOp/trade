@@ -69,9 +69,14 @@ export function createDeveloperAgentSubmission(
   if (blocked && (draft || patch || checks.length > 0)) {
     throw new Error("blocked Developer submission cannot carry a draft, patch, or quality checks")
   }
-  if (!blocked && !draft) throw new Error("non-blocked Developer submission requires a contract draft")
   if (mode === "code_change_required" && (!patch || checks.length === 0)) {
     throw new Error("code_change_required requires a patch and quality check evidence")
+  }
+  if (mode === "code_change_required" && draft) {
+    throw new Error("code_change_required cannot draft a Contract before the patch is landed")
+  }
+  if (!blocked && mode !== "code_change_required" && !draft) {
+    throw new Error("semantic Developer submission requires a contract draft")
   }
   if (mode !== "code_change_required" && patch) {
     throw new Error("only code_change_required may carry a workspace patch")

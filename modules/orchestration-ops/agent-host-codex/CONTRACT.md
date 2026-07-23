@@ -5,7 +5,7 @@
 - A thin local adapter from `trade.agent-run-request.v1` to the pinned Codex App Server stable stdio protocol.
 - Protocol capability probing, bounded JSONL request correlation, fail-closed server-request handling, task-profile sandbox mapping, and sanitized lifecycle normalization.
 - Implement the provider-neutral Host port over the ops-owned durable registry: submit, events, status, bounded steer, deny-only approval, cancel/interrupt, and terminal result.
-- Persist no raw prompts or responses. A completed final message is handed to an external artifact sink; interrupted Developer effects become `tool_effect_uncertain` rather than being replayed.
+- Persist no raw prompts or responses. A completed final message is handed to exactly one external artifact strategy; Developer may return multiple Host-derived submission/patch/check refs under the same output budget. Interrupted Developer effects become `tool_effect_uncertain` rather than being replayed.
 - Direct Codex as the attribution baseline for later OpenClaw-managed Codex comparison.
 
 ## Boundaries

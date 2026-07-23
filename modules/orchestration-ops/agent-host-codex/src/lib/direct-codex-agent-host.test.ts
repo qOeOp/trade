@@ -58,6 +58,32 @@ test("a restarted Host fails closed instead of replaying an interrupted workspac
   fixture.db.close()
 })
 
+test("Direct Codex Host persists Host-derived workspace evidence with the typed output", async () => {
+  const fixture = createFixture("developer")
+  const fake = new FakeClient("complete")
+  const host = new DirectCodexAgentHost({
+    db: fixture.db,
+    materialize: async () => fixture.materialization,
+    store_outputs: async (_request, text) => [
+      outputArtifact("submission", text, "application/json"),
+      outputArtifact("patch", "diff --git a/a b/a\n", "text/x-diff"),
+      outputArtifact("check", "{\"exit_code\":0}", "application/json"),
+    ],
+    resolve_steer: async () => "continue",
+    create_client: (onNotification) => fake.connect(onNotification),
+    now: () => new Date("2026-07-23T01:00:00.000Z"),
+  })
+  await host.submit(fixture.request)
+  const result = await waitForResult(host, fixture.request.run_id)
+  assert.equal(result.status, "completed")
+  assert.deepEqual(
+    result.output_refs.map((ref) => ref.media_type),
+    ["application/json", "text/x-diff", "application/json"],
+  )
+  await host.close()
+  fixture.db.close()
+})
+
 class FakeClient implements CodexAppServerClientPort {
   private onNotification: (method: string, params: unknown) => void = () => undefined
   startCount = 0
@@ -196,5 +222,20 @@ function materialized(
       bytes: bytes.byteLength,
     },
     text,
+  }
+}
+
+function outputArtifact(
+  name: string,
+  text: string,
+  mediaType: MaterializedAgentArtifact["artifact"]["media_type"],
+) {
+  const bytes = Buffer.from(text)
+  const sha256 = createHash("sha256").update(bytes).digest("hex")
+  return {
+    ref: `artifact://${name}-${sha256.slice(0, 16)}`,
+    sha256,
+    media_type: mediaType,
+    bytes: bytes.byteLength,
   }
 }

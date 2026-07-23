@@ -25,6 +25,7 @@ import { ensureResearchStateSchema } from "../../../state-store/src/lib/research
 import { seedDefaultResearchControlPlane } from "../../../state-store/src/lib/research-universe-default-seed"
 import {
   admitDeveloperAgentResult,
+  createDeveloperWorkspaceAgentSubmission,
   prepareDeveloperAgentRun,
 } from "./developer-agent-run"
 import { memoryArtifacts } from "./agent-artifact-port.test-fixture"
@@ -251,6 +252,38 @@ test("Developer implementation gaps route to workspace Host without semantic MCP
     const instruction = artifacts.read(prepared.request.instruction_ref)
     assert.match(instruction, /Do not call research_developer_submission_prepare/)
     assert.match(instruction, /Host—not the model—must capture the patch/)
+
+    const patch = artifacts.put(
+      "diff --git a/family.ts b/family.ts\n--- a/family.ts\n+++ b/family.ts\n",
+      "text/x-diff",
+    )
+    const quality = artifacts.put(canonicalJson({
+      schema_version: "trade.agent-workspace-quality-evidence.v1",
+      exit_code: 0,
+      timed_out: false,
+    }), "application/json")
+    const submission = createDeveloperWorkspaceAgentSubmission({
+      prepared,
+      workspace_patch: patch,
+      quality_check_refs: [quality],
+      created_at: "2026-07-23T10:10:01.000Z",
+    })
+    assert.equal(submission.contract_draft, null)
+    const output = artifacts.put(canonicalJson(submission), "application/json")
+    const admission = admitDeveloperAgentResult({
+      db,
+      prepared,
+      ...completion(prepared.request, [output, patch, quality]),
+      artifacts,
+      recorded_at: "2026-07-23T10:11:01.000Z",
+    })
+    assert.equal(admission.status, "patch_ready")
+    assert.equal(admission.patch_ref, patch.ref)
+    assert.equal(admission.receipt, null)
+    const draftCount = db.query(
+      "SELECT COUNT(*) AS count FROM rd_developer_contract_draft",
+    ).get() as { count: number }
+    assert.equal(draftCount.count, 0)
   } finally {
     db.close()
   }

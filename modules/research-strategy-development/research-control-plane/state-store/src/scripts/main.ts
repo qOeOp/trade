@@ -210,6 +210,11 @@ export function run(args: Args): JSONRecord {
       const mode = stringField(args.json.implementation_mode) as DeveloperImplementationMode
       const brief = readDeveloperDevelopmentBrief(db, stringField(args.json.brief_id))
       const blocked = mode === "data_blocked" || mode === "tool_blocked"
+      if (mode === "code_change_required") {
+        throw new Error(
+          "code-change Developer submission must be finalized by the isolated workspace Host",
+        )
+      }
       const developerRunId = stringField(args.json.developer_run_id)
       const draftRevision = numberField(args.json.draft_revision)
       const createdAt = stringField(args.json.requested_at)

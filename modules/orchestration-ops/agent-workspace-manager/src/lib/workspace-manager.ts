@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto"
 import { lstatSync, mkdirSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync } from "node:fs"
 import { dirname, join, resolve, sep } from "node:path"
+import type { AgentArtifactRef } from "../../../../contracts/agent-run-contract/src/agent-run-contract"
+import { canonicalJson } from "../../../../contracts/runtime-core/src/canonical-json"
 
 export interface AgentWorkspace {
   schema_version: "trade.agent-workspace.v1"
@@ -39,6 +41,19 @@ export interface StaleAgentWorkspace {
   workspace_root: string
   registered_worktree: boolean
   last_modified_at: string
+}
+
+export interface FinalizedAgentWorkspaceEvidence {
+  schema_version: "trade.agent-workspace-finalized-evidence.v1"
+  run_id: string
+  source_commit: string
+  patch_ref: AgentArtifactRef
+  quality_check_refs: AgentArtifactRef[]
+  changed_files: string[]
+  package_path: string
+  patch_sha256: string
+  checked_at: string
+  domain_authority: "none"
 }
 
 export function createAgentWorkspace(input: {
@@ -158,6 +173,69 @@ export async function runAgentWorkspacePackageCheck(input: {
     timed_out: timedOut,
     output_sha256: createHash("sha256").update(output).digest("hex"),
     output_bytes: output.byteLength,
+  }
+}
+
+export async function finalizeAgentWorkspaceEvidence(input: {
+  workspace: AgentWorkspace
+  package_path: string
+  checked_at?: string
+  write_artifact(
+    mediaType: AgentArtifactRef["media_type"],
+    text: string,
+  ): AgentArtifactRef
+  timeout_ms?: number
+  max_output_bytes?: number
+}): Promise<FinalizedAgentWorkspaceEvidence> {
+  const before = captureAgentWorkspacePatch(input.workspace)
+  if (before.changed_files.length < 1 || before.patch_bytes < 1) {
+    throw new Error("Agent workspace produced no reviewable patch")
+  }
+  const check = await runAgentWorkspacePackageCheck({
+    workspace: input.workspace,
+    package_path: input.package_path,
+    ...(input.timeout_ms == null ? {} : { timeout_ms: input.timeout_ms }),
+    ...(input.max_output_bytes == null
+      ? {}
+      : { max_output_bytes: input.max_output_bytes }),
+  })
+  if (check.timed_out || check.exit_code !== 0) {
+    throw new Error("Agent workspace package check did not pass")
+  }
+  const after = captureAgentWorkspacePatch(input.workspace)
+  if (after.patch_sha256 !== before.patch_sha256
+    || JSON.stringify(after.changed_files) !== JSON.stringify(before.changed_files)) {
+    throw new Error("Agent workspace package check mutated the captured patch")
+  }
+  const checkedAt = canonicalTime(input.checked_at ?? new Date().toISOString())
+  const patchRef = input.write_artifact("text/x-diff", before.patch_text)
+  assertWrittenArtifact(patchRef, before.patch_text, "text/x-diff")
+  const checkText = canonicalJson({
+    schema_version: "trade.agent-workspace-quality-evidence.v1",
+    run_id: input.workspace.run_id,
+    source_commit: input.workspace.source_commit,
+    package_path: check.package_path,
+    patch_sha256: before.patch_sha256,
+    exit_code: check.exit_code,
+    timed_out: check.timed_out,
+    output_sha256: check.output_sha256,
+    output_bytes: check.output_bytes,
+    checked_at: checkedAt,
+    domain_authority: "none",
+  })
+  const checkRef = input.write_artifact("application/json", checkText)
+  assertWrittenArtifact(checkRef, checkText, "application/json")
+  return {
+    schema_version: "trade.agent-workspace-finalized-evidence.v1",
+    run_id: input.workspace.run_id,
+    source_commit: input.workspace.source_commit,
+    patch_ref: patchRef,
+    quality_check_refs: [checkRef],
+    changed_files: before.changed_files,
+    package_path: check.package_path,
+    patch_sha256: before.patch_sha256,
+    checked_at: checkedAt,
+    domain_authority: "none",
   }
 }
 
@@ -333,6 +411,20 @@ async function readBounded(
 function sanitizedEnvironment(): Record<string, string> {
   const allowed = ["PATH", "TMPDIR", "LANG", "LC_ALL"]
   return Object.fromEntries(allowed.flatMap((name) => process.env[name] ? [[name, process.env[name]!]] : []))
+}
+
+function assertWrittenArtifact(
+  artifact: AgentArtifactRef,
+  text: string,
+  mediaType: AgentArtifactRef["media_type"],
+): void {
+  const bytes = Buffer.from(text)
+  const hash = createHash("sha256").update(bytes).digest("hex")
+  if (artifact.media_type !== mediaType
+    || artifact.bytes !== bytes.byteLength
+    || artifact.sha256 !== hash) {
+    throw new Error("Agent workspace artifact writer drifted from captured evidence")
+  }
 }
 
 function writePrefixes(values: string[]): string[] {
