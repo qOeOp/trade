@@ -9,6 +9,8 @@ import {
   buildMarketDataDemand,
   type MarketDataDemand,
 } from "../../../../contracts/market-data-demand-contract/src/market-data-demand-contract"
+import { timeframeMilliseconds } from "../../../../contracts/market-data-demand-contract/src/ohlcv-coverage-contract"
+import { compileIndicatorFeatureArtifact } from "../../../../contracts/market-data-demand-contract/src/indicator-feature-contract"
 import { activeFlows } from "./flow-projector-client"
 import { loadRuntimePolicyFromOwner } from "./runtime-policy-client"
 import { buildDecisionChain } from "./decision-chain"
@@ -70,7 +72,12 @@ export async function runSlowTrackWorkflowDryRun(input: SlowTrackWorkflowInput):
   const generatedAt = new Date().toISOString()
   const marketDataDemands = await submitCandidateMarketDataDemands(input, runner, candidates, generatedAt)
   const symbolSnapshots = await fetchSymbolSnapshots(input.repoRoot, runner, candidates)
-  const technicalAnalyses = await fetchTechnicalAnalyses(input, runner, extractCandidates(marketScan.data, technicalLimit))
+  const technicalAnalyses = await fetchTechnicalAnalyses(
+    input,
+    runner,
+    extractCandidates(marketScan.data, technicalLimit),
+    generatedAt,
+  )
   const strategyPool = summarizeStrategyPool(runtime)
   const accountState = summarizeAccountState(accountSnapshot)
   const watchlist = buildWatchlist(candidates, symbolSnapshots, technicalAnalyses, strategyPool, accountState)
@@ -144,15 +151,34 @@ async function submitCandidateMarketDataDemands(
     venue: "binance_usdm",
     symbol,
     priority: "opportunity_candidate",
-    requirements: [{
-      product: "l2_book",
-      timeframe: null,
-      indicator_set_ref: null,
-      coverage_start: null,
-      coverage_end: null,
-      max_freshness_ms: 2_000,
-      minimum_depth: 20,
-    }],
+    requirements: [
+      {
+        product: "l2_book",
+        timeframe: null,
+        indicator_set_ref: null,
+        coverage_start: null,
+        coverage_end: null,
+        max_freshness_ms: 2_000,
+        minimum_depth: 20,
+      },
+      ...["1d", "4h", "1h"].flatMap((timeframe) => [{
+        product: "ohlcv" as const,
+        timeframe,
+        indicator_set_ref: null,
+        coverage_start: desiredCoverageStart(issuedAt, timeframe),
+        coverage_end: null,
+        max_freshness_ms: 60_000,
+        minimum_depth: null,
+      }, {
+        product: "indicator_set" as const,
+        timeframe,
+        indicator_set_ref: "indicator-set:technical-default-v1",
+        coverage_start: desiredCoverageStart(issuedAt, timeframe),
+        coverage_end: null,
+        max_freshness_ms: 60_000,
+        minimum_depth: null,
+      }]),
+    ],
     lease: {
       issued_at: issuedAt,
       expires_at: new Date(Date.parse(issuedAt) + 15 * 60_000).toISOString(),
@@ -207,11 +233,12 @@ async function fetchTechnicalAnalyses(
   input: SlowTrackWorkflowInput,
   runner: Runner,
   candidates: Array<{ symbol: string; side: "long" | "short"; scan: JSONRecord }>,
+  observedAt: string,
 ): Promise<Record<string, ToolCallResult>> {
   const results: Record<string, ToolCallResult> = {}
   const unique = uniqueSymbols(candidates)
   for (const symbol of unique) {
-    results[symbol] = await runTechnicalAnalysis(input, runner, symbol)
+    results[symbol] = await runTechnicalAnalysis(input, runner, symbol, observedAt)
   }
   return results
 }
@@ -220,7 +247,10 @@ async function runTechnicalAnalysis(
   input: SlowTrackWorkflowInput,
   runner: Runner,
   symbol: string,
+  observedAt: string,
 ): Promise<ToolCallResult> {
+  const admitted = await readAdmittedTechnicalAnalysis(input, runner, symbol, observedAt)
+  if (admitted.ok) return admitted
   const ohlcvOutputDir = join(input.repoRoot, "tmp", "market", input.runId, symbol)
   const marketDataDb = join(input.dataDir, "market_data.db")
   const ohlcvDb = join(input.dataDir, "ohlcv.db")
@@ -271,9 +301,86 @@ async function runTechnicalAnalysis(
   return {
     ok: true,
     data: {
+      source_mode: "compatibility_one_shot_until_resident_feature_ready",
+      resident_feature_error: admitted.error,
       ohlcv: summarizeOhlcv(input.repoRoot, ohlcvOwner.cwd, asRecord(ohlcv.data)),
       indicators: summarizeIndicators(asRecord(indicators.data)),
     },
+  }
+}
+
+async function readAdmittedTechnicalAnalysis(
+  input: SlowTrackWorkflowInput,
+  runner: Runner,
+  symbol: string,
+  observedAt: string,
+): Promise<ToolCallResult> {
+  try {
+    const artifacts: Record<string, ReturnType<typeof compileIndicatorFeatureArtifact>> = {}
+    for (const timeframe of ["1d", "4h", "1h"]) {
+      const listed = await runOwnerTool(runner, input.repoRoot, "market-data.store", [
+        "--db", join(input.dataDir, "market_data.db"),
+        "--ohlcv-db", join(input.dataDir, "ohlcv.db"),
+        "--action", "list_feature_manifests",
+        "--json", JSON.stringify({
+          symbol,
+          timeframe,
+          feature_set_id: "indicator-set:technical-default-v1",
+          limit: 10,
+        }),
+      ])
+      if (!listed.ok) return { ok: false, error: listed.error || `feature_list_failed:${timeframe}` }
+      const manifests = readArray(asRecord(listed.data).manifests).map(asRecord)
+      const desiredStart = Date.parse(desiredCoverageStart(observedAt, timeframe))
+      const timeframeMs = timeframeMilliseconds(timeframe)
+      const desiredEnd = Math.floor(Date.parse(observedAt) / timeframeMs) * timeframeMs - timeframeMs
+      let selected: ReturnType<typeof compileIndicatorFeatureArtifact> | undefined
+      for (const manifest of manifests) {
+        const manifestId = stringField(manifest.feature_manifest_id)
+        if (!manifestId) continue
+        const read = await runOwnerTool(runner, input.repoRoot, "market-data.store", [
+          "--db", join(input.dataDir, "market_data.db"),
+          "--ohlcv-db", join(input.dataDir, "ohlcv.db"),
+          "--action", "read_feature_artifact",
+          "--json", JSON.stringify({ feature_manifest_id: manifestId }),
+        ])
+        if (!read.ok) continue
+        const artifact = compileIndicatorFeatureArtifact(asRecord(read.data).artifact)
+        if (artifact.source.symbol === symbol
+          && artifact.source.timeframe === timeframe
+          && artifact.source.first_open_time <= desiredStart
+          && artifact.source.last_open_time >= desiredEnd) {
+          selected = artifact
+          break
+        }
+      }
+      if (selected == null) return { ok: false, error: `resident_feature_not_ready:${timeframe}` }
+      artifacts[timeframe] = selected
+    }
+    const tf4h = artifacts["4h"]!
+    return {
+      ok: true,
+      data: {
+        source_mode: "resident_demand_feature_artifacts",
+        ohlcv: {
+          source_refs: Object.fromEntries(Object.entries(artifacts).map(([timeframe, artifact]) => [
+            timeframe,
+            artifact.source.slice_ref,
+          ])),
+        },
+        indicators: {
+          ok: true,
+          symbol,
+          summary: tf4h.summary,
+          timeframes: Object.fromEntries(Object.entries(artifacts).map(([timeframe, artifact]) => [
+            timeframe,
+            artifact.timeframe_result,
+          ])),
+        },
+      },
+    }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
   }
 }
 
@@ -572,6 +679,12 @@ function buildNoActionReason(accountState: JSONRecord, strategyPool: JSONRecord,
 
 function uniqueSymbols(candidates: Array<{ symbol: string }>): string[] {
   return [...new Set(candidates.map((candidate) => candidate.symbol))]
+}
+
+function desiredCoverageStart(observedAt: string, timeframe: string): string {
+  const timeframeMs = timeframeMilliseconds(timeframe)
+  const latestClosedOpen = Math.floor(Date.parse(observedAt) / timeframeMs) * timeframeMs - timeframeMs
+  return new Date(latestClosedOpen - 239 * timeframeMs).toISOString()
 }
 
 function readArray(value: unknown): unknown[] {
