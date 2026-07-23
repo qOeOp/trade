@@ -3,6 +3,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import {
   buildCanonicalCandles,
+  admitFeatureManifest,
   buildFeatureManifest,
   buildFundingEvents,
   assertInstrumentStatusArchive,
@@ -434,6 +435,31 @@ test("market data store records funding events and feature manifests", () => {
     assert.equal(events[0].mark_price, 65000)
     assert.equal(readFeatureManifest(db, "features-btc-4h")?.manifest_path, "tmp/features/BTCUSDT-4h-trend-v1.json")
     assert.equal(listFeatureManifests(db, { symbol: "BTCUSDT", timeframe: "4h" }).length, 1)
+  } finally {
+    db.close()
+  }
+})
+
+test("feature artifact admission is create-or-identical and rejects identity collision", () => {
+  const db = new Database(":memory:")
+  ensureMarketDataSchema(db)
+  const manifest = buildFeatureManifest({
+    feature_manifest_id: "indicator-feature:abc",
+    source_manifest_id: "market-data://candle-slice/abc",
+    feature_set_id: "indicator-set:technical-default-v1",
+    symbol: "BTCUSDT",
+    timeframe: "1h",
+    content_hash: "a".repeat(64),
+    manifest_path: "data/artifacts/market-features/abc.json",
+    generated_at: "2026-07-23T00:00:00.000Z",
+  })
+  try {
+    assert.equal(admitFeatureManifest(db, manifest), "created")
+    assert.equal(admitFeatureManifest(db, manifest), "existing")
+    assert.throws(() => admitFeatureManifest(db, {
+      ...manifest,
+      content_hash: "b".repeat(64),
+    }), /identity collision/)
   } finally {
     db.close()
   }
