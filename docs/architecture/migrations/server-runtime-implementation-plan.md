@@ -261,7 +261,7 @@ validate config/secrets/volumes
 | D6 策略治理闭环 | pending | review 成熟度、pause/retire/improve、旧 flow 兼容 | 生命周期决定可回指证据和精确版本 |
 | D7 存储、GC 与灾备 | active-partial | owner-authorized GC、L2 retention、备份 / 恢复 | 空间自愈；受保护事实零误删 |
 | D8 运维、安全与可观察性 | active-partial | health、incident、trace、secret、operator surface | 最小权限、脱敏、可轮换、可告警 |
-| D9 Agent / MCP runtime | active-migration | Codex kernel、OpenClaw Gateway 候选、私有 MCP | Host 离线不影响确定性安全链 |
+| D9 Agent / MCP runtime | active-partial | Codex Host port / durable registry、私有 MCP 与 workspace manager 已落地；继续 OpenClaw / R&D 采用 | Host 离线不影响确定性安全链 |
 | D10 远程容器交付 | active-partial | 固定镜像、Compose/systemd、volume/network/secret | 干净主机可部署、回滚和恢复 |
 | D11 模拟、shadow 与可靠性 | pending | 仿真、故障注入、长时 soak、资源与漂移验证 | 无双写、无 silent stale、无 authority violation |
 | D12 live-small 与生产采用 | pending | 逐 job canary、风险限额、生产 runbook | 外部权限齐备且全部 live gate 通过 |
@@ -338,7 +338,7 @@ validate config/secrets/volumes
 | D5.2 | 接入 cited research finding、失败、review 与 improvement request | provenance-separated inputs |
 | D5.3 | Planner 生成 typed hypothesis 并经过既有 admission | no direct state write |
 | D5.4 | Developer 做 family / data / Replay / Runtime capability assessment | blocker classification |
-| D5.5 | Developer 在隔离 worktree 改 MD / code / tests | patch / test evidence |
+| D5.5 | Developer 在隔离 worktree 改 MD / code / tests | active-partial：frozen worktree、closed write prefixes、bounded package check、patch hash 与 GC 已完成；容器读隔离和真实 Agent 二次修改待 P5 |
 | D5.6 | owner 冻结 data、reserve Trial、执行 deterministic Replay | single Trial / Result |
 | D5.7 | Agent 阅读失败 artifact 并二次修改或 reject | non-regression fixture |
 | D5.8 | Reviewer 基于登记 evidence 提交 decision | typed review |
