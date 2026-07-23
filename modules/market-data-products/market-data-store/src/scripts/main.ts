@@ -24,11 +24,15 @@ import {
   readInstrumentStatusArchive,
   readLatestCandleOpenTime,
   readL2EpochManifest,
+  readMarketDataDemand,
   prepareL2CompactionJob,
   readL2Compaction,
   readL2CompactedEpochSource,
   readL2ExperimentAttachmentReferrerReceipt,
   reconcileL2EpochManifests,
+  reconcileRegisteredMarketDataDemands,
+  registerMarketDataDemand,
+  releaseMarketDataDemand,
   registerL2ExperimentAttachmentReferrerReceipt,
   readMarketManifest,
   upsertCanonicalCandles,
@@ -168,6 +172,46 @@ export function run(args: Args): JSONRecord {
         ...registerL2ExperimentAttachmentReferrerReceipt(db, {
           authority,
           registered_at: stringField(args.json.registered_at) || undefined,
+        }),
+      }
+    }
+    if (args.action === "register_market_data_demand") {
+      const demand = asRecord(args.json.demand)
+      return {
+        ok: true,
+        action: args.action,
+        commit_status: registerMarketDataDemand(
+          db,
+          demand,
+          stringField(args.json.registered_at) || undefined,
+        ),
+        demand_id: stringField(demand.demand_id),
+        demand_hash: stringField(demand.demand_hash),
+      }
+    }
+    if (args.action === "release_market_data_demand") {
+      const release = asRecord(args.json.release)
+      return {
+        ok: true,
+        action: args.action,
+        commit_status: releaseMarketDataDemand(db, release),
+        demand_id: stringField(release.demand_id),
+      }
+    }
+    if (args.action === "read_market_data_demand") {
+      return {
+        ok: true,
+        action: args.action,
+        record: readMarketDataDemand(db, stringField(args.json.demand_id)),
+      }
+    }
+    if (args.action === "reconcile_market_data_demands") {
+      return {
+        ok: true,
+        action: args.action,
+        plan: reconcileRegisteredMarketDataDemands(db, {
+          observed_at: stringField(args.json.observed_at),
+          max_symbols: optionalNumber(args.json.max_symbols) ?? 1,
         }),
       }
     }
@@ -345,7 +389,7 @@ export function run(args: Args): JSONRecord {
 function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/market_data.db --ohlcv-db data/ohlcv.db --action init",
-    "actions: init | upsert_manifest | admit_l2_epoch_manifest | reconcile_l2_epoch_manifests | prepare_l2_compaction_job | admit_l2_compaction_proposal | register_l2_experiment_attachment_referrer | audit_l2_retention_reference_closure | list_l2_retention_reference_audits | upsert_candles | upsert_funding | upsert_feature_manifest | commit_instrument_status_archive | read_manifest | read_l2_epoch_manifest | read_l2_compaction | read_l2_compacted_epoch_source | read_l2_experiment_attachment_referrer | read_funding | read_instrument_status_acquisition_receipt | read_instrument_status_archive | read_latest_candle | read_candles | export_candle_slice | read_feature_manifest | list_feature_manifests",
+    "actions: init | upsert_manifest | admit_l2_epoch_manifest | reconcile_l2_epoch_manifests | prepare_l2_compaction_job | admit_l2_compaction_proposal | register_l2_experiment_attachment_referrer | audit_l2_retention_reference_closure | list_l2_retention_reference_audits | register_market_data_demand | release_market_data_demand | read_market_data_demand | reconcile_market_data_demands | upsert_candles | upsert_funding | upsert_feature_manifest | commit_instrument_status_archive | read_manifest | read_l2_epoch_manifest | read_l2_compaction | read_l2_compacted_epoch_source | read_l2_experiment_attachment_referrer | read_funding | read_instrument_status_acquisition_receipt | read_instrument_status_archive | read_latest_candle | read_candles | export_candle_slice | read_feature_manifest | list_feature_manifests",
   ].join("\n"))
 }
 

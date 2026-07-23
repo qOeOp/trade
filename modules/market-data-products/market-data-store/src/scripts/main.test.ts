@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
+import { buildMarketDataDemand } from "../../../../contracts/market-data-demand-contract/src/market-data-demand-contract"
 import {
   commitInstrumentStatusAcquisitionReceipt,
   createInstrumentStatusAcquisitionAttempt,
@@ -205,6 +206,71 @@ test("market data store CLI exposes only typed L2 referrer and retention-audit a
     ])) as { page: { page_count: number; deletion_candidates_produced: boolean } }
     assert.equal(emptyPage.page.page_count, 0)
     assert.equal(emptyPage.page.deletion_candidates_produced, false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("market data store CLI registers, reconciles, reads, and releases typed demands", () => {
+  const dir = mkdtempSync(join(tmpdir(), "market-data-demand-cli-"))
+  const dbPath = join(dir, "market.db")
+  const demand = buildMarketDataDemand({
+    demand_id: "runtime-btc-cli",
+    consumer_owner: "trade-flow",
+    consumer_kind: "runtime",
+    subject_ref: "setup:btc-cli",
+    venue: "binance_usdm",
+    symbol: "BTCUSDT",
+    priority: "active_plan",
+    requirements: [{
+      product: "l2_book",
+      timeframe: null,
+      indicator_set_ref: null,
+      coverage_start: null,
+      coverage_end: null,
+      max_freshness_ms: 1_000,
+      minimum_depth: 20,
+    }],
+    lease: {
+      issued_at: "2026-07-23T00:00:00.000Z",
+      expires_at: "2026-07-23T01:00:00.000Z",
+      renewal_grace_ms: 0,
+    },
+  })
+  try {
+    const registered = run(parseArgs([
+      "--db", dbPath,
+      "--action", "register_market_data_demand",
+      "--json", JSON.stringify({ demand, registered_at: "2026-07-23T00:00:01.000Z" }),
+    ])) as { commit_status: string }
+    assert.equal(registered.commit_status, "created")
+    const plan = run(parseArgs([
+      "--db", dbPath,
+      "--action", "reconcile_market_data_demands",
+      "--json", JSON.stringify({ observed_at: "2026-07-23T00:10:00.000Z", max_symbols: 1 }),
+    ])) as { plan: { selected_symbols: string[]; lifecycle_authority: string } }
+    assert.deepEqual(plan.plan.selected_symbols, ["BTCUSDT"])
+    assert.equal(plan.plan.lifecycle_authority, "none")
+    const read = run(parseArgs([
+      "--db", dbPath,
+      "--action", "read_market_data_demand",
+      "--json", JSON.stringify({ demand_id: demand.demand_id }),
+    ])) as { record: { status: string } }
+    assert.equal(read.record.status, "active")
+    const released = run(parseArgs([
+      "--db", dbPath,
+      "--action", "release_market_data_demand",
+      "--json", JSON.stringify({
+        release: {
+          schema_version: "trade.market-data-demand-release.v1",
+          demand_id: demand.demand_id,
+          demand_hash: demand.demand_hash,
+          released_at: "2026-07-23T00:20:00.000Z",
+          reason: "subject_cancelled",
+        },
+      }),
+    ])) as { commit_status: string }
+    assert.equal(released.commit_status, "released")
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
