@@ -2,20 +2,23 @@
 
 import { errorResponse, printScriptResult, readFlagValue, readJsonObject, successResponse } from "../../../../../contracts/runtime-core/src/script-json"
 import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
-import type { ReplayAttemptLeaseSnapshot, ReplayResumeAuthorizationSnapshot, TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
-import type { ReplayDatasetManifest, ReplayExecutionRequest, ReplayFundingEvent, ReplayMarkEvent, ReplayMarketBar, ReplaySupplementalFact } from "../../../contracts/src/lib/replay-contracts"
+import type { ReplayResumeAuthorizationSnapshot, TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
+import type { ReplayRegisteredAttemptDispatchAuthority } from "../../../../research-control-plane/contracts/src/lib/replay-registered-attempt-dispatch-authority"
+import type { ReplayDatasetManifest, ReplayFundingEvent, ReplayMarkEvent, ReplayMarketBar, ReplaySupplementalFact } from "../../../contracts/src/lib/replay-contracts"
 import type { ReplayEngineCheckpoint } from "../../../engine/src/lib/replay-reference-engine"
-import { runReplayTrial } from "../lib/replay-trial-runner"
+import { runRegisteredReplayTrial } from "../lib/replay-registered-trial-runner"
 
 const SCHEMA_VERSION = "rd-replay-execution.script-response.v1"
 
 export function run(argv: string[]): JSONRecord {
   try {
     const input = parse(argv)
-    return successResponse(SCHEMA_VERSION, runReplayTrial({
-      request: record(input.request) as unknown as ReplayExecutionRequest,
+    if ("request" in input || "attempt_lease" in input) {
+      throw new Error("Replay execution rejects caller-supplied Request and Attempt Lease; dispatch_authority is required")
+    }
+    return successResponse(SCHEMA_VERSION, runRegisteredReplayTrial({
+      dispatch_authority: record(input.dispatch_authority) as unknown as ReplayRegisteredAttemptDispatchAuthority,
       trial_reservation: record(input.trial_reservation) as unknown as TrialReservationSnapshot,
-      attempt_lease: record(input.attempt_lease) as unknown as ReplayAttemptLeaseSnapshot,
       observed_at: String(input.observed_at || ""),
       dataset_manifest: record(input.dataset_manifest) as unknown as ReplayDatasetManifest,
       bars: array(input.bars) as ReplayMarketBar[],

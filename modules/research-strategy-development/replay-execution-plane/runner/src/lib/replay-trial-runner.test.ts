@@ -45,6 +45,7 @@ import {
   createReplayInstrumentStatusProvenance,
   createReplayLiquidityCapacityAttestation,
   replayDatasetHash,
+  replayDatasetManifestHash,
   replayOhlcvActiveProtectionHash,
   replayOhlcvResolutionEvidenceHash,
   replayExecutionSpecHash,
@@ -59,6 +60,12 @@ import {
 import { createReplayKlineSourceRecord } from "../../../contracts/src/lib/replay-kline-aggregate-trade-bar-link-contracts"
 import { materializeReplayKlineAggregateTradeBarLink } from "../../../data-adapter/src/lib/replay-kline-aggregate-trade-bar-link"
 import { createReplayAuthorityCancellationOutcome, runReplayTrial, type ReplayDiagnosticCheckpointCommitRef } from "./replay-trial-runner"
+import {
+  REPLAY_REQUEST_REGISTRATION_RECORD_SCHEMA_VERSION,
+  createReplayRequestRegistrationRecord,
+} from "../../../../research-control-plane/contracts/src/lib/replay-request-registration"
+import { createReplayRegisteredAttemptDispatchAuthority } from "../../../../research-control-plane/contracts/src/lib/replay-registered-attempt-dispatch-authority"
+import { runRegisteredReplayTrial } from "./replay-registered-trial-runner"
 import {
   ReplayCancellationAcknowledgementError,
   ReplayCancellationOutboxPersistenceError,
@@ -576,6 +583,65 @@ function rehashReplayArtifactManifestSourceRead(store: ReplayArtifactStore): Rep
     },
   }
 }
+
+test("registered runner derives Request and Lease only from Control Plane dispatch authority", () => {
+  const legacy = authorized()
+  const manifest = datasetManifest()
+  const registration = createReplayRequestRegistrationRecord({
+    schema_version: REPLAY_REQUEST_REGISTRATION_RECORD_SCHEMA_VERSION,
+    registration_id: "registered-runner-request-1",
+    reservation_admission_id: "registered-runner-reservation-admission-1",
+    reservation_admission_hash: "1".repeat(64),
+    trial_id: legacy.request.trial_id,
+    run_id: legacy.request.run_id,
+    reservation_ref: legacy.trial_reservation.reservation_ref,
+    reservation_hash: hashTrialReservationSnapshot(legacy.trial_reservation),
+    execution_spec_hash: replayExecutionSpecHash(legacy.request),
+    request_idempotency_key: legacy.request.idempotency_key,
+    request_hash: canonicalHash(legacy.request),
+    replay_request: legacy.request,
+    dataset_manifest_hash: replayDatasetManifestHash(manifest),
+    registered_at: "2026-07-13T23:59:00Z",
+  })
+  const leaseHash = hashReplayAttemptLeaseSnapshot(legacy.attempt_lease)
+  const dispatchAuthority = createReplayRegisteredAttemptDispatchAuthority({
+    authority_id: "registered-runner-dispatch-1",
+    authority_ref: "authority://replay-registered-attempt-dispatch/runner-1",
+    request_registration_id: registration.registration_id,
+    request_registration_hash: registration.registration_hash,
+    request_registration: registration,
+    replay_execution_request_hash: registration.request_hash,
+    trial_id: legacy.attempt_lease.trial_id,
+    run_id: legacy.attempt_lease.run_id,
+    reservation_ref: legacy.attempt_lease.reservation_ref,
+    reservation_hash: legacy.attempt_lease.reservation_hash,
+    attempt_id: legacy.attempt_lease.attempt_id,
+    attempt_ordinal: legacy.attempt_lease.attempt_ordinal,
+    worker_id: legacy.attempt_lease.worker_id,
+    attempt_status: legacy.attempt_lease.status,
+    lease_generation: legacy.attempt_lease.lease_generation,
+    attempt_lease_hash: leaseHash,
+    attempt_lease: legacy.attempt_lease,
+    issued_at: "2026-07-14T00:00:45Z",
+    valid_before: legacy.attempt_lease.lease_expires_at,
+  })
+  const outcome = runRegisteredReplayTrial({
+    dispatch_authority: dispatchAuthority,
+    trial_reservation: legacy.trial_reservation,
+    observed_at: legacy.observed_at,
+    dataset_manifest: manifest,
+    bars,
+  })
+  expect(outcome.status).toBe("completed")
+  expect(outcome.attempt_id).toBe(dispatchAuthority.attempt_id)
+  expect(() => runRegisteredReplayTrial({
+    dispatch_authority: { ...dispatchAuthority, authority_hash: "0".repeat(64) },
+    trial_reservation: legacy.trial_reservation,
+    observed_at: legacy.observed_at,
+    dataset_manifest: manifest,
+    bars,
+  })).toThrow(/hash drifted/)
+})
 
 test("runner atomically commits artifacts and retries idempotently", () => {
   const root = mkdtempSync(join(tmpdir(), "rd-replay-runner-"))
