@@ -32,6 +32,16 @@ test("probe fails before book read when owner health is not ready", () => {
   assert.equal(bookCalls, 0)
 })
 
+test("probe keeps non-economic current-book reads available under soft disk pressure", () => {
+  const result = runL2CurrentBookProbe({}, {
+    readHealth: () => healthResponse({ softPressure: true }),
+    readBook: () => bookResponse(),
+  })
+  assert.equal(result.ok, true)
+  assert.equal(result.consumer_authority, "non_economic_observation_only")
+  assert.deepEqual(result.writes, [])
+})
+
 test("probe rejects cross-epoch, economic, stale, and request-contract drift", () => {
   const run = (book: Record<string, unknown>) => runL2CurrentBookProbe({}, {
     readHealth: () => healthResponse(),
@@ -59,11 +69,28 @@ test("probe requires exact registered owner response identities", () => {
   }), /book response identity drifted/)
 })
 
-function readyHealth(input: { ready?: boolean } = {}): Record<string, unknown> {
+test("probe scopes both owner reads to an explicitly requested symbol", () => {
+  const calls: string[] = []
+  const result = runL2CurrentBookProbe({ symbol: "BTCUSDT", depth: 20, max_freshness_ms: 1_000 }, {
+    readHealth: (args) => { calls.push(`health:${args.join(" ")}`); return healthResponse() },
+    readBook: (args) => { calls.push(`book:${args.join(" ")}`); return bookResponse() },
+  })
+  assert.equal(result.dependency.symbol, "BTCUSDT")
+  assert.deepEqual(calls, [
+    "health:--symbol BTCUSDT",
+    "book:--depth 20 --max-freshness-ms 1000 --symbol BTCUSDT",
+  ])
+  assert.throws(() => runL2CurrentBookProbe({ symbol: "ETHUSDT" }, {
+    readHealth: () => healthResponse(),
+  }), /requested\/owner symbol/)
+})
+
+function readyHealth(input: { ready?: boolean; softPressure?: boolean } = {}): Record<string, unknown> {
   const ready = input.ready ?? true
+  const softPressure = input.softPressure ?? false
   return {
     schema_version: "trade.l2-service-owner-health.v1",
-    status: ready ? "healthy" : "degraded",
+    status: ready && !softPressure ? "healthy" : "degraded",
     symbol: "BTCUSDT",
     readiness: {
       supervisor_alive: true,
@@ -73,12 +100,13 @@ function readyHealth(input: { ready?: boolean } = {}): Record<string, unknown> {
       source_read_ready: ready,
       overall_ready: ready,
     },
+    control: { disk_status: softPressure ? "soft_limit" : "healthy" },
     source: { stream_epoch: "epoch-1", continuity_status: "live", read_ready: ready },
     lifecycle_authority: "none",
   }
 }
 
-function healthResponse(input: { ready?: boolean } = {}): Record<string, unknown> {
+function healthResponse(input: { ready?: boolean; softPressure?: boolean } = {}): Record<string, unknown> {
   return { ok: true, action: "read_active_l2_service_health", health: readyHealth(input) }
 }
 

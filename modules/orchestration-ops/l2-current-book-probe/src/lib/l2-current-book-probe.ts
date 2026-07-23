@@ -4,7 +4,7 @@ import { runOwnerToolRecordSync } from "../../../../contracts/runtime-core/src/o
 export const L2_CURRENT_BOOK_PROBE_SCHEMA = "trade.ops-l2-current-book-probe.v1" as const
 
 export interface L2CurrentBookProbeDependencies {
-  readHealth?: () => JSONRecord
+  readHealth?: (args: string[]) => JSONRecord
   readBook?: (args: string[]) => JSONRecord
 }
 
@@ -44,14 +44,18 @@ export function runL2CurrentBookProbe(
 ): L2CurrentBookProbeResult {
   const depth = boundedInteger(input.depth ?? 20, 1, 100, "depth")
   const maxFreshnessMs = boundedInteger(input.max_freshness_ms ?? 1_000, 100, 2_000, "max_freshness_ms")
+  const requestedSymbol = optionalSymbol(input.symbol)
   rejectUnknownInput(input)
 
-  const healthResponse = (dependencies.readHealth ?? readOwnerHealth)()
+  const symbolArgs = requestedSymbol == null ? [] : ["--symbol", requestedSymbol]
+  const healthResponse = (dependencies.readHealth ?? readOwnerHealth)(symbolArgs)
   const identity = requireReadyL2OwnerHealth(healthResponse)
+  if (requestedSymbol != null && identity.symbol !== requestedSymbol) throw new Error("L2 requested/owner symbol identity drifted")
 
   const bookResponse = (dependencies.readBook ?? readOwnerBook)([
     "--depth", String(depth),
     "--max-freshness-ms", String(maxFreshnessMs),
+    ...symbolArgs,
   ])
   const book = ownerPayload(bookResponse, "book", "read_active_l2_current_book")
   requireMatchingBook(book, identity, depth, maxFreshnessMs)
@@ -113,8 +117,8 @@ export function buildL2MicrostructureObservation(book: JSONRecord): L2Microstruc
   }
 }
 
-function readOwnerHealth(): JSONRecord {
-  return runOwnerToolRecordSync("market-data.l2-service-health", [], "L2 service health")
+function readOwnerHealth(args: string[]): JSONRecord {
+  return runOwnerToolRecordSync("market-data.l2-service-health", args, "L2 service health")
 }
 
 function readOwnerBook(args: string[]): JSONRecord {
@@ -139,7 +143,14 @@ function requireReadyHealth(health: JSONRecord): { symbol: string; streamEpoch: 
   for (const field of ["supervisor_alive", "service_alive", "control_state_fresh", "control_ready", "source_read_ready", "overall_ready"]) {
     if (typeof readiness[field] !== "boolean") throw new Error(`L2 owner health readiness ${field} is invalid`)
   }
-  if (health.status !== "healthy" || readiness.overall_ready !== true) throw new Error("L2 owner health is not ready")
+  const control = asRecord(health.control)
+  const softPressureRead = health.status === "degraded"
+    && control.disk_status === "soft_limit"
+    && readiness.control_ready === true
+    && readiness.source_read_ready === true
+  if ((health.status !== "healthy" && !softPressureRead) || readiness.overall_ready !== true) {
+    throw new Error("L2 owner health is not ready")
+  }
   const symbol = stringField(health.symbol)
   const source = asRecord(health.source)
   const streamEpoch = stringField(source.stream_epoch)
@@ -249,8 +260,14 @@ function safeScaledRatio(numerator: bigint, denominator: bigint, scale: bigint, 
 }
 
 function rejectUnknownInput(input: JSONRecord): void {
-  const allowed = new Set(["depth", "max_freshness_ms"])
+  const allowed = new Set(["symbol", "depth", "max_freshness_ms"])
   for (const field of Object.keys(input)) {
     if (!allowed.has(field)) throw new Error(`unknown input field: ${field}`)
   }
+}
+
+function optionalSymbol(value: unknown): string | undefined {
+  if (value == null) return undefined
+  if (typeof value !== "string" || !/^[A-Z0-9]{5,20}$/.test(value)) throw new Error("symbol is invalid")
+  return value
 }

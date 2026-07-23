@@ -47,6 +47,18 @@ test("watch probe rejects authority, initial epoch, and caller control drift", (
   assert.throws(() => runL2BookWatchProbe({ endpoint: "remote" }), /unknown input field/)
 })
 
+test("watch probe scopes health and watch to an explicitly requested symbol", () => {
+  const calls: string[] = []
+  runL2BookWatchProbe({ symbol: "BTCUSDT", max_events: 5, watch_ms: 250 }, {
+    readHealth: (args) => { calls.push(`health:${args.join(" ")}`); return healthResponse() },
+    readWatch: (args) => { calls.push(`watch:${args.join(" ")}`); return watchResponse() },
+  })
+  assert.deepEqual(calls, [
+    "health:--symbol BTCUSDT",
+    "watch:--max-events 5 --watch-ms 250 --symbol BTCUSDT",
+  ])
+})
+
 function healthResponse(ready = true): Record<string, unknown> {
   return {
     ok: true,

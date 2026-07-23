@@ -52,6 +52,7 @@ export async function runL2BookWatchSession(
 ): Promise<JSONRecord> {
   rejectUnknownInput(input)
   const controls = {
+    symbol: optionalSymbol(input.symbol),
     max_cycles: boundedInteger(input.max_cycles ?? 3, 1, 120, "max_cycles"),
     session_ms: boundedInteger(input.session_ms ?? 30_000, 2_000, 300_000, "session_ms"),
     max_events: boundedInteger(input.max_events ?? 20, 1, 100, "max_events"),
@@ -102,7 +103,11 @@ export async function runL2BookWatchSession(
     }
     try {
       if (operation === "snapshot") {
-        const result = await readSnapshot({ depth: controls.depth, max_freshness_ms: controls.max_freshness_ms })
+        const result = await readSnapshot({
+          ...(controls.symbol == null ? {} : { symbol: controls.symbol }),
+          depth: controls.depth,
+          max_freshness_ms: controls.max_freshness_ms,
+        })
         const snapshot = requireSnapshot(result)
         if (baseline && snapshot.streamEpoch !== baseline.streamEpoch) epochRolloverCount += 1
         baseline = snapshot
@@ -123,7 +128,11 @@ export async function runL2BookWatchSession(
         continue
       }
 
-      const result = await readWatch({ max_events: controls.max_events, watch_ms: controls.watch_ms })
+      const result = await readWatch({
+        ...(controls.symbol == null ? {} : { symbol: controls.symbol }),
+        max_events: controls.max_events,
+        watch_ms: controls.watch_ms,
+      })
       const watch = requireWatch(result)
       if (!baseline) throw new Error("watch cannot precede a snapshot")
       epochs.add(watch.startEpoch)
@@ -319,6 +328,12 @@ function emitTransition(
 }
 
 function rejectUnknownInput(input: JSONRecord): void {
-  const allowed = new Set(["max_cycles", "session_ms", "max_events", "watch_ms", "depth", "max_freshness_ms"])
+  const allowed = new Set(["symbol", "max_cycles", "session_ms", "max_events", "watch_ms", "depth", "max_freshness_ms"])
   for (const field of Object.keys(input)) if (!allowed.has(field)) throw new Error(`unknown input field: ${field}`)
+}
+
+function optionalSymbol(value: unknown): string | undefined {
+  if (value == null) return undefined
+  if (typeof value !== "string" || !/^[A-Z0-9]{5,20}$/.test(value)) throw new Error("symbol is invalid")
+  return value
 }

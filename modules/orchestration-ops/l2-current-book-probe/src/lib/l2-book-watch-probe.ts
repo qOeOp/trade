@@ -5,7 +5,7 @@ import { requireReadyL2OwnerHealth } from "./l2-current-book-probe"
 export const L2_BOOK_WATCH_PROBE_SCHEMA = "trade.ops-l2-book-watch-probe.v1" as const
 
 export interface L2BookWatchProbeDependencies {
-  readHealth?: () => JSONRecord
+  readHealth?: (args: string[]) => JSONRecord
   readWatch?: (args: string[]) => JSONRecord
 }
 
@@ -16,11 +16,15 @@ export function runL2BookWatchProbe(
   rejectUnknownInput(input)
   const maxEvents = boundedInteger(input.max_events ?? 20, 1, 100, "max_events")
   const watchMs = boundedInteger(input.watch_ms ?? 1_000, 100, 5_000, "watch_ms")
-  const healthResponse = (dependencies.readHealth ?? readHealth)()
+  const requestedSymbol = optionalSymbol(input.symbol)
+  const symbolArgs = requestedSymbol == null ? [] : ["--symbol", requestedSymbol]
+  const healthResponse = (dependencies.readHealth ?? readHealth)(symbolArgs)
   const identity = requireReadyL2OwnerHealth(healthResponse)
+  if (requestedSymbol != null && identity.symbol !== requestedSymbol) throw new Error("L2 requested/owner symbol identity drifted")
   const watchResponse = (dependencies.readWatch ?? readWatch)([
     "--max-events", String(maxEvents),
     "--watch-ms", String(watchMs),
+    ...symbolArgs,
   ])
   if (watchResponse.ok !== true || watchResponse.action !== "watch_active_l2_book") {
     throw new Error("L2 owner watch response identity drifted")
@@ -52,8 +56,8 @@ export function runL2BookWatchProbe(
   }
 }
 
-function readHealth(): JSONRecord {
-  return runOwnerToolRecordSync("market-data.l2-service-health", [], "L2 service health")
+function readHealth(args: string[]): JSONRecord {
+  return runOwnerToolRecordSync("market-data.l2-service-health", args, "L2 service health")
 }
 
 function readWatch(args: string[]): JSONRecord {
@@ -101,6 +105,12 @@ function boundedInteger(value: unknown, minimum: number, maximum: number, field:
 }
 
 function rejectUnknownInput(input: JSONRecord): void {
-  const allowed = new Set(["max_events", "watch_ms"])
+  const allowed = new Set(["symbol", "max_events", "watch_ms"])
   for (const field of Object.keys(input)) if (!allowed.has(field)) throw new Error(`unknown input field: ${field}`)
+}
+
+function optionalSymbol(value: unknown): string | undefined {
+  if (value == null) return undefined
+  if (typeof value !== "string" || !/^[A-Z0-9]{5,20}$/.test(value)) throw new Error("symbol is invalid")
+  return value
 }
