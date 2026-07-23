@@ -1,4 +1,10 @@
 services:
+  runtime:
+    env_file:
+      - ${TRADE_AGENT_HOST_SECRET_ENV_FILE:?set TRADE_AGENT_HOST_SECRET_ENV_FILE}
+    networks:
+      - agent-control
+
   openclaw:
     image: ghcr.io/openclaw/openclaw@sha256:6a31d44b2944e7adcd2b582bf6fb463111264ebca97a0201795b799135bd102c
     restart: always
@@ -43,6 +49,58 @@ services:
       timeout: 10s
       retries: 5
       start_period: 90s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
+  agent-host:
+    image: trade-runtime:${TRADE_IMAGE_TAG:-local}
+    restart: always
+    stop_grace_period: 45s
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 1.0
+    env_file:
+      - ${TRADE_AGENT_HOST_SECRET_ENV_FILE:?set TRADE_AGENT_HOST_SECRET_ENV_FILE}
+    volumes:
+      - trade-data:/app/data
+      - trade-runtime-tmp:/app/tmp
+      - trade-artifacts:/app/data/artifacts
+    networks:
+      - agent-control
+    depends_on:
+      openclaw:
+        condition: service_healthy
+    command:
+      - bun
+      - modules/orchestration-ops/agent-host-openclaw/src/scripts/http.ts
+      - --host
+      - 0.0.0.0
+      - --port
+      - "7313"
+      - --allowed-hosts
+      - agent-host:7313
+      - --gateway-url
+      - http://openclaw:18789
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - fetch("http://127.0.0.1:7313/health").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))
+      interval: 20s
+      timeout: 5s
+      retries: 4
+      start_period: 20s
     logging:
       driver: json-file
       options:
