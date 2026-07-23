@@ -103,6 +103,9 @@ test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds De
   assert.match(agentCompose, /reviewer-agent-worker:[\s\S]*http:\/\/agent-host:7313/)
   assert.match(agentCompose, /reviewer-agent-worker:[\s\S]*trade-data:\/app\/data/)
   assert.match(agentCompose, /reviewer-agent-worker:[\s\S]*trading_authority/)
+  assert.match(agentCompose, /strategy-registry-worker:[\s\S]*strategy-registry\/src\/scripts\/resident\.ts/)
+  assert.match(agentCompose, /strategy-registry-worker:[\s\S]*network_mode: none/)
+  assert.match(agentCompose, /strategy-registry-worker:[\s\S]*trade-release-candidates:\/app\/data\/release-candidates/)
   assert.match(agentCompose, /agent-workspace-checker:[\s\S]*network_mode: none/)
   assert.match(agentCompose, /agent-workspace-checker:[\s\S]*agent-workspace-checker\.ts/)
   assert.match(agentCompose, /agent-release-checker:[\s\S]*network_mode: none/)
@@ -131,15 +134,22 @@ test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds De
     adopterBlock,
     /trade-data:\/app\/data|rd_state\.db|data_catalog\.db|trade\.db/,
   )
+  const registryBlock = agentCompose
+    .split("\n  strategy-registry-worker:")[1]!
+    .split("\n  agent-mcp-planner:")[0]!
+  assert.doesNotMatch(
+    registryBlock,
+    /\/app\/strategies|agent-control|TRADE_AGENT_HOST_HTTP_TOKEN/,
+  )
   assert.match(agentCompose, /TRADE_MCP_RD_STATE_DB: data\/rd_state\.db/)
   assert.match(agentCompose, /TRADE_MCP_CATALOG_DB: data\/data_catalog\.db/)
   assert.match(agentCompose, /TRADE_MCP_TRADE_DB: data\/trade\.db/)
-  assert.match(compose, /TRADE_ENVIRONMENT_ID: \$\{TRADE_ENVIRONMENT_ID:-server:primary\}/)
+  assert.match(compose, /TRADE_ENVIRONMENT_ID: \$\{TRADE_ENVIRONMENT_ID:-runtime:primary\}/)
   assert.equal(
-    agentCompose.match(/TRADE_ENVIRONMENT_ID: \$\{TRADE_ENVIRONMENT_ID:-server:primary\}/g)?.length,
-    5,
+    agentCompose.match(/TRADE_ENVIRONMENT_ID: \$\{TRADE_ENVIRONMENT_ID:-runtime:primary\}/g)?.length,
+    6,
   )
-  assert.match(operatorCompose, /TRADE_ENVIRONMENT_ID: \$\{TRADE_ENVIRONMENT_ID:-server:primary\}/)
+  assert.match(operatorCompose, /TRADE_ENVIRONMENT_ID: \$\{TRADE_ENVIRONMENT_ID:-runtime:primary\}/)
   assert.doesNotMatch(serialized, /sk-[A-Za-z0-9_-]{12,}/)
   assert.match(serialized, /"deny":\[[^\]]*"exec"[^\]]*"process"[^\]]*"code_execution"/)
 })

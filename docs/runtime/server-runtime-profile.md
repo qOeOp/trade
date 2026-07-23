@@ -12,7 +12,7 @@ last_verified: 2026-07-23 CST
 
 本文冻结 [Server Runtime Implementation Plan](../architecture/migrations/server-runtime-implementation-plan.md) S1 的首个可部署 profile。host-native legacy profile 在单台 macOS 或 Linux 主机上装配固定 symbol 的 Rust L2、resident L2 consumer 与 `shadow_program` control runtime；新的 Linux container profile 改为装配 control runtime、demand-driven L2 manager、OHLCV worker、indicator worker 与 formal Replay resident worker。二者都只闭合进程、配置、依赖、健康和停机，不复制 scheduler、领域计算或 store authority。
 
-Agent overlay 不改变上述 base profile：它额外托管 private OpenClaw/Agent Host/MCP 与 Reviewer resident worker。Reviewer worker 只把 classified formal Replay Result 转成有界 Agent Run，再将合格 submission 送回既有 Control Plane owner；模型不可用时队列保留，base market/runtime/Replay 不连坐。
+Agent overlay 不改变上述 base profile：它额外托管 private OpenClaw/Agent Host/MCP、Reviewer resident 与无网络 Strategy Registry resident。Reviewer 只把 classified formal Replay Result 转成有界 Agent Run并送回既有 Control Plane owner；Registry 只从已接纳 `accept_for_draft` facts 产生 durable candidate Draft。模型不可用时 Reviewer 队列保留，Registry 不依赖模型；两者都没有部署或交易 authority，base market/runtime/Replay 不连坐。
 
 当前已形成首个 no-live composition root：版本化 Linux/macOS profile、三个 foreground entrypoint、closed-world validator、deterministic systemd/launchd renderer、容器 foreground composition、只读 preflight/status，以及有界 lifecycle/public-smoke/recovery fixture。2026-07-23 已从非受保护目录的 immutable release 在本机安装三个 per-user launchd agent 并取得 no-live process authority；容器另可从 committed HEAD 生成不含 secret/runtime state 的 checksum source package 和 Linux acceptance 入口。Linux systemd / 容器尚无真实 build、restart、restore 或 soak 采用证据。
 

@@ -17,7 +17,7 @@ last_verified: 2026-07-23 CST
 - `agent.mcp` 已同时提供同机 stdio 与 bearer-authenticated private HTTP profile；`ops.operator-http` 仍是 loopback-only 小型 allowlist。
 - Codex 是当前开发与人工操作环境；OpenClaw `2026.7.1` alternate Chat runtime 已完成本机 proposal-only 采用，LangGraph 未引入。
 - 仓库已有 no-live Compose / OpenClaw / Agent Host / MCP fixture，但本机没有 Docker，尚无真实 Linux 容器采用证据。
-- canonical Planner → Developer → owner freeze / Trial Plan → compatibility evaluation → Reviewer → feedback lesson 已完成两轮真实纵切。Developer implementation gap 现进入独立 OpenClaw code Agent / workspace Host；Research 接纳 `patch_ready` 后自动写入 Ops adoption queue，由 resident adopter 精确重放累计 patch，拒绝 binary / special file / dependency manifest，重跑 scoped package、全仓质量与独立 Replay release audit，再原子产出 `candidate_certified` source archive。候选可进一步转换为绑定 adoption provenance 的标准 no-live server source package。正式 Replay 作业也已从 Request Registration 接到 snapshot-bound data prepare、durable single-slot queue、cancellation recovery、Attempt/Lease/Dispatch、跨进程 Runner 和 `mechanical_replay/replay_owner` 原子 publication；同 worker 重启复用 queue generation/execution，容器已编排前台 worker。Agent overlay 新增独立 Reviewer resident：只从 classified formal Result 建立 immutable/fenced job，经 private Host 运行既有 Reviewer contract，并由现有 Control Plane owner 接纳 Decision；Host 缺席时 base runtime 继续运行，process-loss 后从 Host/owner 事实恢复。它不把 compatibility evidence 冒充正式证据，也不自动 Registry、Forward、部署或交易。新 revision 实际部署、真实 status/spec/risk Manifest compiler、Registry/Forward 自动接线与 Linux 容器采用尚未闭环。
+- canonical Planner → Developer → owner freeze / Trial Plan → compatibility evaluation → Reviewer → Registry 已形成服务器驻留骨架。正式 Replay 经 durable single-slot queue 发布 `mechanical_replay/replay_owner` Result；Reviewer resident 只消费该 classified Result 并由既有 Control Plane owner 接纳 Decision；Strategy Registry resident 再从 `accept_for_draft` owner facts 确定性编译授权与 policy source，经 fenced queue 把 create-if-absent、hash-bound Draft 写入独立 `trade-release-candidates`，不会修改运行镜像的 `strategies/`。Host 缺席不影响 base runtime，Registry 无网络、无 Host secret、无部署或交易权限。真实 status/spec/risk Manifest compiler、候选 source adoption/release、Forward、Linux 容器采用与新 revision 部署尚未闭环。
 
 目标采用三层执行模型，并服从 [Remote Container Runtime Integration](./remote-container-runtime-integration-plan.md) 的部署边界：
 
@@ -266,7 +266,7 @@ Host 运行状态属于 ops plane。是否新增 durable store、复用 `ops_run
 | P2 Provider / Codex capability | active-partial | 分离 SiliconFlow wire 能力与 Codex protocol 能力 | capability matrix 可归因；不以 prompt 掩盖协议失败 |
 | P3 Direct Codex adapter | active-partial | Program 可提交、观察、取消和失败关闭有界 Codex Run | 真实 structured turn 与 daemon transport 待采用 |
 | P4 MCP 与 Developer sandbox | active-partial | 私有 MCP、角色投影、每 Run 隔离 worktree、implementation-gap routing、Host patch/check 与累计 revision seeding 已落地 | 容器读隔离 / cgroup 待远程采用 |
-| P5 R&D Agent 纵切 | active-partial | Planner → Developer → Replay → Reviewer → Registry | 两轮 Planner/Developer/compatibility evaluation/Reviewer、真实首轮 Codex patch 与确定性代码二次修订 fixture 已通过；Registration-bound 正式 Replay 已接 data compiler、durable queue、container resident 与分类 publication，真实 Manifest 输入、Reviewer 自动唤醒、真实模型二次修改、Registry 待闭环 |
+| P5 R&D Agent 纵切 | active-partial | Planner → Developer → Replay → Reviewer → Registry | Registration-bound formal Replay、Reviewer resident 与 candidate-only Registry resident 已接通并有本地 fencing/recovery/static Compose 证据；真实 Manifest 输入、真实模型二次修改、候选 release adoption、Forward 与 Linux 采用待闭环 |
 | P6 OpenClaw 与容器 | active-partial | OpenClaw-Codex、alternate runtime 与 no-live Compose fixture | alternate runtime/fixture 已落地；真实容器采用待外部 host |
 | P7 Bake-off 与可靠性 | pending | 公平比较、故障注入、资源 / 磁盘与长时运行 | 无 authority violation；形成采用或拒绝证据 |
 | P8 收敛与采用 | pending | 默认 profile、回滚、清理、文档和运行手册 | 全仓质量门通过；目标态与当前态无漂移 |
@@ -306,7 +306,7 @@ P4 当前已复用同一 `createTradeMcpServer` registry 支持 stdio 与 bearer
 
 同日 provider / Host 分层探测进一步得到：SiliconFlow `Qwen/Qwen3.5-27B` 的 Chat JSON、SSE stream、single tool、同轮 multi-tool 与 tool-result continuation 全部通过，Responses endpoint 为 `404/unsupported_endpoint`；Direct Codex 默认 provider 的 read-only turn 完成且零 protocol error。Codex custom SiliconFlow profile 能完成 initialize / thread，但 turn 失败；强制 `wire_api="chat"` 在 config/startup 被拒绝。当前 blocker 因而是 `Codex 0.144.6 requires Responses × SiliconFlow lacks Responses`，不能归因成模型或 adapter 质量，也不通过 fork Codex 临时掩盖。OpenClaw alternate Chat runtime 仍可进入公平评测，OpenClaw-managed Codex 只有换 Responses-compatible provider 后才可与 direct Codex 同 provider 比较。
 
-P5/P6 本机采用新增确定性证据：OpenClaw `2026.7.1` 通过最小 MCP role profile 驱动真实 Planner、Developer 与 Reviewer。两轮 experiment 均保持 owner gate 与 `no_promote → modify`，locked holdout 未打开；Reviewer 上下文已从 405 KB 高基数明细收敛为约 11 KB hash-bound summary。随后 alternate code runtime 真实通过两层烟测：embedded file-tool exact edit，以及 Gateway HTTP → immutable scope → fixed worktree → SiliconFlow Agent → no-network checker → 3 个 Host evidence refs → slot cleanup。补丁采用层现有 Research-after-admission 自动入队、独立 Ops 状态、resident adopter、candidate worktree、release checker、确定性 commit/source archive、标准 server package 转换与正反集成 fixture；它不会推进当前 checkout，也没有部署或交易权限。Compose 仍只算静态 fixture；真实 Linux 容器健康/cgroup、新 source revision 实际部署与 Registry / Forward 未采用。
+P5/P6 本机采用新增确定性证据：OpenClaw `2026.7.1` 通过最小 MCP role profile 驱动真实 Planner、Developer 与 Reviewer。两轮 experiment 均保持 owner gate 与 `no_promote → modify`，locked holdout 未打开；Reviewer 上下文已从 405 KB 高基数明细收敛为约 11 KB hash-bound summary。随后 alternate code runtime 真实通过两层烟测：embedded file-tool exact edit，以及 Gateway HTTP → immutable scope → fixed worktree → SiliconFlow Agent → no-network checker → 3 个 Host evidence refs → slot cleanup。补丁采用层现有 Research-after-admission 自动入队、独立 Ops 状态、resident adopter、candidate worktree、release checker、确定性 commit/source archive、标准 server package 转换与正反集成 fixture；策略 Registry 也已有独立 candidate-only resident 和崩溃恢复 fixture。两者都不会推进当前 checkout，也没有部署或交易权限。Compose 仍只算静态 fixture；真实 Linux 容器健康/cgroup、新 source revision 实际部署、strategy candidate adoption 与 Forward 未采用。
 
 | ID | 步骤 | 完成证据 |
 | --- | --- | --- |
@@ -361,7 +361,7 @@ P5/P6 本机采用新增确定性证据：OpenClaw `2026.7.1` 通过最小 MCP r
 | P5.5 | owner 冻结 dataset、reserve Trial、执行 deterministic Replay | active-partial：Developer Data Snapshot → Registration-bound immutable bundle prepare → recovery → Attempt/Lease/Dispatch → registered Runner → atomic formal Result/classification 已闭合；status/spec/risk provider evidence → certified Manifest/Reservation compiler 待补 |
 | P5.6 | 将 Result / artifact pack 返回后继 Developer Run，完成失败诊断和二次修订 | fixture complete：predecessor Result-bound seed + diagnosis ref + cumulative second patch；formal Replay 自动排队已完成，Result → Reviewer/Developer 自动唤醒待采用 |
 | P5.7 | Reviewer 只消费登记 evidence，输出 typed Review Decision | owner validation |
-| P5.8 | Control Plane writeback 与 Registry draft 物化沿用正式入口 | restart / replay tests |
+| P5.8 | Control Plane writeback 与 Registry draft 物化沿用正式入口 | complete locally：owner-fact compiler、durable fenced queue、create-if-absent/fsync、crash recovery、candidate-only Compose；Linux adoption 待 P7 |
 | P5.9 | 实现 mechanical Replay 与 Agent-assisted evaluation 的 evidence kind / gate | 禁止证据冒充 |
 | P5.10 | 覆盖 reject、blocked、provider outage、patch fail CI、Host restart 与 duplicate request |完整纵切 fault suite |
 

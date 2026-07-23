@@ -1,7 +1,19 @@
 import { createHash } from "node:crypto"
-import { mkdirSync, renameSync, writeFileSync } from "node:fs"
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  linkSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs"
 import { join } from "node:path"
 import { Database } from "bun:sqlite"
+import { canonicalJson } from "../../../../../contracts/runtime-core/src/canonical-json"
 import {
   STRATEGY_DRAFT_BINDING_SCHEMA_VERSION,
   assertDraftStrategyAuthorization,
@@ -34,6 +46,7 @@ interface DraftRow {
   strategy_policy_hash: string | null
   materialization_status: "pending" | "ready" | "failed"
   authorization_json: string
+  policy_source_json: string
   idempotency_key: string
   error_message: string | null
   created_at: string
@@ -69,38 +82,29 @@ export function materializeDraftStrategy(db: Database, input: MaterializeDraftSt
   const strategyId = strategyIDFromSlug(slug)
   const strategyRef = join(input.strategy_root, `${slug}.md`)
   const policyHash = sha256(markdown)
-  const prior = readByIdempotency(db, input.idempotency_key)
-  if (prior) return bindingFromPrior(prior, input, strategyId, strategyRef, policyHash)
-
-  db.query(`
-    INSERT INTO rd_strategy_draft(
-      draft_id, strategy_id, strategy_version, strategy_ref, strategy_policy_hash,
-      materialization_status, authorization_json, policy_source_json,
-      idempotency_key, error_message, created_at, updated_at
-    ) VALUES (
-      $draft_id, $strategy_id, $version, NULL, NULL,
-      'pending', $authorization, $source, $idempotency_key, NULL, $created_at, $created_at
-    )
-  `).run({
-    $draft_id: input.draft_id,
-    $strategy_id: strategyId,
-    $version: input.strategy_version,
-    $authorization: JSON.stringify(input.authorization),
-    $source: JSON.stringify(input.policy_source),
-    $idempotency_key: input.idempotency_key,
-    $created_at: input.created_at,
-  })
+  const prior = reserveDraft(
+    db,
+    input,
+    strategyId,
+  )
+  assertPriorIdentity(prior, input, strategyId)
+  if (prior.materialization_status === "ready") {
+    assertReadySource(prior, strategyRef, policyHash, markdown)
+    return readyBinding(prior)
+  }
 
   try {
-    mkdirSync(input.strategy_root, { recursive: true })
-    const temporary = `${strategyRef}.${sha256(input.idempotency_key).slice(0, 12)}.tmp`
-    writeFileSync(temporary, markdown, "utf8")
-    renameSync(temporary, strategyRef)
+    commitStrategySource(
+      input.strategy_root,
+      strategyRef,
+      markdown,
+      input.idempotency_key,
+    )
     db.query(`
       UPDATE rd_strategy_draft
       SET strategy_ref=$strategy_ref, strategy_policy_hash=$hash,
           materialization_status='ready', error_message=NULL, updated_at=$updated_at
-      WHERE draft_id=$draft_id AND materialization_status='pending'
+      WHERE draft_id=$draft_id AND materialization_status!='ready'
     `).run({
       $strategy_ref: strategyRef,
       $hash: policyHash,
@@ -111,7 +115,7 @@ export function materializeDraftStrategy(db: Database, input: MaterializeDraftSt
     db.query(`
       UPDATE rd_strategy_draft
       SET materialization_status='failed', error_message=$error, updated_at=$updated_at
-      WHERE draft_id=$draft_id
+      WHERE draft_id=$draft_id AND materialization_status!='ready'
     `).run({
       $error: error instanceof Error ? error.message : String(error),
       $updated_at: input.created_at,
@@ -130,25 +134,139 @@ export function readReadyDraftStrategy(db: Database, draftId: string): StrategyD
   return row?.materialization_status === "ready" ? readyBinding(row) : undefined
 }
 
-function bindingFromPrior(
+function reserveDraft(
+  db: Database,
+  input: MaterializeDraftStrategyInput,
+  strategyId: string,
+): DraftRow {
+  return db.transaction(() => {
+    const prior = readByIdempotency(db, input.idempotency_key)
+    if (prior) return prior
+    const inserted = db.query(`
+      INSERT INTO rd_strategy_draft(
+        draft_id, strategy_id, strategy_version, strategy_ref, strategy_policy_hash,
+        materialization_status, authorization_json, policy_source_json,
+        idempotency_key, error_message, created_at, updated_at
+      ) VALUES (
+        $draft_id, $strategy_id, $version, NULL, NULL,
+        'pending', $authorization, $source, $idempotency_key, NULL, $created_at, $created_at
+      )
+      ON CONFLICT DO NOTHING
+    `).run({
+      $draft_id: input.draft_id,
+      $strategy_id: strategyId,
+      $version: input.strategy_version,
+      $authorization: canonicalJson(input.authorization),
+      $source: canonicalJson(input.policy_source),
+      $idempotency_key: input.idempotency_key,
+      $created_at: input.created_at,
+    })
+    if (inserted.changes !== 1) {
+      const raced = readByIdempotency(db, input.idempotency_key)
+      if (raced) return raced
+      throw new Error("Draft Strategy identity collides with another Registry record")
+    }
+    const reserved = readByIdempotency(db, input.idempotency_key)
+    if (!reserved) throw new Error("Draft Strategy reservation disappeared")
+    return reserved
+  }).immediate()
+}
+
+function assertPriorIdentity(
   prior: DraftRow,
   input: MaterializeDraftStrategyInput,
   strategyId: string,
-  strategyRef: string,
-  policyHash: string,
-): StrategyDraftBinding {
+): void {
   if (prior.draft_id !== input.draft_id || prior.strategy_id !== strategyId
       || prior.strategy_version !== input.strategy_version
-      || prior.authorization_json !== JSON.stringify(input.authorization)) {
+      || canonicalJson(JSON.parse(prior.authorization_json)) !== canonicalJson(input.authorization)
+      || canonicalJson(JSON.parse(prior.policy_source_json)) !== canonicalJson(input.policy_source)) {
     throw new Error("Draft Strategy idempotency key was reused with different authority or identity")
   }
-  if (prior.materialization_status !== "ready") {
-    throw new Error(`Draft Strategy materialization is ${prior.materialization_status}: ${prior.error_message || "retry requires owner recovery"}`)
-  }
+}
+
+function assertReadySource(
+  prior: DraftRow,
+  strategyRef: string,
+  policyHash: string,
+  markdown: string,
+): void {
   if (prior.strategy_ref !== strategyRef || prior.strategy_policy_hash !== policyHash) {
     throw new Error("Draft Strategy source changed after materialization")
   }
-  return readyBinding(prior)
+  assertExactRegularFile(strategyRef, markdown)
+}
+
+function commitStrategySource(
+  strategyRoot: string,
+  strategyRef: string,
+  markdown: string,
+  idempotencyKey: string,
+): void {
+  mkdirSync(strategyRoot, { recursive: true, mode: 0o700 })
+  const rootStat = lstatSync(strategyRoot)
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+    throw new Error("Draft Strategy root is not a regular directory")
+  }
+  if (existsSync(strategyRef)) {
+    assertExactRegularFile(strategyRef, markdown)
+    return
+  }
+  const temporary = `${strategyRef}.${sha256(idempotencyKey).slice(0, 12)}.tmp`
+  if (existsSync(temporary)) {
+    assertExactRegularFile(temporary, markdown)
+  } else {
+    writeFileSync(temporary, markdown, {
+      encoding: "utf8",
+      flag: "wx",
+      mode: 0o600,
+    })
+  }
+  fsyncFile(temporary)
+  try {
+    linkSync(temporary, strategyRef)
+  } catch (error) {
+    if (!isAlreadyExistsError(error)) throw error
+    assertExactRegularFile(strategyRef, markdown)
+  } finally {
+    if (existsSync(temporary)) unlinkSync(temporary)
+  }
+  fsyncDirectory(strategyRoot)
+  assertExactRegularFile(strategyRef, markdown)
+}
+
+function isAlreadyExistsError(error: unknown): boolean {
+  return error instanceof Error
+    && "code" in error
+    && (error as NodeJS.ErrnoException).code === "EEXIST"
+}
+
+function assertExactRegularFile(path: string, expected: string): void {
+  const stat = lstatSync(path)
+  if (!stat.isFile() || stat.isSymbolicLink()) {
+    throw new Error("Draft Strategy source is not a regular file")
+  }
+  if (readFileSync(path, "utf8") !== expected) {
+    throw new Error("Draft Strategy source content drifted")
+  }
+}
+
+function fsyncFile(path: string): void {
+  const descriptor = openSync(path, "r")
+  try {
+    fsyncSync(descriptor)
+  } finally {
+    closeSync(descriptor)
+  }
+}
+
+function fsyncDirectory(path: string): void {
+  const descriptor = openSync(path, "r")
+  try {
+    fsyncSync(descriptor)
+  } finally {
+    closeSync(descriptor)
+  }
 }
 
 function readyBinding(row: DraftRow): StrategyDraftBinding {

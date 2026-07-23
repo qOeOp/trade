@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { existsSync, mkdtempSync, readFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Database } from "bun:sqlite"
@@ -8,8 +8,18 @@ import {
   DRAFT_AUTHORIZATION_SCHEMA_VERSION,
   type DraftStrategyAuthorization,
 } from "../../../contracts/src/lib/control-plane-contracts"
-import { SOURCE_SCHEMA_VERSION, type StrategyPolicySource } from "../../../strategy-policy-writer/src/lib/strategy-policy-writer"
-import { materializeDraftStrategy, readReadyDraftStrategy } from "./strategy-registry"
+import {
+  SOURCE_SCHEMA_VERSION,
+  renderStrategyPolicyMarkdown,
+  strategyIDFromSlug,
+  strategyPolicySlug,
+  type StrategyPolicySource,
+} from "../../../strategy-policy-writer/src/lib/strategy-policy-writer"
+import {
+  ensureStrategyRegistrySchema,
+  materializeDraftStrategy,
+  readReadyDraftStrategy,
+} from "./strategy-registry"
 
 const HASH = "c".repeat(64)
 
@@ -62,5 +72,50 @@ test("materializer rejects policy source not authorized by selected Candidate", 
     created_at: "2026-07-14T08:00:00Z", authorization: authorization(),
     policy_source: { ...source(), candidate: { ...source().candidate, candidate_id: "other" } },
   })).toThrow()
+  db.close()
+})
+
+test("materializer recovers a source committed before the Registry row became ready", () => {
+  const db = new Database(":memory:")
+  const root = mkdtempSync(join(tmpdir(), "rd-strategy-registry-"))
+  const input = { draft_id: "draft-recovery", strategy_version: "1", idempotency_key: "draft-key-recovery", strategy_root: root, created_at: "2026-07-14T08:00:00Z", authorization: authorization(), policy_source: source() }
+  const slug = strategyPolicySlug(input.policy_source.candidate.candidate_id)
+  const strategyRef = join(root, `${slug}.md`)
+  writeFileSync(strategyRef, renderStrategyPolicyMarkdown(input.policy_source))
+  ensureStrategyRegistrySchema(db)
+  db.query(`
+    INSERT INTO rd_strategy_draft(
+      draft_id, strategy_id, strategy_version, strategy_ref, strategy_policy_hash,
+      materialization_status, authorization_json, policy_source_json,
+      idempotency_key, error_message, created_at, updated_at
+    ) VALUES ($draft_id, $strategy_id, $version, NULL, NULL, 'pending',
+      $authorization, $source, $key, NULL, $created_at, $created_at)
+  `).run({
+    $draft_id: input.draft_id,
+    $strategy_id: strategyIDFromSlug(slug),
+    $version: input.strategy_version,
+    $authorization: JSON.stringify(input.authorization),
+    $source: JSON.stringify(input.policy_source),
+    $key: input.idempotency_key,
+    $created_at: input.created_at,
+  })
+  const binding = materializeDraftStrategy(db, input)
+  expect(binding.materialization_status).toBe("ready")
+  expect(binding.strategy_ref).toBe(strategyRef)
+  db.close()
+})
+
+test("materializer never overwrites a conflicting existing strategy source", () => {
+  const db = new Database(":memory:")
+  const root = mkdtempSync(join(tmpdir(), "rd-strategy-registry-"))
+  const input = { draft_id: "draft-conflict", strategy_version: "1", idempotency_key: "draft-key-conflict", strategy_root: root, created_at: "2026-07-14T08:00:00Z", authorization: authorization(), policy_source: source() }
+  const strategyRef = join(root, `${strategyPolicySlug(input.policy_source.candidate.candidate_id)}.md`)
+  writeFileSync(strategyRef, "foreign content\n")
+  expect(() => materializeDraftStrategy(db, input)).toThrow("content drifted")
+  expect(readFileSync(strategyRef, "utf8")).toBe("foreign content\n")
+  const row = db.query(`
+    SELECT materialization_status FROM rd_strategy_draft WHERE draft_id=$draft_id
+  `).get({ $draft_id: input.draft_id }) as { materialization_status: string }
+  expect(row.materialization_status).toBe("failed")
   db.close()
 })

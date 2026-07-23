@@ -21,7 +21,7 @@ last_verified: 2026-07-23 CST
 | Rust public L2 WebSocket、book、raw segment、gRPC/read owner | 多 symbol 与正式服务器托管；L2 尚未成为策略或执行 authority |
 | J01–J07 job graph、cadence、health、lease、idempotency | 常驻 program profile 仍关闭 domain jobs 与 live write |
 | trade plan、action intent、trigger expiry、execution gate | 没有独立的短期条件监控任务生命周期 |
-| J04 supervisor、Replay、forward、review、durable RD state | bounded autonomy refill、formal Replay resident queue 与 Replay→Reviewer 常驻唤醒已闭合；真实 Manifest provider、Registry/Forward 自动接线、长时 J04-J05-J07 soak 尚未闭合 |
+| J04 supervisor、Replay、forward、review、durable RD state | bounded autonomy refill、formal Replay、Replay→Reviewer 与 accepted Decision→candidate Draft 常驻链已闭合；真实 Manifest provider、candidate release adoption、Forward 自动接线、长时 J04-J05-J07 soak 尚未闭合 |
 | 既有 owner toolset、本地 stdio MCP 与 loopback HTTP allowlist | HTTP resident/audit/rotation 已验证，但尚未进入 manager composition；TLS/OpenClaw/长时 soak 未闭合 |
 | SQLite owner stores 与 artifact catalog | 本机真实 online backup/隔离 restore 已过；外部介质与被 durable ref 引用的 `tmp/` artifact 迁移仍未闭合 |
 
@@ -35,7 +35,7 @@ S1 截至 2026-07-23 已完成 macOS no-live 主机纵切：三个正式 foregro
 
 S3 已新增独立 `full_shadow` 固定 profile：同一 fenced supervisor/wakeup 可启用 J01–J07、强制 cadence due、保留 owner active/state gate，并永久关闭 exchange live write 与真实通知。干净 HEAD 的临时 SQLite/captured-owner 双周期 fixture 已得到 7/7 enabled、Agent/program `2/2 match`、零重复 job/incident；同槽重启 terminal skip 且 fencing token `1→2`，未出现 live command。当前版本化 server config 仍是 `shadow_program`；published owner CLI smoke、故障注入与长时观察完成前不得切换。
 
-S4/S5 已形成首个本地闭环：J04 路由先读 `plan_next`，ready/terminal 不调用模型；active empty/unready queue 才调用固定 Model Gateway，domain assessment 通过后以 `updated_at` CAS 原子入队，再委托既有 supervisor。模型失败不写 state/Trial，identical replay 幂等，stale/conflict fail closed；真实 provider probe 已通过。真实 R&D owner 子进程另完成 post-commit/pre-ack `SIGKILL`：重启前移除源 manifest 仍幂等读回同一 Result，数据库保持单一 completed Trial / Result。formal Replay 已有 durable single-slot queue、generation fencing、同 worker restart resume 与容器前台 worker；Agent overlay 另以独立 fenced queue 把 classified Result 唤醒为 Reviewer Agent Run，Host 故障不阻塞 base runtime，owner 已提交 Decision 可恢复。它仍不替代真实 mid-Replay kill、Manifest provider、Registry/Forward、J04/J05/J07 长时 soak 或 Linux 采用。
+S4/S5 已形成首个本地闭环：J04 路由先读 `plan_next`，ready/terminal 不调用模型；active empty/unready queue 才调用固定 Model Gateway，domain assessment 通过后以 `updated_at` CAS 原子入队，再委托既有 supervisor。模型失败不写 state/Trial，identical replay 幂等，stale/conflict fail closed；真实 provider probe 已通过。formal Replay 已有 durable single-slot queue、generation fencing、同 worker restart resume 与容器前台 worker；Agent overlay 以独立 fenced queue 把 classified Result 唤醒为 Reviewer Agent Run，再由无网络 Registry resident 将 `accept_for_draft` owner facts 编译成 hash-bound candidate Draft。Registry 只写独立 release-candidate volume，以 create-if-absent + fsync 保证崩溃恢复和不覆盖漂移内容；不会修改运行镜像、部署或交易。真实 mid-Replay kill、Manifest provider、candidate release adoption、Forward、J04/J05/J07 长时 soak 与 Linux 采用仍待闭合。
 
 S6 已新增 loopback-only Operator HTTP：Bearer + 独立 controlled approval、固定 read/write rate、exact route/payload 和 ops pre/post audit；当前只开放 tool search、RD read 与 approved J04 wakeup，不含 exchange/live/promotion/任意 command。Bun resident、真实 audit 回读和 API/approval token 重启轮换已通过，且 smoke 不调用 controlled owner；TLS、manager secret facility、OpenClaw client 与长时 soak 尚未完成。
 
@@ -257,7 +257,7 @@ validate config/secrets/volumes
 | D2 市场数据供给 | active-partial | typed demand registry 已完成；继续多 symbol、L2/OHLCV/indicator lifecycle | coverage / freshness / retention 可审计 |
 | D3 在线决策循环 | active-partial | J01/J02/J03、watch、账户级候选仲裁 | 无 fresh facts / contract / risk 即 no_action |
 | D4 执行与恢复 | active-partial | preflight、execution、confirm/reconcile、保护 / 减风险 | 重投不重复下单；未知事实锁风险 |
-| D5 长期策略工厂 | active-partial | Planner/Developer/Replay/Reviewer/Registry/Forward | Codex 式多轮研发不退化；单 Trial / Result |
+| D5 长期策略工厂 | active-partial | Planner/Developer/Replay/Reviewer/Registry/Forward | Replay→Reviewer→candidate Draft 已常驻且无自动 promotion；Codex 式多轮研发不退化、单 Trial / Result、Forward 待闭环 |
 | D6 策略治理闭环 | pending | review 成熟度、pause/retire/improve、旧 flow 兼容 | 生命周期决定可回指证据和精确版本 |
 | D7 存储、GC 与灾备 | active-partial | owner-authorized GC、L2 retention、备份 / 恢复 | 空间自愈；受保护事实零误删 |
 | D8 运维、安全与可观察性 | active-partial | health、incident、trace、secret、operator surface | 最小权限、脱敏、可轮换、可告警 |
@@ -342,8 +342,8 @@ validate config/secrets/volumes
 | D5.6 | owner 冻结 data、reserve Trial、执行 deterministic Replay | active-partial：6-Trial immutable Plan / Work Package 与 compatibility Result 已实跑；正式作业现从 Request Registration 经 data compile、durable single-slot queue、cancellation recovery、Attempt/Lease/Dispatch 到注册 Replay Runner，并在成功时原子闭合 Attempt、Trial、Result 与 `mechanical_replay/replay_owner` 分类。队列同 worker 重启复用 generation/execution，Lease 过期才轮转后继 Attempt；容器已编排常驻 worker。仍缺真实 status/spec/risk provider evidence → certified Manifest/Reservation owner compiler、Linux 采用与真实数据纵切 |
 | D5.7 | Agent 阅读失败 artifact 并二次修改或 reject | active-partial：Reviewer lesson 已驱动 4H→1h bounded revision；synthetic diagnosis → predecessor patch 重放 → 累计第二版 patch 的真实 worktree/check fixture 已通过；正式 Replay 已有 classified Result 与自动排队入口，尚缺 Reviewer 自动唤醒和真实模型二次修改纵切 |
 | D5.8 | Reviewer 基于登记 evidence 提交 decision | complete at historical compatibility stage：Result classification→bounded context→typed modify→lifecycle / lesson 幂等写回 |
-| D5.9 | Registry / Forward / Governance 沿正式入口接纳 | no automatic promotion |
-| D5.10 | mechanical Replay、Agent-assisted evaluation 和 Forward evidence 分权 | active-partial：compatibility evidence 明确无 formal Replay / promotion authority；正式作业只能发布 `mechanical_replay/replay_owner`，失败/取消不发布 Result，完成也只有 classified Reviewer input authority；Registry / Forward gate 仍待自动闭合 |
+| D5.9 | Registry / Forward / Governance 沿正式入口接纳 | active-partial：Registry owner-fact compiler、fenced resident queue、candidate-only materialization 已完成；candidate release adoption、Forward / Governance 待完成，始终 no automatic promotion |
+| D5.10 | mechanical Replay、Agent-assisted evaluation 和 Forward evidence 分权 | active-partial：formal Result 只授予 classified Reviewer input；Reviewer 接受只授予 Registry candidate source；Registry Draft 仍无 deployment/trading authority；Forward evidence gate 待闭合 |
 | D5.11 | 完成 kill/restart、provider outage、duplicate 和 locked-holdout 测试 | active-partial：Host terminal recovery、R&D post-commit/pre-ack `SIGKILL` 单 Trial/Result、context oversize fail/retry、SQLite bounded busy wait 与 locked-holdout zero-use 已验证；mid-execution kill、outage / 长时 Factory 待完成 |
 
 #### D6 策略治理闭环

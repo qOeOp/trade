@@ -20,7 +20,7 @@ last_verified: 2026-07-23 CST
 - Operator HTTP 是独立 opt-in override，使用单独 env file，只绑定 Linux host loopback，不向 runtime 注入模型或 operator secret。
 - Agent overlay 已拆出 semantic Host、code Host、OpenClaw、四个 role-scoped MCP、无网络 workspace checker 与 Reviewer resident worker；Host 不挂 Trade/R&D/Catalog DB，只有 Reviewer worker 以 Research DB + immutable Agent artifact + private Host 组成 formal Result→Review 接纳链。Host 不可用不会拖停 base runtime。镜像内 source revision 映射只为 frozen worktree，不把内部 snapshot commit 冒充发布 commit。
 
-该纵切仍是 `active-partial`：当前环境没有 Docker executable，因此只有 Dockerfile / Compose 静态合同、TypeScript/fault fixture、真实本机 OpenClaw Gateway code smoke，以及从 committed HEAD 生成的可校验 source package；尚无真实 Linux image build、container kill/restart、volume permission/cgroup、restore 或 soak 证据。它保持 J01–J07 `domain_jobs_enabled=false`，只显式启用无交易权限的 queued formal Replay；Reviewer resident 仅在 Agent overlay opt-in 后启动。`live_writes_allowed=false`，不能部署为实盘。
+该纵切仍是 `active-partial`：当前环境没有 Docker executable，因此只有 Dockerfile / Compose 静态合同、TypeScript/fault fixture、真实本机 OpenClaw Gateway code smoke，以及从 committed HEAD 生成的可校验 source package；尚无真实 Linux image build、container kill/restart、volume permission/cgroup、restore 或 soak 证据。它保持 J01–J07 `domain_jobs_enabled=false`，只显式启用无交易权限的 queued formal Replay；Reviewer 与 candidate-only Strategy Registry resident 仅在 Agent overlay opt-in 后启动。`live_writes_allowed=false`，不能部署为实盘。
 
 ## 2. 为什么 runtime 先同容器
 
@@ -116,7 +116,7 @@ Operator 仅监听服务器 `127.0.0.1:8787`；远程访问走 SSH tunnel / VPN�
 | `trade-artifacts` | 被 R&D / evidence 引用的 artifact | 与 catalog / ledger 一起备份恢复 |
 | `trade-panels` | validation / calibration / holdout workspace | ref / pin 闭包后才能清理 |
 | `trade-agent-artifacts` | Agent Run immutable input/output evidence | 与 Ops Agent Run/adoption identity 一起备份恢复 |
-| `trade-release-candidates` | certified patch manifest 与 source archive | 只有无 active adoption 且无 release ref 才能按 owner GC |
+| `trade-release-candidates` | certified patch manifest/source archive，以及按 Decision 隔离的 Draft Strategy candidate source | 运行镜像不得从此卷热加载策略；只有无 active Registry/adoption 且无 release ref 才能按 owner GC |
 
 镜像升级必须创建新 digest，先做 no-live preflight 与备份，再替换 container；失败回滚旧 digest与原 volume。不得把 runtime volume bake 入 image，也不得用 Git checkout 回滚 owner DB。
 
