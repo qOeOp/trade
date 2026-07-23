@@ -1,11 +1,12 @@
 # Market Data Store Contract
 
-Owns `market_data_store` for market manifests, admitted L2 epoch manifests, immutable L2 experiment-attachment referrer receipts and their read-only retention/reference audit, funding events, feature manifests, immutable instrument-status archives, and immutable aggregate-trade archives, plus `ohlcv_store` for canonical candles.
+Owns `market_data_store` for market manifests、typed Runtime / R&D market-data demands、admitted L2 epoch manifests、immutable L2 experiment-attachment referrer receipts and their read-only retention/reference audit、funding events、feature manifests、immutable instrument-status archives and immutable aggregate-trade archives, plus `ohlcv_store` for canonical candles.
 
 ## Responsibilities
 
 - Create and migrate the market data / OHLCV store schemas.
 - Upsert source/data manifests by content hash.
+- Register create-or-identical、self-hashed market-data demands; preserve explicit terminal release; deterministically reconcile non-released demands by priority、lease / defensive grace、bounded symbol capacity and strictest merged requirement. The result is a no-lifecycle-authority subscription proposal, not daemon control or readiness evidence.
 - Admit only `complete` Rust L2 epoch proposals after exact snapshot hash, snapshot update id, TL2S header/frame CRC, segment byte/hash/count, sibling-ref, repo runtime-path, and epoch count closure checks; commit epoch plus segment index create-or-identical.
 - Label admitted L2 scope as `epoch_contiguous` and external completeness as `not_verified`; preserve but reject `incomplete` proposals from the formal Replay/RD source catalog.
 - Reconcile finalized manifest trees idempotently, deduplicate observations by path plus exact content hash, and preserve bounded rejection reasons for incomplete or invalid proposals.
@@ -40,4 +41,5 @@ Owns `market_data_store` for market manifests, admitted L2 epoch manifests, immu
 - Does not expose the physical OHLCV database as a cross-domain query surface; Research consumes owner-produced slice artifacts.
 - Does not open or query the Control Plane database, prove remote caller identity, or replace the Control Plane registry. Registration accepts only the complete owner-read authority snapshot and verifies its self-hash plus local source binding.
 - Does not claim global referrer completeness. Zero registered Market Data referrers is not proof of no external references and never authorizes release、tombstone、file deletion or GC execution.
+- A demand lease or release does not itself start / stop a collector、prove coverage、or authorize raw deletion. Actual subscription lifecycle and retention require separate Market Data owner gates.
 - Does not normalize status epochs, infer missing events, select a canonical/latest correction, or certify external venue completeness, authenticity, signature, transport identity, source-system exhaustiveness, dissemination latency, or cross-source ordering.
