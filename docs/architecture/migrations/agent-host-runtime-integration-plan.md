@@ -17,7 +17,7 @@ last_verified: 2026-07-23 CST
 - `agent.mcp` 已同时提供同机 stdio 与 bearer-authenticated private HTTP profile；`ops.operator-http` 仍是 loopback-only 小型 allowlist。
 - Codex 是当前开发与人工操作环境；OpenClaw `2026.7.1` alternate Chat runtime 已完成本机 proposal-only 采用，LangGraph 未引入。
 - 仓库已有 no-live Compose / OpenClaw / Agent Host / MCP fixture，但本机没有 Docker，尚无真实 Linux 容器采用证据。
-- canonical Planner → Developer → owner freeze / Trial Plan → compatibility evaluation → Reviewer → feedback lesson 已完成两轮真实纵切；正式 certified Replay、代码 patch 二次修订、Registry / Forward 尚未闭环。
+- canonical Planner → Developer → owner freeze / Trial Plan → compatibility evaluation → Reviewer → feedback lesson 已完成两轮真实纵切；Developer assessment 已不再把 implementation gap 误报为普通 `tool_blocked`，会发出 workspace-only Agent Run capability 并禁止落入 semantic MCP 路径。正式 workspace Host 后处理、certified Replay、代码 patch 二次修订、Registry / Forward 尚未闭环。
 
 目标采用三层执行模型，并服从 [Remote Container Runtime Integration](./remote-container-runtime-integration-plan.md) 的部署边界：
 
@@ -265,7 +265,7 @@ Host 运行状态属于 ops plane。是否新增 durable store、复用 `ops_run
 | P1 Agent Run 合同 | complete | provider / Host 中立的 request、event、result 与 policy | contract tests、恶意输入和 identity replay 全过 |
 | P2 Provider / Codex capability | active-partial | 分离 SiliconFlow wire 能力与 Codex protocol 能力 | capability matrix 可归因；不以 prompt 掩盖协议失败 |
 | P3 Direct Codex adapter | active-partial | Program 可提交、观察、取消和失败关闭有界 Codex Run | 真实 structured turn 与 daemon transport 待采用 |
-| P4 MCP 与 Developer sandbox | active-partial | 私有 MCP、角色投影与每 Run 隔离 worktree 已落地 | 容器读隔离 / cgroup 与真实 Developer 纵切待采用 |
+| P4 MCP 与 Developer sandbox | active-partial | 私有 MCP、角色投影、每 Run 隔离 worktree与 implementation-gap workspace routing 已落地 | Host patch/check 后处理、容器读隔离 / cgroup 与真实 Developer 纵切待采用 |
 | P5 R&D Agent 纵切 | active-partial | Planner → Developer → Replay → Reviewer → Registry | 两轮 Planner/Developer/compatibility evaluation/Reviewer 已实跑；certified Replay、代码二次修订、Registry 待闭环 |
 | P6 OpenClaw 与容器 | active-partial | OpenClaw-Codex、alternate runtime 与 no-live Compose fixture | alternate runtime/fixture 已落地；真实容器采用待外部 host |
 | P7 Bake-off 与可靠性 | pending | 公平比较、故障注入、资源 / 磁盘与长时运行 | 无 authority violation；形成采用或拒绝证据 |
@@ -347,6 +347,8 @@ P5/P6 本机采用新增确定性证据：OpenClaw `2026.7.1` 通过最小 MCP r
 | P4.8 | 生成 patch、source hash、test refs 与 artifact manifest；不自动 apply / merge | reproducibility tests |
 | P4.9 | 验证 Planner / Reviewer 只读，Developer 权限不外溢到 Host | role boundary tests |
 | P4.10 | 异常退出、残留 worktree、磁盘软线与 GC 清理 | recovery / cleanup report |
+
+当前 code path 不再“形有神无”：`family_implementation_missing` 与 `replay_implementation_not_ready` 确定性分类为 `code_change_required`，request 才获得 workspace read/patch/check capability；普通 semantic cycle 和 `research_developer_submission_prepare` 都显式拒绝该模式，避免 OpenClaw proposal-only profile 冒充代码 Agent。下一闭包是 workspace-capable Host 完成修改后，由 Host 捕获 patch / check artifacts 并构造 submission；模型文本不得自报 hash 或测试通过。
 
 ### P5 Planner / Developer / Replay / Reviewer 纵切
 

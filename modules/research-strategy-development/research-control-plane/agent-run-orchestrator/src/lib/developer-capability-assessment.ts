@@ -25,7 +25,11 @@ export interface DeveloperCapabilityAssessmentBody extends JSONRecord {
   family_capability: StrategyFamilyCapability | null
   candidate_space_compatibility: CandidateSpaceCompatibility | null
   data_snapshot_binding: DeveloperDataSnapshotBinding | null
-  required_mode: "existing_implementation" | "data_blocked" | "tool_blocked"
+  required_mode:
+    | "existing_implementation"
+    | "code_change_required"
+    | "data_blocked"
+    | "tool_blocked"
   reason_code: string
   required_capabilities: string[]
 }
@@ -61,13 +65,24 @@ export function createDeveloperCapabilityAssessment(input: {
   let reasonCode: string
   let requiredCapabilities: string[]
   if (!family) {
-    requiredMode = "tool_blocked"
+    requiredMode = "code_change_required"
     reasonCode = "family_implementation_missing"
-    requiredCapabilities = ["family_implementation"]
+    requiredCapabilities = [
+      "bounded_quality_check",
+      "family_implementation",
+      "workspace_patch",
+      "workspace_read",
+    ]
   } else if (family.replay_coverage !== "ready") {
-    requiredMode = "tool_blocked"
+    requiredMode = "code_change_required"
     reasonCode = "replay_implementation_not_ready"
-    requiredCapabilities = [`family:${family.family_id}`, "replay_implementation"]
+    requiredCapabilities = [
+      "bounded_quality_check",
+      `family:${family.family_id}`,
+      "replay_implementation",
+      "workspace_patch",
+      "workspace_read",
+    ]
   } else if (!sameStrings(family.required_data, input.brief.dataset_requirements)) {
     requiredMode = "tool_blocked"
     reasonCode = "family_data_contract_mismatch"

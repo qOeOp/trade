@@ -437,6 +437,7 @@ test("Developer preparation loads immutable Agent Run context and sends only own
     requested_at: "2026-07-23T13:00:00.000Z",
   }
   const context = { ...body, context_pack_hash: canonicalHash(body) }
+  let activeContext: JSONRecord = context
   const contextRef = {
     ref: `agent-artifact://temporary/${"d".repeat(64)}`,
     sha256: "d".repeat(64),
@@ -452,7 +453,12 @@ test("Developer preparation loads immutable Agent Run context and sends only own
         const artifactInput = (command.stdin_json ?? {}) as JSONRecord
         if (artifactInput.action === "read_text") {
           assert.deepEqual(command.stdin_json, { action: "read_text", artifact: contextRef })
-          return { ok: true, action: "read_text", artifact: contextRef, text: JSON.stringify(context) }
+          return {
+            ok: true,
+            action: "read_text",
+            artifact: contextRef,
+            text: JSON.stringify(activeContext),
+          }
         }
         terminalArtifactText = String(artifactInput.text)
         const artifact = {
@@ -532,6 +538,24 @@ test("Developer preparation loads immutable Agent Run context and sends only own
   assert.equal(
     (recordedToolResult?.artifact as JSONRecord).ref,
     `agent-artifact://durable/${"e".repeat(64)}`,
+  )
+
+  const codeBody = {
+    ...body,
+    capability_assessment: {
+      ...body.capability_assessment,
+      required_mode: "code_change_required",
+      reason_code: "replay_implementation_not_ready",
+      required_capabilities: ["workspace_read", "workspace_patch", "bounded_quality_check"],
+    },
+  }
+  activeContext = { ...codeBody, context_pack_hash: canonicalHash(codeBody) }
+  await assert.rejects(
+    service.prepareDeveloperSubmission({
+      developer_run_id: body.developer_run_id,
+      request_hash: "b".repeat(64),
+    }),
+    /isolated workspace Host cycle/,
   )
 })
 

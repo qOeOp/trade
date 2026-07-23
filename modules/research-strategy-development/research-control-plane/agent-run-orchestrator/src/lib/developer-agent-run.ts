@@ -50,6 +50,7 @@ export interface DeveloperAgentContextPack {
 export interface PreparedDeveloperAgentRun {
   context_pack: DeveloperAgentContextPack
   request: AgentRunRequest
+  execution_route: "semantic_host" | "workspace_host"
 }
 
 export interface DeveloperAgentAdmission {
@@ -61,7 +62,7 @@ export interface DeveloperAgentAdmission {
   patch_ref: string | null
 }
 
-const DEVELOPER_INSTRUCTION = [
+const DEVELOPER_SEMANTIC_INSTRUCTION = [
   "Act as the bounded R&D Developer in the isolated workspace.",
   "The context-pack capability_assessment is deterministic and authoritative; never claim stronger family, Replay, or data coverage.",
   "Call research_developer_submission_prepare exactly once with only context-pack developer_run_id and the outer run.request_hash unchanged, plus semantic_contract and an optional bounded requested_trial_budget when the assessment is ready.",
@@ -73,8 +74,17 @@ const DEVELOPER_INSTRUCTION = [
   "Do not calculate hashes, candidate assignments, Trial Group identity, versions, source refs, dataset refs, assumptions refs, replay requirement hashes, fees, slippage, capacity, margin, holding-period estimates, or unsupported controls.",
   "The tool result is already the final trade.rd-developer-agent-submission.v1 object. Return that exact top-level object without wrapping it in submission, structuredContent, prose, or markdown.",
   "Returning NO_REPLY, an empty response, or a summary is forbidden because the Agent Host must persist the exact canonical object as the run output artifact.",
-  "A code change must bind a reviewable patch and successful bounded quality-check artifacts.",
   "Do not apply a patch, reserve a Trial, execute Replay, materialize a strategy, promote, deploy, or trade.",
+].join("\n")
+
+const DEVELOPER_WORKSPACE_INSTRUCTION = [
+  "Act as the bounded R&D Developer for one code-change phase in an isolated frozen worktree.",
+  "The context-pack capability_assessment is deterministic and authoritative; change only the missing capability it identifies.",
+  "Do not call research_developer_submission_prepare: the current owner implementation is not ready, so the semantic Contract Draft phase cannot run yet.",
+  "Read only the supplied context and isolated worktree. Do not access secrets, owner databases, the production checkout, Docker, external network, or another workspace.",
+  "Modify implementation and tests only inside the externally issued write scope. Run only the allowlisted bounded package check.",
+  "Do not calculate or mint Control Plane identities, freeze a Contract, reserve a Trial, execute Replay, merge, promote, deploy, or trade.",
+  "Finish with a concise description of changed files and test outcome. The Host—not the model—must capture the patch and quality artifacts and construct the typed submission.",
 ].join("\n")
 
 export function prepareDeveloperAgentRun(input: {
@@ -126,7 +136,14 @@ export function prepareDeveloperAgentRun(input: {
     ...body,
     context_pack_hash: canonicalHash(body),
   }
-  const instructionRef = putVerified(input.artifacts, DEVELOPER_INSTRUCTION, "text/markdown")
+  const workspaceRequired = capabilityAssessment.required_mode === "code_change_required"
+  const instructionRef = putVerified(
+    input.artifacts,
+    workspaceRequired
+      ? DEVELOPER_WORKSPACE_INSTRUCTION
+      : DEVELOPER_SEMANTIC_INSTRUCTION,
+    "text/markdown",
+  )
   const contextRef = putVerified(input.artifacts, canonicalJson(contextPack), "application/json")
   const request = buildAgentRunRequest({
     run_id: input.developer_run_id,
@@ -138,7 +155,15 @@ export function prepareDeveloperAgentRun(input: {
     instruction_ref: instructionRef,
     input_refs: [contextRef, ...body.replay_result_refs],
     output_schema_version: DEVELOPER_AGENT_SUBMISSION_SCHEMA,
-    capabilities: ["owner_read", "research_read"],
+    capabilities: workspaceRequired
+      ? [
+          "owner_read",
+          "research_read",
+          "workspace_read",
+          "workspace_patch",
+          "bounded_quality_check",
+        ]
+      : ["owner_read", "research_read"],
     budget: {
       deadline_at: utc(input.deadline_at, "deadline_at"),
       max_wall_time_ms: boundedInteger(input.max_wall_time_ms ?? 1_800_000, 1_000, 7_200_000, "max_wall_time_ms"),
@@ -150,7 +175,11 @@ export function prepareDeveloperAgentRun(input: {
     },
     data_classification: "project_internal",
   })
-  return { context_pack: contextPack, request }
+  return {
+    context_pack: contextPack,
+    request,
+    execution_route: workspaceRequired ? "workspace_host" : "semantic_host",
+  }
 }
 
 function readOrIssueBrief(

@@ -50,6 +50,11 @@ export async function runDeveloperAgentCycle(input: {
       ? { data_snapshot_binding: input.data_snapshot_binding }
       : {}),
   })
+  if (prepared.execution_route === "workspace_host") {
+    throw new Error(
+      "Developer code-change requires the isolated workspace Host cycle; semantic Host execution is forbidden",
+    )
+  }
   const completed = await executeAgentRunThroughHost({
     host: input.host,
     request: prepared.request,

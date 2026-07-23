@@ -54,7 +54,35 @@ test("Developer capability assessment separates proposal, data, and ready paths"
   expect(ready.data_snapshot_binding).toEqual(binding)
 })
 
-function brief(candidateSpace: Record<string, unknown>): DeveloperDevelopmentBrief {
+test("missing or partial family implementation routes to isolated code change", () => {
+  const missing = createDeveloperCapabilityAssessment({
+    brief: brief(
+      { lookback_bars: [20] },
+      "canonical:unimplemented/example/missing-family",
+    ),
+    source_revision: "abc123",
+  })
+  expect(missing.required_mode).toBe("code_change_required")
+  expect(missing.reason_code).toBe("family_implementation_missing")
+  expect(missing.required_capabilities).toContain("workspace_patch")
+  expect(missing.required_capabilities).toContain("bounded_quality_check")
+
+  const partial = createDeveloperCapabilityAssessment({
+    brief: brief(
+      { lookback_bars: [20] },
+      "canonical:trend/cross-sectional-momentum/relative-weakness-momentum",
+    ),
+    source_revision: "abc123",
+  })
+  expect(partial.required_mode).toBe("code_change_required")
+  expect(partial.reason_code).toBe("replay_implementation_not_ready")
+  expect(partial.family_capability?.replay_coverage).toBe("partial")
+})
+
+function brief(
+  candidateSpace: Record<string, unknown>,
+  universeNodeId = "canonical:trend/time-series-trend/time-series-momentum",
+): DeveloperDevelopmentBrief {
   return {
     schema_version: "trade.rd-developer-development-brief.v1",
     brief_id: "brief-1",
@@ -63,7 +91,7 @@ function brief(candidateSpace: Record<string, unknown>): DeveloperDevelopmentBri
     proposal_hash: HASH,
     proposal_admission_hash: HASH,
     hypothesis_id: "hypothesis-1",
-    universe_node_id: "canonical:trend/time-series-trend/time-series-momentum",
+    universe_node_id: universeNodeId,
     objective: "test",
     dataset_requirements: ["ohlcv"],
     candidate_space: candidateSpace,

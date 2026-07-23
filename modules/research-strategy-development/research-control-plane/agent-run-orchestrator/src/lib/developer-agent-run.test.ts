@@ -8,6 +8,7 @@ import {
   type AgentRunRequest,
 } from "../../../../../contracts/agent-run-contract/src/agent-run-contract"
 import { canonicalJson } from "../../../../../contracts/runtime-core/src/canonical-json"
+import { readFamilyEvaluationProtocol } from "../../../../../contracts/rd-agent-capability-contract/src/rd-agent-capability-contract"
 import {
   createDeveloperAgentSubmission,
   DEVELOPER_AGENT_SUBMISSION_SCHEMA,
@@ -206,19 +207,78 @@ test("Developer code-change and blocked modes cannot smuggle incomplete effects"
   }
 })
 
-function seedProposal(db: Database) {
+test("Developer implementation gaps route to workspace Host without semantic MCP instructions", () => {
+  const db = new Database(":memory:")
+  const artifacts = memoryArtifacts()
+  try {
+    const universeNodeId =
+      "canonical:trend/cross-sectional-momentum/relative-weakness-momentum"
+    const proposal = seedProposal(db, {
+      universe_node_id: universeNodeId,
+      candidate_space: {
+        side: ["long"],
+        signal_mode: ["momentum"],
+        confirmation_mode: ["none"],
+        lookback_bars: [20],
+      },
+    })
+    const prepared = prepareDeveloperAgentRun({
+      db,
+      developer_run_id: "developer-agent-run-code",
+      trace_id: "trace-developer-code",
+      idempotency_key: "developer-agent-key-code",
+      source_revision: "0123456789abcdef",
+      requested_at: "2026-07-23T10:04:00.000Z",
+      deadline_at: "2026-07-23T10:34:00.000Z",
+      proposal_id: proposal.proposal_id,
+      proposal_revision: 1,
+      brief_id: "brief-agent-code",
+      artifacts,
+    })
+
+    assert.equal(prepared.execution_route, "workspace_host")
+    assert.equal(
+      prepared.context_pack.capability_assessment.reason_code,
+      "replay_implementation_not_ready",
+    )
+    assert.deepEqual(prepared.request.capabilities, [
+      "owner_read",
+      "research_read",
+      "workspace_read",
+      "workspace_patch",
+      "bounded_quality_check",
+    ])
+    const instruction = artifacts.read(prepared.request.instruction_ref)
+    assert.match(instruction, /Do not call research_developer_submission_prepare/)
+    assert.match(instruction, /Host—not the model—must capture the patch/)
+  } finally {
+    db.close()
+  }
+})
+
+function seedProposal(
+  db: Database,
+  overrides: {
+    universe_node_id?: string
+    candidate_space?: Record<string, unknown>
+  } = {},
+) {
   ensureResearchStateSchema(db)
   seedDefaultResearchControlPlane(db, "2026-07-23T10:00:00.000Z")
   const context = readPlannerControlPlaneContext(db)
+  const universeNodeId = overrides.universe_node_id
+    ?? "canonical:trend/time-series-trend/time-series-momentum"
+  const protocol = readFamilyEvaluationProtocol(universeNodeId)
+  if (!protocol) throw new Error("Developer Agent test protocol is missing")
   const proposal = buildPlannerProposal({
     proposal_id: "proposal-developer-agent",
     hypothesis_id: "hypothesis-developer-agent",
-    universe_node_id: "canonical:trend/time-series-trend/time-series-momentum",
+    universe_node_id: universeNodeId,
     objective: "Test one bounded time-series momentum mechanism",
     dataset_requirements: ["ohlcv"],
-    candidate_space: { lookback_bars: [20, 40] },
+    candidate_space: overrides.candidate_space ?? { lookback_bars: [20, 40] },
     trial_budget: 2,
-    evaluation_protocol_ref: "protocol:time-series-momentum-eval-v1",
+    evaluation_protocol_ref: protocol.protocol_ref,
     control_plane_context: context,
     created_at: "2026-07-23T10:01:00.000Z",
   })

@@ -39,7 +39,11 @@ interface DeveloperAgentContextPack extends JSONRecord {
     max_trial_budget: number
   }
   capability_assessment: JSONRecord & {
-    required_mode: "existing_implementation" | "data_blocked" | "tool_blocked"
+    required_mode:
+      | "existing_implementation"
+      | "code_change_required"
+      | "data_blocked"
+      | "tool_blocked"
     reason_code: string
     required_capabilities: string[]
     family_capability: JSONRecord | null
@@ -328,6 +332,11 @@ export class ResearchJobService {
     })
     const context = await this.readDeveloperAgentContext(input.developer_run_id, input.request_hash)
     const assessment = context.capability_assessment
+    if (assessment.required_mode === "code_change_required") {
+      throw new Error(
+        "code-change Developer submission requires the isolated workspace Host cycle",
+      )
+    }
     const blocked = assessment.required_mode === "data_blocked"
       || assessment.required_mode === "tool_blocked"
     if (blocked && (input.semantic_contract || input.requested_trial_budget != null)) {
