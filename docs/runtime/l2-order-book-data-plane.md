@@ -10,9 +10,32 @@ last_verified: 2026-07-23 CST
 
 ## 1. 状态与目标
 
-本文定义 public L2 从采集、可恢复记录、订单簿投影到程序化消费的合同。Rust / TL2S 已通过 [L2 Runtime Adoption Decision](../architecture/l2-runtime-adoption-decision.md)，并形成单标的 production-candidate service、loopback gRPC、仓库托管 supervisor、连续 TypeScript owner admission、磁盘水位保护，以及 owner-issued TL2S → Parquet compaction / bounded read → Control Plane non-economic attachment 纵切；多 symbol、24h 自然轮转验收、raw GC、Replay Runner cutover 与 broker 仍未完成，因此保持 `active-partial`。`l2-recorder-bakeoff` 继续是证据模块，不是生产依赖。
+本文定义 public L2 从采集、可恢复记录、订单簿投影到程序化消费的合同。Rust / TL2S 已通过 [L2 Runtime Adoption Decision](../architecture/l2-runtime-adoption-decision.md)，并形成单标的 production-candidate service、loopback gRPC、仓库托管 supervisor、连续 TypeScript owner admission、磁盘水位保护，以及 owner-issued TL2S → Parquet compaction / bounded read → Control Plane non-economic attachment 纵切；多 symbol、业务需求协调、24h 自然轮转验收、raw GC、Replay Runner cutover 与 broker 仍未完成，因此保持 `active-partial`。`l2-recorder-bakeoff` 继续是证据模块，不是生产依赖。
 
 目标是：Agent、LLM、MCP 和任一消费者离线时，L2 owner 仍能连续运行；任何不连续都成为显式 epoch / incident，而不是被静默修补。
+
+### 1.1 目标需求语义与当前差距
+
+目标不是由 Runtime 或 R&D 按查询临时启停采集进程，而是由它们声明数据需求，Market Data owner 将多个需求协调为常驻订阅、readiness、coverage 和 retention：
+
+```text
+slow-track candidate / active flow / order-position / RD experiment
+  -> admitted L2 need
+  -> owner reconciles symbol collection
+  -> warmup / snapshot bridge / live readiness
+  -> current read or finalized historical source
+  -> safe release after all needs end
+```
+
+首个跨域合同 `trade.market-data-demand.v1` 已冻结 demand / consumer / subject identity、priority、L2 / OHLCV / indicator requirement、bounded lease、defensive renewal grace 与 canonical hash。`market-data-store` 以 create-or-identical 方式登记和显式 release，并输出 deterministic、bounded-capacity、`lifecycle_authority=none` 的 subscription proposal；调用方仍不能控制 daemon。
+
+- 慢轨全市场扫描先使用 ticker / snapshot / OHLCV 等低成本事实，只为晋级候选提出短期 L2 需求。
+- active flow、挂单和持仓形成更强的持续需求；普通候选不能让其被释放。策略退役也不能中断已有 exposure 的数据与防御链。
+- R&D 若需未来 L2 样本，先提出采集需求；若做历史 Replay，只能消费已经 finalized / admitted 的 source manifest。
+- current-book query 只回答当前原子视图，不能补造过去；一次调用失败也不能让 owner 为迎合调用方返回 stale book。
+- 调用方不得直接控制 Rust lifecycle、注入 endpoint/path 或按自身规则删除 raw 数据。
+
+当前已完成需求 registry、显式 release、优先级 / lease / grace 与 strict requirement merge；profile 仍固定 `BTCUSDT`，proposal 尚未接入动态多 symbol lifecycle、真实 capacity admission、coverage readiness 或 safe collector release。因此不能把“selected symbol”解释成“数据已就绪”。
 
 ## 2. 决策边界
 
@@ -97,6 +120,18 @@ starting -> buffering -> bridging -> live
 
 Retention 只冻结安全下界：epoch admission 初始为 `raw_hot`；owner 先登记唯一 job，Rust 只读取该 job 指定的 complete TL2S evidence 并 create-new 发布 Parquet + proposal；owner 逐字段闭合 job、source manifest、row count、Parquet bytes/hash 后才推进为 `compacted_pinned`。两种状态均固定 `deletion_eligible=false`。Market Data 已能把 Control Plane owner-read 的完整 self-hashed attachment 验证为本地 source referrer，并只保存 immutable 最小收据；该收据是 catalog reference，不是删除许可。owner 另提供单 epoch、确定性 self-hashed 的只读闭包审计，区分 raw、压缩后零登记引用和压缩后有登记引用；并提供按 `epoch_id` 排序、最多 50 条的 self-hashed 摘要页。页内计数不冒充全 catalog，跨页不声称同一 snapshot，且不产生删除候选。其范围仅是 Market Data 已登记 catalog，`0` 不证明外部无引用，所有状态均返回 `forbidden_no_gc_authority`。其他 consumer 的 referrer 闭包、release 语义和独立 GC gate 落地前，不自动删除 raw、snapshot、manifest、Parquet 或 incomplete incident evidence。磁盘进入 soft watermark 时 readiness 降级；hard watermark 或无法读取磁盘状态时，supervisor 在启动前拒绝或对运行中 child 做 drain 后失败终止。
 
+### 目标容量回收合同（未实现）
+
+磁盘水位是 GC / compaction 的调度信号，不应直接成为常态人工阻塞：
+
+1. 周期 inventory 计算 raw、compacted、pinned、referenced、incident 和 deletion-eligible bytes。
+2. soft watermark 加速 finalize / compaction 与专属 GC，先回收已过 retention、引用闭包完整且获 owner release 的 raw；可延期的候选 / R&D 新采集可暂缓，active exposure 数据需求不得被普通候选挤出。
+3. 回收后重新测量；仍不足才继续缩减可重建 cache、过期 demand 和低优先级新增写入。
+4. 只有回收失败且触及 hard line 时，才停止新的采集 admission 和依赖 L2 的新增风险；现有数据读取、reconcile、已有 exposure 的保护 / 减风险和 incident 保全继续到其自身安全边界。
+5. 每次删除记录 owner、epoch / segment、bytes、retention verdict、完整 referrer closure 和 release reason；失败或未知引用一律保留。
+
+通用 artifact GC、Agent 和 MCP 均无权删除 L2 数据。Agent 可扫描 catalog / 文件解释未知占用并提交 proposal；Market Data owner 必须以确定性引用闭包和 retention gate 决定。当前 `deletion_eligible=false` 与 hard-watermark fail-closed 行为保持不变，直到该纵切通过 crash、并发引用、Replay pin、误删和磁盘压力测试。
+
 ## 5. 最小事件合同
 
 所有边界共享以下 identity；具体 protobuf / schema 在首个生产纵切中冻结：
@@ -157,6 +192,7 @@ continuity_status + source_status
 | Runtime health guard | 已支持 service owner 与 resident consumer 两个独立 opt-in pre-cycle check 及 per-job dependency | 仅通过登记 owner read 消费 readiness 与安全 projection；默认不启用、不直读 PID/路径/SQLite/gRPC、不获得生命周期 authority |
 | Current-book probe | 已接首个独立、只读、非经济程序化消费者 | 必须先通过登记的 owner health，再读登记的 current-book owner surface；同 symbol/epoch、freshness 与 authority 漂移均 fail closed，不进入 J01–J07 或 MCP |
 | Resident watch consumer | supervisor + worker + atomic latest projection 已实现 | worker 复用 bounded watch/resnapshot 状态机；owner read 只给 health、latest baseline 与累计 counters，不给 PID/path/lifecycle/delta delivery |
+| Runtime / RD demand | 当前无正式 consumer；server profile 固定单 symbol | 后续由 Market Data owner 接纳并协调候选、active exposure 与研究需求；调用方只提交需求和读取 readiness，不控制 daemon |
 
 目录移动、数据格式冻结、owner-store migration、consumer cutover 分开完成；任何阶段都不得让 Replay / RD 或 live execution 依赖 bake-off 临时路径。
 
@@ -213,6 +249,12 @@ P1.26 将 parity 口径修正为 `shared_owner_result_replay_v1`：program 每�
 consumer 现以固定 taxonomy 区分 owner-health/current-book/snapshot/watch failure，并跨恢复与 worker restart 保留最近一次净化后的 timestamp、operation、class、attempt；原始异常、stderr、路径、PID 与 owner detail 不进入 owner/runtime/MCP projection。真实 worker `SIGKILL` 后 supervisor 由 attempt `2→3` 自动恢复，累计 counters 未清零，owner state 在恢复 healthy 后仍保留最近的 `watch_unavailable` timestamp/operation/class/attempt，证明新合同已加载。
 
 P1.28 以 production-like immutable release 作为 availability 主证据，并把 dirty workspace 长驻栈仅作对照。`2026-07-23T02:15:28Z..02:30:30Z` 的 15 分钟窗口内，release consumer 完成 696 个 watch cycle / 7,461 个 watermark，watch/snapshot failure、retry、reconnect、worker restart、resync 全部零增量；Rust owner 始终 `running`、attempt 与 consecutive failure 零增量，RSS `15.2MB→15.4MB`、历史峰值 `20.2MB`。同窗 workspace 对照完成 793 cycle / 8,563 event，出现 1 次 typed `watch_unavailable` 后自动恢复，owner 未重启；另对 release loopback 连续 24 次真实 `1000ms` watch 均成功，`timed_out=true` 被确认是正常有界完成而非 failure。采用门据此固定为 production-like release 的 clean rolling window + owner 零 restart/incident + consumer live/fresh 终态；不要求进程生命周期绝对零瞬时错误。P1.28 放行 J06 one-shot canary，但不放行实盘写、Replay cutover 或双 owner。
+
+P1.29 在本机容量下降时暴露两项长期运行缺陷：hard watermark 令 foreground 失败退出后被 launchd 每 5 秒重启，累计产生 797 个 runtime 目录；空间回到 soft 区间后 Rust source 已 live，但非经济 consumer 仍拒绝读取并快速重试。修复后 hard/unknown 压力只停止 child，单一 foreground supervisor 原地有界重检；soft pressure 允许 owner 明确声明的 fresh/live 非经济读取继续，owner status 与 server profile 仍为 degraded，严格 Runtime health 不因此放宽。launchd `state = not running` 也被准确投影为 inactive。该改动解决 restart amplification，不替代尚待完成的 Program-owned GC、L2 retention release 或 clean-release 压力重演。
+
+P1.30 进一步修复 receipt 跨长时间运行后的 PID reuse：active selection、owner health/current-book/watch、status、stop 与 resident consumer 均要求 `ps` command 同时闭合固定 entrypoint、runtime directory 和关键 service arguments，单纯 `kill(pid, 0)` 不再足够。owner-authorized runtime GC 默认只给 plan，apply 时把超过 60 秒且无 exact supervisor identity 的目录原子移入同模块 archive，不删除 durable raw / manifest / DB。真实 immutable release 的 797 个 active-scan 目录中，796 个旧 receipt 被移入 archive，唯一真实 runtime 保留；随后 owner 与 consumer 同 epoch 恢复 `healthy`。该恢复不替代 archive retention、raw GC 或新 release 压力重演。
+
+P1.31 建立 bounded multi-symbol owner seam：service / current-book / watch / resident consumer 现在可显式按 symbol 选择唯一 exact runtime；无 symbol 的旧调用仍只在全局唯一时成功。`trade.l2-multi-symbol-plan.v1` 把 owner-authenticated demand plan 映射为稳定 slot、loopback port、per-symbol output root，并保证 replacement 先 drain 后 start；defensive capacity 不足时零动作保留现有进程。新增 `market-data-runtime-manager` foreground owner 只经 `market-data-store` CLI 读取 plan，按 owner-ready → consumer-ready 启动、consumer → owner 停机，DB / plan 失败时保留已有 pair。无需求真实 11-cycle fixture 已 `running → SIGINT → stopped` 且无 child；双 symbol public-stream、manager kill/restart、slot eviction 和 server profile cutover 尚未采用，因此当前固定 `BTCUSDT` release 不变。
 
 ### C — consumer 与 broker
 
