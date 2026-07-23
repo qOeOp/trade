@@ -27,6 +27,33 @@ test("demand is closed-world, self-hashed, bounded, and grants no domain authori
       renewal_grace_ms: 1,
     },
   }), /only defensive_exposure/)
+  const rolling = buildDemand({
+    requirements: [{
+      product: "ohlcv",
+      timeframe: "1h",
+      indicator_set_ref: null,
+      coverage_start: null,
+      coverage_end: null,
+      max_freshness_ms: 60_000,
+      minimum_depth: null,
+    }],
+  })
+  assert.equal(rolling.requirements[0]?.coverage_start, null)
+  const rollingFrom = buildDemand({
+    requirements: [{
+      product: "ohlcv",
+      timeframe: "1h",
+      indicator_set_ref: null,
+      coverage_start: "2026-01-01T00:00:00.000Z",
+      coverage_end: null,
+      max_freshness_ms: 60_000,
+      minimum_depth: null,
+    }],
+  })
+  assert.equal(rollingFrom.requirements[0]?.coverage_end, null)
+  assert.throws(() => buildDemand({
+    requirements: [ohlcv("1h", null as unknown as string, "2026-01-02T00:00:00.000Z", 60_000)],
+  }), /historical product shape/)
 })
 
 test("reconciliation merges strict requirements and prioritizes active exposure under capacity", () => {

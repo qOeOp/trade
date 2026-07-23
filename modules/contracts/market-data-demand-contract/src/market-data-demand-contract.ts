@@ -326,10 +326,14 @@ function compileRequirement(value: unknown, index: number): MarketDataRequiremen
       throw new Error(`${field} l2_book shape is invalid`)
     }
   } else {
-    if (timeframe == null || coverageStart == null || coverageEnd == null || minimumDepth != null) {
+    const hasCoverageStart = coverageStart != null
+    const hasCoverageEnd = coverageEnd != null
+    if (timeframe == null || (!hasCoverageStart && hasCoverageEnd) || minimumDepth != null) {
       throw new Error(`${field} historical product shape is invalid`)
     }
-    if (Date.parse(coverageStart) >= Date.parse(coverageEnd)) throw new Error(`${field} coverage window is invalid`)
+    if (coverageStart != null && coverageEnd != null && Date.parse(coverageStart) >= Date.parse(coverageEnd)) {
+      throw new Error(`${field} coverage window is invalid`)
+    }
     if ((product === "indicator_set") !== (indicatorSetRef != null)) {
       throw new Error(`${field} indicator_set_ref shape is invalid`)
     }
@@ -398,7 +402,7 @@ function mergeSubscriptions(demands: MarketDataDemand[]): MarketDataSubscription
       timeframe: firstRequirement.timeframe,
       indicator_set_ref: firstRequirement.indicator_set_ref,
       coverage_start: nullableMinimum(group.requirements.map((item) => item.coverage_start)),
-      coverage_end: nullableMaximum(group.requirements.map((item) => item.coverage_end)),
+      coverage_end: nullableMaximumWithOpenEnd(group.requirements.map((item) => item.coverage_end)),
       max_freshness_ms: Math.min(...group.requirements.map((item) => item.max_freshness_ms)),
       minimum_depth: nullableNumericMaximum(group.requirements.map((item) => item.minimum_depth)),
       retain_until: maximum(group.demands.map((item) => item.lease.expires_at)),
@@ -450,6 +454,11 @@ function nullableMinimum(values: Array<string | null>): string | null {
 function nullableMaximum(values: Array<string | null>): string | null {
   const present = values.filter((value): value is string => value != null)
   return present.length === 0 ? null : present.sort().at(-1)!
+}
+
+function nullableMaximumWithOpenEnd(values: Array<string | null>): string | null {
+  if (values.some((value) => value == null)) return null
+  return nullableMaximum(values)
 }
 
 function nullableNumericMaximum(values: Array<number | null>): number | null {
