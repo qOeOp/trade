@@ -1,9 +1,15 @@
 #!/usr/bin/env bun
 
-import { mkdirSync, renameSync, writeFileSync } from "node:fs"
+import { mkdirSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { asRecord, stringField } from "../../../../contracts/runtime-core/src/json"
 import { repoRoot } from "../../../../contracts/runtime-core/src/paths"
+import {
+  classifyResidentWorkerFailure,
+  parseBoundedInteger,
+  waitForResidentWorkerBackoff,
+  writeResidentWorkerState,
+} from "../../../../contracts/runtime-core/src/resident-worker"
 import { compileMarketDataSubscriptionPlan } from "../../../../contracts/market-data-demand-contract/src/market-data-demand-contract"
 import { compileOhlcvCoverageAudit } from "../../../../contracts/market-data-demand-contract/src/ohlcv-coverage-contract"
 import { runOhlcvDemandCycle } from "../lib/worker-cycle"
@@ -41,11 +47,11 @@ export function parseArgs(argv: string[]): Args {
   return {
     marketDataDb,
     ohlcvDb,
-    maxSymbols: integer(values.get("--max-symbols") ?? "20", 1, 100, "--max-symbols"),
-    maxJobsPerCycle: integer(values.get("--max-jobs-per-cycle") ?? "4", 1, 20, "--max-jobs-per-cycle"),
-    maxRowsPerJob: integer(values.get("--max-rows-per-job") ?? "10000", 1, 100_000, "--max-rows-per-job"),
-    intervalMs: integer(values.get("--interval-ms") ?? "60000", 5_000, 3_600_000, "--interval-ms"),
-    commandTimeoutMs: integer(values.get("--command-timeout-ms") ?? "120000", 5_000, 600_000, "--command-timeout-ms"),
+    maxSymbols: parseBoundedInteger(values.get("--max-symbols") ?? "20", 1, 100, "--max-symbols"),
+    maxJobsPerCycle: parseBoundedInteger(values.get("--max-jobs-per-cycle") ?? "4", 1, 20, "--max-jobs-per-cycle"),
+    maxRowsPerJob: parseBoundedInteger(values.get("--max-rows-per-job") ?? "10000", 1, 100_000, "--max-rows-per-job"),
+    intervalMs: parseBoundedInteger(values.get("--interval-ms") ?? "60000", 5_000, 3_600_000, "--interval-ms"),
+    commandTimeoutMs: parseBoundedInteger(values.get("--command-timeout-ms") ?? "120000", 5_000, 600_000, "--command-timeout-ms"),
   }
 }
 
@@ -148,12 +154,12 @@ export async function main(argv: string[]): Promise<number> {
                 && asRecord(data.timeframes)[job.timeframe] != null
               return { ok, reason: ok ? "owner_fetch_completed" : "owner_fetch_identity_drifted" }
             } catch (error) {
-              return { ok: false, reason: classifyFailure(error) }
+              return { ok: false, reason: classifyResidentWorkerFailure(error, "public") }
             }
           },
         })
         consecutiveFailures = result.status === "completed" ? 0 : consecutiveFailures + 1
-        writeState(statePath, {
+        writeResidentWorkerState(statePath, {
           schema_version: STATE_SCHEMA,
           observed_at: new Date().toISOString(),
           status: result.status === "completed" ? "running" : "degraded",
@@ -171,26 +177,27 @@ export async function main(argv: string[]): Promise<number> {
         })
       } catch (error) {
         consecutiveFailures += 1
-        writeState(statePath, {
+        writeResidentWorkerState(statePath, {
           schema_version: STATE_SCHEMA,
           observed_at: new Date().toISOString(),
           status: "degraded",
           cycle,
           consecutive_failures: consecutiveFailures,
-          failure_class: classifyFailure(error),
+          failure_class: classifyResidentWorkerFailure(error, "public"),
           lifecycle_authority: "market_data_owner",
         })
       }
       if (!stopRequested) {
-        const delayMs = consecutiveFailures === 0
-          ? args.intervalMs
-          : Math.min(args.intervalMs, 1_000 * 2 ** Math.min(consecutiveFailures - 1, 6))
-        await interruptibleDelay(delayMs, (cancel) => { cancelDelay = cancel })
+        await waitForResidentWorkerBackoff(
+          args.intervalMs,
+          consecutiveFailures,
+          (cancel) => { cancelDelay = cancel },
+        )
         cancelDelay = undefined
       }
     }
   } finally {
-    writeState(statePath, {
+    writeResidentWorkerState(statePath, {
       schema_version: STATE_SCHEMA,
       observed_at: new Date().toISOString(),
       status: "stopped",
@@ -200,40 +207,6 @@ export async function main(argv: string[]): Promise<number> {
     })
   }
   return 0
-}
-
-function writeState(path: string, value: Record<string, unknown>): void {
-  const temporary = `${path}.tmp.${process.pid}`
-  writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { flag: "wx", mode: 0o600 })
-  renameSync(temporary, path)
-}
-
-function classifyFailure(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error)
-  if (/timed out/i.test(message)) return "public_owner_timeout"
-  if (/capacity/i.test(message)) return "demand_capacity_blocked"
-  if (/stopping/i.test(message)) return "shutdown"
-  if (/identity|schema|hash|drift/i.test(message)) return "owner_contract_drift"
-  return "public_owner_unavailable"
-}
-
-async function interruptibleDelay(milliseconds: number, register: (cancel: () => void) => void): Promise<void> {
-  await new Promise<void>((resolveDelay) => {
-    const timer = setTimeout(resolveDelay, milliseconds)
-    register(() => {
-      clearTimeout(timer)
-      resolveDelay()
-    })
-  })
-}
-
-function integer(value: string, minimum: number, maximum: number, field: string): number {
-  if (!/^(?:0|[1-9]\d*)$/.test(value)) throw new Error(`${field} must be an integer`)
-  const parsed = Number(value)
-  if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
-    throw new Error(`${field} must be between ${minimum} and ${maximum}`)
-  }
-  return parsed
 }
 
 if (import.meta.main) process.exit(await main(Bun.argv.slice(2)))
