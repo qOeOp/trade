@@ -6,8 +6,14 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { acquireCronLock, appendCronLog, releaseCronLock } from "./cron-runtime"
 import { runTrackDryRun } from "./track-runner"
-import { ensureSchema } from "../../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import { ensureSchema as ensureEventStoreSchema } from "../../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import { buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../../contracts/runtime-core/src/database-identity"
 import { resolveRepoPath } from "../../../../../contracts/runtime-core/src/paths"
+
+function ensureSchema(db: Database): void {
+  ensureDatabaseIdentity(db, buildDatabaseIdentity("local:local", "trade_event_store"))
+  ensureEventStoreSchema(db)
+}
 
 test("cron lock skips active lock and releases acquired lock", () => {
   const dir = mkdtempSync(join(tmpdir(), "trade-flow-lock-"))

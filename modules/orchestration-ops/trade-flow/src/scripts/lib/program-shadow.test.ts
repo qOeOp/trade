@@ -11,6 +11,7 @@ import {
   readOpsLock,
   upsertCycleRun,
 } from "../../../../ops-runtime-store/src/lib/ops-runtime-store"
+import { buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../../contracts/runtime-core/src/database-identity"
 import { ensureSchema } from "../../../../../portfolio-execution-state/event-store/src/lib/event-store"
 import { repoRoot } from "../../../../../contracts/runtime-core/src/paths"
 import { runAutomationJobGraph, type CommandExecutionResult } from "./job-graph-runner"
@@ -534,6 +535,7 @@ function createFixture(prefix: string): {
   const tradeDbPath = join(dir, "trade.db")
   const opsDbPath = join(dir, "ops_runtime.db")
   const tradeDb = new Database(tradeDbPath)
+  ensureDatabaseIdentity(tradeDb, buildDatabaseIdentity("local:local", "trade_event_store"))
   ensureSchema(tradeDb)
   return {
     tradeDb,

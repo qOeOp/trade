@@ -9,10 +9,16 @@ import {
   readOpsLock,
   readRuntimeParityObservations,
 } from "../../../../ops-runtime-store/src/lib/ops-runtime-store"
-import { ensureSchema } from "../../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import { ensureSchema as ensureEventStoreSchema } from "../../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import { buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../../contracts/runtime-core/src/database-identity"
 import type { CommandExecutionResult } from "./job-graph-runner"
 import { createParityCommandRecorder } from "./program-shadow-parity"
 import { runProgramShadowSupervisor } from "./program-shadow-supervisor"
+
+function ensureSchema(db: Database): void {
+  ensureDatabaseIdentity(db, buildDatabaseIdentity("local:local", "trade_event_store"))
+  ensureEventStoreSchema(db)
+}
 
 test("program shadow supervisor runs stable cadence slots and releases its fenced lease", async () => {
   const fixture = createFixture("program-shadow-supervisor-")

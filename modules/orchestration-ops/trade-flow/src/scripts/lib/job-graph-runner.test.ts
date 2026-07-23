@@ -4,8 +4,14 @@ import { join } from "node:path"
 import test from "node:test"
 import { Database } from "bun:sqlite"
 import { readCycleSummary, readIncidents } from "../../../../ops-runtime-store/src/lib/ops-runtime-store"
-import { appendPlanEvent, ensureSchema } from "../../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import { appendPlanEvent, ensureSchema as ensureEventStoreSchema } from "../../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import { buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../../contracts/runtime-core/src/database-identity"
 import { projectJobGraphParity, runAutomationJobGraph, type CommandExecutionResult } from "./job-graph-runner"
+
+function ensureSchema(db: Database): void {
+  ensureDatabaseIdentity(db, buildDatabaseIdentity("local:local", "trade_event_store"))
+  ensureEventStoreSchema(db)
+}
 
 test("job graph parity projection ignores attempt identity and detects semantic drift", () => {
   const base = {

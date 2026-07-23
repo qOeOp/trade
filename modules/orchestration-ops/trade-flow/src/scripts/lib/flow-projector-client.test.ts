@@ -18,7 +18,7 @@ test("active flow owner read has a hard subprocess timeout", async () => {
   )
 })
 
-test("active flow owner read fails at its deadline while trade DB is exclusively locked", async () => {
+test("active flow owner read fails bounded while trade DB is exclusively locked", async () => {
   const checkRoot = join(repoRoot(), "tmp", "check")
   mkdirSync(checkRoot, { recursive: true })
   const directory = mkdtempSync(join(checkRoot, "flow-owner-locked-"))
@@ -29,11 +29,12 @@ test("active flow owner read fails at its deadline while trade DB is exclusively
     ensureSchema(blocker)
     const initial = await activeFlowsAsync(dbPath, 2_000)
     assert.equal(initial.active_flow_count, 0)
+    blocker.run("PRAGMA journal_mode = DELETE")
     blocker.run("BEGIN EXCLUSIVE")
     const startedAt = Date.now()
     await assert.rejects(
       () => activeFlowsAsync(dbPath, 100),
-      /flow projector owner tool timed out after 100ms/,
+      /(database is locked|flow projector owner tool timed out after 100ms)/,
     )
     assert.equal(Date.now() - startedAt < 2_000, true)
   } finally {

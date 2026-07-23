@@ -4,9 +4,15 @@ import { join } from "node:path"
 import test from "node:test"
 import { Database } from "bun:sqlite"
 import { buildAutomationCyclePlan } from "./automation-cycle"
-import { appendPlanEvent, ensureSchema } from "../../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import { appendPlanEvent, ensureSchema as ensureEventStoreSchema } from "../../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import { buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../../contracts/runtime-core/src/database-identity"
 
 type JSONRecord = Record<string, unknown>
+
+function ensureSchema(db: Database): void {
+  ensureDatabaseIdentity(db, buildDatabaseIdentity("local:local", "trade_event_store"))
+  ensureEventStoreSchema(db)
+}
 
 test("automation cycle plan isolates trade db work from R&D artifact jobs", () => {
   const dir = makeCheckDir("automation-cycle-")

@@ -5,11 +5,17 @@ import { Database } from "bun:sqlite"
 import assert from "node:assert/strict"
 import test from "node:test"
 import { acquireCronLock, releaseCronLock } from "./cron-runtime"
-import { ensureSchema } from "../../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import { ensureSchema as ensureEventStoreSchema } from "../../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import { buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../../contracts/runtime-core/src/database-identity"
 import { resolveRepoPath } from "../../../../../contracts/runtime-core/src/paths"
 import { runTrackDryRun, TRACK_DRY_RUN_MODES, TRACK_DRY_RUN_TRACKS } from "./track-runner"
 
 type JSONRecord = Record<string, unknown>
+
+function ensureSchema(db: Database): void {
+  ensureDatabaseIdentity(db, buildDatabaseIdentity("local:local", "trade_event_store"))
+  ensureEventStoreSchema(db)
+}
 
 test("track dry-run summary schema matches stable cron result envelope", () => {
   const schema = readSchema()
