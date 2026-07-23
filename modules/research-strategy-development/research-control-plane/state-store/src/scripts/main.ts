@@ -108,6 +108,12 @@ import {
   DEVELOPER_AGENT_SUBMISSION_SCHEMA,
   type DeveloperImplementationMode,
 } from "../../../contracts/src/lib/developer-agent-submission"
+import {
+  createReviewerAgentSubmission,
+  REVIEWER_AGENT_SUBMISSION_SCHEMA,
+  type ReviewerAgentDecision,
+  type ReviewerAgentEvidence,
+} from "../../../contracts/src/lib/reviewer-agent-submission"
 
 type Args = DbActionJsonArgs
 
@@ -170,7 +176,7 @@ export function run(args: Args): JSONRecord {
         trial_budget: numberField(args.json.trial_budget),
         evaluation_protocol_ref: stringField(args.json.evaluation_protocol_ref),
         control_plane_context: readPlannerControlPlaneContext(db),
-        created_at: stringField(args.json.created_at),
+        created_at: stringField(args.json.requested_at),
       })
       return { ok: true, action: args.action, proposal }
     }
@@ -217,6 +223,21 @@ export function run(args: Args): JSONRecord {
         quality_check_refs: [],
         replay_diagnosis_refs: [],
         created_at: createdAt,
+      })
+      return { ok: true, action: args.action, submission }
+    }
+    if (args.action === "prepare_reviewer_agent_submission") {
+      const submission = createReviewerAgentSubmission({
+        schema_version: REVIEWER_AGENT_SUBMISSION_SCHEMA,
+        reviewer_run_id: stringField(args.json.reviewer_run_id),
+        experiment_id: stringField(args.json.experiment_id),
+        expected_version: numberField(args.json.expected_version),
+        stage_id: stringField(args.json.stage_id),
+        decision: stringField(args.json.decision) as ReviewerAgentDecision,
+        evidence: args.json.evidence as unknown as ReviewerAgentEvidence[],
+        selected_trial_id: nullableString(args.json.selected_trial_id),
+        rationale: stringField(args.json.rationale),
+        created_at: stringField(args.json.requested_at),
       })
       return { ok: true, action: args.action, submission }
     }
@@ -423,7 +444,7 @@ function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/rd_state.db --action init",
     "actions: init | upsert_program | upsert_hypothesis | record_trial | record_holdout_use | record_lesson | read_program",
-    "control-plane: seed_default_control_plane | seed_universe | upsert_data_surface | link_universe_data_surface | upsert_pipeline_registry_item | upsert_universe_coverage | read_planning_context | prepare_planner_proposal | admit_planner_proposal | read_planner_proposal_admission | issue_developer_development_brief | read_developer_development_brief | prepare_developer_agent_submission | receive_developer_contract_draft | read_developer_contract_draft_receipt | validate_developer_contract_draft | read_developer_contract_draft_validation | freeze_developer_experiment_contract | read_developer_contract_freeze | start_experiment_trial_plan | read_experiment_trial_plan | admit_replay_trial_reservation | read_replay_trial_reservation_admission | register_replay_execution_request | read_replay_request_registration | issue_replay_l2_experiment_attachment | read_replay_l2_experiment_attachment | append_proposal_revision | materialize_proposal | register_trial_group | materialize_generated_candidate | transition_trial_group | register_experiment | reserve_trial | finish_trial | append_result | register_evaluation_evidence_classification | read_evaluation_evidence_classification | append_lesson | apply_reviewer_decision | apply_system_transition | open_blocker | close_blocker | check_lifecycle_projection | rebuild_lifecycle_projection",
+    "control-plane: seed_default_control_plane | seed_universe | upsert_data_surface | link_universe_data_surface | upsert_pipeline_registry_item | upsert_universe_coverage | read_planning_context | prepare_planner_proposal | admit_planner_proposal | read_planner_proposal_admission | issue_developer_development_brief | read_developer_development_brief | prepare_developer_agent_submission | receive_developer_contract_draft | read_developer_contract_draft_receipt | validate_developer_contract_draft | read_developer_contract_draft_validation | freeze_developer_experiment_contract | read_developer_contract_freeze | start_experiment_trial_plan | read_experiment_trial_plan | admit_replay_trial_reservation | read_replay_trial_reservation_admission | register_replay_execution_request | read_replay_request_registration | issue_replay_l2_experiment_attachment | read_replay_l2_experiment_attachment | prepare_reviewer_agent_submission | append_proposal_revision | materialize_proposal | register_trial_group | materialize_generated_candidate | transition_trial_group | register_experiment | reserve_trial | finish_trial | append_result | register_evaluation_evidence_classification | read_evaluation_evidence_classification | append_lesson | apply_reviewer_decision | apply_system_transition | open_blocker | close_blocker | check_lifecycle_projection | rebuild_lifecycle_projection",
   ].join("\n"))
 }
 
