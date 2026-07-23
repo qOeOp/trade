@@ -69,6 +69,53 @@ test("program shadow supervisor runs stable cadence slots and releases its fence
   }
 })
 
+test("program shadow supervisor runs fenced J06 canary cadence with shared-result parity", async () => {
+  const fixture = createFixture("program-j06-canary-supervisor-")
+  try {
+    let now = new Date("2026-07-23T00:00:00.000Z")
+    const commands: Array<{ cwd: string; argv: string[]; timeout_ms?: number }> = []
+    const result = await runProgramShadowSupervisor(
+      fixture.tradeDb,
+      fixture.tradeDbPath,
+      {
+        ops_runtime_db: fixture.opsDbPath,
+        runtime_profile: "catalog_hygiene_canary",
+        interval_seconds: 10,
+        max_cycles: 2,
+        observe_agent_parity: true,
+      },
+      async (command, options): Promise<CommandExecutionResult> => {
+        commands.push({ cwd: command.cwd, argv: command.argv, timeout_ms: options?.timeoutMs })
+        if (command.cwd === "modules/orchestration-ops/runtime-health-guard") return healthResult()
+        if (command.cwd === "modules/artifact-knowledge/artifact-catalog") return catalogResult(command.argv)
+        return { exit_code: 0, stdout: JSON.stringify({ ok: true }), stderr: "" }
+      },
+      {
+        clock: () => new Date(now),
+        holderId: () => "j06-canary-supervisor",
+        sleep: async (milliseconds) => {
+          now = new Date(now.getTime() + milliseconds)
+          return "elapsed"
+        },
+      },
+    )
+
+    assert.equal(result.runtime_profile, "catalog_hygiene_canary")
+    assert.equal((result.safety as { domain_jobs_enabled: boolean }).domain_jobs_enabled, true)
+    assert.equal((result.cycles as { attempted: number; executed: number; failed: number }).attempted, 2)
+    assert.equal((result.cycles as { attempted: number; executed: number; failed: number }).executed, 2)
+    assert.equal((result.cycles as { attempted: number; executed: number; failed: number }).failed, 0)
+    assert.equal((result.parity_observation as { matched: number }).matched, 2)
+    assert.equal((result.last_wakeup as { business_status: string }).business_status, "completed")
+    const catalogCommands = commands.filter((command) => command.cwd === "modules/artifact-knowledge/artifact-catalog")
+    assert.equal(catalogCommands.length, 2)
+    assert.equal(catalogCommands.every((command) => command.timeout_ms === 90_000), true)
+    assert.equal(catalogCommands.some((command) => command.argv.includes("--catalog-gc") || command.argv.includes("--yes")), false)
+  } finally {
+    fixture.close()
+  }
+})
+
 test("program shadow supervisor forwards the fixed full-shadow profile without live commands", async () => {
   const fixture = createFixture("program-full-shadow-supervisor-")
   try {
@@ -482,6 +529,30 @@ function healthResult(): CommandExecutionResult {
             { name: "l2_watch_consumer:owner_health", status: "ok" },
           ],
         },
+      },
+    }),
+    stderr: "",
+  }
+}
+
+function catalogResult(argv: string[]): CommandExecutionResult {
+  const payload = JSON.parse(argv[argv.indexOf("--json") + 1] ?? "{}") as { cycle_id?: string }
+  const cycleId = payload.cycle_id || "missing-cycle"
+  return {
+    exit_code: 0,
+    stdout: JSON.stringify({
+      runtime_result: {
+        schema_id: "trade.domain-runtime.domain-job-result.v1",
+        ok: true,
+        status: "ok",
+        domain: "artifact-knowledge",
+        job_id: "catalog_hygiene_scan",
+        idempotency_key: `${cycleId}:J06`,
+        input_refs: ["artifact-root:data", "artifact-root:tmp"],
+        output_refs: [`artifact_catalog:scan/${cycleId}`],
+        writes: { artifact_catalog: true },
+        incidents: [],
+        audit: { cycle_id: cycleId, ticket_no: "J06" },
       },
     }),
     stderr: "",
