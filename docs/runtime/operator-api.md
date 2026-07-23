@@ -33,7 +33,9 @@ last_verified: 2026-07-23 CST
 
 ## 3. MCP 与 OpenClaw
 
-现有 `agent.mcp` 仍是同机 stdio allowlist；HTTP 没有代理 MCP protocol，也没有复制 hypothesis/queue/Trial 逻辑。OpenClaw 若采用，只能作为该 HTTP allowlist 的 client/通知审批 UI；默认 read，controlled wakeup 仍需独立 approval secret，不能获得 exchange 或 scheduler authority。
+现有 `agent.mcp` 仍是同机 stdio allowlist；HTTP 没有代理 MCP protocol，也没有复制 hypothesis/queue/Trial 逻辑。在本合同的当前边界里，OpenClaw 若采用只能作为该 HTTP allowlist 的 client/通知审批 UI；默认 read，controlled wakeup 仍需独立 approval secret，不能获得 exchange 或 scheduler authority。
+
+更广的 OpenClaw/Codex Agent Host 模式仍是 [proposed Agent Host Runtime plan](../architecture/migrations/agent-host-runtime-integration-plan.md)，必须先完成隔离和同条件评测。即使未来采用，也优先直连同一 MCP owner surface；不会为了 Host 复制一套 HTTP domain API。
 
 ## 4. 当前证据与采用门
 
