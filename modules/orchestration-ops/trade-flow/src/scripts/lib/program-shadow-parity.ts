@@ -160,11 +160,15 @@ function legacyAgentShadowGraphInput(input: {
   const attemptId = input.agent_cycle_id.replace(/[^A-Za-z0-9_-]/g, "-")
   const catalogHygieneCanary = input.runtime_profile === "catalog_hygiene_canary"
   const fullShadow = input.runtime_profile === "full_shadow"
+  const noDomainShadow = input.runtime_profile === "shadow_program"
+    || input.runtime_profile === "demand_driven_shadow"
+    || input.runtime_profile == null
+  const requiresFixedL2 = input.runtime_profile !== "demand_driven_shadow"
   return {
     cycle_id: input.agent_cycle_id,
     now: input.now,
     ops_runtime_db: input.ops_runtime_db,
-    command_timeout_ms: input.runtime_profile === "shadow_program" ? 30_000 : 90_000,
+    command_timeout_ms: noDomainShadow ? 30_000 : 90_000,
     execute_jobs: true,
     allow_live_writes: false,
     include_runtime_health: true,
@@ -193,8 +197,8 @@ function legacyAgentShadowGraphInput(input: {
     include_ops_notify: true,
     runtime_health: {
       ...(input.runtime_health ?? {}),
-      require_l2_ready: true,
-      require_l2_watch_consumer_ready: true,
+      require_l2_ready: requiresFixedL2,
+      require_l2_watch_consumer_ready: requiresFixedL2,
       health_id: `health-${attemptId}`,
       observed_at: input.observed_at,
     },
