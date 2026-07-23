@@ -313,7 +313,7 @@ validate config/secrets/volumes
 | D3.3 | J03 以全市场粗筛 → 候选深化 → setup / intent 运行 | no indiscriminate L2 |
 | D3.4 | active-plan watch 覆盖 trigger、invalidation、expiry、cancel 和 restart | deterministic watch suite |
 | D3.5 | setup TTL、instrument tradability 与候选失效释放数据需求 | stale opportunity tests |
-| D3.6 | 实现账户级候选排序、相关暴露、资金互斥与统一分配 | multi-setup fixtures |
+| D3.6 | 实现账户级候选排序、相关暴露、资金互斥与统一分配 | complete at qualified-candidate seam：deterministic self-hashed arbiter、integer risk units、total/symbol/correlation/new-slot limits、expiry/existing exposure/duplicate symbol rejection；J03 当前无 qualified setup 时继续零候选/no_action |
 | D3.7 | 固定 setup / lane / flow identity 和精确 strategy version binding | replay / duplicate tests |
 | D3.8 | 每轮 no_action / blocked / skipped 具备 owner reason 与 refs | explainability assertions |
 
