@@ -152,6 +152,11 @@ import {
   replaySpawnBoundaryRevalidationRequestKey,
 } from "../../../contracts/src/lib/control-plane-contracts"
 import {
+  EVALUATION_EVIDENCE_CLASSIFICATION_SCHEMA,
+  EVALUATION_EVIDENCE_POLICY_VERSION,
+  createEvaluationEvidenceClassification,
+} from "../../../contracts/src/lib/evaluation-evidence-classification"
+import {
   RESEARCH_LIFECYCLE_RULE_VERSION,
   validateUniverseSeed,
 } from "./research-control-plane-schema"
@@ -170,6 +175,7 @@ import { RESEARCH_CONTRACT_VALIDATOR_VERSION } from "./research-contract-validat
 import { hashIdentityPayload } from "./research-identity-hash"
 import { buildDefaultUniverseSeed, seedDefaultResearchControlPlane } from "./research-universe-default-seed"
 import { ensureResearchStateSchema } from "./research-state-store"
+import { registerEvaluationEvidenceClassification } from "./evaluation-evidence-classification"
 import { issueTrialReservationSnapshot } from "./trial-reservation-snapshot"
 import { issueReplaySharedInitialCapitalReservation } from "./shared-initial-capital-reservation"
 import {
@@ -339,6 +345,7 @@ test("control plane schema initializes frozen stages and lifecycle rules", () =>
       "rd_replay_attempt_cancellation",
       "rd_replay_attempt_cancellation_observation",
       "rd_experiment_result",
+      "rd_evaluation_evidence_classification",
       "rd_review_decision",
       "rd_lifecycle_event",
       "rd_knowledge_edge_evidence",
@@ -1342,6 +1349,23 @@ test("experiment facts enforce trial identity, sentinel, freeze, and append-only
       () => db.query("UPDATE rd_experiment_result SET artifact_ref='changed' WHERE result_id='result-1'").run(),
       /append-only/,
     )
+    const agentClassification = createEvaluationEvidenceClassification({
+      schema_version: EVALUATION_EVIDENCE_CLASSIFICATION_SCHEMA,
+      policy_version: EVALUATION_EVIDENCE_POLICY_VERSION,
+      result_id: "result-1",
+      experiment_id: "experiment-1",
+      evidence_kind: "agent_assisted_historical",
+      producer: "agent_evaluation_owner",
+      artifact_ref: "artifact://result-1",
+      evidence_hash: "a".repeat(64),
+      classified_at: "2026-07-14T03:20:00.000Z",
+    })
+    registerEvaluationEvidenceClassification(db, agentClassification)
+    assert.throws(() => db.query(`
+      UPDATE rd_evaluation_evidence_classification
+      SET evidence_kind='mechanical_replay'
+      WHERE result_id='result-1'
+    `).run(), /append-only/)
 
     assert.throws(() => applyReviewerDecision(db, reviewerDecision({
       decision_id: "decision-no-primary",
@@ -1353,7 +1377,25 @@ test("experiment facts enforce trial identity, sentinel, freeze, and append-only
     assert.equal(count(db, "rd_review_decision"), 0)
     assert.equal(count(db, "rd_lifecycle_event"), 2)
 
-    applyReviewerDecision(db, reviewerDecision())
+    assert.throws(
+      () => applyReviewerDecision(db, reviewerDecision()),
+      /requires mechanical_replay/,
+    )
+    insertExperimentResult(db, "result-mechanical", "historical_validation")
+    registerEvaluationEvidenceClassification(db, createEvaluationEvidenceClassification({
+      schema_version: EVALUATION_EVIDENCE_CLASSIFICATION_SCHEMA,
+      policy_version: EVALUATION_EVIDENCE_POLICY_VERSION,
+      result_id: "result-mechanical",
+      experiment_id: "experiment-1",
+      evidence_kind: "mechanical_replay",
+      producer: "replay_owner",
+      artifact_ref: "artifact://result-mechanical",
+      evidence_hash: "b".repeat(64),
+      classified_at: "2026-07-14T03:20:00.000Z",
+    }))
+    applyReviewerDecision(db, reviewerDecision({
+      evidence: [{ result_id: "result-mechanical", evidence_role: "primary" }],
+    }))
     const frozen = db.query(`
       SELECT lifecycle_state, lifecycle_version, selected_candidate_id,
              selected_trial_id, candidate_hash
@@ -3342,7 +3384,7 @@ function insertExperimentResult(db: Database, resultId: string, stageId: string)
     result_id: resultId, experiment_id: "experiment-1", result_scope: "trial",
     trial_id: "trial-1", trial_group_id: "group-1", run_id: "run-1",
     idempotency_key: `result-key:${resultId}`, stage_id: stageId,
-    result_type_id: "replay_result", artifact_ref: "artifact://result-1",
+    result_type_id: "replay_result", artifact_ref: `artifact://${resultId}`,
     evidence_fingerprint_json: {
       policy_hash: "p", harness_hash: "h", data_hash: "d",
       assumptions_hash: "a", temporal_contract: "closed-candle",
