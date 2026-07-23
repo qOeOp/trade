@@ -34,6 +34,7 @@ export function serverRuntimeContainerProcessSpecs(
           ops_runtime_db: control.ops_runtime_db,
           interval_seconds: control.interval_seconds,
           observe_agent_parity: control.observe_agent_parity,
+          runtime_profile: "demand_driven_shadow",
         }),
       ],
     },
