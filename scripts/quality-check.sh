@@ -49,6 +49,12 @@ require_cmd() {
   fi
 }
 
+check_dependencies() {
+  require_cmd bun
+  log "repository dependencies"
+  bun install --frozen-lockfile
+}
+
 check_shell() {
   log "shell syntax"
   for file in scripts/*.sh; do
@@ -162,7 +168,6 @@ check_typescript_tools() {
   fi
   bun scripts/check-ts-tool-boundaries.ts
   bun scripts/check-package-tests.ts
-  bun install --frozen-lockfile
   find modules -name package.json -type f | sort | while IFS= read -r package; do
     [ -f "$package" ] || continue
     dir="$(dirname "$package")"
@@ -273,6 +278,7 @@ check_project_hygiene() {
   fi
 }
 
+check_dependencies
 check_project_hygiene
 check_shell
 check_helpers

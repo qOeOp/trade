@@ -723,6 +723,20 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("gofmt required")
   })
 
+  test("repository dependencies are installed before quality judges run", () => {
+    const script = readFileSync(join(repoRoot, "scripts/quality-check.sh"), "utf8")
+
+    expect(script).toContain([
+      "check_dependencies",
+      "check_project_hygiene",
+      "check_shell",
+      "check_helpers",
+      "check_secrets",
+      "check_toolset_manifest",
+    ].join("\n"))
+    expect(script.match(/bun install --frozen-lockfile/g)).toHaveLength(1)
+  })
+
   test("repository quality checks are single-instance and recover stale locks", () => {
     const root = temporaryRoot()
     const lock = join(root, "quality-check.lock")
