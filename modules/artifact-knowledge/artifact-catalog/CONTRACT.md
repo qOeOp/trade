@@ -8,6 +8,7 @@
 - Catalog-aware GC and file-system artifact GC
 - Feature report artifact registration
 - Native `J06 catalog_hygiene_scan` domain job result for artifact-knowledge
+- Live-root reconciliation skips unfinalized `.partial.*` files and SQLite sidecars, and reports bounded counts for transient skips and files that disappear after enumeration instead of failing the entire scan.
 
 ## Inputs
 
