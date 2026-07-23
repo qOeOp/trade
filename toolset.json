@@ -1505,7 +1505,8 @@
       "notes": [
         "Owns logical market_data_store refs and ohlcv_store refs; durable market data uses database owner-store contracts, not file directories.",
         "export_candle_slice writes a content-addressed immutable CSV/manifest artifact and returns a slice ref so Research never queries canonical_candle directly.",
-        "Read actions include read_manifest, read_funding, read_instrument_status_acquisition_receipt, read_instrument_status_archive, read_feature_manifest, and list_feature_manifests so other domains can consume owner refs without direct table access.",
+        "Read actions include read_manifest, read_funding, read_instrument_status_acquisition_receipt, read_instrument_status_archive, read_feature_manifest, read_feature_artifact, and list_feature_manifests so other domains can consume owner refs without direct table access.",
+        "admit_feature_manifest and read_feature_artifact both parse the bounded artifact bytes and close source slice, feature set, symbol, timeframe, and content hash; a path/hash row alone is not owner evidence.",
         "Typed demand put is create-or-renew for one stable semantic identity; renewal may only advance its lease and preserves prior hashes in an audit table. Reconciliation returns a no-authority capacity proposal; callers never control daemon lifecycle.",
         "audit_candle_coverage returns a bounded self-hashed aligned-range projection with exact gap counts; fetch completion alone is not coverage evidence.",
         "L2 retention/reference audit is a self-hashed read projection over registered owner evidence; it never infers deletion eligibility or GC authority.",
