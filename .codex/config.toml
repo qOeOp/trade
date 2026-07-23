@@ -1,5 +1,5 @@
 [agents]
-max_concurrent_threads_per_session = 3
+max_threads = 3
 
 [mcp_servers.trade-agent]
 command = "bun"
