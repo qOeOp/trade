@@ -374,7 +374,8 @@ function supervisorResult(input: {
     safety: {
       foreground_process: true,
       external_process_manager_required: true,
-      domain_jobs_enabled: input.input.runtime_profile !== "shadow_program",
+      domain_jobs_enabled: input.input.runtime_profile === "catalog_hygiene_canary"
+        || input.input.runtime_profile === "full_shadow",
       live_writes_allowed: false,
       notify_dry_run: true,
       drain_in_flight_cycle_on_signal: true,
@@ -422,10 +423,10 @@ function assertClosedWorldInput(input: JSONRecord): void {
 
 function normalizeRuntimeProfile(value: unknown): ProgramRuntimeProfile {
   const profile = stringField(value) || "shadow_program"
-  if (profile !== "shadow_program" && profile !== "catalog_hygiene_canary" && profile !== "full_shadow") {
-    throw new Error("supervisor runtime_profile must be shadow_program, catalog_hygiene_canary, or full_shadow")
+  if (!["shadow_program", "demand_driven_shadow", "catalog_hygiene_canary", "full_shadow"].includes(profile)) {
+    throw new Error("supervisor runtime_profile must be shadow_program, demand_driven_shadow, catalog_hygiene_canary, or full_shadow")
   }
-  return profile
+  return profile as ProgramRuntimeProfile
 }
 
 function boundedInteger(value: unknown, fallback: number, minimum: number, maximum: number, name: string): number {
