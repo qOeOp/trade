@@ -4,11 +4,11 @@ import { resolve } from "node:path"
 import test from "node:test"
 import { repoRoot } from "../../../../../contracts/runtime-core/src/paths"
 import { runServerRuntimeContainerForeground, type ContainerRuntimeChild } from "./server-runtime-container-foreground"
-import { parseServerRuntimeProfile } from "./server-runtime-profile"
-import type { ServerRuntimeProcessSpec } from "./server-runtime-processes"
+import { parseServerRuntimeContainerProfile } from "./server-runtime-container-profile"
+import type { ServerRuntimeContainerProcessSpec } from "./server-runtime-container-processes"
 
-const profile = parseServerRuntimeProfile(JSON.parse(
-  readFileSync(resolve(repoRoot(), "profile/server-runtime.json"), "utf8"),
+const profile = parseServerRuntimeContainerProfile(JSON.parse(
+  readFileSync(resolve(repoRoot(), "profile/server-runtime-container.json"), "utf8"),
 ))
 
 test("container foreground starts in dependency order and drains in reverse on signal", async () => {
@@ -25,7 +25,7 @@ test("container foreground starts in dependency order and drains in reverse on s
     },
     ready: async (component) => {
       events.push(`ready:${component}`)
-      if (component === "control-runtime") controller.abort()
+      if (component === "indicator-worker") controller.abort()
       return true
     },
     sleep: async () => undefined,
@@ -34,14 +34,16 @@ test("container foreground starts in dependency order and drains in reverse on s
   const result = await resultPromise
   assert.equal(result.status, "completed")
   assert.equal(result.reason, "signal")
-  assert.deepEqual(result.started_components, ["l2-owner", "l2-consumer", "control-runtime"])
-  assert.deepEqual(result.ready_components, ["l2-owner", "l2-consumer", "control-runtime"])
+  assert.deepEqual(result.started_components, ["control-runtime", "market-data-manager", "ohlcv-worker", "indicator-worker"])
+  assert.deepEqual(result.ready_components, ["control-runtime", "market-data-manager", "ohlcv-worker", "indicator-worker"])
   assert.equal(result.all_children_stopped, true)
   assert.deepEqual(events, [
-    "start:l2-owner", "ready:l2-owner",
-    "start:l2-consumer", "ready:l2-consumer",
     "start:control-runtime", "ready:control-runtime",
-    "kill:control-runtime:SIGTERM", "kill:l2-consumer:SIGTERM", "kill:l2-owner:SIGTERM",
+    "start:market-data-manager", "ready:market-data-manager",
+    "start:ohlcv-worker", "ready:ohlcv-worker",
+    "start:indicator-worker", "ready:indicator-worker",
+    "kill:indicator-worker:SIGTERM", "kill:ohlcv-worker:SIGTERM",
+    "kill:market-data-manager:SIGTERM", "kill:control-runtime:SIGTERM",
   ])
 })
 
@@ -52,7 +54,7 @@ test("container foreground fails the group when a ready component exits", async 
     spawn: (spec) => {
       const child = new FakeChild(spec.id, events)
       children.set(spec.id, child)
-      if (spec.id === "control-runtime") queueMicrotask(() => child.exit(0))
+      if (spec.id === "indicator-worker") queueMicrotask(() => child.exit(0))
       return child
     },
     ready: async () => true,
@@ -62,7 +64,7 @@ test("container foreground fails the group when a ready component exits", async 
   const result = await resultPromise
   assert.equal(result.status, "failed")
   assert.equal(result.reason, "component_exit")
-  assert.equal(result.failed_component, "control-runtime")
+  assert.equal(result.failed_component, "indicator-worker")
   assert.equal(result.exit_code, 0)
   assert.equal(result.all_children_stopped, true)
 })
@@ -71,7 +73,7 @@ test("container foreground stops already-started components when readiness fails
   const events: string[] = []
   let now = 0
   const result = await runServerRuntimeContainerForeground(profile, "/opt/trade", "/usr/bin/bun", {
-    spawn: (spec: ServerRuntimeProcessSpec) => new FakeChild(spec.id, events),
+    spawn: (spec: ServerRuntimeContainerProcessSpec) => new FakeChild(spec.id, events),
     ready: async () => false,
     sleep: async () => { now += 100 },
     clock: () => now,
@@ -79,9 +81,9 @@ test("container foreground stops already-started components when readiness fails
 
   assert.equal(result.status, "failed")
   assert.equal(result.reason, "startup_failed")
-  assert.equal(result.failed_component, "l2-owner")
-  assert.deepEqual(result.started_components, ["l2-owner"])
-  assert.deepEqual(events, ["kill:l2-owner:SIGTERM"])
+  assert.equal(result.failed_component, "control-runtime")
+  assert.deepEqual(result.started_components, ["control-runtime"])
+  assert.deepEqual(events, ["kill:control-runtime:SIGTERM"])
 })
 
 class FakeChild implements ContainerRuntimeChild {
