@@ -212,6 +212,8 @@ P1.26 将 parity 口径修正为 `shared_owner_result_replay_v1`：program 每�
 
 consumer 现以固定 taxonomy 区分 owner-health/current-book/snapshot/watch failure，并跨恢复与 worker restart 保留最近一次净化后的 timestamp、operation、class、attempt；原始异常、stderr、路径、PID 与 owner detail 不进入 owner/runtime/MCP projection。真实 worker `SIGKILL` 后 supervisor 由 attempt `2→3` 自动恢复，累计 counters 未清零，owner state 在恢复 healthy 后仍保留最近的 `watch_unavailable` timestamp/operation/class/attempt，证明新合同已加载。
 
+P1.28 以 production-like immutable release 作为 availability 主证据，并把 dirty workspace 长驻栈仅作对照。`2026-07-23T02:15:28Z..02:30:30Z` 的 15 分钟窗口内，release consumer 完成 696 个 watch cycle / 7,461 个 watermark，watch/snapshot failure、retry、reconnect、worker restart、resync 全部零增量；Rust owner 始终 `running`、attempt 与 consecutive failure 零增量，RSS `15.2MB→15.4MB`、历史峰值 `20.2MB`。同窗 workspace 对照完成 793 cycle / 8,563 event，出现 1 次 typed `watch_unavailable` 后自动恢复，owner 未重启；另对 release loopback 连续 24 次真实 `1000ms` watch 均成功，`timed_out=true` 被确认是正常有界完成而非 failure。采用门据此固定为 production-like release 的 clean rolling window + owner 零 restart/incident + consumer live/fresh 终态；不要求进程生命周期绝对零瞬时错误。P1.28 放行 J06 one-shot canary，但不放行实盘写、Replay cutover 或双 owner。
+
 ### C — consumer 与 broker
 
 - 第一个非经济 Replay source consumer 已通过 finalized ref 接入，Control Plane 已可冻结 exact experiment attachment；进入 Runner / economic semantics 仍需独立 consumer authority 与数据现实 gate；
