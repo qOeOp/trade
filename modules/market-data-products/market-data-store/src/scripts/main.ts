@@ -48,6 +48,10 @@ import { assertProjectRuntimePath, displayPath, repoRoot, resolveRepoPath } from
 import { resolveDatabasePathInput } from "../../../../contracts/runtime-core/src/database-environment"
 import { buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../contracts/runtime-core/src/database-identity"
 import { exportCanonicalCandleSlice } from "../lib/candle-slice-export"
+import {
+  compileIndicatorFeatureArtifact,
+  type IndicatorFeatureArtifact,
+} from "../../../../contracts/market-data-demand-contract/src/indicator-feature-contract"
 
 interface Args {
   dbPath: string
@@ -250,11 +254,13 @@ export function run(args: Args): JSONRecord {
     }
     if (args.action === "admit_feature_manifest") {
       const manifest = buildFeatureManifest(args.json)
+      const artifact = readVerifiedFeatureArtifact(manifest)
       return {
         ok: true,
         action: args.action,
         commit_status: admitFeatureManifest(db, manifest),
         manifest,
+        artifact_hash: artifact.content_hash,
       }
     }
     if (args.action === "commit_instrument_status_archive") {
@@ -409,6 +415,16 @@ export function run(args: Args): JSONRecord {
         manifest: readFeatureManifest(db, stringField(args.json.feature_manifest_id)),
       }
     }
+    if (args.action === "read_feature_artifact") {
+      const manifest = readFeatureManifest(db, stringField(args.json.feature_manifest_id))
+      if (manifest == null) throw new Error("feature manifest is not registered")
+      return {
+        ok: true,
+        action: args.action,
+        manifest,
+        artifact: readVerifiedFeatureArtifact(manifest),
+      }
+    }
     if (args.action === "list_feature_manifests") {
       return {
         ok: true,
@@ -430,8 +446,30 @@ export function run(args: Args): JSONRecord {
 function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/market_data.db --ohlcv-db data/ohlcv.db --action init",
-    "actions: init | upsert_manifest | admit_l2_epoch_manifest | reconcile_l2_epoch_manifests | prepare_l2_compaction_job | admit_l2_compaction_proposal | register_l2_experiment_attachment_referrer | audit_l2_retention_reference_closure | list_l2_retention_reference_audits | register_market_data_demand | put_market_data_demand | release_market_data_demand | read_market_data_demand | reconcile_market_data_demands | upsert_candles | upsert_funding | upsert_feature_manifest | admit_feature_manifest | commit_instrument_status_archive | read_manifest | read_l2_epoch_manifest | read_l2_compaction | read_l2_compacted_epoch_source | read_l2_experiment_attachment_referrer | read_funding | read_instrument_status_acquisition_receipt | read_instrument_status_archive | read_latest_candle | audit_candle_coverage | read_candles | export_candle_slice | read_feature_manifest | list_feature_manifests",
+    "actions: init | upsert_manifest | admit_l2_epoch_manifest | reconcile_l2_epoch_manifests | prepare_l2_compaction_job | admit_l2_compaction_proposal | register_l2_experiment_attachment_referrer | audit_l2_retention_reference_closure | list_l2_retention_reference_audits | register_market_data_demand | put_market_data_demand | release_market_data_demand | read_market_data_demand | reconcile_market_data_demands | upsert_candles | upsert_funding | upsert_feature_manifest | admit_feature_manifest | commit_instrument_status_archive | read_manifest | read_l2_epoch_manifest | read_l2_compaction | read_l2_compacted_epoch_source | read_l2_experiment_attachment_referrer | read_funding | read_instrument_status_acquisition_receipt | read_instrument_status_archive | read_latest_candle | audit_candle_coverage | read_candles | export_candle_slice | read_feature_manifest | read_feature_artifact | list_feature_manifests",
   ].join("\n"))
+}
+
+function readVerifiedFeatureArtifact(manifest: {
+  source_manifest_id: string
+  feature_set_id: string
+  symbol?: string
+  timeframe?: string
+  content_hash: string
+  manifest_path: string
+}): IndicatorFeatureArtifact {
+  assertProjectRuntimePath(manifest.manifest_path)
+  const bytes = readFileSync(resolveRepoPath(manifest.manifest_path))
+  if (bytes.byteLength > 16 * 1024 * 1024) throw new Error("feature artifact exceeds owner read limit")
+  const artifact = compileIndicatorFeatureArtifact(JSON.parse(bytes.toString("utf8")))
+  if (artifact.content_hash !== manifest.content_hash
+    || artifact.feature_set_ref !== manifest.feature_set_id
+    || artifact.source.slice_ref !== manifest.source_manifest_id
+    || artifact.source.symbol !== manifest.symbol
+    || artifact.source.timeframe !== manifest.timeframe) {
+    throw new Error("feature manifest and artifact identity drifted")
+  }
+  return artifact
 }
 
 function withOhlcvDb<T>(dbPath: string, environmentId: string, fn: (db: Database) => T, migrateIdentity = false): T {

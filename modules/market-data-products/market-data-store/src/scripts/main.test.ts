@@ -1,9 +1,12 @@
 import assert from "node:assert/strict"
 import { Database } from "bun:sqlite"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import test from "node:test"
+import { canonicalJson } from "../../../../contracts/runtime-core/src/canonical-json"
+import { repoRoot } from "../../../../contracts/runtime-core/src/paths"
+import { buildIndicatorFeatureArtifact } from "../../../../contracts/market-data-demand-contract/src/indicator-feature-contract"
 import { buildMarketDataDemand } from "../../../../contracts/market-data-demand-contract/src/market-data-demand-contract"
 import {
   commitInstrumentStatusAcquisitionReceipt,
@@ -13,6 +16,65 @@ import {
   instrumentStatusPayloadHash,
 } from "../lib/market-data-store"
 import { parseArgs, run } from "./main"
+
+test("feature admission and read verify the exact artifact bytes through the owner path", () => {
+  const dir = mkdtempSync(join(tmpdir(), "market-data-feature-cli-"))
+  const artifactDir = `tmp/test/market-data-feature-cli-${crypto.randomUUID()}`
+  const artifactRoot = resolve(repoRoot(), artifactDir)
+  mkdirSync(artifactRoot, { recursive: true })
+  const artifact = buildIndicatorFeatureArtifact({
+    feature_set_ref: "indicator-set:technical-default-v1",
+    source: {
+      slice_ref: `market-data://candle-slice/${"a".repeat(64)}`,
+      content_sha256: "a".repeat(64),
+      symbol: "BTCUSDT",
+      timeframe: "1h",
+      first_open_time: Date.parse("2026-07-23T08:00:00.000Z"),
+      last_open_time: Date.parse("2026-07-23T09:00:00.000Z"),
+    },
+    provider_report: {
+      symbol: "BTCUSDT",
+      selected_indicators: { ema: { function: "ema" } },
+      timeframes: { "1h": { indicators: { ema: 1 } } },
+      summary: { bias: "neutral" },
+    },
+  })
+  const artifactRef = `${artifactDir}/${artifact.content_hash}.json`
+  writeFileSync(resolve(repoRoot(), artifactRef), `${canonicalJson(artifact)}\n`)
+  try {
+    const dbPath = join(dir, "market.db")
+    const admission = run(parseArgs([
+      "--db", dbPath,
+      "--action", "admit_feature_manifest",
+      "--json", JSON.stringify({
+        feature_manifest_id: `indicator-feature:${artifact.content_hash}`,
+        source_manifest_id: artifact.source.slice_ref,
+        feature_set_id: artifact.feature_set_ref,
+        symbol: artifact.source.symbol,
+        timeframe: artifact.source.timeframe,
+        content_hash: artifact.content_hash,
+        manifest_path: artifactRef,
+        generated_at: "2026-07-23T10:00:00.000Z",
+      }),
+    ])) as { artifact_hash: string }
+    assert.equal(admission.artifact_hash, artifact.content_hash)
+    const read = run(parseArgs([
+      "--db", dbPath,
+      "--action", "read_feature_artifact",
+      "--json", JSON.stringify({ feature_manifest_id: `indicator-feature:${artifact.content_hash}` }),
+    ])) as { artifact: { content_hash: string } }
+    assert.equal(read.artifact.content_hash, artifact.content_hash)
+    writeFileSync(resolve(repoRoot(), artifactRef), "{}\n")
+    assert.throws(() => run(parseArgs([
+      "--db", dbPath,
+      "--action", "read_feature_artifact",
+      "--json", JSON.stringify({ feature_manifest_id: `indicator-feature:${artifact.content_hash}` }),
+    ])), /schema|shape/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(artifactRoot, { recursive: true, force: true })
+  }
+})
 
 test("market data store CLI upserts and reads manifest", () => {
   const dir = mkdtempSync(join(tmpdir(), "market-data-store-"))
