@@ -4,7 +4,7 @@ import {
   buildMarketDataDemand,
   reconcileMarketDataDemands,
 } from "../../../../contracts/market-data-demand-contract/src/market-data-demand-contract"
-import { buildL2MultiSymbolPlan } from "../../../l2-order-book-service/src/control/multi-symbol-plan"
+import { buildL2MultiSymbolPlan } from "./multi-symbol-plan"
 import {
   applyL2MultiSymbolPlan,
   type ManagedL2Pair,

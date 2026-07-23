@@ -1,5 +1,5 @@
 import { resolve } from "node:path"
-import type { L2MultiSymbolPlan } from "../../../l2-order-book-service/src/control/multi-symbol-plan"
+import type { L2MultiSymbolPlan } from "./multi-symbol-plan"
 
 export interface ManagedL2Pair {
   assignment: L2MultiSymbolPlan["instances"][number]

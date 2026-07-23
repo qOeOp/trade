@@ -8,13 +8,14 @@ import { compileMarketDataSubscriptionPlan } from "../../../../contracts/market-
 import {
   buildL2MultiSymbolPlan,
   type L2RuntimeAssignment,
-} from "../../../l2-order-book-service/src/control/multi-symbol-plan"
+} from "../lib/multi-symbol-plan"
 import {
   applyL2MultiSymbolPlan,
   type ManagedL2Pair,
   type ManagedProcess,
   type MarketDataManagerDependencies,
 } from "../lib/runtime-manager"
+import { buildActiveFlowMarketDataDemands } from "../lib/active-flow-demand-sync"
 
 interface Args {
   marketDataDb: string
@@ -89,7 +90,9 @@ export async function main(argv: string[]): Promise<number> {
       cycle += 1
       await pruneExited(active, dependencies)
       try {
-        const source = readSubscriptionPlan(root, args)
+        const observedAt = new Date().toISOString()
+        const syncedDemandCount = syncActiveFlowDemands(root, args, observedAt)
+        const source = readSubscriptionPlan(root, args, observedAt)
         const desired = buildL2MultiSymbolPlan({
           subscription_plan: source,
           current_assignments: assignments(active),
@@ -115,6 +118,7 @@ export async function main(argv: string[]): Promise<number> {
           source_plan_hash: applied.source_plan_hash,
           desired_plan_hash: applied.desired_plan_hash,
           active_service_ids: applied.active_service_ids,
+          synced_active_flow_demand_count: syncedDemandCount,
           effect_count: applied.effects.length,
           last_failure_class: applied.failure_class ?? "",
           lifecycle_authority: "market_data_owner",
@@ -130,6 +134,7 @@ export async function main(argv: string[]): Promise<number> {
           source_plan_hash: "",
           desired_plan_hash: "",
           active_service_ids: [...active.keys()].sort(),
+          synced_active_flow_demand_count: 0,
           effect_count: 0,
           last_failure_class: "owner_plan_unavailable",
           lifecycle_authority: "market_data_owner",
@@ -154,6 +159,7 @@ export async function main(argv: string[]): Promise<number> {
       source_plan_hash: "",
       desired_plan_hash: "",
       active_service_ids: [],
+      synced_active_flow_demand_count: 0,
       effect_count: 0,
       last_failure_class: "",
       lifecycle_authority: "market_data_owner",
@@ -162,7 +168,7 @@ export async function main(argv: string[]): Promise<number> {
   return 0
 }
 
-function readSubscriptionPlan(root: string, args: Args) {
+function readSubscriptionPlan(root: string, args: Args, observedAt: string) {
   const script = resolve(root, "modules/market-data-products/market-data-store/src/scripts/main.ts")
   const invocation = Bun.spawnSync({
     cmd: [
@@ -171,7 +177,7 @@ function readSubscriptionPlan(root: string, args: Args) {
       "--db", args.marketDataDb,
       "--action", "reconcile_market_data_demands",
       "--json", JSON.stringify({
-        observed_at: new Date().toISOString(),
+        observed_at: observedAt,
         max_symbols: args.maxInstances,
       }),
     ],
@@ -186,6 +192,50 @@ function readSubscriptionPlan(root: string, args: Args) {
     throw new Error("market data demand owner response identity drifted")
   }
   return compileMarketDataSubscriptionPlan(response.plan)
+}
+
+function syncActiveFlowDemands(root: string, args: Args, observedAt: string): number {
+  const projector = Bun.spawnSync({
+    cmd: [
+      process.execPath,
+      resolve(root, "modules/portfolio-execution-state/flow-projector/src/scripts/main.ts"),
+      "--active-flows",
+      "--db", "data/trade.db",
+    ],
+    cwd: root,
+    stdout: "pipe",
+    stderr: "pipe",
+    timeout: 10_000,
+  })
+  if (projector.exitCode !== 0) throw new Error("active flow projection owner is unavailable")
+  const projectionResponse = asRecord(JSON.parse(projector.stdout.toString()))
+  if (projectionResponse.ok !== true || projectionResponse.schema_version !== "flow-projector.script-response.v1") {
+    throw new Error("active flow projection owner response identity drifted")
+  }
+  const syncPlan = buildActiveFlowMarketDataDemands(projectionResponse.data, observedAt)
+  const storeScript = resolve(root, "modules/market-data-products/market-data-store/src/scripts/main.ts")
+  for (const demand of syncPlan.demands) {
+    const put = Bun.spawnSync({
+      cmd: [
+        process.execPath,
+        storeScript,
+        "--db", args.marketDataDb,
+        "--action", "put_market_data_demand",
+        "--json", JSON.stringify({ demand, committed_at: observedAt }),
+      ],
+      cwd: root,
+      stdout: "pipe",
+      stderr: "pipe",
+      timeout: 10_000,
+    })
+    if (put.exitCode !== 0) throw new Error("active flow market data demand commit failed")
+    const response = asRecord(JSON.parse(put.stdout.toString()))
+    if (response.ok !== true || response.action !== "put_market_data_demand"
+      || response.demand_id !== demand.demand_id || response.demand_hash !== demand.demand_hash) {
+      throw new Error("active flow market data demand commit identity drifted")
+    }
+  }
+  return syncPlan.demands.length
 }
 
 function runtimeDependencies(root: string, readinessDeadlineMs: number): MarketDataManagerDependencies {
