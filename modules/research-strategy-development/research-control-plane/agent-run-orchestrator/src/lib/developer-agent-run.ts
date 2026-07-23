@@ -56,7 +56,11 @@ export interface DeveloperAgentAdmission {
 const DEVELOPER_INSTRUCTION = [
   "Act as the bounded R&D Developer in the isolated workspace.",
   "Assess whether the admitted mechanism uses an existing implementation, needs only a contract, needs code changes, or is blocked by data/tool coverage.",
-  "Return one canonical trade.rd-developer-agent-submission.v1 JSON object.",
+  "For this contract-design capability, call research_developer_submission_prepare exactly once with the context-pack developer_run_id, brief_id, source_revision, and predecessor_run_id unchanged.",
+  "Choose only existing_implementation, contract_only, data_blocked, or tool_blocked; code_change_required is not available through this read-only capability and evidence for it must never be fabricated.",
+  "For a non-blocked submission, design draft_json within the Brief candidate space, set draft_json.schema_version to trade.rd-experiment-contract-draft-payload.v1, and keep requested_trial_budget at or below the Brief maximum.",
+  "Use draft_revision 1 when there is no predecessor. Set created_at no earlier than requested_at.",
+  "Return only the submission object returned by the tool, exactly and without prose or edits.",
   "A code change must bind a reviewable patch and successful bounded quality-check artifacts.",
   "Do not apply a patch, reserve a Trial, execute Replay, materialize a strategy, promote, deploy, or trade.",
 ].join("\n")
