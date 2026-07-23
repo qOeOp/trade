@@ -17,6 +17,7 @@ import {
   assertReplaySuccessorVerificationLeaseRenewalReceipt,
   assertReplaySuccessorVerificationLeaseRenewalRequest,
   assertTrialReservationSnapshot,
+  canonicalControlPlaneHash,
   createReplayAttemptLeaseObservationSnapshot,
   createReplayAttemptLeaseObservationRegistryReadReceipt,
   createReplayDispatchClockAttestation,
@@ -47,6 +48,10 @@ import {
   readReplayRequestRegistration,
 } from "./replay-request-registration"
 import { readReplayTrialReservationAdmission } from "./replay-trial-reservation-admission"
+import {
+  createReplayRegisteredAttemptDispatchAuthority,
+  type ReplayRegisteredAttemptDispatchAuthority,
+} from "../../../contracts/src/lib/replay-registered-attempt-dispatch-authority"
 
 export type ReplayAttemptFailureClass = "input_invalid" | "unsupported_contract" | "data_integrity" | "deterministic_engine" | "resource" | "external_io"
 
@@ -75,6 +80,13 @@ export interface RenewReplayAttemptLeaseInput {
 export interface ObserveCurrentReplayAttemptLeaseInput {
   trial_id: string
   observed_at: string
+}
+
+export interface IssueReplayRegisteredAttemptDispatchAuthorityInput {
+  attempt_id: string
+  worker_id: string
+  expected_lease_generation: number
+  issued_at: string
 }
 
 export interface FinalizeReplayAttemptInput {
@@ -253,6 +265,76 @@ export function claimRegisteredReplayAttempt(
     registration_id: registration.registration_id,
     registration_hash: registration.registration_hash,
   })
+}
+
+export function issueReplayRegisteredAttemptDispatchAuthority(
+  db: Database,
+  input: IssueReplayRegisteredAttemptDispatchAuthorityInput,
+): ReplayRegisteredAttemptDispatchAuthority {
+  requireText(input.attempt_id, "attempt_id")
+  requireText(input.worker_id, "worker_id")
+  requireUtc(input.issued_at, "issued_at")
+  if (!Number.isSafeInteger(input.expected_lease_generation)
+      || input.expected_lease_generation < 1) {
+    throw new Error("expected_lease_generation must be positive")
+  }
+  const issue = db.transaction(() => {
+    const attempt = readAttempt(db, input.attempt_id)
+    if (attempt.status !== "claimed" && attempt.status !== "running") {
+      throw new Error("registered Replay dispatch authority requires an active Attempt")
+    }
+    if (attempt.worker_id !== input.worker_id
+        || attempt.lease_generation !== input.expected_lease_generation) {
+      throw new Error("registered Replay dispatch authority does not match the current Lease owner or generation")
+    }
+    if (!attempt.request_registration_id || !attempt.request_registration_hash) {
+      throw new Error("registered Replay dispatch authority requires a Registration-bound Attempt")
+    }
+    const registration = readReplayRequestRegistration(db, attempt.request_registration_id)
+    if (registration.registration_hash !== attempt.request_registration_hash) {
+      throw new Error("registered Replay dispatch authority Registration drifted from Attempt state")
+    }
+    readRegisteredReplayExecutionRequest(db, registration.registration_id)
+    const lease = toLeaseSnapshot(attempt)
+    if (registration.trial_id !== lease.trial_id || registration.run_id !== lease.run_id
+        || registration.reservation_ref !== lease.reservation_ref
+        || registration.reservation_hash !== lease.reservation_hash
+        || registration.request_hash !== lease.request_hash) {
+      throw new Error("registered Replay dispatch authority Request and Lease lineage drifted")
+    }
+    const issued = Date.parse(input.issued_at)
+    if (issued < Date.parse(lease.heartbeat_at) || issued >= Date.parse(lease.lease_expires_at)) {
+      throw new Error("registered Replay dispatch authority must be issued inside the current Lease window")
+    }
+    const leaseHash = hashReplayAttemptLeaseSnapshot(lease)
+    const identity = canonicalControlPlaneHash({
+      request_registration_hash: registration.registration_hash,
+      attempt_lease_hash: leaseHash,
+      issued_at: input.issued_at,
+    }).slice(0, 24)
+    return createReplayRegisteredAttemptDispatchAuthority({
+      authority_id: `replay-registered-attempt-dispatch-${identity}`,
+      authority_ref: `authority://replay-registered-attempt-dispatch/${identity}`,
+      request_registration_id: registration.registration_id,
+      request_registration_hash: registration.registration_hash,
+      request_registration: registration,
+      replay_execution_request_hash: registration.request_hash,
+      trial_id: registration.trial_id,
+      run_id: registration.run_id,
+      reservation_ref: registration.reservation_ref,
+      reservation_hash: registration.reservation_hash,
+      attempt_id: lease.attempt_id,
+      attempt_ordinal: lease.attempt_ordinal,
+      worker_id: lease.worker_id,
+      attempt_status: lease.status,
+      lease_generation: lease.lease_generation,
+      attempt_lease_hash: leaseHash,
+      attempt_lease: lease,
+      issued_at: input.issued_at,
+      valid_before: lease.lease_expires_at,
+    })
+  })
+  return issue()
 }
 
 function claimResolvedReplayAttempt(

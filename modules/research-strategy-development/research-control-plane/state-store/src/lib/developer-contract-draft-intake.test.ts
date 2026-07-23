@@ -12,7 +12,10 @@ import {
   DEVELOPER_CONTRACT_DRAFT_VALIDATION_REQUEST_SCHEMA_VERSION,
 } from "../../../contracts/src/lib/developer-contract-draft-validation"
 import { DEVELOPER_CONTRACT_FREEZE_REQUEST_SCHEMA_VERSION } from "../../../contracts/src/lib/developer-contract-freeze"
-import { canonicalControlPlaneHash } from "../../../contracts/src/lib/control-plane-contracts"
+import {
+  canonicalControlPlaneHash,
+  hashReplayAttemptLeaseSnapshot,
+} from "../../../contracts/src/lib/control-plane-contracts"
 import {
   PLANNER_PROPOSAL_INTAKE_REQUEST_SCHEMA_VERSION,
   PLANNER_PROPOSAL_SUBMISSION_SCHEMA_VERSION,
@@ -81,7 +84,12 @@ import {
   registerReplayExecutionRequest,
 } from "./replay-request-registration"
 import { REPLAY_REQUEST_REGISTRATION_REQUEST_SCHEMA_VERSION } from "../../../contracts/src/lib/replay-request-registration"
-import { claimRegisteredReplayAttempt } from "./replay-attempt-authority"
+import {
+  claimRegisteredReplayAttempt,
+  finalizeReplayAttempt,
+  issueReplayRegisteredAttemptDispatchAuthority,
+  renewReplayAttemptLease,
+} from "./replay-attempt-authority"
 import { REPLAY_ATTEMPT_ADMISSION_REQUEST_SCHEMA_VERSION } from "../../../contracts/src/lib/replay-attempt-admission"
 
 const REPLAY_HASH = "2".repeat(64)
@@ -786,6 +794,31 @@ test("Control Plane derives one Reservation Admission and registers its exact Re
     expect(lease.request_hash).toBe(registration.request_hash)
     expect(lease.reservation_hash).toBe(registration.reservation_hash)
     expect(lease.trial_id).toBe(registration.trial_id)
+    const dispatchAuthorityInput = {
+      attempt_id: lease.attempt_id,
+      worker_id: lease.worker_id,
+      expected_lease_generation: lease.lease_generation,
+      issued_at: "2026-07-22T12:13:00Z",
+    }
+    const dispatchAuthority = issueReplayRegisteredAttemptDispatchAuthority(db, dispatchAuthorityInput)
+    expect(issueReplayRegisteredAttemptDispatchAuthority(db, dispatchAuthorityInput))
+      .toEqual(dispatchAuthority)
+    expect(dispatchAuthority.request_registration_hash).toBe(registration.registration_hash)
+    expect(dispatchAuthority.replay_execution_request_hash).toBe(registration.request_hash)
+    expect(dispatchAuthority.attempt_lease_hash).toBe(hashReplayAttemptLeaseSnapshot(lease))
+    expect(dispatchAuthority.request_registration.replay_request).toEqual(registeredRequest)
+    expect(() => issueReplayRegisteredAttemptDispatchAuthority(db, {
+      ...dispatchAuthorityInput,
+      worker_id: "foreign-worker",
+    })).toThrow("current Lease owner or generation")
+    expect(() => issueReplayRegisteredAttemptDispatchAuthority(db, {
+      ...dispatchAuthorityInput,
+      expected_lease_generation: lease.lease_generation + 1,
+    })).toThrow("current Lease owner or generation")
+    expect(() => issueReplayRegisteredAttemptDispatchAuthority(db, {
+      ...dispatchAuthorityInput,
+      issued_at: lease.lease_expires_at,
+    })).toThrow("inside the current Lease window")
     expect(db.query(`
       SELECT request_registration_id, request_registration_hash
       FROM rd_replay_attempt WHERE attempt_id=$attempt_id
@@ -839,6 +872,40 @@ test("Control Plane derives one Reservation Admission and registers its exact Re
       reservation_ref: "reservation://replay-reservation-trial-1/overlap",
       idempotency_key: "replay-reservation-admission-overlap-key",
     })).toThrow("overlapping active Reservations")
+    const renewedLease = renewReplayAttemptLease(db, {
+      attempt_id: lease.attempt_id,
+      worker_id: lease.worker_id,
+      expected_lease_generation: lease.lease_generation,
+      heartbeat_at: "2026-07-22T12:14:00Z",
+      lease_expires_at: "2026-07-22T12:22:00Z",
+    })
+    const renewedDispatchAuthority = issueReplayRegisteredAttemptDispatchAuthority(db, {
+      attempt_id: renewedLease.attempt_id,
+      worker_id: renewedLease.worker_id,
+      expected_lease_generation: renewedLease.lease_generation,
+      issued_at: renewedLease.heartbeat_at,
+    })
+    expect(renewedDispatchAuthority.request_registration_id)
+      .toBe(dispatchAuthority.request_registration_id)
+    expect(renewedDispatchAuthority.request_registration_hash)
+      .toBe(dispatchAuthority.request_registration_hash)
+    expect(renewedDispatchAuthority.attempt_lease_hash).not.toBe(dispatchAuthority.attempt_lease_hash)
+    expect(() => issueReplayRegisteredAttemptDispatchAuthority(db, dispatchAuthorityInput))
+      .toThrow("current Lease owner or generation")
+    finalizeReplayAttempt(db, {
+      attempt_id: renewedLease.attempt_id,
+      worker_id: renewedLease.worker_id,
+      expected_lease_generation: renewedLease.lease_generation,
+      status: "cancelled",
+      finalized_at: "2026-07-22T12:15:00Z",
+      failure_class: "resource",
+    })
+    expect(() => issueReplayRegisteredAttemptDispatchAuthority(db, {
+      attempt_id: renewedLease.attempt_id,
+      worker_id: renewedLease.worker_id,
+      expected_lease_generation: renewedLease.lease_generation,
+      issued_at: "2026-07-22T12:15:00Z",
+    })).toThrow("requires an active Attempt")
     expect(count(db, "rd_replay_trial_reservation_admission")).toBe(1)
     expect(count(db, "rd_replay_request_registration")).toBe(1)
   } finally {
