@@ -156,6 +156,16 @@ test("rd supervisor CLI can seed the queue from a hypothesis contract", () => {
 })
 
 test("rd supervisor CLI keeps formal Replay separate from compatibility evaluation", () => {
+  const prepare = run([
+    "--formal-replay-prepare-job",
+    "--json",
+    JSON.stringify({
+      schema_version: "trade.rd-formal-replay-data-prepare-request.v1",
+      unexpected: true,
+    }),
+  ])
+  assert.equal(prepare.ok, false)
+  assert.match(String(prepare.error), /formal Replay data prepare request contract/)
   const result = run([
     "--formal-replay-job",
     "--json",
@@ -167,6 +177,7 @@ test("rd supervisor CLI keeps formal Replay separate from compatibility evaluati
   assert.equal(result.ok, false)
   assert.match(String(result.error), /formal Replay job request contract/)
   const exclusive = run([
+    "--formal-replay-prepare-job",
     "--formal-replay-job",
     "--evaluation-job",
     "--json",

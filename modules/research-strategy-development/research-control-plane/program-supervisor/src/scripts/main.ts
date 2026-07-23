@@ -16,6 +16,9 @@ import {
 import {
   runFormalReplayJob,
 } from "../lib/formal-replay-runner"
+import {
+  prepareFormalReplayData,
+} from "../lib/formal-replay-data-preparer"
 
 interface Config {
   dbPath: string
@@ -24,6 +27,7 @@ interface Config {
   input: JSONRecord
   supervisorJob: boolean
   evaluationJob: boolean
+  formalReplayPrepareJob: boolean
   formalReplayJob: boolean
 }
 
@@ -53,7 +57,9 @@ export function run(argv: string[]): JSONRecord {
     process.chdir(repoRoot())
     const config = parseArgs(argv)
     assertRuntimeOutputPaths(config.dbPath, config.catalogDbPath)
-    const data = config.formalReplayJob
+    const data = config.formalReplayPrepareJob
+      ? prepareFormalReplayData(config.dbPath, config.input)
+      : config.formalReplayJob
       ? runFormalReplayJob(config.dbPath, config.input)
       : config.evaluationJob
       ? runEvaluationJob(config)
@@ -82,6 +88,7 @@ function parseArgs(argv: string[]): Config {
     input: {},
     supervisorJob: false,
     evaluationJob: false,
+    formalReplayPrepareJob: false,
     formalReplayJob: false,
   }
   for (let index = 0; index < argv.length; index += 1) {
@@ -111,13 +118,21 @@ function parseArgs(argv: string[]): Config {
       case "--formal-replay-job":
         config.formalReplayJob = true
         break
+      case "--formal-replay-prepare-job":
+        config.formalReplayPrepareJob = true
+        break
       case "--help":
         exitWithHelp()
       default:
         throw new Error(`unknown flag: ${arg}`)
     }
   }
-  if ([config.supervisorJob, config.evaluationJob, config.formalReplayJob]
+  if ([
+    config.supervisorJob,
+    config.evaluationJob,
+    config.formalReplayPrepareJob,
+    config.formalReplayJob,
+  ]
     .filter(Boolean).length > 1) {
     throw new Error("job modes are mutually exclusive")
   }
@@ -291,6 +306,7 @@ function printHelp(): void {
   bun src/scripts/main.ts --db ./data/rd_state.db --program-id rd-program --json '{"max_iterations":10}'
   bun src/scripts/main.ts --supervisor-job --db ./data/rd_state.db --program-id rd-program --json '{"cycle_id":"cycle","goal":{"objective":"find edge"}}'
   bun src/scripts/main.ts --evaluation-job --db ./data/rd_state.db --json '{"package_id":"evaluation-package:...","package_hash":"...","artifact_root":"tmp/artifacts/strategy-rnd","completed_at":"..."}'
+  bun src/scripts/main.ts --formal-replay-prepare-job --db ./data/rd_state.db --input tmp/formal-replay-data-prepare.json
   bun src/scripts/main.ts --formal-replay-job --db ./data/rd_state.db --input tmp/formal-replay-job.json
 `)
 }

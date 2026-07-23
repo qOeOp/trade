@@ -7,13 +7,21 @@ import type { ReplayResumeAuthorizationSnapshot, TrialReservationSnapshot } from
 import type { ReplayRegisteredAttemptDispatchAuthority } from "../../../../research-control-plane/contracts/src/lib/replay-registered-attempt-dispatch-authority"
 import type { ReplayDatasetManifest, ReplayFundingEvent, ReplayMarkEvent, ReplayMarketBar, ReplaySupplementalFact } from "../../../contracts/src/lib/replay-contracts"
 import type { ReplayEngineCheckpoint } from "../../../engine/src/lib/replay-reference-engine"
+import { compileFormalReplayDataBundle } from "../lib/formal-replay-data-bundle"
 import { runRegisteredReplayTrial } from "../lib/replay-registered-trial-runner"
 
 const SCHEMA_VERSION = "rd-replay-execution.script-response.v1"
 
 export function run(argv: string[]): JSONRecord {
   try {
-    const input = parse(argv)
+    const config = parse(argv)
+    const input = config.input
+    if (config.compileDataBundle) {
+      return successResponse(
+        SCHEMA_VERSION,
+        compileFormalReplayDataBundle(input),
+      )
+    }
     if ("request" in input || "attempt_lease" in input) {
       throw new Error("Replay execution rejects caller-supplied Request and Attempt Lease; dispatch_authority is required")
     }
@@ -44,8 +52,12 @@ export function run(argv: string[]): JSONRecord {
   }
 }
 
-function parse(argv: string[]): JSONRecord {
+function parse(argv: string[]): {
+  input: JSONRecord
+  compileDataBundle: boolean
+} {
   let input: JSONRecord | null = null
+  let compileDataBundle = false
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === "--json") {
       if (input) throw new Error("Replay execution accepts one input source")
@@ -55,10 +67,13 @@ function parse(argv: string[]): JSONRecord {
       const ref = readFlagValue(argv, ++index, "--input")
       assertProjectRuntimePath(ref)
       input = readJsonObjectFile(resolveRepoPath(ref))
+    } else if (argv[index] === "--compile-data-bundle") {
+      if (compileDataBundle) throw new Error("Replay data bundle compile mode was repeated")
+      compileDataBundle = true
     } else throw new Error(`unknown flag: ${argv[index]}`)
   }
   if (!input) throw new Error("Replay execution requires --json or --input")
-  return input
+  return { input, compileDataBundle }
 }
 
 function record(value: unknown): JSONRecord { return value && typeof value === "object" && !Array.isArray(value) ? value as JSONRecord : {} }

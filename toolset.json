@@ -2272,11 +2272,12 @@
       "intent": [
         "trial-replay",
         "deterministic-historical-evidence",
-        "replay-result-artifact"
+        "replay-result-artifact",
+        "formal-replay-data-bundle"
       ],
       "capability_class": ["E"],
       "path": "modules/research-strategy-development/replay-execution-plane/runner",
-      "purpose": "Execute one immutable Trial-bound Replay request and atomically publish its Result Artifact.",
+      "purpose": "Compile one hash-locked formal Replay data bundle or execute one immutable Trial-bound Replay request and atomically publish its Result Artifact.",
       "command": {
         "cwd": "modules/research-strategy-development/replay-execution-plane/runner",
         "argv": ["bun", "src/scripts/main.ts", "--json", "<payload>"]
@@ -2290,6 +2291,7 @@
       },
       "notes": [
         "Certified v1 supports one isolated asset lane, next-open market entry, full reduce-only stop/target, exact funding events, and unified evidence ledger.",
+        "The separate --compile-data-bundle mode verifies bounded repository-scoped source bytes against one certified Dataset Manifest and grants no execution authority.",
         "Production Attempt leases must be obtained through research.replay-attempt-admission so local cancellation recovery precedes fresh claim.",
         "No Candidate generation, Review Decision, formal Shadow, or exchange access."
       ],
@@ -2714,6 +2716,7 @@
         "rd-autonomous-loop",
         "experiment-evaluation",
         "compatibility-mechanical-replay",
+        "formal-replay-data-preparation",
         "formal-replay-orchestration"
       ],
       "capability_class": [
@@ -2721,7 +2724,7 @@
         "E"
       ],
       "path": "modules/research-strategy-development/research-control-plane/program-supervisor",
-      "purpose": "Run native J04 rd_strategy_supervisor, execute one immutable compatibility Evaluation Work Package, or orchestrate one registered formal Replay job from durable RD state.",
+      "purpose": "Run native J04 rd_strategy_supervisor, execute one immutable compatibility Evaluation Work Package, prepare registered formal Replay data, or orchestrate one registered formal Replay job from durable RD state.",
       "command": {
         "cwd": "modules/research-strategy-development/research-control-plane/program-supervisor",
         "argv": [
@@ -2748,6 +2751,7 @@
       "notes": [
         "Orchestrates plan_next, rd-loop-runner / rd-campaign-runner execution, explicit RD state writeback, and optional draft strategy policy creation.",
         "The alternate --evaluation-job mode consumes an owner-compiled Work Package, completes already-reserved Trials, and publishes compatibility_mechanical_replay evidence; it never claims formal Replay authority or permits positive promotion.",
+        "The alternate --formal-replay-prepare-job mode binds one exact Developer Data Snapshot to one Registration and delegates immutable bundle compilation to the Replay owner without opening an Attempt.",
         "The alternate --formal-replay-job mode crosses registered Attempt Admission and Replay Execution owner CLIs, then atomically publishes only replay_owner/mechanical_replay evidence; it grants no Review, Registry, Forward, deployment, or trading authority.",
         "Returns a domain-runtime job result owned by research-strategy-development for J04."
       ],

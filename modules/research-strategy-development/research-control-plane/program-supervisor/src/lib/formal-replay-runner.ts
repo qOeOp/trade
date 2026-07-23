@@ -117,7 +117,7 @@ export interface FormalReplayRunnerDependencies {
 
 const DEFAULT_DEPENDENCIES: FormalReplayRunnerDependencies = {
   now: () => new Date(),
-  load_context: loadContext,
+  load_context: loadFormalReplayContext,
   admit: (args) => runOwnerToolRecordSync(
     "research.replay-attempt-admission",
     args,
@@ -151,7 +151,7 @@ export function runFormalReplayJob(
       db,
       request.request_registration_id,
     )
-    assertContext(request, context)
+    assertFormalReplayContext(request, context)
     const resultId = formalResultId(context.registration)
     const recovered = readCompletedResult(db, request, context, resultId)
     if (recovered) return recovered
@@ -209,7 +209,10 @@ export function runFormalReplayJob(
   }
 }
 
-function loadContext(db: Database, registrationId: string): FormalReplayContext {
+export function loadFormalReplayContext(
+  db: Database,
+  registrationId: string,
+): FormalReplayContext {
   const registration = readReplayRequestRegistration(db, registrationId)
   const admission = readReplayTrialReservationAdmission(
     db,
@@ -233,8 +236,11 @@ function loadContext(db: Database, registrationId: string): FormalReplayContext 
   }
 }
 
-function assertContext(
-  request: FormalReplayJobRequest,
+export function assertFormalReplayContext(
+  request: Pick<
+    FormalReplayJobRequest,
+    "request_registration_id" | "request_registration_hash"
+  >,
   context: FormalReplayContext,
 ): void {
   if (context.registration.registration_hash !== request.request_registration_hash
@@ -300,7 +306,11 @@ function persistDispatchInput(
     supplemental_facts: bundle.supplemental_facts,
     artifact_root: root,
   }
-  const bytes = persistImmutableJson(path, body, "formal Replay dispatch input")
+  const bytes = persistFormalReplayImmutableJson(
+    path,
+    body,
+    "formal Replay dispatch input",
+  )
   return { ref, sha256: hash(bytes) }
 }
 
@@ -336,7 +346,7 @@ function loadOrCreateExecutionClock(
   const leaseExpiresAt = new Date(
     Date.parse(sampledAt) + request.lease_duration_ms,
   ).toISOString()
-  persistImmutableJson(path, {
+  persistFormalReplayImmutableJson(path, {
     schema_version: "trade.rd-formal-replay-execution-clock.v1",
     execution_id: request.execution_id,
     request_hash: requestHash,
@@ -346,7 +356,7 @@ function loadOrCreateExecutionClock(
   return { claimed_at: sampledAt, lease_expires_at: leaseExpiresAt }
 }
 
-function persistImmutableJson(
+export function persistFormalReplayImmutableJson(
   path: string,
   body: JSONRecord,
   label: string,

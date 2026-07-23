@@ -36,3 +36,16 @@ test("Replay execution CLI rejects caller-supplied Request and Lease pairs", () 
   expect(result.ok).toBe(false)
   expect(String(result.error)).toContain("dispatch_authority is required")
 })
+
+test("Replay execution CLI keeps data compilation separate from execution authority", () => {
+  const result = run([
+    "--compile-data-bundle",
+    "--json",
+    JSON.stringify({
+      schema_version: "trade.rd-formal-replay-data-bundle-compile-request.v1",
+      unexpected: true,
+    }),
+  ])
+  expect(result.ok).toBe(false)
+  expect(String(result.error)).toContain("compile request contract")
+})
