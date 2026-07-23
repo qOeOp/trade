@@ -7,6 +7,8 @@
 - Distinguish Gateway execution from OpenClaw embedded fallback; embedded fallback is a named alternate profile and is never silently counted as Gateway evidence.
 - Re-read instruction and input refs from the content-addressed Agent Artifact Store, digest-check them, and wrap them in one canonical untrusted-data envelope before execution.
 - Require exactly one JSON object on success and canonicalize it into the immutable Agent Artifact Store before closing the Run.
+- The server adapter calls the Gateway's private OpenResponses endpoint with an explicit Agent id and Run-scoped session key; response bodies and bearer credentials are not retained.
+- Its bearer-authenticated Agent Run HTTP surface is private-network only; Program callers receive normalized acceptance, status, events, cancellation, and terminal results, never provider credentials or raw Gateway payloads.
 
 ## Boundaries
 
