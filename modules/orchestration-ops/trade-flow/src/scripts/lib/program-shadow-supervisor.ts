@@ -10,6 +10,10 @@ import {
 } from "../../../../ops-runtime-store/src/lib/ops-runtime-store"
 import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
 import { assertProjectRuntimePath, resolveRepoPath } from "../../../../../contracts/runtime-core/src/paths"
+import {
+  buildDatabaseIdentity,
+  ensureDatabaseIdentity,
+} from "../../../../../contracts/runtime-core/src/database-identity"
 import { executeCommand, type CommandExecutor } from "./job-graph-runner"
 import { runProgramShadowWakeup } from "./program-shadow"
 import type { ProgramRuntimeProfile } from "./program-shadow"
@@ -108,6 +112,7 @@ export async function runProgramShadowSupervisor(
     let acquired: OpsLockAcquisition
     try {
       opsDb.run(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`)
+      ensureDatabaseIdentity(opsDb, buildDatabaseIdentity("local:local", "ops_runtime_store"))
       ensureOpsRuntimeSchema(opsDb)
       acquired = acquireOpsLock(opsDb, {
         lock_key: SUPERVISOR_LOCK_KEY,
