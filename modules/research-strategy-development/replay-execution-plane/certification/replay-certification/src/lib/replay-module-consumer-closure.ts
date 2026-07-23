@@ -212,6 +212,7 @@ function owningPackage(path: string, packageRoots: string[]): string | null {
 
 function isNonProductionSource(path: string): boolean {
   return /\.(test|spec)\.[cm]?[jt]sx?$/.test(path)
+    || path.includes("/test-support/")
     || path.includes("/certification/")
     || path.startsWith(`${REPLAY_PLANE_ROOT}/tests/`)
 }

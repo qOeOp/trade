@@ -26,17 +26,41 @@ test("one TypeScript module selects only its package check", () => {
   expect(plan.fullReasons).toEqual([])
 })
 
-test("Replay, shared contracts, scripts, and cross-language work require the full gate", () => {
+test("Replay uses package checks while shared contracts, scripts, and cross-language work require the full gate", () => {
   const root = fixture()
+  packageMarker(root,
+    "modules/research-strategy-development/replay-execution-plane/runner", "package.json")
   packageMarker(root, "modules/domain/ts-tool", "package.json")
   packageMarker(root, "modules/domain/rust-tool", "Cargo.toml")
+  const replay = buildChangedPlan([
+    "modules/research-strategy-development/replay-execution-plane/runner/src/main.ts",
+  ], root)
+  expect(replay.fullReasons).toEqual([])
+  expect(replay.packages).toEqual([{
+    kind: "typescript",
+    dir: "modules/research-strategy-development/replay-execution-plane/runner",
+  }])
   const cases = [
-    ["modules/research-strategy-development/replay-execution-plane/runner/src/main.ts"],
     ["modules/contracts/runtime-core/src/main.ts"],
     ["scripts/quality-check.sh"],
     ["modules/domain/ts-tool/src/main.ts", "modules/domain/rust-tool/src/main.rs"],
   ]
   for (const files of cases) expect(buildChangedPlan(files, root).fullReasons.length).toBeGreaterThan(0)
+})
+
+test("Replay contract changes also select the runner consumer", () => {
+  const root = fixture()
+  const contracts =
+    "modules/research-strategy-development/replay-execution-plane/contracts"
+  const runner =
+    "modules/research-strategy-development/replay-execution-plane/runner"
+  packageMarker(root, contracts, "package.json")
+  packageMarker(root, runner, "package.json")
+
+  expect(buildChangedPlan([`${contracts}/src/lib/example.ts`], root).packages).toEqual([
+    { kind: "typescript", dir: contracts },
+    { kind: "typescript", dir: runner },
+  ])
 })
 
 function fixture(): string {

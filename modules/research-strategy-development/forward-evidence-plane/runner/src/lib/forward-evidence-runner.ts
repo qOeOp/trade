@@ -5,7 +5,7 @@ import {
   type ForwardEvidenceResult,
 } from "../../../contracts/src/lib/forward-evidence-contracts"
 import type { ReplayDatasetManifest, ReplayFundingEvent, ReplayMarkEvent, ReplayMarketBar, ReplaySupplementalFact } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
-import { runReplayTrial } from "../../../../replay-execution-plane/runner/src/lib/replay-trial-runner"
+import { runReplayTrial } from "../../../../replay-execution-plane/runner/src/public"
 import type { ReplayAttemptLeaseSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 
 export interface ForwardEvidenceRunInput {

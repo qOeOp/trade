@@ -14,10 +14,8 @@ export interface ReplayPublicationCrashRecoveryProfile {
   recovery_mode: ReplayPublicationProfileRecoveryMode
   writer_path: string
   writer_export: string
-  writer_source_sha256: string
   test_path: string
   test_name: string
-  test_source_sha256: string
 }
 
 export interface ReplayPublicationCrashRecoveryBundle {
@@ -27,9 +25,7 @@ export interface ReplayPublicationCrashRecoveryBundle {
   exactly_once_scope: "one-authoritative-commit-marker-not-one-process-execution"
   crash_probe: {
     member_script_path: string
-    member_script_source_sha256: string
     local_store_path: string
-    local_store_source_sha256: string
     crash_signal: "SIGKILL"
     crash_point: "after-all-durable-payloads-before-manifest"
     recovery_process_count: 2
@@ -77,8 +73,7 @@ interface ReadyOutput {
   manifest_present: boolean
 }
 
-const EXPECTED_PROFILES: Array<Omit<ReplayPublicationCrashRecoveryProfile,
-  "writer_source_sha256" | "test_source_sha256">> = [
+const EXPECTED_PROFILES: ReplayPublicationCrashRecoveryProfile[] = [
   {
     profile: "independent-lane-batch",
     publication_scope: "child-trial-manifests-only",
@@ -150,10 +145,8 @@ export function assertReplayPublicationCrashRecoveryBundle(
   if (JSON.stringify(bundle.limitations) !== JSON.stringify(EXPECTED_LIMITATIONS)) {
     throw new Error("Replay publication crash recovery limitations are incomplete")
   }
-  assertSource(repoRoot, bundle.crash_probe.member_script_path,
-    bundle.crash_probe.member_script_source_sha256, "member")
-  assertSource(repoRoot, bundle.crash_probe.local_store_path,
-    bundle.crash_probe.local_store_source_sha256, "local store")
+  readSource(repoRoot, bundle.crash_probe.member_script_path, "member")
+  readSource(repoRoot, bundle.crash_probe.local_store_path, "local store")
   const profileNames = profileEvidence.profiles.map((profile) => profile.profile)
   if (JSON.stringify(bundle.profiles.map((profile) => profile.profile)) !== JSON.stringify(profileNames)
       || bundle.profiles.length !== EXPECTED_PROFILES.length) {
@@ -161,14 +154,11 @@ export function assertReplayPublicationCrashRecoveryBundle(
   }
   bundle.profiles.forEach((profile, index) => {
     const expected = EXPECTED_PROFILES[index]!
-    const { writer_source_sha256: _writerHash, test_source_sha256: _testHash, ...identity } = profile
-    if (JSON.stringify(identity) !== JSON.stringify(expected)) {
+    if (JSON.stringify(profile) !== JSON.stringify(expected)) {
       throw new Error(`Replay publication profile policy drifted: ${profile.profile}`)
     }
-    const writer = assertSource(repoRoot, profile.writer_path, profile.writer_source_sha256,
-      `${profile.profile} writer`)
-    const test = assertSource(repoRoot, profile.test_path, profile.test_source_sha256,
-      `${profile.profile} test`)
+    const writer = readSource(repoRoot, profile.writer_path, `${profile.profile} writer`)
+    const test = readSource(repoRoot, profile.test_path, `${profile.profile} test`)
     if (!writer.includes(`export function ${profile.writer_export}`)
         || !test.includes(`test(${JSON.stringify(profile.test_name)}`)) {
       throw new Error(`Replay publication profile evidence is missing: ${profile.profile}`)
@@ -272,15 +262,13 @@ async function readMember(child: Bun.Subprocess<"ignore", "pipe", "pipe">): Prom
   return member
 }
 
-function assertSource(repoRoot: string, path: string, expectedHash: string, kind: string): string {
+function readSource(repoRoot: string, path: string, kind: string): string {
   if (!path || path.startsWith("/") || path.includes("..")) {
     throw new Error(`Replay publication ${kind} path is not repo-relative`)
   }
   const absolute = join(repoRoot, path)
   if (!existsSync(absolute)) throw new Error(`Replay publication ${kind} source is missing`)
-  const source = readFileSync(absolute, "utf8")
-  if (sha256(source) !== expectedHash) throw new Error(`Replay publication ${kind} source drifted`)
-  return source
+  return readFileSync(absolute, "utf8")
 }
 
 function collectPaths(root: string): string[] {

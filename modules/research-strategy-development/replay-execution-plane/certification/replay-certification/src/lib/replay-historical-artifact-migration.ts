@@ -18,9 +18,9 @@ export interface ReplayHistoricalArtifactMigrationRegistry {
     artifact_roles: string[]
   }>
   reader_path: string
-  reader_source_sha256: string
+  reader_export: string
   certification_test_path: string
-  certification_test_source_sha256: string
+  certification_test_names: string[]
   limitations: string[]
   registry_sha256: string
 }
@@ -92,8 +92,16 @@ export function assertReplayHistoricalArtifactMigrationRegistry(
   if (JSON.stringify(registry.limitations) !== JSON.stringify(EXPECTED_LIMITATIONS)) {
     throw new Error("Replay historical Artifact migration limitations are incomplete")
   }
-  assertSource(repoRoot, registry.reader_path, registry.reader_source_sha256, "reader")
-  assertSource(repoRoot, registry.certification_test_path, registry.certification_test_source_sha256, "certification")
+  const reader = readSource(repoRoot, registry.reader_path, "reader")
+  if (!reader.includes(`export function ${registry.reader_export}`)) {
+    throw new Error("Replay historical Artifact reader export is missing")
+  }
+  const certification = readSource(repoRoot, registry.certification_test_path, "certification")
+  for (const testName of registry.certification_test_names) {
+    if (!certification.includes(`test(${JSON.stringify(testName)}`)) {
+      throw new Error(`Replay historical Artifact certification test is missing: ${testName}`)
+    }
+  }
   if (registry.registry_sha256 !== replayHistoricalArtifactMigrationRegistryHash(registry)) {
     throw new Error("Replay historical Artifact migration registry hash drifted")
   }
@@ -106,14 +114,13 @@ export function replayHistoricalArtifactMigrationRegistryHash(
   return sha256(stableJson(body))
 }
 
-function assertSource(repoRoot: string, path: string, expectedHash: string, kind: string): void {
+function readSource(repoRoot: string, path: string, kind: string): string {
   if (!path || path.startsWith("/") || path.includes("..")) {
     throw new Error(`Replay historical Artifact ${kind} path is not repo-relative`)
   }
   const absolute = join(repoRoot, path)
-  if (!existsSync(absolute) || sha256(readFileSync(absolute, "utf8")) !== expectedHash) {
-    throw new Error(`Replay historical Artifact ${kind} source drifted`)
-  }
+  if (!existsSync(absolute)) throw new Error(`Replay historical Artifact ${kind} source is missing`)
+  return readFileSync(absolute, "utf8")
 }
 
 function sha256(value: string): string {

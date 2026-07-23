@@ -5,7 +5,6 @@
     "fixture_path": "modules/research-strategy-development/replay-execution-plane/tests/src/fixtures/certified-single-position-v24.json",
     "fixture_source_sha256": "eb6d2b3faf73b98296b6c2e39ea9933e6d3babdd18280e13bebf1326c6f15c92",
     "member_script_path": "modules/research-strategy-development/replay-execution-plane/tests/src/replay-reproducibility-member.ts",
-    "member_script_source_sha256": "de8224c2c570a1af07a53d8eaf4deb7e53a44d8935504416a5d73b59cdfc8e5e",
     "member_count": 2,
     "execution_policy": "concurrent-distinct-process-same-runtime-exact-canonical-result",
     "expected_input_hash": "b4036b919785805f6bc0bfe07ec6b13e400ed6ee5f40510b21bd1e32a243670b",
@@ -14,48 +13,40 @@
   "profile_execution_policy": "two-fresh-bun-processes-per-public-profile-exact-owner-test",
   "process_count_per_profile": 2,
   "runtime_policy": "current-certification-runtime-recorded-not-cross-runtime",
-  "output_policy": "canonical-result-exact-and-both-profile-processes-pass-frozen-assertion",
+  "output_policy": "canonical-result-exact-and-both-profile-processes-pass-owner-assertion",
   "profiles": [
     {
       "profile": "independent-lane-batch",
-      "entrypoint_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.ts",
+      "entrypoint_path": "modules/research-strategy-development/replay-execution-plane/runner/src/public.ts",
       "entrypoint_export": "runReplayIndependentLaneBatch",
-      "entrypoint_source_sha256": "4abe6b6f3a3ad2db4bf75d6ea25c9947939bebe318e4768c15a76e827f51d1af",
       "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
-      "test_source_sha256": "14242b00ae0e20d93d13fcb70ab0ba1d9fd71b0f51eda6478950fa61e21c25b3",
       "test_name": "independent capital lanes execute in canonical Plan order and aggregate evidence without shared NAV semantics",
       "checkpoint_mode": "child-trial-engine-checkpoints-v32-only",
       "resume_claim": "delegated-child-trial-checkpoint"
     },
     {
       "profile": "integrated-portfolio",
-      "entrypoint_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-integrated-portfolio-runner.ts",
+      "entrypoint_path": "modules/research-strategy-development/replay-execution-plane/runner/src/public.ts",
       "entrypoint_export": "runReplayIntegratedPortfolio",
-      "entrypoint_source_sha256": "c8684d1062266125647afcae0aef2e1d89edac36ecafe22c8169d11f49530c94",
       "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
-      "test_source_sha256": "14242b00ae0e20d93d13fcb70ab0ba1d9fd71b0f51eda6478950fa61e21c25b3",
       "test_name": "integrated Portfolio makes Allocation the only entry authority and releases exposure/risk through lifecycle Artifact",
       "checkpoint_mode": "not-supported-no-checkpoint-writer",
       "resume_claim": "explicit-not-supported"
     },
     {
       "profile": "single-trial",
-      "entrypoint_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.ts",
+      "entrypoint_path": "modules/research-strategy-development/replay-execution-plane/runner/src/public.ts",
       "entrypoint_export": "runReplayTrial",
-      "entrypoint_source_sha256": "2aa414d59aad6caa6710a3955070927a60800200f3aced8d34fe514bb80b446e",
       "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.test.ts",
-      "test_source_sha256": "57ff87f474812e284804455ee4d2ea601447c1f1787640f1b66fe8c7ff68b31b",
       "test_name": "runner atomically publishes an attempt-local checkpoint commit and resumes it across processes",
       "checkpoint_mode": "resumable-engine-checkpoint-v32",
       "resume_claim": "direct-engine-checkpoint"
     },
     {
       "profile": "terminal-aware-bounded-cycle",
-      "entrypoint_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-terminal-cycle-sequence-runner.ts",
+      "entrypoint_path": "modules/research-strategy-development/replay-execution-plane/runner/src/public.ts",
       "entrypoint_export": "runReplayPortfolioProtectiveTerminalCycleSequence",
-      "entrypoint_source_sha256": "7d5f7a468baaa5fff1ac0b6b72272b2fe4159aa4a0e64d2da9351fdb473f37e3",
       "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
-      "test_source_sha256": "14242b00ae0e20d93d13fcb70ab0ba1d9fd71b0f51eda6478950fa61e21c25b3",
       "test_name": "bounded Cycle Sequence executes one, two, and three predeclared full-flat cycles without cycle-number schemas",
       "checkpoint_mode": "not-supported-no-checkpoint-writer",
       "resume_claim": "explicit-not-supported"
@@ -67,5 +58,5 @@
     "release-fixture-pack-freeze-is-a-separate-m5-gate",
     "remaining-m5-gates-not-certified-by-this-bundle"
   ],
-  "bundle_sha256": "9a1a9f0737a035cb438325259984ad192cf216cb233eae12b04358d6e6e89b4e"
+  "bundle_sha256": "94ddc2afb15d316d0c2fdfea67bdc309bee4adfa83fe6b4f71a77b2d823cab6b"
 }

@@ -314,11 +314,13 @@ try {
 }
 
 const expectedCapabilityMilestones = Array.from({ length: 29 }, (_, index) => `M4-P${index + 1}`)
+const publicEntrypointPath =
+  "modules/research-strategy-development/replay-execution-plane/runner/src/public.ts"
 const expectedCanonicalEntrypoints = [
-  { profile: "single-trial", owner: "runner", path: "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.ts", export: "runReplayTrial" },
-  { profile: "independent-lane-batch", owner: "runner", path: "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.ts", export: "runReplayIndependentLaneBatch" },
-  { profile: "integrated-portfolio", owner: "runner", path: "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-integrated-portfolio-runner.ts", export: "runReplayIntegratedPortfolio" },
-  { profile: "terminal-aware-bounded-cycle", owner: "runner", path: "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-terminal-cycle-sequence-runner.ts", export: "runReplayPortfolioProtectiveTerminalCycleSequence" },
+  { profile: "single-trial", owner: "runner", path: publicEntrypointPath, export: "runReplayTrial" },
+  { profile: "independent-lane-batch", owner: "runner", path: publicEntrypointPath, export: "runReplayIndependentLaneBatch" },
+  { profile: "integrated-portfolio", owner: "runner", path: publicEntrypointPath, export: "runReplayIntegratedPortfolio" },
+  { profile: "terminal-aware-bounded-cycle", owner: "runner", path: publicEntrypointPath, export: "runReplayPortfolioProtectiveTerminalCycleSequence" },
 ]
 const expectedGenericEpochs = [
   { kind: "result", schema_version: "trade.rd-replay-result.v53", path: "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-contracts.ts", export: "REPLAY_RESULT_SCHEMA_VERSION" },
@@ -427,7 +429,7 @@ const genericEpochPatterns = expectedGenericEpochs.map((epoch) => ({
 }))
 const replaySourceRoot = "modules/research-strategy-development/replay-execution-plane"
 const productionReplaySources = collectTypeScriptSources(replaySourceRoot)
-  .filter((path) => !path.endsWith(".test.ts"))
+  .filter((path) => !path.endsWith(".test.ts") && !path.includes("/test-support/"))
 for (const epoch of genericEpochPatterns) {
   const observed = new Set<string>()
   for (const path of productionReplaySources) {
@@ -525,7 +527,7 @@ if (JSON.stringify(inventory.canonical_public_entrypoints) !== JSON.stringify(ex
 } else {
   for (const entrypoint of inventory.canonical_public_entrypoints) {
     if (!existsSync(entrypoint.path)
-        || !readFileSync(entrypoint.path, "utf8").includes(`export function ${entrypoint.export}`)) {
+        || !exportsName(readFileSync(entrypoint.path, "utf8"), entrypoint.export)) {
       issues.push(`Replay canonical public entrypoint is not exported by its owner: ${entrypoint.profile}`)
     }
   }
@@ -769,6 +771,11 @@ function collectPackageRoots(root: string): string[] {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+function exportsName(source: string, name: string): boolean {
+  return source.includes(`export function ${name}`)
+    || new RegExp(`export\\s*\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from`).test(source)
 }
 
 if (issues.length > 0) {

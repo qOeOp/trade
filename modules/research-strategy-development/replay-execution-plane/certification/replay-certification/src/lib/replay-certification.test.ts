@@ -131,12 +131,12 @@ describe("Replay certification owner", () => {
 
   test("rejects reproducibility bundle tamper before process launch", () => {
     const bundle = structuredClone(loadReplayCrossProcessReproducibilityBundle(repoRoot))
-    bundle.profiles[0]!.entrypoint_source_sha256 = "0".repeat(64)
+    bundle.profiles[0]!.entrypoint_export = "missingReplayEntrypoint"
     expect(() => assertReplayCrossProcessReproducibilityBundle(
       bundle,
       loadReplayProfileEvidenceManifest(repoRoot),
       repoRoot,
-    )).toThrow("entrypoint source drifted")
+    )).toThrow("profile authority drifted")
   })
 
   test("freezes the read-only P10/P11/P13 historical Artifact migration", () => {
@@ -147,11 +147,11 @@ describe("Replay certification owner", () => {
     ])
   })
 
-  test("rejects historical Artifact reader drift", () => {
+  test("rejects historical Artifact reader identity drift", () => {
     const registry = structuredClone(loadReplayHistoricalArtifactMigrationRegistry(repoRoot))
-    registry.reader_source_sha256 = "0".repeat(64)
+    registry.reader_export = "missingHistoricalReader"
     expect(() => assertReplayHistoricalArtifactMigrationRegistry(registry, repoRoot))
-      .toThrow("reader source drifted")
+      .toThrow("reader export is missing")
   })
 
   test("recovers a hard-crashed payload-only publication into one authoritative manifest", async () => {
@@ -176,7 +176,7 @@ describe("Replay certification owner", () => {
     }
   }, 15_000)
 
-  test("rejects publication recovery scope or writer source drift", () => {
+  test("rejects publication recovery scope or writer identity drift", () => {
     const bundle = structuredClone(loadReplayPublicationCrashRecoveryBundle(repoRoot))
     bundle.exactly_once_scope = "one-process-execution" as never
     expect(() => assertReplayPublicationCrashRecoveryBundle(
@@ -186,12 +186,12 @@ describe("Replay certification owner", () => {
     )).toThrow("unsupported Replay publication crash recovery bundle")
 
     const writerDrift = structuredClone(loadReplayPublicationCrashRecoveryBundle(repoRoot))
-    writerDrift.profiles[0]!.writer_source_sha256 = "0".repeat(64)
+    writerDrift.profiles[0]!.writer_export = "missingReplayWriter"
     expect(() => assertReplayPublicationCrashRecoveryBundle(
       writerDrift,
       loadReplayProfileEvidenceManifest(repoRoot),
       repoRoot,
-    )).toThrow("writer source drifted")
+    )).toThrow("profile policy drifted")
   })
 
   test("certifies the declared capacity workload and current-host performance envelope", async () => {
@@ -309,10 +309,10 @@ describe("Replay certification owner", () => {
     )).toThrow("observability is incomplete or overclaimed")
 
     const runbookDrift = structuredClone(loadReplayOperationalReadinessRegistry(repoRoot))
-    runbookDrift.runbook.source_sha256 = "0".repeat(64)
+    runbookDrift.runbook.required_sections.pop()
     expect(() => assertReplayOperationalReadinessRegistry(
       runbookDrift, profileEvidence, repoRoot,
-    )).toThrow("runbook source drifted")
+    )).toThrow("runbook contract drifted")
   })
 
   test("freezes the release-candidate evidence closure and reruns every profile golden", async () => {
@@ -355,9 +355,9 @@ describe("Replay certification owner", () => {
     )).toThrow("component authority hash drifted")
 
     const sourceDrift = structuredClone(loadReplayReleaseCandidateFixturePack(repoRoot))
-    sourceDrift.profiles[0]!.golden_source_sha256 = "0".repeat(64)
+    sourceDrift.profiles[0]!.golden_test_name = "missing golden assertion"
     expect(() => assertReplayReleaseCandidateFixturePack(
       sourceDrift, profileEvidence, repoRoot,
-    )).toThrow("golden source drifted")
+    )).toThrow("profile identity drifted")
   })
 })

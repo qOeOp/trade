@@ -17,7 +17,6 @@ export interface ReplayReleaseCandidateProfile {
   checkpoint_mode: string
   golden_path: string
   golden_test_name: string
-  golden_source_sha256: string
   timeout_ms: number
 }
 
@@ -114,7 +113,7 @@ const EXPECTED_COMPONENTS: Array<Pick<ReplayReleaseCandidateComponent,
   },
 ]
 
-const EXPECTED_PROFILES: Array<Omit<ReplayReleaseCandidateProfile, "golden_source_sha256">> = [
+const EXPECTED_PROFILES: ReplayReleaseCandidateProfile[] = [
   {
     profile: "independent-lane-batch",
     checkpoint_mode: "child-trial-engine-checkpoints-v32-only",
@@ -188,9 +187,10 @@ export function assertReplayReleaseCandidateFixturePack(
         || component.authority_hash_field !== expected.authority_hash_field) {
       throw new Error(`Replay release candidate component identity drifted: ${component.role}`)
     }
-    const source = assertSource(
-      repoRoot, component.path, component.content_sha256, `component ${component.role}`,
-    )
+    const source = readSource(repoRoot, component.path, `component ${component.role}`)
+    if (sha256(source) !== component.content_sha256) {
+      throw new Error(`Replay release candidate component content drifted: ${component.role}`)
+    }
     const document = JSON.parse(source) as Record<string, unknown>
     componentDocuments.set(component.role, document)
     if (component.authority_hash_field === null) {
@@ -215,8 +215,7 @@ export function assertReplayReleaseCandidateFixturePack(
   }
   pack.profiles.forEach((profile, index) => {
     const expected = EXPECTED_PROFILES[index]!
-    const { golden_source_sha256: _sourceHash, ...identity } = profile
-    if (JSON.stringify(identity) !== JSON.stringify(expected)) {
+    if (JSON.stringify(profile) !== JSON.stringify(expected)) {
       throw new Error(`Replay release candidate profile identity drifted: ${profile.profile}`)
     }
     const evidence = profileEvidence.profiles[index]
@@ -227,9 +226,7 @@ export function assertReplayReleaseCandidateFixturePack(
         || golden.path !== profile.golden_path || golden.test_name !== profile.golden_test_name) {
       throw new Error(`Replay release candidate profile golden authority drifted: ${profile.profile}`)
     }
-    const source = assertSource(
-      repoRoot, profile.golden_path, profile.golden_source_sha256, `${profile.profile} golden`,
-    )
+    const source = readSource(repoRoot, profile.golden_path, `${profile.profile} golden`)
     if (!source.includes(`test(${JSON.stringify(profile.golden_test_name)}`)) {
       throw new Error(`Replay release candidate golden assertion is missing: ${profile.profile}`)
     }
@@ -259,7 +256,6 @@ export async function runReplayReleaseCandidateFixtureProbe(
       golden_assertion_hash: sha256(stableJson({
         path: profile.golden_path,
         test_name: profile.golden_test_name,
-        source_sha256: profile.golden_source_sha256,
         outcome: "passed",
       })),
     })
@@ -286,15 +282,13 @@ export function replayReleaseCandidateFixturePackHash(
   return sha256(stableJson(body))
 }
 
-function assertSource(repoRoot: string, path: string, expectedHash: string, role: string): string {
+function readSource(repoRoot: string, path: string, role: string): string {
   if (!path || path.startsWith("/") || path.includes("..")) {
     throw new Error(`Replay release candidate ${role} path is not repo-relative`)
   }
   const absolute = join(repoRoot, path)
   if (!existsSync(absolute)) throw new Error(`Replay release candidate ${role} is missing`)
-  const source = readFileSync(absolute, "utf8")
-  if (sha256(source) !== expectedHash) throw new Error(`Replay release candidate ${role} source drifted`)
-  return source
+  return readFileSync(absolute, "utf8")
 }
 
 function stableJson(value: unknown): string {

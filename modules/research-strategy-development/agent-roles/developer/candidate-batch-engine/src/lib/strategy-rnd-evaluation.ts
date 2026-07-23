@@ -4,7 +4,7 @@ import {
 } from "../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core"
 import { buildReplayDecisionInput, detectReplayDecisionLookahead } from "../../../../../replay-execution-plane/compatibility/legacy-research-decision/src/lib/legacy-research-decision"
 import type { ReplayResult, ReplaySignal, ReplayStrategy } from "../../../../../replay-execution-plane/compatibility/legacy-research-contracts/src/lib/legacy-research-contracts"
-import { hashCanonical } from "../../../../../replay-execution-plane/compatibility/legacy-replay-identity/src/lib/legacy-replay-identity"
+import { canonicalHash as hashCanonical } from "../../../../../../contracts/runtime-core/src/canonical-json"
 import { loadCandlesFromManifest, loadManifest } from "../../../../../replay-execution-plane/compatibility/legacy-research-data/src/lib/legacy-research-data"
 import { type FactorFeatureStore, windowFactorFeatureStore } from "../../../strategy-family-engine/src/lib/factor-engine"
 import { getRndFamily, type RndFamilyConfigured } from "../../../strategy-family-engine/src/lib/rnd-family"

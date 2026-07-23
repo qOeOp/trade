@@ -48,55 +48,55 @@ import {
 import {
   expectFormalCutoverAdmission,
   expectWorkerV10Cutover,
-} from "./replay-worker-v10-cutover-legacy-stage.assertions"
-import { runReplayWorkerV10LegacyActivationStage } from "./replay-worker-v10-legacy-activation-stage"
-import { runReplayWorkerV10SuccessorSpawnStage } from "./replay-worker-v10-successor-spawn-stage"
-import { runReplayWorkerV10SuccessorCommandStage } from "./replay-worker-v10-successor-command-stage"
-import { runReplayWorkerV10SuccessorIntentStage } from "./replay-worker-v10-successor-intent-stage"
-import { runReplayWorkerV10SuccessorCapsuleStage } from "./replay-worker-v10-successor-capsule-stage"
-import { runReplayWorkerV10SuccessorIntegrityStage } from "./replay-worker-v10-successor-integrity-stage"
-import { runReplayWorkerV10UpstreamIntegrityStage } from "./replay-worker-v10-upstream-integrity-stage"
-import { runReplayWorkerV10SuccessorExecutionStage } from "./replay-worker-v10-successor-execution-stage"
-import { runReplayWorkerV10SuccessorLeaseStage } from "./replay-worker-v10-successor-lease-stage"
-import { runReplayWorkerV10AuthorityResponseStage } from "./replay-worker-v10-authority-response-stage"
-import { runReplayWorkerV10AuthorityProcessStage } from "./replay-worker-v10-authority-process-stage"
-import { runReplayWorkerV10AuthoritySpawnStage } from "./replay-worker-v10-authority-spawn-stage"
-import { runReplayWorkerV10AuthorityAdmissionStage } from "./replay-worker-v10-authority-admission-stage"
-import { runReplayWorkerV10AuthorityTransportStage } from "./replay-worker-v10-authority-transport-stage"
-import { runReplayWorkerV10PredecessorLaunchStage } from "./replay-worker-v10-predecessor-launch-stage"
-import { runReplayWorkerV10PredecessorAdmissionEvidenceStage } from "./replay-worker-v10-predecessor-admission-evidence-stage"
-import { runReplayWorkerV10ExecutionClaimStage } from "./replay-worker-v10-execution-claim-stage"
-import { runReplayWorkerV10TransportContractStage } from "./replay-worker-v10-transport-contract-stage"
-import { runReplayWorkerV10StdioProbeStage } from "./replay-worker-v10-stdio-probe-stage"
-import { runReplayWorkerV10SuccessorTransportStage } from "./replay-worker-v10-successor-transport-stage"
-import { runReplayWorkerV10DispatchAuthorityBindingStage } from "./replay-worker-v10-dispatch-authority-binding-stage"
-import { runReplayWorkerV10DispatchEvidenceStage } from "./replay-worker-v10-dispatch-evidence-stage"
-import { runReplayWorkerV10ExecutionEnvelopeStage } from "./replay-worker-v10-execution-envelope-stage"
-import { runReplayWorkerV10DispatchLeaseAdmissionStage } from "./replay-worker-v10-dispatch-lease-admission-stage"
-import { runReplayWorkerV10RequestMaterializationStage } from "./replay-worker-v10-request-materialization-stage"
-import { runReplayWorkerV10BuildCapabilityStage } from "./replay-worker-v10-build-capability-stage"
-import { runReplayWorkerV10ResponseContractStage } from "./replay-worker-v10-response-contract-stage"
-import { runReplayWorkerV10InvocationIdentityStage } from "./replay-worker-v10-invocation-identity-stage"
-import { runReplayWorkerV10LogicalRequestIdentityStage } from "./replay-worker-v10-logical-request-identity-stage"
-import { runReplayWorkerV10AssemblyStage } from "./replay-worker-v10-assembly-stage"
-import { runReplayWorkerV10CodeAdmissionStage } from "./replay-worker-v10-code-admission-stage"
+} from "../test-support/worker-v10/replay-worker-v10-cutover-legacy-stage.assertions"
+import { runReplayWorkerV10LegacyActivationStage } from "../test-support/worker-v10/replay-worker-v10-legacy-activation-stage"
+import { runReplayWorkerV10SuccessorSpawnStage } from "../test-support/worker-v10/replay-worker-v10-successor-spawn-stage"
+import { runReplayWorkerV10SuccessorCommandStage } from "../test-support/worker-v10/replay-worker-v10-successor-command-stage"
+import { runReplayWorkerV10SuccessorIntentStage } from "../test-support/worker-v10/replay-worker-v10-successor-intent-stage"
+import { runReplayWorkerV10SuccessorCapsuleStage } from "../test-support/worker-v10/replay-worker-v10-successor-capsule-stage"
+import { runReplayWorkerV10SuccessorIntegrityStage } from "../test-support/worker-v10/replay-worker-v10-successor-integrity-stage"
+import { runReplayWorkerV10UpstreamIntegrityStage } from "../test-support/worker-v10/replay-worker-v10-upstream-integrity-stage"
+import { runReplayWorkerV10SuccessorExecutionStage } from "../test-support/worker-v10/replay-worker-v10-successor-execution-stage"
+import { runReplayWorkerV10SuccessorLeaseStage } from "../test-support/worker-v10/replay-worker-v10-successor-lease-stage"
+import { runReplayWorkerV10AuthorityResponseStage } from "../test-support/worker-v10/replay-worker-v10-authority-response-stage"
+import { runReplayWorkerV10AuthorityProcessStage } from "../test-support/worker-v10/replay-worker-v10-authority-process-stage"
+import { runReplayWorkerV10AuthoritySpawnStage } from "../test-support/worker-v10/replay-worker-v10-authority-spawn-stage"
+import { runReplayWorkerV10AuthorityAdmissionStage } from "../test-support/worker-v10/replay-worker-v10-authority-admission-stage"
+import { runReplayWorkerV10AuthorityTransportStage } from "../test-support/worker-v10/replay-worker-v10-authority-transport-stage"
+import { runReplayWorkerV10PredecessorLaunchStage } from "../test-support/worker-v10/replay-worker-v10-predecessor-launch-stage"
+import { runReplayWorkerV10PredecessorAdmissionEvidenceStage } from "../test-support/worker-v10/replay-worker-v10-predecessor-admission-evidence-stage"
+import { runReplayWorkerV10ExecutionClaimStage } from "../test-support/worker-v10/replay-worker-v10-execution-claim-stage"
+import { runReplayWorkerV10TransportContractStage } from "../test-support/worker-v10/replay-worker-v10-transport-contract-stage"
+import { runReplayWorkerV10StdioProbeStage } from "../test-support/worker-v10/replay-worker-v10-stdio-probe-stage"
+import { runReplayWorkerV10SuccessorTransportStage } from "../test-support/worker-v10/replay-worker-v10-successor-transport-stage"
+import { runReplayWorkerV10DispatchAuthorityBindingStage } from "../test-support/worker-v10/replay-worker-v10-dispatch-authority-binding-stage"
+import { runReplayWorkerV10DispatchEvidenceStage } from "../test-support/worker-v10/replay-worker-v10-dispatch-evidence-stage"
+import { runReplayWorkerV10ExecutionEnvelopeStage } from "../test-support/worker-v10/replay-worker-v10-execution-envelope-stage"
+import { runReplayWorkerV10DispatchLeaseAdmissionStage } from "../test-support/worker-v10/replay-worker-v10-dispatch-lease-admission-stage"
+import { runReplayWorkerV10RequestMaterializationStage } from "../test-support/worker-v10/replay-worker-v10-request-materialization-stage"
+import { runReplayWorkerV10BuildCapabilityStage } from "../test-support/worker-v10/replay-worker-v10-build-capability-stage"
+import { runReplayWorkerV10ResponseContractStage } from "../test-support/worker-v10/replay-worker-v10-response-contract-stage"
+import { runReplayWorkerV10InvocationIdentityStage } from "../test-support/worker-v10/replay-worker-v10-invocation-identity-stage"
+import { runReplayWorkerV10LogicalRequestIdentityStage } from "../test-support/worker-v10/replay-worker-v10-logical-request-identity-stage"
+import { runReplayWorkerV10AssemblyStage } from "../test-support/worker-v10/replay-worker-v10-assembly-stage"
+import { runReplayWorkerV10CodeAdmissionStage } from "../test-support/worker-v10/replay-worker-v10-code-admission-stage"
 import {
   GOLDEN_REPLAY_BARS,
   GOLDEN_REPLAY_DATASET_HASH,
   HASH,
   goldenReplayDatasetManifest,
-} from "./replay-worker-v10-market-fixture"
+} from "../test-support/worker-v10/replay-worker-v10-market-fixture"
 import {
   authorizeReplayTrialRequest,
   request,
-} from "./replay-worker-v10-request-fixture"
+} from "../test-support/worker-v10/replay-worker-v10-request-fixture"
 import {
   contextBinding,
   workerInputAssemblyV2,
-} from "./replay-worker-v10-input-fixture"
+} from "../test-support/worker-v10/replay-worker-v10-input-fixture"
 import {
   runReplayWorkerV10PositionOpenMaterializationStage,
-} from "./replay-worker-v10-position-open-materialization-stage"
+} from "../test-support/worker-v10/replay-worker-v10-position-open-materialization-stage"
 
 
 const replayProfileStartedAt = performance.now()

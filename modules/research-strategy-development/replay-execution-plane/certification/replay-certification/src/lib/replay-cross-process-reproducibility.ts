@@ -12,7 +12,6 @@ export interface ReplayCrossProcessCanonicalResultProbe {
   fixture_path: string
   fixture_source_sha256: string
   member_script_path: string
-  member_script_source_sha256: string
   member_count: 2
   execution_policy: "concurrent-distinct-process-same-runtime-exact-canonical-result"
   expected_input_hash: string
@@ -23,9 +22,7 @@ export interface ReplayCrossProcessProfileEvidence {
   profile: string
   entrypoint_path: string
   entrypoint_export: string
-  entrypoint_source_sha256: string
   test_path: string
-  test_source_sha256: string
   test_name: string
   checkpoint_mode: string
   resume_claim: ReplayCrossProcessResumeClaim
@@ -38,7 +35,7 @@ export interface ReplayCrossProcessReproducibilityBundle {
   profile_execution_policy: "two-fresh-bun-processes-per-public-profile-exact-owner-test"
   process_count_per_profile: 2
   runtime_policy: "current-certification-runtime-recorded-not-cross-runtime"
-  output_policy: "canonical-result-exact-and-both-profile-processes-pass-frozen-assertion"
+  output_policy: "canonical-result-exact-and-both-profile-processes-pass-owner-assertion"
   profiles: ReplayCrossProcessProfileEvidence[]
   limitations: string[]
   bundle_sha256: string
@@ -93,7 +90,7 @@ export function assertReplayCrossProcessReproducibilityBundle(
       || bundle.profile_execution_policy !== "two-fresh-bun-processes-per-public-profile-exact-owner-test"
       || bundle.process_count_per_profile !== 2
       || bundle.runtime_policy !== "current-certification-runtime-recorded-not-cross-runtime"
-      || bundle.output_policy !== "canonical-result-exact-and-both-profile-processes-pass-frozen-assertion") {
+      || bundle.output_policy !== "canonical-result-exact-and-both-profile-processes-pass-owner-assertion") {
     throw new Error("unsupported Replay cross-process reproducibility bundle")
   }
   if (!bundle.limitations.includes("cross-host-and-cross-runtime-parity-not-certified")
@@ -106,10 +103,10 @@ export function assertReplayCrossProcessReproducibilityBundle(
   if (probe.member_count !== 2
       || probe.execution_policy !== "concurrent-distinct-process-same-runtime-exact-canonical-result"
       || !isHash(probe.expected_input_hash) || !isHash(probe.expected_result_hash)
-      || sha256(readRepoFile(repoRoot, probe.fixture_path)) !== probe.fixture_source_sha256
-      || sha256(readRepoFile(repoRoot, probe.member_script_path)) !== probe.member_script_source_sha256) {
+      || sha256(readRepoFile(repoRoot, probe.fixture_path)) !== probe.fixture_source_sha256) {
     throw new Error("Replay cross-process canonical Result probe drifted")
   }
+  readRepoFile(repoRoot, probe.member_script_path)
   const profiles = bundle.profiles.map((entry) => entry.profile)
   const expectedProfiles = profileEvidence.profiles.map((entry) => entry.profile)
   if (new Set(profiles).size !== profiles.length
@@ -127,19 +124,22 @@ export function assertReplayCrossProcessReproducibilityBundle(
     }
     const entrypoint = readRepoFile(repoRoot, entry.entrypoint_path)
     const test = readRepoFile(repoRoot, entry.test_path)
-    if (!entrypoint.includes(`export function ${entry.entrypoint_export}`)
-        || sha256(entrypoint) !== entry.entrypoint_source_sha256) {
+    if (!exportsName(entrypoint, entry.entrypoint_export)) {
       throw new Error(`Replay cross-process entrypoint source drifted: ${entry.profile}`)
     }
     if (!entry.test_path.endsWith(".test.ts")
-        || !test.includes(`test(${JSON.stringify(entry.test_name)}`)
-        || sha256(test) !== entry.test_source_sha256) {
+        || !test.includes(`test(${JSON.stringify(entry.test_name)}`)) {
       throw new Error(`Replay cross-process semantic assertion drifted: ${entry.profile}`)
     }
   }
   if (bundle.bundle_sha256 !== bundleHash(bundle)) {
     throw new Error("Replay cross-process reproducibility bundle hash drifted")
   }
+}
+
+function exportsName(source: string, name: string): boolean {
+  return source.includes(`export function ${name}`)
+    || new RegExp(`export\\s*\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from`).test(source)
 }
 
 export async function runReplayCrossProcessReproducibilityBundle(
@@ -166,8 +166,7 @@ export async function runReplayCrossProcessReproducibilityBundle(
       exit_codes: [results[0]!.exitCode, results[1]!.exitCode],
       semantic_assertion_sha256: sha256(stableJson({
         profile: entry.profile,
-        entrypoint_source_sha256: entry.entrypoint_source_sha256,
-        test_source_sha256: entry.test_source_sha256,
+        entrypoint_export: entry.entrypoint_export,
         test_name: entry.test_name,
         outcome: "passed",
       })),

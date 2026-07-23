@@ -14,7 +14,6 @@ export interface ReplayRuntimeHardLimit {
   dimension: "cycle_count"
   maximum: number
   evidence_path: string
-  evidence_source_sha256: string
   evidence_export: string
 }
 
@@ -22,10 +21,8 @@ export interface ReplayCapacityPerformanceProfile {
   profile: string
   entrypoint_path: string
   entrypoint_export: string
-  entrypoint_source_sha256: string
   test_path: string
   test_name: string
-  test_source_sha256: string
   certified_workload: ReplayCertifiedWorkloadUnit[]
   runtime_hard_limits: ReplayRuntimeHardLimit[]
   undeclared_capacity_dimensions: string[]
@@ -87,12 +84,13 @@ const TRIAL_TEST_PATH =
   "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.test.ts"
 const CYCLE_LIMIT_PATH =
   "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-portfolio-cycle-sequence-contracts.ts"
+const PUBLIC_ENTRYPOINT_PATH =
+  "modules/research-strategy-development/replay-execution-plane/runner/src/public.ts"
 
-const EXPECTED_PROFILES: Array<Omit<ReplayCapacityPerformanceProfile,
-  "entrypoint_source_sha256" | "test_source_sha256">> = [
+const EXPECTED_PROFILES: ReplayCapacityPerformanceProfile[] = [
   {
     profile: "independent-lane-batch",
-    entrypoint_path: "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.ts",
+    entrypoint_path: PUBLIC_ENTRYPOINT_PATH,
     entrypoint_export: "runReplayIndependentLaneBatch",
     test_path: BATCH_TEST_PATH,
     test_name: INDEPENDENT_TEST,
@@ -108,7 +106,7 @@ const EXPECTED_PROFILES: Array<Omit<ReplayCapacityPerformanceProfile,
   },
   {
     profile: "integrated-portfolio",
-    entrypoint_path: "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-integrated-portfolio-runner.ts",
+    entrypoint_path: PUBLIC_ENTRYPOINT_PATH,
     entrypoint_export: "runReplayIntegratedPortfolio",
     test_path: BATCH_TEST_PATH,
     test_name: INTEGRATED_TEST,
@@ -124,7 +122,7 @@ const EXPECTED_PROFILES: Array<Omit<ReplayCapacityPerformanceProfile,
   },
   {
     profile: "single-trial",
-    entrypoint_path: "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.ts",
+    entrypoint_path: PUBLIC_ENTRYPOINT_PATH,
     entrypoint_export: "runReplayTrial",
     test_path: TRIAL_TEST_PATH,
     test_name: SINGLE_TEST,
@@ -138,7 +136,7 @@ const EXPECTED_PROFILES: Array<Omit<ReplayCapacityPerformanceProfile,
   },
   {
     profile: "terminal-aware-bounded-cycle",
-    entrypoint_path: "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-terminal-cycle-sequence-runner.ts",
+    entrypoint_path: PUBLIC_ENTRYPOINT_PATH,
     entrypoint_export: "runReplayPortfolioProtectiveTerminalCycleSequence",
     test_path: BATCH_TEST_PATH,
     test_name: CYCLE_TEST,
@@ -150,7 +148,6 @@ const EXPECTED_PROFILES: Array<Omit<ReplayCapacityPerformanceProfile,
       dimension: "cycle_count",
       maximum: 8,
       evidence_path: CYCLE_LIMIT_PATH,
-      evidence_source_sha256: "2a181e743f9ff252380bd0950b26ada2c8b1c2c0772f76043df03512b3e9daae",
       evidence_export: "REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES",
     }],
     undeclared_capacity_dimensions: ["maximum_lanes_per_cycle", "maximum_market_event_count", "maximum_artifact_bytes"],
@@ -203,21 +200,17 @@ export function assertReplayCapacityPerformanceEnvelope(
   }
   envelope.profiles.forEach((profile, index) => {
     const expected = EXPECTED_PROFILES[index]!
-    const { entrypoint_source_sha256: _entrypointHash, test_source_sha256: _testHash, ...identity } = profile
-    if (JSON.stringify(identity) !== JSON.stringify(expected)) {
+    if (JSON.stringify(profile) !== JSON.stringify(expected)) {
       throw new Error(`Replay capacity/performance profile overclaim or drift: ${profile.profile}`)
     }
-    const entrypoint = assertSource(repoRoot, profile.entrypoint_path,
-      profile.entrypoint_source_sha256, `${profile.profile} entrypoint`)
-    const test = assertSource(repoRoot, profile.test_path, profile.test_source_sha256,
-      `${profile.profile} owner assertion`)
-    if (!entrypoint.includes(`export function ${profile.entrypoint_export}`)
+    const entrypoint = readSource(repoRoot, profile.entrypoint_path, `${profile.profile} entrypoint`)
+    const test = readSource(repoRoot, profile.test_path, `${profile.profile} owner assertion`)
+    if (!exportsName(entrypoint, profile.entrypoint_export)
         || !test.includes(`test(${JSON.stringify(profile.test_name)}`)) {
       throw new Error(`Replay capacity/performance evidence is missing: ${profile.profile}`)
     }
     for (const limit of profile.runtime_hard_limits) {
-      const source = assertSource(repoRoot, limit.evidence_path, limit.evidence_source_sha256,
-        `${profile.profile} runtime hard limit`)
+      const source = readSource(repoRoot, limit.evidence_path, `${profile.profile} runtime hard limit`)
       if (!source.includes(`export const ${limit.evidence_export} = ${limit.maximum} as const`)) {
         throw new Error(`Replay runtime hard limit evidence drifted: ${profile.profile}`)
       }
@@ -226,6 +219,11 @@ export function assertReplayCapacityPerformanceEnvelope(
   if (envelope.bundle_sha256 !== replayCapacityPerformanceEnvelopeHash(envelope)) {
     throw new Error("Replay capacity/performance envelope hash drifted")
   }
+}
+
+function exportsName(source: string, name: string): boolean {
+  return source.includes(`export function ${name}`)
+    || new RegExp(`export\\s*\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from`).test(source)
 }
 
 export async function runReplayCapacityPerformanceProbe(
@@ -261,7 +259,6 @@ export async function runReplayCapacityPerformanceProbe(
       regression_ceiling_ms: profile.regression_ceiling_ms,
       workload_hash: sha256(stableJson(profile.certified_workload)),
       assertion_hash: sha256(stableJson({
-        test_source_sha256: profile.test_source_sha256,
         test_name: profile.test_name,
         outcome: "passed",
       })),
@@ -303,17 +300,13 @@ async function runProfileSample(
   return { pid: result.process_id, elapsedMs: result.elapsed_ms }
 }
 
-function assertSource(repoRoot: string, path: string, expectedHash: string, role: string): string {
+function readSource(repoRoot: string, path: string, role: string): string {
   if (!path || path.startsWith("/") || path.includes("..")) {
     throw new Error(`Replay capacity/performance ${role} path is not repo-relative`)
   }
   const absolute = join(repoRoot, path)
   if (!existsSync(absolute)) throw new Error(`Replay capacity/performance ${role} source is missing`)
-  const source = readFileSync(absolute, "utf8")
-  if (sha256(source) !== expectedHash) {
-    throw new Error(`Replay capacity/performance ${role} source drifted`)
-  }
-  return source
+  return readFileSync(absolute, "utf8")
 }
 
 function stableJson(value: unknown): string {

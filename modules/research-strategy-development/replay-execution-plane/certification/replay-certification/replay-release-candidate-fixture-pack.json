@@ -16,7 +16,7 @@
     {
       "role": "public-profile-evidence-registry",
       "path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-profile-evidence.json",
-      "content_sha256": "abe94e468b10a167d5eae442c682905bd1888b915c3c0b110268f338dadaea0a",
+      "content_sha256": "8e10675b8ea8c720973ca5a0f7ab840f5522c40c884e007d0f62999a2447e3b7",
       "authority_hash_field": null,
       "authority_hash": null
     },
@@ -37,23 +37,23 @@
     {
       "role": "module-consumer-closure",
       "path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-module-consumer-closure.json",
-      "content_sha256": "f378814b987109ff5da5c9a77dcdfabf7f6ce2c6bb1adcb255b673145da30388",
+      "content_sha256": "55a70b4378d8156f5412e47dee1ba43091c6f11b26708749f5e79beb3314cfc1",
       "authority_hash_field": "observed_closure_sha256",
-      "authority_hash": "6eedcb77ac4f8703079829adc053ff8bfa81196f995868d86c7c6aad01c3a28d"
+      "authority_hash": "c564b75ac1f757f7237cb7f3a75c474310b6157eeaa73abf66d90035e9cf9697"
     },
     {
       "role": "cross-process-reproducibility",
       "path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-cross-process-reproducibility-bundle.json",
-      "content_sha256": "be1cecc80830ca1d5f01b6aeca7b4015fe864d66ef55521b3c5b736426c2c1da",
+      "content_sha256": "4f0fffed5718ea1e69bed18caf750e64e7c0c1b93c1b961ce57e6f896070d894",
       "authority_hash_field": "bundle_sha256",
-      "authority_hash": "9a1a9f0737a035cb438325259984ad192cf216cb233eae12b04358d6e6e89b4e"
+      "authority_hash": "94ddc2afb15d316d0c2fdfea67bdc309bee4adfa83fe6b4f71a77b2d823cab6b"
     },
     {
       "role": "historical-artifact-migration-registry",
       "path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-historical-artifact-migration.json",
-      "content_sha256": "7cbc43673fac9978e2a19d348b9f7bc773fbb2935f5223686bd39c314f193096",
+      "content_sha256": "99f8482f0d15f2e6efc5cc385ec2bfe31b5a30a51b66ba2db749d3c5395d1206",
       "authority_hash_field": "registry_sha256",
-      "authority_hash": "ea458e8fffe7404986097ffb9151973f97340f1992bebc93b511a6c830c07ec4"
+      "authority_hash": "39fccaeecf5e8420a7024a71668728a0b1360ff5e6129a3908b64c0864077660"
     },
     {
       "role": "historical-artifact-fixture-pack",
@@ -65,30 +65,30 @@
     {
       "role": "publication-crash-recovery",
       "path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-publication-crash-recovery-bundle.json",
-      "content_sha256": "cb8ccd78c3293397112e8d7e4fa19437981eceba56597a94860fdd50064b4bb8",
+      "content_sha256": "1a249efc990583441c505fbe057ce9c406eac4447b42e5a70ff2eb2adb488a38",
       "authority_hash_field": "bundle_sha256",
-      "authority_hash": "9d3c9cd722f05dd0f06a47f238b8f2dbf66ffe1306ea58d7cacf1d2b49c7a313"
+      "authority_hash": "c9868ecb124bd3a0d65060288b0a1ee49371b47bdda7f8526e19632166175dd1"
     },
     {
       "role": "capacity-performance-envelope",
       "path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-capacity-performance-envelope.json",
-      "content_sha256": "4712c7704df32a44391c151e6d4629e8b3685bd04a1f887d3bec784ac0c83519",
+      "content_sha256": "402e7f5ac3c2f0e2eb0e7ab05c66009ee32a0d5bf50cbea41cf9b7efce9667a0",
       "authority_hash_field": "bundle_sha256",
-      "authority_hash": "b1f5ea4eba0ca0cce6be7551863611d90ed894be64dfd4d376772dc4204b96d0"
+      "authority_hash": "5ad5ff9c430d1d232ad33178fa62a3199ed6e4b096aab5ca50f0d7849325947e"
     },
     {
       "role": "fault-corruption-recovery",
       "path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-fault-corruption-recovery-bundle.json",
-      "content_sha256": "f709af6b5a0910029addaf33b6180be019b6c4737937b7be68ebb2e88ed5b392",
+      "content_sha256": "15ed57d4a083d5aa1a25353f9edbd4f60a9ee439c9b12ec41f7dcf658c598a17",
       "authority_hash_field": "bundle_sha256",
-      "authority_hash": "b5b156ee38adc252a69b234041ed5c52336fc936a5eee7a5797720c0d389ebe3"
+      "authority_hash": "4e7ba644a1665e95768397ff9e45c6852d251fffc06fa39bd7332780759f6c2f"
     },
     {
       "role": "operational-readiness",
       "path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-operational-readiness.json",
-      "content_sha256": "670fde6bef5c2fddb4b09230ef1bd15d13fcfc3e78df8c347a71bed3f5708b85",
+      "content_sha256": "14b484c9504e9b7dfab6427fe9e2fd1f2ebdf20175b1790420501f7c6b02fba3",
       "authority_hash_field": "registry_sha256",
-      "authority_hash": "aad119ef8b2cff50bde3bb2a07faae7988dcc73fa01635aceddd544dbbea5647"
+      "authority_hash": "fce992faf949d63a0c521d54f7efaab07e33fd1366a6734da610dc6bd1609b4b"
     }
   ],
   "profiles": [
@@ -97,7 +97,6 @@
       "checkpoint_mode": "child-trial-engine-checkpoints-v32-only",
       "golden_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
       "golden_test_name": "independent capital lanes execute in canonical Plan order and aggregate evidence without shared NAV semantics",
-      "golden_source_sha256": "14242b00ae0e20d93d13fcb70ab0ba1d9fd71b0f51eda6478950fa61e21c25b3",
       "timeout_ms": 25000
     },
     {
@@ -105,7 +104,6 @@
       "checkpoint_mode": "not-supported-no-checkpoint-writer",
       "golden_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
       "golden_test_name": "integrated Portfolio makes Allocation the only entry authority and releases exposure/risk through lifecycle Artifact",
-      "golden_source_sha256": "14242b00ae0e20d93d13fcb70ab0ba1d9fd71b0f51eda6478950fa61e21c25b3",
       "timeout_ms": 30000
     },
     {
@@ -113,7 +111,6 @@
       "checkpoint_mode": "resumable-engine-checkpoint-v32",
       "golden_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.test.ts",
       "golden_test_name": "runner atomically commits artifacts and retries idempotently",
-      "golden_source_sha256": "57ff87f474812e284804455ee4d2ea601447c1f1787640f1b66fe8c7ff68b31b",
       "timeout_ms": 25000
     },
     {
@@ -121,7 +118,6 @@
       "checkpoint_mode": "not-supported-no-checkpoint-writer",
       "golden_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
       "golden_test_name": "bounded Cycle Sequence executes one, two, and three predeclared full-flat cycles without cycle-number schemas",
-      "golden_source_sha256": "14242b00ae0e20d93d13fcb70ab0ba1d9fd71b0f51eda6478950fa61e21c25b3",
       "timeout_ms": 30000
     }
   ],
@@ -133,5 +129,5 @@
     "fixture-pack-does-not-authorize-release-without-independent-audit",
     "remote-distributed-store-shadow-live-and-real-account-evidence-out-of-scope"
   ],
-  "pack_sha256": "98453941651ae4311d0021d4b2261e578a813da42d84bdc14301eb0b50019970"
+  "pack_sha256": "129e4e7daf44b3d6460de36927f268a35a62ca07b1aa13bf0409e57353f1493d"
 }

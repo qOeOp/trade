@@ -3,7 +3,7 @@ title: Code Quality Contract
 role: engineering-contract
 status: active
 owner: engineering
-last_verified: 2026-07-23 CST
+last_verified: 2026-07-24 CST
 ---
 
 # Code Quality Contract
@@ -33,6 +33,7 @@ scripts/quality-check.sh
 - Architecture：manifest ID / owner / domain / job / store 双向归属必须唯一且闭合；跨域源码飞线、owner-target 漂移、manifest 外 contract root、非静态动态加载、`eval` / `new Function`、package dependency cycle 一律 hard fail；blueprint hash 纳入生成证据，蓝图改变后旧报告立即失效
 - TypeScript：根目录 Bun install surface 统一安装依赖；禁止 tool-local `bun.lock`；tool 依赖版本必须与根 `package.json` 一致；跨 package 复用只能指向 manifest 允许的 owner 或 `modules/contracts/*`；所有带 `package.json` 且含 `check` script 的 tool 执行 `bun run check`
 - Test integrity：每个含生产 TypeScript 的 package 必须有 colocated `*.test.ts` / `*.spec.ts`，`scripts.test` 必须真实执行 `bun test`；禁止“没有测试文件也成功”的 fallback
+- Test boundary：生产源码不得导入测试 runtime 或 `test-support`；测试 stage / fixture / assertion 进入 `src/test-support/`，不用任意单文件行数限制逼迫机械拆分
 - Convergence：恢复期冻结 module owner、registered tool、domain、store、job、rail 的继续净膨胀；Agent 不得自行提高基线
 - Judge regression：审查脚本必须通过恶意反例测试，证明飞线、计算型动态 import、job 归属错配、过期架构证据、虚假 maturity evidence、空测试套件均会失败
 - Duplication：TypeScript / JavaScript / Go / Python / Rust / Shell 在 `20 lines / 140 tokens` 粒度下重复片段容许数为 `0`；发现重复必须提炼稳定语义或重构边界，不得通过提高阈值、复制豁免或缩小扫描面消音
@@ -60,7 +61,9 @@ scripts/quality-check.sh
 ## 3. 分层使用
 
 - docs-only 或单模块日常改动：用 `bun scripts/quality-check-changed.ts --path <本次改动路径>` 跑全局静态门与受影响 package；显式路径必须属于当前 worktree diff，防止在共享 dirty worktree 中误纳入其他任务。
-- Changed gate 遇到共享 contract、Replay execution plane、脚本/CI/质量基础设施、机器架构 manifest、无 owner 文件或跨语言改动时 fail closed，并要求完整总闸。
+- Replay 日常改动由 Changed gate 运行 owner package；contracts / engine / accounting / data-adapter 改动同时运行 runner consumer。runner `check` 是约束明确的 fast 层，不包含 worker-v10。
+- Replay 核心语义改动：运行 `bun run check:replay-semantic`；release evidence、compatibility 或发布候选改动再运行 `bun run check:replay-release`。
+- Changed gate 遇到共享 contract、脚本/CI/质量基础设施、机器架构 manifest、无 owner 文件或跨语言改动时 fail closed，并要求完整总闸。
 - 提交前：跑 `scripts/quality-check.sh`
 - 涉及真实 Binance 写接口：仍需显式 `--yes`；quality gate 不执行真实下单 / 撤单 / 调仓
 
@@ -72,10 +75,12 @@ GitHub Actions 在 pull request 与 `main` push 上执行同一 `scripts/quality
 
 同一仓库同一时刻只允许一个 `quality-check.sh` 实例。第二个实例必须快速失败并报告持锁 PID；异常退出遗留的死锁可在确认 owner PID 不存活后自动回收，禁止多个全量 Replay 测试争抢 CPU 后把资源竞争误判为代码慢。
 
-本地总闸对 Replay runner 重型套件使用内容寻址的通过收据：cache key 绑定全部 `research-strategy-development`、共享 contracts、测试/锁脚本、根依赖锁、Bun 版本、平台与精确命令。无关 docs、Runtime 或 L2 改动可复用 `tmp/check/quality-cache/` 中的本机收据；上述任一输入变化都会 miss 并重新执行。CI 从不复用本地收据；需要本机强制重跑时使用：
+本地总闸只缓存 Replay semantic 层，cache key 绑定 runner 的直接语义输入：Replay contracts / engine / accounting / data-adapter、Control Plane contracts、runtime-core、测试/锁脚本、根依赖锁、Bun 版本、平台与精确命令。compatibility、agent-role 或无关模块文本变化不再误触发 worker-v10；任一真实输入变化都会 miss。CI 从不复用本地收据；需要本机强制重跑时使用：
 
 ```bash
 QUALITY_FRESH=1 scripts/quality-check.sh
 ```
 
 该缓存只减少确定性重放，不改变 package `check`、Replay certification、发布证据或 authority。
+
+Replay certification 对 fixture、manifest、Result / Artifact authority 继续使用内容寻址；对实现和测试源码只绑定公开入口、export、测试身份、协议字段及实际运行结果。源码字节、import 路径或文件排版不得冒充 Replay 语义证据。

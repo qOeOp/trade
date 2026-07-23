@@ -122,6 +122,7 @@ export function assertReplayProfileEvidenceManifest(
   manifest: ReplayProfileEvidenceManifest,
   repoRoot: string,
 ): void {
+  const publicEntrypointPath = `${REPLAY_PLANE_ROOT}/runner/src/public.ts`
   const requiredDimensions: ReplayProfileEvidenceDimension[] = ["golden", "resume", "idempotency", "tamper"]
   if (manifest.schema_version !== "trade.rd-replay-profile-evidence.v1"
       || manifest.owner !== REPLAY_CERTIFICATION_OWNER
@@ -135,8 +136,8 @@ export function assertReplayProfileEvidenceManifest(
   }
   for (const entry of manifest.profiles) {
     const entrypointSource = readRepoFile(repoRoot, entry.entrypoint_path)
-    if (!entry.entrypoint_path.startsWith(`${REPLAY_PLANE_ROOT}/runner/`)
-        || !entrypointSource.includes(`export function ${entry.entrypoint_export}`)) {
+    if (entry.entrypoint_path !== publicEntrypointPath
+        || !exportsName(entrypointSource, entry.entrypoint_export)) {
       throw new Error(`Replay profile entrypoint is invalid: ${entry.profile}`)
     }
     if (JSON.stringify(Object.keys(entry.evidence).sort())
@@ -176,6 +177,19 @@ export function assertReplayProfileEvidenceManifest(
       throw new Error(`Replay child-checkpoint profile lacks delegated resume evidence: ${entry.profile}`)
     }
   }
+  const publicSource = readRepoFile(repoRoot, publicEntrypointPath)
+  const declaredExports = [...publicSource.matchAll(/export\s*\{\s*([A-Za-z0-9_]+)\s*\}\s*from/g)]
+    .map((match) => match[1]!)
+    .sort()
+  const profileExports = manifest.profiles.map((entry) => entry.entrypoint_export).sort()
+  if (JSON.stringify(declaredExports) !== JSON.stringify(profileExports)) {
+    throw new Error("Replay public execution surface must expose exactly the four certified profiles")
+  }
+}
+
+function exportsName(source: string, name: string): boolean {
+  return source.includes(`export function ${name}`)
+    || new RegExp(`export\\s*\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from`).test(source)
 }
 
 function certificationSortKey(suite: ReplayCertificationSuite): string {

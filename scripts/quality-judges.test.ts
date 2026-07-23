@@ -351,8 +351,8 @@ describe("quality judges fail closed", () => {
     const registry = JSON.parse(readFileSync(
       join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-historical-artifact-migration.json"),
       "utf8",
-    )) as { reader_source_sha256: string }
-    registry.reader_source_sha256 = "0".repeat(64)
+    )) as { reader_export: string }
+    registry.reader_export = "missingHistoricalReader"
     const root = temporaryRoot()
     const registryPath = join(root, "replay-historical-artifact-migration.json")
     writeFileSync(registryPath, JSON.stringify(registry))
@@ -362,7 +362,7 @@ describe("quality judges fail closed", () => {
     })
 
     expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain("historical Artifact reader source drifted")
+    expect(result.stderr).toContain("historical Artifact reader export is missing")
   })
 
   test("package tests cannot report success for an empty suite", () => {

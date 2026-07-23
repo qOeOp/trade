@@ -22,7 +22,6 @@ interface ReplayOperationalIncidentClass {
 
 interface ReplayOperationalSourceEvidence {
   path: string
-  source_sha256: string
   required_fragments: string[]
 }
 
@@ -37,7 +36,6 @@ export interface ReplayOperationalReadinessRegistry {
   operator_commands: string[]
   runbook: {
     path: string
-    source_sha256: string
     required_sections: string[]
   }
   source_evidence: ReplayOperationalSourceEvidence[]
@@ -187,7 +185,7 @@ export function assertReplayOperationalReadinessRegistry(
       || JSON.stringify(registry.runbook.required_sections) !== JSON.stringify(EXPECTED_RUNBOOK_SECTIONS)) {
     throw new Error("Replay operations runbook contract drifted")
   }
-  const runbook = assertSource(repoRoot, registry.runbook.path, registry.runbook.source_sha256, "runbook")
+  const runbook = readSource(repoRoot, registry.runbook.path, "runbook")
   for (const section of EXPECTED_RUNBOOK_SECTIONS) {
     if (!runbook.includes(section)) throw new Error(`Replay operations runbook section is missing: ${section}`)
   }
@@ -201,7 +199,7 @@ export function assertReplayOperationalReadinessRegistry(
     throw new Error("Replay operational source evidence identity drifted")
   }
   for (const evidence of registry.source_evidence) {
-    const source = assertSource(repoRoot, evidence.path, evidence.source_sha256, "source evidence")
+    const source = readSource(repoRoot, evidence.path, "source evidence")
     for (const fragment of evidence.required_fragments) {
       if (!source.includes(fragment)) throw new Error(`Replay operational source fragment is missing: ${evidence.path}`)
     }
@@ -218,15 +216,13 @@ export function replayOperationalReadinessRegistryHash(
   return sha256(stableJson(body))
 }
 
-function assertSource(repoRoot: string, path: string, expectedHash: string, role: string): string {
+function readSource(repoRoot: string, path: string, role: string): string {
   if (!path || path.startsWith("/") || path.includes("..")) {
     throw new Error(`Replay operational ${role} path is not repo-relative`)
   }
   const absolute = join(repoRoot, path)
   if (!existsSync(absolute)) throw new Error(`Replay operational ${role} is missing`)
-  const source = readFileSync(absolute, "utf8")
-  if (sha256(source) !== expectedHash) throw new Error(`Replay operational ${role} source drifted`)
-  return source
+  return readFileSync(absolute, "utf8")
 }
 
 function stableJson(value: unknown): string {

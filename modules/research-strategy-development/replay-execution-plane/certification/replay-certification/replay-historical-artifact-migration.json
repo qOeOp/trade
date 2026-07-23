@@ -63,13 +63,16 @@
     }
   ],
   "reader_path": "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/src/lib/replay-historical-artifact-reader.ts",
-  "reader_source_sha256": "bbed31bfda028d9850f33990ebc085fbfa90bba4ff1702d29f1268a69c38a8b1",
   "certification_test_path": "modules/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification/src/lib/legacy-portfolio-cycle-certification.test.ts",
-  "certification_test_source_sha256": "cf1122ad01904195193b7fdd2720994cde98d6fba2db7301abbb70652cd9f2e1",
   "limitations": [
     "historical-p10-p11-p13-only",
     "generated-versioned-fixtures-not-production-writer-reactivation",
     "read-model-is-not-current-result-artifact-or-runtime-authority"
   ],
-  "registry_sha256": "ea458e8fffe7404986097ffb9151973f97340f1992bebc93b511a6c830c07ec4"
+  "registry_sha256": "39fccaeecf5e8420a7024a71668728a0b1360ff5e6129a3908b64c0864077660",
+  "reader_export": "readReplayHistoricalArtifactMigration",
+  "certification_test_names": [
+    "P10 reallocation closes into one deterministic P11 two-cycle Result/Artifact",
+    "P13 consolidates three predeclared full-flat cycles into one balanced accounting Artifact"
+  ]
 }

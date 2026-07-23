@@ -18,7 +18,9 @@
   "scripts": {
     "check": "scripts/quality-check.sh",
     "check:duplication": "bun scripts/check-duplication.ts",
-    "check:replay-worker-v10-size": "bun scripts/check-replay-worker-v10-size.ts",
+    "check:replay-semantic": "sh scripts/check-replay-semantic.sh",
+    "check:replay-release": "sh scripts/check-replay-release.sh",
+    "check:test-source-boundaries": "bun scripts/check-test-source-boundaries.ts",
     "certify:replay": "bun modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --suite all",
     "certify:replay:reproducibility": "bun modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/reproducibility.ts"
   }

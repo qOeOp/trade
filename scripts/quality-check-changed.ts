@@ -22,7 +22,6 @@ const ROOT = resolve(import.meta.dir, "..")
 const SHARED_OR_FULL_PREFIXES = [
   ".github/",
   "modules/contracts/",
-  "modules/research-strategy-development/replay-execution-plane/",
   "modules/research-strategy-development/research-control-plane/contracts/",
   "modules/research-strategy-development/research-control-plane/state-store/",
   "scripts/",
@@ -69,6 +68,7 @@ export function buildChangedPlan(files: string[], root = ROOT): ChangedPlan {
       continue
     }
     packages.set(`${owner.kind}:${owner.dir}`, owner)
+    addReplayRunnerConsumer(root, file, packages)
   }
 
   const kinds = new Set([...packages.values()].map((item) => item.kind))
@@ -79,6 +79,20 @@ export function buildChangedPlan(files: string[], root = ROOT): ChangedPlan {
     docsOnly,
     architecture,
     fullReasons: [...fullReasons].sort(),
+  }
+}
+
+function addReplayRunnerConsumer(
+  root: string,
+  file: string,
+  packages: Map<string, ChangedPackage>,
+): void {
+  const replayRoot = "modules/research-strategy-development/replay-execution-plane/"
+  const runnerDir = `${replayRoot}runner`
+  const feedsRunner = ["accounting/", "contracts/", "data-adapter/", "engine/"]
+    .some((owner) => file.startsWith(`${replayRoot}${owner}`))
+  if (feedsRunner && existsSync(join(root, runnerDir, "package.json"))) {
+    packages.set(`typescript:${runnerDir}`, { kind: "typescript", dir: runnerDir })
   }
 }
 
@@ -119,7 +133,7 @@ async function main(): Promise<void> {
       run(["bun", "scripts/check-ts-tool-boundaries.ts"])
       run(["bun", "scripts/check-package-tests.ts"])
       run(["bun", "scripts/check-duplication.ts"])
-      run(["bun", "scripts/check-replay-worker-v10-size.ts"])
+      run(["bun", "scripts/check-test-source-boundaries.ts"])
       for (const owner of plan.packages) runPackage(owner)
     }
     log("ok")

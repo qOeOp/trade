@@ -172,23 +172,31 @@ check_typescript_tools() {
     [ -f "$package" ] || continue
     dir="$(dirname "$package")"
     if grep -q '"check"' "$package"; then
-      if [ "$dir" = "modules/research-strategy-development/replay-execution-plane/runner" ]; then
-        bun scripts/run-cached-quality-check.ts \
-          --cache-id replay-runner-heavyweight \
-          --workdir "$dir" \
-          --input package.json \
-          --input bun.lock \
-          --input scripts/run-cached-quality-check.ts \
-          --input scripts/run-exclusive-test.sh \
-          --input scripts/quality-lock.sh \
-          --input modules/contracts \
-          --input modules/research-strategy-development \
-          -- bun run check
-      else
-        (cd "$dir" && bun run check)
-      fi
+      (cd "$dir" && bun run check)
     fi
   done
+}
+
+check_replay_semantics() {
+  require_cmd bun
+  log "Replay semantic regression"
+  bun scripts/run-cached-quality-check.ts \
+    --cache-id replay-semantic \
+    --workdir . \
+    --input package.json \
+    --input bun.lock \
+    --input scripts/check-replay-semantic.sh \
+    --input scripts/run-cached-quality-check.ts \
+    --input scripts/run-exclusive-test.sh \
+    --input scripts/quality-lock.sh \
+    --input modules/contracts/runtime-core \
+    --input modules/research-strategy-development/research-control-plane/contracts \
+    --input modules/research-strategy-development/replay-execution-plane/accounting \
+    --input modules/research-strategy-development/replay-execution-plane/contracts \
+    --input modules/research-strategy-development/replay-execution-plane/data-adapter \
+    --input modules/research-strategy-development/replay-execution-plane/engine \
+    --input modules/research-strategy-development/replay-execution-plane/runner \
+    -- sh scripts/check-replay-semantic.sh
 }
 
 check_duplication() {
@@ -197,10 +205,10 @@ check_duplication() {
   bun scripts/check-duplication.ts
 }
 
-check_source_size() {
+check_test_source_boundaries() {
   require_cmd bun
-  log "source size"
-  bun scripts/check-replay-worker-v10-size.ts
+  log "test source boundaries"
+  bun scripts/check-test-source-boundaries.ts
 }
 
 check_go_tools() {
@@ -286,8 +294,9 @@ check_secrets
 check_toolset_manifest
 check_module_contracts
 check_duplication
-check_source_size
+check_test_source_boundaries
 check_typescript_tools
+check_replay_semantics
 check_go_tools
 check_python_tools
 check_rust_tools

@@ -1,11 +1,16 @@
 {
   "schema_version": "trade.rd-replay-profile-evidence.v1",
   "owner": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification",
-  "required_dimensions": ["golden", "resume", "idempotency", "tamper"],
+  "required_dimensions": [
+    "golden",
+    "resume",
+    "idempotency",
+    "tamper"
+  ],
   "profiles": [
     {
       "profile": "independent-lane-batch",
-      "entrypoint_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.ts",
+      "entrypoint_path": "modules/research-strategy-development/replay-execution-plane/runner/src/public.ts",
       "entrypoint_export": "runReplayIndependentLaneBatch",
       "checkpoint_mode": "child-trial-engine-checkpoints-v32-only",
       "evidence": {
@@ -33,7 +38,7 @@
     },
     {
       "profile": "integrated-portfolio",
-      "entrypoint_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-integrated-portfolio-runner.ts",
+      "entrypoint_path": "modules/research-strategy-development/replay-execution-plane/runner/src/public.ts",
       "entrypoint_export": "runReplayIntegratedPortfolio",
       "checkpoint_mode": "not-supported-no-checkpoint-writer",
       "evidence": {
@@ -59,7 +64,7 @@
     },
     {
       "profile": "single-trial",
-      "entrypoint_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.ts",
+      "entrypoint_path": "modules/research-strategy-development/replay-execution-plane/runner/src/public.ts",
       "entrypoint_export": "runReplayTrial",
       "checkpoint_mode": "resumable-engine-checkpoint-v32",
       "evidence": {
@@ -87,7 +92,7 @@
     },
     {
       "profile": "terminal-aware-bounded-cycle",
-      "entrypoint_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-terminal-cycle-sequence-runner.ts",
+      "entrypoint_path": "modules/research-strategy-development/replay-execution-plane/runner/src/public.ts",
       "entrypoint_export": "runReplayPortfolioProtectiveTerminalCycleSequence",
       "checkpoint_mode": "not-supported-no-checkpoint-writer",
       "evidence": {

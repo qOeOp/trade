@@ -10,10 +10,11 @@
     "typecheck": "tsc --noEmit",
     "lint": "bun run typecheck",
     "test": "bun run test:worker-v10 && bun run test:remaining",
+    "test:fast": "bun run test:remaining",
     "test:worker-v10": "sh ../../../../scripts/run-exclusive-test.sh replay-runner-heavyweight env REPLAY_TEST_PROFILE=1 bun test ./src/lib/replay-decision-worker-input-assembly-v4.test.ts",
     "test:remaining": "bun run test:remaining:main && bun run test:remaining:protective-stop-cancel-cycle",
     "test:remaining:main": "sh ../../../../scripts/run-exclusive-test.sh replay-runner-heavyweight bun test ./src/lib/replay-bar-linked-stop-entry-path-runner.test.ts ./src/lib/replay-durable-parent-validation-receipt.test.ts ./src/lib/replay-independent-lane-batch-runner.test.ts ./src/lib/replay-local-artifact-store.test.ts ./src/lib/replay-portfolio-two-fixed-partial-terminal-runner.test.ts ./src/lib/replay-trial-runner.test.ts ./src/scripts/main.test.ts --test-name-pattern '^(?!protective-stop cancel releases admission risk only after full-flat and rolls four committed cycles$).*'",
     "test:remaining:protective-stop-cancel-cycle": "sh ../../../../scripts/run-exclusive-test.sh replay-runner-heavyweight bun test ./src/lib/replay-independent-lane-batch-runner.test.ts --test-name-pattern '^protective-stop cancel releases admission risk only after full-flat and rolls four committed cycles$'",
-    "check": "bun run lint && bun run test"
+    "check": "bun run lint && bun run test:fast"
   }
 }

@@ -42,7 +42,7 @@ function isJavaScriptOrTypeScript(path: string): boolean {
 }
 
 function isTestSource(path: string): boolean {
-  return /(?:^|\/)(?:test|tests)(?:\/|$)/.test(path) || /\.(?:test|spec)\.[^.]+$/.test(path)
+  return /(?:^|\/)(?:test|tests|test-support)(?:\/|$)/.test(path) || /\.(?:test|spec)\.[^.]+$/.test(path)
 }
 
 function scriptKind(path: string): ts.ScriptKind {

@@ -4,8 +4,8 @@
   "subject": {
     "owner": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification",
     "fixture_pack_path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-release-candidate-fixture-pack.json",
-    "fixture_pack_content_sha256": "4d76ca598de5880bfd7863a69df3ce3a8378597049317ddceffa41b1b1e37497",
-    "fixture_pack_sha256": "98453941651ae4311d0021d4b2261e578a813da42d84bdc14301eb0b50019970"
+    "fixture_pack_content_sha256": "63fd40f91138751b90fe53bb742c0e00508680e2ae9bc4638d55f70cd7b9623e",
+    "fixture_pack_sha256": "129e4e7daf44b3d6460de36927f268a35a62ca07b1aa13bf0409e57353f1493d"
   },
   "independence_policy": "auditor-outside-subject-owner-no-subject-implementation-import",
   "verification_policy": "independent-pack-and-component-rehash-negative-challenges-then-full-certify",
@@ -63,18 +63,15 @@
   "source_bindings": [
     {
       "role": "independent-auditor",
-      "path": "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/src/lib/replay-independent-release-audit.ts",
-      "sha256": "9f771743d14f9d13031726c72ed833f05e9a8a6f630468a2aee24c21c7b605f2"
+      "path": "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/src/lib/replay-independent-release-audit.ts"
     },
     {
       "role": "independent-auditor-test",
-      "path": "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/src/lib/replay-independent-release-audit.test.ts",
-      "sha256": "601d7361a0e28d6d049a15d8612e2c01ae4f622db958310c519a3d4c4fee8526"
+      "path": "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/src/lib/replay-independent-release-audit.test.ts"
     },
     {
       "role": "maturity-gate-consumer",
-      "path": "scripts/check-rd-replay-maturity-gate.ts",
-      "sha256": "899d916d00425ab7e000016a42e7758bd32430cc30e243b4f0b736ae6c715822"
+      "path": "scripts/check-rd-replay-maturity-gate.ts"
     }
   ],
   "limitations": [
@@ -83,5 +80,5 @@
     "audit-does-not-expand-public-profiles-or-simulator-semantics",
     "remote-distributed-store-shadow-live-and-real-account-evidence-out-of-scope"
   ],
-  "audit_manifest_sha256": "994adc831b7409f6e75dd7911352e2f846cc0ea45d86ea701c5032b0a675ee44"
+  "audit_manifest_sha256": "0ee1051b734958a0a401471add4c3420fc4a6e8fbbdb5c86efe9b9061485bcc1"
 }

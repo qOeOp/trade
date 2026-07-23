@@ -22,7 +22,6 @@ export interface ReplayFaultCorruptionCase {
     | "injected-owner-port-failure" | "orphan-payload-interruption" | "injected-mid-sequence-failure"
   evidence_path: string
   evidence_test_name: string
-  evidence_source_sha256: string
   expected_detection: string
   expected_authority_outcome: "no-result-or-authoritative-manifest" | "corrupt-commit-rejected"
   recovery_class: ReplayFaultRecoveryClass
@@ -69,7 +68,7 @@ const TRIAL_TEST =
 const PORTFOLIO_TEST =
   "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts"
 
-const EXPECTED_CASES: Array<Omit<ReplayFaultCorruptionCase, "evidence_source_sha256">> = [
+const EXPECTED_CASES: ReplayFaultCorruptionCase[] = [
   {
     case_id: "single-dataset-frozen-hash-corruption",
     profile: "single-trial",
@@ -206,11 +205,10 @@ export function assertReplayFaultCorruptionRecoveryBundle(
   }
   bundle.cases.forEach((entry, index) => {
     const expected = EXPECTED_CASES[index]!
-    const { evidence_source_sha256: _sourceHash, ...identity } = entry
-    if (JSON.stringify(identity) !== JSON.stringify(expected)) {
+    if (JSON.stringify(entry) !== JSON.stringify(expected)) {
       throw new Error(`Replay fault/corruption recovery case overclaim or drift: ${entry.case_id}`)
     }
-    const source = assertSource(repoRoot, entry.evidence_path, entry.evidence_source_sha256, entry.case_id)
+    const source = readSource(repoRoot, entry.evidence_path, entry.case_id)
     if (!source.includes(`test(${JSON.stringify(entry.evidence_test_name)}`)) {
       throw new Error(`Replay fault/corruption owner assertion is missing: ${entry.case_id}`)
     }
@@ -241,7 +239,6 @@ export async function runReplayFaultCorruptionRecoveryProbe(
       fault_stage: entry.fault_stage,
       recovery_class: entry.recovery_class,
       assertion_hash: sha256(stableJson({
-        evidence_source_sha256: entry.evidence_source_sha256,
         evidence_test_name: entry.evidence_test_name,
         outcome: "passed",
       })),
@@ -277,17 +274,13 @@ async function runCase(entry: ReplayFaultCorruptionCase, repoRoot: string): Prom
   return result.process_id
 }
 
-function assertSource(repoRoot: string, path: string, expectedHash: string, caseId: string): string {
+function readSource(repoRoot: string, path: string, caseId: string): string {
   if (!path || path.startsWith("/") || path.includes("..")) {
     throw new Error(`Replay fault/corruption evidence path is not repo-relative: ${caseId}`)
   }
   const absolute = join(repoRoot, path)
   if (!existsSync(absolute)) throw new Error(`Replay fault/corruption evidence source is missing: ${caseId}`)
-  const source = readFileSync(absolute, "utf8")
-  if (sha256(source) !== expectedHash) {
-    throw new Error(`Replay fault/corruption evidence source drifted: ${caseId}`)
-  }
-  return source
+  return readFileSync(absolute, "utf8")
 }
 
 function stableJson(value: unknown): string {

@@ -111,7 +111,7 @@ import {
 } from "../../../contracts/src/lib/replay-portfolio-post-partial-stop-replacement-cycle-sequence-contracts"
 import { runReplayPortfolioPostPartialStopReplacementCycleSequence } from
   "./replay-portfolio-post-partial-stop-replacement-cycle-sequence-runner"
-import { authorizeReplayTrialRequest } from "./replay-worker-v10-request-fixture"
+import { authorizeReplayTrialRequest } from "../test-support/worker-v10/replay-worker-v10-request-fixture"
 
 const HASH = "b".repeat(64)
 const PROVIDER_CERTIFICATION = createReplayInstrumentStatusProviderCertificationSnapshot({
