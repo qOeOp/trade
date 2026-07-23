@@ -4,11 +4,8 @@ import { Database } from "bun:sqlite"
 import { realpathSync } from "node:fs"
 import { resolve, sep } from "node:path"
 import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
-import {
-  readAgentArtifact,
-  writeAgentTextArtifact,
-} from "../../../../../orchestration-ops/agent-artifact-store/src/lib/agent-artifact-store"
 import { ensureResearchStateSchema } from "../../../state-store/src/lib/research-state-store"
+import { createAgentArtifactCliPort } from "../lib/agent-artifact-cli-port"
 import { AgentHostHttpClient } from "../lib/agent-host-http-client"
 import { runPlannerAgentCycle } from "../lib/planner-agent-cycle"
 
@@ -28,15 +25,7 @@ async function main(): Promise<void> {
         base_url: input.host_url,
         bearer_token: token,
       }),
-      artifacts: {
-        put: (text, mediaType) => writeAgentTextArtifact({
-          repository_root: root,
-          storage: "durable",
-          media_type: mediaType,
-          text,
-        }),
-        read: (artifact) => readAgentArtifact(root, artifact).text,
-      },
+      artifacts: createAgentArtifactCliPort(root, "durable"),
       planner_run_id: input.run_id,
       trace_id: input.trace_id,
       idempotency_key: input.idempotency_key,

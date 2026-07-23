@@ -128,7 +128,6 @@ function isAllowedCrossToolImport(file: string, sourceTool: string, targetTool: 
     "modules/orchestration-ops/agent-host-codex -> modules/orchestration-ops/ops-runtime-store",
     "modules/orchestration-ops/agent-host-openclaw -> modules/orchestration-ops/agent-artifact-store",
     "modules/orchestration-ops/agent-host-openclaw -> modules/orchestration-ops/ops-runtime-store",
-    "modules/research-strategy-development/research-control-plane/agent-run-orchestrator -> modules/orchestration-ops/agent-artifact-store",
     "modules/orchestration-ops/trade-flow -> modules/orchestration-ops/ops-runtime-store",
     "modules/governance-review-compliance/closed-flow-review-sweep -> modules/governance-review-compliance/governance-ledger",
   ])
