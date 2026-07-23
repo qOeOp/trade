@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite"
 import { asRecord, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
 import { ensureWatchTaskSchema } from "./watch-task-store"
+import { ensureAgentRunStoreSchema } from "./agent-run-store"
 
 export const CYCLE_STATUSES = ["running", "completed", "failed", "blocked"] as const
 export type CycleStatus = typeof CYCLE_STATUSES[number]
@@ -304,6 +305,7 @@ export function ensureOpsRuntimeSchema(db: Database): void {
   db.run("CREATE INDEX IF NOT EXISTS idx_control_review_cycle ON control_review(cycle_id, created_at)")
   db.run("CREATE INDEX IF NOT EXISTS idx_runtime_parity_observed ON runtime_parity_observation(observed_at DESC)")
   ensureWatchTaskSchema(db)
+  ensureAgentRunStoreSchema(db)
 }
 
 export function upsertCycleRun(db: Database, run: CycleRun): void {
