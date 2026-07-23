@@ -8,12 +8,18 @@ import { buildRecordedExecutionEvent } from "../../../../live-execution-control/
 import { runLiveSmall } from "../../../../live-execution-control/live-small-runner/src/lib/live-small-runner"
 import { cronRecoverFromTools, reconcileFromTools } from "../../../../live-execution-control/recovery-runner/src/lib/recovery-runner"
 import { readCycleSummary } from "../../../ops-runtime-store/src/lib/ops-runtime-store"
-import { appendPlanEvent, ensureSchema, readFlowEvents, readLatestOrderFill, validateOrderFill, type PlanEvent } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
-import { applyReconcileDrafts, latestSlowObserve, reduceFlowState } from "../../../../portfolio-execution-state/flow-projector/src/lib/flow-projector"
+import { appendPlanEvent, ensureSchema as ensureEventStoreSchema, readFlowEvents, readLatestOrderFill, validateOrderFill, type PlanEvent } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import { applyReconcileDrafts, buildPortfolioAccountProjection, latestSlowObserve, reduceFlowState } from "../../../../portfolio-execution-state/flow-projector/src/lib/flow-projector"
 import { type Runner } from "../../../../contracts/runtime-core/src/tool-runner"
 import { runShadowFromTools } from "./lib/live-execution"
 import { run } from "./main"
 import { resolveRepoPath } from "../../../../contracts/runtime-core/src/paths"
+import { buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../contracts/runtime-core/src/database-identity"
+
+function ensureSchema(db: Database): void {
+  ensureDatabaseIdentity(db, buildDatabaseIdentity("local:local", "trade_event_store"))
+  ensureEventStoreSchema(db)
+}
 
 test("validateOrderFill requires audit fields for trade_flow source", () => {
   assert.throws(
@@ -428,6 +434,21 @@ test("run dry-run skips when source observe was already recorded", async () => {
   try {
     ensureSchema(db)
     appendPlanEvent(db, {
+      event_key: "obs-existing-source-1",
+      chain_id: "flow-1",
+      kind: "observe",
+      created_at: "2026-07-06T12:00:00Z",
+      body_json: {
+        source: "slow_track",
+        symbol: "BTCUSDT",
+        risk_budget_usdt: 10,
+        account: {
+          account_ref: "exchange-account://binance/live/usdm/primary",
+          account_scope: "capital-scope://retail-small-usdm",
+        },
+      },
+    })
+    appendPlanEvent(db, {
       event_key: "evt-existing-source-1",
       chain_id: "flow-1",
       kind: "order_fill",
@@ -472,6 +493,7 @@ test("run dry-run skips when source observe was already recorded", async () => {
           json_extract(body_json, '$.action_intent.cleared_reason') AS cleared_reason
         FROM plan_event
         WHERE kind = 'observe'
+          AND json_extract(body_json, '$.action_intent.target_action') IS NOT NULL
       `).get() as { target_action: string; cleared_reason: string }
       assert.equal(row.target_action, "no_action")
       assert.equal(row.cleared_reason, "source_observe_already_recorded")
@@ -732,6 +754,19 @@ test("runLiveSmall calls order-place and records audited order_fill", async () =
   ensureSchema(db)
   let capturedCommand: string[] = []
   const runner: Runner = async (command, options) => {
+    if (options?.cwd?.endsWith("/exchange-request-router")) {
+      return successTool({ route: "exchange-write-pre-adapter-gate" })
+    }
+    if (options?.cwd?.endsWith("/write-pre-adapter-gate")) {
+      return successTool({ status: "passed", issues: [] })
+    }
+    if (options?.cwd?.endsWith("/post-write-confirmation")) {
+      return successTool({
+        schema_version: "trade.protocol.exchange-command-ref.v1",
+        command_ref: "exchange-command://fixture",
+        status: "confirmed",
+      })
+    }
     capturedCommand = command
     assert.match(options?.cwd ?? "", /exchange-gateway\/binance-write\/order-place$/)
     return {
@@ -1333,7 +1368,13 @@ function dryRunInput() {
       side: "long",
       setup_id: "trend-breakout",
       account: {
+        account_ref: "exchange-account://binance/live/usdm/primary",
+        account_scope: "capital-scope://retail-small-usdm",
         equity_usdt: 1000,
+        snapshot_ref: "exchange-account-facts://binance/live/usdm/primary/snapshot",
+        content_hash: `sha256:${"c".repeat(64)}`,
+        as_of: "2026-07-06T12:00:00+08:00",
+        freshness: { max_age_seconds: 30 },
       },
     },
     strategy: {
@@ -1342,6 +1383,25 @@ function dryRunInput() {
     account_config: {
       max_open_risk_pct: 0.1,
       max_day_loss_pct: 0.05,
+    },
+    runtime_policy: {
+      schema_version: "runtime-policy.v1",
+      profile_id: "retail-small-usdm",
+      account_ref: "exchange-account://binance/live/usdm/primary",
+      account_scope: "capital-scope://retail-small-usdm",
+      source_hash: `sha256:${"a".repeat(64)}`,
+      effective_limits: {},
+      permissions: { can_live_small: true },
+    },
+    runtime_authorization: {
+      schema_version: "trade.policy.runtime-authorization.v1",
+      authorization_ref: "policy-authorization://retail-small-usdm/scope/hash",
+      content_hash: `sha256:${"b".repeat(64)}`,
+      policy_hash: `sha256:${"a".repeat(64)}`,
+      account_ref: "exchange-account://binance/live/usdm/primary",
+      account_scope: "capital-scope://retail-small-usdm",
+      issued_at: "2026-07-06T11:59:00+08:00",
+      expires_at: "2026-07-06T12:05:00+08:00",
     },
     request: {
       type: "STOP_MARKET",
@@ -1369,10 +1429,20 @@ function recoveryTestRuntime(db: Database) {
     flowStateReader: (_dbPath: string, chainId: string) => reduceFlowState(db, chainId) as Record<string, unknown>,
     latestOrderFillReader: (_dbPath: string, chainId: string) => readLatestOrderFill(db, chainId) as Record<string, unknown> | null,
     latestSlowObserveReader: (_dbPath: string, chainId: string) => latestSlowObserve(readFlowEvents(db, chainId)) as unknown as Record<string, unknown> | null,
+    portfolioProjectionReader: (_dbPath: string, input: { account_ref: string; account_scope: string; symbol?: string; as_of?: string }) => buildPortfolioAccountProjection(db, input),
     eventAppender: (_dbPath: string, event: Record<string, unknown>) => {
       appendPlanEvent(db, event as unknown as PlanEvent)
       return event
     },
     reconcileApplier: (_dbPath: string, reconcile: Record<string, unknown>, yes: boolean) => applyReconcileDrafts(db, reconcile, yes) as Record<string, unknown>,
+  }
+}
+
+function successTool(data: Record<string, unknown>): Awaited<ReturnType<Runner>> {
+  return {
+    ok: true,
+    data: { ok: true, data },
+    stdout: "{}",
+    stderr: "",
   }
 }
