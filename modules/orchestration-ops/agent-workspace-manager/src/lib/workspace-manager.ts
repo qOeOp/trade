@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { lstatSync, mkdirSync, readdirSync, readlinkSync, realpathSync, statSync } from "node:fs"
+import { lstatSync, mkdirSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync } from "node:fs"
 import { dirname, join, resolve, sep } from "node:path"
 
 export interface AgentWorkspace {
@@ -32,6 +32,13 @@ export interface AgentWorkspaceMountPlan {
   secrets: []
   docker_socket: false
   production_repository: false
+}
+
+export interface StaleAgentWorkspace {
+  run_id: string
+  workspace_root: string
+  registered_worktree: boolean
+  last_modified_at: string
 }
 
 export function createAgentWorkspace(input: {
@@ -180,6 +187,58 @@ export function removeAgentWorkspace(workspace: AgentWorkspace): void {
   git(workspace.repository_root, ["worktree", "prune"])
 }
 
+export function listStaleAgentWorkspaces(input: {
+  repository_root: string
+  active_run_ids: string[]
+  older_than: string
+}): StaleAgentWorkspace[] {
+  const root = realpathSync(resolve(input.repository_root))
+  const parent = resolve(root, "tmp", "agent-workspaces")
+  const cutoff = Date.parse(canonicalTime(input.older_than))
+  const active = new Set(input.active_run_ids.map((id) => identifier(id, "active_run_id")))
+  if (!exists(parent)) return []
+  const registered = registeredWorktreePaths(root)
+  return readdirSync(parent, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(entry.name))
+    .flatMap((entry): StaleAgentWorkspace[] => {
+      if (active.has(entry.name)) return []
+      const path = resolve(parent, entry.name)
+      assertWorkspacePath(root, path, entry.name)
+      const modified = statSync(path).mtime
+      if (modified.getTime() >= cutoff) return []
+      return [{
+        run_id: entry.name,
+        workspace_root: path,
+        registered_worktree: registered.has(path),
+        last_modified_at: modified.toISOString(),
+      }]
+    })
+    .sort((left, right) => left.run_id.localeCompare(right.run_id))
+}
+
+export function removeStaleAgentWorkspaces(input: {
+  repository_root: string
+  active_run_ids: string[]
+  older_than: string
+  apply: boolean
+}): { candidates: StaleAgentWorkspace[]; removed: string[] } {
+  const candidates = listStaleAgentWorkspaces(input)
+  if (!input.apply) return { candidates, removed: [] }
+  const root = realpathSync(resolve(input.repository_root))
+  const removed: string[] = []
+  for (const candidate of candidates) {
+    assertWorkspacePath(root, candidate.workspace_root, candidate.run_id)
+    if (candidate.registered_worktree) {
+      git(root, ["worktree", "remove", "--force", candidate.workspace_root])
+    } else {
+      rmSync(candidate.workspace_root, { recursive: true, force: true })
+    }
+    removed.push(candidate.run_id)
+  }
+  git(root, ["worktree", "prune"])
+  return { candidates, removed }
+}
+
 function validateWorkspaceRecord(workspace: AgentWorkspace): void {
   if (workspace.schema_version !== "trade.agent-workspace.v1") throw new Error("Agent workspace schema is unsupported")
   assertWorkspacePath(workspace.repository_root, workspace.workspace_root, workspace.run_id)
@@ -241,6 +300,13 @@ function git(cwd: string, args: string[], tolerateFailure = false): string {
     throw new Error(`Agent workspace git operation failed: ${args[0]}`)
   }
   return result.stdout.toString()
+}
+
+function registeredWorktreePaths(repositoryRoot: string): Set<string> {
+  const lines = git(repositoryRoot, ["worktree", "list", "--porcelain"]).split("\n")
+  return new Set(lines
+    .filter((line) => line.startsWith("worktree "))
+    .map((line) => resolve(line.slice("worktree ".length))))
 }
 
 async function readBounded(
