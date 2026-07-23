@@ -56,7 +56,8 @@ export interface PreparedReviewerAgentRun {
 const REVIEWER_INSTRUCTION = [
   "Act as the bounded R&D Reviewer.",
   "Evaluate only the frozen experiment state and classified Result evidence in the context pack.",
-  "Return one canonical trade.rd-reviewer-agent-submission.v1 JSON object.",
+  "Call research_reviewer_submission_prepare exactly once with context-pack reviewer_run_id, experiment_id, lifecycle_version as expected_version, stage_id, and requested_at plus outer run.request_hash unchanged.",
+  "Select only an allowed decision and cite only context-pack Result IDs; return the tool result submission field exactly without prose or edits.",
   "Agent-assisted historical evidence is exploratory and cannot authorize acceptance for draft or forward.",
   "Do not change code, write lifecycle state, execute Replay, materialize a strategy, promote, deploy, or trade.",
 ].join("\n")

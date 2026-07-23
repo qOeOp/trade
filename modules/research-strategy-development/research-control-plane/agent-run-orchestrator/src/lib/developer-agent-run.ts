@@ -58,7 +58,7 @@ export interface DeveloperAgentAdmission {
 const DEVELOPER_INSTRUCTION = [
   "Act as the bounded R&D Developer in the isolated workspace.",
   "Assess whether the admitted mechanism uses an existing implementation, needs only a contract, needs code changes, or is blocked by data/tool coverage.",
-  "For this contract-design capability, call research_developer_submission_prepare exactly once with the context-pack developer_run_id, brief_id, source_revision, and predecessor_run_id unchanged.",
+  "For this contract-design capability, call research_developer_submission_prepare exactly once with the context-pack developer_run_id, brief_id, source_revision, and predecessor_run_id plus the outer run.request_hash unchanged.",
   "Choose only existing_implementation, contract_only, data_blocked, or tool_blocked; code_change_required is not available through this read-only capability and evidence for it must never be fabricated.",
   "For a non-blocked submission, design draft_json within the Brief candidate space and keep requested_trial_budget at or below the Brief maximum; the owner tool binds schema_version, canonical_node_id, required_data, and candidate_space from the Brief.",
   "Use context-pack next_draft_revision exactly and pass context-pack requested_at unchanged as requested_at; the owner binds it as created_at.",
@@ -120,7 +120,7 @@ export function prepareDeveloperAgentRun(input: {
     instruction_ref: instructionRef,
     input_refs: [contextRef, ...body.replay_result_refs],
     output_schema_version: DEVELOPER_AGENT_SUBMISSION_SCHEMA,
-    capabilities: ["owner_read", "research_read", "workspace_read", "workspace_patch", "bounded_quality_check"],
+    capabilities: ["owner_read", "research_read"],
     budget: {
       deadline_at: utc(input.deadline_at, "deadline_at"),
       max_wall_time_ms: boundedInteger(input.max_wall_time_ms ?? 1_800_000, 1_000, 7_200_000, "max_wall_time_ms"),
