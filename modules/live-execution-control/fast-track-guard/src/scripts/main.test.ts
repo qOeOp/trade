@@ -5,6 +5,7 @@ import { Database } from "bun:sqlite"
 import test from "node:test"
 
 import { appendPlanEvent, ensureSchema } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import { buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../contracts/runtime-core/src/database-identity"
 import { repoRoot } from "../../../../contracts/runtime-core/src/paths"
 import { run } from "./main"
 
@@ -16,6 +17,7 @@ test("fast track guard CLI exposes native J02 domain runtime result", async () =
   const dbPath = `${dir}/trade.db`
   const db = new Database(join(repoRoot(), dbPath))
   try {
+    ensureDatabaseIdentity(db, buildDatabaseIdentity("local:local", "trade_event_store"))
     ensureSchema(db)
     appendPlanEvent(db, {
       event_key: "obs-fast-cli-slow-1",

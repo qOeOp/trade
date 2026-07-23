@@ -21,6 +21,7 @@ test("domain bus CLI publishes and lists messages", () => {
         job_id: "ops_notify_dispatch",
         source_domain: "orchestration-ops",
         rail: "artifact_rail",
+        interaction: "result",
         payload_ref: "ops-runtime://cycle/cycle-bus-cli",
         created_at: "2026-07-11T00:00:00Z",
       }),

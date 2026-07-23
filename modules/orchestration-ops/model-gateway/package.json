@@ -2,5 +2,5 @@
   "name": "model-gateway",
   "private": true,
   "type": "module",
-  "scripts": { "typecheck": "tsc --noEmit", "test": "bun test ./src/lib/*.test.ts", "check": "bun run typecheck && bun run test" }
+  "scripts": { "typecheck": "tsc --noEmit", "test": "bun test ./src/lib/*.test.ts ./src/scripts/*.test.ts", "check": "bun run typecheck && bun run test" }
 }

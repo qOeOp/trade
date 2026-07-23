@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import test from "node:test"
 import { repoRoot } from "../../../../contracts/runtime-core/src/paths"
+import { buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../contracts/runtime-core/src/database-identity"
 import { appendPlanEvent, ensureSchema } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
 import { parseArgs, run } from "./main"
 
@@ -15,6 +16,7 @@ test("closed flow review sweep CLI records an empty batch", () => {
   const governanceDbPath = join(dir, "governance.db")
   const tradeDb = new Database(tradeDbPath)
   try {
+    ensureDatabaseIdentity(tradeDb, buildDatabaseIdentity("local:local", "trade_event_store"))
     ensureSchema(tradeDb)
     appendPlanEvent(tradeDb, {
       event_key: "obs-open",

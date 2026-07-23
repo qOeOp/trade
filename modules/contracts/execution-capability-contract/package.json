@@ -2,5 +2,10 @@
   "name": "@trade/contracts-execution-capability",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test ./src/*.test.ts",
+    "check": "bun run typecheck && bun run test"
+  }
 }
