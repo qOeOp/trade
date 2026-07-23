@@ -17,6 +17,8 @@ import {
   projectAgentRunStatus,
   readAgentRun,
   readAgentRunEvents,
+  readAgentRunToolUsage,
+  recordAgentRunToolCall,
 } from "./agent-run-store"
 
 const ACCEPTED_AT = "2026-07-23T01:00:00.000Z"
@@ -102,6 +104,38 @@ test("Agent Run registry enforces contiguous terminal closure and cancel state",
   assert.equal(readAgentRunEvents(db, request.run_id, 1, 10).length, 2)
   assert.equal(projectAgentRunStatus(readAgentRun(db, request.run_id)!).terminal, true)
   assert.equal(listRecoverableAgentRuns(db).length, 0)
+  db.close()
+})
+
+test("Agent Run tool-call evidence is append-only and identity-bound", () => {
+  const db = new Database(":memory:")
+  ensureAgentRunStoreSchema(db)
+  const request = fixture()
+  admitAgentRun(db, request, "openclaw-gateway", ACCEPTED_AT)
+  const first = recordAgentRunToolCall(db, {
+    call_id: "agent-tool-call-1",
+    run_id: request.run_id,
+    request_hash: request.request_hash,
+    task_profile: "planner",
+    tool_name: "research_planner_proposal_prepare",
+    occurred_at: "2026-07-23T01:00:01.000Z",
+  })
+  assert.equal(first.tool_calls, 1)
+  assert.equal(
+    readAgentRunToolUsage(db, request.run_id, request.request_hash).tool_calls,
+    1,
+  )
+  assert.throws(() => recordAgentRunToolCall(db, {
+    call_id: "agent-tool-call-2",
+    run_id: request.run_id,
+    request_hash: "b".repeat(64),
+    task_profile: "planner",
+    tool_name: "research_planner_proposal_prepare",
+    occurred_at: "2026-07-23T01:00:02.000Z",
+  }), /identity drifted/)
+  assert.throws(() => db.run(
+    "DELETE FROM agent_run_tool_call WHERE call_id='agent-tool-call-1'",
+  ), /immutable/)
   db.close()
 })
 
