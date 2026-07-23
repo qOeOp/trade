@@ -16,8 +16,8 @@ import type { ProgramRuntimeProfile } from "./program-shadow"
 import { createParityCommandRecorder, observeProgramShadowParity } from "./program-shadow-parity"
 
 const SUPERVISOR_LOCK_KEY = "program-runtime-shadow-supervisor"
-const SUPERVISOR_LEASE_MS = 20_000
-const SUPERVISOR_HEARTBEAT_MS = 5_000
+const SUPERVISOR_LEASE_MS = 120_000
+const SUPERVISOR_HEARTBEAT_MS = 10_000
 const SQLITE_BUSY_TIMEOUT_MS = 1_000
 const DEFAULT_INTERVAL_SECONDS = 60
 const ALLOWED_INPUT_KEYS = new Set([

@@ -471,7 +471,7 @@ test("program shadow supervisor stops when a newer fencing generation takes over
       async (command): Promise<CommandExecutionResult> => {
         if (!tookOver) {
           tookOver = true
-          now = new Date(now.getTime() + 21_000)
+          now = new Date(now.getTime() + 121_000)
           const contenderDb = new Database(fixture.opsDbPath)
           try {
             ensureOpsRuntimeSchema(contenderDb)
@@ -479,7 +479,7 @@ test("program shadow supervisor stops when a newer fencing generation takes over
               lock_key: "program-runtime-shadow-supervisor",
               holder_id: "newer-supervisor",
               acquired_at: now.toISOString(),
-              expires_at: new Date(now.getTime() + 20_000).toISOString(),
+              expires_at: new Date(now.getTime() + 120_000).toISOString(),
             })
             assert.equal(takeover.acquired, true)
             assert.equal(takeover.lock.fencing_token, 2)
@@ -508,6 +508,39 @@ test("program shadow supervisor stops when a newer fencing generation takes over
     } finally {
       opsDb.close()
     }
+  } finally {
+    fixture.close()
+  }
+})
+
+test("program shadow supervisor keeps its lease across one bounded 30 second command window", async () => {
+  const fixture = createFixture("program-shadow-supervisor-command-window-")
+  let now = new Date("2026-07-23T04:25:00.000Z")
+  let advanced = false
+  try {
+    const result = await runProgramShadowSupervisor(
+      fixture.tradeDb,
+      fixture.tradeDbPath,
+      { ops_runtime_db: fixture.opsDbPath, max_cycles: 1 },
+      async (command): Promise<CommandExecutionResult> => {
+        if (!advanced) {
+          advanced = true
+          now = new Date(now.getTime() + 31_000)
+        }
+        return command.cwd === "modules/orchestration-ops/runtime-health-guard"
+          ? healthResult()
+          : { exit_code: 0, stdout: JSON.stringify({ ok: true }), stderr: "" }
+      },
+      {
+        clock: () => new Date(now),
+        holderId: () => "bounded-command-window-supervisor",
+      },
+    )
+
+    assert.equal(result.outcome, "completed")
+    assert.equal(result.stop_reason, "max_cycles")
+    assert.equal((result.lease as { acquired: boolean; released: boolean }).acquired, true)
+    assert.equal((result.lease as { acquired: boolean; released: boolean }).released, true)
   } finally {
     fixture.close()
   }
