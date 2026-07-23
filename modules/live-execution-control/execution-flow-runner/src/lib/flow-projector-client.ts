@@ -10,6 +10,24 @@ export function readLatestSlowObserve(dbPath: string, chainId: string): JSONReco
   return data && typeof data === "object" && !Array.isArray(data) ? data as JSONRecord : null
 }
 
+export function readPortfolioAccountProjection(
+  dbPath: string,
+  input: { account_ref: string; account_scope: string; symbol?: string; as_of?: string },
+): JSONRecord {
+  const args = [
+    "--portfolio-account",
+    "--db",
+    dbPath,
+    "--account-ref",
+    input.account_ref,
+    "--account-scope",
+    input.account_scope,
+  ]
+  if (input.symbol) args.push("--symbol", input.symbol)
+  if (input.as_of) args.push("--as-of", input.as_of)
+  return asRecord(runFlowProjector(args))
+}
+
 function runFlowProjector(args: string[]): unknown {
   return runOwnerToolSync("state.flow-projector", args, "flow projector")
 }

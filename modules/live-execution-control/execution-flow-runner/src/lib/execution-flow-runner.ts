@@ -15,7 +15,7 @@ import {
 } from "../../../execution-gate/src/lib/execution-gate"
 import { asRecord, removeUndefined, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
 import { appendEvent, readFlowEvents, readLatestOrderFill } from "./event-store-client"
-import { readLatestSlowObserve, reduceFlow } from "./flow-projector-client"
+import { readLatestSlowObserve, readPortfolioAccountProjection, reduceFlow } from "./flow-projector-client"
 import type { RunMode } from "../../../../contracts/runtime-core/src/run-mode"
 
 export type PlanEvent = JSONRecord & {
@@ -32,6 +32,10 @@ export interface ExecutionStateRuntime {
   latestOrderFillReader?: (dbPath: string, chainId: string) => JSONRecord | null
   flowStateReader?: (dbPath: string, chainId: string) => JSONRecord
   latestSlowObserveReader?: (dbPath: string, chainId: string) => JSONRecord | null
+  portfolioProjectionReader?: (
+    dbPath: string,
+    input: { account_ref: string; account_scope: string; symbol?: string; as_of?: string },
+  ) => JSONRecord
 }
 
 export function runOneFlowStep(
@@ -44,15 +48,17 @@ export function runOneFlowStep(
     throw new Error(`unsupported run mode: ${mode}`)
   }
 
+  const aggregateView = resolvePortfolioProjection(dbPath, input, runtime)
   const preflightResult = evaluatePreflight({
     plan: asRecord(input.plan),
     observe: asRecord(input.observe),
     strategy: asRecord(input.strategy),
     account_config: asRecord(input.account_config),
     runtime_policy: asRecord(input.runtime_policy),
+    runtime_authorization: asRecord(input.runtime_authorization),
     target_action: readTargetAction(input.target_action),
     request: asRecord(input.request),
-    aggregate_view: asRecord(input.aggregate_view),
+    aggregate_view: aggregateView,
     runtime_health: asRecord(input.runtime_health),
     now: stringField(input.now) || undefined,
   })
@@ -116,6 +122,34 @@ export function runOneFlowStep(
     latest_order_fill: latestOrderFill(dbPath, contract.chain_id, runtime),
     recorded: true,
   }
+}
+
+export function resolvePortfolioProjection(
+  dbPath: string,
+  input: JSONRecord,
+  runtime: ExecutionStateRuntime = {},
+): JSONRecord {
+  const observe = asRecord(input.observe)
+  const account = asRecord(observe.account)
+  const policy = asRecord(input.runtime_policy)
+  const accountRef = stringField(account.account_ref) || stringField(policy.account_ref)
+  const accountScope = stringField(account.account_scope) || stringField(policy.account_scope)
+  if (!accountRef || !accountScope) {
+    return {
+      schema_version: "trade.state.portfolio-account-projection.v1",
+      account_ref: accountRef,
+      account_scope: accountScope,
+      completeness: "incomplete",
+      warnings: ["account_ref and account_scope are required to resolve the owner projection"],
+      risk_lock: { locked: true, reason: "account_scope_missing" },
+    }
+  }
+  return (runtime.portfolioProjectionReader ?? readPortfolioAccountProjection)(dbPath, {
+    account_ref: accountRef,
+    account_scope: accountScope,
+    symbol: stringField(input.plan && asRecord(input.plan).symbol) || stringField(observe.symbol),
+    as_of: stringField(input.now) || undefined,
+  })
 }
 
 export function buildExecutionObserveEvent(

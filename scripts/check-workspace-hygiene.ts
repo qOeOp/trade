@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { readdirSync } from "node:fs"
+import { execFileSync } from "node:child_process"
 import { dirname, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -16,18 +17,6 @@ const sqliteSidecarPattern = /\.(?:db|duckdb|sqlite|sqlite3)-(?:shm|wal)$/
 // Ratchet only: these historical files predate the workspace hygiene gate.
 // Remove each exception in the same change that converts or untracks the file.
 export const legacyTrackedRuntimePaths = [
-  "data/market_data.db-shm",
-  "data/market_data.db-wal",
-  "data/trade.db-shm",
-  "data/trade.db-wal",
-  "modules/market-data-products/market-data-store/data/ohlcv.db",
-  "modules/market-data-products/ohlcv-fetch/data/market_data.db",
-  "modules/market-data-products/ohlcv-fetch/data/market_data.db-shm",
-  "modules/market-data-products/ohlcv-fetch/data/market_data.db-wal",
-  "modules/market-data-products/ohlcv-fetch/data/ohlcv.db",
-  "modules/market-data-products/ohlcv-fetch/data/ohlcv.db-shm",
-  "modules/market-data-products/ohlcv-fetch/data/ohlcv.db-wal",
-  "modules/research-strategy-development/research-control-plane/certification/legacy-integration-suite/data/rd_state.db",
 ]
 
 export function findWorkspaceHygieneIssues(
@@ -69,11 +58,7 @@ function normalizePath(path: string): string {
 }
 
 function trackedPaths(): string[] {
-  const result = Bun.spawnSync(["git", "ls-files", "-z"], { cwd: root, stdout: "pipe", stderr: "pipe" })
-  if (result.exitCode !== 0) {
-    throw new Error(new TextDecoder().decode(result.stderr).trim() || "git ls-files failed")
-  }
-  return new TextDecoder().decode(result.stdout).split("\0").filter(Boolean)
+  return execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8" }).split("\0").filter(Boolean)
 }
 
 function moduleRuntimePaths(): string[] {

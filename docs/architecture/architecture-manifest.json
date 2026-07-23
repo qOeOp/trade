@@ -96,6 +96,7 @@
       "status": "implemented",
       "modules": [
         "modules/live-execution-control/execution-gate",
+        "modules/live-execution-control/execution-capability",
         "modules/live-execution-control/watch-handoff-revalidation",
         "modules/live-execution-control/execution-flow-runner",
         "modules/live-execution-control/execution-router",
@@ -221,7 +222,7 @@
       "target_domain": "live-decision-planning",
       "status": "implemented",
       "owner_module": "modules/live-decision-planning/slow-track-plan",
-      "writes": ["trade_event_store", "artifact_catalog"]
+      "writes": []
     },
     {
       "ticket_no": "J04",

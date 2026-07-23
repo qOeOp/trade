@@ -38,6 +38,8 @@ interface RuntimePolicyLoadInput {
 interface RuntimePolicy {
   schema_version: "runtime-policy.v1"
   profile_id: string
+  account_ref: string
+  account_scope: string
   mode: string
   source_hash: string
   compiled_at: string
@@ -76,6 +78,10 @@ function compileRuntimePolicy(config: JSONRecord, options: { sourceRef?: string;
   const execution = asRecord(normalized.execution)
   const research = asRecord(normalized.research)
   const permissions = asRecord(normalized.permissions)
+  const accountRef = stringField(normalized.account_ref)
+  const accountScope = stringField(normalized.account_scope)
+  if (!accountRef) warnings.push("account_ref is missing; live authorization will fail closed")
+  if (!accountScope) warnings.push("account_scope is missing; live authorization will fail closed")
   const maxOpenRiskPct = positiveNumber(risk.max_open_risk_pct)
   const maxDayLossPct = positiveNumber(risk.max_day_loss_pct)
   const defaultBtcNetRiskPct = maxOpenRiskPct != null ? round(maxOpenRiskPct * 1.5) : undefined
@@ -85,6 +91,8 @@ function compileRuntimePolicy(config: JSONRecord, options: { sourceRef?: string;
   return {
     schema_version: "runtime-policy.v1",
     profile_id: stringField(normalized.profile_id) || "default",
+    account_ref: accountRef,
+    account_scope: accountScope,
     mode,
     source_hash: `sha256:${hashCanonical(normalized)}`,
     compiled_at: options.now || new Date().toISOString(),
@@ -132,6 +140,8 @@ function buildPolicySnapshotRef(policy: RuntimePolicy): JSONRecord {
     schema_version: "trade.protocol.policy-snapshot.v1",
     policy_ref: `policy_registry:runtime_policy/${policy.profile_id}/${suffix}`,
     policy_hash: policy.source_hash,
+    account_ref: policy.account_ref,
+    account_scope: policy.account_scope,
     generated_at: policy.compiled_at,
     approved_strategy_refs: [],
     risk_limits_ref: `policy_registry:risk_limits/${policy.profile_id}/${suffix}`,

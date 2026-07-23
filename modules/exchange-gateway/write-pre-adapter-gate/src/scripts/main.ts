@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
-import { stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
+import { validateExecutionCapability } from "../../../../contracts/execution-capability-contract/src/execution-capability-contract"
+import { asRecord, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
 import { errorResponse, printScriptResult, readJsonObjectFlag } from "../../../../contracts/runtime-core/src/script-json"
 
 const SCHEMA_VERSION = "write-pre-adapter-gate.result.v1"
@@ -43,6 +44,14 @@ function validateGate(input: JSONRecord): Array<{ field: string; reason: string 
   if (!stringField(input.idempotency_key)) issues.push({ field: "idempotency_key", reason: "required" })
   if (!stringField(input.source_intent_ref)) issues.push({ field: "source_intent_ref", reason: "required" })
   if (input.authorized !== true) issues.push({ field: "authorized", reason: "must be true" })
+  for (const issue of validateExecutionCapability(asRecord(input.capability), {
+    target_action: action,
+    idempotency_key: stringField(input.idempotency_key),
+    source_intent_ref: stringField(input.source_intent_ref),
+    now: stringField(input.now) || undefined,
+  })) {
+    issues.push({ field: `capability.${issue}`, reason: "invalid or mismatched" })
+  }
   return issues
 }
 

@@ -72,9 +72,11 @@ function buildObserveEvent(input: ObserveInput): ObserveEvent {
 
 function buildAccountProjection(snapshot: JSONRecord, symbol: string): JSONRecord {
   const data = asRecord(snapshot.data ?? snapshot)
-  const account = asRecord(data.account)
-  const positions = Array.isArray(data.positions) ? data.positions.map(asRecord) : []
-  const openOrders = asRecord(data.openOrders)
+  const canonicalFacts = asRecord(data.account_facts)
+  const account = Object.keys(canonicalFacts).length > 0 ? canonicalFacts : asRecord(data.account)
+  const rawPositions = canonicalFacts.positions ?? data.positions
+  const positions = Array.isArray(rawPositions) ? rawPositions.map(asRecord) : []
+  const openOrders = asRecord(canonicalFacts.open_orders ?? data.openOrders)
   const regular = Array.isArray(openOrders.regular) ? openOrders.regular.map(asRecord) : []
   const protective = Array.isArray(openOrders.protective) ? openOrders.protective.map(asRecord) : []
   const upperSymbol = symbol.toUpperCase()
@@ -83,11 +85,15 @@ function buildAccountProjection(snapshot: JSONRecord, symbol: string): JSONRecor
   const symbolProtective = protective.filter((item) => stringField(item.symbol).toUpperCase() === upperSymbol)
 
   return {
-    equity_usdt: numberField(account.totalMarginBalance) || numberField(account.totalWalletBalance),
-    available_balance_usdt: numberField(account.availableBalance),
+    account_ref: stringField(canonicalFacts.account_ref),
+    account_scope: stringField(canonicalFacts.account_scope),
+    equity_usdt: numberField(canonicalFacts.equity_usdt) || numberField(account.totalMarginBalance) || numberField(account.totalWalletBalance),
+    available_balance_usdt: numberField(canonicalFacts.available_margin_usdt) || numberField(account.availableBalance),
     position_state: symbolPositions.length > 0 ? summarizePositions(symbolPositions) : "flat",
     order_state: summarizeOrders(symbolRegular, symbolProtective),
-    snapshot_ref: stringField(snapshot.snapshot_ref) || stringField(data.snapshot_ref),
+    as_of: stringField(canonicalFacts.as_of) || stringField(data.as_of) || stringField(data.generated_at),
+    content_hash: stringField(canonicalFacts.content_hash) || stringField(data.content_hash),
+    snapshot_ref: stringField(canonicalFacts.snapshot_ref) || stringField(snapshot.snapshot_ref) || stringField(data.snapshot_ref),
   }
 }
 

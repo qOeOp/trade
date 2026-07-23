@@ -416,6 +416,21 @@ test("catalog artifact read is bounded, path-scoped, and hash verified", () => {
   }
 })
 
+test("artifact catalog fails closed when a database belongs to another environment", () => {
+  const dir = mkdtempSync(join(tmpdir(), "data-catalog-identity-"))
+  const catalogDbPath = join(dir, "data_catalog.db")
+  try {
+    initDataCatalog(catalogDbPath, "test:suite-a")
+    assert.doesNotThrow(() => queryDataCatalog({ catalogDbPath, environmentId: "test:suite-a" }))
+    assert.throws(
+      () => queryDataCatalog({ catalogDbPath, environmentId: "test:suite-b" }),
+      /database identity mismatch for environment_id/,
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 function displaySuffix(path: string): string {
   return path.split("/").slice(-4).join("/")
 }

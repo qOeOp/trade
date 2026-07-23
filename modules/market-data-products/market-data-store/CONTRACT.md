@@ -17,6 +17,7 @@ Owns `market_data_store` for market manifests, admitted L2 epoch manifests, immu
 - Deterministically audit one epoch's owner retention state and every registered Market Data L2 referrer as a self-hashed read projection. Distinguish raw、compacted without registered referrers、and compacted with registered referrers while always returning `deletion_eligible=false` and `forbidden_no_gc_authority`.
 - List audit summaries in binary `epoch_id` order through a cursor-bounded、maximum-50 page built inside one owner read transaction. Page counts are page-local, pagination is not a cross-call snapshot, and the self-hashed page never emits deletion candidates.
 - Insert canonical candles into `ohlcv_store` keyed by exchange/symbol/timeframe/open time.
+- Export bounded canonical-candle slices as content-addressed immutable CSV/manifest artifacts and return only the owner slice ref plus manifest metadata to cross-domain consumers.
 - Insert funding events keyed by exchange/symbol/funding time.
 - Register feature manifests derived from source manifests.
 - Commit self-hashed instrument-status Acquisition Receipt v1 with ordered attempt history and exact response payload bytes; preserve terminal failures and create-or-identical retries.
@@ -36,6 +37,7 @@ Owns `market_data_store` for market manifests, admitted L2 epoch manifests, immu
 - Does not call exchange write APIs.
 - Does not ingest WebSocket frames, own the current order book, write Parquet, mutate Rust evidence files, delete raw evidence, or infer continuity across L2 epochs.
 - Does not store research experiment results; those remain artifacts/evidence refs.
+- Does not expose the physical OHLCV database as a cross-domain query surface; Research consumes owner-produced slice artifacts.
 - Does not open or query the Control Plane database, prove remote caller identity, or replace the Control Plane registry. Registration accepts only the complete owner-read authority snapshot and verifies its self-hash plus local source binding.
 - Does not claim global referrer completeness. Zero registered Market Data referrers is not proof of no external references and never authorizes release、tombstone、file deletion or GC execution.
 - Does not normalize status epochs, infer missing events, select a canonical/latest correction, or certify external venue completeness, authenticity, signature, transport identity, source-system exhaustiveness, dissemination latency, or cross-source ordering.

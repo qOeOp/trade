@@ -38,7 +38,7 @@ scripts/quality-check.sh
 - Go：`gofmt -l` 必须为空，随后 `go test ./...` 与 `go vet ./...`
 - Rust：`cargo fmt --check`、`cargo check`、`cargo clippy -- -D warnings` 与 `cargo test`
 - Python：`compileall` + `python -W error -m unittest discover`
-- Hygiene：项目文件不得泄漏本机绝对路径；禁止新增 tracked runtime SQLite / sidecar 与 module-local DB，历史 exception 只减不增
+- Hygiene：项目文件不得泄漏本机绝对路径；禁止新增 tracked runtime SQLite / sidecar 与 module-local DB；quality 对 tracked + unignored 内容做前后哈希，dirty worktree 只比较增量副作用，CI 还要求 preflight clean；ignored footprint 只分类报告、不静默清理
 
 ## 2. 提交品位线
 

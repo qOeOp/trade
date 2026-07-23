@@ -9,10 +9,12 @@ Build a trade-plan draft from an assembled decision input, including entry, stop
 - `decision_input_ref`
 - `plan_ref`
 - Symbol, side, source refs, and optional numeric plan fields.
+- Optional account scope, strategy ref, risk budget, and expiry for a non-mutating capital allocation proposal.
 
 ## Outputs
 
 - `trade-plan-draft.v1`
+- Nested `capital-allocation-proposal.v1`; zero budget is `not_allocated`, never a reservation or balance mutation.
 
 ## Boundaries
 

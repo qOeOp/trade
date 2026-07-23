@@ -3,12 +3,14 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, rea
 import { dirname, extname, join, resolve } from "node:path"
 import { Database } from "bun:sqlite"
 import { assertProjectRuntimePath, displayPath, resolveRepoPath } from "../../../../contracts/runtime-core/src/paths"
+import { assertDatabaseIdentity, buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../contracts/runtime-core/src/database-identity"
 
 type JSONRecord = Record<string, unknown>
 type SQLiteBindingValue = string | number | boolean | null
 
 interface CatalogScanInput {
   catalogDbPath: string
+  environmentId?: string
   roots: string[]
   now?: string | Date
   maxHashBytes?: number
@@ -33,6 +35,7 @@ interface CatalogScanResult {
 
 interface CatalogQueryInput {
   catalogDbPath: string
+  environmentId?: string
   path?: string
   artifactID?: string
   symbol?: string
@@ -43,6 +46,7 @@ interface CatalogQueryInput {
 
 interface CatalogStaleInput {
   catalogDbPath: string
+  environmentId?: string
   roots?: string[]
   retentionHours?: number
   ephemeralRetentionHours?: number
@@ -53,6 +57,7 @@ interface CatalogStaleInput {
 
 interface CatalogRegisterArtifactInput {
   catalogDbPath?: string
+  environmentId?: string
   path: string
   now?: string | Date
   maxHashBytes?: number
@@ -98,6 +103,7 @@ interface CatalogQueryResult {
 
 interface CatalogReadArtifactInput {
   catalogDbPath: string
+  environmentId?: string
   artifactID: string
   maxBytes?: number
 }
@@ -117,6 +123,7 @@ interface CatalogReadArtifactResult {
 
 interface CatalogStoredRecordInput {
   catalogDbPath: string
+  environmentId?: string
   record: JSONRecord
   now?: string | Date
 }
@@ -146,16 +153,29 @@ const MAX_ARTIFACT_READ_BYTES = 1_000_000
 const SKIP_DIRS = new Set([".git", "node_modules", ".venv", "__pycache__"])
 const READABLE_ARTIFACT_TYPES = new Set(["csv", "json", "jsonl", "log", "md", "ndjson", "text", "toml", "tsv", "txt", "yaml", "yml"])
 
-function initDataCatalog(catalogDbPath: string): { initialized: true; catalog_db_path: string } {
+function openDataCatalog(catalogDbPath: string, environmentId = "local:local", readonly = false, allowLegacyMigration = false): Database {
+  const db = new Database(catalogDbPath, readonly ? { readonly: true } : undefined)
+  const identity = buildDatabaseIdentity(environmentId, "artifact_catalog")
+  try {
+    if (readonly) assertDatabaseIdentity(db, identity)
+    else ensureDatabaseIdentity(db, identity, { allowLegacyMigration })
+    return db
+  } catch (error) {
+    db.close()
+    throw error
+  }
+}
+
+function initDataCatalog(catalogDbPath: string, environmentId = "local:local", allowLegacyMigration = false): { initialized: true; catalog_db_path: string; environment_id: string; store_id: "artifact_catalog" } {
   catalogDbPath = resolveRepoPath(catalogDbPath)
   mkdirSync(dirname(catalogDbPath), { recursive: true })
-  const db = new Database(catalogDbPath)
+  const db = openDataCatalog(catalogDbPath, environmentId, false, allowLegacyMigration)
   try {
     ensureDataCatalogSchema(db)
   } finally {
     db.close()
   }
-  return { initialized: true, catalog_db_path: displayPath(catalogDbPath) }
+  return { initialized: true, catalog_db_path: displayPath(catalogDbPath), environment_id: environmentId, store_id: "artifact_catalog" }
 }
 
 function scanDataCatalog(input: CatalogScanInput): CatalogScanResult {
@@ -167,7 +187,7 @@ function scanDataCatalog(input: CatalogScanInput): CatalogScanResult {
   }
 
   mkdirSync(dirname(catalogDbPath), { recursive: true })
-  const db = new Database(catalogDbPath)
+  const db = openDataCatalog(catalogDbPath, input.environmentId)
   const result: CatalogScanResult = {
     catalog_db_path: displayPath(catalogDbPath),
     roots: roots.map((root) => displayPath(root)),
@@ -217,7 +237,7 @@ function registerCatalogArtifact(input: CatalogRegisterArtifactInput): CatalogRe
     throw new Error("catalog register now must be a valid date")
   }
   mkdirSync(dirname(catalogDbPath), { recursive: true })
-  const db = new Database(catalogDbPath)
+  const db = openDataCatalog(catalogDbPath, input.environmentId)
   try {
     ensureDataCatalogSchema(db)
     const artifact = artifactRecord(artifactPath, input.maxHashBytes ?? DEFAULT_MAX_HASH_BYTES, now)
@@ -255,7 +275,7 @@ function upsertCatalogStrategyEvidence(input: CatalogStoredRecordInput): { catal
     throw new Error("strategy evidence catalog now must be a valid date")
   }
   mkdirSync(dirname(catalogDbPath), { recursive: true })
-  const db = new Database(catalogDbPath)
+  const db = openDataCatalog(catalogDbPath, input.environmentId)
   try {
     ensureDataCatalogSchema(db)
     const evidenceID = upsertStrategyEvidenceRecord(db, input.record, artifactIDForPath(db, stringField(input.record.source_ref)), now)
@@ -265,11 +285,11 @@ function upsertCatalogStrategyEvidence(input: CatalogStoredRecordInput): { catal
   }
 }
 
-function listCatalogStrategyEvidence(input: { catalogDbPath: string; strategyID?: string; limit?: number }): JSONRecord[] {
+function listCatalogStrategyEvidence(input: { catalogDbPath: string; environmentId?: string; strategyID?: string; limit?: number }): JSONRecord[] {
   const catalogDbPath = resolveRepoPath(input.catalogDbPath)
   const limit = boundedLimit(input.limit, 1000)
   mkdirSync(dirname(catalogDbPath), { recursive: true })
-  const db = new Database(catalogDbPath)
+  const db = openDataCatalog(catalogDbPath, input.environmentId)
   try {
     ensureDataCatalogSchema(db)
     const rows = input.strategyID
@@ -299,7 +319,7 @@ function upsertCatalogStrategyRndRun(input: CatalogStoredRecordInput): { catalog
     throw new Error("strategy R&D catalog now must be a valid date")
   }
   mkdirSync(dirname(catalogDbPath), { recursive: true })
-  const db = new Database(catalogDbPath)
+  const db = openDataCatalog(catalogDbPath, input.environmentId)
   try {
     ensureDataCatalogSchema(db)
     const runID = upsertStrategyRndRunRecord(db, input.record, artifactIDForPath(db, stringField(input.record.artifact_ref)), now).runID
@@ -309,11 +329,11 @@ function upsertCatalogStrategyRndRun(input: CatalogStoredRecordInput): { catalog
   }
 }
 
-function listCatalogStrategyRndRuns(input: { catalogDbPath: string; limit?: number }): JSONRecord[] {
+function listCatalogStrategyRndRuns(input: { catalogDbPath: string; environmentId?: string; limit?: number }): JSONRecord[] {
   const catalogDbPath = resolveRepoPath(input.catalogDbPath)
   const limit = boundedLimit(input.limit, 1000)
   mkdirSync(dirname(catalogDbPath), { recursive: true })
-  const db = new Database(catalogDbPath)
+  const db = openDataCatalog(catalogDbPath, input.environmentId)
   try {
     ensureDataCatalogSchema(db)
     const rows = db.query(`
@@ -348,7 +368,7 @@ function queryDataCatalog(input: CatalogQueryInput): CatalogQueryResult {
     report_kind: input.reportKind || undefined,
     limit,
   }
-  const db = new Database(catalogDbPath, { readonly: true })
+  const db = openDataCatalog(catalogDbPath, input.environmentId, true)
   try {
     const artifactIDs = new Set<string>()
     const artifacts = listArtifactsForQuery(db, query, limit)
@@ -403,7 +423,7 @@ function queryDataCatalog(input: CatalogQueryInput): CatalogQueryResult {
 function readCatalogArtifact(input: CatalogReadArtifactInput): CatalogReadArtifactResult {
   const artifactID = input.artifactID.trim()
   if (!artifactID) throw new Error("artifact_id is required")
-  const query = queryDataCatalog({ catalogDbPath: input.catalogDbPath, artifactID, limit: 1 })
+  const query = queryDataCatalog({ catalogDbPath: input.catalogDbPath, environmentId: input.environmentId, artifactID, limit: 1 })
   const artifact = query.artifacts.find((item) => stringField(item.artifact_id) === artifactID)
   if (!artifact) throw new Error(`catalog artifact not found: ${artifactID}`)
 
@@ -482,7 +502,7 @@ function listStaleCatalogArtifacts(input: CatalogStaleInput): CatalogStaleResult
   let candidateCount = 0
   let keptCount = 0
   let deletedCount = 0
-  const db = new Database(catalogDbPath)
+  const db = openDataCatalog(catalogDbPath, input.environmentId)
   try {
     ensureDataCatalogSchema(db)
     const rows = db.query(`

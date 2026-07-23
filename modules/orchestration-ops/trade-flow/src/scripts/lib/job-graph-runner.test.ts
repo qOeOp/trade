@@ -110,6 +110,10 @@ test("job graph runner records dry-run lifecycle into ops runtime store", async 
     assert.equal(reconcileResult?.schema_id, "trade.domain-runtime.domain-job-result.v1")
     assert.equal(reconcileResult?.domain, "live-execution-control")
     assert.equal(reconcileResult?.status, "skipped")
+    assert.deepEqual(
+      ((reconcileResult?.audit as { domain_hooks?: Array<{ hook: string }> })?.domain_hooks ?? []).map((hook) => hook.hook),
+      ["pre_accept", "outbox"],
+    )
 
     const opsDb = new Database(opsDbPath)
     try {
@@ -326,11 +330,19 @@ test("job graph runner accepts native J02 domain runtime result from fast-track 
       stderr: "",
     }))
 
-    const jobs = result.jobs as Array<{ job_id: string; status: string; result_ref: string; runtime_result: { writes: Record<string, boolean> } }>
+    const jobs = result.jobs as Array<{ job_id: string; status: string; result_ref: string; runtime_result: { writes: Record<string, boolean>; audit: { domain_hooks: Array<{ hook: string }> } } }>
     const fast = jobs.find((job) => job.job_id === "fast_track_guard")
     assert.equal(fast?.status, "completed")
     assert.equal(fast?.result_ref, "tmp/artifacts/trade-flow/fast-track-cycle-job-graph-j02-J02.json")
     assert.deepEqual(fast?.runtime_result.writes, { trade_event_store: true })
+    assert.deepEqual(fast?.runtime_result.audit.domain_hooks.map((hook) => hook.hook), [
+      "pre_accept",
+      "pre_handle",
+      "handler",
+      "post_handle",
+      "post_commit",
+      "outbox",
+    ])
   } finally {
     tradeDb.close()
     rmSync(dir, { recursive: true, force: true })

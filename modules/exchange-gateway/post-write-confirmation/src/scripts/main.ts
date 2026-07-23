@@ -32,6 +32,7 @@ export function run(argv: string[]): JSONRecord {
         exchange_order_ids: stringArray(input.exchange_order_ids),
         source_intent_ref: stringField(input.source_intent_ref) || undefined,
         event_write_ref: stringField(input.event_write_ref) || undefined,
+        capability_ref: stringField(input.capability_ref) || undefined,
       }))
   } catch (error) {
     return errorResponse(SCHEMA_VERSION, error)

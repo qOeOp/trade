@@ -14,6 +14,8 @@ import {
 } from "../lib/exchange-runtime-store"
 import { stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
 import { readDbActionJsonArgs, type DbActionJsonArgs } from "../../../../contracts/runtime-core/src/script-json"
+import { buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../contracts/runtime-core/src/database-identity"
+import { displayPath } from "../../../../contracts/runtime-core/src/paths"
 
 type Args = DbActionJsonArgs
 
@@ -24,9 +26,10 @@ export function parseArgs(argv: string[]): Args {
 export function run(args: Args): JSONRecord {
   const db = new Database(args.dbPath)
   try {
+    ensureDatabaseIdentity(db, buildDatabaseIdentity(args.environmentId, "exchange_runtime_store"), { allowLegacyMigration: args.migrateIdentity })
     ensureExchangeRuntimeSchema(db)
     if (args.action === "init") {
-      return { ok: true, action: "init", db: args.dbPath }
+      return { ok: true, action: "init", db: displayPath(args.dbPath), environment_id: args.environmentId, store_id: "exchange_runtime_store" }
     }
     if (args.action === "record_command") {
       const command = buildExchangeCommand(args.json)

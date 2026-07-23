@@ -7,6 +7,7 @@ import { Database } from "bun:sqlite"
 import { run } from "../scripts/main"
 import { resolveRepoPath } from "../../../../../../contracts/runtime-core/src/paths"
 import { runStrategyDataSplit, strategyDataSplitInputFromJson } from "./strategy-data-split"
+import { exportCanonicalCandleSlice } from "../../../../../../market-data-products/market-data-store/src/lib/candle-slice-export"
 
 test("strategy data split writes discovery validation and locked holdout manifests with embargo gaps", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-data-split-"))
@@ -85,7 +86,7 @@ test("strategy data split can persist and catalog the split report", () => {
   }
 })
 
-test("strategy data split can read OHLCV directly from the database", () => {
+test("strategy data split consumes an immutable OHLCV slice from the market-data owner port", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-data-split-db-"))
   try {
     const ohlcvDbPath = join(dir, "ohlcv.db")
@@ -131,9 +132,9 @@ test("strategy data split can read OHLCV directly from the database", () => {
         exchange: "binanceusdm",
         symbol: "ALTUSDT",
       }],
-    })
+    }, { marketDataSliceExporter: testMarketDataSliceExporter })
 
-    assert.equal(report.datasets[0].source_manifest_path, "ohlcv_store:canonical_candle/binanceusdm/ALTUSDT/4h")
+    assert.match(report.datasets[0].source_manifest_path, /^market-data:\/\/candle-slice\//)
     assert.equal(report.datasets[0].source_rows, 600)
     assert.equal(report.datasets[0].segments.every((segment) => existsSync(resolveRepoPath(segment.manifest_path))), true)
   } finally {
@@ -188,7 +189,11 @@ test("strategy data split reports missing OHLCV schema as a domain error", () =>
         exchange: "binanceusdm",
         symbol: "ALTUSDT",
       }],
-    }), /ohlcv store schema is missing canonical_candle/)
+    }, {
+      marketDataSliceExporter: () => {
+        throw new Error("market_data_store candle slice unavailable: canonical_candle schema missing")
+      },
+    }), /market_data_store.*schema missing/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -334,6 +339,34 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function readJsonFile(path: string): Record<string, unknown> {
   return JSON.parse(readFileSync(resolveRepoPath(path), "utf8")) as Record<string, unknown>
+}
+
+function testMarketDataSliceExporter(input: {
+  ohlcvDbPath?: string
+  exchange?: string
+  symbol: string
+  timeframe: string
+  sinceTs?: number
+  untilTs?: number
+  limit?: number
+  outputRoot: string
+  generatedAt: string
+}): Record<string, unknown> {
+  const db = new Database(input.ohlcvDbPath || "data/ohlcv.db", { readonly: true })
+  try {
+    return { ...exportCanonicalCandleSlice(db, {
+      exchange: input.exchange,
+      symbol: input.symbol,
+      timeframe: input.timeframe,
+      since_ts: input.sinceTs,
+      until_ts: input.untilTs,
+      limit: input.limit,
+      output_root: input.outputRoot,
+      generated_at: input.generatedAt,
+    }) }
+  } finally {
+    db.close()
+  }
 }
 
 function assertSchemaRequired(schema: Record<string, unknown>, value: Record<string, unknown>): void {

@@ -3,9 +3,10 @@
 import { Database } from "bun:sqlite"
 import { dirname } from "node:path"
 import { mkdirSync } from "node:fs"
-import { assertProjectRuntimePath, repoRoot } from "../../../../contracts/runtime-core/src/paths"
+import { assertProjectRuntimePath, displayPath, repoRoot } from "../../../../contracts/runtime-core/src/paths"
 import { stringField } from "../../../../contracts/runtime-core/src/json"
 import { errorResponse, printScriptResult, readFlagValue, readJsonObject, successResponse } from "../../../../contracts/runtime-core/src/script-json"
+import { buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../contracts/runtime-core/src/database-identity"
 import {
   appendPlanEvent,
   buildOrderFillEvent,
@@ -32,6 +33,8 @@ interface Config {
     | "read-latest-order-fill"
     | ""
   chainId: string
+  environmentId: string
+  migrateIdentity: boolean
   input: JSONRecord
 }
 
@@ -49,9 +52,15 @@ export function run(argv: string[]): JSONRecord {
     mkdirSync(dirname(config.dbPath), { recursive: true })
     const db = new Database(config.dbPath)
     try {
+      ensureDatabaseIdentity(db, buildDatabaseIdentity(config.environmentId, "trade_event_store"), { allowLegacyMigration: config.migrateIdentity })
       ensureSchema(db)
       if (config.mode === "init") {
-        return successResponse("event-store.script-response.v1", { initialized: true, dbPath: config.dbPath })
+        return successResponse("event-store.script-response.v1", {
+          initialized: true,
+          dbPath: displayPath(config.dbPath),
+          environment_id: config.environmentId,
+          store_id: "trade_event_store",
+        })
       }
       if (config.mode === "append-event") {
         const event = config.input as unknown as PlanEvent
@@ -94,7 +103,7 @@ export function run(argv: string[]): JSONRecord {
 }
 
 function parseArgs(argv: string[]): Config {
-  const config: Config = { dbPath: "./data/trade.db", mode: "", chainId: "", input: {} }
+  const config: Config = { dbPath: "./data/trade.db", mode: "", chainId: "", environmentId: "local:local", migrateIdentity: false, input: {} }
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     switch (arg) {
@@ -107,12 +116,15 @@ function parseArgs(argv: string[]): Config {
       case "--read-flow-events": config.mode = "read-flow-events"; break
       case "--read-latest-order-fill": config.mode = "read-latest-order-fill"; break
       case "--db": config.dbPath = readFlagValue(argv, ++index, arg); break
+      case "--environment-id": config.environmentId = readFlagValue(argv, ++index, arg); break
+      case "--migrate-database-identity": config.migrateIdentity = true; break
       case "--chain-id": config.chainId = readFlagValue(argv, ++index, arg); break
       case "--json": config.input = readJsonObject(readFlagValue(argv, ++index, arg)); break
       case "--help": printHelp(); return process.exit(0)
       default: throw new Error(`unknown flag: ${arg}`)
     }
   }
+  if (config.migrateIdentity && config.mode !== "init") throw new Error("--migrate-database-identity requires --init")
   return config
 }
 

@@ -17,6 +17,8 @@ import {
 } from "../lib/research-state-store"
 import { numberField, stringField, type JSONRecord } from "../../../../../contracts/runtime-core/src/json"
 import { readDbActionJsonArgs, type DbActionJsonArgs } from "../../../../../contracts/runtime-core/src/script-json"
+import { buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../../contracts/runtime-core/src/database-identity"
+import { displayPath } from "../../../../../contracts/runtime-core/src/paths"
 import {
   applyReviewerDecision,
   appendProposalRevision,
@@ -102,9 +104,10 @@ export function parseArgs(argv: string[]): Args {
 export function run(args: Args): JSONRecord {
   const db = new Database(args.dbPath)
   try {
+    ensureDatabaseIdentity(db, buildDatabaseIdentity(args.environmentId, "research_state_store"), { allowLegacyMigration: args.migrateIdentity })
     ensureResearchStateSchema(db)
     if (args.action === "init") {
-      return { ok: true, action: "init", db: args.dbPath }
+      return { ok: true, action: "init", db: displayPath(args.dbPath), environment_id: args.environmentId, store_id: "research_state_store" }
     }
     if (args.action === "upsert_program") {
       const program = buildRdProgram(args.json)

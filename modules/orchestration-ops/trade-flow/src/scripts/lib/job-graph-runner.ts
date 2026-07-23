@@ -12,8 +12,8 @@ import {
   upsertJobRun,
 } from "../../../../ops-runtime-store/src/lib/ops-runtime-store"
 import { publishDomainMessage } from "../../../../domain-bus/src/lib/domain-bus"
-import { buildDomainJobResult, validateDomainJobResult } from "../../../../../contracts/domain-runtime/src/domain-runtime"
-import { buildAutomationCyclePlan, type AutomationCycleInput } from "./automation-cycle"
+import { buildDomainJobResult, buildHookContext, validateDomainJobResult } from "../../../../../contracts/domain-runtime/src/domain-runtime"
+import { buildAutomationCyclePlanAsync, type AutomationCycleInput } from "./automation-cycle"
 import { repoRoot } from "../../../../../contracts/runtime-core/src/paths"
 import { canonicalHash } from "../../../../../contracts/runtime-core/src/canonical-json"
 
@@ -75,7 +75,7 @@ export async function runAutomationJobGraph(
   input: JobGraphRunnerInput = {},
   executor: CommandExecutor = executeCommand,
 ): Promise<JSONRecord> {
-  const plan = buildAutomationCyclePlan(tradeDb, tradeDbPath, input)
+  const plan = await buildAutomationCyclePlanAsync(tradeDb, tradeDbPath, input)
   const cycleId = stringField(plan.cycle_id)
   const generatedAt = stringField(plan.generated_at) || new Date().toISOString()
   const opsRuntimeDbPath = stringField(input.ops_runtime_db) || "./data/ops_runtime.db"
@@ -331,7 +331,9 @@ async function runOneJob(input: {
     input_refs: asArray(toolJob.input_refs ?? input.job.input_refs).map(String),
     writes: asRecord(toolJob.writes),
     allowed_runtime_writes: asArray(input.job.allowed_runtime_writes).map(String),
+    domain_hook_contexts: [] as JSONRecord[],
   }
+  base.domain_hook_contexts.push(buildJobHookContext(base, input.cycleId, "pre_accept"))
   publishBusMessage(input.opsDb, {
     direction: "inbox",
     cycleId: input.cycleId,
@@ -380,6 +382,10 @@ async function runOneJob(input: {
     command_ref: commandRef(command),
     started_at: new Date().toISOString(),
   }))
+  base.domain_hook_contexts.push(
+    buildJobHookContext(base, input.cycleId, "pre_handle"),
+    buildJobHookContext(base, input.cycleId, "handler"),
+  )
   const executed = await executeWithTimeout(input.executor, command, input.commandTimeoutMs)
   if (executed.exit_code === 0) {
     const nativeRuntimeResult = extractNativeRuntimeResult(executed.stdout)
@@ -556,7 +562,7 @@ function recordJob(
     result_ref: resultRef,
     error: Object.keys(error).length > 0 ? error : undefined,
   }))
-  const runtimeResult = extra.runtime_result ?? buildDomainJobResult({
+  const baseRuntimeResult = extra.runtime_result ?? buildDomainJobResult({
     domain: base.target_domain,
     job_id: base.job_id,
     idempotency_key: `${cycleId}:${base.ticket_no}`,
@@ -572,6 +578,7 @@ function recordJob(
       completed_at: completedAt,
     },
   })
+  const runtimeResult = attachDomainHookAudit(baseRuntimeResult, base, cycleId, status, completedAt)
   validateDomainJobResult(runtimeResult, allowedRuntimeWrites(base))
   if (status === "failed" || status === "blocked") {
     recordIncident(db, buildIncident({
@@ -600,8 +607,8 @@ function recordJob(
     stage: base.stage,
     status,
     reason,
-    runtime_result: runtimeResult,
     ...extra,
+    runtime_result: runtimeResult,
   }
 }
 
@@ -636,6 +643,55 @@ interface JobResultBase {
   input_refs: string[]
   writes: JSONRecord
   allowed_runtime_writes: string[]
+  domain_hook_contexts: JSONRecord[]
+}
+
+function buildJobHookContext(
+  base: JobResultBase,
+  cycleId: string,
+  hook: "pre_accept" | "pre_handle" | "handler" | "post_handle" | "post_commit" | "outbox" | "on_error",
+): JSONRecord {
+  return buildHookContext({
+    domain: base.target_domain,
+    job_id: base.job_id,
+    ticket_no: base.ticket_no,
+    stage: base.stage,
+    hook,
+    idempotency_key: `${cycleId}:${base.ticket_no}`,
+    input_refs: base.input_refs,
+    allowed_writes: base.allowed_runtime_writes,
+    audit: { cycle_id: cycleId },
+  })
+}
+
+function attachDomainHookAudit(
+  runtimeResult: JSONRecord,
+  base: JobResultBase,
+  cycleId: string,
+  status: string,
+  completedAt: string,
+): JSONRecord {
+  const hooks = [...base.domain_hook_contexts]
+  const handlerRan = hooks.some((context) => context.hook === "handler")
+  if (handlerRan) {
+    if (status === "failed" || status === "blocked") {
+      hooks.push(buildJobHookContext(base, cycleId, "on_error"))
+    } else {
+      hooks.push(
+        buildJobHookContext(base, cycleId, "post_handle"),
+        buildJobHookContext(base, cycleId, "post_commit"),
+      )
+    }
+  }
+  hooks.push(buildJobHookContext(base, cycleId, "outbox"))
+  return {
+    ...runtimeResult,
+    audit: {
+      ...asRecord(runtimeResult.audit),
+      completed_at: completedAt,
+      domain_hooks: hooks,
+    },
+  }
 }
 
 interface JobRecordExtra {
@@ -662,6 +718,7 @@ function publishBusMessage(db: Database, input: {
     source_domain: input.direction === "inbox" ? "orchestration-ops" : input.targetDomain,
     target_domain: input.direction === "inbox" ? input.targetDomain : "orchestration-ops",
     rail: input.direction === "inbox" ? "command_rail" : "artifact_rail",
+    interaction: input.direction === "inbox" ? "command" : "result",
     payload_ref: input.payloadRef || `job:${input.ticketNo}`,
     idempotency_key: `${input.cycleId}:${input.ticketNo}:${input.direction}`,
     message_id: `${input.cycleId}:${input.ticketNo}:${input.direction}`,

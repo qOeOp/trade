@@ -4,6 +4,7 @@ import { mkdirSync, rmSync } from "node:fs"
 import { dirname, join } from "node:path"
 import test from "node:test"
 import { repoRoot } from "../../../../contracts/runtime-core/src/paths"
+import { buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../contracts/runtime-core/src/database-identity"
 import { appendPlanEvent, ensureSchema } from "../../../event-store/src/lib/event-store"
 import { run } from "./main"
 
@@ -19,6 +20,7 @@ test("flow projector CLI exposes latest slow observe as owner read surface", () 
   const db = new Database(dbPath)
   let closed = false
   try {
+    ensureDatabaseIdentity(db, buildDatabaseIdentity("test:flow-projector", "trade_event_store"))
     ensureSchema(db)
     appendPlanEvent(db, {
       event_key: "slow-observe-cli-1",
@@ -43,7 +45,7 @@ test("flow projector CLI exposes latest slow observe as owner read surface", () 
     db.close()
     closed = true
 
-    const result = run(["--latest-slow-observe", "--db", dbPath, "--chain-id", "flow-cli-1"]) as {
+    const result = run(["--latest-slow-observe", "--db", dbPath, "--environment-id", "test:flow-projector", "--chain-id", "flow-cli-1"]) as {
       ok: boolean
       data: { event_key: string; chain_id: string; kind: string; read_model_ref: { store: string; ref: string } }
     }
@@ -65,6 +67,7 @@ test("flow projector CLI returns read model refs for derived projections", () =>
   const db = new Database(dbPath)
   let closed = false
   try {
+    ensureDatabaseIdentity(db, buildDatabaseIdentity("test:flow-projector", "trade_event_store"))
     ensureSchema(db)
     appendPlanEvent(db, {
       event_key: "observe-ref-1",
@@ -76,7 +79,7 @@ test("flow projector CLI returns read model refs for derived projections", () =>
     db.close()
     closed = true
 
-    const result = run(["--reduce-flow", "--db", dbPath, "--chain-id", "flow-ref-1"]) as {
+    const result = run(["--reduce-flow", "--db", dbPath, "--environment-id", "test:flow-projector", "--chain-id", "flow-ref-1"]) as {
       ok: boolean
       data: { chain_id: string; read_model_ref: { store: string; owner_module: string; ref: string } }
     }

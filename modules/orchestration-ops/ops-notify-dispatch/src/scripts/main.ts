@@ -4,6 +4,7 @@ import { Database } from "bun:sqlite"
 import { runOpsNotifyDispatch } from "../lib/ops-notify-dispatch"
 import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
 import { readDbJsonArgs, type DbJsonArgs } from "../../../../contracts/runtime-core/src/script-json"
+import { buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../contracts/runtime-core/src/database-identity"
 
 type Args = DbJsonArgs
 
@@ -14,6 +15,7 @@ export function parseArgs(argv: string[]): Args {
 export async function run(args: Args): Promise<JSONRecord> {
   const db = new Database(args.dbPath)
   try {
+    ensureDatabaseIdentity(db, buildDatabaseIdentity(args.environmentId, "ops_runtime_store"))
     return await runOpsNotifyDispatch(db, args.json) as unknown as JSONRecord
   } finally {
     db.close()

@@ -1,0 +1,15 @@
+{
+  "$id": "market-data.candle-slice-export.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "slice_ref", "manifest_path", "content_sha256", "rows", "first_open_ts", "last_open_ts"],
+  "properties": {
+    "schema_version": { "const": "market-data.candle-slice-export.v1" },
+    "slice_ref": { "type": "string", "pattern": "^market-data://candle-slice/" },
+    "manifest_path": { "type": "string", "minLength": 1 },
+    "content_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "rows": { "type": "integer", "minimum": 1 },
+    "first_open_ts": { "type": "integer", "minimum": 0 },
+    "last_open_ts": { "type": "integer", "minimum": 0 }
+  }
+}

@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite"
-import { asRecord, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
+import { canonicalHash } from "../../../../contracts/runtime-core/src/canonical-json"
+import { asRecord, numberField, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
 
 export interface PolicySnapshot {
   policy_hash: string
@@ -18,6 +19,20 @@ export interface ApprovedStrategyRef {
   source_hash: string
   approved_at?: string
   updated_at: string
+}
+
+export interface RuntimeAuthorization {
+  schema_version: "trade.policy.runtime-authorization.v1"
+  authorization_ref: string
+  policy_ref: string
+  policy_hash: string
+  profile_id: string
+  account_ref: string
+  account_scope: string
+  issued_at: string
+  expires_at: string
+  runtime_policy: JSONRecord
+  content_hash: string
 }
 
 export function ensurePolicyRegistrySchema(db: Database): void {
@@ -120,6 +135,74 @@ export function buildPolicySnapshot(input: JSONRecord): PolicySnapshot {
   }
 }
 
+export function buildPolicySnapshotFromCompilerResult(input: JSONRecord): PolicySnapshot {
+  const data = asRecord(input.data ?? input.compiler_result ?? input)
+  const runtimePolicy = asRecord(data.runtime_policy)
+  const snapshotRef = asRecord(data.policy_snapshot_ref)
+  const policyHash = stringField(snapshotRef.policy_hash) || stringField(runtimePolicy.source_hash)
+  return buildPolicySnapshot({
+    policy_hash: policyHash,
+    source_hash: stringField(runtimePolicy.source_hash) || policyHash,
+    profile: stringField(runtimePolicy.profile_id),
+    snapshot_json: runtimePolicy,
+    created_at: stringField(runtimePolicy.compiled_at),
+  })
+}
+
+export function issueRuntimeAuthorization(
+  db: Database,
+  input: { policy_hash: string; now?: string; ttl_seconds?: number },
+): RuntimeAuthorization {
+  const snapshot = readPolicySnapshot(db, input.policy_hash)
+  if (!snapshot) throw new Error(`policy snapshot not found: ${input.policy_hash}`)
+  const runtimePolicy = snapshot.snapshot_json
+  const profileId = stringField(runtimePolicy.profile_id)
+  const accountRef = stringField(runtimePolicy.account_ref)
+  const accountScope = stringField(runtimePolicy.account_scope)
+  if (!profileId || !accountRef || !accountScope) {
+    throw new Error("runtime authorization requires profile_id, account_ref, and account_scope")
+  }
+  const issuedAt = input.now || new Date().toISOString()
+  const issuedMs = Date.parse(issuedAt)
+  if (!Number.isFinite(issuedMs)) throw new Error("runtime authorization now must be a valid timestamp")
+  const expiresAt = new Date(issuedMs + boundedTtl(input.ttl_seconds) * 1000).toISOString()
+  const policyRef = `policy_registry:runtime_policy/${profileId}/${input.policy_hash.replace(/^sha256:/, "")}`
+  const body = {
+    schema_version: "trade.policy.runtime-authorization.v1" as const,
+    policy_ref: policyRef,
+    policy_hash: input.policy_hash,
+    profile_id: profileId,
+    account_ref: accountRef,
+    account_scope: accountScope,
+    issued_at: issuedAt,
+    expires_at: expiresAt,
+    runtime_policy: runtimePolicy,
+  }
+  const contentHash = `sha256:${canonicalHash(body)}`
+  return {
+    ...body,
+    authorization_ref: `policy-authorization://${encodeURIComponent(profileId)}/${encodeURIComponent(accountScope)}/${contentHash.slice(7)}`,
+    content_hash: contentHash,
+  }
+}
+
+export function authorizeCompiledRuntimePolicy(
+  db: Database,
+  input: JSONRecord,
+): { snapshot: PolicySnapshot; authorization: RuntimeAuthorization } {
+  const snapshot = buildPolicySnapshotFromCompilerResult(input)
+  recordPolicySnapshot(db, snapshot)
+  const data = asRecord(input.data ?? input.compiler_result ?? input)
+  return {
+    snapshot: readPolicySnapshot(db, snapshot.policy_hash) ?? snapshot,
+    authorization: issueRuntimeAuthorization(db, {
+      policy_hash: snapshot.policy_hash,
+      now: stringField(input.now) || stringField(data.now) || undefined,
+      ttl_seconds: numberField(input.ttl_seconds) || numberField(data.ttl_seconds) || undefined,
+    }),
+  }
+}
+
 export function buildApprovedStrategyRef(input: JSONRecord): ApprovedStrategyRef {
   const now = stringField(input.updated_at) || stringField(input.now) || new Date().toISOString()
   return {
@@ -147,6 +230,11 @@ function validateApprovedStrategyRef(ref: ApprovedStrategyRef): void {
   if (!ref.strategy_ref || !ref.strategy_id || !ref.policy_hash || !ref.status || !ref.source_path || !ref.source_hash || !ref.updated_at) {
     throw new Error("strategy_ref, strategy_id, policy_hash, status, source_path, source_hash, and updated_at are required")
   }
+}
+
+function boundedTtl(value: number | undefined): number {
+  if (value == null || !Number.isFinite(value)) return 300
+  return Math.min(Math.max(Math.floor(value), 30), 900)
 }
 
 interface PolicySnapshotRow {

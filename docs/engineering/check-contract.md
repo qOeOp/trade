@@ -30,6 +30,8 @@ last_verified: 2026-07-23 CST
 | `repo-whitespace` | repo root | `git diff --check` | 空白、冲突标记、尾随空格 |
 | `project-quality` | repo root | `scripts/quality-check.sh` | 提交前 secret / TS / Go / Rust / Python / shell / hygiene 总闸 |
 | `workspace-hygiene` | repo root | `bun scripts/check-workspace-hygiene.ts` | 禁止新增 tracked runtime SQLite / sidecar 与 module-local DB；历史 exception 只减不增 |
+| `workspace-side-effect` | repo root | `bun scripts/check-workspace-side-effects.ts --action capture/check --snapshot tmp/check/<name>.json` | 对 tracked + unignored 内容做前后哈希；允许进入检查前已有改动，拒绝本轮新增、删除或改写；CI preflight 额外要求 clean checkout |
+| `workspace-footprint` | repo root | `bun scripts/audit-workspace-footprint.ts --stale-days 14` | 只读分类 durable DB/data、受保护 evidence、test residue、build/dependency cache 与 external audit clone；不执行删除 |
 | `replay-runner-worker-v10` | `modules/research-strategy-development/replay-execution-plane/runner` | `bun run test:worker-v10` | 单实例运行深证据链集成测试，并输出阶段耗时 |
 | `replay-runner-remaining` | `modules/research-strategy-development/replay-execution-plane/runner` | `bun run test:remaining` | 不与巨型 worker-v10 场景混跑的其余 runner 回归 |
 | `replay-certification` | `modules/research-strategy-development/replay-execution-plane/certification/replay-certification` | `bun run certify` | Plane 内全部 canonical/compatibility package 的唯一、顺序、fail-fast certification 入口 |

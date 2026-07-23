@@ -206,6 +206,12 @@ P1.25 将单轮对照扩为持久迁移观察：resident supervisor 可选择每
 
 P1.26 将 parity 口径修正为 `shared_owner_result_replay_v1`：program 每轮只执行一次固定 owner command，Agent 路径仍独立构图，但回放该轮捕获的同一组退出码/stdout/stderr，再比较 canonical projection；回放键保留 executable / cwd / argv 语义，只去除 cycle、时间和结果 ID 等 invocation identity，捕获缺失或命令语义漂移均以 typed failure 暴露。ops owner 与 Agent MCP 新增只读 parity status，同时给出 raw、shared-input comparable、legacy sequential counts、最新双侧 hash/basis 和 fenced lease state，不泄漏 holder/PID/path/detail，也不作 cutover 判断。旧的 28 条观察原样保留并归类为 `sequential_live_reads_v1`；真实共享输入预检与短观察累计 `7/7 match`，token `5/6` 均正常释放。最终一小时 bounded observation 于 2026-07-23 01:11 CST 由 operator-owned tmux 从零启动并取得 token `7`；J01–J07、live write、真实通知仍全部关闭，该证据仍不授权策略、执行或 Replay 使用 L2 数据。
 
+该一小时窗口在 2026-07-23 01:19 CST 捕获一次两侧一致的降级输入：program 与 Agent hash 相同，但 L2 owner read 短暂失败、resident consumer 进入重试并随后恢复；Rust owner 进程未退出、continuity 仍为 live、incident 仍为零。故此轮可继续证明共享输入 parity，却不能作为零故障 availability gate。随后 supervisor 超过 `duration_seconds=3600` 仍未退出；精确进程树显示其同步阻塞在 `state.flow-projector --active-flows` 超过 19 分钟，需 operator 终止该子进程后才以 typed script error 释放，stdout 没有伪造完成 verdict。planning read 已改为 30 秒异步硬截止与精确子进程收割；真实 exclusive-lock fixture 在约 100ms deadline fail closed，3 秒 resident fixture 在 3.23 秒以 `stop_reason=duration`、lease released、`4/4` shared-input match 退出且无残留子进程。
+
+终态 SQLite 只读审计保留 `53/53` 条 `shared_owner_result_replay_v1` match、零 comparable mismatch；legacy sequential history 仍为 `27/28` match。结合上述退出缺陷回归，P1.26 的 parity 与 bounded-exit 缺陷收口；原始窗口仍不能充当零故障 availability gate，后者转入独立 P1.28 clean window，J06 canary 仍需等待该 gate。
+
+consumer 现以固定 taxonomy 区分 owner-health/current-book/snapshot/watch failure，并跨恢复与 worker restart 保留最近一次净化后的 timestamp、operation、class、attempt；原始异常、stderr、路径、PID 与 owner detail 不进入 owner/runtime/MCP projection。真实 worker `SIGKILL` 后 supervisor 由 attempt `2→3` 自动恢复，累计 counters 未清零，owner state 在恢复 healthy 后仍保留最近的 `watch_unavailable` timestamp/operation/class/attempt，证明新合同已加载。
+
 ### C — consumer 与 broker
 
 - 第一个非经济 Replay source consumer 已通过 finalized ref 接入，Control Plane 已可冻结 exact experiment attachment；进入 Runner / economic semantics 仍需独立 consumer authority 与数据现实 gate；

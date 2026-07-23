@@ -3,7 +3,7 @@ title: Domain Runtime Design
 role: architecture-feature-contract
 status: active
 owner: architecture
-last_verified: 2026-07-22 CST
+last_verified: 2026-07-23 CST
 ---
 
 # Domain Runtime Design
@@ -22,6 +22,9 @@ domain inbox
   -> post_handle
   -> post_commit
   -> domain outbox
+
+failure at any hook / handler
+  -> on_error
 ```
 
 ## System Runtime 与 Control Tower Lifecycle
@@ -30,14 +33,14 @@ domain inbox
 
 | 层 | Owner | 作用 |
 | --- | --- | --- |
-| `system domain-runtime` | `contracts/domain-runtime` | 所有责任域共享：`pre_accept / pre_handle / post_handle / post_commit / on_error` |
+| `system domain-runtime` | `contracts/domain-runtime` | 所有责任域共享：`pre_accept / pre_handle / post_handle / post_commit / on_error / outbox` |
 | `control tower lifecycle` | `orchestration-ops` | 使用 system domain-runtime 管 cycle 生命周期：`pre_cycle / pre_job / post_job / post_cycle` |
 
 `control tower lifecycle` 负责本轮怎么跑；`system domain-runtime` 负责任意责任域如何安全接收、处理、提交和输出。
 
 `pre_job` 是 job 出塔前的派发前处理：读取 health facts、trading profile-mode、cadence、lock、concurrency group、write owner 和 permission scope，过滤或标注 job ticket。它不判断行情、不改业务事实、不替代 domain preflight。
 
-当前运行形态是主 agent 分发 subagent job，再由 subagent 汇报给主 agent；因此暂不单独设计 `job result rail`。job result refs 先进入 `control tower` inbox，由 `post_job / post_cycle` processor 统一验收。只有当多个独立 worker、异步队列、ack/retry/dead-letter 成为硬需求时，才把 job result 抽成独立 rail。
+当前 job result 以 `interaction=result` 的 domain outbox envelope 返回 control tower，由 `post_job / post_cycle` processor 统一验收。它可以走现有 `artifact rail` 承载状态与 output refs；rail namespace 不等于 interaction class，也不因此获得 artifact owner 的读写权。只有当多个独立 worker、异步队列、ack/retry/dead-letter 成为硬需求时，才把 job result 抽成独立物理 transport。
 
 控制塔只发布 `ops rail`：health facts、incident refs、cycle summary、next-cycle constraints。`policy rail` 只能由 `policy-risk / risk authority` 发布，用来表达 runtime policy 与 trading profile-mode。
 
@@ -145,7 +148,7 @@ open / acknowledged
 - failure classes
 - hook list
 
-最小接入顺序：
+当前 job graph runner 已执行并把 hook audit 附到 runtime result：`pre_accept → pre_handle → handler → post_handle → post_commit → outbox`；任一阶段失败进入 `on_error`。以下是继续扩大业务域覆盖面的接入顺序：
 
 1. `live-execution-control`：先接 `pre_accept / pre_handle / post_handle`，锁住执行权限和写面。
 2. `exchange-gateway`：接 `post_commit`，强化 request/result ledger 与幂等。

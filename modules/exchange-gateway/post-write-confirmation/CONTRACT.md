@@ -8,6 +8,7 @@ Normalize exchange write results and reread confirmations into exchange command/
 
 - Command ref, client order id, action, status, and idempotency key.
 - Optional request/result refs, exchange order ids, source intent ref, and event write ref.
+- Capability ref that authorized the exact side effect.
 
 ## Outputs
 

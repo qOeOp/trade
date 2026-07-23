@@ -204,7 +204,7 @@ function requestRegistrationFor(lease: ReplayAttemptLeaseSnapshot) {
     request_hash: lease.request_hash,
     replay_request: { schema_version: "worker-v10-authority-fixture", run_id: lease.run_id },
     dataset_manifest_hash: "3".repeat(64),
-    registered_at: lease.claimed_at,
+    registered_at: "2026-07-14T00:00:00Z",
   })
 }
 

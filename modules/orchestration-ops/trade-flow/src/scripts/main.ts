@@ -11,7 +11,7 @@ import { handleRecoveryCommand } from "./commands/recovery"
 import { errorResponse, successResponse } from "./commands/response"
 import { handleRuntimeCommand } from "./commands/runtime"
 import type { ScriptResponse } from "./commands/types"
-import { buildAutomationCyclePlan } from "./lib/automation-cycle"
+import { buildAutomationCyclePlanAsync } from "./lib/automation-cycle"
 import { initEventStore } from "./lib/event-store-client"
 import { runAutomationJobGraph } from "./lib/job-graph-runner"
 import { runProgramShadowWakeup } from "./lib/program-shadow"
@@ -62,7 +62,7 @@ async function run(argv: string[], dependencies: { supervisorSignal?: AbortSigna
     const db = new Database(config.dbPath)
     try {
       if (config.automationCycle) {
-        return successResponse(buildAutomationCyclePlan(db, config.dbPath, config.input))
+        return successResponse(await buildAutomationCyclePlanAsync(db, config.dbPath, config.input))
       }
       if (config.runJobGraph) {
         return successResponse(await runAutomationJobGraph(db, config.dbPath, config.input))

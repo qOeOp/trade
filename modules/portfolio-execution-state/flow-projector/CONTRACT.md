@@ -6,6 +6,7 @@ Owns rebuildable execution-state projections derived from `plan_event`.
 
 - Reduce a flow chain into current orders, position, risk lock, and open action gap.
 - List active flows and lane conflicts.
+- Build an account-scoped portfolio projection over all bound flows, including exposure, reserved/open risk, active flow count, realized PnL, risk locks, reconcile status, freshness, content hash, and stable projection ref.
 - Expose latest slow-track observe for fast-track inheritance without cross-domain event-store reads.
 - Apply reconcile drafts only when explicitly authorized.
 - Keep projections rebuildable from the event store.
@@ -26,4 +27,5 @@ Owns rebuildable execution-state projections derived from `plan_event`.
 - `--active-flows`
 - `--reduce-flow`
 - `--latest-slow-observe`
+- `--portfolio-account --account-ref <ref> --account-scope <ref> [--symbol <symbol>]`
 - `--apply-reconcile --yes`

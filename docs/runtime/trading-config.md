@@ -3,14 +3,14 @@ title: Trading Config
 role: runtime-feature-contract
 status: active-partial
 owner: policy-risk
-last_verified: 2026-07-22 CST
+last_verified: 2026-07-23 CST
 ---
 
 # Trading Config
 
 ## 1. 当前合同
 
-`profile/trading-config.json` 是唯一人工维护的项目级交易配置入口。`modules/policy-risk/runtime-policy-compiler` 负责读取、归一化、限幅、hash 并生成 `runtime-policy.v1` 和 compact snapshot；它不读取 live facts，也不做 preflight 或执行判断。
+`profile/trading-config.json` 是唯一人工维护的项目级交易配置入口。`modules/policy-risk/runtime-policy-compiler` 负责读取、归一化、限幅、hash 并生成 `runtime-policy.v1`；`policy-registry` 记录 snapshot 并签发短期 `runtime-authorization.v1`。二者都不读取 live facts，也不做 preflight 或执行判断。
 
 配置已统一，consumer 尚未全部统一，因此状态是 `active-partial`。
 
@@ -33,8 +33,9 @@ global trading config
   -> strategy / setup policy
   -> lane override
   -> current plan
-  -> live account + market facts
-  -> effective runtime policy snapshot
+  -> compiled runtime policy
+  -> registered snapshot + short-lived authorization
+  -> live account + market facts + portfolio projection
 ```
 
 - 权限：explicit deny wins。
@@ -47,7 +48,7 @@ global trading config
 
 | 段 | 用途 |
 | --- | --- |
-| `schema_version / profile_id / mode` | 身份与运行模式 |
+| `schema_version / profile_id / account_ref / account_scope / mode` | profile 身份、非敏感 venue account 绑定、风险聚合范围与运行模式 |
 | `permissions` | `live-small` 和最高阶段许可 |
 | `risk` | 单笔、总 open risk、日损、并发 risk flow |
 | `exposure` | entry / symbol / gross notional、leverage、beta-equivalent caps |
@@ -71,12 +72,16 @@ global trading config
 
 snapshot 是当时 policy 的可追溯证据，不是账户或行情快照。
 
+`account_ref` 只绑定稳定 venue account identity，`account_scope` 只声明风险聚合范围；二者都不是 credential、余额或授权。运行时必须校验 policy、exchange facts 与 portfolio projection 的 scope 一致。
+
+新增风险还必须持有 registry 签发的短期 authorization：它绑定当前 policy ref/hash 与 account scope，并携带 `issued_at / expires_at / authorization_ref`。authorization 不是 durable balance、capital reservation 或 exchange capability；Execution 仍需最新 facts、projection 和 intent 才能生成受限 capability。
+
 ## 6. 当前已生效与未生效
 
 已生效：
 
 - canonical config load 与 legacy config adaptation。
-- normalize、hard-limit clamp、source hash、compact snapshot。
+- normalize、hard-limit clamp、source hash、registered snapshot 与短期 authorization。
 - preflight 已消费的 risk / notional / leverage / concurrency 等限制，具体见 [Risk Control Contract](./risk-control-contract.md)。
 
 尚未形成统一强制链：

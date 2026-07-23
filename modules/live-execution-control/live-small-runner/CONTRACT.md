@@ -4,6 +4,8 @@
 
 - explicit `--yes` live-small authorization
 - armable preflight gate before exchange writes
+- account-scoped, short-lived execution capability compilation
+- mandatory exchange request router, write pre-adapter gate, adapter, and post-write confirmation sequence
 - target action allowlist for small live entry placement
 - command spec execution through injected runner
 - audited order_fill append after confirmed exchange tool output

@@ -3,14 +3,14 @@ title: Execution Tool Contract
 role: runtime-feature-contract
 status: active
 owner: live-execution-control
-last_verified: 2026-07-22 CST
+last_verified: 2026-07-23 CST
 ---
 
 # Execution Tool Contract
 
 ## 0. 定位
 
-本文定义 Binance 写 tool 的成功输出如何被 `trade-flow` 记录成 `plan_event(kind=order_fill)`。
+本文定义受限 `ExecutionCapability` 如何穿过 exchange router / pre-adapter gate，以及 Binance 写结果如何被 `trade-flow` 记录成 `plan_event(kind=order_fill)`。
 
 它只锁最小外壳，不冻结 Binance 原始 `result` 的内部字段；交易所返回仍由各执行 tool 持有。
 
@@ -28,7 +28,7 @@ last_verified: 2026-07-22 CST
 { "ok": false, "error": "..." }
 ```
 
-`trade-flow` 只在 `ok=true` 且 `data` 满足对应动作最低字段时写本地事件。`ok=false`、非 JSON、缺最低字段都不得写 `order_fill`。
+`trade-flow` 只在 preflight armable、runtime authorization / account fact / portfolio projection / intent 绑定一致、capability 未过期，且 adapter `ok=true` 与 `data` 满足对应动作最低字段时写本地事件。`ok=false`、非 JSON、缺最低字段或 confirmation unknown 都不得伪装成 filled。
 
 ## 2. 最低成功字段
 
@@ -55,6 +55,8 @@ last_verified: 2026-07-22 CST
 - `source_observe_event_key`
 - `execution_result`
 - `execution_contract_snapshot` 或 `execution_action_snapshot`
+- `execution_capability`
+- `exchange_confirmation_ref`
 
 ## 4. 不做
 
@@ -62,3 +64,4 @@ last_verified: 2026-07-22 CST
 - 不把 Binance 原始返回改写成长期 schema
 - 不从执行 tool 输出反推策略观点
 - 不在执行失败时补写本地成功事件
+- 不允许 adapter 绕过 exchange request router、write pre-adapter gate 或 capability validation

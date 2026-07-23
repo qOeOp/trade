@@ -27,10 +27,12 @@ function buildRecordedExecutionEvent(input: JSONRecord): PlanEvent {
   validateExecutionResultForTarget("place_entry", executionResult)
   const submitResult = asRecord(executionResult.result)
   const confirmedResult = asRecord(executionResult.confirmedResult)
+  const confirmationRef = asRecord(input.exchange_confirmation_ref)
+  const confirmationUnknown = stringField(confirmationRef.status) === "unknown"
   const primaryEntry = contract.entries[0]
   const body: JSONRecord = {
-    sub_kind: "submit",
-    lifecycle_status: "submitted",
+    sub_kind: confirmationUnknown ? "unknown" : "submit",
+    lifecycle_status: confirmationUnknown ? "unknown" : "submitted",
     client_order_id: readClientOrderId(contract, executionResult, submitResult, confirmedResult),
     exchange_order_id: readExchangeOrderId(submitResult, confirmedResult),
     symbol: contract.symbol,
@@ -45,6 +47,8 @@ function buildRecordedExecutionEvent(input: JSONRecord): PlanEvent {
     execution_contract_snapshot: contract,
     execution_method: stringField(executionResult.method),
     execution_result: executionResult,
+    execution_capability: asRecord(input.execution_capability),
+    exchange_confirmation_ref: confirmationRef,
   }
   removeUndefined(body)
 

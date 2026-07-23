@@ -655,6 +655,26 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("scripts.test does not cover src/omitted.test.ts")
   })
 
+  test("Replay heavyweight tests are serial and individually exclusive", () => {
+    const packageJson = JSON.parse(readFileSync(join(repoRoot,
+      "modules/research-strategy-development/replay-execution-plane/runner/package.json"), "utf8")) as {
+      scripts: Record<string, string>
+    }
+    const scripts = packageJson.scripts
+
+    expect(scripts.test).toBe("bun run test:worker-v10 && bun run test:remaining")
+    expect(scripts["test:worker-v10"]).toContain(
+      "run-exclusive-test.sh replay-worker-v10",
+    )
+    expect(scripts["test:remaining"]).toBe(
+      "bun run test:remaining:main && bun run test:remaining:protective-stop-cancel-cycle",
+    )
+    expect(scripts["test:remaining:main"]).toContain("^(?!protective-stop cancel releases")
+    expect(scripts["test:remaining:protective-stop-cancel-cycle"]).toContain(
+      "run-exclusive-test.sh replay-protective-stop-cancel-cycle",
+    )
+  })
+
   test("Go formatting rejects an unformatted file instead of swallowing gofmt errors", () => {
     const root = temporaryRoot()
     write(root, "main.go", "package main\nfunc main(){println(\"bad\")}\n")

@@ -71,8 +71,11 @@ refs / warnings
 ```text
 action_intent
   -> execution gate
-  -> plan-preflight
+  -> owner-backed plan-preflight
   -> execution-contract compile
+  -> execution-capability issue
+  -> exchange request router
+  -> write pre-adapter gate
   -> exchange command spec
   -> authorized write adapter
   -> post-write confirmation
@@ -85,7 +88,9 @@ action_intent
 | intent / plan | `live-decision-planning/*` |
 | deterministic guard | `live-execution-control/plan-preflight` |
 | execution contract | `modules/contracts/execution-contract` |
+| execution capability | `live-execution-control/execution-capability` + shared validator contract |
 | route / execute / record | `live-execution-control/execution-*` |
+| exchange route / write gate / confirmation | `exchange-gateway/exchange-request-router`、`write-pre-adapter-gate`、`post-write-confirmation` |
 | Binance adapter | `exchange-gateway/binance-write/*` |
 | event append / projection | `portfolio-execution-state/*` |
 

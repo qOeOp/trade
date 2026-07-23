@@ -62,7 +62,9 @@ last_verified: 2026-07-23 CST
 
 若某个生成物需要被 review，优先写成小型 example / schema / docs 摘要，而不是强行提交完整运行数据。
 
-`scripts/check-workspace-hygiene.ts` 额外扫描 Git index 与 module-local `data/`，不因 ignore 而漏掉源码目录污染。当前 12 个历史 tracked runtime 文件只作为迁移 ratchet：允许基线继续存在，但不允许新增，迁移后必须同步删除 exception。
+`scripts/check-workspace-hygiene.ts` 额外扫描 Git index 与 module-local `data/`，不因 ignore 而漏掉源码目录污染。历史 tracked runtime ratchet 已清零；新增 tracked sidecar/runtime DB 或 module-local DB 直接失败。
+
+`scripts/quality-check.sh` 在总闸前后运行 workspace content snapshot，拒绝本轮造成的 tracked / unignored 副作用；`scripts/audit-workspace-footprint.ts` 对 ignored 区域只做分类、体量与 stale dry-run 报告。二者都不代替 artifact catalog 的 ref / `.pin` 保护，也不在 quality 内删除文件。
 
 ## 5. 目录口径
 
@@ -107,8 +109,11 @@ data/
 | 区域 | 文件数 | 体量 | 管理状态 |
 | --- | ---: | ---: | --- |
 | `data/` | SQLite DB only | 本机实际状态 | 已收敛目标：durable 状态只能是数据库 |
-| `tmp/` | 41,361 | 4.7G | 已 ignore；混有研究证据、test residue、build cache 与 external audit clone，需分类 retention |
-| `modules/**/target/` | build cache | 4.6G | 已 ignore；可再生 Rust cache，不属于 artifact catalog |
+| build cache | 47,430 | 8.05G | 可再生；与 evidence GC 分离，当前 14 天 stale 约 25.3M |
+| external audit clone | 19,492 | 1.30G | 独立类别；当前未超过 14 天 retention |
+| protected evidence workspace | 655 | 1.07G | report-only；删除前必须解析 catalog / ledger / `.pin` |
+| test residue | 6,660 | 82.7M | 可识别的 `tmp/test*` / `tmp/check`；当前未超过 14 天 retention |
+| dependency cache | 5,191 | 62.5M | 可再生；当前 14 天 stale 约 29.0M |
 | `.codex/automations/` | 2 | 7.5K | 已 ignore；通过 automation memory path helper 访问 |
 
 主要占用：

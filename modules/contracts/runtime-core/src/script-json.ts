@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs"
 import { asRecord, type JSONRecord } from "./json"
+import { resolveDatabasePathInput } from "./database-environment"
 
 export interface JsonInputArgs {
   input: JSONRecord
@@ -7,12 +8,15 @@ export interface JsonInputArgs {
 
 export interface DbActionJsonArgs {
   dbPath: string
+  environmentId: string
+  migrateIdentity: boolean
   action: string
   json: JSONRecord
 }
 
 export interface DbJsonArgs {
   dbPath: string
+  environmentId: string
   json: JSONRecord
 }
 
@@ -61,11 +65,13 @@ export function readDbActionJsonArgs(
   defaults: { dbPath: string; action?: string },
   printHelp: () => void,
 ): DbActionJsonArgs {
-  const config: DbActionJsonArgs = { dbPath: defaults.dbPath, action: defaults.action ?? "init", json: {} }
+  const config: DbActionJsonArgs = { dbPath: defaults.dbPath, environmentId: "local:local", migrateIdentity: false, action: defaults.action ?? "init", json: {} }
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     switch (arg) {
       case "--db": config.dbPath = readFlagValue(argv, ++index, arg); break
+      case "--environment-id": config.environmentId = readFlagValue(argv, ++index, arg); break
+      case "--migrate-database-identity": config.migrateIdentity = true; break
       case "--action": config.action = readFlagValue(argv, ++index, arg); break
       case "--json": config.json = readJsonObject(readFlagValue(argv, ++index, arg)); break
       case "--json-file": config.json = readJsonObjectFile(readFlagValue(argv, ++index, arg)); break
@@ -73,22 +79,26 @@ export function readDbActionJsonArgs(
       default: throw new Error(`unknown argument: ${arg}`)
     }
   }
-  return config
+  if (config.migrateIdentity && config.action !== "init") {
+    throw new Error("--migrate-database-identity requires --action init")
+  }
+  return { ...config, dbPath: resolveDatabasePathInput(config.dbPath) }
 }
 
 export function readDbJsonArgs(argv: string[], defaultDbPath: string, printHelp: () => void): DbJsonArgs {
-  const config: DbJsonArgs = { dbPath: defaultDbPath, json: {} }
+  const config: DbJsonArgs = { dbPath: defaultDbPath, environmentId: "local:local", json: {} }
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     switch (arg) {
       case "--db": config.dbPath = readFlagValue(argv, ++index, arg); break
+      case "--environment-id": config.environmentId = readFlagValue(argv, ++index, arg); break
       case "--json": config.json = readJsonObject(readFlagValue(argv, ++index, arg)); break
       case "--json-file": config.json = readJsonObjectFile(readFlagValue(argv, ++index, arg)); break
       case "--help": printHelp(); return process.exit(0)
       default: throw new Error(`unknown argument: ${arg}`)
     }
   }
-  return config
+  return { ...config, dbPath: resolveDatabasePathInput(config.dbPath) }
 }
 
 export function readFlagValue(argv: string[], index: number, name: string): string {

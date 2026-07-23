@@ -10,6 +10,7 @@ Classify exchange requests into read routes or authorized write routes before ad
 - Action.
 - Symbol.
 - Optional mode, idempotency key, and source intent ref.
+- Write requests require a capability ref before routing to the write gate.
 
 ## Outputs
 

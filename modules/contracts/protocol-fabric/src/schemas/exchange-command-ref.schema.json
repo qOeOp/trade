@@ -16,6 +16,7 @@
     "result_ref": { "type": "string" },
     "exchange_order_ids": { "type": "array", "items": { "type": "string", "minLength": 1 } },
     "source_intent_ref": { "type": "string" },
-    "event_write_ref": { "type": "string" }
+    "event_write_ref": { "type": "string" },
+    "capability_ref": { "type": "string" }
   }
 }

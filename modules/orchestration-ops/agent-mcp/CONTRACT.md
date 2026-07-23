@@ -23,7 +23,7 @@
 - `l2_retention_reference_audit` 只按 exact epoch ID 调用固定 Market Data owner action；不接受数据库路径、不直接查询 SQLite、不扫描文件，并继承 owner 的 `forbidden_no_gc_authority` 结论。
 - `l2_retention_reference_audit_page` 只转发可选 `after_epoch_id` 与 `limit<=50`；游标排序、page hash、状态计数和无删除候选结论全部由 Market Data owner 生成。
 - `l2_service_health` 无输入，只调用固定 L2 owner 脚本；不暴露 PID、receipt/log 路径或 lifecycle control，并在多 active supervisor 时继承 owner 的 fail-closed 结果。
-- `l2_book_watch_consumer_health` 无输入，只调用固定 resident consumer owner read；仅返回 readiness、latest epoch/hash/timestamps 与累计 reliability counters，不提供 depth delivery、策略信号、PID/路径或 lifecycle control。
+- `l2_book_watch_consumer_health` 无输入，只调用固定 resident consumer owner read；仅返回 readiness、latest epoch/hash/timestamps、累计 reliability counters 与最近一次净化后的 failure timestamp/operation/class/attempt，不提供原始错误、depth delivery、策略信号、PID/路径或 lifecycle control。
 - `runtime_parity_status` 无输入，只读取 ops owner 的累计 match/mismatch、最新双侧 hash 与 supervisor lease state；不返回 holder/PID/path/detail projection，不生成 cutover verdict。
 - 同一 `request_id` 幂等；经 MCP 提交的研发任务共享带过期时间的 `research-rd` 锁。
 - status/result 以 J04 状态为任务语义，并单独返回聚合 `cycle_status`；例如 J04=`blocked` 不会被 cycle=`failed` 覆盖。

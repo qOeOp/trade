@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
 export const REPLAY_RELEASE_AUDIT_OWNER =
@@ -14,7 +15,7 @@ interface AuditSubject {
   fixture_pack_sha256: string
 }
 
-interface AuditCommand {
+export interface AuditCommand {
   role: string
   cwd: string
   argv: string[]
@@ -284,7 +285,9 @@ export async function runReplayIndependentReleaseAudit(
   )) as AuditedFixturePack
   const negativeChallenges = runNegativeChallenges(fixturePack, repoRoot)
   const commands: ReplayIndependentAuditCommandReceipt[] = []
-  for (const command of manifest.commands) commands.push(await runAuditCommand(command, repoRoot))
+  for (const command of manifest.commands) {
+    commands.push(await runReplayIndependentAuditCommand(command, repoRoot))
+  }
   if (new Set(commands.map((command) => command.process_id)).size !== commands.length) {
     throw new Error("Replay independent audit commands did not run in distinct fresh processes")
   }
@@ -430,7 +433,7 @@ function runNegativeChallenges(
   })
 }
 
-async function runAuditCommand(
+export async function runReplayIndependentAuditCommand(
   command: AuditCommand,
   repoRoot: string,
 ): Promise<ReplayIndependentAuditCommandReceipt> {
@@ -438,33 +441,55 @@ async function runAuditCommand(
   for (const key of Object.keys(environment)) {
     if (key.startsWith("RD_REPLAY_")) delete environment[key]
   }
+  const outputRoot = mkdtempSync(join(tmpdir(), "replay-release-audit-command-"))
+  const stdoutPath = join(outputRoot, "stdout.log")
+  const stderrPath = join(outputRoot, "stderr.log")
+  const cleanupOutput = () => rmSync(outputRoot, { recursive: true, force: true })
   const child = Bun.spawn(command.argv, {
     cwd: join(repoRoot, command.cwd),
     env: environment,
-    stdout: "pipe",
-    stderr: "pipe",
+    stdout: Bun.file(stdoutPath),
+    stderr: Bun.file(stderrPath),
+    detached: process.platform !== "win32",
   })
   let timedOut = false
+  let forceKill: ReturnType<typeof setTimeout> | undefined
   const timeout = setTimeout(() => {
     timedOut = true
-    child.kill()
+    signalAuditCommandTree(child.pid, "SIGTERM")
+    forceKill = setTimeout(() => signalAuditCommandTree(child.pid, "SIGKILL"), 1_000)
   }, command.timeout_ms)
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ])
+  const exitCode = await child.exited
   clearTimeout(timeout)
-  if (timedOut) throw new Error(`Replay independent audit command timed out: ${command.role}`)
+  if (timedOut) signalAuditCommandTree(child.pid, "SIGKILL")
+  if (forceKill) clearTimeout(forceKill)
+  const stdout = readFileSync(stdoutPath, "utf8")
+  const stderr = readFileSync(stderrPath, "utf8")
+  if (timedOut) {
+    cleanupOutput()
+    throw new Error(`Replay independent audit command timed out: ${command.role}`)
+  }
   if (exitCode !== 0) {
+    cleanupOutput()
     throw new Error(`Replay independent audit command failed: ${command.role}\n${stderr || stdout}`)
   }
-  return {
+  const receipt = {
     role: command.role,
     process_id: child.pid,
     exit_code: exitCode,
     stdout_sha256: sha256(stdout),
     stderr_sha256: sha256(stderr),
+  }
+  cleanupOutput()
+  return receipt
+}
+
+function signalAuditCommandTree(pid: number, signal: "SIGTERM" | "SIGKILL"): void {
+  try {
+    process.kill(process.platform === "win32" ? pid : -pid, signal)
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code !== "ESRCH") throw error
   }
 }
 

@@ -1,6 +1,8 @@
 {
   "schema_version": 1,
   "profile_id": "retail-small-usdm",
+  "account_ref": "exchange-account://binance/live/usdm/primary",
+  "account_scope": "capital-scope://retail-small-usdm",
   "mode": "live",
   "permissions": {
     "live_small_enabled": true,

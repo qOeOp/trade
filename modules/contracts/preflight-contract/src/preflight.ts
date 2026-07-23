@@ -19,6 +19,7 @@ interface PreflightInput {
   strategy?: JSONRecord
   account_config?: JSONRecord
   runtime_policy?: JSONRecord
+  runtime_authorization?: JSONRecord
   target_action?: TargetAction
   request?: JSONRecord
   aggregate_view?: JSONRecord
@@ -58,8 +59,10 @@ function evaluatePreflight(input: PreflightInput): PreflightOutput {
   checkPlanIntent(plan, blockedBy)
   checkPlanVerdict(plan, blockedBy)
   checkSetupLivePermission(input, targetAction, blockedBy)
+  checkRuntimeAuthorization(input, targetAction, blockedBy, now)
   checkKillSwitch(input.runtime_health, blockedBy, isNewRiskAction(targetAction, input.request))
   checkLadders(plan, blockedBy)
+  checkPortfolioProjection(input, targetAction, blockedBy, now)
   checkRiskLimits(input, targetAction, blockedBy)
   checkChurnGuards(input, targetAction, blockedBy)
   checkRequest(input.request, targetAction, blockedBy)
@@ -70,6 +73,90 @@ function evaluatePreflight(input: PreflightInput): PreflightOutput {
     blocked_by: blockedBy,
     warnings,
     decision_card: renderDecisionCard(input, verdict, blockedBy, warnings),
+  }
+}
+
+function checkRuntimeAuthorization(
+  input: PreflightInput,
+  targetAction: TargetAction,
+  blockedBy: CheckResult[],
+  now: number,
+): void {
+  if (!isNewRiskAction(targetAction, input.request)) return
+  const authorization = input.runtime_authorization ?? {}
+  const runtimePolicy = input.runtime_policy ?? {}
+  const account = asRecord(input.observe.account)
+  const reasons: string[] = []
+  if (authorization.schema_version !== "trade.policy.runtime-authorization.v1") {
+    reasons.push("runtime authorization schema is missing")
+  }
+  if (!firstString(authorization.authorization_ref) || !firstString(authorization.content_hash)) {
+    reasons.push("authorization_ref/content_hash is missing")
+  }
+  const policyHash = firstString(authorization.policy_hash)
+  if (!policyHash || policyHash !== firstString(runtimePolicy.source_hash)) {
+    reasons.push("authorization policy_hash does not bind the supplied runtime policy")
+  }
+  const expectedAccountRef = firstString(account.account_ref, runtimePolicy.account_ref)
+  const expectedAccountScope = firstString(account.account_scope, runtimePolicy.account_scope)
+  if (!expectedAccountRef || firstString(authorization.account_ref) !== expectedAccountRef) {
+    reasons.push("authorization account_ref does not match current account facts")
+  }
+  if (!expectedAccountScope || firstString(authorization.account_scope) !== expectedAccountScope) {
+    reasons.push("authorization account_scope does not match current account facts")
+  }
+  const issuedAt = Date.parse(firstString(authorization.issued_at))
+  const expiresAt = Date.parse(firstString(authorization.expires_at))
+  if (!Number.isFinite(issuedAt) || !Number.isFinite(expiresAt) || issuedAt > now || expiresAt <= now) {
+    reasons.push("runtime authorization is missing, not yet valid, or expired")
+  }
+  if (reasons.length > 0) {
+    blockedBy.push({ check_id: "G-RUNTIME-POLICY-AUTHORIZATION", reason: reasons.join("; ") })
+  }
+}
+
+function checkPortfolioProjection(
+  input: PreflightInput,
+  targetAction: TargetAction,
+  blockedBy: CheckResult[],
+  now: number,
+): void {
+  if (!isNewRiskAction(targetAction, input.request)) return
+  const projection = input.aggregate_view ?? {}
+  const account = asRecord(input.observe.account)
+  const expectedAccountRef = firstString(account.account_ref, input.runtime_policy?.account_ref)
+  const expectedAccountScope = firstString(account.account_scope, input.runtime_policy?.account_scope)
+  const reasons: string[] = []
+  if (projection.schema_version !== "trade.state.portfolio-account-projection.v1") {
+    reasons.push("owner projection schema is missing")
+  }
+  if (!firstString(projection.projection_ref) || !firstString(projection.content_hash)) {
+    reasons.push("projection_ref/content_hash is missing")
+  }
+  if (!expectedAccountRef || !expectedAccountScope) {
+    reasons.push("observe/policy account_ref and account_scope are required")
+  }
+  if (expectedAccountRef && firstString(projection.account_ref) !== expectedAccountRef) {
+    reasons.push("projection account_ref does not match current account facts")
+  }
+  if (expectedAccountScope && firstString(projection.account_scope) !== expectedAccountScope) {
+    reasons.push("projection account_scope does not match current account facts")
+  }
+  if (projection.completeness !== "complete") {
+    reasons.push("portfolio projection is incomplete")
+  }
+  if (asRecord(projection.risk_lock).locked === true || projection.reconcile_status === "blocked") {
+    reasons.push("portfolio projection is risk locked or unreconciled")
+  }
+  const computedAt = Date.parse(firstString(projection.computed_at))
+  if (!Number.isFinite(computedAt) || Math.max(0, now - computedAt) > 30_000) {
+    reasons.push("portfolio projection is missing or older than 30s")
+  }
+  if (reasons.length > 0) {
+    blockedBy.push({
+      check_id: "G-PORTFOLIO-PROJECTION-AUTHORITY",
+      reason: reasons.join("; "),
+    })
   }
 }
 

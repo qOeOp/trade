@@ -8,6 +8,7 @@ test("exchange request router classifies write routes", () => {
     symbol: "BTCUSDT",
     mode: "live_small",
     idempotency_key: "idem-1",
+    capability_ref: "execution-capability://scope/hash",
   })]) as { ok: boolean; data: { request_kind: string; route: string } }
 
   assert.equal(result.ok, true)

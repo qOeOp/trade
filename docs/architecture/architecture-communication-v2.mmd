@@ -6,7 +6,7 @@ flowchart TB
     direction LR
     S_ORCH["orchestration-ops"] --> S_CMD["COMMAND<br/>ticket / scope / input refs"]
     S_CMD --> S_TARGETS["scheduled domain targets<br/>decision / execution / research<br/>governance / artifact"]
-    S_TARGETS --> S_RESULT["RESULT<br/>status / output refs<br/>requested effects / incidents"]
+    S_TARGETS --> S_RESULT["RESULT interaction on artifact rail<br/>status / output refs / effects / incidents"]
     S_RESULT --> S_ORCH
   end
 
@@ -14,7 +14,7 @@ flowchart TB
     direction LR
     A_OPS["orchestration-ops<br/>health / lock / safe mode"] --> A_POLICY["policy-risk"]
     A_GOV["governance<br/>promotion / expiry / feedback"] --> A_POLICY
-    A_POLICY --> A_SNAPSHOT["AUTHORIZATION<br/>profile-mode / limits / permissions<br/>policy hash / expiry"]
+    A_POLICY --> A_SNAPSHOT["POLICY SNAPSHOT + AUTHORIZATION<br/>account scope / limits / permissions<br/>policy hash / authorization ref / expiry"]
     A_SNAPSHOT --> A_DECISION["live-decision-planning"]
     A_SNAPSHOT --> A_EXECUTION["live-execution-control"]
     A_SNAPSHOT --> A_EXCHANGE["exchange write gate"]
@@ -29,10 +29,10 @@ flowchart TB
     L_EXCHANGE_FACTS --> L_GUARDS
     L_STATE_FACTS --> L_GUARDS
     L_INPUTS --> L_DECISION["live-decision-planning"]
-    L_DECISION --> L_INTENT["INTENT<br/>plan / proposed allocation / expiry"]
+    L_DECISION --> L_INTENT["INTENT CHAIN<br/>DecisionInput / TradePlan<br/>unallocated Proposal / blocked ActionIntent"]
     L_INTENT --> L_EXECUTION["live-execution-control<br/>preflight / capability boundary"]
     L_GUARDS --> L_EXECUTION
-    L_EXECUTION --> L_COMMAND["PRIVILEGED COMMAND<br/>bounded effect / idempotency"]
+    L_EXECUTION --> L_COMMAND["PRIVILEGED COMMAND<br/>ExecutionCapability ref<br/>bounded effect / idempotency / expiry"]
     L_COMMAND --> L_EXCHANGE["exchange-gateway<br/>venue side effect owner"]
     L_EXCHANGE --> L_RESULT["EXCHANGE RESULT<br/>accepted / rejected / unknown / confirmed"]
     L_RESULT --> L_EXECUTION
@@ -42,7 +42,7 @@ flowchart TB
 
   subgraph EVIDENCE["4. Evidence lane — research cannot approve itself"]
     direction LR
-    E_MARKET["market-data-products"] --> E_DATASET["DATASET REF<br/>manifest / lineage / watermark"]
+    E_MARKET["market-data-products"] --> E_DATASET["IMMUTABLE SLICE / DATASET REF<br/>manifest / hash / lineage / watermark"]
     E_DATASET --> E_RESEARCH["research-strategy-development"]
     E_RESEARCH --> E_EVIDENCE["EVIDENCE REF<br/>Trial / Result / Forward / candidate"]
     E_EVIDENCE --> E_GOV["governance-review-compliance"]
@@ -57,7 +57,7 @@ flowchart TB
     E_QUERY --> E_CONSUMERS["authorized consumers"]
   end
 
-  LEGEND["Route invariants<br/>COMMAND is targeted · FACT may fan out<br/>INTENT is not authorization · REF is not store access<br/>QUERY uses the owner port · privileged routes are least-privilege"]
+  LEGEND["Route invariants<br/>rail namespace ≠ interaction class<br/>COMMAND is targeted · FACT may fan out<br/>INTENT is not authorization · REF is not store access<br/>QUERY uses owner port · large payload stays in owner artifact"]
 
   S_ORCH ~~~ A_OPS
   A_OPS ~~~ L_MARKET

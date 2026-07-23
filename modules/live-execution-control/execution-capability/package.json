@@ -1,0 +1,12 @@
+{
+  "name": "@trade/live-execution-control-execution-capability",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test ./src/lib/*.test.ts",
+    "lint": "bun run typecheck",
+    "check": "bun run lint && bun run test"
+  }
+}

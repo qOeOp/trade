@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
+import { buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../../contracts/runtime-core/src/database-identity"
 import {
   AGGREGATE_TRADE_PROVIDER_BUILD_HASH,
   AGGREGATE_TRADE_PROVIDER_CAPABILITY,
@@ -718,6 +719,7 @@ test("Control Plane admits aggregate trade evidence only as a Reservation-bound 
     assert.deepEqual(ownerRead.authority, l2Authority)
     const cliRead = runStateStoreCli(parseStateStoreCliArgs([
       "--db", dbPath,
+      "--environment-id", "test:research-control-plane",
       "--action", "read_replay_l2_experiment_attachment",
       "--json", JSON.stringify({ reservation_hash: l2Authority.reservation_hash }),
     ])) as unknown as { authority: typeof l2Authority }
@@ -3239,6 +3241,7 @@ function decisionObservationManifest(request: ReplayExecutionRequest): ReplayDat
 
 function openDb(path = ":memory:"): Database {
   const db = new Database(path)
+  ensureDatabaseIdentity(db, buildDatabaseIdentity("test:research-control-plane", "research_state_store"))
   ensureResearchStateSchema(db)
   registerReplayInstrumentStatusProviderCertification(db, PROVIDER_CERTIFICATION)
   return db

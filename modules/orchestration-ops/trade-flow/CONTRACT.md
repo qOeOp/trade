@@ -4,7 +4,7 @@
 
 - Automation cycle planning and job-graph routing
 - One-shot program wakeups with a durable ops lease and terminal-cycle idempotency: `shadow_program` enables no domain job; `catalog_hygiene_canary` enables only J06; `full_shadow` enables the fixed J01–J07 graph while permanently denying exchange live writes and real notifications.
-- Foreground resident `shadow_program` or `full_shadow` cadence with heartbeat-renewed fenced ownership, stable time-slot cycle ids, bounded child commands, and drain-on-signal shutdown.
+- Foreground resident `shadow_program` or `full_shadow` cadence with heartbeat-renewed fenced ownership, stable time-slot cycle ids, asynchronously bounded planning-owner reads and child commands, and drain-on-signal shutdown.
 - Bounded SQLite busy handling, explicit stale-lease recovery evidence, and cycle-independent parity projections for Agent/program ticket, processor, and incident comparison.
 - Opt-in resident Agent/program parity observation: each eligible program cycle samples owner commands once, independently builds the legacy Agent shadow graph by replaying those exact results, compares canonical projections, and records immutable evidence in the existing ops store.
 - macOS launchd rendering/install lifecycle with restart ownership outside the runtime and no PID file; installation fails closed for protected Desktop/Documents/Downloads source paths unless the operator confirms the OS privacy grant.
@@ -35,6 +35,7 @@
 - The J06 canary reuses the registered artifact-catalog owner command, forces exactly `catalog_hygiene_scan`, and cannot select GC, `--yes`, arbitrary roots, another job, or a broader write surface.
 - The full-shadow profile forces all seven cadence gates but preserves each job's owner-defined active/work checks and write scope; it cannot select another job, pass arbitrary commands, enable live exchange writes, or emit real notifications.
 - Runtime parity tests implementation semantics under shared captured owner results; sequential reads of changing live health are retained as legacy observations but are not comparable-input evidence.
+- Automation planning uses the registered flow-projector owner port through a bounded asynchronous child; a blocked owner read fails the cycle instead of trapping the supervisor in synchronous process wait.
 - The resident supervisor delegates restart/backoff and OS process lifetime to an external process manager; it owns no PID file or detached-process authority.
 - Bounded migration observation may be hosted by an operator-owned terminal multiplexer when local launchd cannot read a macOS-protected repository path; this is observation evidence, not the production restart contract.
 

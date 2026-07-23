@@ -15,6 +15,7 @@ test("domain bus publishes protocol envelopes into ops runtime store", () => {
       source_domain: "orchestration-ops",
       target_domain: "live-execution-control",
       rail: "command_rail",
+      interaction: "command",
       payload_ref: "job:J03",
       idempotency_key: "cycle-bus-lib:J03",
       created_at: "2026-07-11T00:00:00Z",
@@ -24,6 +25,7 @@ test("domain bus publishes protocol envelopes into ops runtime store", () => {
     assert.equal(message.direction, "inbox")
     assert.equal(message.status, "published")
     assert.equal((message.envelope_json as Record<string, unknown>).schema_id, "trade.protocol.domain-inbox-envelope.v1")
+    assert.equal((message.envelope_json as Record<string, unknown>).interaction, "command")
     const messages = listDomainMessages(db, { cycle_id: "cycle-bus-lib" })
     assert.equal(messages.length, 1)
     assert.equal(messages[0].payload_ref, "job:J03")
@@ -43,6 +45,7 @@ test("domain bus rejects rail routes outside protocol ownership registry", () =>
       source_domain: "research-strategy-development",
       target_domain: "live-execution-control",
       rail: "command_rail",
+      interaction: "command",
       payload_ref: "job:J99",
       idempotency_key: "cycle-bus-reject:J99",
       created_at: "2026-07-11T00:00:00Z",

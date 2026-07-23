@@ -37,13 +37,18 @@ import {
   upsertMarketManifest,
 } from "../lib/market-data-store"
 import { asRecord, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
-import { repoRoot } from "../../../../contracts/runtime-core/src/paths"
+import { assertProjectRuntimePath, displayPath, repoRoot, resolveRepoPath } from "../../../../contracts/runtime-core/src/paths"
+import { resolveDatabasePathInput } from "../../../../contracts/runtime-core/src/database-environment"
+import { buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../contracts/runtime-core/src/database-identity"
+import { exportCanonicalCandleSlice } from "../lib/candle-slice-export"
 
 interface Args {
   dbPath: string
   ohlcvDbPath: string
   action: string
   json: JSONRecord
+  environmentId: string
+  migrateIdentity: boolean
 }
 
 export function parseArgs(argv: string[]): Args {
@@ -51,6 +56,8 @@ export function parseArgs(argv: string[]): Args {
   let ohlcvDbPath = "data/ohlcv.db"
   let action = "init"
   let json: JSONRecord = {}
+  let environmentId = "local:local"
+  let migrateIdentity = false
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     if (arg === "--db") {
@@ -63,6 +70,10 @@ export function parseArgs(argv: string[]): Args {
       json = JSON.parse(argv[++index] ?? "{}") as JSONRecord
     } else if (arg === "--json-file") {
       json = JSON.parse(readFileSync(argv[++index] ?? "", "utf8")) as JSONRecord
+    } else if (arg === "--environment-id") {
+      environmentId = argv[++index] ?? environmentId
+    } else if (arg === "--migrate-database-identity") {
+      migrateIdentity = true
     } else if (arg === "--help") {
       printHelp()
       process.exit(0)
@@ -70,17 +81,33 @@ export function parseArgs(argv: string[]): Args {
       throw new Error(`unknown argument: ${arg}`)
     }
   }
-  return { dbPath, ohlcvDbPath, action, json }
+  if (migrateIdentity && action !== "init") throw new Error("--migrate-database-identity requires --action init")
+  return {
+    dbPath: resolveDatabasePathInput(dbPath),
+    ohlcvDbPath: resolveDatabasePathInput(ohlcvDbPath),
+    action,
+    json,
+    environmentId,
+    migrateIdentity,
+  }
 }
 
 export function run(args: Args): JSONRecord {
   mkdirSync(dirname(args.dbPath), { recursive: true })
   const db = new Database(args.dbPath)
   try {
+    ensureDatabaseIdentity(db, buildDatabaseIdentity(args.environmentId, "market_data_store"), { allowLegacyMigration: args.migrateIdentity })
     ensureMarketDataSchema(db)
     if (args.action === "init") {
-      withOhlcvDb(args.ohlcvDbPath, () => null)
-      return { ok: true, action: "init", db: args.dbPath, ohlcv_db: args.ohlcvDbPath }
+      withOhlcvDb(args.ohlcvDbPath, args.environmentId, () => null, args.migrateIdentity)
+      return {
+        ok: true,
+        action: "init",
+        db: displayPath(args.dbPath),
+        ohlcv_db: displayPath(args.ohlcvDbPath),
+        environment_id: args.environmentId,
+        store_ids: ["market_data_store", "ohlcv_store"],
+      }
     }
     if (args.action === "upsert_manifest") {
       const manifest = buildMarketManifest(args.json)
@@ -145,7 +172,7 @@ export function run(args: Args): JSONRecord {
       }
     }
     if (args.action === "upsert_candles") {
-      return withOhlcvDb(args.ohlcvDbPath, (ohlcvDb) => ({
+      return withOhlcvDb(args.ohlcvDbPath, args.environmentId, (ohlcvDb) => ({
         ok: true,
         action: args.action,
         count: upsertCanonicalCandles(ohlcvDb, buildCanonicalCandles(args.json.candles)),
@@ -248,7 +275,7 @@ export function run(args: Args): JSONRecord {
       }
     }
     if (args.action === "read_latest_candle") {
-      return withOhlcvDb(args.ohlcvDbPath, (ohlcvDb) => ({
+      return withOhlcvDb(args.ohlcvDbPath, args.environmentId, (ohlcvDb) => ({
         ok: true,
         action: args.action,
         open_time: readLatestCandleOpenTime(ohlcvDb, {
@@ -259,7 +286,7 @@ export function run(args: Args): JSONRecord {
       }))
     }
     if (args.action === "read_candles") {
-      return withOhlcvDb(args.ohlcvDbPath, (ohlcvDb) => ({
+      return withOhlcvDb(args.ohlcvDbPath, args.environmentId, (ohlcvDb) => ({
         ok: true,
         action: args.action,
         candles: readCanonicalCandles(ohlcvDb, {
@@ -269,6 +296,24 @@ export function run(args: Args): JSONRecord {
           since_ts: optionalNumber(args.json.since_ts),
           until_ts: optionalNumber(args.json.until_ts),
           limit: optionalNumber(args.json.limit),
+        }),
+      }))
+    }
+    if (args.action === "export_candle_slice") {
+      const outputRoot = stringField(args.json.output_root)
+      assertProjectRuntimePath(outputRoot)
+      return withOhlcvDb(args.ohlcvDbPath, args.environmentId, (ohlcvDb) => ({
+        ok: true,
+        action: args.action,
+        export: exportCanonicalCandleSlice(ohlcvDb, {
+          exchange: stringField(args.json.exchange) || undefined,
+          symbol: stringField(args.json.symbol),
+          timeframe: stringField(args.json.timeframe),
+          since_ts: optionalNumber(args.json.since_ts),
+          until_ts: optionalNumber(args.json.until_ts),
+          limit: optionalNumber(args.json.limit),
+          output_root: resolveRepoPath(outputRoot),
+          generated_at: stringField(args.json.generated_at) || undefined,
         }),
       }))
     }
@@ -300,14 +345,15 @@ export function run(args: Args): JSONRecord {
 function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/market_data.db --ohlcv-db data/ohlcv.db --action init",
-    "actions: init | upsert_manifest | admit_l2_epoch_manifest | reconcile_l2_epoch_manifests | prepare_l2_compaction_job | admit_l2_compaction_proposal | register_l2_experiment_attachment_referrer | audit_l2_retention_reference_closure | list_l2_retention_reference_audits | upsert_candles | upsert_funding | upsert_feature_manifest | commit_instrument_status_archive | read_manifest | read_l2_epoch_manifest | read_l2_compaction | read_l2_compacted_epoch_source | read_l2_experiment_attachment_referrer | read_funding | read_instrument_status_acquisition_receipt | read_instrument_status_archive | read_latest_candle | read_candles | read_feature_manifest | list_feature_manifests",
+    "actions: init | upsert_manifest | admit_l2_epoch_manifest | reconcile_l2_epoch_manifests | prepare_l2_compaction_job | admit_l2_compaction_proposal | register_l2_experiment_attachment_referrer | audit_l2_retention_reference_closure | list_l2_retention_reference_audits | upsert_candles | upsert_funding | upsert_feature_manifest | commit_instrument_status_archive | read_manifest | read_l2_epoch_manifest | read_l2_compaction | read_l2_compacted_epoch_source | read_l2_experiment_attachment_referrer | read_funding | read_instrument_status_acquisition_receipt | read_instrument_status_archive | read_latest_candle | read_candles | export_candle_slice | read_feature_manifest | list_feature_manifests",
   ].join("\n"))
 }
 
-function withOhlcvDb<T>(dbPath: string, fn: (db: Database) => T): T {
+function withOhlcvDb<T>(dbPath: string, environmentId: string, fn: (db: Database) => T, migrateIdentity = false): T {
   mkdirSync(dirname(dbPath), { recursive: true })
   const db = new Database(dbPath)
   try {
+    ensureDatabaseIdentity(db, buildDatabaseIdentity(environmentId, "ohlcv_store"), { allowLegacyMigration: migrateIdentity })
     ensureOhlcvSchema(db)
     return fn(db)
   } finally {

@@ -7,7 +7,8 @@ contract module
 ## Owns
 
 - Stable cross-domain envelope schema registry.
-- Rail envelope header contract: `rail`, `event_type`, `source_domain`, `target_domain`, `schema_id`, `cycle_id`, `job_id`, `idempotency_key`, and `payload_ref`.
+- Rail envelope header contract: `rail`, `interaction`, `event_type`, `source_domain`, `target_domain`, `schema_id`, `cycle_id`, `job_id`, `idempotency_key`, and `payload_ref`.
+- Canonical interaction classes: `command / query / fact / intent / authorization / result / ref`; rail namespace and interaction semantics are independent dimensions.
 - Rail ownership registry vocabulary for allowed publishers, consumers, schemas, retention, and replay expectations.
 - Job ticket schema and resolver helpers for command rail.
 - Ops rail shell for health facts, incident refs, cycle summary, and next-cycle constraints.

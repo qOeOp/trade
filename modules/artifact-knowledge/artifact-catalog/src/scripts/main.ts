@@ -34,6 +34,8 @@ interface Config {
   catalogGc: boolean
   artifactGc: boolean
   yes: boolean
+  environmentId: string
+  migrateIdentity: boolean
   catalogDbPath: string
   catalogRoots: string[]
   artifactRoot: string
@@ -61,7 +63,7 @@ export function run(argv: string[]): JSONRecord {
 }
 
 function runConfig(config: Config): unknown {
-  if (config.catalogInit) return initDataCatalog(config.catalogDbPath)
+  if (config.catalogInit) return initDataCatalog(config.catalogDbPath, config.environmentId, config.migrateIdentity)
   if (config.catalogHygieneJob) {
     return runCatalogHygieneJob({
       cycle_id: requiredString(config.input.cycle_id, "cycle_id"),
@@ -69,6 +71,7 @@ function runConfig(config: Config): unknown {
       job_id: stringField(config.input.job_id),
       idempotency_key: stringField(config.input.idempotency_key),
       catalog_db_path: stringField(config.input.catalog_db_path ?? config.input.catalogDbPath) || config.catalogDbPath,
+      environment_id: config.environmentId,
       roots: catalogRoots(config),
       now: stringField(config.input.now),
     })
@@ -76,12 +79,14 @@ function runConfig(config: Config): unknown {
   if (config.catalogScan) {
     return scanDataCatalog({
       catalogDbPath: config.catalogDbPath,
+      environmentId: config.environmentId,
       roots: catalogRoots(config),
     })
   }
   if (config.catalogQuery) {
     return queryDataCatalog({
       catalogDbPath: config.catalogDbPath,
+      environmentId: config.environmentId,
       path: stringField(config.input.path),
       artifactID: stringField(config.input.artifact_id),
       symbol: stringField(config.input.symbol),
@@ -93,6 +98,7 @@ function runConfig(config: Config): unknown {
   if (config.catalogReadArtifact) {
     return readCatalogArtifact({
       catalogDbPath: config.catalogDbPath,
+      environmentId: config.environmentId,
       artifactID: requiredString(config.input.artifact_id, "artifact_id"),
       maxBytes: numberField(config.input.max_bytes),
     })
@@ -100,6 +106,7 @@ function runConfig(config: Config): unknown {
   if (config.catalogRegisterArtifact) {
     return registerCatalogArtifact({
       catalogDbPath: optionalCatalogDbPath(config),
+      environmentId: config.environmentId,
       path: requiredString(config.input.path, "path"),
       now: stringField(config.input.now),
       maxHashBytes: numberField(config.input.max_hash_bytes ?? config.input.maxHashBytes),
@@ -111,6 +118,7 @@ function runConfig(config: Config): unknown {
   if (config.catalogUpsertStrategyEvidence) {
     return upsertCatalogStrategyEvidence({
       catalogDbPath: requiredCatalogDbPath(config),
+      environmentId: config.environmentId,
       record: recordField(config.input.record),
       now: stringField(config.input.now),
     })
@@ -118,6 +126,7 @@ function runConfig(config: Config): unknown {
   if (config.catalogListStrategyEvidence) {
     return listCatalogStrategyEvidence({
       catalogDbPath: requiredCatalogDbPath(config),
+      environmentId: config.environmentId,
       strategyID: stringField(config.input.strategy_id ?? config.input.strategyID),
       limit: numberField(config.input.limit),
     })
@@ -125,6 +134,7 @@ function runConfig(config: Config): unknown {
   if (config.catalogUpsertStrategyRndRun) {
     return upsertCatalogStrategyRndRun({
       catalogDbPath: requiredCatalogDbPath(config),
+      environmentId: config.environmentId,
       record: recordField(config.input.record),
       now: stringField(config.input.now),
     })
@@ -132,12 +142,14 @@ function runConfig(config: Config): unknown {
   if (config.catalogListStrategyRndRuns) {
     return listCatalogStrategyRndRuns({
       catalogDbPath: requiredCatalogDbPath(config),
+      environmentId: config.environmentId,
       limit: numberField(config.input.limit),
     })
   }
   if (config.catalogStale || config.catalogGc) {
     return listStaleCatalogArtifacts({
       catalogDbPath: config.catalogDbPath,
+      environmentId: config.environmentId,
       roots: catalogRoots(config),
       retentionHours: config.retentionHours ?? numberField(config.input.retention_hours),
       ephemeralRetentionHours: config.ephemeralRetentionHours ?? numberField(config.input.ephemeral_retention_hours),
@@ -161,6 +173,7 @@ function runConfig(config: Config): unknown {
 }
 
 function parseArgs(argv: string[]): Config {
+  let environmentIdExplicit = false
   const config: Config = {
     catalogInit: false,
     catalogHygieneJob: false,
@@ -176,6 +189,8 @@ function parseArgs(argv: string[]): Config {
     catalogGc: false,
     artifactGc: false,
     yes: false,
+    environmentId: "local:local",
+    migrateIdentity: false,
     catalogDbPath: "./data/data_catalog.db",
     catalogRoots: [],
     artifactRoot: "",
@@ -198,6 +213,8 @@ function parseArgs(argv: string[]): Config {
       case "--catalog-gc": config.catalogGc = true; break
       case "--artifact-gc": config.artifactGc = true; break
       case "--yes": config.yes = true; break
+      case "--environment-id": config.environmentId = readValue(argv, ++index, arg); environmentIdExplicit = true; break
+      case "--migrate-database-identity": config.migrateIdentity = true; break
       case "--catalog-db": config.catalogDbPath = readValue(argv, ++index, arg); break
       case "--catalog-root": config.catalogRoots.push(readValue(argv, ++index, arg)); break
       case "--artifact-root": config.artifactRoot = readValue(argv, ++index, arg); break
@@ -209,6 +226,10 @@ function parseArgs(argv: string[]): Config {
       default: throw new Error(`unknown flag: ${arg}`)
     }
   }
+  if (!environmentIdExplicit) {
+    config.environmentId = stringField(config.input.environment_id ?? config.input.environmentId) || config.environmentId
+  }
+  if (config.migrateIdentity && !config.catalogInit) throw new Error("--migrate-database-identity requires --catalog-init")
   return config
 }
 

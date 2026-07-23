@@ -27,7 +27,7 @@ foreground supervisor
 | Job | Owner 条件 | 允许的 logical write | 仍禁止 |
 | --- | --- | --- | --- |
 | J01/J02 | active flow / reconcile / guard 条件 | `trade_event_store` | Binance write、新 thesis |
-| J03 | slow owner due | 当前 owner contract | 绕过 plan/preflight |
+| J03 | slow owner due | 只读 `DecisionInputBundle / TradePlanDraft / CapitalAllocationProposal / ActionIntent` artifacts | `trade.db`、绕过 plan/preflight、exchange write |
 | J04 | active RD program/goal | `research_state_store`, `artifact_catalog` | `trade.db`、promotion、Binance write |
 | J05 | configured tracker | `artifact_catalog` | formal promotion、真钱执行 |
 | J06 | fixed hygiene scan | `artifact_catalog` | GC、`--yes`、任意删除 |

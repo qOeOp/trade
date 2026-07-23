@@ -111,6 +111,7 @@ interface BuildJobTicketInput {
 
 interface BuildDomainEnvelopeInput {
   direction: "inbox" | "outbox"
+  interaction: "command" | "query" | "fact" | "intent" | "authorization" | "result" | "ref"
   message_id: string
   source_domain?: TopLevelDomain | string
   target_domain?: TopLevelDomain | string
@@ -158,6 +159,7 @@ interface BuildExchangeCommandRefInput {
   exchange_order_ids?: string[]
   source_intent_ref?: string
   event_write_ref?: string
+  capability_ref?: string
 }
 
 interface BuildFrozenCandidateRefInput {
@@ -304,6 +306,7 @@ function buildDomainEnvelope(input: BuildDomainEnvelopeInput): JSONRecord {
     source_domain: input.source_domain,
     target_domain: input.target_domain,
     rail: input.rail,
+    interaction: input.interaction,
     payload_ref: input.payload_ref,
     idempotency_key: input.idempotency_key,
     created_at: input.created_at,
@@ -360,6 +363,7 @@ function buildExchangeCommandRef(input: BuildExchangeCommandRefInput): JSONRecor
     exchange_order_ids: input.exchange_order_ids,
     source_intent_ref: input.source_intent_ref,
     event_write_ref: input.event_write_ref,
+    capability_ref: input.capability_ref,
   })
 }
 

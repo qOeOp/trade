@@ -8,7 +8,8 @@ import {
   stringField,
   type JSONRecord,
 } from "../../../../contracts/runtime-core/src/json"
-import { appendPlanEvent, readFlowEvents, type PlanEvent } from "../../../event-store/src/lib/event-store"
+import { canonicalHash } from "../../../../contracts/runtime-core/src/canonical-json"
+import { appendPlanEvent, listChainIds, readFlowEvents, type PlanEvent } from "../../../event-store/src/lib/event-store"
 
 export const FLOW_POSITION_STATES = ["flat", "long", "short"] as const
 
@@ -22,6 +23,136 @@ export interface ActiveFlowSummary {
   current_orders_count: number
   current_position_state: string
   open_action_gap: JSONRecord
+}
+
+export interface PortfolioAccountProjectionInput {
+  account_ref: string
+  account_scope: string
+  symbol?: string
+  as_of?: string
+}
+
+export function buildPortfolioAccountProjection(db: Database, input: PortfolioAccountProjectionInput): JSONRecord {
+  if (!input.account_ref || !input.account_scope) {
+    throw new Error("portfolio account projection requires account_ref and account_scope")
+  }
+  const computedAt = input.as_of || new Date().toISOString()
+  if (!Number.isFinite(Date.parse(computedAt))) {
+    throw new Error("portfolio account projection as_of must be a valid timestamp")
+  }
+  const targetSymbol = stringField(input.symbol).toUpperCase()
+  const warnings: string[] = []
+  let sourceEventCount = 0
+  let activePlansRisk = 0
+  let currentOpenRisk = 0
+  let realizedPnlToday = 0
+  let worstLossAtStop = 0
+  let activeRiskFlowCount = 0
+  let grossNotional = 0
+  let symbolNotional = 0
+  let laneNotional = 0
+  let openActionsThisCycle = 0
+  let recentOpenActions1h = 0
+  let currentLanePositionState = "flat"
+  let latestEventAt = ""
+  const locks: JSONRecord[] = []
+  const flowRefs: string[] = []
+
+  for (const chainId of listChainIds(db)) {
+    const events = readFlowEvents(db, chainId)
+    sourceEventCount += events.length
+    if (events.length === 0) continue
+    const state = reduceFlowState(db, chainId)
+    const latestObserve = latestEventOfKind(events, "observe")
+    const latestReview = latestEventOfKind(events, "review")
+    const observe = asRecord(latestObserve?.body_json)
+    const account = asRecord(observe.account)
+    const observedAccountRef = stringField(account.account_ref)
+    const observedScope = stringField(account.account_scope)
+    const flowSymbol = stringField(observe.symbol).toUpperCase()
+    const riskBudget = numberField(observe.risk_budget_usdt)
+    const position = asRecord(state.current_position)
+    const netQty = numberField(position.net_qty)
+    const avgEntryPrice = numberField(position.avg_entry_price)
+    const notional = Math.abs(netQty * avgEntryPrice)
+    const currentOrders = Array.isArray(state.current_orders) ? state.current_orders : []
+    const riskLock = asRecord(state.risk_lock)
+    const isClosed = Boolean(latestReview) && netQty === 0 && currentOrders.length === 0
+    latestEventAt = maxTimestamp(latestEventAt, events[events.length - 1]?.created_at || "")
+
+    if (observedAccountRef && observedAccountRef !== input.account_ref) continue
+    if (observedScope && observedScope !== input.account_scope) continue
+    if (!observedAccountRef || !observedScope) {
+      warnings.push(`flow ${chainId} has no canonical account_ref/account_scope binding`)
+    }
+    flowRefs.push(`trade_event_store:chain/${chainId}`)
+
+    if (riskLock.locked === true) {
+      locks.push({ chain_id: chainId, ...riskLock })
+    }
+    if (!isClosed) {
+      activeRiskFlowCount += riskBudget > 0 || netQty !== 0 || currentOrders.length > 0 ? 1 : 0
+      if (riskBudget <= 0 && (netQty !== 0 || currentOrders.length > 0)) {
+        warnings.push(`active flow ${chainId} has no positive risk_budget_usdt`)
+      }
+      if (netQty === 0) activePlansRisk += riskBudget
+      else currentOpenRisk += riskBudget
+      worstLossAtStop -= riskBudget
+    }
+
+    grossNotional += notional
+    if (targetSymbol && flowSymbol === targetSymbol) {
+      symbolNotional += notional
+      laneNotional += notional
+      currentLanePositionState = stringField(position.state) || "flat"
+    }
+    if (latestReview) {
+      realizedPnlToday += reviewPnlForDay(latestReview, computedAt)
+    }
+    for (const event of events) {
+      if (event.kind !== "order_fill") continue
+      const body = event.body_json
+      const isOpenAction = stringField(body.sub_kind) === "submit" || stringField(body.lifecycle_status) === "submitted"
+      if (!isOpenAction) continue
+      openActionsThisCycle += 1
+      if (ageMilliseconds(event.created_at, computedAt) <= 60 * 60 * 1000) recentOpenActions1h += 1
+    }
+  }
+
+  const body = {
+    schema_version: "trade.state.portfolio-account-projection.v1",
+    account_ref: input.account_ref,
+    account_scope: input.account_scope,
+    target_symbol: targetSymbol || undefined,
+    computed_at: computedAt,
+    as_of: latestEventAt || computedAt,
+    source_event_count: sourceEventCount,
+    source_flow_refs: flowRefs,
+    completeness: warnings.length === 0 ? "complete" : "incomplete",
+    warnings,
+    risk_lock: {
+      locked: locks.length > 0,
+      reasons: locks,
+    },
+    active_plans_risk_sum: roundMoney(activePlansRisk),
+    current_account_open_risk_usdt: roundMoney(currentOpenRisk),
+    realized_pnl_today_usdt: roundMoney(realizedPnlToday),
+    active_plans_worst_loss_at_stop: roundMoney(worstLossAtStop),
+    active_risk_flow_count: activeRiskFlowCount,
+    current_gross_notional_usdt: roundMoney(grossNotional),
+    current_symbol_notional_usdt: roundMoney(symbolNotional),
+    current_lane_notional_usdt: roundMoney(laneNotional),
+    current_lane_position_state: currentLanePositionState,
+    open_actions_this_cycle: openActionsThisCycle,
+    recent_open_actions_1h: recentOpenActions1h,
+    reconcile_status: locks.length > 0 ? "blocked" : "consistent",
+  }
+  const contentHash = `sha256:${canonicalHash(body)}`
+  return {
+    ...body,
+    content_hash: contentHash,
+    projection_ref: `flow-read-models://portfolio-account/${encodeURIComponent(input.account_scope)}/${contentHash.slice(7)}`,
+  }
 }
 
 export function reduceFlowState(db: Database, chainId: string): JSONRecord {
@@ -248,6 +379,38 @@ function readFillDelta(body: JSONRecord, clientOrderId: string, cumulativeFills:
       : numberField(body.qty)
   cumulativeFills.set(clientOrderId, previous + Math.max(delta, 0))
   return Math.max(delta, 0)
+}
+
+function latestEventOfKind(events: PlanEvent[], kind: PlanEvent["kind"]): PlanEvent | null {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    if (events[index].kind === kind) return events[index]
+  }
+  return null
+}
+
+function reviewPnlForDay(review: PlanEvent, asOf: string): number {
+  const reviewDay = review.created_at.slice(0, 10)
+  const asOfDay = asOf.slice(0, 10)
+  if (reviewDay !== asOfDay) return 0
+  const body = review.body_json
+  return numberField(body.realized_pnl_usdt) || numberField(body.pnl_usdt)
+}
+
+function maxTimestamp(left: string, right: string): string {
+  if (!left) return right
+  if (!right) return left
+  return Date.parse(right) > Date.parse(left) ? right : left
+}
+
+function ageMilliseconds(earlier: string, later: string): number {
+  const earlierMs = Date.parse(earlier)
+  const laterMs = Date.parse(later)
+  if (!Number.isFinite(earlierMs) || !Number.isFinite(laterMs)) return Number.POSITIVE_INFINITY
+  return Math.max(0, laterMs - earlierMs)
+}
+
+function roundMoney(value: number): number {
+  return Math.round((value + Number.EPSILON) * 1e8) / 1e8
 }
 
 function updateRiskLock(current: JSONRecord, event: PlanEvent): JSONRecord {

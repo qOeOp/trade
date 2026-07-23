@@ -5,39 +5,41 @@ flowchart LR
   SECRET["Secret provider<br/>API key material; never in profile or artifacts"] -->|"adapter-only credential"| VENUE
 
   subgraph POLICY["policy-risk"]
-    PROFILE["Trading Profile<br/>profile_id / account_ref / mode / permissions<br/>risk and exposure caps / strategy scope"]
-    POLICYSNAP["Runtime Policy Snapshot<br/>immutable hash / applied overrides / expiry"]
+    PROFILE["Trading Profile<br/>profile_id / account_ref + account_scope / mode<br/>permissions / risk and exposure caps / strategy scope"]
+    POLICYSNAP["Registered Runtime Policy Snapshot<br/>immutable policy ref + content hash / applied overrides"]
+    AUTHZ["Runtime Authorization<br/>authorization ref / account scope / issued_at / expiry"]
     PROFILE --> POLICYSNAP
+    POLICYSNAP --> AUTHZ
   end
 
   subgraph EXCHANGE["exchange-gateway"]
     ACCOUNTREF["Venue Account Ref<br/>venue / environment / market / account alias<br/>no credential material"]
     VENUE["Venue Adapter"]
-    ACCOUNTFACT["Exchange Account Facts<br/>equity / balances / margin / positions<br/>open orders / fills / as_of"]
+    ACCOUNTFACT["Exchange Account Facts<br/>account ref + scope / balances / margin / positions<br/>open orders / fills / as_of / snapshot hash"]
     ACCOUNTREF --> VENUE
     VENUE --> ACCOUNTFACT
   end
 
   subgraph STATE["portfolio-execution-state"]
     EVENTS["Trade Event Authority<br/>observe / order_fill / review"]
-    PORTFOLIO["Portfolio Account Projection<br/>exposure / reserved risk / active flows<br/>risk lock / reconcile status / freshness"]
+    PORTFOLIO["Portfolio Account Projection<br/>account ref + scope / exposure / reserved risk / active flows<br/>risk lock / reconcile status / projection hash / freshness"]
     EVENTS --> PORTFOLIO
   end
 
   subgraph DECISION["live-decision-planning"]
-    PROPOSAL["Capital Allocation Proposal<br/>symbol / strategy / risk budget / expiry<br/>never mutates account balance"]
+    PROPOSAL["Capital Allocation Proposal<br/>account scope / symbol / strategy / risk budget / expiry<br/>default unallocated; never mutates balance"]
   end
 
   subgraph EXECUTION["live-execution-control"]
     PREFLIGHT["Deterministic Preflight<br/>authorization + latest facts + projection + intent"]
-    CAPABILITY["Capability-bound Command<br/>target / max effect / idempotency / expiry"]
+    CAPABILITY["Execution Capability<br/>target + account scope / max effect / idempotency / expiry<br/>policy + fact + projection + intent refs"]
     OUTCOME["Result / Confirmation Handling<br/>accepted / rejected / unknown / confirmed"]
     RECONCILE["Reconcile Proposal<br/>venue facts vs local projection"]
     PREFLIGHT -->|"armable"| CAPABILITY
   end
 
   PROFILE -. "binds" .-> ACCOUNTREF
-  POLICYSNAP --> PREFLIGHT
+  AUTHZ --> PREFLIGHT
   ACCOUNTFACT --> PREFLIGHT
   PORTFOLIO --> PREFLIGHT
   PROPOSAL --> PREFLIGHT
@@ -50,7 +52,7 @@ flowchart LR
 
   subgraph DATA["Data placement and trust classes"]
     DB["Owner logical stores<br/>facts / ledgers / refs / summaries"]
-    PRODUCTS["Durable data products<br/>OHLCV / TL2S / Parquet / immutable manifests"]
+    PRODUCTS["Durable data products<br/>OHLCV / content-addressed candle slices<br/>TL2S / Parquet / immutable manifests"]
     TMP["Ephemeral workspace<br/>regenerable payloads only"]
     CATALOG["Artifact catalog<br/>hash / owner / lineage / retention / backlinks"]
     PRODUCTS --> CATALOG
@@ -68,7 +70,7 @@ flowchart LR
   classDef fact fill:#fff7df,stroke:#b08a00,color:#3b3000;
   classDef state fill:#eefaf0,stroke:#2f7d4f,color:#10351e;
   classDef trust fill:#f8fafc,stroke:#64748b,color:#334155,stroke-dasharray:4 3;
-  class PROFILE,POLICYSNAP policy;
+  class PROFILE,POLICYSNAP,AUTHZ policy;
   class ACCOUNTREF,VENUE,ACCOUNTFACT,PROPOSAL,PREFLIGHT,CAPABILITY,OUTCOME,RECONCILE fact;
   class EVENTS,PORTFOLIO,DB,PRODUCTS,TMP,CATALOG state;
   class SECRET,TIME,TRUST trust;

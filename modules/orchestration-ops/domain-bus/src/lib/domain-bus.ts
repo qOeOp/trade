@@ -43,6 +43,7 @@ export function publishDomainMessage(db: Database, input: PublishDomainMessageIn
     source_domain: stringField(input.source_domain) || undefined,
     target_domain: stringField(input.target_domain) || undefined,
     rail,
+    interaction: requiredInteraction(input.interaction),
     payload_ref: requiredString(input.payload_ref, "payload_ref"),
     idempotency_key: stringField(input.idempotency_key) || undefined,
     created_at: createdAt,
@@ -56,6 +57,15 @@ export function publishDomainMessage(db: Database, input: PublishDomainMessageIn
   })
   upsertDomainMessage(db, message)
   return message
+}
+
+function requiredInteraction(value: unknown): "command" | "query" | "fact" | "intent" | "authorization" | "result" | "ref" {
+  const interaction = requiredString(value, "interaction")
+  const allowed = ["command", "query", "fact", "intent", "authorization", "result", "ref"] as const
+  if (!allowed.includes(interaction as typeof allowed[number])) {
+    throw new Error(`unsupported interaction: ${interaction}`)
+  }
+  return interaction as typeof allowed[number]
 }
 
 export function listDomainMessages(db: Database, input: JSONRecord = {}): DomainMessage[] {

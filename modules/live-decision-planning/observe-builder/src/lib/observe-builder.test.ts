@@ -39,6 +39,29 @@ test("buildAccountProjection summarizes account and symbol state", () => {
   assert.equal(projection.snapshot_ref, "account-run-1")
 })
 
+test("buildAccountProjection prefers canonical exchange account facts and preserves authority refs", () => {
+  const projection = buildAccountProjection({
+    account_facts: {
+      schema_version: "trade.exchange.account-facts.v1",
+      account_ref: "exchange-account://binance/live/usdm/primary",
+      account_scope: "capital-scope://retail-small-usdm",
+      equity_usdt: 1200.5,
+      available_margin_usdt: 950.25,
+      positions: [],
+      open_orders: { regular: [], protective: [] },
+      as_of: "2026-07-23T00:00:00.000Z",
+      content_hash: `sha256:${"a".repeat(64)}`,
+      snapshot_ref: `exchange-account-facts://binance/live/usdm/primary/2026/${"a".repeat(64)}`,
+    },
+  }, "BTCUSDT")
+
+  assert.equal(projection.account_ref, "exchange-account://binance/live/usdm/primary")
+  assert.equal(projection.account_scope, "capital-scope://retail-small-usdm")
+  assert.equal(projection.equity_usdt, 1200.5)
+  assert.equal(projection.available_balance_usdt, 950.25)
+  assert.equal(projection.as_of, "2026-07-23T00:00:00.000Z")
+})
+
 test("buildObserveEvent creates minimal complete observe body", () => {
   const observe = buildObserveEvent({
     chain_id: "flow-1",

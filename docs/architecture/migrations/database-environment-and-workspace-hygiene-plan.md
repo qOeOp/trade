@@ -12,7 +12,18 @@ last_verified: 2026-07-23 CST
 
 本计划解决三类同源问题：owner SQLite 依赖当前工作目录、测试与自检可改写持久库、ignored 产物缺少生命周期治理。目标不是禁止 WAL、编译缓存或研究 artifact，而是让它们只能出现在所属环境、可审计位置和明确 retention 内。
 
-本文处于 active migration：P0 止血规则已开始生效，P1–P5 仍是目标态，不改变当前 [Storage Architecture](../storage-architecture.md) 的 logical-store authority 或真实交易授权。环境选择只决定数据与临时产物落点，不授予 Binance 写权限，也不替代 `live-small` preflight、显式确认和 reconciliation。
+本文处于 active migration：P0–P5 的首轮可执行闭环已落地，剩余项是 retention/容量预算与更广调用面渐进迁移，不改变 [Storage Architecture](../storage-architecture.md) 的 logical-store authority 或真实交易授权。环境选择只决定数据与临时产物落点，不授予 Binance 写权限，也不替代 `live-small` preflight、显式确认和 reconciliation。
+
+当前实施状态：
+
+| 阶段 | 状态 | 已落地闭环 |
+| --- | --- | --- |
+| P0 | complete | tracked runtime ratchet 清零；module-local DB/sidecar 移除；有效 OHLCV/manifest 经 owner 写入根 data plane 后复验 |
+| P1 | complete-baseline | `database-environment.ts` 统一 local/test/CI/runtime、稳定 path 与 owner DB filename；共享 CLI 相对路径不再依赖 package cwd |
+| P2 | complete-baseline | `test-database-environment.ts` 提供唯一目录、handle registry、WAL checkpoint、幂等 cleanup；并行同名 WAL DB 隔离回归通过 |
+| P3 | complete | quality pre/post content snapshot 已接入；tracked + unignored 新增/删除/改写 fail closed；CI preflight 要求 clean checkout |
+| P4 | complete-baseline | footprint audit 已区分 durable、protected evidence、test/cache/clone，并只输出 dry-run；evidence 删除仍由 catalog GC 的 ref/`.pin`/显式确认承担 |
+| P5 | complete-baseline | 9 个 local owner DB 已写 `trade.database-identity.v1` 并通过 integrity check；environment/store mismatch、非空 legacy 无显式 migration 均失败 |
 
 ## 1. 已确认缺口
 
@@ -85,12 +96,12 @@ environment selection
 
 | 路径组 | 只读证据 | 处置 |
 | --- | --- | --- |
-| 根 `data/*.{db-shm,db-wal}` 4 个 tracked sidecar | 属于 local durable DB 的 WAL companion，不是独立事实 | 从 Git 解除跟踪；工作副本按 SQLite 生命周期保留 |
-| `market-data-store/data/ohlcv.db` | `canonical_candle=0` | 从 Git 解除跟踪；无引用后可显式删除 |
-| `ohlcv-fetch/data/ohlcv.db` + `market_data.db` | 2,483 candles / 6 manifests；根 owner DB 中对应 identity 均缺失 | 先经 owner import/migration 收敛到根 data plane并校验 hash/coverage，再解除跟踪和清理；当前不得删 |
-| `legacy-integration-suite/data/rd_state.db` | 仅含 `rd-loop-state`、`rd-campaign-state` 两个测试 program | 测试改为显式 temp DB 后解除跟踪；无引用后可显式删除 |
+| 根 `data/*.{db-shm,db-wal}` 4 个 tracked sidecar | 属于 local durable DB 的 WAL companion，不是独立事实 | 已解除 Git 跟踪；工作副本按 SQLite 生命周期保留 |
+| `market-data-store/data/ohlcv.db` | `canonical_candle=0` | 已从 Git 与 module data 移除 |
+| `ohlcv-fetch/data/ohlcv.db` + `market_data.db` | 2,483 candles / 6 manifests；迁移前根 owner DB 中对应 identity 均缺失 | 已经 owner functions 写入根 data plane并逐行复验；根库 integrity check 通过，module-local 主库与 sidecar 已移除 |
+| `legacy-integration-suite/data/rd_state.db` | 仅含 `rd-loop-state`、`rd-campaign-state` 两个测试 program | 测试已改为显式 temp DB；原测试库已从 Git 与 module data 移除 |
 
-`scripts/check-workspace-hygiene.ts` 以 12 个历史 tracked runtime 文件作为只减不增的 ratchet；新增 tracked sidecar/runtime DB、module-local DB 或迁移后未删除的过期 exception 均失败。
+`scripts/check-workspace-hygiene.ts` 的历史 tracked runtime ratchet 已清零；任何 tracked sidecar/runtime DB、module-local DB 或过期 exception 均失败。
 
 ### P1：环境与路径合同
 
@@ -170,4 +181,4 @@ P0 完成后再决定 P1 的具体 resolver 落点，避免在没有完整调用
 - test residue、`tmp/check`、build cache 与 external audit clone 的具体 retention / size budget。
 - historical tracked DB 中哪些仍有不可替代 fixture 价值。
 
-这些决策不阻塞 P0；在 P1/P4 开始前必须用实际调用面和数据引用证据收敛。
+这些决策不阻塞已落地 baseline；其中 retention / size budget 应基于连续 footprint 报告收敛，不能倒逼 quality 自动删除。runtime data plane 最终部署路径变化时，继续使用显式 root 与 identity migration，不修改 metadata 冒充环境。

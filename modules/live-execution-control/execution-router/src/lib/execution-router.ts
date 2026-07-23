@@ -5,6 +5,7 @@ import {
 } from "../../../../contracts/execution-contract/src/execution-contract"
 import { readTargetAction, TARGET_ACTIONS, type ExecutableTargetAction } from "../../../../contracts/preflight-contract/src/target-action"
 import { readPositionSide, readRequiredSymbol } from "../../../shared/execution-input"
+import { resolveRegisteredOwnerTool } from "../../../../contracts/runtime-core/src/owner-tool-registry"
 
 type JSONRecord = Record<string, unknown>
 
@@ -32,7 +33,7 @@ function buildExecutionCommandSpec(input: JSONRecord, contract?: ExecutionContra
     return {
       target_action: targetAction,
       tool: "binance-order-place",
-      cwd: `${repoRoot}/modules/exchange-gateway/binance-write/order-place`,
+      cwd: ownerCwd("binance.order-place", repoRoot),
       command: buildOrderPlaceCommand(compiled, {
         ...exchangeAudit,
         requestedByRef: exchangeAudit.requestedByRef || `execution:${compiled.chain_id}:${compiled.source_observe_event_key}`,
@@ -43,7 +44,7 @@ function buildExecutionCommandSpec(input: JSONRecord, contract?: ExecutionContra
     return {
       target_action: targetAction,
       tool: "binance-order-cancel",
-      cwd: `${repoRoot}/modules/exchange-gateway/binance-write/order-cancel`,
+      cwd: ownerCwd("binance.order-cancel", repoRoot),
       command: buildOrderCancelCommand(input, {
         ...exchangeAudit,
         requestedByRef: exchangeAudit.requestedByRef || buildCancelRequestedByRef(input),
@@ -54,7 +55,7 @@ function buildExecutionCommandSpec(input: JSONRecord, contract?: ExecutionContra
     return {
       target_action: targetAction,
       tool: "binance-position-adjust",
-      cwd: `${repoRoot}/modules/exchange-gateway/binance-write/position-adjust`,
+      cwd: ownerCwd("binance.position-adjust", repoRoot),
       command: buildPositionAdjustCommand(input, {
         ...exchangeAudit,
         requestedByRef: exchangeAudit.requestedByRef || buildActionRequestedByRef(input, targetAction),
@@ -65,7 +66,7 @@ function buildExecutionCommandSpec(input: JSONRecord, contract?: ExecutionContra
     return {
       target_action: targetAction,
       tool: "binance-position-protect",
-      cwd: `${repoRoot}/modules/exchange-gateway/binance-write/position-protect`,
+      cwd: ownerCwd("binance.position-protect", repoRoot),
       command: buildPositionProtectCommand(input, {
         ...exchangeAudit,
         requestedByRef: exchangeAudit.requestedByRef || buildActionRequestedByRef(input, targetAction),
@@ -73,6 +74,10 @@ function buildExecutionCommandSpec(input: JSONRecord, contract?: ExecutionContra
     }
   }
   throw new Error("no_action has no executable tool command")
+}
+
+function ownerCwd(toolId: string, ownerRepoRoot: string): string {
+  return resolveRegisteredOwnerTool(toolId, [], ownerRepoRoot).cwd
 }
 
 function buildOrderPlaceCommand(contract: ExecutionContract, exchangeAudit?: ExchangeAuditOptions): string[] {

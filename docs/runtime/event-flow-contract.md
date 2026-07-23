@@ -3,7 +3,7 @@ title: Event and Flow Contract
 role: runtime-feature-contract
 status: active
 owner: portfolio-execution-state
-last_verified: 2026-07-22 CST
+last_verified: 2026-07-23 CST
 ---
 
 # Event and Flow Contract
@@ -73,8 +73,10 @@ projection 至少可重建：
 - latest slow observe
 - open action gap
 - risk lock / needs review
+- account-scoped exposure / reserved risk / gross and symbol notional / realized PnL projection
+- projection ref、content hash、completeness、reconcile status 与 freshness
 
-projection 不是新事实源；cache 丢失时必须能从 ordered events 恢复。
+projection 不是新事实源；cache 丢失时必须能从 ordered events 恢复。新增风险只能消费 owner 生成、account ref/scope 匹配、complete、未 risk-lock、已 reconcile 且足够新鲜的 portfolio projection。
 
 ## 7. Reconcile
 

@@ -2,7 +2,7 @@
   "$id": "trade.protocol.domain-outbox-envelope.v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_id", "message_id", "source_domain", "rail", "payload_ref", "created_at"],
+  "required": ["schema_id", "message_id", "source_domain", "rail", "interaction", "payload_ref", "created_at"],
   "properties": {
     "schema_id": { "const": "trade.protocol.domain-outbox-envelope.v1" },
     "message_id": { "type": "string", "minLength": 1 },
@@ -37,9 +37,9 @@
       ]
     },
     "rail": { "type": "string", "minLength": 1 },
+    "interaction": { "enum": ["command", "query", "fact", "intent", "authorization", "result", "ref"] },
     "payload_ref": { "type": "string", "minLength": 1 },
     "idempotency_key": { "type": "string" },
     "created_at": { "type": "string", "minLength": 1 }
   }
 }
-

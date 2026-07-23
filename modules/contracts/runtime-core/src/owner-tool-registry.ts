@@ -10,10 +10,14 @@ import { repoRoot } from "./paths"
 
 let cachedManifest: ToolsetManifest | undefined
 
-function resolveRegisteredOwnerTool(toolId: string, args: string[]): ResolvedOwnerToolCommand {
+function resolveRegisteredOwnerTool(
+  toolId: string,
+  args: string[],
+  ownerRepoRoot: string = repoRoot(),
+): ResolvedOwnerToolCommand {
   return resolveOwnerToolCommand({
     tool: findToolsetEntry(readToolsetManifest(), toolId),
-    repoRoot: repoRoot(),
+    repoRoot: ownerRepoRoot,
     args,
   })
 }

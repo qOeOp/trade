@@ -3,7 +3,7 @@ title: Market Data Design
 role: runtime-feature-contract
 status: active
 owner: market-data-products
-last_verified: 2026-07-22 CST
+last_verified: 2026-07-23 CST
 ---
 
 # Market Data Design
@@ -88,12 +88,14 @@ last_verified: 2026-07-22 CST
 | `binance-liquidation-zones` | liquidation-like zones |
 | `binance-market-scan` | 候选粗筛；不得直接触发 live action |
 | `tech-indicators` | 本地 OHLCV 结构、指标与轻量微观结构统计 |
+| `market-data-store` | canonical candle owner query；向 Research 导出 content-addressed、immutable candle slice manifest/ref |
 
 `binance-market-scan` 只能回答“先看谁”。候选必须回到 `single-symbol`，并通过 setup 资格证。
 
 ## 存储
 
 - OHLCV canonical candles 写入 `ohlcv_store.canonical_candle`，由 `ohlcv-fetch` 按 latest candle 增量 upsert；CSV / manifest 不再作为事实源或 durable 存储方式。
+- Research 不得跨域直读 `canonical_candle`。`data-split` 通过 `market-data.store` owner port 请求有界 candle slice，并只消费 `market-data://candle-slice/<sha256>` manifest/ref；CSV 是该不可变导出物的 payload，不是第二事实源。
 - 微结构、aggTrades、depth、liquidation-like 输出默认只作为 refs。
 - 不新增 market snapshot 表。
 - replay / shadow 需要的数据由对应 tool 输出引用，不进入 `trade.db`。

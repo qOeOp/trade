@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade.execution.capability.v1",
+  "type": "object",
+  "required": ["schema_version", "capability_ref", "target_action", "account_ref", "account_scope", "source_intent_ref", "policy_authorization_ref", "policy_hash", "account_fact_ref", "portfolio_projection_ref", "idempotency_key", "max_effect", "issued_at", "expires_at", "content_hash"],
+  "properties": {
+    "schema_version": { "const": "trade.execution.capability.v1" },
+    "capability_ref": { "type": "string", "pattern": "^execution-capability://" },
+    "target_action": { "enum": ["place_entry", "cancel_order", "adjust_position", "sync_protection", "reduce_position", "close_position"] },
+    "account_ref": { "type": "string", "minLength": 1 },
+    "account_scope": { "type": "string", "minLength": 1 },
+    "source_intent_ref": { "type": "string", "minLength": 1 },
+    "policy_authorization_ref": { "type": "string", "minLength": 1 },
+    "policy_hash": { "type": "string", "minLength": 1 },
+    "account_fact_ref": { "type": "string", "minLength": 1 },
+    "portfolio_projection_ref": { "type": "string", "minLength": 1 },
+    "idempotency_key": { "type": "string", "minLength": 1 },
+    "max_effect": { "type": "object" },
+    "issued_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "content_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}

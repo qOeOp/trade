@@ -202,7 +202,7 @@
       },
       "notes": [
         "Foreground only; launchd, systemd, Docker, or another external process manager owns restart and process lifetime.",
-        "shadow_program keeps J01-J07 disabled; full_shadow enables the fixed seven-job graph while preserving owner active gates and permanently denies exchange live writes; each child command is bounded to 30 seconds.",
+        "shadow_program keeps J01-J07 disabled; full_shadow enables the fixed seven-job graph while preserving owner active gates and permanently denies exchange live writes; planning owner reads and each child command are asynchronously bounded to 30 seconds.",
         "The one-shot catalog_hygiene_canary profile is a separate opt-in migration gate: it forces only J06, permits only artifact_catalog writes, and exposes no GC, --yes, arbitrary-root, notification, or live-write authority.",
         "The durable supervisor lease uses heartbeat renewal and fencing tokens; SIGINT/SIGTERM drains the in-flight wakeup before release.",
         "SQLite contention is bounded to a one-second busy window and returns ops_store_busy; every graph result carries a cycle-independent parity hash for Agent/program comparison.",
@@ -265,7 +265,7 @@
         "l2_retention_reference_audit delegates one exact epoch to the Market Data owner CLI and exposes no deletion or GC authority.",
         "l2_retention_reference_audit_page delegates bounded cursor pagination to the same owner and does not produce deletion candidates.",
         "l2_service_health delegates to the L2 owner and exposes no process IDs, paths, or lifecycle authority.",
-        "l2_book_watch_consumer_health delegates to the fixed resident consumer owner read and exposes only readiness, baseline identity, and aggregate reliability counters.",
+        "l2_book_watch_consumer_health delegates to the fixed resident consumer owner read and exposes only readiness, baseline identity, aggregate reliability counters, and the latest sanitized failure timestamp/operation/class/attempt.",
         "runtime_parity_status delegates to ops_runtime_store and exposes raw, shared-input-comparable, and legacy-sequential counts plus latest hashes/basis and lease state; it omits holder/process/path/detail and cutover authority.",
         "research_hypothesis_brief renders owner-controlled program memory and planning context without generating or persisting a hypothesis.",
         "Hypothesis contracts are validated and projected by research.strategy-hypothesis-designer before J04 submission.",
@@ -424,7 +424,7 @@
       "notes": [
         "Lifecycle processor for control tower readiness; not a domain job ticket.",
         "require_l2_ready=true delegates to the registered market-data.l2-service-health owner read and persists only a bounded path/PID-free evidence projection.",
-        "require_l2_watch_consumer_ready=true delegates to the registered ops.l2-book-watch-consumer owner read and persists only readiness, epoch/hash/timestamps, and bounded reliability counters.",
+        "require_l2_watch_consumer_ready=true delegates to the registered ops.l2-book-watch-consumer owner read and persists only readiness, epoch/hash/timestamps, bounded reliability counters, and any latest sanitized failure projection.",
         "Both L2 readiness checks are independently opt-in and provide no start, stop, restart, signal, or other lifecycle authority.",
         "Writes logical store ops_runtime_store; toolset legacy writes fields do not yet model ops stores."
       ],
@@ -816,6 +816,7 @@
       "domain": "portfolio-execution-state",
       "intent": [
         "flow-projection",
+        "portfolio-account-projection",
         "active-flows",
         "reconcile-draft",
         "latest-slow-observe"
@@ -825,7 +826,7 @@
         "V"
       ],
       "path": "modules/portfolio-execution-state/flow-projector",
-      "purpose": "Own rebuildable execution-state projections derived from plan_event.",
+      "purpose": "Own rebuildable flow and account-scoped portfolio projections derived from plan_event.",
       "command": {
         "cwd": "modules/portfolio-execution-state/flow-projector",
         "argv": [
@@ -1054,7 +1055,7 @@
         "V"
       ],
       "path": "modules/live-decision-planning/slow-track-plan",
-      "purpose": "Own slow-track workflow dry-run planning over market and policy inputs without live execution.",
+      "purpose": "Own read-only J03 planning and emit DecisionInputBundle, TradePlanDraft, unallocated CapitalAllocationProposal, and blocked ActionIntent without live execution.",
       "command": {
         "cwd": "modules/live-decision-planning/slow-track-plan",
         "argv": [
@@ -1067,19 +1068,19 @@
         ]
       },
       "writes": {
-        "trade_db": true,
+        "trade_db": false,
         "catalog": false,
         "artifacts": true,
         "binance": false,
         "config": false
       },
       "notes": [
-        "Writes observe facts/artifacts through explicit owner surfaces; it does not place exchange orders."
+        "Writes only an ephemeral decision artifact; it does not append trade events, allocate capital, approve a plan, or place exchange orders."
       ],
       "module_type": "atomic",
       "owner_scope": "live-decision-planning.slow-track-plan",
       "requires_preflight": false,
-      "concurrency_group": "trade-db",
+      "concurrency_group": "slow-track-market-watch",
       "forbidden_callers": [
         "exchange-write"
       ],
@@ -1461,6 +1462,7 @@
         "market-data-store",
         "ohlcv-manifest",
         "canonical-candles",
+        "candle-slice-export",
         "funding-events",
         "feature-manifest",
         "instrument-status-acquisition",
@@ -1472,7 +1474,7 @@
         "A"
       ],
       "path": "modules/market-data-products/market-data-store",
-      "purpose": "Record market manifests, L2 owner retention/referrer evidence, funding events, feature manifests, instrument-status acquisition receipts/raw payloads, and immutable archives in market_data_store, and canonical candles in ohlcv_store.",
+      "purpose": "Record market manifests, L2 owner retention/referrer evidence, funding events, feature manifests, instrument-status acquisition receipts/raw payloads, and immutable archives in market_data_store; own canonical candles and immutable candle-slice exports from ohlcv_store.",
       "command": {
         "cwd": "modules/market-data-products/market-data-store",
         "argv": [
@@ -1491,12 +1493,13 @@
       "writes": {
         "trade_db": false,
         "catalog": false,
-        "artifacts": false,
+        "artifacts": true,
         "binance": false,
         "config": false
       },
       "notes": [
         "Owns logical market_data_store refs and ohlcv_store refs; durable market data uses database owner-store contracts, not file directories.",
+        "export_candle_slice writes a content-addressed immutable CSV/manifest artifact and returns a slice ref so Research never queries canonical_candle directly.",
         "Read actions include read_manifest, read_funding, read_instrument_status_acquisition_receipt, read_instrument_status_archive, read_feature_manifest, and list_feature_manifests so other domains can consume owner refs without direct table access.",
         "L2 retention/reference audit is a self-hashed read projection over registered owner evidence; it never infers deletion eligibility or GC authority.",
         "Audit pagination is owner-ordered and capped at 50 epochs; counts are page-local and cross-call snapshot consistency is not claimed.",
@@ -1799,6 +1802,7 @@
       "intent": [
         "policy-registry",
         "runtime-policy-snapshot",
+        "runtime-policy-authorization",
         "approved-strategy-ref",
         "policy-hash"
       ],
@@ -1806,7 +1810,7 @@
         "A"
       ],
       "path": "modules/policy-risk/policy-registry",
-      "purpose": "Record runtime policy snapshots and approved strategy refs in policy_registry.",
+      "purpose": "Record runtime policy snapshots and approved strategy refs, then issue bounded runtime authorizations from the registered snapshot.",
       "command": {
         "cwd": "modules/policy-risk/policy-registry",
         "argv": [
@@ -1828,7 +1832,7 @@
         "config": false
       },
       "notes": [
-        "Compiler remains pure; registry owns durable policy snapshots and approved refs."
+        "Compiler remains pure; registry owns durable policy snapshots and approved refs, and authorization refs are short-lived projections rather than new durable policy facts."
       ],
       "module_type": "atomic",
       "owner_scope": "policy-risk.policy-registry",
@@ -2321,7 +2325,7 @@
       },
       "notes": [
         "Control Plane-owned claim-side gate; complete outbox recovery and authority inspection happen before claimRegisteredReplayAttempt on the same DB session.",
-        "Does not run Replay, spawn workers, delete outboxes, or expose machine-local paths in its result."
+        "Returns Replay Attempt Admission Result v3 with one Registration-bound Dispatch Authority; does not run Replay, spawn workers, delete outboxes, or expose machine-local paths."
       ],
       "module_type": "atomic",
       "owner_scope": "research-control-plane.replay-recovery",
@@ -3891,7 +3895,7 @@
         "R"
       ],
       "path": "modules/exchange-gateway/binance-read/account-snapshot",
-      "purpose": "Read balances, positions, open orders, protective orders, and optional symbol history.",
+      "purpose": "Read canonical account facts with stable venue account ref/scope, as-of time, snapshot ref and content hash, while retaining legacy response fields during migration.",
       "command": {
         "cwd": "modules/exchange-gateway/binance-read/account-snapshot",
         "argv": [
@@ -3909,7 +3913,7 @@
         "config": false
       },
       "notes": [
-        "Read-only Binance API."
+        "Read-only Binance API; credentials never enter the returned account fact."
       ],
       "module_type": "atomic",
       "owner_scope": "exchange-gateway.account-snapshot",
@@ -3919,7 +3923,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": ""
+        "output_schema": "modules/exchange-gateway/binance-read/account-snapshot/src/schemas/exchange-account-facts.schema.json"
       }
     },
     {

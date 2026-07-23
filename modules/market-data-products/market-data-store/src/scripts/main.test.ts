@@ -16,8 +16,9 @@ import { parseArgs, run } from "./main"
 test("market data store CLI upserts and reads manifest", () => {
   const dir = mkdtempSync(join(tmpdir(), "market-data-store-"))
   const dbPath = join(dir, "market.duckdb")
+  const ohlcvDbPath = join(dir, "ohlcv.db")
   try {
-    run(parseArgs(["--db", dbPath, "--action", "init"]))
+    run(parseArgs(["--db", dbPath, "--ohlcv-db", ohlcvDbPath, "--action", "init"]))
     run(parseArgs([
       "--db",
       dbPath,

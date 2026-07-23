@@ -2,7 +2,69 @@ import { Database } from "bun:sqlite"
 import assert from "node:assert/strict"
 import test from "node:test"
 import { appendPlanEvent, ensureSchema } from "../../../event-store/src/lib/event-store"
-import { reduceFlowState } from "./flow-projector"
+import { buildPortfolioAccountProjection, reduceFlowState } from "./flow-projector"
+
+test("portfolio account projection returns owner-backed zero state for an empty account scope", () => {
+  const db = new Database(":memory:")
+  ensureSchema(db)
+  try {
+    const projection = buildPortfolioAccountProjection(db, {
+      account_ref: "exchange-account://binance/live/usdm/primary",
+      account_scope: "capital-scope://retail-small-usdm",
+      symbol: "BTCUSDT",
+      as_of: "2026-07-23T00:00:00.000Z",
+    })
+    assert.equal(projection.completeness, "complete")
+    assert.equal(projection.active_risk_flow_count, 0)
+    assert.equal(projection.current_gross_notional_usdt, 0)
+    assert.match(String(projection.projection_ref), /^flow-read-models:\/\/portfolio-account\//)
+  } finally {
+    db.close()
+  }
+})
+
+test("portfolio account projection aggregates scoped risk and fails closed on flow locks", () => {
+  const db = new Database(":memory:")
+  ensureSchema(db)
+  try {
+    appendPlanEvent(db, {
+      event_key: "observe-portfolio-1",
+      chain_id: "flow-portfolio-1",
+      kind: "observe",
+      created_at: "2026-07-23T00:00:00.000Z",
+      body_json: {
+        symbol: "BTCUSDT",
+        side: "long",
+        risk_budget_usdt: 25,
+        account: {
+          account_ref: "exchange-account://binance/live/usdm/primary",
+          account_scope: "capital-scope://retail-small-usdm",
+        },
+      },
+    })
+    appendOrderFill(db, "unknown-portfolio-1", {
+      sub_kind: "unknown",
+      lifecycle_status: "unknown",
+      client_order_id: "flow-portfolio-1-entry",
+      source: "reconcile",
+    }, "flow-portfolio-1")
+
+    const projection = buildPortfolioAccountProjection(db, {
+      account_ref: "exchange-account://binance/live/usdm/primary",
+      account_scope: "capital-scope://retail-small-usdm",
+      symbol: "BTCUSDT",
+      as_of: "2026-07-23T00:30:00.000Z",
+    })
+    assert.equal(projection.completeness, "complete")
+    assert.equal(projection.active_plans_risk_sum, 25)
+    assert.equal(projection.active_plans_worst_loss_at_stop, -25)
+    assert.equal(projection.active_risk_flow_count, 1)
+    assert.equal((projection.risk_lock as { locked: boolean }).locked, true)
+    assert.equal(projection.reconcile_status, "blocked")
+  } finally {
+    db.close()
+  }
+})
 
 test("flow reducer treats rejected expired and cancelled as order-closing non-position states", () => {
   const db = new Database(":memory:")

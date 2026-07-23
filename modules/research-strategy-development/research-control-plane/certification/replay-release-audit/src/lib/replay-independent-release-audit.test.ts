@@ -6,6 +6,7 @@ import {
   loadReplayIndependentReleaseAuditManifest,
   loadReplayIndependentReleaseAuditReceipt,
   loadReplayMaturityForIndependentAudit,
+  runReplayIndependentAuditCommand,
 } from "./replay-independent-release-audit"
 
 describe("Replay independent release audit", () => {
@@ -61,5 +62,27 @@ describe("Replay independent release audit", () => {
       receiptTamper,
       loadReplayIndependentReleaseAuditManifest(repoRoot),
     )).toThrow("unsupported Replay independent release audit receipt")
+  })
+
+  test("kills the complete command process group when an audit command times out", async () => {
+    const startedAt = Date.now()
+    const command = runReplayIndependentAuditCommand({
+      role: "timeout-process-tree-probe",
+      cwd: ".",
+      argv: [
+        "bun",
+        "-e",
+        `Bun.spawn(["bun", "-e", "await Bun.sleep(60_000)"], {
+          stdout: "inherit",
+          stderr: "inherit",
+        }); await Bun.sleep(60_000)`,
+      ],
+      timeout_ms: 50,
+    }, repoRoot)
+
+    await expect(command).rejects.toThrow(
+      "Replay independent audit command timed out: timeout-process-tree-probe",
+    )
+    expect(Date.now() - startedAt).toBeLessThan(2_000)
   })
 })

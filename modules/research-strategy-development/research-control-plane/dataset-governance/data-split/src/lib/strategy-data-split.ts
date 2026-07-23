@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto"
-import { Database } from "bun:sqlite"
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import {
@@ -8,6 +7,7 @@ import {
 } from "../../../../../../contracts/catalog-contract/src/catalog-client"
 import { displayPath, resolveReadablePath } from "../../../../../../contracts/runtime-core/src/paths"
 import type { JSONRecord } from "../../../../../../contracts/runtime-core/src/json"
+import { runOwnerToolRecordSync } from "../../../../../../contracts/runtime-core/src/owner-tool-client"
 
 type SplitSegmentName = "discovery" | "validation" | "locked_holdout"
 
@@ -94,16 +94,26 @@ interface CsvRow {
   timestamp: number
 }
 
-interface CanonicalCandleRow {
-  open_time: number
-  open: number
-  high: number
-  low: number
-  close: number
-  volume: number | null
+interface MarketDataSliceExportRequest {
+  ohlcvDbPath?: string
+  exchange?: string
+  symbol: string
+  timeframe: string
+  sinceTs?: number
+  untilTs?: number
+  limit?: number
+  outputRoot: string
+  generatedAt: string
 }
 
-function runStrategyDataSplit(input: StrategyDataSplitInput): StrategyDataSplitReport {
+interface StrategyDataSplitDependencies {
+  marketDataSliceExporter?: (input: MarketDataSliceExportRequest) => JSONRecord
+}
+
+function runStrategyDataSplit(
+  input: StrategyDataSplitInput,
+  dependencies: StrategyDataSplitDependencies = {},
+): StrategyDataSplitReport {
   if (input.datasets.length < 1) {
     throw new Error("strategy data split requires at least one dataset")
   }
@@ -124,6 +134,7 @@ function runStrategyDataSplit(input: StrategyDataSplitInput): StrategyDataSplitR
     intervalMs,
     minSegmentRows,
     generatedAt,
+    marketDataSliceExporter: dependencies.marketDataSliceExporter ?? exportCandleSliceFromOwner,
   }))
   const report: StrategyDataSplitReport = {
     schema_version: "trade-flow.strategy-data-split.v1",
@@ -214,6 +225,7 @@ function splitDataset(
     intervalMs: number
     minSegmentRows: number
     generatedAt: string
+    marketDataSliceExporter: (input: MarketDataSliceExportRequest) => JSONRecord
   },
 ): StrategyDataSplitDatasetReport {
   if (!dataset.datasetId) {
@@ -221,7 +233,7 @@ function splitDataset(
   }
   const source = dataset.manifestPath
     ? readSourceFromManifest(dataset, options.timeframe)
-    : readSourceFromOhlcvStore(dataset, options.timeframe)
+    : readSourceFromOhlcvStore(dataset, options)
   const { header, rows, sourceManifestRef, sourceManifest, symbol } = source
   const usableRows = rows.length - options.embargoBars * 2
   if (usableRows < options.minSegmentRows * 3) {
@@ -334,7 +346,15 @@ function readSourceFromManifest(dataset: StrategyDataSplitDatasetInput, timefram
   }
 }
 
-function readSourceFromOhlcvStore(dataset: StrategyDataSplitDatasetInput, timeframe: string): {
+function readSourceFromOhlcvStore(
+  dataset: StrategyDataSplitDatasetInput,
+  options: {
+    timeframe: string
+    outputRoot: string
+    generatedAt: string
+    marketDataSliceExporter: (input: MarketDataSliceExportRequest) => JSONRecord
+  },
+): {
   header: string
   rows: CsvRow[]
   sourceManifestPath: string
@@ -345,121 +365,47 @@ function readSourceFromOhlcvStore(dataset: StrategyDataSplitDatasetInput, timefr
   const dbPath = dataset.ohlcvDbPath || "data/ohlcv.db"
   const symbol = stringField(dataset.symbol) || dataset.datasetId
   const datasetTimeframe = stringField(dataset.timeframe)
-  if (datasetTimeframe && datasetTimeframe !== timeframe) {
-    throw new Error(`dataset ${dataset.datasetId} timeframe ${datasetTimeframe} does not match split timeframe ${timeframe}`)
+  if (datasetTimeframe && datasetTimeframe !== options.timeframe) {
+    throw new Error(`dataset ${dataset.datasetId} timeframe ${datasetTimeframe} does not match split timeframe ${options.timeframe}`)
   }
-  const db = new Database(dbPath, { readonly: true })
-  try {
-    const candles = readOhlcvCandles(db, {
-      exchange: dataset.exchange,
-      symbol,
-      timeframe,
-      since_ts: dataset.sinceTs,
-      until_ts: dataset.untilTs,
-      limit: dataset.limit,
-    })
-    if (candles.length === 0) {
-      throw new Error(`ohlcv store has no candles for ${symbol} ${timeframe}`)
-    }
-    const rows = candles.map(candleToCsvRow)
-    const contentSha256 = createHash("sha256").update([csvHeader(), ...rows.map((row) => row.raw)].join("\n") + "\n").digest("hex")
-    const sourceRef = `ohlcv_store:canonical_candle/${dataset.exchange || "any"}/${symbol}/${timeframe}`
-    return {
-      header: csvHeader(),
-      rows,
-      sourceManifestPath: sourceRef,
-      sourceManifestRef: sourceRef,
-      symbol,
-      sourceManifest: {
-        schema_version: 2,
-        source: { provider: "ohlcv_store", db_path: displayPath(dbPath) },
-        closed_candles_only: true,
-        symbol,
-        requested_symbol: symbol,
-        exchange: dataset.exchange,
-        requested_exchange: dataset.exchange,
-        generated_at: new Date().toISOString(),
-        output_dir: "",
-        manifest_path: sourceRef,
-        columns: csvHeader().split(","),
-        dedupe_key: "timestamp",
-        timeframes: {
-          [timeframe]: {
-            rows: rows.length,
-            first_open_ts: rows[0]?.timestamp || 0,
-            last_open_ts: rows[rows.length - 1]?.timestamp || 0,
-            append_only: true,
-            ascending_ts: true,
-            content_sha256: contentSha256,
-          },
-        },
-      },
-    }
-  } finally {
-    db.close()
-  }
-}
-
-function readOhlcvCandles(
-  db: Database,
-  query: { exchange?: string; symbol: string; timeframe: string; since_ts?: number; until_ts?: number; limit?: number },
-): CanonicalCandleRow[] {
-  const limit = boundedLimit(query.limit, 50_000)
-  try {
-    return db.query(`
-      SELECT open_time, open, high, low, close, volume
-      FROM canonical_candle
-      WHERE ($exchange IS NULL OR exchange = $exchange)
-        AND symbol = $symbol
-        AND timeframe = $timeframe
-        AND ($since_ts IS NULL OR open_time >= $since_ts)
-        AND ($until_ts IS NULL OR open_time <= $until_ts)
-      ORDER BY open_time
-      LIMIT $limit
-    `).all({
-      $exchange: query.exchange || null,
-      $symbol: query.symbol,
-      $timeframe: query.timeframe,
-      $since_ts: query.since_ts ?? null,
-      $until_ts: query.until_ts ?? null,
-      $limit: limit,
-    }) as CanonicalCandleRow[]
-  } catch (error) {
-    if (isMissingCanonicalCandleTable(error)) {
-      throw new Error("ohlcv store schema is missing canonical_candle; initialize market_data_store before running strategy data split")
-    }
-    throw error
-  }
-}
-
-function boundedLimit(value: unknown, fallback: number): number {
-  const parsed = Number(value)
-  if (!Number.isInteger(parsed) || parsed <= 0) return fallback
-  return Math.min(parsed, 1_000_000)
-}
-
-function isMissingCanonicalCandleTable(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error)
-  return message.includes("canonical_candle") && message.includes("no such table")
-}
-
-function candleToCsvRow(candle: CanonicalCandleRow): CsvRow {
+  const exported = options.marketDataSliceExporter({
+    ohlcvDbPath: dbPath,
+    exchange: dataset.exchange,
+    symbol,
+    timeframe: options.timeframe,
+    sinceTs: dataset.sinceTs,
+    untilTs: dataset.untilTs,
+    limit: dataset.limit,
+    outputRoot: join(options.outputRoot, "_sources", safeId(dataset.datasetId)),
+    generatedAt: options.generatedAt,
+  })
+  const manifestPath = stringField(exported.manifest_path)
+  if (!manifestPath) throw new Error("market_data_store export omitted manifest_path")
+  const source = readSourceFromManifest({ ...dataset, manifestPath }, options.timeframe)
   return {
-    timestamp: candle.open_time,
-    raw: [
-      new Date(candle.open_time).toISOString(),
-      candle.open_time,
-      candle.open,
-      candle.high,
-      candle.low,
-      candle.close,
-      candle.volume ?? "",
-    ].join(","),
+    ...source,
+    sourceManifestRef: stringField(exported.slice_ref) || source.sourceManifestRef,
   }
 }
 
-function csvHeader(): string {
-  return "date,timestamp,open,high,low,close,volume"
+function exportCandleSliceFromOwner(input: MarketDataSliceExportRequest): JSONRecord {
+  const args = [
+    ...(input.ohlcvDbPath ? ["--ohlcv-db", input.ohlcvDbPath] : []),
+    "--action",
+    "export_candle_slice",
+    "--json",
+    JSON.stringify({
+      exchange: input.exchange,
+      symbol: input.symbol,
+      timeframe: input.timeframe,
+      since_ts: input.sinceTs,
+      until_ts: input.untilTs,
+      limit: input.limit,
+      output_root: input.outputRoot,
+      generated_at: input.generatedAt,
+    }),
+  ]
+  return asRecord(runOwnerToolRecordSync("market-data.store", args, "market data candle slice exporter").export)
 }
 
 function readCsvRows(path: string): { header: string; rows: CsvRow[] } {
@@ -488,14 +434,14 @@ function normalizeMinSegmentRows(value: unknown): number {
   if (value === undefined) return DEFAULT_MIN_SEGMENT_ROWS
   const parsed = Number(value)
   if (!Number.isInteger(parsed) || parsed < DEFAULT_MIN_SEGMENT_ROWS) {
-    throw new Error(`DATA-SPLIT-SAMPLE-FLOOR: min_segment_rows must be at least ${DEFAULT_MIN_SEGMENT_ROWS}. Do not lower the research sample floor to make a run pass; fetch more OHLCV with modules/market-data-products/ohlcv-fetch or split from data/ohlcv.db.canonical_candle.`)
+    throw new Error(`DATA-SPLIT-SAMPLE-FLOOR: min_segment_rows must be at least ${DEFAULT_MIN_SEGMENT_ROWS}. Do not lower the research sample floor to make a run pass; fetch more OHLCV or request a larger market-data owner slice.`)
   }
   return parsed
 }
 
 function notEnoughRowsMessage(datasetId: string, rows: number, minSegmentRows: number, embargoBars: number, segmentMultiplier: number): string {
   const requiredRows = minSegmentRows * segmentMultiplier + embargoBars * 2
-  return `DATA-SPLIT-INSUFFICIENT-OHLCV: dataset ${datasetId} has ${rows} rows; need at least ${requiredRows} rows for min_segment_rows=${minSegmentRows} with embargo_bars=${embargoBars}. Fetch more OHLCV with modules/market-data-products/ohlcv-fetch, or provide ohlcv_db_path so research.data-split can read data/ohlcv.db.canonical_candle. Do not lower min_segment_rows to make the split pass.`
+  return `DATA-SPLIT-INSUFFICIENT-OHLCV: dataset ${datasetId} has ${rows} rows; need at least ${requiredRows} rows for min_segment_rows=${minSegmentRows} with embargo_bars=${embargoBars}. Fetch more OHLCV or request a larger market-data owner slice. Do not lower min_segment_rows to make the split pass.`
 }
 
 function embargoBarsFor(input: StrategyDataSplitInput, timeframe: string): number {
@@ -538,5 +484,7 @@ export {
   runStrategyDataSplit,
   strategyDataSplitInputFromJson,
   type StrategyDataSplitInput,
+  type StrategyDataSplitDependencies,
   type StrategyDataSplitReport,
+  type MarketDataSliceExportRequest,
 }

@@ -6,6 +6,8 @@ import { createHash } from "node:crypto"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname, join, relative, resolve } from "node:path"
 import { nowIsoUTC } from "../../../../contracts/runtime-core/src/time"
+import { resolveDatabasePathInput } from "../../../../contracts/runtime-core/src/database-environment"
+import { buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../contracts/runtime-core/src/database-identity"
 import {
   ensureMarketDataSchema,
   ensureOhlcvSchema,
@@ -25,6 +27,7 @@ export interface Config {
   sinceTS: number
   marketDataDb: string
   ohlcvDb: string
+  environmentId: string
 }
 
 export interface SymbolSpec {
@@ -231,6 +234,7 @@ export function parseArgs(argv: string[]): Config {
     sinceTS: 0,
     marketDataDb: "data/market_data.db",
     ohlcvDb: "data/ohlcv.db",
+    environmentId: "local:local",
   }
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -275,6 +279,9 @@ export function parseArgs(argv: string[]): Config {
       case "--ohlcv-db":
         config.ohlcvDb = readFlagValue(argv, ++i, arg)
         break
+      case "--environment-id":
+        config.environmentId = readFlagValue(argv, ++i, arg)
+        break
       default:
         throw new Error(`unknown flag: ${arg}`)
     }
@@ -298,13 +305,15 @@ function recordMarketDataStoreIfEnabled(
   if (!config.marketDataDb) {
     return null
   }
-  const marketDbPath = resolve(config.marketDataDb)
-  const ohlcvDbPath = resolve(config.ohlcvDb)
+  const marketDbPath = resolveDatabasePathInput(config.marketDataDb)
+  const ohlcvDbPath = resolveDatabasePathInput(config.ohlcvDb)
   mkdirSync(dirname(marketDbPath), { recursive: true })
   mkdirSync(dirname(ohlcvDbPath), { recursive: true })
   const marketDb = new Database(marketDbPath)
   const ohlcvDb = new Database(ohlcvDbPath)
   try {
+    ensureDatabaseIdentity(marketDb, buildDatabaseIdentity(config.environmentId, "market_data_store"))
+    ensureDatabaseIdentity(ohlcvDb, buildDatabaseIdentity(config.environmentId, "ohlcv_store"))
     ensureMarketDataSchema(marketDb)
     ensureOhlcvSchema(ohlcvDb)
     const manifests: MarketDataStoreWriteSummary["manifests"] = []
@@ -491,7 +500,7 @@ async function fetchAllTimeframes(
   cfg: FetchConfig,
   config: Config,
 ): Promise<Record<string, CandleSet>> {
-  const latestOpenTimes = readLatestOpenTimes(config.ohlcvDb, cfg, config.timeframes)
+  const latestOpenTimes = readLatestOpenTimes(config.ohlcvDb, config.environmentId, cfg, config.timeframes)
   const tasks = config.timeframes.map(async (timeframe) => {
     const limit = config.limit > 0 ? config.limit : (DEFAULT_LIMITS[timeframe] ?? 300)
     const sinceTS = config.sinceTS > 0 ? config.sinceTS : nextOpenAfter(latestOpenTimes[timeframe] ?? null)
@@ -502,11 +511,12 @@ async function fetchAllTimeframes(
   return Object.fromEntries(results)
 }
 
-function readLatestOpenTimes(dbPath: string, cfg: FetchConfig, timeframes: string[]): Record<string, number | null> {
-  const resolved = resolve(dbPath)
+function readLatestOpenTimes(dbPath: string, environmentId: string, cfg: FetchConfig, timeframes: string[]): Record<string, number | null> {
+  const resolved = resolveDatabasePathInput(dbPath)
   mkdirSync(dirname(resolved), { recursive: true })
   const db = new Database(resolved)
   try {
+    ensureDatabaseIdentity(db, buildDatabaseIdentity(environmentId, "ohlcv_store"))
     ensureOhlcvSchema(db)
     return Object.fromEntries(timeframes.map((timeframe) => [
       timeframe,

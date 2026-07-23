@@ -4,8 +4,10 @@ import { loadJsonFile, loadStrategies } from "../../../../contracts/strategy-pol
 import { asRecord, numberField, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
 import { displayPath, displayPathFrom, resolvePathFrom } from "../../../../contracts/runtime-core/src/paths"
 import { runJsonCommand, runToolCommand, type Runner, type ToolCallResult } from "../../../../contracts/runtime-core/src/tool-runner"
+import { resolveRegisteredOwnerTool } from "../../../../contracts/runtime-core/src/owner-tool-registry"
 import { activeFlows } from "./flow-projector-client"
 import { loadRuntimePolicyFromOwner } from "./runtime-policy-client"
+import { buildDecisionChain } from "./decision-chain"
 
 interface SlowTrackWorkflowInput {
   repoRoot: string
@@ -17,17 +19,22 @@ interface SlowTrackWorkflowInput {
   technicalAnalysisLimitPerSide?: number
   runner?: Runner
   activeFlowCountReader?: (dbPath: string) => number
+  runtimePolicyLoader?: (tradingConfigPath: string) => JSONRecord
 }
 
-function loadRuntime(accountConfigPath: string, tradingConfigPath: string, strategiesDir: string): JSONRecord {
+function loadRuntime(
+  accountConfigPath: string,
+  tradingConfigPath: string,
+  strategiesDir: string,
+  runtimePolicyLoader: (tradingConfigPath: string) => JSONRecord,
+): JSONRecord {
   const accountConfig = loadJsonFile(accountConfigPath)
   const strategies = loadStrategies(strategiesDir)
-  const { trading_config, runtime_policy } = loadRuntimePolicyFromOwner({
-    tradingConfigPath,
-  })
+  const { trading_config, runtime_policy, runtime_authorization } = runtimePolicyLoader(tradingConfigPath)
   return {
     trading_config,
     runtime_policy,
+    runtime_authorization,
     account_config: accountConfig,
     strategies,
     loaded_at: new Date().toISOString(),
@@ -42,15 +49,16 @@ export async function runSlowTrackWorkflowDryRun(input: SlowTrackWorkflowInput):
   const accountConfigPath = join(input.repoRoot, "profile/account_config.json")
   const tradingConfigPath = join(input.repoRoot, "profile/trading-config.json")
   const strategiesDir = join(input.repoRoot, "strategies")
-  const runtime = loadRuntime(accountConfigPath, tradingConfigPath, strategiesDir)
+  const runtime = loadRuntime(
+    accountConfigPath,
+    tradingConfigPath,
+    strategiesDir,
+    input.runtimePolicyLoader ?? ((path) => loadRuntimePolicyFromOwner({ tradingConfigPath: path })),
+  )
 
   const [accountSnapshot, marketScan] = await Promise.all([
-    runToolCommand(runner, ["bun", "src/scripts/main.ts", "--timeout", "10"], join(input.repoRoot, "modules/exchange-gateway/binance-read/account-snapshot")),
-    runToolCommand(
-      runner,
-      ["bun", "src/scripts/main.ts", "--direction", "both", "--limit-per-side", String(candidateLimit)],
-      join(input.repoRoot, "modules/market-data-products/binance-read/market-scan"),
-    ),
+    runOwnerTool(runner, input.repoRoot, "binance.account-snapshot", ["--timeout", "10"]),
+    runOwnerTool(runner, input.repoRoot, "binance.market-scan", ["--direction", "both", "--limit-per-side", String(candidateLimit)]),
   ])
 
   const candidates = extractCandidates(marketScan.data, snapshotLimit)
@@ -59,13 +67,21 @@ export async function runSlowTrackWorkflowDryRun(input: SlowTrackWorkflowInput):
   const strategyPool = summarizeStrategyPool(runtime)
   const accountState = summarizeAccountState(accountSnapshot)
   const watchlist = buildWatchlist(candidates, symbolSnapshots, technicalAnalyses, strategyPool, accountState)
+  const generatedAt = new Date().toISOString()
+  const decisionChain = buildDecisionChain({
+    runId: input.runId,
+    generatedAt,
+    runtime,
+    accountState,
+    watchlist,
+  })
   const report = {
     track: "slow",
     mode: "analysis-only",
     executable: false,
     live_execution_allowed: false,
     run_id: input.runId,
-    generated_at: new Date().toISOString(),
+    generated_at: generatedAt,
     active_flow_count: readActiveFlowCount(input),
     strategy_pool: strategyPool,
     account_state: accountState,
@@ -76,6 +92,10 @@ export async function runSlowTrackWorkflowDryRun(input: SlowTrackWorkflowInput):
       filters: asRecord(asRecord(marketScan.data).filters),
     },
     watchlist,
+    decision_input_bundle: decisionChain.decision_input_bundle,
+    trade_plan_draft: decisionChain.trade_plan_draft,
+    capital_allocation_proposal: decisionChain.capital_allocation_proposal,
+    action_intent: decisionChain.action_intent,
     trade_decision: {
       target_action: "no_action",
       reason: buildNoActionReason(accountState, strategyPool, watchlist),
@@ -126,15 +146,12 @@ async function runTechnicalAnalysis(
   runner: Runner,
   symbol: string,
 ): Promise<ToolCallResult> {
-  const ohlcvToolDir = join(input.repoRoot, "modules/market-data-products/ohlcv-fetch")
   const ohlcvOutputDir = join(input.repoRoot, "tmp", "market", input.runId, symbol)
   const marketDataDb = join(input.dataDir, "market_data.db")
   const ohlcvDb = join(input.dataDir, "ohlcv.db")
-  const ohlcv = await runToolCommand(
-    runner,
+  const ohlcvOwner = resolveRegisteredOwnerTool(
+    "ohlcv-fetch",
     [
-      "bun",
-      "src/scripts/main.ts",
       "--symbol",
       symbol,
       "--timeframes",
@@ -146,8 +163,9 @@ async function runTechnicalAnalysis(
       "--ohlcv-db",
       ohlcvDb,
     ],
-    ohlcvToolDir,
+    input.repoRoot,
   )
+  const ohlcv = await runToolCommand(runner, ohlcvOwner.argv, ohlcvOwner.cwd)
   if (!ohlcv.ok) {
     return ohlcv
   }
@@ -159,12 +177,13 @@ async function runTechnicalAnalysis(
       data: ohlcv.data,
     }
   }
-  const manifestFsPath = resolvePathFrom(manifestPath, ohlcvToolDir)
-  const indicators = await runToolCommand(
-    runner,
-    ["go", "run", "./src/scripts", "--manifest", manifestFsPath],
-    join(input.repoRoot, "modules/market-data-products/tech-indicators"),
+  const manifestFsPath = resolvePathFrom(manifestPath, ohlcvOwner.cwd)
+  const indicatorOwner = resolveRegisteredOwnerTool(
+    "tech-indicators",
+    ["./src/scripts", "--manifest", manifestFsPath],
+    input.repoRoot,
   )
+  const indicators = await runToolCommand(runner, indicatorOwner.argv, indicatorOwner.cwd)
   if (!indicators.ok) {
     return {
       ...indicators,
@@ -177,7 +196,7 @@ async function runTechnicalAnalysis(
   return {
     ok: true,
     data: {
-      ohlcv: summarizeOhlcv(input.repoRoot, ohlcvToolDir, asRecord(ohlcv.data)),
+      ohlcv: summarizeOhlcv(input.repoRoot, ohlcvOwner.cwd, asRecord(ohlcv.data)),
       indicators: summarizeIndicators(asRecord(indicators.data)),
     },
   }
@@ -190,14 +209,20 @@ async function fetchSymbolSnapshots(
 ): Promise<Record<string, ToolCallResult>> {
   const unique = uniqueSymbols(candidates)
   const entries = await Promise.all(unique.map(async (symbol) => {
-    const result = await runToolCommand(
-      runner,
-      ["bun", "src/scripts/main.ts", "--symbol", symbol, "--pulse"],
-      join(repoRoot, "modules/market-data-products/binance-read/symbol-snapshot"),
-    )
+    const result = await runOwnerTool(runner, repoRoot, "binance.symbol-snapshot", ["--symbol", symbol, "--pulse"])
     return [symbol, result] as const
   }))
   return Object.fromEntries(entries)
+}
+
+function runOwnerTool(
+  runner: Runner,
+  ownerRepoRoot: string,
+  toolId: string,
+  args: string[],
+): Promise<ToolCallResult> {
+  const owner = resolveRegisteredOwnerTool(toolId, args, ownerRepoRoot)
+  return runToolCommand(runner, owner.argv, owner.cwd)
 }
 
 function summarizeStrategyPool(runtime: JSONRecord): JSONRecord {
@@ -236,13 +261,19 @@ function summarizeAccountState(snapshot: ToolCallResult): JSONRecord {
     }
   }
   const data = asRecord(snapshot.data)
-  const regularOrders = readArray(asRecord(data.openOrders).regular)
-  const protectiveOrders = readArray(asRecord(data.openOrders).protective)
+  const facts = asRecord(data.account_facts)
+  const orders = asRecord(facts.open_orders ?? data.openOrders)
+  const regularOrders = readArray(orders.regular)
+  const protectiveOrders = readArray(orders.protective)
   return {
     ok: true,
-    generated_at: stringField(data.generated_at),
-    balances_count: readArray(data.balances).length,
-    positions_count: readArray(data.positions).length,
+    generated_at: stringField(facts.as_of) || stringField(data.generated_at),
+    account_ref: stringField(facts.account_ref),
+    account_scope: stringField(facts.account_scope),
+    snapshot_ref: stringField(facts.snapshot_ref) || stringField(data.snapshot_ref),
+    content_hash: stringField(facts.content_hash) || stringField(data.content_hash),
+    balances_count: readArray(facts.balances ?? data.balances).length,
+    positions_count: readArray(facts.positions ?? data.positions).length,
     open_orders_count: regularOrders.length + protectiveOrders.length,
     regular_orders_count: regularOrders.length,
     protective_orders_count: protectiveOrders.length,

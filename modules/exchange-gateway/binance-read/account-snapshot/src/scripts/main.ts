@@ -2,6 +2,7 @@
 
 import Binance, { type BinanceRest } from "binance-api-node"
 import { nowIsoUTC } from "../../../../../contracts/runtime-core/src/time"
+import { buildExchangeAccountFacts, buildVenueAccountIdentity } from "../lib/exchange-account-facts"
 
 type JSONMap = Record<string, unknown>
 
@@ -12,6 +13,9 @@ interface Config {
   historyLimit: number
   timeout: number
   recvWindow: number
+  accountAlias: string
+  accountRef: string
+  accountScope: string
 }
 
 interface EnvStatus {
@@ -32,7 +36,12 @@ const MANUAL_TP_SL_PROMPT =
 
 interface Snapshot {
   generated_at: string
+  as_of: string
   symbolFilter: string | null
+  venue_account_ref: JSONMap
+  account_facts: JSONMap
+  snapshot_ref: string
+  content_hash: string
   account: JSONMap
   balances: JSONMap[]
   positions: JSONMap[] | null
@@ -63,6 +72,9 @@ Key flags:
   --history-limit <count>    Default: 20
   --timeout <seconds>        Default: 10
   --recv-window <ms>         Default: 60000
+  --account-alias <alias>    Stable non-secret venue account alias; default: primary
+  --account-ref <ref>        Stable venue account ref; derived from alias by default
+  --account-scope <ref>      Risk aggregation scope; defaults to account ref
   --check-env                Only validate BINANCE_API_KEY / BINANCE_API_SECRET
   --help                     Show this help
 `
@@ -125,6 +137,9 @@ function parseArgs(argv: string[]): Config {
     historyLimit: 20,
     timeout: 10,
     recvWindow: 60000,
+    accountAlias: "primary",
+    accountRef: "",
+    accountScope: "",
   }
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -147,6 +162,15 @@ function parseArgs(argv: string[]): Config {
         break
       case "--recv-window":
         config.recvWindow = Number(readFlagValue(argv, ++index, arg))
+        break
+      case "--account-alias":
+        config.accountAlias = readFlagValue(argv, ++index, arg)
+        break
+      case "--account-ref":
+        config.accountRef = readFlagValue(argv, ++index, arg)
+        break
+      case "--account-scope":
+        config.accountScope = readFlagValue(argv, ++index, arg)
         break
       default:
         throw new Error(`unknown flag: ${arg}`)
@@ -189,10 +213,32 @@ async function buildSnapshot(config: Config, client: BinanceRest): Promise<Snaps
   const generated_at = nowIsoUTC()
 
   const futures = await buildFuturesSnapshot(config, client, params, errors)
+  const identity = buildVenueAccountIdentity({
+    account_alias: config.accountAlias,
+    account_ref: config.accountRef,
+    account_scope: config.accountScope,
+  })
+  const accountFacts = buildExchangeAccountFacts({
+    identity,
+    as_of: generated_at,
+    account: futures.account,
+    balances: futures.balances,
+    positions: futures.positions ?? [],
+    open_orders: futures.openOrders ?? { regular: [], protective: [] },
+    errors,
+  })
 
   return {
     generated_at,
+    as_of: generated_at,
     symbolFilter: config.symbol || null,
+    venue_account_ref: {
+      schema_version: "trade.exchange.venue-account-ref.v1",
+      ...identity,
+    },
+    account_facts: accountFacts,
+    snapshot_ref: String(accountFacts.snapshot_ref),
+    content_hash: String(accountFacts.content_hash),
     ...futures,
     errors,
   }
@@ -203,7 +249,7 @@ async function buildFuturesSnapshot(
   client: BinanceRest,
   params: { symbol?: string },
   errors: Record<string, string>,
-): Promise<Omit<Snapshot, "generated_at" | "symbolFilter" | "errors">> {
+): Promise<Pick<Snapshot, "account" | "balances" | "positions" | "openOrders" | "orderHistory">> {
   const historyParams =
     config.includeHistory && config.symbol
       ? withRecvWindow(copyParamsWithLimit({ symbol: config.symbol }, config.historyLimit), config.recvWindow)

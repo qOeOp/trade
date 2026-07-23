@@ -36,6 +36,16 @@ export interface L2BookWatchSessionTransition extends JSONRecord {
   kind: "snapshot" | "watch" | "retry"
 }
 
+export type L2BookWatchFailureClass =
+  | "owner_health_unavailable"
+  | "owner_health_not_ready"
+  | "current_book_unavailable"
+  | "current_book_stale"
+  | "snapshot_contract_drift"
+  | "snapshot_unavailable"
+  | "watch_contract_drift"
+  | "watch_unavailable"
+
 export async function runL2BookWatchSession(
   input: JSONRecord,
   dependencies: L2BookWatchSessionDependencies = {},
@@ -139,8 +149,9 @@ export async function runL2BookWatchSession(
       if (requiresSnapshot) snapshotReason = "epoch_or_resync"
       consecutiveFailures = 0
       await yieldControl()
-    } catch {
+    } catch (error) {
       const failedOperation = operation
+      const errorClass = classifyFailure(error, failedOperation)
       if (failedOperation === "watch") {
         watchFailures += 1
         reconnectCount += 1
@@ -170,7 +181,7 @@ export async function runL2BookWatchSession(
         operation: failedOperation,
         attempt: consecutiveFailures,
         delay_ms: delay,
-        error_class: failedOperation === "snapshot" ? "snapshot_unavailable" : "watch_unavailable",
+        error_class: errorClass,
       }, dependencies.onTransition)
       retrySleepMs += delay
       await sleep(delay)
@@ -222,6 +233,23 @@ export async function runL2BookWatchSession(
       "no-strategy-signal-trading-execution-or-lifecycle-authority",
     ],
   }
+}
+
+function classifyFailure(error: unknown, operation: "snapshot" | "watch"): L2BookWatchFailureClass {
+  const message = error instanceof Error ? error.message : ""
+  if (operation === "watch") {
+    return /drift|schema|authority|contract|epoch|event count|follow-up/i.test(message)
+      ? "watch_contract_drift"
+      : "watch_unavailable"
+  }
+  if (/health is not ready|health source identity is not ready/i.test(message)) return "owner_health_not_ready"
+  if (/service health failed|owner health response|unsupported L2 owner health/i.test(message)) return "owner_health_unavailable"
+  if (/current book failed/i.test(message)) return "current_book_unavailable"
+  if (/not fresh\/live/i.test(message)) return "current_book_stale"
+  if (/drift|schema|authority|contract|level count|best level|time order|hash|spread|depth quantity/i.test(message)) {
+    return "snapshot_contract_drift"
+  }
+  return "snapshot_unavailable"
 }
 
 function requireSnapshot(result: JSONRecord): SnapshotIdentity {

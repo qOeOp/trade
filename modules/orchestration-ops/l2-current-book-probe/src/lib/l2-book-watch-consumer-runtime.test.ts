@@ -34,6 +34,7 @@ test("owner read exposes fresh baseline and aggregate metrics without process in
   assert.equal((result.readiness as Record<string, unknown>).overall_ready, true)
   assert.equal((result.latest_baseline as Record<string, unknown>).stream_epoch, "epoch-1")
   assert.equal((result.metrics as Record<string, unknown>).watch_cycle_total, 5)
+  assert.equal((result.last_failure as Record<string, unknown>).error_class, "owner_health_unavailable")
   assert.equal(result.consumer_authority, "non_economic_observation_only")
   assert.equal(result.lifecycle_authority, "none")
   assert.deepEqual(result.writes, [])
@@ -120,6 +121,12 @@ function active(): ActiveL2WatchConsumer {
       last_watch_at: "2026-07-22T00:00:04.500Z",
       last_watch_event_count: 6,
       last_error_class: "",
+      last_failure: {
+        observed_at: "2026-07-22T00:00:03.000Z",
+        operation: "snapshot",
+        error_class: "owner_health_unavailable",
+        attempt: 1,
+      },
       metrics: {
         worker_start_total: 1,
         watch_cycle_total: 5,

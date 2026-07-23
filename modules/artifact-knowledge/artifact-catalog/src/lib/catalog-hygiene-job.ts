@@ -8,6 +8,7 @@ export interface CatalogHygieneJobInput {
   ticket_no?: string
   job_id?: string
   catalog_db_path: string
+  environment_id?: string
   roots: string[]
   now?: string
   idempotency_key?: string
@@ -24,6 +25,7 @@ export function runCatalogHygieneJob(input: CatalogHygieneJobInput): CatalogHygi
   const idempotencyKey = input.idempotency_key || `${input.cycle_id}:${ticketNo}`
   const scan = scanDataCatalog({
     catalogDbPath: input.catalog_db_path,
+    environmentId: input.environment_id,
     roots: input.roots,
     now: input.now,
   })

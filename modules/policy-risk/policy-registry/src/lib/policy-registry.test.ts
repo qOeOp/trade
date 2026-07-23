@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite"
 import assert from "node:assert/strict"
 import test from "node:test"
 import {
+  authorizeCompiledRuntimePolicy,
   buildApprovedStrategyRef,
   buildPolicySnapshot,
   ensurePolicyRegistrySchema,
@@ -10,6 +11,38 @@ import {
   recordPolicySnapshot,
   upsertApprovedStrategyRef,
 } from "./policy-registry"
+
+test("policy registry persists compiled policy and issues account-scoped bounded authorization", () => {
+  const db = new Database(":memory:")
+  ensurePolicyRegistrySchema(db)
+  try {
+    const result = authorizeCompiledRuntimePolicy(db, {
+      now: "2026-07-23T00:00:00.000Z",
+      ttl_seconds: 300,
+      runtime_policy: {
+        schema_version: "runtime-policy.v1",
+        profile_id: "retail-small-usdm",
+        account_ref: "exchange-account://binance/live/usdm/primary",
+        account_scope: "capital-scope://retail-small-usdm",
+        source_hash: `sha256:${"a".repeat(64)}`,
+        compiled_at: "2026-07-23T00:00:00.000Z",
+        effective_limits: {},
+        cost_model: {},
+        permissions: { can_live_small: true },
+      },
+      policy_snapshot_ref: {
+        policy_hash: `sha256:${"a".repeat(64)}`,
+      },
+    })
+
+    assert.equal(result.authorization.account_scope, "capital-scope://retail-small-usdm")
+    assert.equal(result.authorization.expires_at, "2026-07-23T00:05:00.000Z")
+    assert.match(result.authorization.authorization_ref, /^policy-authorization:\/\//)
+    assert.equal(readPolicySnapshot(db, `sha256:${"a".repeat(64)}`)?.profile, "retail-small-usdm")
+  } finally {
+    db.close()
+  }
+})
 
 test("policy registry records immutable snapshots and approved refs", () => {
   const db = new Database(":memory:")
@@ -76,4 +109,3 @@ test("policy registry upserts strategy status without mutating snapshot", () => 
     db.close()
   }
 })
-

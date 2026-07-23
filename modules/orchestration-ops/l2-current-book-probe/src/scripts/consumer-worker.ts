@@ -14,6 +14,7 @@ import {
 } from "../lib/l2-book-watch-consumer-runtime"
 import {
   runL2BookWatchSession,
+  type L2BookWatchFailureClass,
   type L2BookWatchSessionTransition,
 } from "../lib/l2-book-watch-session"
 
@@ -41,6 +42,7 @@ let state: L2WatchConsumerObservationState = {
   last_watch_at: null,
   last_watch_event_count: 0,
   last_error_class: "",
+  last_failure: readPreviousLastFailure(),
   metrics,
 }
 writeObservation()
@@ -111,15 +113,22 @@ function applyTransition(transition: L2BookWatchSessionTransition): void {
     }
   } else {
     const operation = requiredText(transition.operation, "retry.operation")
+    const errorClass = requiredFailureClass(transition.error_class)
+    const failureAt = new Date().toISOString()
     state.status = "backoff"
     state.ready = false
+    state.last_error_class = errorClass
+    state.last_failure = {
+      observed_at: failureAt,
+      operation: operation === "watch" ? "watch" : "snapshot",
+      error_class: errorClass,
+      attempt: nonNegativeInteger(transition.attempt, "retry.attempt"),
+    }
     state.metrics.retry_total += 1
     if (operation === "watch") {
-      state.last_error_class = "watch_unavailable"
       state.metrics.watch_failure_total += 1
       state.metrics.reconnect_total += 1
     } else {
-      state.last_error_class = "snapshot_unavailable"
       state.metrics.snapshot_failure_total += 1
     }
   }
@@ -139,6 +148,28 @@ function writeObservation(): void {
 function readPreviousMetrics(): L2WatchConsumerObservationState["metrics"] {
   const previous = existsSync(observationPath) ? JSON.parse(readFileSync(observationPath, "utf8")) : null
   return carryForwardL2WatchConsumerMetrics(previous, workerAttempt)
+}
+
+function readPreviousLastFailure(): L2WatchConsumerObservationState["last_failure"] {
+  if (!existsSync(observationPath)) return null
+  const previous = JSON.parse(readFileSync(observationPath, "utf8")) as Partial<L2WatchConsumerObservationState>
+  return previous.schema_version === L2_WATCH_CONSUMER_OBSERVATION_SCHEMA ? previous.last_failure ?? null : null
+}
+
+function requiredFailureClass(value: unknown): L2BookWatchFailureClass {
+  const failureClass = requiredText(value, "retry.error_class") as L2BookWatchFailureClass
+  const allowed = new Set<L2BookWatchFailureClass>([
+    "owner_health_unavailable",
+    "owner_health_not_ready",
+    "current_book_unavailable",
+    "current_book_stale",
+    "snapshot_contract_drift",
+    "snapshot_unavailable",
+    "watch_contract_drift",
+    "watch_unavailable",
+  ])
+  if (!allowed.has(failureClass)) throw new Error("retry.error_class is invalid")
+  return failureClass
 }
 
 function requiredText(value: unknown, field: string): string {

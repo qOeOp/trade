@@ -41,6 +41,8 @@ test("loadRuntimePolicy reads trading config as the only policy source", () => {
     writeFileSync(tradingConfigPath, JSON.stringify({
       schema_version: 1,
       profile_id: "runtime-test",
+      account_ref: "exchange-account://binance/live/usdm/primary",
+      account_scope: "capital-scope://runtime-test",
       mode: "live",
       permissions: { live_small_enabled: true, max_stage: "live-small" },
       risk: { max_open_risk_pct: 0.01 },

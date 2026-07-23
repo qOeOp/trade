@@ -111,6 +111,7 @@ test("slow track workflow dry-run builds real watchlist without live action", as
       runId: "run-slow-test",
       dbPath: join(dataDir, "trade.db"),
       activeFlowCountReader: () => 0,
+      runtimePolicyLoader: testRuntimePolicy,
       runner,
     })
     assert.equal(result.mode, "analysis-only")
@@ -118,6 +119,10 @@ test("slow track workflow dry-run builds real watchlist without live action", as
     assert.equal((result.trade_decision as { target_action: string }).target_action, "no_action")
     assert.equal((result.strategy_pool as { live_small_ready: unknown[] }).live_small_ready.length, 1)
     assert.equal((result.watchlist as unknown[]).length, 2)
+    assert.equal((result.decision_input_bundle as { schema_version: string }).schema_version, "decision-input-bundle.v1")
+    assert.equal((result.trade_plan_draft as { schema_version: string }).schema_version, "trade-plan-draft.v1")
+    assert.equal((result.capital_allocation_proposal as { status: string }).status, "not_allocated")
+    assert.equal((result.action_intent as { intent_kind: string }).intent_kind, "no_action")
     assert.equal((result.watchlist as Array<{ symbol: string; strategy_usage: { matched_live_small_strategies: string[] } }>)[0].symbol, "BTCUSDT")
     assert.deepEqual((result.watchlist as Array<{ strategy_usage: { matched_live_small_strategies: string[] } }>)[0].strategy_usage.matched_live_small_strategies, ["S-BTC"])
     const ohlcv = (result.watchlist as Array<{ technical_analysis: { ohlcv: { manifest_path: string; output_dir: string } } }>)[0].technical_analysis.ohlcv
@@ -163,6 +168,7 @@ test("slow track workflow reports account snapshot unavailable without inventing
       runId: "run-no-account",
       dbPath: join(dataDir, "trade.db"),
       activeFlowCountReader: () => 0,
+      runtimePolicyLoader: testRuntimePolicy,
       runner,
     })
     assert.equal(isAbsolute(String(result.artifact_path)), false)
@@ -247,6 +253,7 @@ test("slow track workflow analyzes every default watchlist candidate", async () 
       runId: "run-full-analysis",
       dbPath: join(dataDir, "trade.db"),
       activeFlowCountReader: () => 0,
+      runtimePolicyLoader: testRuntimePolicy,
       runner,
     })
     assert.equal(isAbsolute(String(result.artifact_path)), false)
@@ -270,6 +277,8 @@ function writeTradingConfig(repoRoot: string): void {
   writeFileSync(join(repoRoot, "profile/trading-config.json"), JSON.stringify({
     schema_version: 1,
     profile_id: "slow-track-test",
+    account_ref: "exchange-account://binance/live/usdm/primary",
+    account_scope: "capital-scope://slow-track-test",
     mode: "dry_run",
     permissions: { live_small_enabled: false, max_stage: "paper_shadow" },
     risk: {},
@@ -277,4 +286,22 @@ function writeTradingConfig(repoRoot: string): void {
     execution: {},
     research: {},
   }))
+}
+
+function testRuntimePolicy(): Record<string, unknown> {
+  const policyRef = "policy-snapshot://slow-track-test"
+  return {
+    trading_config: {},
+    runtime_policy: {
+      schema_version: "runtime-policy.v1",
+      policy_ref: policyRef,
+      account_ref: "exchange-account://binance/live/usdm/primary",
+      account_scope: "capital-scope://slow-track-test",
+    },
+    runtime_authorization: {
+      schema_version: "runtime-authorization.v1",
+      authorization_ref: "runtime-authorization://slow-track-test",
+      policy_ref: policyRef,
+    },
+  }
 }

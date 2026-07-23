@@ -21,6 +21,7 @@ export function run(argv: string[]): JSONRecord {
     if (requestKind !== "read" && requestKind !== "write") throw new Error("request_kind must be read or write")
     if (requestKind === "read" && !READ_ACTIONS.includes(action as typeof READ_ACTIONS[number])) throw new Error("unsupported read action")
     if (requestKind === "write" && !WRITE_ACTIONS.includes(action as typeof WRITE_ACTIONS[number])) throw new Error("unsupported write action")
+    if (requestKind === "write" && !stringField(input.capability_ref)) throw new Error("write request requires capability_ref")
     return successResponse(SCHEMA_VERSION, {
         schema_version: "exchange-request-route.v1",
         request_kind: requestKind,
@@ -30,6 +31,7 @@ export function run(argv: string[]): JSONRecord {
         mode: stringField(input.mode) || undefined,
         idempotency_key: stringField(input.idempotency_key) || undefined,
         source_intent_ref: stringField(input.source_intent_ref) || undefined,
+        capability_ref: stringField(input.capability_ref) || undefined,
       })
   } catch (error) {
     return errorResponse(SCHEMA_VERSION, error)

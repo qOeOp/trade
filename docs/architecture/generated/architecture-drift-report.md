@@ -54,4 +54,3 @@
 
 - Current implementation projection: [code-architecture-current.mmd](code-architecture-current.mmd)
 - Blueprint source of truth: [../architecture-overview-v2.mmd](../architecture-overview-v2.mmd)
-

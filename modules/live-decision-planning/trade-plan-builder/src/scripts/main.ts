@@ -22,6 +22,9 @@ export function run(argv: string[]): JSONRecord {
     if (!symbol) throw new Error("symbol is required")
     if (!["long", "short"].includes(side)) throw new Error("side must be long or short")
     if (sourceRefs.length === 0) throw new Error("source_refs must be non-empty")
+    const riskBudgetUsdt = optionalNumber(input.risk_budget_usdt) ?? 0
+    const accountScope = stringField(input.account_scope)
+    const expiresAt = stringField(input.expires_at) || undefined
     return successResponse(SCHEMA_VERSION, withoutUndefined({
         schema_version: "trade-plan-draft.v1",
         plan_ref: planRef,
@@ -33,8 +36,20 @@ export function run(argv: string[]): JSONRecord {
         invalidation_ref: stringField(input.invalidation_ref) || undefined,
         trigger_ref: stringField(input.trigger_ref) || undefined,
         risk_budget_ref: stringField(input.risk_budget_ref) || undefined,
-        expires_at: stringField(input.expires_at) || undefined,
+        risk_budget_usdt: riskBudgetUsdt,
+        expires_at: expiresAt,
         source_refs: sourceRefs,
+        capital_allocation_proposal: {
+          schema_version: "capital-allocation-proposal.v1",
+          proposal_ref: stringField(input.allocation_proposal_ref) || `${planRef}/allocation`,
+          status: riskBudgetUsdt > 0 ? "proposed" : "not_allocated",
+          account_scope: accountScope || undefined,
+          strategy_ref: stringField(input.strategy_ref) || undefined,
+          symbol,
+          risk_budget_usdt: riskBudgetUsdt,
+          expires_at: expiresAt,
+          source_refs: sourceRefs,
+        },
         content_hash: stringField(input.content_hash) || stableHash([planRef, decisionInputRef, symbol, side, ...sourceRefs].join("|")),
       }))
   } catch (error) {

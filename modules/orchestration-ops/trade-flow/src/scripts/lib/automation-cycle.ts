@@ -3,7 +3,7 @@ import { dirname, join, relative } from "node:path"
 import { Database } from "bun:sqlite"
 import { buildJobTicket, type ProtocolToolsetEntry } from "../../../../../contracts/protocol-fabric/src/protocol-fabric"
 import { buildLifecycleProcessorRecord, buildLifecycleProcessorSpec } from "../../../../../contracts/runtime-core/src/lifecycle"
-import { activeFlows as readActiveFlows } from "./flow-projector-client"
+import { activeFlows as readActiveFlows, activeFlowsAsync as readActiveFlowsAsync } from "./flow-projector-client"
 import { displayPath, repoRoot, resolveRepoPath } from "../../../../../contracts/runtime-core/src/paths"
 
 type JSONRecord = Record<string, unknown>
@@ -59,10 +59,24 @@ export interface AutomationCycleInput {
   ops_notify?: JSONRecord
 }
 
-export function buildAutomationCyclePlan(_db: Database, dbPath: string, input: AutomationCycleInput = {}): JSONRecord {
+export async function buildAutomationCyclePlanAsync(
+  db: Database,
+  dbPath: string,
+  input: AutomationCycleInput = {},
+): Promise<JSONRecord> {
+  const activeProjection = await readActiveFlowsAsync(dbPath)
+  return buildAutomationCyclePlan(db, dbPath, input, { activeProjection })
+}
+
+export function buildAutomationCyclePlan(
+  _db: Database,
+  dbPath: string,
+  input: AutomationCycleInput = {},
+  dependencies: { activeProjection?: JSONRecord } = {},
+): JSONRecord {
   const generatedAt = normalizeNow(input.now)
   const tradeDbPath = displayPath(dbPath)
-  const activeProjection = readActiveFlows(dbPath)
+  const activeProjection = dependencies.activeProjection ?? readActiveFlows(dbPath)
   const activeFlows = asArray(activeProjection.active_flows).map(asRecord)
   const laneConflicts = asArray(activeProjection.lane_conflicts).map(asRecord)
   const activeFlowCount = activeFlows.length
@@ -279,13 +293,15 @@ export function buildAutomationCyclePlan(_db: Database, dbPath: string, input: A
       active: cadence.slow_track_market_watch.due,
       toolJob: resolveToolJob({
         jobId: "slow_track_market_watch",
-        toolId: "trade-flow.runtime",
+        toolId: "decision.slow-track-plan",
         executable: cadence.slow_track_market_watch.due,
-        payload: { db_path: tradeDbPath, track: "slow" },
-        argv: ["bun", "src/scripts/main.ts", "--db", tradeDbPath, "--track", "slow"],
+        payload: { db_path: tradeDbPath, json: { run_id: `${cycleId}-J03` } },
+        argv: ["bun", "src/scripts/main.ts", "--db", tradeDbPath, "--json", JSON.stringify({ run_id: `${cycleId}-J03` })],
       }),
       reason: "slow track owns market watch and strategic observe",
       cadence: cadence.slow_track_market_watch,
+      mayWriteTradeDb: false,
+      allowedRuntimeWrites: [],
     }),
     rdStrategySupervisorJob({
       job_id: "rd_strategy_supervisor",
@@ -461,13 +477,15 @@ function tradeJob(input: {
   cadence: CadenceState
   allowedRuntimeWrites?: string[]
   dependsOnJobIds?: string[]
+  mayWriteTradeDb?: boolean
 }): JSONRecord {
+  const mayWriteTradeDb = input.mayWriteTradeDb !== false
   return {
     ...baseJob(input),
     subagent_role: "trade-flow-operator",
-    write_scope: ["trade.db", "cron.log", "track artifacts"],
-    concurrency_group: "trade-db",
-    may_write_trade_db: true,
+    write_scope: mayWriteTradeDb ? ["trade.db", "cron.log", "track artifacts"] : ["ephemeral decision artifact"],
+    concurrency_group: mayWriteTradeDb ? "trade-db" : input.job_id,
+    may_write_trade_db: mayWriteTradeDb,
     may_call_binance_write: false,
     command: commandFromToolJob(input.toolJob),
     tool_job: input.toolJob,

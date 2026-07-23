@@ -11,7 +11,7 @@ Programmatic, read-only operations consumer for one active L2 owner observation.
 - Deriving exact-decimal spread and bounded-depth quantity imbalance with BigInt arithmetic and explicit scaled integer units.
 - Requiring owner health before a bounded latest-only watermark watch and surfacing snapshot refresh when resync or epoch rollover is observed.
 - Running a bounded reconnecting watch session that establishes a current-book baseline, applies owner-fixed exponential retry delays with finite consecutive/session failure budgets, and requires a fresh snapshot after watch failure, resync, or epoch change.
-- Hosting an operator-launched resident consumer under a dedicated restart supervisor, atomically projecting its latest baseline and supervisor-lifetime aggregate reliability counters across worker restarts, and exposing them through one fixed no-input owner read.
+- Hosting an operator-launched resident consumer under a dedicated restart supervisor, atomically projecting its latest baseline, supervisor-lifetime aggregate reliability counters, and latest sanitized failure across worker restarts, and exposing them through one fixed no-input owner read.
 
 ## Boundaries
 
@@ -30,7 +30,8 @@ Programmatic, read-only operations consumer for one active L2 owner observation.
 - Health schema, authority, readiness, symbol, or source epoch drift fails before the current-book call.
 - Current-book schema, authority, freshness, identity, or top-of-book drift fails closed without returning an observation.
 - Owner error details are not copied into the successful result.
-- Session retries expose only typed unavailable classes; endpoint, path, PID, subprocess stderr, and owner error details are not retained.
+- Session retries use a fixed failure taxonomy for owner-health, current-book, snapshot, and watch failures; the latest failure retains only timestamp, operation, class, and attempt across later recovery.
+- Endpoint, path, PID, subprocess stderr, raw exception text, and owner error details are never retained in the owner projection.
 - Retry exhaustion returns typed `unavailable`; a session deadline is a bounded terminal result and never silently extends caller authority.
 - Resident worker state is an atomic latest projection, not an append-only audit log, durable queue, delivery acknowledgement, or replacement for raw TL2S.
 

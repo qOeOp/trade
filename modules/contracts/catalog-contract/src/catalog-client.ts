@@ -6,6 +6,7 @@ type JSONRecord = Record<string, unknown>
 
 interface CatalogRegisterArtifactInput {
   catalogDbPath?: string
+  environmentId?: string
   path: string
   now?: string | Date
   maxHashBytes?: number
@@ -22,6 +23,7 @@ interface CatalogRegisterArtifactResult extends JSONRecord {
 
 interface CatalogStoredRecordInput {
   catalogDbPath: string
+  environmentId?: string
   record: JSONRecord
   now?: string | Date
 }
@@ -29,6 +31,7 @@ interface CatalogStoredRecordInput {
 function registerCatalogArtifact(input: CatalogRegisterArtifactInput): CatalogRegisterArtifactResult {
   return runArtifactCatalog("--catalog-register-artifact", {
     catalog_db_path: input.catalogDbPath,
+    environment_id: input.environmentId,
     path: input.path,
     now: isoDate(input.now),
     max_hash_bytes: input.maxHashBytes,
@@ -41,14 +44,16 @@ function registerCatalogArtifact(input: CatalogRegisterArtifactInput): CatalogRe
 function upsertCatalogStrategyEvidence(input: CatalogStoredRecordInput): { catalog_db_path: string; evidence_id: string } {
   return runArtifactCatalog("--catalog-upsert-strategy-evidence", {
     catalog_db_path: input.catalogDbPath,
+    environment_id: input.environmentId,
     record: input.record,
     now: isoDate(input.now),
   }) as { catalog_db_path: string; evidence_id: string }
 }
 
-function listCatalogStrategyEvidence(input: { catalogDbPath: string; strategyID?: string; limit?: number }): JSONRecord[] {
+function listCatalogStrategyEvidence(input: { catalogDbPath: string; environmentId?: string; strategyID?: string; limit?: number }): JSONRecord[] {
   return runArtifactCatalog("--catalog-list-strategy-evidence", {
     catalog_db_path: input.catalogDbPath,
+    environment_id: input.environmentId,
     strategy_id: input.strategyID,
     limit: input.limit,
   }) as JSONRecord[]
@@ -57,14 +62,16 @@ function listCatalogStrategyEvidence(input: { catalogDbPath: string; strategyID?
 function upsertCatalogStrategyRndRun(input: CatalogStoredRecordInput): { catalog_db_path: string; run_id: string } {
   return runArtifactCatalog("--catalog-upsert-strategy-rnd-run", {
     catalog_db_path: input.catalogDbPath,
+    environment_id: input.environmentId,
     record: input.record,
     now: isoDate(input.now),
   }) as { catalog_db_path: string; run_id: string }
 }
 
-function listCatalogStrategyRndRuns(input: { catalogDbPath: string; limit?: number }): JSONRecord[] {
+function listCatalogStrategyRndRuns(input: { catalogDbPath: string; environmentId?: string; limit?: number }): JSONRecord[] {
   return runArtifactCatalog("--catalog-list-strategy-rnd-runs", {
     catalog_db_path: input.catalogDbPath,
+    environment_id: input.environmentId,
     limit: input.limit,
   }) as JSONRecord[]
 }

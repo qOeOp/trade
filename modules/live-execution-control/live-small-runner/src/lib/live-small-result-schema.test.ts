@@ -4,6 +4,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { runLiveSmall } from "./live-small-runner"
 import { appendPlanEvent, ensureSchema, readFlowEvents, readLatestOrderFill } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import { buildPortfolioAccountProjection } from "../../../../portfolio-execution-state/flow-projector/src/lib/flow-projector"
 import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
 import type { ExecutionStateRuntime } from "../../../execution-flow-runner/src/lib/execution-flow-runner"
 import type { Runner } from "../../../../contracts/runtime-core/src/tool-runner"
@@ -71,6 +72,7 @@ function stateRuntime(db: Database): ExecutionStateRuntime {
     latestOrderFillReader: (_dbPath, chainId) => readLatestOrderFill(db, chainId),
     flowStateReader: (_dbPath, chainId) => testFlowState(db, chainId),
     latestSlowObserveReader: () => null,
+    portfolioProjectionReader: (_dbPath, input) => buildPortfolioAccountProjection(db, input),
   }
 }
 
@@ -110,12 +112,39 @@ function liveSmallInput(): JSONRecord {
       symbol: "BTCUSDT",
       side: "long",
       setup_id: "trend-breakout",
-      account: { equity_usdt: 1000 },
+      account: {
+        account_ref: "exchange-account://binance/live/usdm/primary",
+        account_scope: "capital-scope://retail-small-usdm",
+        equity_usdt: 1000,
+        snapshot_ref: "exchange-account-facts://binance/live/usdm/primary/snapshot",
+        content_hash: `sha256:${"c".repeat(64)}`,
+        as_of: "2026-07-06T12:00:00+08:00",
+        freshness: { max_age_seconds: 30 },
+      },
     },
     strategy: { status: "live-small" },
     account_config: {
       max_open_risk_pct: 0.1,
       max_day_loss_pct: 0.05,
+    },
+    runtime_policy: {
+      schema_version: "runtime-policy.v1",
+      profile_id: "retail-small-usdm",
+      account_ref: "exchange-account://binance/live/usdm/primary",
+      account_scope: "capital-scope://retail-small-usdm",
+      source_hash: `sha256:${"a".repeat(64)}`,
+      effective_limits: {},
+      permissions: { can_live_small: true },
+    },
+    runtime_authorization: {
+      schema_version: "trade.policy.runtime-authorization.v1",
+      authorization_ref: "policy-authorization://retail-small-usdm/scope/hash",
+      content_hash: `sha256:${"b".repeat(64)}`,
+      policy_hash: `sha256:${"a".repeat(64)}`,
+      account_ref: "exchange-account://binance/live/usdm/primary",
+      account_scope: "capital-scope://retail-small-usdm",
+      issued_at: "2026-07-06T11:59:00+08:00",
+      expires_at: "2026-07-06T12:05:00+08:00",
     },
     request: { type: "STOP_MARKET" },
     aggregate_view: {

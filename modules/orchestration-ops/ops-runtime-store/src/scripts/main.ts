@@ -24,6 +24,7 @@ import {
 } from "../lib/ops-runtime-store"
 import { stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
 import { readDbActionJsonArgs, type DbActionJsonArgs } from "../../../../contracts/runtime-core/src/script-json"
+import { assertDatabaseIdentity, buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../contracts/runtime-core/src/database-identity"
 import {
   applyWatchTaskEvaluation,
   armWatchTask,
@@ -35,6 +36,7 @@ import {
   readWatchTaskTransitions,
 } from "../lib/watch-task-store"
 import type { WatchTaskEvaluation } from "../../../../contracts/watch-task-contract/src/watch-task-contract"
+import { displayPath } from "../../../../contracts/runtime-core/src/paths"
 
 type Args = DbActionJsonArgs
 
@@ -46,6 +48,7 @@ export function run(args: Args): JSONRecord {
   if (args.action === "summary") {
     const db = new Database(args.dbPath, { readonly: true })
     try {
+      assertDatabaseIdentity(db, buildDatabaseIdentity(args.environmentId, "ops_runtime_store"))
       const cycleId = stringField(args.json.cycle_id)
       return { ok: true, action: args.action, summary: readCycleSummary(db, cycleId) }
     } finally {
@@ -55,6 +58,7 @@ export function run(args: Args): JSONRecord {
   if (args.action === "parity_status") {
     const db = new Database(args.dbPath, { readonly: true })
     try {
+      assertDatabaseIdentity(db, buildDatabaseIdentity(args.environmentId, "ops_runtime_store"))
       const asOfText = stringField(args.json.as_of)
       return {
         ok: true,
@@ -67,9 +71,10 @@ export function run(args: Args): JSONRecord {
   }
   const db = new Database(args.dbPath)
   try {
+    ensureDatabaseIdentity(db, buildDatabaseIdentity(args.environmentId, "ops_runtime_store"), { allowLegacyMigration: args.migrateIdentity })
     ensureOpsRuntimeSchema(db)
     if (args.action === "init") {
-      return { ok: true, action: "init", db: args.dbPath }
+      return { ok: true, action: "init", db: displayPath(args.dbPath), environment_id: args.environmentId, store_id: "ops_runtime_store" }
     }
     if (args.action === "watch_create") {
       return { ok: true, action: args.action, watch_task: createWatchTask(db, args.json.definition) }

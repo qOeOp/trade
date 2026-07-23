@@ -162,6 +162,12 @@ test("runtime health guard records only the safe L2 watch consumer baseline proj
     assert.equal(metrics.worker_start_total, 2)
     assert.equal(metrics.resnapshot_total, 1)
     assert.equal(metrics.observed_event_total, 6447)
+    assert.deepEqual(evidence.last_failure, {
+      observed_at: "2026-07-22T12:00:02Z",
+      operation: "snapshot",
+      error_class: "owner_health_unavailable",
+      attempt: 2,
+    })
     const serialized = JSON.stringify(evidence)
     assert.equal(serialized.includes("pid"), false)
     assert.equal(serialized.includes("path"), false)
@@ -190,6 +196,14 @@ test("runtime health guard fails closed on an unready or malformed L2 watch cons
   assert.equal(malformedCheck.status, "fail")
   assert.equal(malformedCheck.detail, "L2 watch consumer owner read failed closed")
   assert.equal(JSON.stringify(malformedCheck).includes("/private"), false)
+
+  const invalidFailure = l2WatchConsumer({ ready: true })
+  ;(invalidFailure.last_failure as Record<string, unknown>).error_class = "/private/runtime/path"
+  const invalidFailureCheck = buildHealthChecks({ require_l2_watch_consumer_ready: true }, {}, {
+    readL2WatchConsumer: () => invalidFailure,
+  })[0]
+  assert.equal(invalidFailureCheck.status, "fail")
+  assert.equal(JSON.stringify(invalidFailureCheck).includes("/private"), false)
 })
 
 function l2OwnerHealth(input: { ready: boolean }): Record<string, unknown> {
@@ -271,6 +285,12 @@ function l2WatchConsumer(input: { ready: boolean }): Record<string, unknown> {
       resync_signal_total: 0,
       epoch_change_total: 1,
       observed_event_total: 6447,
+    },
+    last_failure: {
+      observed_at: "2026-07-22T12:00:02Z",
+      operation: "snapshot",
+      error_class: "owner_health_unavailable",
+      attempt: 2,
     },
     last_error_class: "/private/runtime/path",
     consumer_authority: "non_economic_observation_only",

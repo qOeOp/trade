@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs"
 import { relative, resolve } from "node:path"
 import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
+import type { L2BookWatchFailureClass } from "./l2-book-watch-session"
 
 export const L2_WATCH_CONSUMER_RECEIPT_SCHEMA = "trade.ops-l2-watch-consumer-launch-receipt.v1" as const
 export const L2_WATCH_CONSUMER_RUNTIME_SCHEMA = "trade.ops-l2-watch-consumer-runtime-state.v1" as const
@@ -56,7 +57,13 @@ export interface L2WatchConsumerObservationState {
   snapshot_freshness_ms: number | null
   last_watch_at: string | null
   last_watch_event_count: number
-  last_error_class: "" | "snapshot_unavailable" | "watch_unavailable" | "session_unavailable"
+  last_error_class: "" | L2BookWatchFailureClass | "session_unavailable"
+  last_failure?: {
+    observed_at: string
+    operation: "snapshot" | "watch"
+    error_class: L2BookWatchFailureClass
+    attempt: number
+  } | null
   metrics: {
     worker_start_total: number
     watch_cycle_total: number
@@ -268,6 +275,7 @@ export function buildL2WatchConsumerOwnerRead(input: {
     } : null,
     metrics: observation?.metrics ?? emptyMetrics(),
     last_error_class: observation?.last_error_class ?? "",
+    last_failure: observation?.last_failure ?? null,
     consumer_authority: "non_economic_observation_only",
     lifecycle_authority: "none",
     writes: [],
@@ -292,6 +300,7 @@ function unavailableOwnerRead(observedAt: string): JSONRecord {
     latest_baseline: null,
     metrics: emptyMetrics(),
     last_error_class: "no_active_consumer",
+    last_failure: null,
     consumer_authority: "non_economic_observation_only",
     lifecycle_authority: "none",
     writes: [],
@@ -335,6 +344,13 @@ function validateObservation(observation: L2WatchConsumerObservationState, expec
     bounded(observation.snapshot_freshness_ms, 0, 2_000, "snapshot_freshness_ms")
   }
   if (observation.last_watch_at != null) requireUtc(observation.last_watch_at, "last_watch_at")
+  if (observation.last_failure != null) {
+    requireUtc(observation.last_failure.observed_at, "last_failure.observed_at")
+    if (!new Set(["snapshot", "watch"]).has(observation.last_failure.operation)) {
+      throw new Error("last_failure.operation is invalid")
+    }
+    bounded(observation.last_failure.attempt, 1, 6, "last_failure.attempt")
+  }
 }
 
 function limitations(): string[] {

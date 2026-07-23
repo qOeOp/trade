@@ -89,6 +89,25 @@ test("session returns bounded unavailable evidence after retry exhaustion", asyn
   assert.equal((result.metrics as Record<string, unknown>).retry_sleep_ms, 5_100)
 })
 
+test("session classifies owner-health failure without persisting raw error details", async () => {
+  let now = 0
+  let snapshots = 0
+  const result = await runL2BookWatchSession({ max_cycles: 1, session_ms: 10_000 }, {
+    readSnapshot: () => {
+      snapshots += 1
+      if (snapshots === 1) throw new Error("L2 service health failed: secret local path")
+      return snapshot("epoch-1")
+    },
+    readWatch: () => watch("epoch-1"),
+    sleep: async (milliseconds) => { now += milliseconds },
+    monotonicNow: () => now,
+    utcNow: () => "2026-07-22T00:00:00.000Z",
+  })
+  const transitions = result.transitions as Array<Record<string, unknown>>
+  assert.equal(transitions[0].error_class, "owner_health_unavailable")
+  assert.equal(JSON.stringify(result).includes("secret local path"), false)
+})
+
 test("session controls are bounded and closed to infrastructure injection", async () => {
   await assert.rejects(() => runL2BookWatchSession({ max_cycles: 121 }), /max_cycles must be/)
   await assert.rejects(() => runL2BookWatchSession({ session_ms: 1_999 }), /session_ms must be/)

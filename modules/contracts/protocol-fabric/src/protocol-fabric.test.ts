@@ -72,6 +72,7 @@ test("domain port envelopes carry inbox and outbox schema ids", () => {
     source_domain: "orchestration-ops",
     target_domain: "live-execution-control",
     rail: "command_rail",
+    interaction: "command",
     payload_ref: "job:J03",
     created_at: "2026-07-11T00:00:00Z",
   }), {
@@ -80,6 +81,7 @@ test("domain port envelopes carry inbox and outbox schema ids", () => {
     source_domain: "orchestration-ops",
     target_domain: "live-execution-control",
     rail: "command_rail",
+    interaction: "command",
     payload_ref: "job:J03",
     created_at: "2026-07-11T00:00:00Z",
   })
@@ -88,6 +90,7 @@ test("domain port envelopes carry inbox and outbox schema ids", () => {
     message_id: "msg-2",
     source_domain: "live-execution-control",
     rail: "fact_rail",
+    interaction: "fact",
     payload_ref: "event:order_fill",
     created_at: "2026-07-11T00:00:01Z",
   }).schema_id, PROTOCOL_SCHEMA_IDS.domainOutboxEnvelope)

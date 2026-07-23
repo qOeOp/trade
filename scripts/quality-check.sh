@@ -6,11 +6,37 @@ ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 QUALITY_LOCK_DIR="$ROOT/tmp/check/quality-check.lock"
+QUALITY_WORKSPACE_SNAPSHOT="$ROOT/tmp/check/quality-workspace-snapshot.json"
+QUALITY_FOOTPRINT_REPORT="$ROOT/tmp/check/workspace-footprint.json"
+QUALITY_WORKSPACE_POSTFLIGHT=0
 sh scripts/quality-lock.sh acquire "$QUALITY_LOCK_DIR" "$$"
 release_quality_lock() {
   sh scripts/quality-lock.sh release "$QUALITY_LOCK_DIR" "$$"
 }
-trap release_quality_lock EXIT HUP INT TERM
+finish_quality_check() {
+  quality_status=$?
+  postflight_status=0
+  trap - EXIT HUP INT TERM
+  if [ "$QUALITY_WORKSPACE_POSTFLIGHT" -eq 1 ]; then
+    bun scripts/check-workspace-side-effects.ts --action check --snapshot "$QUALITY_WORKSPACE_SNAPSHOT" || postflight_status=$?
+  fi
+  release_quality_lock
+  if [ "$quality_status" -ne 0 ]; then
+    exit "$quality_status"
+  fi
+  exit "$postflight_status"
+}
+trap finish_quality_check EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+if [ -n "${CI:-}" ]; then
+  bun scripts/check-workspace-side-effects.ts --action capture --snapshot "$QUALITY_WORKSPACE_SNAPSHOT" --require-clean >/dev/null
+else
+  bun scripts/check-workspace-side-effects.ts --action capture --snapshot "$QUALITY_WORKSPACE_SNAPSHOT" >/dev/null
+fi
+QUALITY_WORKSPACE_POSTFLIGHT=1
 
 log() {
   printf 'quality: %s\n' "$*"
@@ -202,6 +228,7 @@ check_project_hygiene() {
   log "project hygiene"
   git diff --check
   bun scripts/check-workspace-hygiene.ts
+  bun scripts/audit-workspace-footprint.ts > "$QUALITY_FOOTPRINT_REPORT"
   unexpected_docs_root="$(find docs -maxdepth 1 -type f ! -name README.md -print)"
   if [ -n "$unexpected_docs_root" ]; then
     printf 'quality: docs root only allows README.md; move contracts and feature docs into an owned subdirectory:\n%s\n' "$unexpected_docs_root" >&2

@@ -3,7 +3,7 @@ title: Design Architecture
 role: architecture-contract
 status: active
 owner: architecture
-last_verified: 2026-07-22 CST
+last_verified: 2026-07-23 CST
 ---
 
 # Design Architecture
@@ -45,7 +45,7 @@ product contract
 - 生产源码跨域 import 保持为 0；Market Data / Replay 的共享 wire 由 `modules/contracts/replay-contract` 承载。
 - 交易所事实优先于本地投影；投影必须可从权威事件重建。
 - research 不写 `trade.db`，不调用 Binance write；market data 不输出交易动作。
-- 新增风险必须经过 policy、fresh facts、preflight、execution contract 和显式授权。
+- 新增风险必须经过 registered policy、短期 runtime authorization、fresh account facts、account-scoped portfolio projection、preflight、execution contract 和 bounded execution capability。
 - 生成图和目录只是投影，不能反向创造产品边界。
 
 ## 3. 顶层责任域
@@ -53,12 +53,12 @@ product contract
 | Domain | Owns | Must not own |
 | --- | --- | --- |
 | `orchestration-ops` | cycle、job graph、runtime health、notify、incident、ops audit | 交易或研究判断 |
-| `policy-risk` | trading config、approved policy、mode、risk limits | live account / market facts |
+| `policy-risk` | trading config、registered policy、approved refs、短期 runtime authorization、mode、risk limits | live account / market facts |
 | `portfolio-execution-state` | trade event、flow / position / order projection、risk lock | research artifact、exchange API |
-| `market-data-products` | raw/canonical market data、feature、dataset manifest | account state、action intent |
+| `market-data-products` | raw/canonical market data、feature、dataset / immutable candle-slice manifest | account state、action intent |
 | `exchange-gateway` | account/order/fill facts、authorized exchange side effect | thesis、promotion、dataset construction |
-| `live-decision-planning` | slow observe、watchlist、thesis、trade plan、action intent | exchange write、promotion |
-| `live-execution-control` | fast guard、preflight、route、execute、record、recovery | thesis、新策略研发 |
+| `live-decision-planning` | slow observe、watchlist、thesis、DecisionInput、TradePlan、CapitalAllocationProposal、ActionIntent | exchange write、approval、promotion |
+| `live-execution-control` | fast guard、owner-fact preflight、execution capability、route、execute、record、recovery | thesis、新策略研发 |
 | `research-strategy-development` | hypothesis、Trial、Replay/Forward Result、RD state | live authorization、trade event |
 | `governance-review-compliance` | evidence intake、closed-flow review、promotion、policy feedback | 原始 R&D 搜索、实时执行 |
 | `artifact-knowledge` | artifact catalog、lineage、retention、GC | 交易事实、策略资格 |
@@ -71,7 +71,8 @@ product contract
 
 | Model | Owner | Carries | Must not carry |
 | --- | --- | --- | --- |
-| Trading Profile | `policy-risk` | `profile_id`、`account_ref`、mode、permissions、risk / exposure caps、strategy scope | API secret、live equity、position、order、fill |
+| Trading Profile | `policy-risk` | `profile_id`、`account_ref`、`account_scope`、mode、permissions、risk / exposure caps、strategy scope | API secret、live equity、position、order、fill |
+| Runtime Authorization | `policy-risk` | registered policy ref/hash、account scope、issued/expiry、authorization ref | account fact、allocation、exchange result |
 | Venue Account Ref | `exchange-gateway` | venue、environment、market、account alias | credential material、余额、策略资格 |
 | Exchange Account Facts | `exchange-gateway` | equity、balance、margin、position、open order、fill、`as_of` | 本地 thesis、risk budget、promotion |
 | Portfolio Account Projection | `portfolio-execution-state` | event-derived exposure、reserved risk、active flow、risk lock、reconcile status | venue truth、API credential、执行授权 |
@@ -105,12 +106,14 @@ J01–J07 是当前 runtime projection，不是永久产品分域。新增、合
 ## 5. 在线链
 
 ```text
-exchange + market facts
-  -> OBSERVE
-  -> PLAN / action intent
-  -> execution gate + PREFLIGHT
-  -> execution contract
-  -> exchange write
+exchange + market facts + state projection + runtime authorization
+  -> DecisionInputBundle
+  -> TradePlanDraft
+  -> CapitalAllocationProposal
+  -> ActionIntent
+  -> execution gate + owner-fact PREFLIGHT
+  -> execution contract + ExecutionCapability
+  -> exchange router / write gate / adapter
   -> confirmation / reconcile
   -> trade event / projection
   -> closed-flow REVIEW
@@ -119,8 +122,8 @@ exchange + market facts
 | Stage | Owner | Durable result |
 | --- | --- | --- |
 | facts | market-data-products / exchange-gateway | market/exchange refs |
-| observe / plan | live-decision-planning | observe / intent draft |
-| guard / execute / recover | live-execution-control | verdict、exchange result、event draft |
+| observe / plan | live-decision-planning | DecisionInput / TradePlan / unallocated Proposal / blocked Intent |
+| guard / execute / recover | live-execution-control | verdict、ExecutionCapability、exchange result、event draft |
 | event / projection | portfolio-execution-state | `plan_event`、flow read model |
 | review | governance-review-compliance | governance evidence / feedback |
 
@@ -141,17 +144,18 @@ Universe / Knowledge / Proposal
 ```
 
 - Research Control Plane 是 Contract、Trial、Result、Review、lifecycle 和 Draft authorization 的单写者。
+- Research 读取 OHLCV 时只消费 `market-data.store` 生成的内容寻址 slice manifest；兼容 DB locator 只传给 owner，不形成 Research 物理表权限。
 - Replay / Forward 是证据执行面，不生成 hypothesis，不决定 promotion。
 - Agent Roles 只提交 Proposal / Candidate request / Decision，不直接写权威事实。
 - compatibility 实现只为 parity 和迁移服务，不自动获得长期 authority。
 
 ## 7. Store、Message Class 与 Rail
 
-当前有 10 个 logical store：trade event、flow read model、market data、OHLCV、exchange runtime、artifact catalog、research state、governance ledger、policy registry、ops runtime。owner 与 DDL 见 [storage-architecture.md](./storage-architecture.md)。
+当前有 10 个 logical store：trade event、flow read model、market data、OHLCV、exchange runtime、artifact catalog、research state、governance ledger、policy registry、ops runtime。owner 与 DDL 见 [storage-architecture.md](./storage-architecture.md)。Runtime authorization 与 execution capability 都是短期、内容绑定的 authority projection，不新增 durable store。
 
 当前 10 条 logical rail：command、ops、fact、policy、market data、exchange、store、data lineage、artifact、governance。Rail 只携带 envelope、summary 和 refs；大 payload 留在 owner store。
 
-Rail 是协议 namespace，不等于 broker、队列或物理 transport。每个 envelope 还必须声明交互语义；不能只凭 rail 名称推断权限：
+Rail 是协议 namespace，不等于 broker、队列或物理 transport。每个 domain envelope 已强制声明 `interaction`；不能只凭 rail 名称推断权限：
 
 | Message class | Semantics | Core constraint |
 | --- | --- | --- |
@@ -169,12 +173,12 @@ Rail 是协议 namespace，不等于 broker、队列或物理 transport。每个
 | --- | --- | --- | --- |
 | job command / result | `orchestration-ops` / target domain | target domain / `orchestration-ops` | ticket、scope、input/output refs、status、incidents |
 | ops health | `orchestration-ops` | `policy-risk`、`live-execution-control`、exchange write gate | health、lock、safe-mode、write suspension refs |
-| runtime policy | `policy-risk` only | decision、execution、exchange write gate | profile-mode、permissions、limits、hash、expiry |
+| runtime policy | `policy-risk` only | decision、execution、exchange write gate | policy ref/hash、account scope、authorization ref、expiry |
 | market fact | `market-data-products` | decision、execution | snapshot / feature refs、freshness、watermark |
-| dataset lineage | `market-data-products` | research、artifact | immutable manifest、source hash、lineage refs |
+| dataset lineage | `market-data-products` | research、artifact | immutable slice / dataset manifest、source hash、lineage refs |
 | account fact | `exchange-gateway` | decision、execution / reconcile | equity、position、orders、fills、confirmation refs |
-| action intent | `live-decision-planning` | `live-execution-control` | plan、proposed allocation、expiry、source refs |
-| privileged exchange command / result | execution / exchange | exchange / execution | bounded action、idempotency、request/result/confirmation refs |
+| action intent | `live-decision-planning` | `live-execution-control` | DecisionInput、plan、unallocated proposal、blocked intent、expiry、source refs |
+| privileged exchange command / result | execution / exchange | exchange / execution | ExecutionCapability、bounded action、idempotency、request/result/confirmation refs |
 | event or reconcile proposal | `live-execution-control` | `portfolio-execution-state` | event envelope、reconcile evidence、source refs |
 | state projection | `portfolio-execution-state` | decision、execution、governance | flow、portfolio exposure、risk-lock、closed-flow refs |
 | research evidence / lifecycle decision | research / governance | governance / research | Trial / Result / Forward / candidate refs；reject / revise / promote |
@@ -200,7 +204,7 @@ Rail 是协议 namespace，不等于 broker、队列或物理 transport。每个
 
 ## 9. 当前限制
 
-- trading config 已有 compiler / policy registry，但部分旧调用方仍需完成统一消费；以 [trading-config.md](../runtime/trading-config.md) 的 known gaps 为准。
+- trading config 的 compiler → registry → runtime authorization 主路径已进入 slow-track 与 trade-flow；旧的兼容入口仍以 [trading-config.md](../runtime/trading-config.md) 的 known gaps 为准。
 - Replay 已有受限 certified vertical slice；未认证的 queue/depth partial、通用 multi-order、remote transport 等不得表述为已支持。
 - compatibility 子树仍存在时，只能缩减，不能新增 authority 语义。
 - 多策略组合级资本竞争、相关性约束和资金 reservation authority 尚未决定；当前只有 policy cap、decision proposal、state projection 与 execution preflight，不提前新增 portfolio allocator。

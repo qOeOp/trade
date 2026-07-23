@@ -7,16 +7,16 @@ flowchart LR
   subgraph CONTROL["Control and constraints"]
     direction TB
     ORCH["orchestration-ops<br/>cycle / job graph / health / incident / audit<br/>must not make trade or research decisions"]
-    POLICY["policy-risk<br/>trading profile / mode / permissions / risk caps<br/>approved strategy refs / runtime policy"]
+    POLICY["policy-risk<br/>trading profile / mode / permissions / risk caps<br/>registered policy + short-lived runtime authorization"]
   end
 
   subgraph LIVE["Live trading authority chain"]
     direction TB
-    MARKET["market-data-products<br/>market facts / canonical data / features / datasets<br/>must not emit trade actions"]
-    EXCHANGE["exchange-gateway<br/>venue account / order / fill facts<br/>only owner of authorized venue side effects"]
-    DECISION["live-decision-planning<br/>observe / thesis / plan / proposed capital allocation<br/>action intent; no venue write"]
-    EXECUTION["live-execution-control<br/>fast guard / preflight / execute / confirm / recover<br/>no thesis or strategy promotion"]
-    STATE["portfolio-execution-state<br/>trade events / flow and portfolio projections<br/>risk lock / reconcile state; rebuildable"]
+    MARKET["market-data-products<br/>market facts / canonical data / features / datasets<br/>immutable slice owner; must not emit trade actions"]
+    EXCHANGE["exchange-gateway<br/>venue-account identity + canonical account/order/fill facts<br/>only owner of authorized venue side effects"]
+    DECISION["live-decision-planning<br/>DecisionInput → TradePlan → AllocationProposal → ActionIntent<br/>proposal is not approval; no venue write"]
+    EXECUTION["live-execution-control<br/>fast guard / owner-fact preflight / bounded capability<br/>execute / confirm / recover; no thesis"]
+    STATE["portfolio-execution-state<br/>trade events / flow + account-scoped portfolio projection<br/>risk lock / reconcile state; rebuildable"]
   end
 
   subgraph EVIDENCE["Strategy and evidence authority chain"]
@@ -40,13 +40,13 @@ flowchart LR
   ORCH -->|"targeted job ticket + refs"| ARTIFACT
 
   ORCH -->|"health / safe-mode facts"| POLICY
-  POLICY -->|"runtime policy / profile-mode"| DECISION
-  POLICY -->|"runtime policy / profile-mode"| EXECUTION
-  POLICY -->|"authorized mode only"| EXCHANGE
+  POLICY -->|"policy snapshot + bounded authorization"| DECISION
+  POLICY -->|"policy snapshot + bounded authorization"| EXECUTION
+  POLICY -->|"authorization ref only"| EXCHANGE
 
   MARKET -->|"fresh market facts"| DECISION
   MARKET -->|"fresh guard facts"| EXECUTION
-  MARKET -->|"dataset + lineage refs"| RESEARCH
+  MARKET -->|"immutable slice / dataset + lineage refs"| RESEARCH
   EXCHANGE -->|"account facts"| DECISION
   EXCHANGE -->|"account / order / fill facts"| EXECUTION
   STATE -->|"portfolio / flow projection refs"| DECISION

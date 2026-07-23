@@ -13,12 +13,13 @@ export function loadRuntime(input: RuntimeLoadInput): JSONRecord {
   const strategiesDir = input.strategiesDir
   const accountConfig = loadJsonFile(accountConfigPath)
   const strategies = loadStrategies(strategiesDir)
-  const { trading_config, runtime_policy } = loadRuntimePolicyFromOwner({
+  const { trading_config, runtime_policy, runtime_authorization } = loadRuntimePolicyFromOwner({
     tradingConfigPath: input.tradingConfigPath,
   })
   return {
     trading_config,
     runtime_policy,
+    runtime_authorization,
     account_config: accountConfig,
     strategies,
     loaded_at: new Date().toISOString(),

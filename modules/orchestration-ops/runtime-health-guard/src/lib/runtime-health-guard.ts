@@ -226,6 +226,13 @@ function projectL2WatchConsumerEvidence(consumer: JSONRecord): JSONRecord {
     field,
     nonNegativeInteger(metrics[field], `consumer metrics ${field}`),
   ]))
+  const lastFailure = consumer.last_failure == null ? null : asRecord(consumer.last_failure)
+  const projectedLastFailure = lastFailure == null ? null : {
+    observed_at: requiredUtc(lastFailure.observed_at, "consumer last failure observed_at"),
+    operation: l2WatchFailureOperation(lastFailure.operation),
+    error_class: l2WatchFailureClass(lastFailure.error_class),
+    attempt: boundedInteger(lastFailure.attempt, 1, 6, "consumer last failure attempt"),
+  }
 
   return {
     schema_version: "trade.ops-l2-watch-consumer-owner-read.v1",
@@ -235,6 +242,7 @@ function projectL2WatchConsumerEvidence(consumer: JSONRecord): JSONRecord {
     control: projectedControl,
     latest_baseline: projectedBaseline,
     metrics: projectedMetrics,
+    last_failure: projectedLastFailure,
     consumer_authority: "non_economic_observation_only",
     lifecycle_authority: "none",
     writes: [],
@@ -355,3 +363,24 @@ const L2_WATCH_METRIC_FIELDS = [
   "epoch_change_total",
   "observed_event_total",
 ] as const
+const L2_WATCH_FAILURE_CLASSES = new Set([
+  "owner_health_unavailable",
+  "owner_health_not_ready",
+  "current_book_unavailable",
+  "current_book_stale",
+  "snapshot_contract_drift",
+  "snapshot_unavailable",
+  "watch_contract_drift",
+  "watch_unavailable",
+])
+
+function l2WatchFailureOperation(value: unknown): "snapshot" | "watch" {
+  if (value !== "snapshot" && value !== "watch") throw new Error("invalid L2 watch consumer failure operation")
+  return value
+}
+
+function l2WatchFailureClass(value: unknown): string {
+  const result = requiredString(value, "consumer last failure error_class")
+  if (!L2_WATCH_FAILURE_CLASSES.has(result)) throw new Error("invalid L2 watch consumer failure class")
+  return result
+}
