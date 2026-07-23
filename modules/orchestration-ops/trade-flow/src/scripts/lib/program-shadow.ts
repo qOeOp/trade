@@ -11,6 +11,10 @@ import {
 import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
 import { assertProjectRuntimePath, resolveRepoPath } from "../../../../../contracts/runtime-core/src/paths"
 import {
+  buildDatabaseIdentity,
+  ensureDatabaseIdentity,
+} from "../../../../../contracts/runtime-core/src/database-identity"
+import {
   runAutomationJobGraph,
   type CommandExecutor,
 } from "./job-graph-runner"
@@ -35,7 +39,11 @@ const ALLOWED_INPUT_KEYS = new Set([
   "governance_db",
 ])
 
-export type ProgramRuntimeProfile = "shadow_program" | "catalog_hygiene_canary" | "full_shadow"
+export type ProgramRuntimeProfile =
+  | "shadow_program"
+  | "demand_driven_shadow"
+  | "catalog_hygiene_canary"
+  | "full_shadow"
 
 export interface ProgramShadowInput {
   cycle_id?: string
@@ -83,6 +91,7 @@ export async function runProgramShadowWakeup(
   let fencingToken: number | undefined
   try {
     opsDb.run(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`)
+    ensureDatabaseIdentity(opsDb, buildDatabaseIdentity("local:local", "ops_runtime_store"))
     ensureOpsRuntimeSchema(opsDb)
     const lockResult = acquireOpsLock(opsDb, {
       lock_key: SHADOW_LOCK_KEY,
@@ -149,6 +158,8 @@ export async function runProgramShadowWakeup(
       ? "executed the fixed J06 catalog hygiene canary profile"
       : runtimeProfile === "full_shadow"
         ? "executed the fixed J01-J07 no-live full shadow profile"
+        : runtimeProfile === "demand_driven_shadow"
+          ? "executed the demand-driven no-domain-job shadow profile"
         : "executed the fixed no-domain-job shadow profile"
     return shadowResult({
       runtimeProfile,
@@ -199,6 +210,7 @@ function fixedShadowGraphInput(
   const attemptId = safeAttemptId(holderId)
   const catalogHygieneCanary = runtimeProfile === "catalog_hygiene_canary"
   const fullShadow = runtimeProfile === "full_shadow"
+  const requiresFixedL2 = runtimeProfile !== "demand_driven_shadow"
   const forcedDomainJobs = [
     "account_reconcile_guard",
     "fast_track_guard",
@@ -239,8 +251,8 @@ function fixedShadowGraphInput(
     include_ops_notify: true,
     runtime_health: {
       ...asRecord(input.runtime_health),
-      require_l2_ready: true,
-      require_l2_watch_consumer_ready: true,
+      require_l2_ready: requiresFixedL2,
+      require_l2_watch_consumer_ready: requiresFixedL2,
       health_id: `health-${cycleId}-${attemptId}`,
       observed_at: attemptNow,
     },
@@ -283,7 +295,7 @@ function shadowResult(input: {
     business_status: businessStatus,
     reason: input.reason,
     safety: {
-      domain_jobs_enabled: input.runtimeProfile !== "shadow_program",
+      domain_jobs_enabled: input.runtimeProfile === "catalog_hygiene_canary" || input.runtimeProfile === "full_shadow",
       enabled_domain_jobs: input.runtimeProfile === "full_shadow"
         ? ["account_reconcile_guard", "fast_track_guard", "slow_track_market_watch", "rd_strategy_supervisor", "rd_forward_shadow_trackers", "catalog_hygiene_scan", "closed_flow_review_sweep"]
         : input.runtimeProfile === "catalog_hygiene_canary" ? ["catalog_hygiene_scan"] : [],
@@ -292,8 +304,8 @@ function shadowResult(input: {
         : input.runtimeProfile === "catalog_hygiene_canary" ? ["artifact_catalog"] : [],
       live_writes_allowed: false,
       notify_dry_run: true,
-      l2_owner_health_required: true,
-      l2_consumer_health_required: true,
+      l2_owner_health_required: input.runtimeProfile !== "demand_driven_shadow",
+      l2_consumer_health_required: input.runtimeProfile !== "demand_driven_shadow",
     },
     lease: {
       lock_key: SHADOW_LOCK_KEY,
@@ -309,10 +321,10 @@ function shadowResult(input: {
 
 function normalizeRuntimeProfile(value: unknown): ProgramRuntimeProfile {
   const profile = stringField(value) || "shadow_program"
-  if (profile !== "shadow_program" && profile !== "catalog_hygiene_canary" && profile !== "full_shadow") {
-    throw new Error("runtime_profile must be shadow_program, catalog_hygiene_canary, or full_shadow")
+  if (!["shadow_program", "demand_driven_shadow", "catalog_hygiene_canary", "full_shadow"].includes(profile)) {
+    throw new Error("runtime_profile must be shadow_program, demand_driven_shadow, catalog_hygiene_canary, or full_shadow")
   }
-  return profile
+  return profile as ProgramRuntimeProfile
 }
 
 function assertClosedWorldInput(input: JSONRecord): void {
