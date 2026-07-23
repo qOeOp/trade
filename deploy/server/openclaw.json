@@ -33,6 +33,12 @@
   "update": {
     "checkOnStart": false
   },
+  "plugins": {
+    "enabled": false,
+    "slots": {
+      "memory": "none"
+    }
+  },
   "audit": {
     "enabled": true
   },
