@@ -6,19 +6,24 @@ import { runModelTask } from "./model-gateway"
 const profile = {
   schema_version: "trade.model-gateway-profile.v1",
   provider: "siliconflow",
-  base_url: "https://api.siliconflow.com/v1",
+  base_url: "https://api.siliconflow.cn/v1",
   model: "Qwen/Qwen3.5-27B",
   capabilities: ["json_object"],
   api_key_env: "SILICONFLOW_API_KEY",
 }
 
 test("gateway returns parsed proposal without prompt, secret, raw body, or authority", async () => {
+  let providerBody: Record<string, unknown> | undefined
   const result = await runModelTask(request(), profile, {
     apiKey: "fixture-key-never-logged",
-    fetch: async () => response(200, completion(JSON.stringify({ hypothesis_id: "h-1" }))),
+    fetch: async (_input, init) => {
+      providerBody = JSON.parse(String(init?.body))
+      return response(200, completion(JSON.stringify({ hypothesis_id: "h-1" })))
+    },
   })
   assert.equal(result.status, "completed")
   assert.deepEqual(result.output, { hypothesis_id: "h-1" })
+  assert.equal(providerBody?.enable_thinking, false)
   assert.equal(result.execution_authority, "none")
   assert.equal(JSON.stringify(result).includes("fixture-key"), false)
   assert.equal(JSON.stringify(result).includes("Design one"), false)
