@@ -90,7 +90,7 @@ last_verified: 2026-07-23 CST
 | `tech-indicators` | 本地 OHLCV 结构、指标与轻量微观结构统计 |
 | `market-data-store` | canonical candle owner query；向 Research 导出 content-addressed、immutable candle slice manifest/ref |
 
-Runtime、execution defense 与 R&D 不再用自然语言要求“给我某币的数据”。它们提交 `trade.market-data-demand.v1`：稳定 consumer / subject ref、priority、symbol、product requirement 和 bounded lease。Market Data owner create-or-identical 登记、显式 release 并生成无生命周期 authority 的合并 proposal；`market-data-runtime-manager` 已能把其中 L2 demand 编译为 bounded per-symbol owner / consumer pair 并拥有 foreground lifecycle，但尚未替换当前固定单 symbol server profile，也不把 proposal 或进程存活冒充 coverage / freshness。
+Runtime、execution defense 与 R&D 不再用自然语言要求“给我某币的数据”。它们提交 `trade.market-data-demand.v1`：稳定 consumer / subject ref、priority、symbol、product requirement 和 bounded lease。Market Data owner 只允许同一语义 identity 延长 lease，保存 prior hash 审计，支持显式 release，并生成无生命周期 authority 的合并 proposal。Flow Projector 已显式投影 active-flow symbol；manager 每轮将仓位 / 未知状态 / 挂单同步为 defensive demand，将待执行 action 同步为 active-plan demand，普通 flow 为 active-flow demand。J03 粗筛候选以 opportunity lease 登记；R&D 只能提交显式 symbol / requirement，不能从论文、hypothesis 或 strategy prose 猜 symbol。`market-data-runtime-manager` 将 L2 demand 编译为 bounded per-symbol owner / consumer pair；独立 `ohlcv-demand-worker` 将 OHLCV demand 编译为闭合到 latest closed candle 或半开历史窗口的 aligned coverage target，经 self-hashed owner audit 后只补第一个精确 gap，失败从未变化的 canonical watermark 重试。两者都尚未替换当前固定单 symbol server profile，也不把 demand、进程存活或 fetch success 冒充 coverage / freshness；OHLCV complete 必须由下一次零 gap audit 证明。
 
 `binance-market-scan` 只能回答“先看谁”。候选必须回到 `single-symbol`，并通过 setup 资格证。
 
