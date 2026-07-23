@@ -19,7 +19,7 @@ export interface IndicatorFeatureArtifact {
     first_open_time: number
     last_open_time: number
   }
-  selected_indicators: unknown[]
+  selected_indicators: Record<string, unknown>
   timeframe_result: Record<string, unknown>
   summary: Record<string, unknown>
   content_hash: string
@@ -38,7 +38,7 @@ export function buildIndicatorFeatureArtifact(input: {
   const timeframes = record(report.timeframes, "provider_report.timeframes")
   const timeframeResult = record(timeframes[source.timeframe], `provider_report.timeframes.${source.timeframe}`)
   if (Object.keys(timeframes).length !== 1) throw new Error("indicator provider emitted undeclared timeframes")
-  const selectedIndicators = array(report.selected_indicators, "provider_report.selected_indicators")
+  const selectedIndicators = boundedRecord(report.selected_indicators, "provider_report.selected_indicators", 1_000)
   const summary = record(report.summary, "provider_report.summary")
   const withoutHash = {
     schema_version: INDICATOR_FEATURE_ARTIFACT_SCHEMA,
@@ -64,7 +64,7 @@ export function compileIndicatorFeatureArtifact(value: unknown): IndicatorFeatur
     schema_version: INDICATOR_FEATURE_ARTIFACT_SCHEMA,
     feature_set_ref: supportedSet(input.feature_set_ref),
     source: compileSource(input.source),
-    selected_indicators: array(input.selected_indicators, "selected_indicators"),
+    selected_indicators: boundedRecord(input.selected_indicators, "selected_indicators", 1_000),
     timeframe_result: record(input.timeframe_result, "timeframe_result"),
     summary: record(input.summary, "summary"),
   }
@@ -127,9 +127,10 @@ function record(value: unknown, field: string): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
-function array(value: unknown, field: string): unknown[] {
-  if (!Array.isArray(value) || value.length > 1_000) throw new Error(`${field} must be a bounded array`)
-  return value
+function boundedRecord(value: unknown, field: string, maximumKeys: number): Record<string, unknown> {
+  const result = record(value, field)
+  if (Object.keys(result).length > maximumKeys) throw new Error(`${field} must be a bounded object`)
+  return result
 }
 
 function exact(value: Record<string, unknown>, fields: string[], field: string): void {

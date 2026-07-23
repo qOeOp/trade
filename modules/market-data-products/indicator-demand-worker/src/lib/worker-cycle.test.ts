@@ -32,7 +32,7 @@ test("indicator cycle computes and admits only after exact zero-gap source audit
         assert.deepEqual(args, ["--indicators", "all"])
         return {
           symbol: "BTC/USDT:USDT",
-          selected_indicators: [{ id: "ema" }],
+          selected_indicators: { ema: { function: "ema" } },
           timeframes: { "1h": { trend: "up", indicators: { ema: 1 } } },
           summary: { bias: "bullish" },
           generated_at: "ignored",

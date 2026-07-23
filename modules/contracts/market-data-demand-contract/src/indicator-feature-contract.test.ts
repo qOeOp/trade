@@ -56,7 +56,13 @@ function report(path: string, generatedAt: string) {
     exchange: "binanceusdm",
     source_manifest: path,
     generated_at: generatedAt,
-    selected_indicators: [{ id: "ema", params: { period: 20 } }],
+    selected_indicators: {
+      ema: {
+        category: "moving-average",
+        defaults: { period: 20 },
+        function: "ema",
+      },
+    },
     timeframes: { "1h": { trend: "up", features: { "ema.value": [{ timestamp: "x", value: 1 }] } } },
     summary: { bias: "bullish" },
     summary_markdown: `generated ${generatedAt}`,
