@@ -224,6 +224,7 @@ test("program shadow supervisor records independent Agent/program parity observa
         ops_runtime_db: fixture.opsDbPath,
         max_cycles: 1,
         observe_agent_parity: true,
+        runtime_profile: "demand_driven_shadow",
       },
       async (command): Promise<CommandExecutionResult> => {
         executions += 1
@@ -238,6 +239,7 @@ test("program shadow supervisor records independent Agent/program parity observa
     )
 
     assert.equal(result.outcome, "completed")
+    assert.equal(result.runtime_profile, "demand_driven_shadow")
     assert.equal(executions, 3)
     assert.deepEqual(result.parity_observation, {
       enabled: true,
