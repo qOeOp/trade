@@ -94,6 +94,10 @@ Runtime、execution defense 与 R&D 不再用自然语言要求“给我某币�
 
 三类 resident worker 消费同一 owner proposal：`market-data-runtime-manager` 将 L2 demand 编译为 bounded per-symbol owner / consumer pair；`ohlcv-demand-worker` 将 OHLCV demand 编译为闭合到 latest closed candle 或半开历史窗口的 aligned coverage target，经 self-hashed owner audit 后只补第一个精确 gap，失败从未变化的 canonical watermark 重试；`indicator-demand-worker` 只在显式 indicator demand 有兼容 OHLCV demand 且精确窗口零 gap 时，导出 immutable candle slice，以 closed-world flags 调用 Go provider，剔除时间、主机路径和 prose 后形成 deterministic feature artifact，并 create-or-identical admission。真实 provider 的 `selected_indicators` 是按指标名索引的 bounded object，不得另造数组合同。三者都尚未替换当前固定单 symbol server profile，也不把 demand、进程存活、fetch 或 compute success 冒充 coverage / freshness；OHLCV complete 必须由下一次零 gap audit 证明。
 
+下游不直接把进程状态、demand 或裸路径当市场事实。`trade.market-data-fact-ref.v1` 统一绑定 product requirement、排序后的 demand ids、source plan hash、owner source ref/content hash、point/half-open coverage 和 live/immutable freshness，且 `domain_authority=none`。L2 只有 wrapper 实测 age 未超过 consumer TTL 的 live point 才能生成；OHLCV 只有 zero-gap audit 才能生成 complete fact；indicator 只有已登记的 deterministic artifact 才能生成。该 ref 证明“哪份 owner evidence 满足哪批需求”，仍不授予策略、下单、Replay 或生命周期 authority。
+
+当前无多个 durable consumer 对同一高速流形成可量化 backlog，进程间控制量也已有 owner store / ref 合同，因此不引入 Kafka。只有出现持续 fan-out、独立 offset/replay 与无法由现有 bounded owner reads 解决的积压证据，才重开 broker 采用决策。
+
 `binance-market-scan` 只能回答“先看谁”。候选必须回到 `single-symbol`，并通过 setup 资格证。
 
 ## 存储
