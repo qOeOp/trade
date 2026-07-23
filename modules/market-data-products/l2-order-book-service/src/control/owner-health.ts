@@ -209,7 +209,7 @@ function parseL2SourceHealth(value: unknown, expectedSymbol: string): L2SourceHe
 function limitations(): string[] {
   return [
     "local-process-and-loopback-health-only",
-    "pid-liveness-is-not-cryptographic-process-identity",
+    "local-command-identity-check-is-not-cryptographic-attestation",
     "health-does-not-prove-external-market-data-completeness",
     "no-start-stop-restart-signal-or-lifecycle-authority",
     "no-trading-replay-fill-or-economic-authority",
