@@ -26,6 +26,10 @@ const forwardCandleSegmentWorker = readFileSync(
   resolve(root, "scripts/rd-forward-candle-segment-worker.ts"),
   "utf8",
 )
+const forwardDatasetCandidateWorker = readFileSync(
+  resolve(root, "scripts/rd-forward-dataset-candidate-worker.ts"),
+  "utf8",
+)
 const openClawConfig = JSON.parse(
   readFileSync(resolve(root, "deploy/server/openclaw.json"), "utf8"),
 ) as Record<string, unknown>
@@ -128,6 +132,8 @@ test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds De
   assert.match(agentCompose, /forward-market-data-worker:[\s\S]*rd-forward-market-data-demand-worker\.ts/)
   assert.match(agentCompose, /forward-candle-segment-worker:[\s\S]*network_mode: none/)
   assert.match(agentCompose, /forward-candle-segment-worker:[\s\S]*rd-forward-candle-segment-worker\.ts/)
+  assert.match(agentCompose, /forward-dataset-candidate-worker:[\s\S]*network_mode: none/)
+  assert.match(agentCompose, /forward-dataset-candidate-worker:[\s\S]*rd-forward-dataset-candidate-worker\.ts/)
   assert.match(agentCompose, /agent-workspace-checker:[\s\S]*network_mode: none/)
   assert.match(agentCompose, /agent-workspace-checker:[\s\S]*agent-workspace-checker\.ts/)
   assert.match(agentCompose, /agent-release-checker:[\s\S]*network_mode: none/)
@@ -172,6 +178,10 @@ test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds De
     forwardCandleSegmentWorker,
     /admitForwardObservationCandleSegment/,
   )
+  assert.match(
+    forwardDatasetCandidateWorker,
+    /admitForwardDatasetCandidate/,
+  )
   const forwardSourceBlock = agentCompose
     .split("\n  forward-source-admission-worker:")[1]!
     .split("\n  agent-mcp-planner:")[0]!
@@ -199,7 +209,7 @@ test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds De
   )
   const forwardCandleSegmentBlock = agentCompose
     .split("\n  forward-candle-segment-worker:")[1]!
-    .split("\n  agent-mcp-planner:")[0]!
+    .split("\n  forward-dataset-candidate-worker:")[0]!
   assert.match(forwardCandleSegmentBlock, /trade-data:\/app\/data/)
   assert.match(
     forwardCandleSegmentBlock,
@@ -207,6 +217,18 @@ test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds De
   )
   assert.doesNotMatch(
     forwardCandleSegmentBlock,
+    /agent-control|trade-ops|release-candidates|TRADE_AGENT_HOST_HTTP_TOKEN/,
+  )
+  const forwardDatasetCandidateBlock = agentCompose
+    .split("\n  forward-dataset-candidate-worker:")[1]!
+    .split("\n  agent-mcp-planner:")[0]!
+  assert.match(forwardDatasetCandidateBlock, /trade-data:\/app\/data/)
+  assert.match(
+    forwardDatasetCandidateBlock,
+    /forward_replay_admission_authority==="none"/,
+  )
+  assert.doesNotMatch(
+    forwardDatasetCandidateBlock,
     /agent-control|trade-ops|release-candidates|TRADE_AGENT_HOST_HTTP_TOKEN/,
   )
   const registryBlock = agentCompose

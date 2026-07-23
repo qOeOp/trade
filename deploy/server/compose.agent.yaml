@@ -597,6 +597,51 @@ services:
         max-size: 20m
         max-file: "5"
 
+  forward-dataset-candidate-worker:
+    image: trade-runtime:${TRADE_IMAGE_TAG:-local}
+    restart: always
+    stop_grace_period: 30s
+    read_only: true
+    user: "10001:10001"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 0.75
+    environment:
+      TRADE_RD_STATE_DB: data/rd_state.db
+    volumes:
+      - trade-data:/app/data
+      - trade-runtime-tmp:/app/tmp
+    depends_on:
+      runtime:
+        condition: service_healthy
+      forward-candle-segment-worker:
+        condition: service_healthy
+    command:
+      - bun
+      - scripts/rd-forward-dataset-candidate-worker.ts
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - const s=JSON.parse(await Bun.file("tmp/runtime/forward-dataset-candidate-worker/state.json").text());process.exit(s.status==="running"&&Date.now()-Date.parse(s.updated_at)<150000&&s.dataset_candidate_authority==="ohlcv_materialization_only"&&s.forward_replay_admission_authority==="none"&&s.deployment_authority==="none"&&!s.trading_authority?0:1)
+      interval: 30s
+      timeout: 5s
+      retries: 4
+      start_period: 45s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
   agent-mcp-planner:
     <<: &agent-mcp
       image: trade-runtime:${TRADE_IMAGE_TAG:-local}

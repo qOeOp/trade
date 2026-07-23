@@ -1429,3 +1429,39 @@ CREATE TABLE IF NOT EXISTS rd_forward_observation_candle_segment (
   FOREIGN KEY (demand_hash)
     REFERENCES rd_forward_market_data_demand_delivery(demand_hash)
 );
+
+CREATE TABLE IF NOT EXISTS rd_forward_dataset_candidate (
+  candidate_id TEXT PRIMARY KEY,
+  candidate_hash TEXT NOT NULL UNIQUE,
+  program_id TEXT NOT NULL,
+  program_hash TEXT NOT NULL,
+  head_segment_id TEXT NOT NULL UNIQUE,
+  head_segment_hash TEXT NOT NULL UNIQUE,
+  data_watermark TEXT NOT NULL,
+  row_count INTEGER NOT NULL CHECK(row_count > 0),
+  bars_artifact_ref TEXT NOT NULL,
+  bars_artifact_sha256 TEXT NOT NULL,
+  ohlcv_only_replay_dataset_hash TEXT NOT NULL,
+  candidate_json TEXT NOT NULL CHECK(json_valid(candidate_json)),
+  created_at TEXT NOT NULL,
+  UNIQUE(program_id, data_watermark),
+  FOREIGN KEY (program_id)
+    REFERENCES rd_forward_observation_program(program_id),
+  FOREIGN KEY (head_segment_id)
+    REFERENCES rd_forward_observation_candle_segment(segment_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rd_forward_dataset_candidate_latest
+ON rd_forward_dataset_candidate(
+  program_id, data_watermark DESC, candidate_id
+);
+CREATE TRIGGER IF NOT EXISTS rd_forward_dataset_candidate_no_update
+BEFORE UPDATE ON rd_forward_dataset_candidate
+BEGIN
+  SELECT RAISE(ABORT, 'Forward dataset candidate is immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS rd_forward_dataset_candidate_no_delete
+BEFORE DELETE ON rd_forward_dataset_candidate
+BEGIN
+  SELECT RAISE(ABORT, 'Forward dataset candidate is durable');
+END;

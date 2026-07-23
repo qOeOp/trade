@@ -1,4 +1,11 @@
-import { resolve, sep } from "node:path"
+import {
+  existsSync,
+  mkdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
+import { dirname, resolve, sep } from "node:path"
 
 export function resolveWorkerDataPath(
   root: string,
@@ -43,6 +50,26 @@ export function workerBoundedInteger(
 
 export function workerDelay(milliseconds: number): Promise<void> {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds))
+}
+
+export function workerMarkReady(path: string): void {
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
+  if (existsSync(path)) rmSync(path)
+  writeFileSync(path, "ready\n", { flag: "wx", mode: 0o600 })
+}
+
+export function workerClearReady(path: string): void {
+  if (existsSync(path)) rmSync(path)
+}
+
+export function workerWriteState(
+  path: string,
+  value: Readonly<Record<string, unknown>>,
+): void {
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
+  const temporary = `${path}.${process.pid}.tmp`
+  writeFileSync(temporary, `${JSON.stringify(value)}\n`, { mode: 0o600 })
+  renameSync(temporary, path)
 }
 
 export function workerFlagValues(

@@ -10,6 +10,13 @@ import {
   createForwardObservationCandleSegment,
 } from "../../../contracts/src/lib/forward-observation-candle-segment"
 import {
+  createForwardDatasetCandidate,
+} from "../../../../forward-evidence-plane/contracts/src/lib/forward-dataset-candidate"
+import {
+  replayDatasetHash,
+  type ReplayMarketBar,
+} from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
+import {
   buildForwardObservationMarketDataDemand,
   createForwardObservationProgram,
 } from "../../../contracts/src/lib/forward-observation-program"
@@ -25,6 +32,10 @@ import {
   listForwardObservationCandleSegments,
   readLatestForwardObservationCandleSegment,
 } from "./forward-observation-candle-segment"
+import {
+  admitForwardDatasetCandidate,
+  readLatestForwardDatasetCandidate,
+} from "./forward-dataset-candidate"
 
 const HASH = "a".repeat(64)
 
@@ -83,37 +94,7 @@ test("Forward observation program rejects historical Replay identity drift", () 
 
 test("Forward candle segment registry enforces the durable gapless owner-evidence chain", () => {
   const db = fixtureDb()
-  const program = admitForwardObservationProgram(db, fixtureProgram())
-  const demand = buildForwardObservationMarketDataDemand(program, {
-    issued_at: "2026-07-23T03:00:00.000Z",
-  })
-  const acceptedAt = "2026-07-23T03:00:01.000Z"
-  recordForwardMarketDataDemandDelivery(db, {
-    program_id: program.program_id,
-    demand,
-    owner_commit_status: "created",
-    accepted_at: acceptedAt,
-  })
-  const start = Date.parse(program.first_observation_open_time)
-  const segment = createForwardObservationCandleSegment({
-    program,
-    previous_segment: null,
-    demand,
-    demand_accepted_at: acceptedAt,
-    subscription_plan: reconcileMarketDataDemands({
-      demands: [demand],
-      observed_at: "2026-07-23T08:01:00.000Z",
-      max_symbols: 20,
-    }),
-    coverage_audit: buildOhlcvCoverageAuditFixture({
-      symbol: program.symbol,
-      timeframe: program.timeframe,
-      start_open_time: start,
-      end_open_time: start,
-    }, "2026-07-23T08:01:00.000Z", true),
-    candle_slice: fixtureSlice(start),
-    created_at: "2026-07-23T08:01:00.000Z",
-  })
+  const { program, segment } = fixtureSegment(db)
   expect(admitForwardObservationCandleSegment(db, segment))
     .toBe("created")
   expect(admitForwardObservationCandleSegment(db, segment))
@@ -128,6 +109,52 @@ test("Forward candle segment registry enforces the durable gapless owner-evidenc
   )).toEqual([segment])
   expect(() => db.query(`
     UPDATE rd_forward_observation_candle_segment SET row_count=2
+  `).run()).toThrow()
+  db.close()
+})
+
+test("Forward dataset candidate registry independently binds the complete segment prefix and verified bars", () => {
+  const db = fixtureDb()
+  const { program, segment, start } = fixtureAdmittedSegment(db)
+  const bars: ReplayMarketBar[] = [{
+    open_time: new Date(start).toISOString(),
+    close_time: new Date(start + 4 * 60 * 60 * 1_000).toISOString(),
+    open: 100,
+    high: 101,
+    low: 99,
+    close: 100.5,
+    volume: 10,
+    closed: true,
+  }]
+  const datasetHash = replayDatasetHash(bars)
+  const candidate = createForwardDatasetCandidate({
+    program,
+    segments: [segment],
+    bars,
+    bars_artifact_ref:
+      `data/artifacts/research/forward-dataset-candidates/${datasetHash}/dataset.json`,
+    bars_artifact_sha256: datasetHash,
+    created_at: "2026-07-23T08:01:00.000Z",
+  })
+  expect(admitForwardDatasetCandidate(db, {
+    candidate,
+    verified_bars: bars,
+  })).toBe("created")
+  expect(admitForwardDatasetCandidate(db, {
+    candidate,
+    verified_bars: bars,
+  })).toBe("existing")
+  expect(readLatestForwardDatasetCandidate(db, program.program_id))
+    .toEqual(candidate)
+  expect(() => admitForwardDatasetCandidate(db, {
+    candidate: {
+      ...candidate,
+      candidate_id: "forward-dataset:drift",
+    },
+    verified_bars: bars,
+  })).toThrow()
+  expect(() => db.query(`
+    DELETE FROM rd_forward_dataset_candidate
   `).run()).toThrow()
   db.close()
 })
@@ -152,6 +179,48 @@ function fixtureProgram() {
     market_data_demand_id: "rd-forward:source-1",
     created_at: "2026-07-23T02:00:00.000Z",
   })
+}
+
+function fixtureAdmittedSegment(db: Database) {
+  const fixture = fixtureSegment(db)
+  admitForwardObservationCandleSegment(db, fixture.segment)
+  return fixture
+}
+
+function fixtureSegment(db: Database) {
+  const program = admitForwardObservationProgram(db, fixtureProgram())
+  const demand = buildForwardObservationMarketDataDemand(program, {
+    issued_at: "2026-07-23T03:00:00.000Z",
+  })
+  const acceptedAt = "2026-07-23T03:00:01.000Z"
+  recordForwardMarketDataDemandDelivery(db, {
+    program_id: program.program_id,
+    demand,
+    owner_commit_status: "created",
+    accepted_at: acceptedAt,
+  })
+  const start = Date.parse(program.first_observation_open_time)
+  const observedAt = "2026-07-23T08:01:00.000Z"
+  const segment = createForwardObservationCandleSegment({
+    program,
+    previous_segment: null,
+    demand,
+    demand_accepted_at: acceptedAt,
+    subscription_plan: reconcileMarketDataDemands({
+      demands: [demand],
+      observed_at: observedAt,
+      max_symbols: 20,
+    }),
+    coverage_audit: buildOhlcvCoverageAuditFixture({
+      symbol: program.symbol,
+      timeframe: program.timeframe,
+      start_open_time: start,
+      end_open_time: start,
+    }, observedAt, true),
+    candle_slice: fixtureSlice(start),
+    created_at: observedAt,
+  })
+  return { program, segment, start }
 }
 
 function fixtureSlice(openTime: number) {
