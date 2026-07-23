@@ -299,7 +299,7 @@ validate config/secrets/volumes
 | D2.3 | 合并 active exposure、候选和 R&D 的兼容需求；调用方不控制 daemon | complete：Flow symbol projection + stable lease renewal audit + active-flow defensive sync + J03 candidate submit + explicit R&D merge tests |
 | D2.4 | 完成 L2 reconnect、gap/new epoch、current book、bounded watch 与 readiness | fault / freshness tests |
 | D2.5 | 将 OHLCV sync / gap fill 纳入 Program cadence | complete：independent resident worker + aligned self-hashed coverage audit + bounded first-gap fill + unchanged-watermark retry / shutdown fixture；server profile adoption 随 D10 |
-| D2.6 | 将 indicators / features 纳入 source watermark 与 deterministic recompute | stale / recompute tests |
+| D2.6 | 将 indicators / features 纳入 source watermark 与 deterministic recompute | complete：explicit indicator + compatible OHLCV demand、exact zero-gap watermark、immutable candle slice、closed-world Go provider flags、path/time-independent feature hash、create-or-identical admission；真实 3-bar compute + next-cycle existing fixture；server profile adoption 随 D10 |
 | D2.7 | 统一 market fact refs、coverage、freshness 和 consumer binding | owner-issued refs |
 | D2.8 | 完成 raw finalize / compaction / reference closure / retention release | no premature delete |
 | D2.9 | 只有实测多 durable consumer backlog 才评估 broker | adoption evidence or rejection |
