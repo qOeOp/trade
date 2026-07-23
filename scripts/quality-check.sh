@@ -79,6 +79,8 @@ check_toolset_manifest() {
   bun test ./scripts/*.test.ts >/dev/null
   log "doc contracts"
   bun scripts/check-doc-contracts.ts >/dev/null
+  log "development convergence"
+  bun scripts/check-convergence-budget.ts
   log "toolset manifest"
   bun scripts/toolset.ts --validate >/dev/null
   bun scripts/check-architecture-manifest.ts >/dev/null

@@ -33,6 +33,7 @@ scripts/quality-check.sh
 - Architecture：manifest ID / owner / domain / job / store 双向归属必须唯一且闭合；跨域源码飞线、owner-target 漂移、manifest 外 contract root、非静态动态加载、`eval` / `new Function`、package dependency cycle 一律 hard fail；blueprint hash 纳入生成证据，蓝图改变后旧报告立即失效
 - TypeScript：根目录 Bun install surface 统一安装依赖；禁止 tool-local `bun.lock`；tool 依赖版本必须与根 `package.json` 一致；跨 package 复用只能指向 manifest 允许的 owner 或 `modules/contracts/*`；所有带 `package.json` 且含 `check` script 的 tool 执行 `bun run check`
 - Test integrity：每个含生产 TypeScript 的 package 必须有 colocated `*.test.ts` / `*.spec.ts`，`scripts.test` 必须真实执行 `bun test`；禁止“没有测试文件也成功”的 fallback
+- Convergence：恢复期冻结 module owner、registered tool、domain、store、job、rail 的继续净膨胀；Agent 不得自行提高基线
 - Judge regression：审查脚本必须通过恶意反例测试，证明飞线、计算型动态 import、job 归属错配、过期架构证据、虚假 maturity evidence、空测试套件均会失败
 - Duplication：TypeScript / JavaScript / Go / Python / Rust / Shell 在 `20 lines / 140 tokens` 粒度下重复片段容许数为 `0`；发现重复必须提炼稳定语义或重构边界，不得通过提高阈值、复制豁免或缩小扫描面消音
 - Go：`gofmt -l` 必须为空，随后 `go test ./...` 与 `go vet ./...`
@@ -45,6 +46,7 @@ scripts/quality-check.sh
 提交前必须满足：
 
 - 无 compiler / typecheck / test / vet failure
+- 无未经用户明确批准的责任面扩张；功能必须有 production consumer 与运行链路证据
 - 无重复代码片段、跨域飞线、依赖环、动态加载逃逸或 owner 漂移
 - 无空测试套件假绿；审查器本身必须有 fail-closed 反例回归
 - Python warning 按 error 处理

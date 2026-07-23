@@ -9,9 +9,14 @@ import { appendPlanEvent, ensureSchema } from "../../../event-store/src/lib/even
 import { run } from "./main"
 
 test("flow projector CLI returns structured errors", () => {
-  const result = run(["--apply-reconcile", "--json", "{}"])
-  assert.equal(result.ok, false)
-  assert.match(String(result.error), /requires --yes/)
+  const dbPath = join(repoRoot(), "tmp", "test", `flow-projector-errors-${crypto.randomUUID()}.db`)
+  try {
+    const result = run(["--apply-reconcile", "--db", dbPath, "--json", "{}"])
+    assert.equal(result.ok, false)
+    assert.match(String(result.error), /requires --yes/)
+  } finally {
+    rmSync(dbPath, { force: true })
+  }
 })
 
 test("flow projector CLI exposes latest slow observe as owner read surface", () => {

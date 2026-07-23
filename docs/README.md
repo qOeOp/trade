@@ -18,7 +18,7 @@ last_verified: 2026-07-23 CST
 | [architecture](./architecture/) | 当前顶层架构、domain/store/rail ownership、机器 manifest、图和迁移设计 | 具体策略实验、临时施工记录 |
 | [runtime](./runtime/) | 交易配置、执行工具、市场数据等大功能运行合同 | 顶层产品边界、R&D 证据 |
 | [research](./research/) | R&D architecture、strategy universe、可靠性、research sources | live 授权、真钱事实 |
-| [engineering](./engineering/) | check、code quality、data hygiene | 产品或业务规则 |
+| [engineering](./engineering/) | check、code quality、development convergence、data hygiene | 产品或业务规则 |
 | [history](./history/) | 已完成施工图、一次性审查和被替换的 legacy contract | 当前产品、架构或运行真相 |
 
 ## Authority
@@ -42,6 +42,7 @@ last_verified: 2026-07-23 CST
 | 一个大功能如何运行 | [runtime](./runtime/) 下对应合同 |
 | R&D 如何演进 | [research](./research/) 下对应 architecture / strategy / reliability 文档 |
 | 改动后跑什么 | [engineering/check-contract.md](./engineering/check-contract.md) |
+| 高速 Agent 开发如何保持收敛 | [engineering/development-convergence.md](./engineering/development-convergence.md) |
 | 哪些文档是当前合同、由谁负责 | [engineering/doc-contract-index.json](./engineering/doc-contract-index.json) |
 
 优先级：产品边界 > 当前架构合同 > domain/module contract > 历史施工记录。生成文件只投影当前代码，不反向定义产品。

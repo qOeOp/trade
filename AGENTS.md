@@ -59,6 +59,17 @@
 - 运行结束后必须回看 artifact、RD state 和 gate，判断策略质量；`no_promote` 也算完成一次开发，但不能表述成“找到策略”。
 - 过程问题、优化点、策略质量复盘记录到 `docs/research/reliability/rd-audit.md`；临时 hypothesis、split、artifact、DB 默认留在 ignored 的 `tmp/` / `data/`，不要写进长期 memory 或正式 strategy policy。
 
+## Development Convergence Guardrails
+
+- 当前处于恢复期，先修复红灯并打通已有链路，不继续扩张责任面
+- 开工前先确定复用的 owner 与 production consumer；找不到 consumer 的实现优先接入、合并或删除
+- `module owner / registered tool / domain / store / job / rail` 不得超过 `docs/engineering/convergence-baseline.json`
+- Agent 不得自行提高 convergence baseline；只有用户明确批准后才能修改上限
+- package、schema、文档或单元测试本身不算功能完成；必须提供现有 runtime / CLI / server 入口的消费证据和跨 owner 链路证据
+- 不按文件或步骤制造微提交；一个可验证行为闭环并通过提交门后，才形成一个有意图的提交
+- `main` 或完整质量门为红时，不提交、不推送新增功能
+- 交付按 `docs/engineering/development-convergence.md` 报告用户行为、production consumer、运行证据和表面积变化
+
 ## Quality Guardrails
 
 - 普通 docs-only 或单模块开发先跑 `bun scripts/quality-check-changed.ts --path <本次改动路径>`；它只执行全局静态门与受影响 package，不得用它替代提交门

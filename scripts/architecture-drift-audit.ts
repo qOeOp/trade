@@ -3,7 +3,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 import { createHash } from "node:crypto"
 import { dirname, join, normalize } from "node:path"
-import ts from "typescript"
+import * as ts from "typescript"
 import { inspectModuleReferences, isJavaScriptOrTypeScript, isTestSource, scriptKind } from "./lib/source-import-inspection"
 
 type JSONRecord = Record<string, unknown>

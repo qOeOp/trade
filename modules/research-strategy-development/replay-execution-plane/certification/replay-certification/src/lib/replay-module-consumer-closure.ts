@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { createHash } from "node:crypto"
 import { dirname, join, normalize, relative } from "node:path"
-import ts from "typescript"
+import * as ts from "typescript"
 import {
   REPLAY_CERTIFICATION_OWNER,
   REPLAY_PLANE_ROOT,

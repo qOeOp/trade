@@ -6,9 +6,14 @@ import { repoRoot } from "../../../../contracts/runtime-core/src/paths"
 import { run } from "./main"
 
 test("event store CLI returns structured errors", () => {
-  const result = run(["--append-event", "--json", "{}"])
-  assert.equal(result.ok, false)
-  assert.match(String(result.error), /event_key is required/)
+  const dbPath = join(repoRoot(), "tmp", "test", `event-store-errors-${crypto.randomUUID()}.db`)
+  try {
+    const result = run(["--append-event", "--db", dbPath, "--json", "{}"])
+    assert.equal(result.ok, false)
+    assert.match(String(result.error), /event_key is required/)
+  } finally {
+    rmSync(dbPath, { force: true })
+  }
 })
 
 test("event store CLI exposes latest order fill as owner read surface", () => {

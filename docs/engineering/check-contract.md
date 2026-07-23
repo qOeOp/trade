@@ -37,6 +37,7 @@ last_verified: 2026-07-23 CST
 | `replay-runner-remaining` | `modules/research-strategy-development/replay-execution-plane/runner` | `bun run test:remaining` | 不与巨型 worker-v10 场景混跑的其余 runner 回归 |
 | `replay-certification` | `modules/research-strategy-development/replay-execution-plane/certification/replay-certification` | `bun run certify` | Plane 内全部 canonical/compatibility package 的唯一、顺序、fail-fast certification 入口 |
 | `quality-judge-regression` | repo root | `bun test ./scripts/*.test.ts` | 用恶意反例证明架构、evidence、测试完整性审查 fail closed |
+| `development-convergence` | repo root | `bun scripts/check-convergence-budget.ts` | 恢复期冻结 module owner、registered tool、domain、store、job、rail 表面积；超出基线 hard fail |
 | `package-test-integrity` | repo root | `bun scripts/check-package-tests.ts` | 生产 TS package 必须有 colocated 测试，且 test script 不得空跑成功 |
 | `zero-duplication` | repo root | `bun scripts/check-duplication.ts` | 六类源码在既定检测粒度下重复片段必须为 0 |
 | `ts-architecture-boundary` | repo root | `bun scripts/check-ts-tool-boundaries.ts` | 静态 package 边界、禁止动态逃逸 / eval、跨 package dependency cycle |

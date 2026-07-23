@@ -107,6 +107,7 @@ async function main(): Promise<void> {
     run(["bun", "scripts/check-workspace-hygiene.ts"])
     run(["bun", "scripts/check-secrets.ts"])
     run(["bun", "scripts/check-doc-contracts.ts"])
+    run(["bun", "scripts/check-convergence-budget.ts"])
     run(["sh", "scripts/check-workspace-skills.sh"])
 
     if (plan.architecture) {
