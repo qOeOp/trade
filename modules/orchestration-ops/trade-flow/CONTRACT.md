@@ -3,7 +3,9 @@
 ## Owns
 
 - Automation cycle planning and job-graph routing
-- One-shot program wakeups with a durable ops lease and terminal-cycle idempotency: `shadow_program` enables no domain job; `catalog_hygiene_canary` enables only J06; `full_shadow` enables the fixed J01–J07 graph while permanently denying exchange live writes and real notifications.
+- One-shot program wakeups with a durable ops lease and terminal-cycle idempotency: `shadow_program` enables no domain job and keeps the 30-second ops command bound; `catalog_hygiene_canary` enables only J06 and `full_shadow` enables the fixed J01–J07 graph under a fixed 90-second domain command bound, while every profile permanently denies exchange live writes and real notifications.
+- `outcome` reports lease/invocation handling; `business_status` separately reports whether the graph completed, failed, blocked, or was skipped, so an executed wakeup cannot masquerade as a successful graph.
+- The foreground supervisor accepts the same three closed-world profiles; J06 can therefore run on a fenced daily interval up to 86,400 seconds without broadening its one-job/write scope, and shared-input parity replays the same captured canary result rather than scanning twice.
 - Foreground resident `shadow_program` or `full_shadow` cadence with heartbeat-renewed fenced ownership, stable time-slot cycle ids, asynchronously bounded planning-owner reads and child commands, and drain-on-signal shutdown.
 - Bounded SQLite busy handling, explicit stale-lease recovery evidence, and cycle-independent parity projections for Agent/program ticket, processor, and incident comparison.
 - Opt-in resident Agent/program parity observation: each eligible program cycle samples owner commands once, independently builds the legacy Agent shadow graph by replaying those exact results, compares canonical projections, and records immutable evidence in the existing ops store.
