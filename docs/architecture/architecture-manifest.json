@@ -49,6 +49,7 @@
         "modules/market-data-products/l2-order-book-service",
         "modules/market-data-products/market-data-runtime-manager",
         "modules/market-data-products/ohlcv-demand-worker",
+        "modules/market-data-products/indicator-demand-worker",
         "modules/market-data-products/l2-order-book-compactor",
         "modules/market-data-products/binance-read/market-scan",
         "modules/market-data-products/binance-read/symbol-snapshot",
