@@ -1,4 +1,4 @@
 interface:
   display_name: "Bounded Autonomous Development"
-  short_description: "Turn broad goals into verified, convergent delivery"
-  default_prompt: "Use $run-autonomous-development to turn this product direction into a bounded, tested, end-to-end implementation."
+  short_description: "Run one verified mission and a bounded meta loop"
+  default_prompt: "Use $run-autonomous-development to complete one bounded mission, verify its real outcome, and run a generic post-mission meta loop."
