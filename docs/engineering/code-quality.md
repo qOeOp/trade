@@ -24,15 +24,15 @@ scripts/quality-check.sh
 
 覆盖：
 
-- Git diff 空白检查：冲突标记、尾随空格、空白错误
+- Git diff 空白检查：本地检查 `HEAD` 到工作树的 staged + unstaged 差异；CI 检查 PR/push base 到候选 `HEAD` 的精确范围，并关闭 rename detection
 - Shell：`scripts/*.sh` 语法检查
 - Helper：`CODEX_HOME`、automation memory、Python command fallback smoke
 - Workspace skill：允许纯工作流适配，拒绝 TODO frontmatter、领域源码、schema、DB 和第二套 CLI
 - Secret：扫描 tracked / unignored 文件中的 provider token、非空 SiliconFlow assignment 与 literal bearer credential；只报告位置和类别，不回显值
 - Docs：当前文档元数据与 index、历史状态、仓库内 Markdown 相对链接
 - Architecture：manifest ID / owner / domain / job / store 双向归属必须唯一且闭合；跨域源码飞线、owner-target 漂移、manifest 外 contract root、非静态动态加载、`eval` / `new Function`、package dependency cycle 一律 hard fail；blueprint hash 纳入生成证据，蓝图改变后旧报告立即失效
-- TypeScript：根目录 Bun install surface 统一安装依赖；禁止 tool-local `bun.lock`；tool 依赖版本必须与根 `package.json` 一致；跨 package 复用只能指向 manifest 允许的 owner 或 `modules/contracts/*`；所有带 `package.json` 且含 `check` script 的 tool 执行 `bun run check`
-- Test integrity：每个含生产 TypeScript 的 package 必须有 colocated `*.test.ts` / `*.spec.ts`，`scripts.test` 必须真实执行 `bun test`；禁止“没有测试文件也成功”的 fallback
+- TypeScript：根目录 Bun install surface 统一安装依赖；禁止 tool-local `bun.lock`；tool 依赖版本必须与根 `package.json` 一致；跨 package 复用只能指向 manifest 允许的 owner 或 `modules/contracts/*`；每个 TypeScript package 必须有能到达 `tsc --noEmit` 与真实测试的 `check`，总闸无条件执行，删除或 no-op 不得逃逸
+- Test integrity：每个含生产 TypeScript 的 package 必须有 colocated `*.test.ts` / `*.spec.ts`，`scripts.test` 与 `scripts.check` 必须真实到达 `bun test`；禁止“没有测试文件也成功”的 fallback
 - Test boundary：生产源码不得导入测试 runtime 或 `test-support`；测试 stage / fixture / assertion 进入 `src/test-support/`，不用任意单文件行数限制逼迫机械拆分
 - Convergence：恢复期冻结 module owner、registered tool、domain、store、job、rail 的继续净膨胀；Agent 不得自行提高基线
 - Judge regression：审查脚本必须通过恶意反例测试，证明飞线、计算型动态 import、job 归属错配、过期架构证据、虚假 maturity evidence、空测试套件均会失败
@@ -71,7 +71,7 @@ scripts/quality-check.sh
 
 当前仍未引入仓库级 TypeScript / Python formatter，也未把函数复杂度硬编码成脱离领域语义的单一数字。现阶段由零重复、依赖无环、静态边界、强类型、真实测试和 review 共同约束；若引入复杂度指标，必须先用仓库反例校准误报，不能把“短函数”误当“好架构”。
 
-GitHub Actions 在 pull request 与 `main` push 上执行同一 `scripts/quality-check.sh`；本地与 CI 不存在两套裁判规则。
+GitHub Actions 在 pull request 与 `main` push 上执行同一 `scripts/quality-check.sh`，并把事件 base commit 传给总闸检查精确候选范围；本地与 CI 不存在两套裁判规则。workflow 成功是否实际阻止合并仍由 GitHub repository ruleset / branch protection 决定，仓库内代码不能替代该外部设置。
 
 同一仓库同一时刻只允许一个 `quality-check.sh` 实例。第二个实例必须快速失败并报告持锁 PID；异常退出遗留的死锁可在确认 owner PID 不存活后自动回收，禁止多个全量 Replay 测试争抢 CPU 后把资源竞争误判为代码慢。
 
