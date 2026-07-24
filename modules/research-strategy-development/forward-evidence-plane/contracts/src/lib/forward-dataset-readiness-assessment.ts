@@ -9,6 +9,8 @@ import {
 
 export const FORWARD_DATASET_READINESS_ASSESSMENT_SCHEMA_VERSION =
   "trade.rd-forward-dataset-readiness-assessment.v1" as const
+export const FORWARD_DATASET_READINESS_ASSESSMENT_SCHEMA_VERSION_V2 =
+  "trade.rd-forward-dataset-readiness-assessment.v2" as const
 
 export const FORWARD_DATASET_READINESS_BLOCKER_CODES = [
   "forward_decision_not_compiled",
@@ -70,6 +72,35 @@ export interface ForwardDatasetReadinessAssessment
   extends ForwardDatasetReadinessAssessmentBody {
   assessment_hash: string
 }
+
+export interface ForwardDatasetReadinessAssessmentV2Body
+  extends Omit<
+    ForwardDatasetReadinessAssessmentBody,
+    "schema_version" | "assessment_id" | "blockers"
+  > {
+  schema_version:
+    typeof FORWARD_DATASET_READINESS_ASSESSMENT_SCHEMA_VERSION_V2
+  assessment_id: string
+  verified_components: {
+    funding_events: {
+      binding_id: string
+      binding_hash: string
+      market_data_fact_hash: string
+      funding_slice_hash: string
+      funding_slice_content_sha256: string
+    } | null
+  }
+  blockers: ForwardDatasetReadinessBlockerCode[]
+}
+
+export interface ForwardDatasetReadinessAssessmentV2
+  extends ForwardDatasetReadinessAssessmentV2Body {
+  assessment_hash: string
+}
+
+export type AnyForwardDatasetReadinessAssessment =
+  | ForwardDatasetReadinessAssessment
+  | ForwardDatasetReadinessAssessmentV2
 
 export function createForwardDatasetReadinessAssessment(input: {
   candidate_id: string
@@ -170,9 +201,116 @@ export function createForwardDatasetReadinessAssessment(input: {
   return { ...body, assessment_hash: canonicalHash(body) }
 }
 
+export function createForwardDatasetReadinessAssessmentV2(input: {
+  candidate_id: string
+  candidate_hash: string
+  program_id: string
+  program_hash: string
+  historical_replay_request_registration_id: string
+  historical_replay_request_hash: string
+  historical_dataset_manifest_hash: string
+  historical_mark_coverage: "none" | "complete_grid"
+  historical_supplemental_requirement_mode:
+    | "none"
+    | "signal_time_complete"
+  funding_evidence: {
+    binding_id: string
+    binding_hash: string
+    market_data_fact_hash: string
+    funding_slice_hash: string
+    funding_slice_content_sha256: string
+  } | null
+  assessed_at: string
+}): ForwardDatasetReadinessAssessmentV2 {
+  const base = createForwardDatasetReadinessAssessment(input)
+  const {
+    schema_version: _schema,
+    assessment_id: _assessmentId,
+    assessment_hash: _assessmentHash,
+    blockers: baseBlockers,
+    ...common
+  } = base
+  const fundingEvidence = input.funding_evidence == null
+    ? null
+    : {
+        binding_id: identifier(
+          input.funding_evidence.binding_id,
+          "funding_evidence.binding_id",
+        ),
+        binding_hash: digest(
+          input.funding_evidence.binding_hash,
+          "funding_evidence.binding_hash",
+        ),
+        market_data_fact_hash: digest(
+          input.funding_evidence.market_data_fact_hash,
+          "funding_evidence.market_data_fact_hash",
+        ),
+        funding_slice_hash: digest(
+          input.funding_evidence.funding_slice_hash,
+          "funding_evidence.funding_slice_hash",
+        ),
+        funding_slice_content_sha256: digest(
+          input.funding_evidence.funding_slice_content_sha256,
+          "funding_evidence.funding_slice_content_sha256",
+        ),
+      }
+  const blockers = fundingEvidence == null
+    ? baseBlockers
+    : baseBlockers.filter(
+        (blocker) => blocker !== "funding_window_unverified",
+      )
+  const identityHash = canonicalHash({
+    candidate_hash: base.candidate_hash,
+    historical_replay_request_hash:
+      base.historical_replay_request_hash,
+    historical_dataset_manifest_hash:
+      base.historical_dataset_manifest_hash,
+    funding_evidence_binding_hash:
+      fundingEvidence?.binding_hash ?? null,
+  })
+  const body: ForwardDatasetReadinessAssessmentV2Body = {
+    schema_version:
+      FORWARD_DATASET_READINESS_ASSESSMENT_SCHEMA_VERSION_V2,
+    assessment_id: `forward-readiness:${identityHash}`,
+    ...common,
+    verified_components: {
+      funding_events: fundingEvidence,
+    },
+    blockers,
+  }
+  return { ...body, assessment_hash: canonicalHash(body) }
+}
+
 export function assertForwardDatasetReadinessAssessment(
-  value: ForwardDatasetReadinessAssessment,
+  value: AnyForwardDatasetReadinessAssessment,
 ): void {
+  if (value.schema_version
+      === FORWARD_DATASET_READINESS_ASSESSMENT_SCHEMA_VERSION_V2) {
+    const expected = createForwardDatasetReadinessAssessmentV2({
+      candidate_id: value.candidate_id,
+      candidate_hash: value.candidate_hash,
+      program_id: value.program_id,
+      program_hash: value.program_hash,
+      historical_replay_request_registration_id:
+        value.historical_replay_request_registration_id,
+      historical_replay_request_hash:
+        value.historical_replay_request_hash,
+      historical_dataset_manifest_hash:
+        value.historical_dataset_manifest_hash,
+      historical_mark_coverage:
+        value.historical_requirement_profile.mark_events,
+      historical_supplemental_requirement_mode:
+        value.historical_requirement_profile.supplemental_facts,
+      funding_evidence: value.verified_components.funding_events,
+      assessed_at: value.assessed_at,
+    })
+    if (canonicalJson(value) !== canonicalJson(expected)) {
+      throw new Error(
+        "Forward dataset readiness assessment v2 is non-canonical or drifted",
+      )
+    }
+    return
+  }
   const expected = createForwardDatasetReadinessAssessment({
     candidate_id: value.candidate_id,
     candidate_hash: value.candidate_hash,

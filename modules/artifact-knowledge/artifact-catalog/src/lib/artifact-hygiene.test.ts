@@ -121,6 +121,21 @@ test("artifact gc deletes only stale unreferenced files when yes is set", () => 
   assert.equal(existsSync(fresh), true)
 })
 
+test("artifact gc rejects durable data evidence roots even in dry-run mode", () => {
+  const root = join(makeRoot(), "data", "artifacts")
+  mkdirSync(root, { recursive: true })
+  writeArtifact(root, "market-data/funding-slices/hash/funding.json", "2026-01-01T00:00:00.000Z")
+
+  assert.throws(
+    () => runArtifactGc({
+      root,
+      now: "2026-01-08T01:00:00.000Z",
+      retentionHours: 24,
+    }),
+    /cannot operate on durable data evidence/,
+  )
+})
+
 function makeRoot(): string {
   const root = join(tmpdir(), `artifact-gc-${crypto.randomUUID()}`)
   mkdirSync(root, { recursive: true })

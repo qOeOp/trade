@@ -9,6 +9,7 @@
 - L2、OHLCV 与 indicator 共用的 self-hashed fact ref：精确绑定 demand ids / source plan、owner source/hash、coverage、freshness 和产品 requirement，固定无领域 authority。
 - v1 保持 `l2_book / ohlcv / indicator_set` 封闭语义；v2 才增加 exact half-open `funding_events`，不得改写 v1 hash 或含义。
 - `FundingCoverageAudit` 只在原始 Binance USDM REST 分页链连续且终页耗尽时闭合；外部真实性固定为 `not_verified`。
+- `FundingReplaySliceRef` 把 owner archive 转成 Replay 可读、content-addressed 的有限数值事件数组；每个事件必须有正 mark price，空窗口仍是显式证据。终端 K 线收盘事件通过 `[first_open, data_watermark + 1ms)` 半开窗口保留。
 
 ## Boundaries
 

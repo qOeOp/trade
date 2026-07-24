@@ -2,18 +2,48 @@
 
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
+  readFileSync,
   realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs"
-import { dirname, resolve } from "node:path"
+import { createHash } from "node:crypto"
+import { dirname, resolve, sep } from "node:path"
 import { Database } from "bun:sqlite"
 import { asRecord, stringField } from "../modules/contracts/runtime-core/src/json"
 import {
+  compileMarketDataDemand,
+} from "../modules/contracts/market-data-demand-contract/src/market-data-demand-contract"
+import {
   buildForwardObservationMarketDataDemand,
 } from "../modules/research-strategy-development/research-control-plane/contracts/src/lib/forward-observation-program"
+import {
+  assertFundingReplaySliceContent,
+  compileFundingReplaySliceRef,
+} from "../modules/contracts/market-data-demand-contract/src/funding-replay-slice-contract"
+import {
+  compileFundingCoverageAudit,
+} from "../modules/contracts/market-data-demand-contract/src/funding-coverage-contract"
+import {
+  compileMarketDataFactRef,
+} from "../modules/contracts/market-data-demand-contract/src/market-data-fact-contract"
+import {
+  buildForwardFundingMarketDataDemand,
+  createForwardFundingEvidenceBinding,
+} from "../modules/research-strategy-development/forward-evidence-plane/contracts/src/lib/forward-funding-evidence"
+import {
+  readLatestForwardDatasetCandidate,
+} from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/forward-dataset-candidate"
+import {
+  admitForwardFundingEvidenceBinding,
+  ensureForwardFundingEvidenceSchema,
+  readForwardFundingEvidenceBinding,
+  readLatestForwardFundingDemandDelivery,
+  recordForwardFundingDemandDelivery,
+} from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/forward-funding-evidence"
 import {
   ensureForwardObservationProgramSchema,
   listCollectingForwardObservationPrograms,
@@ -32,6 +62,7 @@ import {
   workerBoundedInteger,
   workerDelay,
   workerFlagValues,
+  workerMarketDataOwnerCommand,
   workerResearchMarketDataPaths,
 } from "./lib/resident-worker-cli"
 
@@ -50,6 +81,7 @@ async function main(): Promise<void> {
   db.exec("PRAGMA foreign_keys=ON")
   ensureResearchControlPlaneSchema(db)
   ensureForwardObservationProgramSchema(db)
+  ensureForwardFundingEvidenceSchema(db)
   let closing = false
   let currentChild: ReturnType<typeof Bun.spawn> | undefined
   const close = () => {
@@ -69,6 +101,12 @@ async function main(): Promise<void> {
     active_program_count: 0,
     program_created_count: 0,
     demand_accepted_count: 0,
+    funding_candidate_count: 0,
+    funding_demand_accepted_count: 0,
+    funding_evidence_created_count: 0,
+    funding_pending_count: 0,
+    funding_conflict_count: 0,
+    funding_failure_count: 0,
     failure_count: 0,
   })
   try {
@@ -78,6 +116,12 @@ async function main(): Promise<void> {
       let programCreatedCount = 0
       let demandAcceptedCount = 0
       let activeProgramCount = 0
+      let fundingCandidateCount = 0
+      let fundingDemandAcceptedCount = 0
+      let fundingEvidenceCreatedCount = 0
+      let fundingPendingCount = 0
+      let fundingConflictCount = 0
+      let fundingFailureCount = 0
       let failureCount = 0
       try {
         const programs = reconcileForwardObservationPrograms(db, {
@@ -96,7 +140,10 @@ async function main(): Promise<void> {
         const collecting = listCollectingForwardObservationPrograms(db)
         activeProgramCount = collecting.length
         let attemptedDemandCount = 0
-        for (const program of collecting) {
+        for (const program of collecting.slice(
+          0,
+          input.max_programs_per_cycle,
+        )) {
           if (closing) break
           try {
             const latest = readLatestForwardMarketDataDemandDelivery(
@@ -116,9 +163,16 @@ async function main(): Promise<void> {
               issued_at: observedAt,
               lease_duration_ms: input.lease_duration_ms,
             })
-            const response = await ownerCommand(root, input, demand, (child) => {
-              currentChild = child
-            })
+            const response = await ownerCommand(
+              root,
+              input,
+              "put_market_data_demand",
+              {
+                demand,
+                committed_at: new Date().toISOString(),
+              },
+              (child) => { currentChild = child },
+            )
             currentChild = undefined
             const commitStatus = stringField(response.commit_status)
             if (response.ok !== true
@@ -147,6 +201,210 @@ async function main(): Promise<void> {
             }))
           }
         }
+        for (const program of collecting.slice(
+          0,
+          input.max_programs_per_cycle,
+        )) {
+          if (closing) break
+          const candidate = readLatestForwardDatasetCandidate(
+            db,
+            program.program_id,
+          )
+          if (!candidate) continue
+          fundingCandidateCount += 1
+          if (readForwardFundingEvidenceBinding(
+            db,
+            candidate.candidate_id,
+          )) continue
+          try {
+            let delivery = readLatestForwardFundingDemandDelivery(
+              db,
+              candidate.candidate_id,
+            )
+            if (delivery) {
+              const ownerRead = await ownerCommand(
+                root,
+                input,
+                "read_market_data_demand",
+                { demand_id: delivery.demand.demand_id },
+                (child) => { currentChild = child },
+              )
+              currentChild = undefined
+              if (ownerRead.ok !== true
+                  || ownerRead.action !== "read_market_data_demand") {
+                throw new Error(
+                  "funding demand owner read identity drifted",
+                )
+              }
+              if (ownerRead.record == null) {
+                delivery = undefined
+              } else {
+                const ownerRecord = asRecord(ownerRead.record)
+                if (ownerRecord.status !== "active") {
+                  fundingPendingCount += 1
+                  continue
+                }
+                const ownerDemand = compileMarketDataDemand(
+                  ownerRecord.demand,
+                )
+                if (ownerDemand.demand_hash
+                    !== delivery.demand.demand_hash) {
+                  recordForwardFundingDemandDelivery(db, {
+                    candidate_id: candidate.candidate_id,
+                    demand: ownerDemand,
+                    owner_commit_status: "existing",
+                    accepted_at: new Date().toISOString(),
+                  })
+                  delivery = readLatestForwardFundingDemandDelivery(
+                    db,
+                    candidate.candidate_id,
+                  )
+                }
+              }
+            }
+            if (shouldRenewForwardMarketDataDemand(
+              delivery?.demand.lease.expires_at,
+              observedAt,
+              input.renew_before_ms,
+            )) {
+              const demand = buildForwardFundingMarketDataDemand(
+                program,
+                candidate,
+                {
+                  issued_at: observedAt,
+                  lease_duration_ms: input.lease_duration_ms,
+                },
+              )
+              const response = await ownerCommand(
+                root,
+                input,
+                "put_market_data_demand",
+                {
+                  demand,
+                  committed_at: new Date().toISOString(),
+                },
+                (child) => { currentChild = child },
+              )
+              currentChild = undefined
+              const commitStatus = stringField(response.commit_status)
+              if (response.ok !== true
+                  || response.action !== "put_market_data_demand"
+                  || response.demand_id !== demand.demand_id
+                  || response.demand_hash !== demand.demand_hash
+                  || !["created", "renewed", "existing"]
+                    .includes(commitStatus)) {
+                throw new Error(
+                  "funding demand owner response identity drifted",
+                )
+              }
+              recordForwardFundingDemandDelivery(db, {
+                candidate_id: candidate.candidate_id,
+                demand,
+                owner_commit_status: commitStatus as
+                  "created" | "renewed" | "existing",
+                accepted_at: new Date().toISOString(),
+              })
+              delivery = readLatestForwardFundingDemandDelivery(
+                db,
+                candidate.candidate_id,
+              )
+              fundingDemandAcceptedCount += 1
+            }
+            if (!delivery
+                || Date.parse(delivery.demand.lease.expires_at)
+                  < Date.parse(observedAt)) {
+              fundingPendingCount += 1
+              continue
+            }
+            const evidenceResponse = await ownerCommand(
+              root,
+              input,
+              "resolve_funding_demand_evidence",
+              {
+                demand_id: delivery.demand.demand_id,
+                demand_hash: delivery.demand.demand_hash,
+                observed_at: observedAt,
+                max_symbols: input.max_symbols,
+              },
+              (child) => { currentChild = child },
+            )
+            currentChild = undefined
+            const evidence = asRecord(evidenceResponse.evidence)
+            const evidenceStatus = stringField(evidence.status)
+            if (evidenceResponse.ok !== true
+                || evidenceResponse.action
+                  !== "resolve_funding_demand_evidence") {
+              throw new Error(
+                "funding evidence owner response identity drifted",
+              )
+            }
+            if (evidenceStatus === "conflict") {
+              fundingConflictCount += 1
+              continue
+            }
+            if (evidenceStatus !== "ready") {
+              fundingPendingCount += 1
+              continue
+            }
+            const resolution = asRecord(evidence.resolution)
+            const audit = compileFundingCoverageAudit(resolution.audit)
+            const fact = compileMarketDataFactRef(evidence.fact)
+            const sliceResponse = await ownerCommand(
+              root,
+              input,
+              "export_funding_replay_slice",
+              { archive_id: audit.source.ref },
+              (child) => { currentChild = child },
+            )
+            currentChild = undefined
+            if (sliceResponse.ok !== true
+                || sliceResponse.action
+                  !== "export_funding_replay_slice") {
+              throw new Error(
+                "funding slice owner response identity drifted",
+              )
+            }
+            const slice = compileFundingReplaySliceRef(
+              sliceResponse.slice,
+            )
+            const sliceValue = readFundingSlice(
+              root,
+              slice.artifact_ref,
+              slice.content_sha256,
+            )
+            const verifiedEvents = assertFundingReplaySliceContent(
+              slice,
+              sliceValue,
+            )
+            const binding = createForwardFundingEvidenceBinding({
+              program,
+              candidate,
+              demand: delivery.demand,
+              demand_accepted_at: delivery.accepted_at,
+              owner_commit_status: delivery.owner_commit_status,
+              coverage_audit: audit,
+              market_data_fact: fact,
+              funding_slice: slice,
+              verified_events: verifiedEvents,
+              created_at: new Date().toISOString(),
+            })
+            if (admitForwardFundingEvidenceBinding(db, {
+              binding,
+              verified_events: verifiedEvents,
+            }) === "created") {
+              fundingEvidenceCreatedCount += 1
+            }
+          } catch (error) {
+            currentChild = undefined
+            fundingFailureCount += 1
+            console.error(JSON.stringify({
+              schema_version:
+                "trade.rd-forward-funding-evidence-worker-error.v1",
+              candidate_id: candidate.candidate_id,
+              error_class: error instanceof Error ? error.name : "Error",
+            }))
+          }
+        }
       } catch (error) {
         failureCount += 1
         console.error(JSON.stringify({
@@ -162,8 +420,15 @@ async function main(): Promise<void> {
         active_program_count: activeProgramCount,
         program_created_count: programCreatedCount,
         demand_accepted_count: demandAcceptedCount,
+        funding_candidate_count: fundingCandidateCount,
+        funding_demand_accepted_count: fundingDemandAcceptedCount,
+        funding_evidence_created_count: fundingEvidenceCreatedCount,
+        funding_pending_count: fundingPendingCount,
+        funding_conflict_count: fundingConflictCount,
+        funding_failure_count: fundingFailureCount,
         failure_count: failureCount,
       })
+      if (input.max_cycles > 0 && cycle >= input.max_cycles) break
       if (!closing) await workerDelay(input.poll_interval_ms)
     }
   } finally {
@@ -176,6 +441,12 @@ async function main(): Promise<void> {
       active_program_count: 0,
       program_created_count: 0,
       demand_accepted_count: 0,
+      funding_candidate_count: 0,
+      funding_demand_accepted_count: 0,
+      funding_evidence_created_count: 0,
+      funding_pending_count: 0,
+      funding_conflict_count: 0,
+      funding_failure_count: 0,
       failure_count: 0,
     })
     db.close()
@@ -185,53 +456,45 @@ async function main(): Promise<void> {
 async function ownerCommand(
   root: string,
   input: ReturnType<typeof parseArgs>,
-  demand: ReturnType<typeof buildForwardObservationMarketDataDemand>,
+  action: string,
+  json: Record<string, unknown>,
   setChild: (child: ReturnType<typeof Bun.spawn>) => void,
 ): Promise<Record<string, unknown>> {
-  const child = Bun.spawn({
-    cmd: [
-      process.execPath,
-      resolve(
-        root,
-        "modules/market-data-products/market-data-store/src/scripts/main.ts",
-      ),
-      "--db",
-      input.market_data_db,
-      "--ohlcv-db",
-      input.ohlcv_db,
-      "--action",
-      "put_market_data_demand",
-      "--json",
-      JSON.stringify({
-        demand,
-        committed_at: new Date().toISOString(),
-      }),
-    ],
-    cwd: root,
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
+  return workerMarketDataOwnerCommand({
+    root,
+    market_data_db: input.market_data_db,
+    ohlcv_db: input.ohlcv_db,
+    action,
+    json,
+    timeout_ms: input.command_timeout_ms,
+    set_child: setChild,
   })
-  setChild(child)
-  let timedOut = false
-  const timer = setTimeout(() => {
-    timedOut = true
-    child.kill("SIGTERM")
-  }, input.command_timeout_ms)
-  try {
-    const [stdout, exitCode] = await Promise.all([
-      new Response(child.stdout).text(),
-      child.exited,
-    ])
-    if (timedOut) throw new Error("market-data owner command timed out")
-    if (exitCode !== 0) throw new Error("market-data owner command failed")
-    return asRecord(JSON.parse(stdout))
-  } finally {
-    clearTimeout(timer)
-  }
 }
 
-function parseArgs(argv: string[]): {
+function readFundingSlice(
+  root: string,
+  artifactRef: string,
+  expectedSha256: string,
+): unknown {
+  const path = resolve(root, artifactRef)
+  if (!path.startsWith(`${root}${sep}`)
+      || !existsSync(path)
+      || lstatSync(path).isSymbolicLink()
+      || !lstatSync(path).isFile()
+      || realpathSync(path) !== path) {
+    throw new Error("funding Replay slice path is unsafe")
+  }
+  const bytes = readFileSync(path)
+  if (bytes.byteLength < 2
+      || bytes.byteLength > 256 * 1024 * 1024
+      || createHash("sha256").update(bytes).digest("hex")
+        !== expectedSha256) {
+    throw new Error("funding Replay slice bytes drifted")
+  }
+  return JSON.parse(bytes.toString("utf8")) as unknown
+}
+
+export function parseArgs(argv: string[]): {
   repository_root: string
   research_db: string
   market_data_db: string
@@ -243,6 +506,8 @@ function parseArgs(argv: string[]): {
   lease_duration_ms: number
   renew_before_ms: number
   max_programs_per_cycle: number
+  max_symbols: number
+  max_cycles: number
 } {
   const allowed = new Set([
     "repository-root",
@@ -256,6 +521,8 @@ function parseArgs(argv: string[]): {
     "lease-duration-ms",
     "renew-before-ms",
     "max-programs-per-cycle",
+    "max-symbols",
+    "max-cycles",
   ])
   const values = workerFlagValues(
     argv,
@@ -297,6 +564,18 @@ function parseArgs(argv: string[]): {
       100,
       "max_programs_per_cycle",
     ),
+    max_symbols: workerBoundedInteger(
+      values.get("max-symbols") ?? "20",
+      1,
+      100,
+      "max_symbols",
+    ),
+    max_cycles: workerBoundedInteger(
+      values.get("max-cycles") ?? "0",
+      0,
+      1_000_000,
+      "max_cycles",
+    ),
   }
 }
 
@@ -309,6 +588,12 @@ function writeState(
     active_program_count: number
     program_created_count: number
     demand_accepted_count: number
+    funding_candidate_count: number
+    funding_demand_accepted_count: number
+    funding_evidence_created_count: number
+    funding_pending_count: number
+    funding_conflict_count: number
+    funding_failure_count: number
     failure_count: number
   },
 ): void {
@@ -316,9 +601,10 @@ function writeState(
   const temporary = `${path}.${process.pid}.tmp`
   writeFileSync(temporary, `${JSON.stringify({
     schema_version:
-      "trade.rd-forward-market-data-worker-state.v1",
+      "trade.rd-forward-market-data-worker-state.v2",
     ...value,
     market_data_demand_authority: "request_only",
+    funding_evidence_authority: "component_binding_only",
     forward_session_authority: "none",
     deployment_authority: "none",
     trading_authority: false,

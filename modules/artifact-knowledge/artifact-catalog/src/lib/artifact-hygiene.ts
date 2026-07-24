@@ -163,6 +163,11 @@ function assertSafeArtifactRoot(root: string): void {
   if (!existsSync(root) || !statSync(root).isDirectory()) {
     throw new Error("--artifact-root must be an existing directory")
   }
+  const parts = root.split("/").filter(Boolean)
+  const dataIndex = parts.lastIndexOf("data")
+  if (dataIndex >= 0 && (dataIndex === parts.length - 1 || parts[dataIndex + 1] === "artifacts")) {
+    throw new Error("--artifact-gc cannot operate on durable data evidence; use catalog GC with owner references")
+  }
 }
 
 function walkFiles(root: string): string[] {

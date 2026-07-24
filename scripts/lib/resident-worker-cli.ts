@@ -6,6 +6,9 @@ import {
   writeFileSync,
 } from "node:fs"
 import { dirname, resolve, sep } from "node:path"
+import {
+  asRecord,
+} from "../../modules/contracts/runtime-core/src/json"
 
 export function resolveWorkerDataPath(
   root: string,
@@ -135,5 +138,63 @@ export function workerResearchMarketDataPaths(
         || `/app/tmp/runtime/${runtimeDirectory}/state.json`,
       "state_file",
     ),
+  }
+}
+
+export async function workerMarketDataOwnerCommand(input: {
+  root: string
+  market_data_db: string
+  ohlcv_db: string
+  action: string
+  json: Record<string, unknown>
+  timeout_ms: number
+  set_child: (
+    child: ReturnType<typeof Bun.spawn>,
+  ) => void
+}): Promise<Record<string, unknown>> {
+  const child = Bun.spawn({
+    cmd: [
+      process.execPath,
+      resolve(
+        input.root,
+        "modules/market-data-products/market-data-store/src/scripts/main.ts",
+      ),
+      "--db",
+      input.market_data_db,
+      "--ohlcv-db",
+      input.ohlcv_db,
+      "--action",
+      input.action,
+      "--json",
+      JSON.stringify(input.json),
+    ],
+    cwd: input.root,
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  input.set_child(child)
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    child.kill("SIGTERM")
+  }, input.timeout_ms)
+  try {
+    const [stdout, _stderr, exitCode] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ])
+    if (timedOut) throw new Error("market-data owner command timed out")
+    if (exitCode !== 0) {
+      throw new Error("market-data owner command failed")
+    }
+    const response = asRecord(JSON.parse(stdout))
+    if (response.ok !== true || response.action !== input.action) {
+      throw new Error("market-data owner response identity drifted")
+    }
+    return response
+  } finally {
+    clearTimeout(timer)
   }
 }

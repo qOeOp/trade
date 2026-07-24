@@ -2,6 +2,7 @@ import { expect, test } from "bun:test"
 import {
   assertForwardDatasetReadinessAssessment,
   createForwardDatasetReadinessAssessment,
+  createForwardDatasetReadinessAssessmentV2,
 } from "./forward-dataset-readiness-assessment"
 
 const HASH = "a".repeat(64)
@@ -40,4 +41,21 @@ test("Forward dataset readiness exposes required and conditional missing inputs 
   expect(enriched.blockers).toContain("supplemental_window_unverified")
   expect(enriched.required_forward_inputs.liquidity_capacity_attestation)
     .toBe("decision_dependent_on_entry_order_type")
+
+  const funded = createForwardDatasetReadinessAssessmentV2({
+    ...base,
+    funding_evidence: {
+      binding_id: "forward-funding:binding-1",
+      binding_hash: HASH,
+      market_data_fact_hash: HASH,
+      funding_slice_hash: HASH,
+      funding_slice_content_sha256: HASH,
+    },
+  })
+  expect(funded.schema_version)
+    .toBe("trade.rd-forward-dataset-readiness-assessment.v2")
+  expect(funded.blockers).not.toContain("funding_window_unverified")
+  expect(funded.blockers).toContain("instrument_spec_window_unverified")
+  expect(() => assertForwardDatasetReadinessAssessment(funded))
+    .not.toThrow()
 })

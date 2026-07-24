@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite"
 import {
-  createForwardDatasetReadinessAssessment,
-  type ForwardDatasetReadinessAssessment,
+  createForwardDatasetReadinessAssessmentV2,
+  type ForwardDatasetReadinessAssessmentV2,
 } from "../../../../forward-evidence-plane/contracts/src/lib/forward-dataset-readiness-assessment"
 import {
   readForwardDatasetCandidate,
@@ -9,6 +9,9 @@ import {
 import {
   readForwardObservationProgram,
 } from "./forward-observation-program"
+import {
+  readForwardFundingEvidenceBinding,
+} from "./forward-funding-evidence"
 
 export function readForwardDatasetReadinessAssessment(
   db: Database,
@@ -16,7 +19,7 @@ export function readForwardDatasetReadinessAssessment(
     candidate_id: string
     assessed_at: string
   },
-): ForwardDatasetReadinessAssessment {
+): ForwardDatasetReadinessAssessmentV2 {
   const candidate = readForwardDatasetCandidate(db, input.candidate_id)
   if (!candidate) {
     throw new Error("Forward dataset readiness candidate is missing")
@@ -85,7 +88,11 @@ export function readForwardDatasetReadinessAssessment(
       "Forward dataset readiness mark coverage is unsupported",
     )
   }
-  return createForwardDatasetReadinessAssessment({
+  const funding = readForwardFundingEvidenceBinding(
+    db,
+    candidate.candidate_id,
+  )
+  return createForwardDatasetReadinessAssessmentV2({
     candidate_id: candidate.candidate_id,
     candidate_hash: candidate.candidate_hash,
     program_id: program.program_id,
@@ -96,6 +103,16 @@ export function readForwardDatasetReadinessAssessment(
     historical_dataset_manifest_hash: source.dataset_manifest_hash,
     historical_mark_coverage: markCoverage,
     historical_supplemental_requirement_mode: supplementalMode,
+    funding_evidence: funding == null
+      ? null
+      : {
+          binding_id: funding.binding_id,
+          binding_hash: funding.binding_hash,
+          market_data_fact_hash: funding.market_data_fact.fact_hash,
+          funding_slice_hash: funding.funding_slice.slice_hash,
+          funding_slice_content_sha256:
+            funding.funding_slice.content_sha256,
+        },
     assessed_at: input.assessed_at,
   })
 }

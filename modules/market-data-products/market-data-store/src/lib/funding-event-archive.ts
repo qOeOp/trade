@@ -1,5 +1,16 @@
 import type { Database } from "bun:sqlite"
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
+import {
+  existsSync,
+  linkSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs"
+import { dirname, resolve, sep } from "node:path"
 import { canonicalHash } from "../../../../contracts/runtime-core/src/canonical-json"
 import {
   buildFundingCoverageAudit,
@@ -7,6 +18,12 @@ import {
   type FundingCoverageAudit,
   type FundingCoveragePageReceipt,
 } from "../../../../contracts/market-data-demand-contract/src/funding-coverage-contract"
+import {
+  buildFundingReplaySliceRef,
+  fundingReplaySliceBytes,
+  type FundingReplayEvent,
+  type FundingReplaySliceRef,
+} from "../../../../contracts/market-data-demand-contract/src/funding-replay-slice-contract"
 
 export interface FundingArchiveEvent {
   event_ordinal: number
@@ -252,6 +269,57 @@ export function resolveFundingCoverage(
   return { status: "ready", audit: audits[0]!, candidate_archive_ids: [rows[0]!.archive_id] }
 }
 
+export function exportFundingReplaySlice(
+  db: Database,
+  input: {
+    repository_root: string
+    archive_id: string
+  },
+): FundingReplaySliceRef {
+  const audit = readFundingCoverageAudit(db, input.archive_id)
+  if (audit == null) throw new Error("funding archive does not exist")
+  const normalized = readFundingArchiveEvents(
+    db,
+    input.archive_id,
+    Math.max(1, audit.source.event_count),
+  )
+  const events: FundingReplayEvent[] = normalized.map((event, index) => {
+    const rate = Number(event.rate)
+    const markPrice = event.mark_price == null
+      ? Number.NaN
+      : Number(event.mark_price)
+    if (!Number.isFinite(rate)
+        || !Number.isFinite(markPrice)
+        || markPrice <= 0) {
+      throw new Error(
+        `funding event ${index} cannot enter Replay without a positive mark price`,
+      )
+    }
+    return {
+      timestamp: event.timestamp,
+      rate,
+      mark_price: markPrice,
+    }
+  })
+  const slice = buildFundingReplaySliceRef({
+    symbol: audit.symbol,
+    coverage_start: audit.coverage.start_at,
+    coverage_end: audit.coverage.end_at,
+    source_archive_id: input.archive_id,
+    coverage_audit_hash: audit.audit_hash,
+    normalized_events_hash: audit.source.events_hash,
+    events,
+  })
+  const root = realpathSync(input.repository_root)
+  const output = resolve(root, slice.artifact_ref)
+  if (!output.startsWith(`${root}${sep}`)) {
+    throw new Error("funding Replay slice escaped repository root")
+  }
+  ensureOwnedDirectory(root, dirname(output))
+  writeImmutableBytes(output, fundingReplaySliceBytes(events))
+  return slice
+}
+
 function compileAcquisition(value: FundingAcquisitionInput): {
   archive_id: string
   audit: FundingCoverageAudit
@@ -386,4 +454,53 @@ function decimalString(value: unknown, field: string): string {
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex")
+}
+
+function ensureOwnedDirectory(root: string, target: string): void {
+  const relative = target.slice(root.length + 1)
+  let cursor = root
+  for (const component of relative.split(sep)) {
+    if (!component || component === "." || component === "..") {
+      throw new Error("funding Replay slice directory is unsafe")
+    }
+    cursor = resolve(cursor, component)
+    if (existsSync(cursor)) {
+      const stat = lstatSync(cursor)
+      if (stat.isSymbolicLink() || !stat.isDirectory()) {
+        throw new Error("funding Replay slice directory is not owned")
+      }
+    } else {
+      mkdirSync(cursor, { mode: 0o700 })
+    }
+  }
+  const resolved = realpathSync(target)
+  if (resolved !== target || !resolved.startsWith(`${root}${sep}`)) {
+    throw new Error("funding Replay slice directory escaped repository")
+  }
+}
+
+function writeImmutableBytes(path: string, bytes: Buffer): void {
+  if (existsSync(path)) {
+    const stat = lstatSync(path)
+    if (stat.isSymbolicLink() || !stat.isFile()
+        || !readFileSync(path).equals(bytes)) {
+      throw new Error("funding Replay slice identity collision")
+    }
+    return
+  }
+  const partial = `${path}.partial-${process.pid}-${randomUUID()}`
+  try {
+    writeFileSync(partial, bytes, { flag: "wx", mode: 0o600 })
+    linkSync(partial, path)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST"
+        && existsSync(path)
+        && !lstatSync(path).isSymbolicLink()
+        && readFileSync(path).equals(bytes)) {
+      return
+    }
+    throw error
+  } finally {
+    if (existsSync(partial)) unlinkSync(partial)
+  }
 }

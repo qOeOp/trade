@@ -539,7 +539,7 @@ services:
         - CMD
         - bun
         - -e
-        - const s=JSON.parse(await Bun.file("tmp/runtime/forward-market-data-worker/state.json").text());process.exit(s.status==="running"&&Date.now()-Date.parse(s.updated_at)<150000&&s.market_data_demand_authority==="request_only"&&s.forward_session_authority==="none"&&s.deployment_authority==="none"&&!s.trading_authority?0:1)
+        - const s=JSON.parse(await Bun.file("tmp/runtime/forward-market-data-worker/state.json").text());process.exit(s.status==="running"&&Date.now()-Date.parse(s.updated_at)<150000&&s.market_data_demand_authority==="request_only"&&s.funding_evidence_authority==="component_binding_only"&&s.forward_session_authority==="none"&&s.deployment_authority==="none"&&!s.trading_authority?0:1)
       interval: 30s
       timeout: 5s
       retries: 4

@@ -7,11 +7,25 @@ import {
   reconcileMarketDataDemands,
 } from "../../../../../contracts/market-data-demand-contract/src/market-data-demand-contract"
 import {
+  buildFundingCoverageAudit,
+} from "../../../../../contracts/market-data-demand-contract/src/funding-coverage-contract"
+import {
+  buildMarketDataFactRefV2,
+} from "../../../../../contracts/market-data-demand-contract/src/market-data-fact-contract"
+import {
+  buildFundingReplaySliceRef,
+} from "../../../../../contracts/market-data-demand-contract/src/funding-replay-slice-contract"
+import {
   createForwardObservationCandleSegment,
 } from "../../../contracts/src/lib/forward-observation-candle-segment"
 import {
   createForwardDatasetCandidate,
 } from "../../../../forward-evidence-plane/contracts/src/lib/forward-dataset-candidate"
+import {
+  buildForwardFundingMarketDataDemand,
+  createForwardFundingEvidenceBinding,
+  forwardFundingCoverageWindow,
+} from "../../../../forward-evidence-plane/contracts/src/lib/forward-funding-evidence"
 import {
   replayDatasetHash,
   type ReplayMarketBar,
@@ -39,6 +53,12 @@ import {
 import {
   readForwardDatasetReadinessAssessment,
 } from "./forward-dataset-readiness-assessment"
+import {
+  admitForwardFundingEvidenceBinding,
+  readForwardFundingEvidenceBinding,
+  readLatestForwardFundingDemandDelivery,
+  recordForwardFundingDemandDelivery,
+} from "./forward-funding-evidence"
 
 const HASH = "a".repeat(64)
 
@@ -156,6 +176,127 @@ test("Forward dataset candidate registry independently binds the complete segmen
   expect(readiness.status).toBe("blocked_pending_components")
   expect(readiness.blockers).toContain("funding_window_unverified")
   expect(readiness.blockers).not.toContain("mark_window_unverified")
+  const fundingWindow = forwardFundingCoverageWindow(candidate)
+  const fundingDemand = buildForwardFundingMarketDataDemand(
+    program,
+    candidate,
+    { issued_at: "2026-07-23T08:02:00.000Z" },
+  )
+  expect(recordForwardFundingDemandDelivery(db, {
+    candidate_id: candidate.candidate_id,
+    demand: fundingDemand,
+    owner_commit_status: "created",
+    accepted_at: "2026-07-23T08:02:01.000Z",
+  })).toBe("created")
+  expect(readLatestForwardFundingDemandDelivery(
+    db,
+    candidate.candidate_id,
+  )?.demand).toEqual(fundingDemand)
+  const fundingEvents = [{
+    timestamp: candidate.window.data_watermark,
+    rate: 0.0001,
+    mark_price: 119_000,
+  }]
+  const fundingAudit = buildFundingCoverageAudit({
+    venue: "binance_usdm",
+    symbol: program.symbol,
+    coverage: {
+      start_at: fundingWindow.start_at,
+      end_at: fundingWindow.end_at,
+      completeness: "provider_page_exhaustion",
+    },
+    source: {
+      capability: "binance_usdm_rest_funding_rate",
+      ref: "funding-archive:BTCUSDT:forward",
+      content_hash: "c".repeat(64),
+      page_receipts: [{
+        page_ordinal: 0,
+        requested_start_ms: Date.parse(fundingWindow.start_at),
+        requested_end_ms: Date.parse(fundingWindow.end_at) - 1,
+        row_count: 1,
+        first_event_ms: Date.parse(candidate.window.data_watermark),
+        last_event_ms: Date.parse(candidate.window.data_watermark),
+        response_hash: "d".repeat(64),
+      }],
+      event_count: 1,
+      events_hash: "e".repeat(64),
+      external_authenticity: "not_verified",
+    },
+    audited_at: "2026-07-23T08:03:00.000Z",
+  })
+  const fundingFact = buildMarketDataFactRefV2({
+    product: "funding_events",
+    venue: "binance_usdm",
+    symbol: program.symbol,
+    requirement: {
+      timeframe: null,
+      indicator_set_ref: null,
+      minimum_depth: null,
+    },
+    consumer_binding: {
+      demand_ids: [fundingDemand.demand_id],
+      source_plan_hash: "f".repeat(64),
+    },
+    source: {
+      ref: fundingAudit.source.ref,
+      content_hash: fundingAudit.source.events_hash,
+    },
+    coverage: {
+      kind: "half_open",
+      start_at: fundingWindow.start_at,
+      end_at: fundingWindow.end_at,
+      completeness: "complete",
+    },
+    freshness: {
+      kind: "immutable",
+      as_of: fundingWindow.end_at,
+      observed_at: fundingAudit.audited_at,
+      max_freshness_ms: null,
+      status: "not_applicable",
+    },
+  })
+  const fundingSlice = buildFundingReplaySliceRef({
+    symbol: program.symbol,
+    coverage_start: fundingWindow.start_at,
+    coverage_end: fundingWindow.end_at,
+    source_archive_id: fundingAudit.source.ref,
+    coverage_audit_hash: fundingAudit.audit_hash,
+    normalized_events_hash: fundingAudit.source.events_hash,
+    events: fundingEvents,
+  })
+  const fundingBinding = createForwardFundingEvidenceBinding({
+    program,
+    candidate,
+    demand: fundingDemand,
+    demand_accepted_at: "2026-07-23T08:02:01.000Z",
+    owner_commit_status: "created",
+    coverage_audit: fundingAudit,
+    market_data_fact: fundingFact,
+    funding_slice: fundingSlice,
+    verified_events: fundingEvents,
+    created_at: "2026-07-23T08:04:00.000Z",
+  })
+  expect(admitForwardFundingEvidenceBinding(db, {
+    binding: fundingBinding,
+    verified_events: fundingEvents,
+  })).toBe("created")
+  expect(readForwardFundingEvidenceBinding(
+    db,
+    candidate.candidate_id,
+  )).toEqual(fundingBinding)
+  const fundedReadiness = readForwardDatasetReadinessAssessment(db, {
+    candidate_id: candidate.candidate_id,
+    assessed_at: "2026-07-23T08:05:00.000Z",
+  })
+  expect(fundedReadiness.schema_version)
+    .toBe("trade.rd-forward-dataset-readiness-assessment.v2")
+  expect(fundedReadiness.blockers)
+    .not.toContain("funding_window_unverified")
+  expect(fundedReadiness.blockers)
+    .toContain("instrument_spec_window_unverified")
+  expect(() => db.query(`
+    DELETE FROM rd_forward_funding_evidence_binding
+  `).run()).toThrow()
   expect(() => admitForwardDatasetCandidate(db, {
     candidate: {
       ...candidate,

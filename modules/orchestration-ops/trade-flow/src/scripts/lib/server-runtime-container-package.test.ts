@@ -207,6 +207,10 @@ test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds De
     forwardMarketDataBlock,
     /forward_session_authority==="none"/,
   )
+  assert.match(
+    forwardMarketDataBlock,
+    /funding_evidence_authority==="component_binding_only"/,
+  )
   assert.doesNotMatch(
     forwardMarketDataBlock,
     /agent-control|trade-ops|release-candidates|TRADE_AGENT_HOST_HTTP_TOKEN/,

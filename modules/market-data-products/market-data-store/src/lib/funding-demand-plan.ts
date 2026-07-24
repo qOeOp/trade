@@ -47,6 +47,20 @@ export interface FundingDemandSyncPlan {
   plan_hash: string
 }
 
+export interface FundingDemandEvidenceResolution {
+  status:
+    | "ready"
+    | "missing"
+    | "conflict"
+    | "capacity_deferred"
+    | "expired"
+    | "not_active"
+  source_plan_hash: string
+  target: FundingCoverageTarget | null
+  resolution: FundingCoverageResolution | null
+  fact: MarketDataFactRef | null
+}
+
 export function buildFundingCoverageTargets(
   sourceValue: unknown,
 ): { source: MarketDataSubscriptionPlan; targets: FundingCoverageTarget[] } {
@@ -107,33 +121,7 @@ export function buildFundingDemandSyncPlan(input: {
       throw new Error(`funding coverage resolution drifted: ${target.target_id}`)
     }
     completedTargetIds.push(target.target_id)
-    completedFacts.push(buildMarketDataFactRefV2({
-      product: "funding_events",
-      venue: "binance_usdm",
-      symbol: target.symbol,
-      requirement: { timeframe: null, indicator_set_ref: null, minimum_depth: null },
-      consumer_binding: {
-        demand_ids: target.demand_ids,
-        source_plan_hash: source.plan_hash,
-      },
-      source: {
-        ref: audit.source.ref,
-        content_hash: audit.source.events_hash,
-      },
-      coverage: {
-        kind: "half_open",
-        start_at: target.coverage_start,
-        end_at: target.coverage_end,
-        completeness: "complete",
-      },
-      freshness: {
-        kind: "immutable",
-        as_of: target.coverage_end,
-        observed_at: audit.audited_at,
-        max_freshness_ms: null,
-        status: "not_applicable",
-      },
-    }))
+    completedFacts.push(buildFundingFact(source, target, audit))
   }
   const body = {
     schema_version: FUNDING_DEMAND_SYNC_PLAN_SCHEMA,
@@ -147,6 +135,82 @@ export function buildFundingDemandSyncPlan(input: {
     lifecycle_authority: "proposal_only" as const,
   }
   return { ...body, plan_hash: canonicalHash(body) }
+}
+
+export function resolveFundingDemandEvidence(input: {
+  source_plan: unknown
+  demand_id: string
+  resolution: unknown
+}): FundingDemandEvidenceResolution {
+  const { source, targets } = buildFundingCoverageTargets(input.source_plan)
+  const demandId = identifier(input.demand_id, "demand_id")
+  const target = targets.find((item) => item.demand_ids.includes(demandId))
+  if (target == null) {
+    return {
+      status: source.deferred_demand_ids.includes(demandId)
+        ? "capacity_deferred"
+        : source.expired_demand_ids.includes(demandId)
+          ? "expired"
+          : "not_active",
+      source_plan_hash: source.plan_hash,
+      target: null,
+      resolution: null,
+      fact: null,
+    }
+  }
+  const resolution = compileResolution(input.resolution)
+  return {
+    status: resolution.status,
+    source_plan_hash: source.plan_hash,
+    target,
+    resolution,
+    fact: resolution.status === "ready"
+      ? buildFundingFact(source, target, resolution.audit!)
+      : null,
+  }
+}
+
+function buildFundingFact(
+  source: MarketDataSubscriptionPlan,
+  target: FundingCoverageTarget,
+  audit: FundingCoverageAudit,
+): MarketDataFactRef {
+  if (audit.symbol !== target.symbol
+      || audit.coverage.start_at !== target.coverage_start
+      || audit.coverage.end_at !== target.coverage_end) {
+    throw new Error(`funding coverage resolution drifted: ${target.target_id}`)
+  }
+  return buildMarketDataFactRefV2({
+    product: "funding_events",
+    venue: "binance_usdm",
+    symbol: target.symbol,
+    requirement: {
+      timeframe: null,
+      indicator_set_ref: null,
+      minimum_depth: null,
+    },
+    consumer_binding: {
+      demand_ids: target.demand_ids,
+      source_plan_hash: source.plan_hash,
+    },
+    source: {
+      ref: audit.source.ref,
+      content_hash: audit.source.events_hash,
+    },
+    coverage: {
+      kind: "half_open",
+      start_at: target.coverage_start,
+      end_at: target.coverage_end,
+      completeness: "complete",
+    },
+    freshness: {
+      kind: "immutable",
+      as_of: target.coverage_end,
+      observed_at: audit.audited_at,
+      max_freshness_ms: null,
+      status: "not_applicable",
+    },
+  })
 }
 
 function compileResolution(value: unknown): FundingCoverageResolution {
@@ -164,6 +228,14 @@ function compileResolution(value: unknown): FundingCoverageResolution {
     throw new Error("conflict funding resolution is incomplete")
   }
   return { status, audit, candidate_archive_ids: candidateIds }
+}
+
+function identifier(value: unknown, field: string): string {
+  if (typeof value !== "string"
+      || !/^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$/.test(value)) {
+    throw new Error(`${field} is invalid`)
+  }
+  return value
 }
 
 function record(value: unknown, field: string): Record<string, unknown> {

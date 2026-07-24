@@ -43,6 +43,7 @@ import {
   workerBoundedInteger,
   workerDelay,
   workerFlagValues,
+  workerMarketDataOwnerCommand,
   workerResearchMarketDataPaths,
 } from "./lib/resident-worker-cli"
 
@@ -247,53 +248,15 @@ async function ownerCommand(
   json: Record<string, unknown>,
   setChild: (child: ReturnType<typeof Bun.spawn>) => void,
 ): Promise<Record<string, unknown>> {
-  const child = Bun.spawn({
-    cmd: [
-      process.execPath,
-      resolve(
-        root,
-        "modules/market-data-products/market-data-store/src/scripts/main.ts",
-      ),
-      "--db",
-      input.market_data_db,
-      "--ohlcv-db",
-      input.ohlcv_db,
-      "--action",
-      action,
-      "--json",
-      JSON.stringify(json),
-    ],
-    cwd: root,
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
+  return workerMarketDataOwnerCommand({
+    root,
+    market_data_db: input.market_data_db,
+    ohlcv_db: input.ohlcv_db,
+    action,
+    json,
+    timeout_ms: input.command_timeout_ms,
+    set_child: setChild,
   })
-  setChild(child)
-  let timedOut = false
-  const timer = setTimeout(() => {
-    timedOut = true
-    child.kill("SIGTERM")
-  }, input.command_timeout_ms)
-  try {
-    const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-      child.exited,
-    ])
-    if (timedOut) throw new Error("market-data owner command timed out")
-    if (exitCode !== 0) {
-      throw new Error(
-        `market-data owner command failed: ${stderr.slice(0, 200)}`,
-      )
-    }
-    const response = asRecord(JSON.parse(stdout))
-    if (response.ok !== true || response.action !== action) {
-      throw new Error("market-data owner response identity drifted")
-    }
-    return response
-  } finally {
-    clearTimeout(timer)
-  }
 }
 
 function parseArgs(argv: string[]): {

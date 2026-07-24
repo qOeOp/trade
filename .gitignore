@@ -16,7 +16,7 @@ data/outline_audit/
 data/ohlcv/
 data/l2/
 
-# Legacy generated data paths retained so older local commands do not leak data.
+# Durable content-addressed evidence plus legacy generated paths; never enter Git.
 data/artifacts/
 data/rd/
 data/rd-datasets/

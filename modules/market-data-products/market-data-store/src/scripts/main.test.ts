@@ -7,7 +7,10 @@ import test from "node:test"
 import { canonicalJson } from "../../../../contracts/runtime-core/src/canonical-json"
 import { repoRoot } from "../../../../contracts/runtime-core/src/paths"
 import { buildIndicatorFeatureArtifact } from "../../../../contracts/market-data-demand-contract/src/indicator-feature-contract"
-import { buildMarketDataDemand } from "../../../../contracts/market-data-demand-contract/src/market-data-demand-contract"
+import {
+  buildMarketDataDemand,
+  buildMarketDataDemandV2,
+} from "../../../../contracts/market-data-demand-contract/src/market-data-demand-contract"
 import {
   commitInstrumentStatusAcquisitionReceipt,
   createInstrumentStatusAcquisitionAttempt,
@@ -395,6 +398,55 @@ test("market data store CLI commits and resolves immutable funding acquisitions"
       }),
     ])) as { resolution: { status: string } }
     assert.equal(resolved.resolution.status, "ready")
+    const demand = buildMarketDataDemandV2({
+      demand_id: "rd-forward-funding:cli-candidate",
+      consumer_owner: "research-forward-evidence",
+      consumer_kind: "research",
+      subject_ref: "rd-forward-dataset:cli-candidate",
+      venue: "binance_usdm",
+      symbol: "BTCUSDT",
+      priority: "research",
+      requirements: [{
+        product: "funding_events",
+        timeframe: null,
+        indicator_set_ref: null,
+        coverage_start: start,
+        coverage_end: end,
+        max_freshness_ms: 60_000,
+        minimum_depth: null,
+      }],
+      lease: {
+        issued_at: "2026-07-23T08:00:02.000Z",
+        expires_at: "2026-07-24T08:00:02.000Z",
+        renewal_grace_ms: 0,
+      },
+    })
+    run(parseArgs([
+      "--db", dbPath,
+      "--action", "put_market_data_demand",
+      "--json", JSON.stringify({
+        demand,
+        committed_at: "2026-07-23T08:00:03.000Z",
+      }),
+    ]))
+    const evidence = run(parseArgs([
+      "--db", dbPath,
+      "--action", "resolve_funding_demand_evidence",
+      "--json", JSON.stringify({
+        demand_id: demand.demand_id,
+        demand_hash: demand.demand_hash,
+        observed_at: "2026-07-23T08:01:00.000Z",
+        max_symbols: 20,
+      }),
+    ])) as {
+      evidence: {
+        status: string
+        fact: { product: string; source: { ref: string } }
+      }
+    }
+    assert.equal(evidence.evidence.status, "ready")
+    assert.equal(evidence.evidence.fact.product, "funding_events")
+    assert.equal(evidence.evidence.fact.source.ref, committed.archive_id)
     const events = run(parseArgs([
       "--db", dbPath,
       "--action", "read_funding_archive_events",

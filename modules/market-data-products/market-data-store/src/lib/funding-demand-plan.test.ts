@@ -2,7 +2,11 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { buildMarketDataDemandV2, reconcileMarketDataDemands } from "../../../../contracts/market-data-demand-contract/src/market-data-demand-contract"
 import { buildFundingCoverageAudit } from "../../../../contracts/market-data-demand-contract/src/funding-coverage-contract"
-import { buildFundingCoverageTargets, buildFundingDemandSyncPlan } from "./funding-demand-plan"
+import {
+  buildFundingCoverageTargets,
+  buildFundingDemandSyncPlan,
+  resolveFundingDemandEvidence,
+} from "./funding-demand-plan"
 
 test("funding targets require exact v2 windows and complete owner evidence emits a fact", () => {
   const source = sourcePlan()
@@ -47,6 +51,26 @@ test("funding targets require exact v2 windows and complete owner evidence emits
   assert.equal(complete.completed_facts[0]?.product, "funding_events")
   assert.equal(complete.completed_facts[0]?.domain_authority, "none")
   assert.equal(complete.fetch_jobs.length, 0)
+  const selected = resolveFundingDemandEvidence({
+    source_plan: source,
+    demand_id: target.demand_ids[0]!,
+    resolution: {
+      status: "ready",
+      audit,
+      candidate_archive_ids: [audit.source.ref],
+    },
+  })
+  assert.equal(selected.status, "ready")
+  assert.equal(selected.fact?.fact_hash, complete.completed_facts[0]?.fact_hash)
+  assert.equal(resolveFundingDemandEvidence({
+    source_plan: source,
+    demand_id: "rd-forward-funding-absent",
+    resolution: {
+      status: "missing",
+      audit: null,
+      candidate_archive_ids: [],
+    },
+  }).status, "not_active")
 
   const missing = buildFundingDemandSyncPlan({
     source_plan: source,

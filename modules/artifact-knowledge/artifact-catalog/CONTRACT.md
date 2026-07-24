@@ -6,6 +6,7 @@
 - Dataset, run, research report, evidence, panel, feature report, and artifact indexing
 - Catalog query and stale artifact listing
 - Catalog-aware GC and file-system artifact GC
+- `--artifact-gc` is restricted to non-`data/` workspaces; durable content-addressed evidence under `data/artifacts/` can only be considered by catalog-aware GC after owner references and release state are reconciled.
 - Feature report artifact registration
 - Native `J06 catalog_hygiene_scan` domain job result for artifact-knowledge
 - Live-root reconciliation skips unfinalized `.partial.*` files and SQLite sidecars, and reports bounded counts for transient skips and files that disappear after enumeration instead of failing the entire scan.
@@ -35,3 +36,4 @@
 - Reading arbitrary paths or catalog entries without an exact current content hash
 - Making strategy promotion decisions
 - Owning RD experiment logic
+- Deleting `data/` or `data/artifacts/` through path-only file-system GC

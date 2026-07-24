@@ -24,11 +24,12 @@ last_verified: 2026-07-23 CST
 | trade runtime DB | 否 | `data/trade.db`, `data/*.sqlite*` |
 | ops / lock / system state | 否 | `data/ops_runtime.db`；临时 lock 只能放 `tmp/` |
 | strategy evidence / R&D ledger / R&D state | 否 | `data/data_catalog.db`, `data/rd_state.db` |
+| immutable content evidence | 否 | `data/artifacts/`；只保存 owner-admitted、content-addressed payload |
 | 临时 replay / R&D / calibration / validation / forward holdout artifact | 否 | `tmp/artifacts/`, `tmp/panels/`；不是 durable storage |
 | OHLCV / market data | 否 | `data/ohlcv.db`, `data/market_data.db` |
 | local operator config | 否 | `profile/account_config.json`, `profile/notify_config.json` |
 
-需要长期保留但不进 Git 的事实，只能进入 `data/*.db`。普通研究中间产物默认放 `tmp/`，必要时由 DB ref / evidence / ledger 引用；引用不改变其非 durable 身份。
+需要长期保留但不进 Git 的结构化事实进入 `data/*.db`；数据库不适合承载的不可变大 payload 只能进入 `data/artifacts/`，并由数据库保存 hash、路径、lineage、引用和 release 状态。普通研究中间产物默认放 `tmp/`，必要时由 DB ref / evidence / ledger 引用；引用不改变其非 durable 身份。
 
 ## 2. 放置规则
 
@@ -36,6 +37,7 @@ last_verified: 2026-07-23 CST
 - 策略 policy：写 `strategies/*.md`；frontmatter 做身份索引，`## Trade Contract` 做机器契约；这是项目资产，不是 tool 源码，也不是运行数据
 - calibration / validation / external / forward holdout panel：默认写 `tmp/panels/<kind>-<name>-<date>/`
 - replay / R&D / calibration 普通报告：默认写 `tmp/artifacts/<domain>/`
+- 已被 owner 准入且用于 Replay / Forward 的 content-addressed payload：写 `data/artifacts/<domain>/<kind>/<sha256>/`；文件自身不能充当引用或生命周期事实
 - 已被策略准入、复盘或人工 review 明确引用的报告：仍留在 `tmp/` 工作区，由 `data/data_catalog.db` 记录 ref / hash / summary；不搬入 `data/` 目录
 - 策略准入证据：写 `data/data_catalog.db.strategy_evidence`
 - R&D 审计：写 `data/data_catalog.db.strategy_rnd_run`
@@ -50,6 +52,7 @@ last_verified: 2026-07-23 CST
 - 未引用、未 pin、超过 retention 的 artifact 由 `modules/artifact-knowledge/artifact-catalog` 的 `--artifact-gc` 或 `--catalog-gc` 报告 / 清理。
 - `tmp/` 下文件是可再生工作产物；清理前确认没有被当前 evidence / report 引用。canonical candles 以 `data/ohlcv.db` 为准。
 - `tmp/panels/` 是可再生研究输入；默认可按 retention 清理，除非已被 ledger / evidence / `.pin` 引用。
+- 路径型 `--artifact-gc` 禁止作用于 `data/` 或 `data/artifacts/`；durable evidence 只能由 catalog-aware GC 在 owner 引用闭包和显式 release 均闭合后处理。当前 catalog 将 `data/artifacts/` 分类为 `evidence`，在 release-aware GC 落地前一律保护。
 
 ## 4. 当前 `.gitignore` 约定
 
@@ -68,7 +71,7 @@ last_verified: 2026-07-23 CST
 
 ## 5. 目录口径
 
-目标是让 `data/` 一眼只承载 SQLite durable 本地状态：
+目标是让 `data/` 只承载 SQLite durable 状态与经过 owner 准入的不可变 evidence payload：
 
 ```text
 data/
@@ -81,6 +84,7 @@ data/
   exchange_runtime.db       # exchange request / result / idempotency ledger
   governance.db             # governance ledger
   policy_registry.db        # runtime policy snapshots
+  artifacts/                # content-addressed immutable evidence；authority 仍在 owner DB
 ```
 
 普通中间产物放 `tmp/`：
@@ -100,7 +104,7 @@ data/
   rd_state.db               # rd_program_state；research memory，不是 strategy evidence
 ```
 
-规则很简单：默认先临时，只有会影响策略准入、复盘或运行恢复的事实，才进入 `data/*.db`。
+规则很简单：默认先临时；会影响准入、复盘或恢复的结构化事实进入 `data/*.db`，其不可变大 payload 才进入 `data/artifacts/`。
 
 ## 6. 当前产物面快照
 
@@ -108,7 +112,7 @@ data/
 
 | 区域 | 文件数 | 体量 | 管理状态 |
 | --- | ---: | ---: | --- |
-| `data/` | SQLite DB only | 本机实际状态 | 已收敛目标：durable 状态只能是数据库 |
+| `data/` | SQLite DB + content evidence | 本机实际状态 | 结构化 authority 在 DB；大 payload 只允许 content-addressed evidence |
 | build cache | 47,430 | 8.05G | 可再生；与 evidence GC 分离，当前 14 天 stale 约 25.3M |
 | external audit clone | 19,492 | 1.30G | 独立类别；当前未超过 14 天 retention |
 | protected evidence workspace | 655 | 1.07G | report-only；删除前必须解析 catalog / ledger / `.pin` |
@@ -133,19 +137,20 @@ data/
 ## 7. 当前治理状态
 
 - DB 没有膨胀；`data_catalog.db` 只索引元数据、hash、summary、引用关系与 retention。
-- 运行态 durable 输出只允许落在项目根 `data/*.db`；工作区产物只允许落在 `tmp/`。
+- 运行态结构化 authority 只允许落在项目根 `data/*.db`；owner-admitted immutable payload 可落 `data/artifacts/`，其余工作区产物只允许落在 `tmp/`。
 - `data/` 只通过 owner DB 读写；`tmp/` 只能通过 catalog ref 被解释；旧路径输入必须在入口失败。
 - `--catalog-stale` 已覆盖 `tmp/` 与 panel data；默认只报告候选、保留原因与引用状态。
 - `--catalog-gc --yes` 只删除 catalog 判定为 stale 的候选；`.pin`、引用、durable / evidence retention class 会保护文件。
+- `--artifact-gc` 只处理非 `data/` 工作区；它无法解释跨 owner 引用，因此代码层拒绝 `data/` 与 `data/artifacts/` 根。
 - `tmp/artifacts/strategy-rnd/`、R&D ledger、strategy evidence、cron log、track output、feature report、panel / calibration / campaign / shadow tracker 已有结构化索引。
 - `tmp/market/` 是 automation / slow-track 可删 cache；项目级 canonical OHLCV 只在 `data/ohlcv.db`。
 
 ## 8. 剩余边界
 
 - catalog 是本地 SQLite 索引层；扫描 / 清理按顺序执行，不做并发写。
-- 大型 feature series 不整体进 DB；只保存 source manifest、指标集合、coverage 与摘要。
+- 大型 feature series 不整体进 DB；DB 只保存 source manifest、指标集合、coverage、摘要与 content hash。
 - 历史文件不会被自动清理；legacy tool-local 运行路径不再兼容，已有错位文件可按引用关系迁移后删除。
-- 真删除仍必须显式 `--catalog-gc --yes`；本轮只做 dry-run 和索引刷新。
+- 真删除仍必须显式 `--catalog-gc --yes`；`data/artifacts/` 在 release-aware 引用闭包落地前不产生删除候选。
 
 ## 9. 生成数据管道评估
 
