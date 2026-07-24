@@ -11,6 +11,7 @@ Implement roles with custom or generic subagents. Select by capability, not name
 - Provide only the raw evidence needed for the role.
 - Withhold preferred answers, builder rationale, and hidden acceptance results from independent roles.
 - Forbid subagents from committing, merging, adopting, expanding scope, changing the oracle, or declaring completion.
+- Only the main mission context may integrate a patch or perform an explicitly authorized commit, push, PR, review-response, merge, or cleanup effect.
 - Treat project rules as effect constraints, not automatic proof that their oracle is fit; unresolved authority stays external.
 - Treat their output as evidence, never authority.
 
@@ -57,6 +58,7 @@ Use a fresh read-only evaluator after freezing the complete result or diff and e
 Provide:
 
 - mission contract, source revision, and complete read-only result or diff;
+- exact candidate commit and PR head when either exists;
 - commands, exit statuses, raw outputs, consumer journey, and project rules.
 
 Exclude builder explanation and proposed verdict.
@@ -71,6 +73,8 @@ Require the evaluator to try to falsify:
 Contract compliance alone is not acceptance. If raw evidence invalidates the frozen oracle, require `replan` or `blocked`; the evaluator cannot rewrite it.
 
 Require exactly `accept`, `revise`, `replan`, or `blocked`, with reproducible findings. The main context owns the terminal.
+
+Bind the verdict to the supplied candidate identity. Any content or candidate-commit change requires a new evaluator that has not seen the new builder deliberation. A local evaluator does not substitute for a required remote code review, and a remote review does not substitute for this evaluator when the mission requires one.
 
 ## Context hygiene
 

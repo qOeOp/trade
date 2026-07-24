@@ -1,6 +1,6 @@
 ---
 name: run-bounded-mission
-description: Run one bounded, evidence-driven mission for material questions or changes about agent workflows, skill behavior, evidence sourcing, autonomy, acceptance, or termination, including current-behavior questions. Also use for non-trivial product or engineering work requiring project context, judgment, multiple steps, or an adoptable result, including analysis and design, planning, implementation, organization, simplification, refactoring, optimization, migration, architecture, governance, or acceptance-oracle audit. The workflow covers authority and oracle audit, contract formation, execution or analysis, independent verification, termination, and post-mission learning. Do not use for simple, stable self-contained factual answers, tiny mechanical edits with obvious acceptance, or workflows fully owned by a more specific skill. Combine with a specific skill when project-level admission, cross-cutting change, or termination control remains needed.
+description: Run one bounded, evidence-driven mission for material current-behavior questions or non-trivial product or engineering work requiring project context, judgment, multiple steps, or an adoptable result. Use for analysis, design, planning, implementation, refactoring, migration, governance, acceptance-oracle audits, and explicitly authorized GitHub publication-through-merge lifecycles. Covers authority and oracle audit, contract formation, isolated execution, independent verification, bounded review/fix iteration, termination, cleanup, and post-mission learning. Do not use for simple stable facts, tiny mechanical edits with obvious acceptance, or workflows fully owned by a more specific skill. Combine with specific skills for domain or provider operations while retaining project-level admission and terminal control.
 ---
 
 # Run a Bounded Mission
@@ -14,6 +14,7 @@ Use native planning, isolation, tools, and gates; do not build another orchestra
 ## Package resources
 
 - Read [references/roles.md](references/roles.md) during discovery when ambiguity, unclear consumers, governance or oracle changes, cross-owner design, expensive reversal, noisy investigation, or required independence may justify a fresh role; always read it before using one.
+- Read [references/github-publication.md](references/github-publication.md) only when the requested outcome explicitly includes publishing a GitHub PR, carrying it through review, or merging it. Do not load or apply it to patch-only, local-only, read-only, or non-GitHub missions.
 - Read [references/post-mission-review.md](references/post-mission-review.md) only after the mission terminates or when changing this skill package.
 
 ## Mission workflow
@@ -38,6 +39,7 @@ Only after the authority and oracle audit, freeze one mission in the working pla
 - named outcome consumer and exact adoption or usage journey;
 - scope, non-goals, acceptance signals, and owners to reuse;
 - permitted effects and responsibility delta;
+- exact source revision and, when applicable, publication target, terminal effect, and required remote evidence;
 - revision, non-progress, cost, and escalation budgets.
 
 Treat user and project authority, the outcome, consumer journey, effect ceiling, and cumulative budgets as external bounds. Select the minimum permitted effects within them; do not preselect a read-only or writable mode before a required planner.
@@ -77,6 +79,12 @@ Keep effects within user authorization, project policy, and the mission contract
 
 For writable work, remove superseded implementations and temporary compatibility paths when safe. Do not retain failed candidates, orphan paths, or evidence scaffolding as product code.
 
+### GitHub publication
+
+If and only if the frozen outcome explicitly includes GitHub publication or merge, load and execute [references/github-publication.md](references/github-publication.md). The main mission context owns integration, publication effects, and terminal judgment; a writer or evaluator never gains commit, push, PR, or merge authority.
+
+Keep mission progress in the working plan and recover current facts from Git, the PR, checks, and reviews. Do not create a lifecycle ledger, project state machine, daemon, hook, or second orchestrator. A changed candidate invalidates evidence that is not bound to its current identity.
+
 ### 5. Terminate
 
 End in exactly one state:
@@ -87,6 +95,8 @@ End in exactly one state:
 - `budget_exhausted`: the revision or non-progress budget is spent.
 
 Report the outcome, consumer journey, evidence, quality results, responsibility delta, and gaps. Do not claim completion from document or code volume, unit tests, or static gates alone.
+
+When publication or merge is part of the frozen outcome, `completed` also requires reaching that exact terminal effect through the current candidate and performing its required cleanup. Reaching a local patch, commit, PR, or green check is not completion of a through-merge mission.
 
 ## Post-mission learning review
 

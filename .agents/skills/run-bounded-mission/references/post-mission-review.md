@@ -11,6 +11,7 @@ Use only:
 - frozen contract and terminal;
 - complete accepted or rejected diff;
 - raw consumer, quality, and evaluator evidence;
+- publication, current-head check, review, merge, and cleanup receipts when the mission included them;
 - observed workflow friction or missed signals.
 
 ## Classify findings
