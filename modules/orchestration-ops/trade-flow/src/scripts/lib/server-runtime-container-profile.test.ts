@@ -30,17 +30,22 @@ test("container profile composes demand-driven market data and no-live control",
       "market-data-manager",
       "ohlcv-worker",
       "funding-worker",
+      "instrument-snapshot-worker",
       "indicator-worker",
       "formal-replay-worker",
     ],
   )
   assert.match(specs[0]!.command.at(-1)!, /"runtime_profile":"demand_driven_shadow"/)
-  assert.match(specs[5]!.command.join(" "), /formal-replay-foreground/)
   assert.match(
-    specs[5]!.command.join(" "),
+    specs[4]!.command.join(" "),
+    /instrument-status-collector\/src\/scripts\/snapshot-foreground/,
+  )
+  assert.match(specs[6]!.command.join(" "), /formal-replay-foreground/)
+  assert.match(
+    specs[6]!.command.join(" "),
     /formal-replay:single-node-shadow-container/,
   )
-  assert.doesNotMatch(specs[5]!.command.join(" "), /--environment-id/)
+  assert.doesNotMatch(specs[6]!.command.join(" "), /--environment-id/)
 })
 
 test("container profile rejects live widening, DB collision, and invalid L2 capacity", () => {
@@ -57,4 +62,13 @@ test("container profile rejects live widening, DB collision, and invalid L2 capa
   const market = port.market_data_runtime as Record<string, unknown>
   ;(market.l2 as Record<string, unknown>).base_port = 65_535
   assert.throws(() => parseServerRuntimeContainerProfile(port), /port range/)
+  const staleInstrument = fixture()
+  const staleMarket =
+    staleInstrument.market_data_runtime as Record<string, unknown>
+  ;(staleMarket.instrument_snapshot_worker as Record<string, unknown>)
+    .refresh_interval_ms = 1_200_001
+  assert.throws(
+    () => parseServerRuntimeContainerProfile(staleInstrument),
+    /instrument_snapshot\.refresh_interval_ms/,
+  )
 })

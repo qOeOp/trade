@@ -6,6 +6,7 @@ export type ServerRuntimeContainerComponent =
   | "market-data-manager"
   | "ohlcv-worker"
   | "funding-worker"
+  | "instrument-snapshot-worker"
   | "indicator-worker"
   | "formal-replay-worker"
 
@@ -80,6 +81,24 @@ export function serverRuntimeContainerProcessSpecs(
         "--interval-ms", String(market.funding_worker.interval_ms),
         "--command-timeout-ms", String(market.funding_worker.command_timeout_ms),
         "--request-timeout-ms", String(market.funding_worker.request_timeout_ms),
+      ],
+    },
+    {
+      id: "instrument-snapshot-worker",
+      description: "Demand-scoped current instrument status and spec collector",
+      command: [
+        bun,
+        resolve(
+          root,
+          "modules/market-data-products/binance-read/instrument-status-collector/src/scripts/snapshot-foreground.ts",
+        ),
+        "--market-data-db", market.market_data_db,
+        "--max-symbols", String(market.instrument_snapshot_worker.max_symbols),
+        "--max-jobs-per-cycle", String(market.instrument_snapshot_worker.max_jobs_per_cycle),
+        "--refresh-interval-ms", String(market.instrument_snapshot_worker.refresh_interval_ms),
+        "--interval-ms", String(market.instrument_snapshot_worker.interval_ms),
+        "--command-timeout-ms", String(market.instrument_snapshot_worker.command_timeout_ms),
+        "--request-timeout-ms", String(market.instrument_snapshot_worker.request_timeout_ms),
       ],
     },
     {

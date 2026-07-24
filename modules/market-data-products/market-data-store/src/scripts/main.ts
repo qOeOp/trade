@@ -27,6 +27,7 @@ import {
   readFundingArchiveEvents,
   readFundingCoverageAudit,
   readInstrumentStatusAcquisitionReceipt,
+  readLatestCurrentInstrumentStatusAcquisition,
   readInstrumentStatusArchive,
   readLatestCandleOpenTime,
   readL2EpochManifest,
@@ -453,6 +454,17 @@ export function run(args: Args): JSONRecord {
         receipt: readInstrumentStatusAcquisitionReceipt(db, stringField(args.json.acquisition_id)),
       }
     }
+    if (args.action === "resolve_current_instrument_snapshot") {
+      return {
+        ok: true,
+        action: args.action,
+        receipt: readLatestCurrentInstrumentStatusAcquisition(db, {
+          symbol: stringField(args.json.symbol),
+          completed_at_gte: stringField(args.json.completed_at_gte),
+          completed_at_lte: stringField(args.json.completed_at_lte),
+        }),
+      }
+    }
     if (args.action === "read_latest_candle") {
       return withOhlcvDb(args.ohlcvDbPath, args.environmentId, (ohlcvDb) => ({
         ok: true,
@@ -549,7 +561,7 @@ export function run(args: Args): JSONRecord {
 function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/market_data.db --ohlcv-db data/ohlcv.db --action init",
-    "actions: init | upsert_manifest | admit_l2_epoch_manifest | reconcile_l2_epoch_manifests | prepare_l2_compaction_job | admit_l2_compaction_proposal | register_l2_experiment_attachment_referrer | audit_l2_retention_reference_closure | list_l2_retention_reference_audits | register_market_data_demand | put_market_data_demand | release_market_data_demand | read_market_data_demand | reconcile_market_data_demands | upsert_candles | upsert_funding | commit_funding_acquisition | read_funding_coverage_audit | resolve_funding_coverage | resolve_funding_demand_evidence | read_funding_archive_events | export_funding_replay_slice | upsert_feature_manifest | admit_feature_manifest | commit_instrument_status_archive | read_manifest | read_l2_epoch_manifest | read_l2_compaction | read_l2_compacted_epoch_source | read_l2_experiment_attachment_referrer | read_funding | read_instrument_status_acquisition_receipt | read_instrument_status_archive | read_latest_candle | audit_candle_coverage | read_candles | export_candle_slice | read_feature_manifest | read_feature_artifact | list_feature_manifests",
+    "actions: init | upsert_manifest | admit_l2_epoch_manifest | reconcile_l2_epoch_manifests | prepare_l2_compaction_job | admit_l2_compaction_proposal | register_l2_experiment_attachment_referrer | audit_l2_retention_reference_closure | list_l2_retention_reference_audits | register_market_data_demand | put_market_data_demand | release_market_data_demand | read_market_data_demand | reconcile_market_data_demands | upsert_candles | upsert_funding | commit_funding_acquisition | read_funding_coverage_audit | resolve_funding_coverage | resolve_funding_demand_evidence | read_funding_archive_events | export_funding_replay_slice | upsert_feature_manifest | admit_feature_manifest | commit_instrument_status_archive | read_manifest | read_l2_epoch_manifest | read_l2_compaction | read_l2_compacted_epoch_source | read_l2_experiment_attachment_referrer | read_funding | read_instrument_status_acquisition_receipt | resolve_current_instrument_snapshot | read_instrument_status_archive | read_latest_candle | audit_candle_coverage | read_candles | export_candle_slice | read_feature_manifest | read_feature_artifact | list_feature_manifests",
   ].join("\n"))
 }
 

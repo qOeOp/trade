@@ -219,6 +219,64 @@ test("market data store CLI upserts and reads manifest", () => {
       "--json", JSON.stringify({ acquisition_id: acquisition.acquisition_id }),
     ])) as { receipt: { receipt_hash: string } }
     assert.equal(storedAcquisition.receipt.receipt_hash, acquisition.receipt_hash)
+    const currentPayloadRef =
+      "market-data-store:instrument-status-source-payload:status-cli-current:1"
+    const currentAttempt = createInstrumentStatusAcquisitionAttempt({
+      attempt_ordinal: 1,
+      completed_at: "2026-07-15T00:02:00Z",
+      started_at: "2026-07-15T00:02:00Z",
+      outcome: "succeeded",
+      failure_class: null,
+      retryable: false,
+      http_status: 200,
+      response_payload_ref: currentPayloadRef,
+      response_hash: instrumentStatusPayloadHash(rawPayload),
+      response_bytes: new TextEncoder().encode(rawPayload).byteLength,
+      response_record_count: 1,
+    })
+    const currentAcquisition = createInstrumentStatusAcquisitionReceipt({
+      acquisition_id: "status-cli-current",
+      venue_id: "binance-usdm",
+      symbol: "BTCUSDT",
+      source_capability: "current_snapshot_only",
+      transport: "binance_usdm_rest",
+      method: "GET",
+      endpoint: "https://fapi.binance.com/fapi/v1/exchangeInfo",
+      request_params_hash: "d".repeat(64),
+      requested_coverage_start: null,
+      requested_coverage_end: null,
+      source_observed_through: "2026-07-15T00:02:00Z",
+      requested_at: "2026-07-15T00:02:00Z",
+      completed_at: "2026-07-15T00:02:00Z",
+      terminal_status: "succeeded",
+      attempts: [currentAttempt],
+    })
+    const currentDb = new Database(dbPath)
+    try {
+      assert.equal(
+        commitInstrumentStatusAcquisitionReceipt(
+          currentDb,
+          currentAcquisition,
+          { [currentPayloadRef]: rawPayload },
+        ),
+        "created",
+      )
+    } finally {
+      currentDb.close()
+    }
+    const resolvedCurrent = run(parseArgs([
+      "--db", dbPath,
+      "--action", "resolve_current_instrument_snapshot",
+      "--json", JSON.stringify({
+        symbol: "BTCUSDT",
+        completed_at_gte: "2026-07-15T00:01:30Z",
+        completed_at_lte: "2026-07-15T00:03:00Z",
+      }),
+    ])) as { receipt: { acquisition_id: string } | null }
+    assert.equal(
+      resolvedCurrent.receipt?.acquisition_id,
+      currentAcquisition.acquisition_id,
+    )
     const archiveInput = {
       archive_id: "status-cli",
       venue_id: "binance-usdm",

@@ -544,6 +544,58 @@ export function readInstrumentStatusAcquisitionReceipt(
   return receipt
 }
 
+export function readLatestCurrentInstrumentStatusAcquisition(
+  db: Database,
+  input: {
+    symbol: string
+    completed_at_gte: string
+    completed_at_lte: string
+  },
+): InstrumentStatusAcquisitionReceipt | null {
+  const symbol = input.symbol.trim().toUpperCase()
+  if (!/^[A-Z0-9]{3,32}$/.test(symbol)) {
+    throw new Error("current instrument acquisition symbol is invalid")
+  }
+  requireUtc(
+    input.completed_at_gte,
+    "current instrument acquisition completed_at_gte",
+  )
+  requireUtc(
+    input.completed_at_lte,
+    "current instrument acquisition completed_at_lte",
+  )
+  if (Date.parse(input.completed_at_gte)
+      > Date.parse(input.completed_at_lte)) {
+    throw new Error("current instrument acquisition window is invalid")
+  }
+  const row = db.query(`
+    SELECT receipt_json, receipt_hash
+    FROM instrument_status_acquisition_receipt
+    WHERE venue_id = 'binance-usdm'
+      AND symbol = $symbol
+      AND source_capability = 'current_snapshot_only'
+      AND terminal_status = 'succeeded'
+      AND completed_at >= $completed_at_gte
+      AND completed_at <= $completed_at_lte
+    ORDER BY completed_at DESC, acquisition_id DESC
+    LIMIT 1
+  `).get({
+    $symbol: symbol,
+    $completed_at_gte: input.completed_at_gte,
+    $completed_at_lte: input.completed_at_lte,
+  }) as { receipt_json: string; receipt_hash: string } | null
+  if (!row) return null
+  const receipt =
+    JSON.parse(row.receipt_json) as InstrumentStatusAcquisitionReceipt
+  assertInstrumentStatusAcquisitionReceipt(receipt)
+  if (receipt.receipt_hash !== row.receipt_hash) {
+    throw new Error(
+      "current instrument acquisition persisted receipt hash mismatch",
+    )
+  }
+  return receipt
+}
+
 export function readInstrumentStatusAcquisitionPayload(
   db: Database,
   payloadRef: string,

@@ -1,5 +1,5 @@
 {
-  "schema_version": "trade.server-runtime-container-profile.v2",
+  "schema_version": "trade.server-runtime-container-profile.v3",
   "profile_id": "server-shadow-container",
   "deployment_id": "single-node-shadow-container",
   "market_data_runtime": {
@@ -24,6 +24,14 @@
       "interval_ms": 60000,
       "command_timeout_ms": 120000,
       "request_timeout_ms": 30000
+    },
+    "instrument_snapshot_worker": {
+      "max_symbols": 20,
+      "max_jobs_per_cycle": 4,
+      "refresh_interval_ms": 900000,
+      "interval_ms": 60000,
+      "command_timeout_ms": 120000,
+      "request_timeout_ms": 10000
     },
     "indicator_worker": {
       "max_symbols": 20,
