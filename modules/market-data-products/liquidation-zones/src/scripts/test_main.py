@@ -14,6 +14,20 @@ SPEC.loader.exec_module(MODULE)
 
 
 class ParseArgsTests(unittest.TestCase):
+    def test_registered_command_uses_the_owner_parser(self):
+        repository_root = pathlib.Path(__file__).resolve().parents[5]
+        manifest = json.loads((repository_root / "toolset.json").read_text(encoding="utf-8"))
+        command = next(
+            tool["command"]
+            for tool in manifest["tools"]
+            if tool["id"] == "binance.liquidation-zones"
+        )
+
+        self.assertEqual(command["cwd"], "modules/market-data-products/liquidation-zones")
+        self.assertEqual(command["argv"], ["python3", "src/scripts/main.py", "--symbol", "<symbol>"])
+        config = MODULE.parse_args(command["argv"][2:-1] + ["BTCUSDT"])
+        self.assertEqual(config.symbol, "BTCUSDT")
+
     def test_parse_args_requires_any_input(self):
         with self.assertRaisesRegex(ValueError, "provide --symbol or pass"):
             MODULE.parse_args([])

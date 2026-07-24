@@ -4243,8 +4243,8 @@
         "argv": [
           "python3",
           "src/scripts/main.py",
-          "--input",
-          "<payload.json>"
+          "--symbol",
+          "<symbol>"
         ]
       },
       "writes": {
