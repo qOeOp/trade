@@ -41,6 +41,7 @@ import {
 
 test("Strategy source adoption certifies an isolated source revision without hot loading", async () => {
   const root = mkdtempSync(join(tmpdir(), "rd-strategy-adoption-"))
+  const packageRoot = `${root}-strategy-server-package`
   const db = new Database(":memory:")
   try {
     writeFileSync(join(root, "README.md"), "fixture\n")
@@ -234,7 +235,6 @@ test("Strategy source adoption certifies an isolated source revision without hot
     } finally {
       researchDb.close()
     }
-    const packageRoot = join(root, "tmp", "strategy-server-package")
     const packaged = createStrategyCandidateServerPackage({
       db,
       repository_root: root,
@@ -265,6 +265,7 @@ test("Strategy source adoption certifies an isolated source revision without hot
     assert.deepEqual(replayed, result)
   } finally {
     db.close()
+    rmSync(packageRoot, { recursive: true, force: true })
     rmSync(root, { recursive: true, force: true })
   }
 })

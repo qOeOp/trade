@@ -382,6 +382,27 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("no empty-suite fallback is allowed")
   })
 
+  test("package checks cannot be missing or no-op", () => {
+    for (const check of [undefined, "true"]) {
+      const root = temporaryRoot()
+      write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({
+        scripts: {
+          typecheck: "tsc --noEmit",
+          test: "bun test ./src/main.test.ts",
+          ...(check === undefined ? {} : { check }),
+        },
+      }))
+      write(root, "modules/domain-a/tool-a/src/main.ts", "export const value = true\n")
+      write(root, "modules/domain-a/tool-a/src/main.test.ts", "export {}\n")
+
+      const result = runJudge("check-package-tests.ts", root)
+
+      expect(result.exitCode).toBe(1)
+      expect(result.stderr).toContain("scripts.check must execute package tests")
+      expect(result.stderr).toContain("scripts.check must execute TypeScript with --noEmit")
+    }
+  })
+
   test("document contracts reject an invented current status even when the index agrees", () => {
     const root = documentContractFixture({ status: "invented-status" })
 
@@ -735,6 +756,19 @@ describe("quality judges fail closed", () => {
       "check_toolset_manifest",
     ].join("\n"))
     expect(script.match(/bun install --frozen-lockfile/g)).toHaveLength(1)
+    expect(script).not.toContain(`grep -q '"check"'`)
+    expect(script).toContain('(cd "$dir" && bun run check)')
+    expect(script).toContain('git diff --no-renames --check "$QUALITY_DIFF_BASE"...HEAD')
+    expect(script).toContain("git diff --no-renames --check HEAD")
+  })
+
+  test("repository workflow checks the fetched candidate range", () => {
+    const workflow = readFileSync(join(repoRoot, ".github/workflows/quality.yml"), "utf8")
+
+    expect(workflow).toContain("fetch-depth: 0")
+    expect(workflow).toContain(
+      "QUALITY_DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}",
+    )
   })
 
   test("repository quality checks are single-instance and recover stale locks", () => {

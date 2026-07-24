@@ -117,7 +117,7 @@ async function main(): Promise<void> {
     run(["bun", "scripts/check-workspace-side-effects.ts", "--action", "capture", "--snapshot", snapshot])
     snapshotCaptured = true
     log(`scope ${plan.docsOnly ? "docs-only" : "targeted"} files=${plan.files.length} packages=${plan.packages.length}`)
-    run(["git", "diff", "--check"])
+    run(["git", "diff", "--no-renames", "--check", "HEAD"])
     run(["bun", "scripts/check-workspace-hygiene.ts"])
     run(["bun", "scripts/check-secrets.ts"])
     run(["bun", "scripts/check-doc-contracts.ts"])

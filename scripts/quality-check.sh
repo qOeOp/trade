@@ -171,9 +171,7 @@ check_typescript_tools() {
   find modules -name package.json -type f | sort | while IFS= read -r package; do
     [ -f "$package" ] || continue
     dir="$(dirname "$package")"
-    if grep -q '"check"' "$package"; then
-      (cd "$dir" && bun run check)
-    fi
+    (cd "$dir" && bun run check)
   done
 }
 
@@ -253,7 +251,11 @@ check_project_hygiene() {
   require_cmd rg
   require_cmd bun
   log "project hygiene"
-  git diff --check
+  if [ -n "${QUALITY_DIFF_BASE:-}" ]; then
+    git diff --no-renames --check "$QUALITY_DIFF_BASE"...HEAD
+  else
+    git diff --no-renames --check HEAD
+  fi
   bun scripts/check-workspace-hygiene.ts
   bun scripts/audit-workspace-footprint.ts > "$QUALITY_FOOTPRINT_REPORT"
   unexpected_docs_root="$(find docs -maxdepth 1 -type f ! -name README.md -print)"

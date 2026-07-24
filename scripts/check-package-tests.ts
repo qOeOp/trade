@@ -24,6 +24,12 @@ for (const packagePath of findFiles(modulesRoot, "package.json")) {
   if (scriptGraphContains(scripts, "test", /no test files|if\s+find\s+src/i)) {
     violations.push(`${label}: scripts.test must fail closed; no empty-suite fallback is allowed`)
   }
+  if (!scriptExecutesBunTest(scripts, "check")) {
+    violations.push(`${label}: scripts.check must execute package tests`)
+  }
+  if (!scriptGraphContains(scripts, "check", /\btsc\b[^;&|]*--noEmit\b/)) {
+    violations.push(`${label}: scripts.check must execute TypeScript with --noEmit`)
+  }
   const testCommands = reachableScriptCommands(scripts, "test")
   for (const testFile of testFiles) {
     const relativeTestFile = relative(packageDir, testFile).replace(/\\/g, "/")
