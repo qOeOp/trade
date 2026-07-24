@@ -3,6 +3,7 @@ import {
   assertForwardDatasetReadinessAssessment,
   createForwardDatasetReadinessAssessment,
   createForwardDatasetReadinessAssessmentV2,
+  createForwardDatasetReadinessAssessmentV3,
 } from "./forward-dataset-readiness-assessment"
 
 const HASH = "a".repeat(64)
@@ -57,5 +58,31 @@ test("Forward dataset readiness exposes required and conditional missing inputs 
   expect(funded.blockers).not.toContain("funding_window_unverified")
   expect(funded.blockers).toContain("instrument_spec_window_unverified")
   expect(() => assertForwardDatasetReadinessAssessment(funded))
+    .not.toThrow()
+
+  const instrumentBound = createForwardDatasetReadinessAssessmentV3({
+    ...base,
+    funding_evidence: funded.verified_components.funding_events,
+    current_instrument_evidence: {
+      binding_id: "forward-current-instrument:binding-1",
+      binding_hash: HASH,
+      provider_certification_hash: HASH,
+      evidence_series_hash: HASH,
+      instrument_status_series_hash: HASH,
+      instrument_status_provenance_series_hash: HASH,
+      instrument_spec_series_hash: HASH,
+      coverage_start: "2026-07-23T04:00:00.000Z",
+      coverage_end: "2026-07-23T08:00:00.000Z",
+      observation_count: 13,
+      inter_sample_history_claim: "not_proven",
+    },
+  })
+  expect(instrumentBound.blockers)
+    .not.toContain("instrument_status_window_unverified")
+  expect(instrumentBound.blockers)
+    .not.toContain("instrument_spec_window_unverified")
+  expect(instrumentBound.required_forward_inputs.instrument_status)
+    .toBe("required_bounded_post_freeze_current_snapshot_series")
+  expect(() => assertForwardDatasetReadinessAssessment(instrumentBound))
     .not.toThrow()
 })

@@ -11,6 +11,8 @@ export const FORWARD_DATASET_READINESS_ASSESSMENT_SCHEMA_VERSION =
   "trade.rd-forward-dataset-readiness-assessment.v1" as const
 export const FORWARD_DATASET_READINESS_ASSESSMENT_SCHEMA_VERSION_V2 =
   "trade.rd-forward-dataset-readiness-assessment.v2" as const
+export const FORWARD_DATASET_READINESS_ASSESSMENT_SCHEMA_VERSION_V3 =
+  "trade.rd-forward-dataset-readiness-assessment.v3" as const
 
 export const FORWARD_DATASET_READINESS_BLOCKER_CODES = [
   "forward_decision_not_compiled",
@@ -98,9 +100,55 @@ export interface ForwardDatasetReadinessAssessmentV2
   assessment_hash: string
 }
 
+export interface ForwardDatasetReadinessAssessmentV3Body
+  extends Omit<
+    ForwardDatasetReadinessAssessmentV2Body,
+    | "schema_version"
+    | "assessment_id"
+    | "required_forward_inputs"
+    | "verified_components"
+    | "blockers"
+  > {
+  schema_version:
+    typeof FORWARD_DATASET_READINESS_ASSESSMENT_SCHEMA_VERSION_V3
+  assessment_id: string
+  required_forward_inputs: Omit<
+    ForwardDatasetReadinessAssessmentBody["required_forward_inputs"],
+    "instrument_status" | "instrument_spec"
+  > & {
+    instrument_status:
+      "required_bounded_post_freeze_current_snapshot_series"
+    instrument_spec:
+      "required_bounded_post_freeze_current_snapshot_series"
+  }
+  verified_components:
+    ForwardDatasetReadinessAssessmentV2Body["verified_components"] & {
+      current_instrument_snapshot: {
+        binding_id: string
+        binding_hash: string
+        provider_certification_hash: string
+        evidence_series_hash: string
+        instrument_status_series_hash: string
+        instrument_status_provenance_series_hash: string
+        instrument_spec_series_hash: string
+        coverage_start: string
+        coverage_end: string
+        observation_count: number
+        inter_sample_history_claim: "not_proven"
+      } | null
+    }
+  blockers: ForwardDatasetReadinessBlockerCode[]
+}
+
+export interface ForwardDatasetReadinessAssessmentV3
+  extends ForwardDatasetReadinessAssessmentV3Body {
+  assessment_hash: string
+}
+
 export type AnyForwardDatasetReadinessAssessment =
   | ForwardDatasetReadinessAssessment
   | ForwardDatasetReadinessAssessmentV2
+  | ForwardDatasetReadinessAssessmentV3
 
 export function createForwardDatasetReadinessAssessment(input: {
   candidate_id: string
@@ -281,9 +329,183 @@ export function createForwardDatasetReadinessAssessmentV2(input: {
   return { ...body, assessment_hash: canonicalHash(body) }
 }
 
+export function createForwardDatasetReadinessAssessmentV3(input: {
+  candidate_id: string
+  candidate_hash: string
+  program_id: string
+  program_hash: string
+  historical_replay_request_registration_id: string
+  historical_replay_request_hash: string
+  historical_dataset_manifest_hash: string
+  historical_mark_coverage: "none" | "complete_grid"
+  historical_supplemental_requirement_mode:
+    | "none"
+    | "signal_time_complete"
+  funding_evidence: {
+    binding_id: string
+    binding_hash: string
+    market_data_fact_hash: string
+    funding_slice_hash: string
+    funding_slice_content_sha256: string
+  } | null
+  current_instrument_evidence: {
+    binding_id: string
+    binding_hash: string
+    provider_certification_hash: string
+    evidence_series_hash: string
+    instrument_status_series_hash: string
+    instrument_status_provenance_series_hash: string
+    instrument_spec_series_hash: string
+    coverage_start: string
+    coverage_end: string
+    observation_count: number
+    inter_sample_history_claim: "not_proven"
+  } | null
+  assessed_at: string
+}): ForwardDatasetReadinessAssessmentV3 {
+  const v2 = createForwardDatasetReadinessAssessmentV2(input)
+  const {
+    schema_version: _schema,
+    assessment_id: _assessmentId,
+    assessment_hash: _assessmentHash,
+    required_forward_inputs: v2Requirements,
+    verified_components: v2Components,
+    blockers: v2Blockers,
+    ...common
+  } = v2
+  const currentInstrumentEvidence =
+    input.current_instrument_evidence == null
+      ? null
+      : {
+          binding_id: identifier(
+            input.current_instrument_evidence.binding_id,
+            "current_instrument_evidence.binding_id",
+          ),
+          binding_hash: digest(
+            input.current_instrument_evidence.binding_hash,
+            "current_instrument_evidence.binding_hash",
+          ),
+          provider_certification_hash: digest(
+            input.current_instrument_evidence
+              .provider_certification_hash,
+            "current_instrument_evidence.provider_certification_hash",
+          ),
+          evidence_series_hash: digest(
+            input.current_instrument_evidence.evidence_series_hash,
+            "current_instrument_evidence.evidence_series_hash",
+          ),
+          instrument_status_series_hash: digest(
+            input.current_instrument_evidence
+              .instrument_status_series_hash,
+            "current_instrument_evidence.instrument_status_series_hash",
+          ),
+          instrument_status_provenance_series_hash: digest(
+            input.current_instrument_evidence
+              .instrument_status_provenance_series_hash,
+            "current_instrument_evidence.instrument_status_provenance_series_hash",
+          ),
+          instrument_spec_series_hash: digest(
+            input.current_instrument_evidence.instrument_spec_series_hash,
+            "current_instrument_evidence.instrument_spec_series_hash",
+          ),
+          coverage_start: utc(
+            input.current_instrument_evidence.coverage_start,
+            "current_instrument_evidence.coverage_start",
+          ),
+          coverage_end: utc(
+            input.current_instrument_evidence.coverage_end,
+            "current_instrument_evidence.coverage_end",
+          ),
+          observation_count: positiveInteger(
+            input.current_instrument_evidence.observation_count,
+            "current_instrument_evidence.observation_count",
+          ),
+          inter_sample_history_claim:
+            input.current_instrument_evidence.inter_sample_history_claim,
+        }
+  if (currentInstrumentEvidence
+      && currentInstrumentEvidence.inter_sample_history_claim
+        !== "not_proven") {
+    throw new Error(
+      "current instrument inter-sample history claim is unsupported",
+    )
+  }
+  const {
+    instrument_status: _instrumentStatus,
+    instrument_spec: _instrumentSpec,
+    ...commonRequirements
+  } = v2Requirements
+  const blockers = currentInstrumentEvidence == null
+    ? v2Blockers
+    : v2Blockers.filter(
+        (blocker) =>
+          blocker !== "instrument_status_window_unverified"
+          && blocker !== "instrument_spec_window_unverified",
+      )
+  const identityHash = canonicalHash({
+    candidate_hash: v2.candidate_hash,
+    historical_replay_request_hash:
+      v2.historical_replay_request_hash,
+    historical_dataset_manifest_hash:
+      v2.historical_dataset_manifest_hash,
+    funding_evidence_binding_hash:
+      v2Components.funding_events?.binding_hash ?? null,
+    current_instrument_evidence_binding_hash:
+      currentInstrumentEvidence?.binding_hash ?? null,
+  })
+  const body: ForwardDatasetReadinessAssessmentV3Body = {
+    schema_version:
+      FORWARD_DATASET_READINESS_ASSESSMENT_SCHEMA_VERSION_V3,
+    assessment_id: `forward-readiness:${identityHash}`,
+    ...common,
+    required_forward_inputs: {
+      ...commonRequirements,
+      instrument_status:
+        "required_bounded_post_freeze_current_snapshot_series",
+      instrument_spec:
+        "required_bounded_post_freeze_current_snapshot_series",
+    },
+    verified_components: {
+      funding_events: v2Components.funding_events,
+      current_instrument_snapshot: currentInstrumentEvidence,
+    },
+    blockers,
+  }
+  return { ...body, assessment_hash: canonicalHash(body) }
+}
+
 export function assertForwardDatasetReadinessAssessment(
   value: AnyForwardDatasetReadinessAssessment,
 ): void {
+  if (value.schema_version
+      === FORWARD_DATASET_READINESS_ASSESSMENT_SCHEMA_VERSION_V3) {
+    const expected = createForwardDatasetReadinessAssessmentV3({
+      candidate_id: value.candidate_id,
+      candidate_hash: value.candidate_hash,
+      program_id: value.program_id,
+      program_hash: value.program_hash,
+      historical_replay_request_registration_id:
+        value.historical_replay_request_registration_id,
+      historical_replay_request_hash:
+        value.historical_replay_request_hash,
+      historical_dataset_manifest_hash:
+        value.historical_dataset_manifest_hash,
+      historical_mark_coverage:
+        value.historical_requirement_profile.mark_events,
+      historical_supplemental_requirement_mode:
+        value.historical_requirement_profile.supplemental_facts,
+      funding_evidence: value.verified_components.funding_events,
+      current_instrument_evidence:
+        value.verified_components.current_instrument_snapshot,
+      assessed_at: value.assessed_at,
+    })
+    if (canonicalJson(value) !== canonicalJson(expected)) {
+      throw new Error(
+        "Forward dataset readiness assessment v3 is non-canonical or drifted",
+      )
+    }
+    return
+  }
   if (value.schema_version
       === FORWARD_DATASET_READINESS_ASSESSMENT_SCHEMA_VERSION_V2) {
     const expected = createForwardDatasetReadinessAssessmentV2({
@@ -361,4 +583,11 @@ function identifier(value: unknown, field: string): string {
     throw new Error(`${field} is invalid`)
   }
   return value
+}
+
+function positiveInteger(value: unknown, field: string): number {
+  if (!Number.isSafeInteger(value) || Number(value) < 1) {
+    throw new Error(`${field} must be a positive integer`)
+  }
+  return Number(value)
 }

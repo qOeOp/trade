@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite"
 import {
-  createForwardDatasetReadinessAssessmentV2,
-  type ForwardDatasetReadinessAssessmentV2,
+  createForwardDatasetReadinessAssessmentV3,
+  type ForwardDatasetReadinessAssessmentV3,
 } from "../../../../forward-evidence-plane/contracts/src/lib/forward-dataset-readiness-assessment"
 import {
   readForwardDatasetCandidate,
@@ -12,6 +12,9 @@ import {
 import {
   readForwardFundingEvidenceBinding,
 } from "./forward-funding-evidence"
+import {
+  readForwardCurrentInstrumentEvidenceBinding,
+} from "./forward-current-instrument-evidence"
 
 export function readForwardDatasetReadinessAssessment(
   db: Database,
@@ -19,7 +22,7 @@ export function readForwardDatasetReadinessAssessment(
     candidate_id: string
     assessed_at: string
   },
-): ForwardDatasetReadinessAssessmentV2 {
+): ForwardDatasetReadinessAssessmentV3 {
   const candidate = readForwardDatasetCandidate(db, input.candidate_id)
   if (!candidate) {
     throw new Error("Forward dataset readiness candidate is missing")
@@ -92,7 +95,12 @@ export function readForwardDatasetReadinessAssessment(
     db,
     candidate.candidate_id,
   )
-  return createForwardDatasetReadinessAssessmentV2({
+  const currentInstrument =
+    readForwardCurrentInstrumentEvidenceBinding(
+      db,
+      candidate.candidate_id,
+    )
+  return createForwardDatasetReadinessAssessmentV3({
     candidate_id: candidate.candidate_id,
     candidate_hash: candidate.candidate_hash,
     program_id: program.program_id,
@@ -111,7 +119,32 @@ export function readForwardDatasetReadinessAssessment(
           market_data_fact_hash: funding.market_data_fact.fact_hash,
           funding_slice_hash: funding.funding_slice.slice_hash,
           funding_slice_content_sha256:
-            funding.funding_slice.content_sha256,
+          funding.funding_slice.content_sha256,
+        },
+    current_instrument_evidence: currentInstrument == null
+      ? null
+      : {
+          binding_id: currentInstrument.binding_id,
+          binding_hash: currentInstrument.binding_hash,
+          provider_certification_hash:
+            currentInstrument.provider_certification.certification_hash,
+          evidence_series_hash:
+            currentInstrument.evidence_series_hash,
+          instrument_status_series_hash:
+            currentInstrument.instrument_status_series_hash,
+          instrument_status_provenance_series_hash:
+            currentInstrument
+              .instrument_status_provenance_series_hash,
+          instrument_spec_series_hash:
+            currentInstrument.instrument_spec_series_hash,
+          coverage_start:
+            currentInstrument.observation_policy.coverage_start,
+          coverage_end:
+            currentInstrument.observation_policy.coverage_end,
+          observation_count: currentInstrument.observations.length,
+          inter_sample_history_claim:
+            currentInstrument.observation_policy
+              .inter_sample_history_claim,
         },
     assessed_at: input.assessed_at,
   })

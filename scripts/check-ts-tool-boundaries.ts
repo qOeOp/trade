@@ -116,7 +116,6 @@ function isAllowedCrossToolImport(file: string, sourceTool: string, targetTool: 
     "modules/market-data-products/aggregate-trade-provider -> modules/market-data-products/market-data-store",
     "modules/market-data-products/aggregate-trade-provider -> modules/research-strategy-development/replay-execution-plane/contracts",
     "modules/market-data-products/instrument-status-provider -> modules/market-data-products/market-data-store",
-    "modules/market-data-products/instrument-status-provider -> modules/research-strategy-development/replay-execution-plane/contracts",
     "modules/exchange-gateway/binance-write/order-place -> modules/exchange-gateway/exchange-runtime-store",
     "modules/exchange-gateway/binance-write/order-cancel -> modules/exchange-gateway/exchange-runtime-store",
     "modules/exchange-gateway/binance-write/position-adjust -> modules/exchange-gateway/exchange-runtime-store",
@@ -136,7 +135,10 @@ function isAllowedCrossToolImport(file: string, sourceTool: string, targetTool: 
   ])
   const testOnlyAllowed = new Set([
     "modules/research-strategy-development/agent-roles/reviewer/signal-evaluator -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-data",
+    "modules/market-data-products/instrument-status-provider -> modules/research-strategy-development/replay-execution-plane/contracts",
     "modules/research-strategy-development/research-control-plane/state-store -> modules/market-data-products/aggregate-trade-provider",
+    "modules/research-strategy-development/research-control-plane/state-store -> modules/market-data-products/instrument-status-provider",
+    "modules/research-strategy-development/research-control-plane/state-store -> modules/market-data-products/market-data-store",
     "modules/research-strategy-development/research-control-plane/state-store -> modules/research-strategy-development/replay-execution-plane/data-adapter",
     "modules/live-decision-planning/slow-track-plan -> modules/policy-risk/runtime-policy-compiler",
     "modules/live-decision-planning/slow-track-plan -> modules/portfolio-execution-state/event-store",

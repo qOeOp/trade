@@ -16,6 +16,15 @@ import {
   buildFundingReplaySliceRef,
 } from "../../../../../contracts/market-data-demand-contract/src/funding-replay-slice-contract"
 import {
+  createInstrumentStatusAcquisitionAttempt,
+  createInstrumentStatusAcquisitionReceipt,
+  instrumentStatusPayloadHash,
+  type InstrumentStatusAcquisitionPayload,
+} from "../../../../../market-data-products/market-data-store/src/lib/market-data-store"
+import {
+  buildCurrentInstrumentSnapshotEvidence,
+} from "../../../../../market-data-products/instrument-status-provider/src/lib/current-instrument-snapshot-provider"
+import {
   createForwardObservationCandleSegment,
 } from "../../../contracts/src/lib/forward-observation-candle-segment"
 import {
@@ -26,6 +35,10 @@ import {
   createForwardFundingEvidenceBinding,
   forwardFundingCoverageWindow,
 } from "../../../../forward-evidence-plane/contracts/src/lib/forward-funding-evidence"
+import {
+  createForwardCurrentInstrumentEvidenceBinding,
+  createForwardCurrentInstrumentProviderCertification,
+} from "../../../../forward-evidence-plane/contracts/src/lib/forward-current-instrument-evidence"
 import {
   replayDatasetHash,
   type ReplayMarketBar,
@@ -59,6 +72,11 @@ import {
   readLatestForwardFundingDemandDelivery,
   recordForwardFundingDemandDelivery,
 } from "./forward-funding-evidence"
+import {
+  admitForwardCurrentInstrumentEvidenceBinding,
+  readForwardCurrentInstrumentEvidenceBinding,
+  registerForwardCurrentInstrumentProviderCertification,
+} from "./forward-current-instrument-evidence"
 
 const HASH = "a".repeat(64)
 
@@ -289,11 +307,70 @@ test("Forward dataset candidate registry independently binds the complete segmen
     assessed_at: "2026-07-23T08:05:00.000Z",
   })
   expect(fundedReadiness.schema_version)
-    .toBe("trade.rd-forward-dataset-readiness-assessment.v2")
+    .toBe("trade.rd-forward-dataset-readiness-assessment.v3")
   expect(fundedReadiness.blockers)
     .not.toContain("funding_window_unverified")
   expect(fundedReadiness.blockers)
     .toContain("instrument_spec_window_unverified")
+  const certification =
+    createForwardCurrentInstrumentProviderCertification({
+      certification_id: "forward-current-instrument-provider-v1",
+      certification_ref:
+        "certification://forward-current-instrument-provider/v1",
+      certified_at: "2026-07-23T01:00:00.000Z",
+      valid_until: "2026-07-24T00:00:00.000Z",
+      certifier_id: "research-control-plane",
+    })
+  expect(registerForwardCurrentInstrumentProviderCertification(
+    db,
+    certification,
+  )).toBe("created")
+  const instrumentObservations = Array.from(
+    { length: 13 },
+    (_, index) => fixtureCurrentInstrumentEvidence(
+      new Date(
+        Date.parse(candidate.window.first_open_time)
+        + index * 20 * 60 * 1_000,
+      ).toISOString(),
+      index + 1,
+      certification.certification_ref,
+      certification.certification_hash,
+      certification.provider_capability_hash,
+    ),
+  )
+  const instrumentBinding =
+    createForwardCurrentInstrumentEvidenceBinding({
+      program,
+      candidate,
+      provider_certification: certification,
+      observations: instrumentObservations,
+      created_at: "2026-07-23T08:06:00.000Z",
+    })
+  expect(admitForwardCurrentInstrumentEvidenceBinding(
+    db,
+    instrumentBinding,
+  )).toBe("created")
+  expect(readForwardCurrentInstrumentEvidenceBinding(
+    db,
+    candidate.candidate_id,
+  )).toEqual(instrumentBinding)
+  const instrumentReady = readForwardDatasetReadinessAssessment(db, {
+    candidate_id: candidate.candidate_id,
+    assessed_at: "2026-07-23T08:07:00.000Z",
+  })
+  expect(instrumentReady.blockers)
+    .not.toContain("instrument_status_window_unverified")
+  expect(instrumentReady.blockers)
+    .not.toContain("instrument_spec_window_unverified")
+  expect(instrumentReady.verified_components.current_instrument_snapshot)
+    .toMatchObject({
+      binding_hash: instrumentBinding.binding_hash,
+      observation_count: 13,
+      inter_sample_history_claim: "not_proven",
+    })
+  expect(() => db.query(`
+    DELETE FROM rd_forward_current_instrument_evidence_binding
+  `).run()).toThrow()
   expect(() => db.query(`
     DELETE FROM rd_forward_funding_evidence_binding
   `).run()).toThrow()
@@ -386,6 +463,82 @@ function fixtureSlice(openTime: number) {
     first_open_ts: openTime,
     last_open_ts: openTime,
   }
+}
+
+function fixtureCurrentInstrumentEvidence(
+  observedAt: string,
+  ordinal: number,
+  certificationRef: string,
+  certificationHash: string,
+  providerCapabilityHash: string,
+) {
+  const payloadText = JSON.stringify({
+    symbols: [{
+      symbol: "BTCUSDT",
+      status: "TRADING",
+      onboardDate: Date.parse("2019-09-08T00:00:00.000Z"),
+      baseAsset: "BTC",
+      quoteAsset: "USDT",
+      marginAsset: "USDT",
+      quotePrecision: 8,
+      filters: [
+        { filterType: "PRICE_FILTER", tickSize: "0.10" },
+        { filterType: "LOT_SIZE", stepSize: "0.001" },
+      ],
+    }],
+  })
+  const contentHash = instrumentStatusPayloadHash(payloadText)
+  const acquisitionId = `forward-current-instrument-${ordinal}`
+  const payloadRef =
+    `market-data-store:instrument-status-source-payload:${acquisitionId}:1`
+  const attempt = createInstrumentStatusAcquisitionAttempt({
+    attempt_ordinal: 1,
+    started_at: observedAt,
+    completed_at: observedAt,
+    outcome: "succeeded",
+    failure_class: null,
+    retryable: false,
+    http_status: 200,
+    response_payload_ref: payloadRef,
+    response_hash: contentHash,
+    response_bytes: new TextEncoder().encode(payloadText).byteLength,
+    response_record_count: 1,
+  })
+  const receipt = createInstrumentStatusAcquisitionReceipt({
+    acquisition_id: acquisitionId,
+    venue_id: "binance-usdm",
+    symbol: "BTCUSDT",
+    source_capability: "current_snapshot_only",
+    transport: "binance_usdm_rest",
+    method: "GET",
+    endpoint: "https://fapi.binance.com/fapi/v1/exchangeInfo",
+    request_params_hash: "a".repeat(64),
+    requested_coverage_start: null,
+    requested_coverage_end: null,
+    source_observed_through: observedAt,
+    requested_at: observedAt,
+    completed_at: observedAt,
+    terminal_status: "succeeded",
+    attempts: [attempt],
+  })
+  const payload: InstrumentStatusAcquisitionPayload = {
+    payload_ref: payloadRef,
+    acquisition_id: acquisitionId,
+    attempt_ordinal: 1,
+    content_hash: contentHash,
+    byte_count: new TextEncoder().encode(payloadText).byteLength,
+    payload: new TextEncoder().encode(payloadText),
+  }
+  return buildCurrentInstrumentSnapshotEvidence({
+    receipt,
+    payload,
+    produced_at: observedAt,
+    provider_certification: {
+      certification_ref: certificationRef,
+      certification_hash: certificationHash,
+      provider_capability_hash: providerCapabilityHash,
+    },
+  })
 }
 
 function fixtureDb(): Database {
