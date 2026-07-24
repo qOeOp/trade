@@ -23,6 +23,14 @@ import {
   type ReplayInstrumentStatusProvenance,
   type ReplayInstrumentStatusSnapshot,
 } from "../../../../../contracts/replay-contract/src/replay-market-data-contract"
+import {
+  REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
+  REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION,
+  assertReplayInstrumentAccountingSpec,
+  assertReplayInstrumentSpecSnapshot,
+  type ReplayInstrumentAccountingSpec,
+  type ReplayInstrumentSpecSnapshot,
+} from "../../../../../contracts/replay-contract/src/replay-instrument-contract"
 
 export {
   canonicalHash,
@@ -45,6 +53,12 @@ export {
   type ReplayAggregateTradeEvent,
   type ReplayInstrumentStatusProvenance,
   type ReplayInstrumentStatusSnapshot,
+  REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
+  REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION,
+  assertReplayInstrumentAccountingSpec,
+  assertReplayInstrumentSpecSnapshot,
+  type ReplayInstrumentAccountingSpec,
+  type ReplayInstrumentSpecSnapshot,
 }
 
 export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v38" as const
@@ -67,7 +81,6 @@ export const REPLAY_EXACT_TRADE_STOP_RESOLUTION_SCHEMA_VERSION = "trade.rd-repla
 export const REPLAY_AUTHORIZED_STOP_ENTRY_PATH_STEP_SCHEMA_VERSION = "trade.rd-replay-authorized-stop-entry-path-step.v1" as const
 export const REPLAY_ENTRY_CANCEL_INTENT_SCHEMA_VERSION = "trade.rd-replay-entry-cancel-intent.v1" as const
 export const REPLAY_STOP_ENTRY_CANCEL_INTENT_SCHEMA_VERSION = "trade.rd-replay-entry-cancel-intent.v2" as const
-export const REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION = "rd-replay-instrument-accounting-v1" as const
 export const REPLAY_DATASET_MANIFEST_SCHEMA_VERSION = "trade.rd-replay-dataset-manifest.v11" as const
 export const REPLAY_LIQUIDITY_CAPACITY_ATTESTATION_SCHEMA_VERSION = "trade.rd-replay-liquidity-capacity-attestation.v1" as const
 export const REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION = "trade.rd-replay-supplemental-fact.v1" as const
@@ -112,7 +125,6 @@ export const REPLAY_DECISION_HARNESS_BUILD_ARGUMENTS = [
   "--reject-unresolved",
 ] as const
 export const REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION = "trade.rd-replay-venue-risk-policy-snapshot.v1" as const
-export const REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-instrument-spec-snapshot.v1" as const
 export const REPLAY_CERTIFIED_CAPABILITIES = [
   "closed-bar-protective-stop-tighten",
   "closed-candle",
@@ -973,30 +985,6 @@ export interface ReplayVenueRiskPolicySnapshot {
   initial_margin_rate: number
   maintenance_tier: ReplayIsolatedMarginPolicy["maintenance_tier"]
   liquidation_fee_bps: number
-}
-
-export interface ReplayInstrumentSpecSnapshot {
-  schema_version: typeof REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION
-  snapshot_id: string
-  venue_id: string
-  symbol: string
-  effective_at: string
-  valid_until: string | null
-  observed_at: string
-  source_ref: string
-  source_hash: string
-}
-
-export interface ReplayInstrumentAccountingSpec {
-  spec_version: typeof REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION
-  product_type: "linear_derivative"
-  base_asset: string
-  quote_asset: string
-  settlement_asset: string
-  contract_multiplier: string
-  price_increment: string
-  quantity_increment: string
-  settlement_increment: string
 }
 
 export interface ReplayLimitation {
@@ -4469,18 +4457,6 @@ export function assertReplayVenueRiskPolicySnapshot(snapshot: ReplayVenueRiskPol
   assertReplayMaintenanceTier(snapshot.maintenance_tier, snapshot.initial_margin_rate, "venue_risk_policy.maintenance_tier")
 }
 
-export function assertReplayInstrumentSpecSnapshot(snapshot: ReplayInstrumentSpecSnapshot): void {
-  if (snapshot.schema_version !== REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION) fail("unsupported instrument spec snapshot schema")
-  for (const [field, value] of Object.entries({
-    snapshot_id: snapshot.snapshot_id,
-    venue_id: snapshot.venue_id,
-    symbol: snapshot.symbol,
-    source_ref: snapshot.source_ref,
-  })) requireText(value, `instrument.spec_snapshot.${field}`)
-  requireHash(snapshot.source_hash, "instrument.spec_snapshot.source_hash")
-  assertReplaySnapshotInterval(snapshot, "instrument.spec_snapshot")
-}
-
 export function assertReplayInstrumentStatusProvenance(
   provenance: ReplayInstrumentStatusProvenance,
   manifest: ReplayDatasetManifest,
@@ -4590,35 +4566,6 @@ function assertReplayMaintenanceTier(
   requireRate(tier.maintenance_margin_rate, `${field}.maintenance_margin_rate`, true)
   if (tier.maintenance_margin_rate >= initialMarginRate) fail(`${field} rate must be below initial margin rate`)
   requireNonNegative(tier.maintenance_amount, `${field}.maintenance_amount`)
-}
-
-export function assertReplayInstrumentAccountingSpec(spec: ReplayInstrumentAccountingSpec): void {
-  if (spec.spec_version !== REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION) fail("unsupported instrument accounting spec")
-  if (spec.product_type !== "linear_derivative") fail("certified Replay only supports linear derivatives")
-  for (const [field, asset] of Object.entries({
-    base_asset: spec.base_asset,
-    quote_asset: spec.quote_asset,
-    settlement_asset: spec.settlement_asset,
-  })) {
-    const normalized = requireText(asset, `instrument.accounting.${field}`)
-    if (!/^[A-Z0-9]{2,16}$/.test(normalized)) fail(`instrument.accounting.${field} must be an uppercase asset id`)
-  }
-  if (spec.base_asset === spec.quote_asset) fail("instrument base and quote assets must differ")
-  if (spec.quote_asset !== spec.settlement_asset) fail("certified linear Replay requires quote-asset settlement")
-  if (spec.contract_multiplier !== "1") fail("certified Replay currently requires a unit contract multiplier")
-  for (const [field, value] of Object.entries({
-    contract_multiplier: spec.contract_multiplier,
-    price_increment: spec.price_increment,
-    quantity_increment: spec.quantity_increment,
-    settlement_increment: spec.settlement_increment,
-  })) requireCanonicalPositiveDecimal(value, `instrument.accounting.${field}`)
-  for (const [field, value] of Object.entries({
-    price_increment: spec.price_increment,
-    quantity_increment: spec.quantity_increment,
-    settlement_increment: spec.settlement_increment,
-  })) {
-    if ((value.split(".")[1]?.length ?? 0) > 12) fail(`instrument.accounting.${field} exceeds Numeric Policy v3 scale`)
-  }
 }
 
 export function replayDatasetHash(
