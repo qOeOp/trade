@@ -478,18 +478,26 @@ export async function runReplayIndependentAuditCommand(
     detached: process.platform !== "win32",
   })
   let timedOut = false
-  let forceKill: ReturnType<typeof setTimeout> | undefined
+  let cleanupError: unknown
   const timeout = setTimeout(() => {
     timedOut = true
-    signalAuditCommandTree(child.pid, "SIGTERM")
-    forceKill = setTimeout(() => signalAuditCommandTree(child.pid, "SIGKILL"), 1_000)
+    try {
+      signalAuditCommandTree(child.pid, "SIGKILL")
+    } catch (error) {
+      cleanupError = error
+    }
   }, command.timeout_ms)
   const exitCode = await child.exited
   clearTimeout(timeout)
-  if (timedOut) signalAuditCommandTree(child.pid, "SIGKILL")
-  if (forceKill) clearTimeout(forceKill)
   const stdout = readFileSync(stdoutPath, "utf8")
   const stderr = readFileSync(stderrPath, "utf8")
+  if (cleanupError) {
+    cleanupOutput()
+    throw new Error(
+      `Replay independent audit process-group cleanup failed: ${command.role}`,
+      { cause: cleanupError },
+    )
+  }
   if (timedOut) {
     cleanupOutput()
     throw new Error(`Replay independent audit command timed out: ${command.role}`)
@@ -509,13 +517,8 @@ export async function runReplayIndependentAuditCommand(
   return receipt
 }
 
-function signalAuditCommandTree(pid: number, signal: "SIGTERM" | "SIGKILL"): void {
-  try {
-    process.kill(process.platform === "win32" ? pid : -pid, signal)
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code
-    if (code !== "ESRCH") throw error
-  }
+export function signalAuditCommandTree(pid: number, signal: "SIGKILL"): void {
+  process.kill(process.platform === "win32" ? pid : -pid, signal)
 }
 
 function readRepoSource(repoRoot: string, path: string): string {
