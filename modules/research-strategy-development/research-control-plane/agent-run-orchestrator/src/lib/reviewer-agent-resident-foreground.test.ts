@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { readFileSync } from "node:fs"
+import { readFileSync, unlinkSync } from "node:fs"
 import test from "node:test"
 import type { AgentHostPort } from "../../../../../contracts/agent-run-contract/src/agent-host-port"
 import { displayPath, resolveRepoPath } from "../../../../../contracts/runtime-core/src/paths"
@@ -51,6 +51,6 @@ test("Reviewer Agent foreground persists bounded no-trade state", async () => {
   assert.equal(state.cycles, 1)
   assert.equal(state.trading_authority, false)
   assert.equal(state.deployment_authority, "none")
-  await Bun.$`/usr/bin/trash ${resolveRepoPath(statePath)}`.quiet()
+  unlinkSync(resolveRepoPath(statePath))
   assert.match(displayPath(resolveRepoPath(statePath)), /^tmp\//)
 })
