@@ -1,4 +1,0 @@
-interface:
-  display_name: "Bounded Autonomous Development"
-  short_description: "Audit authority and run one verified mission"
-  default_prompt: "Use $run-autonomous-development to audit authority and acceptance oracles, complete one bounded mission, verify its real outcome, and run a generic post-mission meta loop."

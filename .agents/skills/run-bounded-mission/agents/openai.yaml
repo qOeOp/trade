@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bounded Project Mission"
+  short_description: "Run one verified product or engineering mission"
+  default_prompt: "Use $run-bounded-mission to run one bounded project mission, verify its outcome through the real consumer, terminate explicitly, and perform one post-mission learning review."

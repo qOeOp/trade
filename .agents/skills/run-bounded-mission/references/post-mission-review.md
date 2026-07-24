@@ -1,8 +1,8 @@
-# Post-mission meta loop
+# Post-mission learning review
 
-Load only after the object mission terminates or when changing this skill package.
+Load only after the mission terminates or when changing this skill package.
 
-Run one bounded retrospective. Do not reopen implementation, alter the object terminal, or create another mission.
+Run one bounded learning review. Do not reopen implementation, alter the mission terminal, or create another mission.
 
 ## Inputs
 
@@ -36,7 +36,7 @@ Before editing, freeze a minimal behavior scenario and reproduce the defect with
 - report instruction, resource, default-context, and maintenance deltas as evidence, never as the verdict;
 - keep project and user authority outside the skill.
 
-Object and meta changes must remain separate. A project candidate cannot carry a skill edit.
+Mission changes and learning-review changes must remain separate. A project candidate cannot carry a skill edit.
 
 ## Evaluation
 
@@ -52,7 +52,7 @@ The candidate cannot define acceptance, approve itself, or rewrite evidence. Ext
 
 ## Output
 
-Return exactly one meta outcome:
+Return exactly one learning outcome:
 
 - `no_change`: no generic defect or no strict improvement;
 - `candidate_proposed`: one bounded external proposal with evidence and instruction-surface delta;

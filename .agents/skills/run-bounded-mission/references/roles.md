@@ -27,11 +27,11 @@ Provide:
 Require:
 
 - an authority and oracle classification before the mission contract;
-- one mission contract with production or decision consumer, journey, non-goals, permitted surface, and budgets;
+- one mission contract with the outcome consumer, adoption or usage journey, non-goals, permitted surface, and budgets;
 - at most three candidates when uncertainty warrants them;
 - a recommendation based on outcome, reuse, verifiability, responsibility, and reversibility.
 
-Require the planner to expose duplicate truth, proxy criteria, open-world inference, candidate-controlled oracles, and unsupported authority without overriding external authority. Require `blocked` when authority, consumer, or journey remains unresolved. The planner cannot edit or admit implementation.
+Require the planner to expose duplicate truth, proxy criteria, open-world inference, candidate-controlled oracles, and unsupported authority without overriding external authority. Require `blocked` when authority, outcome consumer, or journey remains unresolved. The planner cannot edit or admit implementation.
 
 ## Candidate explorer
 
@@ -54,7 +54,7 @@ Exclude builder explanation and proposed verdict.
 
 Require the evaluator to try to falsify:
 
-- outcome and consumer closure;
+- outcome and outcome-consumer closure;
 - regression safety and owner/authority consistency;
 - oracle provenance, independence, and connection to the outcome;
 - surface delta, cleanup, and terminal correctness.

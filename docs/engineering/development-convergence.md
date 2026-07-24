@@ -47,7 +47,7 @@ bun scripts/check-convergence-budget.ts
 
 ## 4. 无人值守 mission contract
 
-模糊方向、跨模块功能和长时开发先走 `.agents/skills/run-autonomous-development/SKILL.md`。主上下文只持有一个 mission；subagent 只做有界候选搜索或独立验收，不拥有 scope、合并和完成判定。
+除简单问答、验收显然的微小机械修改和由更具体 skill 完整拥有的流程外，涉及产品或工程判断的非平凡任务走 `.agents/skills/run-bounded-mission/SKILL.md`。具体 skill 若仍需项目级 admission、跨域或终止控制，则与其组合使用。主上下文只持有一个 mission；subagent 只做有界候选搜索或独立验收，不拥有 scope、合并和完成判定。
 
 写代码前必须冻结：
 
