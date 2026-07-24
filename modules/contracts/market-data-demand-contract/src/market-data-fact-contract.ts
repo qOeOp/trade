@@ -3,11 +3,12 @@ import { SUPPORTED_INDICATOR_SET_REFS, type SupportedIndicatorSetRef } from "./i
 import { timeframeMilliseconds } from "./ohlcv-coverage-contract"
 
 export const MARKET_DATA_FACT_REF_SCHEMA = "trade.market-data-fact-ref.v1" as const
+export const MARKET_DATA_FACT_REF_SCHEMA_V2 = "trade.market-data-fact-ref.v2" as const
 
-export type MarketDataFactProduct = "l2_book" | "ohlcv" | "indicator_set"
+export type MarketDataFactProduct = "l2_book" | "ohlcv" | "indicator_set" | "funding_events"
 
 export interface MarketDataFactRef {
-  schema_version: typeof MARKET_DATA_FACT_REF_SCHEMA
+  schema_version: typeof MARKET_DATA_FACT_REF_SCHEMA | typeof MARKET_DATA_FACT_REF_SCHEMA_V2
   product: MarketDataFactProduct
   venue: "binance_usdm"
   symbol: string
@@ -42,10 +43,23 @@ export interface MarketDataFactRef {
 }
 
 export function buildMarketDataFactRef(
-  input: Omit<MarketDataFactRef, "schema_version" | "domain_authority" | "fact_hash">,
+  input: Omit<MarketDataFactRef, "schema_version" | "domain_authority" | "fact_hash" | "product"> & {
+    product: Exclude<MarketDataFactProduct, "funding_events">
+  },
 ): MarketDataFactRef {
   const compiled = compileBody({
     schema_version: MARKET_DATA_FACT_REF_SCHEMA,
+    ...input,
+    domain_authority: "none",
+  })
+  return { ...compiled, fact_hash: canonicalHash(compiled) }
+}
+
+export function buildMarketDataFactRefV2(
+  input: Omit<MarketDataFactRef, "schema_version" | "domain_authority" | "fact_hash">,
+): MarketDataFactRef {
+  const compiled = compileBody({
+    schema_version: MARKET_DATA_FACT_REF_SCHEMA_V2,
     ...input,
     domain_authority: "none",
   })
@@ -71,10 +85,19 @@ function compileBody(value: unknown): Omit<MarketDataFactRef, "fact_hash"> {
     "schema_version", "product", "venue", "symbol", "requirement", "consumer_binding",
     "source", "coverage", "freshness", "domain_authority",
   ], "market_data_fact_ref")
-  if (input.schema_version !== MARKET_DATA_FACT_REF_SCHEMA) throw new Error("market data fact schema is unsupported")
+  const schemaVersion = oneOf(input.schema_version, [
+    MARKET_DATA_FACT_REF_SCHEMA,
+    MARKET_DATA_FACT_REF_SCHEMA_V2,
+  ] as const, "schema_version")
   if (input.venue !== "binance_usdm") throw new Error("market data fact venue is unsupported")
   if (input.domain_authority !== "none") throw new Error("market data fact cannot grant domain authority")
-  const product = oneOf(input.product, ["l2_book", "ohlcv", "indicator_set"] as const, "product")
+  const product = oneOf(
+    input.product,
+    schemaVersion === MARKET_DATA_FACT_REF_SCHEMA
+      ? ["l2_book", "ohlcv", "indicator_set"] as const
+      : ["l2_book", "ohlcv", "indicator_set", "funding_events"] as const,
+    "product",
+  )
   const symbol = text(input.symbol, "symbol", 20)
   if (!/^[A-Z0-9]{5,20}$/.test(symbol)) throw new Error("market data fact symbol is invalid")
 
@@ -92,6 +115,9 @@ function compileBody(value: unknown): Omit<MarketDataFactRef, "fact_hash"> {
   }
   if (product === "indicator_set" && (timeframe == null || indicatorSetRef == null || minimumDepth != null)) {
     throw new Error("indicator fact requirement shape drifted")
+  }
+  if (product === "funding_events" && (timeframe != null || indicatorSetRef != null || minimumDepth != null)) {
+    throw new Error("funding fact requirement shape drifted")
   }
 
   const bindingInput = record(input.consumer_binding, "consumer_binding")
@@ -145,7 +171,7 @@ function compileBody(value: unknown): Omit<MarketDataFactRef, "fact_hash"> {
   }
 
   return {
-    schema_version: MARKET_DATA_FACT_REF_SCHEMA,
+    schema_version: schemaVersion,
     product,
     venue: "binance_usdm",
     symbol,

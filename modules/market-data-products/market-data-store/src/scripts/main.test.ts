@@ -358,3 +358,50 @@ test("market data store CLI creates, renews, reconciles, reads, and releases typ
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test("market data store CLI commits and resolves immutable funding acquisitions", () => {
+  const dir = mkdtempSync(join(tmpdir(), "market-data-funding-cli-"))
+  const dbPath = join(dir, "market-data.db")
+  const start = "2026-07-22T00:00:00.000Z"
+  const end = "2026-07-23T08:00:00.000Z"
+  try {
+    const committed = run(parseArgs([
+      "--db", dbPath,
+      "--action", "commit_funding_acquisition",
+      "--json", JSON.stringify({
+        symbol: "BTCUSDT",
+        coverage_start: start,
+        coverage_end: end,
+        pages: [{
+          requested_start_ms: Date.parse(start),
+          requested_end_ms: Date.parse(end) - 1,
+          response_body: JSON.stringify([{
+            fundingTime: Date.parse("2026-07-23T00:00:00.000Z"),
+            fundingRate: "0.0001",
+            markPrice: "119000.0",
+          }]),
+        }],
+        acquired_at: "2026-07-23T08:00:01.000Z",
+      }),
+    ])) as { archive_id: string; audit: { source: { event_count: number } } }
+    assert.equal(committed.audit.source.event_count, 1)
+    const resolved = run(parseArgs([
+      "--db", dbPath,
+      "--action", "resolve_funding_coverage",
+      "--json", JSON.stringify({
+        symbol: "BTCUSDT",
+        coverage_start: start,
+        coverage_end: end,
+      }),
+    ])) as { resolution: { status: string } }
+    assert.equal(resolved.resolution.status, "ready")
+    const events = run(parseArgs([
+      "--db", dbPath,
+      "--action", "read_funding_archive_events",
+      "--json", JSON.stringify({ archive_id: committed.archive_id }),
+    ])) as { events: unknown[] }
+    assert.equal(events.events.length, 1)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

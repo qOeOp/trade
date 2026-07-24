@@ -2,6 +2,8 @@ import { canonicalHash } from "../../runtime-core/src/canonical-json"
 
 export const MARKET_DATA_DEMAND_SCHEMA = "trade.market-data-demand.v1" as const
 export const MARKET_DATA_SUBSCRIPTION_PLAN_SCHEMA = "trade.market-data-subscription-plan.v1" as const
+export const MARKET_DATA_DEMAND_SCHEMA_V2 = "trade.market-data-demand.v2" as const
+export const MARKET_DATA_SUBSCRIPTION_PLAN_SCHEMA_V2 = "trade.market-data-subscription-plan.v2" as const
 
 export type MarketDataDemandPriority =
   | "defensive_exposure"
@@ -10,7 +12,8 @@ export type MarketDataDemandPriority =
   | "opportunity_candidate"
   | "research"
 
-export type MarketDataProduct = "l2_book" | "ohlcv" | "indicator_set"
+export type MarketDataProductV1 = "l2_book" | "ohlcv" | "indicator_set"
+export type MarketDataProduct = MarketDataProductV1 | "funding_events"
 
 export interface MarketDataRequirement {
   product: MarketDataProduct
@@ -23,7 +26,7 @@ export interface MarketDataRequirement {
 }
 
 export interface MarketDataDemand {
-  schema_version: typeof MARKET_DATA_DEMAND_SCHEMA
+  schema_version: typeof MARKET_DATA_DEMAND_SCHEMA | typeof MARKET_DATA_DEMAND_SCHEMA_V2
   demand_id: string
   consumer_owner: string
   consumer_kind: "runtime" | "research" | "execution_defense"
@@ -42,7 +45,7 @@ export interface MarketDataDemand {
 }
 
 export interface MarketDataSubscriptionPlan {
-  schema_version: typeof MARKET_DATA_SUBSCRIPTION_PLAN_SCHEMA
+  schema_version: typeof MARKET_DATA_SUBSCRIPTION_PLAN_SCHEMA | typeof MARKET_DATA_SUBSCRIPTION_PLAN_SCHEMA_V2
   observed_at: string
   capacity: { max_symbols: number }
   status: "ready" | "capacity_blocked"
@@ -92,13 +95,27 @@ export function buildMarketDataDemand(
   return compileMarketDataDemand({ ...candidate, demand_hash: canonicalHash(candidate) })
 }
 
+export function buildMarketDataDemandV2(
+  value: Omit<MarketDataDemand, "schema_version" | "domain_authority" | "demand_hash">,
+): MarketDataDemand {
+  const candidate = {
+    schema_version: MARKET_DATA_DEMAND_SCHEMA_V2,
+    ...value,
+    domain_authority: "none" as const,
+  }
+  return compileMarketDataDemand({ ...candidate, demand_hash: canonicalHash(candidate) })
+}
+
 export function compileMarketDataDemand(value: unknown): MarketDataDemand {
   const input = record(value, "market_data_demand")
   exact(input, [
     "schema_version", "demand_id", "consumer_owner", "consumer_kind", "subject_ref",
     "venue", "symbol", "priority", "requirements", "lease", "domain_authority", "demand_hash",
   ], "market_data_demand")
-  if (input.schema_version !== MARKET_DATA_DEMAND_SCHEMA) throw new Error("market data demand schema is unsupported")
+  const schemaVersion = oneOf(input.schema_version, [
+    MARKET_DATA_DEMAND_SCHEMA,
+    MARKET_DATA_DEMAND_SCHEMA_V2,
+  ] as const, "schema_version")
   if (input.venue !== "binance_usdm") throw new Error("market data demand venue is unsupported")
   if (input.domain_authority !== "none") throw new Error("market data demand must not grant domain authority")
   const priority = oneOf(input.priority, PRIORITIES, "priority")
@@ -110,7 +127,7 @@ export function compileMarketDataDemand(value: unknown): MarketDataDemand {
   if (requirementsInput.length < 1 || requirementsInput.length > 16) {
     throw new Error("requirements must contain between 1 and 16 items")
   }
-  const requirements = requirementsInput.map((item, index) => compileRequirement(item, index))
+  const requirements = requirementsInput.map((item, index) => compileRequirement(item, index, schemaVersion))
   const requirementKeys = requirements.map(requirementKey)
   if (new Set(requirementKeys).size !== requirementKeys.length) throw new Error("requirements contain duplicate product identities")
   const leaseInput = record(input.lease, "lease")
@@ -126,7 +143,7 @@ export function compileMarketDataDemand(value: unknown): MarketDataDemand {
     throw new Error("only defensive_exposure demand may request renewal grace")
   }
   const withoutHash = {
-    schema_version: MARKET_DATA_DEMAND_SCHEMA,
+    schema_version: schemaVersion,
     demand_id: identifier(input.demand_id, "demand_id"),
     consumer_owner: identifier(input.consumer_owner, "consumer_owner"),
     consumer_kind: consumerKind,
@@ -206,8 +223,11 @@ export function reconcileMarketDataDemands(input: {
         : "capacity_deferred" as const,
     })),
   ].sort((a, b) => a.demand_id.localeCompare(b.demand_id))
+  const planSchema = [...byId.values()].some((demand) => demand.schema_version === MARKET_DATA_DEMAND_SCHEMA_V2)
+    ? MARKET_DATA_SUBSCRIPTION_PLAN_SCHEMA_V2
+    : MARKET_DATA_SUBSCRIPTION_PLAN_SCHEMA
   const planWithoutHash = {
-    schema_version: MARKET_DATA_SUBSCRIPTION_PLAN_SCHEMA,
+    schema_version: planSchema,
     observed_at: observedAt,
     capacity: { max_symbols: maxSymbols },
     status: capacityBlocked ? "capacity_blocked" as const : "ready" as const,
@@ -230,9 +250,10 @@ export function compileMarketDataSubscriptionPlan(value: unknown): MarketDataSub
     "subscriptions", "active_demand_ids", "grace_demand_ids", "expired_demand_ids",
     "deferred_demand_ids", "attentions", "lifecycle_authority", "plan_hash",
   ], "market_data_subscription_plan")
-  if (input.schema_version !== MARKET_DATA_SUBSCRIPTION_PLAN_SCHEMA) {
-    throw new Error("market data subscription plan schema is unsupported")
-  }
+  const schemaVersion = oneOf(input.schema_version, [
+    MARKET_DATA_SUBSCRIPTION_PLAN_SCHEMA,
+    MARKET_DATA_SUBSCRIPTION_PLAN_SCHEMA_V2,
+  ] as const, "schema_version")
   if (input.lifecycle_authority !== "none") throw new Error("market data subscription plan must not grant lifecycle authority")
   const capacityInput = record(input.capacity, "capacity")
   exact(capacityInput, ["max_symbols"], "capacity")
@@ -256,7 +277,7 @@ export function compileMarketDataSubscriptionPlan(value: unknown): MarketDataSub
   }
   const selectedSet = new Set(selectedSymbols)
   const subscriptions = array(input.subscriptions, "subscriptions")
-    .map((item, index) => compileSubscription(item, index))
+    .map((item, index) => compileSubscription(item, index, schemaVersion))
   if (!isSubscriptionOrderCanonical(subscriptions)) throw new Error("subscriptions are not in canonical order")
   for (const subscription of subscriptions) {
     if (!selectedSet.has(subscription.symbol)) throw new Error("subscription symbol is not selected")
@@ -284,7 +305,7 @@ export function compileMarketDataSubscriptionPlan(value: unknown): MarketDataSub
     return { demand_id: demandId, reason }
   })
   const withoutHash = {
-    schema_version: MARKET_DATA_SUBSCRIPTION_PLAN_SCHEMA,
+    schema_version: schemaVersion,
     observed_at: iso(input.observed_at, "observed_at"),
     capacity: { max_symbols: maxSymbols },
     status,
@@ -308,14 +329,24 @@ export function compileMarketDataSubscriptionPlan(value: unknown): MarketDataSub
   return { ...withoutHash, plan_hash: planHash }
 }
 
-function compileRequirement(value: unknown, index: number): MarketDataRequirement {
+function compileRequirement(
+  value: unknown,
+  index: number,
+  schemaVersion: MarketDataDemand["schema_version"] | MarketDataSubscriptionPlan["schema_version"],
+): MarketDataRequirement {
   const field = `requirements[${index}]`
   const input = record(value, field)
   exact(input, [
     "product", "timeframe", "indicator_set_ref", "coverage_start", "coverage_end",
     "max_freshness_ms", "minimum_depth",
   ], field)
-  const product = oneOf(input.product, ["l2_book", "ohlcv", "indicator_set"] as const, `${field}.product`)
+  const product = oneOf(
+    input.product,
+    schemaVersion === MARKET_DATA_DEMAND_SCHEMA || schemaVersion === MARKET_DATA_SUBSCRIPTION_PLAN_SCHEMA
+      ? ["l2_book", "ohlcv", "indicator_set"] as const
+      : ["l2_book", "ohlcv", "indicator_set", "funding_events"] as const,
+    `${field}.product`,
+  )
   const timeframe = nullableTimeframe(input.timeframe, `${field}.timeframe`)
   const indicatorSetRef = nullableRef(input.indicator_set_ref, `${field}.indicator_set_ref`)
   const coverageStart = nullableIso(input.coverage_start, `${field}.coverage_start`)
@@ -324,6 +355,13 @@ function compileRequirement(value: unknown, index: number): MarketDataRequiremen
   if (product === "l2_book") {
     if (timeframe != null || indicatorSetRef != null || coverageStart != null || coverageEnd != null || minimumDepth == null) {
       throw new Error(`${field} l2_book shape is invalid`)
+    }
+  } else if (product === "funding_events") {
+    if (timeframe != null || indicatorSetRef != null || coverageStart == null || coverageEnd == null || minimumDepth != null) {
+      throw new Error(`${field} funding_events shape is invalid`)
+    }
+    if (Date.parse(coverageStart) >= Date.parse(coverageEnd)) {
+      throw new Error(`${field} coverage window is invalid`)
     }
   } else {
     const hasCoverageStart = coverageStart != null
@@ -352,6 +390,7 @@ function compileRequirement(value: unknown, index: number): MarketDataRequiremen
 function compileSubscription(
   value: unknown,
   index: number,
+  schemaVersion: MarketDataSubscriptionPlan["schema_version"],
 ): MarketDataSubscriptionPlan["subscriptions"][number] {
   const field = `subscriptions[${index}]`
   const input = record(value, field)
@@ -369,7 +408,7 @@ function compileSubscription(
     coverage_end: input.coverage_end,
     max_freshness_ms: input.max_freshness_ms,
     minimum_depth: input.minimum_depth,
-  }, index)
+  }, index, schemaVersion)
   return {
     venue: "binance_usdm",
     symbol: symbol(input.symbol),

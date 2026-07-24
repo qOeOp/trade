@@ -36,21 +36,22 @@ test("container foreground starts in dependency order and drains in reverse on s
   assert.equal(result.reason, "signal")
   assert.deepEqual(result.started_components, [
     "control-runtime", "market-data-manager", "ohlcv-worker",
-    "indicator-worker", "formal-replay-worker",
+    "funding-worker", "indicator-worker", "formal-replay-worker",
   ])
   assert.deepEqual(result.ready_components, [
     "control-runtime", "market-data-manager", "ohlcv-worker",
-    "indicator-worker", "formal-replay-worker",
+    "funding-worker", "indicator-worker", "formal-replay-worker",
   ])
   assert.equal(result.all_children_stopped, true)
   assert.deepEqual(events, [
     "start:control-runtime", "ready:control-runtime",
     "start:market-data-manager", "ready:market-data-manager",
     "start:ohlcv-worker", "ready:ohlcv-worker",
+    "start:funding-worker", "ready:funding-worker",
     "start:indicator-worker", "ready:indicator-worker",
     "start:formal-replay-worker", "ready:formal-replay-worker",
     "kill:formal-replay-worker:SIGTERM", "kill:indicator-worker:SIGTERM",
-    "kill:ohlcv-worker:SIGTERM",
+    "kill:funding-worker:SIGTERM", "kill:ohlcv-worker:SIGTERM",
     "kill:market-data-manager:SIGTERM", "kill:control-runtime:SIGTERM",
   ])
 })

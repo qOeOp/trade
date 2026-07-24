@@ -1,6 +1,6 @@
 import { canonicalHash } from "../../../../../contracts/runtime-core/src/canonical-json"
 
-export const SERVER_RUNTIME_CONTAINER_PROFILE_SCHEMA = "trade.server-runtime-container-profile.v1" as const
+export const SERVER_RUNTIME_CONTAINER_PROFILE_SCHEMA = "trade.server-runtime-container-profile.v2" as const
 
 export interface ServerRuntimeContainerProfile {
   schema_version: typeof SERVER_RUNTIME_CONTAINER_PROFILE_SCHEMA
@@ -21,6 +21,13 @@ export interface ServerRuntimeContainerProfile {
       max_rows_per_job: number
       interval_ms: number
       command_timeout_ms: number
+    }
+    funding_worker: {
+      max_symbols: number
+      max_jobs_per_cycle: number
+      interval_ms: number
+      command_timeout_ms: number
+      request_timeout_ms: number
     }
     indicator_worker: {
       max_symbols: number
@@ -55,7 +62,10 @@ export function parseServerRuntimeContainerProfile(value: unknown): ServerRuntim
     throw new Error("unsupported server container profile schema")
   }
   const market = record(root.market_data_runtime, "market_data_runtime")
-  exact(market, ["market_data_db", "ohlcv_db", "l2", "ohlcv_worker", "indicator_worker"], "market_data_runtime")
+  exact(market, [
+    "market_data_db", "ohlcv_db", "l2", "ohlcv_worker", "funding_worker",
+    "indicator_worker",
+  ], "market_data_runtime")
   if (market.market_data_db !== "data/market_data.db" || market.ohlcv_db !== "data/ohlcv.db") {
     throw new Error("server container market database paths are fixed")
   }
@@ -68,6 +78,11 @@ export function parseServerRuntimeContainerProfile(value: unknown): ServerRuntim
   exact(ohlcv, [
     "max_symbols", "max_jobs_per_cycle", "max_rows_per_job", "interval_ms", "command_timeout_ms",
   ], "market_data_runtime.ohlcv_worker")
+  const funding = record(market.funding_worker, "market_data_runtime.funding_worker")
+  exact(funding, [
+    "max_symbols", "max_jobs_per_cycle", "interval_ms", "command_timeout_ms",
+    "request_timeout_ms",
+  ], "market_data_runtime.funding_worker")
   const indicator = record(market.indicator_worker, "market_data_runtime.indicator_worker")
   exact(indicator, [
     "max_symbols", "max_jobs_per_cycle", "max_bars", "interval_ms", "command_timeout_ms",
@@ -118,6 +133,13 @@ export function parseServerRuntimeContainerProfile(value: unknown): ServerRuntim
         max_rows_per_job: integer(ohlcv.max_rows_per_job, 1, 100_000, "ohlcv.max_rows_per_job"),
         interval_ms: integer(ohlcv.interval_ms, 5_000, 3_600_000, "ohlcv.interval_ms"),
         command_timeout_ms: integer(ohlcv.command_timeout_ms, 5_000, 600_000, "ohlcv.command_timeout_ms"),
+      },
+      funding_worker: {
+        max_symbols: integer(funding.max_symbols, 1, 100, "funding.max_symbols"),
+        max_jobs_per_cycle: integer(funding.max_jobs_per_cycle, 1, 20, "funding.max_jobs_per_cycle"),
+        interval_ms: integer(funding.interval_ms, 5_000, 3_600_000, "funding.interval_ms"),
+        command_timeout_ms: integer(funding.command_timeout_ms, 5_000, 600_000, "funding.command_timeout_ms"),
+        request_timeout_ms: integer(funding.request_timeout_ms, 1_000, 120_000, "funding.request_timeout_ms"),
       },
       indicator_worker: {
         max_symbols: integer(indicator.max_symbols, 1, 100, "indicator.max_symbols"),

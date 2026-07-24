@@ -47,6 +47,11 @@ export async function readServerRuntimeContainerStatus(
         "ohlcv-worker", profile, root, bunPath, executor, readState, now,
       ),
     },
+    "funding-worker": {
+      ready: await readServerRuntimeContainerComponentReady(
+        "funding-worker", profile, root, bunPath, executor, readState, now,
+      ),
+    },
     "indicator-worker": {
       ready: await readServerRuntimeContainerComponentReady(
         "indicator-worker", profile, root, bunPath, executor, readState, now,
@@ -116,6 +121,9 @@ function maximumStateAge(
   if (component === "ohlcv-worker") {
     return market.ohlcv_worker.interval_ms * 3 + market.ohlcv_worker.command_timeout_ms
   }
+  if (component === "funding-worker") {
+    return market.funding_worker.interval_ms * 3 + market.funding_worker.command_timeout_ms
+  }
   if (component === "formal-replay-worker") return 20_000
   return market.indicator_worker.interval_ms * 3 + market.indicator_worker.command_timeout_ms
 }
@@ -125,6 +133,8 @@ function readStateFile(root: string, component: Exclude<ServerRuntimeContainerCo
     ? "tmp/market-data-runtime-manager/latest-state.json"
     : component === "ohlcv-worker"
       ? "tmp/ohlcv-demand-worker/latest-state.json"
+      : component === "funding-worker"
+        ? "tmp/funding-demand-worker/latest-state.json"
       : component === "formal-replay-worker"
         ? "tmp/runtime/formal-replay-worker/state.json"
       : "tmp/indicator-demand-worker/latest-state.json"

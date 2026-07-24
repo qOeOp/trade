@@ -29,17 +29,18 @@ test("container profile composes demand-driven market data and no-live control",
       "control-runtime",
       "market-data-manager",
       "ohlcv-worker",
+      "funding-worker",
       "indicator-worker",
       "formal-replay-worker",
     ],
   )
   assert.match(specs[0]!.command.at(-1)!, /"runtime_profile":"demand_driven_shadow"/)
-  assert.match(specs[4]!.command.join(" "), /formal-replay-foreground/)
+  assert.match(specs[5]!.command.join(" "), /formal-replay-foreground/)
   assert.match(
-    specs[4]!.command.join(" "),
+    specs[5]!.command.join(" "),
     /formal-replay:single-node-shadow-container/,
   )
-  assert.doesNotMatch(specs[4]!.command.join(" "), /--environment-id/)
+  assert.doesNotMatch(specs[5]!.command.join(" "), /--environment-id/)
 })
 
 test("container profile rejects live widening, DB collision, and invalid L2 capacity", () => {

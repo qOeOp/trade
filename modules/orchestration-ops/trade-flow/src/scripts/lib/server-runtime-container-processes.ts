@@ -5,6 +5,7 @@ export type ServerRuntimeContainerComponent =
   | "control-runtime"
   | "market-data-manager"
   | "ohlcv-worker"
+  | "funding-worker"
   | "indicator-worker"
   | "formal-replay-worker"
 
@@ -65,6 +66,20 @@ export function serverRuntimeContainerProcessSpecs(
         "--max-rows-per-job", String(market.ohlcv_worker.max_rows_per_job),
         "--interval-ms", String(market.ohlcv_worker.interval_ms),
         "--command-timeout-ms", String(market.ohlcv_worker.command_timeout_ms),
+      ],
+    },
+    {
+      id: "funding-worker",
+      description: "Demand-driven exact funding event worker",
+      command: [
+        bun,
+        resolve(root, "modules/market-data-products/market-data-store/src/scripts/funding-foreground.ts"),
+        "--market-data-db", market.market_data_db,
+        "--max-symbols", String(market.funding_worker.max_symbols),
+        "--max-jobs-per-cycle", String(market.funding_worker.max_jobs_per_cycle),
+        "--interval-ms", String(market.funding_worker.interval_ms),
+        "--command-timeout-ms", String(market.funding_worker.command_timeout_ms),
+        "--request-timeout-ms", String(market.funding_worker.request_timeout_ms),
       ],
     },
     {

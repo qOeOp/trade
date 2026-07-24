@@ -39,6 +39,7 @@ const START_ORDER: ComponentId[] = [
   "control-runtime",
   "market-data-manager",
   "ohlcv-worker",
+  "funding-worker",
   "indicator-worker",
   "formal-replay-worker",
 ]

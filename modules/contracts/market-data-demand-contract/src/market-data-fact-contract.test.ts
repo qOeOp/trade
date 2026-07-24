@@ -1,6 +1,10 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { buildMarketDataFactRef, compileMarketDataFactRef } from "./market-data-fact-contract"
+import {
+  buildMarketDataFactRef,
+  buildMarketDataFactRefV2,
+  compileMarketDataFactRef,
+} from "./market-data-fact-contract"
 
 const HASH = "a".repeat(64)
 
@@ -67,4 +71,44 @@ test("historical market data fact requires immutable complete half-open coverage
     freshness: { ...fact.freshness, kind: "live", max_freshness_ms: 1_000, status: "fresh" },
   }), /exceeds|historical/)
   assert.throws(() => compileMarketDataFactRef({ ...fact, fact_hash: "d".repeat(64) }), /hash drifted/)
+})
+
+test("v2 binds funding events to immutable complete half-open coverage", () => {
+  const fact = buildMarketDataFactRefV2({
+    product: "funding_events",
+    venue: "binance_usdm",
+    symbol: "BTCUSDT",
+    requirement: {
+      timeframe: null,
+      indicator_set_ref: null,
+      minimum_depth: null,
+    },
+    consumer_binding: {
+      demand_ids: ["research-btc-funding"],
+      source_plan_hash: HASH,
+    },
+    source: {
+      ref: "funding-archive:btc:1",
+      content_hash: HASH,
+    },
+    coverage: {
+      kind: "half_open",
+      start_at: "2026-07-01T00:00:00.000Z",
+      end_at: "2026-07-23T00:00:00.000Z",
+      completeness: "complete",
+    },
+    freshness: {
+      kind: "immutable",
+      as_of: "2026-07-23T00:00:00.000Z",
+      observed_at: "2026-07-23T00:01:00.000Z",
+      max_freshness_ms: null,
+      status: "not_applicable",
+    },
+  })
+  assert.equal(fact.schema_version, "trade.market-data-fact-ref.v2")
+  assert.equal(compileMarketDataFactRef(fact).product, "funding_events")
+  assert.throws(() => compileMarketDataFactRef({
+    ...fact,
+    schema_version: "trade.market-data-fact-ref.v1",
+  }), /product is unsupported/)
 })

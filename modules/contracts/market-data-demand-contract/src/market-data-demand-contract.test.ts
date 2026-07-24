@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import {
   buildMarketDataDemand,
+  buildMarketDataDemandV2,
   compileMarketDataDemand,
   compileMarketDataSubscriptionPlan,
   reconcileMarketDataDemands,
@@ -177,6 +178,45 @@ test("subscription plan is self-authenticating and rejects authority or lifecycl
     ...plan,
     plan_hash: "0".repeat(64),
   }), /plan_hash mismatch/)
+})
+
+test("v2 adds exact-window funding demand without rewriting v1", () => {
+  const funding = buildMarketDataDemandV2({
+    demand_id: "research-btc-funding",
+    consumer_owner: "rd-forward",
+    consumer_kind: "research",
+    subject_ref: "forward:btc-1",
+    venue: "binance_usdm",
+    symbol: "BTCUSDT",
+    priority: "research",
+    requirements: [{
+      product: "funding_events",
+      timeframe: null,
+      indicator_set_ref: null,
+      coverage_start: "2026-07-01T00:00:00.000Z",
+      coverage_end: "2026-07-23T00:00:00.000Z",
+      max_freshness_ms: 60_000,
+      minimum_depth: null,
+    }],
+    lease: {
+      issued_at: "2026-07-23T00:00:00.000Z",
+      expires_at: "2026-07-23T01:00:00.000Z",
+      renewal_grace_ms: 0,
+    },
+  })
+  const plan = reconcileMarketDataDemands({
+    demands: [funding],
+    observed_at: "2026-07-23T00:10:00.000Z",
+    max_symbols: 1,
+  })
+  assert.equal(funding.schema_version, "trade.market-data-demand.v2")
+  assert.equal(plan.schema_version, "trade.market-data-subscription-plan.v2")
+  assert.equal(plan.subscriptions[0]?.product, "funding_events")
+  assert.equal(compileMarketDataSubscriptionPlan(plan).plan_hash, plan.plan_hash)
+  assert.throws(() => compileMarketDataDemand({
+    ...funding,
+    schema_version: "trade.market-data-demand.v1",
+  }), /product is unsupported/)
 })
 
 function buildDemand(overrides: Partial<Omit<MarketDataDemand, "schema_version" | "domain_authority" | "demand_hash">> = {}) {

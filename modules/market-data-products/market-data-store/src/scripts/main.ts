@@ -15,6 +15,7 @@ import {
   auditCanonicalCandleCoverage,
   auditL2RetentionReferenceClosure,
   commitInstrumentStatusArchive,
+  commitFundingAcquisition,
   ensureMarketDataSchema,
   ensureOhlcvSchema,
   listFeatureManifests,
@@ -22,6 +23,8 @@ import {
   readCanonicalCandles,
   readFeatureManifest,
   readFundingEvents,
+  readFundingArchiveEvents,
+  readFundingCoverageAudit,
   readInstrumentStatusAcquisitionReceipt,
   readInstrumentStatusArchive,
   readLatestCandleOpenTime,
@@ -36,6 +39,7 @@ import {
   registerMarketDataDemand,
   putMarketDataDemand,
   releaseMarketDataDemand,
+  resolveFundingCoverage,
   registerL2ExperimentAttachmentReferrerReceipt,
   readMarketManifest,
   upsertCanonicalCandles,
@@ -247,6 +251,58 @@ export function run(args: Args): JSONRecord {
       const count = upsertFundingEvents(db, buildFundingEvents(args.json.events))
       return { ok: true, action: args.action, count }
     }
+    if (args.action === "commit_funding_acquisition") {
+      const pages = Array.isArray(args.json.pages)
+        ? args.json.pages.map((value, index) => {
+          const page = asRecord(value)
+          return {
+            requested_start_ms: requiredNumber(page.requested_start_ms, `pages[${index}].requested_start_ms`),
+            requested_end_ms: requiredNumber(page.requested_end_ms, `pages[${index}].requested_end_ms`),
+            response_body: stringField(page.response_body),
+          }
+        })
+        : []
+      return {
+        ok: true,
+        action: args.action,
+        ...commitFundingAcquisition(db, {
+          symbol: stringField(args.json.symbol),
+          coverage_start: stringField(args.json.coverage_start),
+          coverage_end: stringField(args.json.coverage_end),
+          pages,
+          acquired_at: stringField(args.json.acquired_at),
+        }),
+      }
+    }
+    if (args.action === "read_funding_coverage_audit") {
+      return {
+        ok: true,
+        action: args.action,
+        audit: readFundingCoverageAudit(db, stringField(args.json.archive_id)),
+      }
+    }
+    if (args.action === "resolve_funding_coverage") {
+      return {
+        ok: true,
+        action: args.action,
+        resolution: resolveFundingCoverage(db, {
+          symbol: stringField(args.json.symbol),
+          coverage_start: stringField(args.json.coverage_start),
+          coverage_end: stringField(args.json.coverage_end),
+        }),
+      }
+    }
+    if (args.action === "read_funding_archive_events") {
+      return {
+        ok: true,
+        action: args.action,
+        events: readFundingArchiveEvents(
+          db,
+          stringField(args.json.archive_id),
+          optionalNumber(args.json.limit),
+        ),
+      }
+    }
     if (args.action === "upsert_feature_manifest") {
       const manifest = buildFeatureManifest(args.json)
       upsertFeatureManifest(db, manifest)
@@ -446,7 +502,7 @@ export function run(args: Args): JSONRecord {
 function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/market_data.db --ohlcv-db data/ohlcv.db --action init",
-    "actions: init | upsert_manifest | admit_l2_epoch_manifest | reconcile_l2_epoch_manifests | prepare_l2_compaction_job | admit_l2_compaction_proposal | register_l2_experiment_attachment_referrer | audit_l2_retention_reference_closure | list_l2_retention_reference_audits | register_market_data_demand | put_market_data_demand | release_market_data_demand | read_market_data_demand | reconcile_market_data_demands | upsert_candles | upsert_funding | upsert_feature_manifest | admit_feature_manifest | commit_instrument_status_archive | read_manifest | read_l2_epoch_manifest | read_l2_compaction | read_l2_compacted_epoch_source | read_l2_experiment_attachment_referrer | read_funding | read_instrument_status_acquisition_receipt | read_instrument_status_archive | read_latest_candle | audit_candle_coverage | read_candles | export_candle_slice | read_feature_manifest | read_feature_artifact | list_feature_manifests",
+    "actions: init | upsert_manifest | admit_l2_epoch_manifest | reconcile_l2_epoch_manifests | prepare_l2_compaction_job | admit_l2_compaction_proposal | register_l2_experiment_attachment_referrer | audit_l2_retention_reference_closure | list_l2_retention_reference_audits | register_market_data_demand | put_market_data_demand | release_market_data_demand | read_market_data_demand | reconcile_market_data_demands | upsert_candles | upsert_funding | commit_funding_acquisition | read_funding_coverage_audit | resolve_funding_coverage | read_funding_archive_events | upsert_feature_manifest | admit_feature_manifest | commit_instrument_status_archive | read_manifest | read_l2_epoch_manifest | read_l2_compaction | read_l2_compacted_epoch_source | read_l2_experiment_attachment_referrer | read_funding | read_instrument_status_acquisition_receipt | read_instrument_status_archive | read_latest_candle | audit_candle_coverage | read_candles | export_candle_slice | read_feature_manifest | read_feature_artifact | list_feature_manifests",
   ].join("\n"))
 }
 
