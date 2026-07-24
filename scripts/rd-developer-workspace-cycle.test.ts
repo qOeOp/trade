@@ -36,6 +36,7 @@ test("R&D workspace composition produces cumulative revisions without creating a
   const opsDb = new Database(":memory:")
   ensureAgentRunStoreSchema(opsDb)
   const proposal = seedProposal(researchDb)
+  const deadlineAt = new Date(Date.now() + 60_000).toISOString()
   const firstWorkspaceRoot = join(
     root,
     "tmp",
@@ -60,7 +61,7 @@ test("R&D workspace composition produces cumulative revisions without creating a
       idempotency_key: "developer-workspace-rd-key",
       source_revision: "HEAD",
       requested_at: "2026-07-23T10:04:00.000Z",
-      deadline_at: "2026-07-24T10:34:00.000Z",
+      deadline_at: deadlineAt,
       proposal_id: proposal.proposal_id,
       proposal_revision: 1,
       brief_id: "brief-developer-workspace-rd",
@@ -110,7 +111,7 @@ test("R&D workspace composition produces cumulative revisions without creating a
       idempotency_key: "developer-workspace-rd-revision-2-key",
       source_revision: "HEAD",
       requested_at: "2026-07-23T10:06:00.000Z",
-      deadline_at: "2026-07-24T10:36:00.000Z",
+      deadline_at: deadlineAt,
       proposal_id: proposal.proposal_id,
       proposal_revision: 1,
       brief_id: "brief-developer-workspace-rd",
@@ -142,7 +143,7 @@ test("R&D workspace composition produces cumulative revisions without creating a
         idempotency_key: "developer-workspace-rd-forged-seed-key",
         source_revision: "HEAD",
         requested_at: "2026-07-23T10:08:00.000Z",
-        deadline_at: "2026-07-24T10:38:00.000Z",
+        deadline_at: deadlineAt,
         proposal_id: proposal.proposal_id,
         proposal_revision: 1,
         brief_id: "brief-developer-workspace-rd",
