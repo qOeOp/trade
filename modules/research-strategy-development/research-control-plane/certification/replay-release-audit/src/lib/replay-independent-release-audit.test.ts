@@ -10,7 +10,6 @@ import {
   loadReplayIndependentReleaseAuditReceipt,
   loadReplayMaturityForIndependentAudit,
   runReplayIndependentAuditCommand,
-  signalAuditCommandTree,
 } from "./replay-independent-release-audit"
 
 describe("Replay independent release audit", () => {
@@ -122,9 +121,29 @@ describe("Replay independent release audit", () => {
     }
   })
 
-  test("does not hide an initial process-group kill failure", () => {
-    const impossiblePid = 2_000_000_000
-    expect(() => signalAuditCommandTree(impossiblePid, "SIGKILL")).toThrow()
+  test("surfaces an initial process-group kill failure without waiting for child exit", async () => {
+    const originalKill = process.kill
+    const startedAt = Date.now()
+    try {
+      process.kill = ((_pid, _signal) => {
+        const error = new Error("forced process-group kill failure") as NodeJS.ErrnoException
+        error.code = "EPERM"
+        throw error
+      }) as typeof process.kill
+      await expect(runReplayIndependentAuditCommand({
+        role: "timeout-process-group-kill-failure-probe",
+        cwd: ".",
+        argv: ["bun", "-e", "await Bun.sleep(500)"],
+        timeout_ms: 50,
+      }, repoRoot)).rejects.toThrow(
+        "Replay independent audit process-group cleanup failed: "
+          + "timeout-process-group-kill-failure-probe",
+      )
+    } finally {
+      process.kill = originalKill
+    }
+    expect(Date.now() - startedAt).toBeLessThan(250)
+    await Bun.sleep(500)
   })
 })
 
