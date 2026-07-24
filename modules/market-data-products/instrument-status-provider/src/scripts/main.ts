@@ -3,20 +3,37 @@
 import { Database } from "bun:sqlite"
 import { readFileSync } from "node:fs"
 import { asRecord, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
-import { readInstrumentStatusArchive } from "../../../market-data-store/src/lib/market-data-store"
+import {
+  readInstrumentStatusAcquisitionPayload,
+  readInstrumentStatusAcquisitionReceipt,
+  readInstrumentStatusArchive,
+} from "../../../market-data-store/src/lib/market-data-store"
+import {
+  assertCurrentInstrumentSnapshotEvidence,
+  buildCurrentInstrumentSnapshotEvidence,
+} from "../lib/current-instrument-snapshot-provider"
 import { assertReplayInstrumentStatusEvidence, buildReplayInstrumentStatusEvidence } from "../lib/instrument-status-provider"
 
 interface Args {
   dbPath: string
+  action: "historical_archive" | "current_snapshot"
   input: JSONRecord
 }
 
 export function parseArgs(argv: string[]): Args {
   let dbPath = "data/market_data.db"
+  let action: Args["action"] = "historical_archive"
   let input: JSONRecord = {}
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     if (arg === "--db") dbPath = argv[++index] ?? dbPath
+    else if (arg === "--action") {
+      const value = argv[++index]
+      if (value !== "historical_archive" && value !== "current_snapshot") {
+        throw new Error("--action must be historical_archive or current_snapshot")
+      }
+      action = value
+    }
     else if (arg === "--json") input = asRecord(JSON.parse(argv[++index] ?? "{}"))
     else if (arg === "--json-file") input = asRecord(JSON.parse(readFileSync(argv[++index] ?? "", "utf8")))
     else if (arg === "--help") {
@@ -24,14 +41,37 @@ export function parseArgs(argv: string[]): Args {
       process.exit(0)
     } else throw new Error(`unknown argument: ${arg}`)
   }
-  return { dbPath, input }
+  return { dbPath, action, input }
 }
 
 export function run(args: Args): JSONRecord {
-  const archiveId = stringField(args.input.archive_id)
-  if (!archiveId) throw new Error("archive_id is required")
   const db = new Database(args.dbPath, { readonly: true })
   try {
+    const providerCertification = {
+      certification_ref: stringField(asRecord(args.input.provider_certification).certification_ref),
+      certification_hash: stringField(asRecord(args.input.provider_certification).certification_hash),
+      provider_capability_hash: stringField(asRecord(args.input.provider_certification).provider_capability_hash),
+    }
+    if (args.action === "current_snapshot") {
+      const acquisitionId = stringField(args.input.acquisition_id)
+      if (!acquisitionId) throw new Error("acquisition_id is required")
+      const receipt = readInstrumentStatusAcquisitionReceipt(db, acquisitionId)
+      if (!receipt) throw new Error("instrument status acquisition not found")
+      const payloadRef = receipt.attempts.at(-1)?.response_payload_ref
+      if (!payloadRef) throw new Error("instrument status acquisition has no successful payload")
+      const payload = readInstrumentStatusAcquisitionPayload(db, payloadRef)
+      if (!payload) throw new Error("instrument status acquisition payload not found")
+      const evidence = buildCurrentInstrumentSnapshotEvidence({
+        receipt,
+        payload,
+        produced_at: stringField(args.input.produced_at),
+        provider_certification: providerCertification,
+      })
+      assertCurrentInstrumentSnapshotEvidence(evidence)
+      return { ok: true, evidence }
+    }
+    const archiveId = stringField(args.input.archive_id)
+    if (!archiveId) throw new Error("archive_id is required")
     const archive = readInstrumentStatusArchive(db, archiveId)
     if (!archive) throw new Error("instrument status archive not found")
     const evidence = buildReplayInstrumentStatusEvidence({
@@ -39,11 +79,7 @@ export function run(args: Args): JSONRecord {
       replay_start: stringField(args.input.replay_start),
       replay_end: stringField(args.input.replay_end),
       produced_at: stringField(args.input.produced_at),
-      provider_certification: {
-        certification_ref: stringField(asRecord(args.input.provider_certification).certification_ref),
-        certification_hash: stringField(asRecord(args.input.provider_certification).certification_hash),
-        provider_capability_hash: stringField(asRecord(args.input.provider_certification).provider_capability_hash),
-      },
+      provider_certification: providerCertification,
     })
     assertReplayInstrumentStatusEvidence(evidence)
     return { ok: true, evidence }
