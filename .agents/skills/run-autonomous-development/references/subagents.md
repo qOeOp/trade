@@ -11,25 +11,27 @@ Implement roles with custom or generic subagents. Select by capability, not name
 - Provide only the raw evidence needed for the role.
 - Withhold preferred answers, builder rationale, and hidden acceptance results from independent roles.
 - Forbid subagents from committing, merging, adopting, expanding scope, changing the oracle, or declaring completion.
+- Treat project rules as effect constraints, not automatic proof that their oracle is fit; unresolved authority stays external.
 - Treat their output as evidence, never authority.
 
 ## Planner
 
-Use a fresh read-only planner for ambiguity, unclear consumers, cross-owner design, or expensive reversal.
+Use a fresh read-only planner for ambiguity, unclear consumers, governance or oracle changes, cross-owner design, or expensive reversal.
 
 Provide:
 
 - objective, repository, and revision;
 - project instructions and raw baseline evidence;
-- effect and budget ceilings.
+- effect and budget bounds.
 
 Require:
 
-- one mission contract with consumer, journey, non-goals, permitted surface, and budgets;
+- an authority and oracle classification before the mission contract;
+- one mission contract with production or decision consumer, journey, non-goals, permitted surface, and budgets;
 - at most three candidates when uncertainty warrants them;
 - a recommendation based on outcome, reuse, verifiability, responsibility, and reversibility.
 
-Require `blocked` when no consumer or journey exists. The planner cannot edit or admit implementation.
+Require the planner to expose duplicate truth, proxy criteria, open-world inference, candidate-controlled oracles, and unsupported authority without overriding external authority. Require `blocked` when authority, consumer, or journey remains unresolved. The planner cannot edit or admit implementation.
 
 ## Candidate explorer
 
@@ -54,7 +56,10 @@ Require the evaluator to try to falsify:
 
 - outcome and consumer closure;
 - regression safety and owner/authority consistency;
+- oracle provenance, independence, and connection to the outcome;
 - surface delta, cleanup, and terminal correctness.
+
+Contract compliance alone is not acceptance. If raw evidence invalidates the frozen oracle, require `replan` or `blocked`; the evaluator cannot rewrite it.
 
 Require exactly `accept`, `revise`, `replan`, or `blocked`, with reproducible findings. The main context owns the terminal.
 

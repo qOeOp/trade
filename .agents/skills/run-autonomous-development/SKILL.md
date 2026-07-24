@@ -1,13 +1,13 @@
 ---
 name: run-autonomous-development
-description: Run one bounded autonomous development mission through an object loop and a post-mission meta loop. Use for broad product directions, ambiguous engineering requests, cross-module changes, migrations, architectural corrections, or unattended implementation that must discover project context, deliver through a real consumer, verify independently, terminate explicitly, and learn without specializing the workflow to one project. Do not use for small explicit edits, read-only explanations, or domain-specific research workflows.
+description: Run one bounded autonomous development or governance-audit mission through an object loop and a post-mission meta loop. Use for broad product directions, ambiguous or unattended implementation, cross-module changes, migrations, architectural corrections, and read-only audits of development governance, acceptance oracles, or autonomous workflows. Do not use for small explicit edits, ordinary read-only explanations, or domain-specific research workflows.
 ---
 
 # Run Autonomous Development
 
 Run one mission. Treat the prompt as an objective, not permission to continue.
 
-Discover project instructions, owners, consumers, gates, and authority; they outrank this workflow.
+Discover project instructions, owners, consumers, gates, and authority. They constrain effects but do not prove that a proposed design or oracle is fit.
 
 Use native planning, isolation, tools, and gates; do not build another orchestrator.
 
@@ -24,14 +24,16 @@ Inspect the worktree, contracts, runtime, and tests. Discover authority; preserv
 
 Separate objective, project authority, evidence, and defaults. Keep project facts out of the skill.
 
-If authority, a consumer, or an acceptance journey is missing, investigate read-only and terminate `blocked`.
+Trace each material rule to user or project authority and classify it as binding authority, an evidence-backed invariant, a heuristic or default, or conflicting or unsupported. Audit whether each proposed oracle measures the outcome, duplicates another truth, depends on open-world inference, or can be changed by its candidate. Prefer capability and adoption boundaries over proxy quotas or scanners when they make invalid states unreachable.
+
+For a governance audit, name the decision owner and adoption journey. For delivery, name the production consumer and exact journey. If authority, consumer, or journey is missing or conflicting, investigate read-only and terminate `blocked`; never resolve external authority by assertion.
 
 ### 2. Contract
 
-Freeze one mission in the working plan:
+Only after the authority and oracle audit, freeze one mission in the working plan:
 
 - outcome and current failure;
-- named production consumer and exact journey;
+- named production or decision consumer and exact journey;
 - scope, non-goals, acceptance signals, and owners to reuse;
 - permitted effects and responsibility delta;
 - revision, non-progress, cost, and escalation budgets.
@@ -48,6 +50,8 @@ Select the design that reaches the consumer, reuses an owner, is directly verifi
 
 Build dependency-ordered vertical slices. Close each through the consumer, keep one in progress, and admit only discoveries required for acceptance.
 
+For a read-only governance audit, preserve the audit and independent review evidence without inventing an implementation slice.
+
 ### 4. Execute
 
 For each slice:
@@ -61,7 +65,9 @@ For each slice:
 
 Count progress only when a failing signal improves without regressions or new unapproved authority. Do not weaken an oracle, bless the candidate with new tests, or create speculative layers.
 
-Reject caller-declared success. Receipts must bind mission hash, source revision, patch hash, exact command, exit status, and output or artifact hash.
+Contract compliance is insufficient when new evidence shows that an oracle is proxy-only, duplicated, circular, candidate-controlled, or disconnected from the consumer. Replan or terminate rather than faithfully extending it.
+
+Reject caller-declared success. Receipts must bind the mission and source revision to the exact command or tool invocation, status, and raw output or artifact hash. When a candidate exists, also bind its patch or content hash.
 
 Keep effects within user authorization, project policy, and the mission contract. Tools and role labels do not grant authority to commit, merge, push, deploy, schedule, access secrets, mutate owner stores, or change shared infrastructure.
 
@@ -80,6 +86,6 @@ Report behavior, consumer journey, evidence, quality results, responsibility del
 
 ## Post-mission phase
 
-After the terminal report, load and run [references/meta-loop.md](references/meta-loop.md) once. Never reopen the object mission.
+After the terminal report, load and run [references/meta-loop.md](references/meta-loop.md) once. Audit meta rules by the same authority and oracle standard; never reopen the object mission.
 
 For scheduled, hosted, or repeated execution, treat each invocation as an independent mission. Discover admission, isolation, concurrency, receipt, adoption, and retention rules. Cadence grants no deadline extension, retry, or new work.
