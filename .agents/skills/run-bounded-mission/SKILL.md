@@ -60,7 +60,7 @@ For each decision step or implementation slice:
 2. Produce the smallest coherent decision artifact or behavior change.
 3. Inspect the complete result or diff for fake success, duplicated authority, unused work, weakened checks, and accidental scope.
 4. Run focused checks and the outcome-consumer journey; capture exact commands, status, and raw before/after evidence.
-5. Use a fresh evaluator before accepting any writable mission.
+5. Use a fresh evaluator before terminating `completed` for any writable mission or high-impact read-only audit. Treat a read-only audit as high-impact when its requested outcome could cause a governance rule, architecture or ownership boundary, authority, safety control, or acceptance oracle to be adopted, removed, or weakened. Simple factual answers and ordinary low-impact read-only analysis do not require an evaluator.
 6. Accept, revise, replan, or terminate from frozen signals and budgets.
 
 Count progress only when a failing signal improves without regressions or new unapproved authority. Do not weaken an oracle, bless the candidate with new tests, or create speculative layers.

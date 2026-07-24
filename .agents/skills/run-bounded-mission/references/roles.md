@@ -43,11 +43,11 @@ Use a writable candidate only for genuinely competing implementations. Require a
 
 ## Evaluator
 
-Use a fresh read-only evaluator after freezing the complete diff and evidence.
+Use a fresh read-only evaluator after freezing the complete result or diff and evidence.
 
 Provide:
 
-- mission contract, source revision, and complete diff;
+- mission contract, source revision, and complete read-only result or diff;
 - commands, exit statuses, raw outputs, consumer journey, and project rules.
 
 Exclude builder explanation and proposed verdict.
@@ -67,4 +67,4 @@ Require exactly `accept`, `revise`, `replan`, or `blocked`, with reproducible fi
 
 Start roles fresh and rebuild input from repository state and raw artifacts, not conversation summaries. Do not reuse an evaluator exposed to builder deliberation.
 
-If fresh evaluator isolation is unavailable, a writable mission cannot be accepted; terminate `blocked`.
+If fresh evaluator isolation is unavailable for a mission that requires one, it cannot be accepted; terminate `blocked`.
