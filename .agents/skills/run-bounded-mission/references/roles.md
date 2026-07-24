@@ -22,12 +22,12 @@ Provide:
 
 - objective, repository, and revision;
 - project instructions and raw baseline evidence;
-- effect and budget bounds.
+- external effect and cumulative-budget ceilings, not a preselected execution mode or candidate.
 
 Require:
 
 - an authority and oracle classification before the mission contract;
-- one mission contract with the outcome consumer, adoption or usage journey, non-goals, permitted surface, and budgets;
+- one mission contract with the outcome consumer, adoption or usage journey, non-goals, and the minimum permitted surface and budgets within those ceilings;
 - at most three candidates when uncertainty warrants them;
 - a recommendation based on outcome, reuse, verifiability, responsibility, and reversibility.
 
@@ -37,7 +37,16 @@ Require the planner to expose duplicate truth, proxy criteria, open-world infere
 
 Use a fresh read-only explorer for one bounded repository question that narrows an expensive decision.
 
-Require paths, symbols, commands, or runtime evidence. Do not delegate whole-mission design or final scope.
+Provide the question or claim, source revision, search scope and exclusions, and stop or cost bound.
+
+Require one compact evidence packet:
+
+- `supported`, `refuted`, or `unresolved` claim status;
+- direct paths and lines, symbols, exact commands with status and relevant raw excerpts, or artifact hashes;
+- inspected coverage and exact negative searches;
+- conflicts, gaps, and bounded uncertainty.
+
+Transmit evidence, not investigation process. Exclude search chronology, hidden reasoning, and builder rationale, but retain coverage and negative evidence needed to audit false negatives. Do not delegate whole-mission design, final scope, adoption, or terminal judgment.
 
 Use a writable candidate only for genuinely competing implementations. Require an exact patch and raw checks, never a commit.
 

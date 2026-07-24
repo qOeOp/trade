@@ -1,6 +1,6 @@
 ---
 name: run-bounded-mission
-description: Run one bounded, evidence-driven project mission through authority and acceptance audit, contract formation, execution or analysis, independent verification, explicit termination, and post-mission learning. Use for non-trivial product or engineering work that requires project context, judgment, multiple steps, or an adoptable result, including product analysis and design, technical planning, implementation, codebase organization, simplification, refactoring, optimization, migration, architectural correction, and governance or acceptance-oracle audits. Do not use for simple factual answers, tiny mechanical edits with obvious acceptance, or workflows fully owned by a more specific skill. Use alongside a specific skill only when project-level admission, cross-cutting change, or termination control is also needed.
+description: Run one bounded, evidence-driven mission for material questions or changes about agent workflows, skill behavior, evidence sourcing, autonomy, acceptance, or termination, including current-behavior questions. Also use for non-trivial product or engineering work requiring project context, judgment, multiple steps, or an adoptable result, including analysis and design, planning, implementation, organization, simplification, refactoring, optimization, migration, architecture, governance, or acceptance-oracle audit. The workflow covers authority and oracle audit, contract formation, execution or analysis, independent verification, termination, and post-mission learning. Do not use for simple, stable self-contained factual answers, tiny mechanical edits with obvious acceptance, or workflows fully owned by a more specific skill. Combine with a specific skill when project-level admission, cross-cutting change, or termination control remains needed.
 ---
 
 # Run a Bounded Mission
@@ -13,7 +13,7 @@ Use native planning, isolation, tools, and gates; do not build another orchestra
 
 ## Package resources
 
-- Read [references/roles.md](references/roles.md) before using a fresh planner, candidate, or evaluator.
+- Read [references/roles.md](references/roles.md) during discovery when ambiguity, unclear consumers, governance or oracle changes, cross-owner design, expensive reversal, noisy investigation, or required independence may justify a fresh role; always read it before using one.
 - Read [references/post-mission-review.md](references/post-mission-review.md) only after the mission terminates or when changing this skill package.
 
 ## Mission workflow
@@ -23,6 +23,8 @@ Use native planning, isolation, tools, and gates; do not build another orchestra
 Inspect the worktree, contracts, runtime, and tests. Discover authority; preserve unrelated changes.
 
 Separate objective, project authority, evidence, and defaults. Keep project facts out of the skill.
+
+Classify the evidence horizon for each material claim as stable and self-contained, deterministic local, current external, or private connected. Use the owning local artifact for local claims and the most direct authoritative or connected source for material current or external claims. If required evidence is unavailable, disclose bounded uncertainty and terminate `blocked` only when it prevents acceptance. Do not browse for locally closed questions, substitute model memory for current evidence, or let external evidence override user or project authority. Decide delegation separately from evidence horizon: use a bounded read-only explorer only when noisy investigation, parallel evidence, or required independence justifies its token and coordination cost; keep localized sequential reads, synthesis, and integration in the main context.
 
 Trace each material rule to user or project authority and classify it as binding authority, an evidence-backed invariant, a heuristic or default, or conflicting or unsupported. Audit whether each proposed oracle measures the outcome, duplicates another truth, depends on open-world inference, or can be changed by its candidate. Prefer capability and adoption boundaries over proxy quotas or scanners when they make invalid states unreachable.
 
@@ -38,9 +40,11 @@ Only after the authority and oracle audit, freeze one mission in the working pla
 - permitted effects and responsibility delta;
 - revision, non-progress, cost, and escalation budgets.
 
+Treat user and project authority, the outcome, consumer journey, effect ceiling, and cumulative budgets as external bounds. Select the minimum permitted effects within them; do not preselect a read-only or writable mode before a required planner.
+
 Use project budgets when present. Otherwise allow three candidates per uncertain decision, one writable context, three revisions per slice, two non-progress cycles before replanning, and six accepted slices before recontracting.
 
-Do not reset budgets through a new context, renamed request, persistent goal, or recurring run. Only external admission can start another mission.
+An explicit replan may refreeze mission-selected design, effects, and a falsified mission-selected oracle only within the original authority, outcome, consumer journey, externally imposed acceptance requirements, effect ceiling, and cumulative budgets. Candidates and evaluators cannot change or weaken the oracle. Do not reset budgets through a new context, renamed request, persistent goal, recurring run, or replan. Expanding an external bound requires external admission and a new mission.
 
 ### 3. Design
 
