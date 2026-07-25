@@ -1,4 +1,5 @@
 name: quality-authority
+# Disposable protected-path adoption canary.
 
 on:
   pull_request_target:
