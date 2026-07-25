@@ -479,6 +479,10 @@ export async function runReplayIndependentAuditCommand(
   })
   let timedOut = false
   let cleanupError: Error | undefined
+  let rejectCleanupFailure: (error: Error) => void = () => {}
+  const cleanupFailure = new Promise<never>((_resolve, reject) => {
+    rejectCleanupFailure = reject
+  })
   const timeout = setTimeout(() => {
     timedOut = true
     try {
@@ -488,12 +492,22 @@ export async function runReplayIndependentAuditCommand(
         `Replay independent audit process-group cleanup failed: ${command.role}`,
         { cause: error },
       )
-      process.kill(child.pid, "SIGKILL")
+      try {
+        process.kill(child.pid, "SIGKILL")
+      } catch (fallbackError) {
+        rejectCleanupFailure(new Error(
+          `Replay independent audit direct-child cleanup failed: ${command.role}`,
+          { cause: fallbackError },
+        ))
+      }
     }
   }, command.timeout_ms)
   let exitCode: number
   try {
-    exitCode = await child.exited
+    exitCode = await Promise.race([child.exited, cleanupFailure])
+  } catch (error) {
+    cleanupOutput()
+    throw error
   } finally {
     clearTimeout(timeout)
   }

@@ -161,6 +161,47 @@ describe("Replay independent release audit", () => {
       (name) => name.startsWith(outputPrefix) && !outputRootsBefore.has(name),
     )).toEqual([])
   })
+
+  test("rejects promptly and cleans output when the direct-child fallback also fails", async () => {
+    const originalKill = process.kill
+    const outputPrefix = "replay-release-audit-command-"
+    const outputRootsBefore = new Set(
+      readdirSync(tmpdir()).filter((name) => name.startsWith(outputPrefix)),
+    )
+    let directChildPid: number | undefined
+    const startedAt = Date.now()
+    try {
+      process.kill = ((pid, _signal) => {
+        if (pid > 0) directChildPid = pid
+        const error = new Error("forced cleanup failure") as NodeJS.ErrnoException
+        error.code = "EPERM"
+        throw error
+      }) as typeof process.kill
+      await expect(runReplayIndependentAuditCommand({
+        role: "timeout-direct-child-kill-failure-probe",
+        cwd: ".",
+        argv: ["bun", "-e", "await Bun.sleep(500)"],
+        timeout_ms: 50,
+      }, repoRoot)).rejects.toThrow(
+        "Replay independent audit direct-child cleanup failed: "
+          + "timeout-direct-child-kill-failure-probe",
+      )
+    } finally {
+      process.kill = originalKill
+      if (directChildPid !== undefined) {
+        try {
+          originalKill(directChildPid, "SIGKILL")
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error
+        }
+      }
+    }
+    expect(Date.now() - startedAt).toBeLessThan(250)
+    await expectProcessToBeGone(directChildPid!)
+    expect(readdirSync(tmpdir()).filter(
+      (name) => name.startsWith(outputPrefix) && !outputRootsBefore.has(name),
+    )).toEqual([])
+  })
 })
 
 async function expectProcessToBeGone(pid: number): Promise<void> {
