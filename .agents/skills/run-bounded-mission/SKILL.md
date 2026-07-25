@@ -84,7 +84,7 @@ End in exactly one state:
 - `completed`: every acceptance check passes through the real outcome consumer;
 - `blocked`: an external fact, permission, or missing authority prevents progress;
 - `invalidated`: evidence shows the objective is wrong or no design can satisfy the frozen external bounds, independent of the remaining mission budget;
-- `budget_exhausted`: a potentially valid revision or replan remains, but the revision or non-progress budget is spent.
+- `budget_exhausted`: a potentially valid next step remains, but a revision, non-progress, cost, or escalation budget is spent.
 
 Report the terminal state, outcome, consumer journey, evidence, quality results, responsibility delta, and gaps. When evaluation was required, surface each current candidate-bound material judgment by name, status, bounded claim, inspected scope, limit, and terminal consequence—including `change_necessity`, `responsibility_fit`, and `cleanup` for writable work; do not replace them with an aggregate verdict, recompute or strengthen them, and treat them as stale after a candidate change. A material `refuted` or `unresolved` judgment precludes `completed`. For high-impact read-only work, distinguish no repository write or runtime-surface delta from decision, authority, access, cost, or other effects. Do not claim completion from document or code volume, unit tests, or static gates alone.
 
