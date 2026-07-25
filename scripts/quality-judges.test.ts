@@ -940,6 +940,17 @@ describe("quality judges fail closed", () => {
     }
   })
 
+  test("CodeQL merge gate uses the high-precision default query suite", () => {
+    const workflow = readFileSync(join(repoRoot, ".github/workflows/codeql.yml"), "utf8")
+
+    for (const language of ["javascript-typescript", "python", "rust", "go"]) {
+      expect(workflow).toContain(`language: ${language}`)
+    }
+    expect(workflow).not.toContain("queries:")
+    expect(workflow).not.toContain("config-file:")
+    expect(workflow).not.toContain("disable-default-queries:")
+  })
+
   test("trusted quality authority executes only base-owned gates and requires exact external approval", () => {
     const workflow = readFileSync(
       join(repoRoot, ".github/workflows/quality-authority.yml"),
