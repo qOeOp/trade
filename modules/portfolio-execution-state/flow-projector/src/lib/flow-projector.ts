@@ -158,6 +158,10 @@ export function buildPortfolioAccountProjection(db: Database, input: PortfolioAc
 
 export function reduceFlowState(db: Database, chainId: string): JSONRecord {
   const events = readFlowEvents(db, chainId)
+  return reduceFlowEvents(chainId, events)
+}
+
+function reduceFlowEvents(chainId: string, events: PlanEvent[]): JSONRecord {
   const orders = new Map<string, JSONRecord>()
   const cumulativeFills = new Map<string, number>()
   const position = {
@@ -208,9 +212,11 @@ export function reduceFlowState(db: Database, chainId: string): JSONRecord {
 }
 
 export function listActiveFlows(db: Database): ActiveFlowSummary[] {
-  return readAllChainIds(db)
-    .filter((chainId) => !hasReviewEvent(db, chainId))
-    .map((chainId) => summarizeActiveFlow(db, chainId))
+  return readActiveChainIds(db)
+    .map((chainId) => {
+      const events = readFlowEvents(db, chainId)
+      return summarizeActiveFlow(chainId, events)
+    })
     .filter((flow) => flow.latest_observe_event_key)
 }
 
@@ -271,9 +277,8 @@ export function applyReconcileDrafts(db: Database, input: JSONRecord, yes: boole
   }
 }
 
-function summarizeActiveFlow(db: Database, chainId: string): ActiveFlowSummary {
-  const events = readFlowEvents(db, chainId)
-  const state = reduceFlowState(db, chainId)
+function summarizeActiveFlow(chainId: string, events: PlanEvent[]): ActiveFlowSummary {
+  const state = reduceFlowEvents(chainId, events)
   const latestObserve = asRecord(state.latest_observe) as unknown as PlanEvent | null
   const latestSlow = latestSlowObserve(events)
   const latestObserveBody = asRecord(latestObserve?.body_json)
@@ -294,23 +299,19 @@ function summarizeActiveFlow(db: Database, chainId: string): ActiveFlowSummary {
   }
 }
 
-function readAllChainIds(db: Database): string[] {
+function readActiveChainIds(db: Database): string[] {
   const rows = db.query(`
-    SELECT DISTINCT chain_id
-    FROM plan_event
-    ORDER BY chain_id
+    SELECT DISTINCT candidate.chain_id
+    FROM plan_event AS candidate
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM plan_event AS review
+      WHERE review.chain_id = candidate.chain_id
+        AND review.kind = 'review'
+    )
+    ORDER BY candidate.chain_id
   `).all() as Array<{ chain_id: string }>
   return rows.map((row) => row.chain_id)
-}
-
-function hasReviewEvent(db: Database, chainId: string): boolean {
-  const row = db.query(`
-    SELECT 1 AS found
-    FROM plan_event
-    WHERE chain_id = $chain_id AND kind = 'review'
-    LIMIT 1
-  `).get({ $chain_id: chainId }) as { found: number } | null
-  return row != null
 }
 
 function reduceOrderFill(
