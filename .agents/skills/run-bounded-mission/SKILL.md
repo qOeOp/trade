@@ -44,6 +44,8 @@ Only after the authority and oracle audit, freeze one mission in the working pla
 
 Treat user and project authority, the outcome, consumer journey, effect ceiling, and cumulative budgets as external bounds. Select the minimum permitted effects within them; do not preselect a read-only or writable mode before a required planner.
 
+After freezing writable effects, establish one mission-only worktree at the exact source revision before the first candidate write or branch/index mutation, and perform every mutation-capable action there. Truly read-only missions may remain in the starting checkout. Switching branches in an existing checkout is not isolation; do not carry unrelated dirty state into the worktree. If the current context can neither address nor hand off to the isolated worktree, apply the ordered terminal predicates before writing.
+
 Use project budgets when present. Otherwise allow three candidates per uncertain decision, one writable context, three revisions per slice, two non-progress cycles before replanning, and six accepted slices before recontracting.
 
 An explicit replan may refreeze mission-selected design, effects, and a falsified mission-selected oracle only within the original authority, outcome, consumer journey, externally imposed acceptance requirements, effect ceiling, and cumulative budgets. Candidates and evaluators cannot change or weaken the oracle. Do not reset budgets through a new context, renamed request, persistent goal, recurring run, or replan. Expanding an external bound requires external admission and a new mission.
