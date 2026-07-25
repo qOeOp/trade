@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
 import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "../../../../../contracts/catalog-contract/src/catalog-client"
 import { buildDomainJobResult, validateDomainJobResult } from "../../../../../contracts/domain-runtime/src/domain-runtime"
@@ -99,7 +99,7 @@ function parseArgs(argv: string[]): Config {
         config.jsonPayload = readFlagValue(argv, ++index, arg)
         break
       case "--help":
-        exitWithHelp()
+        return exitWithHelp()
       default:
         throw new Error(`unknown flag: ${arg}`)
     }

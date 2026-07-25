@@ -38,7 +38,7 @@ function createClient(timeout: number): BinanceRest {
 }
 
 function normalizeSymbol(symbol: string): string {
-  return symbol.trim().toUpperCase().replace(/[\/:_\-\s]/g, "")
+  return symbol.trim().toUpperCase().replace(/[/:_\s-]/g, "")
 }
 
 function parseBoolean(value: string, name: string): boolean {

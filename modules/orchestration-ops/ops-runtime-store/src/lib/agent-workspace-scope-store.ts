@@ -77,7 +77,7 @@ export function registerAgentWorkspaceExecutionScope(
     return transaction.immediate()
   } catch (error) {
     if (String(error).includes("UNIQUE constraint failed")) {
-      throw new Error("Agent workspace execution scope identity drifted")
+      throw new Error("Agent workspace execution scope identity drifted", { cause: error })
     }
     throw error
   }

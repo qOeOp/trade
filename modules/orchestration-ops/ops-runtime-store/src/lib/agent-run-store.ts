@@ -349,7 +349,7 @@ export function admitAgentRun(
     return transaction.immediate()
   } catch (error) {
     if (String(error).includes("UNIQUE constraint failed")) {
-      throw new Error("Agent Run identity or idempotency key drifted")
+      throw new Error("Agent Run identity or idempotency key drifted", { cause: error })
     }
     throw error
   }

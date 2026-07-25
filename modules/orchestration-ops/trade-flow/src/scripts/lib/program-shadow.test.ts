@@ -539,7 +539,7 @@ test("program shadow returns a bounded result while the ops store stays busy", a
   } finally {
     try {
       blocker.run("ROLLBACK")
-    } catch {}
+    } catch { /* fixture cleanup is best-effort */ }
     blocker.close()
     fixture.close()
   }

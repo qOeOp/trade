@@ -2,8 +2,21 @@
 
 set -eu
 
-ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
+ROOT="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+
+QUALITY_SCOPE="${1:-all}"
+if [ "$#" -gt 1 ]; then
+  printf 'quality: usage: scripts/quality-check.sh [all|policy|typescript|replay|native]\n' >&2
+  exit 2
+fi
+case "$QUALITY_SCOPE" in
+  all|policy|typescript|replay|native) ;;
+  *)
+    printf 'quality: unsupported scope: %s\n' "$QUALITY_SCOPE" >&2
+    exit 2
+    ;;
+esac
 
 QUALITY_LOCK_DIR="$ROOT/tmp/check/quality-check.lock"
 QUALITY_WORKSPACE_SNAPSHOT="$ROOT/tmp/check/quality-workspace-snapshot.json"
@@ -52,15 +65,15 @@ require_cmd() {
 check_dependencies() {
   require_cmd bun
   log "repository dependencies"
-  bun install --frozen-lockfile
+  bun ci
 }
 
 check_shell() {
   log "shell syntax"
-  for file in scripts/*.sh; do
-    [ -f "$file" ] || continue
+  git ls-files --cached --others --exclude-standard -- '*.sh' | while IFS= read -r file; do
     sh -n "$file"
   done
+  bun run lint:shell
 }
 
 check_helpers() {
@@ -77,6 +90,12 @@ check_secrets() {
   require_cmd bun
   log "secret scan"
   bun scripts/check-secrets.ts >/dev/null
+}
+
+check_lint() {
+  require_cmd bun
+  log "eslint"
+  bun run lint
 }
 
 check_toolset_manifest() {
@@ -167,12 +186,11 @@ check_typescript_tools() {
     exit 1
   fi
   bun scripts/check-ts-tool-boundaries.ts
-  bun scripts/check-package-tests.ts
-  find modules -name package.json -type f | sort | while IFS= read -r package; do
-    [ -f "$package" ] || continue
-    dir="$(dirname "$package")"
-    (cd "$dir" && bun run check)
-  done
+  if [ -n "${QUALITY_TS_SHARD:-}" ]; then
+    bun scripts/check-package-tests.ts --run-shard "$QUALITY_TS_SHARD"
+  else
+    bun scripts/check-package-tests.ts --run-all
+  fi
 }
 
 check_replay_semantics() {
@@ -288,19 +306,47 @@ check_project_hygiene() {
   fi
 }
 
-check_dependencies
-check_project_hygiene
-check_shell
-check_helpers
-check_secrets
-check_toolset_manifest
-check_module_contracts
-check_duplication
-check_test_source_boundaries
-check_typescript_tools
-check_replay_semantics
-check_go_tools
-check_python_tools
-check_rust_tools
+check_policy_suite() {
+  check_project_hygiene
+  check_shell
+  check_helpers
+  check_secrets
+  check_lint
+  check_toolset_manifest
+  check_module_contracts
+  check_duplication
+  check_test_source_boundaries
+}
 
-log "ok"
+check_native_suite() {
+  check_go_tools
+  check_python_tools
+  check_rust_tools
+}
+
+case "$QUALITY_SCOPE" in
+  all)
+    check_dependencies
+    check_policy_suite
+    check_typescript_tools
+    check_replay_semantics
+    check_native_suite
+    ;;
+  policy)
+    check_dependencies
+    check_policy_suite
+    ;;
+  typescript)
+    check_dependencies
+    check_typescript_tools
+    ;;
+  replay)
+    check_dependencies
+    check_replay_semantics
+    ;;
+  native)
+    check_native_suite
+    ;;
+esac
+
+log "$QUALITY_SCOPE ok"

@@ -395,7 +395,7 @@ function boundedEvidenceRecord(value: JSONRecord, depth: number): JSONRecord {
   return output
 }
 
-function boundedEvidenceValue(value: unknown, depth: number): any {
+function boundedEvidenceValue(value: unknown, depth: number): unknown {
   if (value == null || typeof value === "boolean" || typeof value === "number") return value
   if (typeof value === "string") {
     return value.length <= 1_024 ? value : `${value.slice(0, 1_024)}…`

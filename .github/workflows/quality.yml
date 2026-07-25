@@ -9,31 +9,98 @@ permissions:
   contents: read
 
 concurrency:
-  group: repository-quality-${{ github.workflow }}-${{ github.ref }}
+  group: repository-quality-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  QUALITY_DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+
 jobs:
-  quality:
+  policy:
+    name: policy-lint
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      QUALITY_DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - name: Install repository quality dependencies
-        run: sudo apt-get update && sudo apt-get install --yes ripgrep
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.3.13
-      - uses: actions/setup-go@v5
+      - name: Ensure ripgrep is available
+        run: command -v rg >/dev/null || (sudo apt-get update && sudo apt-get install --yes ripgrep)
+      - run: scripts/quality-check.sh policy
+
+  typescript:
+    name: typescript-${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
+    env:
+      QUALITY_TS_SHARD: ${{ matrix.shard }}/2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.13
+      - run: scripts/quality-check.sh typescript
+
+  replay:
+    name: replay-semantic
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.13
+      - run: scripts/quality-check.sh replay
+
+  native:
+    name: native
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.13
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: stable
-      - uses: dtolnay/rust-toolchain@stable
+          cache: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
           components: clippy,rustfmt
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - run: scripts/quality-check.sh
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            modules/**/target
+          key: rust-${{ runner.os }}-${{ hashFiles('modules/**/Cargo.lock') }}
+      - run: scripts/quality-check.sh native
+
+  quality:
+    name: quality
+    if: ${{ always() }}
+    needs: [policy, typescript, replay, native]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every quality leaf
+        env:
+          POLICY_RESULT: ${{ needs.policy.result }}
+          TYPESCRIPT_RESULT: ${{ needs.typescript.result }}
+          REPLAY_RESULT: ${{ needs.replay.result }}
+          NATIVE_RESULT: ${{ needs.native.result }}
+        run: |
+          for result in "$POLICY_RESULT" "$TYPESCRIPT_RESULT" "$REPLAY_RESULT" "$NATIVE_RESULT"; do
+            test "$result" = success
+          done

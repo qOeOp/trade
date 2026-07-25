@@ -84,7 +84,7 @@ export function buildHealthChecks(
   if (checks.length === 0) {
     checks.push(ok("runtime:default"))
   }
-  if (Boolean(input.safe_mode)) {
+  if (input.safe_mode) {
     checks.push({ name: "safe_mode", status: "warn", detail: "safe mode explicitly enabled" })
   }
   return checks
