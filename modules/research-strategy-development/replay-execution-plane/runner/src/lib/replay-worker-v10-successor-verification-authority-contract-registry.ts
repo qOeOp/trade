@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto"
-import { existsSync, lstatSync, readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 import {
   REPLAY_DECISION_HARNESS_WORKER_V10_SUCCESSOR_IMMUTABLE_BINDINGS,
@@ -22,6 +21,7 @@ import {
   registerReplayDurableParentValidationReceipt,
 } from "./replay-durable-parent-validation-receipt"
 import { writeReplayImmutableCas } from "./replay-local-artifact-store"
+import { readReplayRegularFileIfExists } from "./replay-regular-file"
 import { readReplayWorkerV10ReproducibilityPairContract } from "./replay-worker-v10-reproducibility-pair-contract-registry"
 
 export interface RegisterReplayWorkerV10SuccessorVerificationAuthorityContractInput {
@@ -117,12 +117,12 @@ export function readReplayWorkerV10SuccessorVerificationAuthorityContract(
   requireReferenceInput(input)
   const key = contractKey(input.source_reproducibility_pair_contract)
   const path = contractPath(input.registry_root, key)
-  if (!existsSync(path)) return null
-  const stat = lstatSync(path)
-  if (!stat.isFile() || stat.isSymbolicLink()) {
-    throw new Error("Worker v10 successor verification authority Contract must be a regular file")
-  }
-  const content = readFileSync(path, "utf8")
+  const snapshot = readReplayRegularFileIfExists(
+    path,
+    "Worker v10 successor verification authority Contract",
+  )
+  if (!snapshot) return null
+  const content = snapshot.bytes.toString("utf8")
   const fileSha256 = createHash("sha256").update(content, "utf8").digest("hex")
   const receipt = readReplayDurableParentValidationReceipt({
     registry_root: input.registry_root,

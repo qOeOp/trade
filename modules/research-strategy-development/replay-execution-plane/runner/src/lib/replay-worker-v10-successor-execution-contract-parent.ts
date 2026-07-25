@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs"
+import { lstatSync, readdirSync } from "node:fs"
 import { join, resolve } from "node:path"
 import type { ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-execution-stdio-probe-admission"
 import {
@@ -15,6 +15,7 @@ import {
 import type { ReplayWorkerV10SuccessorExecutionContractRegistryInput, ReplayWorkerV10SuccessorExecutionParentSnapshot } from "./replay-worker-v10-successor-execution-contract-types"
 import { readReplayWorkerV10SuccessorExecutionStdioProbe } from "./replay-worker-v10-successor-execution-stdio-probe-registry"
 import { readReplayWorkerV10SuccessorExecutionTransport } from "./replay-worker-v10-successor-execution-transport-registry"
+import { readReplayRegularFile, readReplayRegularFileIfExists } from "./replay-regular-file"
 
 export function readReplayWorkerV10SuccessorExecutionParent(
   input: ReplayWorkerV10SuccessorExecutionContractRegistryInput,
@@ -28,14 +29,15 @@ export function readReplayWorkerV10SuccessorExecutionParent(
   }
   const path = join(registryRoot,
     `worker-v10-successor-execution-stdio-probe-${expected.admission_key}.json`)
-  if (!existsSync(path)) {
+  const snapshot = readReplayRegularFileIfExists(
+    path,
+    "successor execution Contract R4.146 parent reference",
+  )
+  if (!snapshot) {
     throw new Error("successor execution Contract requires its durable R4.146 parent reference")
   }
-  const stat = lstatSync(path)
-  if (!stat.isFile() || stat.isSymbolicLink()) {
-    throw new Error("successor execution Contract R4.146 parent reference must be a regular file")
-  }
-  const bytes = readFileSync(path)
+  assertRootIdentity(registryRoot, rootStat.dev, rootStat.ino)
+  const bytes = snapshot.bytes
   const content = bytes.toString("utf8")
   const fileSha256 = createHash("sha256").update(bytes).digest("hex")
   const receipt = readReplayDurableParentValidationReceipt({
@@ -98,11 +100,11 @@ export function rememberReplayWorkerV10SuccessorExecutionParent(
   }
   const path = join(registryRoot,
     `worker-v10-successor-execution-stdio-probe-${parent.source.admission_key}.json`)
-  const stat = lstatSync(path)
-  if (!stat.isFile() || stat.isSymbolicLink()) {
-    throw new Error("successor execution Contract R4.146 parent reference must remain a regular file")
-  }
-  const bytes = readFileSync(path)
+  const bytes = readReplayRegularFile(
+    path,
+    "successor execution Contract R4.146 parent reference",
+  ).bytes
+  assertRootIdentity(registryRoot, rootStat.dev, rootStat.ino)
   const fileSha256 = createHash("sha256").update(bytes).digest("hex")
   if (fileSha256 !== parent.file_sha256
       || bytes.toString("utf8") !== `${canonicalJson(parent.source)}\n`) {
@@ -163,7 +165,10 @@ function findSourceTransport(
     .filter((entry) => entry.isFile() && !entry.isSymbolicLink()
       && entry.name.startsWith(prefix) && entry.name.endsWith(".json"))
     .map((entry) => {
-      const content = readFileSync(join(resolve(registryRoot), entry.name), "utf8")
+      const content = readReplayRegularFile(
+        join(resolve(registryRoot), entry.name),
+        "successor execution Contract R4.145 source parent",
+      ).bytes.toString("utf8")
       const value = JSON.parse(content) as ReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission
       assertReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission(value)
       if (content !== `${canonicalJson(value)}\n`) {
@@ -177,6 +182,14 @@ function findSourceTransport(
     throw new Error("successor execution Contract requires one authoritative R4.145 source parent")
   }
   return matches[0]
+}
+
+function assertRootIdentity(root: string, device: number, inode: number): void {
+  const stat = lstatSync(root)
+  if (!stat.isDirectory() || stat.isSymbolicLink()
+      || stat.dev !== device || stat.ino !== inode) {
+    throw new Error("successor execution Contract registry root changed while reading")
+  }
 }
 
 function requireReferenceInput(input: ReplayWorkerV10SuccessorExecutionContractRegistryInput): void {

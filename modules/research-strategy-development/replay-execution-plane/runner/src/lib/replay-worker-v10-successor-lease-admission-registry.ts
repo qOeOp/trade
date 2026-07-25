@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto"
-import { existsSync, lstatSync, readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 import {
   assertReplaySuccessorVerificationLeaseRenewalReceipt,
@@ -31,6 +30,7 @@ import {
   readReplayWorkerV10SuccessorVerificationLeaseRenewalRequestEntry,
 } from "./replay-worker-v10-successor-verification-lease-renewal-request-registry"
 import { readReplayWorkerV10SuccessorVerificationAuthorityContract } from "./replay-worker-v10-successor-verification-authority-contract-registry"
+import { readReplayRegularFileIfExists } from "./replay-regular-file"
 
 export interface ReplaySuccessorVerificationLeaseRenewalAuthorityPort {
   renew(
@@ -220,10 +220,15 @@ function readAdmissionForRequest(
     }
     return fast
   }
-  if (!existsSync(admissionPath(root, key))) return null
+  if (!readReplayRegularFileIfExists(
+    admissionPath(root, key),
+    "Worker v10 successor Lease admission",
+  )) return null
   if (!parentsValidated) requireDurableParents(root, authority, request)
   const path = admissionPath(root, key)
-  const content = readFileSync(path, "utf8")
+  const snapshot = readReplayRegularFileIfExists(path, "Worker v10 successor Lease admission")
+  if (!snapshot) return null
+  const content = snapshot.bytes.toString("utf8")
   const value = registerLeaseValidationReceipt(root, parseAdmission(content), content)
   if (value.source_successor_authority_contract_hash !== authority.contract_hash
       || value.source_renewal_request_hash !== request.request_hash) {
@@ -238,12 +243,9 @@ function readValidatedAdmission(
   expectedHash?: string,
 ): ReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission | null {
   const path = admissionPath(root, key)
-  if (!existsSync(path)) return null
-  const stat = lstatSync(path)
-  if (!stat.isFile() || stat.isSymbolicLink()) {
-    throw new Error("Worker v10 successor Lease admission must be a regular file")
-  }
-  const content = readFileSync(path, "utf8")
+  const snapshot = readReplayRegularFileIfExists(path, "Worker v10 successor Lease admission")
+  if (!snapshot) return null
+  const content = snapshot.bytes.toString("utf8")
   const fileSha256 = createHash("sha256").update(content, "utf8").digest("hex")
   const receipt = readReplayDurableParentValidationReceipt({
     registry_root: root,
@@ -315,12 +317,8 @@ function sameAdmission(
 }
 
 function readAdmission(path: string): ReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission | null {
-  if (!existsSync(path)) return null
-  const stat = lstatSync(path)
-  if (!stat.isFile() || stat.isSymbolicLink()) {
-    throw new Error("Worker v10 successor Lease admission must be a regular file")
-  }
-  return parseAdmission(readFileSync(path, "utf8"))
+  const snapshot = readReplayRegularFileIfExists(path, "Worker v10 successor Lease admission")
+  return snapshot ? parseAdmission(snapshot.bytes.toString("utf8")) : null
 }
 
 function parseAdmission(content: string): ReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission {

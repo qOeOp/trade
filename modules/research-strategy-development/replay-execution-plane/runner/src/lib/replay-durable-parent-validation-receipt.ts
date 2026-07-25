@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto"
-import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs"
+import { lstatSync, readdirSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { canonicalHash, canonicalJson } from "../../../contracts/src/lib/replay-contracts"
 import { writeReplayImmutableCas } from "./replay-local-artifact-store"
+import { readReplayRegularFileIfExists } from "./replay-regular-file"
 
 export const REPLAY_DURABLE_PARENT_VALIDATION_RECEIPT_SCHEMA_VERSION =
   "trade.rd-replay-durable-parent-validation-receipt.v1" as const
@@ -132,12 +133,8 @@ export function readRememberedReplayDurableParentValidation<T>(input: {
 }
 
 function readReceiptFile(path: string): ReplayDurableParentValidationReceipt | null {
-  if (!existsSync(path)) return null
-  const stat = lstatSync(path)
-  if (!stat.isFile() || stat.isSymbolicLink()) {
-    throw new Error("durable parent validation receipt must be a regular file")
-  }
-  return parseReceipt(readFileSync(path, "utf8"))
+  const snapshot = readReplayRegularFileIfExists(path, "durable parent validation receipt")
+  return snapshot ? parseReceipt(snapshot.bytes.toString("utf8")) : null
 }
 
 function parseReceipt(content: string): ReplayDurableParentValidationReceipt {
@@ -193,12 +190,13 @@ function captureRootLineage(root: string): ValidatedParentCacheEntry["lineage_fi
     .filter((entry) => entry.isFile() && !entry.isSymbolicLink())
     .map((entry) => {
       const path = join(resolvedRoot, entry.name)
-      const stat = lstatSync(path)
+      const snapshot = readReplayRegularFileIfExists(path, "durable parent lineage file")
+      if (!snapshot) throw new Error("durable parent lineage file disappeared while capturing")
       return {
         path,
-        sha256: sha256(readFileSync(path)),
-        device: stat.dev,
-        inode: stat.ino,
+        sha256: sha256(snapshot.bytes),
+        device: snapshot.device,
+        inode: snapshot.inode,
       }
     })
     .sort((left, right) => left.path.localeCompare(right.path))
@@ -206,13 +204,15 @@ function captureRootLineage(root: string): ValidatedParentCacheEntry["lineage_fi
 
 function lineageIsCurrent(files: ValidatedParentCacheEntry["lineage_files"]): boolean {
   return files.every((file) => {
-    if (!existsSync(file.path)) return false
-    const stat = lstatSync(file.path)
-    return stat.isFile()
-      && !stat.isSymbolicLink()
-      && stat.dev === file.device
-      && stat.ino === file.inode
-      && sha256(readFileSync(file.path)) === file.sha256
+    try {
+      const snapshot = readReplayRegularFileIfExists(file.path, "durable parent lineage file")
+      return snapshot !== null
+        && snapshot.device === file.device
+        && snapshot.inode === file.inode
+        && sha256(snapshot.bytes) === file.sha256
+    } catch {
+      return false
+    }
   })
 }
 

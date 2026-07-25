@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto"
-import { existsSync, lstatSync, readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 import {
   type ReplayDecisionHarnessWorkerV10SuccessorExecutionEnvelopeAdmission,
@@ -15,6 +14,7 @@ import {
 } from "./replay-durable-parent-validation-receipt"
 import { readReplayWorkerV10SuccessorExecutionEnvelope } from "./replay-worker-v10-successor-execution-envelope-registry"
 import type { RegisterReplayWorkerV10SuccessorExecutionTransportInput } from "./replay-worker-v10-successor-execution-transport-types"
+import { readReplayRegularFileIfExists } from "./replay-regular-file"
 
 export function requireReplayWorkerV10SuccessorExecutionTransportParent(
   input: RegisterReplayWorkerV10SuccessorExecutionTransportInput,
@@ -37,14 +37,14 @@ export function readReplayWorkerV10SuccessorExecutionEnvelopeParent(
   }
   const path = join(resolve(input.registry_root),
     `worker-v10-successor-execution-envelope-${expected.admission_key}.json`)
-  if (!existsSync(path)) {
+  const snapshot = readReplayRegularFileIfExists(
+    path,
+    "successor execution Transport R4.144 Envelope Admission",
+  )
+  if (!snapshot) {
     throw new Error("successor execution Transport requires the exact durable R4.144 Envelope Admission")
   }
-  const stat = lstatSync(path)
-  if (!stat.isFile() || stat.isSymbolicLink()) {
-    throw new Error("successor execution Transport R4.144 Envelope Admission must be a regular file")
-  }
-  const content = readFileSync(path, "utf8")
+  const content = snapshot.bytes.toString("utf8")
   const fileSha256 = createHash("sha256").update(content, "utf8").digest("hex")
   const receipt = readReplayDurableParentValidationReceipt({
     registry_root: input.registry_root,
