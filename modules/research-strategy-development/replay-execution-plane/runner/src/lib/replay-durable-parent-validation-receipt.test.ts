@@ -117,6 +117,21 @@ test("validated parent cache is bound to root, parent kind, key, and exact file 
       parent_canonical_file_sha256: fileSha256,
       value,
     })
+    writeFileSync(join(firstRoot, "new-parent-alias.json"), "{}\n", "utf8")
+    expect(readRememberedReplayDurableParentValidation({
+      registry_root: firstRoot,
+      parent_kind: "worker_v10_successor_lease_admission",
+      parent_key: parentKey,
+      parent_canonical_file_sha256: fileSha256,
+    })).toBeNull()
+    rmSync(join(firstRoot, "new-parent-alias.json"))
+    rememberReplayDurableParentValidation({
+      registry_root: firstRoot,
+      parent_kind: "worker_v10_successor_lease_admission",
+      parent_key: parentKey,
+      parent_canonical_file_sha256: fileSha256,
+      value,
+    })
     writeFileSync(ancestorPath, "{\"status\":\"tampered\"}\n", "utf8")
     expect(readRememberedReplayDurableParentValidation({
       registry_root: firstRoot,

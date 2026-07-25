@@ -5,8 +5,9 @@ import {
   lstatSync,
   openSync,
   readFileSync,
+  realpathSync,
 } from "node:fs"
-import { dirname, resolve } from "node:path"
+import { basename, dirname, join, resolve } from "node:path"
 
 export interface ReplayRegularFileSnapshot {
   bytes: Buffer
@@ -27,16 +28,26 @@ export function readReplayRegularFileIfExists(
   path: string,
   label: string,
 ): ReplayRegularFileSnapshot | null {
-  const directory = dirname(resolve(path))
-  const directoryBefore = lstatSync(directory)
-  if (!directoryBefore.isDirectory()
-      || directoryBefore.isSymbolicLink()) {
+  const resolvedPath = resolve(path)
+  const requestedDirectory = dirname(resolvedPath)
+  const requestedDirectoryStat = lstatSync(requestedDirectory)
+  if (!requestedDirectoryStat.isDirectory()
+      || requestedDirectoryStat.isSymbolicLink()) {
     throw new Error(`${label} parent directory must be a real directory`)
   }
+  const directory = realpathSync(requestedDirectory)
+  const directoryBefore = lstatSync(directory)
+  if (!directoryBefore.isDirectory()
+      || directoryBefore.isSymbolicLink()
+      || directoryBefore.dev !== requestedDirectoryStat.dev
+      || directoryBefore.ino !== requestedDirectoryStat.ino) {
+    throw new Error(`${label} canonical parent directory must be a real directory`)
+  }
+  const canonicalPath = join(directory, basename(resolvedPath))
   let fileDescriptor: number
   try {
     fileDescriptor = openSync(
-      path,
+      canonicalPath,
       constants.O_RDONLY | constants.O_NOFOLLOW,
     )
   } catch (error) {
@@ -51,6 +62,7 @@ export function readReplayRegularFileIfExists(
     const bytes = readFileSync(fileDescriptor)
     const after = fstatSync(fileDescriptor)
     const directoryAfter = lstatSync(directory)
+    const requestedDirectoryAfter = lstatSync(requestedDirectory)
     if (before.dev !== after.dev
         || before.ino !== after.ino
         || before.size !== after.size
@@ -59,7 +71,9 @@ export function readReplayRegularFileIfExists(
         || !directoryAfter.isDirectory()
         || directoryAfter.isSymbolicLink()
         || directoryBefore.dev !== directoryAfter.dev
-        || directoryBefore.ino !== directoryAfter.ino) {
+        || directoryBefore.ino !== directoryAfter.ino
+        || requestedDirectoryStat.dev !== requestedDirectoryAfter.dev
+        || requestedDirectoryStat.ino !== requestedDirectoryAfter.ino) {
       throw new Error(`${label} changed while reading`)
     }
     return {

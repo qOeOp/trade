@@ -25,6 +25,7 @@ export interface ReplayDurableParentValidationReceipt {
 
 interface ValidatedParentCacheEntry {
   value: unknown
+  lineage_root: string
   lineage_files: Array<{
     path: string
     sha256: string
@@ -110,6 +111,7 @@ export function rememberReplayDurableParentValidation<T>(input: {
   if (validatedParentCache.size >= 64) validatedParentCache.clear()
   validatedParentCache.set(validationCacheKey(input), {
     value: structuredClone(input.value),
+    lineage_root: resolve(input.registry_root),
     lineage_files: captureRootLineage(input.registry_root),
   })
 }
@@ -125,7 +127,7 @@ export function readRememberedReplayDurableParentValidation<T>(input: {
   const key = validationCacheKey(input)
   const entry = validatedParentCache.get(key)
   if (!entry) return null
-  if (!lineageIsCurrent(entry.lineage_files)) {
+  if (!lineageIsCurrent(entry.lineage_root, entry.lineage_files)) {
     validatedParentCache.delete(key)
     return null
   }
@@ -186,10 +188,8 @@ function validationCacheKey(input: {
 
 function captureRootLineage(root: string): ValidatedParentCacheEntry["lineage_files"] {
   const resolvedRoot = resolve(root)
-  return readdirSync(resolvedRoot, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && !entry.isSymbolicLink())
-    .map((entry) => {
-      const path = join(resolvedRoot, entry.name)
+  return listRootLineagePaths(resolvedRoot)
+    .map((path) => {
       const snapshot = readReplayRegularFileIfExists(path, "durable parent lineage file")
       if (!snapshot) throw new Error("durable parent lineage file disappeared while capturing")
       return {
@@ -199,10 +199,29 @@ function captureRootLineage(root: string): ValidatedParentCacheEntry["lineage_fi
         inode: snapshot.inode,
       }
     })
-    .sort((left, right) => left.path.localeCompare(right.path))
 }
 
-function lineageIsCurrent(files: ValidatedParentCacheEntry["lineage_files"]): boolean {
+function listRootLineagePaths(root: string): string[] {
+  return readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && !entry.isSymbolicLink())
+    .map((entry) => join(root, entry.name))
+    .sort((left, right) => left.localeCompare(right))
+}
+
+function lineageIsCurrent(
+  root: string,
+  files: ValidatedParentCacheEntry["lineage_files"],
+): boolean {
+  let currentPaths: string[]
+  try {
+    currentPaths = listRootLineagePaths(root)
+  } catch {
+    return false
+  }
+  if (currentPaths.length !== files.length
+      || currentPaths.some((path, index) => path !== files[index]?.path)) {
+    return false
+  }
   return files.every((file) => {
     try {
       const snapshot = readReplayRegularFileIfExists(file.path, "durable parent lineage file")

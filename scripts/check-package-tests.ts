@@ -89,14 +89,7 @@ function runPackage(packageInfo: TypeScriptPackage): void {
     }
     const remainingTests = packageInfo.testFiles.filter((path) => path !== workerPath)
     if (remainingTests.length === 0) throw new Error("Replay runner has no non-semantic package tests")
-    command = [
-      "sh",
-      join(root, "scripts/run-exclusive-test.sh"),
-      "replay-runner-heavyweight",
-      "bun",
-      "test",
-      ...remainingTests.map((path) => relative(packageInfo.dir, path).replaceAll("\\", "/")),
-    ]
+    command = ["bun", "run", "test:remaining"]
   }
   const output = run(command, packageInfo.dir)
   const counts = [...output.matchAll(/Ran (\d+) tests? across/g)].map((match) => Number(match[1]))
