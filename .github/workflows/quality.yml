@@ -32,15 +32,19 @@ jobs:
       - run: scripts/quality-check.sh policy
 
   typescript:
-    name: typescript-${{ matrix.shard }}
+    name: typescript-${{ matrix.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1]
+        include:
+          - name: even-packages
+            shard: 0/2
+          - name: odd-packages
+            shard: 1/2
     env:
-      QUALITY_TS_SHARD: ${{ matrix.shard }}/2
+      QUALITY_TS_SHARD: ${{ matrix.shard }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
