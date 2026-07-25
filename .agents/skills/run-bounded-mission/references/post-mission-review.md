@@ -25,11 +25,11 @@ Classify findings as:
 
 Default to `no_change`. One weak project oracle remains project-specific; a repeatable failure to audit authority, proxies, duplicated truth, candidate-controlled acceptance, or trigger coverage is a generic workflow defect.
 
-## Candidate admission
+## Handoff admission
 
-Before editing, freeze a minimal behavior scenario and reproduce the defect with the current skill. Admit at most one candidate, which must:
+Before emitting `candidate_proposed`, freeze a minimal behavior scenario and reproduce the defect with the current skill. Prepare at most one handoff, which must:
 
-- fix that replayable generic failure;
+- describe a minimum candidate that would fix that replayable generic failure;
 - remain useful without the triggering repository, document layout, tools, or domain vocabulary;
 - change reusable capability or procedure;
 - make the smallest justified instruction or resource change instead of appending a special case;
@@ -37,11 +37,11 @@ Before editing, freeze a minimal behavior scenario and reproduce the defect with
 - report instruction, resource, default-context, and maintenance deltas as evidence, never as the verdict;
 - keep project and user authority outside the skill.
 
-Mission changes and learning-review changes must remain separate. A project candidate cannot carry a skill edit.
+Mission changes and proposal-candidate changes must remain separate. A project candidate cannot carry a skill edit.
 
-## Evaluation
+## Proposal mission evaluation
 
-Freeze the candidate. Compare old and new skills on:
+Only a separately admitted learning-proposal mission may write and freeze the candidate. Compare old and new skills on:
 
 - the failing scenario, one valid-oracle control, and one different task shape;
 - trigger accuracy, authority preservation, genericity, and prior passing behavior;
