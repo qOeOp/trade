@@ -478,29 +478,28 @@ export async function runReplayIndependentAuditCommand(
     detached: process.platform !== "win32",
   })
   let timedOut = false
-  let rejectCleanup: (error: Error) => void = () => {}
-  const cleanupFailure = new Promise<never>((_resolve, reject) => {
-    rejectCleanup = reject
-  })
+  let cleanupError: Error | undefined
   const timeout = setTimeout(() => {
     timedOut = true
     try {
       signalAuditCommandTree(child.pid, "SIGKILL")
     } catch (error) {
-      rejectCleanup(new Error(
+      cleanupError = new Error(
         `Replay independent audit process-group cleanup failed: ${command.role}`,
         { cause: error },
-      ))
+      )
+      process.kill(child.pid, "SIGKILL")
     }
   }, command.timeout_ms)
   let exitCode: number
   try {
-    exitCode = await Promise.race([child.exited, cleanupFailure])
-  } catch (error) {
-    void child.exited.then(cleanupOutput)
-    throw error
+    exitCode = await child.exited
   } finally {
     clearTimeout(timeout)
+  }
+  if (cleanupError) {
+    cleanupOutput()
+    throw cleanupError
   }
   const stdout = readFileSync(stdoutPath, "utf8")
   const stderr = readFileSync(stderrPath, "utf8")

@@ -1,7 +1,7 @@
 {
   "schema_version": "trade.rd-replay-independent-release-audit-receipt.v1",
   "verdict": "passed-within-declared-evidence-envelope",
-  "audit_manifest_sha256": "bb5809b204b6dbcbc2544257b052efb219e3c0834fb78722203ac22412ef2ecc",
+  "audit_manifest_sha256": "3f1381e21d9c00ee61d1b7e4c26b0e97620c3df4a081b1d178f215049d1c80ce",
   "subject_pack_sha256": "4032144a6de77bf9ad7bf99de106956a31da1b2961d9a1e0509e24bac04f7765",
   "runtime": {
     "name": "bun",
@@ -24,14 +24,14 @@
   "commands": [
     {
       "role": "subject-full-certification",
-      "process_id": 42918,
+      "process_id": 36211,
       "exit_code": 0,
-      "stdout_sha256": "f5a1f8846c77c285d1f6459557f2101bfcc26c74857e576c08cd638e4069807f",
-      "stderr_sha256": "8140ca60cb8f4fed96706b314ec12aaabbcbaf5a3c060365e7320b072b5eba06"
+      "stdout_sha256": "7b8cdd3061722f75556c4f68e1248bbdbef5c7c6cde96b8c9085a53d563db148",
+      "stderr_sha256": "a810ac79027613b2ce7c9eb6daf839d56d9a5549e080d1fde3f9e73d9c0f877d"
     },
     {
       "role": "repository-audit-prerequisite-check",
-      "process_id": 44150,
+      "process_id": 37016,
       "exit_code": 0,
       "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -43,5 +43,5 @@
     "audit-does-not-expand-public-profiles-or-simulator-semantics",
     "remote-distributed-store-shadow-live-and-real-account-evidence-out-of-scope"
   ],
-  "receipt_sha256": "319e298bc8bf32863567e3f0671b86ceee2a8ea5772ce382e7da07bfd53d3737"
+  "receipt_sha256": "42be88f73f12a348bd30e65958dae4398ee73ffa6ce055f1ad3c9a1cd6bc7961"
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
@@ -121,11 +121,22 @@ describe("Replay independent release audit", () => {
     }
   })
 
-  test("surfaces an initial process-group kill failure without waiting for child exit", async () => {
+  test("falls back to the direct child and cleans output after a process-group kill failure", async () => {
     const originalKill = process.kill
+    const outputPrefix = "replay-release-audit-command-"
+    const outputRootsBefore = new Set(
+      readdirSync(tmpdir()).filter((name) => name.startsWith(outputPrefix)),
+    )
+    let directChildPid: number | undefined
+    let directChildSignal: string | number | undefined
     const startedAt = Date.now()
     try {
-      process.kill = ((_pid, _signal) => {
+      process.kill = ((pid, signal) => {
+        if (pid >= 0) {
+          directChildPid = pid
+          directChildSignal = signal
+          return originalKill(pid, signal)
+        }
         const error = new Error("forced process-group kill failure") as NodeJS.ErrnoException
         error.code = "EPERM"
         throw error
@@ -142,8 +153,13 @@ describe("Replay independent release audit", () => {
     } finally {
       process.kill = originalKill
     }
+    expect(directChildPid).toBeGreaterThan(0)
+    expect(directChildSignal).toBe("SIGKILL")
     expect(Date.now() - startedAt).toBeLessThan(250)
-    await Bun.sleep(500)
+    await expectProcessToBeGone(directChildPid!)
+    expect(readdirSync(tmpdir()).filter(
+      (name) => name.startsWith(outputPrefix) && !outputRootsBefore.has(name),
+    )).toEqual([])
   })
 })
 
@@ -154,6 +170,16 @@ async function expectProcessToBeGone(pid: number): Promise<void> {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ESRCH") return
       throw error
+    }
+    if (process.platform === "linux") {
+      try {
+        const stat = readFileSync(`/proc/${pid}/stat`, "utf8")
+        const commandEnd = stat.lastIndexOf(")")
+        if (commandEnd >= 0 && stat[commandEnd + 2] === "Z") return
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return
+        throw error
+      }
     }
     await Bun.sleep(10)
   }
