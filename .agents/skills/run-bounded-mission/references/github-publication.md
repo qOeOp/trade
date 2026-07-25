@@ -1,6 +1,6 @@
-# GitHub publication lifecycle
+# GitHub PR lifecycle
 
-Load only when the frozen mission outcome explicitly includes publishing a GitHub PR, carrying it through review, or merging it.
+A `covered GitHub PR lifecycle terminal` means publishing a GitHub PR, carrying it through review, or merging it. Load only when the frozen mission outcome explicitly includes one.
 
 ## Authority and facts
 
@@ -38,4 +38,4 @@ Worktree isolation proves only isolation. A commit proves only identity. Local g
 
 Use project budgets when present. Otherwise allow at most three candidate revisions and replan after two consecutive cycles that do not improve a failing acceptance signal. Never loop “until perfect,” weaken an oracle, reuse stale-head evidence, or let a candidate-authored test define acceptance.
 
-If publication was not requested, stop at the locally authorized terminal without loading this lifecycle. If the requested terminal cannot be reached because effect authority, provider access, required evidence, or an independent reviewer is unavailable, terminate `blocked` with the exact retained candidate state.
+If no covered GitHub PR lifecycle terminal was requested, stop at the locally authorized terminal without loading this lifecycle. If the requested terminal cannot be reached because effect authority, provider access, required evidence, or an independent reviewer is unavailable, terminate `blocked` with the exact retained candidate state.
