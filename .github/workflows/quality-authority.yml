@@ -23,6 +23,7 @@ jobs:
           fetch-depth: 1
       - name: Reject candidate-owned quality authority changes
         env:
+          QUALITY_AUTHORITY_APPROVED_SHA: ${{ vars.QUALITY_AUTHORITY_APPROVED_SHA }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -48,4 +49,9 @@ jobs:
               package.json \
               scripts
           )
-          test "$protected_path_found" -eq 0
+          if [ "$protected_path_found" -eq 0 ]; then
+            exit 0
+          fi
+
+          [[ "$QUALITY_AUTHORITY_APPROVED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$QUALITY_AUTHORITY_APPROVED_SHA" = "$PR_HEAD_SHA"
