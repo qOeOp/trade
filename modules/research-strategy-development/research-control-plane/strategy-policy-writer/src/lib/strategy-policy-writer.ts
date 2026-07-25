@@ -201,7 +201,17 @@ function lintStrategyPolicyShape(markdown: string): StrategyPolicyShapeLintResul
   if (!/^---\n[\s\S]*?\n---\n/m.test(markdown)) errors.push("missing frontmatter block")
   if (!/## Trade Contract\n\n```yaml\n[\s\S]+?\n```/m.test(markdown)) errors.push("missing yaml Trade Contract block")
   if (!/live_permission:\s+draft_only/.test(markdown)) errors.push("Trade Contract proof.live_permission must be draft_only")
-  const tagsInclude4h = markdown.split("\n").some((line) => line.startsWith("tags: [") && line.includes("4h"))
+  let tagsInclude4h = false
+  let tagsOffset = 0
+  while (!tagsInclude4h) {
+    const tagsStart = markdown.indexOf("tags: [", tagsOffset)
+    if (tagsStart < 0) break
+    const valueStart = tagsStart + "tags: [".length
+    const valueEnd = markdown.indexOf("]", valueStart)
+    const timeframe = markdown.indexOf("4h", valueStart)
+    tagsInclude4h = timeframe >= 0 && (valueEnd < 0 || timeframe < valueEnd)
+    tagsOffset = valueStart
+  }
   if (/timeframe:\s*4h/.test(markdown) && !tagsInclude4h) {
     warnings.push("timeframe is 4h but frontmatter tags do not include 4h")
   }
