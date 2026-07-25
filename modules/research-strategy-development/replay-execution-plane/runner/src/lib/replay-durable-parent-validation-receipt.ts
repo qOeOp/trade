@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto"
-import { lstatSync, readdirSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { canonicalHash, canonicalJson } from "../../../contracts/src/lib/replay-contracts"
 import { writeReplayImmutableCas } from "./replay-local-artifact-store"
@@ -22,19 +21,6 @@ export interface ReplayDurableParentValidationReceipt {
   validation_policy: "canonical_file_and_parent_self_hash_verified_before_receipt"
   receipt_hash: string
 }
-
-interface ValidatedParentCacheEntry {
-  value: unknown
-  lineage_root: string
-  lineage_files: Array<{
-    path: string
-    sha256: string
-    device: number
-    inode: number
-  }>
-}
-
-const validatedParentCache = new Map<string, ValidatedParentCacheEntry>()
 
 export function registerReplayDurableParentValidationReceipt(input: {
   registry_root: string
@@ -99,41 +85,6 @@ export function assertReplayDurableParentValidationReceipt(
   }
 }
 
-export function rememberReplayDurableParentValidation<T>(input: {
-  registry_root: string
-  parent_kind: ReplayDurableParentValidationReceipt["parent_kind"]
-  parent_key: string
-  parent_canonical_file_sha256: string
-  value: T
-}): void {
-  requireHash(input.parent_key, "durable parent validation key")
-  requireHash(input.parent_canonical_file_sha256, "durable parent canonical file hash")
-  if (validatedParentCache.size >= 64) validatedParentCache.clear()
-  validatedParentCache.set(validationCacheKey(input), {
-    value: structuredClone(input.value),
-    lineage_root: resolve(input.registry_root),
-    lineage_files: captureRootLineage(input.registry_root),
-  })
-}
-
-export function readRememberedReplayDurableParentValidation<T>(input: {
-  registry_root: string
-  parent_kind: ReplayDurableParentValidationReceipt["parent_kind"]
-  parent_key: string
-  parent_canonical_file_sha256: string
-}): T | null {
-  requireHash(input.parent_key, "durable parent validation key")
-  requireHash(input.parent_canonical_file_sha256, "durable parent canonical file hash")
-  const key = validationCacheKey(input)
-  const entry = validatedParentCache.get(key)
-  if (!entry) return null
-  if (!lineageIsCurrent(entry.lineage_root, entry.lineage_files)) {
-    validatedParentCache.delete(key)
-    return null
-  }
-  return structuredClone(entry.value as T)
-}
-
 function readReceiptFile(path: string): ReplayDurableParentValidationReceipt | null {
   const snapshot = readReplayRegularFileIfExists(path, "durable parent validation receipt")
   return snapshot ? parseReceipt(snapshot.bytes.toString("utf8")) : null
@@ -164,83 +115,6 @@ function receiptPath(
   parentKey: string,
 ): string {
   return join(resolve(root), `parent-validation-${parentKind.replaceAll("_", "-")}-${parentKey}.json`)
-}
-
-function validationCacheKey(input: {
-  registry_root: string
-  parent_kind: ReplayDurableParentValidationReceipt["parent_kind"]
-  parent_key: string
-  parent_canonical_file_sha256: string
-}): string {
-  const root = resolve(input.registry_root)
-  const stat = lstatSync(root)
-  if (!stat.isDirectory() || stat.isSymbolicLink()) {
-    throw new Error("durable parent validation root must be a real directory")
-  }
-  return [
-    root,
-    `${stat.dev}:${stat.ino}`,
-    input.parent_kind,
-    input.parent_key,
-    input.parent_canonical_file_sha256,
-  ].join("\u0000")
-}
-
-function captureRootLineage(root: string): ValidatedParentCacheEntry["lineage_files"] {
-  const resolvedRoot = resolve(root)
-  return listRootLineagePaths(resolvedRoot)
-    .map((path) => {
-      const snapshot = readReplayRegularFileIfExists(path, "durable parent lineage file")
-      if (!snapshot) throw new Error("durable parent lineage file disappeared while capturing")
-      return {
-        path,
-        sha256: sha256(snapshot.bytes),
-        device: snapshot.device,
-        inode: snapshot.inode,
-      }
-    })
-}
-
-function listRootLineagePaths(root: string): string[] {
-  return readdirSync(root, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && !entry.isSymbolicLink())
-    .map((entry) => join(root, entry.name))
-    .sort((left, right) => left.localeCompare(right))
-}
-
-function lineageIsCurrent(
-  root: string,
-  files: ValidatedParentCacheEntry["lineage_files"],
-): boolean {
-  let currentPaths: string[]
-  try {
-    currentPaths = listRootLineagePaths(root)
-  } catch {
-    return false
-  }
-  if (currentPaths.length !== files.length
-      || currentPaths.some((path, index) => path !== files[index]?.path)) {
-    return false
-  }
-  const filesAreCurrent = files.every((file) => {
-    try {
-      const snapshot = readReplayRegularFileIfExists(file.path, "durable parent lineage file")
-      return snapshot !== null
-        && snapshot.device === file.device
-        && snapshot.inode === file.inode
-        && sha256(snapshot.bytes) === file.sha256
-    } catch {
-      return false
-    }
-  })
-  if (!filesAreCurrent) return false
-  try {
-    const finalPaths = listRootLineagePaths(root)
-    return finalPaths.length === files.length
-      && finalPaths.every((path, index) => path === files[index]?.path)
-  } catch {
-    return false
-  }
 }
 
 function sha256(value: string | Uint8Array): string {

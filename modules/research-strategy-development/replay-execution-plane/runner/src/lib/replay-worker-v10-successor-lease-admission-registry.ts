@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto"
 import { join, resolve } from "node:path"
 import {
   assertReplaySuccessorVerificationLeaseRenewalReceipt,
@@ -15,9 +14,6 @@ import {
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-lease-admission"
 import { canonicalJson } from "../../../contracts/src/lib/replay-contracts"
 import {
-  readRememberedReplayDurableParentValidation,
-  readReplayDurableParentValidationReceipt,
-  rememberReplayDurableParentValidation,
   registerReplayDurableParentValidationReceipt,
 } from "./replay-durable-parent-validation-receipt"
 import {
@@ -123,12 +119,6 @@ export function readReplayWorkerV10SuccessorLeaseAdmissionReference(input: {
       || !/^[a-f0-9]{64}$/.test(expected.admission_hash)) {
     throw new Error("successor Execution Envelope Lease Admission reference is invalid")
   }
-  const value = readValidatedAdmission(
-    input.registry_root,
-    expected.admission_key,
-    expected.admission_hash,
-  )
-  if (value) return value
   const durable = readReplayWorkerV10SuccessorLeaseAdmission({
     registry_root: input.registry_root,
     source_successor_authority_contract: expected.source_successor_authority_contract,
@@ -212,14 +202,6 @@ function readAdmissionForRequest(
   parentsValidated = false,
 ): ReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission | null {
   const key = admissionKey(authority, request)
-  const fast = readValidatedAdmission(root, key)
-  if (fast) {
-    if (fast.source_successor_authority_contract_hash !== authority.contract_hash
-        || fast.source_renewal_request_hash !== request.request_hash) {
-      throw new Error("Worker v10 successor Lease admission parent mismatch")
-    }
-    return fast
-  }
   if (!readReplayRegularFileIfExists(
     admissionPath(root, key),
     "Worker v10 successor Lease admission",
@@ -233,40 +215,6 @@ function readAdmissionForRequest(
   if (value.source_successor_authority_contract_hash !== authority.contract_hash
       || value.source_renewal_request_hash !== request.request_hash) {
     throw new Error("Worker v10 successor Lease admission parent mismatch")
-  }
-  return value
-}
-
-function readValidatedAdmission(
-  root: string,
-  key: string,
-  expectedHash?: string,
-): ReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission | null {
-  const path = admissionPath(root, key)
-  const snapshot = readReplayRegularFileIfExists(path, "Worker v10 successor Lease admission")
-  if (!snapshot) return null
-  const content = snapshot.bytes.toString("utf8")
-  const fileSha256 = createHash("sha256").update(content, "utf8").digest("hex")
-  const receipt = readReplayDurableParentValidationReceipt({
-    registry_root: root,
-    parent_kind: "worker_v10_successor_lease_admission",
-    parent_key: key,
-  })
-  if (!receipt || receipt.parent_canonical_file_sha256 !== fileSha256
-      || (expectedHash && receipt.parent_self_hash !== expectedHash)) {
-    return null
-  }
-  const value = readRememberedReplayDurableParentValidation<
-    ReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission
-  >({
-    registry_root: root,
-    parent_kind: "worker_v10_successor_lease_admission",
-    parent_key: key,
-    parent_canonical_file_sha256: fileSha256,
-  })
-  if (!value) return null
-  if (value.admission_key !== key || value.admission_hash !== receipt.parent_self_hash) {
-    throw new Error("Worker v10 successor Lease admission durable reference drift")
   }
   return value
 }
@@ -335,19 +283,12 @@ function registerLeaseValidationReceipt(
   admission: ReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission,
   content: string,
 ): ReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission {
-  const receipt = registerReplayDurableParentValidationReceipt({
+  registerReplayDurableParentValidationReceipt({
     registry_root: root,
     parent_kind: "worker_v10_successor_lease_admission",
     parent_key: admission.admission_key,
     parent_self_hash: admission.admission_hash,
     parent_canonical_content: content,
-  })
-  rememberReplayDurableParentValidation({
-    registry_root: root,
-    parent_kind: receipt.parent_kind,
-    parent_key: receipt.parent_key,
-    parent_canonical_file_sha256: receipt.parent_canonical_file_sha256,
-    value: admission,
   })
   return admission
 }

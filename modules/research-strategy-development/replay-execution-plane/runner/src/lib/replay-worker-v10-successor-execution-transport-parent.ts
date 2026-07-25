@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto"
 import { join, resolve } from "node:path"
 import {
   type ReplayDecisionHarnessWorkerV10SuccessorExecutionEnvelopeAdmission,
@@ -7,9 +6,6 @@ import {
   type ReplayDecisionHarnessWorkerV10TransportContract,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-transport-contract"
 import {
-  readRememberedReplayDurableParentValidation,
-  readReplayDurableParentValidationReceipt,
-  rememberReplayDurableParentValidation,
   registerReplayDurableParentValidationReceipt,
 } from "./replay-durable-parent-validation-receipt"
 import { readReplayWorkerV10SuccessorExecutionEnvelope } from "./replay-worker-v10-successor-execution-envelope-registry"
@@ -45,30 +41,6 @@ export function readReplayWorkerV10SuccessorExecutionEnvelopeParent(
     throw new Error("successor execution Transport requires the exact durable R4.144 Envelope Admission")
   }
   const content = snapshot.bytes.toString("utf8")
-  const fileSha256 = createHash("sha256").update(content, "utf8").digest("hex")
-  const receipt = readReplayDurableParentValidationReceipt({
-    registry_root: input.registry_root,
-    parent_kind: "worker_v10_successor_execution_envelope_admission",
-    parent_key: expected.admission_key,
-  })
-  if (receipt?.parent_self_hash === expected.admission_hash
-      && receipt.parent_canonical_file_sha256 === fileSha256) {
-    const durable = readRememberedReplayDurableParentValidation<
-      ReplayDecisionHarnessWorkerV10SuccessorExecutionEnvelopeAdmission
-    >({
-      registry_root: input.registry_root,
-      parent_kind: "worker_v10_successor_execution_envelope_admission",
-      parent_key: expected.admission_key,
-      parent_canonical_file_sha256: fileSha256,
-    })
-    if (durable) {
-      if (durable.admission_key !== expected.admission_key
-          || durable.admission_hash !== expected.admission_hash) {
-        throw new Error("successor execution Transport R4.144 Envelope Admission reference drift")
-      }
-      return durable
-    }
-  }
   const durable = readReplayWorkerV10SuccessorExecutionEnvelope({
     registry_root: input.registry_root,
     source_successor_lease_admission: expected.source_successor_lease_admission,
@@ -76,19 +48,12 @@ export function readReplayWorkerV10SuccessorExecutionEnvelopeParent(
   if (!durable || durable.admission_hash !== expected.admission_hash) {
     throw new Error("successor execution Transport requires the exact durable R4.144 Envelope Admission")
   }
-  const validatedReceipt = registerReplayDurableParentValidationReceipt({
+  registerReplayDurableParentValidationReceipt({
     registry_root: input.registry_root,
     parent_kind: "worker_v10_successor_execution_envelope_admission",
     parent_key: durable.admission_key,
     parent_self_hash: durable.admission_hash,
     parent_canonical_content: content,
-  })
-  rememberReplayDurableParentValidation({
-    registry_root: input.registry_root,
-    parent_kind: validatedReceipt.parent_kind,
-    parent_key: validatedReceipt.parent_key,
-    parent_canonical_file_sha256: validatedReceipt.parent_canonical_file_sha256,
-    value: durable,
   })
   return durable
 }

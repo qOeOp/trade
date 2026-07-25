@@ -1,11 +1,7 @@
 import { expect, test } from "bun:test"
-import { spawn } from "node:child_process"
 import {
-  existsSync,
   lstatSync,
-  mkdirSync,
   mkdtempSync,
-  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs"
@@ -13,8 +9,6 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
   readReplayDurableParentValidationReceipt,
-  readRememberedReplayDurableParentValidation,
-  rememberReplayDurableParentValidation,
   registerReplayDurableParentValidationReceipt,
 } from "./replay-durable-parent-validation-receipt"
 import {
@@ -53,169 +47,8 @@ test("durable parent validation receipt binds self hash and canonical file bytes
   }
 })
 
-test("validated parent cache is bound to root, parent kind, key, and exact file bytes", () => {
-  const firstRoot = mkdtempSync(join(tmpdir(), "replay-parent-cache-first-"))
-  const secondRoot = mkdtempSync(join(tmpdir(), "replay-parent-cache-second-"))
-  const movedRoot = `${firstRoot}-moved`
-  try {
-    const parentKey = "a".repeat(64)
-    const fileSha256 = "b".repeat(64)
-    const value = { admission_key: parentKey, admission_hash: "c".repeat(64) }
-    const ancestorPath = join(firstRoot, "ancestor.json")
-    const binaryPath = join(firstRoot, "ancestor.bin")
-    writeFileSync(ancestorPath, "{\"status\":\"validated\"}\n", "utf8")
-    writeFileSync(binaryPath, Uint8Array.of(0xff))
-    rememberReplayDurableParentValidation({
-      registry_root: firstRoot,
-      parent_kind: "worker_v10_successor_lease_admission",
-      parent_key: parentKey,
-      parent_canonical_file_sha256: fileSha256,
-      value,
-    })
-    value.admission_hash = "e".repeat(64)
-    const firstRead = readRememberedReplayDurableParentValidation<typeof value>({
-      registry_root: firstRoot,
-      parent_kind: "worker_v10_successor_lease_admission",
-      parent_key: parentKey,
-      parent_canonical_file_sha256: fileSha256,
-    })
-    expect(firstRead).toEqual({
-      admission_key: parentKey,
-      admission_hash: "c".repeat(64),
-    })
-    if (!firstRead) throw new Error("expected remembered durable parent")
-    firstRead.admission_hash = "f".repeat(64)
-    expect(readRememberedReplayDurableParentValidation<typeof value>({
-      registry_root: firstRoot,
-      parent_kind: "worker_v10_successor_lease_admission",
-      parent_key: parentKey,
-      parent_canonical_file_sha256: fileSha256,
-    })).toEqual({
-      admission_key: parentKey,
-      admission_hash: "c".repeat(64),
-    })
-    expect(readRememberedReplayDurableParentValidation({
-      registry_root: secondRoot,
-      parent_kind: "worker_v10_successor_lease_admission",
-      parent_key: parentKey,
-      parent_canonical_file_sha256: fileSha256,
-    })).toBeNull()
-    expect(readRememberedReplayDurableParentValidation({
-      registry_root: firstRoot,
-      parent_kind: "worker_v10_successor_execution_envelope_admission",
-      parent_key: parentKey,
-      parent_canonical_file_sha256: fileSha256,
-    })).toBeNull()
-    expect(readRememberedReplayDurableParentValidation({
-      registry_root: firstRoot,
-      parent_kind: "worker_v10_successor_lease_admission",
-      parent_key: parentKey,
-      parent_canonical_file_sha256: "d".repeat(64),
-    })).toBeNull()
-    writeFileSync(binaryPath, Uint8Array.of(0xfe))
-    expect(readRememberedReplayDurableParentValidation({
-      registry_root: firstRoot,
-      parent_kind: "worker_v10_successor_lease_admission",
-      parent_key: parentKey,
-      parent_canonical_file_sha256: fileSha256,
-    })).toBeNull()
-    rememberReplayDurableParentValidation({
-      registry_root: firstRoot,
-      parent_kind: "worker_v10_successor_lease_admission",
-      parent_key: parentKey,
-      parent_canonical_file_sha256: fileSha256,
-      value,
-    })
-    writeFileSync(join(firstRoot, "new-parent-alias.json"), "{}\n", "utf8")
-    expect(readRememberedReplayDurableParentValidation({
-      registry_root: firstRoot,
-      parent_kind: "worker_v10_successor_lease_admission",
-      parent_key: parentKey,
-      parent_canonical_file_sha256: fileSha256,
-    })).toBeNull()
-    rmSync(join(firstRoot, "new-parent-alias.json"))
-    rememberReplayDurableParentValidation({
-      registry_root: firstRoot,
-      parent_kind: "worker_v10_successor_lease_admission",
-      parent_key: parentKey,
-      parent_canonical_file_sha256: fileSha256,
-      value,
-    })
-    writeFileSync(ancestorPath, "{\"status\":\"tampered\"}\n", "utf8")
-    expect(readRememberedReplayDurableParentValidation({
-      registry_root: firstRoot,
-      parent_kind: "worker_v10_successor_lease_admission",
-      parent_key: parentKey,
-      parent_canonical_file_sha256: fileSha256,
-    })).toBeNull()
-    rememberReplayDurableParentValidation({
-      registry_root: firstRoot,
-      parent_kind: "worker_v10_successor_lease_admission",
-      parent_key: parentKey,
-      parent_canonical_file_sha256: fileSha256,
-      value,
-    })
-    renameSync(firstRoot, movedRoot)
-    mkdirSync(firstRoot)
-    expect(readRememberedReplayDurableParentValidation({
-      registry_root: firstRoot,
-      parent_kind: "worker_v10_successor_lease_admission",
-      parent_key: parentKey,
-      parent_canonical_file_sha256: fileSha256,
-    })).toBeNull()
-  } finally {
-    rmSync(firstRoot, { recursive: true, force: true })
-    rmSync(movedRoot, { recursive: true, force: true })
-    rmSync(secondRoot, { recursive: true, force: true })
-  }
-})
-
-test("validated parent cache catches an alias added while lineage is checked", async () => {
-  const root = mkdtempSync(join(tmpdir(), "replay-parent-cache-race-"))
-  try {
-    const parentKey = "a".repeat(64)
-    const fileSha256 = "b".repeat(64)
-    const sourcePath = join(root, "source.json")
-    const aliasPath = join(root, "new-parent-alias.json")
-    writeFileSync(sourcePath, "{\"status\":\"validated\"}\n", "utf8")
-    const padding = Buffer.alloc(8 * 1024 * 1024, 0x61)
-    for (let index = 0; index < 24; index += 1) {
-      writeFileSync(join(root, `lineage-${index.toString().padStart(2, "0")}.bin`), padding)
-    }
-    rememberReplayDurableParentValidation({
-      registry_root: root,
-      parent_kind: "worker_v10_successor_lease_admission",
-      parent_key: parentKey,
-      parent_canonical_file_sha256: fileSha256,
-      value: { admission_key: parentKey, admission_hash: "c".repeat(64) },
-    })
-    const child = spawn(process.execPath, [
-      "-e",
-      'const { linkSync } = require("node:fs");'
-        + "setTimeout(() => linkSync(process.argv[1], process.argv[2]), 5)",
-      sourcePath,
-      aliasPath,
-    ], { stdio: "ignore" })
-    const cached = readRememberedReplayDurableParentValidation({
-      registry_root: root,
-      parent_kind: "worker_v10_successor_lease_admission",
-      parent_key: parentKey,
-      parent_canonical_file_sha256: fileSha256,
-    })
-    const childExit = await new Promise<number | null>((resolve, reject) => {
-      child.once("error", reject)
-      child.once("exit", resolve)
-    })
-    expect(childExit).toBe(0)
-    expect(existsSync(aliasPath)).toBe(true)
-    expect(cached).toBeNull()
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-})
-
 test("successor execution contract parent rejects self-signed direct parents and snapshots", () => {
-  const root = mkdtempSync(join(tmpdir(), "replay-contract-parent-cache-"))
+  const root = mkdtempSync(join(tmpdir(), "replay-contract-parent-validation-"))
   try {
     const parentKey = "a".repeat(64)
     const parentHash = "b".repeat(64)
@@ -250,7 +83,6 @@ test("successor execution contract parent rejects self-signed direct parents and
       registry_root_inode: rootStat.ino,
       source: structuredClone(source),
       file_sha256: receipt.parent_canonical_file_sha256,
-      cache_key: "unused-by-shared-cache",
     }
     const tamperedBeforeRemember = structuredClone(snapshot)
     ;(tamperedBeforeRemember.source as unknown as { nested: { trusted: boolean } })

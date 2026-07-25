@@ -20,7 +20,6 @@ import {
   buildReplayDecisionHarnessExecutionEnvelope,
 } from "./replay-decision-harness-execution-envelope"
 import {
-  rememberReplayDurableParentValidation,
   registerReplayDurableParentValidationReceipt,
 } from "./replay-durable-parent-validation-receipt"
 import { writeReplayImmutableCas } from "./replay-local-artifact-store"
@@ -48,19 +47,12 @@ export function registerReplayWorkerV10SuccessorExecutionEnvelope(
     throw error
   }
   const admission = parseAdmission(content)
-  const receipt = registerReplayDurableParentValidationReceipt({
+  registerReplayDurableParentValidationReceipt({
     registry_root: input.registry_root,
     parent_kind: "worker_v10_successor_execution_envelope_admission",
     parent_key: admission.admission_key,
     parent_self_hash: admission.admission_hash,
     parent_canonical_content: content,
-  })
-  rememberReplayDurableParentValidation({
-    registry_root: input.registry_root,
-    parent_kind: receipt.parent_kind,
-    parent_key: receipt.parent_key,
-    parent_canonical_file_sha256: receipt.parent_canonical_file_sha256,
-    value: admission,
   })
   return admission
 }

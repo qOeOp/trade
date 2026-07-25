@@ -12,5 +12,4 @@ export interface ReplayWorkerV10SuccessorExecutionParentSnapshot {
   registry_root_inode: number
   source: ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission
   file_sha256: string
-  cache_key: string
 }

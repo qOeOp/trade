@@ -8,9 +8,7 @@ import {
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-execution-transport-admission"
 import { canonicalJson } from "../../../contracts/src/lib/replay-contracts"
 import {
-  readRememberedReplayDurableParentValidation,
   readReplayDurableParentValidationReceipt,
-  rememberReplayDurableParentValidation,
 } from "./replay-durable-parent-validation-receipt"
 import type { ReplayWorkerV10SuccessorExecutionContractRegistryInput, ReplayWorkerV10SuccessorExecutionParentSnapshot } from "./replay-worker-v10-successor-execution-contract-types"
 import { readReplayWorkerV10SuccessorExecutionStdioProbe } from "./replay-worker-v10-successor-execution-stdio-probe-registry"
@@ -49,29 +47,6 @@ export function readReplayWorkerV10SuccessorExecutionParent(
       || receipt.parent_canonical_file_sha256 !== fileSha256) {
     throw new Error("successor execution Contract requires an exact durable parent validation receipt")
   }
-  const cacheKey = `${path}\u0000${fileSha256}`
-  const cached = readRememberedReplayDurableParentValidation<
-    ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission
-  >({
-    registry_root: input.registry_root,
-    parent_kind: "worker_v10_successor_execution_stdio_probe_admission",
-    parent_key: expected.admission_key,
-    parent_canonical_file_sha256: fileSha256,
-  })
-  if (cached) {
-    if (cached.admission_key !== expected.admission_key
-        || cached.admission_hash !== expected.admission_hash) {
-      throw new Error("successor execution Contract R4.146 cached parent key or hash drift")
-    }
-    return {
-      registry_root: input.registry_root,
-      registry_root_device: rootStat.dev,
-      registry_root_inode: rootStat.ino,
-      source: cached,
-      file_sha256: fileSha256,
-      cache_key: cacheKey,
-    }
-  }
   const durable = readAuthoritativeParent(input.registry_root, expected)
   if (durable.admission_key !== expected.admission_key
       || durable.admission_hash !== expected.admission_hash
@@ -84,7 +59,6 @@ export function readReplayWorkerV10SuccessorExecutionParent(
     registry_root_inode: rootStat.ino,
     source: durable,
     file_sha256: fileSha256,
-    cache_key: cacheKey,
   }
 }
 
@@ -123,13 +97,6 @@ export function rememberReplayWorkerV10SuccessorExecutionParent(
   if (canonicalJson(authoritative) !== canonicalJson(parent.source)) {
     throw new Error("successor execution Contract parent is not authoritative")
   }
-  rememberReplayDurableParentValidation({
-    registry_root: parent.registry_root,
-    parent_kind: "worker_v10_successor_execution_stdio_probe_admission",
-    parent_key: parent.source.admission_key,
-    parent_canonical_file_sha256: parent.file_sha256,
-    value: parent.source,
-  })
 }
 
 function readAuthoritativeParent(

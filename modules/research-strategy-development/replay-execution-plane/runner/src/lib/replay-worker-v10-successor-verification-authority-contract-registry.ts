@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto"
 import { join, resolve } from "node:path"
 import {
   REPLAY_DECISION_HARNESS_WORKER_V10_SUCCESSOR_IMMUTABLE_BINDINGS,
@@ -15,9 +14,6 @@ import {
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-reproducibility-pair-contract"
 import { canonicalJson } from "../../../contracts/src/lib/replay-contracts"
 import {
-  readRememberedReplayDurableParentValidation,
-  readReplayDurableParentValidationReceipt,
-  rememberReplayDurableParentValidation,
   registerReplayDurableParentValidationReceipt,
 } from "./replay-durable-parent-validation-receipt"
 import { writeReplayImmutableCas } from "./replay-local-artifact-store"
@@ -123,35 +119,6 @@ export function readReplayWorkerV10SuccessorVerificationAuthorityContract(
   )
   if (!snapshot) return null
   const content = snapshot.bytes.toString("utf8")
-  const fileSha256 = createHash("sha256").update(content, "utf8").digest("hex")
-  const receipt = readReplayDurableParentValidationReceipt({
-    registry_root: input.registry_root,
-    parent_kind: "worker_v10_successor_verification_authority_contract",
-    parent_key: key,
-  })
-  if (receipt?.parent_canonical_file_sha256 === fileSha256) {
-    const contract = readRememberedReplayDurableParentValidation<
-      ReplayDecisionHarnessWorkerV10SuccessorVerificationAuthorityContract
-    >({
-      registry_root: input.registry_root,
-      parent_kind: "worker_v10_successor_verification_authority_contract",
-      parent_key: key,
-      parent_canonical_file_sha256: fileSha256,
-    })
-    if (!contract) {
-      requireDurablePairContract(input)
-      const durable = parseContract(content)
-      registerAuthorityValidationReceipt(input.registry_root, durable, content)
-      return durable
-    }
-    if (contract.contract_key !== key
-        || contract.contract_hash !== receipt.parent_self_hash
-        || contract.source_reproducibility_pair_contract_hash
-          !== input.source_reproducibility_pair_contract.contract_hash) {
-      throw new Error("Worker v10 successor verification authority Contract reference drift")
-    }
-    return contract
-  }
   requireDurablePairContract(input)
   const contract = parseContract(content)
   if (contract.source_reproducibility_pair_contract_hash
@@ -219,18 +186,11 @@ function registerAuthorityValidationReceipt(
   contract: ReplayDecisionHarnessWorkerV10SuccessorVerificationAuthorityContract,
   content: string,
 ): void {
-  const receipt = registerReplayDurableParentValidationReceipt({
+  registerReplayDurableParentValidationReceipt({
     registry_root: root,
     parent_kind: "worker_v10_successor_verification_authority_contract",
     parent_key: contract.contract_key,
     parent_self_hash: contract.contract_hash,
     parent_canonical_content: content,
-  })
-  rememberReplayDurableParentValidation({
-    registry_root: root,
-    parent_kind: receipt.parent_kind,
-    parent_key: receipt.parent_key,
-    parent_canonical_file_sha256: receipt.parent_canonical_file_sha256,
-    value: contract,
   })
 }
