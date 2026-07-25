@@ -928,7 +928,10 @@ describe("quality judges fail closed", () => {
     expect(workflow).toContain(
       "QUALITY_DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}",
     )
-    expect(workflow).toContain("shard: [0, 1]")
+    expect(workflow).toContain("name: typescript-${{ matrix.name }}")
+    expect(workflow).toContain("- name: even-packages\n            shard: 0/2")
+    expect(workflow).toContain("- name: odd-packages\n            shard: 1/2")
+    expect(workflow).toContain("QUALITY_TS_SHARD: ${{ matrix.shard }}")
     expect(workflow).toContain("if: ${{ always() }}")
     for (const result of [
       "needs.policy.result",
