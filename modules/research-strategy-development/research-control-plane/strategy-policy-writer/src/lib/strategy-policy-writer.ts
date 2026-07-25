@@ -324,9 +324,12 @@ function strategyFamilyProfile(family: string, params: JSONRecord): StrategyFami
 }
 
 function strategyPolicySlug(value: string): string {
-  return safeFileName(
-    value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+/, "").replace(/-+$/, ""),
-  ) || "rd-strategy"
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-")
+  let start = 0
+  let end = normalized.length
+  while (normalized[start] === "-") start += 1
+  while (end > start && normalized[end - 1] === "-") end -= 1
+  return safeFileName(normalized.slice(start, end)) || "rd-strategy"
 }
 
 function strategyIDFromSlug(slug: string): string {

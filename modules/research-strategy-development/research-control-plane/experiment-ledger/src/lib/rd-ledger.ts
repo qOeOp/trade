@@ -136,7 +136,12 @@ export function redactLoopInputForArtifact(input: StrategyRndLoopInput): JSONRec
 }
 
 export function safeFileName(value: string): string {
-  return value.trim().replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+/, "").replace(/-+$/, "") || "rd-run"
+  const normalized = value.trim().replace(/[^a-zA-Z0-9._-]+/g, "-")
+  let start = 0
+  let end = normalized.length
+  while (normalized[start] === "-") start += 1
+  while (end > start && normalized[end - 1] === "-") end -= 1
+  return normalized.slice(start, end) || "rd-run"
 }
 
 export function writeJsonFile(path: string, value: unknown): void {

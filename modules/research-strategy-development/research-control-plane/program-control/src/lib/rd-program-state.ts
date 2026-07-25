@@ -424,7 +424,12 @@ function nonNegativeInteger(value: unknown): number {
 }
 
 function safeID(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+/, "").replace(/-+$/, "") || "rd-program"
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-")
+  let start = 0
+  let end = normalized.length
+  while (normalized[start] === "-") start += 1
+  while (end > start && normalized[end - 1] === "-") end -= 1
+  return normalized.slice(start, end) || "rd-program"
 }
 
 export {

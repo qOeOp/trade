@@ -96,7 +96,12 @@ function nextTimestamp(expected: string, candidate: string): string {
 }
 
 function safeId(value: string): string {
-  const result = value.replace(/[^A-Za-z0-9._:-]+/g, "-").replace(/^-+/, "").replace(/-+$/, "").slice(0, 128)
+  const normalized = value.replace(/[^A-Za-z0-9._:-]+/g, "-")
+  let start = 0
+  let end = normalized.length
+  while (normalized[start] === "-") start += 1
+  while (end > start && normalized[end - 1] === "-") end -= 1
+  const result = normalized.slice(start, end).slice(0, 128)
   if (!result) throw new Error("autonomy identity is empty")
   return result
 }
