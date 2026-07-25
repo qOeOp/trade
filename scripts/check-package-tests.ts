@@ -78,20 +78,50 @@ function runPackage(packageInfo: TypeScriptPackage): void {
     "modules/research-strategy-development/replay-execution-plane/runner",
     "src/lib/replay-decision-worker-input-assembly-v4.test.ts",
   )
-  let command = [
+  let commands = [[
     "bun",
     "test",
     ...packageInfo.testFiles.map((path) => relative(packageInfo.dir, path).replaceAll("\\", "/")),
-  ]
+  ]]
   if (packageInfo.label === "modules/research-strategy-development/replay-execution-plane/runner") {
     if (!packageInfo.testFiles.includes(workerPath)) {
       throw new Error(`Replay semantic-owned worker test is missing: ${relative(root, workerPath)}`)
     }
+    const protectiveStopPath = join(
+      packageInfo.dir,
+      "src/lib/replay-independent-lane-batch-runner.test.ts",
+    )
+    if (!packageInfo.testFiles.includes(protectiveStopPath)) {
+      throw new Error(`Replay isolated protective-stop test is missing: ${relative(root, protectiveStopPath)}`)
+    }
     const remainingTests = packageInfo.testFiles.filter((path) => path !== workerPath)
     if (remainingTests.length === 0) throw new Error("Replay runner has no non-semantic package tests")
-    command = ["bun", "run", "test:remaining"]
+    const exclusivePrefix = [
+      "sh",
+      join(root, "scripts/run-exclusive-test.sh"),
+      "replay-runner-heavyweight",
+      "bun",
+      "test",
+    ]
+    const protectiveStopTest =
+      "protective-stop cancel releases admission risk only after full-flat and rolls four committed cycles"
+    commands = [
+      [
+        ...exclusivePrefix,
+        ...remainingTests.map((path) =>
+          relative(packageInfo.dir, path).replaceAll("\\", "/")),
+        "--test-name-pattern",
+        `^(?!${protectiveStopTest}$).*`,
+      ],
+      [
+        ...exclusivePrefix,
+        relative(packageInfo.dir, protectiveStopPath).replaceAll("\\", "/"),
+        "--test-name-pattern",
+        `^${protectiveStopTest}$`,
+      ],
+    ]
   }
-  const output = run(command, packageInfo.dir)
+  const output = commands.map((command) => run(command, packageInfo.dir)).join("\n")
   const counts = [...output.matchAll(/Ran (\d+) tests? across/g)].map((match) => Number(match[1]))
   if (counts.length === 0 || counts.at(-1) === 0) {
     throw new Error(`${packageInfo.label}: direct Bun test execution ran zero tests`)

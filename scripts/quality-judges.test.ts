@@ -736,6 +736,53 @@ describe("quality judges fail closed", () => {
     expect(`${result.stdout}\n${result.stderr}`).toContain("omitted.test.ts")
   })
 
+  test("Replay package isolation cannot omit a colocated test file", () => {
+    const root = temporaryRoot()
+    const packageDir =
+      "modules/research-strategy-development/replay-execution-plane/runner"
+    symlinkSync(join(repoRoot, "node_modules"), join(root, "node_modules"), "dir")
+    write(root, `${packageDir}/package.json`, JSON.stringify({
+      scripts: { "test:remaining": "bun test ./src/lib/covered.test.ts" },
+    }))
+    write(root, `${packageDir}/tsconfig.json`, JSON.stringify({
+      compilerOptions: { strict: true, skipLibCheck: true, types: ["bun"] },
+      include: ["src/**/*.ts"],
+    }))
+    write(root, `${packageDir}/src/lib/main.ts`, "export const value = true\n")
+    write(root, `${packageDir}/src/lib/covered.test.ts`, [
+      'import { expect, test } from "bun:test"',
+      'test("covered", () => expect(true).toBe(true))',
+      "",
+    ].join("\n"))
+    write(root, `${packageDir}/src/lib/omitted.test.ts`, [
+      'import { expect, test } from "bun:test"',
+      'test("omitted", () => expect(false).toBe(true))',
+      "",
+    ].join("\n"))
+    write(root, `${packageDir}/src/lib/replay-decision-worker-input-assembly-v4.test.ts`, [
+      'import { expect, test } from "bun:test"',
+      'test("semantic worker", () => expect(true).toBe(true))',
+      "",
+    ].join("\n"))
+    write(root, `${packageDir}/src/lib/replay-independent-lane-batch-runner.test.ts`, [
+      'import { expect, test } from "bun:test"',
+      "test(",
+      '  "protective-stop cancel releases admission risk only after full-flat and rolls four committed cycles",',
+      "  () => expect(true).toBe(true),",
+      ")",
+      "",
+    ].join("\n"))
+
+    const result = runJudge(
+      "check-package-tests.ts",
+      root,
+      ["--run-package", packageDir],
+    )
+
+    expect(result.exitCode).toBe(1)
+    expect(`${result.stdout}\n${result.stderr}`).toContain("omitted.test.ts")
+  })
+
   test("package test shards are complete and mutually exclusive", () => {
     const root = temporaryRoot()
     symlinkSync(join(repoRoot, "node_modules"), join(root, "node_modules"), "dir")
