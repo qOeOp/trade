@@ -1,5 +1,14 @@
 import { expect, test } from "bun:test"
-import { lstatSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs"
+import { spawn } from "node:child_process"
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
@@ -158,6 +167,50 @@ test("validated parent cache is bound to root, parent kind, key, and exact file 
     rmSync(firstRoot, { recursive: true, force: true })
     rmSync(movedRoot, { recursive: true, force: true })
     rmSync(secondRoot, { recursive: true, force: true })
+  }
+})
+
+test("validated parent cache catches an alias added while lineage is checked", async () => {
+  const root = mkdtempSync(join(tmpdir(), "replay-parent-cache-race-"))
+  try {
+    const parentKey = "a".repeat(64)
+    const fileSha256 = "b".repeat(64)
+    const sourcePath = join(root, "source.json")
+    const aliasPath = join(root, "new-parent-alias.json")
+    writeFileSync(sourcePath, "{\"status\":\"validated\"}\n", "utf8")
+    const padding = Buffer.alloc(8 * 1024 * 1024, 0x61)
+    for (let index = 0; index < 24; index += 1) {
+      writeFileSync(join(root, `lineage-${index.toString().padStart(2, "0")}.bin`), padding)
+    }
+    rememberReplayDurableParentValidation({
+      registry_root: root,
+      parent_kind: "worker_v10_successor_lease_admission",
+      parent_key: parentKey,
+      parent_canonical_file_sha256: fileSha256,
+      value: { admission_key: parentKey, admission_hash: "c".repeat(64) },
+    })
+    const child = spawn(process.execPath, [
+      "-e",
+      'const { linkSync } = require("node:fs");'
+        + "setTimeout(() => linkSync(process.argv[1], process.argv[2]), 5)",
+      sourcePath,
+      aliasPath,
+    ], { stdio: "ignore" })
+    const cached = readRememberedReplayDurableParentValidation({
+      registry_root: root,
+      parent_kind: "worker_v10_successor_lease_admission",
+      parent_key: parentKey,
+      parent_canonical_file_sha256: fileSha256,
+    })
+    const childExit = await new Promise<number | null>((resolve, reject) => {
+      child.once("error", reject)
+      child.once("exit", resolve)
+    })
+    expect(childExit).toBe(0)
+    expect(existsSync(aliasPath)).toBe(true)
+    expect(cached).toBeNull()
+  } finally {
+    rmSync(root, { recursive: true, force: true })
   }
 })
 

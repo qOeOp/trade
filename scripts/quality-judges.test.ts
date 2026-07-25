@@ -940,6 +940,31 @@ describe("quality judges fail closed", () => {
     }
   })
 
+  test("trusted quality authority never executes candidate-owned gate definitions", () => {
+    const workflow = readFileSync(
+      join(repoRoot, ".github/workflows/quality-authority.yml"),
+      "utf8",
+    )
+
+    expect(workflow).toContain("pull_request_target:")
+    expect(workflow).toContain("ref: ${{ github.event.pull_request.base.sha }}")
+    expect(workflow).toContain('git fetch --no-tags --depth=1 origin "refs/pull/${PR_NUMBER}/head"')
+    expect(workflow).toContain(
+      'git diff --no-ext-diff --name-only -z "$PR_BASE_SHA" "$PR_HEAD_SHA"',
+    )
+    for (const path of [
+      ".github/workflows",
+      "bun.lock",
+      "docs/engineering/convergence-baseline.json",
+      "eslint.config.mjs",
+      "package.json",
+      "scripts",
+    ]) {
+      expect(workflow).toContain(path)
+    }
+    expect(workflow).not.toContain("ref: ${{ github.event.pull_request.head.sha }}")
+  })
+
   test("repository quality checks are single-instance and recover stale locks", () => {
     const root = temporaryRoot()
     const lock = join(root, "quality-check.lock")

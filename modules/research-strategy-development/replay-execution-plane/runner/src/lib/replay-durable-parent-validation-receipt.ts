@@ -222,7 +222,7 @@ function lineageIsCurrent(
       || currentPaths.some((path, index) => path !== files[index]?.path)) {
     return false
   }
-  return files.every((file) => {
+  const filesAreCurrent = files.every((file) => {
     try {
       const snapshot = readReplayRegularFileIfExists(file.path, "durable parent lineage file")
       return snapshot !== null
@@ -233,6 +233,14 @@ function lineageIsCurrent(
       return false
     }
   })
+  if (!filesAreCurrent) return false
+  try {
+    const finalPaths = listRootLineagePaths(root)
+    return finalPaths.length === files.length
+      && finalPaths.every((path, index) => path === files[index]?.path)
+  } catch {
+    return false
+  }
 }
 
 function sha256(value: string | Uint8Array): string {
