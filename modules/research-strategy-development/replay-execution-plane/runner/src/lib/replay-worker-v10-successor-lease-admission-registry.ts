@@ -1,4 +1,3 @@
-import { existsSync, lstatSync, readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 import {
   assertReplaySuccessorVerificationLeaseRenewalReceipt,
@@ -15,6 +14,9 @@ import {
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-lease-admission"
 import { canonicalJson } from "../../../contracts/src/lib/replay-contracts"
 import {
+  registerReplayDurableParentValidationReceipt,
+} from "./replay-durable-parent-validation-receipt"
+import {
   assertReplayDecisionHarnessWorkerV10SuccessorVerificationAuthorityContract,
   type ReplayDecisionHarnessWorkerV10SuccessorVerificationAuthorityContract,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-verification-authority-contract"
@@ -24,6 +26,7 @@ import {
   readReplayWorkerV10SuccessorVerificationLeaseRenewalRequestEntry,
 } from "./replay-worker-v10-successor-verification-lease-renewal-request-registry"
 import { readReplayWorkerV10SuccessorVerificationAuthorityContract } from "./replay-worker-v10-successor-verification-authority-contract-registry"
+import { readReplayRegularFileIfExists } from "./replay-regular-file"
 
 export interface ReplaySuccessorVerificationLeaseRenewalAuthorityPort {
   renew(
@@ -81,7 +84,11 @@ export function admitReplayWorkerV10SuccessorLease(
   return {
     renewal_request: request,
     control_plane_renewal_receipt: structuredClone(receipt),
-    successor_lease_admission: parseAdmission(content),
+    successor_lease_admission: registerLeaseValidationReceipt(
+      input.registry_root,
+      parseAdmission(content),
+      content,
+    ),
   }
 }
 
@@ -91,10 +98,36 @@ export function readReplayWorkerV10SuccessorLeaseAdmission(input: {
     ReplayDecisionHarnessWorkerV10SuccessorVerificationAuthorityContract
   source_renewal_request: ReplaySuccessorVerificationLeaseRenewalRequest
 }): ReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission | null {
-  requireDurableParents(input.registry_root, input.source_successor_authority_contract,
-    input.source_renewal_request)
+  requireDurableParents(
+    input.registry_root,
+    input.source_successor_authority_contract,
+    input.source_renewal_request,
+  )
   return readAdmissionForRequest(input.registry_root, input.source_successor_authority_contract,
-    input.source_renewal_request)
+    input.source_renewal_request, true)
+}
+
+export function readReplayWorkerV10SuccessorLeaseAdmissionReference(input: {
+  registry_root: string
+  source_successor_lease_admission: ReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission
+}): ReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission {
+  const expected = input.source_successor_lease_admission
+  if (input.registry_root.trim() === ""
+      || typeof expected?.admission_key !== "string"
+      || !/^[a-f0-9]{64}$/.test(expected.admission_key)
+      || typeof expected.admission_hash !== "string"
+      || !/^[a-f0-9]{64}$/.test(expected.admission_hash)) {
+    throw new Error("successor Execution Envelope Lease Admission reference is invalid")
+  }
+  const durable = readReplayWorkerV10SuccessorLeaseAdmission({
+    registry_root: input.registry_root,
+    source_successor_authority_contract: expected.source_successor_authority_contract,
+    source_renewal_request: expected.source_renewal_request,
+  })
+  if (!durable || durable.admission_hash !== expected.admission_hash) {
+    throw new Error("successor Execution Envelope requires the exact durable R4.143 Lease Admission")
+  }
+  return durable
 }
 
 function buildAdmission(
@@ -166,10 +199,19 @@ function readAdmissionForRequest(
   root: string,
   authority: ReplayDecisionHarnessWorkerV10SuccessorVerificationAuthorityContract,
   request: ReplaySuccessorVerificationLeaseRenewalRequest,
+  parentsValidated = false,
 ): ReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission | null {
-  requireDurableParents(root, authority, request)
-  const value = readAdmission(admissionPath(root, admissionKey(authority, request)))
-  if (!value) return null
+  const key = admissionKey(authority, request)
+  if (!readReplayRegularFileIfExists(
+    admissionPath(root, key),
+    "Worker v10 successor Lease admission",
+  )) return null
+  if (!parentsValidated) requireDurableParents(root, authority, request)
+  const path = admissionPath(root, key)
+  const snapshot = readReplayRegularFileIfExists(path, "Worker v10 successor Lease admission")
+  if (!snapshot) return null
+  const content = snapshot.bytes.toString("utf8")
+  const value = registerLeaseValidationReceipt(root, parseAdmission(content), content)
   if (value.source_successor_authority_contract_hash !== authority.contract_hash
       || value.source_renewal_request_hash !== request.request_hash) {
     throw new Error("Worker v10 successor Lease admission parent mismatch")
@@ -223,12 +265,8 @@ function sameAdmission(
 }
 
 function readAdmission(path: string): ReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission | null {
-  if (!existsSync(path)) return null
-  const stat = lstatSync(path)
-  if (!stat.isFile() || stat.isSymbolicLink()) {
-    throw new Error("Worker v10 successor Lease admission must be a regular file")
-  }
-  return parseAdmission(readFileSync(path, "utf8"))
+  const snapshot = readReplayRegularFileIfExists(path, "Worker v10 successor Lease admission")
+  return snapshot ? parseAdmission(snapshot.bytes.toString("utf8")) : null
 }
 
 function parseAdmission(content: string): ReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission {
@@ -238,6 +276,21 @@ function parseAdmission(content: string): ReplayDecisionHarnessWorkerV10Successo
     throw new Error("Worker v10 successor Lease admission is not canonical")
   }
   return value
+}
+
+function registerLeaseValidationReceipt(
+  root: string,
+  admission: ReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission,
+  content: string,
+): ReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission {
+  registerReplayDurableParentValidationReceipt({
+    registry_root: root,
+    parent_kind: "worker_v10_successor_lease_admission",
+    parent_key: admission.admission_key,
+    parent_self_hash: admission.admission_hash,
+    parent_canonical_content: content,
+  })
+  return admission
 }
 
 function admissionPath(root: string, key: string): string {

@@ -38,7 +38,7 @@ test("active flow owner read fails bounded while trade DB is exclusively locked"
     )
     assert.equal(Date.now() - startedAt < 2_000, true)
   } finally {
-    try { blocker.run("ROLLBACK") } catch {}
+    try { blocker.run("ROLLBACK") } catch { /* fixture cleanup is best-effort */ }
     blocker.close()
     rmSync(directory, { recursive: true, force: true })
   }

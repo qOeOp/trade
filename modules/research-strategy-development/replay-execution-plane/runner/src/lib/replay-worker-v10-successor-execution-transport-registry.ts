@@ -10,8 +10,7 @@ export type { RegisterReplayWorkerV10SuccessorExecutionTransportInput } from "./
 export function registerReplayWorkerV10SuccessorExecutionTransport(
   input: RegisterReplayWorkerV10SuccessorExecutionTransportInput,
 ): ReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission {
-  requireReplayWorkerV10SuccessorExecutionTransportParent(input)
-  const envelope = input.source_successor_execution_envelope_admission
+  const envelope = requireReplayWorkerV10SuccessorExecutionTransportParent(input)
   const predecessor = extractReplayWorkerV10PredecessorTransportContract(envelope)
   const successor = registerReplayWorkerV10TransportContract({
     registry_root: input.registry_root,
@@ -28,8 +27,7 @@ export function registerReplayWorkerV10SuccessorExecutionTransport(
 export function readReplayWorkerV10SuccessorExecutionTransport(
   input: RegisterReplayWorkerV10SuccessorExecutionTransportInput,
 ): ReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission | null {
-  requireReplayWorkerV10SuccessorExecutionTransportParent(input)
-  const envelope = input.source_successor_execution_envelope_admission
+  const envelope = requireReplayWorkerV10SuccessorExecutionTransportParent(input)
   const predecessor = extractReplayWorkerV10PredecessorTransportContract(envelope)
   const successor = readReplayWorkerV10TransportContract({
     registry_root: input.registry_root,

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { lstat, mkdir, readFile, readlink, rename, writeFile } from "node:fs/promises"
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { isAbsolute, join, relative, resolve, sep } from "node:path"
 
 const SCHEMA_VERSION = "trade.local-quality-cache.v1"
 

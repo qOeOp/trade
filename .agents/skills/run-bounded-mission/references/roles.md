@@ -58,7 +58,7 @@ Use a fresh read-only evaluator after freezing the complete result or diff and e
 Provide:
 
 - mission contract, source revision, and complete read-only result or diff;
-- exact candidate commit and PR head when either exists;
+- exact candidate commit and PR head when either exists, plus the exact acceptance-tree hash; when that tree differs from the candidate tree, provide the prospective merge or merge-group tree, base/head identities, integrated diff, and receipts bound to it;
 - commands, exit statuses, raw outputs, consumer journey, and project rules.
 
 Exclude builder explanation and proposed verdict.
@@ -74,7 +74,7 @@ Contract compliance alone is not acceptance. If raw evidence invalidates the fro
 
 Require exactly `accept`, `revise`, `replan`, or `blocked`, with reproducible findings. The main context owns the terminal.
 
-Bind the verdict to the supplied candidate identity. Any content or candidate-commit change requires a new evaluator that has not seen the new builder deliberation. A local evaluator does not substitute for a required remote code review, and a remote review does not substitute for this evaluator when the mission requires one.
+Bind the verdict to the supplied acceptance tree and candidate identity. Any acceptance-tree, content, or candidate-commit change requires a new evaluator that has not seen the new builder deliberation. A local evaluator does not substitute for a required remote code review, and a remote review does not substitute for this evaluator when the mission requires one.
 
 ## Context hygiene
 

@@ -87,7 +87,7 @@ export async function runProgramShadowSupervisor(
   let leaseReleased = false
   let leaseLost = false
   let opsStoreBusy = false
-  let recoveredStaleLease = false
+  let recoveredStaleLease: boolean
   let heartbeat: ReturnType<typeof setInterval> | undefined
   const counts = {
     attempted: 0,
@@ -106,7 +106,7 @@ export async function runProgramShadowSupervisor(
   let lastCycleId = ""
   let lastWakeup: JSONRecord | undefined
   let lastParityObservation: JSONRecord | undefined
-  let stopReason = ""
+  let stopReason: string | undefined
 
   try {
     let acquired: OpsLockAcquisition

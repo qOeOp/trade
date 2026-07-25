@@ -19,6 +19,28 @@ import {
   SERVER_CONTAINER_SOURCE_PACKAGE_SCHEMA,
 } from "./server-runtime-container-release-package"
 
+interface ReleaseManifest {
+  schema_version: string
+  source_commit: string
+  adoption: {
+    status: string
+    image_digest: string | null
+    sbom_ref: string | null
+  }
+  safety: {
+    credentials_included: boolean
+    runtime_state_included: boolean
+    formal_replay_jobs_enabled: boolean
+    working_tree_included: boolean
+  }
+  critical_contracts: Array<{ ref: string; sha256: string }>
+  source_origin: {
+    kind: string
+    manifest_sha256: string
+    packaged_manifest_ref?: string
+  }
+}
+
 test("container source package binds committed source and excludes workspace state", () => {
   const root = mkdtempSync(resolve(tmpdir(), "trade-container-source-package-"))
   const repository = resolve(root, "repository")
@@ -66,7 +88,7 @@ test("container source package binds committed source and excludes workspace sta
 
     const manifest = JSON.parse(
       readFileSync(resolve(target, "release-manifest.json"), "utf8"),
-    ) as Record<string, any>
+    ) as ReleaseManifest
     assert.equal(manifest.schema_version, SERVER_CONTAINER_SOURCE_PACKAGE_SCHEMA)
     assert.equal(manifest.source_commit, commit)
     assert.equal(manifest.adoption.status, "source_package_only")
@@ -81,9 +103,9 @@ test("container source package binds committed source and excludes workspace sta
       SERVER_CONTAINER_SOURCE_PACKAGE_CRITICAL_REFS.length,
     )
     const dockerfile = manifest.critical_contracts.find(
-      (entry: Record<string, unknown>) => entry.ref === "deploy/server/Dockerfile",
+      (entry) => entry.ref === "deploy/server/Dockerfile",
     )
-    assert.equal(dockerfile.sha256, sha256(fixtureContent("deploy/server/Dockerfile")))
+    assert.equal(dockerfile?.sha256, sha256(fixtureContent("deploy/server/Dockerfile")))
 
     const entries = tarEntries(resolve(target, "source.tar"))
     assert.equal(entries.includes("deploy/server/Dockerfile"), true)
@@ -126,7 +148,7 @@ test("container source package binds committed source and excludes workspace sta
     assert.equal(candidateResult.source_commit, commit)
     const candidateManifest = JSON.parse(
       readFileSync(resolve(candidateTarget, "release-manifest.json"), "utf8"),
-    ) as Record<string, any>
+    ) as ReleaseManifest
     assert.equal(
       candidateManifest.source_origin.kind,
       "certified_agent_patch_candidate",
@@ -179,7 +201,7 @@ test("container source package binds committed source and excludes workspace sta
     assert.equal(strategyResult.source_commit, commit)
     const strategyManifest = JSON.parse(
       readFileSync(resolve(strategyTarget, "release-manifest.json"), "utf8"),
-    ) as Record<string, any>
+    ) as ReleaseManifest
     assert.equal(
       strategyManifest.source_origin.kind,
       "certified_strategy_source_candidate",
@@ -207,7 +229,7 @@ function verifyChecksums(root: string): void {
   const lines = readFileSync(resolve(root, "SHA256SUMS"), "utf8").trim().split("\n")
   assert.equal(lines.length >= 6, true)
   for (const line of lines) {
-    const match = /^([a-f0-9]{64})  ([A-Za-z0-9._-]+)$/.exec(line)
+    const match = /^([a-f0-9]{64}) {2}([A-Za-z0-9._-]+)$/.exec(line)
     assert.ok(match)
     assert.equal(sha256(readFileSync(resolve(root, match[2]!))), match[1])
   }

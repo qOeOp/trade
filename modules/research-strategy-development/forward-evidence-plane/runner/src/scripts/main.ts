@@ -31,7 +31,7 @@ export function run(argv: string[]): JSONRecord {
 
 function parse(argv: string[]): JSONRecord {
   for (let index = 0; index < argv.length; index += 1) {
-    if (argv[index] === "--json") return readJsonObject(readFlagValue(argv, ++index, "--json"))
+    if (argv[index] === "--json") return readJsonObject(readFlagValue(argv, index + 1, "--json"))
     throw new Error(`unknown flag: ${argv[index]}`)
   }
   throw new Error("Forward Evidence runner requires --json")

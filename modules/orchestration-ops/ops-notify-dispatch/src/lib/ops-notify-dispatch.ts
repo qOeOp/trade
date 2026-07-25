@@ -38,7 +38,7 @@ export async function runOpsNotifyDispatch(
       refs.push(notifyRef(attempt))
       continue
     }
-    if (Boolean(input.dry_run)) {
+    if (input.dry_run) {
       attempt.status = "skipped"
       attempt.result_json = { dry_run: true, payload }
       recordNotifyAttempt(db, attempt)

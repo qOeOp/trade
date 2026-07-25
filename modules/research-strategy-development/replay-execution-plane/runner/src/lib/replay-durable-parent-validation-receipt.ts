@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto"
-import { existsSync, lstatSync, readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { canonicalHash, canonicalJson } from "../../../contracts/src/lib/replay-contracts"
 import { writeReplayImmutableCas } from "./replay-local-artifact-store"
+import { readReplayRegularFileIfExists } from "./replay-regular-file"
 
 export const REPLAY_DURABLE_PARENT_VALIDATION_RECEIPT_SCHEMA_VERSION =
   "trade.rd-replay-durable-parent-validation-receipt.v1" as const
@@ -10,6 +10,9 @@ export const REPLAY_DURABLE_PARENT_VALIDATION_RECEIPT_SCHEMA_VERSION =
 export interface ReplayDurableParentValidationReceipt {
   schema_version: typeof REPLAY_DURABLE_PARENT_VALIDATION_RECEIPT_SCHEMA_VERSION
   parent_kind:
+    | "worker_v10_successor_verification_authority_contract"
+    | "worker_v10_successor_lease_admission"
+    | "worker_v10_successor_execution_envelope_admission"
     | "worker_v10_successor_execution_transport_admission"
     | "worker_v10_successor_execution_stdio_probe_admission"
   parent_key: string
@@ -64,7 +67,10 @@ export function assertReplayDurableParentValidationReceipt(
   value: ReplayDurableParentValidationReceipt,
 ): void {
   if (value.schema_version !== REPLAY_DURABLE_PARENT_VALIDATION_RECEIPT_SCHEMA_VERSION
-      || (value.parent_kind !== "worker_v10_successor_execution_transport_admission"
+      || (value.parent_kind !== "worker_v10_successor_verification_authority_contract"
+        && value.parent_kind !== "worker_v10_successor_lease_admission"
+        && value.parent_kind !== "worker_v10_successor_execution_envelope_admission"
+        && value.parent_kind !== "worker_v10_successor_execution_transport_admission"
         && value.parent_kind !== "worker_v10_successor_execution_stdio_probe_admission")
       || value.validation_policy !== "canonical_file_and_parent_self_hash_verified_before_receipt") {
     throw new Error("unsupported durable parent validation receipt")
@@ -80,12 +86,8 @@ export function assertReplayDurableParentValidationReceipt(
 }
 
 function readReceiptFile(path: string): ReplayDurableParentValidationReceipt | null {
-  if (!existsSync(path)) return null
-  const stat = lstatSync(path)
-  if (!stat.isFile() || stat.isSymbolicLink()) {
-    throw new Error("durable parent validation receipt must be a regular file")
-  }
-  return parseReceipt(readFileSync(path, "utf8"))
+  const snapshot = readReplayRegularFileIfExists(path, "durable parent validation receipt")
+  return snapshot ? parseReceipt(snapshot.bytes.toString("utf8")) : null
 }
 
 function parseReceipt(content: string): ReplayDurableParentValidationReceipt {
@@ -115,8 +117,11 @@ function receiptPath(
   return join(resolve(root), `parent-validation-${parentKind.replaceAll("_", "-")}-${parentKey}.json`)
 }
 
-function sha256(value: string): string {
-  return createHash("sha256").update(value, "utf8").digest("hex")
+function sha256(value: string | Uint8Array): string {
+  const hash = createHash("sha256")
+  if (typeof value === "string") hash.update(value, "utf8")
+  else hash.update(value)
+  return hash.digest("hex")
 }
 
 function requireHash(value: unknown, label: string): asserts value is string {
