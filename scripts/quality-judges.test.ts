@@ -940,7 +940,7 @@ describe("quality judges fail closed", () => {
     }
   })
 
-  test("trusted quality authority never executes candidate-owned gate definitions", () => {
+  test("trusted quality authority executes only base-owned gates and requires exact external approval", () => {
     const workflow = readFileSync(
       join(repoRoot, ".github/workflows/quality-authority.yml"),
       "utf8",
@@ -952,6 +952,12 @@ describe("quality judges fail closed", () => {
     expect(workflow).toContain(
       'git diff --no-ext-diff --name-only -z "$PR_BASE_SHA" "$PR_HEAD_SHA"',
     )
+    expect(workflow).toContain(
+      "QUALITY_AUTHORITY_APPROVED_SHA: ${{ vars.QUALITY_AUTHORITY_APPROVED_SHA }}",
+    )
+    expect(workflow).toContain('[[ "$QUALITY_AUTHORITY_APPROVED_SHA" =~ ^[0-9a-f]{40}$ ]]')
+    expect(workflow).toContain('test "$QUALITY_AUTHORITY_APPROVED_SHA" = "$PR_HEAD_SHA"')
+    expect(workflow).toContain('if [ "$protected_path_found" -eq 0 ]; then')
     for (const path of [
       ".github/workflows",
       "bun.lock",
@@ -963,6 +969,7 @@ describe("quality judges fail closed", () => {
       expect(workflow).toContain(path)
     }
     expect(workflow).not.toContain("ref: ${{ github.event.pull_request.head.sha }}")
+    expect(workflow).not.toContain("secrets.")
   })
 
   test("repository quality checks are single-instance and recover stale locks", () => {
