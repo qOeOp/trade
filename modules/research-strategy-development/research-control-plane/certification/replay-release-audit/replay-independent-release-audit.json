@@ -68,12 +68,12 @@
     {
       "role": "independent-auditor",
       "path": "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/src/lib/replay-independent-release-audit.ts",
-      "sha256": "7ebe5c0b0f5fb8b9031de902628dcc20a894716ace72da87b49f9dcfa26710f1"
+      "sha256": "c33eb8ce0aa9ae928d413502cfd9db23760111cd6a78dd67391446b40e7d2590"
     },
     {
       "role": "independent-auditor-test",
       "path": "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/src/lib/replay-independent-release-audit.test.ts",
-      "sha256": "cca0eaea60887af05d9257a24cff1e2e635eb8edddfa16a575e0110e986972b7"
+      "sha256": "9f0e479df0152bde426238985ed1d42e3f922d8dd8feb87c0b5390a244a904a6"
     },
     {
       "role": "maturity-gate-consumer",
@@ -117,5 +117,5 @@
     "audit-does-not-expand-public-profiles-or-simulator-semantics",
     "remote-distributed-store-shadow-live-and-real-account-evidence-out-of-scope"
   ],
-  "audit_manifest_sha256": "a2d0a933cc44540e2aa7ffbe2533eca9cb7adc59b9ec81b684fa14ed35be6c6b"
+  "audit_manifest_sha256": "e8ade2a9b29a0900f119cc609c805ac74259de2ef0c66a7c40b1469ae0e61fd2"
 }

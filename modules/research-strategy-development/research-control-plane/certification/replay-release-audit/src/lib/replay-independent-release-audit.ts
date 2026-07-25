@@ -478,16 +478,43 @@ export async function runReplayIndependentAuditCommand(
     detached: process.platform !== "win32",
   })
   let timedOut = false
-  let forceKill: ReturnType<typeof setTimeout> | undefined
+  let cleanupError: Error | undefined
+  let rejectCleanupFailure: (error: Error) => void = () => {}
+  const cleanupFailure = new Promise<never>((_resolve, reject) => {
+    rejectCleanupFailure = reject
+  })
   const timeout = setTimeout(() => {
     timedOut = true
-    signalAuditCommandTree(child.pid, "SIGTERM")
-    forceKill = setTimeout(() => signalAuditCommandTree(child.pid, "SIGKILL"), 1_000)
+    try {
+      signalAuditCommandTree(child.pid, "SIGKILL")
+    } catch (error) {
+      cleanupError = new Error(
+        `Replay independent audit process-group cleanup failed: ${command.role}`,
+        { cause: error },
+      )
+      try {
+        process.kill(child.pid, "SIGKILL")
+      } catch (fallbackError) {
+        rejectCleanupFailure(new Error(
+          `Replay independent audit direct-child cleanup failed: ${command.role}`,
+          { cause: fallbackError },
+        ))
+      }
+    }
   }, command.timeout_ms)
-  const exitCode = await child.exited
-  clearTimeout(timeout)
-  if (timedOut) signalAuditCommandTree(child.pid, "SIGKILL")
-  if (forceKill) clearTimeout(forceKill)
+  let exitCode: number
+  try {
+    exitCode = await Promise.race([child.exited, cleanupFailure])
+  } catch (error) {
+    cleanupOutput()
+    throw error
+  } finally {
+    clearTimeout(timeout)
+  }
+  if (cleanupError) {
+    cleanupOutput()
+    throw cleanupError
+  }
   const stdout = readFileSync(stdoutPath, "utf8")
   const stderr = readFileSync(stderrPath, "utf8")
   if (timedOut) {
@@ -509,13 +536,8 @@ export async function runReplayIndependentAuditCommand(
   return receipt
 }
 
-function signalAuditCommandTree(pid: number, signal: "SIGTERM" | "SIGKILL"): void {
-  try {
-    process.kill(process.platform === "win32" ? pid : -pid, signal)
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code
-    if (code !== "ESRCH") throw error
-  }
+function signalAuditCommandTree(pid: number, signal: "SIGKILL"): void {
+  process.kill(process.platform === "win32" ? pid : -pid, signal)
 }
 
 function readRepoSource(repoRoot: string, path: string): string {

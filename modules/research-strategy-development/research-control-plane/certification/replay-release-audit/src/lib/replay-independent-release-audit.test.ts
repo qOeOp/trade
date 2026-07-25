@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test"
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import {
   assertReplayIndependentReleaseAuditManifest,
   assertReplayIndependentReleaseAuditReceipt,
@@ -86,24 +89,140 @@ describe("Replay independent release audit", () => {
   })
 
   test("kills the complete command process group when an audit command times out", async () => {
+    const probeRoot = mkdtempSync(join(tmpdir(), "replay-release-audit-timeout-probe-"))
+    const descendantPidPath = join(probeRoot, "descendant.pid")
     const startedAt = Date.now()
-    const command = runReplayIndependentAuditCommand({
-      role: "timeout-process-tree-probe",
-      cwd: ".",
-      argv: [
-        "bun",
-        "-e",
-        `Bun.spawn(["bun", "-e", "await Bun.sleep(60_000)"], {
-          stdout: "inherit",
-          stderr: "inherit",
-        }); await Bun.sleep(60_000)`,
-      ],
-      timeout_ms: 50,
-    }, repoRoot)
+    try {
+      const command = runReplayIndependentAuditCommand({
+        role: "timeout-process-tree-probe",
+        cwd: ".",
+        argv: [
+          "bun",
+          "-e",
+          `Bun.spawn(["bun", "-e", ${JSON.stringify(
+            `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(descendantPidPath)}, String(process.pid)); await Bun.sleep(60_000)`,
+          )}], {
+            stdout: "inherit",
+            stderr: "inherit",
+          }); await Bun.sleep(60_000)`,
+        ],
+        timeout_ms: 250,
+      }, repoRoot)
 
-    await expect(command).rejects.toThrow(
-      "Replay independent audit command timed out: timeout-process-tree-probe",
+      await expect(command).rejects.toThrow(
+        "Replay independent audit command timed out: timeout-process-tree-probe",
+      )
+      expect(Date.now() - startedAt).toBeLessThan(2_000)
+      expect(existsSync(descendantPidPath)).toBe(true)
+      const descendantPid = Number(readFileSync(descendantPidPath, "utf8"))
+      await expectProcessToBeGone(descendantPid)
+    } finally {
+      rmSync(probeRoot, { recursive: true, force: true })
+    }
+  })
+
+  test("falls back to the direct child and cleans output after a process-group kill failure", async () => {
+    const originalKill = process.kill
+    const outputPrefix = "replay-release-audit-command-"
+    const outputRootsBefore = new Set(
+      readdirSync(tmpdir()).filter((name) => name.startsWith(outputPrefix)),
     )
-    expect(Date.now() - startedAt).toBeLessThan(2_000)
+    let directChildPid: number | undefined
+    let directChildSignal: string | number | undefined
+    const startedAt = Date.now()
+    try {
+      process.kill = ((pid, signal) => {
+        if (pid >= 0) {
+          directChildPid = pid
+          directChildSignal = signal
+          return originalKill(pid, signal)
+        }
+        const error = new Error("forced process-group kill failure") as NodeJS.ErrnoException
+        error.code = "EPERM"
+        throw error
+      }) as typeof process.kill
+      await expect(runReplayIndependentAuditCommand({
+        role: "timeout-process-group-kill-failure-probe",
+        cwd: ".",
+        argv: ["bun", "-e", "await Bun.sleep(500)"],
+        timeout_ms: 50,
+      }, repoRoot)).rejects.toThrow(
+        "Replay independent audit process-group cleanup failed: "
+          + "timeout-process-group-kill-failure-probe",
+      )
+    } finally {
+      process.kill = originalKill
+    }
+    expect(directChildPid).toBeGreaterThan(0)
+    expect(directChildSignal).toBe("SIGKILL")
+    expect(Date.now() - startedAt).toBeLessThan(250)
+    await expectProcessToBeGone(directChildPid!)
+    expect(readdirSync(tmpdir()).filter(
+      (name) => name.startsWith(outputPrefix) && !outputRootsBefore.has(name),
+    )).toEqual([])
+  })
+
+  test("rejects promptly and cleans output when the direct-child fallback also fails", async () => {
+    const originalKill = process.kill
+    const outputPrefix = "replay-release-audit-command-"
+    const outputRootsBefore = new Set(
+      readdirSync(tmpdir()).filter((name) => name.startsWith(outputPrefix)),
+    )
+    let directChildPid: number | undefined
+    const startedAt = Date.now()
+    try {
+      process.kill = ((pid, _signal) => {
+        if (pid > 0) directChildPid = pid
+        const error = new Error("forced cleanup failure") as NodeJS.ErrnoException
+        error.code = "EPERM"
+        throw error
+      }) as typeof process.kill
+      await expect(runReplayIndependentAuditCommand({
+        role: "timeout-direct-child-kill-failure-probe",
+        cwd: ".",
+        argv: ["bun", "-e", "await Bun.sleep(500)"],
+        timeout_ms: 50,
+      }, repoRoot)).rejects.toThrow(
+        "Replay independent audit direct-child cleanup failed: "
+          + "timeout-direct-child-kill-failure-probe",
+      )
+    } finally {
+      process.kill = originalKill
+      if (directChildPid !== undefined) {
+        try {
+          originalKill(directChildPid, "SIGKILL")
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error
+        }
+      }
+    }
+    expect(Date.now() - startedAt).toBeLessThan(250)
+    await expectProcessToBeGone(directChildPid!)
+    expect(readdirSync(tmpdir()).filter(
+      (name) => name.startsWith(outputPrefix) && !outputRootsBefore.has(name),
+    )).toEqual([])
   })
 })
+
+async function expectProcessToBeGone(pid: number): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      process.kill(pid, 0)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return
+      throw error
+    }
+    if (process.platform === "linux") {
+      try {
+        const stat = readFileSync(`/proc/${pid}/stat`, "utf8")
+        const commandEnd = stat.lastIndexOf(")")
+        if (commandEnd >= 0 && stat[commandEnd + 2] === "Z") return
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return
+        throw error
+      }
+    }
+    await Bun.sleep(10)
+  }
+  throw new Error(`timed-out Replay audit descendant is still alive: ${pid}`)
+}
