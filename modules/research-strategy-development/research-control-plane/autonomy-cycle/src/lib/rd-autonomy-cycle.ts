@@ -96,7 +96,7 @@ function nextTimestamp(expected: string, candidate: string): string {
 }
 
 function safeId(value: string): string {
-  const result = value.replace(/[^A-Za-z0-9._:-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 128)
+  const result = value.replace(/[^A-Za-z0-9._:-]+/g, "-").replace(/^-+/, "").replace(/-+$/, "").slice(0, 128)
   if (!result) throw new Error("autonomy identity is empty")
   return result
 }

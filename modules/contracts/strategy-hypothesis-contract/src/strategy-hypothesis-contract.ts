@@ -184,7 +184,8 @@ function stringField(value: unknown): string {
 }
 
 function safeID(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "strategy-hypothesis"
+  return value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+/, "").replace(/-+$/, "")
+    || "strategy-hypothesis"
 }
 
 export {

@@ -48,5 +48,5 @@ export function stringField(value: unknown): string {
 }
 
 export function safeID(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "rd-program"
+  return value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+/, "").replace(/-+$/, "") || "rd-program"
 }

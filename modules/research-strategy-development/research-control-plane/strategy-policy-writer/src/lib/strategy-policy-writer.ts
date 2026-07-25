@@ -201,7 +201,8 @@ function lintStrategyPolicyShape(markdown: string): StrategyPolicyShapeLintResul
   if (!/^---\n[\s\S]*?\n---\n/m.test(markdown)) errors.push("missing frontmatter block")
   if (!/## Trade Contract\n\n```yaml\n[\s\S]+?\n```/m.test(markdown)) errors.push("missing yaml Trade Contract block")
   if (!/live_permission:\s+draft_only/.test(markdown)) errors.push("Trade Contract proof.live_permission must be draft_only")
-  if (/timeframe:\s*4h/.test(markdown) && !/tags: \[[^\]]*4h/.test(markdown)) {
+  const tagsInclude4h = markdown.split("\n").some((line) => line.startsWith("tags: [") && line.includes("4h"))
+  if (/timeframe:\s*4h/.test(markdown) && !tagsInclude4h) {
     warnings.push("timeframe is 4h but frontmatter tags do not include 4h")
   }
   if (/not recorded/.test(markdown)) warnings.push("validation_run_ref is not recorded")
@@ -323,7 +324,9 @@ function strategyFamilyProfile(family: string, params: JSONRecord): StrategyFami
 }
 
 function strategyPolicySlug(value: string): string {
-  return safeFileName(value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "")) || "rd-strategy"
+  return safeFileName(
+    value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+/, "").replace(/-+$/, ""),
+  ) || "rd-strategy"
 }
 
 function strategyIDFromSlug(slug: string): string {
