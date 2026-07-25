@@ -102,4 +102,8 @@ When a covered GitHub PR lifecycle terminal is part of the frozen outcome, `comp
 
 After the terminal report, load and run [references/post-mission-review.md](references/post-mission-review.md) once. Audit learning rules by the same authority and oracle standard; never reopen the mission.
 
+The review remains read-only and ends the original mission. When it returns `candidate_proposed`, start at most one separate learning-proposal mission only if external standing authority already permits its exact effect ceiling. Consume the frozen handoff from the review; do not rediscover or widen it. A learning-proposal mission is non-recursive: its own post-mission review cannot launch another learning-proposal mission.
+
+The proposal mission must isolate candidate writes, preserve the pre-candidate oracles, compare old and new behavior on the frozen failing scenario, one valid-oracle control, and one different task shape, and use a fresh evaluator. Only after strict improvement and project gates pass may standing authority permit commit, push, and one Draft PR. It never permits Ready, merge, deployment, provider-setting changes, or external-authority changes. Without that prior authority, report the handoff and stop.
+
 For scheduled, hosted, or repeated execution, treat each invocation as an independent mission. Discover admission, isolation, concurrency, receipt, adoption, and retention rules. Cadence grants no deadline extension, retry, or new work.

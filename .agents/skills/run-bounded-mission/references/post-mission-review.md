@@ -56,7 +56,9 @@ The candidate cannot define acceptance, approve itself, or rewrite evidence. Ext
 Return exactly one learning outcome:
 
 - `no_change`: no generic defect or no strict improvement;
-- `candidate_proposed`: one bounded external proposal with evidence and instruction-surface delta;
-- `blocked`: required independent evidence or adoption authority is unavailable.
+- `candidate_proposed`: one bounded external proposal handoff with the source revision, replayable generic failure, frozen failing scenario, valid-oracle control, different task shape, minimum candidate scope and effect ceiling, available standing authority, and expected instruction, resource, default-context, and maintenance deltas;
+- `blocked`: evidence or authority required by the current requested terminal is unavailable; missing optional standing authority for a later proposal mission does not block a read-only `candidate_proposed` handoff.
+
+The review ends after emitting the outcome and never writes the candidate. A main context may consume a `candidate_proposed` handoff in one separate, non-recursive learning-proposal mission only when external standing authority already covers the exact effects. That mission must freeze the candidate, compare old and new behavior on all three scenarios, use a fresh evaluator, and satisfy project gates. Standing authority may allow commit, push, and one Draft PR; it does not imply Ready, merge, deployment, provider-setting changes, or external-authority changes. Without matching authority, preserve the handoff and stop.
 
 Improve by becoming clearer and more general, never by accumulating project history.
