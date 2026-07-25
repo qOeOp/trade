@@ -56,7 +56,7 @@ test("probe rejects cross-epoch, economic, stale, and request-contract drift", (
 test("probe input is bounded and closed to undeclared controls", () => {
   assert.throws(() => runL2CurrentBookProbe({ depth: 101 }), /depth must be/)
   assert.throws(() => runL2CurrentBookProbe({ max_freshness_ms: 2_001 }), /max_freshness_ms must be/)
-  assert.throws(() => runL2CurrentBookProbe({ endpoint: "http:\/\/remote" }), /unknown input field/)
+  assert.throws(() => runL2CurrentBookProbe({ endpoint: "http://remote" }), /unknown input field/)
 })
 
 test("probe requires exact registered owner response identities", () => {

@@ -199,7 +199,7 @@ function validateConfig(config: Config): void {
 }
 
 function normalizeSymbol(symbol: string): string {
-  return symbol.trim().toUpperCase().replace(/[\/:_\-\s]/g, "")
+  return symbol.trim().toUpperCase().replace(/[/:_\s-]/g, "")
 }
 
 function parseInteger(value: string, name: string): number {

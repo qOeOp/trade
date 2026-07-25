@@ -6,7 +6,7 @@ import type {
 import type { ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-execution-stdio-probe-admission"
 import { buildReplayWorkerV10SuccessorArtifactTransport } from "./replay-worker-v10-successor-artifact-transport-record"
 import { buildReplayWorkerV10SuccessorExecutionAdmission, buildReplayWorkerV10SuccessorExecutionContractAdmission } from "./replay-worker-v10-successor-execution-contract-records"
-import { readReplayWorkerV10SuccessorExecutionParent, rememberReplayWorkerV10SuccessorExecutionParent } from "./replay-worker-v10-successor-execution-contract-parent"
+import { assertReplayWorkerV10SuccessorExecutionParentStillAuthoritative, readReplayWorkerV10SuccessorExecutionParent } from "./replay-worker-v10-successor-execution-contract-parent"
 import { persistReplayWorkerV10SuccessorArtifactTransport, persistReplayWorkerV10SuccessorExecutionAdmission, persistReplayWorkerV10SuccessorExecutionContractAdmission, readReplayWorkerV10SuccessorArtifactTransportRecord, readReplayWorkerV10SuccessorExecutionAdmissionRecord, readReplayWorkerV10SuccessorExecutionContractAdmissionRecord, requireSameReplayWorkerV10SuccessorExecutionContractAdmission } from "./replay-worker-v10-successor-execution-contract-store"
 import type { ReplayWorkerV10SuccessorExecutionContractRegistryInput } from "./replay-worker-v10-successor-execution-contract-types"
 
@@ -17,7 +17,7 @@ export function readReplayWorkerV10SuccessorExecutionArtifactTransport(
 ): ReplayDecisionHarnessWorkerV10SuccessorExecutionArtifactTransportContract | null {
   const parent = readReplayWorkerV10SuccessorExecutionParent(input)
   const transport = readArtifactTransport(input.registry_root, parent.source, parent.file_sha256)
-  if (transport) rememberReplayWorkerV10SuccessorExecutionParent(parent)
+  if (transport) assertReplayWorkerV10SuccessorExecutionParentStillAuthoritative(parent)
   return transport
 }
 
@@ -29,7 +29,7 @@ export function readReplayWorkerV10SuccessorExecutionAdmission(
   const execution = transport
     ? readExecutionAdmission(input.registry_root, parent.source, parent.file_sha256, transport)
     : null
-  if (execution) rememberReplayWorkerV10SuccessorExecutionParent(parent)
+  if (execution) assertReplayWorkerV10SuccessorExecutionParentStillAuthoritative(parent)
   return execution
 }
 
@@ -74,10 +74,10 @@ export function registerReplayWorkerV10SuccessorExecutionContract(
         execution,
       ),
     )
-    rememberReplayWorkerV10SuccessorExecutionParent(parent)
+    assertReplayWorkerV10SuccessorExecutionParentStillAuthoritative(parent)
     return admission
   }
-  rememberReplayWorkerV10SuccessorExecutionParent(parent)
+  assertReplayWorkerV10SuccessorExecutionParentStillAuthoritative(parent)
   const transport = registerArtifactTransport(input.registry_root, source, parent.file_sha256)
   const execution = registerExecutionAdmission(
     input.registry_root,
@@ -122,7 +122,7 @@ export function readReplayWorkerV10SuccessorExecutionContract(
   )
   if (!value) return null
   const admission = requireSameReplayWorkerV10SuccessorExecutionContractAdmission(value, expected)
-  rememberReplayWorkerV10SuccessorExecutionParent(parent)
+  assertReplayWorkerV10SuccessorExecutionParentStillAuthoritative(parent)
   return admission
 }
 

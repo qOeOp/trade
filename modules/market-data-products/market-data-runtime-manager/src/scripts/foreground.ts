@@ -343,10 +343,10 @@ async function pruneExited(
     if (owner.child.exitCode == null && consumer.child.exitCode == null) continue
     try {
       await dependencies.drain(consumer)
-    } catch {}
+    } catch { /* continue draining the remaining resident processes */ }
     try {
       await dependencies.drain(owner)
-    } catch {}
+    } catch { /* continue draining the remaining resident processes */ }
     active.delete(serviceId)
   }
 }
@@ -359,10 +359,10 @@ async function drainAll(
   for (const pair of pairs) {
     try {
       await dependencies.drain(pair.consumer)
-    } catch {}
+    } catch { /* continue draining the remaining resident processes */ }
     try {
       await dependencies.drain(pair.owner)
-    } catch {}
+    } catch { /* continue draining the remaining resident processes */ }
   }
   active.clear()
 }

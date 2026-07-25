@@ -130,6 +130,7 @@ async function main(): Promise<void> {
       run(["bun", "scripts/architecture-drift-audit.ts", "--check"])
     }
     if (!plan.docsOnly) {
+      run(["bun", "run", "lint"])
       run(["bun", "scripts/check-ts-tool-boundaries.ts"])
       run(["bun", "scripts/check-package-tests.ts"])
       run(["bun", "scripts/check-duplication.ts"])
@@ -154,7 +155,7 @@ async function main(): Promise<void> {
 function runPackage(owner: ChangedPackage): void {
   log(`${owner.kind} ${owner.dir}`)
   if (owner.kind === "typescript") {
-    run(["bun", "run", "check"], owner.dir)
+    run(["bun", "scripts/check-package-tests.ts", "--run-package", owner.dir])
   } else if (owner.kind === "go") {
     run(["sh", resolve(ROOT, "scripts/check-go-format.sh"), resolve(ROOT, owner.dir)], owner.dir)
     run(["go", "test", "./..."], owner.dir)

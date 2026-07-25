@@ -17,7 +17,7 @@ interface ResourcePeak {
   maxCpuPercent: number
 }
 
-interface StableRecoveryResult extends Omit<SegmentRecoveryResult, "implementation" | "elapsed_ns"> {}
+type StableRecoveryResult = Omit<SegmentRecoveryResult, "implementation" | "elapsed_ns">
 
 const moduleRoot = process.cwd()
 const repositoryRoot = resolve(moduleRoot, "../../..")

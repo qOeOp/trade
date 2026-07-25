@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync } from "node:fs"
+import { existsSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
@@ -7,9 +7,10 @@ import { parseArgs, run } from "./main"
 
 test("policy registry CLI records snapshot and lists approved refs", () => {
   const dir = mkdtempSync(join(tmpdir(), "policy-registry-"))
-  const dbPath = join(dir, "policy.db")
+  const dbPath = join(dir, "nested", "policy.db")
   try {
     run(parseArgs(["--db", dbPath, "--action", "init"]))
+    assert.equal(existsSync(dbPath), true)
     run(parseArgs([
       "--db",
       dbPath,
@@ -46,4 +47,3 @@ test("policy registry CLI records snapshot and lists approved refs", () => {
     rmSync(dir, { recursive: true, force: true })
   }
 })
-

@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 
+import { mkdirSync } from "node:fs"
+import { dirname } from "node:path"
 import { Database } from "bun:sqlite"
 import {
   authorizeCompiledRuntimePolicy,
@@ -23,6 +25,7 @@ export function parseArgs(argv: string[]): Args {
 }
 
 export function run(args: Args): JSONRecord {
+  mkdirSync(dirname(args.dbPath), { recursive: true })
   const db = new Database(args.dbPath)
   try {
     ensureDatabaseIdentity(db, buildDatabaseIdentity(args.environmentId, "policy_registry"), { allowLegacyMigration: args.migrateIdentity })

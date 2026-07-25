@@ -365,42 +365,74 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("historical Artifact reader export is missing")
   })
 
-  test("package tests cannot report success for an empty suite", () => {
+  test("production TypeScript packages require colocated tests", () => {
     const root = temporaryRoot()
-    write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({
-      scripts: {
-        test: "bun run test:unit",
-        "test:unit": "if find src -name '*.test.ts' -type f | grep -q .; then bun test ./src/**/*.test.ts; else printf 'test: no test files\\n'; fi",
-      },
-    }))
+    write(root, "modules/domain-a/tool-a/package.json", "{}\n")
+    write(root, "modules/domain-a/tool-a/tsconfig.json", "{}\n")
     write(root, "modules/domain-a/tool-a/src/main.ts", "export const value = true\n")
 
     const result = runJudge("check-package-tests.ts", root)
 
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain("has no colocated test file")
-    expect(result.stderr).toContain("no empty-suite fallback is allowed")
   })
 
-  test("package checks cannot be missing or no-op", () => {
-    for (const check of [undefined, "true"]) {
-      const root = temporaryRoot()
-      write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({
-        scripts: {
-          typecheck: "tsc --noEmit",
-          test: "bun test ./src/main.test.ts",
-          ...(check === undefined ? {} : { check }),
-        },
-      }))
-      write(root, "modules/domain-a/tool-a/src/main.ts", "export const value = true\n")
-      write(root, "modules/domain-a/tool-a/src/main.test.ts", "export {}\n")
+  test("direct package execution ignores no-op scripts and observes compiler and test outcomes", () => {
+    const root = temporaryRoot()
+    symlinkSync(join(repoRoot, "node_modules"), join(root, "node_modules"), "dir")
+    write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({
+      scripts: {
+        test: "bun test --only",
+        check: "true || bun test ./src/main.test.ts # && tsc --noEmit",
+      },
+    }))
+    write(root, "modules/domain-a/tool-a/tsconfig.json", JSON.stringify({
+      compilerOptions: { strict: true, skipLibCheck: true, types: ["bun"] },
+      include: ["src/**/*.ts"],
+    }))
+    write(root, "modules/domain-a/tool-a/src/main.ts", "export const value: string = 1\n")
+    write(root, "modules/domain-a/tool-a/src/main.test.ts", [
+      'import { expect, test } from "bun:test"',
+      'test("fixture", () => expect(true).toBe(true))',
+      "",
+    ].join("\n"))
 
-      const result = runJudge("check-package-tests.ts", root)
+    const typeFailure = runJudge(
+      "check-package-tests.ts",
+      root,
+      ["--run-package", "modules/domain-a/tool-a"],
+    )
+    expect(typeFailure.exitCode).toBe(1)
+    expect(`${typeFailure.stdout}\n${typeFailure.stderr}`).toContain(
+      "Type 'number' is not assignable to type 'string'",
+    )
 
-      expect(result.exitCode).toBe(1)
-      expect(result.stderr).toContain("scripts.check must execute package tests")
-      expect(result.stderr).toContain("scripts.check must execute TypeScript with --noEmit")
-    }
+    write(root, "modules/domain-a/tool-a/src/main.ts", 'export const value = "valid"\n')
+    write(root, "modules/domain-a/tool-a/src/main.test.ts", [
+      'import { expect, test } from "bun:test"',
+      'test("fixture", () => expect(false).toBe(true))',
+      "",
+    ].join("\n"))
+    const testFailure = runJudge(
+      "check-package-tests.ts",
+      root,
+      ["--run-package", "modules/domain-a/tool-a"],
+    )
+    expect(testFailure.exitCode).toBe(1)
+    expect(`${testFailure.stdout}\n${testFailure.stderr}`).toContain("1 fail")
+
+    write(root, "modules/domain-a/tool-a/src/main.test.ts", [
+      'import { expect, test } from "bun:test"',
+      'test("fixture", () => expect(true).toBe(true))',
+      "",
+    ].join("\n"))
+    const pass = runJudge(
+      "check-package-tests.ts",
+      root,
+      ["--run-package", "modules/domain-a/tool-a"],
+    )
+    expect(pass.exitCode).toBe(0)
+    expect(pass.stdout).toContain("compiled and tested 1 TypeScript packages directly")
   })
 
   test("document contracts reject an invented current status even when the index agrees", () => {
@@ -674,17 +706,131 @@ describe("quality judges fail closed", () => {
 
   test("package tests cannot omit a colocated test file", () => {
     const root = temporaryRoot()
+    symlinkSync(join(repoRoot, "node_modules"), join(root, "node_modules"), "dir")
     write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({
       scripts: { test: "bun test ./src/covered.test.ts" },
     }))
+    write(root, "modules/domain-a/tool-a/tsconfig.json", JSON.stringify({
+      compilerOptions: { strict: true, skipLibCheck: true, types: ["bun"] },
+      include: ["src/**/*.ts"],
+    }))
     write(root, "modules/domain-a/tool-a/src/main.ts", "export const value = true\n")
-    write(root, "modules/domain-a/tool-a/src/covered.test.ts", "export {}\n")
-    write(root, "modules/domain-a/tool-a/src/omitted.test.ts", "export {}\n")
+    write(root, "modules/domain-a/tool-a/src/covered.test.ts", [
+      'import { expect, test } from "bun:test"',
+      'test("covered", () => expect(true).toBe(true))',
+      "",
+    ].join("\n"))
+    write(root, "modules/domain-a/tool-a/src/omitted.test.ts", [
+      'import { expect, test } from "bun:test"',
+      'test("omitted", () => expect(false).toBe(true))',
+      "",
+    ].join("\n"))
 
-    const result = runJudge("check-package-tests.ts", root)
+    const result = runJudge(
+      "check-package-tests.ts",
+      root,
+      ["--run-package", "modules/domain-a/tool-a"],
+    )
 
     expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain("scripts.test does not cover src/omitted.test.ts")
+    expect(`${result.stdout}\n${result.stderr}`).toContain("omitted.test.ts")
+  })
+
+  test("Replay package isolation cannot omit a colocated test file", () => {
+    const root = temporaryRoot()
+    const packageDir =
+      "modules/research-strategy-development/replay-execution-plane/runner"
+    symlinkSync(join(repoRoot, "node_modules"), join(root, "node_modules"), "dir")
+    write(root, `${packageDir}/package.json`, JSON.stringify({
+      scripts: { "test:remaining": "bun test ./src/lib/covered.test.ts" },
+    }))
+    write(root, `${packageDir}/tsconfig.json`, JSON.stringify({
+      compilerOptions: { strict: true, skipLibCheck: true, types: ["bun"] },
+      include: ["src/**/*.ts"],
+    }))
+    write(root, `${packageDir}/src/lib/main.ts`, "export const value = true\n")
+    write(root, `${packageDir}/src/lib/covered.test.ts`, [
+      'import { expect, test } from "bun:test"',
+      'test("covered", () => expect(true).toBe(true))',
+      "",
+    ].join("\n"))
+    write(root, `${packageDir}/src/lib/omitted.test.ts`, [
+      'import { expect, test } from "bun:test"',
+      "test(",
+      '  "protective-stop cancel releases admission risk only after full-flat and rolls four committed cycles",',
+      "  () => expect(false).toBe(true),",
+      ")",
+      "",
+    ].join("\n"))
+    write(root, `${packageDir}/src/lib/replay-decision-worker-input-assembly-v4.test.ts`, [
+      'import { expect, test } from "bun:test"',
+      'test("semantic worker", () => expect(true).toBe(true))',
+      "",
+    ].join("\n"))
+    write(root, `${packageDir}/src/lib/replay-independent-lane-batch-runner.test.ts`, [
+      'import { expect, test } from "bun:test"',
+      "test(",
+      '  "protective-stop cancel releases admission risk only after full-flat and rolls four committed cycles",',
+      "  () => expect(true).toBe(true),",
+      ")",
+      "",
+    ].join("\n"))
+
+    const result = runJudge(
+      "check-package-tests.ts",
+      root,
+      ["--run-package", packageDir],
+    )
+
+    expect(result.exitCode).toBe(1)
+    expect(`${result.stdout}\n${result.stderr}`).toContain("omitted.test.ts")
+  })
+
+  test("package test shards are complete and mutually exclusive", () => {
+    const root = temporaryRoot()
+    symlinkSync(join(repoRoot, "node_modules"), join(root, "node_modules"), "dir")
+    for (const name of ["tool-a", "tool-b"]) {
+      write(root, `modules/domain-a/${name}/package.json`, JSON.stringify({ name, private: true }))
+      write(root, `modules/domain-a/${name}/tsconfig.json`, JSON.stringify({
+        compilerOptions: { strict: true, skipLibCheck: true, types: ["bun"] },
+        include: ["src/**/*.ts"],
+      }))
+      write(root, `modules/domain-a/${name}/src/main.ts`, `export const value = ${JSON.stringify(name)}\n`)
+      write(root, `modules/domain-a/${name}/src/main.test.ts`, [
+        'import { expect, test } from "bun:test"',
+        `test(${JSON.stringify(name)}, () => expect(true).toBe(true))`,
+        "",
+      ].join("\n"))
+    }
+
+    const first = runJudge("check-package-tests.ts", root, ["--run-shard", "0/2"])
+    const second = runJudge("check-package-tests.ts", root, ["--run-shard", "1/2"])
+
+    expect(first.exitCode).toBe(0)
+    expect(second.exitCode).toBe(0)
+    expect(first.stdout).toContain("package-test: modules/domain-a/tool-a")
+    expect(first.stdout).not.toContain("package-test: modules/domain-a/tool-b")
+    expect(second.stdout).toContain("package-test: modules/domain-a/tool-b")
+    expect(second.stdout).not.toContain("package-test: modules/domain-a/tool-a")
+  })
+
+  test("ESLint rejects a TypeScript error with zero-warning policy", () => {
+    const result = runCommand(
+      [
+        join(repoRoot, "node_modules", ".bin", "eslint"),
+        "--max-warnings",
+        "0",
+        "--stdin",
+        "--stdin-filename",
+        "modules/quality-judge.ts",
+      ],
+      repoRoot,
+      {},
+      "const unsafe: any = 1\nconsole.log(unsafe)\n",
+    )
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).toContain("@typescript-eslint/no-explicit-any")
   })
 
   test("duplication judge includes test code and permits zero clones", () => {
@@ -732,6 +878,10 @@ describe("quality judges fail closed", () => {
     ]) {
       expect(scripts[name]).toContain("run-exclusive-test.sh replay-runner-heavyweight")
     }
+    const semantic = readFileSync(join(repoRoot, "scripts/check-replay-semantic.sh"), "utf8")
+    expect(semantic).toContain("REPLAY_TEST_PROFILE=1")
+    expect(semantic).toContain("replay-decision-worker-input-assembly-v4.test.ts")
+    expect(semantic).not.toContain("bun run test:worker-v10")
   })
 
   test("Go formatting rejects an unformatted file instead of swallowing gofmt errors", () => {
@@ -746,18 +896,27 @@ describe("quality judges fail closed", () => {
 
   test("repository dependencies are installed before quality judges run", () => {
     const script = readFileSync(join(repoRoot, "scripts/quality-check.sh"), "utf8")
+    const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as {
+      scripts: Record<string, string>
+    }
 
     expect(script).toContain([
-      "check_dependencies",
-      "check_project_hygiene",
-      "check_shell",
-      "check_helpers",
-      "check_secrets",
-      "check_toolset_manifest",
+      "  check_project_hygiene",
+      "  check_shell",
+      "  check_helpers",
+      "  check_secrets",
+      "  check_lint",
+      "  check_toolset_manifest",
     ].join("\n"))
-    expect(script.match(/bun install --frozen-lockfile/g)).toHaveLength(1)
-    expect(script).not.toContain(`grep -q '"check"'`)
-    expect(script).toContain('(cd "$dir" && bun run check)')
+    expect(script.match(/bun ci/g)).toHaveLength(1)
+    expect(script).toContain("bun scripts/check-package-tests.ts --run-all")
+    expect(script).toContain('bun scripts/check-package-tests.ts --run-shard "$QUALITY_TS_SHARD"')
+    expect(script).toContain("git ls-files --cached --others --exclude-standard -- '*.sh'")
+    expect(packageJson.scripts["lint:shell"]).toContain(
+      "git ls-files --cached --others --exclude-standard -z -- '*.sh'",
+    )
+    expect(packageJson.scripts["lint:shell"]).not.toContain("scripts/*.sh")
+    expect(script).not.toContain("bun run check")
     expect(script).toContain('git diff --no-renames --check "$QUALITY_DIFF_BASE"...HEAD')
     expect(script).toContain("git diff --no-renames --check HEAD")
   })
@@ -769,6 +928,41 @@ describe("quality judges fail closed", () => {
     expect(workflow).toContain(
       "QUALITY_DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}",
     )
+    expect(workflow).toContain("shard: [0, 1]")
+    expect(workflow).toContain("if: ${{ always() }}")
+    for (const result of [
+      "needs.policy.result",
+      "needs.typescript.result",
+      "needs.replay.result",
+      "needs.native.result",
+    ]) {
+      expect(workflow).toContain(result)
+    }
+  })
+
+  test("trusted quality authority never executes candidate-owned gate definitions", () => {
+    const workflow = readFileSync(
+      join(repoRoot, ".github/workflows/quality-authority.yml"),
+      "utf8",
+    )
+
+    expect(workflow).toContain("pull_request_target:")
+    expect(workflow).toContain("ref: ${{ github.event.pull_request.base.sha }}")
+    expect(workflow).toContain('git fetch --no-tags --depth=1 origin "refs/pull/${PR_NUMBER}/head"')
+    expect(workflow).toContain(
+      'git diff --no-ext-diff --name-only -z "$PR_BASE_SHA" "$PR_HEAD_SHA"',
+    )
+    for (const path of [
+      ".github/workflows",
+      "bun.lock",
+      "docs/engineering/convergence-baseline.json",
+      "eslint.config.mjs",
+      "package.json",
+      "scripts",
+    ]) {
+      expect(workflow).toContain(path)
+    }
+    expect(workflow).not.toContain("ref: ${{ github.event.pull_request.head.sha }}")
   })
 
   test("repository quality checks are single-instance and recover stale locks", () => {
@@ -882,11 +1076,13 @@ function runCommand(
   cmd: string[],
   cwd: string,
   env: Record<string, string> = {},
+  stdin?: string,
 ): { exitCode: number; stdout: string; stderr: string } {
   const result = Bun.spawnSync({
     cmd,
     cwd,
     env: { ...process.env, ...env },
+    stdin: stdin === undefined ? "ignore" : new TextEncoder().encode(stdin),
     stdout: "pipe",
     stderr: "pipe",
   })

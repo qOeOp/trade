@@ -60,7 +60,7 @@ function parseArgs(argv: string[]): Config {
       case "--forward-holdout":
         break
       case "--help":
-        exitWithHelp()
+        return exitWithHelp()
       default:
         throw new Error(`unknown flag: ${arg}`)
     }

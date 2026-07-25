@@ -167,7 +167,9 @@ test("selection validation cannot authorize shadow", () => {
   const strategyPath = writeStrategy(dir, "draft", "Rule v1")
   const ledgerPath = join(dir, "strategy-evidence.jsonl")
   const replay = positiveReplay(dir)
-  const assumptions = structuredClone(replay.assumptions) as Record<string, any>
+  const assumptions = structuredClone(replay.assumptions) as typeof replay.assumptions & {
+    anti_overfit: { stage: string }
+  }
   assumptions.anti_overfit.stage = "selection_validation"
   appendReplayEvidence({ strategyPath, ledgerPath, replayResult: replayWithAssumptions(dir, assumptions) })
 
@@ -181,7 +183,7 @@ test("strategy promote blocks replay qualification failures", () => {
   const strategyPath = writeStrategy(dir, "draft", "Rule v1")
   const ledgerPath = join(dir, "strategy-evidence.jsonl")
   const replay = positiveReplay(dir)
-  const assumptions = structuredClone(replay.assumptions) as Record<string, any>
+  const assumptions = structuredClone(replay.assumptions)
   assumptions.funding_event_coverage = { status: "partial", event_count: 3 }
   appendReplayEvidence({
     strategyPath,

@@ -465,7 +465,7 @@ test("program shadow supervisor returns a bounded blocked result while SQLite st
   } finally {
     try {
       blocker.run("ROLLBACK")
-    } catch {}
+    } catch { /* fixture cleanup is best-effort */ }
     blocker.close()
     fixture.close()
   }

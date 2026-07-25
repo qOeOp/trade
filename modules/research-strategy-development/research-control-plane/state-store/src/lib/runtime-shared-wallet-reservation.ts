@@ -69,11 +69,11 @@ export interface IssueReplayRuntimeSharedWalletLifecycleReservationInput {
   }>
 }
 
-export interface IssueReplayRuntimeSharedWalletFundingReservationInput
-  extends IssueReplayRuntimeSharedWalletLifecycleReservationInput {}
+export type IssueReplayRuntimeSharedWalletFundingReservationInput =
+  IssueReplayRuntimeSharedWalletLifecycleReservationInput
 
-export interface IssueReplayRuntimeSharedWalletRiskReservationInput
-  extends IssueReplayRuntimeSharedWalletLifecycleReservationInput {}
+export type IssueReplayRuntimeSharedWalletRiskReservationInput =
+  IssueReplayRuntimeSharedWalletLifecycleReservationInput
 
 export interface IssueReplayPortfolioAllocationReservationInput
   extends Omit<IssueReplayRuntimeSharedWalletLifecycleReservationInput, "lanes"> {

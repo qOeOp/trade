@@ -209,7 +209,7 @@ function buildMermaid(): string {
   const lines: string[] = []
   lines.push("flowchart LR")
   lines.push("  blueprint[\"Blueprint: architecture-overview-v2.mmd\"]")
-  lines.push(`  generated[\"Generated from code + manifest\\nblueprint ${blueprintHash.slice(0, 12)}\"]`)
+  lines.push(`  generated["Generated from code + manifest\\nblueprint ${blueprintHash.slice(0, 12)}"]`)
   lines.push("  blueprint -. compare .- generated")
   for (const domain of domains) {
     const domainNode = domainId(domain.id)

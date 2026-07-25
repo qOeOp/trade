@@ -6,7 +6,6 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs"
-import { join } from "node:path"
 import { expect, test } from "bun:test"
 import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
 import { resolveRepoPath } from "../../../../../contracts/runtime-core/src/paths"

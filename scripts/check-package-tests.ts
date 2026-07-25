@@ -1,43 +1,17 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs"
+import { existsSync, readdirSync } from "node:fs"
 import { dirname, join, relative } from "node:path"
 
-const root = process.cwd()
-const modulesRoot = join(root, "modules")
-const violations: string[] = []
-
-for (const packagePath of findFiles(modulesRoot, "package.json")) {
-  const packageDir = dirname(packagePath)
-  const sourceDir = join(packageDir, "src")
-  if (!existsSync(sourceDir)) continue
-  const sourceFiles = findTypeScript(sourceDir).filter((path) => !isTest(path) && !path.endsWith(".d.ts"))
-  if (sourceFiles.length === 0) continue
-
-  const label = relative(root, packageDir)
-  const testFiles = findTypeScript(sourceDir).filter(isTest)
-  if (testFiles.length === 0) violations.push(`${label}: production TypeScript has no colocated test file`)
-
-  const manifest = JSON.parse(readFileSync(packagePath, "utf8")) as {
-    scripts?: Record<string, unknown>
-  }
-  const scripts = manifest.scripts ?? {}
-  if (!scriptExecutesBunTest(scripts, "test")) violations.push(`${label}: scripts.test must execute bun test`)
-  if (scriptGraphContains(scripts, "test", /no test files|if\s+find\s+src/i)) {
-    violations.push(`${label}: scripts.test must fail closed; no empty-suite fallback is allowed`)
-  }
-  if (!scriptExecutesBunTest(scripts, "check")) {
-    violations.push(`${label}: scripts.check must execute package tests`)
-  }
-  if (!scriptGraphContains(scripts, "check", /\btsc\b[^;&|]*--noEmit\b/)) {
-    violations.push(`${label}: scripts.check must execute TypeScript with --noEmit`)
-  }
-  const testCommands = reachableScriptCommands(scripts, "test")
-  for (const testFile of testFiles) {
-    const relativeTestFile = relative(packageDir, testFile).replace(/\\/g, "/")
-    if (!testCommands.some((command) => bunTestCommandCovers(command, relativeTestFile))) {
-      violations.push(`${label}: scripts.test does not cover ${relativeTestFile}`)
-    }
-  }
+interface TypeScriptPackage {
+  dir: string
+  label: string
+  testFiles: string[]
 }
+
+const root = process.cwd()
+const violations: string[] = []
+const packages = findFiles(join(root, "modules"), "package.json")
+  .flatMap(inspectPackage)
+  .sort((left, right) => left.label.localeCompare(right.label))
 
 if (violations.length > 0) {
   console.error("package-test judge rejected the repository:")
@@ -45,7 +19,140 @@ if (violations.length > 0) {
   process.exit(1)
 }
 
-console.log("package-test judge: every TypeScript package has executable colocated tests")
+const [mode, requestedTarget, extra] = process.argv.slice(2)
+if (extra || (mode && !["--run-all", "--run-package", "--run-shard"].includes(mode))) {
+  throw new Error(`unsupported package-test argument: ${process.argv.slice(2).join(" ")}`)
+}
+if (mode === "--run-package" && !requestedTarget) {
+  throw new Error("--run-package requires a repository-relative package path")
+}
+if (mode === "--run-shard" && !requestedTarget) {
+  throw new Error("--run-shard requires <zero-based-index>/<count>")
+}
+
+const selected = mode === "--run-all"
+  ? packages
+  : mode === "--run-package"
+    ? packages.filter((item) => item.label === normalizePath(requestedTarget!))
+    : mode === "--run-shard"
+      ? selectShard(packages, requestedTarget!)
+      : []
+if (mode === "--run-package" && selected.length !== 1) {
+  throw new Error(`unknown production TypeScript package: ${requestedTarget}`)
+}
+for (const packageInfo of selected) runPackage(packageInfo)
+
+console.log(mode
+  ? `package-test judge: compiled and tested ${selected.length} TypeScript packages directly`
+  : `package-test judge: ${packages.length} TypeScript packages have colocated tests`)
+
+function inspectPackage(packagePath: string): TypeScriptPackage[] {
+  const packageDir = dirname(packagePath)
+  const sourceDir = join(packageDir, "src")
+  if (!existsSync(sourceDir)) return []
+  const sourceFiles = findTypeScript(sourceDir).filter((path) => !isTest(path) && !path.endsWith(".d.ts"))
+  if (sourceFiles.length === 0) return []
+
+  const label = relative(root, packageDir).replaceAll("\\", "/")
+  const testFiles = findTypeScript(sourceDir).filter(isTest).sort()
+  if (!existsSync(join(packageDir, "tsconfig.json"))) {
+    violations.push(`${label}: production TypeScript has no tsconfig.json`)
+  }
+  if (testFiles.length === 0) {
+    violations.push(`${label}: production TypeScript has no colocated test file`)
+  }
+  return [{ dir: packageDir, label, testFiles }]
+}
+
+function runPackage(packageInfo: TypeScriptPackage): void {
+  console.log(`package-test: ${packageInfo.label}`)
+  run([
+    join(root, "node_modules", ".bin", "tsc"),
+    "--noEmit",
+    "--project",
+    join(packageInfo.dir, "tsconfig.json"),
+  ], root)
+
+  const workerPath = join(
+    root,
+    "modules/research-strategy-development/replay-execution-plane/runner",
+    "src/lib/replay-decision-worker-input-assembly-v4.test.ts",
+  )
+  let commands = [[
+    "bun",
+    "test",
+    ...packageInfo.testFiles.map((path) => relative(packageInfo.dir, path).replaceAll("\\", "/")),
+  ]]
+  if (packageInfo.label === "modules/research-strategy-development/replay-execution-plane/runner") {
+    if (!packageInfo.testFiles.includes(workerPath)) {
+      throw new Error(`Replay semantic-owned worker test is missing: ${relative(root, workerPath)}`)
+    }
+    const protectiveStopPath = join(
+      packageInfo.dir,
+      "src/lib/replay-independent-lane-batch-runner.test.ts",
+    )
+    if (!packageInfo.testFiles.includes(protectiveStopPath)) {
+      throw new Error(`Replay isolated protective-stop test is missing: ${relative(root, protectiveStopPath)}`)
+    }
+    const remainingTests = packageInfo.testFiles.filter((path) => path !== workerPath)
+    if (remainingTests.length === 0) throw new Error("Replay runner has no non-semantic package tests")
+    const otherRemainingTests = remainingTests.filter((path) => path !== protectiveStopPath)
+    if (otherRemainingTests.length === 0) throw new Error("Replay runner has no tests outside its isolated file")
+    const exclusivePrefix = [
+      "sh",
+      join(root, "scripts/run-exclusive-test.sh"),
+      "replay-runner-heavyweight",
+      "bun",
+      "test",
+    ]
+    const protectiveStopTest =
+      "protective-stop cancel releases admission risk only after full-flat and rolls four committed cycles"
+    commands = [
+      [
+        ...exclusivePrefix,
+        ...otherRemainingTests.map((path) =>
+          relative(packageInfo.dir, path).replaceAll("\\", "/")),
+      ],
+      [
+        ...exclusivePrefix,
+        relative(packageInfo.dir, protectiveStopPath).replaceAll("\\", "/"),
+        "--test-name-pattern",
+        `^(?!${protectiveStopTest}$).*`,
+      ],
+      [
+        ...exclusivePrefix,
+        relative(packageInfo.dir, protectiveStopPath).replaceAll("\\", "/"),
+        "--test-name-pattern",
+        `^${protectiveStopTest}$`,
+      ],
+    ]
+  }
+  for (const command of commands) {
+    const output = run(command, packageInfo.dir)
+    const counts = [...output.matchAll(/Ran (\d+) tests? across/g)].map((match) => Number(match[1]))
+    if (counts.length === 0 || counts.at(-1) === 0) {
+      throw new Error(`${packageInfo.label}: direct Bun test execution ran zero tests`)
+    }
+  }
+}
+
+function run(command: string[], cwd: string): string {
+  const result = Bun.spawnSync(command, {
+    cwd,
+    env: process.env,
+    stdin: "inherit",
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  const stdout = result.stdout.toString()
+  const stderr = result.stderr.toString()
+  process.stdout.write(stdout)
+  process.stderr.write(stderr)
+  if (result.exitCode !== 0) {
+    throw new Error(`command failed (${result.exitCode}): ${command.join(" ")}`)
+  }
+  return `${stdout}\n${stderr}`
+}
 
 function findFiles(directory: string, name: string): string[] {
   if (!existsSync(directory)) return []
@@ -69,67 +176,17 @@ function isTest(path: string): boolean {
   return /\.(test|spec)\.[cm]?tsx?$/.test(path)
 }
 
-function scriptExecutesBunTest(
-  scripts: Record<string, unknown>,
-  name: string,
-  visited = new Set<string>(),
-): boolean {
-  if (visited.has(name)) return false
-  visited.add(name)
-  const command = typeof scripts[name] === "string" ? scripts[name] : ""
-  if (/\bbun\s+test\b/.test(command)) return true
-  const references = [...command.matchAll(/\bbun\s+run\s+([a-zA-Z0-9:_-]+)/g)]
-    .map((match) => match[1])
-  return references.some((reference) => scriptExecutesBunTest(scripts, reference, new Set(visited)))
+function normalizePath(value: string): string {
+  return value.replaceAll("\\", "/").replace(/^\.\//, "").replace(/\/$/, "")
 }
 
-function scriptGraphContains(
-  scripts: Record<string, unknown>,
-  name: string,
-  pattern: RegExp,
-  visited = new Set<string>(),
-): boolean {
-  if (visited.has(name)) return false
-  visited.add(name)
-  const command = typeof scripts[name] === "string" ? scripts[name] : ""
-  if (pattern.test(command)) return true
-  return [...command.matchAll(/\bbun\s+run\s+([a-zA-Z0-9:_-]+)/g)]
-    .map((match) => match[1])
-    .some((reference) => scriptGraphContains(scripts, reference, pattern, new Set(visited)))
-}
-
-function reachableScriptCommands(
-  scripts: Record<string, unknown>,
-  name: string,
-  visited = new Set<string>(),
-): string[] {
-  if (visited.has(name)) return []
-  visited.add(name)
-  const command = typeof scripts[name] === "string" ? scripts[name] : ""
-  const references = [...command.matchAll(/\bbun\s+run\s+([a-zA-Z0-9:_-]+)/g)]
-    .map((match) => match[1])
-  return [
-    command,
-    ...references.flatMap((reference) => reachableScriptCommands(scripts, reference, visited)),
-  ]
-}
-
-function bunTestCommandCovers(command: string, testFile: string): boolean {
-  for (const match of command.matchAll(/\bbun\s+test\b([^;&|]*)/g)) {
-    const args = (match[1] ?? "")
-      .trim()
-      .split(/\s+/)
-      .map((value) => value.replace(/^["']|["']$/g, ""))
-      .filter(Boolean)
-    const paths = args
-      .filter((value) => !value.startsWith("-"))
-      .map((value) => value.replace(/^\.\//, "").replace(/\\/g, "/"))
-    if (paths.length === 0) return true
-    for (const path of paths) {
-      if (path === testFile) return true
-      if (!/[?*[]/.test(path) && testFile.startsWith(`${path.replace(/\/$/, "")}/`)) return true
-      if (/[?*[]/.test(path) && new Bun.Glob(path).match(testFile)) return true
-    }
+function selectShard(items: TypeScriptPackage[], value: string): TypeScriptPackage[] {
+  const match = /^(\d+)\/(\d+)$/.exec(value)
+  if (!match) throw new Error("--run-shard requires <zero-based-index>/<count>")
+  const index = Number(match[1])
+  const count = Number(match[2])
+  if (!Number.isSafeInteger(index) || !Number.isSafeInteger(count) || count < 1 || index >= count) {
+    throw new Error(`invalid package-test shard: ${value}`)
   }
-  return false
+  return items.filter((_, itemIndex) => itemIndex % count === index)
 }
