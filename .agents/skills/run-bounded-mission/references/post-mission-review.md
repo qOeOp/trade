@@ -49,13 +49,13 @@ Only a separately admitted learning-proposal mission may write and freeze the ca
 
 Use a fresh evaluator that has not seen the edit rationale. Preserve task, trajectory, verdict, and bounded cost evidence. Reject candidates that improve only a proxy, change the oracle, specialize the package, hide growth by moving text, or lack strict improvement.
 
-The candidate cannot define acceptance, approve itself, or rewrite evidence. External adoption affects only later missions.
+The candidate cannot define acceptance, approve itself, or rewrite evidence. If strict improvement is absent, reject the candidate and end the proposal mission without publication; do not reinterpret the source review outcome. External adoption affects only later missions.
 
 ## Output
 
 Return exactly one learning outcome:
 
-- `no_change`: no generic defect or no strict improvement;
+- `no_change`: no generic defect;
 - `candidate_proposed`: one bounded external proposal handoff with the source revision, replayable generic failure, frozen failing scenario, valid-oracle control, different task shape, minimum candidate scope and effect ceiling, available standing authority, and expected instruction, resource, default-context, and maintenance deltas;
 - `blocked`: evidence or authority required by the current requested terminal is unavailable; missing optional standing authority for a later proposal mission does not block a read-only `candidate_proposed` handoff.
 
