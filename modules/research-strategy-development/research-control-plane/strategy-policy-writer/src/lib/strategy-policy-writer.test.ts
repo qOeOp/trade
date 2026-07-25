@@ -54,6 +54,16 @@ test("strategy policy shape lint rejects thin or placeholder policies", () => {
   assert.ok(result.errors.some((error) => error.includes("TODO")))
 })
 
+test("strategy policy 4h tag lint preserves the bracket-bounded search semantics", () => {
+  const warnings = (markdown: string) => lintStrategyPolicyShape(markdown).warnings
+  assert.deepEqual(warnings("prefix tags: [4h]\ntimeframe: 4h"), [])
+  assert.deepEqual(warnings(" tags: [4h]\ntimeframe: 4h"), [])
+  assert.deepEqual(warnings("tags: [x\n4h]\ntimeframe: 4h"), [])
+  assert.deepEqual(warnings("tags: [] 4h\ntimeframe: 4h"), ["timeframe is 4h but frontmatter tags do not include 4h"])
+  assert.deepEqual(warnings("tags: []\ntags: [4h]\ntimeframe: 4h"), [])
+  assert.deepEqual(warnings("tags: [x\ntags: [4h]\ntimeframe: 4h"), [])
+})
+
 test("strategy policy slug is filesystem safe", () => {
   assert.equal(strategyPolicySlug("Candidate Validated / 1H"), "candidate-validated-1h")
 })
