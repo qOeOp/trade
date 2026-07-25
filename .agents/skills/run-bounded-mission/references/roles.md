@@ -11,7 +11,7 @@ Implement roles with custom or generic subagents. Select by capability, not name
 - Provide only the raw evidence needed for the role.
 - Withhold preferred answers, builder rationale, and hidden acceptance results from independent roles.
 - Forbid subagents from committing, merging, adopting, expanding scope, changing the oracle, or declaring completion.
-- Only the main mission context may integrate a patch or perform an explicitly authorized commit, push, PR, review-response, merge, or cleanup effect.
+- Only the main mission context may integrate a patch or perform an explicitly authorized commit, push, PR, review submission or response, merge, or cleanup effect.
 - Treat project rules as effect constraints, not automatic proof that their oracle is fit; unresolved authority stays external.
 - Treat their output as evidence, never authority.
 
