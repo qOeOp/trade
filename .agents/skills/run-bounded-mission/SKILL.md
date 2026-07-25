@@ -79,12 +79,12 @@ For writable work, remove superseded implementations and temporary compatibility
 
 ### 5. Terminate
 
-End in exactly one state:
+End in exactly one state. Apply these predicates in order:
 
 - `completed`: every acceptance check passes through the real outcome consumer;
-- `blocked`: an external fact, permission, or missing authority prevents progress;
-- `invalidated`: evidence shows the objective is wrong or no design can satisfy the frozen external bounds, independent of the remaining mission budget;
-- `budget_exhausted`: a potentially valid next step remains, but a revision, non-progress, cost, or escalation budget is spent.
+- `invalidated`: evidence intrinsic to the objective or design shows it is wrong or cannot satisfy the frozen external bounds, rather than a required external fact, permission, or authority being unavailable;
+- `budget_exhausted`: a potentially valid next step remains, but a revision, non-progress, cost, or escalation budget is spent;
+- `blocked`: a required external fact, permission, or authority remains unavailable while the relevant mission budgets remain.
 
 Report the terminal state, outcome, consumer journey, evidence, quality results, responsibility delta, and gaps. When evaluation was required, surface each current candidate-bound material judgment by name, status, bounded claim, inspected scope, limit, and terminal consequence—including `change_necessity`, `responsibility_fit`, and `cleanup` for writable work; do not replace them with an aggregate verdict, recompute or strengthen them, and treat them as stale after a candidate change. A material `refuted` or `unresolved` judgment precludes `completed`. For high-impact read-only work, distinguish no repository write or runtime-surface delta from decision, authority, access, cost, or other effects. Do not claim completion from document or code volume, unit tests, or static gates alone.
 
