@@ -62,7 +62,7 @@ export function readReplayWorkerV10SuccessorExecutionParent(
   }
 }
 
-export function rememberReplayWorkerV10SuccessorExecutionParent(
+export function assertReplayWorkerV10SuccessorExecutionParentStillAuthoritative(
   parent: ReplayWorkerV10SuccessorExecutionParentSnapshot,
 ): void {
   const registryRoot = resolve(parent.registry_root)

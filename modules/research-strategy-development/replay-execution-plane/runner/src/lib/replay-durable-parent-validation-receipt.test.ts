@@ -12,8 +12,8 @@ import {
   registerReplayDurableParentValidationReceipt,
 } from "./replay-durable-parent-validation-receipt"
 import {
+  assertReplayWorkerV10SuccessorExecutionParentStillAuthoritative,
   readReplayWorkerV10SuccessorExecutionParent,
-  rememberReplayWorkerV10SuccessorExecutionParent,
 } from "./replay-worker-v10-successor-execution-contract-parent"
 import { canonicalJson } from "../../../contracts/src/lib/replay-contracts"
 
@@ -84,12 +84,14 @@ test("successor execution contract parent rejects self-signed direct parents and
       source: structuredClone(source),
       file_sha256: receipt.parent_canonical_file_sha256,
     }
-    const tamperedBeforeRemember = structuredClone(snapshot)
-    ;(tamperedBeforeRemember.source as unknown as { nested: { trusted: boolean } })
+    const tamperedBeforeAssertion = structuredClone(snapshot)
+    ;(tamperedBeforeAssertion.source as unknown as { nested: { trusted: boolean } })
       .nested.trusted = false
-    expect(() => rememberReplayWorkerV10SuccessorExecutionParent(tamperedBeforeRemember as never))
+    expect(() => assertReplayWorkerV10SuccessorExecutionParentStillAuthoritative(
+      tamperedBeforeAssertion as never,
+    ))
       .toThrow("parent changed before validation")
-    expect(() => rememberReplayWorkerV10SuccessorExecutionParent(snapshot as never))
+    expect(() => assertReplayWorkerV10SuccessorExecutionParentStillAuthoritative(snapshot as never))
       .toThrow("requires one authoritative R4.145 source parent")
   } finally {
     rmSync(root, { recursive: true, force: true })
