@@ -201,7 +201,26 @@ function lintStrategyPolicyShape(markdown: string): StrategyPolicyShapeLintResul
   if (!/^---\n[\s\S]*?\n---\n/m.test(markdown)) errors.push("missing frontmatter block")
   if (!/## Trade Contract\n\n```yaml\n[\s\S]+?\n```/m.test(markdown)) errors.push("missing yaml Trade Contract block")
   if (!/live_permission:\s+draft_only/.test(markdown)) errors.push("Trade Contract proof.live_permission must be draft_only")
-  if (/timeframe:\s*4h/.test(markdown) && !/tags: \[[^\]]*4h/.test(markdown)) {
+  let tagsInclude4h = false
+  let tagsOffset = 0
+  tagsSearch: while (true) {
+    const tagsStart = markdown.indexOf("tags: [", tagsOffset)
+    if (tagsStart < 0) break
+    let valueOffset = tagsStart + "tags: [".length
+    while (valueOffset < markdown.length) {
+      if (markdown[valueOffset] === "]") {
+        tagsOffset = valueOffset + 1
+        continue tagsSearch
+      }
+      if (markdown[valueOffset] === "4" && markdown[valueOffset + 1] === "h") {
+        tagsInclude4h = true
+        break tagsSearch
+      }
+      valueOffset += 1
+    }
+    break
+  }
+  if (/timeframe:\s*4h/.test(markdown) && !tagsInclude4h) {
     warnings.push("timeframe is 4h but frontmatter tags do not include 4h")
   }
   if (/not recorded/.test(markdown)) warnings.push("validation_run_ref is not recorded")
@@ -323,7 +342,12 @@ function strategyFamilyProfile(family: string, params: JSONRecord): StrategyFami
 }
 
 function strategyPolicySlug(value: string): string {
-  return safeFileName(value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "")) || "rd-strategy"
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-")
+  let start = 0
+  let end = normalized.length
+  while (normalized[start] === "-") start += 1
+  while (end > start && normalized[end - 1] === "-") end -= 1
+  return safeFileName(normalized.slice(start, end)) || "rd-strategy"
 }
 
 function strategyIDFromSlug(slug: string): string {
