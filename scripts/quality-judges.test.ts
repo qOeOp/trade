@@ -756,7 +756,10 @@ describe("quality judges fail closed", () => {
     ].join("\n"))
     write(root, `${packageDir}/src/lib/omitted.test.ts`, [
       'import { expect, test } from "bun:test"',
-      'test("omitted", () => expect(false).toBe(true))',
+      "test(",
+      '  "protective-stop cancel releases admission risk only after full-flat and rolls four committed cycles",',
+      "  () => expect(false).toBe(true),",
+      ")",
       "",
     ].join("\n"))
     write(root, `${packageDir}/src/lib/replay-decision-worker-input-assembly-v4.test.ts`, [

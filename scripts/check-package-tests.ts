@@ -96,6 +96,8 @@ function runPackage(packageInfo: TypeScriptPackage): void {
     }
     const remainingTests = packageInfo.testFiles.filter((path) => path !== workerPath)
     if (remainingTests.length === 0) throw new Error("Replay runner has no non-semantic package tests")
+    const otherRemainingTests = remainingTests.filter((path) => path !== protectiveStopPath)
+    if (otherRemainingTests.length === 0) throw new Error("Replay runner has no tests outside its isolated file")
     const exclusivePrefix = [
       "sh",
       join(root, "scripts/run-exclusive-test.sh"),
@@ -108,8 +110,12 @@ function runPackage(packageInfo: TypeScriptPackage): void {
     commands = [
       [
         ...exclusivePrefix,
-        ...remainingTests.map((path) =>
+        ...otherRemainingTests.map((path) =>
           relative(packageInfo.dir, path).replaceAll("\\", "/")),
+      ],
+      [
+        ...exclusivePrefix,
+        relative(packageInfo.dir, protectiveStopPath).replaceAll("\\", "/"),
         "--test-name-pattern",
         `^(?!${protectiveStopTest}$).*`,
       ],
@@ -121,10 +127,12 @@ function runPackage(packageInfo: TypeScriptPackage): void {
       ],
     ]
   }
-  const output = commands.map((command) => run(command, packageInfo.dir)).join("\n")
-  const counts = [...output.matchAll(/Ran (\d+) tests? across/g)].map((match) => Number(match[1]))
-  if (counts.length === 0 || counts.at(-1) === 0) {
-    throw new Error(`${packageInfo.label}: direct Bun test execution ran zero tests`)
+  for (const command of commands) {
+    const output = run(command, packageInfo.dir)
+    const counts = [...output.matchAll(/Ran (\d+) tests? across/g)].map((match) => Number(match[1]))
+    if (counts.length === 0 || counts.at(-1) === 0) {
+      throw new Error(`${packageInfo.label}: direct Bun test execution ran zero tests`)
+    }
   }
 }
 
