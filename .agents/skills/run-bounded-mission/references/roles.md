@@ -31,18 +31,18 @@ Require:
 - at most three candidates when uncertainty warrants them;
 - a recommendation based on outcome, reuse, verifiability, responsibility, and reversibility.
 
-Require the planner to expose duplicate truth, proxy criteria, open-world inference, candidate-controlled oracles, and unsupported authority without overriding external authority. Require `blocked` when authority, outcome consumer, or journey remains unresolved. The planner cannot edit or admit implementation.
+Require the planner to expose duplicate truth, proxy criteria, open-world inference, candidate-controlled oracles, and unsupported authority without overriding external authority. Require unresolved authority, outcome consumer, or journey to be reported as external blockers so the main context can apply the ordered terminal rules. The planner cannot edit or admit implementation.
 
 ## Candidate explorer
 
-Use a fresh read-only explorer for one bounded repository question that narrows an expensive decision.
+Use a fresh read-only explorer for one bounded evidence question that narrows an expensive decision.
 
-Provide the question or claim, source revision, search scope and exclusions, and stop or cost bound.
+Provide the question or claim, source revision or retrieval horizon, search scope and exclusions, and stop or cost bound.
 
 Require one compact evidence packet:
 
 - `supported`, `refuted`, or `unresolved` claim status;
-- direct paths and lines, symbols, exact commands with status and relevant raw excerpts, or artifact hashes;
+- direct paths and lines, symbols, authoritative source URLs with version or publication/update and retrieval status, exact commands with status and relevant raw excerpts, or artifact hashes;
 - inspected coverage and exact negative searches;
 - conflicts, gaps, and bounded uncertainty.
 
@@ -68,12 +68,22 @@ Require the evaluator to try to falsify:
 - oracle provenance, independence, and connection to the outcome;
 - surface delta, cleanup, and terminal correctness.
 
-Contract compliance alone is not acceptance. If raw evidence invalidates the frozen oracle, require `replan` or `blocked`; the evaluator cannot rewrite it.
+For writable work, return candidate-bound evidence judgments for:
 
-Require exactly `accept`, `revise`, `replan`, or `blocked`, with reproducible findings. The main context owns the terminal.
+- `change_necessity`: whether the frozen outcome and consumer require a write of this kind and scope among the explicitly inspected lower-effect alternatives;
+- `responsibility_fit`: whether changed responsibility stays with an authorized owner, reaches the real consumer, and adds no duplicated, unused, or accidental responsibility;
+- `cleanup`: whether known superseded, failed, temporary, compatibility, and evidence-scaffolding paths are removed within the inspected scope.
+
+For each judgment, provide `supported`, `refuted`, `unresolved`, or `not_applicable`; the bounded claim; direct evidence; inspected scope; limits; and the terminal consequence. Apply the evidence standard in `SKILL.md` before assigning status: caller summaries and passing-check claims alone cannot support a judgment. Do not infer necessity or fit from outcome improvement, LOC, file counts, or zero net surface, and do not claim global minimality. Justify `not_applicable`. A material `refuted` or `unresolved` judgment cannot accompany `accept`: use `revise` when a same-design correction remains within budget, `replan` when a permitted redesign remains within budget, `invalidated` when intrinsic evidence shows no design can satisfy the frozen external bounds, `budget_exhausted` when a potentially valid next step remains but a revision, non-progress, cost, or escalation budget is spent, and `blocked` when a required external fact, permission, or authority remains unavailable while the relevant budgets remain. Bind judgments to the exact candidate patch or content hash; a candidate change makes them stale.
+
+For high-impact read-only work, classify authority, consumer closure, and non-write responsibility or effects instead of inventing code judgments. Distinguish no repository write from decision, access, cost, governance, or other effects.
+
+Contract compliance alone is not acceptance. If raw evidence invalidates the frozen oracle, require `replan`, `invalidated`, `budget_exhausted`, or `blocked` under the ordered rules in `SKILL.md`; the evaluator cannot rewrite it.
+
+Require exactly `accept`, `revise`, `replan`, `blocked`, `invalidated`, or `budget_exhausted`, with reproducible findings. The main context owns the terminal.
 
 ## Context hygiene
 
 Start roles fresh and rebuild input from repository state and raw artifacts, not conversation summaries. Do not reuse an evaluator exposed to builder deliberation.
 
-If fresh evaluator isolation is unavailable for a mission that requires one, it cannot be accepted; terminate `blocked`.
+If fresh evaluator isolation is unavailable for a mission that requires one, it cannot be accepted; report the unavailable external requirement and apply the ordered terminal rules.
