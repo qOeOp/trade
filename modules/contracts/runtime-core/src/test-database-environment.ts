@@ -40,8 +40,8 @@ export function createTestDatabaseEnvironment(prefix: string): TestDatabaseEnvir
     cleanup: () => {
       if (cleaned) return
       for (const db of handles) {
-        try { db.run("PRAGMA wal_checkpoint(TRUNCATE)") } catch {}
-        try { db.close() } catch {}
+        try { db.run("PRAGMA wal_checkpoint(TRUNCATE)") } catch { /* test cleanup is best-effort */ }
+        try { db.close() } catch { /* test cleanup is best-effort */ }
       }
       handles.clear()
       rmSync(root, { recursive: true, force: true })

@@ -103,8 +103,8 @@ export async function runBoundedOwnerCommand(
     }
   } finally {
     if (timeoutTimer) clearTimeout(timeoutTimer)
-    try { closeSync(stdoutFd) } catch {}
-    try { closeSync(stderrFd) } catch {}
+    try { closeSync(stdoutFd) } catch { /* descriptor may already be closed */ }
+    try { closeSync(stderrFd) } catch { /* descriptor may already be closed */ }
     rmSync(outputDirectory, { recursive: true, force: true })
   }
 }

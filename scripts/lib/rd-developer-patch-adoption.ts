@@ -10,7 +10,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs"
-import { dirname, relative, resolve, sep } from "node:path"
+import { relative, resolve, sep } from "node:path"
 import type { Database } from "bun:sqlite"
 import type {
   AgentArtifactRef,

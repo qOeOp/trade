@@ -1,0 +1,51 @@
+name: quality-authority
+
+on:
+  pull_request_target:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-authority-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  authority:
+    name: quality-authority
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 1
+      - name: Reject candidate-owned quality authority changes
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$PR_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
+          git fetch --no-tags --depth=1 origin "refs/pull/${PR_NUMBER}/head"
+          test "$(git rev-parse FETCH_HEAD)" = "$PR_HEAD_SHA"
+
+          protected_path_found=0
+          while IFS= read -r -d '' path; do
+            printf 'quality authority is base-owned: %s\n' "$path" >&2
+            protected_path_found=1
+          done < <(
+            git diff --no-ext-diff --name-only -z "$PR_BASE_SHA" "$PR_HEAD_SHA" -- \
+              .github/workflows \
+              bun.lock \
+              docs/engineering/convergence-baseline.json \
+              eslint.config.mjs \
+              package.json \
+              scripts
+          )
+          test "$protected_path_found" -eq 0

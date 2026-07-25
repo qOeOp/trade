@@ -3,7 +3,7 @@ title: Check Contract
 role: engineering-contract
 status: active
 owner: engineering
-last_verified: 2026-07-24 CST
+last_verified: 2026-07-25 CST
 ---
 
 # Check Contract
@@ -17,7 +17,7 @@ last_verified: 2026-07-24 CST
 ## 1. 通用规则
 
 - 所有改动最后跑：`git diff --no-renames --check HEAD`
-- 涉及 TS tool：在对应 tool 目录跑 `bun run check`
+- 涉及 TS tool：日常使用 `bun scripts/quality-check-changed.ts --path <改动路径>`；需要直接验 owner 时用根 `bun scripts/check-package-tests.ts --run-package <owner-dir>`。package 内 `bun run check` 只作开发便利，不是项目验收 authority
 - 涉及真实 Binance 写接口：默认只跑单测 / dry-run / preview；真实 live 或 test endpoint 必须用户明确授权
 - 涉及 schema：同时跑 registry / schema 相关测试，再跑 owner tool 全量 check
 - 涉及 docs-only：不要求代码测试，但必须确保相对链接可达、当前态路径真实存在、历史计划有明确状态，且没有把未实现结构写成已完成事实
@@ -28,8 +28,10 @@ last_verified: 2026-07-24 CST
 | Check id | 目录 | 命令 | 覆盖 |
 | --- | --- | --- | --- |
 | `repo-whitespace` | repo root | 本地 `git diff --no-renames --check HEAD`；CI `git diff --no-renames --check <base>...HEAD` | 本地覆盖 staged + unstaged，CI 覆盖精确候选范围；关闭 rename detection，避免重命名隐藏空白错误 |
-| `project-quality` | repo root | `scripts/quality-check.sh` | 提交前 secret / TS / Go / Rust / Python / shell / hygiene 总闸；另跑 Replay semantic，内容一致时本地复用通过收据，`QUALITY_FRESH=1` 强制重跑，CI 永不复用 |
+| `project-quality` | repo root | `scripts/quality-check.sh [all\|policy\|typescript\|replay\|native]` | 同一编排器的提交总闸与 CI scope；PR 并发执行 policy、两个 TS shard、Replay semantic、native，稳定 `quality` job 汇总；Replay 本地收据可用 `QUALITY_FRESH=1` 强制失效，CI 永不复用 |
 | `changed-quality` | repo root | `bun scripts/quality-check-changed.ts --path <repo-relative-path>` | docs-only / 单模块日常门：全局 hygiene、secret、doc 与受影响 package；Replay 改动按 owner 选包，contracts / engine / accounting / data-adapter 额外验证 runner consumer；共享 contract、脚本/CI、机器 manifest 和跨语言改动要求总闸 |
+| `typescript-lint` | repo root | `bun run lint` | ESLint flat recommended 覆盖 `modules/`、`scripts/`，warning 上限 0，unused disable hard fail；changed code gate 与 policy scope 共用 |
+| `shell-lint` | repo root | `bun run lint:shell` | ShellCheck warning/error hard fail；仅排除兼容 `CDPATH= cd` 写法的 `SC1007` |
 | `workspace-hygiene` | repo root | `bun scripts/check-workspace-hygiene.ts` | 禁止新增 tracked runtime SQLite / sidecar 与 module-local DB；历史 exception 只减不增 |
 | `workspace-side-effect` | repo root | `bun scripts/check-workspace-side-effects.ts --action capture/check --snapshot tmp/check/<name>.json` | 对 tracked + unignored 内容做前后哈希；允许进入检查前已有改动，拒绝本轮新增、删除或改写；CI preflight 额外要求 clean checkout |
 | `workspace-footprint` | repo root | `bun scripts/audit-workspace-footprint.ts --stale-days 14` | 只读分类 durable DB/data、受保护 evidence、test residue、build/dependency cache 与 external audit clone；不执行删除 |
@@ -42,7 +44,9 @@ last_verified: 2026-07-24 CST
 | `replay-certification` | `modules/research-strategy-development/replay-execution-plane/certification/replay-certification` | `bun run certify` | Plane 内全部 canonical/compatibility package 的唯一、顺序、fail-fast certification 入口 |
 | `quality-judge-regression` | repo root | `bun test ./scripts/*.test.ts` | 用恶意反例证明架构、evidence、测试完整性审查 fail closed |
 | `development-convergence` | repo root | `bun scripts/check-convergence-budget.ts` | 恢复期冻结 module owner、registered tool、domain、store、job、rail 表面积；超出基线 hard fail |
-| `package-test-integrity` | repo root | `bun scripts/check-package-tests.ts` | 生产 TS package 必须有 colocated 测试；`test` 不得空跑成功，`check` 必须同时到达真实 Bun 测试与 `tsc --noEmit` |
+| `package-test-integrity` | repo root | `bun scripts/check-package-tests.ts --run-all` 或 `--run-shard <index>/<count>` | 从文件系统发现生产 TS package，直接执行根 compiler 与全部 colocated 测试，不读取 package scripts；排序后确定性分片完整且互斥；Replay worker-v10 只由 semantic gate 独占执行一次 |
+| `codeql` | GitHub Actions | `.github/workflows/codeql.yml` | JavaScript/TypeScript、Python、Go、Rust 的独立 security-extended 扫描；结果进入 GitHub code scanning，不替代 correctness gate |
+| `replay-release-schedule` | GitHub Actions | `.github/workflows/replay-certification.yml` | nightly/manual 执行 release evidence closure；不阻塞每个 PR 的快速 semantic gate |
 | `zero-duplication` | repo root | `bun scripts/check-duplication.ts` | 六类源码在既定检测粒度下重复片段必须为 0 |
 | `ts-architecture-boundary` | repo root | `bun scripts/check-ts-tool-boundaries.ts` | 静态 package 边界、禁止动态逃逸 / eval、跨 package dependency cycle |
 | `secret-scan` | repo root | `bun scripts/check-secrets.ts` | tracked / unignored provider token、非空 SiliconFlow assignment 与 literal bearer credential |

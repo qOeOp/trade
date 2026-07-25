@@ -13,15 +13,17 @@ import {
   type ReplayDecisionHarnessExecutionEnvelope,
 } from "../../../contracts/src/lib/replay-decision-harness-execution-envelope"
 import {
-  assertReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission,
   type ReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-lease-admission"
 import { canonicalJson } from "../../../contracts/src/lib/replay-contracts"
 import {
   buildReplayDecisionHarnessExecutionEnvelope,
 } from "./replay-decision-harness-execution-envelope"
+import {
+  registerReplayDurableParentValidationReceipt,
+} from "./replay-durable-parent-validation-receipt"
 import { writeReplayImmutableCas } from "./replay-local-artifact-store"
-import { readReplayWorkerV10SuccessorLeaseAdmission } from "./replay-worker-v10-successor-lease-admission-registry"
+import { readReplayWorkerV10SuccessorLeaseAdmissionReference } from "./replay-worker-v10-successor-lease-admission-registry"
 
 export interface RegisterReplayWorkerV10SuccessorExecutionEnvelopeInput {
   registry_root: string
@@ -31,8 +33,8 @@ export interface RegisterReplayWorkerV10SuccessorExecutionEnvelopeInput {
 export function registerReplayWorkerV10SuccessorExecutionEnvelope(
   input: RegisterReplayWorkerV10SuccessorExecutionEnvelopeInput,
 ): ReplayDecisionHarnessWorkerV10SuccessorExecutionEnvelopeAdmission {
-  requireDurableParent(input)
-  const expected = buildAdmission(input.source_successor_lease_admission)
+  const parent = requireDurableParent(input)
+  const expected = buildAdmission(parent)
   const path = admissionPath(input.registry_root, expected.admission_key)
   const existing = readAdmission(path)
   if (existing) return sameAdmission(existing, expected)
@@ -44,24 +46,30 @@ export function registerReplayWorkerV10SuccessorExecutionEnvelope(
     if (winner) return sameAdmission(winner, expected)
     throw error
   }
-  return parseAdmission(content)
+  const admission = parseAdmission(content)
+  registerReplayDurableParentValidationReceipt({
+    registry_root: input.registry_root,
+    parent_kind: "worker_v10_successor_execution_envelope_admission",
+    parent_key: admission.admission_key,
+    parent_self_hash: admission.admission_hash,
+    parent_canonical_content: content,
+  })
+  return admission
 }
 
 export function readReplayWorkerV10SuccessorExecutionEnvelope(
   input: RegisterReplayWorkerV10SuccessorExecutionEnvelopeInput,
 ): ReplayDecisionHarnessWorkerV10SuccessorExecutionEnvelopeAdmission | null {
-  requireInput(input)
-  const expected = buildAdmission(input.source_successor_lease_admission)
+  const parent = requireDurableParent(input)
+  const expected = buildAdmission(parent)
   const value = readAdmission(admissionPath(input.registry_root, expected.admission_key))
   if (!value) return null
-  requireDurableParent(input)
   return sameAdmission(value, expected)
 }
 
 function buildAdmission(
   leaseAdmission: ReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission,
 ): ReplayDecisionHarnessWorkerV10SuccessorExecutionEnvelopeAdmission {
-  assertReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission(leaseAdmission)
   const predecessor = extractPredecessorExecutionEnvelope(leaseAdmission)
   const successor = buildReplayDecisionHarnessExecutionEnvelope({
     source_response_contract: predecessor.source_response_contract,
@@ -153,24 +161,27 @@ function extractPredecessorExecutionEnvelope(
   return structuredClone(envelope)
 }
 
-function requireDurableParent(input: RegisterReplayWorkerV10SuccessorExecutionEnvelopeInput): void {
+function requireDurableParent(
+  input: RegisterReplayWorkerV10SuccessorExecutionEnvelopeInput,
+): ReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission {
   requireInput(input)
-  const admission = input.source_successor_lease_admission
-  const durable = readReplayWorkerV10SuccessorLeaseAdmission({
+  return readReplayWorkerV10SuccessorLeaseAdmissionReference({
     registry_root: input.registry_root,
-    source_successor_authority_contract: admission.source_successor_authority_contract,
-    source_renewal_request: admission.source_renewal_request,
+    source_successor_lease_admission: input.source_successor_lease_admission,
   })
-  if (!durable || durable.admission_hash !== admission.admission_hash) {
-    throw new Error("successor Execution Envelope requires the exact durable R4.143 Lease Admission")
-  }
 }
 
 function requireInput(input: RegisterReplayWorkerV10SuccessorExecutionEnvelopeInput): void {
   if (input.registry_root.trim() === "") {
     throw new Error("successor Execution Envelope registry root is required")
   }
-  assertReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission(input.source_successor_lease_admission)
+  const admission = input.source_successor_lease_admission
+  if (typeof admission?.admission_key !== "string"
+      || !/^[a-f0-9]{64}$/.test(admission.admission_key)
+      || typeof admission.admission_hash !== "string"
+      || !/^[a-f0-9]{64}$/.test(admission.admission_hash)) {
+    throw new Error("successor Execution Envelope Lease Admission reference is invalid")
+  }
 }
 
 function sameAdmission(

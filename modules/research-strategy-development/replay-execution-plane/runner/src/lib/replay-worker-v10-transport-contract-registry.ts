@@ -1,7 +1,6 @@
 import { existsSync, lstatSync, readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 import {
-  assertReplayDecisionHarnessExecutionEnvelope,
   type ReplayDecisionHarnessExecutionEnvelope,
 } from "../../../contracts/src/lib/replay-decision-harness-execution-envelope"
 import {
@@ -9,7 +8,6 @@ import {
   type ReplayDecisionHarnessWorkerV10BuildCapability,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-build-capability"
 import {
-  assertReplayDecisionHarnessWorkerV10SuccessorExecutionEnvelopeAdmission,
   type ReplayDecisionHarnessWorkerV10SuccessorExecutionEnvelopeAdmission,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-execution-envelope-admission"
 import {
@@ -26,8 +24,8 @@ import {
 } from "./replay-decision-harness-worker-v10-transport-contract"
 import { readReplayWorkerV10BuildCapability } from "./replay-worker-v10-build-capability-registry"
 import {
-  readReplayWorkerV10SuccessorExecutionEnvelope,
-} from "./replay-worker-v10-successor-execution-envelope-registry"
+  readReplayWorkerV10SuccessorExecutionEnvelopeParent,
+} from "./replay-worker-v10-successor-execution-transport-parent"
 
 export interface ReplayWorkerV10TransportContractRegistryInput {
   registry_root: string
@@ -40,10 +38,10 @@ export interface ReplayWorkerV10TransportContractRegistryInput {
 export function registerReplayWorkerV10TransportContract(
   input: ReplayWorkerV10TransportContractRegistryInput,
 ): ReplayDecisionHarnessWorkerV10TransportContract {
-  requireDurableParents(input)
+  const parents = requireDurableParents(input)
   const expected = buildReplayDecisionHarnessWorkerV10TransportContract({
-    source_worker_v10_build_capability: input.source_worker_v10_build_capability,
-    source_execution_envelope: input.source_execution_envelope,
+    source_worker_v10_build_capability: parents.capability,
+    source_execution_envelope: parents.envelope,
   })
   const path = contractPath(input.registry_root, expected.contract_key)
   const existing = readContract(path)
@@ -66,15 +64,18 @@ export function readReplayWorkerV10TransportContract(
   const key = transportKey(input)
   const contract = readContract(contractPath(input.registry_root, key))
   if (!contract) return null
-  requireDurableParents(input)
+  const parents = requireDurableParents(input)
   const expected = buildReplayDecisionHarnessWorkerV10TransportContract({
-    source_worker_v10_build_capability: input.source_worker_v10_build_capability,
-    source_execution_envelope: input.source_execution_envelope,
+    source_worker_v10_build_capability: parents.capability,
+    source_execution_envelope: parents.envelope,
   })
   return assertCreateOrIdentical(contract, expected)
 }
 
-function requireDurableParents(input: ReplayWorkerV10TransportContractRegistryInput): void {
+function requireDurableParents(input: ReplayWorkerV10TransportContractRegistryInput): {
+  capability: ReplayDecisionHarnessWorkerV10BuildCapability
+  envelope: ReplayDecisionHarnessExecutionEnvelope
+} {
   requireInput(input)
   const capability = readReplayWorkerV10BuildCapability({
     registry_root: input.registry_root,
@@ -92,17 +93,21 @@ function requireDurableParents(input: ReplayWorkerV10TransportContractRegistryIn
   })
   const persistedEnvelope = registration?.source_authority_binding.source_dispatch_lease_admission
     .source_execution_envelope
-  if (persistedEnvelope?.envelope_hash === envelope.envelope_hash) return
+  if (persistedEnvelope?.envelope_hash === envelope.envelope_hash) {
+    return { capability, envelope: persistedEnvelope }
+  }
   const successorAdmission = input.source_successor_execution_envelope_admission
   if (successorAdmission) {
-    const durable = readReplayWorkerV10SuccessorExecutionEnvelope({
+    if (successorAdmission.successor_execution_envelope_hash !== envelope.envelope_hash) {
+      throw new Error("Replay Worker v10 Transport Contract successor Envelope Admission binding drift")
+    }
+    const durable = readReplayWorkerV10SuccessorExecutionEnvelopeParent({
       registry_root: input.registry_root,
-      source_successor_lease_admission: successorAdmission.source_successor_lease_admission,
+      source_successor_execution_envelope_admission: successorAdmission,
     })
     if (durable?.admission_hash === successorAdmission.admission_hash
-        && successorAdmission.successor_execution_envelope_hash === envelope.envelope_hash
-        && canonicalJson(successorAdmission.successor_execution_envelope) === canonicalJson(envelope)) {
-      return
+        && durable.successor_execution_envelope_hash === envelope.envelope_hash) {
+      return { capability, envelope: durable.successor_execution_envelope }
     }
   }
   throw new Error("Replay Worker v10 Transport Contract requires the exact durable Execution Envelope")
@@ -113,15 +118,15 @@ function requireInput(input: ReplayWorkerV10TransportContractRegistryInput): voi
     throw new Error("Replay Worker v10 Transport Contract registry root is required")
   }
   assertReplayDecisionHarnessWorkerV10BuildCapability(input.source_worker_v10_build_capability)
-  assertReplayDecisionHarnessExecutionEnvelope(input.source_execution_envelope)
+  if (typeof input.source_execution_envelope?.envelope_hash !== "string"
+      || !/^[a-f0-9]{64}$/.test(input.source_execution_envelope.envelope_hash)
+      || typeof input.source_execution_envelope.logical_request_id !== "string"
+      || input.source_execution_envelope.logical_request_id.trim() === "") {
+    throw new Error("Replay Worker v10 Transport Contract Execution Envelope reference is invalid")
+  }
   if (input.source_successor_execution_envelope_admission) {
-    assertReplayDecisionHarnessWorkerV10SuccessorExecutionEnvelopeAdmission(
-      input.source_successor_execution_envelope_admission,
-    )
     if (input.source_successor_execution_envelope_admission.successor_execution_envelope_hash
-          !== input.source_execution_envelope.envelope_hash
-        || canonicalJson(input.source_successor_execution_envelope_admission.successor_execution_envelope)
-          !== canonicalJson(input.source_execution_envelope)) {
+          !== input.source_execution_envelope.envelope_hash) {
       throw new Error("Replay Worker v10 Transport Contract successor Envelope Admission binding drift")
     }
   }

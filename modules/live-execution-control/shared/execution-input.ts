@@ -34,7 +34,7 @@ function firstString(...values: unknown[]): string {
 }
 
 function normalizeSymbol(symbol: string): string {
-  return symbol.trim().toUpperCase().replace(/[\/:_\-\s]/g, "")
+  return symbol.trim().toUpperCase().replace(/[/:_\s-]/g, "")
 }
 
 export { readPositionSide, readRequiredSymbol }

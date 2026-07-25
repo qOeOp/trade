@@ -120,7 +120,7 @@ export function runStrategyRndCampaignWithDeps(
     : certificateBlocked
       ? "hypothesis_certificate_failed"
       : "hypothesis_queue_exhausted"
-  let holdoutEvaluations = 0
+  const holdoutEvaluations = 0
   let validationEvaluations = 0
 
   for (const hypothesis of calibrationGate?.blocked === true || certificateBlocked ? [] : input.hypotheses) {

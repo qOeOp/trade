@@ -43,10 +43,10 @@ const server = Bun.serve({
     }
     const contentLength = Number(request.headers.get("content-length") || 0)
     if (Number.isFinite(contentLength) && contentLength > profile.max_body_bytes) return json(413, { ok: false, error: { code: "request_body_too_large" } })
-    let raw = ""
+    let raw: string
     try { raw = await request.text() } catch { return json(400, { ok: false, error: { code: "request_body_unreadable" } }) }
     const bodyBytes = new TextEncoder().encode(raw).byteLength
-    let body: unknown = {}
+    let body: unknown
     try { body = raw ? JSON.parse(raw) : {} } catch { return json(400, { ok: false, error: { code: "request_json_invalid" } }) }
     const headers: Record<string, string | undefined> = {
       authorization: request.headers.get("authorization") || undefined,

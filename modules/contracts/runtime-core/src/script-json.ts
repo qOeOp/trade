@@ -36,7 +36,7 @@ export function errorResponse(schemaVersion: string, error: unknown): JSONRecord
 export function readJsonObjectFlag(argv: string[], printHelp: () => void): JSONRecord {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
-    if (arg === "--json") return readJsonObject(readFlagValue(argv, ++index, arg))
+    if (arg === "--json") return readJsonObject(readFlagValue(argv, index + 1, arg))
     if (arg === "--help") {
       printHelp()
       return process.exit(0)

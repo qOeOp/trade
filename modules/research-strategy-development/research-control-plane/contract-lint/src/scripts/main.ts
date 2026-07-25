@@ -43,7 +43,7 @@ function parseArgs(argv: string[]): Config {
         config.strategyPath = readFlagValue(argv, ++index, arg)
         break
       case "--help":
-        exitWithHelp()
+        return exitWithHelp()
       default:
         throw new Error(`unknown flag: ${arg}`)
     }
