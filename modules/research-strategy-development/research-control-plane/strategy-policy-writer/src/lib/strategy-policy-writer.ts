@@ -203,14 +203,22 @@ function lintStrategyPolicyShape(markdown: string): StrategyPolicyShapeLintResul
   if (!/live_permission:\s+draft_only/.test(markdown)) errors.push("Trade Contract proof.live_permission must be draft_only")
   let tagsInclude4h = false
   let tagsOffset = 0
-  while (!tagsInclude4h) {
+  tagsSearch: while (true) {
     const tagsStart = markdown.indexOf("tags: [", tagsOffset)
     if (tagsStart < 0) break
-    const valueStart = tagsStart + "tags: [".length
-    const valueEnd = markdown.indexOf("]", valueStart)
-    const timeframe = markdown.indexOf("4h", valueStart)
-    tagsInclude4h = timeframe >= 0 && (valueEnd < 0 || timeframe < valueEnd)
-    tagsOffset = valueStart
+    let valueOffset = tagsStart + "tags: [".length
+    while (valueOffset < markdown.length) {
+      if (markdown[valueOffset] === "]") {
+        tagsOffset = valueOffset + 1
+        continue tagsSearch
+      }
+      if (markdown[valueOffset] === "4" && markdown[valueOffset + 1] === "h") {
+        tagsInclude4h = true
+        break tagsSearch
+      }
+      valueOffset += 1
+    }
+    break
   }
   if (/timeframe:\s*4h/.test(markdown) && !tagsInclude4h) {
     warnings.push("timeframe is 4h but frontmatter tags do not include 4h")
