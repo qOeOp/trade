@@ -116,8 +116,8 @@ find_local_home_paths() {
           file_uri_boundary = (length(prefix) >= 7 && tolower(substr(prefix, length(prefix) - 6)) == "file://") \
             || (length(prefix) >= 16 && tolower(substr(prefix, length(prefix) - 15)) == "file://localhost")
           shell_default_boundary = (prefix ~ /\$\{([[:alpha:]_][[:alnum:]_]*|[[:digit:]]+|[@*#?$!-]):?-$/)
-          shell_parameter_boundary = (prefix ~ /(^|[[:space:]"=:,;|&(])\$([[:alpha:]_][[:alnum:]_]*|[[:digit:]]+|[@*#?$!-])$/)
-          joined_option_boundary = (prefix ~ /(^|[[:space:]"=:,;|&(])--?[[:alnum:]_][[:alnum:]_-]*$/)
+          shell_parameter_boundary = (prefix ~ /(^|[[:space:]"=:,;|&(\047])(\$([[:alpha:]_][[:alnum:]_]*|[[:digit:]]|[@*#?$!-]))+$/)
+          joined_option_boundary = (prefix ~ /(^|[[:space:]"=:,;|&(\047])--?[[:alnum:]_][[:alnum:]_-]*$/)
           previous_boundary = previous_character == "" \
             || previous_character !~ /[[:alnum:]_.~\/-]/ \
             || file_uri_boundary \

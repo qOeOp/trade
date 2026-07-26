@@ -966,13 +966,16 @@ describe("quality judges fail closed", () => {
       `CACHE_DIR=\${1-${rootHome}/cache}`,
       `CACHE_DIR=\${?-${rootHome}/cache}`,
       `CACHE=$PREFIX${rootHome}/private`,
+      `CACHE=$A$B${rootHome}/private`,
       `cc -I${rootHome}/include`,
       `cc -isystem${rootHome}/include`,
+      `cc '-I${rootHome}/include'`,
       `cache_root=/tmp/..${rootHome}/private`,
       `cache_root=/${rootHome}/private`,
       "catalog/root/root",
       `catalog-${rootHome}`,
       `catalog$PREFIX${rootHome}/private`,
+      `CACHE=$10${rootHome}/private`,
       `catalog-I${rootHome}/include`,
       `link=file://example.com${rootHome}/private/report.json`,
       `cache_root=/tmp/project/..${rootHome}/private`,
@@ -1006,13 +1009,16 @@ describe("quality judges fail closed", () => {
     expect(boundary.stdout).toContain(`CACHE_DIR=\${1-${rootHome}/cache}`)
     expect(boundary.stdout).toContain(`CACHE_DIR=\${?-${rootHome}/cache}`)
     expect(boundary.stdout).toContain(`CACHE=$PREFIX${rootHome}/private`)
+    expect(boundary.stdout).toContain(`CACHE=$A$B${rootHome}/private`)
     expect(boundary.stdout).toContain(`cc -I${rootHome}/include`)
     expect(boundary.stdout).toContain(`cc -isystem${rootHome}/include`)
+    expect(boundary.stdout).toContain(`cc '-I${rootHome}/include'`)
     expect(boundary.stdout).toContain(`cache_root=/tmp/..${rootHome}/private`)
     expect(boundary.stdout).toContain(`cache_root=/${rootHome}/private`)
     expect(boundary.stdout).not.toContain("catalog/root/root")
     expect(boundary.stdout).not.toContain(`catalog-${rootHome}`)
     expect(boundary.stdout).not.toContain(`catalog$PREFIX${rootHome}/private`)
+    expect(boundary.stdout).not.toContain(`CACHE=$10${rootHome}/private`)
     expect(boundary.stdout).not.toContain(`catalog-I${rootHome}/include`)
     expect(boundary.stdout).not.toContain(`link=file://example.com${rootHome}/private/report.json`)
     expect(boundary.stdout).not.toContain(`cache_root=/tmp/project/..${rootHome}/private`)
