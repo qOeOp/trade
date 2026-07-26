@@ -90,4 +90,6 @@ Bind the verdict to the supplied acceptance tree and candidate identity. Any acc
 
 Start roles fresh and rebuild input from repository state and raw artifacts, not conversation summaries. Do not reuse an evaluator exposed to builder deliberation.
 
+Evaluators must not call or inspect agent or thread enumeration, lifecycle, history, transcript, or sibling-output surfaces because those responses can disclose planner or builder deliberation. Keep agent lifecycle checks in the main context and outside evaluator evidence. A main-frozen contract or admitted evidence may originate from a planner, but raw planner or builder deliberation, unadopted recommendations, or sibling results contaminate the evaluator and require `blocked`.
+
 If fresh evaluator isolation is unavailable for a mission that requires one, it cannot be accepted; report the unavailable external requirement and apply the ordered terminal rules.
