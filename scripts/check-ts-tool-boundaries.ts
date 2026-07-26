@@ -26,6 +26,10 @@ const toolPackageRoots = toolPackages.map((pkg) => dirname(pkg.packagePath).repl
 const issues: string[] = []
 const observedEdges = new Set<string>()
 
+for (const lockPath of findFilesNamed("modules", "bun.lock")) {
+  issues.push(`${lockPath}: tool-local bun.lock files are not allowed; use the root install lockfile`)
+}
+
 for (const pkg of toolPackages) {
   for (const [dep, version] of Object.entries(pkg.dependencies)) {
     const rootVersion = rootDeps[dep]
@@ -375,13 +379,17 @@ function readToolPackages(): ToolPackage[] {
 }
 
 function findPackageJson(dir: string): string[] {
+  return findFilesNamed(dir, "package.json")
+}
+
+function findFilesNamed(dir: string, name: string): string[] {
   const files: string[] = []
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (entry.name === "node_modules" || entry.name === "data") continue
     const path = join(dir, entry.name)
     if (entry.isDirectory()) {
-      files.push(...findPackageJson(path))
-    } else if (entry.isFile() && entry.name === "package.json") {
+      files.push(...findFilesNamed(path, name))
+    } else if (entry.isFile() && entry.name === name) {
       files.push(path)
     }
   }

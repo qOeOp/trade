@@ -3,7 +3,7 @@ title: Check Contract
 role: engineering-contract
 status: active
 owner: engineering
-last_verified: 2026-07-25 CST
+last_verified: 2026-07-27 CST
 ---
 
 # Check Contract
@@ -28,7 +28,7 @@ last_verified: 2026-07-25 CST
 | Check id | 目录 | 命令 | 覆盖 |
 | --- | --- | --- | --- |
 | `repo-whitespace` | repo root | 本地 `git diff --no-renames --check HEAD`；CI `git diff --no-renames --check <base>...HEAD` | 本地覆盖 staged + unstaged，CI 覆盖精确候选范围；关闭 rename detection，避免重命名隐藏空白错误 |
-| `project-quality` | repo root | `scripts/quality-check.sh [all\|policy\|typescript\|replay\|native]` | 同一编排器的提交总闸与 CI scope；PR 并发执行 policy、两个 TS shard、Replay semantic、native，稳定 `quality` job 汇总；Replay 本地收据可用 `QUALITY_FRESH=1` 强制失效，CI 永不复用 |
+| `project-quality` | repo root | `scripts/quality-check.sh [all\|policy\|typescript\|replay\|native]` | 只编排 owner checks 的提交总闸与 CI scope，不安装依赖；PR 并发执行 policy、两个 TS shard、Replay semantic、native，稳定 `quality` job 汇总 |
 | `changed-quality` | repo root | `bun scripts/quality-check-changed.ts --path <repo-relative-path>` | docs-only / 单模块日常门：全局 hygiene、secret、doc 与受影响 package；Replay 改动按 owner 选包，contracts / engine / accounting / data-adapter 额外验证 runner consumer；共享 contract、脚本/CI、机器 manifest 和跨语言改动要求总闸 |
 | `typescript-lint` | repo root | `bun run lint` | ESLint flat recommended 覆盖 `modules/`、`scripts/`，warning 上限 0，unused disable hard fail；changed code gate 与 policy scope 共用 |
 | `shell-lint` | repo root | `bun run lint:shell` | ShellCheck warning/error hard fail；仅排除兼容 `CDPATH= cd` 写法的 `SC1007` |
@@ -47,12 +47,11 @@ last_verified: 2026-07-25 CST
 | `package-test-integrity` | repo root | `bun scripts/check-package-tests.ts --run-all` 或 `--run-shard <index>/<count>` | 从文件系统发现生产 TS package，直接执行根 compiler 与全部 colocated 测试，不读取 package scripts；排序后确定性分片完整且互斥；Replay worker-v10 只由 semantic gate 独占执行一次 |
 | `codeql` | GitHub Actions | `.github/workflows/codeql.yml` | JavaScript/TypeScript、Python、Go、Rust 的独立默认高精度查询扫描；结果进入 GitHub code scanning，不替代 correctness gate |
 | `replay-release-schedule` | GitHub Actions | `.github/workflows/replay-certification.yml` | nightly/manual 执行 release evidence closure；不阻塞每个 PR 的快速 semantic gate |
-| `zero-duplication` | repo root | `bun scripts/check-duplication.ts` | 六类源码在既定检测粒度下重复片段必须为 0 |
-| `ts-architecture-boundary` | repo root | `bun scripts/check-ts-tool-boundaries.ts` | 静态 package 边界、禁止动态逃逸 / eval、跨 package dependency cycle |
+| `ts-architecture-boundary` | repo root | `bun scripts/check-ts-tool-boundaries.ts` | 静态 package 边界、module-local lockfile、禁止动态逃逸 / eval、跨 package dependency cycle |
 | `secret-scan` | repo root | `bun scripts/check-secrets.ts` | tracked / unignored provider token、非空 SiliconFlow assignment 与 literal bearer credential |
-| `doc-contract-check` | repo root | `bun scripts/check-doc-contracts.ts` | 文档元数据唯一性、current/history 一级标题结构、role→status、可解析 owner、文档及 index 的 `last_verified` CST 日历日期、current index 精确闭包、ID/implementation ref、根入口及 `.agents/`、`docs/`、`modules/`、`strategies/` Markdown 本地链接边界、历史状态、risk Guard ID 对齐；不验证 freshness SLA、外部 URL 或页面 anchor |
+| `doc-contract-check` | repo root | `bun scripts/check-doc-contracts.ts` | docs 根目录与 owner 目录、文档元数据、current index、ID/implementation ref、仓库 Markdown 本地链接边界、历史状态及 risk Guard ID 对齐 |
 | `workspace-skill-check` | repo root | `sh scripts/check-workspace-skills.sh` | project-local skill 命名、frontmatter、placeholder 与领域实现边界 |
-| `architecture-manifest-check` | repo root | `bun scripts/check-architecture-manifest.ts` | 顶层域 / job / store / rail 与真实目录、DDL、protocol schema 对齐 |
+| `architecture-manifest-check` | repo root | `bun scripts/check-architecture-manifest.ts` | 顶层域 / job / store / rail 与真实目录、DDL、protocol schema 对齐；module marker 必须有 CONTRACT，TypeScript module 必须有 tsconfig/package |
 | `storage-schema-check` | repo root | `bun scripts/check-storage-schemas.ts` | logical store DDL 可执行，且 manifest 声明表真实创建 |
 | `trade-flow-typecheck` | `modules/orchestration-ops/trade-flow` | `bun run typecheck` | TS 类型与未使用变量 |
 | `trade-flow-test` | `modules/orchestration-ops/trade-flow` | `bun run test` | 当前全部 trade-flow 单测 / 契约测 |

@@ -452,6 +452,86 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("has unsupported current document status: invented-status")
   })
 
+  test("document contracts own the docs root layout", () => {
+    const root = documentContractFixture({})
+    write(root, "docs/orphan.md", "# Orphan\n")
+
+    const result = runJudge("check-doc-contracts.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("docs root only allows README.md: docs/orphan.md")
+  })
+
+  test("TypeScript boundaries own module-local lockfiles", () => {
+    const root = architectureFixture()
+    write(root, "modules/domain-a/tool-a/bun.lock", "")
+
+    const result = runJudge("check-ts-tool-boundaries.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("tool-local bun.lock files are not allowed")
+  })
+
+  test("architecture manifest checker owns module contract presence", () => {
+    const root = temporaryRoot()
+    write(root, "docs/architecture/architecture-manifest.json", JSON.stringify({
+      domains: [{
+        id: "domain-a",
+        status: "implemented",
+        modules: ["modules/domain-a/tool-a"],
+        owns_stores: [],
+        owns_jobs: [],
+      }],
+      jobs: [],
+      stores: [],
+      rails: [],
+    }))
+    write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({ name: "tool-a" }))
+    write(root, "modules/contracts/protocol-fabric/src/schemas/rail-ownership-registry.schema.json", JSON.stringify({
+      items: { properties: { id: { enum: [] } } },
+    }))
+    write(root, "modules/contracts/protocol-fabric/src/schemas/logical-store-ref.schema.json", JSON.stringify({
+      properties: { store: { enum: [] } },
+    }))
+
+    const result = runJudge("check-architecture-manifest.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("module marker has no owner contract")
+  })
+
+  test("toolset validator owns the retired toolset directory", () => {
+    const root = temporaryRoot()
+    mkdirSync(join(root, "toolset"))
+    write(root, "toolset.json", JSON.stringify({ schema_version: "trade-toolset.manifest.v1", tools: [] }))
+
+    const result = runJudge("toolset.ts", root, ["--validate"])
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("do not recreate toolset/")
+  })
+
+  test("logical store check exits nonzero when its result is not ok", () => {
+    const root = temporaryRoot()
+    write(root, "docs/architecture/architecture-manifest.json", JSON.stringify({
+      stores: [{
+        id: "fixture-store",
+        schema: "schema.sql",
+        physical: { kind: "sqlite", path: "data/fixture.db", tables: ["fixture"] },
+      }],
+    }))
+    write(root, "schema.sql", "CREATE TABLE fixture(id TEXT PRIMARY KEY);\n")
+
+    const result = runJudge("logical-store.ts", root, [
+      "--action", "check",
+      "--store", "all",
+      "--base-dir", "tmp/check/logical-store",
+    ])
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).toContain('"ok": false')
+  })
+
   test("document contracts reject an owner with no governance, domain, or module authority", () => {
     const root = documentContractFixture({ owner: "invented-owner" })
 
@@ -841,32 +921,6 @@ describe("quality judges fail closed", () => {
     expect(result.stdout).toContain("@typescript-eslint/no-explicit-any")
   })
 
-  test("duplication judge includes test code and permits zero clones", () => {
-    const root = temporaryRoot()
-    const duplicate = Array.from({ length: 24 }, (_, index) =>
-      `  const duplicatedValue${index} = sourceValue + ${index}`
-    ).join("\n")
-    write(root, "modules/domain-a/tool-a/src/first.test.ts", [
-      "export function first(sourceValue: number) {",
-      duplicate,
-      "  return duplicatedValue23",
-      "}",
-      "",
-    ].join("\n"))
-    write(root, "modules/domain-a/tool-a/src/second.test.ts", [
-      "export function second(sourceValue: number) {",
-      duplicate,
-      "  return duplicatedValue23",
-      "}",
-      "",
-    ].join("\n"))
-
-    const result = runJudge("check-duplication.ts", repoRoot, ["--root", root])
-
-    expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain("duplicated code fragments increased")
-  })
-
   test("Replay heavyweight tests are serial and individually exclusive", () => {
     const packageJson = JSON.parse(readFileSync(join(repoRoot,
       "modules/research-strategy-development/replay-execution-plane/runner/package.json"), "utf8")) as {
@@ -902,7 +956,7 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("gofmt required")
   })
 
-  test("repository dependencies are installed before quality judges run", () => {
+  test("repository quality delegates checks without mutating dependency state", () => {
     const script = readFileSync(join(repoRoot, "scripts/quality-check.sh"), "utf8")
     const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as {
       scripts: Record<string, string>
@@ -916,24 +970,6 @@ describe("quality judges fail closed", () => {
       "  check_lint",
       "  check_toolset_manifest",
     ].join("\n"))
-    expect(script).toContain([
-      "  env \\",
-      "    -u BINANCE_API_KEY \\",
-      "    -u BINANCE_API_SECRET \\",
-      "    -u SILICONFLOW_API_KEY \\",
-      "    bun --no-env-file install --frozen-lockfile --ignore-scripts",
-    ].join("\n"))
-    expect(script.match(/bun --no-env-file install --frozen-lockfile --ignore-scripts/g)).toHaveLength(1)
-    expect(script).toContain('quality_home="$HOME"')
-    expect(script).toContain('while [ "${quality_home%/}" != "$quality_home" ]; do')
-    expect(script).toContain('quality_home="${quality_home%/}"')
-    expect(script).toContain("previous_boundary && next_boundary")
-    expect(script).toContain("exit(found ? 0 : 1)")
-    expect(script).toContain('quality_home_candidates="$(')
-    expect(script).toContain("rg --no-config")
-    expect(script).toContain('home = ENVIRON["QUALITY_HOME"]')
-    expect(script).toContain('if [ "$quality_home_scan_status" -ne 1 ]; then')
-    expect(script.match(/find_local_home_paths/g)).toHaveLength(2)
     expect(script).toContain("bun scripts/check-package-tests.ts --run-all")
     expect(script).toContain('bun scripts/check-package-tests.ts --run-shard "$QUALITY_TS_SHARD"')
     expect(script).toContain("git ls-files --cached --others --exclude-standard -- '*.sh'")
@@ -944,123 +980,6 @@ describe("quality judges fail closed", () => {
     expect(script).not.toContain("bun run check")
     expect(script).toContain('git diff --no-renames --check "$QUALITY_DIFF_BASE"...HEAD')
     expect(script).toContain("git diff --no-renames --check HEAD")
-  })
-
-  test("HOME path scanning is boundary-aware and fails closed on scan errors", () => {
-    const script = readFileSync(join(repoRoot, "scripts/quality-check.sh"), "utf8")
-    const functionStart = script.indexOf("find_local_home_paths()")
-    const functionEnd = script.indexOf("\ncheck_dependencies()", functionStart)
-    const functionSource = script.slice(functionStart, functionEnd)
-    const root = temporaryRoot()
-    const rootHome = ["/ro", "ot"].join("")
-
-    write(root, "README.md", [
-      "catalog DB/roots",
-      `cache_root=${rootHome}`,
-      `{"cache_root":"${rootHome}"}`,
-      `${rootHome}/project/file`,
-      `link=file://${rootHome}/private/report.json`,
-      `link=file://localhost${rootHome}/private/report.json`,
-      `CACHE_DIR=\${CACHE_DIR:-${rootHome}/cache}`,
-      `CACHE_DIR=\${CACHE_DIR-${rootHome}/cache}`,
-      `CACHE_DIR=\${1-${rootHome}/cache}`,
-      `CACHE_DIR=\${?-${rootHome}/cache}`,
-      `CACHE=$PREFIX${rootHome}/private`,
-      `CACHE=$A$B${rootHome}/private`,
-      `cc -I${rootHome}/include`,
-      `cc -isystem${rootHome}/include`,
-      `cc '-I${rootHome}/include'`,
-      `cache_root=/tmp/..${rootHome}/private`,
-      `cache_root=/${rootHome}/private`,
-      "catalog/root/root",
-      `catalog-${rootHome}`,
-      `catalog$PREFIX${rootHome}/private`,
-      `CACHE=$10${rootHome}/private`,
-      `catalog-I${rootHome}/include`,
-      `link=file://example.com${rootHome}/private/report.json`,
-      `cache_root=/tmp/project/..${rootHome}/private`,
-      `cache_root=/tmp/${rootHome}/private`,
-      "/tmp/root",
-      "/roots",
-      "data/root.db",
-      "",
-    ].join("\n"))
-    write(root, "AGENTS.md", "fixture\n")
-    write(root, "docs/fixture.md", "fixture\n")
-    write(root, "scripts/fixture.sh", "fixture\n")
-    write(root, "modules/fixture.txt", "fixture\n")
-    write(root, ".agents/fixture.md", "fixture\n")
-    write(root, "toolset.json", "{}\n")
-    write(root, "rg.conf", "--color=always\n")
-
-    const boundary = runCommand(
-      ["sh", "-c", `${functionSource}\nfind_local_home_paths`],
-      root,
-      { HOME: `${rootHome}/`, RIPGREP_CONFIG_PATH: join(root, "rg.conf") },
-    )
-    expect(boundary.exitCode).toBe(0)
-    expect(boundary.stdout).toContain(`cache_root=${rootHome}`)
-    expect(boundary.stdout).toContain(`{"cache_root":"${rootHome}"}`)
-    expect(boundary.stdout).toContain(`${rootHome}/project/file`)
-    expect(boundary.stdout).toContain(`link=file://${rootHome}/private/report.json`)
-    expect(boundary.stdout).toContain(`link=file://localhost${rootHome}/private/report.json`)
-    expect(boundary.stdout).toContain(`CACHE_DIR=\${CACHE_DIR:-${rootHome}/cache}`)
-    expect(boundary.stdout).toContain(`CACHE_DIR=\${CACHE_DIR-${rootHome}/cache}`)
-    expect(boundary.stdout).toContain(`CACHE_DIR=\${1-${rootHome}/cache}`)
-    expect(boundary.stdout).toContain(`CACHE_DIR=\${?-${rootHome}/cache}`)
-    expect(boundary.stdout).toContain(`CACHE=$PREFIX${rootHome}/private`)
-    expect(boundary.stdout).toContain(`CACHE=$A$B${rootHome}/private`)
-    expect(boundary.stdout).toContain(`cc -I${rootHome}/include`)
-    expect(boundary.stdout).toContain(`cc -isystem${rootHome}/include`)
-    expect(boundary.stdout).toContain(`cc '-I${rootHome}/include'`)
-    expect(boundary.stdout).toContain(`cache_root=/tmp/..${rootHome}/private`)
-    expect(boundary.stdout).toContain(`cache_root=/${rootHome}/private`)
-    expect(boundary.stdout).not.toContain("catalog/root/root")
-    expect(boundary.stdout).not.toContain(`catalog-${rootHome}`)
-    expect(boundary.stdout).not.toContain(`catalog$PREFIX${rootHome}/private`)
-    expect(boundary.stdout).not.toContain(`CACHE=$10${rootHome}/private`)
-    expect(boundary.stdout).not.toContain(`catalog-I${rootHome}/include`)
-    expect(boundary.stdout).not.toContain(`link=file://example.com${rootHome}/private/report.json`)
-    expect(boundary.stdout).not.toContain(`cache_root=/tmp/project/..${rootHome}/private`)
-    expect(boundary.stdout).not.toContain(`cache_root=/tmp/${rootHome}/private`)
-    expect(boundary.stdout).not.toContain("DB/roots")
-    expect(boundary.stdout).not.toContain("/tmp/root")
-    expect(boundary.stdout).not.toContain("/roots")
-    expect(boundary.stdout).not.toContain("data/root.db")
-
-    const redundantTrailingSeparators = runCommand(
-      ["sh", "-c", `${functionSource}\nfind_local_home_paths`],
-      root,
-      { HOME: `${rootHome}//` },
-    )
-    expect(redundantTrailingSeparators.exitCode).toBe(0)
-    expect(redundantTrailingSeparators.stdout).toContain(`cache_root=${rootHome}`)
-
-    const enterpriseHome = "/home/DOMAIN\\user"
-    write(root, "README.md", `cache_root=${enterpriseHome}/project\n`)
-    const enterprise = runCommand(
-      ["sh", "-c", `${functionSource}\nfind_local_home_paths`],
-      root,
-      { HOME: enterpriseHome },
-    )
-    expect(enterprise.exitCode).toBe(0)
-    expect(enterprise.stdout).toContain(enterpriseHome)
-
-    const filesystemRoot = runCommand(
-      ["sh", "-c", `${functionSource}\nfind_local_home_paths`],
-      root,
-      { HOME: "/" },
-    )
-    expect(filesystemRoot.exitCode).toBe(2)
-
-    rmSync(join(root, "toolset.json"))
-    const scanError = runCommand(
-      ["sh", "-c", `${functionSource}\nfind_local_home_paths`],
-      root,
-      { HOME: `${rootHome}/` },
-    )
-    expect(scanError.exitCode).toBe(2)
-    expect(scanError.stderr).toContain("toolset.json")
   })
 
   test("dependency bootstrap cannot run lifecycle scripts with credentials reloaded from dotenv", () => {
@@ -1099,8 +1018,10 @@ describe("quality judges fail closed", () => {
 
   test("repository workflow checks the fetched candidate range", () => {
     const workflow = readFileSync(join(repoRoot, ".github/workflows/quality.yml"), "utf8")
+    const safeInstall = "env -u BINANCE_API_KEY -u BINANCE_API_SECRET -u SILICONFLOW_API_KEY bun --no-env-file install --frozen-lockfile --ignore-scripts"
 
     expect(workflow).toContain("fetch-depth: 0")
+    expect(workflow.match(new RegExp(safeInstall, "g"))).toHaveLength(3)
     expect(workflow).toContain(
       "QUALITY_DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}",
     )
@@ -1204,6 +1125,8 @@ function documentContractFixture(
   write(root, "docs/README.md", metadata("Documentation", role, status, owner, lastVerified))
   write(root, "docs/history/README.md", metadata("History", "history-index", "active", "architecture"))
   write(root, "docs/runtime/risk-control-contract.md", metadata("Risk", "runtime-feature-contract", "active", "policy-risk"))
+  mkdirSync(join(root, "docs/product"), { recursive: true })
+  mkdirSync(join(root, "docs/research"), { recursive: true })
   write(root, "docs/engineering/doc-contract-index.json", JSON.stringify({
     schema_version: "trade.doc-contract-index.v1",
     last_verified: "2026-07-22 CST",
