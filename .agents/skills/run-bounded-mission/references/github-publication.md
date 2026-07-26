@@ -49,21 +49,27 @@ When the repository contains `scripts/pr-lifecycle.ts` and a base-owned
    --repo <owner/repo> --pr <number> --claim <tag-sha> --capability
    <private-value>`. It creates `codex-pr-review-seal/<pr>/<head>` bound to the
    exact visible trigger, review state and body, and exact finding-root set.
-   The command reads the PR identity both before collecting provider evidence
-   and immediately before publishing the seal ref; drift leaves no public seal.
+   Every provider snapshot requires two consecutive complete reads with
+   identical PR identity, reviews, commits, comments, reactions, and threads.
+   The seal command repeats that stable snapshot immediately before publishing
+   the seal ref; drift or mixed evidence leaves no public seal.
    Every prior cycle must retain its exact trigger, receipt, result, and seal
-   before a new-head cycle may start. Missing, edited, minimized, deleted,
-   duplicated, unsealed, or ambiguous evidence fails closed and requires
-   explicit user-authorized recovery.
+   before a new-head cycle may start. Every Codex review and finding root in the
+   retained PR lineage must belong to exactly one sealed cycle, whose result is
+   unique for that head. Missing, edited, minimized, deleted, duplicated,
+   unsealed, orphaned, or ambiguous evidence fails closed and requires explicit
+   user-authorized recovery.
 6. For every Codex finding, first seal its review cycle, make one coherent
    append-only fix commit, then run `bun scripts/pr-lifecycle.ts address --repo
    <owner/repo> --pr <number> --thread-id <node-id> --finding-comment-id
    <database-id> --disposition <fixed|deferred|rejected> --fix-sha <full-sha>
    --reason <text> --claim <tag-sha> --capability <private-value>`. It replies
    only to a Codex-authored root
-   in that exact inline thread with one structured disposition and resolves it
-   through GitHub. A reply or a resolve alone is insufficient. Every new code
-   head needs a new review tag, trigger, result seal, and final clean seal.
+   in that exact inline thread with one unique structured disposition and
+   resolves it through GitHub. The receipt commit must be a retained descendant
+   after the finding review head; a pre-finding or unrelated lineage commit is
+   invalid. A reply or a resolve alone is insufficient. Every new code head
+   needs a new review tag, trigger, result seal, and final clean seal.
 7. A root 👍, eyes reaction, silence, summary, resolved flag, unsealed result, or
    old-head review
    is not independently sufficient. Run `bun scripts/pr-lifecycle.ts verify

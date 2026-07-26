@@ -535,26 +535,34 @@ function exactSealedResult(
 ): boolean {
   if (seal.reviewTagSha !== cycle.tagSha || seal.headSha !== cycle.headSha) return false
   if (Date.parse(seal.resultCreatedAt) < Date.parse(trigger.createdAt)) return false
+  const codexReviews = snapshot.reviews.filter((review) =>
+    isCodex(review.actor) && review.commitSha === cycle.headSha
+  )
   if (seal.resultKind === "clean") {
     return seal.resultState === null
       && seal.resultBodyHash === null
       && seal.findingRoots.length === 0
+      && codexReviews.length === 0
+      && findingRootReceipts(snapshot, cycle.headSha).length === 0
       && seal.resultId === trigger.id
+      && trigger.reactions.filter((reaction) =>
+        isCodex(reaction.actor)
+        && reaction.content === "THUMBS_UP"
+        && Date.parse(reaction.createdAt) >= Date.parse(trigger.createdAt)
+      ).length === 1
       && trigger.reactions.some((reaction) =>
-      reaction.actor === seal.resultActor
-      && reaction.content === "THUMBS_UP"
-      && reaction.createdAt === seal.resultCreatedAt
-    )
+        reaction.actor === seal.resultActor
+        && reaction.content === "THUMBS_UP"
+        && reaction.createdAt === seal.resultCreatedAt
+      )
   }
-  const reviewMatches = snapshot.reviews.some((review) =>
-    review.id === seal.resultId
+  const review = codexReviews[0]
+  return codexReviews.length === 1
+    && review?.id === seal.resultId
     && review.actor === seal.resultActor
     && review.submittedAt === seal.resultCreatedAt
-    && review.commitSha === cycle.headSha
     && review.state === seal.resultState
     && contentHash(review.body) === seal.resultBodyHash
-  )
-  return reviewMatches
     && JSON.stringify(findingRootReceipts(snapshot, cycle.headSha))
       === JSON.stringify(seal.findingRoots)
 }
@@ -569,7 +577,12 @@ function validateReviewHistory(
   const reasons: string[] = []
   const receiptByCycle = new Map(triggerReceipts.map((receipt) => [receipt.reviewTagSha, receipt]))
   const sealByCycle = new Map(seals.map((seal) => [seal.reviewTagSha, seal]))
+  const cycleByHead = new Map<string, ReviewCycle>()
   for (const cycle of cycles) {
+    if (cycleByHead.has(cycle.headSha)) {
+      reasons.push(`multiple review cycles exist for head ${cycle.headSha}`)
+    }
+    cycleByHead.set(cycle.headSha, cycle)
     const receipt = receiptByCycle.get(cycle.tagSha)
     const seal = sealByCycle.get(cycle.tagSha)
     const trigger = receipt ? exactTrigger(snapshot, claim, cycle, receipt) : null
@@ -583,6 +596,23 @@ function validateReviewHistory(
   }
   if (triggerReceipts.length !== cycles.length || seals.length !== cycles.length) {
     reasons.push("review cycle artifact counts do not match")
+  }
+  const commitSet = new Set(snapshot.commits)
+  for (const review of snapshot.reviews.filter((candidate) => isCodex(candidate.actor))) {
+    if (!review.commitSha || !commitSet.has(review.commitSha) || !cycleByHead.has(review.commitSha)) {
+      reasons.push(`Codex review ${review.id} is not owned by one retained review cycle`)
+    }
+  }
+  for (const thread of snapshot.threads) {
+    const root = thread.comments[0]
+    if (!root || !isCodex(root.actor)) continue
+    if (
+      !root.reviewCommitSha
+      || !commitSet.has(root.reviewCommitSha)
+      || !cycleByHead.has(root.reviewCommitSha)
+    ) {
+      reasons.push(`review thread ${thread.id} is not owned by one retained review cycle`)
+    }
   }
   return reasons
 }
@@ -617,11 +647,17 @@ function currentOrAmbiguousReviewTriggers(
   })
 }
 
-function findingDisposition(
+function findingDispositions(
   thread: ReviewThread,
   claim: Claim,
-  commitSet: Set<string>,
-): FindingPayload | null {
+  commits: string[],
+): FindingPayload[] {
+  const root = thread.comments[0]
+  const reviewedIndex = root?.reviewCommitSha
+    ? commits.indexOf(root.reviewCommitSha)
+    : -1
+  if (reviewedIndex < 0) return []
+  const matches: FindingPayload[] = []
   for (const comment of thread.comments.slice(1)) {
     if (comment.actor !== claim.actor) continue
     const payload = parseMarker<FindingPayload>(comment.body, FINDING_MARKER)
@@ -632,10 +668,19 @@ function findingDisposition(
       && ["fixed", "deferred", "rejected"].includes(payload.disposition)
       && validSha(payload.fix_sha)
       && payload.reason.trim().length > 0
-      && commitSet.has(payload.fix_sha)
-    ) return payload
+      && commits.indexOf(payload.fix_sha) > reviewedIndex
+    ) matches.push(payload)
   }
-  return null
+  return matches
+}
+
+function findingDisposition(
+  thread: ReviewThread,
+  claim: Claim,
+  commits: string[],
+): FindingPayload | null {
+  const matches = findingDispositions(thread, claim, commits)
+  return matches.length === 1 ? matches[0]! : null
 }
 
 export function isCodexFindingRoot(thread: ReviewThread, commentId: number): boolean {
@@ -746,12 +791,11 @@ export function verifyReceipt(
     reasons.push("unexpected Codex reaction exists on the trigger")
   }
 
-  const commitSet = new Set(snapshot.commits)
   for (const thread of snapshot.threads) {
     const root = thread.comments[0]
     if (!root || !isCodex(root.actor)) continue
     if (!thread.resolved) reasons.push(`review thread ${thread.id} is unresolved`)
-    if (!findingDisposition(thread, claim, commitSet)) {
+    if (!findingDisposition(thread, claim, snapshot.commits)) {
       reasons.push(`review thread ${thread.id} lacks an exact fix/disposition receipt`)
     }
   }
@@ -976,7 +1020,7 @@ function fetchBasicPullRequest(repository: string, pr: number): BasicPullRequest
   }
 }
 
-export function fetchSnapshot(repository: string, pr: number): PullRequestSnapshot {
+function fetchSnapshotOnce(repository: string, pr: number): PullRequestSnapshot {
   const pull = fetchBasicPullRequest(repository, pr)
   const reviews = paginated(`repos/${repository}/pulls/${pr}/reviews`).map((review): Review => ({
     id: numberField(review, "id") ?? 0,
@@ -1005,6 +1049,15 @@ export function fetchSnapshot(repository: string, pr: number): PullRequestSnapsh
     threads: conversation.threads,
     complete: conversation.complete,
   }
+}
+
+export function fetchSnapshot(repository: string, pr: number): PullRequestSnapshot {
+  const first = fetchSnapshotOnce(repository, pr)
+  const second = fetchSnapshotOnce(repository, pr)
+  if (JSON.stringify(first) !== JSON.stringify(second)) {
+    throw new Error("provider evidence changed while fetching stable snapshot")
+  }
+  return second
 }
 
 function addComment(repository: string, pr: number, body: string): IssueComment {
@@ -1437,6 +1490,10 @@ async function commandSeal(args: string[]): Promise<void> {
       finding_roots: reviewResult ? findingRootReceipts(snapshot, cycle.headSha) : [],
     }),
   )
+  const confirmed = fetchSnapshot(repository, pr)
+  if (JSON.stringify(snapshot) !== JSON.stringify(confirmed)) {
+    throw new Error("provider evidence changed while sealing review result")
+  }
   const live = fetchBasicPullRequest(repository, pr)
   if (!samePullRequestIdentity(snapshot, live)) {
     throw new Error("PR identity changed while sealing review result")
@@ -1481,7 +1538,27 @@ async function commandAddress(args: string[]): Promise<void> {
   if (!thread || !isCodexFindingRoot(thread, findingCommentId)) {
     throw new Error("finding is not a Codex root comment in the live review thread")
   }
-  if (!findingDisposition(thread, claim, new Set(snapshot.commits))) {
+  const reviewedHead = thread.comments[0]?.reviewCommitSha
+  const reviewedIndex = reviewedHead ? snapshot.commits.indexOf(reviewedHead) : -1
+  const fixIndex = snapshot.commits.indexOf(fixSha)
+  if (
+    reviewedIndex < 0
+    || fixIndex <= reviewedIndex
+  ) {
+    throw new Error("fix SHA must be a descendant commit after the finding review head")
+  }
+  const existing = findingDispositions(thread, claim, snapshot.commits)
+  if (existing.length > 1) throw new Error("finding has ambiguous disposition receipts")
+  if (existing.length === 1) {
+    const receipt = existing[0]!
+    if (
+      receipt.disposition !== disposition
+      || receipt.fix_sha !== fixSha
+      || receipt.reason !== reason
+    ) {
+      throw new Error("existing finding disposition does not match the requested receipt")
+    }
+  } else {
     runGh([
       "api", "--method", "POST",
       `repos/${repository}/pulls/${pr}/comments/${findingCommentId}/replies`,

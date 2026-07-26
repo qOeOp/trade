@@ -191,7 +191,7 @@ function findingThread(overrides: Partial<ReviewThread> = {}): ReviewThread {
         body: "finding",
         createdAt: "2026-07-26T00:00:30Z",
         outdated: true,
-        reviewCommitSha: "f".repeat(40),
+        reviewCommitSha: fix,
       },
       {
         id: 51,
@@ -200,7 +200,7 @@ function findingThread(overrides: Partial<ReviewThread> = {}): ReviewThread {
           thread_id: "thread-1",
           finding_comment_id: 50,
           disposition: "fixed",
-          fix_sha: fix,
+          fix_sha: head,
           reason: "covered by the regression",
         }),
         createdAt: "2026-07-26T00:00:40Z",
@@ -253,8 +253,8 @@ describe("atomic authority tags", () => {
 })
 
 describe("exact-head receipt", () => {
-  test("accepts one correlated clean response and mapped historical findings", () => {
-    expect(verifyReceipt(snapshot({ threads: [findingThread()] }), claim, cycle)).toMatchObject({
+  test("accepts one correlated clean response", () => {
+    expect(verifyReceipt(snapshot(), claim, cycle)).toMatchObject({
       ok: true,
       receipt: {
         claimTagSha,
@@ -523,6 +523,52 @@ describe("exact-head receipt", () => {
       cycle,
       options,
     ).ok).toBeFalse()
+    expect(verifyReceipt(
+      {
+        ...state,
+        reviews: [
+          oldReview,
+          { ...oldReview, id: 91, submittedAt: "2026-07-26T00:02:30Z" },
+        ],
+      },
+      claim,
+      cycle,
+      options,
+    ).ok).toBeFalse()
+    expect(verifyReceipt(
+      {
+        ...state,
+        threads: [{
+          ...oldFinding,
+          comments: oldFinding.comments.map((entry, index) =>
+            index === 1
+              ? {
+                  ...entry,
+                  body: markerBody("pr-lifecycle-finding:v1", {
+                    thread_id: "thread-old",
+                    finding_comment_id: 60,
+                    disposition: "fixed",
+                    fix_sha: fix,
+                    reason: "incorrectly points before the finding",
+                  }),
+                }
+              : entry
+          ),
+        }],
+      },
+      claim,
+      cycle,
+      options,
+    ).ok).toBeFalse()
+    expect(verifyReceipt(
+      snapshot({
+        reviews: [oldReview],
+        threads: [oldFinding],
+        commits: [fix, oldHead, head],
+      }),
+      claim,
+      cycle,
+    ).ok).toBeFalse()
   })
 
   test("punctuation cannot hide an unstructured explicit trigger", () => {
@@ -588,9 +634,9 @@ describe("exact-head receipt", () => {
     const unmapped = snapshot({ threads: [findingThread()], commits: [head] })
     const result = verifyReceipt(unmapped, { ...claim, initialHead: head }, cycle)
     expect(result.ok).toBeFalse()
-    expect(result.reasons).toEqual([
-      expect.stringContaining("lacks an exact fix/disposition receipt"),
-    ])
+    expect(result.reasons.some((reason) =>
+      reason.includes("lacks an exact fix/disposition receipt")
+    )).toBeTrue()
   })
 
   test("human review threads are outside the Codex disposition protocol", () => {
