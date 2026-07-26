@@ -2,11 +2,13 @@ import { describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import {
+  capabilityHash,
   gateStatusForLiveIdentity,
   isCodexFindingRoot,
   markerBody,
   parseMarker,
   requireComplete,
+  requireClaimCapability,
   validateClaimTag,
   validateReviewTag,
   verifyReceipt as verifyReceiptProduction,
@@ -15,6 +17,7 @@ import {
   type IssueComment,
   type PullRequestSnapshot,
   type ReviewCycle,
+  type ReviewSeal,
   type ReviewTriggerReceipt,
   type ReviewThread,
 } from "./pr-lifecycle"
@@ -24,6 +27,7 @@ const base = "b".repeat(40)
 const fix = "c".repeat(40)
 const claimTagSha = "d".repeat(40)
 const reviewTagSha = "e".repeat(40)
+const capability = "session-secret"
 
 function comment(id: number, body: string, overrides: Partial<IssueComment> = {}): IssueComment {
   return {
@@ -42,6 +46,7 @@ function comment(id: number, body: string, overrides: Partial<IssueComment> = {}
 function triggerComment(id = 10): IssueComment {
   return comment(id, [
     "@codex review",
+    "",
     markerBody("pr-lifecycle-review:v2", { review_tag_sha: reviewTagSha }),
   ].join("\n"), {
     reactions: [{
@@ -57,6 +62,7 @@ const claim: Claim = {
   actor: "qOeOp",
   mission: "mission-a",
   initialHead: fix,
+  capabilityHash: capabilityHash(capability),
 }
 
 const cycle: ReviewCycle = {
@@ -78,6 +84,16 @@ const triggerReceipt: ReviewTriggerReceipt = {
   commentCreatedAt: "2026-07-26T00:01:00Z",
 }
 
+const seal: ReviewSeal = {
+  tagSha: "4".repeat(40),
+  reviewTagSha,
+  headSha: head,
+  resultKind: "clean",
+  resultActor: "chatgpt-codex-connector[bot]",
+  resultId: 10,
+  resultCreatedAt: "2026-07-26T00:02:00Z",
+}
+
 function verifyReceipt(
   state: PullRequestSnapshot,
   claimValue: Claim,
@@ -86,6 +102,7 @@ function verifyReceipt(
     allowDraft?: boolean
     reviewCycles?: ReviewCycle[]
     triggerReceipts?: ReviewTriggerReceipt[]
+    seals?: ReviewSeal[]
   } = {},
 ) {
   const receipts = options.triggerReceipts ?? [triggerReceipt]
@@ -95,6 +112,7 @@ function verifyReceipt(
   return verifyReceiptProduction(state, claimValue, cycleValue, currentReceipt, {
     ...options,
     triggerReceipts: receipts,
+    seals: options.seals ?? [seal],
   })
 }
 
@@ -123,11 +141,11 @@ function annotatedClaim(overrides: Partial<AnnotatedTag> = {}): AnnotatedTag {
   return {
     sha: claimTagSha,
     name: "codex-pr-claim/100",
-    message: markerBody("pr-lifecycle-claim-tag:v1", {
+    message: markerBody("pr-lifecycle-claim-tag:v2", {
       repository: "qOeOp/trade",
       pr: 100,
       mission: "mission-a",
-      nonce: "unique",
+      capability_hash: capabilityHash(capability),
       actor: "qOeOp",
       initial_head: fix,
     }),
@@ -200,6 +218,13 @@ describe("atomic authority tags", () => {
     )).toThrow("invalid claim tag")
   })
 
+  test("requires the private capability even when two sessions share one GitHub actor", () => {
+    expect(() => requireClaimCapability(claim, capability)).not.toThrow()
+    expect(() => requireClaimCapability(claim, "other-session")).toThrow(
+      "claim capability does not match",
+    )
+  })
+
   test("binds one review cycle to the exact claim, head, and live base", () => {
     expect(validateReviewTag(annotatedReview(), snapshot(), claim)).toEqual(cycle)
     expect(() => validateReviewTag(
@@ -210,10 +235,9 @@ describe("atomic authority tags", () => {
   })
 
   test("deleted comments cannot promote another owner or recreate a review cycle", () => {
-    expect(verifyReceipt(snapshot({ comments: [] }), claim, cycle)).toMatchObject({
-      ok: false,
-      reasons: [expect.stringContaining("found 0")],
-    })
+    const result = verifyReceipt(snapshot({ comments: [] }), claim, cycle)
+    expect(result.ok).toBeFalse()
+    expect(result.reasons.some((reason) => reason.includes("found 0"))).toBeTrue()
     expect(cycle.tagSha).toBe(reviewTagSha)
   })
 
@@ -247,10 +271,9 @@ describe("exact-head receipt", () => {
         createdAt: "2026-07-26T00:02:00Z",
       }],
     })
-    expect(verifyReceipt(state, claim, cycle)).toMatchObject({
-      ok: false,
-      reasons: [expect.stringContaining("review trigger")],
-    })
+    const result = verifyReceipt(state, claim, cycle)
+    expect(result.ok).toBeFalse()
+    expect(result.reasons.some((reason) => reason.includes("review trigger"))).toBeTrue()
   })
 
   test("replays PR #23: duplicate same-head triggers fail closed", () => {
@@ -268,6 +291,7 @@ describe("exact-head receipt", () => {
     const plain = comment(11, "@codex review")
     const differentlyMarked = comment(12, [
       "@codex review",
+      "",
       markerBody("pr-lifecycle-review:v2", { review_tag_sha: "f".repeat(40) }),
     ].join("\n"))
     for (const extra of [plain, differentlyMarked]) {
@@ -288,14 +312,15 @@ describe("exact-head receipt", () => {
       triggerComment(12),
     ]) {
       if (trigger.id === 12) trigger.minimized = true
-      expect(verifyReceipt(
+      const result = verifyReceipt(
         snapshot({ comments: [trigger] }),
         claim,
         cycle,
-      )).toMatchObject({
-        ok: false,
-        reasons: [expect.stringContaining("not the claimed exact-head trigger")],
-      })
+      )
+      expect(result.ok).toBeFalse()
+      expect(result.reasons.some((reason) =>
+        reason.includes("not the claimed exact-head trigger")
+      )).toBeTrue()
     }
   })
 
@@ -309,8 +334,15 @@ describe("exact-head receipt", () => {
     }
     const oldTrigger = comment(9, [
       "@codex review",
+      "",
       markerBody("pr-lifecycle-review:v2", { review_tag_sha: oldTag }),
-    ].join("\n"))
+    ].join("\n"), {
+      reactions: [{
+        actor: "chatgpt-codex-connector[bot]",
+        content: "THUMBS_UP",
+        createdAt: "2026-07-26T00:02:00Z",
+      }],
+    })
     const oldReceipt: ReviewTriggerReceipt = {
       tagSha: "3".repeat(40),
       reviewTagSha: oldTag,
@@ -319,6 +351,13 @@ describe("exact-head receipt", () => {
       commentNodeId: oldTrigger.nodeId,
       commentCreatedAt: oldTrigger.createdAt,
     }
+    const oldSeal: ReviewSeal = {
+      ...seal,
+      tagSha: "5".repeat(40),
+      reviewTagSha: oldTag,
+      headSha: oldHead,
+      resultId: oldTrigger.id,
+    }
     expect(verifyReceipt(
       snapshot({ comments: [oldTrigger, triggerComment()], commits: [fix, oldHead, head] }),
       claim,
@@ -326,8 +365,35 @@ describe("exact-head receipt", () => {
       {
         reviewCycles: [oldCycle, cycle],
         triggerReceipts: [oldReceipt, triggerReceipt],
+        seals: [oldSeal, seal],
       },
     ).ok).toBeTrue()
+
+    for (const poisoned of [
+      {
+        comments: [triggerComment()],
+        seals: [oldSeal, seal],
+      },
+      {
+        comments: [{ ...oldTrigger, body: `${oldTrigger.body}\nedited` }, triggerComment()],
+        seals: [oldSeal, seal],
+      },
+      {
+        comments: [oldTrigger, triggerComment()],
+        seals: [seal],
+      },
+    ]) {
+      expect(verifyReceipt(
+        snapshot({ comments: poisoned.comments, commits: [fix, oldHead, head] }),
+        claim,
+        cycle,
+        {
+          reviewCycles: [oldCycle, cycle],
+          triggerReceipts: [oldReceipt, triggerReceipt],
+          seals: poisoned.seals,
+        },
+      ).ok).toBeFalse()
+    }
 
     const copiedOldMarker = comment(11, oldTrigger.body)
     expect(verifyReceipt(
@@ -340,6 +406,7 @@ describe("exact-head receipt", () => {
       {
         reviewCycles: [oldCycle, cycle],
         triggerReceipts: [oldReceipt, triggerReceipt],
+        seals: [oldSeal, seal],
       },
     )).toMatchObject({
       ok: false,
@@ -471,15 +538,15 @@ describe("base-owned workflow", () => {
 
 describe("markers", () => {
   test("round trips structured payloads and rejects malformed JSON", () => {
-    const body = markerBody("pr-lifecycle-claim-tag:v1", { mission: "m", actor: "a" })
-    expect(parseMarker(body, "pr-lifecycle-claim-tag:v1")).toEqual({ mission: "m", actor: "a" })
+    const body = markerBody("pr-lifecycle-claim-tag:v2", { mission: "m", actor: "a" })
+    expect(parseMarker(body, "pr-lifecycle-claim-tag:v2")).toEqual({ mission: "m", actor: "a" })
     expect(parseMarker(
-      "<!-- pr-lifecycle-claim-tag:v1 nope -->",
-      "pr-lifecycle-claim-tag:v1",
+      "<!-- pr-lifecycle-claim-tag:v2 nope -->",
+      "pr-lifecycle-claim-tag:v2",
     )).toBeNull()
     expect(parseMarker(
       `${body}\n${body}`,
-      "pr-lifecycle-claim-tag:v1",
+      "pr-lifecycle-claim-tag:v2",
     )).toBeNull()
   })
 })

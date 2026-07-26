@@ -1,12 +1,13 @@
 #!/usr/bin/env bun
 
 import { spawnSync } from "node:child_process"
-import { randomUUID } from "node:crypto"
+import { createHash, randomBytes } from "node:crypto"
 
-const CLAIM_TAG_MARKER = "pr-lifecycle-claim-tag:v1"
+const CLAIM_TAG_MARKER = "pr-lifecycle-claim-tag:v2"
 const CLAIM_RECEIPT_MARKER = "pr-lifecycle-claim-receipt:v1"
 const REVIEW_TAG_MARKER = "pr-lifecycle-review-tag:v1"
 const REVIEW_TRIGGER_TAG_MARKER = "pr-lifecycle-review-trigger-tag:v1"
+const REVIEW_SEAL_TAG_MARKER = "pr-lifecycle-review-seal-tag:v1"
 const REVIEW_MARKER = "pr-lifecycle-review:v2"
 const FINDING_MARKER = "pr-lifecycle-finding:v1"
 const GATE_CONTEXT = "pr-lifecycle-gate"
@@ -87,9 +88,23 @@ interface ClaimPayload {
   repository: string
   pr: number
   mission: string
-  nonce: string
+  capability_hash: string
   actor: string
   initial_head: string
+}
+
+interface ReviewSealTagPayload {
+  repository: string
+  pr: number
+  claim_tag_sha: string
+  review_tag_sha: string
+  mission: string
+  actor: string
+  head: string
+  result_kind: "clean" | "review"
+  result_actor: string
+  result_id: number
+  result_created_at: string
 }
 
 interface ReviewTagPayload {
@@ -133,6 +148,17 @@ export interface Claim {
   actor: string
   mission: string
   initialHead: string
+  capabilityHash: string
+}
+
+export interface ReviewSeal {
+  tagSha: string
+  reviewTagSha: string
+  headSha: string
+  resultKind: "clean" | "review"
+  resultActor: string
+  resultId: number
+  resultCreatedAt: string
 }
 
 export interface ReviewCycle {
@@ -213,6 +239,14 @@ function validSha(value: string | null): value is string {
   return value !== null && /^[0-9a-f]{40}$/.test(value)
 }
 
+function validCapabilityHash(value: string | null): value is string {
+  return value !== null && /^[0-9a-f]{64}$/.test(value)
+}
+
+export function capabilityHash(capability: string): string {
+  return createHash("sha256").update(capability).digest("hex")
+}
+
 function validMission(value: string | null): value is string {
   return value !== null && /^[A-Za-z0-9._:-]{1,128}$/.test(value)
 }
@@ -240,7 +274,7 @@ export function validateClaimTag(
     || payload.pr !== pr
     || !validMission(payload.mission)
     || payload.actor.trim().length === 0
-    || payload.nonce.trim().length === 0
+    || !validCapabilityHash(payload.capability_hash)
     || !validSha(payload.initial_head)
     || tag.objectSha !== payload.initial_head
   ) throw new Error("invalid claim tag")
@@ -249,6 +283,7 @@ export function validateClaimTag(
     actor: payload.actor,
     mission: payload.mission,
     initialHead: payload.initial_head,
+    capabilityHash: payload.capability_hash,
   }
 }
 
@@ -335,6 +370,123 @@ function parseReviewTriggerTag(
   }
 }
 
+function parseReviewSealTag(
+  tag: AnnotatedTag,
+  repository: string,
+  pr: number,
+  claim: Claim,
+  cycle: ReviewCycle,
+): ReviewSeal {
+  const payload = parseMarker<ReviewSealTagPayload>(tag.message, REVIEW_SEAL_TAG_MARKER)
+  if (
+    !validSha(tag.sha)
+    || tag.objectType !== "commit"
+    || !payload
+    || tag.name !== `codex-pr-review-seal/${pr}/${cycle.headSha}`
+    || payload.repository !== repository
+    || payload.pr !== pr
+    || payload.claim_tag_sha !== claim.tagSha
+    || payload.review_tag_sha !== cycle.tagSha
+    || payload.mission !== claim.mission
+    || payload.actor !== claim.actor
+    || payload.head !== cycle.headSha
+    || !["clean", "review"].includes(payload.result_kind)
+    || !isCodex(payload.result_actor)
+    || !Number.isInteger(payload.result_id)
+    || payload.result_id <= 0
+    || !Number.isFinite(Date.parse(payload.result_created_at))
+    || tag.objectSha !== cycle.headSha
+  ) throw new Error("invalid review seal tag")
+  return {
+    tagSha: tag.sha,
+    reviewTagSha: cycle.tagSha,
+    headSha: cycle.headSha,
+    resultKind: payload.result_kind,
+    resultActor: payload.result_actor,
+    resultId: payload.result_id,
+    resultCreatedAt: payload.result_created_at,
+  }
+}
+
+function exactTrigger(
+  snapshot: PullRequestSnapshot,
+  claim: Claim,
+  cycle: ReviewCycle,
+  receipt: ReviewTriggerReceipt,
+): IssueComment | null {
+  const comment = snapshot.comments.find((candidate) => candidate.id === receipt.commentId)
+  if (!comment) return null
+  const payload = parseMarker<ReviewPayload>(comment.body, REVIEW_MARKER)
+  const expectedBody = [
+    "@codex review",
+    "",
+    markerBody(REVIEW_MARKER, { review_tag_sha: cycle.tagSha }),
+  ].join("\n")
+  if (
+    comment.nodeId !== receipt.commentNodeId
+    || comment.createdAt !== receipt.commentCreatedAt
+    || comment.minimized
+    || !ELIGIBLE_ASSOCIATIONS.has(comment.association)
+    || comment.actor !== claim.actor
+    || comment.body !== expectedBody
+    || payload?.review_tag_sha !== cycle.tagSha
+    || receipt.reviewTagSha !== cycle.tagSha
+    || receipt.headSha !== cycle.headSha
+  ) return null
+  return comment
+}
+
+function exactSealedResult(
+  snapshot: PullRequestSnapshot,
+  trigger: IssueComment,
+  cycle: ReviewCycle,
+  seal: ReviewSeal,
+): boolean {
+  if (seal.reviewTagSha !== cycle.tagSha || seal.headSha !== cycle.headSha) return false
+  if (Date.parse(seal.resultCreatedAt) < Date.parse(trigger.createdAt)) return false
+  if (seal.resultKind === "clean") {
+    return seal.resultId === trigger.id && trigger.reactions.some((reaction) =>
+      reaction.actor === seal.resultActor
+      && reaction.content === "THUMBS_UP"
+      && reaction.createdAt === seal.resultCreatedAt
+    )
+  }
+  return snapshot.reviews.some((review) =>
+    review.id === seal.resultId
+    && review.actor === seal.resultActor
+    && review.submittedAt === seal.resultCreatedAt
+    && review.commitSha === cycle.headSha
+  )
+}
+
+function validateReviewHistory(
+  snapshot: PullRequestSnapshot,
+  claim: Claim,
+  cycles: ReviewCycle[],
+  triggerReceipts: ReviewTriggerReceipt[],
+  seals: ReviewSeal[],
+): string[] {
+  const reasons: string[] = []
+  const receiptByCycle = new Map(triggerReceipts.map((receipt) => [receipt.reviewTagSha, receipt]))
+  const sealByCycle = new Map(seals.map((seal) => [seal.reviewTagSha, seal]))
+  for (const cycle of cycles) {
+    const receipt = receiptByCycle.get(cycle.tagSha)
+    const seal = sealByCycle.get(cycle.tagSha)
+    const trigger = receipt ? exactTrigger(snapshot, claim, cycle, receipt) : null
+    if (!trigger) {
+      reasons.push(`review cycle ${cycle.tagSha} lacks its exact visible trigger`)
+      continue
+    }
+    if (!seal || !exactSealedResult(snapshot, trigger, cycle, seal)) {
+      reasons.push(`review cycle ${cycle.tagSha} lacks its exact immutable seal`)
+    }
+  }
+  if (triggerReceipts.length !== cycles.length || seals.length !== cycles.length) {
+    reasons.push("review cycle artifact counts do not match")
+  }
+  return reasons
+}
+
 function visibleReviewTriggers(snapshot: PullRequestSnapshot): IssueComment[] {
   return snapshot.comments.filter((comment) =>
     /@codex\s+review\b/i.test(comment.body)
@@ -400,9 +552,13 @@ export function verifyReceipt(
     allowDraft?: boolean
     reviewCycles?: ReviewCycle[]
     triggerReceipts?: ReviewTriggerReceipt[]
+    seals?: ReviewSeal[]
   } = {},
 ): Verification {
   const reasons: string[] = []
+  const reviewCycles = options.reviewCycles ?? [cycle]
+  const triggerReceipts = options.triggerReceipts ?? [triggerReceipt]
+  const seals = options.seals ?? []
   if (!snapshot.complete) reasons.push("provider snapshot is incomplete")
   if (!snapshot.open || snapshot.merged) reasons.push("pull request is not open")
   if (snapshot.headRepository !== snapshot.repository) reasons.push("fork pull requests are blocked")
@@ -418,12 +574,19 @@ export function verifyReceipt(
     || cycle.baseRef !== snapshot.baseRef
     || cycle.baseSha !== snapshot.baseSha
   ) reasons.push("review tag does not match the live PR identity")
+  reasons.push(...validateReviewHistory(
+    snapshot,
+    claim,
+    reviewCycles,
+    triggerReceipts,
+    seals,
+  ))
 
   const triggers = currentOrAmbiguousReviewTriggers(
     snapshot,
     snapshot,
-    options.reviewCycles ?? [cycle],
-    options.triggerReceipts ?? [triggerReceipt],
+    reviewCycles,
+    triggerReceipts,
   )
   if (triggers.length !== 1) {
     reasons.push(`expected one visible review trigger, found ${triggers.length}`)
@@ -459,6 +622,7 @@ export function verifyReceipt(
     const root = thread.comments[0]
     return root && isCodex(root.actor) && root.reviewCommitSha === snapshot.headSha
   })
+  const currentSeal = seals.find((seal) => seal.reviewTagSha === cycle.tagSha)
 
   if (cleanReactions.length !== 1) {
     reasons.push(`expected one Codex +1 on the exact trigger, found ${cleanReactions.length}`)
@@ -468,6 +632,13 @@ export function verifyReceipt(
   }
   if (currentReviews.length > 0 || currentFindingThreads.length > 0) {
     reasons.push("Codex submitted a finding review for the current head")
+  }
+  if (
+    !currentSeal
+    || currentSeal.resultKind !== "clean"
+    || !exactSealedResult(snapshot, trigger, cycle, currentSeal)
+  ) {
+    reasons.push("current review cycle lacks an exact clean seal")
   }
   if (codexReactions.some((reaction) =>
     reaction.content !== "EYES" && reaction.content !== "THUMBS_UP"
@@ -777,6 +948,10 @@ function reviewTriggerRef(pr: number, head: string): string {
   return `codex-pr-review-trigger/${pr}/${head}`
 }
 
+function reviewSealRef(pr: number, head: string): string {
+  return `codex-pr-review-seal/${pr}/${head}`
+}
+
 function fetchAnnotatedTag(repository: string, name: string): AnnotatedTag {
   const ref = runGh(["api", `repos/${repository}/git/ref/tags/${name}`])
   if (!isObject(ref) || !isObject(ref.object)) throw new Error(`tag ref ${name} is unavailable`)
@@ -845,7 +1020,7 @@ function loadReviewCycle(
   )
 }
 
-function loadReviewCycles(
+function loadReviewArtifacts(
   repository: string,
   snapshot: PullRequestSnapshot,
   claim: Claim,
@@ -874,9 +1049,36 @@ function loadReviewCycles(
   return { cycles, triggerReceipts }
 }
 
+function loadReviewCycles(
+  repository: string,
+  snapshot: PullRequestSnapshot,
+  claim: Claim,
+): { cycles: ReviewCycle[]; triggerReceipts: ReviewTriggerReceipt[]; seals: ReviewSeal[] } {
+  const artifacts = loadReviewArtifacts(repository, snapshot, claim)
+  const seals = artifacts.cycles.map((cycle) => parseReviewSealTag(
+    fetchAnnotatedTag(repository, reviewSealRef(snapshot.number, cycle.headSha)),
+    repository,
+    snapshot.number,
+    claim,
+    cycle,
+  ))
+  return { ...artifacts, seals }
+}
+
 function requireClaimOwner(claim: Claim): void {
   const actor = currentActor()
   if (actor !== claim.actor) throw new Error(`claim ${claim.tagSha} belongs to ${claim.actor}`)
+}
+
+export function requireClaimCapability(claim: Claim, capability: string): void {
+  if (capabilityHash(capability) !== claim.capabilityHash) {
+    throw new Error("claim capability does not match")
+  }
+}
+
+function requireWriter(claim: Claim, args: string[]): void {
+  requireClaimOwner(claim)
+  requireClaimCapability(claim, option(args, "--capability")!)
 }
 
 function requireClaimLineage(snapshot: PullRequestSnapshot, claim: Claim): void {
@@ -895,6 +1097,7 @@ async function commandClaim(args: string[]): Promise<void> {
   if (!snapshot.open || snapshot.merged) throw new Error("pull request is not open")
   if (snapshot.headRepository !== repository) throw new Error("fork pull requests are blocked")
   const actor = currentActor()
+  const capability = randomBytes(32).toString("hex")
   const created = createAtomicTag(
     repository,
     claimRef(pr),
@@ -903,7 +1106,7 @@ async function commandClaim(args: string[]): Promise<void> {
       repository,
       pr,
       mission,
-      nonce: randomUUID(),
+      capability_hash: capabilityHash(capability),
       actor,
       initial_head: snapshot.headSha,
     }),
@@ -914,7 +1117,7 @@ async function commandClaim(args: string[]): Promise<void> {
     mission: claim.mission,
     actor: claim.actor,
   }))
-  process.stdout.write(`${JSON.stringify(claim)}\n`)
+  process.stdout.write(`${JSON.stringify({ ...claim, capability })}\n`)
 }
 
 async function commandReview(args: string[]): Promise<void> {
@@ -924,7 +1127,7 @@ async function commandReview(args: string[]): Promise<void> {
   const snapshot = fetchSnapshot(repository, pr)
   requireComplete(snapshot)
   const claim = loadClaim(repository, pr, expectedClaim)
-  requireClaimOwner(claim)
+  requireWriter(claim, args)
   if (!snapshot.draft) throw new Error("review trigger requires a draft pull request")
   requireClaimLineage(snapshot, claim)
   if (
@@ -934,6 +1137,16 @@ async function commandReview(args: string[]): Promise<void> {
     )
   ) throw new Error("automatic or prior Codex review evidence already exists for this head")
   const reviewHistory = loadReviewCycles(repository, snapshot, claim)
+  const historyReasons = validateReviewHistory(
+    snapshot,
+    claim,
+    reviewHistory.cycles,
+    reviewHistory.triggerReceipts,
+    reviewHistory.seals,
+  )
+  if (historyReasons.length > 0) {
+    throw new Error(`review history is poisoned: ${historyReasons[0]}`)
+  }
   if (currentOrAmbiguousReviewTriggers(
     snapshot,
     snapshot,
@@ -964,6 +1177,14 @@ async function commandReview(args: string[]): Promise<void> {
     "",
     markerBody(REVIEW_MARKER, { review_tag_sha: cycle.tagSha }),
   ].join("\n"))
+  const afterTrigger = fetchBasicPullRequest(repository, pr)
+  if (
+    afterTrigger.headSha !== snapshot.headSha
+    || afterTrigger.baseRef !== snapshot.baseRef
+    || afterTrigger.baseSha !== snapshot.baseSha
+  ) {
+    throw new Error("PR identity changed while posting review trigger; cycle is poisoned")
+  }
   const triggerTag = createAtomicTag(
     repository,
     reviewTriggerRef(pr, snapshot.headSha),
@@ -996,6 +1217,90 @@ async function commandReview(args: string[]): Promise<void> {
   })}\n`)
 }
 
+async function commandSeal(args: string[]): Promise<void> {
+  const repository = option(args, "--repo")!
+  const pr = integerOption(args, "--pr")
+  const expectedClaim = option(args, "--claim")!
+  const snapshot = fetchSnapshot(repository, pr)
+  requireComplete(snapshot)
+  const claim = loadClaim(repository, pr, expectedClaim)
+  requireWriter(claim, args)
+  requireClaimLineage(snapshot, claim)
+
+  const artifacts = loadReviewArtifacts(repository, snapshot, claim)
+  const cycle = artifacts.cycles.find((candidate) => candidate.headSha === snapshot.headSha)
+  const receipt = cycle
+    ? artifacts.triggerReceipts.find((candidate) => candidate.reviewTagSha === cycle.tagSha)
+    : null
+  if (!cycle || !receipt) throw new Error("current review cycle is incomplete")
+
+  const priorCycles = artifacts.cycles.filter((candidate) => candidate.tagSha !== cycle.tagSha)
+  const priorReceipts = artifacts.triggerReceipts.filter(
+    (candidate) => candidate.reviewTagSha !== cycle.tagSha,
+  )
+  const priorSeals = priorCycles.map((candidate) => parseReviewSealTag(
+    fetchAnnotatedTag(repository, reviewSealRef(pr, candidate.headSha)),
+    repository,
+    pr,
+    claim,
+    candidate,
+  ))
+  const historyReasons = validateReviewHistory(
+    snapshot,
+    claim,
+    priorCycles,
+    priorReceipts,
+    priorSeals,
+  )
+  if (historyReasons.length > 0) {
+    throw new Error(`review history is poisoned: ${historyReasons[0]}`)
+  }
+
+  const trigger = exactTrigger(snapshot, claim, cycle, receipt)
+  if (!trigger) throw new Error("current review trigger is missing or changed")
+  const triggerAt = Date.parse(trigger.createdAt)
+  const clean = trigger.reactions.filter((reaction) =>
+    isCodex(reaction.actor)
+    && reaction.content === "THUMBS_UP"
+    && Date.parse(reaction.createdAt) >= triggerAt
+  )
+  const reviews = snapshot.reviews.filter((review) =>
+    isCodex(review.actor)
+    && review.commitSha === cycle.headSha
+    && Date.parse(review.submittedAt) >= triggerAt
+  )
+  if (clean.length + reviews.length !== 1) {
+    throw new Error("review result is pending or ambiguous")
+  }
+  const result = clean[0] ?? reviews[0]!
+  const resultKind = clean.length === 1 ? "clean" : "review"
+  const resultId = resultKind === "clean" ? trigger.id : (result as Review).id
+  const resultCreatedAt = resultKind === "clean"
+    ? (result as Reaction).createdAt
+    : (result as Review).submittedAt
+  const resultActor = result.actor
+  const created = createAtomicTag(
+    repository,
+    reviewSealRef(pr, cycle.headSha),
+    cycle.headSha,
+    markerBody(REVIEW_SEAL_TAG_MARKER, {
+      repository,
+      pr,
+      claim_tag_sha: claim.tagSha,
+      review_tag_sha: cycle.tagSha,
+      mission: claim.mission,
+      actor: claim.actor,
+      head: cycle.headSha,
+      result_kind: resultKind,
+      result_actor: resultActor,
+      result_id: resultId,
+      result_created_at: resultCreatedAt,
+    }),
+  )
+  const seal = parseReviewSealTag(created, repository, pr, claim, cycle)
+  process.stdout.write(`${JSON.stringify(seal)}\n`)
+}
+
 async function commandAddress(args: string[]): Promise<void> {
   const repository = option(args, "--repo")!
   const pr = integerOption(args, "--pr")
@@ -1013,8 +1318,19 @@ async function commandAddress(args: string[]): Promise<void> {
   const snapshot = fetchSnapshot(repository, pr)
   requireComplete(snapshot)
   const claim = loadClaim(repository, pr, expectedClaim)
-  requireClaimOwner(claim)
+  requireWriter(claim, args)
   requireClaimLineage(snapshot, claim)
+  const reviewHistory = loadReviewCycles(repository, snapshot, claim)
+  const historyReasons = validateReviewHistory(
+    snapshot,
+    claim,
+    reviewHistory.cycles,
+    reviewHistory.triggerReceipts,
+    reviewHistory.seals,
+  )
+  if (historyReasons.length > 0) {
+    throw new Error(`review history is poisoned: ${historyReasons[0]}`)
+  }
   if (!snapshot.commits.includes(fixSha)) throw new Error("fix SHA is not in the current PR lineage")
   const thread = snapshot.threads.find((candidate) => candidate.id === threadId)
   if (!thread || !isCodexFindingRoot(thread, findingCommentId)) {
@@ -1066,6 +1382,7 @@ async function verifyLive(
     allowDraft,
     reviewCycles: reviewHistory.cycles,
     triggerReceipts: reviewHistory.triggerReceipts,
+    seals: reviewHistory.seals,
   })
   if (expected.head && expected.head !== snapshot.headSha) {
     verification.ok = false
@@ -1196,7 +1513,7 @@ async function commandDispatch(args: string[]): Promise<void> {
   const snapshot = fetchSnapshot(repository, pr)
   requireComplete(snapshot)
   const claim = loadClaim(repository, pr, expectedClaim)
-  requireClaimOwner(claim)
+  requireWriter(claim, args)
   requireClaimLineage(snapshot, claim)
   if (snapshot.baseRef !== "main") throw new Error("only the main base branch is supported")
   runGhText([
@@ -1221,11 +1538,12 @@ async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2)
   if (command === "claim") return commandClaim(args)
   if (command === "review") return commandReview(args)
+  if (command === "seal") return commandSeal(args)
   if (command === "address") return commandAddress(args)
   if (command === "verify") return commandVerify(args, false)
   if (command === "gate") return commandVerify(args, true)
   if (command === "dispatch") return commandDispatch(args)
-  throw new Error("usage: pr-lifecycle.ts <claim|review|address|verify|gate|dispatch> [options]")
+  throw new Error("usage: pr-lifecycle.ts <claim|review|seal|address|verify|gate|dispatch> [options]")
 }
 
 if (import.meta.main) {
