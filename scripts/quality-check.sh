@@ -63,7 +63,10 @@ require_cmd() {
 }
 
 find_local_home_paths() {
-  quality_home="${HOME%/}"
+  quality_home="$HOME"
+  while [ "${quality_home%/}" != "$quality_home" ]; do
+    quality_home="${quality_home%/}"
+  done
   [ -n "$quality_home" ] || return 2
 
   quality_home_rg_status=0

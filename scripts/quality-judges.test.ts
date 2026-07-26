@@ -924,7 +924,9 @@ describe("quality judges fail closed", () => {
       "    bun --no-env-file install --frozen-lockfile --ignore-scripts",
     ].join("\n"))
     expect(script.match(/bun --no-env-file install --frozen-lockfile --ignore-scripts/g)).toHaveLength(1)
-    expect(script).toContain('quality_home="${HOME%/}"')
+    expect(script).toContain('quality_home="$HOME"')
+    expect(script).toContain('while [ "${quality_home%/}" != "$quality_home" ]; do')
+    expect(script).toContain('quality_home="${quality_home%/}"')
     expect(script).toContain("previous_boundary && next_boundary")
     expect(script).toContain("exit(found ? 0 : 1)")
     expect(script).toContain('quality_home_candidates="$(')
@@ -1009,6 +1011,14 @@ describe("quality judges fail closed", () => {
     expect(boundary.stdout).not.toContain("/tmp/root")
     expect(boundary.stdout).not.toContain("/roots")
     expect(boundary.stdout).not.toContain("data/root.db")
+
+    const redundantTrailingSeparators = runCommand(
+      ["sh", "-c", `${functionSource}\nfind_local_home_paths`],
+      root,
+      { HOME: `${rootHome}//` },
+    )
+    expect(redundantTrailingSeparators.exitCode).toBe(0)
+    expect(redundantTrailingSeparators.stdout).toContain(`cache_root=${rootHome}`)
 
     const enterpriseHome = "/home/DOMAIN\\user"
     write(root, "README.md", `cache_root=${enterpriseHome}/project\n`)
