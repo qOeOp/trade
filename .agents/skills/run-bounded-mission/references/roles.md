@@ -82,7 +82,7 @@ For high-impact read-only work, classify authority, consumer closure, and non-wr
 
 Contract compliance alone is not acceptance. If raw evidence invalidates the frozen oracle, require `replan`, `invalidated`, `budget_exhausted`, or `blocked` under the ordered rules in `SKILL.md`; the evaluator cannot rewrite it.
 
-Require exactly `accept`, `revise`, `replan`, `blocked`, `invalidated`, or `budget_exhausted`, with reproducible findings. The main context owns the terminal.
+For an admitted evaluation, require exactly `accept`, `revise`, `replan`, `blocked`, `invalidated`, or `budget_exhausted`, with reproducible findings. The main context owns the terminal.
 
 Bind the verdict to the supplied acceptance tree and candidate identity. Any acceptance-tree, content, or candidate-commit change requires a new evaluator that has not seen the new builder deliberation. A local evaluator does not substitute for a required remote code review, and a remote review does not substitute for this evaluator when the mission requires one.
 
@@ -90,6 +90,6 @@ Bind the verdict to the supplied acceptance tree and candidate identity. Any acc
 
 Start roles fresh and rebuild input from repository state and raw artifacts, not conversation summaries. Do not reuse an evaluator exposed to builder deliberation.
 
-Evaluators must not call or inspect agent or thread enumeration, lifecycle, history, transcript, or sibling-output surfaces because those responses can disclose planner or builder deliberation. Keep agent lifecycle checks in the main context and outside evaluator evidence. A main-frozen contract or admitted evidence may originate from a planner, but raw planner or builder deliberation, unadopted recommendations, or sibling results contaminate the evaluator and require `blocked`.
+Evaluators must not invoke live agent or thread enumeration, lifecycle, history, or transcript APIs, or consume live sibling outputs, because those responses can disclose planner or builder deliberation. This does not bar inspection of committed candidate source, complete diffs, or test fixtures for those surfaces. Keep live agent lifecycle checks in the main context and outside evaluator evidence. A main-frozen contract or admitted evidence may originate from a planner, but if raw planner or builder deliberation, unadopted recommendations, or sibling results appear, stop without a candidate judgment or disposition; the main context must discard that run and launch a fresh evaluator with sanitized input.
 
 If fresh evaluator isolation is unavailable for a mission that requires one, it cannot be accepted; report the unavailable external requirement and apply the ordered terminal rules.

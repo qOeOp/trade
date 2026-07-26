@@ -9,6 +9,6 @@ Return a proposed mission contract with the observable outcome, current baseline
 If material intent, scope, constraints, or success criteria remain unresolved, report every known external blocker and identify the single highest-impact clarification for the main context to ask first; do not invent authority. If the objective spans independently adoptable outcomes, recommend the smallest consumer-closed vertical mission and defer the rest.
 Use at most three design candidates only for a costly or uncertain decision and reject candidates that add parallel authority or unconsumed inventory.
 Include only the minimum design sketch needed to make adoption and acceptance testable: owner boundaries, consumer flow, failure behavior, and verification path. Self-review for placeholders, contradictions, ambiguous acceptance, and an unclosed consumer; do not produce a file-by-file implementation plan.
-Do not call or inspect agent or thread enumeration, lifecycle, history, transcript, or sibling-output surfaces.
+Do not invoke live agent or thread enumeration, lifecycle, history, or transcript APIs, or consume live sibling outputs. You may inspect committed source, diffs, and test fixtures for those surfaces.
 Do not edit files, freeze scope, admit implementation, or declare completion; only the main context may do so. Do not propose an executable mission while authority, the real outcome consumer, or the acceptance journey remains unresolved.
 """
