@@ -4,7 +4,7 @@
   "type": "module",
   "devDependencies": {
     "@types/bun": "^1.3.5",
-    "typescript": "^5.9.2"
+    "typescript": "^7.0.2"
   },
   "scripts": {
     "server:validate": "bun src/scripts/server-runtime.ts --action validate",

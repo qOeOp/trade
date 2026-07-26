@@ -16,7 +16,7 @@
     "eslint": "10.8.0",
     "jscpd": "^5.0.12",
     "shellcheck": "4.1.0",
-    "typescript": "^5.9.2",
+    "typescript": "^7.0.2",
     "typescript-eslint": "8.65.0"
   },
   "scripts": {
