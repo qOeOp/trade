@@ -62,6 +62,40 @@ require_cmd() {
   fi
 }
 
+find_local_home_paths() {
+  quality_home="${HOME%/}"
+  [ -n "$quality_home" ] || return 1
+
+  quality_home_rg_status=0
+  quality_home_candidates="$(
+    rg -n --fixed-strings "$quality_home" README.md AGENTS.md docs scripts modules .agents toolset.json
+  )" || quality_home_rg_status=$?
+  if [ "$quality_home_rg_status" -ne 0 ]; then
+    return "$quality_home_rg_status"
+  fi
+
+  printf '%s\n' "$quality_home_candidates" | awk -v home="$quality_home" '
+      {
+        remaining = $0
+        while ((position = index(remaining, home)) > 0) {
+          previous_character = position == 1 ? "" : substr(remaining, position - 1, 1)
+          next_character = substr(remaining, position + length(home), 1)
+          previous_boundary = previous_character == "" || previous_character !~ /[[:alnum:]_.~\/-]/
+          next_boundary = next_character == "" || next_character == "/" || next_character !~ /[[:alnum:]_.~-]/
+          if (previous_boundary && next_boundary) {
+            print
+            found = 1
+            break
+          }
+          remaining = substr(remaining, position + length(home))
+        }
+      }
+      END {
+        exit(found ? 0 : 1)
+      }
+    '
+}
+
 check_dependencies() {
   require_cmd bun
   log "repository dependencies"
@@ -292,10 +326,17 @@ check_project_hygiene() {
     fi
   done
   if [ -n "${HOME:-}" ]; then
-    if rg -n --fixed-strings "$HOME/" README.md AGENTS.md docs scripts modules .agents toolset.json >/dev/null; then
-      rg -n --fixed-strings "$HOME/" README.md AGENTS.md docs scripts modules .agents toolset.json >&2
+    quality_home_paths=
+    if quality_home_paths="$(find_local_home_paths)"; then
+      printf '%s\n' "$quality_home_paths" >&2
       printf 'quality: local absolute path leaked into project files\n' >&2
       exit 1
+    else
+      quality_home_scan_status=$?
+      if [ "$quality_home_scan_status" -ne 1 ]; then
+        printf 'quality: failed to scan project files for local absolute paths\n' >&2
+        exit 1
+      fi
     fi
   fi
   if [ -d toolset ]; then

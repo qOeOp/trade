@@ -916,7 +916,12 @@ describe("quality judges fail closed", () => {
       "    bun install --frozen-lockfile",
     ].join("\n"))
     expect(script.match(/bun install --frozen-lockfile/g)).toHaveLength(1)
-    expect(script.match(/--fixed-strings "\$HOME\/"/g)).toHaveLength(2)
+    expect(script).toContain('quality_home="${HOME%/}"')
+    expect(script).toContain("previous_boundary && next_boundary")
+    expect(script).toContain("exit(found ? 0 : 1)")
+    expect(script).toContain('quality_home_candidates="$(')
+    expect(script).toContain('if [ "$quality_home_scan_status" -ne 1 ]; then')
+    expect(script.match(/find_local_home_paths/g)).toHaveLength(2)
     expect(script).toContain("bun scripts/check-package-tests.ts --run-all")
     expect(script).toContain('bun scripts/check-package-tests.ts --run-shard "$QUALITY_TS_SHARD"')
     expect(script).toContain("git ls-files --cached --others --exclude-standard -- '*.sh'")
@@ -927,6 +932,55 @@ describe("quality judges fail closed", () => {
     expect(script).not.toContain("bun run check")
     expect(script).toContain('git diff --no-renames --check "$QUALITY_DIFF_BASE"...HEAD')
     expect(script).toContain("git diff --no-renames --check HEAD")
+  })
+
+  test("HOME path scanning is boundary-aware and fails closed on scan errors", () => {
+    const script = readFileSync(join(repoRoot, "scripts/quality-check.sh"), "utf8")
+    const functionStart = script.indexOf("find_local_home_paths()")
+    const functionEnd = script.indexOf("\ncheck_dependencies()", functionStart)
+    const functionSource = script.slice(functionStart, functionEnd)
+    const root = temporaryRoot()
+    const rootHome = ["/ro", "ot"].join("")
+
+    write(root, "README.md", [
+      "catalog DB/roots",
+      `cache_root=${rootHome}`,
+      `{"cache_root":"${rootHome}"}`,
+      `${rootHome}/project/file`,
+      "/tmp/root",
+      "/roots",
+      "data/root.db",
+      "",
+    ].join("\n"))
+    write(root, "AGENTS.md", "fixture\n")
+    write(root, "docs/fixture.md", "fixture\n")
+    write(root, "scripts/fixture.sh", "fixture\n")
+    write(root, "modules/fixture.txt", "fixture\n")
+    write(root, ".agents/fixture.md", "fixture\n")
+    write(root, "toolset.json", "{}\n")
+
+    const boundary = runCommand(
+      ["sh", "-c", `${functionSource}\nfind_local_home_paths`],
+      root,
+      { HOME: `${rootHome}/` },
+    )
+    expect(boundary.exitCode).toBe(0)
+    expect(boundary.stdout).toContain(`cache_root=${rootHome}`)
+    expect(boundary.stdout).toContain(`{"cache_root":"${rootHome}"}`)
+    expect(boundary.stdout).toContain(`${rootHome}/project/file`)
+    expect(boundary.stdout).not.toContain("DB/roots")
+    expect(boundary.stdout).not.toContain("/tmp/root")
+    expect(boundary.stdout).not.toContain("/roots")
+    expect(boundary.stdout).not.toContain("data/root.db")
+
+    rmSync(join(root, "toolset.json"))
+    const scanError = runCommand(
+      ["sh", "-c", `${functionSource}\nfind_local_home_paths`],
+      root,
+      { HOME: `${rootHome}/` },
+    )
+    expect(scanError.exitCode).toBe(2)
+    expect(scanError.stderr).toContain("toolset.json")
   })
 
   test("repository workflow checks the fetched candidate range", () => {
