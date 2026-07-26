@@ -1,15 +1,14 @@
 #!/usr/bin/env bun
 
 import { spawnSync } from "node:child_process"
+import { randomUUID } from "node:crypto"
 
-const CLAIM_MARKER = "pr-lifecycle-claim:v1"
-const TAKEOVER_MARKER = "pr-lifecycle-takeover:v1"
-const REVIEW_MARKER = "pr-lifecycle-review:v1"
+const CLAIM_TAG_MARKER = "pr-lifecycle-claim-tag:v1"
+const CLAIM_RECEIPT_MARKER = "pr-lifecycle-claim-receipt:v1"
+const REVIEW_TAG_MARKER = "pr-lifecycle-review-tag:v1"
+const REVIEW_MARKER = "pr-lifecycle-review:v2"
 const FINDING_MARKER = "pr-lifecycle-finding:v1"
-const LOSS_MARKER = "pr-lifecycle-loss:v1"
 const GATE_CONTEXT = "pr-lifecycle-gate"
-const CLAIM_WINDOW_MS = 30_000
-const STABILITY_DELAY_MS = 5_000
 const CODEX_LOGINS = new Set(["chatgpt-codex-connector", "chatgpt-codex-connector[bot]"])
 const ELIGIBLE_ASSOCIATIONS = new Set(["OWNER", "MEMBER", "COLLABORATOR"])
 
@@ -59,7 +58,6 @@ export interface ReviewThread {
 
 export interface PullRequestSnapshot {
   repository: string
-  defaultBranch: string
   number: number
   open: boolean
   draft: boolean
@@ -76,23 +74,36 @@ export interface PullRequestSnapshot {
   complete: boolean
 }
 
+export interface AnnotatedTag {
+  sha: string
+  name: string
+  message: string
+  objectSha: string
+  objectType: string
+}
+
 interface ClaimPayload {
+  repository: string
+  pr: number
   mission: string
+  nonce: string
   actor: string
+  initial_head: string
 }
 
-interface TakeoverPayload {
-  claim_id: number
-  authority: string
-  actor: string
-}
-
-interface ReviewPayload {
-  claim_id: number
+interface ReviewTagPayload {
+  repository: string
+  pr: number
+  claim_tag_sha: string
   mission: string
+  actor: string
   head: string
   base_ref: string
   base_sha: string
+}
+
+interface ReviewPayload {
+  review_tag_sha: string
 }
 
 interface FindingPayload {
@@ -104,10 +115,20 @@ interface FindingPayload {
 }
 
 export interface Claim {
-  id: number
+  tagSha: string
   actor: string
   mission: string
-  createdAt: string
+  initialHead: string
+}
+
+export interface ReviewCycle {
+  tagSha: string
+  claimTagSha: string
+  actor: string
+  mission: string
+  headSha: string
+  baseRef: string
+  baseSha: string
 }
 
 export interface Verification {
@@ -116,7 +137,8 @@ export interface Verification {
   receipt?: {
     repository: string
     pr: number
-    claimId: number
+    claimTagSha: string
+    reviewTagSha: string
     mission: string
     triggerCommentId: number
     reviewer: string
@@ -157,122 +179,96 @@ export function parseMarker<T>(body: string, marker: string): T | null {
   }
 }
 
-function eligibleComment(comment: IssueComment): boolean {
-  return !comment.minimized && ELIGIBLE_ASSOCIATIONS.has(comment.association)
+function validSha(value: string | null): value is string {
+  return value !== null && /^[0-9a-f]{40}$/.test(value)
 }
 
-function claimsAndTakeovers(snapshot: PullRequestSnapshot): {
-  claims: Claim[]
-  takeovers: Array<TakeoverPayload & { createdAt: string }>
-} {
-  const claims: Claim[] = []
-  const takeovers: Array<TakeoverPayload & { createdAt: string }> = []
-
-  for (const comment of snapshot.comments) {
-    if (!eligibleComment(comment)) continue
-    const claim = parseMarker<ClaimPayload>(comment.body, CLAIM_MARKER)
-    if (
-      claim
-      && claim.actor === comment.actor
-      && /^[A-Za-z0-9._:-]{1,128}$/.test(claim.mission)
-    ) {
-      claims.push({
-        id: comment.id,
-        actor: comment.actor,
-        mission: claim.mission,
-        createdAt: comment.createdAt,
-      })
-    }
-
-    const takeover = parseMarker<TakeoverPayload>(comment.body, TAKEOVER_MARKER)
-    if (
-      takeover
-      && takeover.actor === comment.actor
-      && Number.isInteger(takeover.claim_id)
-      && takeover.claim_id > 0
-      && takeover.authority.trim().length > 0
-    ) {
-      takeovers.push({ ...takeover, createdAt: comment.createdAt })
-    }
-  }
-
-  claims.sort((left, right) =>
-    Date.parse(left.createdAt) - Date.parse(right.createdAt) || left.id - right.id
-  )
-  takeovers.sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
-  return { claims, takeovers }
-}
-
-export function activeClaimEpoch(snapshot: PullRequestSnapshot): Claim[] {
-  const { claims, takeovers } = claimsAndTakeovers(snapshot)
-  let epochClaims = claims
-
-  while (epochClaims.length > 0) {
-    const winner = epochClaims[0]!
-    const takeover = takeovers.find((candidate) =>
-      candidate.claim_id === winner.id
-      && Date.parse(candidate.createdAt) > Date.parse(winner.createdAt)
-    )
-    if (!takeover) return epochClaims
-    epochClaims = claims.filter((claim) =>
-      Date.parse(claim.createdAt) > Date.parse(takeover.createdAt)
-    )
-  }
-
-  return []
-}
-
-export function stableClaim(
-  first: PullRequestSnapshot,
-  second: PullRequestSnapshot,
-  nowMs = Date.now(),
-): Claim | null {
-  if (
-    first.repository !== second.repository
-    || first.number !== second.number
-    || first.headSha !== second.headSha
-    || first.baseRef !== second.baseRef
-    || first.baseSha !== second.baseSha
-  ) return null
-
-  const firstClaims = activeClaimEpoch(first)
-  const secondClaims = activeClaimEpoch(second)
-  if (firstClaims.length === 0 || secondClaims.length === 0) return null
-  if (
-    firstClaims.map((claim) => `${claim.createdAt}:${claim.id}`).join(",")
-    !== secondClaims.map((claim) => `${claim.createdAt}:${claim.id}`).join(",")
-  ) return null
-
-  const winner = firstClaims[0]!
-  if (nowMs < Date.parse(winner.createdAt) + CLAIM_WINDOW_MS) return null
-  return winner
-}
-
-function currentReviewTriggers(snapshot: PullRequestSnapshot, claim: Claim): Array<{
-  comment: IssueComment
-  payload: ReviewPayload
-}> {
-  const triggers: Array<{ comment: IssueComment; payload: ReviewPayload }> = []
-  for (const comment of snapshot.comments) {
-    if (!eligibleComment(comment) || comment.actor !== claim.actor) continue
-    const payload = parseMarker<ReviewPayload>(comment.body, REVIEW_MARKER)
-    if (
-      payload
-      && comment.body.includes("@codex review")
-      && payload.claim_id === claim.id
-      && payload.mission === claim.mission
-      && payload.head === snapshot.headSha
-      && payload.base_ref === snapshot.baseRef
-      && payload.base_sha === snapshot.baseSha
-    ) {
-      triggers.push({ comment, payload })
-    }
-  }
-  return triggers
+function validMission(value: string | null): value is string {
+  return value !== null && /^[A-Za-z0-9._:-]{1,128}$/.test(value)
 }
 
 function isCodex(actor: string): boolean {
   return CODEX_LOGINS.has(actor)
+}
+
+export function requireComplete(snapshot: PullRequestSnapshot): void {
+  if (!snapshot.complete) throw new Error("provider snapshot is incomplete")
+}
+
+export function validateClaimTag(
+  tag: AnnotatedTag,
+  repository: string,
+  pr: number,
+): Claim {
+  const payload = parseMarker<ClaimPayload>(tag.message, CLAIM_TAG_MARKER)
+  if (
+    !validSha(tag.sha)
+    || tag.name !== `codex-pr-claim/${pr}`
+    || tag.objectType !== "commit"
+    || !payload
+    || payload.repository !== repository
+    || payload.pr !== pr
+    || !validMission(payload.mission)
+    || payload.actor.trim().length === 0
+    || payload.nonce.trim().length === 0
+    || !validSha(payload.initial_head)
+    || tag.objectSha !== payload.initial_head
+  ) throw new Error("invalid claim tag")
+  return {
+    tagSha: tag.sha,
+    actor: payload.actor,
+    mission: payload.mission,
+    initialHead: payload.initial_head,
+  }
+}
+
+export function validateReviewTag(
+  tag: AnnotatedTag,
+  snapshot: PullRequestSnapshot,
+  claim: Claim,
+): ReviewCycle {
+  const payload = parseMarker<ReviewTagPayload>(tag.message, REVIEW_TAG_MARKER)
+  if (
+    !validSha(tag.sha)
+    || tag.name !== `codex-pr-review/${snapshot.number}/${snapshot.headSha}`
+    || tag.objectType !== "commit"
+    || !payload
+    || payload.repository !== snapshot.repository
+    || payload.pr !== snapshot.number
+    || payload.claim_tag_sha !== claim.tagSha
+    || payload.mission !== claim.mission
+    || payload.actor !== claim.actor
+    || payload.head !== snapshot.headSha
+    || payload.base_ref !== snapshot.baseRef
+    || payload.base_sha !== snapshot.baseSha
+    || tag.objectSha !== snapshot.headSha
+  ) throw new Error("review tag does not match the live PR identity")
+  return {
+    tagSha: tag.sha,
+    claimTagSha: claim.tagSha,
+    actor: claim.actor,
+    mission: claim.mission,
+    headSha: snapshot.headSha,
+    baseRef: snapshot.baseRef,
+    baseSha: snapshot.baseSha,
+  }
+}
+
+function currentReviewTriggers(
+  snapshot: PullRequestSnapshot,
+  claim: Claim,
+  cycle: ReviewCycle,
+): IssueComment[] {
+  return snapshot.comments.filter((comment) => {
+    if (
+      comment.minimized
+      || !ELIGIBLE_ASSOCIATIONS.has(comment.association)
+      || comment.actor !== claim.actor
+      || !comment.body.includes("@codex review")
+    ) return false
+    const payload = parseMarker<ReviewPayload>(comment.body, REVIEW_MARKER)
+    return payload?.review_tag_sha === cycle.tagSha
+  })
 }
 
 function findingDisposition(
@@ -288,7 +284,7 @@ function findingDisposition(
       && payload.thread_id === thread.id
       && payload.finding_comment_id === thread.comments[0]?.id
       && ["fixed", "deferred", "rejected"].includes(payload.disposition)
-      && /^[0-9a-f]{40}$/.test(payload.fix_sha)
+      && validSha(payload.fix_sha)
       && payload.reason.trim().length > 0
       && commitSet.has(payload.fix_sha)
     ) return payload
@@ -296,9 +292,15 @@ function findingDisposition(
   return null
 }
 
+export function isCodexFindingRoot(thread: ReviewThread, commentId: number): boolean {
+  const root = thread.comments[0]
+  return root?.id === commentId && isCodex(root.actor)
+}
+
 export function verifyReceipt(
   snapshot: PullRequestSnapshot,
   claim: Claim,
+  cycle: ReviewCycle,
   options: { allowDraft?: boolean } = {},
 ): Verification {
   const reasons: string[] = []
@@ -306,39 +308,42 @@ export function verifyReceipt(
   if (!snapshot.open || snapshot.merged) reasons.push("pull request is not open")
   if (snapshot.headRepository !== snapshot.repository) reasons.push("fork pull requests are blocked")
   if (snapshot.draft && !options.allowDraft) reasons.push("pull request is still draft")
+  if (!snapshot.commits.includes(claim.initialHead)) {
+    reasons.push("claim initial head is not in the current PR lineage")
+  }
+  if (
+    cycle.claimTagSha !== claim.tagSha
+    || cycle.actor !== claim.actor
+    || cycle.mission !== claim.mission
+    || cycle.headSha !== snapshot.headSha
+    || cycle.baseRef !== snapshot.baseRef
+    || cycle.baseSha !== snapshot.baseSha
+  ) reasons.push("review tag does not match the live PR identity")
 
-  const triggers = currentReviewTriggers(snapshot, claim)
+  const triggers = currentReviewTriggers(snapshot, claim, cycle)
   if (triggers.length !== 1) {
     reasons.push(`expected one exact-head review trigger, found ${triggers.length}`)
     return { ok: false, reasons }
   }
-  const trigger = triggers[0]!.comment
+  const trigger = triggers[0]!
   const triggerAt = Date.parse(trigger.createdAt)
   const codexReactions = trigger.reactions.filter((reaction) =>
     isCodex(reaction.actor) && Date.parse(reaction.createdAt) >= triggerAt
   )
   const cleanReactions = codexReactions.filter((reaction) => reaction.content === "+1")
-  const ambiguousRootReactions = snapshot.rootReactions.filter((reaction) =>
-    isCodex(reaction.actor) && Date.parse(reaction.createdAt) >= triggerAt
-  )
   const currentReviews = snapshot.reviews.filter((review) =>
-    isCodex(review.actor)
-    && review.commitSha === snapshot.headSha
-    && Date.parse(review.submittedAt) >= triggerAt
+    isCodex(review.actor) && review.commitSha === snapshot.headSha
   )
   const currentFindingThreads = snapshot.threads.filter((thread) => {
     const root = thread.comments[0]
-    return root
-      && isCodex(root.actor)
-      && root.reviewCommitSha === snapshot.headSha
-      && Date.parse(root.createdAt) >= triggerAt
+    return root && isCodex(root.actor) && root.reviewCommitSha === snapshot.headSha
   })
 
   if (cleanReactions.length !== 1) {
     reasons.push(`expected one Codex +1 on the exact trigger, found ${cleanReactions.length}`)
   }
-  if (ambiguousRootReactions.length > 0) {
-    reasons.push("uncorrelated Codex root reaction exists after the trigger")
+  if (snapshot.rootReactions.some((reaction) => isCodex(reaction.actor))) {
+    reasons.push("uncorrelated Codex root reaction exists")
   }
   if (currentReviews.length > 0 || currentFindingThreads.length > 0) {
     reasons.push("Codex submitted a finding review for the current head")
@@ -365,7 +370,8 @@ export function verifyReceipt(
     receipt: {
       repository: snapshot.repository,
       pr: snapshot.number,
-      claimId: claim.id,
+      claimTagSha: claim.tagSha,
+      reviewTagSha: cycle.tagSha,
       mission: claim.mission,
       triggerCommentId: trigger.id,
       reviewer: clean.actor,
@@ -413,40 +419,22 @@ const SNAPSHOT_QUERY = `
 query($owner:String!,$name:String!,$number:Int!){
   repository(owner:$owner,name:$name){
     pullRequest(number:$number){
-      reactions(first:100){
-        pageInfo{hasNextPage}
-        nodes{content createdAt user{login}}
-      }
+      reactions(first:100){pageInfo{hasNextPage} nodes{content createdAt user{login}}}
       comments(first:100){
         pageInfo{hasNextPage}
         nodes{
-          databaseId
-          id
-          body
-          createdAt
-          isMinimized
-          authorAssociation
-          author{login}
-          reactions(first:100){
-            pageInfo{hasNextPage}
-            nodes{content createdAt user{login}}
-          }
+          databaseId id body createdAt isMinimized authorAssociation author{login}
+          reactions(first:100){pageInfo{hasNextPage} nodes{content createdAt user{login}}}
         }
       }
       reviewThreads(first:100){
         pageInfo{hasNextPage}
         nodes{
-          id
-          isResolved
-          isOutdated
+          id isResolved isOutdated
           comments(first:100){
             pageInfo{hasNextPage}
             nodes{
-              databaseId
-              body
-              createdAt
-              outdated
-              author{login}
+              databaseId body createdAt outdated author{login}
               pullRequestReview{commit{oid}}
             }
           }
@@ -465,8 +453,7 @@ function providerConversation(repository: string, pr: number): {
   const [owner, name] = repository.split("/")
   if (!owner || !name) throw new Error(`invalid repository: ${repository}`)
   const raw = runGh([
-    "api",
-    "graphql",
+    "api", "graphql",
     "-F", `owner=${owner}`,
     "-F", `name=${name}`,
     "-F", `number=${pr}`,
@@ -478,25 +465,25 @@ function providerConversation(repository: string, pr: number): {
     throw new Error("pull request not found in GraphQL response")
   }
   const pullRequest = repositoryNode.pullRequest
-  const connection = pullRequest.reviewThreads
-  if (!isObject(connection) || !Array.isArray(connection.nodes) || !isObject(connection.pageInfo)) {
-    throw new Error("missing review thread connection")
-  }
-  const commentsConnection = pullRequest.comments
-  const reactionsConnection = pullRequest.reactions
+  const threadConnection = pullRequest.reviewThreads
+  const commentConnection = pullRequest.comments
+  const reactionConnection = pullRequest.reactions
   if (
-    !isObject(commentsConnection)
-    || !Array.isArray(commentsConnection.nodes)
-    || !isObject(commentsConnection.pageInfo)
-    || !isObject(reactionsConnection)
-    || !Array.isArray(reactionsConnection.nodes)
-    || !isObject(reactionsConnection.pageInfo)
+    !isObject(threadConnection)
+    || !Array.isArray(threadConnection.nodes)
+    || !isObject(threadConnection.pageInfo)
+    || !isObject(commentConnection)
+    || !Array.isArray(commentConnection.nodes)
+    || !isObject(commentConnection.pageInfo)
+    || !isObject(reactionConnection)
+    || !Array.isArray(reactionConnection.nodes)
+    || !isObject(reactionConnection.pageInfo)
   ) throw new Error("missing pull request conversation")
 
-  let complete = connection.pageInfo.hasNextPage === false
-    && commentsConnection.pageInfo.hasNextPage === false
-    && reactionsConnection.pageInfo.hasNextPage === false
-  const comments = commentsConnection.nodes.map((node): IssueComment => {
+  let complete = threadConnection.pageInfo.hasNextPage === false
+    && commentConnection.pageInfo.hasNextPage === false
+    && reactionConnection.pageInfo.hasNextPage === false
+  const comments = commentConnection.nodes.map((node): IssueComment => {
     if (!isObject(node) || !isObject(node.reactions) || !Array.isArray(node.reactions.nodes)) {
       throw new Error("invalid issue comment")
     }
@@ -521,7 +508,7 @@ function providerConversation(repository: string, pr: number): {
       }),
     }
   })
-  const rootReactions = reactionsConnection.nodes.map((reaction): Reaction => {
+  const rootReactions = reactionConnection.nodes.map((reaction): Reaction => {
     if (!isObject(reaction)) throw new Error("invalid pull request reaction")
     return {
       content: stringField(reaction, "content") ?? "",
@@ -529,7 +516,7 @@ function providerConversation(repository: string, pr: number): {
       actor: actorLogin(reaction.user),
     }
   })
-  const threads = connection.nodes.map((value): ReviewThread => {
+  const threads = threadConnection.nodes.map((value): ReviewThread => {
     if (!isObject(value) || !isObject(value.comments) || !Array.isArray(value.comments.nodes)) {
       throw new Error("invalid review thread")
     }
@@ -558,12 +545,35 @@ function providerConversation(repository: string, pr: number): {
   return { complete, comments, rootReactions, threads }
 }
 
-export function fetchSnapshot(repository: string, pr: number): PullRequestSnapshot {
+interface BasicPullRequest {
+  open: boolean
+  merged: boolean
+  draft: boolean
+  headSha: string
+  headRepository: string
+  baseRef: string
+  baseSha: string
+}
+
+function fetchBasicPullRequest(repository: string, pr: number): BasicPullRequest {
   const pull = runGh(["api", `repos/${repository}/pulls/${pr}`])
   if (!isObject(pull) || !isObject(pull.head) || !isObject(pull.base)) {
     throw new Error("invalid pull request response")
   }
   const headRepo = isObject(pull.head.repo) ? pull.head.repo : null
+  return {
+    open: pull.state === "open",
+    merged: pull.merged === true,
+    draft: pull.draft === true,
+    headSha: stringField(pull.head, "sha") ?? "",
+    headRepository: headRepo ? stringField(headRepo, "full_name") ?? "" : "",
+    baseRef: stringField(pull.base, "ref") ?? "",
+    baseSha: stringField(pull.base, "sha") ?? "",
+  }
+}
+
+export function fetchSnapshot(repository: string, pr: number): PullRequestSnapshot {
+  const pull = fetchBasicPullRequest(repository, pr)
   const reviews = paginated(`repos/${repository}/pulls/${pr}/reviews`).map((review): Review => ({
     id: numberField(review, "id") ?? 0,
     actor: actorLogin(review.user),
@@ -578,15 +588,8 @@ export function fetchSnapshot(repository: string, pr: number): PullRequestSnapsh
   const conversation = providerConversation(repository, pr)
   return {
     repository,
-    defaultBranch: "",
     number: pr,
-    open: pull.state === "open",
-    draft: pull.draft === true,
-    merged: pull.merged === true,
-    headSha: stringField(pull.head, "sha") ?? "",
-    headRepository: headRepo ? stringField(headRepo, "full_name") ?? "" : "",
-    baseRef: stringField(pull.base, "ref") ?? "",
-    baseSha: stringField(pull.base, "sha") ?? "",
+    ...pull,
     commits,
     comments: conversation.comments,
     rootReactions: conversation.rootReactions,
@@ -594,11 +597,6 @@ export function fetchSnapshot(repository: string, pr: number): PullRequestSnapsh
     threads: conversation.threads,
     complete: conversation.complete,
   }
-}
-
-function sleep(milliseconds: number): void {
-  if (milliseconds <= 0) return
-  Bun.sleepSync(milliseconds)
 }
 
 function addComment(repository: string, pr: number, body: string): IssueComment {
@@ -644,75 +642,174 @@ function integerOption(args: string[], name: string): number {
   return value
 }
 
-async function verifiedClaim(repository: string, pr: number): Promise<{
-  claim: Claim
-  snapshot: PullRequestSnapshot
-}> {
-  const first = fetchSnapshot(repository, pr)
-  sleep(STABILITY_DELAY_MS)
-  const second = fetchSnapshot(repository, pr)
-  const claim = stableClaim(first, second)
-  if (!claim) throw new Error("claim epoch is not stable or has no winner")
-  return { claim, snapshot: second }
+function claimRef(pr: number): string {
+  return `codex-pr-claim/${pr}`
+}
+
+function reviewRef(pr: number, head: string): string {
+  return `codex-pr-review/${pr}/${head}`
+}
+
+function fetchAnnotatedTag(repository: string, name: string): AnnotatedTag {
+  const ref = runGh(["api", `repos/${repository}/git/ref/tags/${name}`])
+  if (!isObject(ref) || !isObject(ref.object)) throw new Error(`tag ref ${name} is unavailable`)
+  const tagSha = stringField(ref.object, "sha")
+  if (!validSha(tagSha) || stringField(ref.object, "type") !== "tag") {
+    throw new Error(`tag ref ${name} is not annotated`)
+  }
+  const raw = runGh(["api", `repos/${repository}/git/tags/${tagSha}`])
+  if (!isObject(raw) || !isObject(raw.object)) throw new Error(`annotated tag ${tagSha} is unavailable`)
+  const objectSha = stringField(raw.object, "sha")
+  const objectType = stringField(raw.object, "type")
+  if (!validSha(objectSha) || !objectType) throw new Error(`annotated tag ${tagSha} is invalid`)
+  return {
+    sha: tagSha,
+    name,
+    message: stringField(raw, "message") ?? "",
+    objectSha,
+    objectType,
+  }
+}
+
+function createAtomicTag(
+  repository: string,
+  name: string,
+  objectSha: string,
+  message: string,
+): AnnotatedTag {
+  const created = runGh([
+    "api", "--method", "POST", `repos/${repository}/git/tags`,
+    "-f", `tag=${name}`,
+    "-f", `message=${message}`,
+    "-f", `object=${objectSha}`,
+    "-f", "type=commit",
+  ])
+  if (!isObject(created)) throw new Error("invalid annotated tag response")
+  const tagSha = stringField(created, "sha")
+  if (!validSha(tagSha)) throw new Error("annotated tag SHA is unavailable")
+  try {
+    runGh([
+      "api", "--method", "POST", `repos/${repository}/git/refs`,
+      "-f", `ref=refs/tags/${name}`,
+      "-f", `sha=${tagSha}`,
+    ])
+  } catch {
+    const winner = fetchAnnotatedTag(repository, name)
+    throw new Error(`atomic tag claim lost to ${winner.sha}`)
+  }
+  return fetchAnnotatedTag(repository, name)
+}
+
+function loadClaim(repository: string, pr: number, expectedSha?: string | null): Claim {
+  const claim = validateClaimTag(fetchAnnotatedTag(repository, claimRef(pr)), repository, pr)
+  if (expectedSha && claim.tagSha !== expectedSha) throw new Error("claim tag SHA does not match")
+  return claim
+}
+
+function loadReviewCycle(
+  repository: string,
+  snapshot: PullRequestSnapshot,
+  claim: Claim,
+): ReviewCycle {
+  return validateReviewTag(
+    fetchAnnotatedTag(repository, reviewRef(snapshot.number, snapshot.headSha)),
+    snapshot,
+    claim,
+  )
+}
+
+function requireClaimOwner(claim: Claim): void {
+  const actor = currentActor()
+  if (actor !== claim.actor) throw new Error(`claim ${claim.tagSha} belongs to ${claim.actor}`)
+}
+
+function requireClaimLineage(snapshot: PullRequestSnapshot, claim: Claim): void {
+  if (!snapshot.commits.includes(claim.initialHead)) {
+    throw new Error("claim initial head is not in the current PR lineage")
+  }
 }
 
 async function commandClaim(args: string[]): Promise<void> {
   const repository = option(args, "--repo")!
   const pr = integerOption(args, "--pr")
   const mission = option(args, "--mission")!
-  if (!/^[A-Za-z0-9._:-]{1,128}$/.test(mission)) throw new Error("invalid mission id")
+  if (!validMission(mission)) throw new Error("invalid mission id")
+  const snapshot = fetchSnapshot(repository, pr)
+  requireComplete(snapshot)
+  if (!snapshot.open || snapshot.merged) throw new Error("pull request is not open")
+  if (snapshot.headRepository !== repository) throw new Error("fork pull requests are blocked")
   const actor = currentActor()
-  const takeoverId = option(args, "--takeover", false)
-  if (takeoverId) {
-    const authority = option(args, "--authority")!
-    addComment(repository, pr, markerBody(TAKEOVER_MARKER, {
-      claim_id: Number(takeoverId),
-      authority,
+  const created = createAtomicTag(
+    repository,
+    claimRef(pr),
+    snapshot.headSha,
+    markerBody(CLAIM_TAG_MARKER, {
+      repository,
+      pr,
+      mission,
+      nonce: randomUUID(),
       actor,
-    }))
-  }
-  const created = addComment(repository, pr, markerBody(CLAIM_MARKER, { mission, actor }))
-  const waitUntil = Date.parse(created.createdAt) + CLAIM_WINDOW_MS
-  sleep(waitUntil - Date.now())
-  const { claim } = await verifiedClaim(repository, pr)
-  if (claim.id !== created.id) {
-    addComment(repository, pr, markerBody(LOSS_MARKER, {
-      claim_id: created.id,
-      winner_claim_id: claim.id,
-      actor,
-    }))
-    throw new Error(`claim lost to ${claim.id}`)
-  }
+      initial_head: snapshot.headSha,
+    }),
+  )
+  const claim = validateClaimTag(created, repository, pr)
+  addComment(repository, pr, markerBody(CLAIM_RECEIPT_MARKER, {
+    claim_tag_sha: claim.tagSha,
+    mission: claim.mission,
+    actor: claim.actor,
+  }))
   process.stdout.write(`${JSON.stringify(claim)}\n`)
 }
 
 async function commandReview(args: string[]): Promise<void> {
   const repository = option(args, "--repo")!
   const pr = integerOption(args, "--pr")
-  const { claim, snapshot } = await verifiedClaim(repository, pr)
-  if (claim.actor !== currentActor()) throw new Error(`claim ${claim.id} belongs to ${claim.actor}`)
+  const expectedClaim = option(args, "--claim")!
+  const snapshot = fetchSnapshot(repository, pr)
+  requireComplete(snapshot)
+  const claim = loadClaim(repository, pr, expectedClaim)
+  requireClaimOwner(claim)
   if (!snapshot.draft) throw new Error("review trigger requires a draft pull request")
-  if (currentReviewTriggers(snapshot, claim).length > 0) {
-    throw new Error("an exact-head review trigger already exists")
-  }
-  const body = [
-    "@codex review",
-    "",
-    markerBody(REVIEW_MARKER, {
-      claim_id: claim.id,
+  requireClaimLineage(snapshot, claim)
+  if (
+    snapshot.rootReactions.some((reaction) => isCodex(reaction.actor))
+    || snapshot.reviews.some((review) =>
+      isCodex(review.actor) && review.commitSha === snapshot.headSha
+    )
+  ) throw new Error("automatic or prior Codex review evidence already exists for this head")
+
+  const created = createAtomicTag(
+    repository,
+    reviewRef(pr, snapshot.headSha),
+    snapshot.headSha,
+    markerBody(REVIEW_TAG_MARKER, {
+      repository,
+      pr,
+      claim_tag_sha: claim.tagSha,
       mission: claim.mission,
+      actor: claim.actor,
       head: snapshot.headSha,
       base_ref: snapshot.baseRef,
       base_sha: snapshot.baseSha,
     }),
-  ].join("\n")
-  const created = addComment(repository, pr, body)
-  process.stdout.write(`${JSON.stringify({ triggerCommentId: created.id, head: snapshot.headSha })}\n`)
+  )
+  const cycle = validateReviewTag(created, snapshot, claim)
+  const trigger = addComment(repository, pr, [
+    "@codex review",
+    "",
+    markerBody(REVIEW_MARKER, { review_tag_sha: cycle.tagSha }),
+  ].join("\n"))
+  process.stdout.write(`${JSON.stringify({
+    triggerCommentId: trigger.id,
+    reviewTagSha: cycle.tagSha,
+    head: snapshot.headSha,
+  })}\n`)
 }
 
 async function commandAddress(args: string[]): Promise<void> {
   const repository = option(args, "--repo")!
   const pr = integerOption(args, "--pr")
+  const expectedClaim = option(args, "--claim")!
   const threadId = option(args, "--thread-id")!
   const findingCommentId = integerOption(args, "--finding-comment-id")
   const disposition = option(args, "--disposition")!
@@ -721,14 +818,17 @@ async function commandAddress(args: string[]): Promise<void> {
   if (!["fixed", "deferred", "rejected"].includes(disposition)) {
     throw new Error("disposition must be fixed, deferred, or rejected")
   }
-  if (!/^[0-9a-f]{40}$/.test(fixSha)) throw new Error("fix SHA must be a full commit SHA")
+  if (!validSha(fixSha)) throw new Error("fix SHA must be a full commit SHA")
 
-  const { claim, snapshot } = await verifiedClaim(repository, pr)
-  if (claim.actor !== currentActor()) throw new Error(`claim ${claim.id} belongs to ${claim.actor}`)
+  const snapshot = fetchSnapshot(repository, pr)
+  requireComplete(snapshot)
+  const claim = loadClaim(repository, pr, expectedClaim)
+  requireClaimOwner(claim)
+  requireClaimLineage(snapshot, claim)
   if (!snapshot.commits.includes(fixSha)) throw new Error("fix SHA is not in the current PR lineage")
   const thread = snapshot.threads.find((candidate) => candidate.id === threadId)
-  if (!thread || thread.comments[0]?.id !== findingCommentId) {
-    throw new Error("finding does not match the live review thread")
+  if (!thread || !isCodexFindingRoot(thread, findingCommentId)) {
+    throw new Error("finding is not a Codex root comment in the live review thread")
   }
   if (!findingDisposition(thread, claim, new Set(snapshot.commits))) {
     runGh([
@@ -764,8 +864,10 @@ async function verifyLive(
   },
   allowDraft: boolean,
 ): Promise<{ verification: Verification; snapshot: PullRequestSnapshot }> {
-  const { claim, snapshot } = await verifiedClaim(repository, pr)
-  const verification = verifyReceipt(snapshot, claim, { allowDraft })
+  const snapshot = fetchSnapshot(repository, pr)
+  const claim = loadClaim(repository, pr)
+  const cycle = loadReviewCycle(repository, snapshot, claim)
+  const verification = verifyReceipt(snapshot, claim, cycle, { allowDraft })
   if (expected.head && expected.head !== snapshot.headSha) {
     verification.ok = false
     verification.reasons.push("expected head does not match the live PR head")
@@ -812,25 +914,24 @@ async function commandVerify(args: string[], writeStatus: boolean): Promise<void
     baseSha: option(args, "--expected-base-sha", false),
     workflowSha: option(args, "--trusted-workflow-sha", false),
   }
-  let snapshot: PullRequestSnapshot | null = null
+  const basic = fetchBasicPullRequest(repository, pr)
   try {
     const result = await verifyLive(repository, pr, expected, args.includes("--allow-draft"))
-    snapshot = result.snapshot
     if (writeStatus) {
       postStatus(
         repository,
-        snapshot.headSha,
+        basic.headSha,
         result.verification.ok ? "success" : "failure",
         result.verification.ok
-          ? `Codex review receipt verified for ${snapshot.headSha.slice(0, 12)}`
+          ? `Codex review receipt verified for ${basic.headSha.slice(0, 12)}`
           : result.verification.reasons[0] ?? "PR lifecycle verification failed",
       )
     }
     process.stdout.write(`${JSON.stringify(result.verification, null, 2)}\n`)
     if (!result.verification.ok) process.exitCode = 1
   } catch (error) {
-    if (writeStatus && snapshot) {
-      postStatus(repository, snapshot.headSha, "failure", "PR lifecycle verification failed closed")
+    if (writeStatus) {
+      postStatus(repository, basic.headSha, "failure", "PR lifecycle verification failed closed")
     }
     throw error
   }
@@ -839,7 +940,12 @@ async function commandVerify(args: string[], writeStatus: boolean): Promise<void
 async function commandDispatch(args: string[]): Promise<void> {
   const repository = option(args, "--repo")!
   const pr = integerOption(args, "--pr")
+  const expectedClaim = option(args, "--claim")!
   const snapshot = fetchSnapshot(repository, pr)
+  requireComplete(snapshot)
+  const claim = loadClaim(repository, pr, expectedClaim)
+  requireClaimOwner(claim)
+  requireClaimLineage(snapshot, claim)
   if (snapshot.baseRef !== "main") throw new Error("only the main base branch is supported")
   runGhText([
     "workflow", "run", "pr-lifecycle-gate.yml",

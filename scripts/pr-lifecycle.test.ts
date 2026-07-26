@@ -2,59 +2,46 @@ import { describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import {
-  activeClaimEpoch,
   markerBody,
   parseMarker,
-  stableClaim,
+  requireComplete,
+  isCodexFindingRoot,
+  validateClaimTag,
+  validateReviewTag,
   verifyReceipt,
+  type AnnotatedTag,
+  type Claim,
   type IssueComment,
   type PullRequestSnapshot,
+  type ReviewCycle,
   type ReviewThread,
 } from "./pr-lifecycle"
 
 const head = "a".repeat(40)
 const base = "b".repeat(40)
 const fix = "c".repeat(40)
-const claimCreatedAt = "2026-07-26T00:00:00Z"
-const triggerCreatedAt = "2026-07-26T00:01:00Z"
+const claimTagSha = "d".repeat(40)
+const reviewTagSha = "e".repeat(40)
 
-function comment(
-  id: number,
-  body: string,
-  overrides: Partial<IssueComment> = {},
-): IssueComment {
+function comment(id: number, body: string, overrides: Partial<IssueComment> = {}): IssueComment {
   return {
     id,
     nodeId: `node-${id}`,
     actor: "qOeOp",
     association: "OWNER",
     body,
-    createdAt: claimCreatedAt,
+    createdAt: "2026-07-26T00:01:00Z",
     minimized: false,
     reactions: [],
     ...overrides,
   }
 }
 
-function claimComment(id = 1, mission = "mission-a", createdAt = claimCreatedAt): IssueComment {
-  return comment(id, markerBody("pr-lifecycle-claim:v1", {
-    mission,
-    actor: "qOeOp",
-  }), { createdAt })
-}
-
 function triggerComment(id = 10): IssueComment {
   return comment(id, [
     "@codex review",
-    markerBody("pr-lifecycle-review:v1", {
-      claim_id: 1,
-      mission: "mission-a",
-      head,
-      base_ref: "main",
-      base_sha: base,
-    }),
+    markerBody("pr-lifecycle-review:v2", { review_tag_sha: reviewTagSha }),
   ].join("\n"), {
-    createdAt: triggerCreatedAt,
     reactions: [{
       actor: "chatgpt-codex-connector[bot]",
       content: "+1",
@@ -63,10 +50,26 @@ function triggerComment(id = 10): IssueComment {
   })
 }
 
+const claim: Claim = {
+  tagSha: claimTagSha,
+  actor: "qOeOp",
+  mission: "mission-a",
+  initialHead: fix,
+}
+
+const cycle: ReviewCycle = {
+  tagSha: reviewTagSha,
+  claimTagSha,
+  actor: "qOeOp",
+  mission: "mission-a",
+  headSha: head,
+  baseRef: "main",
+  baseSha: base,
+}
+
 function snapshot(overrides: Partial<PullRequestSnapshot> = {}): PullRequestSnapshot {
   return {
     repository: "qOeOp/trade",
-    defaultBranch: "main",
     number: 100,
     open: true,
     draft: false,
@@ -76,11 +79,49 @@ function snapshot(overrides: Partial<PullRequestSnapshot> = {}): PullRequestSnap
     baseRef: "main",
     baseSha: base,
     commits: [fix, head],
-    comments: [claimComment(), triggerComment()],
+    comments: [triggerComment()],
     rootReactions: [],
     reviews: [],
     threads: [],
     complete: true,
+    ...overrides,
+  }
+}
+
+function annotatedClaim(overrides: Partial<AnnotatedTag> = {}): AnnotatedTag {
+  return {
+    sha: claimTagSha,
+    name: "codex-pr-claim/100",
+    message: markerBody("pr-lifecycle-claim-tag:v1", {
+      repository: "qOeOp/trade",
+      pr: 100,
+      mission: "mission-a",
+      nonce: "unique",
+      actor: "qOeOp",
+      initial_head: fix,
+    }),
+    objectSha: fix,
+    objectType: "commit",
+    ...overrides,
+  }
+}
+
+function annotatedReview(overrides: Partial<AnnotatedTag> = {}): AnnotatedTag {
+  return {
+    sha: reviewTagSha,
+    name: `codex-pr-review/100/${head}`,
+    message: markerBody("pr-lifecycle-review-tag:v1", {
+      repository: "qOeOp/trade",
+      pr: 100,
+      claim_tag_sha: claimTagSha,
+      mission: "mission-a",
+      actor: "qOeOp",
+      head,
+      base_ref: "main",
+      base_sha: base,
+    }),
+    objectSha: head,
+    objectType: "commit",
     ...overrides,
   }
 }
@@ -97,7 +138,7 @@ function findingThread(overrides: Partial<ReviewThread> = {}): ReviewThread {
         body: "finding",
         createdAt: "2026-07-26T00:00:30Z",
         outdated: true,
-        reviewCommitSha: "d".repeat(40),
+        reviewCommitSha: "f".repeat(40),
       },
       {
         id: 51,
@@ -118,52 +159,47 @@ function findingThread(overrides: Partial<ReviewThread> = {}): ReviewThread {
   }
 }
 
-describe("claim election", () => {
-  test("uses immutable provider order and a stable post-cutoff snapshot", () => {
-    const first = snapshot({
-      comments: [
-        claimComment(2, "later", "2026-07-26T00:00:01Z"),
-        claimComment(1, "winner", "2026-07-26T00:00:00Z"),
-      ],
-    })
-    const second = structuredClone(first)
-
-    expect(stableClaim(first, second, Date.parse("2026-07-26T00:00:31Z"))).toMatchObject({
-      id: 1,
-      mission: "winner",
-    })
+describe("atomic authority tags", () => {
+  test("binds the claim to repository, PR, actor, mission, and initial head", () => {
+    expect(validateClaimTag(annotatedClaim(), "qOeOp/trade", 100)).toEqual(claim)
+    expect(() => validateClaimTag(
+      annotatedClaim({ objectSha: head }),
+      "qOeOp/trade",
+      100,
+    )).toThrow("invalid claim tag")
   })
 
-  test("rejects divergent claim snapshots and pre-cutoff reads", () => {
-    const first = snapshot({ comments: [claimComment()] })
-    const changed = snapshot({ comments: [claimComment(), claimComment(2, "late")] })
-
-    expect(stableClaim(first, changed, Date.parse("2026-07-26T00:01:00Z"))).toBeNull()
-    expect(stableClaim(first, first, Date.parse("2026-07-26T00:00:29Z"))).toBeNull()
+  test("binds one review cycle to the exact claim, head, and live base", () => {
+    expect(validateReviewTag(annotatedReview(), snapshot(), claim)).toEqual(cycle)
+    expect(() => validateReviewTag(
+      annotatedReview(),
+      snapshot({ baseSha: "f".repeat(40) }),
+      claim,
+    )).toThrow("live PR identity")
   })
 
-  test("starts a new epoch only after an explicit authorized takeover", () => {
-    const takeover = comment(2, markerBody("pr-lifecycle-takeover:v1", {
-      claim_id: 1,
-      authority: "user explicitly reassigned this PR",
-      actor: "qOeOp",
-    }), { createdAt: "2026-07-26T00:02:00Z" })
-    const next = claimComment(3, "mission-b", "2026-07-26T00:02:01Z")
+  test("deleted comments cannot promote another owner or recreate a review cycle", () => {
+    expect(verifyReceipt(snapshot({ comments: [] }), claim, cycle)).toMatchObject({
+      ok: false,
+      reasons: [expect.stringContaining("found 0")],
+    })
+    expect(cycle.tagSha).toBe(reviewTagSha)
+  })
 
-    expect(activeClaimEpoch(snapshot({ comments: [claimComment(), takeover, next] }))).toEqual([
-      expect.objectContaining({ id: 3, mission: "mission-b" }),
-    ])
+  test("force-push removing the claimed initial head fails closed", () => {
+    expect(verifyReceipt(snapshot({ commits: [head] }), claim, cycle).reasons).toContain(
+      "claim initial head is not in the current PR lineage",
+    )
   })
 })
 
 describe("exact-head receipt", () => {
   test("accepts one correlated clean response and mapped historical findings", () => {
-    const state = snapshot({ threads: [findingThread()] })
-    const claim = activeClaimEpoch(state)[0]!
-
-    expect(verifyReceipt(state, claim)).toMatchObject({
+    expect(verifyReceipt(snapshot({ threads: [findingThread()] }), claim, cycle)).toMatchObject({
       ok: true,
       receipt: {
+        claimTagSha,
+        reviewTagSha,
         triggerCommentId: 10,
         headSha: head,
         baseSha: base,
@@ -173,111 +209,92 @@ describe("exact-head receipt", () => {
 
   test("replays PR #14: an untriggered root thumb is not a review receipt", () => {
     const state = snapshot({
-      comments: [claimComment()],
+      comments: [],
       rootReactions: [{
         actor: "chatgpt-codex-connector[bot]",
         content: "+1",
         createdAt: "2026-07-26T00:02:00Z",
       }],
     })
-
-    expect(verifyReceipt(state, activeClaimEpoch(state)[0]!)).toMatchObject({
+    expect(verifyReceipt(state, claim, cycle)).toMatchObject({
       ok: false,
       reasons: [expect.stringContaining("review trigger")],
     })
   })
 
   test("replays PR #23: duplicate same-head triggers fail closed", () => {
-    const duplicate = triggerComment(11)
-    const state = snapshot({ comments: [claimComment(), triggerComment(), duplicate] })
-
-    expect(verifyReceipt(state, activeClaimEpoch(state)[0]!)).toMatchObject({
+    expect(verifyReceipt(
+      snapshot({ comments: [triggerComment(), triggerComment(11)] }),
+      claim,
+      cycle,
+    )).toMatchObject({
       ok: false,
       reasons: [expect.stringContaining("found 2")],
     })
   })
 
-  test("replays PR #4: a later finding review overrides an earlier thumb", () => {
+  test("replays PR #4: a current-head finding overrides a thumb regardless of order", () => {
     const state = snapshot({
       reviews: [{
         id: 80,
         actor: "chatgpt-codex-connector",
         state: "COMMENTED",
-        body: "findings",
-        submittedAt: "2026-07-26T00:03:00Z",
+        body: "finding before trigger",
+        submittedAt: "2026-07-26T00:00:00Z",
         commitSha: head,
       }],
-      threads: [findingThread({
-        resolved: false,
-        outdated: false,
-        comments: [{
-          id: 81,
-          actor: "chatgpt-codex-connector",
-          body: "late finding",
-          createdAt: "2026-07-26T00:03:00Z",
-          outdated: false,
-          reviewCommitSha: head,
-        }],
-      })],
     })
-
-    const result = verifyReceipt(state, activeClaimEpoch(state)[0]!)
-    expect(result.ok).toBeFalse()
-    expect(result.reasons).toContain("Codex submitted a finding review for the current head")
+    expect(verifyReceipt(state, claim, cycle).reasons).toContain(
+      "Codex submitted a finding review for the current head",
+    )
   })
 
-  test("new head, base drift, unresolved threads, deleted triggers, and forks invalidate evidence", () => {
-    const cases = [
-      snapshot({ headSha: "e".repeat(40) }),
-      snapshot({ baseSha: "f".repeat(40) }),
-      snapshot({ threads: [findingThread({ resolved: false })] }),
-      snapshot({ comments: [claimComment()] }),
-      snapshot({ headRepository: "contributor/trade" }),
+  test("new head, base drift, unresolved threads, deleted triggers, and forks invalidate", () => {
+    const cases: Array<[PullRequestSnapshot, ReviewCycle]> = [
+      [snapshot({ headSha: "f".repeat(40) }), cycle],
+      [snapshot({ baseSha: "f".repeat(40) }), cycle],
+      [snapshot({ threads: [findingThread({ resolved: false })] }), cycle],
+      [snapshot({ comments: [] }), cycle],
+      [snapshot({ headRepository: "contributor/trade" }), cycle],
     ]
-
-    for (const state of cases) {
-      expect(verifyReceipt(state, activeClaimEpoch(state)[0]!).ok).toBeFalse()
+    for (const [state, receipt] of cases) {
+      expect(verifyReceipt(state, claim, receipt).ok).toBeFalse()
     }
   })
 
-  test("an automatic-review root reaction cannot reuse the explicit trigger", () => {
+  test("any automatic-review root reaction blocks explicit-trigger reuse", () => {
     const state = snapshot({
       rootReactions: [{
         actor: "chatgpt-codex-connector[bot]",
         content: "+1",
-        createdAt: "2026-07-26T00:03:00Z",
+        createdAt: "2026-07-25T00:00:00Z",
       }],
     })
-
-    expect(verifyReceipt(state, activeClaimEpoch(state)[0]!)).toMatchObject({
-      ok: false,
-      reasons: [expect.stringContaining("root reaction")],
-    })
+    expect(verifyReceipt(state, claim, cycle).reasons).toContain(
+      "uncorrelated Codex root reaction exists",
+    )
   })
 
-  test("incomplete pagination, minimized claims, dismissed reviews, and unmapped fixes fail closed", () => {
+  test("incomplete provider data blocks both verification and mutation", () => {
     const incomplete = snapshot({ complete: false })
-    expect(verifyReceipt(incomplete, activeClaimEpoch(incomplete)[0]!).ok).toBeFalse()
+    expect(verifyReceipt(incomplete, claim, cycle).ok).toBeFalse()
+    expect(() => requireComplete(incomplete)).toThrow("incomplete")
+  })
 
-    const minimized = snapshot({ comments: [claimComment(1, "mission-a", claimCreatedAt), triggerComment()] })
-    minimized.comments[0]!.minimized = true
-    expect(activeClaimEpoch(minimized)).toEqual([])
+  test("unmapped historical findings fail closed", () => {
+    const unmapped = snapshot({ threads: [findingThread()], commits: [head] })
+    const result = verifyReceipt(unmapped, { ...claim, initialHead: head }, cycle)
+    expect(result.ok).toBeFalse()
+    expect(result.reasons).toEqual([
+      expect.stringContaining("lacks an exact fix/disposition receipt"),
+    ])
+  })
 
-    const dismissed = snapshot({
-      reviews: [{
-        id: 90,
-        actor: "chatgpt-codex-connector",
-        state: "DISMISSED",
-        body: "",
-        submittedAt: "2026-07-26T00:03:00Z",
-        commitSha: head,
-      }],
-    })
-    expect(verifyReceipt(dismissed, activeClaimEpoch(dismissed)[0]!).ok).toBeFalse()
-
-    const unmapped = snapshot({ threads: [findingThread()] })
-    unmapped.commits = [head]
-    expect(verifyReceipt(unmapped, activeClaimEpoch(unmapped)[0]!).ok).toBeFalse()
+  test("human review threads are outside the Codex disposition protocol", () => {
+    const humanThread = findingThread()
+    humanThread.comments[0]!.actor = "human-reviewer"
+    expect(isCodexFindingRoot(humanThread, 50)).toBeFalse()
+    expect(verifyReceipt(snapshot({ threads: [humanThread] }), claim, cycle).ok).toBeTrue()
   })
 })
 
@@ -287,7 +304,6 @@ describe("base-owned workflow", () => {
       join(import.meta.dir, "..", ".github", "workflows", "pr-lifecycle-gate.yml"),
       "utf8",
     )
-
     expect(workflow).toContain("ref: ${{ github.sha }}")
     expect(workflow).not.toContain("ref: ${{ inputs.expected_base_sha }}")
     expect(workflow).toContain('--trusted-workflow-sha "$GITHUB_SHA"')
@@ -296,8 +312,11 @@ describe("base-owned workflow", () => {
 
 describe("markers", () => {
   test("round trips structured payloads and rejects malformed JSON", () => {
-    const body = markerBody("pr-lifecycle-claim:v1", { mission: "m", actor: "a" })
-    expect(parseMarker(body, "pr-lifecycle-claim:v1")).toEqual({ mission: "m", actor: "a" })
-    expect(parseMarker("<!-- pr-lifecycle-claim:v1 nope -->", "pr-lifecycle-claim:v1")).toBeNull()
+    const body = markerBody("pr-lifecycle-claim-tag:v1", { mission: "m", actor: "a" })
+    expect(parseMarker(body, "pr-lifecycle-claim-tag:v1")).toEqual({ mission: "m", actor: "a" })
+    expect(parseMarker(
+      "<!-- pr-lifecycle-claim-tag:v1 nope -->",
+      "pr-lifecycle-claim-tag:v1",
+    )).toBeNull()
   })
 })

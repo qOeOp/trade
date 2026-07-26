@@ -12,38 +12,46 @@ When the repository contains `scripts/pr-lifecycle.ts` and a base-owned
    provider setting cannot be verified, the enforced path is unavailable.
 1. Create one Draft PR as the shared coordination surface. Before any further PR
    mutation, run `bun scripts/pr-lifecycle.ts claim --repo <owner/repo> --pr
-   <number> --mission <stable-id>`.
-2. The claim comment is the only pre-claim mutation. Eligible claims are
-   provider-native top-level comments from an owner, member, or collaborator
-   with the exact structured marker emitted by the script. The earliest
-   immutable `(created_at, comment_id)` wins after a 30-second claim window and
-   two identical snapshots five seconds apart. Until then, perform no other PR
-   write. A loser may emit only the script's single loss marker and then becomes
-   read-only.
-3. Claims do not expire. Reassignment requires explicit user authority, the
-   script's visible takeover marker, and a new stabilized claim epoch. This
-   excludes cooperating Codex writers only; it is not a hostile-actor lock.
+   <number> --mission <stable-id>`. The command atomically creates the annotated
+   `codex-pr-claim/<pr>` tag ref and prints its immutable tag-object SHA.
+2. The claim tag ref, not its display comment, is the authority. GitHub permits
+   only one atomic ref creation, so one cooperating writer wins and every loser
+   becomes read-only. Deleting or minimizing comments cannot promote a loser.
+   Claims do not expire. Release or reassignment requires explicit user
+   authority and deletion of the exact claim and review refs; never infer it
+   from write permission. This is a cooperative Codex lock, not hostile-actor
+   security.
+3. Pass `--claim <tag-sha>` to every writer command. The claim tag binds the
+   repository, PR, actor, mission, and initial head. If a force-push removes
+   that head from the PR lineage, stop for explicit recovery.
 4. Keep the PR Draft and trigger one review per exact head/base with `bun
-   scripts/pr-lifecycle.ts review --repo <owner/repo> --pr <number>`. Never
-   repeat a same-identity trigger. Do not amend, rebase, or force-push after the
-   first trigger; fix findings with coherent append-only commits.
+   scripts/pr-lifecycle.ts review --repo <owner/repo> --pr <number> --claim
+   <tag-sha>`. Before posting `@codex review`, the command atomically creates
+   `codex-pr-review/<pr>/<head>`, bound to the claim, current head, and live
+   base. The ref prevents a repeat even when the trigger comment is deleted; a
+   missing trigger then fails closed and requires explicit recovery. Do not
+   amend, rebase, or force-push after the first trigger; fix findings with
+   coherent append-only commits.
 5. For every Codex finding, run `bun scripts/pr-lifecycle.ts address --repo
    <owner/repo> --pr <number> --thread-id <node-id> --finding-comment-id
    <database-id> --disposition <fixed|deferred|rejected> --fix-sha <full-sha>
-   --reason <text>`. It replies in that exact inline thread with one structured
-   disposition and resolves it through GitHub. A reply or a resolve alone is
-   insufficient. Every new code head needs a new review trigger and clean
-   response.
+   --reason <text> --claim <tag-sha>`. It replies only to a Codex-authored root
+   in that exact inline thread with one structured disposition and resolves it
+   through GitHub. A reply or a resolve alone is insufficient. Every new code
+   head needs a new review tag, trigger, and clean response.
 6. A root 👍, eyes reaction, silence, summary, resolved flag, or old-head review
    is not independently sufficient. Run `bun scripts/pr-lifecycle.ts verify
    --repo <owner/repo> --pr <number> --allow-draft`; it reconstructs one receipt
-   from the stable claim, exact trigger, trusted Codex identity, exact current
-   head/live base, one correlated clean reaction, complete thread snapshot, and
-   finding dispositions present in the current PR commit lineage. It fails
+   from the atomic claim and review tags, exact trigger, trusted Codex identity,
+   exact current head/live base, one correlated clean reaction, complete thread
+   snapshot, and finding dispositions present in the current PR commit lineage.
+   A successful status certifies that exact provider snapshot; run it
+   immediately before merge and permit no intervening PR writes. It fails
    closed on ambiguity, pagination, deletion/minimization, duplicates, forks,
    stale identities, or incomplete provider data.
 7. After local verification, mark Ready and run `bun
-   scripts/pr-lifecycle.ts dispatch --repo <owner/repo> --pr <number>`. The
+   scripts/pr-lifecycle.ts dispatch --repo <owner/repo> --pr <number> --claim
+   <tag-sha>`. The
    dispatch only wakes the default-branch workflow. The workflow checks out the
    exact default-branch workflow SHA, requires it to equal the live base,
    reruns the same verifier against live provider state,
