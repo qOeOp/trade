@@ -958,8 +958,14 @@ describe("quality judges fail closed", () => {
       `{"cache_root":"${rootHome}"}`,
       `${rootHome}/project/file`,
       `link=file://${rootHome}/private/report.json`,
+      `link=file://localhost${rootHome}/private/report.json`,
       `CACHE_DIR=\${CACHE_DIR:-${rootHome}/cache}`,
+      `CACHE_DIR=\${CACHE_DIR-${rootHome}/cache}`,
+      `cache_root=/tmp/..${rootHome}/private`,
       "catalog/root/root",
+      `catalog-${rootHome}`,
+      `link=file://example.com${rootHome}/private/report.json`,
+      `cache_root=/tmp/project/..${rootHome}/private`,
       "/tmp/root",
       "/roots",
       "data/root.db",
@@ -983,8 +989,14 @@ describe("quality judges fail closed", () => {
     expect(boundary.stdout).toContain(`{"cache_root":"${rootHome}"}`)
     expect(boundary.stdout).toContain(`${rootHome}/project/file`)
     expect(boundary.stdout).toContain(`link=file://${rootHome}/private/report.json`)
+    expect(boundary.stdout).toContain(`link=file://localhost${rootHome}/private/report.json`)
     expect(boundary.stdout).toContain(`CACHE_DIR=\${CACHE_DIR:-${rootHome}/cache}`)
+    expect(boundary.stdout).toContain(`CACHE_DIR=\${CACHE_DIR-${rootHome}/cache}`)
+    expect(boundary.stdout).toContain(`cache_root=/tmp/..${rootHome}/private`)
     expect(boundary.stdout).not.toContain("catalog/root/root")
+    expect(boundary.stdout).not.toContain(`catalog-${rootHome}`)
+    expect(boundary.stdout).not.toContain(`link=file://example.com${rootHome}/private/report.json`)
+    expect(boundary.stdout).not.toContain(`cache_root=/tmp/project/..${rootHome}/private`)
     expect(boundary.stdout).not.toContain("DB/roots")
     expect(boundary.stdout).not.toContain("/tmp/root")
     expect(boundary.stdout).not.toContain("/roots")
