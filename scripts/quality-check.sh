@@ -91,8 +91,8 @@ find_local_home_paths() {
           next_character = substr($0, position + length(home), 1)
           path_prefix = prefix
           sub(/^.*[^[:alnum:]_.~\/-]/, "", path_prefix)
-          traversal_boundary = 0
-          if (path_prefix ~ /^\// && path_prefix ~ /\/\.\.$/) {
+          normalized_path_boundary = 0
+          if (path_prefix ~ /^\//) {
             path_depth = 0
             path_segment_count = split(path_prefix, path_segments, "/")
             for (path_segment_index = 1; path_segment_index <= path_segment_count; path_segment_index++) {
@@ -108,16 +108,16 @@ find_local_home_paths() {
               }
               path_depth++
             }
-            traversal_boundary = path_depth == 0
+            normalized_path_boundary = path_depth == 0
           }
           file_uri_boundary = (length(prefix) >= 7 && tolower(substr(prefix, length(prefix) - 6)) == "file://") \
             || (length(prefix) >= 16 && tolower(substr(prefix, length(prefix) - 15)) == "file://localhost")
-          shell_default_boundary = (prefix ~ /\$\{[[:alpha:]_][[:alnum:]_]*:?-$/)
+          shell_default_boundary = (prefix ~ /\$\{([[:alpha:]_][[:alnum:]_]*|[[:digit:]]+|[@*#?$!-]):?-$/)
           previous_boundary = previous_character == "" \
             || previous_character !~ /[[:alnum:]_.~\/-]/ \
             || file_uri_boundary \
             || shell_default_boundary \
-            || traversal_boundary
+            || normalized_path_boundary
           next_boundary = next_character == "" || next_character == "/" || next_character !~ /[[:alnum:]_.~-]/
           if (previous_boundary && next_boundary) {
             print
