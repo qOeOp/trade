@@ -58,7 +58,7 @@ Use a fresh read-only evaluator after freezing the complete result or diff and e
 Provide:
 
 - mission contract, source revision, and complete read-only result or diff;
-- the evaluator protocol retrieved from that exact source revision, with its content hash; a candidate or working-tree copy is not a substitute;
+- the complete governing evaluator instruction bundle retrieved from that exact source revision, including applicable project instructions, `SKILL.md`, this role protocol, and the evaluator adapter, with content hashes and a launch receipt proving the evaluator loaded that bundle; candidate or working-tree copies are not substitutes;
 - exact candidate commit and PR head when either exists, plus the exact acceptance-tree hash; when that tree differs from the candidate tree, provide the prospective merge or merge-group tree, base/head identities, integrated diff, and receipts bound to it;
 - commands, exit statuses, raw outputs, consumer journey, and project rules.
 
@@ -89,8 +89,8 @@ Bind the verdict to the supplied acceptance tree and candidate identity. Any acc
 
 ## Context hygiene
 
-Start roles fresh and rebuild input from repository state and raw artifacts, not conversation summaries. Load the evaluator protocol from the supplied source revision before inspecting the candidate; stop without evaluation if those exact bytes cannot be retrieved. Do not reuse an evaluator exposed to builder deliberation.
+Start roles fresh and rebuild input from repository state and raw artifacts, not conversation summaries. Before launch, the main context must bind every governing evaluator instruction to the supplied source revision and retain the load receipt; stop without evaluation if the host cannot load and verify that exact bundle. Do not reuse an evaluator exposed to builder deliberation.
 
-Evaluators must not invoke live agent or thread enumeration, lifecycle, history, or transcript APIs, or consume live sibling outputs, because those responses can disclose planner or builder deliberation. This does not bar inspection of committed candidate source, complete diffs, or test fixtures for those surfaces. Keep live agent lifecycle checks in the main context and outside evaluator evidence. A main-frozen contract or admitted evidence may originate from a planner, but if raw planner or builder deliberation, unadopted recommendations, or sibling results appear, stop without a candidate judgment or disposition; the main context must discard that run and launch a fresh evaluator with sanitized input.
+Evaluators must not invoke live agent or thread enumeration, lifecycle, history, or transcript APIs, or consume live sibling outputs, because those responses can disclose planner or builder deliberation. This does not bar inspection of committed candidate source, complete diffs, test fixtures, or compact evidence packets explicitly admitted and frozen by the main context. A main-frozen contract or admitted evidence may originate from another role, but if raw planner or builder deliberation, unadopted recommendations, or live or unadmitted sibling results appear, stop without a candidate judgment or disposition; the main context must discard that run and launch a fresh evaluator with sanitized input.
 
 If fresh evaluator isolation is unavailable for a mission that requires one, it cannot be accepted; report the unavailable external requirement and apply the ordered terminal rules.
