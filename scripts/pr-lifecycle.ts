@@ -330,7 +330,9 @@ export function verifyReceipt(
   const codexReactions = trigger.reactions.filter((reaction) =>
     isCodex(reaction.actor) && Date.parse(reaction.createdAt) >= triggerAt
   )
-  const cleanReactions = codexReactions.filter((reaction) => reaction.content === "+1")
+  const cleanReactions = codexReactions.filter((reaction) =>
+    reaction.content === "THUMBS_UP"
+  )
   const currentReviews = snapshot.reviews.filter((review) =>
     isCodex(review.actor) && review.commitSha === snapshot.headSha
   )
@@ -348,7 +350,9 @@ export function verifyReceipt(
   if (currentReviews.length > 0 || currentFindingThreads.length > 0) {
     reasons.push("Codex submitted a finding review for the current head")
   }
-  if (codexReactions.some((reaction) => reaction.content !== "EYES" && reaction.content !== "+1")) {
+  if (codexReactions.some((reaction) =>
+    reaction.content !== "EYES" && reaction.content !== "THUMBS_UP"
+  )) {
     reasons.push("unexpected Codex reaction exists on the trigger")
   }
 
@@ -905,6 +909,50 @@ function postStatus(
   ])
 }
 
+export function gateStatusForLiveHead(
+  verifiedHead: string,
+  liveHead: string,
+  requestedState: "success" | "failure",
+): { sha: string; state: "success" | "failure"; headChanged: boolean } {
+  const headChanged = verifiedHead !== liveHead
+  return {
+    sha: liveHead,
+    state: headChanged ? "failure" : requestedState,
+    headChanged,
+  }
+}
+
+function publishGateStatus(
+  repository: string,
+  pr: number,
+  verifiedHead: string,
+  requestedState: "success" | "failure",
+  description: string,
+): boolean {
+  const before = fetchBasicPullRequest(repository, pr)
+  const initial = gateStatusForLiveHead(verifiedHead, before.headSha, requestedState)
+  postStatus(
+    repository,
+    initial.sha,
+    initial.state,
+    initial.headChanged ? "PR head changed during lifecycle verification" : description,
+  )
+  if (initial.headChanged) return false
+
+  const after = fetchBasicPullRequest(repository, pr)
+  const confirmation = gateStatusForLiveHead(verifiedHead, after.headSha, requestedState)
+  if (confirmation.headChanged) {
+    postStatus(
+      repository,
+      confirmation.sha,
+      "failure",
+      "PR head changed during lifecycle status publication",
+    )
+    return false
+  }
+  return true
+}
+
 async function commandVerify(args: string[], writeStatus: boolean): Promise<void> {
   const repository = option(args, "--repo")!
   const pr = integerOption(args, "--pr")
@@ -914,24 +962,29 @@ async function commandVerify(args: string[], writeStatus: boolean): Promise<void
     baseSha: option(args, "--expected-base-sha", false),
     workflowSha: option(args, "--trusted-workflow-sha", false),
   }
-  const basic = fetchBasicPullRequest(repository, pr)
   try {
     const result = await verifyLive(repository, pr, expected, args.includes("--allow-draft"))
     if (writeStatus) {
-      postStatus(
+      const published = publishGateStatus(
         repository,
-        basic.headSha,
+        pr,
+        result.snapshot.headSha,
         result.verification.ok ? "success" : "failure",
         result.verification.ok
-          ? `Codex review receipt verified for ${basic.headSha.slice(0, 12)}`
+          ? `Codex review receipt verified for ${result.snapshot.headSha.slice(0, 12)}`
           : result.verification.reasons[0] ?? "PR lifecycle verification failed",
       )
+      if (!published) {
+        result.verification.ok = false
+        result.verification.reasons.push("PR head changed during gate status publication")
+      }
     }
     process.stdout.write(`${JSON.stringify(result.verification, null, 2)}\n`)
     if (!result.verification.ok) process.exitCode = 1
   } catch (error) {
     if (writeStatus) {
-      postStatus(repository, basic.headSha, "failure", "PR lifecycle verification failed closed")
+      const live = fetchBasicPullRequest(repository, pr)
+      postStatus(repository, live.headSha, "failure", "PR lifecycle verification failed closed")
     }
     throw error
   }

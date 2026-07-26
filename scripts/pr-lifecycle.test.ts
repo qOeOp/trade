@@ -2,10 +2,11 @@ import { describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import {
+  gateStatusForLiveHead,
+  isCodexFindingRoot,
   markerBody,
   parseMarker,
   requireComplete,
-  isCodexFindingRoot,
   validateClaimTag,
   validateReviewTag,
   verifyReceipt,
@@ -44,7 +45,7 @@ function triggerComment(id = 10): IssueComment {
   ].join("\n"), {
     reactions: [{
       actor: "chatgpt-codex-connector[bot]",
-      content: "+1",
+      content: "THUMBS_UP",
       createdAt: "2026-07-26T00:02:00Z",
     }],
   })
@@ -266,7 +267,7 @@ describe("exact-head receipt", () => {
     const state = snapshot({
       rootReactions: [{
         actor: "chatgpt-codex-connector[bot]",
-        content: "+1",
+        content: "THUMBS_UP",
         createdAt: "2026-07-25T00:00:00Z",
       }],
     })
@@ -295,6 +296,25 @@ describe("exact-head receipt", () => {
     humanThread.comments[0]!.actor = "human-reviewer"
     expect(isCodexFindingRoot(humanThread, 50)).toBeFalse()
     expect(verifyReceipt(snapshot({ threads: [humanThread] }), claim, cycle).ok).toBeTrue()
+  })
+})
+
+describe("gate status publication", () => {
+  test("publishes success only to the verified live head", () => {
+    expect(gateStatusForLiveHead(head, head, "success")).toEqual({
+      sha: head,
+      state: "success",
+      headChanged: false,
+    })
+  })
+
+  test("turns a head race into failure on the newly observed live head", () => {
+    const newHead = "f".repeat(40)
+    expect(gateStatusForLiveHead(head, newHead, "success")).toEqual({
+      sha: newHead,
+      state: "failure",
+      headChanged: true,
+    })
   })
 })
 
