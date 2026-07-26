@@ -1,21 +1,31 @@
 #!/usr/bin/env bun
 
 import {
+  closeSync,
   existsSync,
+  fchmodSync,
+  fstatSync,
+  fsyncSync,
+  linkSync,
   lstatSync,
+  mkdirSync,
   mkdtempSync,
+  openSync,
   readdirSync,
   readFileSync,
   readlinkSync,
   realpathSync,
+  renameSync,
   rmdirSync,
+  statSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs"
 import { randomBytes } from "node:crypto"
 import { basename, dirname, join, resolve } from "node:path"
 
 const IDENTITY_SCHEMA = "trade.worktree-cleanup-identity.v3"
-const EXECUTION_SCHEMA = "trade.worktree-cleanup-execution.v3"
+const EXECUTION_SCHEMA = "trade.worktree-cleanup-execution.v4"
 const GENERATION_FILE = "trade-cleanup-generation"
 
 export interface WorktreeIdentity {
@@ -37,6 +47,7 @@ export interface CleanupExecutionReceipt {
   observed_generation: string | null
   observed_head: string | null
   observed_ref: string | null
+  preserved_ref: string | null
   worktree_claimed: boolean
   ignored_residue_removed: boolean
   worktree_removed: boolean
@@ -51,6 +62,7 @@ export class WorktreeCleanupError extends Error {
   constructor(
     readonly code: string,
     readonly receipt?: CleanupExecutionReceipt,
+    readonly preservedRef?: string,
   ) {
     super(code)
   }
@@ -73,11 +85,31 @@ interface ResolvedTarget {
   identity: WorktreeIdentity
 }
 
+interface FileIdentity {
+  dev: number
+  ino: number
+}
+
 type RefSnapshot = {
   kind: "direct"
+  reflog: FileSnapshot | null
 } | {
   kind: "symbolic"
   target: string
+  mode: number
+  packedEntry: PackedRefSnapshot | null
+}
+
+interface FileSnapshot {
+  contents: Buffer
+  mode: number
+}
+
+interface PackedRefSnapshot {
+  line: string
+  index: number
+  previousLine: string | null
+  nextLine: string | null
 }
 
 export function identifyLinkedWorktree(cwd: string): WorktreeIdentity {
@@ -129,6 +161,7 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
     assertClean(initial.worktreePath)
     assertNoTargetUsers(initial.worktreePath)
     ownerCwd = initial.commonDir
+    if (options.expectedRef !== null) assertFilesRefStorage(ownerCwd)
     const claimedOptions = { ...options, repositoryCwd: ownerCwd }
 
     quarantineParent = mkdtempSync(join(dirname(initial.worktreePath), ".worktree-cleanup-"))
@@ -145,28 +178,69 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
     assertExpectedIdentity(claimed.identity, options)
     assertClean(claimed.worktreePath)
     assertNoTargetUsers(claimed.worktreePath)
+    if (process.platform === "linux") assertNoUnixSockets(initial.worktreePath, false)
+    if (process.platform === "linux") {
+      const staleSockets = collectUnixSocketFiles(claimed.worktreePath)
+      if (staleSockets.length > 0) {
+        if (!options.removeIgnored) throw new WorktreeCleanupError("worktree_has_ignored_files")
+        for (const socketPath of staleSockets) {
+          const ignored = gitResult(claimed.worktreePath, [
+            "check-ignore",
+            "-q",
+            "--",
+            socketPath,
+          ])
+          if (ignored.exitCode !== 0) {
+            throw new WorktreeCleanupError("worktree_has_untracked_files")
+          }
+          unlinkSync(socketPath)
+          ignoredRemoved = true
+        }
+      }
+    }
     if (git(claimed.worktreePath, ["clean", "-ndX"])) {
       if (!options.removeIgnored) throw new WorktreeCleanupError("worktree_has_ignored_files")
-      git(claimed.worktreePath, ["clean", "-fdX"])
-      ignoredRemoved = true
+      const entriesBefore = targetEntries(claimed.worktreePath)
+      try {
+        git(claimed.worktreePath, ["clean", "-fdX"])
+        ignoredRemoved = true
+      } catch (error) {
+        const entriesAfter = targetEntries(claimed.worktreePath)
+        ignoredRemoved = [...entriesBefore].some((entry) => !entriesAfter.has(entry))
+        throw error
+      }
       assertNoIgnoredFiles(claimed.worktreePath)
       assertNoTargetUsers(claimed.worktreePath)
+      if (process.platform === "linux") assertNoUnixSockets(initial.worktreePath, false)
     }
 
     if (options.expectedRef !== null) {
+      assertRefOwnedByWorktree(ownerCwd, options.expectedRef, claimed.worktreePath)
       refSnapshot = snapshotRef(ownerCwd, options.expectedRef, options.expectedHead)
       guardRef = claimRef(ownerCwd, options.expectedRef, options.expectedHead, refSnapshot)
       refDeleted = true
       git(claimed.worktreePath, ["symbolic-ref", "HEAD", guardRef])
+      if (git(ownerCwd, ["rev-parse", "--verify", guardRef]) !== options.expectedHead) {
+        throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
+      }
+      assertRefOwnedByWorktree(ownerCwd, guardRef, claimed.worktreePath)
+      assertRefNotCheckedOut(ownerCwd, options.expectedRef)
     }
 
-    git(ownerCwd, ["worktree", "remove", "--", quarantinePath])
-    removed = true
+    const removeResult = gitResult(ownerCwd, ["worktree", "remove", "--", quarantinePath])
+    removed = !existsSync(claimed.adminDir) && !existsSync(quarantinePath)
+    if (removeResult.exitCode !== 0 && !removed) {
+      throw new WorktreeCleanupError("git_operation_failed")
+    }
+    if (!removed) throw new WorktreeCleanupError("worktree_removal_incomplete")
     if (guardRef) {
-      const deleteGuard = gitResult(ownerCwd, ["update-ref", "-d", guardRef, options.expectedHead])
-      if (deleteGuard.exitCode !== 0) {
-        throw new WorktreeCleanupError("guard_ref_cleanup_failed")
-      }
+      deleteGuardRef(
+        ownerCwd,
+        guardRef,
+        options.expectedHead,
+        refSnapshot,
+        options.expectedRef,
+      )
     }
 
     return {
@@ -180,43 +254,45 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
       observed_generation: claimed.identity.generation,
       observed_head: claimed.identity.head,
       observed_ref: claimed.identity.ref,
+      preserved_ref: null,
       worktree_claimed: true,
       ignored_residue_removed: ignoredRemoved,
       worktree_removed: true,
       local_branch_deleted: options.expectedRef !== null
-        && gitResult(ownerCwd, ["show-ref", "--verify", "--quiet", options.expectedRef]).exitCode !== 0,
+        && refMissingNoDeref(ownerCwd, options.expectedRef),
       rollback_attempted: false,
       rollback_completed: false,
       status: "completed",
     }
   } catch (error) {
     if (error instanceof WorktreeCleanupError && error.receipt) throw error
+    if (error instanceof WorktreeCleanupError && error.preservedRef) {
+      guardRef = error.preservedRef
+    }
     const reason = error instanceof WorktreeCleanupError ? error.code : "owner_operation_failed"
     if ((refDeleted || moved) && !removed && quarantinePath && initial) {
       rollbackAttempted = true
       try {
         if (refDeleted && options.expectedRef !== null && refSnapshot) {
-          restoreRef(ownerCwd, options.expectedRef, options.expectedHead, refSnapshot)
+          if (!guardRef) throw new WorktreeCleanupError("guard_ref_missing")
+          restoreRef(ownerCwd, options.expectedRef, options.expectedHead, guardRef, refSnapshot)
           git(quarantinePath, ["symbolic-ref", "HEAD", options.expectedRef])
           refDeleted = false
-          if (!guardRef) throw new WorktreeCleanupError("guard_ref_missing")
-          const deleteGuard = gitResult(ownerCwd, ["update-ref", "-d", guardRef, options.expectedHead])
-          if (deleteGuard.exitCode !== 0) {
-            throw new WorktreeCleanupError("guard_ref_cleanup_failed")
+          if (refSnapshot.kind === "symbolic") {
+            deleteGuardRef(
+              ownerCwd,
+              guardRef,
+              options.expectedHead,
+              refSnapshot,
+              options.expectedRef,
+            )
           }
         }
         rollbackMove(ownerCwd, quarantinePath, initial.worktreePath)
         moved = false
         rollbackCompleted = true
       } catch {
-        const localBranchDeleted = refDeleted
-          && options.expectedRef !== null
-          && gitResult(ownerCwd, [
-            "show-ref",
-            "--verify",
-            "--quiet",
-            options.expectedRef,
-          ]).exitCode !== 0
+        const preservedRef = survivingGuardRef(ownerCwd, guardRef)
         throw new WorktreeCleanupError("rollback_failed", failureReceipt(
           options,
           "rollback_failed",
@@ -224,12 +300,14 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
           everClaimed,
           ignoredRemoved,
           false,
-          localBranchDeleted,
+          false,
           true,
           false,
+          preservedRef,
         ))
       }
     }
+    const preservedRef = survivingGuardRef(ownerCwd, guardRef)
     throw new WorktreeCleanupError(reason, failureReceipt(
       options,
       reason,
@@ -237,9 +315,13 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
       everClaimed,
       ignoredRemoved,
       removed,
-      refDeleted,
+      refDeleted
+        && options.expectedRef !== null
+        && preservedRef === null
+        && refMissingNoDeref(ownerCwd, options.expectedRef),
       rollbackAttempted,
       rollbackCompleted,
+      preservedRef,
     ))
   } finally {
     if (quarantineParent && existsSync(quarantineParent)) {
@@ -320,6 +402,10 @@ function assertNoIgnoredFiles(worktreePath: string): void {
 }
 
 function assertNoTargetUsers(worktreePath: string): void {
+  assertNoTargetPathUsers(worktreePath)
+}
+
+function assertNoTargetPathUsers(worktreePath: string): void {
   if (process.platform === "linux") {
     assertNoLinuxTargetUsers(worktreePath)
     return
@@ -397,6 +483,9 @@ function assertNoLinuxTargetUsers(worktreePath: string): void {
 }
 
 function assertNoProcTargetUsers(worktreePath: string): void {
+  assertNoUnixSockets(worktreePath)
+  const targetFiles = collectTargetFileIdentities(worktreePath)
+  const inspectedNetworkNamespaces = new Set<string>()
   let processes
   try {
     processes = readdirSync("/proc", { withFileTypes: true })
@@ -407,9 +496,24 @@ function assertNoProcTargetUsers(worktreePath: string): void {
 
   for (const processEntry of processes) {
     const processPath = join("/proc", processEntry.name)
-    for (const linkName of ["cwd", "root"]) {
+    if (isZombieProcess(processPath)) continue
+    const networkNamespace = readProcessLink(join(processPath, "ns", "net"))
+    if (networkNamespace !== null && !inspectedNetworkNamespaces.has(networkNamespace)) {
+      assertNoUnixSocketsFrom(
+        join(processPath, "net", "unix"),
+        worktreePath,
+        true,
+      )
+      inspectedNetworkNamespaces.add(networkNamespace)
+    }
+    for (const linkName of ["cwd", "root", "exe"]) {
       const usedPath = readProcessLink(join(processPath, linkName))
       if (usedPath !== null && pathUsesTarget(usedPath, worktreePath)) {
+        throw new WorktreeCleanupError("target_in_use")
+      }
+    }
+    for (const mappedPath of readProcessMappings(processPath)) {
+      if (pathUsesTarget(mappedPath, worktreePath)) {
         throw new WorktreeCleanupError("target_in_use")
       }
     }
@@ -422,12 +526,212 @@ function assertNoProcTargetUsers(worktreePath: string): void {
       throw new WorktreeCleanupError("process_guard_unavailable")
     }
     for (const fileDescriptor of fileDescriptors) {
-      const usedPath = readProcessLink(join(processPath, "fd", fileDescriptor))
+      const descriptorPath = join(processPath, "fd", fileDescriptor)
+      const usedPath = readProcessLink(descriptorPath)
       if (usedPath !== null && pathUsesTarget(usedPath, worktreePath)) {
         throw new WorktreeCleanupError("target_in_use")
       }
+      let descriptorMetadata
+      try {
+        descriptorMetadata = statSync(descriptorPath)
+      } catch (error) {
+        if (isMissingProcessEntry(error)) continue
+        throw new WorktreeCleanupError("process_guard_unavailable")
+      }
+      if (
+        targetFiles.has(
+          `${descriptorMetadata.dev.toString(16)}:${descriptorMetadata.ino.toString(16)}`,
+        )
+      ) {
+        throw new WorktreeCleanupError("target_in_use")
+      }
+      if (usedPath === "anon_inode:inotify") {
+        assertNoTargetInotifyWatch(processPath, fileDescriptor, targetFiles)
+      }
     }
   }
+}
+
+function assertNoUnixSockets(worktreePath: string, inspectSocketFiles = true): void {
+  assertNoUnixSocketsFrom("/proc/net/unix", worktreePath, inspectSocketFiles)
+}
+
+function assertNoUnixSocketsFrom(
+  procUnixPath: string,
+  worktreePath: string,
+  inspectSocketFiles: boolean,
+): void {
+  const targetSocketFiles = inspectSocketFiles ? collectUnixSocketFiles(worktreePath) : []
+  const relativeTargetSockets = new Map(
+    targetSocketFiles.map((socketPath) => [socketPath.slice(worktreePath.length + 1), socketPath]),
+  )
+  let sockets
+  try {
+    sockets = readFileSync(procUnixPath, "utf8")
+  } catch (error) {
+    if (isMissingProcessEntry(error) && procUnixPath !== "/proc/net/unix") return
+    throw new WorktreeCleanupError("process_guard_unavailable")
+  }
+  for (const line of sockets.split("\n").slice(1)) {
+    if (!line) continue
+    const match = line.match(/^\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+(?:\s+(.*))?$/)
+    if (!match) throw new WorktreeCleanupError("process_guard_unavailable")
+    const socketPath = match[1]
+    if (socketPath?.startsWith("/") && pathUsesTarget(socketPath, worktreePath)) {
+      throw new WorktreeCleanupError("target_in_use")
+    }
+    const targetSocket = socketPath ? relativeTargetSockets.get(socketPath) : undefined
+    if (targetSocket && probeUnixSocket(targetSocket) !== "stale") {
+      throw new WorktreeCleanupError("target_in_use")
+    }
+  }
+}
+
+function probeUnixSocket(socketPath: string): "live" | "stale" | "unavailable" {
+  const probe = Bun.spawnSync([
+    process.execPath,
+    "-e",
+    `import { connect } from "node:net";
+const socket = connect(process.argv[1]);
+const timer = setTimeout(() => process.exit(3), 500);
+socket.once("connect", () => { clearTimeout(timer); socket.destroy(); process.exit(0); });
+socket.once("error", (error) => {
+  clearTimeout(timer);
+  process.exit(error?.code === "ECONNREFUSED" || error?.code === "ENOENT" ? 2 : 3);
+});`,
+    socketPath,
+  ], {
+    stdout: "ignore",
+    stderr: "ignore",
+  })
+  if (probe.exitCode === 0) return "live"
+  if (probe.exitCode === 2) return "stale"
+  return "unavailable"
+}
+
+function snapshotPackedRefEntry(cwd: string, ref: string): PackedRefSnapshot | null {
+  const commonDir = git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])
+  const packedRefs = join(commonDir, "packed-refs")
+  if (!existsSync(packedRefs)) return null
+  const lines = readFileSync(packedRefs, "utf8").split("\n")
+  const matches = lines.flatMap((line, index) => (
+    line.endsWith(` ${ref}`) ? [{ line, index }] : []
+  ))
+  if (matches.length > 1) {
+    throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
+  }
+  const match = matches[0]
+  return match
+    ? {
+        line: match.line,
+        index: match.index,
+        previousLine: match.index > 0 ? lines[match.index - 1] : null,
+        nextLine: match.index + 1 < lines.length ? lines[match.index + 1] : null,
+      }
+    : null
+}
+
+function collectUnixSocketFiles(root: string): string[] {
+  const sockets: string[] = []
+  let entries
+  try {
+    entries = readdirSync(root, { withFileTypes: true })
+  } catch {
+    throw new WorktreeCleanupError("process_guard_unavailable")
+  }
+  for (const entry of entries) {
+    const entryPath = join(root, entry.name)
+    let metadata
+    try {
+      metadata = lstatSync(entryPath)
+    } catch {
+      throw new WorktreeCleanupError("process_guard_unavailable")
+    }
+    if (metadata.isSocket()) {
+      sockets.push(entryPath)
+    } else if (metadata.isDirectory()) {
+      sockets.push(...collectUnixSocketFiles(entryPath))
+    }
+  }
+  return sockets
+}
+
+function collectTargetFileIdentities(root: string): Set<string> {
+  const identities = new Set<string>()
+  const collect = (path: string): void => {
+    let metadata
+    try {
+      metadata = lstatSync(path)
+    } catch {
+      throw new WorktreeCleanupError("process_guard_unavailable")
+    }
+    identities.add(`${metadata.dev.toString(16)}:${metadata.ino.toString(16)}`)
+    if (!metadata.isDirectory()) return
+    let entries
+    try {
+      entries = readdirSync(path)
+    } catch {
+      throw new WorktreeCleanupError("process_guard_unavailable")
+    }
+    for (const entry of entries) collect(join(path, entry))
+  }
+  collect(root)
+  return identities
+}
+
+function assertNoTargetInotifyWatch(
+  processPath: string,
+  fileDescriptor: string,
+  targetFiles: Set<string>,
+): void {
+  let fdinfo
+  try {
+    fdinfo = readFileSync(join(processPath, "fdinfo", fileDescriptor), "utf8")
+  } catch (error) {
+    if (isMissingProcessEntry(error)) return
+    throw new WorktreeCleanupError("process_guard_unavailable")
+  }
+  for (const line of fdinfo.split("\n")) {
+    if (!line.startsWith("inotify ")) continue
+    const match = line.match(/\bino:([0-9a-f]+)\s+sdev:([0-9a-f]+)\b/)
+    if (!match) throw new WorktreeCleanupError("process_guard_unavailable")
+    if (targetFiles.has(`${match[2]}:${match[1]}`)) {
+      throw new WorktreeCleanupError("target_in_use")
+    }
+  }
+}
+
+function readProcessMappings(processPath: string): string[] {
+  let mappings
+  try {
+    mappings = readFileSync(join(processPath, "maps"), "utf8")
+  } catch (error) {
+    if (isMissingProcessEntry(error)) return []
+    throw new WorktreeCleanupError("process_guard_unavailable")
+  }
+  return mappings.split("\n").flatMap((line) => {
+    if (!line) return []
+    const match = line.match(
+      /^[0-9a-f]+-[0-9a-f]+\s+\S+\s+\S+\s+\S+\s+\d+\s*(.*)$/,
+    )
+    if (!match) throw new WorktreeCleanupError("process_guard_unavailable")
+    const path = match[1]
+    return path?.startsWith("/") ? [path] : []
+  })
+}
+
+function isZombieProcess(processPath: string): boolean {
+  let stat
+  try {
+    stat = readFileSync(join(processPath, "stat"), "utf8")
+  } catch (error) {
+    if (isMissingProcessEntry(error)) return true
+    throw new WorktreeCleanupError("process_guard_unavailable")
+  }
+  const closingParenthesis = stat.lastIndexOf(")")
+  const state = closingParenthesis === -1 ? "" : stat.slice(closingParenthesis + 2, closingParenthesis + 3)
+  if (!state) throw new WorktreeCleanupError("process_guard_unavailable")
+  return state === "Z" || state === "X"
 }
 
 function readProcessLink(path: string): string | null {
@@ -463,7 +767,17 @@ function collectTargetPaths(directory: string, paths: string[]): void {
   }
 }
 
+function targetEntries(directory: string): Set<string> {
+  const paths: string[] = []
+  collectTargetPaths(directory, paths)
+  return new Set(paths)
+}
+
 function assertOwnerTool(options: RemoveOptions): void {
+  const objectType = gitResult(options.repositoryCwd, ["cat-file", "-t", options.ownerCommit])
+  if (objectType.exitCode !== 0 || objectType.stdout.toString().trim() !== "commit") {
+    throw new WorktreeCleanupError("owner_tool_identity_missing")
+  }
   const result = gitResult(options.repositoryCwd, [
     "cat-file",
     "-e",
@@ -482,6 +796,7 @@ function failureReceipt(
   localBranchDeleted: boolean,
   rollbackAttempted: boolean,
   rollbackCompleted: boolean,
+  preservedRef: string | null = null,
 ): CleanupExecutionReceipt {
   return {
     schema_version: EXECUTION_SCHEMA,
@@ -494,22 +809,38 @@ function failureReceipt(
     observed_generation: observed ? sanitizeGeneration(observed.generation) : null,
     observed_head: observed ? sanitizeHead(observed.head) : null,
     observed_ref: observed ? sanitizeRef(observed.ref) : null,
+    preserved_ref: sanitizeGuardRef(preservedRef),
     worktree_claimed: worktreeClaimed,
     ignored_residue_removed: ignoredResidueRemoved,
     worktree_removed: worktreeRemoved,
     local_branch_deleted: localBranchDeleted,
     rollback_attempted: rollbackAttempted,
     rollback_completed: rollbackCompleted,
-    status: worktreeRemoved || localBranchDeleted ? "partial" : "failed",
+    status: ignoredResidueRemoved
+      || worktreeRemoved
+      || localBranchDeleted
+      || (worktreeClaimed && rollbackAttempted && !rollbackCompleted)
+      ? "partial"
+      : "failed",
     reason_code: reasonCode,
   }
+}
+
+function survivingGuardRef(cwd: string, guardRef: string | undefined): string | null {
+  if (!guardRef) return null
+  return refMissingNoDeref(cwd, guardRef) ? null : guardRef
 }
 
 function snapshotRef(cwd: string, ref: string, expectedHead: string): RefSnapshot {
   const symbolic = gitResult(cwd, ["symbolic-ref", "-q", "--no-recurse", ref])
   const snapshot = symbolic.exitCode === 0
-    ? { kind: "symbolic" as const, target: symbolic.stdout.toString().trim() }
-    : { kind: "direct" as const }
+    ? {
+        kind: "symbolic" as const,
+        target: symbolic.stdout.toString().trim(),
+        mode: lstatSync(looseRefPath(cwd, ref)).mode,
+        packedEntry: snapshotPackedRefEntry(cwd, ref),
+      }
+    : { kind: "direct" as const, reflog: snapshotFile(looseRefPath(cwd, `logs/${ref}`)) }
   if (
     symbolic.exitCode !== 0
     && (symbolic.exitCode !== 1 || symbolic.stderr.length > 0)
@@ -522,29 +853,50 @@ function snapshotRef(cwd: string, ref: string, expectedHead: string): RefSnapsho
   return snapshot
 }
 
+function assertFilesRefStorage(cwd: string): void {
+  const storage = gitResult(cwd, ["config", "--get", "extensions.refStorage"])
+  if (storage.exitCode === 1 && storage.stderr.length === 0) return
+  if (storage.exitCode !== 0 || storage.stdout.toString().trim() !== "files") {
+    throw new WorktreeCleanupError("unsupported_ref_storage")
+  }
+}
+
 function claimRef(
   cwd: string,
   ref: string,
   expectedHead: string,
   snapshot: RefSnapshot,
 ): string {
-  const guardRef = `refs/worktree-cleanup/${randomBytes(32).toString("hex")}`
-  const transaction = [
-    `create ${guardRef} ${expectedHead}`,
-    ...(snapshot.kind === "symbolic" ? [`verify ${snapshot.target} ${expectedHead}`] : []),
-    "option no-deref",
-    snapshot.kind === "direct"
-      ? `delete ${ref} ${expectedHead}`
-      : `symref-delete ${ref} ${snapshot.target}`,
-    "",
-  ].join("\n")
-  const result = Bun.spawnSync(["git", "-C", cwd, "update-ref", "--stdin"], {
-    stdin: Buffer.from(transaction),
-    stdout: "pipe",
-    stderr: "pipe",
-  })
-  if (result.exitCode !== 0) {
+  const suffix = randomBytes(32).toString("hex")
+  if (snapshot.kind === "direct") {
+    const guardRef = `refs/heads/worktree-cleanup-${suffix}`
+    try {
+      moveLockedDirectRef(cwd, ref, guardRef, expectedHead)
+    } catch {
+      throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
+    }
+    return guardRef
+  }
+
+  const guardRef = `refs/worktree-cleanup/${suffix}`
+  const createGuard = gitResult(cwd, [
+    "update-ref",
+    guardRef,
+    expectedHead,
+    nullOid(cwd),
+  ])
+  if (createGuard.exitCode !== 0) {
     throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
+  }
+  try {
+    deleteLockedSymbolicRef(cwd, ref, snapshot.target, expectedHead)
+  } catch {
+    gitResult(cwd, ["update-ref", "-d", guardRef, expectedHead])
+    throw new WorktreeCleanupError(
+      "branch_identity_drift_before_worktree_removal",
+      undefined,
+      survivingGuardRef(cwd, guardRef) ?? undefined,
+    )
   }
   return guardRef
 }
@@ -553,21 +905,437 @@ function restoreRef(
   cwd: string,
   ref: string,
   expectedHead: string,
+  guardRef: string,
   snapshot: RefSnapshot,
 ): void {
-  const result = snapshot.kind === "direct"
-    ? gitResult(cwd, ["update-ref", "--no-deref", ref, expectedHead, "0".repeat(40)])
-    : Bun.spawnSync(["git", "-C", cwd, "update-ref", "--stdin"], {
-      stdin: Buffer.from([
-        `verify ${snapshot.target} ${expectedHead}`,
-        "option no-deref",
-        `symref-create ${ref} ${snapshot.target}`,
-        "",
-      ].join("\n")),
-      stdout: "pipe",
-      stderr: "pipe",
-    })
-  if (result.exitCode !== 0) throw new WorktreeCleanupError("ref_restore_failed")
+  if (snapshot.kind === "direct") {
+    try {
+      moveLockedDirectRef(cwd, guardRef, ref, expectedHead)
+      restoreFile(looseRefPath(cwd, `logs/${ref}`), snapshot.reflog)
+    } catch {
+      throw new WorktreeCleanupError("ref_restore_failed")
+    }
+    return
+  }
+  restoreSymbolicRef(cwd, ref, expectedHead, snapshot.target, snapshot.mode)
+  restorePackedRefEntry(cwd, ref, snapshot.packedEntry)
+}
+
+function restoreSymbolicRef(
+  cwd: string,
+  ref: string,
+  expectedHead: string,
+  target: string,
+  mode: number,
+): void {
+  try {
+    createLockedSymbolicRef(cwd, ref, target, expectedHead, mode)
+  } catch {
+    throw new WorktreeCleanupError("ref_restore_failed")
+  }
+}
+
+function restorePackedRefEntry(
+  cwd: string,
+  ref: string,
+  packedEntry: PackedRefSnapshot | null,
+): void {
+  if (packedEntry === null) return
+  const commonDir = git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])
+  const packedRefs = join(commonDir, "packed-refs")
+  const lockPath = `${packedRefs}.lock`
+  let lockFd: number | undefined
+  let lockIdentity: FileIdentity | undefined
+  let restored = false
+  try {
+    lockFd = openSync(lockPath, "wx", 0o600)
+    lockIdentity = fstatSync(lockFd)
+    const contents = existsSync(packedRefs) ? readFileSync(packedRefs, "utf8") : ""
+    const matchingEntries = contents
+      .split("\n")
+      .filter((line) => line.endsWith(` ${ref}`))
+    if (matchingEntries.length > 1) throw new WorktreeCleanupError("ref_restore_failed")
+    if (matchingEntries.length === 1) {
+      if (matchingEntries[0] !== packedEntry.line) {
+        throw new WorktreeCleanupError("ref_restore_failed")
+      }
+      return
+    }
+    const lines = contents.split("\n")
+    let insertionIndex = Math.min(packedEntry.index, lines.length)
+    if (packedEntry.nextLine !== null) {
+      const nextIndex = lines.indexOf(packedEntry.nextLine)
+      if (nextIndex !== -1) insertionIndex = nextIndex
+    }
+    if (packedEntry.previousLine !== null) {
+      const previousIndex = lines.indexOf(packedEntry.previousLine)
+      if (
+        previousIndex !== -1
+        && (
+          packedEntry.nextLine === null
+          || lines.indexOf(packedEntry.nextLine) === -1
+        )
+      ) {
+        insertionIndex = previousIndex + 1
+      }
+    }
+    lines.splice(insertionIndex, 0, packedEntry.line)
+    const updatedContents = lines.join("\n")
+    fchmodSync(lockFd, existsSync(packedRefs) ? lstatSync(packedRefs).mode : 0o644)
+    writeFileSync(lockFd, updatedContents)
+    fsyncSync(lockFd)
+    closeSync(lockFd)
+    lockFd = undefined
+    if (!lockMatches(lockPath, lockIdentity)) throw new WorktreeCleanupError("ref_restore_failed")
+    renameSync(lockPath, packedRefs)
+    restored = true
+  } catch {
+    throw new WorktreeCleanupError("ref_restore_failed")
+  } finally {
+    if (lockFd !== undefined) closeSync(lockFd)
+    if (!restored && lockIdentity) unlinkOwnedLock(lockPath, lockIdentity)
+  }
+}
+
+function moveLockedDirectRef(
+  cwd: string,
+  sourceRef: string,
+  destinationRef: string,
+  expectedHead: string,
+): void {
+  const transaction = Bun.spawnSync(["git", "-C", cwd, "update-ref", "--stdin"], {
+    stdin: Buffer.from([
+      "start",
+      "option no-deref",
+      `create ${destinationRef} ${expectedHead}`,
+      `delete ${sourceRef} ${expectedHead}`,
+      "prepare",
+      "commit",
+      "",
+    ].join("\n")),
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  if (transaction.exitCode !== 0) {
+    throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
+  }
+}
+
+function deleteLockedSymbolicRef(
+  cwd: string,
+  ref: string,
+  target: string,
+  expectedHead: string,
+): void {
+  const refPath = looseRefPath(cwd, ref)
+  const targetPath = looseRefPath(cwd, target)
+  const refLock = `${refPath}.lock`
+  const targetLock = `${targetPath}.lock`
+  const packedRefs = join(git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]), "packed-refs")
+  const packedRefsLock = `${packedRefs}.lock`
+  let refLockIdentity: FileIdentity | undefined
+  let targetLockFd: number | undefined
+  let targetLockIdentity: FileIdentity | undefined
+  let packedLockFd: number | undefined
+  let packedLockIdentity: FileIdentity | undefined
+  let packedRewritePrepared = false
+  let packedLockCommitted = false
+  const createdTargetParents = ensureParentDirectories(targetLock)
+  try {
+    packedLockFd = openSync(packedRefsLock, "wx", 0o600)
+    packedLockIdentity = fstatSync(packedLockFd)
+    if (existsSync(packedRefs)) {
+      const packedContents = readFileSync(packedRefs, "utf8")
+      let packedMatches = 0
+      const updatedPackedContents = packedContents.split("\n").filter((line) => {
+        const separator = line.indexOf(" ")
+        if (separator < 0 || line.slice(separator + 1) !== ref) return true
+        packedMatches += 1
+        if (line.slice(0, separator) !== expectedHead) {
+          throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
+        }
+        return false
+      }).join("\n")
+      if (packedMatches > 1) {
+        throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
+      }
+      if (packedMatches === 1) {
+        fchmodSync(packedLockFd, lstatSync(packedRefs).mode)
+        writeFileSync(packedLockFd, updatedPackedContents)
+        fsyncSync(packedLockFd)
+        packedRewritePrepared = true
+      }
+    }
+    linkSync(refPath, refLock)
+    refLockIdentity = lstatSync(refLock)
+    if (readFileSync(refLock, "utf8") !== `ref: ${target}\n`) {
+      throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
+    }
+    targetLockFd = openSync(targetLock, "wx", 0o600)
+    targetLockIdentity = fstatSync(targetLockFd)
+    const targetHead = gitResult(cwd, ["rev-parse", "--verify", target])
+    if (
+      targetHead.exitCode !== 0
+      || targetHead.stdout.toString().trim() !== expectedHead
+    ) {
+      throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
+    }
+    if (packedRewritePrepared && packedLockFd !== undefined && packedLockIdentity) {
+      closeSync(packedLockFd)
+      packedLockFd = undefined
+      if (!lockMatches(packedRefsLock, packedLockIdentity)) {
+        throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
+      }
+      renameSync(packedRefsLock, packedRefs)
+      packedLockCommitted = true
+    }
+    unlinkSync(refPath)
+  } catch {
+    throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
+  } finally {
+    if (packedLockFd !== undefined) closeSync(packedLockFd)
+    if (!packedLockCommitted && packedLockIdentity) {
+      unlinkOwnedLock(packedRefsLock, packedLockIdentity)
+    }
+    if (targetLockFd !== undefined) closeSync(targetLockFd)
+    if (targetLockIdentity) unlinkOwnedLock(targetLock, targetLockIdentity)
+    if (refLockIdentity) unlinkOwnedLock(refLock, refLockIdentity)
+    removeCreatedParents(createdTargetParents)
+  }
+}
+
+function createLockedSymbolicRef(
+  cwd: string,
+  ref: string,
+  target: string,
+  expectedHead: string,
+  mode: number,
+): void {
+  const refPath = looseRefPath(cwd, ref)
+  const targetPath = looseRefPath(cwd, target)
+  const refLock = `${refPath}.lock`
+  const targetLock = `${targetPath}.lock`
+  const createdTargetParents = ensureParentDirectories(targetLock)
+  let targetLockFd: number | undefined
+  let targetLockIdentity: FileIdentity | undefined
+  let refLockFd: number | undefined
+  let refLockIdentity: FileIdentity | undefined
+  let refRestored = false
+  try {
+    targetLockFd = openSync(targetLock, "wx", 0o600)
+    targetLockIdentity = fstatSync(targetLockFd)
+    const targetHead = gitResult(cwd, ["rev-parse", "--verify", target])
+    if (
+      targetHead.exitCode !== 0
+      || targetHead.stdout.toString().trim() !== expectedHead
+    ) {
+      throw new WorktreeCleanupError("ref_restore_failed")
+    }
+    refLockFd = openSync(refLock, "wx", mode)
+    refLockIdentity = fstatSync(refLockFd)
+    fchmodSync(refLockFd, mode)
+    if (existsSync(refPath)) throw new WorktreeCleanupError("ref_restore_failed")
+    writeFileSync(refLockFd, `ref: ${target}\n`)
+    fsyncSync(refLockFd)
+    closeSync(refLockFd)
+    refLockFd = undefined
+    if (!lockMatches(refLock, refLockIdentity)) {
+      throw new WorktreeCleanupError("ref_restore_failed")
+    }
+    renameSync(refLock, refPath)
+    refRestored = true
+  } catch {
+    throw new WorktreeCleanupError("ref_restore_failed")
+  } finally {
+    if (refLockFd !== undefined) closeSync(refLockFd)
+    if (!refRestored && refLockIdentity) unlinkOwnedLock(refLock, refLockIdentity)
+    if (targetLockFd !== undefined) closeSync(targetLockFd)
+    if (targetLockIdentity) unlinkOwnedLock(targetLock, targetLockIdentity)
+    removeCreatedParents(createdTargetParents)
+  }
+}
+
+function snapshotFile(path: string): FileSnapshot | null {
+  if (!existsSync(path)) return null
+  const metadata = lstatSync(path)
+  return { contents: readFileSync(path), mode: metadata.mode }
+}
+
+function restoreFile(path: string, snapshot: FileSnapshot | null): void {
+  const lockPath = `${path}.lock`
+  const createdParents = ensureParentDirectories(lockPath)
+  let lockFd: number | undefined
+  let lockIdentity: FileIdentity | undefined
+  try {
+    if (snapshot === null) {
+      if (existsSync(path)) unlinkSync(path)
+      return
+    }
+    lockFd = openSync(lockPath, "wx", snapshot.mode)
+    lockIdentity = fstatSync(lockFd)
+    fchmodSync(lockFd, snapshot.mode)
+    writeFileSync(lockFd, snapshot.contents)
+    fsyncSync(lockFd)
+    closeSync(lockFd)
+    lockFd = undefined
+    if (!lockMatches(lockPath, lockIdentity)) {
+      throw new WorktreeCleanupError("ref_restore_failed")
+    }
+    renameSync(lockPath, path)
+  } finally {
+    if (lockFd !== undefined) closeSync(lockFd)
+    if (lockIdentity) unlinkOwnedLock(lockPath, lockIdentity)
+    removeCreatedParents(createdParents)
+  }
+}
+
+function looseRefPath(cwd: string, ref: string): string {
+  const commonDir = git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])
+  const refPath = resolve(commonDir, ref)
+  if (!refPath.startsWith(`${resolve(commonDir)}/`)) {
+    throw new WorktreeCleanupError("git_operation_failed")
+  }
+  return refPath
+}
+
+function packedRefExists(cwd: string, ref: string): boolean {
+  const commonDir = git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])
+  const packedRefs = join(commonDir, "packed-refs")
+  if (!existsSync(packedRefs)) return false
+  return readFileSync(packedRefs, "utf8")
+    .split("\n")
+    .some((line) => line.endsWith(` ${ref}`))
+}
+
+function deleteGuardRef(
+  cwd: string,
+  guardRef: string,
+  expectedHead: string,
+  snapshot: RefSnapshot | undefined,
+  originalRef: string,
+): void {
+  const deleteGuard = gitResult(cwd, ["update-ref", "-d", guardRef, expectedHead])
+  if (deleteGuard.exitCode !== 0) {
+    throw new WorktreeCleanupError("guard_ref_cleanup_failed")
+  }
+  if (!snapshot) return
+  cleanupDeletedBranchMetadata(cwd, originalRef)
+}
+
+function cleanupDeletedBranchMetadata(cwd: string, ref: string): void {
+  const refPath = looseRefPath(cwd, ref)
+  const refLock = `${refPath}.lock`
+  const createdParents = ensureParentDirectories(refLock)
+  let refLockFd: number | undefined
+  let refLockIdentity: FileIdentity | undefined
+  try {
+    refLockFd = openSync(refLock, "wx", 0o600)
+    refLockIdentity = fstatSync(refLockFd)
+    if (existsSync(refPath) || packedRefExists(cwd, ref)) return
+    const branchName = ref.slice("refs/heads/".length)
+    const sectionPattern = `^branch\\.${escapeRegExp(branchName)}\\.`
+    const existingConfig = gitResult(cwd, ["config", "--get-regexp", sectionPattern])
+    if (existingConfig.exitCode !== 1 || existingConfig.stderr.length > 0) {
+      if (existingConfig.exitCode !== 0) {
+        throw new WorktreeCleanupError("guard_branch_config_cleanup_failed")
+      }
+      const deleteConfig = gitResult(cwd, ["config", "--remove-section", `branch.${branchName}`])
+      if (deleteConfig.exitCode !== 0) {
+        throw new WorktreeCleanupError("guard_branch_config_cleanup_failed")
+      }
+    }
+    const reflogPath = looseRefPath(cwd, `logs/${ref}`)
+    if (existsSync(reflogPath)) unlinkSync(reflogPath)
+  } finally {
+    if (refLockFd !== undefined) {
+      closeSync(refLockFd)
+      if (refLockIdentity) unlinkOwnedLock(refLock, refLockIdentity)
+    }
+    removeCreatedParents(createdParents)
+  }
+}
+
+function ensureParentDirectories(path: string): string[] {
+  const created: string[] = []
+  let directory = dirname(path)
+  while (!existsSync(directory)) {
+    created.push(directory)
+    directory = dirname(directory)
+  }
+  mkdirSync(dirname(path), { recursive: true })
+  return created
+}
+
+function removeCreatedParents(directories: string[]): void {
+  for (const directory of directories) {
+    try {
+      rmdirSync(directory)
+    } catch {
+      // Preserve directories that acquired another ref or metadata owner.
+    }
+  }
+}
+
+function unlinkOwnedLock(path: string, identity: FileIdentity): void {
+  if (lockMatches(path, identity)) unlinkSync(path)
+}
+
+function lockMatches(path: string, identity: FileIdentity): boolean {
+  try {
+    const current = lstatSync(path)
+    return current.dev === identity.dev && current.ino === identity.ino
+  } catch {
+    return false
+  }
+}
+
+function assertRefOwnedByWorktree(cwd: string, ref: string, expectedPath: string): void {
+  const matches = worktreePathsForRef(cwd, ref)
+  if (matches.length !== 1 || resolve(matches[0]!) !== resolve(expectedPath)) {
+    throw new WorktreeCleanupError("target_ref_shared_with_other_worktree")
+  }
+}
+
+function assertRefNotCheckedOut(cwd: string, ref: string): void {
+  if (worktreePathsForRef(cwd, ref).length !== 0) {
+    throw new WorktreeCleanupError("target_ref_shared_with_other_worktree")
+  }
+}
+
+function worktreePathsForRef(cwd: string, ref: string): string[] {
+  const result = gitResult(cwd, ["worktree", "list", "--porcelain", "-z"])
+  if (result.exitCode !== 0) throw new WorktreeCleanupError("git_operation_failed")
+  const symbolic = gitResult(cwd, ["symbolic-ref", "-q", "--no-recurse", ref])
+  if (
+    symbolic.exitCode !== 0
+    && (symbolic.exitCode !== 1 || symbolic.stderr.length > 0)
+  ) {
+    throw new WorktreeCleanupError("git_operation_failed")
+  }
+  const matchingRefs = new Set([
+    ref,
+    ...(symbolic.exitCode === 0 ? [symbolic.stdout.toString().trim()] : []),
+  ])
+  const matches: string[] = []
+  let worktreePath: string | undefined
+  for (const field of result.stdout.toString().split("\0")) {
+    if (field === "") {
+      worktreePath = undefined
+    } else if (field.startsWith("worktree ")) {
+      worktreePath = field.slice("worktree ".length)
+    } else if (
+      worktreePath
+      && field.startsWith("branch ")
+      && matchingRefs.has(field.slice("branch ".length))
+    ) {
+      matches.push(worktreePath)
+    }
+  }
+  return matches
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
 function rollbackMove(repositoryCwd: string, quarantinePath: string, originalPath: string): void {
@@ -636,6 +1404,29 @@ function symbolicRef(cwd: string): string | null {
   throw new WorktreeCleanupError("git_operation_failed")
 }
 
+function refMissingNoDeref(cwd: string, ref: string): boolean {
+  const symbolic = gitResult(cwd, ["symbolic-ref", "-q", "--no-recurse", ref])
+  if (symbolic.exitCode === 0) return false
+  if (symbolic.exitCode !== 1 || symbolic.stderr.length > 0) return false
+  const result = Bun.spawnSync(["git", "-C", cwd, "update-ref", "--stdin"], {
+    stdin: Buffer.from([
+      "option no-deref",
+      `verify ${ref} ${nullOid(cwd)}`,
+      "",
+    ].join("\n")),
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  return result.exitCode === 0
+}
+
+function nullOid(cwd: string): string {
+  const objectFormat = git(cwd, ["rev-parse", "--show-object-format"])
+  if (objectFormat === "sha1") return "0".repeat(40)
+  if (objectFormat === "sha256") return "0".repeat(64)
+  throw new WorktreeCleanupError("unsupported_object_format")
+}
+
 function sanitizeWorktreeId(value: string): string {
   return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value) && value !== "." && value !== ".."
     ? value
@@ -652,6 +1443,20 @@ function sanitizeHead(value: string): string {
 
 function sanitizeRef(value: string | null): string | null {
   if (!value?.startsWith("refs/heads/")) return null
+  const result = Bun.spawnSync(["git", "check-ref-format", value], {
+    stdout: "ignore",
+    stderr: "ignore",
+  })
+  return result.exitCode === 0 ? value : null
+}
+
+function sanitizeGuardRef(value: string | null): string | null {
+  if (
+    !value
+    || !/^refs\/(?:heads\/worktree-cleanup-|worktree-cleanup\/)[0-9a-f]{64}$/.test(value)
+  ) {
+    return null
+  }
   const result = Bun.spawnSync(["git", "check-ref-format", value], {
     stdout: "ignore",
     stderr: "ignore",
@@ -680,6 +1485,19 @@ function parseArgs(args: string[]): { action: "identify"; cwd: string } | {
   }
   if (action !== "remove") throw new WorktreeCleanupError("invalid_action")
 
+  const removeArgs = [...args]
+  try {
+    return parseRemoveArgs(removeArgs)
+  } catch (error) {
+    if (!(error instanceof WorktreeCleanupError)) throw error
+    throw new WorktreeCleanupError(error.code, invocationFailureReceipt(removeArgs, error.code))
+  }
+}
+
+function parseRemoveArgs(args: string[]): {
+  action: "remove"
+  options: RemoveOptions
+} {
   const values = new Map<string, string>()
   for (let index = 0; index < args.length; index += 2) {
     const flag = args[index]
@@ -712,7 +1530,7 @@ function parseArgs(args: string[]): { action: "identify"; cwd: string } | {
     throw new WorktreeCleanupError("invalid_remove_ignored")
   }
   return {
-    action,
+    action: "remove",
     options: {
       repositoryCwd: process.cwd(),
       ownerCommit,
@@ -723,6 +1541,34 @@ function parseArgs(args: string[]): { action: "identify"; cwd: string } | {
       removeIgnored: removeIgnoredValue === "true",
     },
   }
+}
+
+function invocationFailureReceipt(args: string[], reasonCode: string): CleanupExecutionReceipt {
+  const recognized = new Set([
+    "--owner-commit",
+    "--worktree-id",
+    "--expected-generation",
+    "--expected-head",
+    "--expected-ref",
+  ])
+  const values = new Map<string, string>()
+  for (let index = 0; index < args.length; index += 1) {
+    const flag = args[index]
+    const value = args[index + 1]
+    if (recognized.has(flag ?? "") && value && !value.startsWith("--") && !values.has(flag)) {
+      values.set(flag, value)
+      index += 1
+    }
+  }
+  return failureReceipt({
+    repositoryCwd: process.cwd(),
+    ownerCommit: values.get("--owner-commit") ?? "[missing]",
+    worktreeId: values.get("--worktree-id") ?? "[missing]",
+    expectedGeneration: values.get("--expected-generation") ?? "[missing]",
+    expectedHead: values.get("--expected-head") ?? "[missing]",
+    expectedRef: values.get("--expected-ref") ?? null,
+    removeIgnored: false,
+  }, reasonCode, undefined, false, false, false, false, false, false)
 }
 
 function output(value: unknown): void {
