@@ -233,37 +233,67 @@ export function validateReviewTag(
   snapshot: PullRequestSnapshot,
   claim: Claim,
 ): ReviewCycle {
+  const cycle = parseReviewTag(tag, snapshot.repository, snapshot.number, claim)
+  if (
+    cycle.headSha !== snapshot.headSha
+    || cycle.baseRef !== snapshot.baseRef
+    || cycle.baseSha !== snapshot.baseSha
+  ) throw new Error("review tag does not match the live PR identity")
+  return cycle
+}
+
+function parseReviewTag(
+  tag: AnnotatedTag,
+  repository: string,
+  pr: number,
+  claim: Claim,
+): ReviewCycle {
   const payload = parseMarker<ReviewTagPayload>(tag.message, REVIEW_TAG_MARKER)
   if (
     !validSha(tag.sha)
-    || tag.name !== `codex-pr-review/${snapshot.number}/${snapshot.headSha}`
     || tag.objectType !== "commit"
     || !payload
-    || payload.repository !== snapshot.repository
-    || payload.pr !== snapshot.number
+    || !validSha(payload.head)
+    || !validSha(payload.base_sha)
+    || tag.name !== `codex-pr-review/${pr}/${payload.head}`
+    || payload.repository !== repository
+    || payload.pr !== pr
     || payload.claim_tag_sha !== claim.tagSha
     || payload.mission !== claim.mission
     || payload.actor !== claim.actor
-    || payload.head !== snapshot.headSha
-    || payload.base_ref !== snapshot.baseRef
-    || payload.base_sha !== snapshot.baseSha
-    || tag.objectSha !== snapshot.headSha
-  ) throw new Error("review tag does not match the live PR identity")
+    || payload.base_ref.trim().length === 0
+    || tag.objectSha !== payload.head
+  ) throw new Error("invalid review tag")
   return {
     tagSha: tag.sha,
     claimTagSha: claim.tagSha,
     actor: claim.actor,
     mission: claim.mission,
-    headSha: snapshot.headSha,
-    baseRef: snapshot.baseRef,
-    baseSha: snapshot.baseSha,
+    headSha: payload.head,
+    baseRef: payload.base_ref,
+    baseSha: payload.base_sha,
   }
 }
 
 function visibleReviewTriggers(snapshot: PullRequestSnapshot): IssueComment[] {
   return snapshot.comments.filter((comment) =>
-    /(^|\s)@codex\s+review\b/i.test(comment.body)
+    /@codex\s+review\b/i.test(comment.body)
   )
+}
+
+function currentOrAmbiguousReviewTriggers(
+  snapshot: PullRequestSnapshot,
+  identity: PullRequestIdentity,
+  reviewCycles: ReviewCycle[],
+): IssueComment[] {
+  const knownCycles = new Map(reviewCycles.map((cycle) => [cycle.tagSha, cycle]))
+  return visibleReviewTriggers(snapshot).filter((comment) => {
+    const payload = parseMarker<ReviewPayload>(comment.body, REVIEW_MARKER)
+    if (!payload) return true
+    const known = knownCycles.get(payload.review_tag_sha)
+    if (!known) return true
+    return known.headSha === identity.headSha
+  })
 }
 
 function findingDisposition(
@@ -296,7 +326,7 @@ export function verifyReceipt(
   snapshot: PullRequestSnapshot,
   claim: Claim,
   cycle: ReviewCycle,
-  options: { allowDraft?: boolean } = {},
+  options: { allowDraft?: boolean; reviewCycles?: ReviewCycle[] } = {},
 ): Verification {
   const reasons: string[] = []
   if (!snapshot.complete) reasons.push("provider snapshot is incomplete")
@@ -315,7 +345,11 @@ export function verifyReceipt(
     || cycle.baseSha !== snapshot.baseSha
   ) reasons.push("review tag does not match the live PR identity")
 
-  const triggers = visibleReviewTriggers(snapshot)
+  const triggers = currentOrAmbiguousReviewTriggers(
+    snapshot,
+    snapshot,
+    options.reviewCycles ?? [cycle],
+  )
   if (triggers.length !== 1) {
     reasons.push(`expected one visible review trigger, found ${triggers.length}`)
     return { ok: false, reasons }
@@ -727,6 +761,27 @@ function loadReviewCycle(
   )
 }
 
+function loadReviewCycles(
+  repository: string,
+  snapshot: PullRequestSnapshot,
+  claim: Claim,
+): ReviewCycle[] {
+  const prefix = `codex-pr-review/${snapshot.number}/`
+  return paginated(`repos/${repository}/git/matching-refs/tags/${prefix}`)
+    .map((ref) => {
+      const fullName = stringField(ref, "ref")
+      if (!fullName?.startsWith("refs/tags/")) throw new Error("invalid review tag ref")
+      return fetchAnnotatedTag(repository, fullName.slice("refs/tags/".length))
+    })
+    .map((tag) => parseReviewTag(tag, repository, snapshot.number, claim))
+    .filter((cycle) => {
+      if (!snapshot.commits.includes(cycle.headSha)) {
+        throw new Error("review tag head is not in the current PR lineage")
+      }
+      return true
+    })
+}
+
 function requireClaimOwner(claim: Claim): void {
   const actor = currentActor()
   if (actor !== claim.actor) throw new Error(`claim ${claim.tagSha} belongs to ${claim.actor}`)
@@ -786,7 +841,8 @@ async function commandReview(args: string[]): Promise<void> {
       isCodex(review.actor) && review.commitSha === snapshot.headSha
     )
   ) throw new Error("automatic or prior Codex review evidence already exists for this head")
-  if (visibleReviewTriggers(snapshot).length > 0) {
+  const reviewCycles = loadReviewCycles(repository, snapshot, claim)
+  if (currentOrAmbiguousReviewTriggers(snapshot, snapshot, reviewCycles).length > 0) {
     throw new Error("an explicit Codex review trigger already exists")
   }
 
@@ -879,7 +935,8 @@ async function verifyLive(
   const snapshot = fetchSnapshot(repository, pr)
   const claim = loadClaim(repository, pr)
   const cycle = loadReviewCycle(repository, snapshot, claim)
-  const verification = verifyReceipt(snapshot, claim, cycle, { allowDraft })
+  const reviewCycles = loadReviewCycles(repository, snapshot, claim)
+  const verification = verifyReceipt(snapshot, claim, cycle, { allowDraft, reviewCycles })
   if (expected.head && expected.head !== snapshot.headSha) {
     verification.ok = false
     verification.reasons.push("expected head does not match the live PR head")

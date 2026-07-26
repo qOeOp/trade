@@ -269,6 +269,37 @@ describe("exact-head receipt", () => {
     }
   })
 
+  test("a structured trigger from an immutable old-head cycle remains historical", () => {
+    const oldHead = "f".repeat(40)
+    const oldTag = "1".repeat(40)
+    const oldCycle: ReviewCycle = {
+      ...cycle,
+      tagSha: oldTag,
+      headSha: oldHead,
+    }
+    const oldTrigger = comment(9, [
+      "@codex review",
+      markerBody("pr-lifecycle-review:v2", { review_tag_sha: oldTag }),
+    ].join("\n"))
+    expect(verifyReceipt(
+      snapshot({ comments: [oldTrigger, triggerComment()], commits: [fix, oldHead, head] }),
+      claim,
+      cycle,
+      { reviewCycles: [oldCycle, cycle] },
+    ).ok).toBeTrue()
+  })
+
+  test("punctuation cannot hide an unstructured explicit trigger", () => {
+    expect(verifyReceipt(
+      snapshot({ comments: [comment(11, "please:(@codex review)"), triggerComment()] }),
+      claim,
+      cycle,
+    )).toMatchObject({
+      ok: false,
+      reasons: [expect.stringContaining("found 2")],
+    })
+  })
+
   test("replays PR #4: a current-head finding overrides a thumb regardless of order", () => {
     const state = snapshot({
       reviews: [{
