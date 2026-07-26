@@ -43,10 +43,12 @@ When the repository contains `scripts/pr-lifecycle.ts` and a base-owned
    is not independently sufficient. Run `bun scripts/pr-lifecycle.ts verify
    --repo <owner/repo> --pr <number> --allow-draft`; it reconstructs one receipt
    from the atomic claim and review tags, exact trigger, trusted Codex identity,
-   exact current head/live base, one correlated clean reaction, complete thread
+   exact current head/live base, every visible explicit review trigger, one
+   correlated clean reaction, complete thread
    snapshot, and finding dispositions present in the current PR commit lineage.
-   A successful status certifies that exact provider snapshot; run it
-   immediately before merge and permit no intervening PR writes. It fails
+   A successful status certifies only the provider identity observed before and
+   after that status write; strict required checks own later live-base drift.
+   Run it immediately before merge and permit no intervening PR writes. It fails
    closed on ambiguity, pagination, deletion/minimization, duplicates, forks,
    stale identities, or incomplete provider data.
 7. After local verification, mark Ready and run `bun
@@ -55,7 +57,8 @@ When the repository contains `scripts/pr-lifecycle.ts` and a base-owned
    dispatch only wakes the default-branch workflow. The workflow checks out the
    exact default-branch workflow SHA, requires it to equal the live base,
    reruns the same verifier against live provider state,
-   and writes the sole `pr-lifecycle-gate` status to the live PR head. Candidate
+   and writes the sole `pr-lifecycle-gate` status to the live PR head only when
+   head, base ref, and base SHA match before and after publication. Candidate
    workflow or script content is never trusted.
 8. Merge only when the ruleset requires that exact status from the expected
    integration, all existing checks and review-thread rules pass, and an

@@ -131,6 +131,12 @@ export interface ReviewCycle {
   baseSha: string
 }
 
+export interface PullRequestIdentity {
+  headSha: string
+  baseRef: string
+  baseSha: string
+}
+
 export interface Verification {
   ok: boolean
   reasons: string[]
@@ -254,21 +260,10 @@ export function validateReviewTag(
   }
 }
 
-function currentReviewTriggers(
-  snapshot: PullRequestSnapshot,
-  claim: Claim,
-  cycle: ReviewCycle,
-): IssueComment[] {
-  return snapshot.comments.filter((comment) => {
-    if (
-      comment.minimized
-      || !ELIGIBLE_ASSOCIATIONS.has(comment.association)
-      || comment.actor !== claim.actor
-      || !comment.body.includes("@codex review")
-    ) return false
-    const payload = parseMarker<ReviewPayload>(comment.body, REVIEW_MARKER)
-    return payload?.review_tag_sha === cycle.tagSha
-  })
+function visibleReviewTriggers(snapshot: PullRequestSnapshot): IssueComment[] {
+  return snapshot.comments.filter((comment) =>
+    /(^|\s)@codex\s+review\b/i.test(comment.body)
+  )
 }
 
 function findingDisposition(
@@ -320,12 +315,22 @@ export function verifyReceipt(
     || cycle.baseSha !== snapshot.baseSha
   ) reasons.push("review tag does not match the live PR identity")
 
-  const triggers = currentReviewTriggers(snapshot, claim, cycle)
+  const triggers = visibleReviewTriggers(snapshot)
   if (triggers.length !== 1) {
-    reasons.push(`expected one exact-head review trigger, found ${triggers.length}`)
+    reasons.push(`expected one visible review trigger, found ${triggers.length}`)
     return { ok: false, reasons }
   }
   const trigger = triggers[0]!
+  const triggerPayload = parseMarker<ReviewPayload>(trigger.body, REVIEW_MARKER)
+  if (
+    trigger.minimized
+    || !ELIGIBLE_ASSOCIATIONS.has(trigger.association)
+    || trigger.actor !== claim.actor
+    || triggerPayload?.review_tag_sha !== cycle.tagSha
+  ) {
+    reasons.push("visible review trigger is not the claimed exact-head trigger")
+    return { ok: false, reasons }
+  }
   const triggerAt = Date.parse(trigger.createdAt)
   const codexReactions = trigger.reactions.filter((reaction) =>
     isCodex(reaction.actor) && Date.parse(reaction.createdAt) >= triggerAt
@@ -781,6 +786,9 @@ async function commandReview(args: string[]): Promise<void> {
       isCodex(review.actor) && review.commitSha === snapshot.headSha
     )
   ) throw new Error("automatic or prior Codex review evidence already exists for this head")
+  if (visibleReviewTriggers(snapshot).length > 0) {
+    throw new Error("an explicit Codex review trigger already exists")
+  }
 
   const created = createAtomicTag(
     repository,
@@ -909,44 +917,48 @@ function postStatus(
   ])
 }
 
-export function gateStatusForLiveHead(
-  verifiedHead: string,
-  liveHead: string,
+export function gateStatusForLiveIdentity(
+  verified: PullRequestIdentity,
+  live: PullRequestIdentity,
   requestedState: "success" | "failure",
-): { sha: string; state: "success" | "failure"; headChanged: boolean } {
-  const headChanged = verifiedHead !== liveHead
+): { sha: string; state: "success" | "failure"; identityChanged: boolean } {
+  const identityChanged = (
+    verified.headSha !== live.headSha
+    || verified.baseRef !== live.baseRef
+    || verified.baseSha !== live.baseSha
+  )
   return {
-    sha: liveHead,
-    state: headChanged ? "failure" : requestedState,
-    headChanged,
+    sha: live.headSha,
+    state: identityChanged ? "failure" : requestedState,
+    identityChanged,
   }
 }
 
 function publishGateStatus(
   repository: string,
   pr: number,
-  verifiedHead: string,
+  verified: PullRequestIdentity,
   requestedState: "success" | "failure",
   description: string,
 ): boolean {
   const before = fetchBasicPullRequest(repository, pr)
-  const initial = gateStatusForLiveHead(verifiedHead, before.headSha, requestedState)
+  const initial = gateStatusForLiveIdentity(verified, before, requestedState)
   postStatus(
     repository,
     initial.sha,
     initial.state,
-    initial.headChanged ? "PR head changed during lifecycle verification" : description,
+    initial.identityChanged ? "PR identity changed during lifecycle verification" : description,
   )
-  if (initial.headChanged) return false
+  if (initial.identityChanged) return false
 
   const after = fetchBasicPullRequest(repository, pr)
-  const confirmation = gateStatusForLiveHead(verifiedHead, after.headSha, requestedState)
-  if (confirmation.headChanged) {
+  const confirmation = gateStatusForLiveIdentity(verified, after, requestedState)
+  if (confirmation.identityChanged) {
     postStatus(
       repository,
       confirmation.sha,
       "failure",
-      "PR head changed during lifecycle status publication",
+      "PR identity changed during lifecycle status publication",
     )
     return false
   }
@@ -968,7 +980,7 @@ async function commandVerify(args: string[], writeStatus: boolean): Promise<void
       const published = publishGateStatus(
         repository,
         pr,
-        result.snapshot.headSha,
+        result.snapshot,
         result.verification.ok ? "success" : "failure",
         result.verification.ok
           ? `Codex review receipt verified for ${result.snapshot.headSha.slice(0, 12)}`
@@ -976,7 +988,7 @@ async function commandVerify(args: string[], writeStatus: boolean): Promise<void
       )
       if (!published) {
         result.verification.ok = false
-        result.verification.reasons.push("PR head changed during gate status publication")
+        result.verification.reasons.push("PR identity changed during gate status publication")
       }
     }
     process.stdout.write(`${JSON.stringify(result.verification, null, 2)}\n`)

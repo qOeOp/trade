@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import {
-  gateStatusForLiveHead,
+  gateStatusForLiveIdentity,
   isCodexFindingRoot,
   markerBody,
   parseMarker,
@@ -234,6 +234,41 @@ describe("exact-head receipt", () => {
     })
   })
 
+  test("plain or differently marked explicit triggers cannot hide beside the claimed trigger", () => {
+    const plain = comment(11, "@codex review")
+    const differentlyMarked = comment(12, [
+      "@codex review",
+      markerBody("pr-lifecycle-review:v2", { review_tag_sha: "f".repeat(40) }),
+    ].join("\n"))
+    for (const extra of [plain, differentlyMarked]) {
+      expect(verifyReceipt(
+        snapshot({ comments: [extra, triggerComment()] }),
+        claim,
+        cycle,
+      )).toMatchObject({
+        ok: false,
+        reasons: [expect.stringContaining("found 2")],
+      })
+    }
+  })
+
+  test("a sole unstructured or minimized trigger is not an exact-head receipt", () => {
+    for (const trigger of [
+      comment(11, "@codex review"),
+      triggerComment(12),
+    ]) {
+      if (trigger.id === 12) trigger.minimized = true
+      expect(verifyReceipt(
+        snapshot({ comments: [trigger] }),
+        claim,
+        cycle,
+      )).toMatchObject({
+        ok: false,
+        reasons: [expect.stringContaining("not the claimed exact-head trigger")],
+      })
+    }
+  })
+
   test("replays PR #4: a current-head finding overrides a thumb regardless of order", () => {
     const state = snapshot({
       reviews: [{
@@ -300,21 +335,36 @@ describe("exact-head receipt", () => {
 })
 
 describe("gate status publication", () => {
-  test("publishes success only to the verified live head", () => {
-    expect(gateStatusForLiveHead(head, head, "success")).toEqual({
+  const identity = { headSha: head, baseRef: "main", baseSha: base }
+
+  test("publishes success only to the verified live identity", () => {
+    expect(gateStatusForLiveIdentity(identity, identity, "success")).toEqual({
       sha: head,
       state: "success",
-      headChanged: false,
+      identityChanged: false,
     })
   })
 
-  test("turns a head race into failure on the newly observed live head", () => {
+  test("turns head or base races into failure on the newly observed live head", () => {
     const newHead = "f".repeat(40)
-    expect(gateStatusForLiveHead(head, newHead, "success")).toEqual({
+    expect(gateStatusForLiveIdentity(identity, {
+      ...identity,
+      headSha: newHead,
+    }, "success")).toEqual({
       sha: newHead,
       state: "failure",
-      headChanged: true,
+      identityChanged: true,
     })
+    for (const live of [
+      { ...identity, baseRef: "release" },
+      { ...identity, baseSha: "f".repeat(40) },
+    ]) {
+      expect(gateStatusForLiveIdentity(identity, live, "success")).toEqual({
+        sha: head,
+        state: "failure",
+        identityChanged: true,
+      })
+    }
   })
 })
 
