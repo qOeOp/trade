@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import {
@@ -92,6 +93,9 @@ const seal: ReviewSeal = {
   resultActor: "chatgpt-codex-connector[bot]",
   resultId: 10,
   resultCreatedAt: "2026-07-26T00:02:00Z",
+  resultState: null,
+  resultBodyHash: null,
+  findingRoots: [],
 }
 
 function verifyReceipt(
@@ -412,6 +416,113 @@ describe("exact-head receipt", () => {
       ok: false,
       reasons: [expect.stringContaining("found 2")],
     })
+  })
+
+  test("a sealed historical review remains bound to its state, body, and finding roots", () => {
+    const oldHead = "f".repeat(40)
+    const oldTag = "1".repeat(40)
+    const oldReviewBody = "one actionable finding"
+    const oldFindingBody = "the implementation can lose the seal race"
+    const oldCycle: ReviewCycle = {
+      ...cycle,
+      tagSha: oldTag,
+      headSha: oldHead,
+    }
+    const oldTrigger = comment(9, [
+      "@codex review",
+      "",
+      markerBody("pr-lifecycle-review:v2", { review_tag_sha: oldTag }),
+    ].join("\n"))
+    const oldReceipt: ReviewTriggerReceipt = {
+      tagSha: "3".repeat(40),
+      reviewTagSha: oldTag,
+      headSha: oldHead,
+      commentId: oldTrigger.id,
+      commentNodeId: oldTrigger.nodeId,
+      commentCreatedAt: oldTrigger.createdAt,
+    }
+    const oldReview = {
+      id: 90,
+      actor: "chatgpt-codex-connector[bot]",
+      state: "COMMENTED",
+      body: oldReviewBody,
+      submittedAt: "2026-07-26T00:02:00Z",
+      commitSha: oldHead,
+    }
+    const oldFinding = findingThread({
+      id: "thread-old",
+      comments: [
+        {
+          id: 60,
+          actor: "chatgpt-codex-connector[bot]",
+          body: oldFindingBody,
+          createdAt: "2026-07-26T00:02:01Z",
+          outdated: true,
+          reviewCommitSha: oldHead,
+        },
+        {
+          id: 61,
+          actor: "qOeOp",
+          body: markerBody("pr-lifecycle-finding:v1", {
+            thread_id: "thread-old",
+            finding_comment_id: 60,
+            disposition: "fixed",
+            fix_sha: head,
+            reason: "fixed on the current head",
+          }),
+          createdAt: "2026-07-26T00:03:00Z",
+          outdated: false,
+          reviewCommitSha: null,
+        },
+      ],
+    })
+    const oldSeal: ReviewSeal = {
+      tagSha: "5".repeat(40),
+      reviewTagSha: oldTag,
+      headSha: oldHead,
+      resultKind: "review",
+      resultActor: oldReview.actor,
+      resultId: oldReview.id,
+      resultCreatedAt: oldReview.submittedAt,
+      resultState: oldReview.state,
+      resultBodyHash: createHash("sha256").update(oldReviewBody).digest("hex"),
+      findingRoots: [{
+        threadId: oldFinding.id,
+        commentId: 60,
+        createdAt: "2026-07-26T00:02:01Z",
+        bodyHash: createHash("sha256").update(oldFindingBody).digest("hex"),
+      }],
+    }
+    const state = snapshot({
+      comments: [oldTrigger, triggerComment()],
+      commits: [fix, oldHead, head],
+      reviews: [oldReview],
+      threads: [oldFinding],
+    })
+    const options = {
+      reviewCycles: [oldCycle, cycle],
+      triggerReceipts: [oldReceipt, triggerReceipt],
+      seals: [oldSeal, seal],
+    }
+    expect(verifyReceipt(state, claim, cycle, options).ok).toBeTrue()
+    expect(verifyReceipt(
+      { ...state, reviews: [{ ...oldReview, state: "DISMISSED" }] },
+      claim,
+      cycle,
+      options,
+    ).ok).toBeFalse()
+    expect(verifyReceipt(
+      { ...state, reviews: [{ ...oldReview, body: "edited after sealing" }] },
+      claim,
+      cycle,
+      options,
+    ).ok).toBeFalse()
+    expect(verifyReceipt(
+      { ...state, threads: [] },
+      claim,
+      cycle,
+      options,
+    ).ok).toBeFalse()
   })
 
   test("punctuation cannot hide an unstructured explicit trigger", () => {

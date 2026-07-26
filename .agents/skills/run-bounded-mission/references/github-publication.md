@@ -48,7 +48,9 @@ When the repository contains `scripts/pr-lifecycle.ts` and a base-owned
    clean reaction or exact-head review, run `bun scripts/pr-lifecycle.ts seal
    --repo <owner/repo> --pr <number> --claim <tag-sha> --capability
    <private-value>`. It creates `codex-pr-review-seal/<pr>/<head>` bound to the
-   exact visible trigger and exact Codex result while that head/base is live.
+   exact visible trigger, review state and body, and exact finding-root set.
+   The command reads the PR identity both before collecting provider evidence
+   and immediately before publishing the seal ref; drift leaves no public seal.
    Every prior cycle must retain its exact trigger, receipt, result, and seal
    before a new-head cycle may start. Missing, edited, minimized, deleted,
    duplicated, unsealed, or ambiguous evidence fails closed and requires

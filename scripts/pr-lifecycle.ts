@@ -105,6 +105,16 @@ interface ReviewSealTagPayload {
   result_actor: string
   result_id: number
   result_created_at: string
+  result_state: string | null
+  result_body_hash: string | null
+  finding_roots: ReviewFindingRootReceipt[]
+}
+
+export interface ReviewFindingRootReceipt {
+  threadId: string
+  commentId: number
+  createdAt: string
+  bodyHash: string
 }
 
 interface ReviewTagPayload {
@@ -159,6 +169,9 @@ export interface ReviewSeal {
   resultActor: string
   resultId: number
   resultCreatedAt: string
+  resultState: string | null
+  resultBodyHash: string | null
+  findingRoots: ReviewFindingRootReceipt[]
 }
 
 export interface ReviewCycle {
@@ -245,6 +258,10 @@ function validCapabilityHash(value: string | null): value is string {
 
 export function capabilityHash(capability: string): string {
   return createHash("sha256").update(capability).digest("hex")
+}
+
+function contentHash(content: string): string {
+  return createHash("sha256").update(content).digest("hex")
 }
 
 function validMission(value: string | null): value is string {
@@ -370,6 +387,34 @@ function parseReviewTriggerTag(
   }
 }
 
+function parseFindingRootReceipts(value: unknown): ReviewFindingRootReceipt[] | null {
+  if (!Array.isArray(value)) return null
+  const receipts: ReviewFindingRootReceipt[] = []
+  for (const item of value) {
+    if (!isObject(item)) return null
+    const threadId = stringField(item, "threadId")
+    const commentId = numberField(item, "commentId")
+    const createdAt = stringField(item, "createdAt")
+    const bodyHash = stringField(item, "bodyHash")
+    if (
+      !threadId
+      || commentId === null
+      || !Number.isInteger(commentId)
+      || commentId <= 0
+      || !createdAt
+      || !Number.isFinite(Date.parse(createdAt))
+      || !validCapabilityHash(bodyHash)
+    ) return null
+    receipts.push({ threadId, commentId, createdAt, bodyHash })
+  }
+  const sorted = [...receipts].sort((left, right) =>
+    left.threadId.localeCompare(right.threadId) || left.commentId - right.commentId
+  )
+  if (JSON.stringify(receipts) !== JSON.stringify(sorted)) return null
+  if (new Set(receipts.map((receipt) => receipt.threadId)).size !== receipts.length) return null
+  return receipts
+}
+
 function parseReviewSealTag(
   tag: AnnotatedTag,
   repository: string,
@@ -378,6 +423,7 @@ function parseReviewSealTag(
   cycle: ReviewCycle,
 ): ReviewSeal {
   const payload = parseMarker<ReviewSealTagPayload>(tag.message, REVIEW_SEAL_TAG_MARKER)
+  const findingRoots = payload ? parseFindingRootReceipts(payload.finding_roots) : null
   if (
     !validSha(tag.sha)
     || tag.objectType !== "commit"
@@ -395,6 +441,30 @@ function parseReviewSealTag(
     || !Number.isInteger(payload.result_id)
     || payload.result_id <= 0
     || !Number.isFinite(Date.parse(payload.result_created_at))
+    || (
+      payload.result_state !== null
+      && (typeof payload.result_state !== "string" || payload.result_state.length === 0)
+    )
+    || (
+      payload.result_body_hash !== null
+      && !validCapabilityHash(payload.result_body_hash)
+    )
+    || !findingRoots
+    || (
+      payload.result_kind === "clean"
+      && (
+        payload.result_state !== null
+        || payload.result_body_hash !== null
+        || findingRoots.length !== 0
+      )
+    )
+    || (
+      payload.result_kind === "review"
+      && (
+        payload.result_state === null
+        || payload.result_body_hash === null
+      )
+    )
     || tag.objectSha !== cycle.headSha
   ) throw new Error("invalid review seal tag")
   return {
@@ -405,6 +475,9 @@ function parseReviewSealTag(
     resultActor: payload.result_actor,
     resultId: payload.result_id,
     resultCreatedAt: payload.result_created_at,
+    resultState: payload.result_state,
+    resultBodyHash: payload.result_body_hash,
+    findingRoots,
   }
 }
 
@@ -436,6 +509,24 @@ function exactTrigger(
   return comment
 }
 
+function findingRootReceipts(
+  snapshot: PullRequestSnapshot,
+  headSha: string,
+): ReviewFindingRootReceipt[] {
+  return snapshot.threads.flatMap((thread) => {
+    const root = thread.comments[0]
+    if (!root || !isCodex(root.actor) || root.reviewCommitSha !== headSha) return []
+    return [{
+      threadId: thread.id,
+      commentId: root.id,
+      createdAt: root.createdAt,
+      bodyHash: contentHash(root.body),
+    }]
+  }).sort((left, right) =>
+    left.threadId.localeCompare(right.threadId) || left.commentId - right.commentId
+  )
+}
+
 function exactSealedResult(
   snapshot: PullRequestSnapshot,
   trigger: IssueComment,
@@ -445,18 +536,27 @@ function exactSealedResult(
   if (seal.reviewTagSha !== cycle.tagSha || seal.headSha !== cycle.headSha) return false
   if (Date.parse(seal.resultCreatedAt) < Date.parse(trigger.createdAt)) return false
   if (seal.resultKind === "clean") {
-    return seal.resultId === trigger.id && trigger.reactions.some((reaction) =>
+    return seal.resultState === null
+      && seal.resultBodyHash === null
+      && seal.findingRoots.length === 0
+      && seal.resultId === trigger.id
+      && trigger.reactions.some((reaction) =>
       reaction.actor === seal.resultActor
       && reaction.content === "THUMBS_UP"
       && reaction.createdAt === seal.resultCreatedAt
     )
   }
-  return snapshot.reviews.some((review) =>
+  const reviewMatches = snapshot.reviews.some((review) =>
     review.id === seal.resultId
     && review.actor === seal.resultActor
     && review.submittedAt === seal.resultCreatedAt
     && review.commitSha === cycle.headSha
+    && review.state === seal.resultState
+    && contentHash(review.body) === seal.resultBodyHash
   )
+  return reviewMatches
+    && JSON.stringify(findingRootReceipts(snapshot, cycle.headSha))
+      === JSON.stringify(seal.findingRoots)
 }
 
 function validateReviewHistory(
@@ -849,6 +949,16 @@ interface BasicPullRequest {
   baseSha: string
 }
 
+function samePullRequestIdentity(left: BasicPullRequest, right: BasicPullRequest): boolean {
+  return left.open === right.open
+    && left.merged === right.merged
+    && left.draft === right.draft
+    && left.headSha === right.headSha
+    && left.headRepository === right.headRepository
+    && left.baseRef === right.baseRef
+    && left.baseSha === right.baseSha
+}
+
 function fetchBasicPullRequest(repository: string, pr: number): BasicPullRequest {
   const pull = runGh(["api", `repos/${repository}/pulls/${pr}`])
   if (!isObject(pull) || !isObject(pull.head) || !isObject(pull.base)) {
@@ -880,6 +990,10 @@ export function fetchSnapshot(repository: string, pr: number): PullRequestSnapsh
     .map((commit) => stringField(commit, "sha"))
     .filter((sha): sha is string => sha !== null)
   const conversation = providerConversation(repository, pr)
+  const after = fetchBasicPullRequest(repository, pr)
+  if (!samePullRequestIdentity(pull, after)) {
+    throw new Error("PR identity changed while fetching provider snapshot")
+  }
   return {
     repository,
     number: pr,
@@ -973,12 +1087,12 @@ function fetchAnnotatedTag(repository: string, name: string): AnnotatedTag {
   }
 }
 
-function createAtomicTag(
+function createAnnotatedTagObject(
   repository: string,
   name: string,
   objectSha: string,
   message: string,
-): AnnotatedTag {
+): string {
   const created = runGh([
     "api", "--method", "POST", `repos/${repository}/git/tags`,
     "-f", `tag=${name}`,
@@ -989,6 +1103,14 @@ function createAtomicTag(
   if (!isObject(created)) throw new Error("invalid annotated tag response")
   const tagSha = stringField(created, "sha")
   if (!validSha(tagSha)) throw new Error("annotated tag SHA is unavailable")
+  return tagSha
+}
+
+function createAtomicTagRef(
+  repository: string,
+  name: string,
+  tagSha: string,
+): AnnotatedTag {
   try {
     runGh([
       "api", "--method", "POST", `repos/${repository}/git/refs`,
@@ -1000,6 +1122,16 @@ function createAtomicTag(
     throw new Error(`atomic tag claim lost to ${winner.sha}`)
   }
   return fetchAnnotatedTag(repository, name)
+}
+
+function createAtomicTag(
+  repository: string,
+  name: string,
+  objectSha: string,
+  message: string,
+): AnnotatedTag {
+  const tagSha = createAnnotatedTagObject(repository, name, objectSha, message)
+  return createAtomicTagRef(repository, name, tagSha)
 }
 
 function loadClaim(repository: string, pr: number, expectedSha?: string | null): Claim {
@@ -1279,9 +1411,14 @@ async function commandSeal(args: string[]): Promise<void> {
     ? (result as Reaction).createdAt
     : (result as Review).submittedAt
   const resultActor = result.actor
-  const created = createAtomicTag(
+  const reviewResult = resultKind === "review" ? result as Review : null
+  if (reviewResult?.state === "DISMISSED") {
+    throw new Error("dismissed review result cannot be sealed")
+  }
+  const sealName = reviewSealRef(pr, cycle.headSha)
+  const sealTagSha = createAnnotatedTagObject(
     repository,
-    reviewSealRef(pr, cycle.headSha),
+    sealName,
     cycle.headSha,
     markerBody(REVIEW_SEAL_TAG_MARKER, {
       repository,
@@ -1295,8 +1432,16 @@ async function commandSeal(args: string[]): Promise<void> {
       result_actor: resultActor,
       result_id: resultId,
       result_created_at: resultCreatedAt,
+      result_state: reviewResult?.state ?? null,
+      result_body_hash: reviewResult ? contentHash(reviewResult.body) : null,
+      finding_roots: reviewResult ? findingRootReceipts(snapshot, cycle.headSha) : [],
     }),
   )
+  const live = fetchBasicPullRequest(repository, pr)
+  if (!samePullRequestIdentity(snapshot, live)) {
+    throw new Error("PR identity changed while sealing review result")
+  }
+  const created = createAtomicTagRef(repository, sealName, sealTagSha)
   const seal = parseReviewSealTag(created, repository, pr, claim, cycle)
   process.stdout.write(`${JSON.stringify(seal)}\n`)
 }
