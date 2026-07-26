@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
@@ -913,13 +921,15 @@ describe("quality judges fail closed", () => {
       "    -u BINANCE_API_KEY \\",
       "    -u BINANCE_API_SECRET \\",
       "    -u SILICONFLOW_API_KEY \\",
-      "    bun install --frozen-lockfile",
+      "    bun --no-env-file install --frozen-lockfile --ignore-scripts",
     ].join("\n"))
-    expect(script.match(/bun install --frozen-lockfile/g)).toHaveLength(1)
+    expect(script.match(/bun --no-env-file install --frozen-lockfile --ignore-scripts/g)).toHaveLength(1)
     expect(script).toContain('quality_home="${HOME%/}"')
     expect(script).toContain("previous_boundary && next_boundary")
     expect(script).toContain("exit(found ? 0 : 1)")
     expect(script).toContain('quality_home_candidates="$(')
+    expect(script).toContain("rg --no-config")
+    expect(script).toContain('home = ENVIRON["QUALITY_HOME"]')
     expect(script).toContain('if [ "$quality_home_scan_status" -ne 1 ]; then')
     expect(script.match(/find_local_home_paths/g)).toHaveLength(2)
     expect(script).toContain("bun scripts/check-package-tests.ts --run-all")
@@ -947,6 +957,9 @@ describe("quality judges fail closed", () => {
       `cache_root=${rootHome}`,
       `{"cache_root":"${rootHome}"}`,
       `${rootHome}/project/file`,
+      `link=file://${rootHome}/private/report.json`,
+      `CACHE_DIR=\${CACHE_DIR:-${rootHome}/cache}`,
+      "catalog/root/root",
       "/tmp/root",
       "/roots",
       "data/root.db",
@@ -958,20 +971,41 @@ describe("quality judges fail closed", () => {
     write(root, "modules/fixture.txt", "fixture\n")
     write(root, ".agents/fixture.md", "fixture\n")
     write(root, "toolset.json", "{}\n")
+    write(root, "rg.conf", "--color=always\n")
 
     const boundary = runCommand(
       ["sh", "-c", `${functionSource}\nfind_local_home_paths`],
       root,
-      { HOME: `${rootHome}/` },
+      { HOME: `${rootHome}/`, RIPGREP_CONFIG_PATH: join(root, "rg.conf") },
     )
     expect(boundary.exitCode).toBe(0)
     expect(boundary.stdout).toContain(`cache_root=${rootHome}`)
     expect(boundary.stdout).toContain(`{"cache_root":"${rootHome}"}`)
     expect(boundary.stdout).toContain(`${rootHome}/project/file`)
+    expect(boundary.stdout).toContain(`link=file://${rootHome}/private/report.json`)
+    expect(boundary.stdout).toContain(`CACHE_DIR=\${CACHE_DIR:-${rootHome}/cache}`)
+    expect(boundary.stdout).not.toContain("catalog/root/root")
     expect(boundary.stdout).not.toContain("DB/roots")
     expect(boundary.stdout).not.toContain("/tmp/root")
     expect(boundary.stdout).not.toContain("/roots")
     expect(boundary.stdout).not.toContain("data/root.db")
+
+    const enterpriseHome = "/home/DOMAIN\\user"
+    write(root, "README.md", `cache_root=${enterpriseHome}/project\n`)
+    const enterprise = runCommand(
+      ["sh", "-c", `${functionSource}\nfind_local_home_paths`],
+      root,
+      { HOME: enterpriseHome },
+    )
+    expect(enterprise.exitCode).toBe(0)
+    expect(enterprise.stdout).toContain(enterpriseHome)
+
+    const filesystemRoot = runCommand(
+      ["sh", "-c", `${functionSource}\nfind_local_home_paths`],
+      root,
+      { HOME: "/" },
+    )
+    expect(filesystemRoot.exitCode).toBe(2)
 
     rmSync(join(root, "toolset.json"))
     const scanError = runCommand(
@@ -981,6 +1015,40 @@ describe("quality judges fail closed", () => {
     )
     expect(scanError.exitCode).toBe(2)
     expect(scanError.stderr).toContain("toolset.json")
+  })
+
+  test("dependency bootstrap cannot run lifecycle scripts with credentials reloaded from dotenv", () => {
+    const root = temporaryRoot()
+    write(root, "package.json", JSON.stringify({
+      private: true,
+      scripts: {
+        postinstall: [
+          "bun -e",
+          `"require('node:fs').writeFileSync('credential.txt',`,
+          "process.env.SILICONFLOW_API_KEY || 'missing')\"",
+        ].join(" "),
+      },
+    }))
+    expect(runCommand(["bun", "install", "--ignore-scripts"], root).exitCode).toBe(0)
+    write(root, ".env", "SILICONFLOW_API_KEY=dotenv-secret\n")
+
+    const result = runCommand([
+      "env",
+      "-u",
+      "BINANCE_API_KEY",
+      "-u",
+      "BINANCE_API_SECRET",
+      "-u",
+      "SILICONFLOW_API_KEY",
+      "bun",
+      "--no-env-file",
+      "install",
+      "--frozen-lockfile",
+      "--ignore-scripts",
+    ], root, { SILICONFLOW_API_KEY: "process-secret" })
+
+    expect(result.exitCode).toBe(0)
+    expect(existsSync(join(root, "credential.txt"))).toBeFalse()
   })
 
   test("repository workflow checks the fetched candidate range", () => {

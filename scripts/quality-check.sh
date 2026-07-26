@@ -64,30 +64,42 @@ require_cmd() {
 
 find_local_home_paths() {
   quality_home="${HOME%/}"
-  [ -n "$quality_home" ] || return 1
+  [ -n "$quality_home" ] || return 2
 
   quality_home_rg_status=0
   quality_home_candidates="$(
-    rg -n --fixed-strings "$quality_home" README.md AGENTS.md docs scripts modules .agents toolset.json
+    rg --no-config -n --fixed-strings "$quality_home" README.md AGENTS.md docs scripts modules .agents toolset.json
   )" || quality_home_rg_status=$?
   if [ "$quality_home_rg_status" -ne 0 ]; then
     return "$quality_home_rg_status"
   fi
 
-  printf '%s\n' "$quality_home_candidates" | awk -v home="$quality_home" '
+  printf '%s\n' "$quality_home_candidates" | QUALITY_HOME="$quality_home" awk '
+      BEGIN {
+        home = ENVIRON["QUALITY_HOME"]
+      }
       {
-        remaining = $0
-        while ((position = index(remaining, home)) > 0) {
-          previous_character = position == 1 ? "" : substr(remaining, position - 1, 1)
-          next_character = substr(remaining, position + length(home), 1)
-          previous_boundary = previous_character == "" || previous_character !~ /[[:alnum:]_.~\/-]/
+        search_start = 1
+        while (search_start <= length($0)) {
+          relative_position = index(substr($0, search_start), home)
+          if (relative_position == 0) {
+            break
+          }
+          position = search_start + relative_position - 1
+          prefix = substr($0, 1, position - 1)
+          previous_character = position == 1 ? "" : substr($0, position - 1, 1)
+          next_character = substr($0, position + length(home), 1)
+          previous_boundary = previous_character == "" \
+            || previous_character !~ /[[:alnum:]_.~\/-]/ \
+            || (length(prefix) >= 7 && substr(prefix, length(prefix) - 6) == "file://") \
+            || (length(prefix) >= 2 && substr(prefix, length(prefix) - 1) == ":-")
           next_boundary = next_character == "" || next_character == "/" || next_character !~ /[[:alnum:]_.~-]/
           if (previous_boundary && next_boundary) {
             print
             found = 1
             break
           }
-          remaining = substr(remaining, position + length(home))
+          search_start = position + length(home)
         }
       }
       END {
@@ -103,7 +115,7 @@ check_dependencies() {
     -u BINANCE_API_KEY \
     -u BINANCE_API_SECRET \
     -u SILICONFLOW_API_KEY \
-    bun install --frozen-lockfile
+    bun --no-env-file install --frozen-lockfile --ignore-scripts
 }
 
 check_shell() {
