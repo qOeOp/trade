@@ -18,7 +18,7 @@ When the repository contains `scripts/pr-lifecycle.ts` and a base-owned
    only one atomic ref creation, so one cooperating writer wins and every loser
    becomes read-only. Deleting or minimizing comments cannot promote a loser.
    Claims do not expire. Release or reassignment requires explicit user
-   authority and deletion of the exact claim and review refs; never infer it
+   authority and deletion of the exact claim, review, and review-trigger refs; never infer it
    from write permission. This is a cooperative Codex lock, not hostile-actor
    security.
 3. Pass `--claim <tag-sha>` to every writer command. The claim tag binds the
@@ -28,8 +28,11 @@ When the repository contains `scripts/pr-lifecycle.ts` and a base-owned
    scripts/pr-lifecycle.ts review --repo <owner/repo> --pr <number> --claim
    <tag-sha>`. Before posting `@codex review`, the command atomically creates
    `codex-pr-review/<pr>/<head>`, bound to the claim, current head, and live
-   base. The ref prevents a repeat even when the trigger comment is deleted; a
-   missing trigger then fails closed and requires explicit recovery. Do not
+   base. After posting the trigger, it creates
+   `codex-pr-review-trigger/<pr>/<head>`, which immutably binds that cycle to
+   the original comment ID, node ID, and creation time. The refs prevent a
+   repeat or copied historical marker from passing; deletion or a crash between
+   the two refs fails closed and requires explicit recovery. Do not
    amend, rebase, or force-push after the first trigger; fix findings with
    coherent append-only commits.
 5. For every Codex finding, run `bun scripts/pr-lifecycle.ts address --repo
@@ -68,6 +71,14 @@ When the repository contains `scripts/pr-lifecycle.ts` and a base-owned
 If any enforced-path component or provider permission is unavailable, do not
 hand-roll a weaker substitute. Apply the ordered terminal predicates in
 `SKILL.md`.
+
+The PR that first installs this workflow is not itself on the repository-enforced
+path: GitHub cannot dispatch a workflow that is absent from the default branch.
+Treat that bootstrap as a separately admitted change under the pre-existing
+strict ruleset, exact-head evaluator, remote review, and checks; do not claim the
+new gate protected it. After bootstrap merge, run a hosted fail-closed and
+success canary from the default branch, verify the status integration identity
+and strict blocking, and only then add `pr-lifecycle-gate` to required checks.
 
 ## Authority and facts
 

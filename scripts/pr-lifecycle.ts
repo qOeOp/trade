@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto"
 const CLAIM_TAG_MARKER = "pr-lifecycle-claim-tag:v1"
 const CLAIM_RECEIPT_MARKER = "pr-lifecycle-claim-receipt:v1"
 const REVIEW_TAG_MARKER = "pr-lifecycle-review-tag:v1"
+const REVIEW_TRIGGER_TAG_MARKER = "pr-lifecycle-review-trigger-tag:v1"
 const REVIEW_MARKER = "pr-lifecycle-review:v2"
 const FINDING_MARKER = "pr-lifecycle-finding:v1"
 const GATE_CONTEXT = "pr-lifecycle-gate"
@@ -106,6 +107,19 @@ interface ReviewPayload {
   review_tag_sha: string
 }
 
+interface ReviewTriggerTagPayload {
+  repository: string
+  pr: number
+  claim_tag_sha: string
+  review_tag_sha: string
+  mission: string
+  actor: string
+  head: string
+  comment_id: number
+  comment_node_id: string
+  comment_created_at: string
+}
+
 interface FindingPayload {
   thread_id: string
   finding_comment_id: number
@@ -129,6 +143,15 @@ export interface ReviewCycle {
   headSha: string
   baseRef: string
   baseSha: string
+}
+
+export interface ReviewTriggerReceipt {
+  tagSha: string
+  reviewTagSha: string
+  headSha: string
+  commentId: number
+  commentNodeId: string
+  commentCreatedAt: string
 }
 
 export interface PullRequestIdentity {
@@ -175,6 +198,7 @@ export function parseMarker<T>(body: string, marker: string): T | null {
   const prefix = `<!-- ${marker} `
   const start = body.indexOf(prefix)
   if (start === -1) return null
+  if (body.indexOf(prefix, start + prefix.length) !== -1) return null
   const end = body.indexOf(" -->", start + prefix.length)
   if (end === -1) return null
   try {
@@ -275,6 +299,42 @@ function parseReviewTag(
   }
 }
 
+function parseReviewTriggerTag(
+  tag: AnnotatedTag,
+  repository: string,
+  pr: number,
+  claim: Claim,
+  cycle: ReviewCycle,
+): ReviewTriggerReceipt {
+  const payload = parseMarker<ReviewTriggerTagPayload>(tag.message, REVIEW_TRIGGER_TAG_MARKER)
+  if (
+    !validSha(tag.sha)
+    || tag.objectType !== "commit"
+    || !payload
+    || tag.name !== `codex-pr-review-trigger/${pr}/${cycle.headSha}`
+    || payload.repository !== repository
+    || payload.pr !== pr
+    || payload.claim_tag_sha !== claim.tagSha
+    || payload.review_tag_sha !== cycle.tagSha
+    || payload.mission !== claim.mission
+    || payload.actor !== claim.actor
+    || payload.head !== cycle.headSha
+    || !Number.isInteger(payload.comment_id)
+    || payload.comment_id <= 0
+    || payload.comment_node_id.trim().length === 0
+    || !Number.isFinite(Date.parse(payload.comment_created_at))
+    || tag.objectSha !== cycle.headSha
+  ) throw new Error("invalid review trigger tag")
+  return {
+    tagSha: tag.sha,
+    reviewTagSha: cycle.tagSha,
+    headSha: cycle.headSha,
+    commentId: payload.comment_id,
+    commentNodeId: payload.comment_node_id,
+    commentCreatedAt: payload.comment_created_at,
+  }
+}
+
 function visibleReviewTriggers(snapshot: PullRequestSnapshot): IssueComment[] {
   return snapshot.comments.filter((comment) =>
     /@codex\s+review\b/i.test(comment.body)
@@ -285,13 +345,22 @@ function currentOrAmbiguousReviewTriggers(
   snapshot: PullRequestSnapshot,
   identity: PullRequestIdentity,
   reviewCycles: ReviewCycle[],
+  triggerReceipts: ReviewTriggerReceipt[],
 ): IssueComment[] {
   const knownCycles = new Map(reviewCycles.map((cycle) => [cycle.tagSha, cycle]))
+  const knownReceipts = new Map(triggerReceipts.map((receipt) => [receipt.reviewTagSha, receipt]))
   return visibleReviewTriggers(snapshot).filter((comment) => {
     const payload = parseMarker<ReviewPayload>(comment.body, REVIEW_MARKER)
     if (!payload) return true
     const known = knownCycles.get(payload.review_tag_sha)
-    if (!known) return true
+    const receipt = knownReceipts.get(payload.review_tag_sha)
+    if (
+      !known
+      || !receipt
+      || receipt.commentId !== comment.id
+      || receipt.commentNodeId !== comment.nodeId
+      || receipt.commentCreatedAt !== comment.createdAt
+    ) return true
     return known.headSha === identity.headSha
   })
 }
@@ -326,7 +395,12 @@ export function verifyReceipt(
   snapshot: PullRequestSnapshot,
   claim: Claim,
   cycle: ReviewCycle,
-  options: { allowDraft?: boolean; reviewCycles?: ReviewCycle[] } = {},
+  triggerReceipt: ReviewTriggerReceipt,
+  options: {
+    allowDraft?: boolean
+    reviewCycles?: ReviewCycle[]
+    triggerReceipts?: ReviewTriggerReceipt[]
+  } = {},
 ): Verification {
   const reasons: string[] = []
   if (!snapshot.complete) reasons.push("provider snapshot is incomplete")
@@ -349,6 +423,7 @@ export function verifyReceipt(
     snapshot,
     snapshot,
     options.reviewCycles ?? [cycle],
+    options.triggerReceipts ?? [triggerReceipt],
   )
   if (triggers.length !== 1) {
     reasons.push(`expected one visible review trigger, found ${triggers.length}`)
@@ -361,6 +436,11 @@ export function verifyReceipt(
     || !ELIGIBLE_ASSOCIATIONS.has(trigger.association)
     || trigger.actor !== claim.actor
     || triggerPayload?.review_tag_sha !== cycle.tagSha
+    || triggerReceipt.reviewTagSha !== cycle.tagSha
+    || triggerReceipt.headSha !== cycle.headSha
+    || triggerReceipt.commentId !== trigger.id
+    || triggerReceipt.commentNodeId !== trigger.nodeId
+    || triggerReceipt.commentCreatedAt !== trigger.createdAt
   ) {
     reasons.push("visible review trigger is not the claimed exact-head trigger")
     return { ok: false, reasons }
@@ -693,6 +773,10 @@ function reviewRef(pr: number, head: string): string {
   return `codex-pr-review/${pr}/${head}`
 }
 
+function reviewTriggerRef(pr: number, head: string): string {
+  return `codex-pr-review-trigger/${pr}/${head}`
+}
+
 function fetchAnnotatedTag(repository: string, name: string): AnnotatedTag {
   const ref = runGh(["api", `repos/${repository}/git/ref/tags/${name}`])
   if (!isObject(ref) || !isObject(ref.object)) throw new Error(`tag ref ${name} is unavailable`)
@@ -765,9 +849,9 @@ function loadReviewCycles(
   repository: string,
   snapshot: PullRequestSnapshot,
   claim: Claim,
-): ReviewCycle[] {
+): { cycles: ReviewCycle[]; triggerReceipts: ReviewTriggerReceipt[] } {
   const prefix = `codex-pr-review/${snapshot.number}/`
-  return paginated(`repos/${repository}/git/matching-refs/tags/${prefix}`)
+  const cycles = paginated(`repos/${repository}/git/matching-refs/tags/${prefix}`)
     .map((ref) => {
       const fullName = stringField(ref, "ref")
       if (!fullName?.startsWith("refs/tags/")) throw new Error("invalid review tag ref")
@@ -780,6 +864,14 @@ function loadReviewCycles(
       }
       return true
     })
+  const triggerReceipts = cycles.map((cycle) => parseReviewTriggerTag(
+    fetchAnnotatedTag(repository, reviewTriggerRef(snapshot.number, cycle.headSha)),
+    repository,
+    snapshot.number,
+    claim,
+    cycle,
+  ))
+  return { cycles, triggerReceipts }
 }
 
 function requireClaimOwner(claim: Claim): void {
@@ -841,8 +933,13 @@ async function commandReview(args: string[]): Promise<void> {
       isCodex(review.actor) && review.commitSha === snapshot.headSha
     )
   ) throw new Error("automatic or prior Codex review evidence already exists for this head")
-  const reviewCycles = loadReviewCycles(repository, snapshot, claim)
-  if (currentOrAmbiguousReviewTriggers(snapshot, snapshot, reviewCycles).length > 0) {
+  const reviewHistory = loadReviewCycles(repository, snapshot, claim)
+  if (currentOrAmbiguousReviewTriggers(
+    snapshot,
+    snapshot,
+    reviewHistory.cycles,
+    reviewHistory.triggerReceipts,
+  ).length > 0) {
     throw new Error("an explicit Codex review trigger already exists")
   }
 
@@ -867,9 +964,34 @@ async function commandReview(args: string[]): Promise<void> {
     "",
     markerBody(REVIEW_MARKER, { review_tag_sha: cycle.tagSha }),
   ].join("\n"))
+  const triggerTag = createAtomicTag(
+    repository,
+    reviewTriggerRef(pr, snapshot.headSha),
+    snapshot.headSha,
+    markerBody(REVIEW_TRIGGER_TAG_MARKER, {
+      repository,
+      pr,
+      claim_tag_sha: claim.tagSha,
+      review_tag_sha: cycle.tagSha,
+      mission: claim.mission,
+      actor: claim.actor,
+      head: snapshot.headSha,
+      comment_id: trigger.id,
+      comment_node_id: trigger.nodeId,
+      comment_created_at: trigger.createdAt,
+    }),
+  )
+  const triggerReceipt = parseReviewTriggerTag(
+    triggerTag,
+    repository,
+    pr,
+    claim,
+    cycle,
+  )
   process.stdout.write(`${JSON.stringify({
     triggerCommentId: trigger.id,
     reviewTagSha: cycle.tagSha,
+    triggerTagSha: triggerReceipt.tagSha,
     head: snapshot.headSha,
   })}\n`)
 }
@@ -935,8 +1057,16 @@ async function verifyLive(
   const snapshot = fetchSnapshot(repository, pr)
   const claim = loadClaim(repository, pr)
   const cycle = loadReviewCycle(repository, snapshot, claim)
-  const reviewCycles = loadReviewCycles(repository, snapshot, claim)
-  const verification = verifyReceipt(snapshot, claim, cycle, { allowDraft, reviewCycles })
+  const reviewHistory = loadReviewCycles(repository, snapshot, claim)
+  const triggerReceipt = reviewHistory.triggerReceipts.find(
+    (receipt) => receipt.reviewTagSha === cycle.tagSha,
+  )
+  if (!triggerReceipt) throw new Error("current review trigger tag is unavailable")
+  const verification = verifyReceipt(snapshot, claim, cycle, triggerReceipt, {
+    allowDraft,
+    reviewCycles: reviewHistory.cycles,
+    triggerReceipts: reviewHistory.triggerReceipts,
+  })
   if (expected.head && expected.head !== snapshot.headSha) {
     verification.ok = false
     verification.reasons.push("expected head does not match the live PR head")

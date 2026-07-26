@@ -9,12 +9,13 @@ import {
   requireComplete,
   validateClaimTag,
   validateReviewTag,
-  verifyReceipt,
+  verifyReceipt as verifyReceiptProduction,
   type AnnotatedTag,
   type Claim,
   type IssueComment,
   type PullRequestSnapshot,
   type ReviewCycle,
+  type ReviewTriggerReceipt,
   type ReviewThread,
 } from "./pr-lifecycle"
 
@@ -66,6 +67,35 @@ const cycle: ReviewCycle = {
   headSha: head,
   baseRef: "main",
   baseSha: base,
+}
+
+const triggerReceipt: ReviewTriggerReceipt = {
+  tagSha: "2".repeat(40),
+  reviewTagSha,
+  headSha: head,
+  commentId: 10,
+  commentNodeId: "node-10",
+  commentCreatedAt: "2026-07-26T00:01:00Z",
+}
+
+function verifyReceipt(
+  state: PullRequestSnapshot,
+  claimValue: Claim,
+  cycleValue: ReviewCycle,
+  options: {
+    allowDraft?: boolean
+    reviewCycles?: ReviewCycle[]
+    triggerReceipts?: ReviewTriggerReceipt[]
+  } = {},
+) {
+  const receipts = options.triggerReceipts ?? [triggerReceipt]
+  const currentReceipt = receipts.find(
+    (receipt) => receipt.reviewTagSha === cycleValue.tagSha,
+  ) ?? triggerReceipt
+  return verifyReceiptProduction(state, claimValue, cycleValue, currentReceipt, {
+    ...options,
+    triggerReceipts: receipts,
+  })
 }
 
 function snapshot(overrides: Partial<PullRequestSnapshot> = {}): PullRequestSnapshot {
@@ -281,12 +311,40 @@ describe("exact-head receipt", () => {
       "@codex review",
       markerBody("pr-lifecycle-review:v2", { review_tag_sha: oldTag }),
     ].join("\n"))
+    const oldReceipt: ReviewTriggerReceipt = {
+      tagSha: "3".repeat(40),
+      reviewTagSha: oldTag,
+      headSha: oldHead,
+      commentId: oldTrigger.id,
+      commentNodeId: oldTrigger.nodeId,
+      commentCreatedAt: oldTrigger.createdAt,
+    }
     expect(verifyReceipt(
       snapshot({ comments: [oldTrigger, triggerComment()], commits: [fix, oldHead, head] }),
       claim,
       cycle,
-      { reviewCycles: [oldCycle, cycle] },
+      {
+        reviewCycles: [oldCycle, cycle],
+        triggerReceipts: [oldReceipt, triggerReceipt],
+      },
     ).ok).toBeTrue()
+
+    const copiedOldMarker = comment(11, oldTrigger.body)
+    expect(verifyReceipt(
+      snapshot({
+        comments: [oldTrigger, triggerComment(), copiedOldMarker],
+        commits: [fix, oldHead, head],
+      }),
+      claim,
+      cycle,
+      {
+        reviewCycles: [oldCycle, cycle],
+        triggerReceipts: [oldReceipt, triggerReceipt],
+      },
+    )).toMatchObject({
+      ok: false,
+      reasons: [expect.stringContaining("found 2")],
+    })
   })
 
   test("punctuation cannot hide an unstructured explicit trigger", () => {
@@ -417,6 +475,10 @@ describe("markers", () => {
     expect(parseMarker(body, "pr-lifecycle-claim-tag:v1")).toEqual({ mission: "m", actor: "a" })
     expect(parseMarker(
       "<!-- pr-lifecycle-claim-tag:v1 nope -->",
+      "pr-lifecycle-claim-tag:v1",
+    )).toBeNull()
+    expect(parseMarker(
+      `${body}\n${body}`,
       "pr-lifecycle-claim-tag:v1",
     )).toBeNull()
   })
