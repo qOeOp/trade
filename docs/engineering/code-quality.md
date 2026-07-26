@@ -3,7 +3,7 @@ title: Code Quality Contract
 role: engineering-contract
 status: active
 owner: engineering
-last_verified: 2026-07-25 CST
+last_verified: 2026-07-26 CST
 ---
 
 # Code Quality Contract
@@ -80,7 +80,7 @@ WebStorm 能读取仓库 ESLint config，但 `Project Default` 的全项目 insp
 
 Replay release evidence 对若干源码文件绑定字节哈希。为避免候选通过重写 receipt 自证，ESLint 对这些文件保留最小、精确路径例外：3 个文件关闭 `no-useless-assignment`，2 个文件关闭 `preserve-caught-error`；`replay-trial-runner.test.ts` 只允许既有 `registryResolutionCount` 与 `_` 前缀绑定未使用，不关闭整条规则。另有 4 个明确从 `finally` fail closed 的文件关闭 `no-unsafe-finally`。新增例外必须有 owner 语义或源码身份证据，不得新增目录级 ignore 或 baseline。
 
-GitHub Actions 在 pull request 与 `main` push 上调用同一编排器的独立 scope，并把事件 base commit 传给 policy 检查精确候选范围。`copilot-setup-steps.yml` 只配置 Copilot coding agent 的工具环境，不参与普通 Actions 加速或合并裁决。workflow 成功是否阻止合并仍由 GitHub repository ruleset / branch protection 决定；当前仓库外规则若只要求 `quality` 且不要求独立审批，候选仍可在同一 PR 修改 workflow 或裁判，仓库内代码不能消除该信任缺口。
+GitHub Actions 在 pull request 与 `main` push 上调用同一编排器的独立 scope，并把事件 base commit 传给 policy 检查精确候选范围。`copilot-setup-steps.yml` 只配置 Copilot coding agent 的工具环境，不参与普通 Actions 加速或合并裁决。workflow 成功是否阻止合并仍由 GitHub repository ruleset / branch protection 决定。当前采用单所有者信任模型：ruleset 强制最新 `main`、`quality`、四语言 CodeQL 与 review thread resolution；Agent 合并还要求当前精确 head 的 fresh evaluator 和独立 Codex review 均无未关闭发现。候选仍可能在同一 PR 修改 workflow 或裁判，仓库内代码不能把这一限制伪装成 provider-enforced independence。
 
 同一仓库同一时刻只允许一个 `quality-check.sh` 实例。第二个实例必须快速失败并报告持锁 PID；异常退出遗留的死锁可在确认 owner PID 不存活后自动回收，禁止多个全量 Replay 测试争抢 CPU 后把资源竞争误判为代码慢。
 

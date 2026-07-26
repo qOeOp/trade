@@ -954,38 +954,6 @@ describe("quality judges fail closed", () => {
     expect(workflow).not.toContain("disable-default-queries:")
   })
 
-  test("trusted quality authority executes only base-owned gates and requires exact external approval", () => {
-    const workflow = readFileSync(
-      join(repoRoot, ".github/workflows/quality-authority.yml"),
-      "utf8",
-    )
-
-    expect(workflow).toContain("pull_request_target:")
-    expect(workflow).toContain("ref: ${{ github.event.pull_request.base.sha }}")
-    expect(workflow).toContain('git fetch --no-tags --depth=1 origin "refs/pull/${PR_NUMBER}/head"')
-    expect(workflow).toContain(
-      'git diff --no-ext-diff --name-only -z "$PR_BASE_SHA" "$PR_HEAD_SHA"',
-    )
-    expect(workflow).toContain(
-      "QUALITY_AUTHORITY_APPROVED_SHA: ${{ vars.QUALITY_AUTHORITY_APPROVED_SHA }}",
-    )
-    expect(workflow).toContain('[[ "$QUALITY_AUTHORITY_APPROVED_SHA" =~ ^[0-9a-f]{40}$ ]]')
-    expect(workflow).toContain('test "$QUALITY_AUTHORITY_APPROVED_SHA" = "$PR_HEAD_SHA"')
-    expect(workflow).toContain('if [ "$protected_path_found" -eq 0 ]; then')
-    for (const path of [
-      ".github/workflows",
-      "bun.lock",
-      "docs/engineering/convergence-baseline.json",
-      "eslint.config.mjs",
-      "package.json",
-      "scripts",
-    ]) {
-      expect(workflow).toContain(path)
-    }
-    expect(workflow).not.toContain("ref: ${{ github.event.pull_request.head.sha }}")
-    expect(workflow).not.toContain("secrets.")
-  })
-
   test("repository quality checks are single-instance and recover stale locks", () => {
     const root = temporaryRoot()
     const lock = join(root, "quality-check.lock")
