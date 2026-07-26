@@ -2,6 +2,62 @@
 
 A `covered GitHub PR lifecycle terminal` means publishing a GitHub PR, carrying it through review, or merging it. Load only when the frozen mission outcome explicitly includes one.
 
+## Repository-enforced path
+
+When the repository contains `scripts/pr-lifecycle.ts` and a base-owned
+`pr-lifecycle-gate` workflow, use them as the mechanical lifecycle boundary:
+
+0. Require automatic Codex PR reviews to be disabled for the repository. Ready,
+   open, reopen, or update must not create a second reviewer trigger. If this
+   provider setting cannot be verified, the enforced path is unavailable.
+1. Create one Draft PR as the shared coordination surface. Before any further PR
+   mutation, run `bun scripts/pr-lifecycle.ts claim --repo <owner/repo> --pr
+   <number> --mission <stable-id>`.
+2. The claim comment is the only pre-claim mutation. Eligible claims are
+   provider-native top-level comments from an owner, member, or collaborator
+   with the exact structured marker emitted by the script. The earliest
+   immutable `(created_at, comment_id)` wins after a 30-second claim window and
+   two identical snapshots five seconds apart. Until then, perform no other PR
+   write. A loser may emit only the script's single loss marker and then becomes
+   read-only.
+3. Claims do not expire. Reassignment requires explicit user authority, the
+   script's visible takeover marker, and a new stabilized claim epoch. This
+   excludes cooperating Codex writers only; it is not a hostile-actor lock.
+4. Keep the PR Draft and trigger one review per exact head/base with `bun
+   scripts/pr-lifecycle.ts review --repo <owner/repo> --pr <number>`. Never
+   repeat a same-identity trigger. Do not amend, rebase, or force-push after the
+   first trigger; fix findings with coherent append-only commits.
+5. For every Codex finding, run `bun scripts/pr-lifecycle.ts address --repo
+   <owner/repo> --pr <number> --thread-id <node-id> --finding-comment-id
+   <database-id> --disposition <fixed|deferred|rejected> --fix-sha <full-sha>
+   --reason <text>`. It replies in that exact inline thread with one structured
+   disposition and resolves it through GitHub. A reply or a resolve alone is
+   insufficient. Every new code head needs a new review trigger and clean
+   response.
+6. A root 👍, eyes reaction, silence, summary, resolved flag, or old-head review
+   is not independently sufficient. Run `bun scripts/pr-lifecycle.ts verify
+   --repo <owner/repo> --pr <number> --allow-draft`; it reconstructs one receipt
+   from the stable claim, exact trigger, trusted Codex identity, exact current
+   head/live base, one correlated clean reaction, complete thread snapshot, and
+   finding dispositions present in the current PR commit lineage. It fails
+   closed on ambiguity, pagination, deletion/minimization, duplicates, forks,
+   stale identities, or incomplete provider data.
+7. After local verification, mark Ready and run `bun
+   scripts/pr-lifecycle.ts dispatch --repo <owner/repo> --pr <number>`. The
+   dispatch only wakes the default-branch workflow. The workflow checks out the
+   exact default-branch workflow SHA, requires it to equal the live base,
+   reruns the same verifier against live provider state,
+   and writes the sole `pr-lifecycle-gate` status to the live PR head. Candidate
+   workflow or script content is never trusted.
+8. Merge only when the ruleset requires that exact status from the expected
+   integration, all existing checks and review-thread rules pass, and an
+   expected-head merge succeeds. A head or live-base change invalidates the
+   receipt; return to Draft, rebuild evidence, and review the new identity.
+
+If any enforced-path component or provider permission is unavailable, do not
+hand-roll a weaker substitute. Apply the ordered terminal predicates in
+`SKILL.md`.
+
 ## Authority and facts
 
 Treat an explicit request to carry the mission through a named terminal effect as authority for its necessary in-scope intermediate GitHub effects. A request to open a PR does not authorize merge; a request to merge does not authorize deployment, release, or unrelated fixes. Stop before any effect outside the frozen ceiling.
