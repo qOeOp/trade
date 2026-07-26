@@ -65,7 +65,11 @@ require_cmd() {
 check_dependencies() {
   require_cmd bun
   log "repository dependencies"
-  bun ci
+  env \
+    -u BINANCE_API_KEY \
+    -u BINANCE_API_SECRET \
+    -u SILICONFLOW_API_KEY \
+    bun install --frozen-lockfile
 }
 
 check_shell() {
@@ -288,8 +292,8 @@ check_project_hygiene() {
     fi
   done
   if [ -n "${HOME:-}" ]; then
-    if rg -n --fixed-strings "$HOME" README.md AGENTS.md docs scripts modules .agents toolset.json >/dev/null; then
-      rg -n --fixed-strings "$HOME" README.md AGENTS.md docs scripts modules .agents toolset.json >&2
+    if rg -n --fixed-strings "$HOME/" README.md AGENTS.md docs scripts modules .agents toolset.json >/dev/null; then
+      rg -n --fixed-strings "$HOME/" README.md AGENTS.md docs scripts modules .agents toolset.json >&2
       printf 'quality: local absolute path leaked into project files\n' >&2
       exit 1
     fi

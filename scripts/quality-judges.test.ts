@@ -908,7 +908,15 @@ describe("quality judges fail closed", () => {
       "  check_lint",
       "  check_toolset_manifest",
     ].join("\n"))
-    expect(script.match(/bun ci/g)).toHaveLength(1)
+    expect(script).toContain([
+      "  env \\",
+      "    -u BINANCE_API_KEY \\",
+      "    -u BINANCE_API_SECRET \\",
+      "    -u SILICONFLOW_API_KEY \\",
+      "    bun install --frozen-lockfile",
+    ].join("\n"))
+    expect(script.match(/bun install --frozen-lockfile/g)).toHaveLength(1)
+    expect(script.match(/--fixed-strings "\$HOME\/"/g)).toHaveLength(2)
     expect(script).toContain("bun scripts/check-package-tests.ts --run-all")
     expect(script).toContain('bun scripts/check-package-tests.ts --run-shard "$QUALITY_TS_SHARD"')
     expect(script).toContain("git ls-files --cached --others --exclude-standard -- '*.sh'")
