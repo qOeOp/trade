@@ -122,18 +122,17 @@ async function main(): Promise<void> {
     run(["bun", "scripts/check-secrets.ts"])
     run(["bun", "scripts/check-doc-contracts.ts"])
     run(["bun", "scripts/check-convergence-budget.ts"])
+    run(["bun", "scripts/check-architecture-manifest.ts"])
     run(["sh", "scripts/check-workspace-skills.sh"])
 
     if (plan.architecture) {
       run(["bun", "scripts/toolset.ts", "--validate"])
-      run(["bun", "scripts/check-architecture-manifest.ts"])
       run(["bun", "scripts/architecture-drift-audit.ts", "--check"])
     }
     if (!plan.docsOnly) {
       run(["bun", "run", "lint"])
       run(["bun", "scripts/check-ts-tool-boundaries.ts"])
       run(["bun", "scripts/check-package-tests.ts"])
-      run(["bun", "scripts/check-duplication.ts"])
       run(["bun", "scripts/check-test-source-boundaries.ts"])
       for (const owner of plan.packages) runPackage(owner)
     }
@@ -156,19 +155,8 @@ function runPackage(owner: ChangedPackage): void {
   log(`${owner.kind} ${owner.dir}`)
   if (owner.kind === "typescript") {
     run(["bun", "scripts/check-package-tests.ts", "--run-package", owner.dir])
-  } else if (owner.kind === "go") {
-    run(["sh", resolve(ROOT, "scripts/check-go-format.sh"), resolve(ROOT, owner.dir)], owner.dir)
-    run(["go", "test", "./..."], owner.dir)
-    run(["go", "vet", "./..."], owner.dir)
-  } else if (owner.kind === "rust") {
-    run(["cargo", "fmt", "--all", "--", "--check"], owner.dir)
-    run(["cargo", "check"], owner.dir)
-    run(["cargo", "clippy", "--all-targets", "--", "-D", "warnings"], owner.dir)
-    run(["cargo", "test"], owner.dir)
   } else {
-    const python = commandOutput(["sh", "scripts/resolve-python.sh"])
-    run([python, "-m", "compileall", "-q", "scripts"], owner.dir)
-    run([python, "-W", "error", "-m", "unittest", "discover", "-s", "scripts", "-p", "test*.py"], owner.dir)
+    run(["sh", "scripts/check-native-package.sh", owner.kind, owner.dir])
   }
 }
 
