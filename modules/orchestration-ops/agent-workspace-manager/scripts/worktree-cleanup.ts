@@ -102,7 +102,7 @@ type RefSnapshot = {
   kind: "direct"
   reflog: IdentifiedFileSnapshot | null
   looseRef: IdentifiedFileSnapshot | null
-  packedRefsIdentity: FileInstanceIdentity | null
+  packedRefsIdentity?: FileInstanceIdentity | null
   packedEntry: PackedRefSnapshot | null
 } | {
   kind: "symbolic"
@@ -119,6 +119,11 @@ interface FileSnapshot {
 
 interface IdentifiedFileSnapshot extends FileSnapshot {
   identity: FileInstanceIdentity
+}
+
+interface ClaimedRef {
+  ref: string
+  snapshot: Extract<RefSnapshot, { kind: "direct" }>
 }
 
 interface PackedRefSnapshot {
@@ -181,6 +186,7 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
   let refDeleted = false
   let refSnapshot: RefSnapshot | undefined
   let guardRef: string | undefined
+  let guardSnapshot: Extract<RefSnapshot, { kind: "direct" }> | undefined
   let rollbackAttempted = false
   let rollbackCompleted = false
   try {
@@ -270,7 +276,9 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
     if (options.expectedRef !== null) {
       assertRefOwnedByWorktree(ownerCwd, options.expectedRef, claimed.worktreePath)
       refSnapshot = snapshotRef(ownerCwd, options.expectedRef, options.expectedHead)
-      guardRef = claimRef(ownerCwd, options.expectedRef, options.expectedHead, refSnapshot)
+      const claimedRef = claimRef(ownerCwd, options.expectedRef, options.expectedHead, refSnapshot)
+      guardRef = claimedRef.ref
+      guardSnapshot = claimedRef.snapshot
       refDeleted = true
       git(claimed.worktreePath, ["symbolic-ref", "HEAD", guardRef])
       if (git(ownerCwd, ["rev-parse", "--verify", guardRef]) !== options.expectedHead) {
@@ -296,6 +304,7 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
         ownerCwd,
         guardRef,
         options.expectedHead,
+        guardSnapshot,
         refSnapshot,
         originalRef,
       )
@@ -327,6 +336,21 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
     if (error instanceof WorktreeCleanupError && error.preservedRef) {
       guardRef = error.preservedRef
     }
+    if (guardRef && !guardSnapshot) {
+      try {
+        guardSnapshot = snapshotGuardRef(ownerCwd, guardRef, options.expectedHead)
+      } catch {
+        // Preserve the unverified guard for owner recovery.
+      }
+    }
+    if (
+      guardRef
+      && refSnapshot
+      && options.expectedRef !== null
+      && refMissingNoDeref(ownerCwd, options.expectedRef)
+    ) {
+      refDeleted = true
+    }
     const reason = error instanceof WorktreeCleanupError ? error.code : "owner_operation_failed"
     if ((refDeleted || moved) && !removed && quarantinePath && initial) {
       rollbackAttempted = true
@@ -351,6 +375,7 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
             ownerCwd,
             guardRef,
             options.expectedHead,
+            guardSnapshot,
             refSnapshot,
             options.expectedRef,
           )
@@ -471,11 +496,39 @@ function assertClean(worktreePath: string): void {
       inspectionEnvironment,
     )
     if (tracked.exitCode !== 0) throw new WorktreeCleanupError("git_operation_failed")
-    for (const flag of ["--no-assume-unchanged", "--no-skip-worktree"]) {
+    const tagged = gitResultWithEnvironment(
+      worktreePath,
+      ["ls-files", "-t", "-z"],
+      inspectionEnvironment,
+    )
+    if (tagged.exitCode !== 0) throw new WorktreeCleanupError("git_operation_failed")
+    const materializedSkipWorktreePaths: Buffer[] = []
+    for (let start = 0; start < tagged.stdout.length;) {
+      const end = tagged.stdout.indexOf(0, start)
+      if (end === -1) throw new WorktreeCleanupError("git_operation_failed")
+      const entry = tagged.stdout.subarray(start, end)
+      if (entry[0] === 0x53 && entry[1] === 0x20) {
+        const path = entry.subarray(2)
+        try {
+          lstatSync(Buffer.concat([Buffer.from(`${worktreePath}/`), path]))
+          materializedSkipWorktreePaths.push(path, Buffer.from([0]))
+        } catch {
+          // An absent skip-worktree path is a valid sparse-checkout omission.
+        }
+      }
+      start = end + 1
+    }
+    const materializedSkipWorktree = Buffer.concat(materializedSkipWorktreePaths)
+    for (const [flag, paths] of [
+      ["--no-assume-unchanged", tracked.stdout],
+      ["--no-skip-worktree", materializedSkipWorktree],
+    ] as const) {
+      if (paths.length === 0) continue
       const clearHints = Bun.spawnSync([
         "git",
         "-C",
         worktreePath,
+        "--no-replace-objects",
         "-c",
         "core.fsmonitor=false",
         "update-index",
@@ -484,7 +537,7 @@ function assertClean(worktreePath: string): void {
         "--stdin",
       ], {
         env: inspectionEnvironment,
-        stdin: tracked.stdout,
+        stdin: paths,
         stdout: "pipe",
         stderr: "pipe",
       })
@@ -752,6 +805,10 @@ function assertNoUnixSocketsFrom(
   const targetSocketFiles = inspectSocketFiles
     ? targetRoots.flatMap((root) => collectUnixSocketFiles(root).map((path) => ({ root, path })))
     : []
+  const targetSocketIdentities = new Set(targetSocketFiles.map(({ path }) => {
+    const metadata = statSync(path, { bigint: true })
+    return `${metadata.dev.toString(16)}:${metadata.ino.toString(16)}`
+  }))
   const relativeTargetSockets = new Map<string, string[]>()
   for (const socket of targetSocketFiles) {
     const relativePath = socket.path.slice(socket.root.length + 1)
@@ -772,11 +829,31 @@ function assertNoUnixSocketsFrom(
     const match = line.match(/^\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+(?:\s+(.*))?$/)
     if (!match) throw new WorktreeCleanupError("process_guard_unavailable")
     const socketPath = match[1]
-    if (
-      socketPath?.startsWith("/")
-      && targetRoots.some((root) => pathUsesTarget(socketPath, root))
-    ) {
-      throw new WorktreeCleanupError("target_in_use")
+    if (socketPath?.startsWith("/")) {
+      if (targetRoots.some((root) => pathUsesTarget(socketPath, root))) {
+        throw new WorktreeCleanupError("target_in_use")
+      }
+      try {
+        const resolvedSocketPath = realpathSync(socketPath)
+        const metadata = statSync(socketPath, { bigint: true })
+        if (
+          targetRoots.some((root) => pathUsesTarget(resolvedSocketPath, root))
+          || targetSocketIdentities.has(
+            `${metadata.dev.toString(16)}:${metadata.ino.toString(16)}`,
+          )
+        ) {
+          throw new WorktreeCleanupError("target_in_use")
+        }
+      } catch (error) {
+        if (
+          error instanceof WorktreeCleanupError
+          || !isMissingProcessEntry(error)
+        ) {
+          throw error instanceof WorktreeCleanupError
+            ? error
+            : new WorktreeCleanupError("process_guard_unavailable")
+        }
+      }
     }
     const targetSockets = socketPath ? relativeTargetSockets.get(socketPath) : undefined
     for (const targetSocket of targetSockets ?? []) {
@@ -1138,7 +1215,7 @@ function claimRef(
   ref: string,
   expectedHead: string,
   snapshot: RefSnapshot,
-): string {
+): ClaimedRef {
   const suffix = randomBytes(32).toString("hex")
   if (snapshot.kind === "direct") {
     const guardRef = `refs/heads/worktree-cleanup-${suffix}`
@@ -1147,7 +1224,8 @@ function claimRef(
     } catch {
       throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
     }
-    return guardRef
+    const guardSnapshot = snapshotGuardRef(cwd, guardRef, expectedHead)
+    return { ref: guardRef, snapshot: guardSnapshot }
   }
 
   const guardRef = `refs/worktree-cleanup/${suffix}`
@@ -1170,6 +1248,7 @@ function claimRef(
       )
     }
   }
+  const guardSnapshot = snapshotGuardRef(cwd, guardRef, expectedHead)
   try {
     deleteLockedSymbolicRef(
       cwd,
@@ -1181,14 +1260,14 @@ function claimRef(
       snapshot.packedEntry,
     )
   } catch {
-    gitResult(cwd, ["update-ref", "-d", guardRef, expectedHead])
+    runValidatedDirectRefTransaction(cwd, guardRef, null, expectedHead, guardSnapshot)
     throw new WorktreeCleanupError(
       "branch_identity_drift_before_worktree_removal",
       undefined,
       survivingGuardRef(cwd, guardRef) ?? undefined,
     )
   }
-  return guardRef
+  return { ref: guardRef, snapshot: guardSnapshot }
 }
 
 function restoreRef(
@@ -1445,7 +1524,7 @@ function runDirectRefTransaction(
 function runValidatedDirectRefTransaction(
   cwd: string,
   sourceRef: string,
-  destinationRef: string,
+  destinationRef: string | null,
   expectedHead: string,
   expectedSnapshot: Extract<RefSnapshot, { kind: "direct" }>,
 ): PipedCommandResult {
@@ -1475,7 +1554,8 @@ function runValidatedDirectRefTransaction(
   const helper = `
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
-const [cwd, sourceRef, destinationRef, expectedHead, reflogPath, loosePath, packedRefsPath, encodedExpectation] = process.argv.slice(1);
+const [cwd, sourceRef, encodedDestinationRef, expectedHead, reflogPath, loosePath, packedRefsPath, encodedExpectation] = process.argv.slice(1);
+const destinationRef = encodedDestinationRef === "-" ? null : encodedDestinationRef;
 const expected = JSON.parse(Buffer.from(encodedExpectation, "base64").toString());
 const fileMatches = (path, value) => {
   if (value === null) return !existsSync(path);
@@ -1488,6 +1568,7 @@ const fileMatches = (path, value) => {
     && createHash("sha256").update(readFileSync(path)).digest("hex") === value.hash;
 };
 const instanceMatches = (path, value) => {
+  if (value === undefined) return true;
   if (value === null) return !existsSync(path);
   if (!existsSync(path)) return false;
   const metadata = lstatSync(path, { bigint: true });
@@ -1520,7 +1601,7 @@ const transaction = Bun.spawn(["git", "-C", cwd, "update-ref", "--stdin"], {
 transaction.stdin.write([
   "start",
   "option no-deref",
-  "create " + destinationRef + " " + expectedHead,
+  ...(destinationRef === null ? [] : ["create " + destinationRef + " " + expectedHead]),
   "delete " + sourceRef + " " + expectedHead,
   "prepare",
   "",
@@ -1559,7 +1640,7 @@ process.exit(await transaction.exited);
     "--",
     cwd,
     sourceRef,
-    destinationRef,
+    destinationRef ?? "-",
     expectedHead,
     reflogPath,
     loosePath,
@@ -1795,6 +1876,22 @@ function snapshotIdentifiedFile(path: string): IdentifiedFileSnapshot | null {
   }
 }
 
+function snapshotGuardRef(
+  cwd: string,
+  ref: string,
+  expectedHead: string,
+): Extract<RefSnapshot, { kind: "direct" }> {
+  const snapshot = snapshotRef(cwd, ref, expectedHead)
+  if (snapshot.kind !== "direct" || snapshot.packedEntry !== null) {
+    throw new WorktreeCleanupError(
+      "branch_identity_drift_before_worktree_removal",
+      undefined,
+      ref,
+    )
+  }
+  return { ...snapshot, packedRefsIdentity: undefined }
+}
+
 function snapshotFileInstance(path: string): FileInstanceIdentity | null {
   if (!existsSync(path)) return null
   const metadata = lstatSync(path, { bigint: true })
@@ -1850,10 +1947,18 @@ function deleteGuardRef(
   cwd: string,
   guardRef: string,
   expectedHead: string,
+  guardSnapshot: Extract<RefSnapshot, { kind: "direct" }> | undefined,
   snapshot: RefSnapshot | undefined,
   originalRef: string,
 ): void {
-  const deleteGuard = gitResult(cwd, ["update-ref", "-d", guardRef, expectedHead])
+  if (!guardSnapshot) throw new WorktreeCleanupError("guard_ref_cleanup_failed")
+  const deleteGuard = runValidatedDirectRefTransaction(
+    cwd,
+    guardRef,
+    null,
+    expectedHead,
+    guardSnapshot,
+  )
   if (deleteGuard.exitCode !== 0 && !refMissingNoDeref(cwd, guardRef)) {
     throw new WorktreeCleanupError("guard_ref_cleanup_failed")
   }
@@ -1902,7 +2007,9 @@ function removeBranchConfigUnderLock(
   commonDir: string,
   branchName: string,
 ): void {
-  const configPath = join(commonDir, "config")
+  const configLinkPath = join(commonDir, "config")
+  const configLinkIdentity = fileIdentityForPath(configLinkPath)
+  const configPath = realpathSync(configLinkPath)
   const lockPath = `${configPath}.lock`
   const configIdentity = fileIdentityForPath(configPath)
   const configContents = readFileSync(configPath)
@@ -1952,8 +2059,16 @@ function removeBranchConfigUnderLock(
         throw new WorktreeCleanupError("guard_branch_config_cleanup_failed")
       }
     }
+    let configLinkMatches = false
+    try {
+      configLinkMatches = lockMatches(configLinkPath, configLinkIdentity)
+        && realpathSync(configLinkPath) === configPath
+    } catch {
+      // A changed or unavailable link target is another config owner.
+    }
     if (
-      !lockMatches(configPath, configIdentity)
+      !configLinkMatches
+      || !lockMatches(configPath, configIdentity)
       || !readFileSync(configPath).equals(configContents)
       || !lockMatches(lockPath, lockIdentity)
     ) {
@@ -2221,7 +2336,7 @@ function git(cwd: string, args: string[]): string {
 
 function gitResult(cwd: string, args: string[]): PipedCommandResult {
   return Bun.spawnSync(
-    ["git", "-C", cwd, ...args],
+    ["git", "-C", cwd, "--no-replace-objects", ...args],
     { stdout: "pipe", stderr: "pipe" },
   ) as PipedCommandResult
 }
@@ -2231,7 +2346,7 @@ function gitResultWithEnvironment(
   args: string[],
   environment: Record<string, string | undefined>,
 ): PipedCommandResult {
-  return Bun.spawnSync(["git", "-C", cwd, ...args], {
+  return Bun.spawnSync(["git", "-C", cwd, "--no-replace-objects", ...args], {
     env: environment,
     stdout: "pipe",
     stderr: "pipe",

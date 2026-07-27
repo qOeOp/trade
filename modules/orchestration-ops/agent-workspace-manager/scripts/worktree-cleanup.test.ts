@@ -8,9 +8,11 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmdirSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
   watch,
 } from "node:fs"
@@ -165,6 +167,39 @@ test("owner cleanup removes the deleted branch configuration without creating gu
     "config",
     "--get-regexp",
     "^branch\\.worktree-cleanup-",
+  ]).exitCode).not.toBe(0)
+})
+
+test("owner cleanup preserves a symlinked repository config while removing branch metadata", () => {
+  const fixture = createFixture()
+  run(fixture.root, ["git", "config", "branch.mission-branch.remote", "origin"])
+  run(fixture.root, ["git", "config", "branch.mission-branch.merge", "refs/heads/main"])
+  const configPath = join(fixture.root, ".git", "config")
+  const configTarget = join(fixture.root, "external-config")
+  renameSync(configPath, configTarget)
+  symlinkSync("../external-config", configPath)
+  const identity = identifyLinkedWorktree(fixture.worktree)
+  const ownerCommit = installOwnerTool(fixture.root)
+
+  const receipt = removeOwnedWorktree({
+    repositoryCwd: fixture.root,
+    ownerCommit,
+    worktreeId: identity.worktree_id,
+    expectedGeneration: identity.generation,
+    expectedHead: identity.head,
+    expectedRef: identity.ref,
+    removeIgnored: false,
+  })
+
+  expect(receipt.status).toBe("completed")
+  expect(lstatSync(configPath).isSymbolicLink()).toBe(true)
+  expect(runResult(fixture.root, [
+    "git",
+    "config",
+    "--file",
+    configTarget,
+    "--get-regexp",
+    "^branch\\.mission-branch\\.",
   ]).exitCode).not.toBe(0)
 })
 
@@ -687,6 +722,79 @@ for (const [flag, marker] of [
   })
 }
 
+test("owner cleanup preserves valid sparse-checkout omissions", () => {
+  const fixture = createFixture()
+  run(fixture.worktree, ["/bin/mkdir", "-p", "excluded"])
+  writeFileSync(join(fixture.worktree, "excluded", "tracked.txt"), "sparse content\n")
+  run(fixture.worktree, ["git", "add", "excluded/tracked.txt"])
+  run(fixture.worktree, ["git", "commit", "-qm", "add sparse path"])
+  run(fixture.worktree, ["git", "sparse-checkout", "init", "--no-cone"])
+  run(fixture.worktree, [
+    "git",
+    "sparse-checkout",
+    "set",
+    "--no-cone",
+    "/tracked.txt",
+    "/.gitignore",
+  ])
+  expect(existsSync(join(fixture.worktree, "excluded", "tracked.txt"))).toBe(false)
+  const identity = identifyLinkedWorktree(fixture.worktree)
+  const ownerCommit = installOwnerTool(fixture.root)
+
+  const receipt = removeOwnedWorktree({
+    repositoryCwd: fixture.root,
+    ownerCommit,
+    worktreeId: identity.worktree_id,
+    expectedGeneration: identity.generation,
+    expectedHead: identity.head,
+    expectedRef: identity.ref,
+    removeIgnored: false,
+  })
+
+  expect(receipt.status).toBe("completed")
+  expect(existsSync(fixture.worktree)).toBe(false)
+})
+
+test("owner cleanup ignores replacement commits when checking tracked changes", () => {
+  const fixture = createFixture()
+  const ownerCommit = installOwnerTool(fixture.root)
+  const identity = identifyLinkedWorktree(fixture.worktree)
+  writeFileSync(join(fixture.worktree, "tracked.txt"), "replacement-visible change\n")
+  run(fixture.worktree, ["git", "add", "tracked.txt"])
+  const replacementTree = run(fixture.worktree, ["git", "write-tree"])
+  const replacementCommit = run(fixture.worktree, [
+    "git",
+    "commit-tree",
+    replacementTree,
+    "-p",
+    identity.head,
+    "-m",
+    "replacement view",
+  ])
+  run(fixture.root, ["git", "replace", identity.head, replacementCommit])
+  expect(run(fixture.worktree, ["git", "status", "--porcelain=v1"])).toBe("")
+  expect(run(fixture.worktree, [
+    "git",
+    "--no-replace-objects",
+    "status",
+    "--porcelain=v1",
+  ])).not.toBe("")
+
+  const failure = captureCleanupError(() => removeOwnedWorktree({
+    repositoryCwd: fixture.root,
+    ownerCommit,
+    worktreeId: identity.worktree_id,
+    expectedGeneration: identity.generation,
+    expectedHead: identity.head,
+    expectedRef: identity.ref,
+    removeIgnored: false,
+  }))
+
+  expect(failure.code).toBe("worktree_not_clean")
+  expect(failure.receipt?.worktree_claimed).toBe(false)
+  expect(existsSync(fixture.worktree)).toBe(true)
+})
+
 test("owner cleanup rejects ignored residue until the deletion owner removes it", () => {
   const fixture = createFixture()
   const identity = identifyLinkedWorktree(fixture.worktree)
@@ -1042,6 +1150,42 @@ if (process.platform === "linux") {
       expect(failure.code).toBe("target_in_use")
       expect(failure.receipt?.worktree_claimed).toBe(false)
       expect(failure.receipt?.worktree_removed).toBe(false)
+      expect(existsSync(socketPath)).toBe(true)
+      expect(existsSync(fixture.worktree)).toBe(true)
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve())
+      })
+    }
+  })
+
+  test("owner cleanup resolves an absolute socket alias into the target worktree", async () => {
+    const fixture = createFixture()
+    const alias = join(fixture.root, "socket-alias")
+    symlinkSync(fixture.worktree, alias)
+    const socketPath = join(fixture.worktree, "aliased.sock")
+    const aliasSocketPath = join(alias, "aliased.sock")
+    writeFileSync(join(fixture.root, ".git", "info", "exclude"), "aliased.sock\n")
+    const identity = identifyLinkedWorktree(fixture.worktree)
+    const ownerCommit = installOwnerTool(fixture.root)
+    const server = createServer()
+
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject)
+      server.listen(aliasSocketPath, resolve)
+    })
+    try {
+      const failure = captureCleanupError(() => removeOwnedWorktree({
+        repositoryCwd: fixture.root,
+        ownerCommit,
+        worktreeId: identity.worktree_id,
+        expectedGeneration: identity.generation,
+        expectedHead: identity.head,
+        expectedRef: identity.ref,
+        removeIgnored: true,
+      }))
+      expect(failure.code).toBe("target_in_use")
+      expect(failure.receipt?.worktree_claimed).toBe(false)
       expect(existsSync(socketPath)).toBe(true)
       expect(existsSync(fixture.worktree)).toBe(true)
     } finally {
@@ -1948,7 +2092,7 @@ test("owner cleanup reports a symbolic guard that survives a failed claim", () =
     wrapper,
     `#!/bin/sh
 case " $* " in
-  *" update-ref -d refs/worktree-cleanup/"*)
+  *" update-ref --stdin "*)
     exit 72
     ;;
 esac
@@ -2813,8 +2957,9 @@ case " $* " in
     printf 'yes\\n' > "${failGuardCleanup}"
     exit 0
     ;;
-  *" update-ref -d refs/heads/worktree-cleanup-"*)
-    [ -f "${failGuardCleanup}" ] && exit 72
+  *" update-ref --stdin "*)
+    [ ! -f "${failGuardCleanup}" ] || exit 72
+    exec "${realGit}" "$@"
     ;;
 esac
 exec "${realGit}" "$@"
@@ -2852,8 +2997,9 @@ case " $* " in
     printf 'yes\\n' > "${failGuardCleanup}"
     exit 0
     ;;
-  *" update-ref -d refs/heads/worktree-cleanup-"*)
-    [ -f "${failGuardCleanup}" ] && exit 72
+  *" update-ref --stdin "*)
+    [ ! -f "${failGuardCleanup}" ] || exit 72
+    exec "${realGit}" "$@"
     ;;
 esac
 exec "${realGit}" "$@"
@@ -2872,6 +3018,46 @@ exec "${realGit}" "$@"
   expect(run(fixture.root, ["git", "rev-parse", receipt.preserved_ref])).toBe(identity.head)
   expect(runResult(fixture.root, ["git", "show-ref", "--verify", identity.ref!]).exitCode)
     .not.toBe(0)
+  expect(existsSync(fixture.worktree)).toBe(false)
+})
+
+test("owner cleanup preserves a symbolic replacement of the guard and its referent", () => {
+  const fixture = createFixture()
+  const identity = identifyLinkedWorktree(fixture.worktree)
+  const ownerCommit = installOwnerTool(fixture.root)
+  run(fixture.root, ["git", "branch", "victim", identity.head])
+  const realGit = Bun.which("git")
+  if (!realGit) throw new Error("git unavailable")
+  const bin = join(fixture.root, "bin")
+  run(fixture.root, ["/bin/mkdir", "-p", bin])
+  const wrapper = join(bin, "git")
+  writeFileSync(
+    wrapper,
+    `#!/bin/sh
+case " $* " in
+  *" worktree remove "*)
+    "${realGit}" "$@" || exit $?
+    guard=$("${realGit}" -C "${fixture.root}" for-each-ref --format='%(refname)' 'refs/heads/worktree-cleanup-*')
+    [ -n "$guard" ] || exit 72
+    "${realGit}" -C "${fixture.root}" update-ref --no-deref -d "$guard" "${identity.head}" || exit $?
+    "${realGit}" -C "${fixture.root}" symbolic-ref "$guard" refs/heads/victim || exit $?
+    exit 0
+    ;;
+esac
+exec "${realGit}" "$@"
+`,
+  )
+  chmodSync(wrapper, 0o755)
+
+  const cleanup = runCleanupCli(fixture.root, identity, ownerCommit, bin)
+
+  expect(cleanup.exitCode).toBe(1)
+  const receipt = JSON.parse(cleanup.stdout.toString())
+  expect(receipt.reason_code).toBe("guard_ref_cleanup_failed")
+  expect(receipt.preserved_ref).toStartWith("refs/heads/worktree-cleanup-")
+  expect(run(fixture.root, ["git", "symbolic-ref", receipt.preserved_ref]))
+    .toBe("refs/heads/victim")
+  expect(run(fixture.root, ["git", "rev-parse", "refs/heads/victim"])).toBe(identity.head)
   expect(existsSync(fixture.worktree)).toBe(false)
 })
 
@@ -2896,11 +3082,13 @@ case " $* " in
     : > "${removed}"
     exit 0
     ;;
-  *" update-ref -d refs/heads/worktree-cleanup-"*)
-    if [ -f "${removed}" ]; then
+  *" update-ref --stdin "*)
+    if [ -f "${removed}" ] && [ ! -f "${bin}/guard-delete-failed" ]; then
       "${realGit}" "$@" || exit $?
+      : > "${bin}/guard-delete-failed"
       exit 71
     fi
+    exec "${realGit}" "$@"
     ;;
 esac
 exec "${realGit}" "$@"
@@ -2944,8 +3132,9 @@ case " $* " in
     printf 'yes\\n' > "${failGuardCleanup}"
     exit 0
     ;;
-  *" update-ref -d refs/worktree-cleanup/"*)
-    [ -f "${failGuardCleanup}" ] && exit 72
+  *" update-ref --stdin "*)
+    [ ! -f "${failGuardCleanup}" ] || exit 72
+    exec "${realGit}" "$@"
     ;;
 esac
 exec "${realGit}" "$@"
