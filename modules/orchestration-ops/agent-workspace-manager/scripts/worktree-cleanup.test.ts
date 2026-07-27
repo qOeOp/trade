@@ -113,6 +113,31 @@ test("owner cleanup reports branch deletion in a SHA-256 repository", () => {
   expect(existsSync(fixture.worktree)).toBe(false)
 })
 
+test("owner cleanup accepts safe Git-generated worktree IDs", () => {
+  const fixture = createFixture()
+  run(fixture.root, ["git", "worktree", "remove", "--", fixture.worktree])
+  run(fixture.root, ["git", "branch", "-D", "mission-branch"])
+  fixture.worktree = join(fixture.root, "mission+candidate")
+  run(fixture.root, ["git", "worktree", "add", "-qb", "mission-branch", fixture.worktree])
+  const identity = identifyLinkedWorktree(fixture.worktree)
+  const ownerCommit = installOwnerTool(fixture.root)
+
+  expect(identity.worktree_id).toBe("mission+candidate")
+  const receipt = removeOwnedWorktree({
+    repositoryCwd: fixture.root,
+    ownerCommit,
+    worktreeId: identity.worktree_id,
+    expectedGeneration: identity.generation,
+    expectedHead: identity.head,
+    expectedRef: identity.ref,
+    removeIgnored: false,
+  })
+
+  expect(receipt.status).toBe("completed")
+  expect(receipt.worktree_id).toBe("mission+candidate")
+  expect(existsSync(fixture.worktree)).toBe(false)
+})
+
 test("owner cleanup avoids conflicts with an existing worktree-cleanup branch", () => {
   const fixture = createFixture()
   const identity = identifyLinkedWorktree(fixture.worktree)
@@ -817,6 +842,40 @@ test("owner cleanup rejects ignored residue until the deletion owner removes it"
   expect(receipt.status).toBe("completed")
   expect(receipt.ignored_residue_removed).toBe(true)
   expect(existsSync(fixture.worktree)).toBe(false)
+})
+
+test("owner cleanup rechecks ignored residue after reference hooks run", () => {
+  const fixture = createFixture()
+  const identity = identifyLinkedWorktree(fixture.worktree)
+  const ownerCommit = installOwnerTool(fixture.root)
+  const hook = join(fixture.root, ".git", "hooks", "reference-transaction")
+  writeFileSync(
+    hook,
+    `#!/bin/sh
+[ "$1" = committed ] || exit 0
+for target in "${fixture.root}"/.worktree-cleanup-*/target; do
+  [ -d "$target" ] || continue
+  : > "$target/ignored.tmp"
+done
+`,
+  )
+  chmodSync(hook, 0o755)
+
+  const failure = captureCleanupError(() => removeOwnedWorktree({
+    repositoryCwd: fixture.root,
+    ownerCommit,
+    worktreeId: identity.worktree_id,
+    expectedGeneration: identity.generation,
+    expectedHead: identity.head,
+    expectedRef: identity.ref,
+    removeIgnored: false,
+  }))
+
+  expect(failure.code).toBe("worktree_has_ignored_files")
+  expect(failure.receipt?.worktree_claimed).toBe(true)
+  expect(failure.receipt?.rollback_completed).toBe(true)
+  expect(existsSync(join(fixture.worktree, "ignored.tmp"))).toBe(true)
+  expect(runResult(fixture.root, ["git", "show-ref", "--verify", identity.ref!]).exitCode).toBe(0)
 })
 
 test("owner cleanup requires the ignored-residue grant for a nested repository", () => {
@@ -1659,6 +1718,47 @@ createServer().listen(process.argv[1], () => {
       } finally {
         server.kill()
         await server.exited
+      }
+    }, 15_000)
+
+    test("owner cleanup resolves absolute socket aliases through every process root", async () => {
+      const fixture = createFixture()
+      const jail = join(fixture.root, "socket-root-jail")
+      const alias = join(jail, "alias")
+      const socketPath = join(fixture.worktree, "root-aliased.sock")
+      const ready = join(jail, "ready")
+      const serverScript = join(fixture.root, "chroot-socket-server.ts")
+      writeFileSync(join(fixture.root, ".git", "info", "exclude"), "*.sock\n")
+      run(fixture.root, ["/bin/mkdir", "-p", alias])
+      run(fixture.root, ["mount", "--bind", fixture.worktree, alias])
+      writeFileSync(
+        serverScript,
+        `import { dlopen, FFIType } from "bun:ffi"
+import { writeFileSync } from "node:fs"
+import { createServer } from "node:net"
+
+const libc = dlopen("libc.so.6", {
+  chroot: { args: [FFIType.cstring], returns: FFIType.i32 },
+})
+if (libc.symbols.chroot(Buffer.from(process.argv[2] + "\\0")) !== 0) process.exit(71)
+process.chdir("/")
+createServer().listen("/alias/root-aliased.sock", () => writeFileSync("/ready", "ready"))
+`,
+      )
+      const server = Bun.spawn([
+        Bun.which("bun")!,
+        serverScript,
+        jail,
+      ], { cwd: fixture.root, stdout: "ignore", stderr: "ignore" })
+      try {
+        await waitForPath(ready)
+        expect(existsSync("/alias/root-aliased.sock")).toBe(false)
+        expect(existsSync(socketPath)).toBe(true)
+        expectCleanupInUse(fixture)
+      } finally {
+        server.kill()
+        await server.exited
+        run(fixture.root, ["umount", alias])
       }
     }, 15_000)
   }

@@ -289,6 +289,11 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
     }
 
     assertClean(claimed.worktreePath)
+    assertNoIgnoredFiles(claimed.worktreePath)
+    assertNoTargetUsers(claimed.worktreePath, claimed.adminDir)
+    if (process.platform === "linux") {
+      assertNoUnixSockets([initial.worktreePath, initial.adminDir], false)
+    }
     const removeResult = gitResult(ownerCwd, ["worktree", "remove", "--", quarantinePath])
     removed = !existsSync(claimed.adminDir) && !existsSync(quarantinePath)
     if (removeResult.exitCode !== 0 && !removed) {
@@ -669,7 +674,7 @@ function assertNoProcTargetUsers(targetRoots: string[]): void {
   for (const root of targetRoots) {
     for (const identity of collectTargetFileIdentities(root)) targetFiles.add(identity)
   }
-  const inspectedNetworkMountNamespaces = new Set<string>()
+  const inspectedNetworkMountRoots = new Set<string>()
   const ownNetworkNamespace = readProcessLink("/proc/self/ns/net")
   let processes
   try {
@@ -698,7 +703,7 @@ function assertNoProcTargetUsers(targetRoots: string[]): void {
           taskPath,
           targetRoots,
           targetFiles,
-          inspectedNetworkMountNamespaces,
+          inspectedNetworkMountRoots,
           ownNetworkNamespace,
         )
       } catch (error) {
@@ -716,19 +721,20 @@ function inspectProcTask(
   taskPath: string,
   targetRoots: string[],
   targetFiles: Set<string>,
-  inspectedNetworkMountNamespaces: Set<string>,
+  inspectedNetworkMountRoots: Set<string>,
   ownNetworkNamespace: string | null,
 ): void {
   if (isZombieProcess(taskPath)) return
   const networkNamespace = readProcessLink(join(taskPath, "ns", "net"))
   const mountNamespace = readProcessLink(join(taskPath, "ns", "mnt"))
+  const processRootIdentity = readProcessRootIdentity(taskPath)
   const namespacePair = networkNamespace === null
     ? null
-    : `${networkNamespace}\0${mountNamespace ?? taskPath}`
+    : `${networkNamespace}\0${mountNamespace ?? taskPath}\0${processRootIdentity ?? taskPath}`
   if (
     networkNamespace !== null
     && namespacePair !== null
-    && !inspectedNetworkMountNamespaces.has(namespacePair)
+    && !inspectedNetworkMountRoots.has(namespacePair)
   ) {
     const inspected = assertNoUnixSocketsFrom(
       join(taskPath, "net", "unix"),
@@ -737,13 +743,22 @@ function inspectProcTask(
       networkNamespace === ownNetworkNamespace ? undefined : taskPath,
       taskPath,
     )
-    if (
-      inspected
-      && readProcessLink(join(taskPath, "ns", "net")) === networkNamespace
-      && mountNamespace !== null
-      && readProcessLink(join(taskPath, "ns", "mnt")) === mountNamespace
-    ) {
-      inspectedNetworkMountNamespaces.add(namespacePair)
+    if (inspected) {
+      const currentNetworkNamespace = readProcessLink(join(taskPath, "ns", "net"))
+      if (currentNetworkNamespace !== null) {
+        const currentMountNamespace = readProcessLink(join(taskPath, "ns", "mnt"))
+        const currentProcessRootIdentity = readProcessRootIdentity(taskPath)
+        if (
+          mountNamespace === null
+          || processRootIdentity === null
+          || currentNetworkNamespace !== networkNamespace
+          || currentMountNamespace !== mountNamespace
+          || currentProcessRootIdentity !== processRootIdentity
+        ) {
+          throw new WorktreeCleanupError("target_in_use")
+        }
+        inspectedNetworkMountRoots.add(namespacePair)
+      }
     }
   }
   for (const linkName of ["cwd", "root", "exe"]) {
@@ -810,6 +825,18 @@ function inspectProcTask(
 
 function assertNoUnixSockets(targetRoots: string[], inspectSocketFiles = true): void {
   assertNoUnixSocketsFrom("/proc/net/unix", targetRoots, inspectSocketFiles)
+}
+
+function readProcessRootIdentity(taskPath: string): string | null {
+  const rootPath = readProcessLink(join(taskPath, "root"))
+  if (rootPath === null) return null
+  try {
+    const metadata = statSync(join(taskPath, "root"), { bigint: true })
+    return `${rootPath}\0${metadata.dev.toString(16)}:${metadata.ino.toString(16)}`
+  } catch (error) {
+    if (isMissingProcessEntry(error)) return null
+    throw new WorktreeCleanupError("process_guard_unavailable")
+  }
 }
 
 function assertNoUnixSocketsFrom(
@@ -2233,7 +2260,7 @@ function assertNoRegisteredSubmodules(worktreePath: string): void {
 }
 
 function assertWorktreeId(value: string): void {
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value) || value === "." || value === "..") {
+  if (!isWorktreeId(value)) {
     throw new WorktreeCleanupError("invalid_worktree_id")
   }
 }
@@ -2314,9 +2341,14 @@ function nullOid(cwd: string): string {
 }
 
 function sanitizeWorktreeId(value: string): string {
-  return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value) && value !== "." && value !== ".."
-    ? value
-    : "[invalid]"
+  return isWorktreeId(value) ? value : "[invalid]"
+}
+
+function isWorktreeId(value: string): boolean {
+  return value.length > 0
+    && value !== "."
+    && value !== ".."
+    && !/[\/\\\0-\x1f\x7f]/u.test(value)
 }
 
 function sanitizeGeneration(value: string): string {
