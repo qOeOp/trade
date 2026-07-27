@@ -168,6 +168,50 @@ describe("native review evidence", () => {
     )
   })
 
+  test("requires a historical fix commit strictly between the finding and reply", () => {
+    const finding = snapshot()
+    finding.threads.push({
+      id: "T_causal",
+      resolved: true,
+      comments: [{
+        id: 33,
+        nodeId: "RC_33",
+        actor: "chatgpt-codex-connector",
+        association: "NONE",
+        body: "Fix this.",
+        createdAt: "2026-07-27T00:05:00Z",
+        includesCreatedEdit: false,
+        lastEditedAt: null,
+        reviewCommitSha: reviewed,
+      }, {
+        id: 34,
+        nodeId: "RC_34",
+        actor: "owner",
+        association: "OWNER",
+        body: `Fixed in ${head}: repaired after review`,
+        createdAt: "2026-07-27T01:05:00Z",
+        includesCreatedEdit: false,
+        lastEditedAt: null,
+        reviewCommitSha: reviewed,
+      }],
+    })
+
+    finding.commitTimes[head] = "2026-07-27T00:05:00Z"
+    expect(verify(finding).reasons).toContain(
+      "Codex finding 33 fix commit does not postdate the finding",
+    )
+
+    finding.commitTimes[head] = "2026-07-27T01:05:00Z"
+    expect(verify(finding).reasons).toContain(
+      "Codex finding 33 reply does not postdate its fix commit",
+    )
+
+    delete finding.commitTimes[head]
+    expect(verify(finding).reasons).toContain(
+      "Codex finding 33 fix commit has no valid timestamp",
+    )
+  })
+
   test("fails closed on drift and incomplete provider evidence", () => {
     const changed = snapshot()
     changed.baseSha = "d".repeat(40)

@@ -30,22 +30,27 @@ CLI.
    column-0 H2. A list-, quote-, indent-, fence-, comment-contained, late, or
    duplicate `Outcome` heading has no capability.
 4. After local gates and a fresh evaluator accept the exact candidate, post
-   exactly one explicit trigger for the current head/live-base identity using
-   `reviewTriggerBody` from `scripts/check-pr-review.ts`. A provider-native
-   latest provider-native `pull_request` workflow run for that PR and SHA must
-   predate the trigger; an older run from before that SHA left and re-entered
-   the PR cannot be reused, and a self-declared future SHA is not evidence that
-   the head was live. Do not push while review is pending. A second current-head trigger, an identity-free
-   current-head trigger, an edited or minimized trigger, or a trigger whose
-   visible text differs from that exact body fails closed.
+   exactly one explicit trigger in the current observation window using
+   `reviewTriggerBody` from `scripts/check-pr-review.ts`. The window begins at
+   the latest provider-native `pull_request` workflow run associated with that
+   PR and exact head SHA; the run must strictly predate the trigger. If the same
+   head/base leaves and later re-enters, the new run starts a new window and
+   requires one new trigger; triggers from earlier windows do not count in the
+   current gate. A self-declared future SHA is not evidence that the head was
+   live. Do not push while a current-window review is pending. A second
+   current-window trigger, an identity-free current-window trigger, an edited
+   or minimized trigger, or a trigger whose visible text differs from that
+   exact body fails closed.
 5. A clean result is exactly one post-trigger Codex `THUMBS_UP`, optionally
    `EYES`, with no current-head Codex review or finding root. A finding review
    never becomes clean because a reaction also exists. Make one coherent
    strict-descendant fix commit for each Codex finding, reply once in the native
    thread with `Fixed in <full-sha>: <reason>`, resolve the thread, and publish a
-   new head. The new head needs its own single trigger and final clean result.
-   A missing, duplicate, pre-fix, non-descendant, or edited disposition reply,
-   or an unresolved finding, fails closed.
+   new head. The fix commit timestamp must strictly postdate the finding and the
+   disposition reply must strictly postdate that commit. The new head needs its
+   own single trigger and final clean result. A missing, duplicate, pre-fix,
+   pre-finding, non-descendant, or edited disposition reply, or an unresolved
+   finding, fails closed.
 6. The read-only checker takes a complete GraphQL snapshot of commits, comments,
    reactions, reviews, and threads, bracketed by REST identity and authoritative
    live-base reads. It rejects provider errors, malformed data, duplicates,
@@ -81,7 +86,7 @@ Classify the terminal before mutating provider state. For pure review-only, insp
 
 Apply one **freshness rule** before each publication trigger, expensive remote-review trigger, provider review submission, Ready transition, positive terminal, and merge: take a complete head/base/live-base snapshot and require the exact candidate commit, selected base ref, and evidence-bound base commit. On drift, make no reviewer write; within cumulative budgets update or rebuild against the new base and reacquire every invalidated evidence surface, counting each rebuild as a revision. For an authorized merge terminal, use the queue alternative only after every candidate-bound pre-entry prerequisite passes and only when the provider enforces integration quiescence from entry through step 10; while quiesced, reacquire required local gates, fresh evaluator, and provider checks and reviews on the exact `merge_group`. Otherwise do not enter the queue and apply the ordered terminal predicates. Any acceptance-tree or `merge_group` change invalidates evidence bound to the prior tree. This read never substitutes for step 10's atomic merge guarantee.
 
-Apply one **reviewer-trigger rule** per exact head/base. Inventory every provider action that can wake the same reviewer, including explicit comments or requests, opening or reopening, publication or update, and Ready; reserve exactly one authorized trigger when possible, preferring a later required Ready trigger. A known trigger action itself creates a pending attempt without reaction or acknowledgement. If another trigger occurs, return to evidence wait and forbid merge until every known current-identity attempt is terminal and the complete snapshot and applicable threads close. On unchanged identity, never repeat a pending attempt or a terminal attempt without new remediation evidence. Only thread-only remediation requiring reconfirmation of the frozen disposition permits exactly one evidence-bound same-head/base re-review wake. Otherwise make no reviewer write, timeout retry, or status chatter.
+Apply one **reviewer-trigger rule** per current observation window. Inventory every provider action that can wake the same reviewer, including explicit comments or requests, opening or reopening, publication or update, and Ready; reserve exactly one authorized trigger when possible, preferring a later required Ready trigger. A known trigger action itself creates a pending attempt without reaction or acknowledgement. If another trigger occurs in the same window, return to evidence wait and forbid merge until every known current-window attempt is terminal and the complete snapshot and applicable threads close. Do not repeat a pending or terminal attempt while the latest matching `pull_request` run and exact head/base remain unchanged. If the same head/base leaves and re-enters, the later matching run starts a new window; after refreshing all evidence, exactly one new trigger is permitted and required. A provider path may permit one evidence-bound same-window re-review for thread-only remediation only when its frozen oracle explicitly supports multiple triggers; the repository-enforced path above does not, so its remediation must reach a new head and observation window. Otherwise make no reviewer write, timeout retry, or status chatter.
 
 Keep only these facts in the working plan and their native Git or provider surfaces:
 

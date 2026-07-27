@@ -320,8 +320,18 @@ export function verifySnapshot(
     if (!isStrictDescendant(snapshot, sha, root.reviewCommitSha)) {
       reasons.push(`Codex finding ${root.id} fix is not a strict descendant`)
     }
-    if (Date.parse(snapshot.commitTimes[sha] ?? "") > Date.parse(comment.createdAt)) {
-      reasons.push(`Codex finding ${root.id} reply predates its fix commit`)
+    const findingTime = Date.parse(root.createdAt)
+    const fixTime = Date.parse(snapshot.commitTimes[sha] ?? "")
+    const replyTime = Date.parse(comment.createdAt)
+    if (!Number.isFinite(fixTime)) {
+      reasons.push(`Codex finding ${root.id} fix commit has no valid timestamp`)
+    } else {
+      if (fixTime <= findingTime) {
+        reasons.push(`Codex finding ${root.id} fix commit does not postdate the finding`)
+      }
+      if (fixTime >= replyTime) {
+        reasons.push(`Codex finding ${root.id} reply does not postdate its fix commit`)
+      }
     }
   }
 
