@@ -530,6 +530,35 @@ test("owner cleanup rejects ignored residue until the deletion owner removes it"
   expect(existsSync(fixture.worktree)).toBe(false)
 })
 
+test("owner cleanup requires the ignored-residue grant for a nested repository", () => {
+  const fixture = createFixture()
+  const identity = identifyLinkedWorktree(fixture.worktree)
+  const ownerCommit = installOwnerTool(fixture.root)
+  const nested = join(fixture.worktree, "ignored.tmp")
+  run(fixture.worktree, ["git", "init", "-q", nested])
+  writeFileSync(join(nested, "preserved"), "nested repository\n")
+  const options = {
+    repositoryCwd: fixture.root,
+    ownerCommit,
+    worktreeId: identity.worktree_id,
+    expectedGeneration: identity.generation,
+    expectedHead: identity.head,
+    expectedRef: identity.ref,
+    removeIgnored: false,
+  }
+
+  const failure = captureCleanupError(() => removeOwnedWorktree(options))
+  expect(failure.code).toBe("worktree_has_ignored_files")
+  expect(failure.receipt?.worktree_claimed).toBe(true)
+  expect(failure.receipt?.rollback_completed).toBe(true)
+  expect(existsSync(join(nested, "preserved"))).toBe(true)
+
+  const receipt = removeOwnedWorktree({ ...options, removeIgnored: true })
+  expect(receipt.status).toBe("completed")
+  expect(receipt.ignored_residue_removed).toBe(true)
+  expect(existsSync(fixture.worktree)).toBe(false)
+})
+
 test("owner cleanup records an ignored-residue removal attempt that fails partway", () => {
   const fixture = createFixture()
   const identity = identifyLinkedWorktree(fixture.worktree)
@@ -547,7 +576,7 @@ test("owner cleanup records an ignored-residue removal attempt that fails partwa
     wrapper,
     `#!/bin/sh
 case " $* " in
-  *" clean -fdX "*)
+  *" clean -fdffX "*)
     /bin/rm "$2/ignored.tmp/removed"
     exit 72
     ;;
@@ -585,7 +614,7 @@ test("owner cleanup reports a failed ignored cleanup with zero deletions as fail
     wrapper,
     `#!/bin/sh
 case " $* " in
-  *" clean -fdX "*) exit 72 ;;
+  *" clean -fdffX "*) exit 72 ;;
 esac
 exec "${realGit}" "$@"
 `,
@@ -674,6 +703,24 @@ test("owner cleanup rejects a target retained by another process before claiming
 
 test("owner cleanup rejects a target file retained by another process", async () => {
   const fixture = createFixture()
+  await expectRetainedFilePreservesTarget(fixture, join(fixture.worktree, "tracked.txt"))
+})
+
+test("owner cleanup rejects a linked-worktree admin file retained by another process", async () => {
+  const fixture = createFixture()
+  const adminDir = run(fixture.worktree, [
+    "git",
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-dir",
+  ])
+  await expectRetainedFilePreservesTarget(fixture, join(adminDir, "HEAD"))
+})
+
+async function expectRetainedFilePreservesTarget(
+  fixture: ReturnType<typeof createFixture>,
+  retainedPath: string,
+): Promise<void> {
   const identity = identifyLinkedWorktree(fixture.worktree)
   const ownerCommit = installOwnerTool(fixture.root)
   const user = Bun.spawn([
@@ -681,7 +728,7 @@ test("owner cleanup rejects a target file retained by another process", async ()
     "-c",
     "exec 3<\"$1\"; exec sleep 30",
     "sh",
-    join(fixture.worktree, "tracked.txt"),
+    retainedPath,
   ], {
     cwd: fixture.root,
     stdout: "ignore",
@@ -707,7 +754,7 @@ test("owner cleanup rejects a target file retained by another process", async ()
     user.kill()
     await user.exited
   }
-})
+}
 
 test("owner cleanup preserves a worktree with an initialized or deinitialized submodule", () => {
   const fixture = createFixture()
@@ -1549,6 +1596,43 @@ exec "${realGit}" "$@"
   expect(run(fixture.root, ["git", "rev-parse", identity.ref!])).toBe(identity.head)
   expect(readFileSync(packedRefsPath)).toEqual(packedRefsBytesBefore)
   expect(lstatSync(packedRefsPath).mode).toBe(packedRefsModeBefore)
+})
+
+test("owner cleanup does not hide a concurrently packed ref during symbolic rollback", () => {
+  const fixture = createFixture()
+  const identity = identifyLinkedWorktree(fixture.worktree)
+  const ownerCommit = installOwnerTool(fixture.root)
+  run(fixture.root, ["git", "update-ref", "refs/heads/victim", identity.head])
+  run(fixture.root, ["git", "symbolic-ref", identity.ref!, "refs/heads/victim"])
+  run(fixture.root, ["git", "commit", "--allow-empty", "-qm", "concurrent owner"])
+  const concurrentHead = run(fixture.root, ["git", "rev-parse", "HEAD"])
+  const realGit = Bun.which("git")
+  if (!realGit) throw new Error("git unavailable")
+  const bin = join(fixture.root, "bin")
+  run(fixture.root, ["/bin/mkdir", "-p", bin])
+  const wrapper = join(bin, "git")
+  writeFileSync(
+    wrapper,
+    `#!/bin/sh
+case " $* " in
+  *" worktree remove "*)
+    "${realGit}" -C "${fixture.root}" update-ref "${identity.ref!}" "${concurrentHead}" || exit $?
+    "${realGit}" -C "${fixture.root}" pack-refs --all --prune || exit $?
+    exit 71
+    ;;
+esac
+exec "${realGit}" "$@"
+`,
+  )
+  chmodSync(wrapper, 0o755)
+  const cleanup = runCleanupCli(fixture.root, identity, ownerCommit, bin)
+
+  expect(cleanup.exitCode).toBe(1)
+  const receipt = JSON.parse(cleanup.stdout.toString())
+  expect(receipt.reason_code).toBe("rollback_failed")
+  expect(receipt.rollback_attempted).toBe(true)
+  expect(receipt.rollback_completed).toBe(false)
+  expect(run(fixture.root, ["git", "rev-parse", identity.ref!])).toBe(concurrentHead)
 })
 
 test("owner cleanup restores the branch and public path when worktree removal fails", () => {

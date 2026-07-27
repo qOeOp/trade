@@ -159,7 +159,7 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
     observed = initial.identity
     assertExpectedIdentity(initial.identity, options)
     assertClean(initial.worktreePath)
-    assertNoTargetUsers(initial.worktreePath)
+    assertNoTargetUsers(initial.worktreePath, initial.adminDir)
     assertNoRegisteredSubmodules(initial.worktreePath)
     ownerCwd = initial.commonDir
     if (options.expectedRef !== null) assertFilesRefStorage(ownerCwd)
@@ -186,7 +186,7 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
     }
     assertExpectedIdentity(claimed.identity, options)
     assertClean(claimed.worktreePath)
-    assertNoTargetUsers(claimed.worktreePath)
+    assertNoTargetUsers(claimed.worktreePath, claimed.adminDir)
     if (process.platform === "linux") assertNoUnixSockets(initial.worktreePath, false)
     if (process.platform === "linux") {
       const staleSockets = collectUnixSocketFiles(claimed.worktreePath)
@@ -207,11 +207,11 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
         }
       }
     }
-    if (git(claimed.worktreePath, ["clean", "-ndX"])) {
+    if (git(claimed.worktreePath, ["clean", "-ndffX"])) {
       if (!options.removeIgnored) throw new WorktreeCleanupError("worktree_has_ignored_files")
       const entriesBefore = targetEntries(claimed.worktreePath)
       try {
-        git(claimed.worktreePath, ["clean", "-fdX"])
+        git(claimed.worktreePath, ["clean", "-fdffX"])
         ignoredRemoved = true
       } catch (error) {
         const entriesAfter = targetEntries(claimed.worktreePath)
@@ -219,7 +219,7 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
         throw error
       }
       assertNoIgnoredFiles(claimed.worktreePath)
-      assertNoTargetUsers(claimed.worktreePath)
+      assertNoTargetUsers(claimed.worktreePath, claimed.adminDir)
       if (process.platform === "linux") assertNoUnixSockets(initial.worktreePath, false)
     }
 
@@ -405,22 +405,27 @@ function assertClean(worktreePath: string): void {
 }
 
 function assertNoIgnoredFiles(worktreePath: string): void {
-  if (git(worktreePath, ["clean", "-ndX"])) {
+  if (git(worktreePath, ["clean", "-ndffX"])) {
     throw new WorktreeCleanupError("worktree_has_ignored_files")
   }
 }
 
-function assertNoTargetUsers(worktreePath: string): void {
-  assertNoTargetPathUsers(worktreePath)
+function assertNoTargetUsers(worktreePath: string, adminDir?: string): void {
+  assertNoTargetPathUsers(worktreePath, adminDir)
 }
 
-function assertNoTargetPathUsers(worktreePath: string): void {
+function assertNoTargetPathUsers(worktreePath: string, adminDir?: string): void {
+  const targetRoots = adminDir ? [worktreePath, adminDir] : [worktreePath]
   if (process.platform === "linux") {
-    assertNoLinuxTargetUsers(worktreePath)
+    assertNoLinuxTargetUsers(worktreePath, targetRoots)
     return
   }
   if (process.platform === "darwin") {
-    const openFiles = Bun.spawnSync(["/usr/sbin/lsof", "-t", "+D", worktreePath], {
+    const openFiles = Bun.spawnSync([
+      "/usr/sbin/lsof",
+      "-t",
+      ...targetRoots.flatMap((root) => ["+D", root]),
+    ], {
       stdout: "pipe",
       stderr: "pipe",
     })
@@ -443,16 +448,16 @@ function assertNoTargetPathUsers(worktreePath: string): void {
     const used = workingDirectories.stdout.toString().split("\n")
       .filter((line) => line.startsWith("n"))
       .map((line) => line.slice(1))
-      .some((path) => path === worktreePath || path.startsWith(`${worktreePath}/`))
+      .some((path) => targetRoots.some((root) => pathUsesTarget(path, root)))
     if (used) throw new WorktreeCleanupError("target_in_use")
     return
   }
   throw new WorktreeCleanupError("process_guard_unavailable")
 }
 
-function assertNoLinuxTargetUsers(worktreePath: string): void {
+function assertNoLinuxTargetUsers(worktreePath: string, targetRoots: string[]): void {
   try {
-    assertNoProcTargetUsers(worktreePath)
+    assertNoProcTargetUsers(worktreePath, targetRoots)
     return
   } catch (error) {
     if (!(error instanceof WorktreeCleanupError) || error.code !== "process_guard_unavailable") {
@@ -462,7 +467,7 @@ function assertNoLinuxTargetUsers(worktreePath: string): void {
 
   const paths: string[] = []
   try {
-    collectTargetPaths(worktreePath, paths)
+    for (const root of targetRoots) collectTargetPaths(root, paths)
   } catch {
     throw new WorktreeCleanupError("process_guard_unavailable")
   }
@@ -491,9 +496,12 @@ function assertNoLinuxTargetUsers(worktreePath: string): void {
   }
 }
 
-function assertNoProcTargetUsers(worktreePath: string): void {
+function assertNoProcTargetUsers(worktreePath: string, targetRoots: string[]): void {
   assertNoUnixSockets(worktreePath)
-  const targetFiles = collectTargetFileIdentities(worktreePath)
+  const targetFiles = new Set<string>()
+  for (const root of targetRoots) {
+    for (const identity of collectTargetFileIdentities(root)) targetFiles.add(identity)
+  }
   const inspectedNetworkNamespaces = new Set<string>()
   const ownNetworkNamespace = readProcessLink("/proc/self/ns/net")
   let processes
@@ -509,23 +517,23 @@ function assertNoProcTargetUsers(worktreePath: string): void {
     if (isZombieProcess(processPath)) continue
     const networkNamespace = readProcessLink(join(processPath, "ns", "net"))
     if (networkNamespace !== null && !inspectedNetworkNamespaces.has(networkNamespace)) {
-      assertNoUnixSocketsFrom(
+      const inspected = assertNoUnixSocketsFrom(
         join(processPath, "net", "unix"),
         worktreePath,
         true,
         networkNamespace === ownNetworkNamespace ? undefined : processPath,
       )
-      inspectedNetworkNamespaces.add(networkNamespace)
+      if (inspected) inspectedNetworkNamespaces.add(networkNamespace)
     }
     for (const linkName of ["cwd", "root", "exe"]) {
       const usedPath = readProcessLink(join(processPath, linkName))
-      if (usedPath !== null && pathUsesTarget(usedPath, worktreePath)) {
+      if (usedPath !== null && targetRoots.some((root) => pathUsesTarget(usedPath, root))) {
         throw new WorktreeCleanupError("target_in_use")
       }
     }
     for (const mapping of readProcessMappings(processPath)) {
       if (
-        pathUsesTarget(mapping.path, worktreePath)
+        targetRoots.some((root) => pathUsesTarget(mapping.path, root))
         || targetFiles.has(mapping.identity)
       ) {
         throw new WorktreeCleanupError("target_in_use")
@@ -542,7 +550,7 @@ function assertNoProcTargetUsers(worktreePath: string): void {
     for (const fileDescriptor of fileDescriptors) {
       const descriptorPath = join(processPath, "fd", fileDescriptor)
       const usedPath = readProcessLink(descriptorPath)
-      if (usedPath !== null && pathUsesTarget(usedPath, worktreePath)) {
+      if (usedPath !== null && targetRoots.some((root) => pathUsesTarget(usedPath, root))) {
         throw new WorktreeCleanupError("target_in_use")
       }
       let descriptorMetadata
@@ -575,7 +583,7 @@ function assertNoUnixSocketsFrom(
   worktreePath: string,
   inspectSocketFiles: boolean,
   processPath?: string,
-): void {
+): boolean {
   const targetSocketFiles = inspectSocketFiles ? collectUnixSocketFiles(worktreePath) : []
   const relativeTargetSockets = new Map(
     targetSocketFiles.map((socketPath) => [socketPath.slice(worktreePath.length + 1), socketPath]),
@@ -584,7 +592,7 @@ function assertNoUnixSocketsFrom(
   try {
     sockets = readFileSync(procUnixPath, "utf8")
   } catch (error) {
-    if (isMissingProcessEntry(error) && procUnixPath !== "/proc/net/unix") return
+    if (isMissingProcessEntry(error) && procUnixPath !== "/proc/net/unix") return false
     throw new WorktreeCleanupError("process_guard_unavailable")
   }
   for (const line of sockets.split("\n").slice(1)) {
@@ -600,6 +608,7 @@ function assertNoUnixSocketsFrom(
       throw new WorktreeCleanupError("target_in_use")
     }
   }
+  return true
 }
 
 function probeUnixSocket(
@@ -1208,6 +1217,9 @@ function createLockedSymbolicRef(
       targetHead.exitCode !== 0
       || targetHead.stdout.toString().trim() !== expectedHead
     ) {
+      throw new WorktreeCleanupError("ref_restore_failed")
+    }
+    if (!refMissingNoDeref(cwd, ref)) {
       throw new WorktreeCleanupError("ref_restore_failed")
     }
     refLockFd = openSync(refLock, "wx", mode)
