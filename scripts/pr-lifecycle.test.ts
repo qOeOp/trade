@@ -455,6 +455,11 @@ if (endpoint === "graphql") {
     if (state.mutationFault === "empty-resolve") output({})
     output({ data: { resolveReviewThread: { thread: { id: thread.id, isResolved: true } } } })
   }
+  if (state.graphFailuresRemaining > 0) {
+    state.graphFailuresRemaining -= 1
+    save()
+    fail(state.graphFailureMessage)
+  }
   applyEvidenceDrift()
   output(graph())
 }
@@ -717,6 +722,8 @@ function fakeProviderState() {
     replyCount: 0,
     basicReads: 0,
     graphReads: 0,
+    graphFailuresRemaining: 0,
+    graphFailureMessage: "",
     statuses: [] as Array<Record<string, string>>,
     statusAttempts: [] as Array<Record<string, string>>,
     statusFailuresRemaining: 0,
@@ -2112,6 +2119,31 @@ describe("gate status publication", () => {
         description: `Codex review receipt verified for ${head.slice(0, 12)}`,
       }])
       expect(confirmed.mutations).toBe(1)
+    })
+  }, 20_000)
+
+  test("redacts provider stderr when initial verification fails", () => {
+    withFakeProvider(({ invoke, readState, writeState }) => {
+      const state = readState()
+      state.graphFailuresRemaining = 1
+      state.graphFailureMessage = "provider-secret-payload"
+      writeState(state)
+
+      const result = invoke(gateArgs)
+      expect(result.exitCode).not.toBe(0)
+      expect(result.stdout.toString()).toBe("")
+      expect(result.stderr.toString()).toContain(
+        "PR lifecycle status publication failed closed",
+      )
+      expect(result.stderr.toString()).not.toContain("provider-secret-payload")
+      const confirmed = readState()
+      expect(confirmed.statusAttempts).toEqual([{
+        sha: head,
+        state: "failure",
+        context: "pr-lifecycle-gate",
+        description: "PR lifecycle verification failed closed",
+      }])
+      expect(confirmed.statuses).toEqual(confirmed.statusAttempts)
     })
   }, 20_000)
 

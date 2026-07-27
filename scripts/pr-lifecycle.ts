@@ -2575,11 +2575,9 @@ async function commandVerify(args: string[], writeStatus: boolean): Promise<void
     workflowSha: option(args, "--trusted-workflow-sha", false),
   }
   const allowDraft = args.includes("--allow-draft")
-  let statusPublicationStarted = false
   try {
     const result = await verifyLive(repository, pr, expected, allowDraft)
     if (writeStatus) {
-      statusPublicationStarted = true
       const published = await publishGateStatus(
         repository,
         pr,
@@ -2603,8 +2601,8 @@ async function commandVerify(args: string[], writeStatus: boolean): Promise<void
   } catch (error) {
     if (writeStatus) {
       publishGateFailure(repository, pr, "PR lifecycle verification failed closed")
+      failGateStatusPublication()
     }
-    if (statusPublicationStarted) failGateStatusPublication()
     throw error
   }
 }
