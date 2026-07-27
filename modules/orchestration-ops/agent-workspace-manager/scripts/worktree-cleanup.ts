@@ -26,7 +26,7 @@ import {
   writeSync,
 } from "node:fs"
 import { createHash, randomBytes } from "node:crypto"
-import { basename, dirname, join, resolve } from "node:path"
+import { basename, dirname, join, relative, resolve } from "node:path"
 
 const IDENTITY_SCHEMA = "trade.worktree-cleanup-identity.v3"
 const EXECUTION_SCHEMA = "trade.worktree-cleanup-execution.v4"
@@ -824,7 +824,13 @@ function inspectProcTask(
 }
 
 function assertNoUnixSockets(targetRoots: string[], inspectSocketFiles = true): void {
-  assertNoUnixSocketsFrom("/proc/net/unix", targetRoots, inspectSocketFiles)
+  assertNoUnixSocketsFrom(
+    "/proc/net/unix",
+    targetRoots,
+    inspectSocketFiles,
+    undefined,
+    "/proc/self",
+  )
 }
 
 function readProcessRootIdentity(taskPath: string): string | null {
@@ -853,6 +859,7 @@ function assertNoUnixSocketsFrom(
     const metadata = statSync(path, { bigint: true })
     return `${metadata.dev.toString(16)}:${metadata.ino.toString(16)}`
   }))
+  const targetSocketPaths = new Set(targetSocketFiles.map(({ path }) => resolve(path)))
   const relativeTargetSockets = new Map<string, string[]>()
   for (const socket of targetSocketFiles) {
     const relativePath = socket.path.slice(socket.root.length + 1)
@@ -868,6 +875,11 @@ function assertNoUnixSocketsFrom(
     if (isMissingProcessEntry(error) && procUnixPath !== "/proc/net/unix") return false
     throw new WorktreeCleanupError("process_guard_unavailable")
   }
+  for (const { path } of targetSocketFiles) {
+    if (probeUnixSocket(path, processPath) !== "stale") {
+      throw new WorktreeCleanupError("target_in_use")
+    }
+  }
   for (const line of sockets.split("\n").slice(1)) {
     if (!line) continue
     const match = line.match(/^\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+(?:\s+(.*))?$/)
@@ -875,6 +887,16 @@ function assertNoUnixSocketsFrom(
     const socketPath = match[1]
     if (socketPath?.startsWith("/")) {
       if (targetRoots.some((root) => pathUsesTarget(socketPath, root))) {
+        throw new WorktreeCleanupError("target_in_use")
+      }
+      if (
+        mountViewProcessPath !== undefined
+        && overlaySocketUsesTarget(
+          mountViewProcessPath,
+          socketPath,
+          targetSocketPaths,
+        )
+      ) {
         throw new WorktreeCleanupError("target_in_use")
       }
       const socketViews = mountViewProcessPath === undefined
@@ -912,6 +934,54 @@ function assertNoUnixSocketsFrom(
     }
   }
   return true
+}
+
+function overlaySocketUsesTarget(
+  processPath: string,
+  socketPath: string,
+  targetSocketPaths: Set<string>,
+): boolean {
+  let mountInfo
+  try {
+    mountInfo = readFileSync(join(processPath, "mountinfo"), "utf8")
+  } catch (error) {
+    if (isMissingProcessEntry(error)) return false
+    throw new WorktreeCleanupError("process_guard_unavailable")
+  }
+  let matchingMountPoint = ""
+  let matchingUpperDirectory: string | null = null
+  for (const line of mountInfo.split("\n")) {
+    const separator = line.indexOf(" - ")
+    if (separator < 0) continue
+    const mountFields = line.slice(0, separator).split(" ")
+    const filesystemFields = line.slice(separator + 3).split(" ")
+    if (mountFields.length < 5 || filesystemFields.length < 3) continue
+    const mountPoint = decodeMountInfoField(mountFields[4]!)
+    if (
+      filesystemFields[0] !== "overlay"
+      || !pathUsesTarget(socketPath, mountPoint)
+      || mountPoint.length < matchingMountPoint.length
+    ) {
+      continue
+    }
+    const upperOption = filesystemFields[2]!
+      .split(",")
+      .find((option) => option.startsWith("upperdir="))
+    matchingMountPoint = mountPoint
+    matchingUpperDirectory = upperOption
+      ? decodeMountInfoField(upperOption.slice("upperdir=".length))
+      : null
+  }
+  if (matchingUpperDirectory === null) return false
+  const socketRelativePath = relative(matchingMountPoint, socketPath)
+  if (socketRelativePath === ".." || socketRelativePath.startsWith("../")) return false
+  return targetSocketPaths.has(resolve(matchingUpperDirectory, socketRelativePath))
+}
+
+function decodeMountInfoField(value: string): string {
+  return value.replace(/\\([0-7]{3})/g, (_, octal: string) => (
+    String.fromCharCode(Number.parseInt(octal, 8))
+  ))
 }
 
 function probeUnixSocket(
