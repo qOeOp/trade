@@ -84,7 +84,7 @@ Replay release evidence 对若干源码文件绑定字节哈希。为避免候�
 
 GitHub Actions 在 pull request 与 `main` push 上调用同一编排器的独立 scope，并把事件 base commit 传给 policy 检查精确候选范围。`copilot-setup-steps.yml` 只配置 Copilot coding agent 的工具环境，不参与普通 Actions 加速或合并裁决。workflow 成功是否阻止合并仍由 GitHub repository ruleset / branch protection 决定。
 
-当前采用单 owner、黑灯工厂式 PR：ruleset 强制最新 `main`、`quality`、四语言 CodeQL 与 review thread resolution，不要求 approving review、required reviewer、CODEOWNER / last-push approval，也不得引入 manual exact-SHA、repository variable 管理员确认或其他人在环 authority gate。Agent 合并以当前精确 head 的 fresh evaluator 作为 mission 语义验收；自动 Codex review 只在候选冻结后做一次有界问题发现，只有可复现且映射到冻结验收、项目 authority、真实 consumer failure 或改动边界重大安全不变量的发现进入当前修订。修复后由 owner checks、required checks 与 fresh evaluator 收口，不自动重新触发全量 review；provider 明确要求当前 head review 时仍遵守其外部规则。所有 reviewer 驱动的修改共用 mission 修订与无进展预算，无法收口则有界终止，不转交人工审批。
+当前采用单 owner、黑灯工厂式 PR：ruleset 强制最新 `main`、`quality`、四语言 CodeQL 与 review thread resolution，不要求 approving review、required reviewer、CODEOWNER / last-push approval，也不得引入 manual exact-SHA、repository variable 管理员确认或其他人在环 authority gate。Agent 合并还要求当前精确 head 的 fresh evaluator 和自动 Codex review 均无未关闭发现；失败由 Agent 定向修复 / 重试，无法在预算内收口则保持阻断或有界终止，不转交人工审批。
 
 候选仍可能在同一 PR 修改 workflow 或质量裁判；这是单 owner 模型明确接受的信任限制。不得恢复已删除的 manual quality-authority，也不得把 required context 名称或 GitHub Actions integration 当成 provider-enforced independence。
 

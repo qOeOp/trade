@@ -77,7 +77,7 @@ For read-only analysis, design, planning, or audit, use bounded decision steps a
 
 ### 5. Execute
 
-The fresh evaluator is the admitted mission's semantic acceptance judge. Deterministic gates and externally required provider evidence remain binding; other reviewers are adversarial evidence sources and do not gain authority to redefine the objective, acceptance, or scope.
+The fresh evaluator supplies the admitted mission's required independent semantic evidence. The main context remains the semantic judge and terminal owner. Deterministic gates and externally required provider evidence remain binding; other reviewers are adversarial evidence sources and do not gain authority to redefine the objective, acceptance, or scope.
 
 Classify every new finding before remediation:
 
