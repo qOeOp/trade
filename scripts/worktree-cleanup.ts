@@ -166,14 +166,22 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
 
     quarantineParent = mkdtempSync(join(dirname(initial.worktreePath), ".worktree-cleanup-"))
     quarantinePath = join(quarantineParent, "target")
-    git(ownerCwd, ["worktree", "move", "--", initial.worktreePath, quarantinePath])
-    moved = true
-    everClaimed = true
-
+    const moveResult = gitResult(ownerCwd, [
+      "worktree",
+      "move",
+      "--",
+      initial.worktreePath,
+      quarantinePath,
+    ])
     const claimed = resolveTarget(claimedOptions)
     observed = claimed.identity
     if (resolve(claimed.worktreePath) !== resolve(quarantinePath)) {
       throw new WorktreeCleanupError("claimed_path_mismatch")
+    }
+    moved = true
+    everClaimed = true
+    if (moveResult.exitCode !== 0) {
+      throw new WorktreeCleanupError("git_operation_failed")
     }
     assertExpectedIdentity(claimed.identity, options)
     assertClean(claimed.worktreePath)
@@ -486,6 +494,7 @@ function assertNoProcTargetUsers(worktreePath: string): void {
   assertNoUnixSockets(worktreePath)
   const targetFiles = collectTargetFileIdentities(worktreePath)
   const inspectedNetworkNamespaces = new Set<string>()
+  const ownNetworkNamespace = readProcessLink("/proc/self/ns/net")
   let processes
   try {
     processes = readdirSync("/proc", { withFileTypes: true })
@@ -503,6 +512,7 @@ function assertNoProcTargetUsers(worktreePath: string): void {
         join(processPath, "net", "unix"),
         worktreePath,
         true,
+        networkNamespace === ownNetworkNamespace ? undefined : processPath,
       )
       inspectedNetworkNamespaces.add(networkNamespace)
     }
@@ -512,8 +522,11 @@ function assertNoProcTargetUsers(worktreePath: string): void {
         throw new WorktreeCleanupError("target_in_use")
       }
     }
-    for (const mappedPath of readProcessMappings(processPath)) {
-      if (pathUsesTarget(mappedPath, worktreePath)) {
+    for (const mapping of readProcessMappings(processPath)) {
+      if (
+        pathUsesTarget(mapping.path, worktreePath)
+        || targetFiles.has(mapping.identity)
+      ) {
         throw new WorktreeCleanupError("target_in_use")
       }
     }
@@ -560,6 +573,7 @@ function assertNoUnixSocketsFrom(
   procUnixPath: string,
   worktreePath: string,
   inspectSocketFiles: boolean,
+  processPath?: string,
 ): void {
   const targetSocketFiles = inspectSocketFiles ? collectUnixSocketFiles(worktreePath) : []
   const relativeTargetSockets = new Map(
@@ -581,14 +595,17 @@ function assertNoUnixSocketsFrom(
       throw new WorktreeCleanupError("target_in_use")
     }
     const targetSocket = socketPath ? relativeTargetSockets.get(socketPath) : undefined
-    if (targetSocket && probeUnixSocket(targetSocket) !== "stale") {
+    if (targetSocket && probeUnixSocket(targetSocket, processPath) !== "stale") {
       throw new WorktreeCleanupError("target_in_use")
     }
   }
 }
 
-function probeUnixSocket(socketPath: string): "live" | "stale" | "unavailable" {
-  const probe = Bun.spawnSync([
+function probeUnixSocket(
+  socketPath: string,
+  processPath?: string,
+): "live" | "stale" | "unavailable" {
+  const command = [
     process.execPath,
     "-e",
     `import { connect } from "node:net";
@@ -600,7 +617,10 @@ socket.once("error", (error) => {
   process.exit(error?.code === "ECONNREFUSED" || error?.code === "ENOENT" ? 2 : 3);
 });`,
     socketPath,
-  ], {
+  ]
+  const probe = Bun.spawnSync(processPath
+    ? ["/usr/bin/nsenter", `--net=${join(processPath, "ns", "net")}`, "--", ...command]
+    : command, {
     stdout: "ignore",
     stderr: "ignore",
   })
@@ -701,7 +721,7 @@ function assertNoTargetInotifyWatch(
   }
 }
 
-function readProcessMappings(processPath: string): string[] {
+function readProcessMappings(processPath: string): Array<{ path: string; identity: string }> {
   let mappings
   try {
     mappings = readFileSync(join(processPath, "maps"), "utf8")
@@ -712,12 +732,30 @@ function readProcessMappings(processPath: string): string[] {
   return mappings.split("\n").flatMap((line) => {
     if (!line) return []
     const match = line.match(
-      /^[0-9a-f]+-[0-9a-f]+\s+\S+\s+\S+\s+\S+\s+\d+\s*(.*)$/,
+      /^[0-9a-f]+-[0-9a-f]+\s+\S+\s+\S+\s+([0-9a-f]+):([0-9a-f]+)\s+(\d+)\s*(.*)$/,
     )
     if (!match) throw new WorktreeCleanupError("process_guard_unavailable")
-    const path = match[1]
-    return path?.startsWith("/") ? [path] : []
+    const path = match[4]
+    if (!path?.startsWith("/")) return []
+    return [{
+      path,
+      identity: linuxDeviceInodeIdentity(match[1]!, match[2]!, match[3]!),
+    }]
   })
+}
+
+function linuxDeviceInodeIdentity(
+  majorHex: string,
+  minorHex: string,
+  inodeDecimal: string,
+): string {
+  const major = BigInt(`0x${majorHex}`)
+  const minor = BigInt(`0x${minorHex}`)
+  const device = (minor & 0xffn)
+    | ((major & 0xfffn) << 8n)
+    | ((minor & ~0xffn) << 12n)
+    | ((major & ~0xfffn) << 32n)
+  return `${device.toString(16)}:${BigInt(inodeDecimal).toString(16)}`
 }
 
 function isZombieProcess(processPath: string): boolean {
@@ -911,7 +949,7 @@ function restoreRef(
   if (snapshot.kind === "direct") {
     try {
       moveLockedDirectRef(cwd, guardRef, ref, expectedHead)
-      restoreFile(looseRefPath(cwd, `logs/${ref}`), snapshot.reflog)
+      restoreDirectReflogUnderRefLock(cwd, ref, expectedHead, snapshot.reflog)
     } catch {
       throw new WorktreeCleanupError("ref_restore_failed")
     }
@@ -919,6 +957,27 @@ function restoreRef(
   }
   restoreSymbolicRef(cwd, ref, expectedHead, snapshot.target, snapshot.mode)
   restorePackedRefEntry(cwd, ref, snapshot.packedEntry)
+}
+
+function restoreDirectReflogUnderRefLock(
+  cwd: string,
+  ref: string,
+  expectedHead: string,
+  reflog: FileSnapshot | null,
+): void {
+  const refPath = looseRefPath(cwd, ref)
+  const lockPath = `${refPath}.lock`
+  let lockIdentity: FileIdentity | undefined
+  try {
+    linkSync(refPath, lockPath)
+    lockIdentity = lstatSync(lockPath)
+    if (readFileSync(lockPath, "utf8").trim() !== expectedHead) {
+      throw new WorktreeCleanupError("ref_restore_failed")
+    }
+    restoreFile(looseRefPath(cwd, `logs/${ref}`), reflog)
+  } finally {
+    if (lockIdentity) unlinkOwnedLock(lockPath, lockIdentity)
+  }
 }
 
 function restoreSymbolicRef(
@@ -1017,6 +1076,15 @@ function moveLockedDirectRef(
     stderr: "pipe",
   })
   if (transaction.exitCode !== 0) {
+    const source = gitResult(cwd, ["rev-parse", "--verify", sourceRef])
+    const destination = gitResult(cwd, ["rev-parse", "--verify", destinationRef])
+    if (
+      source.exitCode !== 0
+      && destination.exitCode === 0
+      && destination.stdout.toString().trim() === expectedHead
+    ) {
+      return
+    }
     throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
   }
 }
@@ -1343,7 +1411,12 @@ function rollbackMove(repositoryCwd: string, quarantinePath: string, originalPat
     throw new WorktreeCleanupError("rollback_unavailable")
   }
   const result = gitResult(repositoryCwd, ["worktree", "move", "--", quarantinePath, originalPath])
-  if (result.exitCode !== 0) throw new WorktreeCleanupError("rollback_failed")
+  if (
+    result.exitCode !== 0
+    && (!existsSync(originalPath) || existsSync(quarantinePath))
+  ) {
+    throw new WorktreeCleanupError("rollback_failed")
+  }
 }
 
 function assertWorktreeId(value: string): void {
