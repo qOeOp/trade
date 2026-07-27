@@ -185,12 +185,17 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
   let removed = false
   let refDeleted = false
   let refSnapshot: RefSnapshot | undefined
+  let branchConfigSnapshot: Buffer | undefined
   let guardRef: string | undefined
   let guardSnapshot: Extract<RefSnapshot, { kind: "direct" }> | undefined
   let rollbackAttempted = false
   let rollbackCompleted = false
   try {
     assertHead(options.ownerCommit)
+    options = {
+      ...options,
+      ownerCommit: resolveOwnerCommit(options.repositoryCwd, options.ownerCommit),
+    }
     assertWorktreeId(options.worktreeId)
     assertHead(options.expectedHead)
     if (options.expectedRef !== null) assertRef(options.repositoryCwd, options.expectedRef)
@@ -201,8 +206,12 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
     assertClean(initial.worktreePath)
     assertNoTargetUsers(initial.worktreePath, initial.adminDir)
     assertNoRegisteredSubmodules(initial.worktreePath)
+    assertNoNestedRegisteredWorktrees(initial.commonDir, [initial.worktreePath])
     ownerCwd = initial.commonDir
-    if (options.expectedRef !== null) assertFilesRefStorage(ownerCwd)
+    if (options.expectedRef !== null) {
+      assertFilesRefStorage(ownerCwd)
+      branchConfigSnapshot = snapshotBranchConfig(ownerCwd, options.expectedRef)
+    }
     const claimedOptions = { ...options, repositoryCwd: ownerCwd }
 
     quarantineParent = mkdtempSync(join(dirname(initial.worktreePath), ".worktree-cleanup-"))
@@ -233,6 +242,10 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
     assertExpectedIdentity(claimed.identity, options)
     assertClean(claimed.worktreePath)
     assertNoTargetUsers(claimed.worktreePath, claimed.adminDir)
+    assertNoNestedRegisteredWorktrees(ownerCwd, [
+      initial.worktreePath,
+      claimed.worktreePath,
+    ])
     if (process.platform === "linux") {
       assertNoUnixSockets([initial.worktreePath, initial.adminDir], false)
     }
@@ -291,6 +304,10 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
     assertClean(claimed.worktreePath)
     assertNoIgnoredFiles(claimed.worktreePath)
     assertNoTargetUsers(claimed.worktreePath, claimed.adminDir)
+    assertNoNestedRegisteredWorktrees(ownerCwd, [
+      initial.worktreePath,
+      claimed.worktreePath,
+    ])
     if (process.platform === "linux") {
       assertNoUnixSockets([initial.worktreePath, initial.adminDir], false)
     }
@@ -312,6 +329,7 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
         guardSnapshot,
         refSnapshot,
         originalRef,
+        branchConfigSnapshot,
       )
     }
 
@@ -383,6 +401,7 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
             guardSnapshot,
             refSnapshot,
             options.expectedRef,
+            branchConfigSnapshot,
           )
         }
         rollbackCompleted = true
@@ -1262,6 +1281,22 @@ function assertOwnerTool(options: RemoveOptions): void {
   if (result.exitCode !== 0) throw new WorktreeCleanupError("owner_tool_identity_missing")
 }
 
+function resolveOwnerCommit(cwd: string, ownerCommit: string): string {
+  const result = gitResult(cwd, [
+    "rev-parse",
+    "--verify",
+    `${ownerCommit}^{commit}`,
+  ])
+  if (result.exitCode !== 0) {
+    throw new WorktreeCleanupError("owner_tool_identity_missing")
+  }
+  const resolved = result.stdout.toString().trim()
+  if (!/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(resolved)) {
+    throw new WorktreeCleanupError("owner_tool_identity_missing")
+  }
+  return resolved
+}
+
 function failureReceipt(
   options: RemoveOptions,
   reasonCode: string,
@@ -2084,6 +2119,7 @@ function deleteGuardRef(
   guardSnapshot: Extract<RefSnapshot, { kind: "direct" }> | undefined,
   snapshot: RefSnapshot | undefined,
   originalRef: string,
+  branchConfigSnapshot: Buffer | undefined,
 ): void {
   if (!guardSnapshot) throw new WorktreeCleanupError("guard_ref_cleanup_failed")
   const deleteGuard = runValidatedDirectRefTransaction(
@@ -2097,10 +2133,14 @@ function deleteGuardRef(
     throw new WorktreeCleanupError("guard_ref_cleanup_failed")
   }
   if (!snapshot) return
-  cleanupDeletedBranchMetadata(cwd, originalRef)
+  cleanupDeletedBranchMetadata(cwd, originalRef, branchConfigSnapshot)
 }
 
-function cleanupDeletedBranchMetadata(cwd: string, ref: string): void {
+function cleanupDeletedBranchMetadata(
+  cwd: string,
+  ref: string,
+  branchConfigSnapshot: Buffer | undefined,
+): void {
   const refPath = looseRefPath(cwd, ref)
   const refLock = `${refPath}.lock`
   const commonDir = git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])
@@ -2122,7 +2162,9 @@ function cleanupDeletedBranchMetadata(cwd: string, ref: string): void {
         .some((line) => line.endsWith(` ${ref}`))
     if (existsSync(refPath) || packedRefPresent) return
     const branchName = ref.slice("refs/heads/".length)
-    removeBranchConfigUnderLock(cwd, commonDir, branchName)
+    if (branchConfigSnapshot) {
+      removeBranchConfigUnderLock(cwd, commonDir, branchName, branchConfigSnapshot)
+    }
     const reflogPath = looseRefPath(cwd, `logs/${ref}`)
     if (existsSync(reflogPath)) unlinkSync(reflogPath)
   } finally {
@@ -2140,6 +2182,7 @@ function removeBranchConfigUnderLock(
   cwd: string,
   commonDir: string,
   branchName: string,
+  expectedConfig: Buffer,
 ): void {
   const configLinkPath = join(commonDir, "config")
   const configLinkIdentity = fileIdentityForPath(configLinkPath)
@@ -2164,6 +2207,12 @@ function removeBranchConfigUnderLock(
     editDirectory = mkdtempSync(join(commonDir, "worktree-cleanup-config-"))
     const editPath = join(editDirectory, "config")
     writeFileSync(editPath, configContents, { mode: configMode })
+    const currentConfig = snapshotBranchConfig(
+      cwd,
+      `refs/heads/${branchName}`,
+      editPath,
+    )
+    if (!currentConfig.equals(expectedConfig)) return
     const sectionPattern = `^branch\\.${escapeRegExp(branchName)}\\.`
     const existingConfig = gitResult(cwd, [
       "config",
@@ -2342,6 +2391,41 @@ function assertNoRegisteredSubmodules(worktreePath: string): void {
   if (result.stdout.toString().split("\n").some((line) => line !== "")) {
     throw new WorktreeCleanupError("worktree_has_registered_submodules")
   }
+}
+
+function assertNoNestedRegisteredWorktrees(cwd: string, targetPaths: string[]): void {
+  const result = gitResult(cwd, ["worktree", "list", "--porcelain", "-z"])
+  if (result.exitCode !== 0) throw new WorktreeCleanupError("git_operation_failed")
+  const targets = targetPaths.map((path) => resolve(path))
+  for (const field of result.stdout.toString().split("\0")) {
+    if (!field.startsWith("worktree ")) continue
+    const registeredPath = resolve(field.slice("worktree ".length))
+    if (
+      targets.some((target) => (
+        registeredPath !== target
+        && pathUsesTarget(registeredPath, target)
+      ))
+    ) {
+      throw new WorktreeCleanupError("worktree_has_nested_worktree")
+    }
+  }
+}
+
+function snapshotBranchConfig(cwd: string, ref: string, file?: string): Buffer {
+  const branchName = ref.slice("refs/heads/".length)
+  const result = gitResult(cwd, [
+    "config",
+    ...(file ? ["--file", file] : []),
+    "--null",
+    "--no-includes",
+    "--get-regexp",
+    `^branch\\.${escapeRegExp(branchName)}\\.`,
+  ])
+  if (result.exitCode === 1 && result.stderr.length === 0) return Buffer.alloc(0)
+  if (result.exitCode !== 0) {
+    throw new WorktreeCleanupError("guard_branch_config_cleanup_failed")
+  }
+  return result.stdout
 }
 
 function assertWorktreeId(value: string): void {

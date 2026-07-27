@@ -96,10 +96,11 @@ test("owner cleanup reports branch deletion in a SHA-256 repository", () => {
   const fixture = createFixture("sha256")
   const identity = identifyLinkedWorktree(fixture.worktree)
   const ownerCommit = installOwnerTool(fixture.root)
+  const abbreviatedOwnerCommit = ownerCommit.slice(0, 40)
 
   const receipt = removeOwnedWorktree({
     repositoryCwd: fixture.root,
-    ownerCommit,
+    ownerCommit: abbreviatedOwnerCommit,
     worktreeId: identity.worktree_id,
     expectedGeneration: identity.generation,
     expectedHead: identity.head,
@@ -109,6 +110,8 @@ test("owner cleanup reports branch deletion in a SHA-256 repository", () => {
 
   expect(identity.head).toHaveLength(64)
   expect(receipt.status).toBe("completed")
+  expect(receipt.owner_commit).toBe(ownerCommit)
+  expect(receipt.owner_commit).toHaveLength(64)
   expect(receipt.local_branch_deleted).toBe(true)
   expect(existsSync(fixture.worktree)).toBe(false)
 })
@@ -212,6 +215,38 @@ test("owner cleanup removes the deleted branch configuration without creating gu
     "--get-regexp",
     "^branch\\.worktree-cleanup-",
   ]).exitCode).not.toBe(0)
+})
+
+test("owner cleanup preserves branch configuration created after the ref claim", () => {
+  const fixture = createFixture()
+  const identity = identifyLinkedWorktree(fixture.worktree)
+  run(fixture.root, ["git", "config", "branch.mission-branch.remote", "origin"])
+  const ownerCommit = installOwnerTool(fixture.root)
+  const hook = join(fixture.root, ".git", "hooks", "reference-transaction")
+  writeFileSync(
+    hook,
+    `#!/bin/sh
+[ "$1" = committed ] || exit 0
+git -C "${fixture.root}" config branch.mission-branch.cleanup-owner new-owner
+`,
+  )
+  chmodSync(hook, 0o755)
+
+  const receipt = removeOwnedWorktree({
+    repositoryCwd: fixture.root,
+    ownerCommit,
+    worktreeId: identity.worktree_id,
+    expectedGeneration: identity.generation,
+    expectedHead: identity.head,
+    expectedRef: identity.ref,
+    removeIgnored: false,
+  })
+
+  expect(receipt.status).toBe("completed")
+  expect(run(
+    fixture.root,
+    ["git", "config", "--get", "branch.mission-branch.cleanup-owner"],
+  )).toBe("new-owner")
 })
 
 test("owner cleanup preserves a symlinked repository config while removing branch metadata", () => {
@@ -924,6 +959,32 @@ test("owner cleanup requires the ignored-residue grant for a nested repository",
   expect(receipt.status).toBe("completed")
   expect(receipt.ignored_residue_removed).toBe(true)
   expect(existsSync(fixture.worktree)).toBe(false)
+})
+
+test("owner cleanup preserves an ignored nested registered worktree", () => {
+  const fixture = createFixture()
+  const nested = join(fixture.worktree, "ignored.tmp")
+  run(fixture.root, ["git", "worktree", "add", "-qb", "nested-branch", nested])
+  writeFileSync(join(nested, "untracked.txt"), "preserve\n")
+  const identity = identifyLinkedWorktree(fixture.worktree)
+  const ownerCommit = installOwnerTool(fixture.root)
+
+  const failure = captureCleanupError(() => removeOwnedWorktree({
+    repositoryCwd: fixture.root,
+    ownerCommit,
+    worktreeId: identity.worktree_id,
+    expectedGeneration: identity.generation,
+    expectedHead: identity.head,
+    expectedRef: identity.ref,
+    removeIgnored: true,
+  }))
+
+  expect(failure.code).toBe("worktree_has_nested_worktree")
+  expect(failure.receipt?.worktree_claimed).toBe(false)
+  expect(existsSync(fixture.worktree)).toBe(true)
+  expect(readFileSync(join(nested, "untracked.txt"), "utf8")).toBe("preserve\n")
+  expect(run(fixture.root, ["git", "worktree", "list", "--porcelain"]))
+    .toContain("branch refs/heads/nested-branch")
 })
 
 test("owner cleanup records an ignored-residue removal attempt that fails partway", () => {

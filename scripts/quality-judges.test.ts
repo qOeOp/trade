@@ -443,6 +443,36 @@ describe("quality judges fail closed", () => {
     expect(pass.stdout).toContain("compiled and tested 1 TypeScript packages directly")
   })
 
+  test("direct package execution includes package-level script tests", () => {
+    const root = temporaryRoot()
+    symlinkSync(join(repoRoot, "node_modules"), join(root, "node_modules"), "dir")
+    write(root, "modules/domain-a/tool-a/package.json", "{}\n")
+    write(root, "modules/domain-a/tool-a/tsconfig.json", JSON.stringify({
+      compilerOptions: { strict: true, skipLibCheck: true, types: ["bun"] },
+      include: ["src/**/*.ts", "scripts/**/*.ts"],
+    }))
+    write(root, "modules/domain-a/tool-a/src/main.ts", "export const value = true\n")
+    write(root, "modules/domain-a/tool-a/src/main.test.ts", [
+      'import { expect, test } from "bun:test"',
+      'test("source", () => expect(true).toBe(true))',
+      "",
+    ].join("\n"))
+    write(root, "modules/domain-a/tool-a/scripts/owner.test.ts", [
+      'import { expect, test } from "bun:test"',
+      'test("owner", () => expect(false).toBe(true))',
+      "",
+    ].join("\n"))
+
+    const result = runJudge(
+      "check-package-tests.ts",
+      root,
+      ["--run-package", "modules/domain-a/tool-a"],
+    )
+
+    expect(result.exitCode).toBe(1)
+    expect(`${result.stdout}\n${result.stderr}`).toContain("owner.test.ts")
+  })
+
   test("document contracts reject an invented current status even when the index agrees", () => {
     const root = documentContractFixture({ status: "invented-status" })
 
