@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync } from "node:fs"
+import { dirname, join } from "node:path"
 
 type JSONRecord = Record<string, unknown>
 
@@ -159,6 +160,25 @@ for (const storeId of storeIds) {
   }
 }
 
+const moduleMarkers = new Set(["package.json", "go.mod", "Cargo.toml", "requirements.txt"])
+for (const markerPath of walkFiles("modules", (name) => moduleMarkers.has(name))) {
+  const moduleDir = dirname(markerPath)
+  if (!existsSync(join(moduleDir, "CONTRACT.md"))) {
+    issues.push(`module marker has no owner contract: ${moduleDir}/CONTRACT.md`)
+  }
+}
+for (const contractPath of walkFiles("modules", (name) => name === "CONTRACT.md")) {
+  const moduleDir = dirname(contractPath)
+  const sourceDir = join(moduleDir, "src")
+  if (!existsSync(sourceDir) || walkFiles(sourceDir, (name) => name.endsWith(".ts")).length === 0) continue
+  if (!existsSync(join(moduleDir, "tsconfig.json"))) {
+    issues.push(`TypeScript module is missing tsconfig: ${moduleDir}`)
+  }
+  if (!existsSync(join(moduleDir, "package.json"))) {
+    issues.push(`TypeScript module is missing package check entry: ${moduleDir}`)
+  }
+}
+
 if (issues.length > 0) {
   console.error(`architecture manifest violations:\n${issues.join("\n")}`)
   process.exit(1)
@@ -166,6 +186,20 @@ if (issues.length > 0) {
 
 function readJson(path: string): JSONRecord {
   return JSON.parse(readFileSync(path, "utf8")) as JSONRecord
+}
+
+function walkFiles(dir: string, matches: (name: string) => boolean): string[] {
+  const files: string[] = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory() && ["node_modules", "target", "data"].includes(entry.name)) continue
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      files.push(...walkFiles(path, matches))
+    } else if (entry.isFile() && matches(entry.name)) {
+      files.push(path)
+    }
+  }
+  return files
 }
 
 function requirePath(path: string, label: string): void {

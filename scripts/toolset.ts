@@ -44,6 +44,9 @@ function main(argv: string[]): void {
   const args = parseArgs(argv)
   const manifest = readManifest()
   const issues = validateManifest(manifest)
+  if (existsSync("toolset")) {
+    issues.push("tool registry belongs at ./toolset.json; do not recreate toolset/")
+  }
   if (args.validate) {
     if (issues.length > 0) {
       console.error(`toolset: invalid manifest\n${issues.join("\n")}`)
