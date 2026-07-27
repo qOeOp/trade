@@ -229,6 +229,24 @@ test("detached pristine worktrees are removed without deleting a branch", () => 
   expect(receipt.local_branch_deleted).toBe(false)
 })
 
+test("receipts retain Git-valid ref characters after authoritative validation", () => {
+  const fixture = createFixture()
+  git(fixture.worktree, ["branch", "-m", "evaluator@target"])
+  const identity = identifyLinkedWorktree(fixture.worktree)
+  const receipt = removeOwnedWorktree({
+    repositoryCwd: fixture.root,
+    ownerCommit: git(fixture.root, ["rev-parse", "HEAD"]),
+    worktreeId: identity.worktree_id,
+    expectedGeneration: identity.generation,
+    expectedHead: identity.head,
+    expectedRef: identity.ref,
+  })
+
+  expect(receipt.status).toBe("completed")
+  expect(receipt.expected_ref).toBe("refs/heads/evaluator@target")
+  expect(receipt.observed_ref).toBe("refs/heads/evaluator@target")
+})
+
 function createFixture(): { root: string; worktree: string } {
   const root = mkdtempSync(join(tmpdir(), "trade-cleanup-"))
   fixtures.push(root)

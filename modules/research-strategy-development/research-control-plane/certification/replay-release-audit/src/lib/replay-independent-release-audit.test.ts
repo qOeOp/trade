@@ -218,8 +218,7 @@ async function expectProcessToBeGone(pid: number): Promise<void> {
         const commandEnd = stat.lastIndexOf(")")
         if (commandEnd >= 0 && stat[commandEnd + 2] === "Z") return
       } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code
-        if (code === "ENOENT" || code === "ESRCH") return
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return
         throw error
       }
     }

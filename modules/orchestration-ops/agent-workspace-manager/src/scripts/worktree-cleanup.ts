@@ -109,6 +109,7 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupReceipt {
   let observedGeneration: string | null = null
   let observedHead: string | null = null
   let observedRef: string | null = null
+  let expectedRefForReceipt: string | null = null
   let worktreeRemoved = false
   let localBranchDeleted = false
 
@@ -122,7 +123,7 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupReceipt {
     worktree_id: sanitizeWorktreeId(options.worktreeId),
     expected_generation: sanitizeGeneration(options.expectedGeneration),
     expected_head: sanitizeOid(options.expectedHead),
-    expected_ref: sanitizeRef(options.expectedRef),
+    expected_ref: expectedRefForReceipt,
     observed_generation: observedGeneration,
     observed_head: observedHead,
     observed_ref: observedRef,
@@ -137,7 +138,10 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupReceipt {
     assertGeneration(options.expectedGeneration)
     assertOid(options.ownerCommit)
     assertOid(options.expectedHead)
-    if (options.expectedRef !== null) assertBranchRef(options.repositoryCwd, options.expectedRef)
+    if (options.expectedRef !== null) {
+      assertBranchRef(options.repositoryCwd, options.expectedRef)
+      expectedRefForReceipt = options.expectedRef
+    }
     ownerCommit = resolveCommit(options.repositoryCwd, options.ownerCommit)
 
     let target = resolveTarget(options.repositoryCwd, options.worktreeId)
@@ -330,15 +334,6 @@ function sanitizeGeneration(value: string): string {
 
 function sanitizeOid(value: string): string {
   return /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value) ? value : "invalid"
-}
-
-function sanitizeRef(value: string | null): string | null {
-  return value !== null
-    && /^refs\/heads\/[A-Za-z0-9._/-]+$/.test(value)
-    && !value.includes("//")
-    && !value.split("/").some((segment) => segment === "." || segment === "..")
-    ? value
-    : null
 }
 
 function parseArguments(arguments_: string[]): { command: string; values: Map<string, string> } {
