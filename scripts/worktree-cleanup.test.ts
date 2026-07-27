@@ -10,6 +10,7 @@ import {
   readdirSync,
   rmdirSync,
   rmSync,
+  statSync,
   writeFileSync,
   watch,
 } from "node:fs"
@@ -943,19 +944,24 @@ if (process.platform === "linux") {
     writeFileSync(
       workerPath,
       `import { dlopen, FFIType } from "bun:ffi"
-import { openSync, writeFileSync } from "node:fs"
+import { fstatSync, openSync, writeFileSync } from "node:fs"
 
 self.onmessage = (event) => {
   const libc = dlopen("libc.so.6", {
     unshare: { args: [FFIType.i32], returns: FFIType.i32 },
+    gettid: { args: [], returns: FFIType.i32 },
   })
   if (libc.symbols.unshare(0x00000400) !== 0) {
     writeFileSync(event.data.readyPath, "unshare-error")
     return
   }
-  openSync(event.data.targetPath, "r")
-  writeFileSync(event.data.readyPath, "ready")
-  setInterval(() => {}, 1000)
+  const retained = openSync(event.data.targetPath, "r")
+  writeFileSync(event.data.readyPath, JSON.stringify({
+    processId: process.pid,
+    threadId: libc.symbols.gettid(),
+    fileDescriptor: retained,
+  }))
+  setInterval(() => fstatSync(retained), 1000)
 }
 `,
     )
@@ -978,7 +984,16 @@ setInterval(() => {}, 1000)
     ], { cwd: fixture.root, stdout: "ignore", stderr: "ignore" })
     try {
       await waitForPath(readyPath)
-      if (readFileSync(readyPath, "utf8") === "unshare-error") return
+      const ready = readFileSync(readyPath, "utf8")
+      if (ready === "unshare-error") return
+      const retained = JSON.parse(ready)
+      const descriptor = statSync(
+        `/proc/${retained.processId}/task/${retained.threadId}/fd/${retained.fileDescriptor}`,
+        { bigint: true },
+      )
+      const target = lstatSync(join(fixture.worktree, "tracked.txt"), { bigint: true })
+      expect(descriptor.dev).toBe(target.dev)
+      expect(descriptor.ino).toBe(target.ino)
       expectCleanupInUse(fixture)
     } finally {
       user.kill()

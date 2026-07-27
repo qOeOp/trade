@@ -516,6 +516,7 @@ function assertNoProcTargetUsers(targetRoots: string[]): void {
     throw new WorktreeCleanupError("process_guard_unavailable")
   }
 
+  let inspectionUnavailable = false
   for (const processEntry of processes) {
     const processPath = join("/proc", processEntry.name)
     let tasks
@@ -524,81 +525,106 @@ function assertNoProcTargetUsers(targetRoots: string[]): void {
         .filter((entry) => entry.isDirectory() && /^\d+$/.test(entry.name))
     } catch (error) {
       if (isMissingProcessEntry(error)) continue
-      throw new WorktreeCleanupError("process_guard_unavailable")
+      inspectionUnavailable = true
+      continue
     }
     for (const taskEntry of tasks) {
       const taskPath = join(processPath, "task", taskEntry.name)
-      if (isZombieProcess(taskPath)) continue
-      const networkNamespace = readProcessLink(join(taskPath, "ns", "net"))
-      if (networkNamespace !== null && !inspectedNetworkNamespaces.has(networkNamespace)) {
-        const inspected = assertNoUnixSocketsFrom(
-          join(taskPath, "net", "unix"),
-          targetRoots,
-          true,
-          networkNamespace === ownNetworkNamespace ? undefined : taskPath,
-        )
-        if (inspected) inspectedNetworkNamespaces.add(networkNamespace)
-      }
-      for (const linkName of ["cwd", "root", "exe"]) {
-        const linkPath = join(taskPath, linkName)
-        const usedPath = readProcessLink(linkPath)
-        if (usedPath !== null && targetRoots.some((root) => pathUsesTarget(usedPath, root))) {
-          throw new WorktreeCleanupError("target_in_use")
-        }
-        try {
-          const metadata = statSync(linkPath, { bigint: true })
-          if (targetFiles.has(
-            `${metadata.dev.toString(16)}:${metadata.ino.toString(16)}`,
-          )) {
-            throw new WorktreeCleanupError("target_in_use")
-          }
-        } catch (error) {
-          if (error instanceof WorktreeCleanupError) throw error
-          if (!isMissingProcessEntry(error)) {
-            throw new WorktreeCleanupError("process_guard_unavailable")
-          }
-        }
-      }
-      for (const mapping of readProcessMappings(taskPath)) {
-        if (
-          targetRoots.some((root) => pathUsesTarget(mapping.path, root))
-          || targetFiles.has(mapping.identity)
-        ) {
-          throw new WorktreeCleanupError("target_in_use")
-        }
-      }
-
-      let fileDescriptors
       try {
-        fileDescriptors = readdirSync(join(taskPath, "fd"))
+        inspectProcTask(
+          taskPath,
+          targetRoots,
+          targetFiles,
+          inspectedNetworkNamespaces,
+          ownNetworkNamespace,
+        )
       } catch (error) {
-        if (isMissingProcessEntry(error)) continue
+        if (!(error instanceof WorktreeCleanupError)) throw error
+        if (error.code === "target_in_use") throw error
+        if (error.code !== "process_guard_unavailable") throw error
+        inspectionUnavailable = true
+      }
+    }
+  }
+  if (inspectionUnavailable) throw new WorktreeCleanupError("process_guard_unavailable")
+}
+
+function inspectProcTask(
+  taskPath: string,
+  targetRoots: string[],
+  targetFiles: Set<string>,
+  inspectedNetworkNamespaces: Set<string>,
+  ownNetworkNamespace: string | null,
+): void {
+  if (isZombieProcess(taskPath)) return
+  const networkNamespace = readProcessLink(join(taskPath, "ns", "net"))
+  if (networkNamespace !== null && !inspectedNetworkNamespaces.has(networkNamespace)) {
+    const inspected = assertNoUnixSocketsFrom(
+      join(taskPath, "net", "unix"),
+      targetRoots,
+      true,
+      networkNamespace === ownNetworkNamespace ? undefined : taskPath,
+    )
+    if (inspected) inspectedNetworkNamespaces.add(networkNamespace)
+  }
+  for (const linkName of ["cwd", "root", "exe"]) {
+    const linkPath = join(taskPath, linkName)
+    const usedPath = readProcessLink(linkPath)
+    if (usedPath !== null && targetRoots.some((root) => pathUsesTarget(usedPath, root))) {
+      throw new WorktreeCleanupError("target_in_use")
+    }
+    try {
+      const metadata = statSync(linkPath, { bigint: true })
+      if (targetFiles.has(
+        `${metadata.dev.toString(16)}:${metadata.ino.toString(16)}`,
+      )) {
+        throw new WorktreeCleanupError("target_in_use")
+      }
+    } catch (error) {
+      if (error instanceof WorktreeCleanupError) throw error
+      if (!isMissingProcessEntry(error)) {
         throw new WorktreeCleanupError("process_guard_unavailable")
       }
-      for (const fileDescriptor of fileDescriptors) {
-        const descriptorPath = join(taskPath, "fd", fileDescriptor)
-        const usedPath = readProcessLink(descriptorPath)
-        if (usedPath !== null && targetRoots.some((root) => pathUsesTarget(usedPath, root))) {
-          throw new WorktreeCleanupError("target_in_use")
-        }
-        let descriptorMetadata
-        try {
-          descriptorMetadata = statSync(descriptorPath, { bigint: true })
-        } catch (error) {
-          if (isMissingProcessEntry(error)) continue
-          throw new WorktreeCleanupError("process_guard_unavailable")
-        }
-        if (
-          targetFiles.has(
-            `${descriptorMetadata.dev.toString(16)}:${descriptorMetadata.ino.toString(16)}`,
-          )
-        ) {
-          throw new WorktreeCleanupError("target_in_use")
-        }
-        if (usedPath === "anon_inode:inotify") {
-          assertNoTargetInotifyWatch(taskPath, fileDescriptor, targetFiles)
-        }
-      }
+    }
+  }
+  for (const mapping of readProcessMappings(taskPath)) {
+    if (
+      targetRoots.some((root) => pathUsesTarget(mapping.path, root))
+      || targetFiles.has(mapping.identity)
+    ) {
+      throw new WorktreeCleanupError("target_in_use")
+    }
+  }
+
+  let fileDescriptors
+  try {
+    fileDescriptors = readdirSync(join(taskPath, "fd"))
+  } catch (error) {
+    if (isMissingProcessEntry(error)) return
+    throw new WorktreeCleanupError("process_guard_unavailable")
+  }
+  for (const fileDescriptor of fileDescriptors) {
+    const descriptorPath = join(taskPath, "fd", fileDescriptor)
+    const usedPath = readProcessLink(descriptorPath)
+    if (usedPath !== null && targetRoots.some((root) => pathUsesTarget(usedPath, root))) {
+      throw new WorktreeCleanupError("target_in_use")
+    }
+    let descriptorMetadata
+    try {
+      descriptorMetadata = statSync(descriptorPath, { bigint: true })
+    } catch (error) {
+      if (isMissingProcessEntry(error)) continue
+      throw new WorktreeCleanupError("process_guard_unavailable")
+    }
+    if (
+      targetFiles.has(
+        `${descriptorMetadata.dev.toString(16)}:${descriptorMetadata.ino.toString(16)}`,
+      )
+    ) {
+      throw new WorktreeCleanupError("target_in_use")
+    }
+    if (usedPath === "anon_inode:inotify") {
+      assertNoTargetInotifyWatch(taskPath, fileDescriptor, targetFiles)
     }
   }
 }
