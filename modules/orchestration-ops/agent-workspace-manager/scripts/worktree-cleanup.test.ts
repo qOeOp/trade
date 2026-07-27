@@ -25,6 +25,12 @@ import {
 
 const fixtures: string[] = []
 
+interface PipedCommandResult {
+  exitCode: number
+  stdout: Buffer
+  stderr: Buffer
+}
+
 setDefaultTimeout(30_000)
 
 afterEach(() => {
@@ -58,7 +64,7 @@ test("owner cleanup removes only the exact clean linked worktree and local branc
     "--expected-head",
     identity.head,
     "--expected-ref",
-    identity.ref,
+    identity.ref!,
   ])
   if (cleanup.exitCode !== 0) {
     throw new Error(`${cleanup.stdout.toString()}\n${cleanup.stderr.toString()}`)
@@ -75,7 +81,7 @@ test("owner cleanup removes only the exact clean linked worktree and local branc
   expect(receipt).not.toHaveProperty("invocation")
   expect(JSON.stringify(receipt)).not.toContain(fixture.root)
   expect(existsSync(fixture.worktree)).toBe(false)
-  expect(runResult(fixture.root, ["git", "show-ref", "--verify", identity.ref]).exitCode).not.toBe(0)
+  expect(runResult(fixture.root, ["git", "show-ref", "--verify", identity.ref!]).exitCode).not.toBe(0)
   expect(run(fixture.root, ["git", "rev-parse", "HEAD"])).toBe(ownerCommit)
 })
 
@@ -171,7 +177,7 @@ test("owner cleanup reports a deleted branch when its metadata cleanup fails", (
     wrapper,
     `#!/bin/sh
 case " $* " in
-  *" config --unset-all branch.mission-branch.remote "*) exit 72 ;;
+  *" --unset-all branch.mission-branch.remote "*) exit 72 ;;
 esac
 exec "${realGit}" "$@"
 `,
@@ -241,7 +247,7 @@ test("owner cleanup locks packed and loose refs while deleting branch metadata",
     wrapper,
     `#!/bin/sh
 case " $* " in
-  *" config --name-only --get-regexp "*)
+  *" --name-only --get-regexp "*)
     "${realGit}" -C "${fixture.root}" -c core.filesRefLockTimeout=0 update-ref "${identity.ref!}" "${identity.head}" >/dev/null 2>&1
     printf '%s\\n' "$?" > "${recreationResult}"
     ;;
@@ -260,6 +266,80 @@ exec "${realGit}" "$@"
   expect(readFileSync(recreationResult, "utf8").trim()).not.toBe("0")
   expect(runResult(fixture.root, ["git", "config", "--get", "branch.mission-branch.remote"]).exitCode)
     .not.toBe(0)
+})
+
+test("owner cleanup holds the repository config lock while deleting branch metadata", () => {
+  const fixture = createFixture()
+  const identity = identifyLinkedWorktree(fixture.worktree)
+  const ownerCommit = installOwnerTool(fixture.root)
+  run(fixture.root, ["git", "config", "branch.mission-branch.remote", "old-owner"])
+  const realGit = Bun.which("git")
+  if (!realGit) throw new Error("git unavailable")
+  const bin = join(fixture.root, "bin")
+  const replacementResult = join(bin, "replacement-result")
+  run(fixture.root, ["/bin/mkdir", "-p", bin])
+  const wrapper = join(bin, "git")
+  writeFileSync(
+    wrapper,
+    `#!/bin/sh
+case " $* " in
+  *" --name-only --get-regexp "*)
+    "${realGit}" -C "${fixture.root}" config branch.mission-branch.remote new-owner >/dev/null 2>&1
+    printf '%s\\n' "$?" > "${replacementResult}"
+    ;;
+esac
+exec "${realGit}" "$@"
+`,
+  )
+  chmodSync(wrapper, 0o755)
+
+  const cleanup = runCleanupCli(fixture.root, identity, ownerCommit, bin)
+
+  expect(cleanup.exitCode).toBe(0)
+  const receipt = JSON.parse(cleanup.stdout.toString())
+  expect(receipt.status).toBe("completed")
+  expect(receipt.local_branch_deleted).toBe(true)
+  expect(readFileSync(replacementResult, "utf8").trim()).not.toBe("0")
+  expect(runResult(fixture.root, ["git", "config", "--get", "branch.mission-branch.remote"]).exitCode)
+    .not.toBe(0)
+})
+
+test("owner cleanup preserves a repository config lock that replaces its own lock", () => {
+  const fixture = createFixture()
+  const identity = identifyLinkedWorktree(fixture.worktree)
+  const ownerCommit = installOwnerTool(fixture.root)
+  run(fixture.root, ["git", "config", "branch.mission-branch.remote", "old-owner"])
+  const realGit = Bun.which("git")
+  if (!realGit) throw new Error("git unavailable")
+  const bin = join(fixture.root, "bin")
+  const configLock = join(fixture.root, ".git", "config.lock")
+  run(fixture.root, ["/bin/mkdir", "-p", bin])
+  const wrapper = join(bin, "git")
+  writeFileSync(
+    wrapper,
+    `#!/bin/sh
+case " $* " in
+  *" --name-only --get-regexp "*)
+    /bin/rm -f "${configLock}"
+    printf 'replacement owner\\n' > "${configLock}"
+    ;;
+esac
+exec "${realGit}" "$@"
+`,
+  )
+  chmodSync(wrapper, 0o755)
+
+  const cleanup = runCleanupCli(fixture.root, identity, ownerCommit, bin)
+
+  expect(cleanup.exitCode).toBe(1)
+  const receipt = JSON.parse(cleanup.stdout.toString())
+  expect(receipt.reason_code).toBe("guard_branch_config_cleanup_failed")
+  expect(receipt.status).toBe("partial")
+  expect(receipt.worktree_removed).toBe(true)
+  expect(receipt.local_branch_deleted).toBe(true)
+  expect(readFileSync(configLock, "utf8")).toBe("replacement owner\n")
+  expect(run(fixture.root, ["git", "config", "--get", "branch.mission-branch.remote"]))
+    .toBe("old-owner")
 })
 
 test("owner cleanup removes configuration for a branch name containing a closing bracket", () => {
@@ -303,7 +383,7 @@ test("owner cleanup does not unlink a metadata lock that replaces its own lock",
     wrapper,
     `#!/bin/sh
 case " $* " in
-  *" config --name-only --get-regexp "*)
+  *" --name-only --get-regexp "*)
     /bin/rm -f "${replacementLock}"
     printf 'replacement owner\\n' > "${replacementLock}"
     ;;
@@ -354,8 +434,8 @@ test("owner cleanup rejects a branch checked out by another worktree", () => {
   expect(failure.receipt?.rollback_completed).toBe(true)
   expect(existsSync(fixture.worktree)).toBe(true)
   expect(existsSync(otherWorktree)).toBe(true)
-  expect(run(fixture.worktree, ["git", "symbolic-ref", "-q", "HEAD"])).toBe(identity.ref)
-  expect(run(otherWorktree, ["git", "symbolic-ref", "-q", "HEAD"])).toBe(identity.ref)
+  expect(run(fixture.worktree, ["git", "symbolic-ref", "-q", "HEAD"])).toBe(identity.ref!)
+  expect(run(otherWorktree, ["git", "symbolic-ref", "-q", "HEAD"])).toBe(identity.ref!)
 })
 
 test("owner cleanup preserves a branch recreated and adopted after its direct claim", () => {
@@ -396,7 +476,7 @@ exec "${realGit}" "$@"
   expect(receipt.local_branch_deleted).toBe(false)
   expect(existsSync(fixture.worktree)).toBe(false)
   expect(existsSync(otherWorktree)).toBe(true)
-  expect(run(otherWorktree, ["git", "symbolic-ref", "-q", "HEAD"])).toBe(identity.ref)
+  expect(run(otherWorktree, ["git", "symbolic-ref", "-q", "HEAD"])).toBe(identity.ref!)
   expect(run(fixture.root, ["git", "rev-parse", identity.ref!])).toBe(identity.head)
 })
 
@@ -424,7 +504,7 @@ test("owner cleanup rejects a concurrently locked direct ref without deleting it
   expect(failure.receipt?.rollback_completed).toBe(true)
   expect(failure.receipt?.status).toBe("failed")
   expect(existsSync(fixture.worktree)).toBe(true)
-  expect(run(fixture.worktree, ["git", "symbolic-ref", "-q", "HEAD"])).toBe(identity.ref)
+  expect(run(fixture.worktree, ["git", "symbolic-ref", "-q", "HEAD"])).toBe(identity.ref!)
   expect(run(fixture.root, ["git", "rev-parse", identity.ref!])).toBe(identity.head)
 })
 
@@ -539,8 +619,8 @@ test("owner cleanup rejects head drift without moving or deleting the target", (
   })).toThrow(new WorktreeCleanupError("target_head_mismatch"))
 
   expect(existsSync(fixture.worktree)).toBe(true)
-  expect(run(fixture.worktree, ["git", "symbolic-ref", "-q", "HEAD"])).toBe(identity.ref)
-  expect(runResult(fixture.root, ["git", "show-ref", "--verify", identity.ref]).exitCode).toBe(0)
+  expect(run(fixture.worktree, ["git", "symbolic-ref", "-q", "HEAD"])).toBe(identity.ref!)
+  expect(runResult(fixture.root, ["git", "show-ref", "--verify", identity.ref!]).exitCode).toBe(0)
 })
 
 test("owner cleanup rejects dirty targets and path-free CLI receipts stay auditable", () => {
@@ -1511,7 +1591,7 @@ test("parsed validation failures retain the attempted target and operation state
     "--expected-head",
     identity.head,
     "--expected-ref",
-    identity.ref,
+    identity.ref!,
   ])
   expect(cleanup.exitCode).toBe(1)
   const receipt = JSON.parse(cleanup.stdout.toString())
@@ -1761,6 +1841,52 @@ test("owner cleanup accepts a worktree whose branch resolves through multiple sy
   expect(run(fixture.root, ["git", "symbolic-ref", "refs/heads/middle"]))
     .toBe("refs/heads/base")
   expect(run(fixture.root, ["git", "rev-parse", "refs/heads/base"])).toBe(identity.head)
+})
+
+test("owner cleanup locks every ref in a multi-level symbolic chain", () => {
+  const fixture = createFixture()
+  const identity = identifyLinkedWorktree(fixture.worktree)
+  const concurrentHead = run(fixture.root, [
+    "git",
+    "commit-tree",
+    `${identity.head}^{tree}`,
+    "-m",
+    "concurrent terminal update",
+  ])
+  run(fixture.root, ["git", "update-ref", "refs/heads/base", identity.head])
+  run(fixture.root, ["git", "symbolic-ref", "refs/heads/middle", "refs/heads/base"])
+  run(fixture.root, ["git", "symbolic-ref", identity.ref!, "refs/heads/middle"])
+  const ownerCommit = installOwnerTool(fixture.root)
+  const realGit = Bun.which("git")
+  if (!realGit) throw new Error("git unavailable")
+  const bin = join(fixture.root, "bin")
+  const updateResult = join(bin, "terminal-update-result")
+  run(fixture.root, ["/bin/mkdir", "-p", bin])
+  const wrapper = join(bin, "git")
+  writeFileSync(
+    wrapper,
+    `#!/bin/sh
+case " $* " in
+  *" rev-parse --verify refs/heads/middle "*)
+    "${realGit}" -C "${fixture.root}" -c core.filesRefLockTimeout=0 update-ref refs/heads/base "${concurrentHead}" >/dev/null 2>&1
+    printf '%s\\n' "$?" > "${updateResult}"
+    ;;
+esac
+exec "${realGit}" "$@"
+`,
+  )
+  chmodSync(wrapper, 0o755)
+
+  const cleanup = runCleanupCli(fixture.root, identity, ownerCommit, bin)
+
+  expect(cleanup.exitCode).toBe(0)
+  const receipt = JSON.parse(cleanup.stdout.toString())
+  expect(receipt.status).toBe("completed")
+  expect(receipt.local_branch_deleted).toBe(true)
+  expect(readFileSync(updateResult, "utf8").trim()).not.toBe("0")
+  expect(run(fixture.root, ["git", "rev-parse", "refs/heads/base"])).toBe(identity.head)
+  expect(run(fixture.root, ["git", "symbolic-ref", "refs/heads/middle"]))
+    .toBe("refs/heads/base")
 })
 
 test("owner cleanup rejects a symbolic ref whose target is concurrently locked", () => {
@@ -2132,7 +2258,7 @@ exec "${realGit}" "$@"
   expect(receipt.rollback_completed).toBe(true)
   expect(identity.head).toHaveLength(64)
   expect(existsSync(fixture.worktree)).toBe(true)
-  expect(run(fixture.worktree, ["git", "symbolic-ref", "-q", "HEAD"])).toBe(identity.ref)
+  expect(run(fixture.worktree, ["git", "symbolic-ref", "-q", "HEAD"])).toBe(identity.ref!)
   expect(run(fixture.root, ["git", "rev-parse", identity.ref!])).toBe(identity.head)
   const reflogAfter = run(fixture.root, [
     "git",
@@ -2731,7 +2857,7 @@ exec "${realGit}" "$@"
   expect(receipt.local_branch_deleted).toBe(false)
   expect(existsSync(fixture.worktree)).toBe(false)
   expect(existsSync(adopter)).toBe(true)
-  expect(run(adopter, ["git", "symbolic-ref", "-q", "HEAD"])).toBe(identity.ref)
+  expect(run(adopter, ["git", "symbolic-ref", "-q", "HEAD"])).toBe(identity.ref!)
   expect(run(adopter, ["git", "rev-parse", "HEAD"])).toBe(identity.head)
 })
 
@@ -2786,7 +2912,7 @@ test("owner cleanup rejects a replacement that reuses the worktree id, ref, and 
   expect(failure.receipt?.observed_generation).toBe(replacementIdentity.generation)
   expect(failure.receipt?.worktree_claimed).toBe(false)
   expect(existsSync(replacement)).toBe(true)
-  expect(runResult(fixture.root, ["git", "show-ref", "--verify", identity.ref]).exitCode).toBe(0)
+  expect(runResult(fixture.root, ["git", "show-ref", "--verify", identity.ref!]).exitCode).toBe(0)
 })
 
 function createFixture(objectFormat: "sha1" | "sha256" = "sha1"): { root: string; worktree: string } {
@@ -2958,8 +3084,11 @@ function run(cwd: string, command: string[]): string {
   return result.stdout.toString().trim()
 }
 
-function runResult(cwd: string, command: string[]): ReturnType<typeof Bun.spawnSync> {
-  return Bun.spawnSync(command, { cwd, stdout: "pipe", stderr: "pipe" })
+function runResult(cwd: string, command: string[]): PipedCommandResult {
+  return Bun.spawnSync(
+    command,
+    { cwd, stdout: "pipe", stderr: "pipe" },
+  ) as PipedCommandResult
 }
 
 function captureCleanupError(action: () => unknown): WorktreeCleanupError {
@@ -2976,24 +3105,27 @@ function runPipeline(
   cwd: string,
   producerCommand: string[],
   consumerCommand: string[],
-): ReturnType<typeof Bun.spawnSync> {
-  const producer = Bun.spawnSync(producerCommand, { cwd, stdout: "pipe", stderr: "pipe" })
+): PipedCommandResult {
+  const producer = Bun.spawnSync(
+    producerCommand,
+    { cwd, stdout: "pipe", stderr: "pipe" },
+  ) as PipedCommandResult
   if (producer.exitCode !== 0) return producer
   return Bun.spawnSync(consumerCommand, {
     cwd,
     stdin: producer.stdout,
     stdout: "pipe",
     stderr: "pipe",
-  })
+  }) as PipedCommandResult
 }
 
 function runCleanupCli(
   cwd: string,
   identity: ReturnType<typeof identifyLinkedWorktree>,
   ownerCommit: string,
-  bin: string,
+  bin?: string,
   removeIgnored = false,
-): ReturnType<typeof Bun.spawnSync> {
+): PipedCommandResult {
   const command = [
     "bun",
     join(import.meta.dir, "worktree-cleanup.ts"),
@@ -3012,8 +3144,11 @@ function runCleanupCli(
   if (removeIgnored) command.push("--remove-ignored", "true")
   return Bun.spawnSync(command, {
     cwd,
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+    env: {
+      ...process.env,
+      PATH: bin ? `${bin}:${process.env.PATH ?? ""}` : process.env.PATH,
+    },
     stdout: "pipe",
     stderr: "pipe",
-  })
+  }) as PipedCommandResult
 }

@@ -6,6 +6,7 @@ import {
   existsSync,
   fchmodSync,
   fstatSync,
+  ftruncateSync,
   fsyncSync,
   linkSync,
   lstatSync,
@@ -22,6 +23,7 @@ import {
   statSync,
   unlinkSync,
   writeFileSync,
+  writeSync,
 } from "node:fs"
 import { createHash, randomBytes } from "node:crypto"
 import { basename, dirname, join, resolve } from "node:path"
@@ -98,6 +100,7 @@ type RefSnapshot = {
 } | {
   kind: "symbolic"
   target: string
+  chain: SymbolicRefChainEntry[]
   mode: number
   packedEntry: PackedRefSnapshot | null
 }
@@ -112,6 +115,24 @@ interface PackedRefSnapshot {
   index: number
   previousLine: string | null
   nextLine: string | null
+}
+
+interface SymbolicRefChainEntry {
+  ref: string
+  target: string | null
+}
+
+interface PipedCommandResult {
+  exitCode: number
+  stdout: Buffer
+  stderr: Buffer
+}
+
+interface OwnedRefLock {
+  path: string
+  fd: number
+  identity: FileIdentity
+  createdParents: string[]
 }
 
 export function identifyLinkedWorktree(cwd: string): WorktreeIdentity {
@@ -256,12 +277,16 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
     }
     if (!removed) throw new WorktreeCleanupError("worktree_removal_incomplete")
     if (guardRef) {
+      const originalRef = options.expectedRef
+      if (originalRef === null) {
+        throw new WorktreeCleanupError("guard_ref_missing")
+      }
       deleteGuardRef(
         ownerCwd,
         guardRef,
         options.expectedHead,
         refSnapshot,
-        options.expectedRef,
+        originalRef,
       )
     }
 
@@ -1052,6 +1077,7 @@ function snapshotRef(cwd: string, ref: string, expectedHead: string): RefSnapsho
     ? {
         kind: "symbolic" as const,
         target: symbolic.stdout.toString().trim(),
+        chain: snapshotSymbolicRefChain(cwd, symbolic.stdout.toString().trim()),
         mode: lstatSync(looseRefPath(cwd, ref)).mode,
         packedEntry: snapshotPackedRefEntry(cwd, ref),
       }
@@ -1118,6 +1144,7 @@ function claimRef(
       cwd,
       ref,
       snapshot.target,
+      snapshot.chain,
       expectedHead,
       snapshot.mode,
       snapshot.packedEntry,
@@ -1154,6 +1181,7 @@ function restoreRef(
     ref,
     expectedHead,
     snapshot.target,
+    snapshot.chain,
     snapshot.mode,
   )
   try {
@@ -1217,10 +1245,11 @@ function restoreSymbolicRef(
   ref: string,
   expectedHead: string,
   target: string,
+  expectedChain: SymbolicRefChainEntry[],
   mode: number,
 ): FileIdentity {
   try {
-    return createLockedSymbolicRef(cwd, ref, target, expectedHead, mode)
+    return createLockedSymbolicRef(cwd, ref, target, expectedChain, expectedHead, mode)
   } catch {
     throw new WorktreeCleanupError("ref_restore_failed")
   }
@@ -1342,7 +1371,7 @@ function runDirectRefTransaction(
   destinationRef: string,
   expectedHead: string,
   deleteSource: boolean,
-): ReturnType<typeof Bun.spawnSync> {
+): PipedCommandResult {
   return Bun.spawnSync(["git", "-C", cwd, "update-ref", "--stdin"], {
     stdin: Buffer.from([
       "start",
@@ -1357,7 +1386,7 @@ function runDirectRefTransaction(
     ].join("\n")),
     stdout: "pipe",
     stderr: "pipe",
-  })
+  }) as PipedCommandResult
 }
 
 function runValidatedDirectRefTransaction(
@@ -1366,7 +1395,7 @@ function runValidatedDirectRefTransaction(
   destinationRef: string,
   expectedHead: string,
   expectedReflog: FileSnapshot | null,
-): ReturnType<typeof Bun.spawnSync> {
+): PipedCommandResult {
   const reflogPath = looseRefPath(cwd, `logs/${sourceRef}`)
   const expectedHash = expectedReflog
     ? createHash("sha256").update(expectedReflog.contents).digest("hex")
@@ -1429,32 +1458,101 @@ process.exit(await transaction.exited);
     reflogPath,
     expectedHash,
     expectedMode,
-  ], { stdout: "pipe", stderr: "pipe" })
+  ], { stdout: "pipe", stderr: "pipe" }) as PipedCommandResult
+}
+
+function snapshotSymbolicRefChain(
+  cwd: string,
+  firstRef: string,
+): SymbolicRefChainEntry[] {
+  const chain: SymbolicRefChainEntry[] = []
+  const seen = new Set<string>()
+  let current = firstRef
+  for (let depth = 0; depth < 32; depth += 1) {
+    if (seen.has(current)) {
+      throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
+    }
+    seen.add(current)
+    const symbolic = gitResult(cwd, ["symbolic-ref", "-q", "--no-recurse", current])
+    if (symbolic.exitCode === 0) {
+      const target = symbolic.stdout.toString().trim()
+      chain.push({ ref: current, target })
+      current = target
+      continue
+    }
+    if (symbolic.exitCode === 1 && symbolic.stderr.length === 0) {
+      chain.push({ ref: current, target: null })
+      return chain
+    }
+    throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
+  }
+  throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
+}
+
+function lockAndVerifySymbolicRefChain(
+  cwd: string,
+  expectedChain: SymbolicRefChainEntry[],
+  expectedHead: string,
+): OwnedRefLock[] {
+  if (expectedChain.length === 0) {
+    throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
+  }
+  const locks: OwnedRefLock[] = []
+  try {
+    for (const entry of expectedChain) {
+      const lockPath = `${looseRefPath(cwd, entry.ref)}.lock`
+      const createdParents = ensureParentDirectories(lockPath)
+      const fd = openSync(lockPath, "wx", 0o600)
+      locks.push({
+        path: lockPath,
+        fd,
+        identity: fileIdentityForDescriptor(fd),
+        createdParents,
+      })
+    }
+    const currentChain = snapshotSymbolicRefChain(cwd, expectedChain[0]!.ref)
+    if (JSON.stringify(currentChain) !== JSON.stringify(expectedChain)) {
+      throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
+    }
+    const resolved = gitResult(cwd, ["rev-parse", "--verify", expectedChain[0]!.ref])
+    if (resolved.exitCode !== 0 || resolved.stdout.toString().trim() !== expectedHead) {
+      throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
+    }
+    return locks
+  } catch {
+    releaseOwnedRefLocks(locks)
+    throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
+  }
+}
+
+function releaseOwnedRefLocks(locks: OwnedRefLock[]): void {
+  for (const lock of locks.reverse()) {
+    closeSync(lock.fd)
+    unlinkOwnedLock(lock.path, lock.identity)
+    removeCreatedParents(lock.createdParents)
+  }
 }
 
 function deleteLockedSymbolicRef(
   cwd: string,
   ref: string,
   target: string,
+  expectedChain: SymbolicRefChainEntry[],
   expectedHead: string,
   expectedMode: number,
   expectedPackedEntry: PackedRefSnapshot | null,
 ): void {
   const refPath = looseRefPath(cwd, ref)
-  const targetPath = looseRefPath(cwd, target)
   const refLock = `${refPath}.lock`
-  const targetLock = `${targetPath}.lock`
   const packedRefs = join(git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]), "packed-refs")
   const packedRefsLock = `${packedRefs}.lock`
   let refLockIdentity: FileIdentity | undefined
-  let targetLockFd: number | undefined
-  let targetLockIdentity: FileIdentity | undefined
+  let chainLocks: OwnedRefLock[] = []
   let packedLockFd: number | undefined
   let packedLockIdentity: FileIdentity | undefined
   let packedRewritePrepared = false
   let packedLockCommitted = false
   let refUnlinked = false
-  const createdTargetParents = ensureParentDirectories(targetLock)
   try {
     packedLockFd = openSync(packedRefsLock, "wx", 0o600)
     packedLockIdentity = fileIdentityForDescriptor(packedLockFd)
@@ -1492,15 +1590,7 @@ function deleteLockedSymbolicRef(
     ) {
       throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
     }
-    targetLockFd = openSync(targetLock, "wx", 0o600)
-    targetLockIdentity = fileIdentityForDescriptor(targetLockFd)
-    const targetHead = gitResult(cwd, ["rev-parse", "--verify", target])
-    if (
-      targetHead.exitCode !== 0
-      || targetHead.stdout.toString().trim() !== expectedHead
-    ) {
-      throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
-    }
+    chainLocks = lockAndVerifySymbolicRefChain(cwd, expectedChain, expectedHead)
     unlinkSync(refPath)
     refUnlinked = true
     if (packedRewritePrepared && packedLockFd !== undefined && packedLockIdentity) {
@@ -1526,10 +1616,8 @@ function deleteLockedSymbolicRef(
     if (!packedLockCommitted && packedLockIdentity) {
       unlinkOwnedLock(packedRefsLock, packedLockIdentity)
     }
-    if (targetLockFd !== undefined) closeSync(targetLockFd)
-    if (targetLockIdentity) unlinkOwnedLock(targetLock, targetLockIdentity)
+    releaseOwnedRefLocks(chainLocks)
     if (refLockIdentity) unlinkOwnedLock(refLock, refLockIdentity)
-    removeCreatedParents(createdTargetParents)
   }
 }
 
@@ -1537,18 +1625,15 @@ function createLockedSymbolicRef(
   cwd: string,
   ref: string,
   target: string,
+  expectedChain: SymbolicRefChainEntry[],
   expectedHead: string,
   mode: number,
 ): FileIdentity {
   const refPath = looseRefPath(cwd, ref)
-  const targetPath = looseRefPath(cwd, target)
   const refLock = `${refPath}.lock`
-  const targetLock = `${targetPath}.lock`
   const packedRefs = join(git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]), "packed-refs")
   const packedRefsLock = `${packedRefs}.lock`
-  const createdTargetParents = ensureParentDirectories(targetLock)
-  let targetLockFd: number | undefined
-  let targetLockIdentity: FileIdentity | undefined
+  let chainLocks: OwnedRefLock[] = []
   let refLockFd: number | undefined
   let refLockIdentity: FileIdentity | undefined
   let packedLockFd: number | undefined
@@ -1560,15 +1645,7 @@ function createLockedSymbolicRef(
     if (snapshotPackedRefEntry(cwd, ref) !== null) {
       throw new WorktreeCleanupError("ref_restore_failed")
     }
-    targetLockFd = openSync(targetLock, "wx", 0o600)
-    targetLockIdentity = fileIdentityForDescriptor(targetLockFd)
-    const targetHead = gitResult(cwd, ["rev-parse", "--verify", target])
-    if (
-      targetHead.exitCode !== 0
-      || targetHead.stdout.toString().trim() !== expectedHead
-    ) {
-      throw new WorktreeCleanupError("ref_restore_failed")
-    }
+    chainLocks = lockAndVerifySymbolicRefChain(cwd, expectedChain, expectedHead)
     if (!refMissingNoDeref(cwd, ref)) {
       throw new WorktreeCleanupError("ref_restore_failed")
     }
@@ -1593,9 +1670,7 @@ function createLockedSymbolicRef(
     if (!refRestored && refLockIdentity) unlinkOwnedLock(refLock, refLockIdentity)
     if (packedLockFd !== undefined) closeSync(packedLockFd)
     if (packedLockIdentity) unlinkOwnedLock(packedRefsLock, packedLockIdentity)
-    if (targetLockFd !== undefined) closeSync(targetLockFd)
-    if (targetLockIdentity) unlinkOwnedLock(targetLock, targetLockIdentity)
-    removeCreatedParents(createdTargetParents)
+    releaseOwnedRefLocks(chainLocks)
   }
 }
 
@@ -1679,27 +1754,7 @@ function cleanupDeletedBranchMetadata(cwd: string, ref: string): void {
         .some((line) => line.endsWith(` ${ref}`))
     if (existsSync(refPath) || packedRefPresent) return
     const branchName = ref.slice("refs/heads/".length)
-    const sectionPattern = `^branch\\.${escapeRegExp(branchName)}\\.`
-    const existingConfig = gitResult(cwd, [
-      "config",
-      "--name-only",
-      "--get-regexp",
-      sectionPattern,
-    ])
-    if (existingConfig.exitCode !== 1 || existingConfig.stderr.length > 0) {
-      if (existingConfig.exitCode !== 0) {
-        throw new WorktreeCleanupError("guard_branch_config_cleanup_failed")
-      }
-      const configKeys = new Set(
-        existingConfig.stdout.toString().split("\n").filter((line) => line !== ""),
-      )
-      for (const configKey of configKeys) {
-        const deleteConfig = gitResult(cwd, ["config", "--unset-all", configKey])
-        if (deleteConfig.exitCode !== 0) {
-          throw new WorktreeCleanupError("guard_branch_config_cleanup_failed")
-        }
-      }
-    }
+    removeBranchConfigUnderLock(cwd, commonDir, branchName)
     const reflogPath = looseRefPath(cwd, `logs/${ref}`)
     if (existsSync(reflogPath)) unlinkSync(reflogPath)
   } finally {
@@ -1710,6 +1765,88 @@ function cleanupDeletedBranchMetadata(cwd: string, ref: string): void {
     if (packedLockFd !== undefined) closeSync(packedLockFd)
     if (packedLockIdentity) unlinkOwnedLock(packedRefsLock, packedLockIdentity)
     removeCreatedParents(createdParents)
+  }
+}
+
+function removeBranchConfigUnderLock(
+  cwd: string,
+  commonDir: string,
+  branchName: string,
+): void {
+  const configPath = join(commonDir, "config")
+  const lockPath = `${configPath}.lock`
+  const configIdentity = fileIdentityForPath(configPath)
+  const configContents = readFileSync(configPath)
+  const configMode = lstatSync(configPath).mode
+  let lockFd: number | undefined
+  let lockIdentity: FileIdentity | undefined
+  let editDirectory: string | undefined
+  let committed = false
+  try {
+    lockFd = openSync(lockPath, "wx", 0o600)
+    lockIdentity = fileIdentityForDescriptor(lockFd)
+    fchmodSync(lockFd, configMode)
+    writeFileSync(lockFd, configContents)
+    fsyncSync(lockFd)
+    if (!lockMatches(lockPath, lockIdentity)) {
+      throw new WorktreeCleanupError("guard_branch_config_cleanup_failed")
+    }
+    editDirectory = mkdtempSync(join(commonDir, "worktree-cleanup-config-"))
+    const editPath = join(editDirectory, "config")
+    writeFileSync(editPath, configContents, { mode: configMode })
+    const sectionPattern = `^branch\\.${escapeRegExp(branchName)}\\.`
+    const existingConfig = gitResult(cwd, [
+      "config",
+      "--file",
+      editPath,
+      "--no-includes",
+      "--name-only",
+      "--get-regexp",
+      sectionPattern,
+    ])
+    if (existingConfig.exitCode === 1 && existingConfig.stderr.length === 0) return
+    if (existingConfig.exitCode !== 0) {
+      throw new WorktreeCleanupError("guard_branch_config_cleanup_failed")
+    }
+    const configKeys = [...new Set(
+      existingConfig.stdout.toString().trim().split("\n").filter(Boolean),
+    )]
+    for (const key of configKeys) {
+      const deleteConfig = gitResult(cwd, [
+        "config",
+        "--file",
+        editPath,
+        "--unset-all",
+        key,
+      ])
+      if (deleteConfig.exitCode !== 0) {
+        throw new WorktreeCleanupError("guard_branch_config_cleanup_failed")
+      }
+    }
+    if (
+      !lockMatches(configPath, configIdentity)
+      || !readFileSync(configPath).equals(configContents)
+      || !lockMatches(lockPath, lockIdentity)
+    ) {
+      throw new WorktreeCleanupError("guard_branch_config_cleanup_failed")
+    }
+    const editedContents = readFileSync(editPath)
+    ftruncateSync(lockFd, 0)
+    if (writeSync(lockFd, editedContents, 0, editedContents.length, 0) !== editedContents.length) {
+      throw new WorktreeCleanupError("guard_branch_config_cleanup_failed")
+    }
+    fsyncSync(lockFd)
+    closeSync(lockFd)
+    lockFd = undefined
+    if (!lockMatches(lockPath, lockIdentity)) {
+      throw new WorktreeCleanupError("guard_branch_config_cleanup_failed")
+    }
+    renameSync(lockPath, configPath)
+    committed = true
+  } finally {
+    if (lockFd !== undefined) closeSync(lockFd)
+    if (!committed && lockIdentity) unlinkOwnedLock(lockPath, lockIdentity)
+    if (editDirectory) rmSync(editDirectory, { recursive: true, force: true })
   }
 }
 
@@ -1953,20 +2090,23 @@ function git(cwd: string, args: string[]): string {
   return result.stdout.toString().trim()
 }
 
-function gitResult(cwd: string, args: string[]): ReturnType<typeof Bun.spawnSync> {
-  return Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" })
+function gitResult(cwd: string, args: string[]): PipedCommandResult {
+  return Bun.spawnSync(
+    ["git", "-C", cwd, ...args],
+    { stdout: "pipe", stderr: "pipe" },
+  ) as PipedCommandResult
 }
 
 function gitResultWithEnvironment(
   cwd: string,
   args: string[],
   environment: Record<string, string | undefined>,
-): ReturnType<typeof Bun.spawnSync> {
+): PipedCommandResult {
   return Bun.spawnSync(["git", "-C", cwd, ...args], {
     env: environment,
     stdout: "pipe",
     stderr: "pipe",
-  })
+  }) as PipedCommandResult
 }
 
 function parseArgs(args: string[]): { action: "identify"; cwd: string } | {
