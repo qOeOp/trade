@@ -32,9 +32,10 @@ CLI.
 4. After local gates and a fresh evaluator accept the exact candidate, post
    exactly one explicit trigger for the current head/live-base identity using
    `reviewTriggerBody` from `scripts/check-pr-review.ts`. A provider-native
-   `pull_request` workflow run for that PR and SHA must predate the trigger; a
-   self-declared future SHA is not evidence that the head was live. Do not push
-   while review is pending. A second current-head trigger, an identity-free
+   latest provider-native `pull_request` workflow run for that PR and SHA must
+   predate the trigger; an older run from before that SHA left and re-entered
+   the PR cannot be reused, and a self-declared future SHA is not evidence that
+   the head was live. Do not push while review is pending. A second current-head trigger, an identity-free
    current-head trigger, an edited or minimized trigger, or a trigger whose
    visible text differs from that exact body fails closed.
 5. A clean result is exactly one post-trigger Codex `THUMBS_UP`, optionally

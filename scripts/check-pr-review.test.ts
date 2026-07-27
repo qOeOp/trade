@@ -228,6 +228,17 @@ describe("native review evidence", () => {
       "no pull_request workflow run proves when the head entered this PR",
     )
   })
+
+  test("does not reuse a trigger from before the latest matching head observation", () => {
+    const reentered = snapshot()
+    reentered.headObservations = [
+      "2026-07-27T00:30:00Z",
+      "2026-07-27T01:06:00Z",
+    ]
+    expect(verify(reentered).reasons).toContain(
+      "expected one current-head explicit Codex trigger, found 0",
+    )
+  })
 })
 
 describe("base-owned gate wiring", () => {

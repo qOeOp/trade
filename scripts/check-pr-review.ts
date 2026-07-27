@@ -231,7 +231,7 @@ export function verifySnapshot(
   const observationTimes = snapshot.headObservations
     .map((value) => Date.parse(value))
     .filter(Number.isFinite)
-  const headTime = observationTimes.length > 0 ? Math.min(...observationTimes) : Number.NaN
+  const headTime = observationTimes.length > 0 ? Math.max(...observationTimes) : Number.NaN
   if (!Number.isFinite(headTime)) {
     reasons.push("no pull_request workflow run proves when the head entered this PR")
   }
