@@ -526,9 +526,23 @@ function assertNoProcTargetUsers(worktreePath: string, targetRoots: string[]): v
       if (inspected) inspectedNetworkNamespaces.add(networkNamespace)
     }
     for (const linkName of ["cwd", "root", "exe"]) {
-      const usedPath = readProcessLink(join(processPath, linkName))
+      const linkPath = join(processPath, linkName)
+      const usedPath = readProcessLink(linkPath)
       if (usedPath !== null && targetRoots.some((root) => pathUsesTarget(usedPath, root))) {
         throw new WorktreeCleanupError("target_in_use")
+      }
+      try {
+        const metadata = statSync(linkPath)
+        if (targetFiles.has(
+          `${metadata.dev.toString(16)}:${metadata.ino.toString(16)}`,
+        )) {
+          throw new WorktreeCleanupError("target_in_use")
+        }
+      } catch (error) {
+        if (error instanceof WorktreeCleanupError) throw error
+        if (!isMissingProcessEntry(error)) {
+          throw new WorktreeCleanupError("process_guard_unavailable")
+        }
       }
     }
     for (const mapping of readProcessMappings(processPath)) {
@@ -792,7 +806,9 @@ function readProcessLink(path: string): string | null {
 }
 
 function isMissingProcessEntry(error: unknown): boolean {
-  return error instanceof Error && "code" in error && error.code === "ENOENT"
+  return error instanceof Error
+    && "code" in error
+    && (error.code === "ENOENT" || error.code === "ESRCH")
 }
 
 function pathUsesTarget(path: string, worktreePath: string): boolean {
@@ -976,7 +992,30 @@ function restoreRef(
     return
   }
   restoreSymbolicRef(cwd, ref, expectedHead, snapshot.target, snapshot.mode)
-  restorePackedRefEntry(cwd, ref, snapshot.packedEntry)
+  try {
+    restorePackedRefEntry(cwd, ref, snapshot.packedEntry)
+  } catch {
+    removeRestoredSymbolicRef(cwd, ref, snapshot.target)
+    throw new WorktreeCleanupError("ref_restore_failed")
+  }
+}
+
+function removeRestoredSymbolicRef(cwd: string, ref: string, target: string): void {
+  const refPath = looseRefPath(cwd, ref)
+  const lockPath = `${refPath}.lock`
+  let lockIdentity: FileIdentity | undefined
+  try {
+    linkSync(refPath, lockPath)
+    lockIdentity = lstatSync(lockPath)
+    if (readFileSync(lockPath, "utf8") !== `ref: ${target}\n`) {
+      throw new WorktreeCleanupError("ref_restore_failed")
+    }
+    unlinkSync(refPath)
+  } catch {
+    throw new WorktreeCleanupError("ref_restore_failed")
+  } finally {
+    if (lockIdentity) unlinkOwnedLock(lockPath, lockIdentity)
+  }
 }
 
 function restoreDirectReflogUnderRefLock(
@@ -1128,6 +1167,7 @@ function deleteLockedSymbolicRef(
   let packedLockIdentity: FileIdentity | undefined
   let packedRewritePrepared = false
   let packedLockCommitted = false
+  let refUnlinked = false
   const createdTargetParents = ensureParentDirectories(targetLock)
   try {
     packedLockFd = openSync(packedRefsLock, "wx", 0o600)
@@ -1168,6 +1208,8 @@ function deleteLockedSymbolicRef(
     ) {
       throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
     }
+    unlinkSync(refPath)
+    refUnlinked = true
     if (packedRewritePrepared && packedLockFd !== undefined && packedLockIdentity) {
       closeSync(packedLockFd)
       packedLockFd = undefined
@@ -1177,8 +1219,14 @@ function deleteLockedSymbolicRef(
       renameSync(packedRefsLock, packedRefs)
       packedLockCommitted = true
     }
-    unlinkSync(refPath)
   } catch {
+    if (refUnlinked && !existsSync(refPath)) {
+      try {
+        linkSync(refLock, refPath)
+      } catch {
+        // The caller reports the incomplete symbolic claim through its surviving guard.
+      }
+    }
     throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
   } finally {
     if (packedLockFd !== undefined) closeSync(packedLockFd)
@@ -1203,13 +1251,22 @@ function createLockedSymbolicRef(
   const targetPath = looseRefPath(cwd, target)
   const refLock = `${refPath}.lock`
   const targetLock = `${targetPath}.lock`
+  const packedRefs = join(git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]), "packed-refs")
+  const packedRefsLock = `${packedRefs}.lock`
   const createdTargetParents = ensureParentDirectories(targetLock)
   let targetLockFd: number | undefined
   let targetLockIdentity: FileIdentity | undefined
   let refLockFd: number | undefined
   let refLockIdentity: FileIdentity | undefined
+  let packedLockFd: number | undefined
+  let packedLockIdentity: FileIdentity | undefined
   let refRestored = false
   try {
+    packedLockFd = openSync(packedRefsLock, "wx", 0o600)
+    packedLockIdentity = fstatSync(packedLockFd)
+    if (snapshotPackedRefEntry(cwd, ref) !== null) {
+      throw new WorktreeCleanupError("ref_restore_failed")
+    }
     targetLockFd = openSync(targetLock, "wx", 0o600)
     targetLockIdentity = fstatSync(targetLockFd)
     const targetHead = gitResult(cwd, ["rev-parse", "--verify", target])
@@ -1240,6 +1297,8 @@ function createLockedSymbolicRef(
   } finally {
     if (refLockFd !== undefined) closeSync(refLockFd)
     if (!refRestored && refLockIdentity) unlinkOwnedLock(refLock, refLockIdentity)
+    if (packedLockFd !== undefined) closeSync(packedLockFd)
+    if (packedLockIdentity) unlinkOwnedLock(packedRefsLock, packedLockIdentity)
     if (targetLockFd !== undefined) closeSync(targetLockFd)
     if (targetLockIdentity) unlinkOwnedLock(targetLock, targetLockIdentity)
     removeCreatedParents(createdTargetParents)
@@ -1682,19 +1741,26 @@ function output(value: unknown): void {
 }
 
 if (import.meta.main) {
+  let parsedAction: "identify" | "remove" | undefined
   try {
     const parsed = parseArgs(process.argv.slice(2))
+    parsedAction = parsed.action
     output(parsed.action === "identify"
       ? identifyLinkedWorktree(parsed.cwd)
       : removeOwnedWorktree(parsed.options))
   } catch (error) {
     const failure = error instanceof WorktreeCleanupError ? error : new WorktreeCleanupError("unknown")
-    output(failure.receipt ?? {
+    output(failure.receipt ?? (parsedAction === "identify" ? {
+      schema_version: IDENTITY_SCHEMA,
+      operation: "identify-linked-worktree",
+      status: "failed",
+      reason_code: failure.code,
+    } : {
       schema_version: EXECUTION_SCHEMA,
       operation: "remove-linked-worktree",
       status: "failed",
       reason_code: failure.code,
-    })
+    }))
     process.exit(1)
   }
 }

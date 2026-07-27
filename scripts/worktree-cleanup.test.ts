@@ -1154,6 +1154,31 @@ exec "${realGit}" "$@"
         await user.exited
       }
     }, 15_000)
+
+    test("owner cleanup matches cwd by identity across mount namespaces", async () => {
+      const fixture = createFixture()
+      const alias = join(fixture.root, "cwd-mount-alias")
+      const ready = join(fixture.root, "cwd-mount-namespace.ready")
+      run(fixture.root, ["/bin/mkdir", "-p", alias])
+      const user = Bun.spawn([
+        "unshare",
+        ...mountNamespaceArgs,
+        "/bin/sh",
+        "-c",
+        "mount --bind \"$1\" \"$2\" && cd \"$2\"; : > \"$3\"; exec sleep 30",
+        "sh",
+        fixture.worktree,
+        alias,
+        ready,
+      ], { cwd: fixture.root, stdout: "ignore", stderr: "ignore" })
+      try {
+        await waitForPath(ready)
+        expectCleanupInUse(fixture)
+      } finally {
+        user.kill()
+        await user.exited
+      }
+    }, 15_000)
   }
 
   const networkNamespaceArgs = process.geteuid?.() === 0 ? ["-n"] : ["-Urn"]
@@ -1336,6 +1361,23 @@ test("CLI parse failures retain sanitized recognized identity fields", () => {
   expect(receipt.expected_ref).toBe(identity.ref)
   expect(receipt.worktree_claimed).toBe(false)
   expect(existsSync(fixture.worktree)).toBe(true)
+})
+
+test("identify failures report the identify operation", () => {
+  const fixture = createFixture()
+  const result = runResult(fixture.root, [
+    "bun",
+    join(import.meta.dir, "worktree-cleanup.ts"),
+    "identify",
+  ])
+
+  expect(result.exitCode).toBe(1)
+  expect(JSON.parse(result.stdout.toString())).toEqual({
+    schema_version: "trade.worktree-cleanup-identity.v3",
+    operation: "identify-linked-worktree",
+    status: "failed",
+    reason_code: "primary_worktree_not_supported",
+  })
 })
 
 test("owner cleanup rejects a tree object as owner commit", () => {
