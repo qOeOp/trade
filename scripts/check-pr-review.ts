@@ -237,7 +237,7 @@ export function verifySnapshot(
   }
   const explicit = snapshot.comments.filter((comment) => /@codex\s+review\b/i.test(comment.body))
   const currentWindow = explicit.filter((comment) => Date.parse(comment.createdAt) > headTime)
-  const exact = explicit.filter((comment) => {
+  const exact = currentWindow.filter((comment) => {
     const marker = parseReviewMarker(comment.body)
     return marker?.head === snapshot.headSha
       && marker.base_ref === snapshot.baseRef

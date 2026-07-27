@@ -240,6 +240,23 @@ describe("native review evidence", () => {
     )
   })
 
+  test("accepts one fresh trigger after the same head re-enters the PR", () => {
+    const reentered = snapshot()
+    const oldTrigger = {
+      ...reentered.comments[0]!,
+      id: 9,
+      nodeId: "IC_9",
+      createdAt: "2026-07-27T00:40:00Z",
+      reactions: [],
+    }
+    reentered.headObservations = [
+      "2026-07-27T00:30:00Z",
+      "2026-07-27T01:01:00Z",
+    ]
+    reentered.comments.unshift(oldTrigger)
+    expect(verify(reentered)).toMatchObject({ ok: true, reasons: [] })
+  })
+
   test("requires the latest matching head observation to strictly predate the trigger", () => {
     const simultaneous = snapshot()
     simultaneous.headObservations = ["2026-07-27T01:05:00Z"]
