@@ -23,7 +23,7 @@ Provide:
 
 - objective, repository, and revision;
 - project instructions and raw baseline evidence;
-- external effect ceiling plus separate per-slice revision/non-progress and cumulative mission budgets, not a preselected execution mode or candidate.
+- external effect ceiling plus separate per-slice revision/non-progress and cumulative cost, escalation, and admitted-slice budgets, not a preselected execution mode or candidate.
 
 Require:
 
@@ -77,7 +77,7 @@ For writable work, return candidate-bound evidence judgments for:
 - `responsibility_fit`: whether changed responsibility stays with an authorized owner, reaches the real consumer, and adds no duplicated, unused, or accidental responsibility;
 - `cleanup`: whether known superseded, failed, temporary, compatibility, and evidence-scaffolding paths are removed within the inspected scope.
 
-For each judgment, provide `supported`, `refuted`, `unresolved`, or `not_applicable`; the bounded claim; direct evidence; inspected scope; limits; and the terminal consequence. Apply the evidence standard in `SKILL.md` before assigning status: caller summaries and passing-check claims alone cannot support a judgment. Do not infer necessity or fit from outcome improvement, LOC, file counts, or zero net surface, and do not claim global minimality. Justify `not_applicable`. A material `refuted` or `unresolved` judgment cannot accompany `accept`: use `revise` when a same-design correction remains within budget, `replan` when a permitted redesign remains within budget or a slice revision/non-progress limit is spent, `invalidated` when no design can satisfy the frozen external bounds, `budget_exhausted` only when a potentially valid next step remains after a cumulative mission cost, escalation, or accepted-slice budget is spent, and `blocked` when a required external fact, permission, or authority remains unavailable while the relevant budgets remain. Bind judgments to the exact candidate patch or content hash; a candidate change makes them stale.
+For each judgment, provide `supported`, `refuted`, `unresolved`, or `not_applicable`; the bounded claim; direct evidence; inspected scope; limits; and the terminal consequence. Apply the evidence standard in `SKILL.md` before assigning status: caller summaries and passing-check claims alone cannot support a judgment. Do not infer necessity or fit from outcome improvement, LOC, file counts, or zero net surface, and do not claim global minimality. Justify `not_applicable`. A material `refuted` or `unresolved` judgment cannot accompany `accept`: use `revise` when a same-design correction remains within budget, `replan` or an ordered terminal when a slice revision/non-progress limit is spent, `invalidated` when no design can satisfy the frozen external bounds, `budget_exhausted` only when a potentially valid next step remains after a cumulative mission cost, escalation, or admitted-slice budget is spent, and `blocked` when a required external fact, permission, or authority remains unavailable while the relevant budgets remain. Bind judgments to the exact candidate patch or content hash; a candidate change makes them stale.
 
 For high-impact read-only work, classify authority, consumer closure, and non-write responsibility or effects instead of inventing code judgments. Distinguish no repository write from decision, access, cost, governance, or other effects.
 
@@ -93,6 +93,6 @@ Start roles fresh and rebuild input from repository state and raw artifacts, not
 
 Evaluators must not invoke live agent or thread enumeration, lifecycle, history, or transcript APIs, or consume live sibling outputs, because those responses can disclose planner or builder deliberation. This does not bar inspection of committed candidate source, complete diffs, test fixtures, or compact evidence packets explicitly admitted and frozen by the main context. A main-frozen contract or admitted evidence may originate from another role, but if raw planner or builder deliberation, unadopted recommendations, or live or unadmitted sibling results appear, stop without a candidate judgment or disposition; the main context must discard that run and launch a fresh evaluator with sanitized input.
 
-Self-review budget classification against three controls: two genuinely distinct consumer-closed slices may continue within cumulative budgets; a renamed failed slice may not reset; an unrelated read-only task does not inherit this mission's counters.
+Self-review budget classification against three controls: two admitted slices may continue only when they close different consumer checkpoints or a replan materially changes contract/design for a new counterexample, and each spends cumulative capacity; a renamed failed slice or same-mission read-only step cannot reset; an independent read-only task with a different outcome starts a new mission with its own counters.
 
 If fresh evaluator isolation is unavailable for a mission that requires one, it cannot be accepted; report the unavailable external requirement and apply the ordered terminal rules.

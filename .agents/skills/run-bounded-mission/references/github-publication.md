@@ -188,6 +188,6 @@ On context recovery, reread them from Git and the provider. Do not serialize a l
 
 Worktree isolation proves only isolation. A commit proves only identity. Local gates, a fresh evaluator, required provider checks, and remote code review are independent evidence surfaces and cannot replace one another.
 
-Use project budgets when present. Otherwise allow at most three candidate revisions and replan after two consecutive cycles that do not improve a failing acceptance signal. Never loop “until perfect,” weaken an oracle, reuse stale-head evidence, or let a candidate-authored test define acceptance.
+Use project budgets when present. Otherwise allow at most three candidate revisions per active remediation slice, replan or apply the ordered predicates after two consecutive non-improving cycles, and spend one of six cumulative admitted-slice units whenever a slice enters execution or evaluation. Never loop “until perfect,” weaken an oracle, reuse stale-head evidence, or let a candidate-authored test define acceptance.
 
 If no covered GitHub PR lifecycle terminal was requested, stop at the locally authorized terminal without loading this lifecycle. If the requested terminal cannot be reached because effect authority, provider access, required evidence, or an independent reviewer is unavailable, retain the exact candidate state and apply the ordered terminal predicates in `SKILL.md`.

@@ -799,8 +799,7 @@ function validateReviewHistory(
 
 function visibleReviewTriggers(snapshot: PullRequestSnapshot): IssueComment[] {
   return snapshot.comments.filter((comment) =>
-    !parseMarker<StatusPayload>(comment.body, STATUS_MARKER)
-    && /@codex\s+review\b/i.test(comment.body)
+    /@codex\s+review\b/i.test(comment.body)
   )
 }
 
@@ -1686,6 +1685,7 @@ function statusProjection(
   claim: Claim,
 ): string {
   const outcome = requireLifecyclePullRequestBody(snapshot.body)
+    .replace(/@codex\s+review\b/gi, (match) => match.replace("@", "@\u200b"))
   const repoUrl = `https://github.com/${repository}`
   const tagLink = (name: string) => `[${name}](${repoUrl}/tree/${name})`
   const artifacts = loadReviewArtifacts(repository, snapshot, claim)
@@ -1739,7 +1739,11 @@ function statusProjection(
     if (unresolved || currentSeal?.resultKind === "review") next = "continue fixing"
     else if (!currentCycle) next = "request review"
     else if (!currentSeal) next = "continue fixing"
-    else next = snapshot.draft ? "run gate" : "merge"
+    else {
+      next = snapshot.draft
+        ? "mark Ready after required checks pass"
+        : "run gate, then merge only after every required check passes"
+    }
   }
 
   return [
@@ -1803,9 +1807,13 @@ function refreshLifecycleStatus(
   if (!samePullRequestIdentity(snapshot, confirmed)) {
     throw new Error("PR identity changed during lifecycle status publication")
   }
+  const confirmedBody = statusProjection(repository, confirmed, claim)
+  if (confirmedBody !== body) {
+    throw new Error("provider evidence changed during lifecycle status publication")
+  }
   const exact = confirmed.comments.filter((comment) =>
     comment.actor === claim.actor
-    && comment.body === body
+    && comment.body === confirmedBody
     && parseMarker<StatusPayload>(comment.body, STATUS_MARKER)?.claim_tag_sha === claim.tagSha
   )
   if (exact.length !== 1) throw new Error("lifecycle status projection was not confirmed")
@@ -2174,6 +2182,12 @@ async function commandAddress(args: string[]): Promise<void> {
   let workingThread = thread
   let replies = findingDispositionReplies(workingThread, claim, workingSnapshot)
   if (replies.length > 1) throw new Error("finding has ambiguous disposition replies")
+  const dispositionMarkers = workingThread.comments.slice(1).filter((comment) =>
+    comment.actor === claim.actor && comment.body.includes("<!-- pr-lifecycle-finding:")
+  )
+  if (!findingSeal && dispositionMarkers.length !== replies.length) {
+    throw new Error("finding has an invalid or legacy disposition reply")
+  }
   const existingReply = replies[0]
   if (
     existingReply

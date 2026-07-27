@@ -297,6 +297,18 @@ const reaction = (value) => ({
   createdAt: value.createdAt,
   user: { login: value.actor },
 })
+const applyProjectionDrift = () => {
+  if (!state.projectionDrift) return
+  state.projectionDrift = false
+  state.reviews.push({
+    id: 91,
+    actor: "human-reviewer",
+    state: "COMMENTED",
+    body: "review arrived during status publication",
+    submittedAt: "2026-07-26T00:03:00Z",
+    commitSha: state.pr.headSha,
+  })
+}
 const graph = () => {
   const pull = {
     number: 100,
@@ -469,6 +481,7 @@ if (endpoint === "repos/qOeOp/trade/issues/100/comments" && method === "POST") {
     reactions: [],
   }
   state.comments.push(comment)
+  applyProjectionDrift()
   output({
     id: comment.id,
     node_id: comment.nodeId,
@@ -484,6 +497,7 @@ if (commentPatch && method === "PATCH") {
   const comment = state.comments.find((candidate) => candidate.id === Number(commentPatch[1]))
   if (!comment) fail("comment missing")
   comment.body = field("body")
+  applyProjectionDrift()
   output({
     id: comment.id,
     node_id: comment.nodeId,
@@ -638,6 +652,7 @@ function fakeProviderState() {
     basicReads: 0,
     fault: null as string | null,
     mutationFault: null as string | null,
+    projectionDrift: false,
   }
 }
 
@@ -1287,6 +1302,9 @@ describe("lifecycle status projection", () => {
 
   test("posts, patches, recreates, and keeps one non-authoritative navigation comment", () => {
     withFakeProvider(({ invoke, readState, writeState }) => {
+      const initial = readState()
+      initial.pr.body = "## Outcome\n\nAsk @codex review without triggering one."
+      writeState(initial)
       expect(invoke(["status", ...writerArgs]).exitCode).toBe(0)
       const posted = readState()
       const projection = posted.comments.find((entry) =>
@@ -1299,6 +1317,8 @@ describe("lifecycle status projection", () => {
       expect(projection.body).toContain("#issuecomment-10")
       expect(projection.body).toContain("#pullrequestreview-90")
       expect(projection.body).toContain("#discussion_r50")
+      expect(projection.body).toContain("@\u200bcodex review")
+      expect(projection.body).not.toMatch(/@codex\s+review\b/i)
       expect(projection.body.match(/^## /gm)).toHaveLength(5)
       expect(parseMarker(projection.body, "pr-lifecycle-status:v1")).toEqual({
         schema: "v1",
@@ -1348,7 +1368,46 @@ describe("lifecycle status projection", () => {
     })
   }, 20_000)
 
-  test("body failure stops status mutation and projection cannot affect verification", () => {
+  test("fresh provider evidence must reproduce the written projection", () => {
+    withFakeProvider(({ invoke, readState, writeState }) => {
+      const state = readState()
+      state.projectionDrift = true
+      writeState(state)
+      const result = invoke(["status", ...writerArgs])
+      expect(result.exitCode).not.toBe(0)
+      expect(result.stderr.toString()).toContain("provider evidence changed")
+      expect(readState().mutations).toBe(1)
+    })
+  }, 20_000)
+
+  test("clean seals give conservative draft and Ready guidance", () => {
+    withFakeProvider(({ invoke, readState, writeState }) => {
+      const state = readState()
+      state.reviews = []
+      state.threads = []
+      state.comments[0]!.reactions.push({
+        id: "clean-reaction",
+        actor: "chatgpt-codex-connector[bot]",
+        content: "THUMBS_UP",
+        createdAt: "2026-07-26T00:03:00Z",
+      })
+      writeState(state)
+      expect(invoke(["seal", ...writerArgs]).exitCode).toBe(0)
+      expect(invoke(["status", ...writerArgs]).exitCode).toBe(0)
+      const draft = readState()
+      expect(draft.comments.at(-1)!.body).toContain(
+        "mark Ready after required checks pass",
+      )
+      draft.pr.draft = false
+      writeState(draft)
+      expect(invoke(["status", ...writerArgs]).exitCode).toBe(0)
+      expect(readState().comments.at(-1)!.body).toContain(
+        "run gate, then merge only after every required check passes",
+      )
+    })
+  }, 20_000)
+
+  test("body failure stops status mutation and verify ignores status identity", () => {
     withFakeProvider(({ invoke, readState, writeState }) => {
       const state = readState()
       state.pr.body = "## Verification\n\nReady"
@@ -1358,10 +1417,11 @@ describe("lifecycle status projection", () => {
     })
     const projection = comment(
       99,
-      `@codex review\n${markerBody("pr-lifecycle-status:v1", {
+      markerBody("pr-lifecycle-status:v1", {
         schema: "v1",
-        claim_tag_sha: claimTagSha,
-      })}`,
+        claim_tag_sha: "0".repeat(40),
+      }),
+      { actor: "other-writer" },
     )
     expect(verifyReceipt(
       snapshot({ comments: [triggerComment(), projection] }),
@@ -1369,6 +1429,28 @@ describe("lifecycle status projection", () => {
       cycle,
     )).toEqual(verifyReceipt(snapshot(), claim, cycle))
   }, 20_000)
+
+  test("status markers never exempt literal review triggers", () => {
+    const marked = [
+      markerBody("pr-lifecycle-status:v1", { schema: "v1", claim_tag_sha: claimTagSha }),
+      markerBody("pr-lifecycle-status:v1", { schema: "v1", claim_tag_sha: "0".repeat(40) }),
+      "<!-- pr-lifecycle-status:v1 nope -->",
+    ]
+    for (const [index, marker] of marked.entries()) {
+      const extra = comment(90 + index, `@codex review\n${marker}`)
+      expect(verifyReceipt(
+        snapshot({ comments: [triggerComment(), extra] }),
+        claim,
+        cycle,
+      ).reasons).toContain("expected one visible review trigger, found 2")
+    }
+    const otherActor = comment(99, `@codex review\n${marked[0]}`, { actor: "outsider" })
+    expect(verifyReceipt(
+      snapshot({ comments: [triggerComment(), otherActor] }),
+      claim,
+      cycle,
+    ).reasons).toContain("expected one visible review trigger, found 2")
+  })
 })
 
 describe("command lifecycle with a fake provider", () => {
@@ -1524,6 +1606,58 @@ describe("command lifecycle with a fake provider", () => {
         } else {
           expect(after.mutations - beforeMutations, mutationFault).toBe(4)
         }
+      })
+    }
+  }, 20_000)
+
+  test("legacy, malformed, or invalid disposition markers block a second reply", () => {
+    for (const body of [
+      "<!-- pr-lifecycle-finding:v0 {} -->",
+      "<!-- pr-lifecycle-finding:v1 nope -->",
+      markerBody("pr-lifecycle-finding:v1", {
+        thread_id: "thread-1",
+        finding_comment_id: 50,
+        disposition: "fixed",
+        fix_sha: head,
+        reason: "not a descendant",
+      }),
+    ]) {
+      withFakeProvider(({ invoke, readState, writeState }) => {
+        const writerArgs = [
+          "--repo", "qOeOp/trade",
+          "--pr", "100",
+          "--claim", claimTagSha,
+          "--capability", capability,
+        ]
+        expect(invoke(["seal", ...writerArgs]).exitCode).toBe(0)
+        const descendant = "f".repeat(40)
+        const state = readState()
+        state.pr.headSha = descendant
+        state.commits.push({ oid: descendant, parents: [head] })
+        state.threads[0]!.comments.push({
+          id: 51,
+          nodeId: "review-node-51",
+          actor: "qOeOp",
+          body,
+          createdAt: "2026-07-26T00:03:00Z",
+          outdated: false,
+          reviewCommitSha: descendant,
+        })
+        writeState(state)
+        const before = state.mutations
+        const result = invoke([
+          "address",
+          ...writerArgs,
+          "--thread-id", "thread-1",
+          "--finding-comment-id", "50",
+          "--disposition", "fixed",
+          "--fix-sha", descendant,
+          "--reason", "must not post a second reply",
+        ])
+        expect(result.exitCode).not.toBe(0)
+        expect(result.stderr.toString()).toContain("invalid or legacy disposition")
+        expect(readState().mutations).toBe(before)
+        expect(readState().replyCount).toBe(0)
       })
     }
   }, 20_000)
