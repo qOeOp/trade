@@ -46,6 +46,8 @@ Treat user and project authority, the outcome, consumer journey, effect ceiling,
 
 Use project budgets when present. Otherwise allow three candidates per uncertain decision, one writable context, three revisions per slice, two non-progress cycles before replanning, and six accepted slices before recontracting.
 
+Track per-slice revision and non-progress limits separately from cumulative mission cost, escalation, and accepted-slice budgets. Each consumer-closed admitted slice gets at most three revisions; two non-progress cycles force replan. Admit a new slice only when its contract, design, counterexample, or consumer checkpoint materially differs. Renaming, retrying, or changing context never resets either class of budget. Slice exhaustion requires replan; only cumulative cost, escalation, or accepted-slice exhaustion can terminate the mission as `budget_exhausted`.
+
 An explicit replan may refreeze mission-selected design, effects, and a falsified mission-selected oracle only within the original authority, outcome, consumer journey, externally imposed acceptance requirements, effect ceiling, and cumulative budgets. Candidates and evaluators cannot change or weaken the oracle. Do not reset budgets through a new context, renamed request, persistent goal, recurring run, or replan. Expanding an external bound requires external admission and a new mission.
 
 ### 3. Design
@@ -90,8 +92,8 @@ Keep mission progress in the working plan and recover current facts from Git, th
 End in exactly one state. Apply these predicates in order:
 
 - `completed`: every acceptance check passes through the real outcome consumer;
-- `invalidated`: evidence intrinsic to the objective or design shows it is wrong or cannot satisfy the frozen external bounds, rather than a required external fact, permission, or authority being unavailable;
-- `budget_exhausted`: a potentially valid next step remains, but a revision, non-progress, cost, or escalation budget is spent;
+- `invalidated`: intrinsic evidence leaves no viable design within the frozen external bounds;
+- `budget_exhausted`: a potentially valid next step remains, but a cumulative mission cost, escalation, or accepted-slice budget is spent;
 - `blocked`: a required external fact, permission, or authority remains unavailable while the relevant mission budgets remain.
 
 Report the terminal state, outcome, consumer journey, evidence, quality results, responsibility delta, and gaps. When evaluation was required, surface each current candidate-bound material judgment by name, status, bounded claim, inspected scope, limit, and terminal consequence—including `change_necessity`, `responsibility_fit`, and `cleanup` for writable work; do not replace them with an aggregate verdict, recompute or strengthen them, and treat them as stale after a candidate change. A material `refuted` or `unresolved` judgment precludes `completed`. For high-impact read-only work, distinguish no repository write or runtime-surface delta from decision, authority, access, cost, or other effects. Do not claim completion from document or code volume, unit tests, or static gates alone.

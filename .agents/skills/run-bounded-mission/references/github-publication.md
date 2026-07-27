@@ -77,18 +77,32 @@ When the repository contains `scripts/pr-lifecycle.ts` and a base-owned
    <owner/repo> --pr <number> --thread-id <node-id> --finding-comment-id
    <database-id> --disposition <fixed|deferred|rejected> --fix-sha <full-sha>
    --reason <text> --claim <tag-sha> --capability <private-value>`. It replies
-   only to a Codex-authored root
-   in that exact inline thread with one unique structured disposition and
-   resolves it through GitHub. The receipt commit must be a retained strict
-   descendant of the finding review head by walking the recorded commit-parent
-   DAG; array order is not ancestry, and a pre-finding or sibling commit is
-   invalid. The command validates both provider mutation responses, then takes a
-   fresh complete snapshot and requires unchanged PR identity, the same finding
-   root, one exact requested disposition, and a resolved thread before reporting
-   success. A reply or a resolve alone is insufficient. These writes are not a
-   provider transaction and are not rolled back after an uncertain response;
-   retry the same exact request. Every new code head needs a new review tag,
-   trigger, result seal, and final clean seal.
+   only to a Codex-authored root in that exact inline thread with one unique
+   structured disposition. A fresh complete snapshot must expose the exact reply
+   database ID, GraphQL node ID, creation time, body, fields, and body hash before
+   the command creates the immutable annotated
+   `codex-pr-finding-seal/<pr>/<finding-comment-id>` tag. That seal binds the
+   repository, PR, claim, mission, actor, thread, finding root, review head,
+   exact reply identity and body, disposition, reason, and fix commit. Only
+   after the seal exists may the command resolve the thread. The receipt commit
+   must be a retained strict descendant of the finding review head by walking
+   the recorded commit-parent DAG; array order is not ancestry, and a
+   pre-finding or sibling commit is invalid.
+   Before reporting success, the command takes another fresh complete snapshot,
+   rereads the immutable seal, and requires unchanged PR identity, the same
+   finding root, the exact sealed live reply, and a resolved thread. Missing,
+   edited, deleted, duplicated, identity-mismatched, or differently classified
+   replies fail closed; the resolved flag alone is insufficient. These writes
+   are not a provider transaction. Exact retries recover in order across reply,
+   seal, and resolve without posting a second reply, but there is no
+   compatibility fallback for unsealed historical dispositions. Every new code
+   head needs a new review tag, trigger, result seal, and final clean seal.
+   After claim and every meaningful review, seal, address, or dispatch stage,
+   explicitly run `bun scripts/pr-lifecycle.ts status --repo <owner/repo> --pr
+   <number> --claim <tag-sha> --capability <private-value>`. Run it again
+   immediately before Ready and immediately before merge. This sole status
+   command writes non-authoritative navigation; no lifecycle writer refreshes
+   it automatically, and verification never consumes it.
 7. A root 👍, eyes reaction, silence, summary, resolved flag, unsealed result, or
    old-head review
    is not independently sufficient. Run `bun scripts/pr-lifecycle.ts verify
@@ -97,7 +111,8 @@ When the repository contains `scripts/pr-lifecycle.ts` and a base-owned
    historical trigger and result, trusted Codex identity, exact current
    head/live base, every visible explicit review trigger, one correlated and
    sealed clean reaction, complete thread
-   snapshot, and finding dispositions present in the current PR commit lineage.
+   snapshot, and exact immutable finding seals whose bound replies remain
+   present and unchanged in the current PR commit lineage.
    A successful status certifies only the provider identity observed before and
    after that status write; strict required checks own later live-base drift.
    Run it immediately before merge and permit no intervening PR writes. It fails

@@ -12,11 +12,13 @@ import {
   parseMarker,
   requireComplete,
   requireClaimCapability,
+  requireLifecyclePullRequestBody,
   validateClaimTag,
   validateReviewTag,
   verifyReceipt as verifyReceiptProduction,
   type AnnotatedTag,
   type Claim,
+  type FindingSeal,
   type IssueComment,
   type PullRequestSnapshot,
   type ReviewCycle,
@@ -111,6 +113,7 @@ function verifyReceipt(
     reviewCycles?: ReviewCycle[]
     triggerReceipts?: ReviewTriggerReceipt[]
     seals?: ReviewSeal[]
+    findingSeals?: FindingSeal[]
   } = {},
 ) {
   const receipts = options.triggerReceipts ?? [triggerReceipt]
@@ -121,6 +124,13 @@ function verifyReceipt(
     ...options,
     triggerReceipts: receipts,
     seals: options.seals ?? [seal],
+    findingSeals: options.findingSeals ?? (
+      state.threads.some((thread) =>
+        thread.comments[0]?.actor.startsWith("chatgpt-codex-connector")
+      )
+        ? [findingSeal()]
+        : []
+    ),
   })
 }
 
@@ -132,6 +142,9 @@ function snapshot(overrides: Partial<PullRequestSnapshot> = {}): PullRequestSnap
   return {
     repository: "qOeOp/trade",
     number: 100,
+    title: "Harden the PR lifecycle",
+    body: "## Outcome\n\nKeep lifecycle evidence exact.",
+    url: "https://github.com/qOeOp/trade/pull/100",
     open: true,
     draft: false,
     merged: false,
@@ -198,6 +211,7 @@ function findingThread(overrides: Partial<ReviewThread> = {}): ReviewThread {
     comments: [
       {
         id: 50,
+        nodeId: "review-node-50",
         actor: "chatgpt-codex-connector",
         body: "finding",
         createdAt: "2026-07-26T00:00:30Z",
@@ -206,6 +220,7 @@ function findingThread(overrides: Partial<ReviewThread> = {}): ReviewThread {
       },
       {
         id: 51,
+        nodeId: "review-node-51",
         actor: "qOeOp",
         body: markerBody("pr-lifecycle-finding:v1", {
           thread_id: "thread-1",
@@ -219,6 +234,30 @@ function findingThread(overrides: Partial<ReviewThread> = {}): ReviewThread {
         reviewCommitSha: null,
       },
     ],
+    ...overrides,
+  }
+}
+
+function findingSeal(overrides: Partial<FindingSeal> = {}): FindingSeal {
+  const replyBody = markerBody("pr-lifecycle-finding:v1", {
+    thread_id: "thread-1",
+    finding_comment_id: 50,
+    disposition: "fixed",
+    fix_sha: head,
+    reason: "covered by the regression",
+  })
+  return {
+    tagSha: "6".repeat(40),
+    threadId: "thread-1",
+    findingCommentId: 50,
+    reviewHead: fix,
+    replyCommentId: 51,
+    replyCommentNodeId: "review-node-51",
+    replyCreatedAt: "2026-07-26T00:00:40Z",
+    replyBodyHash: createHash("sha256").update(replyBody).digest("hex"),
+    disposition: "fixed",
+    fixSha: head,
+    reason: "covered by the regression",
     ...overrides,
   }
 }
@@ -261,6 +300,9 @@ const reaction = (value) => ({
 const graph = () => {
   const pull = {
     number: 100,
+    title: state.pr.title,
+    body: state.pr.body,
+    url: state.pr.url,
     state: state.pr.open ? "OPEN" : "CLOSED",
     merged: state.pr.merged,
     isDraft: state.pr.draft,
@@ -321,6 +363,7 @@ const graph = () => {
           pageInfo: { hasNextPage: false },
           nodes: thread.comments.map((comment) => ({
             databaseId: comment.id,
+            id: comment.nodeId,
             body: comment.body,
             createdAt: comment.createdAt,
             outdated: comment.outdated,
@@ -435,6 +478,21 @@ if (endpoint === "repos/qOeOp/trade/issues/100/comments" && method === "POST") {
     created_at: comment.createdAt,
   })
 }
+const commentPatch = endpoint.match(/repos\/qOeOp\/trade\/issues\/comments\/(\d+)$/)
+if (commentPatch && method === "PATCH") {
+  state.mutations += 1
+  const comment = state.comments.find((candidate) => candidate.id === Number(commentPatch[1]))
+  if (!comment) fail("comment missing")
+  comment.body = field("body")
+  output({
+    id: comment.id,
+    node_id: comment.nodeId,
+    user: { login: comment.actor },
+    author_association: comment.association,
+    body: comment.body,
+    created_at: comment.createdAt,
+  })
+}
 const replyMatch = endpoint.match(/pulls\/100\/comments\/(\d+)\/replies$/)
 if (replyMatch && method === "POST") {
   state.mutations += 1
@@ -444,6 +502,7 @@ if (replyMatch && method === "POST") {
   if (!thread) fail("finding root missing")
   thread.comments.push({
     id: state.nextReviewCommentId++,
+    nodeId: "review-node-" + (state.nextReviewCommentId - 1),
     actor: state.actor,
     body: field("body"),
     createdAt: "2026-07-26T00:03:30Z",
@@ -451,7 +510,8 @@ if (replyMatch && method === "POST") {
     reviewCommitSha: state.pr.headSha,
   })
   if (state.mutationFault === "empty-reply") output({})
-  output({ id: thread.comments.at(-1).id })
+  const reply = thread.comments.at(-1)
+  output({ id: reply.id, node_id: reply.nodeId, body: reply.body })
 }
 fail("unsupported fake gh endpoint " + endpoint)
 `
@@ -465,6 +525,9 @@ function fakeProviderState() {
   return {
     actor: "qOeOp",
     pr: {
+      title: "Harden the PR lifecycle",
+      body: "## Outcome\n\nMake the PR lifecycle exact and recoverable.",
+      url: "https://github.com/qOeOp/trade/pull/100",
       open: true,
       merged: false,
       draft: true,
@@ -506,6 +569,7 @@ function fakeProviderState() {
       outdated: false,
       comments: [{
         id: 50,
+        nodeId: "review-node-50",
         actor: "chatgpt-codex-connector[bot]",
         body: findingBody,
         createdAt: "2026-07-26T00:02:01Z",
@@ -902,6 +966,7 @@ describe("exact-head receipt", () => {
       comments: [
         {
           id: 60,
+          nodeId: "review-node-60",
           actor: "chatgpt-codex-connector[bot]",
           body: oldFindingBody,
           createdAt: "2026-07-26T00:02:01Z",
@@ -910,6 +975,7 @@ describe("exact-head receipt", () => {
         },
         {
           id: 61,
+          nodeId: "review-node-61",
           actor: "qOeOp",
           body: markerBody("pr-lifecycle-finding:v1", {
             thread_id: "thread-old",
@@ -942,6 +1008,19 @@ describe("exact-head receipt", () => {
         bodyHash: createHash("sha256").update(oldFindingBody).digest("hex"),
       }],
     }
+    const oldFindingSeal: FindingSeal = {
+      tagSha: "7".repeat(40),
+      threadId: "thread-old",
+      findingCommentId: 60,
+      reviewHead: oldHead,
+      replyCommentId: 61,
+      replyCommentNodeId: "review-node-61",
+      replyCreatedAt: "2026-07-26T00:03:00Z",
+      replyBodyHash: createHash("sha256").update(oldFinding.comments[1]!.body).digest("hex"),
+      disposition: "fixed",
+      fixSha: head,
+      reason: "fixed on the current head",
+    }
     const state = snapshot({
       comments: [oldTrigger, triggerComment()],
       commits: [fix, oldHead, head],
@@ -952,6 +1031,7 @@ describe("exact-head receipt", () => {
       reviewCycles: [oldCycle, cycle],
       triggerReceipts: [oldReceipt, triggerReceipt],
       seals: [oldSeal, seal],
+      findingSeals: [oldFindingSeal],
     }
     expect(verifyReceipt(state, claim, cycle, options).ok).toBeTrue()
     expect(verifyReceipt(
@@ -1085,7 +1165,7 @@ describe("exact-head receipt", () => {
     const result = verifyReceipt(unmapped, { ...claim, initialHead: head }, cycle)
     expect(result.ok).toBeFalse()
     expect(result.reasons.some((reason) =>
-      reason.includes("lacks an exact fix/disposition receipt")
+      reason.includes("lacks an exact sealed disposition receipt")
     )).toBeTrue()
   })
 
@@ -1104,8 +1184,74 @@ describe("exact-head receipt", () => {
     const result = verifyReceipt(state, claim, cycle)
     expect(result.ok).toBeFalse()
     expect(result.reasons).toContain(
-      "review thread thread-1 lacks an exact fix/disposition receipt",
+      "review thread thread-1 lacks an exact sealed disposition receipt",
     )
+  })
+
+  test("finding seals fail closed on missing, edited, deleted, duplicate, or mismatched replies", () => {
+    const valid = findingThread()
+    const cases: Array<{
+      state: PullRequestSnapshot
+      findingSeals: FindingSeal[]
+    }> = [
+      {
+        state: snapshot({ threads: [valid] }),
+        findingSeals: [],
+      },
+      {
+        state: snapshot({
+          threads: [{
+            ...valid,
+            comments: valid.comments.map((entry, index) =>
+              index === 1 ? { ...entry, body: `${entry.body}\nedited` } : entry
+            ),
+          }],
+        }),
+        findingSeals: [findingSeal()],
+      },
+      {
+        state: snapshot({
+          threads: [{ ...valid, comments: [valid.comments[0]!] }],
+        }),
+        findingSeals: [findingSeal()],
+      },
+      {
+        state: snapshot({
+          threads: [{
+            ...valid,
+            comments: [
+              ...valid.comments,
+              {
+                ...valid.comments[1]!,
+                id: 52,
+                nodeId: "review-node-52",
+              },
+            ],
+          }],
+        }),
+        findingSeals: [findingSeal()],
+      },
+      {
+        state: snapshot({ threads: [valid] }),
+        findingSeals: [findingSeal({ disposition: "deferred" })],
+      },
+      {
+        state: snapshot({ threads: [valid] }),
+        findingSeals: [findingSeal({ replyCommentNodeId: "replacement-review-node" })],
+      },
+    ]
+    for (const entry of cases) {
+      const result = verifyReceipt(
+        entry.state,
+        claim,
+        cycle,
+        { findingSeals: entry.findingSeals },
+      )
+      expect(result.ok).toBeFalse()
+      expect(result.reasons).toContain(
+        "review thread thread-1 lacks an exact sealed disposition receipt",
+      )
+    }
   })
 
   test("human review threads are outside the Codex disposition protocol", () => {
@@ -1114,6 +1260,115 @@ describe("exact-head receipt", () => {
     expect(isCodexFindingRoot(humanThread, 50)).toBeFalse()
     expect(verifyReceipt(snapshot({ threads: [humanThread] }), claim, cycle).ok).toBeTrue()
   })
+})
+
+describe("lifecycle status projection", () => {
+  const writerArgs = [
+    "--repo", "qOeOp/trade",
+    "--pr", "100",
+    "--claim", claimTagSha,
+    "--capability", capability,
+  ]
+
+  test("requires Outcome and nonempty explicit H2 sections", () => {
+    expect(requireLifecyclePullRequestBody(
+      "## Outcome\n\nShip exact evidence.\n\n## Verification\n\nFocused tests.",
+    )).toBe("Ship exact evidence.")
+    expect(() => requireLifecyclePullRequestBody("## Verification\n\nReady")).toThrow(
+      "missing required section: ## Outcome",
+    )
+    expect(() => requireLifecyclePullRequestBody("## Outcome\n\n## Verification\n\nReady")).toThrow(
+      "section is empty: ## Outcome",
+    )
+    expect(() => requireLifecyclePullRequestBody(
+      "## Outcome\n\nReady\n\n## Risks\n\n<!-- placeholder -->",
+    )).toThrow("section is empty: ## Risks")
+  })
+
+  test("posts, patches, recreates, and keeps one non-authoritative navigation comment", () => {
+    withFakeProvider(({ invoke, readState, writeState }) => {
+      expect(invoke(["status", ...writerArgs]).exitCode).toBe(0)
+      const posted = readState()
+      const projection = posted.comments.find((entry) =>
+        entry.body.includes("pr-lifecycle-status:v1")
+      )!
+      expect(posted.mutations).toBe(1)
+      expect(projection.body).toContain(
+        "Non-authoritative navigation; immutable tags/reviews/threads/checks remain authority.",
+      )
+      expect(projection.body).toContain("#issuecomment-10")
+      expect(projection.body).toContain("#pullrequestreview-90")
+      expect(projection.body).toContain("#discussion_r50")
+      expect(projection.body.match(/^## /gm)).toHaveLength(5)
+      expect(parseMarker(projection.body, "pr-lifecycle-status:v1")).toEqual({
+        schema: "v1",
+        claim_tag_sha: claimTagSha,
+      })
+
+      posted.refs = { "codex-pr-claim/100": claimTagSha }
+      posted.comments = [projection]
+      posted.reviews = []
+      posted.threads = []
+      projection.body = `edited\n\n${markerBody("pr-lifecycle-status:v1", {
+        schema: "v1",
+        claim_tag_sha: claimTagSha,
+      })}`
+      writeState(posted)
+      expect(invoke(["status", ...writerArgs]).exitCode).toBe(0)
+      const patched = readState()
+      expect(patched.comments).toHaveLength(1)
+      expect(patched.comments[0]!.id).toBe(projection.id)
+      expect(patched.comments[0]!.body).toContain("## What happened\n\n- None")
+      expect(patched.comments[0]!.body).toContain("## Next action\n\nrequest review")
+
+      const beforeRetry = patched.mutations
+      expect(invoke(["status", ...writerArgs]).exitCode).toBe(0)
+      expect(readState().mutations).toBe(beforeRetry + 1)
+      expect(readState().comments[0]!.id).toBe(projection.id)
+
+      const deleted = readState()
+      deleted.comments = []
+      writeState(deleted)
+      expect(invoke(["status", ...writerArgs]).exitCode).toBe(0)
+      const recreated = readState()
+      expect(recreated.comments).toHaveLength(1)
+      expect(recreated.comments[0]!.id).not.toBe(projection.id)
+
+      recreated.comments.push({
+        ...recreated.comments[0]!,
+        id: 999,
+        nodeId: "issue-node-999",
+      })
+      writeState(recreated)
+      const beforeDuplicate = recreated.mutations
+      const duplicate = invoke(["status", ...writerArgs])
+      expect(duplicate.exitCode).not.toBe(0)
+      expect(duplicate.stderr.toString()).toContain("multiple lifecycle status")
+      expect(readState().mutations).toBe(beforeDuplicate)
+    })
+  }, 20_000)
+
+  test("body failure stops status mutation and projection cannot affect verification", () => {
+    withFakeProvider(({ invoke, readState, writeState }) => {
+      const state = readState()
+      state.pr.body = "## Verification\n\nReady"
+      writeState(state)
+      expect(invoke(["status", ...writerArgs]).exitCode).not.toBe(0)
+      expect(readState().mutations).toBe(0)
+    })
+    const projection = comment(
+      99,
+      `@codex review\n${markerBody("pr-lifecycle-status:v1", {
+        schema: "v1",
+        claim_tag_sha: claimTagSha,
+      })}`,
+    )
+    expect(verifyReceipt(
+      snapshot({ comments: [triggerComment(), projection] }),
+      claim,
+      cycle,
+    )).toEqual(verifyReceipt(snapshot(), claim, cycle))
+  }, 20_000)
 })
 
 describe("command lifecycle with a fake provider", () => {
@@ -1153,7 +1408,21 @@ describe("command lifecycle with a fake provider", () => {
       const afterAddress = readState()
       expect(afterAddress.replyCount).toBe(1)
       expect(afterAddress.threads[0]!.resolved).toBeTrue()
-      expect(afterAddress.mutations - beforeAddressMutations).toBe(2)
+      expect(afterAddress.mutations - beforeAddressMutations).toBe(4)
+      expect(afterAddress.refs["codex-pr-finding-seal/100/50"]).toBeDefined()
+
+      const exactRetry = invoke([
+        "address",
+        ...writerArgs,
+        "--thread-id", "thread-1",
+        "--finding-comment-id", "50",
+        "--disposition", "fixed",
+        "--fix-sha", descendant,
+        "--reason", "covered by the command simulation",
+      ])
+      expect(exactRetry.exitCode, exactRetry.stderr.toString()).toBe(0)
+      expect(readState().mutations).toBe(afterAddress.mutations)
+      expect(readState().replyCount).toBe(1)
 
       const review = invoke(["review", ...writerArgs])
       expect(review.exitCode).toBe(0)
@@ -1253,8 +1522,73 @@ describe("command lifecycle with a fake provider", () => {
         } else if (mutationFault === "empty-reply") {
           expect(after.mutations - beforeMutations, mutationFault).toBe(1)
         } else {
-          expect(after.mutations - beforeMutations, mutationFault).toBe(2)
+          expect(after.mutations - beforeMutations, mutationFault).toBe(4)
         }
+      })
+    }
+  }, 20_000)
+
+  test("recovers an exact reply after an uncertain response without posting a duplicate", () => {
+    withFakeProvider(({ invoke, readState, writeState }) => {
+      const writerArgs = [
+        "--repo", "qOeOp/trade",
+        "--pr", "100",
+        "--claim", claimTagSha,
+        "--capability", capability,
+      ]
+      expect(invoke(["seal", ...writerArgs]).exitCode).toBe(0)
+      const descendant = "f".repeat(40)
+      const state = readState()
+      state.pr.headSha = descendant
+      state.commits.push({ oid: descendant, parents: [head] })
+      state.mutationFault = "empty-reply"
+      writeState(state)
+      const addressArgs = [
+        "address",
+        ...writerArgs,
+        "--thread-id", "thread-1",
+        "--finding-comment-id", "50",
+        "--disposition", "fixed",
+        "--fix-sha", descendant,
+        "--reason", "recover the exact reply",
+      ]
+      expect(invoke(addressArgs).exitCode).not.toBe(0)
+      const afterUncertain = readState()
+      expect(afterUncertain.replyCount).toBe(1)
+      expect(afterUncertain.refs["codex-pr-finding-seal/100/50"]).toBeUndefined()
+      afterUncertain.mutationFault = null
+      writeState(afterUncertain)
+
+      const recovered = invoke(addressArgs)
+      expect(recovered.exitCode, recovered.stderr.toString()).toBe(0)
+      const afterRecovered = readState()
+      expect(afterRecovered.replyCount).toBe(1)
+      expect(afterRecovered.refs["codex-pr-finding-seal/100/50"]).toBeDefined()
+      expect(afterRecovered.threads[0]!.resolved).toBeTrue()
+    })
+  }, 20_000)
+
+  test("rejects a closed or merged draft before creating lifecycle artifacts", () => {
+    for (const stateChange of [
+      { open: false, merged: false },
+      { open: false, merged: true },
+    ]) {
+      withFakeProvider(({ invoke, readState, writeState }) => {
+        const state = readState()
+        state.pr.open = stateChange.open
+        state.pr.merged = stateChange.merged
+        writeState(state)
+        const before = state.mutations
+        const result = invoke([
+          "review",
+          "--repo", "qOeOp/trade",
+          "--pr", "100",
+          "--claim", claimTagSha,
+          "--capability", capability,
+        ])
+        expect(result.exitCode).not.toBe(0)
+        expect(result.stderr.toString()).toContain("pull request is not open")
+        expect(readState().mutations).toBe(before)
       })
     }
   }, 20_000)
@@ -1335,6 +1669,9 @@ describe("base-owned workflow", () => {
     expect(workflow).toContain("ref: ${{ github.sha }}")
     expect(workflow).not.toContain("ref: ${{ inputs.expected_base_sha }}")
     expect(workflow).toContain('--trusted-workflow-sha "$GITHUB_SHA"')
+    expect(workflow).toContain("PR_NUMBER: ${{ inputs.pr_number }}")
+    const shellProgram = workflow.slice(workflow.indexOf("        run: |"))
+    expect(shellProgram).not.toContain("${{ inputs.")
   })
 })
 

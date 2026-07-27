@@ -44,11 +44,15 @@ jobs:
       - name: Verify exact PR lifecycle receipt
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          EXPECTED_BASE_REF: ${{ inputs.expected_base_ref }}
+          EXPECTED_BASE_SHA: ${{ inputs.expected_base_sha }}
         run: |
           bun scripts/pr-lifecycle.ts gate \
             --repo "$GITHUB_REPOSITORY" \
-            --pr "${{ inputs.pr_number }}" \
-            --expected-head "${{ inputs.expected_head_sha }}" \
-            --expected-base-ref "${{ inputs.expected_base_ref }}" \
-            --expected-base-sha "${{ inputs.expected_base_sha }}" \
+            --pr "$PR_NUMBER" \
+            --expected-head "$EXPECTED_HEAD_SHA" \
+            --expected-base-ref "$EXPECTED_BASE_REF" \
+            --expected-base-sha "$EXPECTED_BASE_SHA" \
             --trusted-workflow-sha "$GITHUB_SHA"

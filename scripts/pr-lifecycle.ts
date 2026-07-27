@@ -8,6 +8,8 @@ const CLAIM_RECEIPT_MARKER = "pr-lifecycle-claim-receipt:v1"
 const REVIEW_TAG_MARKER = "pr-lifecycle-review-tag:v1"
 const REVIEW_TRIGGER_TAG_MARKER = "pr-lifecycle-review-trigger-tag:v1"
 const REVIEW_SEAL_TAG_MARKER = "pr-lifecycle-review-seal-tag:v1"
+const FINDING_SEAL_TAG_MARKER = "pr-lifecycle-finding-seal-tag:v1"
+const STATUS_MARKER = "pr-lifecycle-status:v1"
 const REVIEW_MARKER = "pr-lifecycle-review:v2"
 const FINDING_MARKER = "pr-lifecycle-finding:v1"
 const GATE_CONTEXT = "pr-lifecycle-gate"
@@ -45,6 +47,7 @@ export interface Review {
 
 export interface ReviewComment {
   id: number
+  nodeId: string
   actor: string
   body: string
   createdAt: string
@@ -62,6 +65,9 @@ export interface ReviewThread {
 export interface PullRequestSnapshot {
   repository: string
   number: number
+  title: string
+  body: string
+  url: string
   open: boolean
   draft: boolean
   merged: boolean
@@ -156,6 +162,29 @@ interface FindingPayload {
   reason: string
 }
 
+interface FindingSealTagPayload {
+  repository: string
+  pr: number
+  claim_tag_sha: string
+  mission: string
+  actor: string
+  thread_id: string
+  finding_comment_id: number
+  review_head: string
+  reply_comment_id: number
+  reply_comment_node_id: string
+  reply_created_at: string
+  reply_body_hash: string
+  disposition: "fixed" | "deferred" | "rejected"
+  fix_sha: string
+  reason: string
+}
+
+interface StatusPayload {
+  schema: "v1"
+  claim_tag_sha: string
+}
+
 export interface Claim {
   tagSha: string
   actor: string
@@ -176,6 +205,20 @@ export interface ReviewSeal {
   resultState: string | null
   resultBodyHash: string | null
   findingRoots: ReviewFindingRootReceipt[]
+}
+
+export interface FindingSeal {
+  tagSha: string
+  threadId: string
+  findingCommentId: number
+  reviewHead: string
+  replyCommentId: number
+  replyCommentNodeId: string
+  replyCreatedAt: string
+  replyBodyHash: string
+  disposition: "fixed" | "deferred" | "rejected"
+  fixSha: string
+  reason: string
 }
 
 export interface ReviewCycle {
@@ -250,6 +293,23 @@ export function parseMarker<T>(body: string, marker: string): T | null {
   } catch {
     return null
   }
+}
+
+export function requireLifecyclePullRequestBody(body: string): string {
+  const sections = [...body.matchAll(/^##(?:[ \t]+(.*))?$/gm)]
+  let outcome: string | null = null
+  for (const [index, section] of sections.entries()) {
+    const title = section[1]?.trim()
+    if (!title) throw new Error("PR body has an empty H2 heading")
+    const content = body
+      .slice(section.index! + section[0].length, sections[index + 1]?.index)
+      .replace(/<!--[\s\S]*?-->/g, "")
+      .trim()
+    if (!content) throw new Error(`PR body section is empty: ## ${title}`)
+    if (title === "Outcome") outcome = content
+  }
+  if (!outcome) throw new Error("PR body is missing required section: ## Outcome")
+  return outcome
 }
 
 function validSha(value: string | null): value is string {
@@ -492,6 +552,67 @@ function parseReviewSealTag(
   }
 }
 
+function parseFindingSealTag(
+  tag: AnnotatedTag,
+  repository: string,
+  pr: number,
+  claim: Claim,
+  thread: ReviewThread,
+): FindingSeal {
+  const root = thread.comments[0]
+  const payload = parseMarker<FindingSealTagPayload>(tag.message, FINDING_SEAL_TAG_MARKER)
+  const expectedBody = payload
+    ? markerBody(FINDING_MARKER, {
+        thread_id: payload.thread_id,
+        finding_comment_id: payload.finding_comment_id,
+        disposition: payload.disposition,
+        fix_sha: payload.fix_sha,
+        reason: payload.reason,
+      })
+    : ""
+  if (
+    !validSha(tag.sha)
+    || tag.objectType !== "commit"
+    || !payload
+    || !root
+    || !isCodex(root.actor)
+    || tag.name !== findingSealRef(pr, root.id)
+    || payload.repository !== repository
+    || payload.pr !== pr
+    || payload.claim_tag_sha !== claim.tagSha
+    || payload.mission !== claim.mission
+    || payload.actor !== claim.actor
+    || payload.thread_id !== thread.id
+    || payload.finding_comment_id !== root.id
+    || !validSha(payload.review_head)
+    || payload.review_head !== root.reviewCommitSha
+    || !Number.isInteger(payload.reply_comment_id)
+    || payload.reply_comment_id <= 0
+    || typeof payload.reply_comment_node_id !== "string"
+    || payload.reply_comment_node_id.length === 0
+    || !Number.isFinite(Date.parse(payload.reply_created_at))
+    || !validCapabilityHash(payload.reply_body_hash)
+    || payload.reply_body_hash !== contentHash(expectedBody)
+    || !["fixed", "deferred", "rejected"].includes(payload.disposition)
+    || !validSha(payload.fix_sha)
+    || payload.reason.trim().length === 0
+    || tag.objectSha !== payload.fix_sha
+  ) throw new Error("invalid finding seal tag")
+  return {
+    tagSha: tag.sha,
+    threadId: payload.thread_id,
+    findingCommentId: payload.finding_comment_id,
+    reviewHead: payload.review_head,
+    replyCommentId: payload.reply_comment_id,
+    replyCommentNodeId: payload.reply_comment_node_id,
+    replyCreatedAt: payload.reply_created_at,
+    replyBodyHash: payload.reply_body_hash,
+    disposition: payload.disposition,
+    fixSha: payload.fix_sha,
+    reason: payload.reason,
+  }
+}
+
 function exactTrigger(
   snapshot: PullRequestSnapshot,
   claim: Claim,
@@ -678,7 +799,8 @@ function validateReviewHistory(
 
 function visibleReviewTriggers(snapshot: PullRequestSnapshot): IssueComment[] {
   return snapshot.comments.filter((comment) =>
-    /@codex\s+review\b/i.test(comment.body)
+    !parseMarker<StatusPayload>(comment.body, STATUS_MARKER)
+    && /@codex\s+review\b/i.test(comment.body)
   )
 }
 
@@ -706,15 +828,20 @@ function currentOrAmbiguousReviewTriggers(
   })
 }
 
-function findingDispositions(
+interface FindingDispositionReply {
+  comment: ReviewComment
+  payload: FindingPayload
+}
+
+function findingDispositionReplies(
   thread: ReviewThread,
   claim: Claim,
   snapshot: PullRequestSnapshot,
-): FindingPayload[] {
+): FindingDispositionReply[] {
   const root = thread.comments[0]
   const reviewedHead = root?.reviewCommitSha
   if (!reviewedHead || !snapshot.commits.includes(reviewedHead)) return []
-  const matches: FindingPayload[] = []
+  const matches: FindingDispositionReply[] = []
   for (const comment of thread.comments.slice(1)) {
     if (comment.actor !== claim.actor) continue
     const payload = parseMarker<FindingPayload>(comment.body, FINDING_MARKER)
@@ -726,26 +853,66 @@ function findingDispositions(
       && validSha(payload.fix_sha)
       && payload.reason.trim().length > 0
       && isStrictDescendant(snapshot, payload.fix_sha, reviewedHead)
-    ) matches.push(payload)
+    ) matches.push({ comment, payload })
   }
   return matches
 }
 
-function findingDisposition(
+function exactFindingDisposition(
   thread: ReviewThread,
   claim: Claim,
   snapshot: PullRequestSnapshot,
+  seal: FindingSeal | undefined,
 ): FindingPayload | null {
-  const matches = findingDispositions(thread, claim, snapshot)
-  return matches.length === 1 ? matches[0]! : null
+  const root = thread.comments[0]
+  if (
+    !root
+    || !seal
+    || !isCodex(root.actor)
+    || seal.threadId !== thread.id
+    || seal.findingCommentId !== root.id
+    || seal.reviewHead !== root.reviewCommitSha
+    || !isStrictDescendant(snapshot, seal.fixSha, seal.reviewHead)
+  ) return null
+  const replies = findingDispositionReplies(thread, claim, snapshot)
+  if (replies.length !== 1) return null
+  const reply = replies[0]!
+  const expectedBody = markerBody(FINDING_MARKER, {
+    thread_id: thread.id,
+    finding_comment_id: root.id,
+    disposition: seal.disposition,
+    fix_sha: seal.fixSha,
+    reason: seal.reason,
+  })
+  if (
+    reply.comment.id !== seal.replyCommentId
+    || reply.comment.nodeId !== seal.replyCommentNodeId
+    || reply.comment.createdAt !== seal.replyCreatedAt
+    || reply.comment.actor !== claim.actor
+    || reply.comment.body !== expectedBody
+    || contentHash(reply.comment.body) !== seal.replyBodyHash
+    || reply.payload.disposition !== seal.disposition
+    || reply.payload.fix_sha !== seal.fixSha
+    || reply.payload.reason !== seal.reason
+  ) return null
+  return reply.payload
 }
 
 function validateHistoricalFindingClosure(
   snapshot: PullRequestSnapshot,
   claim: Claim,
+  seals: FindingSeal[],
   excludedReviewHead?: string,
 ): string[] {
   const reasons: string[] = []
+  const sealsByFinding = new Map<number, FindingSeal>()
+  for (const seal of seals) {
+    if (sealsByFinding.has(seal.findingCommentId)) {
+      reasons.push(`multiple finding seals exist for root ${seal.findingCommentId}`)
+    }
+    sealsByFinding.set(seal.findingCommentId, seal)
+  }
+  let expectedSeals = 0
   for (const thread of snapshot.threads) {
     const root = thread.comments[0]
     if (
@@ -753,11 +920,13 @@ function validateHistoricalFindingClosure(
       || !isCodex(root.actor)
       || root.reviewCommitSha === excludedReviewHead
     ) continue
+    expectedSeals += 1
     if (!thread.resolved) reasons.push(`review thread ${thread.id} is unresolved`)
-    if (!findingDisposition(thread, claim, snapshot)) {
-      reasons.push(`review thread ${thread.id} lacks an exact fix/disposition receipt`)
+    if (!exactFindingDisposition(thread, claim, snapshot, sealsByFinding.get(root.id))) {
+      reasons.push(`review thread ${thread.id} lacks an exact sealed disposition receipt`)
     }
   }
+  if (seals.length !== expectedSeals) reasons.push("finding seal artifact counts do not match")
   return reasons
 }
 
@@ -799,12 +968,14 @@ export function verifyReceipt(
     reviewCycles?: ReviewCycle[]
     triggerReceipts?: ReviewTriggerReceipt[]
     seals?: ReviewSeal[]
+    findingSeals?: FindingSeal[]
   } = {},
 ): Verification {
   const reasons: string[] = []
   const reviewCycles = options.reviewCycles ?? [cycle]
   const triggerReceipts = options.triggerReceipts ?? [triggerReceipt]
   const seals = options.seals ?? []
+  const findingSeals = options.findingSeals ?? []
   if (!snapshot.complete) reasons.push("provider snapshot is incomplete")
   if (!snapshot.open || snapshot.merged) reasons.push("pull request is not open")
   if (snapshot.headRepository !== snapshot.repository) reasons.push("fork pull requests are blocked")
@@ -892,14 +1063,7 @@ export function verifyReceipt(
     reasons.push("unexpected Codex reaction exists on the trigger")
   }
 
-  for (const thread of snapshot.threads) {
-    const root = thread.comments[0]
-    if (!root || !isCodex(root.actor)) continue
-    if (!thread.resolved) reasons.push(`review thread ${thread.id} is unresolved`)
-    if (!findingDisposition(thread, claim, snapshot)) {
-      reasons.push(`review thread ${thread.id} lacks an exact fix/disposition receipt`)
-    }
-  }
+  reasons.push(...validateHistoricalFindingClosure(snapshot, claim, findingSeals))
 
   if (reasons.length > 0) return { ok: false, reasons }
   const clean = cleanReactions[0]!
@@ -959,7 +1123,8 @@ query($owner:String!,$name:String!,$number:Int!){
   repository(owner:$owner,name:$name){
     nameWithOwner
     pullRequest(number:$number){
-      number state merged isDraft headRepository{nameWithOwner} headRefOid baseRefName baseRefOid
+      number title body url state merged isDraft
+      headRepository{nameWithOwner} headRefOid baseRefName baseRefOid
       commits(first:100){
         pageInfo{hasNextPage}
         nodes{commit{oid parents(first:100){pageInfo{hasNextPage} nodes{oid}}}}
@@ -983,7 +1148,7 @@ query($owner:String!,$name:String!,$number:Int!){
           comments(first:100){
             pageInfo{hasNextPage}
             nodes{
-              databaseId body createdAt outdated author{login}
+              databaseId id body createdAt outdated author{login}
               pullRequestReview{commit{oid}}
             }
           }
@@ -1166,6 +1331,7 @@ function providerEvidence(repository: string, pr: number): PullRequestSnapshot {
   requireUnique(reactionIds, "reaction node ID")
 
   const reviewCommentIds: number[] = []
+  const reviewCommentNodeIds: string[] = []
   const threads = completeConnection(pullRequest.reviewThreads, "review threads")
     .map((value): ReviewThread => {
     const threadId = requiredNonemptyString(value, "id", "review thread node ID")
@@ -1180,9 +1346,12 @@ function providerEvidence(repository: string, pr: number): PullRequestSnapshot {
           throw new Error("invalid review comment")
         }
         const id = requiredInteger(node, "databaseId", "review comment database ID")
+        const nodeId = requiredNonemptyString(node, "id", "review comment node ID")
         reviewCommentIds.push(id)
+        reviewCommentNodeIds.push(nodeId)
         return {
           id,
+          nodeId,
           actor: requiredNonemptyString(node.author, "login", "review comment author"),
           body: requiredString(node, "body", "review comment body"),
           createdAt: requireDate(
@@ -1200,10 +1369,14 @@ function providerEvidence(repository: string, pr: number): PullRequestSnapshot {
   })
   requireUnique(threads.map((thread) => thread.id), "review thread node ID")
   requireUnique(reviewCommentIds, "review comment database ID")
+  requireUnique(reviewCommentNodeIds, "review comment node ID")
 
   return {
     repository,
     number: pr,
+    title: requiredNonemptyString(pullRequest, "title", "pull request title"),
+    body: requiredString(pullRequest, "body", "pull request body"),
+    url: requiredNonemptyString(pullRequest, "url", "pull request URL"),
     open: state === "OPEN",
     merged: requiredBoolean(pullRequest, "merged", "pull request merged state"),
     draft: requiredBoolean(pullRequest, "isDraft", "pull request draft state"),
@@ -1341,6 +1514,10 @@ function reviewSealRef(pr: number, head: string): string {
   return `codex-pr-review-seal/${pr}/${head}`
 }
 
+function findingSealRef(pr: number, findingCommentId: number): string {
+  return `codex-pr-finding-seal/${pr}/${findingCommentId}`
+}
+
 function fetchAnnotatedTag(repository: string, name: string): AnnotatedTag {
   const ref = runGh(["api", `repos/${repository}/git/ref/tags/${name}`])
   if (!isObject(ref) || !isObject(ref.object)) throw new Error(`tag ref ${name} is unavailable`)
@@ -1360,6 +1537,14 @@ function fetchAnnotatedTag(repository: string, name: string): AnnotatedTag {
     objectSha,
     objectType,
   }
+}
+
+function findAnnotatedTag(repository: string, name: string): AnnotatedTag | null {
+  const fullName = `refs/tags/${name}`
+  const matches = paginated(`repos/${repository}/git/matching-refs/tags/${name}`)
+    .filter((ref) => stringField(ref, "ref") === fullName)
+  if (matches.length > 1) throw new Error(`multiple tag refs exist for ${name}`)
+  return matches.length === 0 ? null : fetchAnnotatedTag(repository, name)
 }
 
 function createAnnotatedTagObject(
@@ -1472,6 +1657,161 @@ function loadReviewCycles(
   return { ...artifacts, seals }
 }
 
+function loadFindingSeals(
+  repository: string,
+  snapshot: PullRequestSnapshot,
+  claim: Claim,
+  excludedReviewHead?: string,
+): FindingSeal[] {
+  return snapshot.threads.flatMap((thread) => {
+    const root = thread.comments[0]
+    if (
+      !root
+      || !isCodex(root.actor)
+      || root.reviewCommitSha === excludedReviewHead
+    ) return []
+    return [parseFindingSealTag(
+      fetchAnnotatedTag(repository, findingSealRef(snapshot.number, root.id)),
+      repository,
+      snapshot.number,
+      claim,
+      thread,
+    )]
+  })
+}
+
+function statusProjection(
+  repository: string,
+  snapshot: PullRequestSnapshot,
+  claim: Claim,
+): string {
+  const outcome = requireLifecyclePullRequestBody(snapshot.body)
+  const repoUrl = `https://github.com/${repository}`
+  const tagLink = (name: string) => `[${name}](${repoUrl}/tree/${name})`
+  const artifacts = loadReviewArtifacts(repository, snapshot, claim)
+  const currentCycle = artifacts.cycles.find((cycle) => cycle.headSha === snapshot.headSha)
+  let currentSeal: ReviewSeal | null = null
+  const immutable = [tagLink(claimRef(snapshot.number))]
+  const happened: string[] = []
+
+  for (const cycle of artifacts.cycles) {
+    const receipt = artifacts.triggerReceipts.find((item) => item.reviewTagSha === cycle.tagSha)!
+    const trigger = exactTrigger(snapshot, claim, cycle, receipt)
+    immutable.push(tagLink(reviewRef(snapshot.number, cycle.headSha)))
+    immutable.push(tagLink(reviewTriggerRef(snapshot.number, cycle.headSha)))
+    const sealTag = findAnnotatedTag(repository, reviewSealRef(snapshot.number, cycle.headSha))
+    if (sealTag) {
+      const parsed = parseReviewSealTag(sealTag, repository, snapshot.number, claim, cycle)
+      immutable.push(tagLink(reviewSealRef(snapshot.number, cycle.headSha)))
+      if (cycle === currentCycle) currentSeal = parsed
+    }
+    happened.push(
+      `- Cycle ${tagLink(reviewRef(snapshot.number, cycle.headSha))}`
+      + (trigger ? `; [trigger](${snapshot.url}#issuecomment-${trigger.id})` : ""),
+    )
+  }
+  for (const review of snapshot.reviews) {
+    happened.push(
+      `- Review [#${review.id}](${snapshot.url}#pullrequestreview-${review.id})`
+      + `${review.commitSha ? ` on \`${review.commitSha.slice(0, 12)}\`` : ""}`,
+    )
+  }
+  for (const thread of snapshot.threads) {
+    const root = thread.comments[0]
+    if (!root) continue
+    happened.push(
+      `- Thread [#${root.id}](${snapshot.url}#discussion_r${root.id})`
+      + ` — ${thread.resolved ? "resolved" : "unresolved"}`,
+    )
+    for (const reply of thread.comments.slice(1)) {
+      happened.push(`- Reply [#${reply.id}](${snapshot.url}#discussion_r${reply.id})`)
+    }
+    if (isCodex(root.actor) && findAnnotatedTag(repository, findingSealRef(snapshot.number, root.id))) {
+      immutable.push(tagLink(findingSealRef(snapshot.number, root.id)))
+    }
+  }
+
+  let next = "needs maintainer decision"
+  const unresolved = snapshot.threads.some((thread) =>
+    isCodex(thread.comments[0]?.actor ?? "") && !thread.resolved
+  )
+  if (snapshot.open && !snapshot.merged) {
+    if (unresolved || currentSeal?.resultKind === "review") next = "continue fixing"
+    else if (!currentCycle) next = "request review"
+    else if (!currentSeal) next = "continue fixing"
+    else next = snapshot.draft ? "run gate" : "merge"
+  }
+
+  return [
+    "## Outcome",
+    "",
+    outcome,
+    "",
+    "## What changed",
+    "",
+    `- Head: [\`${snapshot.headSha.slice(0, 12)}\`](${repoUrl}/commit/${snapshot.headSha})`,
+    `- Base: \`${snapshot.baseRef}\` [\`${snapshot.baseSha.slice(0, 12)}\`](${repoUrl}/commit/${snapshot.baseSha})`,
+    `- [Files](${snapshot.url}/files) · [Commits](${snapshot.url}/commits)`,
+    "",
+    "## What happened",
+    "",
+    happened.length > 0 ? happened.join("\n") : "- None",
+    "",
+    "## Evidence",
+    "",
+    "Non-authoritative navigation; immutable tags/reviews/threads/checks remain authority.",
+    `- [Reviews](${snapshot.url}/files) · [Checks](${snapshot.url}/checks)`,
+    `- Immutable tags: ${immutable.join(", ")}`,
+    "",
+    "## Next action",
+    "",
+    next,
+    "",
+    markerBody(STATUS_MARKER, { schema: "v1", claim_tag_sha: claim.tagSha }),
+  ].join("\n")
+}
+
+function refreshLifecycleStatus(
+  repository: string,
+  snapshot: PullRequestSnapshot,
+  claim: Claim,
+): IssueComment {
+  const prefix = `<!-- ${STATUS_MARKER} `
+  const comments = snapshot.comments.filter((comment) => comment.body.includes(prefix))
+  for (const comment of comments) {
+    const payload = parseMarker<StatusPayload>(comment.body, STATUS_MARKER)
+    if (
+      !payload
+      || Object.keys(payload).sort().join(",") !== "claim_tag_sha,schema"
+      || payload.schema !== "v1"
+      || payload.claim_tag_sha !== claim.tagSha
+      || comment.actor !== claim.actor
+    ) throw new Error("invalid lifecycle status projection comment")
+  }
+  if (comments.length > 1) throw new Error("multiple lifecycle status projection comments exist")
+  const body = statusProjection(repository, snapshot, claim)
+  if (comments[0]) {
+    runGh([
+      "api", "--method", "PATCH",
+      `repos/${repository}/issues/comments/${comments[0].id}`,
+      "-f", `body=${body}`,
+    ])
+  } else {
+    addComment(repository, snapshot.number, body)
+  }
+  const confirmed = fetchSnapshot(repository, snapshot.number)
+  if (!samePullRequestIdentity(snapshot, confirmed)) {
+    throw new Error("PR identity changed during lifecycle status publication")
+  }
+  const exact = confirmed.comments.filter((comment) =>
+    comment.actor === claim.actor
+    && comment.body === body
+    && parseMarker<StatusPayload>(comment.body, STATUS_MARKER)?.claim_tag_sha === claim.tagSha
+  )
+  if (exact.length !== 1) throw new Error("lifecycle status projection was not confirmed")
+  return exact[0]!
+}
+
 function requireClaimOwner(claim: Claim): void {
   const actor = currentActor()
   if (actor !== claim.actor) throw new Error(`claim ${claim.tagSha} belongs to ${claim.actor}`)
@@ -1535,6 +1875,7 @@ async function commandReview(args: string[]): Promise<void> {
   requireComplete(snapshot)
   const claim = loadClaim(repository, pr, expectedClaim)
   requireWriter(claim, args)
+  if (!snapshot.open || snapshot.merged) throw new Error("pull request is not open")
   if (!snapshot.draft) throw new Error("review trigger requires a draft pull request")
   requireClaimLineage(snapshot, claim)
   if (
@@ -1554,7 +1895,8 @@ async function commandReview(args: string[]): Promise<void> {
   if (historyReasons.length > 0) {
     throw new Error(`review history is poisoned: ${historyReasons[0]}`)
   }
-  const findingReasons = validateHistoricalFindingClosure(snapshot, claim)
+  const findingSeals = loadFindingSeals(repository, snapshot, claim)
+  const findingReasons = validateHistoricalFindingClosure(snapshot, claim, findingSeals)
   if (findingReasons.length > 0) {
     throw new Error(`historical finding is not closed: ${findingReasons[0]}`)
   }
@@ -1664,7 +2006,13 @@ async function commandSeal(args: string[]): Promise<void> {
   if (historyReasons.length > 0) {
     throw new Error(`review history is poisoned: ${historyReasons[0]}`)
   }
-  const findingReasons = validateHistoricalFindingClosure(snapshot, claim, cycle.headSha)
+  const findingSeals = loadFindingSeals(repository, snapshot, claim, cycle.headSha)
+  const findingReasons = validateHistoricalFindingClosure(
+    snapshot,
+    claim,
+    findingSeals,
+    cycle.headSha,
+  )
   if (findingReasons.length > 0) {
     throw new Error(`historical finding is not closed: ${findingReasons[0]}`)
   }
@@ -1801,35 +2149,124 @@ async function commandAddress(args: string[]): Promise<void> {
   if (!reviewedHead || !isStrictDescendant(snapshot, fixSha, reviewedHead)) {
     throw new Error("fix SHA must be a descendant commit after the finding review head")
   }
-  const existing = findingDispositions(thread, claim, snapshot)
-  if (existing.length > 1) throw new Error("finding has ambiguous disposition receipts")
-  if (existing.length === 1) {
-    const receipt = existing[0]!
-    if (
-      receipt.disposition !== disposition
-      || receipt.fix_sha !== fixSha
-      || receipt.reason !== reason
-    ) {
-      throw new Error("existing finding disposition does not match the requested receipt")
+  const replyBody = markerBody(FINDING_MARKER, {
+    thread_id: threadId,
+    finding_comment_id: findingCommentId,
+    disposition,
+    fix_sha: fixSha,
+    reason,
+  })
+  const sealName = findingSealRef(pr, findingCommentId)
+  const existingTag = findAnnotatedTag(repository, sealName)
+  let findingSeal = existingTag
+    ? parseFindingSealTag(existingTag, repository, pr, claim, thread)
+    : null
+  if (
+    findingSeal
+    && (
+      findingSeal.disposition !== disposition
+      || findingSeal.fixSha !== fixSha
+      || findingSeal.reason !== reason
+    )
+  ) throw new Error("existing finding seal does not match the requested receipt")
+
+  let workingSnapshot = snapshot
+  let workingThread = thread
+  let replies = findingDispositionReplies(workingThread, claim, workingSnapshot)
+  if (replies.length > 1) throw new Error("finding has ambiguous disposition replies")
+  const existingReply = replies[0]
+  if (
+    existingReply
+    && (
+      existingReply.payload.disposition !== disposition
+      || existingReply.payload.fix_sha !== fixSha
+      || existingReply.payload.reason !== reason
+      || existingReply.comment.body !== replyBody
+    )
+  ) throw new Error("existing finding disposition does not match the requested receipt")
+  if (findingSeal && !exactFindingDisposition(workingThread, claim, workingSnapshot, findingSeal)) {
+    throw new Error("sealed finding disposition no longer matches the live reply")
+  }
+
+  if (!findingSeal) {
+    let createdReplyId: number | null = null
+    let createdReplyNodeId: string | null = null
+    if (!existingReply) {
+      const reply = runGh([
+        "api", "--method", "POST",
+        `repos/${repository}/pulls/${pr}/comments/${findingCommentId}/replies`,
+        "-f", `body=${replyBody}`,
+      ])
+      createdReplyId = isObject(reply) ? numberField(reply, "id") : null
+      createdReplyNodeId = isObject(reply) ? stringField(reply, "node_id") : null
+      const createdReplyBody = isObject(reply) ? stringField(reply, "body") : null
+      if (
+        createdReplyId === null
+        || !Number.isInteger(createdReplyId)
+        || createdReplyId <= 0
+        || !createdReplyNodeId
+        || createdReplyBody !== replyBody
+      ) throw new Error("invalid finding reply response")
     }
-  } else {
-    const reply = runGh([
-      "api", "--method", "POST",
-      `repos/${repository}/pulls/${pr}/comments/${findingCommentId}/replies`,
-      "-f", `body=${markerBody(FINDING_MARKER, {
+
+    workingSnapshot = fetchSnapshot(repository, pr)
+    if (!samePullRequestIdentity(snapshot, workingSnapshot)) {
+      throw new Error("PR identity changed while addressing finding")
+    }
+    const refreshedThread = workingSnapshot.threads.find(
+      (candidate) => candidate.id === threadId,
+    )
+    if (!refreshedThread || !isCodexFindingRoot(refreshedThread, findingCommentId)) {
+      throw new Error("finding root changed while addressing finding")
+    }
+    workingThread = refreshedThread
+    replies = findingDispositionReplies(workingThread, claim, workingSnapshot)
+    const liveReply = replies[0]
+    if (
+      replies.length !== 1
+      || !liveReply
+      || liveReply.payload.disposition !== disposition
+      || liveReply.payload.fix_sha !== fixSha
+      || liveReply.payload.reason !== reason
+      || liveReply.comment.body !== replyBody
+      || (
+        createdReplyId !== null
+        && (
+          liveReply.comment.id !== createdReplyId
+          || liveReply.comment.nodeId !== createdReplyNodeId
+        )
+      )
+    ) throw new Error("finding reply is not exact in the refreshed provider snapshot")
+
+    const createdTag = createAtomicTag(
+      repository,
+      sealName,
+      fixSha,
+      markerBody(FINDING_SEAL_TAG_MARKER, {
+        repository,
+        pr,
+        claim_tag_sha: claim.tagSha,
+        mission: claim.mission,
+        actor: claim.actor,
         thread_id: threadId,
         finding_comment_id: findingCommentId,
+        review_head: reviewedHead,
+        reply_comment_id: liveReply.comment.id,
+        reply_comment_node_id: liveReply.comment.nodeId,
+        reply_created_at: liveReply.comment.createdAt,
+        reply_body_hash: contentHash(liveReply.comment.body),
         disposition,
         fix_sha: fixSha,
         reason,
-      })}`,
-    ])
-    const replyId = isObject(reply) ? numberField(reply, "id") : null
-    if (replyId === null || !Number.isInteger(replyId) || replyId <= 0) {
-      throw new Error("invalid finding reply response")
+      }),
+    )
+    findingSeal = parseFindingSealTag(createdTag, repository, pr, claim, workingThread)
+    if (!exactFindingDisposition(workingThread, claim, workingSnapshot, findingSeal)) {
+      throw new Error("created finding seal does not match the refreshed live reply")
     }
   }
-  if (!thread.resolved) {
+
+  if (!workingThread.resolved) {
     const resolved = runGh([
       "api", "graphql",
       "-F", `threadId=${threadId}`,
@@ -1854,11 +2291,22 @@ async function commandAddress(args: string[]): Promise<void> {
   if (!confirmedThread || !isCodexFindingRoot(confirmedThread, findingCommentId)) {
     throw new Error("finding root changed while addressing finding")
   }
-  const confirmedDispositions = findingDispositions(confirmedThread, claim, confirmed)
-  const confirmedDisposition = confirmedDispositions[0]
+  const confirmedSeal = parseFindingSealTag(
+    fetchAnnotatedTag(repository, sealName),
+    repository,
+    pr,
+    claim,
+    confirmedThread,
+  )
+  const confirmedDisposition = exactFindingDisposition(
+    confirmedThread,
+    claim,
+    confirmed,
+    confirmedSeal,
+  )
   if (
     !confirmedThread.resolved
-    || confirmedDispositions.length !== 1
+    || JSON.stringify(confirmedSeal) !== JSON.stringify(findingSeal)
     || !confirmedDisposition
     || confirmedDisposition.disposition !== disposition
     || confirmedDisposition.fix_sha !== fixSha
@@ -1882,6 +2330,7 @@ async function verifyLive(
   const claim = loadClaim(repository, pr)
   const cycle = loadReviewCycle(repository, snapshot, claim)
   const reviewHistory = loadReviewCycles(repository, snapshot, claim)
+  const findingSeals = loadFindingSeals(repository, snapshot, claim)
   const triggerReceipt = reviewHistory.triggerReceipts.find(
     (receipt) => receipt.reviewTagSha === cycle.tagSha,
   )
@@ -1891,6 +2340,7 @@ async function verifyLive(
     reviewCycles: reviewHistory.cycles,
     triggerReceipts: reviewHistory.triggerReceipts,
     seals: reviewHistory.seals,
+    findingSeals,
   })
   if (expected.head && expected.head !== snapshot.headSha) {
     verification.ok = false
@@ -2042,16 +2492,31 @@ async function commandDispatch(args: string[]): Promise<void> {
   })}\n`)
 }
 
+async function commandStatus(args: string[]): Promise<void> {
+  const repository = option(args, "--repo")!
+  const pr = integerOption(args, "--pr")
+  const snapshot = fetchSnapshot(repository, pr)
+  requireComplete(snapshot)
+  const claim = loadClaim(repository, pr, option(args, "--claim")!)
+  requireWriter(claim, args)
+  requireClaimLineage(snapshot, claim)
+  const comment = refreshLifecycleStatus(repository, snapshot, claim)
+  process.stdout.write(`${JSON.stringify({ commentId: comment.id })}\n`)
+}
+
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2)
   if (command === "claim") return commandClaim(args)
   if (command === "review") return commandReview(args)
   if (command === "seal") return commandSeal(args)
   if (command === "address") return commandAddress(args)
+  if (command === "status") return commandStatus(args)
   if (command === "verify") return commandVerify(args, false)
   if (command === "gate") return commandVerify(args, true)
   if (command === "dispatch") return commandDispatch(args)
-  throw new Error("usage: pr-lifecycle.ts <claim|review|seal|address|verify|gate|dispatch> [options]")
+  throw new Error(
+    "usage: pr-lifecycle.ts <claim|review|seal|address|status|verify|gate|dispatch> [options]",
+  )
 }
 
 if (import.meta.main) {
