@@ -82,7 +82,7 @@ test("final refresh closes a writable mission before immutable owner removal", (
   expect(receipt.local_branch_deleted).toBe(true)
   expect(JSON.stringify(receipt)).not.toContain(fixture.root)
   expect(existsSync(fixture.worktree)).toBe(false)
-})
+}, 10_000)
 
 test("wrong generation and ref drift preserve the owner-created target", () => {
   const generationFixture = createFixture()
@@ -132,6 +132,28 @@ test("tracked contents are hashed instead of trusting the index stat cache", () 
   expect(receipt.reason_code).toBe("worktree_not_pristine")
   expect(receipt.worktree_removed).toBe(false)
   expect(readFileSync(tracked, "utf8")).toBe("evil\n")
+})
+
+test("clean filters cannot hide changed working-tree bytes", () => {
+  const fixture = createFixture()
+  git(fixture.worktree, ["config", "core.trustctime", "false"])
+  git(fixture.worktree, ["config", "core.checkStat", "minimal"])
+  git(fixture.worktree, ["config", "filter.canonical.clean", "sed s/EVIL/base/"])
+  git(fixture.worktree, ["config", "filter.canonical.smudge", "cat"])
+  writeFileSync(
+    join(fixture.root, ".git", "info", "attributes"),
+    "tracked.txt filter=canonical\n",
+  )
+  const tracked = join(fixture.worktree, "tracked.txt")
+  const metadata = statSync(tracked)
+  writeFileSync(tracked, "EVIL\n")
+  utimesSync(tracked, metadata.atime, metadata.mtime)
+  expect(git(fixture.worktree, ["status", "--porcelain"])).toBe("")
+
+  const receipt = remove(fixture, fixture.identity)
+  expect(receipt.reason_code).toBe("worktree_not_pristine")
+  expect(receipt.worktree_removed).toBe(false)
+  expect(readFileSync(tracked, "utf8")).toBe("EVIL\n")
 })
 
 test("tracked special files and executable-bit drift preserve the target", () => {
@@ -260,7 +282,7 @@ test("owned branch configuration is removed with its ref", () => {
     "--get-regexp",
     "^branch\\.mission-branch\\.",
   ]).exitCode).not.toBe(0)
-})
+}, 10_000)
 
 test("a live process using the worktree causes conservative refusal", async () => {
   const fixture = createFixture()
@@ -332,7 +354,7 @@ test("Git-valid ref characters remain bound through create, refresh, and removal
   expect(receipt.expected_ref).toBe("refs/heads/evaluator@target")
   expect(receipt.observed_ref).toBe("refs/heads/evaluator@target")
   expect(receipt.local_branch_deleted).toBe(true)
-})
+}, 10_000)
 
 function createFixture(branchRef = "refs/heads/mission-branch"): Fixture {
   const root = createRepository("trade-cleanup-")

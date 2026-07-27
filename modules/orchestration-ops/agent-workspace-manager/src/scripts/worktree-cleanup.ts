@@ -417,7 +417,7 @@ function assertPristine(worktreePath: string): void {
     }
     const actual = gitResult(worktreePath, [
       "hash-object",
-      `--path=${path}`,
+      "--no-filters",
       "--",
       path,
     ])
