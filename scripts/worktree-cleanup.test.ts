@@ -167,7 +167,7 @@ test("owner cleanup reports a deleted branch when its metadata cleanup fails", (
     wrapper,
     `#!/bin/sh
 case " $* " in
-  *" config --remove-section branch.mission-branch "*) exit 72 ;;
+  *" config --unset-all branch.mission-branch.remote "*) exit 72 ;;
 esac
 exec "${realGit}" "$@"
 `,
@@ -222,6 +222,33 @@ exec "${realGit}" "$@"
   expect(readFileSync(externalLock, "utf8")).toBe("external owner\n")
 })
 
+test("owner cleanup removes configuration for a branch name containing a closing bracket", () => {
+  const fixture = createFixture()
+  run(fixture.worktree, ["git", "branch", "-m", "mission]branch"])
+  const identity = identifyLinkedWorktree(fixture.worktree)
+  run(fixture.root, ["git", "config", "branch.mission]branch.remote", "origin"])
+  run(fixture.root, ["git", "config", "branch.mission]branch.merge", "refs/heads/main"])
+  const ownerCommit = installOwnerTool(fixture.root)
+
+  const receipt = removeOwnedWorktree({
+    repositoryCwd: fixture.root,
+    ownerCommit,
+    worktreeId: identity.worktree_id,
+    expectedGeneration: identity.generation,
+    expectedHead: identity.head,
+    expectedRef: identity.ref,
+    removeIgnored: false,
+  })
+
+  expect(receipt.status).toBe("completed")
+  expect(runResult(fixture.root, [
+    "git",
+    "config",
+    "--get-regexp",
+    "^branch\\.mission\\]branch\\.",
+  ]).exitCode).not.toBe(0)
+})
+
 test("owner cleanup does not unlink a metadata lock that replaces its own lock", () => {
   const fixture = createFixture()
   const identity = identifyLinkedWorktree(fixture.worktree)
@@ -236,7 +263,7 @@ test("owner cleanup does not unlink a metadata lock that replaces its own lock",
     wrapper,
     `#!/bin/sh
 case " $* " in
-  *" config --get-regexp "*)
+  *" config --name-only --get-regexp "*)
     /bin/rm -f "${replacementLock}"
     printf 'replacement owner\\n' > "${replacementLock}"
     ;;
@@ -870,6 +897,95 @@ if (process.platform === "linux") {
     }
   })
 
+  test("owner cleanup rejects a Unix socket bound inside the linked-worktree admin directory", async () => {
+    const fixture = createFixture()
+    const adminDirectory = run(fixture.worktree, [
+      "git",
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-dir",
+    ])
+    const socketPath = join(adminDirectory, "live.sock")
+    const identity = identifyLinkedWorktree(fixture.worktree)
+    const ownerCommit = installOwnerTool(fixture.root)
+    const server = createServer()
+
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject)
+      server.listen(socketPath, resolve)
+    })
+    try {
+      const failure = captureCleanupError(() => removeOwnedWorktree({
+        repositoryCwd: fixture.root,
+        ownerCommit,
+        worktreeId: identity.worktree_id,
+        expectedGeneration: identity.generation,
+        expectedHead: identity.head,
+        expectedRef: identity.ref,
+        removeIgnored: false,
+      }))
+      expect(failure.code).toBe("target_in_use")
+      expect(failure.receipt?.worktree_claimed).toBe(false)
+      expect(existsSync(socketPath)).toBe(true)
+      expect(existsSync(fixture.worktree)).toBe(true)
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve())
+      })
+    }
+  })
+
+  test("owner cleanup inspects descriptors owned only by a non-leader thread", async () => {
+    const fixture = createFixture()
+    const readyPath = join(fixture.root, "thread-private-state.ready")
+    const scriptPath = join(fixture.root, "thread-private-state.ts")
+    const workerPath = join(fixture.root, "thread-private-worker.ts")
+    writeFileSync(
+      workerPath,
+      `import { dlopen, FFIType } from "bun:ffi"
+import { openSync, writeFileSync } from "node:fs"
+
+self.onmessage = (event) => {
+  const libc = dlopen("libc.so.6", {
+    unshare: { args: [FFIType.i32], returns: FFIType.i32 },
+  })
+  if (libc.symbols.unshare(0x00000400) !== 0) {
+    writeFileSync(event.data.readyPath, "unshare-error")
+    return
+  }
+  openSync(event.data.targetPath, "r")
+  writeFileSync(event.data.readyPath, "ready")
+  setInterval(() => {}, 1000)
+}
+`,
+    )
+    writeFileSync(
+      scriptPath,
+      `const worker = new Worker(process.argv[2]!)
+worker.postMessage({
+  targetPath: process.argv[3]!,
+  readyPath: process.argv[4]!,
+})
+setInterval(() => {}, 1000)
+`,
+    )
+    const user = Bun.spawn([
+      Bun.which("bun")!,
+      scriptPath,
+      workerPath,
+      join(fixture.worktree, "tracked.txt"),
+      readyPath,
+    ], { cwd: fixture.root, stdout: "ignore", stderr: "ignore" })
+    try {
+      await waitForPath(readyPath)
+      if (readFileSync(readyPath, "utf8") === "unshare-error") return
+      expectCleanupInUse(fixture)
+    } finally {
+      user.kill()
+      await user.exited
+    }
+  }, 15_000)
+
   test("owner cleanup rejects a relative Unix socket after its server leaves the target cwd", async () => {
     const fixture = createFixture()
     const socketPath = join(fixture.worktree, "relative.sock")
@@ -1485,6 +1601,31 @@ test("owner cleanup deletes an exact symbolic ref without dereferencing its targ
     "^branch\\.mission-branch\\.",
   ]).exitCode).not.toBe(0)
   expect(existsSync(reflogPath)).toBe(false)
+})
+
+test("owner cleanup accepts a worktree whose branch resolves through multiple symbolic refs", () => {
+  const fixture = createFixture()
+  const identity = identifyLinkedWorktree(fixture.worktree)
+  run(fixture.root, ["git", "update-ref", "refs/heads/base", identity.head])
+  run(fixture.root, ["git", "symbolic-ref", "refs/heads/middle", "refs/heads/base"])
+  run(fixture.root, ["git", "symbolic-ref", identity.ref!, "refs/heads/middle"])
+  const ownerCommit = installOwnerTool(fixture.root)
+
+  const receipt = removeOwnedWorktree({
+    repositoryCwd: fixture.root,
+    ownerCommit,
+    worktreeId: identity.worktree_id,
+    expectedGeneration: identity.generation,
+    expectedHead: identity.head,
+    expectedRef: identity.ref,
+    removeIgnored: false,
+  })
+
+  expect(receipt.status).toBe("completed")
+  expect(runResult(fixture.root, ["git", "symbolic-ref", "-q", identity.ref!]).exitCode).not.toBe(0)
+  expect(run(fixture.root, ["git", "symbolic-ref", "refs/heads/middle"]))
+    .toBe("refs/heads/base")
+  expect(run(fixture.root, ["git", "rev-parse", "refs/heads/base"])).toBe(identity.head)
 })
 
 test("owner cleanup rejects a symbolic ref whose target is concurrently locked", () => {
