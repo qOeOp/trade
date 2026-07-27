@@ -205,6 +205,10 @@ function isStrictDescendant(
   return false
 }
 
+function hasDuplicates(values: Array<string | number>): boolean {
+  return new Set(values).size !== values.length
+}
+
 export function verifySnapshot(
   snapshot: PullRequestSnapshot,
   expected: {
@@ -215,6 +219,30 @@ export function verifySnapshot(
   },
 ): Verification {
   const reasons: string[] = []
+  const reviewComments = snapshot.threads.flatMap((thread) => thread.comments)
+  const reactions = snapshot.comments.flatMap((comment) => comment.reactions)
+  if (hasDuplicates(snapshot.commits)) reasons.push("duplicate commit SHA")
+  if (hasDuplicates(snapshot.reviews.map((review) => review.id))) {
+    reasons.push("duplicate review ID")
+  }
+  if (hasDuplicates(snapshot.comments.map((comment) => comment.id))) {
+    reasons.push("duplicate issue comment ID")
+  }
+  if (hasDuplicates(snapshot.comments.map((comment) => comment.nodeId))) {
+    reasons.push("duplicate issue comment node ID")
+  }
+  if (hasDuplicates(reactions.map((reaction) => reaction.id))) {
+    reasons.push("duplicate reaction ID")
+  }
+  if (hasDuplicates(snapshot.threads.map((thread) => thread.id))) {
+    reasons.push("duplicate review thread ID")
+  }
+  if (hasDuplicates(reviewComments.map((comment) => comment.id))) {
+    reasons.push("duplicate review comment ID")
+  }
+  if (hasDuplicates(reviewComments.map((comment) => comment.nodeId))) {
+    reasons.push("duplicate review comment node ID")
+  }
   if (!snapshot.complete) reasons.push("provider snapshot is incomplete")
   if (!snapshot.open || snapshot.merged) reasons.push("pull request is not open")
   if (snapshot.draft && !expected.allowDraft) reasons.push("pull request is still draft")
@@ -633,9 +661,13 @@ function providerSnapshot(repository: string, pr: number): PullRequestSnapshot {
           }
         })
       unique(comments.map((comment) => comment.id), `review comment ID for ${id}`)
+      unique(comments.map((comment) => comment.nodeId), `review comment node ID for ${id}`)
       return { id, resolved: requiredBoolean(thread, "isResolved", "thread resolved"), comments }
     })
   unique(threads.map((thread) => thread.id), "thread ID")
+  const reviewComments = threads.flatMap((thread) => thread.comments)
+  unique(reviewComments.map((comment) => comment.id), "review comment ID")
+  unique(reviewComments.map((comment) => comment.nodeId), "review comment node ID")
 
   const baseRef = requiredNonemptyString(pull, "baseRefName", "base ref")
   return {

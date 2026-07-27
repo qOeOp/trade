@@ -212,6 +212,44 @@ describe("native review evidence", () => {
     )
   })
 
+  test("rejects duplicate native review-comment identities across threads", () => {
+    const finding = snapshot()
+    const comments = [{
+      id: 35,
+      nodeId: "RC_35",
+      actor: "chatgpt-codex-connector",
+      association: "NONE",
+      body: "Fix this.",
+      createdAt: "2026-07-27T00:05:00Z",
+      includesCreatedEdit: false,
+      lastEditedAt: null,
+      reviewCommitSha: reviewed,
+    }, {
+      id: 36,
+      nodeId: "RC_36",
+      actor: "owner",
+      association: "OWNER",
+      body: `Fixed in ${head}: repaired after review`,
+      createdAt: "2026-07-27T01:05:00Z",
+      includesCreatedEdit: false,
+      lastEditedAt: null,
+      reviewCommitSha: reviewed,
+    }]
+    finding.threads.push(
+      { id: "T_duplicate_1", resolved: true, comments },
+      {
+        id: "T_duplicate_2",
+        resolved: true,
+        comments: comments.map((comment) => ({ ...comment })),
+      },
+    )
+
+    expect(verify(finding).reasons).toEqual(expect.arrayContaining([
+      "duplicate review comment ID",
+      "duplicate review comment node ID",
+    ]))
+  })
+
   test("fails closed on drift and incomplete provider evidence", () => {
     const changed = snapshot()
     changed.baseSha = "d".repeat(40)
