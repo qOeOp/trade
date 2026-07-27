@@ -25,6 +25,8 @@ export interface IssueComment {
   association: string
   body: string
   createdAt: string
+  includesCreatedEdit: boolean
+  lastEditedAt: string | null
   minimized: boolean
   reactions: Reaction[]
 }
@@ -43,6 +45,8 @@ export interface ReviewComment {
   association: string
   body: string
   createdAt: string
+  includesCreatedEdit: boolean
+  lastEditedAt: string | null
   reviewCommitSha: string
 }
 
@@ -60,7 +64,7 @@ export interface PullRequestSnapshot {
   merged: boolean
   draft: boolean
   headSha: string
-  headCommittedAt: string
+  headObservations: string[]
   headRepository: string
   baseRef: string
   baseSha: string
@@ -104,6 +108,12 @@ function stringField(value: JsonObject, field: string): string | null {
 
 function numberField(value: JsonObject, field: string): number | null {
   return typeof value[field] === "number" ? value[field] as number : null
+}
+
+function nullableStringField(value: JsonObject, field: string, context: string): string | null {
+  const result = value[field]
+  if (result !== null && typeof result !== "string") throw new Error(`invalid ${context}`)
+  return result as string | null
 }
 
 function validSha(value: string): boolean {
@@ -218,8 +228,13 @@ export function verifySnapshot(
     reasons.push(error instanceof Error ? error.message : String(error))
   }
 
-  const headTime = Date.parse(snapshot.headCommittedAt)
-  if (!Number.isFinite(headTime)) reasons.push("head commit timestamp is invalid")
+  const observationTimes = snapshot.headObservations
+    .map((value) => Date.parse(value))
+    .filter(Number.isFinite)
+  const headTime = observationTimes.length > 0 ? Math.min(...observationTimes) : Number.NaN
+  if (!Number.isFinite(headTime)) {
+    reasons.push("no pull_request workflow run proves when the head entered this PR")
+  }
   const explicit = snapshot.comments.filter((comment) => /@codex\s+review\b/i.test(comment.body))
   const currentWindow = explicit.filter((comment) => Date.parse(comment.createdAt) >= headTime)
   const exact = explicit.filter((comment) => {
@@ -241,6 +256,8 @@ export function verifySnapshot(
   if (trigger) {
     if (
       trigger.minimized
+      || trigger.includesCreatedEdit
+      || trigger.lastEditedAt !== null
       || !ELIGIBLE_ASSOCIATIONS.has(trigger.association)
       || isCodex(trigger.actor)
       || trigger.body !== reviewTriggerBody(snapshot.headSha, snapshot.baseRef, snapshot.baseSha)
@@ -293,8 +310,13 @@ export function verifySnapshot(
     if (
       isCodex(comment.actor)
       || !ELIGIBLE_ASSOCIATIONS.has(comment.association)
+      || comment.includesCreatedEdit
+      || comment.lastEditedAt !== null
       || Date.parse(comment.createdAt) <= Date.parse(root.createdAt)
     ) reasons.push(`Codex finding ${root.id} has an invalid disposition reply`)
+    if (root.includesCreatedEdit || root.lastEditedAt !== null) {
+      reasons.push(`Codex finding ${root.id} was edited`)
+    }
     if (!isStrictDescendant(snapshot, sha, root.reviewCommitSha)) {
       reasons.push(`Codex finding ${root.id} fix is not a strict descendant`)
     }
@@ -400,7 +422,8 @@ query($owner:String!,$name:String!,$number:Int!){
       comments(first:100){
         pageInfo{hasNextPage}
         nodes{
-          databaseId id body createdAt isMinimized authorAssociation author{login}
+          databaseId id body createdAt includesCreatedEdit lastEditedAt
+          isMinimized authorAssociation author{login}
           reactions(first:100){pageInfo{hasNextPage} nodes{id content createdAt user{login}}}
         }
       }
@@ -411,7 +434,8 @@ query($owner:String!,$name:String!,$number:Int!){
           comments(first:100){
             pageInfo{hasNextPage}
             nodes{
-              databaseId id body createdAt authorAssociation author{login}
+              databaseId id body createdAt includesCreatedEdit lastEditedAt
+              authorAssociation author{login}
               pullRequestReview{commit{oid}}
             }
           }
@@ -425,6 +449,35 @@ function liveBaseSha(repository: string, baseRef: string): string {
   const value = runGh(["api", `repos/${repository}/branches/${encodeURIComponent(baseRef)}`])
   if (!isObject(value) || !isObject(value.commit)) throw new Error("invalid live base response")
   return requiredSha(requiredString(value.commit, "sha", "live base SHA"), "live base SHA")
+}
+
+function headObservations(repository: string, pr: number, headSha: string): string[] {
+  const value = runGh([
+    "api",
+    `repos/${repository}/actions/runs?event=pull_request&head_sha=${headSha}&per_page=100`,
+  ])
+  if (
+    !isObject(value)
+    || !Array.isArray(value.workflow_runs)
+    || !value.workflow_runs.every(isObject)
+    || numberField(value, "total_count") !== value.workflow_runs.length
+  ) throw new Error("incomplete or malformed pull_request workflow runs")
+  return value.workflow_runs.flatMap((run) => {
+    const pulls = run.pull_requests
+    if (!Array.isArray(pulls) || !pulls.every(isObject)) {
+      throw new Error("invalid pull_request workflow association")
+    }
+    const belongs = pulls.some((pull) => numberField(pull, "number") === pr)
+    if (
+      !belongs
+      || stringField(run, "event") !== "pull_request"
+      || stringField(run, "head_sha") !== headSha
+    ) return []
+    return [requiredDate(
+      requiredString(run, "created_at", "pull_request workflow creation time"),
+      "pull_request workflow creation time",
+    )]
+  })
 }
 
 function providerSnapshot(repository: string, pr: number): PullRequestSnapshot {
@@ -516,6 +569,12 @@ function providerSnapshot(repository: string, pr: number): PullRequestSnapshot {
       association: requiredNonemptyString(node, "authorAssociation", "comment association"),
       body: requiredString(node, "body", "comment body"),
       createdAt: requiredDate(requiredString(node, "createdAt", "comment time"), "comment time"),
+      includesCreatedEdit: requiredBoolean(
+        node,
+        "includesCreatedEdit",
+        "comment edit history",
+      ),
+      lastEditedAt: nullableStringField(node, "lastEditedAt", "comment edit timestamp"),
       minimized: requiredBoolean(node, "isMinimized", "comment minimized"),
       reactions,
     }
@@ -547,6 +606,16 @@ function providerSnapshot(repository: string, pr: number): PullRequestSnapshot {
               requiredString(node, "createdAt", "review comment time"),
               "review comment time",
             ),
+            includesCreatedEdit: requiredBoolean(
+              node,
+              "includesCreatedEdit",
+              "review comment edit history",
+            ),
+            lastEditedAt: nullableStringField(
+              node,
+              "lastEditedAt",
+              "review comment edit timestamp",
+            ),
             reviewCommitSha: requiredSha(
               requiredString(node.pullRequestReview.commit, "oid", "review comment commit"),
               "review comment commit",
@@ -567,7 +636,7 @@ function providerSnapshot(repository: string, pr: number): PullRequestSnapshot {
     merged: requiredBoolean(pull, "merged", "merged state"),
     draft: requiredBoolean(pull, "isDraft", "draft state"),
     headSha,
-    headCommittedAt: commitTimes[headSha]!,
+    headObservations: headObservations(repository, pr, headSha),
     headRepository: requiredNonemptyString(
       pull.headRepository,
       "nameWithOwner",

@@ -22,7 +22,7 @@ function snapshot(): PullRequestSnapshot {
     merged: false,
     draft: false,
     headSha: head,
-    headCommittedAt: "2026-07-27T01:00:00Z",
+    headObservations: ["2026-07-27T01:01:00Z"],
     headRepository: "owner/repo",
     baseRef: "main",
     baseSha: base,
@@ -39,6 +39,8 @@ function snapshot(): PullRequestSnapshot {
       association: "OWNER",
       body: trigger,
       createdAt: "2026-07-27T01:05:00Z",
+      includesCreatedEdit: false,
+      lastEditedAt: null,
       minimized: false,
       reactions: [{
         id: "R_1",
@@ -132,6 +134,8 @@ describe("native review evidence", () => {
         association: "NONE",
         body: "Fix this.",
         createdAt: "2026-07-27T00:05:00Z",
+        includesCreatedEdit: false,
+        lastEditedAt: null,
         reviewCommitSha: reviewed,
       }],
     })
@@ -148,6 +152,8 @@ describe("native review evidence", () => {
       association: "OWNER",
       body: `Fixed in ${head}: revalidated the exact provider snapshot`,
       createdAt: "2026-07-27T01:05:00Z",
+      includesCreatedEdit: false,
+      lastEditedAt: null,
       reviewCommitSha: reviewed,
     })
     expect(verify(finding).ok).toBeTrue()
@@ -171,6 +177,57 @@ describe("native review evidence", () => {
       "live base changed",
     ]))
   })
+
+  test("rejects edited trigger and disposition evidence", () => {
+    const editedTrigger = snapshot()
+    editedTrigger.comments[0]!.includesCreatedEdit = true
+    editedTrigger.comments[0]!.lastEditedAt = "2026-07-27T01:07:00Z"
+    expect(verify(editedTrigger).reasons).toContain(
+      "current Codex trigger is not the exact visible writer trigger",
+    )
+
+    const editedReply = snapshot()
+    editedReply.threads.push({
+      id: "T_edited",
+      resolved: true,
+      comments: [{
+        id: 40,
+        nodeId: "RC_40",
+        actor: "chatgpt-codex-connector",
+        association: "NONE",
+        body: "Fix this.",
+        createdAt: "2026-07-27T00:05:00Z",
+        includesCreatedEdit: false,
+        lastEditedAt: null,
+        reviewCommitSha: reviewed,
+      }, {
+        id: 41,
+        nodeId: "RC_41",
+        actor: "owner",
+        association: "OWNER",
+        body: `Fixed in ${head}: repaired after review`,
+        createdAt: "2026-07-27T01:05:00Z",
+        includesCreatedEdit: true,
+        lastEditedAt: "2026-07-27T01:06:00Z",
+        reviewCommitSha: reviewed,
+      }],
+    })
+    expect(verify(editedReply).reasons).toContain(
+      "Codex finding 40 has an invalid disposition reply",
+    )
+  })
+
+  test("requires a pull_request run that predates the trigger", () => {
+    const preHead = snapshot()
+    preHead.headObservations = ["2026-07-27T01:06:00Z"]
+    expect(verify(preHead).reasons).toContain(
+      "expected one current-head explicit Codex trigger, found 0",
+    )
+    preHead.headObservations = []
+    expect(verify(preHead).reasons).toContain(
+      "no pull_request workflow run proves when the head entered this PR",
+    )
+  })
 })
 
 describe("base-owned gate wiring", () => {
@@ -183,11 +240,14 @@ describe("base-owned gate wiring", () => {
 
     const workflow = readFileSync(".github/workflows/pr-lifecycle-gate.yml", "utf8")
     const pending = workflow.indexOf("-f state=pending")
+    const checkout = workflow.indexOf("actions/checkout@")
     const verify = workflow.indexOf("bun scripts/check-pr-review.ts")
     const final = workflow.indexOf("-f state=\"$state\"")
     expect(pending).toBeGreaterThan(0)
+    expect(checkout).toBeGreaterThan(pending)
     expect(verify).toBeGreaterThan(pending)
     expect(final).toBeGreaterThan(verify)
+    expect(workflow).toContain("if: ${{ always() }}")
     expect(workflow.slice(final)).not.toContain("gh api", "after the final status call")
   })
 })

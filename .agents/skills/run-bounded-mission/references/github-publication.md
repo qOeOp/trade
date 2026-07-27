@@ -31,10 +31,12 @@ CLI.
    duplicate `Outcome` heading has no capability.
 4. After local gates and a fresh evaluator accept the exact candidate, post
    exactly one explicit trigger for the current head/live-base identity using
-   `reviewTriggerBody` from `scripts/check-pr-review.ts`. Do not push while it is
-   pending. A second current-head trigger, an identity-free current-head
-   trigger, a minimized trigger, or a trigger whose visible text differs from
-   that exact body fails closed.
+   `reviewTriggerBody` from `scripts/check-pr-review.ts`. A provider-native
+   `pull_request` workflow run for that PR and SHA must predate the trigger; a
+   self-declared future SHA is not evidence that the head was live. Do not push
+   while review is pending. A second current-head trigger, an identity-free
+   current-head trigger, an edited or minimized trigger, or a trigger whose
+   visible text differs from that exact body fails closed.
 5. A clean result is exactly one post-trigger Codex `THUMBS_UP`, optionally
    `EYES`, with no current-head Codex review or finding root. A finding review
    never becomes clean because a reaction also exists. Make one coherent
@@ -51,11 +53,12 @@ CLI.
    privileged actor; the checker certifies only the exact visible snapshot and
    does not claim tamper-proof history.
 7. Dispatch the base-owned workflow with exact PR, head, base ref, and live-base
-   SHA. It must run at that live-base SHA, publish a non-success status before
-   verification, then make `pr-lifecycle-gate` success or failure its final
-   explicit provider call. A client error after a committed success must cause
-   no compensating provider read or write. Candidate workflow or checker content
-   never protects the bootstrap PR that installs them.
+   SHA. It must publish a non-success status before checkout, setup, live-base
+   binding, or verification; its `always()` final step replaces pending with
+   failure after any later failure. It makes `pr-lifecycle-gate` success or
+   failure its final explicit provider call. A client error after a committed
+   success must cause no compensating provider read or write. Candidate workflow
+   or checker content never protects the bootstrap PR that installs them.
 8. Merge only after the exact-head gate from the expected GitHub Actions
    integration, all existing quality and CodeQL checks, independent review, and
    thread-resolution policy pass under the repository's atomic merge path.
