@@ -1622,6 +1622,45 @@ exec "${realGit}" "$@"
         await user.exited
       }
     }, 15_000)
+
+    test("owner cleanup resolves absolute socket aliases in every mount namespace", async () => {
+      const fixture = createFixture()
+      const alias = join(fixture.root, "socket-mount-alias")
+      const socketPath = join(fixture.worktree, "mount-aliased.sock")
+      const aliasSocketPath = join(alias, "mount-aliased.sock")
+      const ready = join(fixture.root, "socket-mount-namespace.ready")
+      writeFileSync(join(fixture.root, ".git", "info", "exclude"), "*.sock\n")
+      run(fixture.root, ["/bin/mkdir", "-p", alias])
+      const server = Bun.spawn([
+        "unshare",
+        ...mountNamespaceArgs,
+        "/bin/sh",
+        "-c",
+        `mount --bind "$1" "$2" &&
+exec "$3" -e 'import { writeFileSync } from "node:fs";
+import { createServer } from "node:net";
+createServer().listen(process.argv[1], () => {
+  process.chdir(process.argv[3]);
+  writeFileSync(process.argv[2], "ready");
+});' "$4" "$5" "$6"`,
+        "sh",
+        fixture.worktree,
+        alias,
+        Bun.which("bun")!,
+        aliasSocketPath,
+        ready,
+        fixture.root,
+      ], { cwd: fixture.root, stdout: "ignore", stderr: "ignore" })
+      try {
+        await waitForPath(ready)
+        expect(existsSync(aliasSocketPath)).toBe(false)
+        expect(existsSync(socketPath)).toBe(true)
+        expectCleanupInUse(fixture)
+      } finally {
+        server.kill()
+        await server.exited
+      }
+    }, 15_000)
   }
 
   const networkNamespaceArgs = process.geteuid?.() === 0 ? ["-n"] : ["-Urn"]
@@ -2505,7 +2544,7 @@ case " $* " in
     printf '%s\\n' "$count" > "${counter}"
     "${realGit}" "$@"
     result=$?
-    if [ "$count" -eq 2 ]; then
+    if [ "$count" -eq 3 ]; then
       "${realGit}" -C "${fixture.root}" update-ref "${identity.ref!}" "${concurrentHead}" "${identity.head}"
     fi
     exit "$result"
@@ -2559,7 +2598,7 @@ case " $* " in
     printf '%s\\n' "$count" > "${counter}"
     "${realGit}" "$@"
     result=$?
-    if [ "$count" -eq 2 ] && [ "$result" -eq 0 ]; then
+    if [ "$count" -eq 3 ] && [ "$result" -eq 0 ]; then
       "${realGit}" -C "${fixture.root}" update-ref "${identity.ref!}" "${concurrentHead}" "${identity.head}" &&
       "${realGit}" -C "${fixture.root}" update-ref "${identity.ref!}" "${identity.head}" "${concurrentHead}"
     fi

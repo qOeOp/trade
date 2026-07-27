@@ -669,7 +669,7 @@ function assertNoProcTargetUsers(targetRoots: string[]): void {
   for (const root of targetRoots) {
     for (const identity of collectTargetFileIdentities(root)) targetFiles.add(identity)
   }
-  const inspectedNetworkNamespaces = new Set<string>()
+  const inspectedNetworkMountNamespaces = new Set<string>()
   const ownNetworkNamespace = readProcessLink("/proc/self/ns/net")
   let processes
   try {
@@ -698,7 +698,7 @@ function assertNoProcTargetUsers(targetRoots: string[]): void {
           taskPath,
           targetRoots,
           targetFiles,
-          inspectedNetworkNamespaces,
+          inspectedNetworkMountNamespaces,
           ownNetworkNamespace,
         )
       } catch (error) {
@@ -716,19 +716,35 @@ function inspectProcTask(
   taskPath: string,
   targetRoots: string[],
   targetFiles: Set<string>,
-  inspectedNetworkNamespaces: Set<string>,
+  inspectedNetworkMountNamespaces: Set<string>,
   ownNetworkNamespace: string | null,
 ): void {
   if (isZombieProcess(taskPath)) return
   const networkNamespace = readProcessLink(join(taskPath, "ns", "net"))
-  if (networkNamespace !== null && !inspectedNetworkNamespaces.has(networkNamespace)) {
+  const mountNamespace = readProcessLink(join(taskPath, "ns", "mnt"))
+  const namespacePair = networkNamespace === null
+    ? null
+    : `${networkNamespace}\0${mountNamespace ?? taskPath}`
+  if (
+    networkNamespace !== null
+    && namespacePair !== null
+    && !inspectedNetworkMountNamespaces.has(namespacePair)
+  ) {
     const inspected = assertNoUnixSocketsFrom(
       join(taskPath, "net", "unix"),
       targetRoots,
       true,
       networkNamespace === ownNetworkNamespace ? undefined : taskPath,
+      taskPath,
     )
-    if (inspected) inspectedNetworkNamespaces.add(networkNamespace)
+    if (
+      inspected
+      && readProcessLink(join(taskPath, "ns", "net")) === networkNamespace
+      && mountNamespace !== null
+      && readProcessLink(join(taskPath, "ns", "mnt")) === mountNamespace
+    ) {
+      inspectedNetworkMountNamespaces.add(namespacePair)
+    }
   }
   for (const linkName of ["cwd", "root", "exe"]) {
     const linkPath = join(taskPath, linkName)
@@ -801,6 +817,7 @@ function assertNoUnixSocketsFrom(
   targetRoots: string[],
   inspectSocketFiles: boolean,
   processPath?: string,
+  mountViewProcessPath?: string,
 ): boolean {
   const targetSocketFiles = inspectSocketFiles
     ? targetRoots.flatMap((root) => collectUnixSocketFiles(root).map((path) => ({ root, path })))
@@ -833,25 +850,30 @@ function assertNoUnixSocketsFrom(
       if (targetRoots.some((root) => pathUsesTarget(socketPath, root))) {
         throw new WorktreeCleanupError("target_in_use")
       }
-      try {
-        const resolvedSocketPath = realpathSync(socketPath)
-        const metadata = statSync(socketPath, { bigint: true })
-        if (
-          targetRoots.some((root) => pathUsesTarget(resolvedSocketPath, root))
-          || targetSocketIdentities.has(
-            `${metadata.dev.toString(16)}:${metadata.ino.toString(16)}`,
-          )
-        ) {
-          throw new WorktreeCleanupError("target_in_use")
-        }
-      } catch (error) {
-        if (
-          error instanceof WorktreeCleanupError
-          || !isMissingProcessEntry(error)
-        ) {
-          throw error instanceof WorktreeCleanupError
-            ? error
-            : new WorktreeCleanupError("process_guard_unavailable")
+      const socketViews = mountViewProcessPath === undefined
+        ? [socketPath]
+        : [socketPath, join(mountViewProcessPath, "root", socketPath)]
+      for (const socketView of socketViews) {
+        try {
+          const resolvedSocketPath = realpathSync(socketView)
+          const metadata = statSync(socketView, { bigint: true })
+          if (
+            targetRoots.some((root) => pathUsesTarget(resolvedSocketPath, root))
+            || targetSocketIdentities.has(
+              `${metadata.dev.toString(16)}:${metadata.ino.toString(16)}`,
+            )
+          ) {
+            throw new WorktreeCleanupError("target_in_use")
+          }
+        } catch (error) {
+          if (
+            error instanceof WorktreeCleanupError
+            || !isMissingProcessEntry(error)
+          ) {
+            throw error instanceof WorktreeCleanupError
+              ? error
+              : new WorktreeCleanupError("process_guard_unavailable")
+          }
         }
       }
     }
