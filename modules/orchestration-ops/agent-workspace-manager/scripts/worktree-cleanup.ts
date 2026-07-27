@@ -2345,10 +2345,20 @@ function sanitizeWorktreeId(value: string): string {
 }
 
 function isWorktreeId(value: string): boolean {
-  return value.length > 0
-    && value !== "."
-    && value !== ".."
-    && !/[\/\\\0-\x1f\x7f]/u.test(value)
+  if (value.length === 0 || value === "." || value === "..") return false
+  for (const character of value) {
+    const codePoint = character.codePointAt(0)
+    if (
+      character === "/"
+      || character === "\\"
+      || codePoint === undefined
+      || codePoint < 0x20
+      || codePoint === 0x7f
+    ) {
+      return false
+    }
+  }
+  return true
 }
 
 function sanitizeGeneration(value: string): string {
