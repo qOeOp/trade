@@ -195,6 +195,27 @@ test("owner commit is bound at creation and required at removal", () => {
   })).toThrow("owner_source_mismatch")
 })
 
+test("a different removal executable cannot borrow the recorded owner commit", () => {
+  const fixture = createFixture()
+  const producer = gitResult(fixture.root, [
+    "show",
+    `${fixture.ownerCommit}:modules/orchestration-ops/agent-workspace-manager/src/scripts/worktree-cleanup.ts`,
+  ])
+  expect(producer.exitCode).toBe(0)
+  const mismatchedOwner = join(fixture.root, "mismatched-worktree-cleanup.ts")
+  writeFileSync(mismatchedOwner, Buffer.concat([
+    producer.stdout,
+    Buffer.from("\n// different executable\n"),
+  ]))
+  const result = runOwnerRemoval(fixture, fixture.identity, mismatchedOwner)
+  const receipt = JSON.parse(result.stdout.toString())
+
+  expect(result.exitCode).toBe(1)
+  expect(receipt.reason_code).toBe("owner_source_mismatch")
+  expect(receipt.worktree_removed).toBe(false)
+  expect(existsSync(fixture.worktree)).toBe(true)
+})
+
 test("invalid short branch names and partial create failures preserve state", () => {
   const root = createRepository("trade-cleanup-create-")
   const ownerCommit = installOwnerTool(root)
@@ -368,10 +389,20 @@ function runStreamedRemoval(fixture: Fixture, identity: WorktreeIdentity): Comma
     `${fixture.ownerCommit}:modules/orchestration-ops/agent-workspace-manager/src/scripts/worktree-cleanup.ts`,
   ])
   if (producer.exitCode !== 0) throw new Error(producer.stderr.toString())
+  const ownerScript = join(fixture.root, "exact-worktree-cleanup.ts")
+  writeFileSync(ownerScript, producer.stdout)
+  return runOwnerRemoval(fixture, identity, ownerScript)
+}
+
+function runOwnerRemoval(
+  fixture: Fixture,
+  identity: WorktreeIdentity,
+  ownerScript: string,
+): CommandResult {
   const result = Bun.spawnSync([
     "bun",
     "run",
-    "-",
+    ownerScript,
     "remove",
     "--owner-commit",
     fixture.ownerCommit,
@@ -385,7 +416,6 @@ function runStreamedRemoval(fixture: Fixture, identity: WorktreeIdentity): Comma
     identity.ref,
   ], {
     cwd: fixture.root,
-    stdin: producer.stdout,
     stdout: "pipe",
     stderr: "pipe",
   })

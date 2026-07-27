@@ -186,6 +186,7 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupReceipt {
     assertBranchRef(options.repositoryCwd, options.expectedRef)
     expectedRefForReceipt = options.expectedRef
     ownerCommit = resolveCommit(options.repositoryCwd, options.ownerCommit)
+    assertOwnerSource(options.repositoryCwd, ownerCommit)
 
     let target = resolveTarget(options.repositoryCwd, options.worktreeId)
     bindObserved(target.identity)
