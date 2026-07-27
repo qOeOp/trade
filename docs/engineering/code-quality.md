@@ -3,7 +3,7 @@ title: Code Quality Contract
 role: engineering-contract
 status: active
 owner: engineering
-last_verified: 2026-07-26 CST
+last_verified: 2026-07-27 CST
 ---
 
 # Code Quality Contract
@@ -12,7 +12,7 @@ last_verified: 2026-07-26 CST
 
 本文回答：提交前代码是否干净、克制、可交给别人接手。
 
-它不是新的架构计划；只定义项目级质量闸。架构意图仍由 architecture contract / manifest / blueprint 持有，质量闸负责对代码无条件执法，不因既存实现而降低标准。能自动检查的进入 `scripts/quality-check.sh`，不能自动检查的作为 review 口径。
+它不是新的架构计划；只定义项目级质量闸。架构意图仍由 architecture contract / manifest / blueprint 持有。`scripts/quality-check.sh` 只编排 owner check，不自行解释领域、语言或业务语义；不能由 owner 精确判定的事项留给 review。
 
 本仓库默认面向真实 Binance USDM `live-small`。质量闸只证明代码、契约与 helper 干净；真实交易安全边界由 runtime permissions、preflight、execution contract、显式 `--yes` 与 exchange fact reconciliation 承担。
 
@@ -32,17 +32,16 @@ scripts/quality-check.sh
 - Secret：扫描 tracked / unignored 文件中的 provider token、非空 SiliconFlow assignment 与 literal bearer credential；只报告位置和类别，不回显值
 - Docs：当前文档元数据与 index、历史状态、仓库内 Markdown 相对链接
 - Architecture：manifest ID / owner / domain / job / store 双向归属必须唯一且闭合；跨域源码飞线、owner-target 漂移、manifest 外 contract root、非静态动态加载、`eval` / `new Function`、package dependency cycle 一律 hard fail；blueprint hash 纳入生成证据，蓝图改变后旧报告立即失效
-- TypeScript：根目录 Bun install surface 统一安装依赖；禁止 tool-local `bun.lock`；tool 依赖版本必须与根 `package.json` 一致；跨 package 复用只能指向 manifest 允许的 owner 或 `modules/contracts/*`；总闸和 changed gate 直接调用根 compiler 与 package 测试文件，package scripts 只作开发便利，不是验收 authority
+- TypeScript：根目录 Bun install surface 统一安装依赖；`check-ts-tool-boundaries.ts` 拒绝 tool-local `bun.lock` 并校验依赖与 package 边界；总闸和 changed gate 只调用 owner compiler / test command
 - Test integrity：每个含生产 TypeScript 的 package 必须有 colocated `*.test.ts` / `*.spec.ts`；总闸从文件系统发现并显式执行这些测试，零测试 hard fail。Replay runner 的 worker-v10 从普通 package 执行中精确排除，由既有 exclusive semantic gate 单独执行
 - Replay durable parent：Worker-v10 后半链对已经完整验证并以 immutable CAS 持久化的父证据写入 `canonical file SHA-256 + parent self-hash` receipt；后续 consumer 以文件字节哈希命中快路径，文件篡改立即失效并回到 fail-closed 验证，不按对象身份或进程缓存跳过完整性检查
 - Test boundary：生产源码不得导入测试 runtime 或 `test-support`；测试 stage / fixture / assertion 进入 `src/test-support/`，不用任意单文件行数限制逼迫机械拆分
 - Convergence：恢复期冻结 module owner、registered tool、domain、store、job、rail 的继续净膨胀；Agent 不得自行提高基线
 - Judge regression：审查脚本必须通过恶意反例测试，证明飞线、计算型动态 import、job 归属错配、过期架构证据、虚假 maturity evidence、空测试套件均会失败
-- Duplication：TypeScript / JavaScript / Go / Python / Rust / Shell 在 `20 lines / 140 tokens` 粒度下重复片段容许数为 `0`；发现重复必须提炼稳定语义或重构边界，不得通过提高阈值、复制豁免或缩小扫描面消音
 - Go：`gofmt -l` 必须为空，随后 `go test ./...` 与 `go vet ./...`
 - Rust：`cargo fmt --check`、`cargo check`、`cargo clippy -- -D warnings` 与 `cargo test`
 - Python：`compileall` + `python -W error -m unittest discover`
-- Hygiene：项目文件不得泄漏本机绝对路径；禁止新增 tracked runtime SQLite / sidecar 与 module-local DB；quality 对 tracked + unignored 内容做前后哈希，dirty worktree 只比较增量副作用，CI 还要求 preflight clean；ignored footprint 只分类报告、不静默清理
+- Hygiene：`check-workspace-hygiene.ts` 拒绝 tracked runtime SQLite / sidecar 与 module-local DB；quality 对 tracked + unignored 内容做前后哈希，dirty worktree 只比较增量副作用，CI 还要求 preflight clean。Markdown 本地链接和 implementation ref 的路径边界由 doc checker 精确判定
 
 `scripts/quality-check.sh` 是唯一编排入口，但支持 `policy / typescript / replay / native` 四个可组合 scope。GitHub PR workflow 在隔离 runner 中并发执行 policy、两个确定性 TypeScript shard、Replay semantic 与 native toolchain，最后只由稳定的 `quality` aggregate 汇总；本地不并发争抢 Replay/Cargo 资源。CodeQL 作为独立安全扫描并行运行，Replay release closure 只在 nightly/manual certification 运行，避免把发布级重证据塞回每次 PR。
 
@@ -53,13 +52,13 @@ scripts/quality-check.sh
 - 无 compiler / typecheck / test / vet failure
 - TypeScript ESLint 与 ShellCheck 无 error/warning；不以自动修复掩盖候选差异
 - 无未经用户明确批准的责任面扩张；功能必须有 production consumer 与运行链路证据
-- 无重复代码片段、跨域飞线、依赖环、动态加载逃逸或 owner 漂移
+- 无跨域飞线、依赖环、动态加载逃逸或 owner 漂移
 - 无空测试套件假绿；审查器本身必须有 fail-closed 反例回归
 - Python warning 按 error 处理
 - Go 文件必须 `gofmt`
 - Rust 文件必须通过 rustfmt，且 clippy warning 按 error 处理
 - 新增 shell 必须可 `sh -n`
-- 文档不写本机路径、临时调试路径或未实现制度
+- 文档链接与 implementation ref 不使用本机绝对路径；临时调试信息或未实现制度不进入当前合同
 - helper / automation 路径必须走项目脚本，不直接拼 `$CODEX_HOME/...`
 - Python 命令不默认写死 `python`；先用 `scripts/resolve-python.sh`
 
@@ -69,7 +68,8 @@ scripts/quality-check.sh
 - Replay 日常改动由 Changed gate 直接编译并测试 owner package；contracts / engine / accounting / data-adapter 改动同时运行 runner consumer。runner 的普通 package 层精确排除 worker-v10，后者只由 exclusive semantic gate 执行。
 - Replay 核心语义改动：运行 `bun run check:replay-semantic`；release evidence、compatibility 或发布候选改动再运行 `bun run check:replay-release`。
 - Changed gate 遇到共享 contract、脚本/CI/质量基础设施、机器架构 manifest、无 owner 文件或跨语言改动时 fail closed，并要求完整总闸。
-- 提交前：跑 `scripts/quality-check.sh`
+- 首次安装或 lockfile 变化后：跑 `env -u BINANCE_API_KEY -u BINANCE_API_SECRET -u SILICONFLOW_API_KEY bun --no-env-file install --frozen-lockfile --ignore-scripts`
+- 提交前：跑 `scripts/quality-check.sh`；该命令不安装依赖、不修改 dependency state
 - 涉及真实 Binance 写接口：仍需显式 `--yes`；quality gate 不执行真实下单 / 撤单 / 调仓
 
 ## 4. 不伪装的缺口

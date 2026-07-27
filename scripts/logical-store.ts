@@ -22,7 +22,9 @@ if (selected.length === 0) {
 }
 
 const results = selected.map((store) => runStore(args, store))
-console.log(JSON.stringify({ ok: results.every((result) => result.ok), action: args.action, stores: results }, null, 2))
+const ok = results.every((result) => result.ok)
+console.log(JSON.stringify({ ok, action: args.action, stores: results }, null, 2))
+if (!ok) process.exit(1)
 
 function runStore(args: Args, store: JSONRecord): JSONRecord {
   const id = stringField(store.id)
