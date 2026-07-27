@@ -45,7 +45,7 @@ Choose exactly one admission result:
 - `blocked`: required external authority, consumer identity, fact, or evidence is unavailable;
 - route outside this skill when the task is a simple stable fact, tiny mechanical edit, or fully owned by a more specific workflow.
 
-Only `admit` proceeds to a mission contract. Preserve the evidence and terminate immediately for the other terminal results. Never invent a mission score, demand taxonomy, or implementation merely to make an objective admissible.
+Only `admit` permits an implementation or ordinary analysis contract. Preserve the evidence and terminate immediately for the other terminal results, except that a high-impact read-only outcome as defined below must freeze a read-only decision contract and receive fresh evaluator evidence before its terminal. That exception never permits implementation. Never invent a mission score, demand taxonomy, or implementation merely to make an objective admissible.
 
 ### 3. Contract
 
