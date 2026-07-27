@@ -19,6 +19,7 @@ import { createServer } from "node:net"
 import { basename, dirname, join } from "node:path"
 import {
   identifyLinkedWorktree,
+  linuxKernelDeviceInodeIdentity,
   removeOwnedWorktree,
   WorktreeCleanupError,
 } from "./worktree-cleanup"
@@ -32,6 +33,10 @@ interface PipedCommandResult {
 }
 
 setDefaultTimeout(30_000)
+
+test("Linux kernel device identities normalize to userspace stat identities", () => {
+  expect(linuxKernelDeviceInodeIdentity("fe00000", "2a")).toBe("fe00:2a")
+})
 
 afterEach(() => {
   for (const fixture of fixtures.splice(0)) rmSync(fixture, { recursive: true, force: true })
@@ -1283,9 +1288,24 @@ process.on("SIGTERM", () => server.close());`,
     const fixture = createFixture()
     const identity = identifyLinkedWorktree(fixture.worktree)
     const ownerCommit = installOwnerTool(fixture.root)
-    const watcher = watch(join(fixture.worktree, "tracked.txt"))
+    const targetPath = join(fixture.worktree, "tracked.txt")
+    const watcher = watch(targetPath)
     try {
       await Bun.sleep(100)
+      const target = lstatSync(targetPath, { bigint: true })
+      const watchedIdentity = readdirSync("/proc/self/fdinfo").flatMap((fileDescriptor) => {
+        try {
+          return readFileSync(join("/proc/self/fdinfo", fileDescriptor), "utf8")
+            .split("\n")
+            .flatMap((line) => {
+              const match = line.match(/\bino:([0-9a-f]+)\s+sdev:([0-9a-f]+)\b/)
+              return match && BigInt(`0x${match[1]}`) === target.ino ? [`${match[2]}:${match[1]}`] : []
+            })
+        } catch {
+          return []
+        }
+      })[0]
+      expect(watchedIdentity).toBeDefined()
       const failure = captureCleanupError(() => removeOwnedWorktree({
         repositoryCwd: fixture.root,
         ownerCommit,
@@ -2365,6 +2385,62 @@ exec "${realGit}" "$@"
     .toContain(concurrentHead)
 })
 
+test("owner cleanup preserves an away-and-back reflog update during rollback", () => {
+  const fixture = createFixture()
+  const identity = identifyLinkedWorktree(fixture.worktree)
+  const ownerCommit = installOwnerTool(fixture.root)
+  const concurrentHead = run(fixture.root, [
+    "git",
+    "commit-tree",
+    `${identity.head}^{tree}`,
+    "-p",
+    identity.head,
+    "-m",
+    "concurrent away and back",
+  ])
+  const realGit = Bun.which("git")
+  if (!realGit) throw new Error("git unavailable")
+  const bin = join(fixture.root, "bin")
+  const counter = join(bin, "update-ref-count")
+  run(fixture.root, ["/bin/mkdir", "-p", bin])
+  const wrapper = join(bin, "git")
+  writeFileSync(
+    wrapper,
+    `#!/bin/sh
+case " $* " in
+  *" update-ref --stdin "*)
+    count=0
+    [ ! -f "${counter}" ] || count=$(cat "${counter}")
+    count=$((count + 1))
+    printf '%s\\n' "$count" > "${counter}"
+    "${realGit}" "$@"
+    result=$?
+    if [ "$count" -eq 2 ] && [ "$result" -eq 0 ]; then
+      "${realGit}" -C "${fixture.root}" update-ref "${identity.ref!}" "${concurrentHead}" "${identity.head}" &&
+      "${realGit}" -C "${fixture.root}" update-ref "${identity.ref!}" "${identity.head}" "${concurrentHead}"
+    fi
+    exit "$result"
+    ;;
+  *" worktree remove "*) exit 71 ;;
+esac
+exec "${realGit}" "$@"
+`,
+  )
+  chmodSync(wrapper, 0o755)
+
+  const cleanup = runCleanupCli(fixture.root, identity, ownerCommit, bin)
+
+  expect(cleanup.exitCode).toBe(1)
+  const receipt = JSON.parse(cleanup.stdout.toString())
+  expect(receipt.reason_code).toBe("rollback_failed")
+  expect(receipt.rollback_completed).toBe(false)
+  expect(receipt.preserved_ref).toMatch(/^refs\/heads\/worktree-cleanup-[0-9a-f]{64}$/)
+  expect(run(fixture.root, ["git", "rev-parse", receipt.preserved_ref])).toBe(identity.head)
+  expect(run(fixture.root, ["git", "rev-parse", identity.ref!])).toBe(identity.head)
+  expect(run(fixture.root, ["git", "reflog", "show", "--format=%H", identity.ref!]))
+    .toContain(concurrentHead)
+})
+
 test("owner cleanup reconciles a nonzero worktree removal that completed", () => {
   const fixture = createFixture()
   const identity = identifyLinkedWorktree(fixture.worktree)
@@ -2503,6 +2579,90 @@ exec "${realGit}" "$@"
   expect(receipt.worktree_claimed).toBe(true)
   expect(receipt.rollback_completed).toBe(true)
   expect(readFileSync(reflogPath, "utf8")).toContain("same-oid concurrent reflog metadata")
+  expect(existsSync(fixture.worktree)).toBe(true)
+})
+
+test("owner cleanup rejects a same-OID direct ref replacement without a reflog", () => {
+  const fixture = createFixture()
+  const ownerCommit = installOwnerTool(fixture.root)
+  run(fixture.root, ["git", "config", "core.logAllRefUpdates", "false"])
+  const identity = identifyLinkedWorktree(fixture.worktree)
+  const reflogPath = join(fixture.root, ".git", "logs", identity.ref!)
+  rmSync(reflogPath, { force: true })
+  const realGit = Bun.which("git")
+  if (!realGit) throw new Error("git unavailable")
+  const bin = join(fixture.root, "bin")
+  const changed = join(bin, "changed")
+  run(fixture.root, ["/bin/mkdir", "-p", bin])
+  const wrapper = join(bin, "git")
+  writeFileSync(
+    wrapper,
+    `#!/bin/sh
+case " $* " in
+  *" update-ref --stdin "*)
+    if [ ! -f "${changed}" ]; then
+      "${realGit}" -C "${fixture.root}" update-ref -d "${identity.ref!}" "${identity.head}" || exit $?
+      "${realGit}" -C "${fixture.root}" update-ref "${identity.ref!}" "${identity.head}" || exit $?
+      : > "${changed}"
+    fi
+    ;;
+esac
+exec "${realGit}" "$@"
+`,
+  )
+  chmodSync(wrapper, 0o755)
+
+  const cleanup = runCleanupCli(fixture.root, identity, ownerCommit, bin)
+
+  expect(cleanup.exitCode).toBe(1)
+  const receipt = JSON.parse(cleanup.stdout.toString())
+  expect(receipt.reason_code).toBe("branch_identity_drift_before_worktree_removal")
+  expect(receipt.rollback_completed).toBe(true)
+  expect(receipt.preserved_ref).toBeNull()
+  expect(run(fixture.root, ["git", "rev-parse", identity.ref!])).toBe(identity.head)
+  expect(existsSync(reflogPath)).toBe(false)
+  expect(existsSync(fixture.worktree)).toBe(true)
+})
+
+test("owner cleanup rejects a same-OID packed ref file replacement", () => {
+  const fixture = createFixture()
+  run(fixture.root, ["git", "pack-refs", "--all", "--prune"])
+  const identity = identifyLinkedWorktree(fixture.worktree)
+  const ownerCommit = installOwnerTool(fixture.root)
+  const packedRefs = join(fixture.root, ".git", "packed-refs")
+  const looseRef = join(fixture.root, ".git", identity.ref!)
+  expect(existsSync(looseRef)).toBe(false)
+  const realGit = Bun.which("git")
+  if (!realGit) throw new Error("git unavailable")
+  const bin = join(fixture.root, "bin")
+  const changed = join(bin, "changed")
+  run(fixture.root, ["/bin/mkdir", "-p", bin])
+  const wrapper = join(bin, "git")
+  writeFileSync(
+    wrapper,
+    `#!/bin/sh
+case " $* " in
+  *" update-ref --stdin "*)
+    if [ ! -f "${changed}" ]; then
+      cp "${packedRefs}" "${packedRefs}.replacement" || exit $?
+      mv "${packedRefs}.replacement" "${packedRefs}" || exit $?
+      : > "${changed}"
+    fi
+    ;;
+esac
+exec "${realGit}" "$@"
+`,
+  )
+  chmodSync(wrapper, 0o755)
+
+  const cleanup = runCleanupCli(fixture.root, identity, ownerCommit, bin)
+
+  expect(cleanup.exitCode).toBe(1)
+  const receipt = JSON.parse(cleanup.stdout.toString())
+  expect(receipt.reason_code).toBe("branch_identity_drift_before_worktree_removal")
+  expect(receipt.rollback_completed).toBe(true)
+  expect(receipt.preserved_ref).toBeNull()
+  expect(run(fixture.root, ["git", "rev-parse", identity.ref!])).toBe(identity.head)
   expect(existsSync(fixture.worktree)).toBe(true)
 })
 

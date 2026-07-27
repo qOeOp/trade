@@ -94,9 +94,16 @@ interface FileIdentity {
   ino: bigint
 }
 
+interface FileInstanceIdentity extends FileIdentity {
+  ctimeNs: bigint
+}
+
 type RefSnapshot = {
   kind: "direct"
-  reflog: FileSnapshot | null
+  reflog: IdentifiedFileSnapshot | null
+  looseRef: IdentifiedFileSnapshot | null
+  packedRefsIdentity: FileInstanceIdentity | null
+  packedEntry: PackedRefSnapshot | null
 } | {
   kind: "symbolic"
   target: string
@@ -108,6 +115,10 @@ type RefSnapshot = {
 interface FileSnapshot {
   contents: Buffer
   mode: number
+}
+
+interface IdentifiedFileSnapshot extends FileSnapshot {
+  identity: FileInstanceIdentity
 }
 
 interface PackedRefSnapshot {
@@ -909,7 +920,7 @@ function assertNoTargetInotifyWatch(
     if (!line.startsWith("inotify ")) continue
     const match = line.match(/\bino:([0-9a-f]+)\s+sdev:([0-9a-f]+)\b/)
     if (!match) throw new WorktreeCleanupError("process_guard_unavailable")
-    if (targetFiles.has(`${match[2]}:${match[1]}`)) {
+    if (targetFiles.has(linuxKernelDeviceInodeIdentity(match[2]!, match[1]!))) {
       throw new WorktreeCleanupError("target_in_use")
     }
   }
@@ -945,11 +956,25 @@ function linuxDeviceInodeIdentity(
 ): string {
   const major = BigInt(`0x${majorHex}`)
   const minor = BigInt(`0x${minorHex}`)
+  return `${linuxUserspaceDevice(major, minor).toString(16)}:${BigInt(inodeDecimal).toString(16)}`
+}
+
+export function linuxKernelDeviceInodeIdentity(
+  deviceHex: string,
+  inodeHex: string,
+): string {
+  const device = BigInt(`0x${deviceHex}`)
+  const major = (device >> 20n) & 0xfffn
+  const minor = device & 0xfffffn
+  return `${linuxUserspaceDevice(major, minor).toString(16)}:${BigInt(`0x${inodeHex}`).toString(16)}`
+}
+
+function linuxUserspaceDevice(major: bigint, minor: bigint): bigint {
   const device = (minor & 0xffn)
     | ((major & 0xfffn) << 8n)
     | ((minor & ~0xffn) << 12n)
     | ((major & ~0xfffn) << 32n)
-  return `${device.toString(16)}:${BigInt(inodeDecimal).toString(16)}`
+  return device
 }
 
 function isZombieProcess(processPath: string): boolean {
@@ -1081,7 +1106,13 @@ function snapshotRef(cwd: string, ref: string, expectedHead: string): RefSnapsho
         mode: lstatSync(looseRefPath(cwd, ref)).mode,
         packedEntry: snapshotPackedRefEntry(cwd, ref),
       }
-    : { kind: "direct" as const, reflog: snapshotFile(looseRefPath(cwd, `logs/${ref}`)) }
+    : {
+        kind: "direct" as const,
+        reflog: snapshotIdentifiedFile(looseRefPath(cwd, `logs/${ref}`)),
+        looseRef: snapshotIdentifiedFile(looseRefPath(cwd, ref)),
+        packedRefsIdentity: snapshotFileInstance(packedRefsPath(cwd)),
+        packedEntry: snapshotPackedRefEntry(cwd, ref),
+      }
   if (
     symbolic.exitCode !== 0
     && (symbolic.exitCode !== 1 || symbolic.stderr.length > 0)
@@ -1112,7 +1143,7 @@ function claimRef(
   if (snapshot.kind === "direct") {
     const guardRef = `refs/heads/worktree-cleanup-${suffix}`
     try {
-      moveLockedDirectRef(cwd, ref, guardRef, expectedHead, snapshot.reflog)
+      moveLockedDirectRef(cwd, ref, guardRef, expectedHead, snapshot)
     } catch {
       throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
     }
@@ -1231,13 +1262,35 @@ function restoreDirectReflogUnderRefLock(
   try {
     linkSync(refPath, lockPath)
     lockIdentity = fileIdentityForPath(lockPath)
-    if (readFileSync(lockPath, "utf8").trim() !== expectedHead) {
+    if (
+      !lockMatches(refPath, lockIdentity)
+      || readFileSync(lockPath, "utf8").trim() !== expectedHead
+      || !hasFreshDirectRefReflog(cwd, ref, expectedHead, reflog)
+    ) {
       throw new WorktreeCleanupError("ref_restore_failed")
     }
     restoreFile(looseRefPath(cwd, `logs/${ref}`), reflog)
   } finally {
     if (lockIdentity) unlinkOwnedLock(lockPath, lockIdentity)
   }
+}
+
+function hasFreshDirectRefReflog(
+  cwd: string,
+  ref: string,
+  expectedHead: string,
+  originalReflog: FileSnapshot | null,
+): boolean {
+  const reflogPath = looseRefPath(cwd, `logs/${ref}`)
+  if (!existsSync(reflogPath)) return originalReflog === null
+  const contents = readFileSync(reflogPath, "utf8")
+  const fields = contents.endsWith("\n") ? contents.slice(0, -1).split(" ") : []
+  return (
+    !contents.slice(0, -1).includes("\n")
+    && fields.length >= 4
+    && fields[0] === nullOid(cwd)
+    && fields[1] === expectedHead
+  )
 }
 
 function restoreSymbolicRef(
@@ -1322,16 +1375,16 @@ function moveLockedDirectRef(
   sourceRef: string,
   destinationRef: string,
   expectedHead: string,
-  expectedReflog?: FileSnapshot | null,
+  expectedSnapshot?: Extract<RefSnapshot, { kind: "direct" }>,
 ): void {
-  const transaction = expectedReflog === undefined
+  const transaction = expectedSnapshot === undefined
     ? runDirectRefTransaction(cwd, sourceRef, destinationRef, expectedHead, true)
     : runValidatedDirectRefTransaction(
         cwd,
         sourceRef,
         destinationRef,
         expectedHead,
-        expectedReflog,
+        expectedSnapshot,
       )
   if (transaction.exitCode !== 0) {
     const source = gitResult(cwd, ["rev-parse", "--verify", sourceRef])
@@ -1394,17 +1447,71 @@ function runValidatedDirectRefTransaction(
   sourceRef: string,
   destinationRef: string,
   expectedHead: string,
-  expectedReflog: FileSnapshot | null,
+  expectedSnapshot: Extract<RefSnapshot, { kind: "direct" }>,
 ): PipedCommandResult {
   const reflogPath = looseRefPath(cwd, `logs/${sourceRef}`)
-  const expectedHash = expectedReflog
-    ? createHash("sha256").update(expectedReflog.contents).digest("hex")
-    : "-"
-  const expectedMode = expectedReflog ? String(expectedReflog.mode) : "-"
+  const loosePath = looseRefPath(cwd, sourceRef)
+  const packedRefsPath = join(
+    git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+    "packed-refs",
+  )
+  const fileExpectation = (snapshot: IdentifiedFileSnapshot | null) => snapshot && ({
+    hash: createHash("sha256").update(snapshot.contents).digest("hex"),
+    mode: snapshot.mode.toString(),
+    dev: snapshot.identity.dev.toString(),
+    ino: snapshot.identity.ino.toString(),
+    ctimeNs: snapshot.identity.ctimeNs.toString(),
+  })
+  const expectation = Buffer.from(JSON.stringify({
+    reflog: fileExpectation(expectedSnapshot.reflog),
+    looseRef: fileExpectation(expectedSnapshot.looseRef),
+    packedRefsIdentity: expectedSnapshot.packedRefsIdentity && ({
+      dev: expectedSnapshot.packedRefsIdentity.dev.toString(),
+      ino: expectedSnapshot.packedRefsIdentity.ino.toString(),
+      ctimeNs: expectedSnapshot.packedRefsIdentity.ctimeNs.toString(),
+    }),
+    packedEntry: expectedSnapshot.packedEntry,
+  })).toString("base64")
   const helper = `
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
-const [cwd, sourceRef, destinationRef, expectedHead, reflogPath, expectedHash, expectedMode] = process.argv.slice(1);
+const [cwd, sourceRef, destinationRef, expectedHead, reflogPath, loosePath, packedRefsPath, encodedExpectation] = process.argv.slice(1);
+const expected = JSON.parse(Buffer.from(encodedExpectation, "base64").toString());
+const fileMatches = (path, value) => {
+  if (value === null) return !existsSync(path);
+  if (!existsSync(path)) return false;
+  const metadata = lstatSync(path, { bigint: true });
+  return metadata.mode.toString() === value.mode
+    && metadata.dev.toString() === value.dev
+    && metadata.ino.toString() === value.ino
+    && metadata.ctimeNs.toString() === value.ctimeNs
+    && createHash("sha256").update(readFileSync(path)).digest("hex") === value.hash;
+};
+const instanceMatches = (path, value) => {
+  if (value === null) return !existsSync(path);
+  if (!existsSync(path)) return false;
+  const metadata = lstatSync(path, { bigint: true });
+  return metadata.dev.toString() === value.dev
+    && metadata.ino.toString() === value.ino
+    && metadata.ctimeNs.toString() === value.ctimeNs;
+};
+const packedSnapshot = (path, ref) => {
+  if (!existsSync(path)) return null;
+  const lines = readFileSync(path, "utf8").split("\\n");
+  const indexes = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    if (lines[index].endsWith(" " + ref)) indexes.push(index);
+  }
+  if (indexes.length === 0) return null;
+  if (indexes.length > 1) return { duplicate: true };
+  const index = indexes[0];
+  return {
+    line: lines[index],
+    index,
+    previousLine: index > 0 ? lines[index - 1] : null,
+    nextLine: index + 1 < lines.length ? lines[index + 1] : null,
+  };
+};
 const transaction = Bun.spawn(["git", "-C", cwd, "update-ref", "--stdin"], {
   stdin: "pipe",
   stdout: "pipe",
@@ -1427,11 +1534,10 @@ while (!output.includes("prepare: ok\\n")) {
   if (chunk.done) break;
   output += decoder.decode(chunk.value);
 }
-let matches = expectedHash === "-"
-  ? !existsSync(reflogPath)
-  : existsSync(reflogPath)
-    && String(lstatSync(reflogPath).mode) === expectedMode
-    && createHash("sha256").update(readFileSync(reflogPath)).digest("hex") === expectedHash;
+const matches = fileMatches(reflogPath, expected.reflog)
+  && fileMatches(loosePath, expected.looseRef)
+  && instanceMatches(packedRefsPath, expected.packedRefsIdentity)
+  && JSON.stringify(packedSnapshot(packedRefsPath, sourceRef)) === JSON.stringify(expected.packedEntry);
 if (!output.includes("prepare: ok\\n") || !matches) {
   if (output.includes("prepare: ok\\n")) {
     transaction.stdin.write("abort\\n");
@@ -1456,8 +1562,9 @@ process.exit(await transaction.exited);
     destinationRef,
     expectedHead,
     reflogPath,
-    expectedHash,
-    expectedMode,
+    loosePath,
+    packedRefsPath,
+    expectation,
   ], { stdout: "pipe", stderr: "pipe" }) as PipedCommandResult
 }
 
@@ -1674,10 +1781,28 @@ function createLockedSymbolicRef(
   }
 }
 
-function snapshotFile(path: string): FileSnapshot | null {
+function snapshotIdentifiedFile(path: string): IdentifiedFileSnapshot | null {
   if (!existsSync(path)) return null
-  const metadata = lstatSync(path)
-  return { contents: readFileSync(path), mode: metadata.mode }
+  const metadata = lstatSync(path, { bigint: true })
+  return {
+    contents: readFileSync(path),
+    mode: Number(metadata.mode),
+    identity: {
+      dev: metadata.dev,
+      ino: metadata.ino,
+      ctimeNs: metadata.ctimeNs,
+    },
+  }
+}
+
+function snapshotFileInstance(path: string): FileInstanceIdentity | null {
+  if (!existsSync(path)) return null
+  const metadata = lstatSync(path, { bigint: true })
+  return {
+    dev: metadata.dev,
+    ino: metadata.ino,
+    ctimeNs: metadata.ctimeNs,
+  }
 }
 
 function restoreFile(path: string, snapshot: FileSnapshot | null): void {
@@ -1715,6 +1840,10 @@ function looseRefPath(cwd: string, ref: string): string {
     throw new WorktreeCleanupError("git_operation_failed")
   }
   return refPath
+}
+
+function packedRefsPath(cwd: string): string {
+  return join(git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]), "packed-refs")
 }
 
 function deleteGuardRef(
