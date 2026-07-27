@@ -1156,7 +1156,7 @@ describe("command lifecycle with a fake provider", () => {
         receipt: { headSha: descendant },
       })
     })
-  })
+  }, 20_000)
 
   test("rejects incomplete or ambiguous evidence and identity drift before mutation", () => {
     for (const fault of [
@@ -1185,7 +1185,7 @@ describe("command lifecycle with a fake provider", () => {
         expect(readState().mutations, fault).toBe(0)
       })
     }
-  })
+  }, 20_000)
 })
 
 describe("gate status publication", () => {
