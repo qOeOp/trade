@@ -2445,9 +2445,17 @@ export function gateStatusForLiveIdentity(
   }
 }
 
-function publishGateFailure(repository: string, pr: number, description: string): void {
-  const live = fetchBasicPullRequest(repository, pr)
-  postStatus(repository, live.headSha, "failure", description)
+function publishGateFailure(repository: string, pr: number, description: string): boolean {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const live = fetchBasicPullRequest(repository, pr)
+      postStatus(repository, live.headSha, "failure", description)
+      return true
+    } catch {
+      continue
+    }
+  }
+  return false
 }
 
 async function publishGateStatus(
@@ -2467,24 +2475,22 @@ async function publishGateStatus(
   const before = fetchBasicPullRequest(repository, pr)
   const initial = gateStatusForLiveIdentity(verified, before, requestedState)
   if (initial.identityChanged) {
-    postStatus(
+    publishGateFailure(
       repository,
-      initial.sha,
-      "failure",
+      pr,
       "PR identity changed during lifecycle verification",
     )
     return false
   }
 
   if (requestedState === "failure") {
-    postStatus(repository, initial.sha, "failure", description)
+    if (!publishGateFailure(repository, pr, description)) return false
     const after = fetchBasicPullRequest(repository, pr)
     const confirmation = gateStatusForLiveIdentity(verified, after, requestedState)
     if (confirmation.identityChanged) {
-      postStatus(
+      publishGateFailure(
         repository,
-        confirmation.sha,
-        "failure",
+        pr,
         "PR identity changed during lifecycle status publication",
       )
       return false
@@ -2545,15 +2551,18 @@ async function publishGateStatus(
   const after = fetchBasicPullRequest(repository, pr)
   const confirmation = gateStatusForLiveIdentity(verified, after, requestedState)
   if (confirmation.identityChanged) {
-    postStatus(
+    publishGateFailure(
       repository,
-      confirmation.sha,
-      "failure",
+      pr,
       "PR identity changed during lifecycle status publication",
     )
     return false
   }
   return true
+}
+
+function failGateStatusPublication(): never {
+  throw new Error("PR lifecycle status publication failed closed")
 }
 
 async function commandVerify(args: string[], writeStatus: boolean): Promise<void> {
@@ -2592,9 +2601,10 @@ async function commandVerify(args: string[], writeStatus: boolean): Promise<void
     process.stdout.write(`${JSON.stringify(result.verification, null, 2)}\n`)
     if (!result.verification.ok) process.exitCode = 1
   } catch (error) {
-    if (writeStatus && !statusPublicationStarted) {
+    if (writeStatus) {
       publishGateFailure(repository, pr, "PR lifecycle verification failed closed")
     }
+    if (statusPublicationStarted) failGateStatusPublication()
     throw error
   }
 }

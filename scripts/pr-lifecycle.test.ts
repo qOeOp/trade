@@ -573,13 +573,24 @@ if (replyMatch && method === "POST") {
   output({ id: reply.id, node_id: reply.nodeId, body: reply.body })
 }
 if (endpoint.startsWith("repos/qOeOp/trade/statuses/") && method === "POST") {
-  state.mutations += 1
-  state.statuses.push({
+  const status = {
     sha: endpoint.split("/statuses/")[1],
     state: field("state"),
     context: field("context"),
     description: field("description"),
-  })
+  }
+  state.statusAttempts.push(status)
+  const transientFailure = state.statusFailuresRemaining > 0
+    || (status.state === "failure" && state.failureStatusFailuresRemaining > 0)
+  if (transientFailure) {
+    if (state.statusFailuresRemaining > 0) state.statusFailuresRemaining -= 1
+    else state.failureStatusFailuresRemaining -= 1
+    if (state.statusFailureNewHead) state.pr.headSha = state.statusFailureNewHead
+    save()
+    fail("simulated status failure")
+  }
+  state.mutations += 1
+  state.statuses.push(status)
   output({ id: state.statuses.length })
 }
 fail("unsupported fake gh endpoint " + endpoint)
@@ -707,6 +718,10 @@ function fakeProviderState() {
     basicReads: 0,
     graphReads: 0,
     statuses: [] as Array<Record<string, string>>,
+    statusAttempts: [] as Array<Record<string, string>>,
+    statusFailuresRemaining: 0,
+    failureStatusFailuresRemaining: 0,
+    statusFailureNewHead: null as string | null,
     fault: null as string | null,
     mutationFault: null as string | null,
     projectionDrift: false,
@@ -752,14 +767,19 @@ function makeGateReady(state: ReturnType<typeof fakeProviderState>): void {
   }
 }
 
-function withFakeProvider(
+function withFakeProvider<T extends void | Promise<void>>(
   run: (context: {
     statePath: string
     invoke: (args: string[]) => ReturnType<typeof Bun.spawnSync>
+    invokeAsync: (args: string[]) => Promise<{
+      exitCode: number
+      stdout: Buffer
+      stderr: Buffer
+    }>
     readState: () => ReturnType<typeof fakeProviderState>
     writeState: (state: ReturnType<typeof fakeProviderState>) => void
-  }) => void,
-): void {
+  }) => T,
+): T {
   const directory = mkdtempSync(join(tmpdir(), "pr-lifecycle-test-"))
   const statePath = join(directory, "state.json")
   const ghPath = join(directory, "gh")
@@ -784,10 +804,40 @@ function withFakeProvider(
     stdout: "pipe",
     stderr: "pipe",
   })
+  const invokeAsync = async (args: string[]) => {
+    const process = Bun.spawn({
+      cmd: ["bun", join(import.meta.dir, "pr-lifecycle.ts"), ...args],
+      cwd: join(import.meta.dir, ".."),
+      env: {
+        ...globalThis.process.env,
+        GH_TOKEN: undefined,
+        GITHUB_TOKEN: undefined,
+        FAKE_GH_STATE: statePath,
+        PATH: `${directory}:${globalThis.process.env.PATH ?? ""}`,
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const [exitCode, stdout, stderr] = await Promise.all([
+      process.exited,
+      new Response(process.stdout).arrayBuffer(),
+      new Response(process.stderr).arrayBuffer(),
+    ])
+    return {
+      exitCode,
+      stdout: Buffer.from(stdout),
+      stderr: Buffer.from(stderr),
+    }
+  }
+  const cleanup = () => rmSync(directory, { recursive: true, force: true })
   try {
-    run({ statePath, invoke, readState, writeState })
-  } finally {
-    rmSync(directory, { recursive: true, force: true })
+    const result = run({ statePath, invoke, invokeAsync, readState, writeState })
+    if (result instanceof Promise) return result.finally(cleanup) as T
+    cleanup()
+    return result
+  } catch (error) {
+    cleanup()
+    throw error
   }
 }
 
@@ -2065,40 +2115,110 @@ describe("gate status publication", () => {
     })
   }, 20_000)
 
-  test("downgrades trigger, reaction, review, or thread drift before and after success", () => {
-    for (const evidenceDriftKind of ["trigger", "reaction", "review", "thread"]) {
-      for (const evidenceDriftAtGraphRead of [2, 3]) {
-        withFakeProvider(({ invoke, readState, writeState }) => {
-          const state = readState()
-          makeGateReady(state)
-          state.evidenceDriftKind = evidenceDriftKind
-          state.evidenceDriftAtGraphRead = evidenceDriftAtGraphRead
-          writeState(state)
+  test("recovers an initial success POST failure with a fresh-live failure status", () => {
+    withFakeProvider(({ invoke, readState, writeState }) => {
+      const newHead = "8".repeat(40)
+      const state = readState()
+      makeGateReady(state)
+      state.statusFailuresRemaining = 1
+      state.statusFailureNewHead = newHead
+      writeState(state)
 
-          const result = invoke(gateArgs)
-          expect(
-            result.exitCode,
-            `${evidenceDriftKind} at read ${evidenceDriftAtGraphRead}`,
-          ).not.toBe(0)
-          expect(JSON.parse(result.stdout.toString())).toMatchObject({ ok: false })
-          const confirmed = readState()
-          expect(
-            confirmed.statuses.map((status) => status.state),
-            `${evidenceDriftKind} at read ${evidenceDriftAtGraphRead}`,
-          ).toEqual(
-            evidenceDriftAtGraphRead === 2
-              ? ["failure"]
-              : ["success", "failure"],
-          )
-          expect(confirmed.statuses.at(-1)).toMatchObject({
-            sha: head,
-            state: "failure",
-            context: "pr-lifecycle-gate",
+      const result = invoke(gateArgs)
+      expect(result.exitCode).not.toBe(0)
+      expect(result.stdout.toString()).toBe("")
+      expect(result.stderr.toString()).toContain(
+        "PR lifecycle status publication failed closed",
+      )
+      expect(result.stderr.toString()).not.toContain("simulated status failure")
+      const confirmed = readState()
+      expect(confirmed.pr.headSha).toBe(newHead)
+      expect(confirmed.statusAttempts.map((status) => ({
+        sha: status.sha,
+        state: status.state,
+      }))).toEqual([
+        { sha: head, state: "success" },
+        { sha: newHead, state: "failure" },
+      ])
+      expect(confirmed.statuses).toHaveLength(1)
+      expect(confirmed.statuses[0]).toMatchObject({
+        sha: newHead,
+        state: "failure",
+        context: "pr-lifecycle-gate",
+      })
+    })
+  }, 20_000)
+
+  test("retries a transient compensating failure on the newly live head", () => {
+    withFakeProvider(({ invoke, readState, writeState }) => {
+      const newHead = "8".repeat(40)
+      const state = readState()
+      makeGateReady(state)
+      state.evidenceDriftKind = "reaction"
+      state.evidenceDriftAtGraphRead = 3
+      state.failureStatusFailuresRemaining = 1
+      state.statusFailureNewHead = newHead
+      writeState(state)
+
+      const result = invoke(gateArgs)
+      expect(result.exitCode).not.toBe(0)
+      expect(JSON.parse(result.stdout.toString())).toMatchObject({ ok: false })
+      const confirmed = readState()
+      expect(confirmed.pr.headSha).toBe(newHead)
+      expect(confirmed.statusAttempts.map((status) => ({
+        sha: status.sha,
+        state: status.state,
+      }))).toEqual([
+        { sha: head, state: "success" },
+        { sha: head, state: "failure" },
+        { sha: newHead, state: "failure" },
+      ])
+      expect(confirmed.statuses.map((status) => ({
+        sha: status.sha,
+        state: status.state,
+      }))).toEqual([
+        { sha: head, state: "success" },
+        { sha: newHead, state: "failure" },
+      ])
+    })
+  }, 20_000)
+
+  test("downgrades trigger, reaction, review, or thread drift before and after success", async () => {
+    await Promise.all(
+      ["trigger", "reaction", "review", "thread"].flatMap((evidenceDriftKind) =>
+        [2, 3].map((evidenceDriftAtGraphRead) =>
+          withFakeProvider(async ({ invokeAsync, readState, writeState }) => {
+            const state = readState()
+            makeGateReady(state)
+            state.evidenceDriftKind = evidenceDriftKind
+            state.evidenceDriftAtGraphRead = evidenceDriftAtGraphRead
+            writeState(state)
+
+            const result = await invokeAsync(gateArgs)
+            expect(
+              result.exitCode,
+              `${evidenceDriftKind} at read ${evidenceDriftAtGraphRead}`,
+            ).not.toBe(0)
+            expect(JSON.parse(result.stdout.toString())).toMatchObject({ ok: false })
+            const confirmed = readState()
+            expect(
+              confirmed.statuses.map((status) => status.state),
+              `${evidenceDriftKind} at read ${evidenceDriftAtGraphRead}`,
+            ).toEqual(
+              evidenceDriftAtGraphRead === 2
+                ? ["failure"]
+                : ["success", "failure"],
+            )
+            expect(confirmed.statuses.at(-1)).toMatchObject({
+              sha: head,
+              state: "failure",
+              context: "pr-lifecycle-gate",
+            })
+            expect(confirmed.mutations).toBe(confirmed.statuses.length)
           })
-          expect(confirmed.mutations).toBe(confirmed.statuses.length)
-        })
-      }
-    }
+        )
+      ),
+    )
   }, 40_000)
 })
 
