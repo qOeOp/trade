@@ -44,15 +44,26 @@ When the repository contains `scripts/pr-lifecycle.ts` and a base-owned
    condition on issue-comment creation, so any drift, deletion, or crash between
    these refs poisons the cycle permanently; do not retry it or classify it as
    historical.
-5. Permit no push while a review cycle is pending. After Codex posts exactly one
-   clean reaction or exact-head review, run `bun scripts/pr-lifecycle.ts seal
+5. Permit no push while a review cycle is pending. A clean cycle has exactly one
+   post-trigger Codex `THUMBS_UP`, optionally one `EYES`, and no other
+   post-trigger Codex reaction, review, or finding root. A finding cycle has
+   exactly one exact-head Codex review and its exact root set, no result
+   reaction, and optionally one `EYES`. Any historical or current
+   `THUMBS_DOWN` poisons the history. After that exact result, run `bun
+   scripts/pr-lifecycle.ts seal
    --repo <owner/repo> --pr <number> --claim <tag-sha> --capability
    <private-value>`. It creates `codex-pr-review-seal/<pr>/<head>` bound to the
    exact visible trigger, review state and body, and exact finding-root set.
-   Every provider snapshot requires two consecutive complete reads with
-   identical PR identity, reviews, commits, comments, reactions, and threads.
-   The seal command repeats that stable snapshot immediately before publishing
-   the seal ref; drift or mixed evidence leaves no public seal.
+   Each provider snapshot uses one GraphQL response containing PR identity,
+   commits and their immediate parents, reviews, comments, reactions, and
+   threads, bracketed by lightweight PR identity reads that must match it
+   exactly. The supported envelope is closed at 100 items for every top-level
+   and nested connection; pagination, provider errors, partial or malformed
+   data, and duplicates fail closed. This is not a provider transaction and has
+   no transaction token. The seal command repeats the exact full response as a
+   freshness check immediately before publishing the seal ref. Drift before
+   publication leaves no public seal; drift after ref creation can leave a
+   poison seal and requires explicit recovery.
    Every prior cycle must retain its exact trigger, receipt, result, and seal
    before a new-head cycle may start. Every Codex review and finding root in the
    retained PR lineage must belong to exactly one sealed cycle, whose result is
@@ -66,8 +77,9 @@ When the repository contains `scripts/pr-lifecycle.ts` and a base-owned
    --reason <text> --claim <tag-sha> --capability <private-value>`. It replies
    only to a Codex-authored root
    in that exact inline thread with one unique structured disposition and
-   resolves it through GitHub. The receipt commit must be a retained descendant
-   after the finding review head; a pre-finding or unrelated lineage commit is
+   resolves it through GitHub. The receipt commit must be a retained strict
+   descendant of the finding review head by walking the recorded commit-parent
+   DAG; array order is not ancestry, and a pre-finding or sibling commit is
    invalid. A reply or a resolve alone is insufficient. Every new code head
    needs a new review tag, trigger, result seal, and final clean seal.
 7. A root 👍, eyes reaction, silence, summary, resolved flag, unsealed result, or

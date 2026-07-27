@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test"
 import { createHash } from "node:crypto"
-import { readFileSync } from "node:fs"
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
   capabilityHash,
   gateStatusForLiveIdentity,
   isCodexFindingRoot,
+  isStrictDescendant,
   markerBody,
   parseMarker,
   requireComplete,
@@ -51,6 +53,7 @@ function triggerComment(id = 10): IssueComment {
     markerBody("pr-lifecycle-review:v2", { review_tag_sha: reviewTagSha }),
   ].join("\n"), {
     reactions: [{
+      id: `reaction-${id}`,
       actor: "chatgpt-codex-connector[bot]",
       content: "THUMBS_UP",
       createdAt: "2026-07-26T00:02:00Z",
@@ -121,6 +124,10 @@ function verifyReceipt(
 }
 
 function snapshot(overrides: Partial<PullRequestSnapshot> = {}): PullRequestSnapshot {
+  const commits = overrides.commits ?? [fix, head]
+  const commitParents = overrides.commitParents ?? Object.fromEntries(
+    commits.map((commitSha, index) => [commitSha, index === 0 ? [] : [commits[index - 1]!]]),
+  )
   return {
     repository: "qOeOp/trade",
     number: 100,
@@ -131,13 +138,16 @@ function snapshot(overrides: Partial<PullRequestSnapshot> = {}): PullRequestSnap
     headRepository: "qOeOp/trade",
     baseRef: "main",
     baseSha: base,
-    commits: [fix, head],
+    commits,
+    commitParents,
     comments: [triggerComment()],
     rootReactions: [],
     reviews: [],
     threads: [],
     complete: true,
     ...overrides,
+    commits,
+    commitParents,
   }
 }
 
@@ -212,6 +222,396 @@ function findingThread(overrides: Partial<ReviewThread> = {}): ReviewThread {
   }
 }
 
+const fakeGhSource = String.raw`#!/usr/bin/env bun
+import { readFileSync, writeFileSync } from "node:fs"
+
+const statePath = process.env.FAKE_GH_STATE
+if (!statePath) throw new Error("FAKE_GH_STATE is required")
+const state = JSON.parse(readFileSync(statePath, "utf8"))
+const args = process.argv.slice(2)
+const endpoint = args.find((arg) =>
+  arg === "graphql" || arg === "user" || arg.startsWith("repos/")
+)
+const field = (name) => {
+  const prefixes = [name + "=", name + "="]
+  for (let index = 0; index < args.length - 1; index += 1) {
+    if ((args[index] === "-f" || args[index] === "-F") && prefixes.some((prefix) =>
+      args[index + 1].startsWith(prefix)
+    )) return args[index + 1].slice(name.length + 1)
+  }
+  return null
+}
+const save = () => writeFileSync(statePath, JSON.stringify(state))
+const fail = (message) => {
+  process.stderr.write(message + "\n")
+  process.exit(1)
+}
+const output = (value) => {
+  save()
+  process.stdout.write(JSON.stringify(value))
+  process.exit(0)
+}
+const reaction = (value) => ({
+  id: value.id,
+  content: value.content,
+  createdAt: value.createdAt,
+  user: { login: value.actor },
+})
+const graph = () => {
+  const pull = {
+    number: 100,
+    state: state.pr.open ? "OPEN" : "CLOSED",
+    merged: state.pr.merged,
+    isDraft: state.pr.draft,
+    headRepository: { nameWithOwner: state.pr.headRepository },
+    headRefOid: state.pr.headSha,
+    baseRefName: state.pr.baseRef,
+    baseRefOid: state.pr.baseSha,
+    commits: {
+      pageInfo: { hasNextPage: false },
+      nodes: state.commits.map((commit) => ({
+        commit: {
+          oid: commit.oid,
+          parents: {
+            pageInfo: { hasNextPage: false },
+            nodes: commit.parents.map((oid) => ({ oid })),
+          },
+        },
+      })),
+    },
+    reviews: {
+      pageInfo: { hasNextPage: false },
+      nodes: state.reviews.map((review) => ({
+        databaseId: review.id,
+        state: review.state,
+        body: review.body,
+        submittedAt: review.submittedAt,
+        author: { login: review.actor },
+        commit: { oid: review.commitSha },
+      })),
+    },
+    reactions: {
+      pageInfo: { hasNextPage: false },
+      nodes: state.rootReactions.map(reaction),
+    },
+    comments: {
+      pageInfo: { hasNextPage: false },
+      nodes: state.comments.map((comment) => ({
+        databaseId: comment.id,
+        id: comment.nodeId,
+        body: comment.body,
+        createdAt: comment.createdAt,
+        isMinimized: comment.minimized,
+        authorAssociation: comment.association,
+        author: { login: comment.actor },
+        reactions: {
+          pageInfo: { hasNextPage: false },
+          nodes: comment.reactions.map(reaction),
+        },
+      })),
+    },
+    reviewThreads: {
+      pageInfo: { hasNextPage: false },
+      nodes: state.threads.map((thread) => ({
+        id: thread.id,
+        isResolved: thread.resolved,
+        isOutdated: thread.outdated,
+        comments: {
+          pageInfo: { hasNextPage: false },
+          nodes: thread.comments.map((comment) => ({
+            databaseId: comment.id,
+            body: comment.body,
+            createdAt: comment.createdAt,
+            outdated: comment.outdated,
+            author: { login: comment.actor },
+            pullRequestReview: { commit: { oid: comment.reviewCommitSha } },
+          })),
+        },
+      })),
+    },
+  }
+  if (state.fault === "top-pagination") pull.commits.pageInfo.hasNextPage = true
+  if (state.fault === "nested-pagination" && pull.commits.nodes[0]) {
+    pull.commits.nodes[0].commit.parents.pageInfo.hasNextPage = true
+  }
+  if (state.fault === "malformed") delete pull.reviews.nodes
+  if (state.fault === "duplicate" && pull.commits.nodes[0]) {
+    pull.commits.nodes.push(structuredClone(pull.commits.nodes[0]))
+  }
+  const response = {
+    data: { repository: { nameWithOwner: "qOeOp/trade", pullRequest: pull } },
+  }
+  if (state.fault === "partial") response.errors = [{ message: "partial provider response" }]
+  return response
+}
+
+if (args[0] !== "api" || !endpoint) fail("unsupported fake gh command")
+const methodIndex = args.indexOf("--method")
+const method = methodIndex === -1 ? "GET" : args[methodIndex + 1]
+if (endpoint === "user") output({ login: state.actor })
+if (endpoint === "graphql") {
+  const query = field("query") || ""
+  if (query.startsWith("mutation")) {
+    state.mutations += 1
+    const threadId = field("threadId")
+    const thread = state.threads.find((candidate) => candidate.id === threadId)
+    if (!thread) fail("thread missing")
+    thread.resolved = true
+    output({ data: { resolveReviewThread: { thread: { id: thread.id, isResolved: true } } } })
+  }
+  output(graph())
+}
+if (endpoint === "repos/qOeOp/trade/pulls/100" && method === "GET") {
+  state.basicReads += 1
+  const headSha = state.fault === "identity-drift" && state.basicReads > 1
+    ? "8".repeat(40)
+    : state.pr.headSha
+  output({
+    state: state.pr.open ? "open" : "closed",
+    merged: state.pr.merged,
+    draft: state.pr.draft,
+    head: { sha: headSha, repo: { full_name: state.pr.headRepository } },
+    base: { ref: state.pr.baseRef, sha: state.pr.baseSha },
+  })
+}
+if (endpoint.includes("/git/matching-refs/tags/")) {
+  const prefix = endpoint.split("/git/matching-refs/tags/")[1]
+  const refs = Object.entries(state.refs)
+    .filter(([name]) => name.startsWith(prefix))
+    .map(([name, sha]) => ({ ref: "refs/tags/" + name, object: { type: "tag", sha } }))
+  output([refs])
+}
+if (endpoint.includes("/git/ref/tags/")) {
+  const name = endpoint.split("/git/ref/tags/")[1]
+  const sha = state.refs[name]
+  if (!sha) fail("missing tag ref " + name)
+  output({ ref: "refs/tags/" + name, object: { type: "tag", sha } })
+}
+if (endpoint.includes("/git/tags/") && method === "GET") {
+  const sha = endpoint.split("/git/tags/")[1]
+  const tag = state.tags[sha]
+  if (!tag) fail("missing tag object " + sha)
+  output(tag)
+}
+if (endpoint.endsWith("/git/tags") && method === "POST") {
+  state.mutations += 1
+  const sha = (state.nextSha++).toString(16).padStart(40, "0")
+  state.tags[sha] = {
+    sha,
+    tag: field("tag"),
+    message: field("message"),
+    object: { sha: field("object"), type: field("type") },
+  }
+  output({ sha })
+}
+if (endpoint.endsWith("/git/refs") && method === "POST") {
+  state.mutations += 1
+  const name = field("ref").replace("refs/tags/", "")
+  if (state.refs[name]) fail("ref exists")
+  state.refs[name] = field("sha")
+  output({ ref: "refs/tags/" + name, object: { type: "tag", sha: state.refs[name] } })
+}
+if (endpoint === "repos/qOeOp/trade/issues/100/comments" && method === "POST") {
+  state.mutations += 1
+  const comment = {
+    id: state.nextCommentId++,
+    nodeId: "issue-node-" + state.nextCommentId,
+    actor: state.actor,
+    association: "OWNER",
+    body: field("body"),
+    createdAt: "2026-07-26T00:04:00Z",
+    minimized: false,
+    reactions: [],
+  }
+  state.comments.push(comment)
+  output({
+    id: comment.id,
+    node_id: comment.nodeId,
+    user: { login: comment.actor },
+    author_association: comment.association,
+    body: comment.body,
+    created_at: comment.createdAt,
+  })
+}
+const replyMatch = endpoint.match(/pulls\/100\/comments\/(\d+)\/replies$/)
+if (replyMatch && method === "POST") {
+  state.mutations += 1
+  state.replyCount += 1
+  const rootId = Number(replyMatch[1])
+  const thread = state.threads.find((candidate) => candidate.comments[0]?.id === rootId)
+  if (!thread) fail("finding root missing")
+  thread.comments.push({
+    id: state.nextReviewCommentId++,
+    actor: state.actor,
+    body: field("body"),
+    createdAt: "2026-07-26T00:03:30Z",
+    outdated: false,
+    reviewCommitSha: state.pr.headSha,
+  })
+  output({ id: thread.comments.at(-1).id })
+}
+fail("unsupported fake gh endpoint " + endpoint)
+`
+
+function fakeProviderState() {
+  const initial = fix
+  const reviewHead = head
+  const triggerTagSha = "2".repeat(40)
+  const reviewBody = "one finding"
+  const findingBody = "fix the lifecycle race"
+  return {
+    actor: "qOeOp",
+    pr: {
+      open: true,
+      merged: false,
+      draft: true,
+      headSha: reviewHead,
+      headRepository: "qOeOp/trade",
+      baseRef: "main",
+      baseSha: base,
+    },
+    commits: [
+      { oid: initial, parents: [] as string[] },
+      { oid: reviewHead, parents: [initial] },
+    ],
+    reviews: [{
+      id: 90,
+      actor: "chatgpt-codex-connector[bot]",
+      state: "COMMENTED",
+      body: reviewBody,
+      submittedAt: "2026-07-26T00:02:00Z",
+      commitSha: reviewHead,
+    }],
+    rootReactions: [] as Array<Record<string, string>>,
+    comments: [{
+      id: 10,
+      nodeId: "issue-node-10",
+      actor: "qOeOp",
+      association: "OWNER",
+      body: [
+        "@codex review",
+        "",
+        markerBody("pr-lifecycle-review:v2", { review_tag_sha: reviewTagSha }),
+      ].join("\n"),
+      createdAt: "2026-07-26T00:01:00Z",
+      minimized: false,
+      reactions: [] as Array<Record<string, string>>,
+    }],
+    threads: [{
+      id: "thread-1",
+      resolved: false,
+      outdated: false,
+      comments: [{
+        id: 50,
+        actor: "chatgpt-codex-connector[bot]",
+        body: findingBody,
+        createdAt: "2026-07-26T00:02:01Z",
+        outdated: false,
+        reviewCommitSha: reviewHead,
+      }],
+    }],
+    refs: {
+      "codex-pr-claim/100": claimTagSha,
+      [`codex-pr-review/100/${reviewHead}`]: reviewTagSha,
+      [`codex-pr-review-trigger/100/${reviewHead}`]: triggerTagSha,
+    } as Record<string, string>,
+    tags: {
+      [claimTagSha]: {
+        sha: claimTagSha,
+        message: markerBody("pr-lifecycle-claim-tag:v2", {
+          repository: "qOeOp/trade",
+          pr: 100,
+          mission: "mission-a",
+          capability_hash: capabilityHash(capability),
+          actor: "qOeOp",
+          initial_head: initial,
+        }),
+        object: { sha: initial, type: "commit" },
+      },
+      [reviewTagSha]: {
+        sha: reviewTagSha,
+        message: markerBody("pr-lifecycle-review-tag:v1", {
+          repository: "qOeOp/trade",
+          pr: 100,
+          claim_tag_sha: claimTagSha,
+          mission: "mission-a",
+          actor: "qOeOp",
+          head: reviewHead,
+          base_ref: "main",
+          base_sha: base,
+        }),
+        object: { sha: reviewHead, type: "commit" },
+      },
+      [triggerTagSha]: {
+        sha: triggerTagSha,
+        message: markerBody("pr-lifecycle-review-trigger-tag:v1", {
+          repository: "qOeOp/trade",
+          pr: 100,
+          claim_tag_sha: claimTagSha,
+          review_tag_sha: reviewTagSha,
+          mission: "mission-a",
+          actor: "qOeOp",
+          head: reviewHead,
+          comment_id: 10,
+          comment_node_id: "issue-node-10",
+          comment_created_at: "2026-07-26T00:01:00Z",
+        }),
+        object: { sha: reviewHead, type: "commit" },
+      },
+    } as Record<string, {
+      sha: string
+      message: string
+      object: { sha: string; type: string }
+    }>,
+    nextSha: 100,
+    nextCommentId: 11,
+    nextReviewCommentId: 51,
+    mutations: 0,
+    replyCount: 0,
+    basicReads: 0,
+    fault: null as string | null,
+  }
+}
+
+function withFakeProvider(
+  run: (context: {
+    statePath: string
+    invoke: (args: string[]) => ReturnType<typeof Bun.spawnSync>
+    readState: () => ReturnType<typeof fakeProviderState>
+    writeState: (state: ReturnType<typeof fakeProviderState>) => void
+  }) => void,
+): void {
+  const directory = mkdtempSync(join(tmpdir(), "pr-lifecycle-test-"))
+  const statePath = join(directory, "state.json")
+  const ghPath = join(directory, "gh")
+  writeFileSync(ghPath, fakeGhSource)
+  chmodSync(ghPath, 0o755)
+  const writeState = (state: ReturnType<typeof fakeProviderState>) => {
+    writeFileSync(statePath, JSON.stringify(state))
+  }
+  const readState = () =>
+    JSON.parse(readFileSync(statePath, "utf8")) as ReturnType<typeof fakeProviderState>
+  writeState(fakeProviderState())
+  const invoke = (args: string[]) => Bun.spawnSync({
+    cmd: ["bun", join(import.meta.dir, "pr-lifecycle.ts"), ...args],
+    cwd: join(import.meta.dir, ".."),
+    env: {
+      ...process.env,
+      GH_TOKEN: undefined,
+      GITHUB_TOKEN: undefined,
+      FAKE_GH_STATE: statePath,
+      PATH: `${directory}:${process.env.PATH ?? ""}`,
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  try {
+    run({ statePath, invoke, readState, writeState })
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+}
+
 describe("atomic authority tags", () => {
   test("binds the claim to repository, PR, actor, mission, and initial head", () => {
     expect(validateClaimTag(annotatedClaim(), "qOeOp/trade", 100)).toEqual(claim)
@@ -270,6 +670,7 @@ describe("exact-head receipt", () => {
     const state = snapshot({
       comments: [],
       rootReactions: [{
+        id: "root-reaction-1",
         actor: "chatgpt-codex-connector[bot]",
         content: "+1",
         createdAt: "2026-07-26T00:02:00Z",
@@ -342,6 +743,7 @@ describe("exact-head receipt", () => {
       markerBody("pr-lifecycle-review:v2", { review_tag_sha: oldTag }),
     ].join("\n"), {
       reactions: [{
+        id: "old-clean-reaction",
         actor: "chatgpt-codex-connector[bot]",
         content: "THUMBS_UP",
         createdAt: "2026-07-26T00:02:00Z",
@@ -372,6 +774,32 @@ describe("exact-head receipt", () => {
         seals: [oldSeal, seal],
       },
     ).ok).toBeTrue()
+
+    const historicalDown = {
+      ...oldTrigger,
+      reactions: [
+        ...oldTrigger.reactions,
+        {
+          id: "old-conflicting-reaction",
+          actor: "chatgpt-codex-connector[bot]",
+          content: "THUMBS_DOWN",
+          createdAt: "2026-07-26T00:02:30Z",
+        },
+      ],
+    }
+    expect(verifyReceipt(
+      snapshot({
+        comments: [historicalDown, triggerComment()],
+        commits: [fix, oldHead, head],
+      }),
+      claim,
+      cycle,
+      {
+        reviewCycles: [oldCycle, cycle],
+        triggerReceipts: [oldReceipt, triggerReceipt],
+        seals: [oldSeal, seal],
+      },
+    ).ok).toBeFalse()
 
     for (const poisoned of [
       {
@@ -614,6 +1042,7 @@ describe("exact-head receipt", () => {
   test("any automatic-review root reaction blocks explicit-trigger reuse", () => {
     const state = snapshot({
       rootReactions: [{
+        id: "automatic-root-reaction",
         actor: "chatgpt-codex-connector[bot]",
         content: "THUMBS_UP",
         createdAt: "2026-07-25T00:00:00Z",
@@ -639,11 +1068,123 @@ describe("exact-head receipt", () => {
     )).toBeTrue()
   })
 
+  test("a later sibling in the commit list is not a descendant disposition", () => {
+    const sibling = "9".repeat(40)
+    const state = snapshot({
+      commits: [fix, sibling, head],
+      commitParents: {
+        [fix]: [],
+        [sibling]: [fix],
+        [head]: [],
+      },
+      threads: [findingThread()],
+    })
+    expect(isStrictDescendant(state, head, fix)).toBeFalse()
+    const result = verifyReceipt(state, claim, cycle)
+    expect(result.ok).toBeFalse()
+    expect(result.reasons).toContain(
+      "review thread thread-1 lacks an exact fix/disposition receipt",
+    )
+  })
+
   test("human review threads are outside the Codex disposition protocol", () => {
     const humanThread = findingThread()
     humanThread.comments[0]!.actor = "human-reviewer"
     expect(isCodexFindingRoot(humanThread, 50)).toBeFalse()
     expect(verifyReceipt(snapshot({ threads: [humanThread] }), claim, cycle).ok).toBeTrue()
+  })
+})
+
+describe("command lifecycle with a fake provider", () => {
+  test("seals a finding, addresses it with a descendant, and verifies the next clean cycle", () => {
+    withFakeProvider(({ invoke, readState, writeState }) => {
+      const writerArgs = [
+        "--repo", "qOeOp/trade",
+        "--pr", "100",
+        "--claim", claimTagSha,
+        "--capability", capability,
+      ]
+      const findingSeal = invoke(["seal", ...writerArgs])
+      expect(findingSeal.exitCode, findingSeal.stderr.toString()).toBe(0)
+
+      const descendant = "f".repeat(40)
+      const afterSeal = readState()
+      expect(afterSeal.refs[`codex-pr-review-seal/100/${head}`]).toBeDefined()
+      afterSeal.pr.headSha = descendant
+      afterSeal.commits.push({ oid: descendant, parents: [head] })
+      writeState(afterSeal)
+
+      const beforeAddressMutations = afterSeal.mutations
+      const address = invoke([
+        "address",
+        ...writerArgs,
+        "--thread-id", "thread-1",
+        "--finding-comment-id", "50",
+        "--disposition", "fixed",
+        "--fix-sha", descendant,
+        "--reason", "covered by the command simulation",
+      ])
+      expect(address.exitCode).toBe(0)
+      const afterAddress = readState()
+      expect(afterAddress.replyCount).toBe(1)
+      expect(afterAddress.threads[0]!.resolved).toBeTrue()
+      expect(afterAddress.mutations - beforeAddressMutations).toBe(2)
+
+      const review = invoke(["review", ...writerArgs])
+      expect(review.exitCode).toBe(0)
+      const afterReview = readState()
+      const cleanTrigger = afterReview.comments.at(-1)!
+      cleanTrigger.reactions.push({
+        id: "reaction-clean",
+        actor: "chatgpt-codex-connector[bot]",
+        content: "THUMBS_UP",
+        createdAt: "2026-07-26T00:05:00Z",
+      })
+      writeState(afterReview)
+
+      const cleanSeal = invoke(["seal", ...writerArgs])
+      expect(cleanSeal.exitCode).toBe(0)
+      const verification = invoke([
+        "verify",
+        "--repo", "qOeOp/trade",
+        "--pr", "100",
+        "--allow-draft",
+      ])
+      expect(verification.exitCode).toBe(0)
+      expect(JSON.parse(verification.stdout.toString())).toMatchObject({
+        ok: true,
+        receipt: { headSha: descendant },
+      })
+    })
+  })
+
+  test("rejects incomplete or ambiguous evidence and identity drift before mutation", () => {
+    for (const fault of [
+      "partial",
+      "top-pagination",
+      "nested-pagination",
+      "malformed",
+      "duplicate",
+      "identity-drift",
+    ]) {
+      withFakeProvider(({ invoke, readState, writeState }) => {
+        const state = readState()
+        state.fault = fault
+        state.refs = {}
+        state.tags = {}
+        state.mutations = 0
+        state.basicReads = 0
+        writeState(state)
+        const result = invoke([
+          "claim",
+          "--repo", "qOeOp/trade",
+          "--pr", "100",
+          "--mission", "negative-evidence",
+        ])
+        expect(result.exitCode, fault).not.toBe(0)
+        expect(readState().mutations, fault).toBe(0)
+      })
+    }
   })
 })
 

@@ -17,6 +17,7 @@ const ELIGIBLE_ASSOCIATIONS = new Set(["OWNER", "MEMBER", "COLLABORATOR"])
 type JsonObject = Record<string, unknown>
 
 export interface Reaction {
+  id: string
   content: string
   createdAt: string
   actor: string
@@ -69,6 +70,7 @@ export interface PullRequestSnapshot {
   baseRef: string
   baseSha: string
   commits: string[]
+  commitParents: Record<string, string[]>
   comments: IssueComment[]
   rootReactions: Reaction[]
   reviews: Review[]
@@ -535,21 +537,34 @@ function exactSealedResult(
 ): boolean {
   if (seal.reviewTagSha !== cycle.tagSha || seal.headSha !== cycle.headSha) return false
   if (Date.parse(seal.resultCreatedAt) < Date.parse(trigger.createdAt)) return false
+  const triggerAt = Date.parse(trigger.createdAt)
+  const codexReactions = trigger.reactions.filter((reaction) =>
+    isCodex(reaction.actor) && Date.parse(reaction.createdAt) >= triggerAt
+  )
+  const eyes = codexReactions.filter((reaction) => reaction.content === "EYES")
+  const thumbsUp = codexReactions.filter((reaction) => reaction.content === "THUMBS_UP")
+  if (
+    trigger.reactions.some((reaction) =>
+      isCodex(reaction.actor) && reaction.content === "THUMBS_DOWN"
+    )
+    || eyes.length > 1
+  ) return false
   const codexReviews = snapshot.reviews.filter((review) =>
     isCodex(review.actor) && review.commitSha === cycle.headSha
   )
+  const roots = findingRootReceipts(snapshot, cycle.headSha)
+  if (roots.some((root) => Date.parse(root.createdAt) < triggerAt)) return false
   if (seal.resultKind === "clean") {
     return seal.resultState === null
       && seal.resultBodyHash === null
       && seal.findingRoots.length === 0
       && codexReviews.length === 0
-      && findingRootReceipts(snapshot, cycle.headSha).length === 0
+      && roots.length === 0
       && seal.resultId === trigger.id
-      && trigger.reactions.filter((reaction) =>
-        isCodex(reaction.actor)
-        && reaction.content === "THUMBS_UP"
-        && Date.parse(reaction.createdAt) >= Date.parse(trigger.createdAt)
-      ).length === 1
+      && thumbsUp.length === 1
+      && codexReactions.every((reaction) =>
+        reaction.content === "EYES" || reaction.content === "THUMBS_UP"
+      )
       && trigger.reactions.some((reaction) =>
         reaction.actor === seal.resultActor
         && reaction.content === "THUMBS_UP"
@@ -558,13 +573,15 @@ function exactSealedResult(
   }
   const review = codexReviews[0]
   return codexReviews.length === 1
+    && Date.parse(review?.submittedAt ?? "") >= triggerAt
+    && thumbsUp.length === 0
+    && codexReactions.every((reaction) => reaction.content === "EYES")
     && review?.id === seal.resultId
     && review.actor === seal.resultActor
     && review.submittedAt === seal.resultCreatedAt
     && review.state === seal.resultState
     && contentHash(review.body) === seal.resultBodyHash
-    && JSON.stringify(findingRootReceipts(snapshot, cycle.headSha))
-      === JSON.stringify(seal.findingRoots)
+    && JSON.stringify(roots) === JSON.stringify(seal.findingRoots)
 }
 
 function validateReviewHistory(
@@ -573,8 +590,21 @@ function validateReviewHistory(
   cycles: ReviewCycle[],
   triggerReceipts: ReviewTriggerReceipt[],
   seals: ReviewSeal[],
+  allowedUnsealedCycleTagSha?: string,
 ): string[] {
   const reasons: string[] = []
+  if (
+    allowedUnsealedCycleTagSha
+    && cycles.filter((cycle) => cycle.tagSha === allowedUnsealedCycleTagSha).length !== 1
+  ) {
+    reasons.push("the admitted unsealed review cycle is not unique")
+  }
+  if (new Set(triggerReceipts.map((receipt) => receipt.reviewTagSha)).size !== triggerReceipts.length) {
+    reasons.push("duplicate review trigger receipts exist")
+  }
+  if (new Set(seals.map((seal) => seal.reviewTagSha)).size !== seals.length) {
+    reasons.push("duplicate review seals exist")
+  }
   const receiptByCycle = new Map(triggerReceipts.map((receipt) => [receipt.reviewTagSha, receipt]))
   const sealByCycle = new Map(seals.map((seal) => [seal.reviewTagSha, seal]))
   const cycleByHead = new Map<string, ReviewCycle>()
@@ -590,11 +620,18 @@ function validateReviewHistory(
       reasons.push(`review cycle ${cycle.tagSha} lacks its exact visible trigger`)
       continue
     }
-    if (!seal || !exactSealedResult(snapshot, trigger, cycle, seal)) {
+    if (
+      cycle.tagSha !== allowedUnsealedCycleTagSha
+      && (!seal || !exactSealedResult(snapshot, trigger, cycle, seal))
+    ) {
       reasons.push(`review cycle ${cycle.tagSha} lacks its exact immutable seal`)
     }
+    if (cycle.tagSha === allowedUnsealedCycleTagSha && seal) {
+      reasons.push("the admitted current review cycle already has a seal")
+    }
   }
-  if (triggerReceipts.length !== cycles.length || seals.length !== cycles.length) {
+  const expectedSealCount = cycles.length - (allowedUnsealedCycleTagSha ? 1 : 0)
+  if (triggerReceipts.length !== cycles.length || seals.length !== expectedSealCount) {
     reasons.push("review cycle artifact counts do not match")
   }
   const commitSet = new Set(snapshot.commits)
@@ -650,13 +687,11 @@ function currentOrAmbiguousReviewTriggers(
 function findingDispositions(
   thread: ReviewThread,
   claim: Claim,
-  commits: string[],
+  snapshot: PullRequestSnapshot,
 ): FindingPayload[] {
   const root = thread.comments[0]
-  const reviewedIndex = root?.reviewCommitSha
-    ? commits.indexOf(root.reviewCommitSha)
-    : -1
-  if (reviewedIndex < 0) return []
+  const reviewedHead = root?.reviewCommitSha
+  if (!reviewedHead || !snapshot.commits.includes(reviewedHead)) return []
   const matches: FindingPayload[] = []
   for (const comment of thread.comments.slice(1)) {
     if (comment.actor !== claim.actor) continue
@@ -668,7 +703,7 @@ function findingDispositions(
       && ["fixed", "deferred", "rejected"].includes(payload.disposition)
       && validSha(payload.fix_sha)
       && payload.reason.trim().length > 0
-      && commits.indexOf(payload.fix_sha) > reviewedIndex
+      && isStrictDescendant(snapshot, payload.fix_sha, reviewedHead)
     ) matches.push(payload)
   }
   return matches
@@ -677,10 +712,33 @@ function findingDispositions(
 function findingDisposition(
   thread: ReviewThread,
   claim: Claim,
-  commits: string[],
+  snapshot: PullRequestSnapshot,
 ): FindingPayload | null {
-  const matches = findingDispositions(thread, claim, commits)
+  const matches = findingDispositions(thread, claim, snapshot)
   return matches.length === 1 ? matches[0]! : null
+}
+
+export function isStrictDescendant(
+  snapshot: PullRequestSnapshot,
+  descendantSha: string,
+  ancestorSha: string,
+): boolean {
+  const retained = new Set(snapshot.commits)
+  if (
+    descendantSha === ancestorSha
+    || !retained.has(descendantSha)
+    || !retained.has(ancestorSha)
+  ) return false
+  const visited = new Set<string>()
+  const pending = [...(snapshot.commitParents[descendantSha] ?? [])]
+  while (pending.length > 0) {
+    const candidate = pending.pop()!
+    if (candidate === ancestorSha) return true
+    if (visited.has(candidate) || !retained.has(candidate)) continue
+    visited.add(candidate)
+    pending.push(...(snapshot.commitParents[candidate] ?? []))
+  }
+  return false
 }
 
 export function isCodexFindingRoot(thread: ReviewThread, commentId: number): boolean {
@@ -795,7 +853,7 @@ export function verifyReceipt(
     const root = thread.comments[0]
     if (!root || !isCodex(root.actor)) continue
     if (!thread.resolved) reasons.push(`review thread ${thread.id} is unresolved`)
-    if (!findingDisposition(thread, claim, snapshot.commits)) {
+    if (!findingDisposition(thread, claim, snapshot)) {
       reasons.push(`review thread ${thread.id} lacks an exact fix/disposition receipt`)
     }
   }
@@ -856,13 +914,23 @@ function actorLogin(value: unknown): string {
 const SNAPSHOT_QUERY = `
 query($owner:String!,$name:String!,$number:Int!){
   repository(owner:$owner,name:$name){
+    nameWithOwner
     pullRequest(number:$number){
-      reactions(first:100){pageInfo{hasNextPage} nodes{content createdAt user{login}}}
+      number state merged isDraft headRepository{nameWithOwner} headRefOid baseRefName baseRefOid
+      commits(first:100){
+        pageInfo{hasNextPage}
+        nodes{commit{oid parents(first:100){pageInfo{hasNextPage} nodes{oid}}}}
+      }
+      reviews(first:100){
+        pageInfo{hasNextPage}
+        nodes{databaseId state body submittedAt author{login} commit{oid}}
+      }
+      reactions(first:100){pageInfo{hasNextPage} nodes{id content createdAt user{login}}}
       comments(first:100){
         pageInfo{hasNextPage}
         nodes{
           databaseId id body createdAt isMinimized authorAssociation author{login}
-          reactions(first:100){pageInfo{hasNextPage} nodes{content createdAt user{login}}}
+          reactions(first:100){pageInfo{hasNextPage} nodes{id content createdAt user{login}}}
         }
       }
       reviewThreads(first:100){
@@ -882,14 +950,62 @@ query($owner:String!,$name:String!,$number:Int!){
   }
 }`
 
-function providerConversation(repository: string, pr: number): {
-  complete: boolean
-  comments: IssueComment[]
-  rootReactions: Reaction[]
-  threads: ReviewThread[]
-} {
+function requiredString(value: JsonObject, field: string, context: string): string {
+  const result = stringField(value, field)
+  if (result === null) throw new Error(`invalid ${context}`)
+  return result
+}
+
+function requiredNonemptyString(value: JsonObject, field: string, context: string): string {
+  const result = requiredString(value, field, context)
+  if (result.length === 0) throw new Error(`invalid ${context}`)
+  return result
+}
+
+function requiredBoolean(value: JsonObject, field: string, context: string): boolean {
+  const result = value[field]
+  if (typeof result !== "boolean") throw new Error(`invalid ${context}`)
+  return result
+}
+
+function requiredInteger(value: JsonObject, field: string, context: string): number {
+  const result = numberField(value, field)
+  if (result === null || !Number.isInteger(result) || result <= 0) {
+    throw new Error(`invalid ${context}`)
+  }
+  return result
+}
+
+function completeConnection(value: unknown, context: string): JsonObject[] {
+  if (
+    !isObject(value)
+    || !isObject(value.pageInfo)
+    || value.pageInfo.hasNextPage !== false
+    || !Array.isArray(value.nodes)
+    || !value.nodes.every(isObject)
+  ) throw new Error(`incomplete or malformed ${context}`)
+  return value.nodes
+}
+
+function requireUnique(values: Array<string | number>, context: string): void {
+  if (new Set(values).size !== values.length) throw new Error(`duplicate ${context}`)
+}
+
+function requireDate(value: string, context: string): string {
+  if (!Number.isFinite(Date.parse(value))) throw new Error(`invalid ${context}`)
+  return value
+}
+
+function requireSha(value: string, context: string): string {
+  if (!validSha(value)) throw new Error(`invalid ${context}`)
+  return value
+}
+
+function providerEvidence(repository: string, pr: number): PullRequestSnapshot {
   const [owner, name] = repository.split("/")
-  if (!owner || !name) throw new Error(`invalid repository: ${repository}`)
+  if (!owner || !name || repository !== `${owner}/${name}`) {
+    throw new Error(`invalid repository: ${repository}`)
+  }
   const raw = runGh([
     "api", "graphql",
     "-F", `owner=${owner}`,
@@ -897,90 +1013,176 @@ function providerConversation(repository: string, pr: number): {
     "-F", `number=${pr}`,
     "-f", `query=${SNAPSHOT_QUERY}`,
   ])
-  if (!isObject(raw) || !isObject(raw.data)) throw new Error("missing GraphQL data")
+  if (!isObject(raw) || Object.hasOwn(raw, "errors") || !isObject(raw.data)) {
+    throw new Error("GraphQL evidence response contains errors or missing data")
+  }
   const repositoryNode = raw.data.repository
   if (!isObject(repositoryNode) || !isObject(repositoryNode.pullRequest)) {
     throw new Error("pull request not found in GraphQL response")
   }
+  if (requiredNonemptyString(repositoryNode, "nameWithOwner", "repository identity") !== repository) {
+    throw new Error("GraphQL repository identity does not match the request")
+  }
   const pullRequest = repositoryNode.pullRequest
-  const threadConnection = pullRequest.reviewThreads
-  const commentConnection = pullRequest.comments
-  const reactionConnection = pullRequest.reactions
-  if (
-    !isObject(threadConnection)
-    || !Array.isArray(threadConnection.nodes)
-    || !isObject(threadConnection.pageInfo)
-    || !isObject(commentConnection)
-    || !Array.isArray(commentConnection.nodes)
-    || !isObject(commentConnection.pageInfo)
-    || !isObject(reactionConnection)
-    || !Array.isArray(reactionConnection.nodes)
-    || !isObject(reactionConnection.pageInfo)
-  ) throw new Error("missing pull request conversation")
+  if (requiredInteger(pullRequest, "number", "pull request number") !== pr) {
+    throw new Error("GraphQL pull request identity does not match the request")
+  }
+  const state = requiredString(pullRequest, "state", "pull request state")
+  if (state !== "OPEN" && state !== "CLOSED") throw new Error("invalid pull request state")
+  const headRepository = pullRequest.headRepository
+  if (!isObject(headRepository)) throw new Error("invalid pull request head repository")
+  const headSha = requireSha(
+    requiredString(pullRequest, "headRefOid", "pull request head OID"),
+    "pull request head OID",
+  )
 
-  let complete = threadConnection.pageInfo.hasNextPage === false
-    && commentConnection.pageInfo.hasNextPage === false
-    && reactionConnection.pageInfo.hasNextPage === false
-  const comments = commentConnection.nodes.map((node): IssueComment => {
-    if (!isObject(node) || !isObject(node.reactions) || !Array.isArray(node.reactions.nodes)) {
-      throw new Error("invalid issue comment")
-    }
-    if (!isObject(node.reactions.pageInfo) || node.reactions.pageInfo.hasNextPage !== false) {
-      complete = false
+  const commitNodes = completeConnection(pullRequest.commits, "pull request commits")
+  const commits: string[] = []
+  const commitParents: Record<string, string[]> = {}
+  for (const node of commitNodes) {
+    if (!isObject(node.commit)) throw new Error("invalid pull request commit")
+    const sha = requireSha(
+      requiredString(node.commit, "oid", "pull request commit OID"),
+      "pull request commit OID",
+    )
+    const parents = completeConnection(node.commit.parents, `parents for commit ${sha}`)
+      .map((parent) => requireSha(
+        requiredString(parent, "oid", `parent OID for commit ${sha}`),
+        `parent OID for commit ${sha}`,
+      ))
+    requireUnique(parents, `parent OID for commit ${sha}`)
+    commits.push(sha)
+    commitParents[sha] = parents
+  }
+  requireUnique(commits, "pull request commit OID")
+  if (!commits.includes(headSha)) throw new Error("pull request head is absent from commits")
+
+  const reviewNodes = completeConnection(pullRequest.reviews, "pull request reviews")
+  const reviews = reviewNodes.map((review): Review => {
+    if (!isObject(review.author) || !isObject(review.commit)) {
+      throw new Error("invalid pull request review")
     }
     return {
-      id: numberField(node, "databaseId") ?? 0,
-      nodeId: stringField(node, "id") ?? "",
-      actor: actorLogin(node.author),
-      association: stringField(node, "authorAssociation") ?? "",
-      body: stringField(node, "body") ?? "",
-      createdAt: stringField(node, "createdAt") ?? "",
-      minimized: node.isMinimized === true,
-      reactions: node.reactions.nodes.map((reaction): Reaction => {
-        if (!isObject(reaction)) throw new Error("invalid issue comment reaction")
-        return {
-          content: stringField(reaction, "content") ?? "",
-          createdAt: stringField(reaction, "createdAt") ?? "",
-          actor: actorLogin(reaction.user),
-        }
-      }),
+      id: requiredInteger(review, "databaseId", "pull request review database ID"),
+      actor: requiredNonemptyString(review.author, "login", "pull request review author"),
+      state: requiredNonemptyString(review, "state", "pull request review state"),
+      body: requiredString(review, "body", "pull request review body"),
+      submittedAt: requireDate(
+        requiredString(review, "submittedAt", "pull request review timestamp"),
+        "pull request review timestamp",
+      ),
+      commitSha: requireSha(
+        requiredString(review.commit, "oid", "pull request review commit OID"),
+        "pull request review commit OID",
+      ),
     }
   })
-  const rootReactions = reactionConnection.nodes.map((reaction): Reaction => {
-    if (!isObject(reaction)) throw new Error("invalid pull request reaction")
+  requireUnique(reviews.map((review) => review.id), "pull request review database ID")
+
+  const reactionIds: string[] = []
+  const parseReaction = (reaction: JsonObject, context: string): Reaction => {
+    if (!isObject(reaction.user)) throw new Error(`invalid ${context}`)
+    const id = requiredNonemptyString(reaction, "id", `${context} node ID`)
+    reactionIds.push(id)
     return {
-      content: stringField(reaction, "content") ?? "",
-      createdAt: stringField(reaction, "createdAt") ?? "",
-      actor: actorLogin(reaction.user),
+      id,
+      content: requiredNonemptyString(reaction, "content", `${context} content`),
+      createdAt: requireDate(
+        requiredString(reaction, "createdAt", `${context} timestamp`),
+        `${context} timestamp`,
+      ),
+      actor: requiredNonemptyString(reaction.user, "login", `${context} actor`),
+    }
+  }
+  const rootReactions = completeConnection(pullRequest.reactions, "pull request reactions")
+    .map((reaction) => parseReaction(reaction, "pull request reaction"))
+
+  const commentNodes = completeConnection(pullRequest.comments, "issue comments")
+  const commentNodeIds: string[] = []
+  const comments = commentNodes.map((node): IssueComment => {
+    if (!isObject(node.author)) throw new Error("invalid issue comment")
+    const nodeId = requiredNonemptyString(node, "id", "issue comment node ID")
+    commentNodeIds.push(nodeId)
+    return {
+      id: requiredInteger(node, "databaseId", "issue comment database ID"),
+      nodeId,
+      actor: requiredNonemptyString(node.author, "login", "issue comment author"),
+      association: requiredNonemptyString(node, "authorAssociation", "issue comment association"),
+      body: requiredString(node, "body", "issue comment body"),
+      createdAt: requireDate(
+        requiredString(node, "createdAt", "issue comment timestamp"),
+        "issue comment timestamp",
+      ),
+      minimized: requiredBoolean(node, "isMinimized", "issue comment minimized state"),
+      reactions: completeConnection(node.reactions, `reactions for issue comment ${nodeId}`)
+        .map((reaction) => parseReaction(reaction, "issue comment reaction")),
     }
   })
-  const threads = threadConnection.nodes.map((value): ReviewThread => {
-    if (!isObject(value) || !isObject(value.comments) || !Array.isArray(value.comments.nodes)) {
-      throw new Error("invalid review thread")
-    }
-    if (!isObject(value.comments.pageInfo) || value.comments.pageInfo.hasNextPage !== false) {
-      complete = false
-    }
+  requireUnique(comments.map((comment) => comment.id), "issue comment database ID")
+  requireUnique(commentNodeIds, "issue comment node ID")
+  requireUnique(reactionIds, "reaction node ID")
+
+  const reviewCommentIds: number[] = []
+  const threads = completeConnection(pullRequest.reviewThreads, "review threads")
+    .map((value): ReviewThread => {
+    const threadId = requiredNonemptyString(value, "id", "review thread node ID")
     return {
-      id: stringField(value, "id") ?? "",
-      resolved: value.isResolved === true,
-      outdated: value.isOutdated === true,
-      comments: value.comments.nodes.map((node): ReviewComment => {
-        if (!isObject(node)) throw new Error("invalid review comment")
+      id: threadId,
+      resolved: requiredBoolean(value, "isResolved", "review thread resolved state"),
+      outdated: requiredBoolean(value, "isOutdated", "review thread outdated state"),
+      comments: completeConnection(value.comments, `comments for review thread ${threadId}`)
+        .map((node): ReviewComment => {
         const review = node.pullRequestReview
-        const commit = isObject(review) ? review.commit : null
+        if (!isObject(node.author) || !isObject(review) || !isObject(review.commit)) {
+          throw new Error("invalid review comment")
+        }
+        const id = requiredInteger(node, "databaseId", "review comment database ID")
+        reviewCommentIds.push(id)
         return {
-          id: numberField(node, "databaseId") ?? 0,
-          actor: actorLogin(node.author),
-          body: stringField(node, "body") ?? "",
-          createdAt: stringField(node, "createdAt") ?? "",
-          outdated: node.outdated === true,
-          reviewCommitSha: isObject(commit) ? stringField(commit, "oid") : null,
+          id,
+          actor: requiredNonemptyString(node.author, "login", "review comment author"),
+          body: requiredString(node, "body", "review comment body"),
+          createdAt: requireDate(
+            requiredString(node, "createdAt", "review comment timestamp"),
+            "review comment timestamp",
+          ),
+          outdated: requiredBoolean(node, "outdated", "review comment outdated state"),
+          reviewCommitSha: requireSha(
+            requiredString(review.commit, "oid", "review comment commit OID"),
+            "review comment commit OID",
+          ),
         }
       }),
     }
   })
-  return { complete, comments, rootReactions, threads }
+  requireUnique(threads.map((thread) => thread.id), "review thread node ID")
+  requireUnique(reviewCommentIds, "review comment database ID")
+
+  return {
+    repository,
+    number: pr,
+    open: state === "OPEN",
+    merged: requiredBoolean(pullRequest, "merged", "pull request merged state"),
+    draft: requiredBoolean(pullRequest, "isDraft", "pull request draft state"),
+    headSha,
+    headRepository: requiredNonemptyString(
+      headRepository,
+      "nameWithOwner",
+      "pull request head repository",
+    ),
+    baseRef: requiredNonemptyString(pullRequest, "baseRefName", "pull request base ref"),
+    baseSha: requireSha(
+      requiredString(pullRequest, "baseRefOid", "pull request base OID"),
+      "pull request base OID",
+    ),
+    commits,
+    commitParents,
+    comments,
+    rootReactions,
+    reviews,
+    threads,
+    complete: true,
+  }
 }
 
 interface BasicPullRequest {
@@ -1021,43 +1223,20 @@ function fetchBasicPullRequest(repository: string, pr: number): BasicPullRequest
 }
 
 function fetchSnapshotOnce(repository: string, pr: number): PullRequestSnapshot {
-  const pull = fetchBasicPullRequest(repository, pr)
-  const reviews = paginated(`repos/${repository}/pulls/${pr}/reviews`).map((review): Review => ({
-    id: numberField(review, "id") ?? 0,
-    actor: actorLogin(review.user),
-    state: stringField(review, "state") ?? "",
-    body: stringField(review, "body") ?? "",
-    submittedAt: stringField(review, "submitted_at") ?? "",
-    commitSha: stringField(review, "commit_id"),
-  }))
-  const commits = paginated(`repos/${repository}/pulls/${pr}/commits`)
-    .map((commit) => stringField(commit, "sha"))
-    .filter((sha): sha is string => sha !== null)
-  const conversation = providerConversation(repository, pr)
+  const before = fetchBasicPullRequest(repository, pr)
+  const snapshot = providerEvidence(repository, pr)
   const after = fetchBasicPullRequest(repository, pr)
-  if (!samePullRequestIdentity(pull, after)) {
-    throw new Error("PR identity changed while fetching provider snapshot")
+  if (
+    !samePullRequestIdentity(before, snapshot)
+    || !samePullRequestIdentity(snapshot, after)
+  ) {
+    throw new Error("PR identity brackets do not match the GraphQL evidence response")
   }
-  return {
-    repository,
-    number: pr,
-    ...pull,
-    commits,
-    comments: conversation.comments,
-    rootReactions: conversation.rootReactions,
-    reviews,
-    threads: conversation.threads,
-    complete: conversation.complete,
-  }
+  return snapshot
 }
 
 export function fetchSnapshot(repository: string, pr: number): PullRequestSnapshot {
-  const first = fetchSnapshotOnce(repository, pr)
-  const second = fetchSnapshotOnce(repository, pr)
-  if (JSON.stringify(first) !== JSON.stringify(second)) {
-    throw new Error("provider evidence changed while fetching stable snapshot")
-  }
-  return second
+  return fetchSnapshotOnce(repository, pr)
 }
 
 function addComment(repository: string, pr: number, body: string): IssueComment {
@@ -1420,9 +1599,6 @@ async function commandSeal(args: string[]): Promise<void> {
   if (!cycle || !receipt) throw new Error("current review cycle is incomplete")
 
   const priorCycles = artifacts.cycles.filter((candidate) => candidate.tagSha !== cycle.tagSha)
-  const priorReceipts = artifacts.triggerReceipts.filter(
-    (candidate) => candidate.reviewTagSha !== cycle.tagSha,
-  )
   const priorSeals = priorCycles.map((candidate) => parseReviewSealTag(
     fetchAnnotatedTag(repository, reviewSealRef(pr, candidate.headSha)),
     repository,
@@ -1433,9 +1609,10 @@ async function commandSeal(args: string[]): Promise<void> {
   const historyReasons = validateReviewHistory(
     snapshot,
     claim,
-    priorCycles,
-    priorReceipts,
+    artifacts.cycles,
+    artifacts.triggerReceipts,
     priorSeals,
+    cycle.tagSha,
   )
   if (historyReasons.length > 0) {
     throw new Error(`review history is poisoned: ${historyReasons[0]}`)
@@ -1444,19 +1621,37 @@ async function commandSeal(args: string[]): Promise<void> {
   const trigger = exactTrigger(snapshot, claim, cycle, receipt)
   if (!trigger) throw new Error("current review trigger is missing or changed")
   const triggerAt = Date.parse(trigger.createdAt)
-  const clean = trigger.reactions.filter((reaction) =>
-    isCodex(reaction.actor)
-    && reaction.content === "THUMBS_UP"
-    && Date.parse(reaction.createdAt) >= triggerAt
+  const codexReactions = trigger.reactions.filter((reaction) =>
+    isCodex(reaction.actor) && Date.parse(reaction.createdAt) >= triggerAt
   )
-  const reviews = snapshot.reviews.filter((review) =>
+  const clean = codexReactions.filter((reaction) => reaction.content === "THUMBS_UP")
+  const eyes = codexReactions.filter((reaction) => reaction.content === "EYES")
+  const allHeadReviews = snapshot.reviews.filter((review) =>
+    isCodex(review.actor) && review.commitSha === cycle.headSha
+  )
+  const reviews = allHeadReviews.filter((review) =>
     isCodex(review.actor)
     && review.commitSha === cycle.headSha
     && Date.parse(review.submittedAt) >= triggerAt
   )
+  const roots = findingRootReceipts(snapshot, cycle.headSha)
+  if (
+    snapshot.rootReactions.some((reaction) => isCodex(reaction.actor))
+    || trigger.reactions.some((reaction) =>
+      isCodex(reaction.actor) && reaction.content === "THUMBS_DOWN"
+    )
+    || eyes.length > 1
+    || codexReactions.some((reaction) =>
+      reaction.content !== "EYES" && reaction.content !== "THUMBS_UP"
+    )
+  ) throw new Error("review result contains conflicting Codex evidence")
   if (clean.length + reviews.length !== 1) {
     throw new Error("review result is pending or ambiguous")
   }
+  if (
+    (clean.length === 1 && (allHeadReviews.length !== 0 || roots.length !== 0))
+    || (reviews.length === 1 && (clean.length !== 0 || allHeadReviews.length !== 1))
+  ) throw new Error("review result contains conflicting Codex evidence")
   const result = clean[0] ?? reviews[0]!
   const resultKind = clean.length === 1 ? "clean" : "review"
   const resultId = resultKind === "clean" ? trigger.id : (result as Review).id
@@ -1487,7 +1682,7 @@ async function commandSeal(args: string[]): Promise<void> {
       result_created_at: resultCreatedAt,
       result_state: reviewResult?.state ?? null,
       result_body_hash: reviewResult ? contentHash(reviewResult.body) : null,
-      finding_roots: reviewResult ? findingRootReceipts(snapshot, cycle.headSha) : [],
+      finding_roots: reviewResult ? roots : [],
     }),
   )
   const confirmed = fetchSnapshot(repository, pr)
@@ -1500,6 +1695,16 @@ async function commandSeal(args: string[]): Promise<void> {
   }
   const created = createAtomicTagRef(repository, sealName, sealTagSha)
   const seal = parseReviewSealTag(created, repository, pr, claim, cycle)
+  const closureReasons = validateReviewHistory(
+    snapshot,
+    claim,
+    artifacts.cycles,
+    artifacts.triggerReceipts,
+    [...priorSeals, seal],
+  )
+  if (closureReasons.length > 0) {
+    throw new Error(`created review seal does not close history: ${closureReasons[0]}`)
+  }
   process.stdout.write(`${JSON.stringify(seal)}\n`)
 }
 
@@ -1539,15 +1744,10 @@ async function commandAddress(args: string[]): Promise<void> {
     throw new Error("finding is not a Codex root comment in the live review thread")
   }
   const reviewedHead = thread.comments[0]?.reviewCommitSha
-  const reviewedIndex = reviewedHead ? snapshot.commits.indexOf(reviewedHead) : -1
-  const fixIndex = snapshot.commits.indexOf(fixSha)
-  if (
-    reviewedIndex < 0
-    || fixIndex <= reviewedIndex
-  ) {
+  if (!reviewedHead || !isStrictDescendant(snapshot, fixSha, reviewedHead)) {
     throw new Error("fix SHA must be a descendant commit after the finding review head")
   }
-  const existing = findingDispositions(thread, claim, snapshot.commits)
+  const existing = findingDispositions(thread, claim, snapshot)
   if (existing.length > 1) throw new Error("finding has ambiguous disposition receipts")
   if (existing.length === 1) {
     const receipt = existing[0]!
