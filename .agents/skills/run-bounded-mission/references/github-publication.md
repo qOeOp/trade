@@ -33,11 +33,12 @@ CLI.
    exactly one explicit trigger in the current observation window using
    `reviewTriggerBody` from `scripts/check-pr-review.ts`. The window begins at
    the latest provider-native `pull_request` workflow run associated with that
-   PR and exact head SHA; the run must strictly predate the trigger. If the same
-   head/base leaves and later re-enters, the new run starts a new window and
-   requires one new trigger; triggers from earlier windows do not count in the
-   current gate. A self-declared future SHA is not evidence that the head was
-   live. Do not push while a current-window review is pending. A second
+   PR and exact head SHA, base ref, and base SHA; the run must strictly predate
+   the trigger. If the same head/base leaves and later re-enters, the new run
+   starts a new window and requires one new trigger; triggers from earlier
+   windows do not count in the current gate. A self-declared future SHA or a run
+   for a different base identity is not evidence that the head/base was live.
+   Do not push while a current-window review is pending. A second
    current-window trigger, an identity-free current-window trigger, an edited
    or minimized trigger, or a trigger whose visible text differs from that
    exact body fails closed.

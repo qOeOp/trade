@@ -12,6 +12,21 @@ const base = "a".repeat(40)
 const reviewed = "b".repeat(40)
 const head = "c".repeat(40)
 
+function observation(
+  createdAt: string,
+  overrides: Partial<PullRequestSnapshot["headObservations"][number]> = {},
+): PullRequestSnapshot["headObservations"][number] {
+  return {
+    id: 1,
+    pullRequestNumber: 7,
+    headSha: head,
+    baseRef: "main",
+    baseSha: base,
+    createdAt,
+    ...overrides,
+  }
+}
+
 function snapshot(): PullRequestSnapshot {
   const trigger = reviewTriggerBody(head, "main", base)
   return {
@@ -22,7 +37,7 @@ function snapshot(): PullRequestSnapshot {
     merged: false,
     draft: false,
     headSha: head,
-    headObservations: ["2026-07-27T01:01:00Z"],
+    headObservations: [observation("2026-07-27T01:01:00Z")],
     headRepository: "owner/repo",
     baseRef: "main",
     baseSha: base,
@@ -301,21 +316,21 @@ describe("native review evidence", () => {
 
   test("requires a pull_request run that predates the trigger", () => {
     const preHead = snapshot()
-    preHead.headObservations = ["2026-07-27T01:06:00Z"]
+    preHead.headObservations = [observation("2026-07-27T01:06:00Z")]
     expect(verify(preHead).reasons).toContain(
       "expected one current-head explicit Codex trigger, found 0",
     )
     preHead.headObservations = []
     expect(verify(preHead).reasons).toContain(
-      "no pull_request workflow run proves when the head entered this PR",
+      "no exact head/base pull_request workflow run proves the current window",
     )
   })
 
   test("does not reuse a trigger from before the latest matching head observation", () => {
     const reentered = snapshot()
     reentered.headObservations = [
-      "2026-07-27T00:30:00Z",
-      "2026-07-27T01:06:00Z",
+      observation("2026-07-27T00:30:00Z"),
+      observation("2026-07-27T01:06:00Z", { id: 2 }),
     ]
     expect(verify(reentered).reasons).toContain(
       "expected one current-head explicit Codex trigger, found 0",
@@ -332,8 +347,8 @@ describe("native review evidence", () => {
       reactions: [],
     }
     reentered.headObservations = [
-      "2026-07-27T00:30:00Z",
-      "2026-07-27T01:01:00Z",
+      observation("2026-07-27T00:30:00Z"),
+      observation("2026-07-27T01:01:00Z", { id: 2 }),
     ]
     reentered.comments.unshift(oldTrigger)
     expect(verify(reentered)).toMatchObject({ ok: true, reasons: [] })
@@ -341,10 +356,25 @@ describe("native review evidence", () => {
 
   test("requires the latest matching head observation to strictly predate the trigger", () => {
     const simultaneous = snapshot()
-    simultaneous.headObservations = ["2026-07-27T01:05:00Z"]
+    simultaneous.headObservations = [observation("2026-07-27T01:05:00Z")]
     expect(verify(simultaneous).reasons).toContain(
       "expected one current-head explicit Codex trigger, found 0",
     )
+  })
+
+  test("requires a workflow run for the exact current base identity", () => {
+    const wrongBase = snapshot()
+    wrongBase.headObservations = [
+      observation("2026-07-27T01:04:00Z", { baseSha: "d".repeat(40) }),
+    ]
+    expect(verify(wrongBase).reasons).toContain(
+      "no exact head/base pull_request workflow run proves the current window",
+    )
+
+    wrongBase.headObservations.push(
+      observation("2026-07-27T01:01:00Z", { id: 2 }),
+    )
+    expect(verify(wrongBase)).toMatchObject({ ok: true, reasons: [] })
   })
 })
 

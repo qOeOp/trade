@@ -56,6 +56,15 @@ export interface ReviewThread {
   comments: ReviewComment[]
 }
 
+export interface HeadObservation {
+  id: number
+  pullRequestNumber: number
+  headSha: string
+  baseRef: string
+  baseSha: string
+  createdAt: string
+}
+
 export interface PullRequestSnapshot {
   repository: string
   number: number
@@ -64,7 +73,7 @@ export interface PullRequestSnapshot {
   merged: boolean
   draft: boolean
   headSha: string
-  headObservations: string[]
+  headObservations: HeadObservation[]
   headRepository: string
   baseRef: string
   baseSha: string
@@ -221,6 +230,9 @@ export function verifySnapshot(
   const reasons: string[] = []
   const reviewComments = snapshot.threads.flatMap((thread) => thread.comments)
   const reactions = snapshot.comments.flatMap((comment) => comment.reactions)
+  if (hasDuplicates(snapshot.headObservations.map((observation) => observation.id))) {
+    reasons.push("duplicate pull_request workflow run ID")
+  }
   if (hasDuplicates(snapshot.commits)) reasons.push("duplicate commit SHA")
   if (hasDuplicates(snapshot.reviews.map((review) => review.id))) {
     reasons.push("duplicate review ID")
@@ -257,11 +269,17 @@ export function verifySnapshot(
   }
 
   const observationTimes = snapshot.headObservations
-    .map((value) => Date.parse(value))
+    .filter((observation) =>
+      observation.pullRequestNumber === snapshot.number
+      && observation.headSha === snapshot.headSha
+      && observation.baseRef === snapshot.baseRef
+      && observation.baseSha === snapshot.baseSha
+    )
+    .map((observation) => Date.parse(observation.createdAt))
     .filter(Number.isFinite)
   const headTime = observationTimes.length > 0 ? Math.max(...observationTimes) : Number.NaN
   if (!Number.isFinite(headTime)) {
-    reasons.push("no pull_request workflow run proves when the head entered this PR")
+    reasons.push("no exact head/base pull_request workflow run proves the current window")
   }
   const explicit = snapshot.comments.filter((comment) => /@codex\s+review\b/i.test(comment.body))
   const currentWindow = explicit.filter((comment) => Date.parse(comment.createdAt) > headTime)
@@ -489,7 +507,7 @@ function liveBaseSha(repository: string, baseRef: string): string {
   return requiredSha(requiredString(value.commit, "sha", "live base SHA"), "live base SHA")
 }
 
-function headObservations(repository: string, pr: number, headSha: string): string[] {
+function headObservations(repository: string, pr: number, headSha: string): HeadObservation[] {
   const value = runGh([
     "api",
     `repos/${repository}/actions/runs?event=pull_request&head_sha=${headSha}&per_page=100`,
@@ -505,16 +523,36 @@ function headObservations(repository: string, pr: number, headSha: string): stri
     if (!Array.isArray(pulls) || !pulls.every(isObject)) {
       throw new Error("invalid pull_request workflow association")
     }
-    const belongs = pulls.some((pull) => numberField(pull, "number") === pr)
     if (
-      !belongs
-      || stringField(run, "event") !== "pull_request"
+      stringField(run, "event") !== "pull_request"
       || stringField(run, "head_sha") !== headSha
     ) return []
-    return [requiredDate(
-      requiredString(run, "created_at", "pull_request workflow creation time"),
-      "pull_request workflow creation time",
-    )]
+    const associations = pulls.filter((candidate) => numberField(candidate, "number") === pr)
+    if (associations.length > 1) {
+      throw new Error("duplicate pull_request workflow association")
+    }
+    const pull = associations[0]
+    if (!pull) return []
+    if (!isObject(pull.head) || !isObject(pull.base)) {
+      throw new Error("invalid pull_request workflow head/base association")
+    }
+    return [{
+      id: requiredInteger(run, "id", "pull_request workflow run ID"),
+      pullRequestNumber: requiredInteger(pull, "number", "workflow pull request number"),
+      headSha: requiredSha(
+        requiredString(pull.head, "sha", "workflow pull request head SHA"),
+        "workflow pull request head SHA",
+      ),
+      baseRef: requiredNonemptyString(pull.base, "ref", "workflow pull request base ref"),
+      baseSha: requiredSha(
+        requiredString(pull.base, "sha", "workflow pull request base SHA"),
+        "workflow pull request base SHA",
+      ),
+      createdAt: requiredDate(
+        requiredString(run, "created_at", "pull_request workflow creation time"),
+        "pull_request workflow creation time",
+      ),
+    }]
   })
 }
 
