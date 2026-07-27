@@ -1228,7 +1228,7 @@ query($owner:String!,$name:String!,$number:Int!){
     nameWithOwner
     pullRequest(number:$number){
       number title body url state merged isDraft
-      headRepository{nameWithOwner} headRefOid baseRefName baseRefOid
+      headRepository{nameWithOwner} headRefOid baseRefName
       commits(first:100){
         pageInfo{hasNextPage}
         nodes{commit{oid parents(first:100){pageInfo{hasNextPage} nodes{oid}}}}
@@ -1474,6 +1474,7 @@ function providerEvidence(repository: string, pr: number): PullRequestSnapshot {
   requireUnique(threads.map((thread) => thread.id), "review thread node ID")
   requireUnique(reviewCommentIds, "review comment database ID")
   requireUnique(reviewCommentNodeIds, "review comment node ID")
+  const baseRef = requiredNonemptyString(pullRequest, "baseRefName", "pull request base ref")
 
   return {
     repository,
@@ -1490,11 +1491,8 @@ function providerEvidence(repository: string, pr: number): PullRequestSnapshot {
       "nameWithOwner",
       "pull request head repository",
     ),
-    baseRef: requiredNonemptyString(pullRequest, "baseRefName", "pull request base ref"),
-    baseSha: requireSha(
-      requiredString(pullRequest, "baseRefOid", "pull request base OID"),
-      "pull request base OID",
-    ),
+    baseRef,
+    baseSha: fetchLiveBaseSha(repository, baseRef),
     commits,
     commitParents,
     comments,
@@ -1515,6 +1513,20 @@ interface BasicPullRequest {
   baseSha: string
 }
 
+function fetchLiveBaseSha(repository: string, baseRef: string): string {
+  const branch = runGh([
+    "api",
+    `repos/${repository}/branches/${encodeURIComponent(baseRef)}`,
+  ])
+  if (!isObject(branch) || !isObject(branch.commit)) {
+    throw new Error("invalid base branch response")
+  }
+  return requireSha(
+    requiredString(branch.commit, "sha", "live base branch SHA"),
+    "live base branch SHA",
+  )
+}
+
 function samePullRequestIdentity(left: BasicPullRequest, right: BasicPullRequest): boolean {
   return left.open === right.open
     && left.merged === right.merged
@@ -1531,14 +1543,15 @@ function fetchBasicPullRequest(repository: string, pr: number): BasicPullRequest
     throw new Error("invalid pull request response")
   }
   const headRepo = isObject(pull.head.repo) ? pull.head.repo : null
+  const baseRef = stringField(pull.base, "ref") ?? ""
   return {
     open: pull.state === "open",
     merged: pull.merged === true,
     draft: pull.draft === true,
     headSha: stringField(pull.head, "sha") ?? "",
     headRepository: headRepo ? stringField(headRepo, "full_name") ?? "" : "",
-    baseRef: stringField(pull.base, "ref") ?? "",
-    baseSha: stringField(pull.base, "sha") ?? "",
+    baseRef,
+    baseSha: fetchLiveBaseSha(repository, baseRef),
   }
 }
 

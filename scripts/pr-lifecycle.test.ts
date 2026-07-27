@@ -476,6 +476,9 @@ if (endpoint === "repos/qOeOp/trade/pulls/100" && method === "GET") {
     base: { ref: state.pr.baseRef, sha: state.pr.baseSha },
   })
 }
+if (endpoint === "repos/qOeOp/trade/branches/main" && method === "GET") {
+  output({ name: "main", commit: { sha: state.liveBaseSha } })
+}
 if (endpoint.includes("/git/matching-refs/tags/")) {
   const prefix = endpoint.split("/git/matching-refs/tags/")[1]
   const refs = Object.entries(state.refs)
@@ -621,6 +624,7 @@ function fakeProviderState() {
       baseRef: "main",
       baseSha: base,
     },
+    liveBaseSha: base,
     commits: [
       { oid: initial, parents: [] as string[] },
       { oid: reviewHead, parents: [initial] },
@@ -2178,6 +2182,28 @@ describe("gate status publication", () => {
       })
     }
   })
+
+  test("binds the gate to the live branch ref instead of the PR object's stale base OID", () => {
+    withFakeProvider(({ invoke, readState, writeState }) => {
+      const state = readState()
+      makeGateReady(state)
+      state.pr.baseSha = "6".repeat(40)
+      state.liveBaseSha = base
+      writeState(state)
+
+      const result = invoke(gateArgs)
+
+      expect(result.exitCode, result.stderr.toString()).toBe(0)
+      expect(JSON.parse(result.stdout.toString())).toMatchObject({
+        ok: true,
+        receipt: { baseRef: "main", baseSha: base },
+      })
+      expect(readState().statuses.at(-1)).toMatchObject({
+        sha: head,
+        state: "success",
+      })
+    })
+  }, 20_000)
 
   test("publishes success last after unchanged complete evidence snapshots", () => {
     withFakeProvider(({ invoke, readState, writeState }) => {

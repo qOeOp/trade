@@ -113,6 +113,9 @@ When the repository contains `scripts/pr-lifecycle.ts` and a base-owned
    sealed clean reaction, complete thread
    snapshot, and exact immutable finding seals whose bound replies remain
    present and unchanged in the current PR commit lineage.
+   Resolve live base from the repository's current base branch ref, not the
+   pull request object's associated base OID, which can remain historical while
+   the branch advances.
    Before success, replace any prior conclusion with a non-success status and
    reconstruct the complete provider snapshot again. Success must be the
    successful path's final provider write and certifies only that immediately
