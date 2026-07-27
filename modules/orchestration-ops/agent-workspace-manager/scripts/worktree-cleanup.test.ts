@@ -138,6 +138,25 @@ test("owner cleanup accepts safe Git-generated worktree IDs", () => {
   expect(existsSync(fixture.worktree)).toBe(false)
 })
 
+test("owner identity rejects control-hazard Git worktree IDs", () => {
+  const fixture = createFixture()
+  run(fixture.root, ["git", "worktree", "remove", "--", fixture.worktree])
+  run(fixture.root, ["git", "branch", "-D", "mission-branch"])
+  fixture.worktree = join(fixture.root, "mission\u0085candidate")
+  run(fixture.root, ["git", "worktree", "add", "-qb", "mission-branch", fixture.worktree])
+
+  expect(() => identifyLinkedWorktree(fixture.worktree))
+    .toThrow(new WorktreeCleanupError("invalid_worktree_id"))
+  const result = runResult(fixture.worktree, [
+    "bun",
+    join(import.meta.dir, "worktree-cleanup.ts"),
+    "identify",
+  ])
+  expect(result.exitCode).toBe(1)
+  expect(JSON.parse(result.stdout.toString()).reason_code).toBe("invalid_worktree_id")
+  expect(result.stdout.toString()).not.toContain("\u0085")
+})
+
 test("owner cleanup avoids conflicts with an existing worktree-cleanup branch", () => {
   const fixture = createFixture()
   const identity = identifyLinkedWorktree(fixture.worktree)

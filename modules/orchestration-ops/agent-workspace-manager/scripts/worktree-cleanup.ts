@@ -2352,8 +2352,7 @@ function isWorktreeId(value: string): boolean {
       character === "/"
       || character === "\\"
       || codePoint === undefined
-      || codePoint < 0x20
-      || codePoint === 0x7f
+      || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(character)
     ) {
       return false
     }
