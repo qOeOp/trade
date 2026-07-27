@@ -2,6 +2,7 @@
 
 import {
   closeSync,
+  copyFileSync,
   existsSync,
   fchmodSync,
   fstatSync,
@@ -16,12 +17,13 @@ import {
   readlinkSync,
   realpathSync,
   renameSync,
+  rmSync,
   rmdirSync,
   statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs"
-import { randomBytes } from "node:crypto"
+import { createHash, randomBytes } from "node:crypto"
 import { basename, dirname, join, resolve } from "node:path"
 
 const IDENTITY_SCHEMA = "trade.worktree-cleanup-identity.v3"
@@ -174,13 +176,19 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
       initial.worktreePath,
       quarantinePath,
     ])
+    if (
+      moveResult.exitCode === 0
+      || (!existsSync(initial.worktreePath) && existsSync(quarantinePath))
+    ) {
+      moved = true
+      everClaimed = true
+    }
+    if (!moved) throw new WorktreeCleanupError("git_operation_failed")
     const claimed = resolveTarget(claimedOptions)
     observed = claimed.identity
     if (resolve(claimed.worktreePath) !== resolve(quarantinePath)) {
       throw new WorktreeCleanupError("claimed_path_mismatch")
     }
-    moved = true
-    everClaimed = true
     if (moveResult.exitCode !== 0) {
       throw new WorktreeCleanupError("git_operation_failed")
     }
@@ -240,6 +248,7 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
       assertRefNotCheckedOut(ownerCwd, options.expectedRef)
     }
 
+    assertClean(claimed.worktreePath)
     const removeResult = gitResult(ownerCwd, ["worktree", "remove", "--", quarantinePath])
     removed = !existsSync(claimed.adminDir) && !existsSync(quarantinePath)
     if (removeResult.exitCode !== 0 && !removed) {
@@ -291,15 +300,13 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
           restoreRef(ownerCwd, options.expectedRef, options.expectedHead, guardRef, refSnapshot)
           git(quarantinePath, ["symbolic-ref", "HEAD", options.expectedRef])
           refDeleted = false
-          if (refSnapshot.kind === "symbolic") {
-            deleteGuardRef(
-              ownerCwd,
-              guardRef,
-              options.expectedHead,
-              refSnapshot,
-              options.expectedRef,
-            )
-          }
+          deleteGuardRef(
+            ownerCwd,
+            guardRef,
+            options.expectedHead,
+            refSnapshot,
+            options.expectedRef,
+          )
         }
         rollbackMove(ownerCwd, quarantinePath, initial.worktreePath)
         moved = false
@@ -403,8 +410,66 @@ function assertExpectedIdentity(identity: WorktreeIdentity, options: RemoveOptio
 }
 
 function assertClean(worktreePath: string): void {
-  if (git(worktreePath, ["status", "--porcelain=v1", "--untracked-files=all"])) {
-    throw new WorktreeCleanupError("worktree_not_clean")
+  const indexPath = git(worktreePath, ["rev-parse", "--path-format=absolute", "--git-path", "index"])
+  const inspectionDirectory = mkdtempSync(join(dirname(indexPath), ".worktree-cleanup-index-"))
+  const inspectionIndex = join(inspectionDirectory, "index")
+  try {
+    copyFileSync(indexPath, inspectionIndex)
+    const inspectionEnvironment = {
+      ...process.env,
+      GIT_INDEX_FILE: inspectionIndex,
+      GIT_OPTIONAL_LOCKS: "0",
+    }
+    const tracked = gitResultWithEnvironment(
+      worktreePath,
+      ["ls-files", "-z"],
+      inspectionEnvironment,
+    )
+    if (tracked.exitCode !== 0) throw new WorktreeCleanupError("git_operation_failed")
+    for (const flag of ["--no-assume-unchanged", "--no-skip-worktree"]) {
+      const clearHints = Bun.spawnSync([
+        "git",
+        "-C",
+        worktreePath,
+        "-c",
+        "core.fsmonitor=false",
+        "update-index",
+        "-z",
+        flag,
+        "--stdin",
+      ], {
+        env: inspectionEnvironment,
+        stdin: tracked.stdout,
+        stdout: "pipe",
+        stderr: "pipe",
+      })
+      if (clearHints.exitCode !== 0) throw new WorktreeCleanupError("git_operation_failed")
+    }
+    const refresh = gitResultWithEnvironment(
+      worktreePath,
+      ["-c", "core.fsmonitor=false", "update-index", "--really-refresh"],
+      inspectionEnvironment,
+    )
+    const trackedDiff = gitResultWithEnvironment(
+      worktreePath,
+      ["-c", "core.fsmonitor=false", "diff-files", "--quiet", "--ignore-submodules", "--"],
+      inspectionEnvironment,
+    )
+    const status = gitResultWithEnvironment(
+      worktreePath,
+      ["-c", "core.fsmonitor=false", "status", "--porcelain=v1", "--untracked-files=all"],
+      inspectionEnvironment,
+    )
+    if (
+      refresh.exitCode !== 0
+      || trackedDiff.exitCode !== 0
+      || status.exitCode !== 0
+      || status.stdout.length > 0
+    ) {
+      throw new WorktreeCleanupError("worktree_not_clean")
+    }
+  } finally {
+    rmSync(inspectionDirectory, { recursive: true, force: true })
   }
 }
 
@@ -710,7 +775,14 @@ function snapshotPackedRefEntry(cwd: string, ref: string): PackedRefSnapshot | n
   const commonDir = git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])
   const packedRefs = join(commonDir, "packed-refs")
   if (!existsSync(packedRefs)) return null
-  const lines = readFileSync(packedRefs, "utf8").split("\n")
+  return packedRefSnapshotFromContents(readFileSync(packedRefs, "utf8"), ref)
+}
+
+function packedRefSnapshotFromContents(
+  contents: string,
+  ref: string,
+): PackedRefSnapshot | null {
+  const lines = contents.split("\n")
   const matches = lines.flatMap((line, index) => (
     line.endsWith(` ${ref}`) ? [{ line, index }] : []
   ))
@@ -726,6 +798,17 @@ function snapshotPackedRefEntry(cwd: string, ref: string): PackedRefSnapshot | n
         nextLine: match.index + 1 < lines.length ? lines[match.index + 1] : null,
       }
     : null
+}
+
+function packedRefSnapshotsEqual(
+  first: PackedRefSnapshot | null,
+  second: PackedRefSnapshot | null,
+): boolean {
+  if (first === null || second === null) return first === second
+  return first.line === second.line
+    && first.index === second.index
+    && first.previousLine === second.previousLine
+    && first.nextLine === second.nextLine
 }
 
 function collectUnixSocketFiles(root: string): string[] {
@@ -891,11 +974,17 @@ function targetEntries(directory: string): Set<string> {
 }
 
 function assertOwnerTool(options: RemoveOptions): void {
-  const objectType = gitResult(options.repositoryCwd, ["cat-file", "-t", options.ownerCommit])
+  const objectType = gitResult(options.repositoryCwd, [
+    "--no-replace-objects",
+    "cat-file",
+    "-t",
+    options.ownerCommit,
+  ])
   if (objectType.exitCode !== 0 || objectType.stdout.toString().trim() !== "commit") {
     throw new WorktreeCleanupError("owner_tool_identity_missing")
   }
   const result = gitResult(options.repositoryCwd, [
+    "--no-replace-objects",
     "cat-file",
     "-e",
     `${options.ownerCommit}:scripts/worktree-cleanup.ts`,
@@ -988,7 +1077,7 @@ function claimRef(
   if (snapshot.kind === "direct") {
     const guardRef = `refs/heads/worktree-cleanup-${suffix}`
     try {
-      moveLockedDirectRef(cwd, ref, guardRef, expectedHead)
+      moveLockedDirectRef(cwd, ref, guardRef, expectedHead, snapshot.reflog)
     } catch {
       throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
     }
@@ -1016,7 +1105,14 @@ function claimRef(
     }
   }
   try {
-    deleteLockedSymbolicRef(cwd, ref, snapshot.target, expectedHead)
+    deleteLockedSymbolicRef(
+      cwd,
+      ref,
+      snapshot.target,
+      expectedHead,
+      snapshot.mode,
+      snapshot.packedEntry,
+    )
   } catch {
     gitResult(cwd, ["update-ref", "-d", guardRef, expectedHead])
     throw new WorktreeCleanupError(
@@ -1037,10 +1133,10 @@ function restoreRef(
 ): void {
   if (snapshot.kind === "direct") {
     try {
-      moveLockedDirectRef(cwd, guardRef, ref, expectedHead)
+      copyLockedDirectRef(cwd, guardRef, ref, expectedHead)
       restoreDirectReflogUnderRefLock(cwd, ref, expectedHead, snapshot.reflog)
     } catch {
-      throw new WorktreeCleanupError("ref_restore_failed")
+      throw new WorktreeCleanupError("ref_restore_failed", undefined, guardRef)
     }
     return
   }
@@ -1188,20 +1284,17 @@ function moveLockedDirectRef(
   sourceRef: string,
   destinationRef: string,
   expectedHead: string,
+  expectedReflog?: FileSnapshot | null,
 ): void {
-  const transaction = Bun.spawnSync(["git", "-C", cwd, "update-ref", "--stdin"], {
-    stdin: Buffer.from([
-      "start",
-      "option no-deref",
-      `create ${destinationRef} ${expectedHead}`,
-      `delete ${sourceRef} ${expectedHead}`,
-      "prepare",
-      "commit",
-      "",
-    ].join("\n")),
-    stdout: "pipe",
-    stderr: "pipe",
-  })
+  const transaction = expectedReflog === undefined
+    ? runDirectRefTransaction(cwd, sourceRef, destinationRef, expectedHead, true)
+    : runValidatedDirectRefTransaction(
+        cwd,
+        sourceRef,
+        destinationRef,
+        expectedHead,
+        expectedReflog,
+      )
   if (transaction.exitCode !== 0) {
     const source = gitResult(cwd, ["rev-parse", "--verify", sourceRef])
     const destination = gitResult(cwd, ["rev-parse", "--verify", destinationRef])
@@ -1216,11 +1309,127 @@ function moveLockedDirectRef(
   }
 }
 
+function copyLockedDirectRef(
+  cwd: string,
+  sourceRef: string,
+  destinationRef: string,
+  expectedHead: string,
+): void {
+  const transaction = runDirectRefTransaction(
+    cwd,
+    sourceRef,
+    destinationRef,
+    expectedHead,
+    false,
+  )
+  if (transaction.exitCode !== 0) {
+    throw new WorktreeCleanupError("ref_restore_failed")
+  }
+}
+
+function runDirectRefTransaction(
+  cwd: string,
+  sourceRef: string,
+  destinationRef: string,
+  expectedHead: string,
+  deleteSource: boolean,
+): ReturnType<typeof Bun.spawnSync> {
+  return Bun.spawnSync(["git", "-C", cwd, "update-ref", "--stdin"], {
+    stdin: Buffer.from([
+      "start",
+      "option no-deref",
+      `create ${destinationRef} ${expectedHead}`,
+      deleteSource
+        ? `delete ${sourceRef} ${expectedHead}`
+        : `verify ${sourceRef} ${expectedHead}`,
+      "prepare",
+      "commit",
+      "",
+    ].join("\n")),
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+}
+
+function runValidatedDirectRefTransaction(
+  cwd: string,
+  sourceRef: string,
+  destinationRef: string,
+  expectedHead: string,
+  expectedReflog: FileSnapshot | null,
+): ReturnType<typeof Bun.spawnSync> {
+  const reflogPath = looseRefPath(cwd, `logs/${sourceRef}`)
+  const expectedHash = expectedReflog
+    ? createHash("sha256").update(expectedReflog.contents).digest("hex")
+    : "-"
+  const expectedMode = expectedReflog ? String(expectedReflog.mode) : "-"
+  const helper = `
+import { createHash } from "node:crypto";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
+const [cwd, sourceRef, destinationRef, expectedHead, reflogPath, expectedHash, expectedMode] = process.argv.slice(1);
+const transaction = Bun.spawn(["git", "-C", cwd, "update-ref", "--stdin"], {
+  stdin: "pipe",
+  stdout: "pipe",
+  stderr: "pipe",
+});
+transaction.stdin.write([
+  "start",
+  "option no-deref",
+  "create " + destinationRef + " " + expectedHead,
+  "delete " + sourceRef + " " + expectedHead,
+  "prepare",
+  "",
+].join("\\n"));
+await transaction.stdin.flush();
+const reader = transaction.stdout.getReader();
+const decoder = new TextDecoder();
+let output = "";
+while (!output.includes("prepare: ok\\n")) {
+  const chunk = await reader.read();
+  if (chunk.done) break;
+  output += decoder.decode(chunk.value);
+}
+let matches = expectedHash === "-"
+  ? !existsSync(reflogPath)
+  : existsSync(reflogPath)
+    && String(lstatSync(reflogPath).mode) === expectedMode
+    && createHash("sha256").update(readFileSync(reflogPath)).digest("hex") === expectedHash;
+if (!output.includes("prepare: ok\\n") || !matches) {
+  if (output.includes("prepare: ok\\n")) {
+    transaction.stdin.write("abort\\n");
+    await transaction.stdin.flush();
+  }
+  transaction.stdin.end();
+  await transaction.exited;
+  process.exit(75);
+}
+transaction.stdin.write("commit\\n");
+await transaction.stdin.flush();
+transaction.stdin.end();
+process.exit(await transaction.exited);
+`
+  return Bun.spawnSync([
+    process.execPath,
+    "-e",
+    helper,
+    "--",
+    cwd,
+    sourceRef,
+    destinationRef,
+    expectedHead,
+    reflogPath,
+    expectedHash,
+    expectedMode,
+  ], { stdout: "pipe", stderr: "pipe" })
+}
+
 function deleteLockedSymbolicRef(
   cwd: string,
   ref: string,
   target: string,
   expectedHead: string,
+  expectedMode: number,
+  expectedPackedEntry: PackedRefSnapshot | null,
 ): void {
   const refPath = looseRefPath(cwd, ref)
   const targetPath = looseRefPath(cwd, target)
@@ -1240,8 +1449,12 @@ function deleteLockedSymbolicRef(
   try {
     packedLockFd = openSync(packedRefsLock, "wx", 0o600)
     packedLockIdentity = fileIdentityForDescriptor(packedLockFd)
-    if (existsSync(packedRefs)) {
-      const packedContents = readFileSync(packedRefs, "utf8")
+    const packedContents = existsSync(packedRefs) ? readFileSync(packedRefs, "utf8") : ""
+    const currentPackedEntry = packedRefSnapshotFromContents(packedContents, ref)
+    if (!packedRefSnapshotsEqual(currentPackedEntry, expectedPackedEntry)) {
+      throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
+    }
+    if (packedContents !== "") {
       let packedMatches = 0
       const updatedPackedContents = packedContents.split("\n").filter((line) => {
         const separator = line.indexOf(" ")
@@ -1264,7 +1477,10 @@ function deleteLockedSymbolicRef(
     }
     linkSync(refPath, refLock)
     refLockIdentity = fileIdentityForPath(refLock)
-    if (readFileSync(refLock, "utf8") !== `ref: ${target}\n`) {
+    if (
+      lstatSync(refLock).mode !== expectedMode
+      || readFileSync(refLock, "utf8") !== `ref: ${target}\n`
+    ) {
       throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
     }
     targetLockFd = openSync(targetLock, "wx", 0o600)
@@ -1726,6 +1942,18 @@ function git(cwd: string, args: string[]): string {
 
 function gitResult(cwd: string, args: string[]): ReturnType<typeof Bun.spawnSync> {
   return Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" })
+}
+
+function gitResultWithEnvironment(
+  cwd: string,
+  args: string[],
+  environment: Record<string, string | undefined>,
+): ReturnType<typeof Bun.spawnSync> {
+  return Bun.spawnSync(["git", "-C", cwd, ...args], {
+    env: environment,
+    stdout: "pipe",
+    stderr: "pipe",
+  })
 }
 
 function parseArgs(args: string[]): { action: "identify"; cwd: string } | {
