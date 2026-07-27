@@ -65,11 +65,12 @@ When the repository contains `scripts/pr-lifecycle.ts` and a base-owned
    publication leaves no public seal; drift after ref creation can leave a
    poison seal and requires explicit recovery.
    Every prior cycle must retain its exact trigger, receipt, result, and seal
-   before a new-head cycle may start. Every Codex review and finding root in the
-   retained PR lineage must belong to exactly one sealed cycle, whose result is
-   unique for that head. Missing, edited, minimized, deleted, duplicated,
-   unsealed, orphaned, or ambiguous evidence fails closed and requires explicit
-   user-authorized recovery.
+   before a new-head cycle may start, and every retained historical finding
+   must already have one exact disposition and be resolved. Every Codex review
+   and finding root in the retained PR lineage must belong to exactly one sealed
+   cycle, whose result is unique for that head. Missing, edited, minimized,
+   deleted, duplicated, unsealed, orphaned, or ambiguous evidence fails closed
+   and requires explicit user-authorized recovery.
 6. For every Codex finding, first seal its review cycle, make one coherent
    append-only fix commit, then run `bun scripts/pr-lifecycle.ts address --repo
    <owner/repo> --pr <number> --thread-id <node-id> --finding-comment-id
@@ -80,8 +81,13 @@ When the repository contains `scripts/pr-lifecycle.ts` and a base-owned
    resolves it through GitHub. The receipt commit must be a retained strict
    descendant of the finding review head by walking the recorded commit-parent
    DAG; array order is not ancestry, and a pre-finding or sibling commit is
-   invalid. A reply or a resolve alone is insufficient. Every new code head
-   needs a new review tag, trigger, result seal, and final clean seal.
+   invalid. The command validates both provider mutation responses, then takes a
+   fresh complete snapshot and requires unchanged PR identity, the same finding
+   root, one exact requested disposition, and a resolved thread before reporting
+   success. A reply or a resolve alone is insufficient. These writes are not a
+   provider transaction and are not rolled back after an uncertain response;
+   retry the same exact request. Every new code head needs a new review tag,
+   trigger, result seal, and final clean seal.
 7. A root 👍, eyes reaction, silence, summary, resolved flag, unsealed result, or
    old-head review
    is not independently sufficient. Run `bun scripts/pr-lifecycle.ts verify

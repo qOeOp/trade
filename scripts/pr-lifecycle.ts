@@ -594,6 +594,16 @@ function validateReviewHistory(
 ): string[] {
   const reasons: string[] = []
   if (
+    snapshot.rootReactions.some((reaction) =>
+      isCodex(reaction.actor) && reaction.content === "THUMBS_DOWN"
+    )
+    || snapshot.comments.some((comment) =>
+      comment.reactions.some((reaction) =>
+        isCodex(reaction.actor) && reaction.content === "THUMBS_DOWN"
+      )
+    )
+  ) reasons.push("historical Codex THUMBS_DOWN reaction exists")
+  if (
     allowedUnsealedCycleTagSha
     && cycles.filter((cycle) => cycle.tagSha === allowedUnsealedCycleTagSha).length !== 1
   ) {
@@ -716,6 +726,27 @@ function findingDisposition(
 ): FindingPayload | null {
   const matches = findingDispositions(thread, claim, snapshot)
   return matches.length === 1 ? matches[0]! : null
+}
+
+function validateHistoricalFindingClosure(
+  snapshot: PullRequestSnapshot,
+  claim: Claim,
+  excludedReviewHead?: string,
+): string[] {
+  const reasons: string[] = []
+  for (const thread of snapshot.threads) {
+    const root = thread.comments[0]
+    if (
+      !root
+      || !isCodex(root.actor)
+      || root.reviewCommitSha === excludedReviewHead
+    ) continue
+    if (!thread.resolved) reasons.push(`review thread ${thread.id} is unresolved`)
+    if (!findingDisposition(thread, claim, snapshot)) {
+      reasons.push(`review thread ${thread.id} lacks an exact fix/disposition receipt`)
+    }
+  }
+  return reasons
 }
 
 export function isStrictDescendant(
@@ -1511,6 +1542,10 @@ async function commandReview(args: string[]): Promise<void> {
   if (historyReasons.length > 0) {
     throw new Error(`review history is poisoned: ${historyReasons[0]}`)
   }
+  const findingReasons = validateHistoricalFindingClosure(snapshot, claim)
+  if (findingReasons.length > 0) {
+    throw new Error(`historical finding is not closed: ${findingReasons[0]}`)
+  }
   if (currentOrAmbiguousReviewTriggers(
     snapshot,
     snapshot,
@@ -1617,6 +1652,10 @@ async function commandSeal(args: string[]): Promise<void> {
   if (historyReasons.length > 0) {
     throw new Error(`review history is poisoned: ${historyReasons[0]}`)
   }
+  const findingReasons = validateHistoricalFindingClosure(snapshot, claim, cycle.headSha)
+  if (findingReasons.length > 0) {
+    throw new Error(`historical finding is not closed: ${findingReasons[0]}`)
+  }
 
   const trigger = exactTrigger(snapshot, claim, cycle, receipt)
   if (!trigger) throw new Error("current review trigger is missing or changed")
@@ -1721,6 +1760,7 @@ async function commandAddress(args: string[]): Promise<void> {
     throw new Error("disposition must be fixed, deferred, or rejected")
   }
   if (!validSha(fixSha)) throw new Error("fix SHA must be a full commit SHA")
+  if (reason.trim().length === 0) throw new Error("reason must not be empty")
 
   const snapshot = fetchSnapshot(repository, pr)
   requireComplete(snapshot)
@@ -1759,7 +1799,7 @@ async function commandAddress(args: string[]): Promise<void> {
       throw new Error("existing finding disposition does not match the requested receipt")
     }
   } else {
-    runGh([
+    const reply = runGh([
       "api", "--method", "POST",
       `repos/${repository}/pulls/${pr}/comments/${findingCommentId}/replies`,
       "-f", `body=${markerBody(FINDING_MARKER, {
@@ -1770,14 +1810,46 @@ async function commandAddress(args: string[]): Promise<void> {
         reason,
       })}`,
     ])
+    const replyId = isObject(reply) ? numberField(reply, "id") : null
+    if (replyId === null || !Number.isInteger(replyId) || replyId <= 0) {
+      throw new Error("invalid finding reply response")
+    }
   }
   if (!thread.resolved) {
-    runGh([
+    const resolved = runGh([
       "api", "graphql",
       "-F", `threadId=${threadId}`,
       "-f", "query=mutation($threadId:ID!){resolveReviewThread(input:{threadId:$threadId}){thread{id isResolved}}}",
     ])
+    const data = isObject(resolved) && !Object.hasOwn(resolved, "errors")
+      ? resolved.data
+      : null
+    const result = isObject(data) ? data.resolveReviewThread : null
+    const resolvedThread = isObject(result) ? result.thread : null
+    if (
+      !isObject(resolvedThread)
+      || stringField(resolvedThread, "id") !== threadId
+      || resolvedThread.isResolved !== true
+    ) throw new Error("invalid review thread resolution response")
   }
+  const confirmed = fetchSnapshot(repository, pr)
+  if (!samePullRequestIdentity(snapshot, confirmed)) {
+    throw new Error("PR identity changed while addressing finding")
+  }
+  const confirmedThread = confirmed.threads.find((candidate) => candidate.id === threadId)
+  if (!confirmedThread || !isCodexFindingRoot(confirmedThread, findingCommentId)) {
+    throw new Error("finding root changed while addressing finding")
+  }
+  const confirmedDispositions = findingDispositions(confirmedThread, claim, confirmed)
+  const confirmedDisposition = confirmedDispositions[0]
+  if (
+    !confirmedThread.resolved
+    || confirmedDispositions.length !== 1
+    || !confirmedDisposition
+    || confirmedDisposition.disposition !== disposition
+    || confirmedDisposition.fix_sha !== fixSha
+    || confirmedDisposition.reason !== reason
+  ) throw new Error("finding address did not close with the exact requested receipt")
   process.stdout.write(`${JSON.stringify({ threadId, findingCommentId, disposition, fixSha })}\n`)
 }
 

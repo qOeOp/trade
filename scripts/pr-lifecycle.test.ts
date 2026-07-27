@@ -356,7 +356,8 @@ if (endpoint === "graphql") {
     const threadId = field("threadId")
     const thread = state.threads.find((candidate) => candidate.id === threadId)
     if (!thread) fail("thread missing")
-    thread.resolved = true
+    if (state.mutationFault !== "resolve-noop") thread.resolved = true
+    if (state.mutationFault === "empty-resolve") output({})
     output({ data: { resolveReviewThread: { thread: { id: thread.id, isResolved: true } } } })
   }
   output(graph())
@@ -448,6 +449,7 @@ if (replyMatch && method === "POST") {
     outdated: false,
     reviewCommitSha: state.pr.headSha,
   })
+  if (state.mutationFault === "empty-reply") output({})
   output({ id: thread.comments.at(-1).id })
 }
 fail("unsupported fake gh endpoint " + endpoint)
@@ -570,6 +572,7 @@ function fakeProviderState() {
     replyCount: 0,
     basicReads: 0,
     fault: null as string | null,
+    mutationFault: null as string | null,
   }
 }
 
@@ -1114,6 +1117,10 @@ describe("command lifecycle with a fake provider", () => {
       afterSeal.commits.push({ oid: descendant, parents: [head] })
       writeState(afterSeal)
 
+      const prematureReview = invoke(["review", ...writerArgs])
+      expect(prematureReview.exitCode).not.toBe(0)
+      expect(readState().mutations).toBe(afterSeal.mutations)
+
       const beforeAddressMutations = afterSeal.mutations
       const address = invoke([
         "address",
@@ -1185,6 +1192,85 @@ describe("command lifecycle with a fake provider", () => {
         expect(readState().mutations, fault).toBe(0)
       })
     }
+  }, 20_000)
+
+  test("rejects empty reasons and unproven address mutation responses", () => {
+    for (const mutationFault of [
+      "empty-reason",
+      "empty-reply",
+      "empty-resolve",
+      "resolve-noop",
+    ]) {
+      withFakeProvider(({ invoke, readState, writeState }) => {
+        const writerArgs = [
+          "--repo", "qOeOp/trade",
+          "--pr", "100",
+          "--claim", claimTagSha,
+          "--capability", capability,
+        ]
+        const findingSeal = invoke(["seal", ...writerArgs])
+        expect(findingSeal.exitCode, findingSeal.stderr.toString()).toBe(0)
+        const descendant = "f".repeat(40)
+        const state = readState()
+        state.pr.headSha = descendant
+        state.commits.push({ oid: descendant, parents: [head] })
+        state.mutationFault = mutationFault === "empty-reason" ? null : mutationFault
+        writeState(state)
+
+        const beforeMutations = state.mutations
+        const address = invoke([
+          "address",
+          ...writerArgs,
+          "--thread-id", "thread-1",
+          "--finding-comment-id", "50",
+          "--disposition", "fixed",
+          "--fix-sha", descendant,
+          "--reason", mutationFault === "empty-reason" ? "   " : "prove both mutations",
+        ])
+        expect(address.exitCode, mutationFault).not.toBe(0)
+        expect(address.stdout.toString(), mutationFault).toBe("")
+        const after = readState()
+        if (mutationFault === "empty-reason") {
+          expect(after.mutations, mutationFault).toBe(beforeMutations)
+        } else if (mutationFault === "empty-reply") {
+          expect(after.mutations - beforeMutations, mutationFault).toBe(1)
+        } else {
+          expect(after.mutations - beforeMutations, mutationFault).toBe(2)
+        }
+      })
+    }
+  }, 20_000)
+
+  test("rejects a Codex down-reaction on a non-trigger historical comment", () => {
+    withFakeProvider(({ invoke, readState, writeState }) => {
+      const state = readState()
+      state.comments.push({
+        id: 99,
+        nodeId: "issue-node-99",
+        actor: "qOeOp",
+        association: "OWNER",
+        body: "ordinary historical conversation",
+        createdAt: "2026-07-26T00:00:30Z",
+        minimized: false,
+        reactions: [{
+          id: "historical-down",
+          actor: "chatgpt-codex-connector[bot]",
+          content: "THUMBS_DOWN",
+          createdAt: "2026-07-26T00:00:40Z",
+        }],
+      })
+      writeState(state)
+      const result = invoke([
+        "seal",
+        "--repo", "qOeOp/trade",
+        "--pr", "100",
+        "--claim", claimTagSha,
+        "--capability", capability,
+      ])
+      expect(result.exitCode).not.toBe(0)
+      expect(result.stderr.toString()).toContain("historical Codex THUMBS_DOWN")
+      expect(readState().mutations).toBe(0)
+    })
   }, 20_000)
 })
 
