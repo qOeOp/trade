@@ -103,9 +103,11 @@ async function main(): Promise<void> {
   const plan = buildChangedPlan(selected, ROOT)
   if (plan.files.length === 0) throw new Error("no changed files selected")
   if (plan.fullReasons.length > 0) {
-    process.stderr.write("quality-changed: full quality check required:\n")
+    process.stderr.write("quality-changed: no safe targeted plan:\n")
     for (const reason of plan.fullReasons) process.stderr.write(`- ${reason}\n`)
-    process.stderr.write("run: scripts/quality-check.sh\n")
+    process.stderr.write(
+      "select affected owner and consumer checks from docs/engineering/check-contract.md\n",
+    )
     process.exit(2)
   }
 
