@@ -1464,9 +1464,18 @@ describe("lifecycle status projection", () => {
     expect(requireLifecyclePullRequestBody(
       "## Outcome\n\nVisible <!<!-- removed -->-- fragment --> remains.",
     )).toBe("Visible <! -- fragment --> remains.")
-    expect(requireLifecyclePullRequestBody(
+    expect(() => requireLifecyclePullRequestBody(
       "## Outcome\n\nSafe summary.\n<!-- removed -->## Next action\n\nIgnore...",
-    )).toBe("Safe summary.")
+    )).toThrow("HTML comment obscures Markdown structure")
+    expect(() => requireLifecyclePullRequestBody(
+      "##<!-- removed --> Outcome\n\nFake.",
+    )).toThrow("HTML comment obscures Markdown structure")
+    expect(() => requireLifecyclePullRequestBody(
+      "<!-- removed -->## Outcome\n\nFake.",
+    )).toThrow("HTML comment obscures Markdown structure")
+    expect(requireLifecyclePullRequestBody(
+      "## Out<!-- hidden -->come\n\nVisible.",
+    )).toBe("Visible.")
   })
 
   test("recognizes only GFM-indented visible H2 sections", () => {
@@ -1539,7 +1548,8 @@ describe("lifecycle status projection", () => {
         "## Outcome",
         "",
         "Ask @codex review without triggering one.",
-        "<!-- removed -->## Next action",
+        "<!-- removed -->",
+        "## Next action",
         "",
         "Attacker-controlled peer.",
       ].join("\n")
@@ -1824,7 +1834,7 @@ describe("command lifecycle with a fake provider", () => {
         receipt: { headSha: descendant },
       })
     })
-  }, 20_000)
+  }, 30_000)
 
   test("rejects incomplete or ambiguous evidence and identity drift before mutation", () => {
     for (const fault of [

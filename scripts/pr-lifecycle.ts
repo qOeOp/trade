@@ -296,6 +296,8 @@ export function parseMarker<T>(body: string, marker: string): T | null {
 }
 
 export function requireLifecyclePullRequestBody(body: string): string {
+  if (body.includes("\0")) throw new Error("PR body contains an unsupported null byte")
+  const structuralChunks: string[] = []
   const visibleChunks: string[] = []
   let visibleStart = 0
   let index = 0
@@ -305,6 +307,7 @@ export function requireLifecyclePullRequestBody(body: string): string {
       continue
     }
 
+    structuralChunks.push(body.slice(visibleStart, index), "\0")
     visibleChunks.push(body.slice(visibleStart, index), " ")
     let commentIndex = index + 4
     while (commentIndex < body.length && !body.startsWith("-->", commentIndex)) {
@@ -312,6 +315,7 @@ export function requireLifecyclePullRequestBody(body: string): string {
         throw new Error("PR body contains a nested HTML comment")
       }
       if (body[commentIndex] === "\n" || body[commentIndex] === "\r") {
+        structuralChunks.push(body[commentIndex])
         visibleChunks.push(body[commentIndex])
       }
       commentIndex += 1
@@ -322,14 +326,16 @@ export function requireLifecyclePullRequestBody(body: string): string {
     index = commentIndex + 3
     visibleStart = index
   }
+  structuralChunks.push(body.slice(visibleStart))
   visibleChunks.push(body.slice(visibleStart))
+  const structuralBody = structuralChunks.join("")
   const visibleBody = visibleChunks.join("")
 
   const sections: Array<{ index: number; headingEnd: number; title: string }> = []
   let fence: { marker: "`" | "~"; length: number } | null = null
   let rawHtmlEnd: string | null = null
   let offset = 0
-  for (const rawLine of visibleBody.split(/(?<=\n)/)) {
+  for (const rawLine of structuralBody.split(/(?<=\n)/)) {
     const lineWithCarriageReturn = rawLine.endsWith("\n") ? rawLine.slice(0, -1) : rawLine
     const line = lineWithCarriageReturn.endsWith("\r")
       ? lineWithCarriageReturn.slice(0, -1)
@@ -393,8 +399,18 @@ export function requireLifecyclePullRequestBody(body: string): string {
     }
 
     const heading = line.match(/^ {0,3}##(?=$|[ \t])([ \t].*)?$/)
+    if (
+      !heading
+      && line.includes("\0")
+      && /^ {0,3}##(?=$|[ \t])([ \t].*)?$/.test(line.replace(/\0/g, ""))
+    ) {
+      throw new Error("PR body HTML comment obscures Markdown structure")
+    }
     if (heading) {
-      const title = (heading[1] ?? "").replace(/[ \t]+#+[ \t]*$/, "").trim()
+      const title = (heading[1] ?? "")
+        .replace(/\0/g, "")
+        .replace(/[ \t]+#+[ \t]*$/, "")
+        .trim()
       sections.push({ index: offset, headingEnd: offset + line.length, title })
     }
     offset += rawLine.length
