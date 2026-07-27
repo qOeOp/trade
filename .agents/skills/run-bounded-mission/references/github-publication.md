@@ -113,8 +113,12 @@ When the repository contains `scripts/pr-lifecycle.ts` and a base-owned
    sealed clean reaction, complete thread
    snapshot, and exact immutable finding seals whose bound replies remain
    present and unchanged in the current PR commit lineage.
-   A successful status certifies only the provider identity observed before and
-   after that status write; strict required checks own later live-base drift.
+   Before success, replace any prior conclusion with a non-success status and
+   reconstruct the complete provider snapshot again. Success must be the
+   successful path's final provider write and certifies only that immediately
+   preceding complete snapshot; GitHub commit statuses provide no transactional
+   post-write validation or rollback. Strict required checks own later live-base
+   drift.
    Run it immediately before merge and permit no intervening PR writes. It fails
    closed on ambiguity, pagination, deletion/minimization, duplicates, forks,
    stale identities, or incomplete provider data.
@@ -124,8 +128,9 @@ When the repository contains `scripts/pr-lifecycle.ts` and a base-owned
    dispatch only wakes the default-branch workflow. The workflow checks out the
    exact default-branch workflow SHA, requires it to equal the live base,
    reruns the same verifier against live provider state,
-   and writes the sole `pr-lifecycle-gate` status to the live PR head only when
-   head, base ref, and base SHA match before and after publication. Candidate
+   and writes the sole `pr-lifecycle-gate` status to the live PR head only after
+   head, base ref, and base SHA match in two complete pre-success snapshots.
+   Candidate
    workflow or script content is never trusted.
 9. Merge only when the ruleset requires that exact status from the expected
    integration, all existing checks and review-thread rules pass, and an

@@ -15,6 +15,7 @@ Use native planning, isolation, tools, and gates; do not build another orchestra
 
 - Read [references/roles.md](references/roles.md) during discovery when ambiguity, unclear consumers, governance or oracle changes, cross-owner design, expensive reversal, noisy investigation, or required independence may justify a fresh role; always read it before using one.
 - A `covered GitHub PR lifecycle terminal` means publishing a GitHub PR, carrying it through review, or merging it. Read [references/github-publication.md](references/github-publication.md) only when the requested outcome explicitly includes one. Ordinary read-only PR inspection is not a covered terminal unless the outcome requests lifecycle progress. Do not load or apply the reference to patch-only, local-only, other read-only, or non-GitHub missions.
+- Read [references/codex-goals.md](references/codex-goals.md) only when the user explicitly asks to create, bind, resume, or continue the mission as a Codex goal. A goal is an execution envelope, not a mission ledger or additional authority.
 - Read [references/post-mission-review.md](references/post-mission-review.md) only after the mission terminates or when changing this skill package.
 
 ## Mission workflow
@@ -49,6 +50,12 @@ Use project budgets when present. Otherwise allow three candidates per uncertain
 Track per-slice revision and non-progress limits separately from cumulative mission cost, escalation, and admitted-slice budgets. Every admitted slice—open, failed, rejected, or accepted—gets at most three implementation revisions and consumes one unit of the same cumulative admitted-slice budget when it enters execution or evaluation. Two non-progress cycles force replan or termination by the ordered predicates. A new slice needs a different consumer checkpoint, or a replan that materially changes contract or design to close a new counterexample. A complex mission may use multiple distinct slices within its pre-admitted cumulative budget; if six is foreseeably insufficient, externally admit a larger mission budget before execution.
 
 Recontracting, replanning, renaming, retrying, changing context, persisting the goal, recurring the run, or relabeling a same-mission step as read-only cannot reset exhausted slice or mission budgets. Slice exhaustion requires replan; only cumulative cost, escalation, or admitted-slice exhaustion can terminate the mission as `budget_exhausted`. After exhaustion, more capacity requires externally admitted new-mission authority, not a same-mission reset. An independent read-only task with a different outcome is a new mission with its own counters.
+
+When the mission is explicitly goal-backed, apply
+[references/codex-goals.md](references/codex-goals.md). The third unsuccessful
+implementation revision stops that slice; a fourth is forbidden. Goal
+persistence does not turn slice exhaustion into platform `blocked` or reset any
+counter.
 
 An explicit replan may refreeze mission-selected design, effects, and a falsified mission-selected oracle only within the original authority, outcome, consumer journey, externally imposed acceptance requirements, effect ceiling, and cumulative budgets. Candidates and evaluators cannot change or weaken the oracle. Do not reset budgets through a new context, renamed request, persistent goal, recurring run, or replan. Expanding an external bound requires external admission and a new mission.
 

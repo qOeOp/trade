@@ -325,16 +325,89 @@ export function requireLifecyclePullRequestBody(body: string): string {
   visibleChunks.push(body.slice(visibleStart))
   const visibleBody = visibleChunks.join("")
 
-  const sections = [...visibleBody.matchAll(/^ {0,3}##(?=$|[ \t])([ \t].*)?$/gm)]
+  const sections: Array<{ index: number; headingEnd: number; title: string }> = []
+  let fence: { marker: "`" | "~"; length: number } | null = null
+  let rawHtmlEnd: string | null = null
+  let offset = 0
+  for (const rawLine of visibleBody.split(/(?<=\n)/)) {
+    const lineWithCarriageReturn = rawLine.endsWith("\n") ? rawLine.slice(0, -1) : rawLine
+    const line = lineWithCarriageReturn.endsWith("\r")
+      ? lineWithCarriageReturn.slice(0, -1)
+      : lineWithCarriageReturn
+
+    if (fence) {
+      const closing = line.match(/^ {0,3}(`+|~+)[ \t]*$/)
+      if (
+        closing
+        && closing[1]![0] === fence.marker
+        && closing[1]!.length >= fence.length
+      ) fence = null
+      offset += rawLine.length
+      continue
+    }
+
+    if (rawHtmlEnd !== null) {
+      if (
+        (rawHtmlEnd === "" && line.trim() === "")
+        || (rawHtmlEnd !== "" && line.toLowerCase().includes(rawHtmlEnd))
+      ) rawHtmlEnd = null
+      offset += rawLine.length
+      continue
+    }
+
+    const openingFence = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/)
+    if (
+      openingFence
+      && (openingFence[1]![0] !== "`" || !openingFence[2]!.includes("`"))
+    ) {
+      fence = {
+        marker: openingFence[1]![0] as "`" | "~",
+        length: openingFence[1]!.length,
+      }
+      offset += rawLine.length
+      continue
+    }
+
+    const html = line.replace(/^ {0,3}/, "")
+    const rawTag = html.match(/^<(script|pre|style|textarea)(?:[ \t>]|$)/i)
+    if (rawTag) {
+      rawHtmlEnd = `</${rawTag[1]!.toLowerCase()}>`
+      if (html.toLowerCase().includes(rawHtmlEnd)) rawHtmlEnd = null
+      offset += rawLine.length
+      continue
+    }
+    if (html.startsWith("<?")) rawHtmlEnd = "?>"
+    else if (html.startsWith("<![CDATA[")) rawHtmlEnd = "]]>"
+    else if (/^<![A-Z]/.test(html)) rawHtmlEnd = ">"
+    else if (/^<\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:[ \t/>]|$)/i.test(html)) {
+      rawHtmlEnd = ""
+    } else if (/^<\/?[A-Za-z][^>]*>[ \t]*$/.test(html)) {
+      rawHtmlEnd = ""
+    }
+    if (rawHtmlEnd !== null) {
+      if (rawHtmlEnd !== "" && html.toLowerCase().includes(rawHtmlEnd)) {
+        rawHtmlEnd = null
+      }
+      offset += rawLine.length
+      continue
+    }
+
+    const heading = line.match(/^ {0,3}##(?=$|[ \t])([ \t].*)?$/)
+    if (heading) {
+      const title = (heading[1] ?? "").replace(/[ \t]+#+[ \t]*$/, "").trim()
+      sections.push({ index: offset, headingEnd: offset + line.length, title })
+    }
+    offset += rawLine.length
+  }
+
   let outcome: string | null = null
   for (const [index, section] of sections.entries()) {
-    const title = (section[1] ?? "").replace(/[ \t]+#+[ \t]*$/, "").trim()
-    if (!title) throw new Error("PR body has an empty H2 heading")
+    if (!section.title) throw new Error("PR body has an empty H2 heading")
     const content = visibleBody
-      .slice(section.index! + section[0].length, sections[index + 1]?.index)
+      .slice(section.headingEnd, sections[index + 1]?.index)
       .trim()
-    if (!content) throw new Error(`PR body section is empty: ## ${title}`)
-    if (title === "Outcome") outcome = content
+    if (!content) throw new Error(`PR body section is empty: ## ${section.title}`)
+    if (section.title === "Outcome") outcome = content
   }
   if (!outcome) throw new Error("PR body is missing required section: ## Outcome")
   return outcome
@@ -366,6 +439,10 @@ function isCodex(actor: string): boolean {
 
 export function requireComplete(snapshot: PullRequestSnapshot): void {
   if (!snapshot.complete) throw new Error("provider snapshot is incomplete")
+}
+
+function requireOpenPullRequest(pullRequest: { open: boolean; merged: boolean }): void {
+  if (!pullRequest.open || pullRequest.merged) throw new Error("pull request is not open")
 }
 
 export function validateClaimTag(
@@ -1877,7 +1954,7 @@ async function commandClaim(args: string[]): Promise<void> {
   if (!validMission(mission)) throw new Error("invalid mission id")
   const snapshot = fetchSnapshot(repository, pr)
   requireComplete(snapshot)
-  if (!snapshot.open || snapshot.merged) throw new Error("pull request is not open")
+  requireOpenPullRequest(snapshot)
   if (snapshot.headRepository !== repository) throw new Error("fork pull requests are blocked")
   const actor = currentActor()
   const capability = randomBytes(32).toString("hex")
@@ -1915,9 +1992,9 @@ async function commandReview(args: string[]): Promise<void> {
   const expectedClaim = option(args, "--claim")!
   const snapshot = fetchSnapshot(repository, pr)
   requireComplete(snapshot)
+  requireOpenPullRequest(snapshot)
   const claim = loadClaim(repository, pr, expectedClaim)
   requireWriter(claim, args)
-  if (!snapshot.open || snapshot.merged) throw new Error("pull request is not open")
   if (!snapshot.draft) throw new Error("review trigger requires a draft pull request")
   requireClaimLineage(snapshot, claim)
   if (
@@ -2018,6 +2095,7 @@ async function commandSeal(args: string[]): Promise<void> {
   const expectedClaim = option(args, "--claim")!
   const snapshot = fetchSnapshot(repository, pr)
   requireComplete(snapshot)
+  requireOpenPullRequest(snapshot)
   const claim = loadClaim(repository, pr, expectedClaim)
   requireWriter(claim, args)
   requireClaimLineage(snapshot, claim)
@@ -2168,9 +2246,9 @@ async function commandAddress(args: string[]): Promise<void> {
 
   const snapshot = fetchSnapshot(repository, pr)
   requireComplete(snapshot)
+  requireOpenPullRequest(snapshot)
   const claim = loadClaim(repository, pr, expectedClaim)
   requireWriter(claim, args)
-  if (!snapshot.open || snapshot.merged) throw new Error("pull request is not open")
   requireClaimLineage(snapshot, claim)
   const reviewHistory = loadReviewCycles(repository, snapshot, claim)
   const historyReasons = validateReviewHistory(
@@ -2449,6 +2527,7 @@ function publishGateFailure(repository: string, pr: number, description: string)
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const live = fetchBasicPullRequest(repository, pr)
+      requireOpenPullRequest(live)
       postStatus(repository, live.headSha, "failure", description)
       return true
     } catch {
@@ -2472,7 +2551,9 @@ async function publishGateStatus(
   requestedState: "success" | "failure",
   description: string,
 ): Promise<boolean> {
+  if (!verified.open || verified.merged) return false
   const before = fetchBasicPullRequest(repository, pr)
+  requireOpenPullRequest(before)
   const initial = gateStatusForLiveIdentity(verified, before, requestedState)
   if (initial.identityChanged) {
     publishGateFailure(
@@ -2497,6 +2578,12 @@ async function publishGateStatus(
     }
     return true
   }
+
+  if (!publishGateFailure(
+    repository,
+    pr,
+    "PR lifecycle verification is being refreshed",
+  )) return false
 
   let beforeWrite: Awaited<ReturnType<typeof verifyLive>>
   try {
@@ -2523,41 +2610,6 @@ async function publishGateStatus(
   }
 
   postStatus(repository, beforeWrite.snapshot.headSha, "success", description)
-
-  let afterWrite: Awaited<ReturnType<typeof verifyLive>>
-  try {
-    afterWrite = await verifyLive(repository, pr, expected, allowDraft)
-  } catch {
-    publishGateFailure(
-      repository,
-      pr,
-      "PR lifecycle evidence could not be revalidated after status publication",
-    )
-    return false
-  }
-  if (
-    !afterWrite.snapshot.complete
-    || !afterWrite.verification.ok
-    || JSON.stringify(afterWrite.snapshot) !== JSON.stringify(verified)
-  ) {
-    publishGateFailure(
-      repository,
-      pr,
-      "PR lifecycle evidence changed during status publication",
-    )
-    return false
-  }
-
-  const after = fetchBasicPullRequest(repository, pr)
-  const confirmation = gateStatusForLiveIdentity(verified, after, requestedState)
-  if (confirmation.identityChanged) {
-    publishGateFailure(
-      repository,
-      pr,
-      "PR identity changed during lifecycle status publication",
-    )
-    return false
-  }
   return true
 }
 
@@ -2613,6 +2665,7 @@ async function commandDispatch(args: string[]): Promise<void> {
   const expectedClaim = option(args, "--claim")!
   const snapshot = fetchSnapshot(repository, pr)
   requireComplete(snapshot)
+  requireOpenPullRequest(snapshot)
   const claim = loadClaim(repository, pr, expectedClaim)
   requireWriter(claim, args)
   requireClaimLineage(snapshot, claim)
@@ -2640,6 +2693,7 @@ async function commandStatus(args: string[]): Promise<void> {
   const pr = integerOption(args, "--pr")
   const snapshot = fetchSnapshot(repository, pr)
   requireComplete(snapshot)
+  requireOpenPullRequest(snapshot)
   const claim = loadClaim(repository, pr, option(args, "--claim")!)
   requireWriter(claim, args)
   requireClaimLineage(snapshot, claim)
