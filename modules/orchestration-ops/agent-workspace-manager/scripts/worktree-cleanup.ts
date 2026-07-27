@@ -996,7 +996,7 @@ function assertOwnerTool(options: RemoveOptions): void {
     "--no-replace-objects",
     "cat-file",
     "-e",
-    `${options.ownerCommit}:scripts/worktree-cleanup.ts`,
+    `${options.ownerCommit}:modules/orchestration-ops/agent-workspace-manager/scripts/worktree-cleanup.ts`,
   ])
   if (result.exitCode !== 0) throw new WorktreeCleanupError("owner_tool_identity_missing")
 }

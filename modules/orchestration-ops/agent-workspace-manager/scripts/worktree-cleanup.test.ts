@@ -43,7 +43,7 @@ test("owner cleanup removes only the exact clean linked worktree and local branc
     "git",
     "--no-replace-objects",
     "show",
-    `${ownerCommit}:scripts/worktree-cleanup.ts`,
+    `${ownerCommit}:modules/orchestration-ops/agent-workspace-manager/scripts/worktree-cleanup.ts`,
   ], [
     "bun",
     "run",
@@ -1496,7 +1496,7 @@ test("parsed validation failures retain the attempted target and operation state
     "git",
     "--no-replace-objects",
     "show",
-    `${ownerCommit}:scripts/worktree-cleanup.ts`,
+    `${ownerCommit}:modules/orchestration-ops/agent-workspace-manager/scripts/worktree-cleanup.ts`,
   ], [
     "bun",
     "run",
@@ -1624,22 +1624,30 @@ test("owner cleanup binds owner inspection and streaming despite replacement ref
   const fixture = createFixture()
   const identity = identifyLinkedWorktree(fixture.worktree)
   const ownerCommit = installOwnerTool(fixture.root)
+  const ownerToolPath = join(
+    fixture.root,
+    "modules",
+    "orchestration-ops",
+    "agent-workspace-manager",
+    "scripts",
+    "worktree-cleanup.ts",
+  )
   writeFileSync(
-    join(fixture.root, "scripts", "worktree-cleanup.ts"),
+    ownerToolPath,
     'throw new Error("replacement owner executed")\n',
   )
-  run(fixture.root, ["git", "add", "scripts/worktree-cleanup.ts"])
+  run(fixture.root, ["git", "add", "modules/orchestration-ops/agent-workspace-manager/scripts/worktree-cleanup.ts"])
   run(fixture.root, ["git", "commit", "-qm", "replacement owner"])
   const replacementCommit = run(fixture.root, ["git", "rev-parse", "HEAD"])
   run(fixture.root, ["git", "replace", ownerCommit, replacementCommit])
-  expect(run(fixture.root, ["git", "show", `${ownerCommit}:scripts/worktree-cleanup.ts`]))
+  expect(run(fixture.root, ["git", "show", `${ownerCommit}:modules/orchestration-ops/agent-workspace-manager/scripts/worktree-cleanup.ts`]))
     .toContain("replacement owner executed")
 
   const cleanup = runPipeline(fixture.root, [
     "git",
     "--no-replace-objects",
     "show",
-    `${ownerCommit}:scripts/worktree-cleanup.ts`,
+    `${ownerCommit}:modules/orchestration-ops/agent-workspace-manager/scripts/worktree-cleanup.ts`,
   ], [
     "bun",
     "run",
@@ -1671,7 +1679,7 @@ test("failure receipts redact a path-like malformed expected ref", () => {
     "git",
     "--no-replace-objects",
     "show",
-    `${ownerCommit}:scripts/worktree-cleanup.ts`,
+    `${ownerCommit}:modules/orchestration-ops/agent-workspace-manager/scripts/worktree-cleanup.ts`,
   ], [
     "bun",
     "run",
@@ -2805,13 +2813,19 @@ function createDetachedFixture(): { root: string; worktree: string } {
 }
 
 function installOwnerTool(root: string): string {
-  const scripts = join(root, "scripts")
-  run(root, ["mkdir", "-p", scripts])
+  const ownerDirectory = join(
+    root,
+    "modules",
+    "orchestration-ops",
+    "agent-workspace-manager",
+    "scripts",
+  )
+  run(root, ["mkdir", "-p", ownerDirectory])
   writeFileSync(
-    join(scripts, "worktree-cleanup.ts"),
+    join(ownerDirectory, "worktree-cleanup.ts"),
     readFileSync(join(import.meta.dir, "worktree-cleanup.ts")),
   )
-  run(root, ["git", "add", "scripts/worktree-cleanup.ts"])
+  run(root, ["git", "add", "modules/orchestration-ops/agent-workspace-manager/scripts/worktree-cleanup.ts"])
   run(root, ["git", "commit", "-qm", "install owner tool"])
   return run(root, ["git", "rev-parse", "HEAD"])
 }
@@ -2909,7 +2923,7 @@ function expectCleanupInUse(
     "git",
     "--no-replace-objects",
     "show",
-    `${ownerCommit}:scripts/worktree-cleanup.ts`,
+    `${ownerCommit}:modules/orchestration-ops/agent-workspace-manager/scripts/worktree-cleanup.ts`,
   ], [
     setpriv,
     "--bounding-set=-all",
