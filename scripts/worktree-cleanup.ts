@@ -295,11 +295,22 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
     if ((refDeleted || moved) && !removed && quarantinePath && initial) {
       rollbackAttempted = true
       try {
+        let restoredClaimedRef = false
         if (refDeleted && options.expectedRef !== null && refSnapshot) {
           if (!guardRef) throw new WorktreeCleanupError("guard_ref_missing")
           restoreRef(ownerCwd, options.expectedRef, options.expectedHead, guardRef, refSnapshot)
           git(quarantinePath, ["symbolic-ref", "HEAD", options.expectedRef])
           refDeleted = false
+          restoredClaimedRef = true
+        }
+        rollbackMove(ownerCwd, quarantinePath, initial.worktreePath)
+        moved = false
+        if (
+          restoredClaimedRef
+          && guardRef
+          && options.expectedRef !== null
+          && refSnapshot
+        ) {
           deleteGuardRef(
             ownerCwd,
             guardRef,
@@ -308,8 +319,6 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
             options.expectedRef,
           )
         }
-        rollbackMove(ownerCwd, quarantinePath, initial.worktreePath)
-        moved = false
         rollbackCompleted = true
       } catch {
         const preservedRef = survivingGuardRef(ownerCwd, guardRef)
@@ -1633,15 +1642,6 @@ function looseRefPath(cwd: string, ref: string): string {
   return refPath
 }
 
-function packedRefExists(cwd: string, ref: string): boolean {
-  const commonDir = git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])
-  const packedRefs = join(commonDir, "packed-refs")
-  if (!existsSync(packedRefs)) return false
-  return readFileSync(packedRefs, "utf8")
-    .split("\n")
-    .some((line) => line.endsWith(` ${ref}`))
-}
-
 function deleteGuardRef(
   cwd: string,
   guardRef: string,
@@ -1660,13 +1660,24 @@ function deleteGuardRef(
 function cleanupDeletedBranchMetadata(cwd: string, ref: string): void {
   const refPath = looseRefPath(cwd, ref)
   const refLock = `${refPath}.lock`
+  const commonDir = git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])
+  const packedRefs = join(commonDir, "packed-refs")
+  const packedRefsLock = `${packedRefs}.lock`
   const createdParents = ensureParentDirectories(refLock)
   let refLockFd: number | undefined
   let refLockIdentity: FileIdentity | undefined
+  let packedLockFd: number | undefined
+  let packedLockIdentity: FileIdentity | undefined
   try {
+    packedLockFd = openSync(packedRefsLock, "wx", 0o600)
+    packedLockIdentity = fileIdentityForDescriptor(packedLockFd)
     refLockFd = openSync(refLock, "wx", 0o600)
     refLockIdentity = fileIdentityForDescriptor(refLockFd)
-    if (existsSync(refPath) || packedRefExists(cwd, ref)) return
+    const packedRefPresent = existsSync(packedRefs)
+      && readFileSync(packedRefs, "utf8")
+        .split("\n")
+        .some((line) => line.endsWith(` ${ref}`))
+    if (existsSync(refPath) || packedRefPresent) return
     const branchName = ref.slice("refs/heads/".length)
     const sectionPattern = `^branch\\.${escapeRegExp(branchName)}\\.`
     const existingConfig = gitResult(cwd, [
@@ -1696,6 +1707,8 @@ function cleanupDeletedBranchMetadata(cwd: string, ref: string): void {
       closeSync(refLockFd)
       if (refLockIdentity) unlinkOwnedLock(refLock, refLockIdentity)
     }
+    if (packedLockFd !== undefined) closeSync(packedLockFd)
+    if (packedLockIdentity) unlinkOwnedLock(packedRefsLock, packedLockIdentity)
     removeCreatedParents(createdParents)
   }
 }

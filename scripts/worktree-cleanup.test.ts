@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test"
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test"
 import {
   chmodSync,
   copyFileSync,
@@ -24,6 +24,8 @@ import {
 } from "./worktree-cleanup"
 
 const fixtures: string[] = []
+
+setDefaultTimeout(30_000)
 
 afterEach(() => {
   for (const fixture of fixtures.splice(0)) rmSync(fixture, { recursive: true, force: true })
@@ -222,6 +224,42 @@ exec "${realGit}" "$@"
   expect(receipt.worktree_removed).toBe(true)
   expect(receipt.local_branch_deleted).toBe(false)
   expect(readFileSync(externalLock, "utf8")).toBe("external owner\n")
+})
+
+test("owner cleanup locks packed and loose refs while deleting branch metadata", () => {
+  const fixture = createFixture()
+  const identity = identifyLinkedWorktree(fixture.worktree)
+  const ownerCommit = installOwnerTool(fixture.root)
+  run(fixture.root, ["git", "config", "branch.mission-branch.remote", "origin"])
+  const realGit = Bun.which("git")
+  if (!realGit) throw new Error("git unavailable")
+  const bin = join(fixture.root, "bin")
+  const recreationResult = join(bin, "recreation-result")
+  run(fixture.root, ["/bin/mkdir", "-p", bin])
+  const wrapper = join(bin, "git")
+  writeFileSync(
+    wrapper,
+    `#!/bin/sh
+case " $* " in
+  *" config --name-only --get-regexp "*)
+    "${realGit}" -C "${fixture.root}" -c core.filesRefLockTimeout=0 update-ref "${identity.ref!}" "${identity.head}" >/dev/null 2>&1
+    printf '%s\\n' "$?" > "${recreationResult}"
+    ;;
+esac
+exec "${realGit}" "$@"
+`,
+  )
+  chmodSync(wrapper, 0o755)
+
+  const cleanup = runCleanupCli(fixture.root, identity, ownerCommit, bin)
+
+  expect(cleanup.exitCode).toBe(0)
+  const receipt = JSON.parse(cleanup.stdout.toString())
+  expect(receipt.status).toBe("completed")
+  expect(receipt.local_branch_deleted).toBe(true)
+  expect(readFileSync(recreationResult, "utf8").trim()).not.toBe("0")
+  expect(runResult(fixture.root, ["git", "config", "--get", "branch.mission-branch.remote"]).exitCode)
+    .not.toBe(0)
 })
 
 test("owner cleanup removes configuration for a branch name containing a closing bracket", () => {
@@ -2097,6 +2135,46 @@ exec "${realGit}" "$@"
   ]).split("\n")
   expect(reflogAfter).toEqual(reflogBefore)
   expect(readFileSync(reflogPath)).toEqual(reflogBytesBefore)
+})
+
+test("owner cleanup preserves the guard when the public path is reacquired during rollback", () => {
+  const fixture = createFixture()
+  const identity = identifyLinkedWorktree(fixture.worktree)
+  const ownerCommit = installOwnerTool(fixture.root)
+  const realGit = Bun.which("git")
+  if (!realGit) throw new Error("git unavailable")
+  const bin = join(fixture.root, "bin")
+  run(fixture.root, ["/bin/mkdir", "-p", bin])
+  const wrapper = join(bin, "git")
+  writeFileSync(
+    wrapper,
+    `#!/bin/sh
+case " $* " in
+  *" worktree remove "*) exit 71 ;;
+  *" symbolic-ref HEAD ${identity.ref!} "*)
+    "${realGit}" "$@" || exit $?
+    /bin/mkdir -p "${fixture.worktree}"
+    printf 'foreign path owner\\n' > "${join(fixture.worktree, "foreign.txt")}"
+    exit 0
+    ;;
+esac
+exec "${realGit}" "$@"
+`,
+  )
+  chmodSync(wrapper, 0o755)
+
+  const cleanup = runCleanupCli(fixture.root, identity, ownerCommit, bin)
+
+  expect(cleanup.exitCode).toBe(1)
+  const receipt = JSON.parse(cleanup.stdout.toString())
+  expect(receipt.reason_code).toBe("rollback_failed")
+  expect(receipt.rollback_attempted).toBe(true)
+  expect(receipt.rollback_completed).toBe(false)
+  expect(receipt.preserved_ref).toMatch(/^refs\/heads\/worktree-cleanup-[0-9a-f]{64}$/)
+  expect(run(fixture.root, ["git", "rev-parse", receipt.preserved_ref])).toBe(identity.head)
+  expect(readFileSync(join(fixture.worktree, "foreign.txt"), "utf8")).toBe("foreign path owner\n")
+  expect(run(fixture.root, ["git", "worktree", "list", "--porcelain"]))
+    .toContain(".worktree-cleanup-")
 })
 
 test("owner cleanup does not overwrite a reflog after a concurrent ref update", () => {
