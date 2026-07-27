@@ -599,6 +599,11 @@ if (endpoint.startsWith("repos/qOeOp/trade/statuses/") && method === "POST") {
   }
   state.mutations += 1
   state.statuses.push(status)
+  if (status.state === "success" && state.successStatusCommittedError) {
+    state.successStatusCommittedError = false
+    save()
+    fail("provider-secret-after-success-commit")
+  }
   output({ id: state.statuses.length })
 }
 fail("unsupported fake gh endpoint " + endpoint)
@@ -732,6 +737,7 @@ function fakeProviderState() {
     statusAttempts: [] as Array<Record<string, string>>,
     statusFailuresRemaining: 0,
     failureStatusFailuresRemaining: 0,
+    successStatusCommittedError: false,
     statusFailureNewHead: null as string | null,
     fault: null as string | null,
     mutationFault: null as string | null,
@@ -2298,6 +2304,34 @@ describe("gate status publication", () => {
         state: "failure",
         context: "pr-lifecycle-gate",
       })
+    })
+  }, 20_000)
+
+  test("does not write after an indeterminate response to the success invocation", () => {
+    withFakeProvider(({ invoke, readState, writeState }) => {
+      const state = readState()
+      makeGateReady(state)
+      state.successStatusCommittedError = true
+      writeState(state)
+
+      const result = invoke(gateArgs)
+
+      expect(result.exitCode).not.toBe(0)
+      expect(result.stdout.toString()).toBe("")
+      expect(result.stderr.toString()).toContain(
+        "PR lifecycle success status result is indeterminate",
+      )
+      expect(result.stderr.toString()).not.toContain("provider-secret")
+      const confirmed = readState()
+      expect(confirmed.statusAttempts.map((status) => status.state)).toEqual([
+        "failure",
+        "success",
+      ])
+      expect(confirmed.statuses.map((status) => status.state)).toEqual([
+        "failure",
+        "success",
+      ])
+      expect(confirmed.mutations).toBe(2)
     })
   }, 20_000)
 

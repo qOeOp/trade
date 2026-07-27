@@ -2535,6 +2535,12 @@ function postStatus(
   ])
 }
 
+class IndeterminateGateSuccessError extends Error {
+  constructor() {
+    super("PR lifecycle success status result is indeterminate")
+  }
+}
+
 export function gateStatusForLiveIdentity(
   verified: PullRequestIdentity,
   live: PullRequestIdentity,
@@ -2638,7 +2644,11 @@ async function publishGateStatus(
     return false
   }
 
-  postStatus(repository, beforeWrite.snapshot.headSha, "success", description)
+  try {
+    postStatus(repository, beforeWrite.snapshot.headSha, "success", description)
+  } catch {
+    throw new IndeterminateGateSuccessError()
+  }
   return true
 }
 
@@ -2681,6 +2691,7 @@ async function commandVerify(args: string[], writeStatus: boolean): Promise<void
     if (!result.verification.ok) process.exitCode = 1
   } catch (error) {
     if (writeStatus) {
+      if (error instanceof IndeterminateGateSuccessError) throw error
       publishGateFailure(repository, pr, "PR lifecycle verification failed closed")
       failGateStatusPublication()
     }
