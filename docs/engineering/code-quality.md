@@ -10,7 +10,7 @@ last_verified: 2026-07-27 CST
 
 ## 0. 定位
 
-本文回答：提交前代码是否干净、克制、可交给别人接手。
+本文回答：候选如何在本地定向验收，并经远端全仓门自动收口。
 
 它不是新的架构计划；只定义项目级质量闸。架构意图仍由 architecture contract / manifest / blueprint 持有。`scripts/quality-check.sh` 只编排 owner check，不自行解释领域、语言或业务语义；不能由 owner 精确判定的事项留给 review。
 
@@ -45,9 +45,9 @@ scripts/quality-check.sh
 
 `scripts/quality-check.sh` 是唯一编排入口，但支持 `policy / typescript / replay / native` 四个可组合 scope。GitHub PR workflow 在隔离 runner 中并发执行 policy、两个确定性 TypeScript shard、Replay semantic 与 native toolchain，最后只由稳定的 `quality` aggregate 汇总；本地不并发争抢 Replay/Cargo 资源。CodeQL 作为独立安全扫描并行运行，Replay release closure 只在 nightly/manual certification 运行，避免把发布级重证据塞回每次 PR。
 
-## 2. 提交品位线
+## 2. 候选品位线
 
-提交前必须满足：
+commit / push 前必须在受影响范围内满足：
 
 - 无 compiler / typecheck / test / vet failure
 - TypeScript ESLint 与 ShellCheck 无 error/warning；不以自动修复掩盖候选差异
@@ -64,12 +64,14 @@ scripts/quality-check.sh
 
 ## 3. 分层使用
 
-- docs-only 或单模块日常改动：用 `bun scripts/quality-check-changed.ts --path <本次改动路径>` 跑全局静态门与受影响 package；显式路径必须属于当前 worktree diff，防止在共享 dirty worktree 中误纳入其他任务。
-- Replay 日常改动由 Changed gate 直接编译并测试 owner package；contracts / engine / accounting / data-adapter 改动同时运行 runner consumer。runner 的普通 package 层精确排除 worker-v10，后者只由 exclusive semantic gate 执行。
+- 经 PR 交付：本地按 [Check Contract](./check-contract.md) 直接运行受影响 owner 的 test / typecheck / doc-or-architecture check、真实 production consumer journey、完整 diff inspection 与必要 workspace safety；不默认运行 `quality-check-changed.ts` 或 `scripts/quality-check.sh`。
+- `quality-check-changed.ts` 只是不跨 owner 的可选便利入口；它拒绝无法安全归属的 diff，只表示该 helper 不能生成定向计划，不把本地全仓门升级为 PR 前置 authority。
+- Replay 日常改动直接编译并测试 owner package；contracts / engine / accounting / data-adapter 改动同时运行 runner consumer。runner 的普通 package 层精确排除 worker-v10，后者只由 exclusive semantic gate 执行。
 - Replay 核心语义改动：运行 `bun run check:replay-semantic`；release evidence、compatibility 或发布候选改动再运行 `bun run check:replay-release`。
-- Changed gate 遇到共享 contract、脚本/CI/质量基础设施、机器架构 manifest、无 owner 文件或跨语言改动时 fail closed，并要求完整总闸。
+- CI 某个 leaf 失败后，只本地复现并修复对应 owner / leaf；候选更新后由远端 current-head checks 重建证据，不自动补跑本地全仓门。
+- GitHub required `quality` aggregate 与 JavaScript/TypeScript、Python、Rust、Go 四个 CodeQL context 承担 PR 的全仓 merge closure；依赖更新与普通代码 PR 使用同一链路。
+- 不经 PR 的交付按影响面选择本地 terminal gate；跨 owner、跨语言或质量基础设施变更可使用 `scripts/quality-check.sh` 在本地闭合。CI 不能替代 live / runtime / production consumer acceptance。
 - 首次安装或 lockfile 变化后：跑 `env -u BINANCE_API_KEY -u BINANCE_API_SECRET -u SILICONFLOW_API_KEY bun --no-env-file install --frozen-lockfile --ignore-scripts`
-- 提交前：跑 `scripts/quality-check.sh`；该命令不安装依赖、不修改 dependency state
 - 涉及真实 Binance 写接口：仍需显式 `--yes`；quality gate 不执行真实下单 / 撤单 / 调仓
 
 ## 4. 不伪装的缺口
@@ -80,7 +82,11 @@ WebStorm 能读取仓库 ESLint config，但 `Project Default` 的全项目 insp
 
 Replay release evidence 对若干源码文件绑定字节哈希。为避免候选通过重写 receipt 自证，ESLint 对这些文件保留最小、精确路径例外：3 个文件关闭 `no-useless-assignment`，2 个文件关闭 `preserve-caught-error`；`replay-trial-runner.test.ts` 只允许既有 `registryResolutionCount` 与 `_` 前缀绑定未使用，不关闭整条规则。另有 4 个明确从 `finally` fail closed 的文件关闭 `no-unsafe-finally`。新增例外必须有 owner 语义或源码身份证据，不得新增目录级 ignore 或 baseline。
 
-GitHub Actions 在 pull request 与 `main` push 上调用同一编排器的独立 scope，并把事件 base commit 传给 policy 检查精确候选范围。`copilot-setup-steps.yml` 只配置 Copilot coding agent 的工具环境，不参与普通 Actions 加速或合并裁决。workflow 成功是否阻止合并仍由 GitHub repository ruleset / branch protection 决定。当前采用单所有者信任模型：ruleset 强制最新 `main`、`quality`、四语言 CodeQL 与 review thread resolution；Agent 合并还要求当前精确 head 的 fresh evaluator 和独立 Codex review 均无未关闭发现。候选仍可能在同一 PR 修改 workflow 或裁判，仓库内代码不能把这一限制伪装成 provider-enforced independence。
+GitHub Actions 在 pull request 与 `main` push 上调用同一编排器的独立 scope，并把事件 base commit 传给 policy 检查精确候选范围。`copilot-setup-steps.yml` 只配置 Copilot coding agent 的工具环境，不参与普通 Actions 加速或合并裁决。workflow 成功是否阻止合并仍由 GitHub repository ruleset / branch protection 决定。
+
+当前采用单 owner、黑灯工厂式 PR：ruleset 强制最新 `main`、`quality`、四语言 CodeQL 与 review thread resolution，不要求 approving review、required reviewer、CODEOWNER / last-push approval，也不得引入 manual exact-SHA、repository variable 管理员确认或其他人在环 authority gate。Agent 合并还要求当前精确 head 的 fresh evaluator 和自动 Codex review 均无未关闭发现；失败由 Agent 定向修复 / 重试，无法在预算内收口则保持阻断或有界终止，不转交人工审批。
+
+候选仍可能在同一 PR 修改 workflow 或质量裁判；这是单 owner 模型明确接受的信任限制。不得恢复已删除的 manual quality-authority，也不得把 required context 名称或 GitHub Actions integration 当成 provider-enforced independence。
 
 同一仓库同一时刻只允许一个 `quality-check.sh` 实例。第二个实例必须快速失败并报告持锁 PID；异常退出遗留的死锁可在确认 owner PID 不存活后自动回收，禁止多个全量 Replay 测试争抢 CPU 后把资源竞争误判为代码慢。
 

@@ -26,7 +26,7 @@ test("one TypeScript module selects only its package check", () => {
   expect(plan.fullReasons).toEqual([])
 })
 
-test("Replay uses package checks while shared contracts, scripts, and cross-language work require the full gate", () => {
+test("Replay uses package checks while unsafe shared or cross-language plans are rejected", () => {
   const root = fixture()
   packageMarker(root,
     "modules/research-strategy-development/replay-execution-plane/runner", "package.json")
