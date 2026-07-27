@@ -1843,7 +1843,7 @@ createServer().listen("/alias/root-aliased.sock", () => writeFileSync("/ready", 
       }
     }, 15_000)
 
-    test("owner cleanup resolves a bind-aliased OverlayFS upper directory", async () => {
+    test("owner cleanup resolves a private bind-aliased OverlayFS upper directory", async () => {
       const mountRoot = mkdtempSync(join(tmpdir(), "trade-overlay-bind-socket-"))
       const bindAlias = mkdtempSync(join(tmpdir(), "trade-overlay-bind-alias-"))
       fixtures.push(mountRoot)
@@ -1865,26 +1865,33 @@ createServer().listen("/alias/root-aliased.sock", () => writeFileSync("/ready", 
       run(root, ["git", "worktree", "add", "-qb", "mission-branch", worktree])
       const identity = identifyLinkedWorktree(worktree)
       const ownerCommit = installOwnerTool(root)
-      run(root, ["mount", "--bind", mountRoot, bindAlias])
-      run(root, [
-        "mount",
-        "-t",
-        "overlay",
-        "overlay",
-        "-o",
-        `lowerdir=${lower},upperdir=${join(bindAlias, "repo", "linked worktree")},workdir=${join(bindAlias, "overlay-work")}`,
-        alias,
-      ])
       const targetSocket = join(worktree, "overlay.sock")
       const aliasSocket = join(alias, "overlay.sock")
-      const server = createServer()
-      await new Promise<void>((resolve, reject) => {
-        server.once("error", reject)
-        server.listen(aliasSocket, resolve)
-      })
+      const ready = join(mountRoot, "overlay-bind-namespace.ready")
+      const server = Bun.spawn([
+        "unshare",
+        ...mountNamespaceArgs,
+        "/bin/sh",
+        "-c",
+        `mount --bind "$1" "$2" &&
+mount -t overlay overlay -o "lowerdir=$3,upperdir=$2/repo/linked worktree,workdir=$2/overlay-work" "$4" &&
+exec "$5" -e 'import { writeFileSync } from "node:fs";
+import { createServer } from "node:net";
+createServer().listen(process.argv[1], () => writeFileSync(process.argv[2], "ready"));' "$6" "$7"`,
+        "sh",
+        mountRoot,
+        bindAlias,
+        lower,
+        alias,
+        Bun.which("bun")!,
+        aliasSocket,
+        ready,
+      ], { cwd: root, stdout: "ignore", stderr: "ignore" })
       try {
-        expect(statSync(aliasSocket, { bigint: true }).dev)
-          .not.toBe(statSync(targetSocket, { bigint: true }).dev)
+        await waitForPath(ready)
+        expect(existsSync(join(bindAlias, "repo", "linked worktree"))).toBe(false)
+        expect(existsSync(aliasSocket)).toBe(false)
+        expect(existsSync(targetSocket)).toBe(true)
         const failure = captureCleanupError(() => removeOwnedWorktree({
           repositoryCwd: root,
           ownerCommit,
@@ -1897,13 +1904,10 @@ createServer().listen("/alias/root-aliased.sock", () => writeFileSync("/ready", 
         expect(failure.code).toBe("target_in_use")
         expect(failure.receipt?.worktree_claimed).toBe(false)
         expect(existsSync(worktree)).toBe(true)
-        expect(server.listening).toBe(true)
+        expect(server.exitCode).toBe(null)
       } finally {
-        await new Promise<void>((resolve, reject) => {
-          server.close((error) => error ? reject(error) : resolve())
-        })
-        run(root, ["umount", alias])
-        run(root, ["umount", bindAlias])
+        server.kill()
+        await server.exited
         run("/", ["umount", mountRoot])
       }
     }, 15_000)

@@ -980,12 +980,15 @@ function overlaySocketUsesTarget(
   const upperSocketPath = resolve(matchingUpperDirectory, socketRelativePath)
   if (targetSocketPaths.has(upperSocketPath)) return true
   try {
-    const metadata = statSync(upperSocketPath, { bigint: true })
+    const metadata = statSync(
+      join(processPath, "root", upperSocketPath),
+      { bigint: true },
+    )
     return targetSocketIdentities.has(
       `${metadata.dev.toString(16)}:${metadata.ino.toString(16)}`,
     )
   } catch (error) {
-    if (isMissingProcessEntry(error)) return false
+    if (isMissingProcessEntry(error) && !existsSync(processPath)) return false
     throw new WorktreeCleanupError("process_guard_unavailable")
   }
 }
