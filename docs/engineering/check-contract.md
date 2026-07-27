@@ -16,8 +16,11 @@ last_verified: 2026-07-27 CST
 
 ## 1. 通用规则
 
-- 所有改动最后跑：`git diff --no-renames --check HEAD`
-- 涉及 TS tool：日常使用 `bun scripts/quality-check-changed.ts --path <改动路径>`；需要直接验 owner 时用根 `bun scripts/check-package-tests.ts --run-package <owner-dir>`。package 内 `bun run check` 只作开发便利，不是项目验收 authority
+- 所有改动最后检查完整 diff、运行 `git diff --no-renames --check HEAD`，并确认验收没有产生非预期 workspace side effect
+- 经 PR 交付：按本合同的“改动域到最小检查”直接运行受影响 owner 检查与真实 consumer journey；不默认运行 `changed-quality` 或本地 `project-quality`
+- CI 失败：只本地复现失败的 owner / leaf；修复后由当前 exact head 的 required `quality` 与四语言 CodeQL 重新完成全仓 merge closure，不自动追加本地总闸
+- 不经 PR 的交付：按影响面选择可在本地闭合结果的 terminal gate；CI 仍不能替代 live / runtime / consumer acceptance
+- 涉及 TS tool：需要直接验 owner 时用根 `bun scripts/check-package-tests.ts --run-package <owner-dir>` 或下表对应 owner check。package 内 `bun run check` 只作开发便利，不是项目验收 authority
 - 涉及真实 Binance 写接口：默认只跑单测 / dry-run / preview；真实 live 或 test endpoint 必须用户明确授权
 - 涉及 schema：同时跑 registry / schema 相关测试，再跑 owner tool 全量 check
 - 涉及 docs-only：不要求代码测试，但必须确保相对链接可达、当前态路径真实存在、历史计划有明确状态，且没有把未实现结构写成已完成事实
@@ -28,8 +31,8 @@ last_verified: 2026-07-27 CST
 | Check id | 目录 | 命令 | 覆盖 |
 | --- | --- | --- | --- |
 | `repo-whitespace` | repo root | 本地 `git diff --no-renames --check HEAD`；CI `git diff --no-renames --check <base>...HEAD` | 本地覆盖 staged + unstaged，CI 覆盖精确候选范围；关闭 rename detection，避免重命名隐藏空白错误 |
-| `project-quality` | repo root | `scripts/quality-check.sh [all\|policy\|typescript\|replay\|native]` | 只编排 owner checks 的提交总闸与 CI scope，不安装依赖；PR 并发执行 policy、两个 TS shard、Replay semantic、native，稳定 `quality` job 汇总 |
-| `changed-quality` | repo root | `bun scripts/quality-check-changed.ts --path <repo-relative-path>` | docs-only / 单模块日常门：全局 hygiene、secret、doc 与受影响 package；Replay 改动按 owner 选包，contracts / engine / accounting / data-adapter 额外验证 runner consumer；共享 contract、脚本/CI、机器 manifest 和跨语言改动要求总闸 |
+| `project-quality` | repo root | `scripts/quality-check.sh [all\|policy\|typescript\|replay\|native]` | CI scope 与可选的本地全仓诊断 / 非 PR terminal gate；不安装依赖，也不是 PR commit / push 前置门。PR 并发执行 policy、两个 TS shard、Replay semantic、native，稳定 `quality` job 汇总 |
+| `changed-quality` | repo root | `bun scripts/quality-check-changed.ts --path <repo-relative-path>` | 可选的 docs-only / 单模块便利入口：全局 hygiene、secret、doc 与受影响 package；只接受它能安全归属的 diff，拒绝共享 contract、脚本/CI、机器 manifest 或跨语言范围不等于要求 PR 本地跑总闸 |
 | `typescript-lint` | repo root | `bun run lint` | ESLint flat recommended 覆盖 `modules/`、`scripts/`，warning 上限 0，unused disable hard fail；changed code gate 与 policy scope 共用 |
 | `shell-lint` | repo root | `bun run lint:shell` | ShellCheck warning/error hard fail；仅排除兼容 `CDPATH= cd` 写法的 `SC1007` |
 | `workspace-hygiene` | repo root | `bun scripts/check-workspace-hygiene.ts` | 禁止新增 tracked runtime SQLite / sidecar 与 module-local DB；历史 exception 只减不增 |
@@ -171,7 +174,7 @@ last_verified: 2026-07-27 CST
 | local helper scripts | `scripts/*.sh`, README helper 入口 | `helper-scripts-smoke` + `repo-whitespace` |
 | workspace skill | `.agents/skills/**` | `workspace-skill-check` + `repo-whitespace`；若新增领域能力，必须移入 owner module 并升级为对应 module check |
 
-## 4. 何时升级为全量
+## 4. 何时使用全量
 
 必须跑 `trade-flow-check`：
 
@@ -182,13 +185,7 @@ last_verified: 2026-07-27 CST
 - 新增 command、schema、strategy family、evidence record 或 promotion gate
 - targeted test 失败后修复完成
 
-必须跑 `project-quality`：
-
-- 准备提交或交给别人 review
-- 跨语言改动
-- 新增脚本、helper、tool 或测试入口
-- 发现 warning / error / formatter / 本机路径泄漏后修复完成
-- 修改 architecture manifest / blueprint、质量审查脚本、package 测试入口或共享抽象
+经 PR 交付不因准备 commit / push、跨语言、脚本/CI、共享 contract 或质量基础设施改动自动升级为本地 `project-quality`；逐项运行受影响 owner / consumer 检查，远端 required checks 负责全仓闭包。只有不经 PR 且结果需要本地全仓终结、用户明确要求，或定位无法缩小到单个 owner / leaf 的全仓问题时，才把 `project-quality` 作为本地 terminal / 诊断入口。
 
 必须额外跑相关 tool 的 `bun run check`：
 

@@ -3,7 +3,7 @@ title: Development Convergence Contract
 role: engineering-contract
 status: active
 owner: engineering
-last_verified: 2026-07-24 CST
+last_verified: 2026-07-27 CST
 ---
 
 # Development Convergence Contract
@@ -32,7 +32,7 @@ bun scripts/check-convergence-budget.ts
 1. 一个用户或 operator 可观察的行为；
 2. 一个既有 runtime / CLI / server 入口真实消费该行为；
 3. 跨 owner 链路或集成测试证明输入、状态写入和输出闭合；
-4. 项目质量总闸全绿。
+4. 经 PR 交付时，当前 head 的远端 required `quality` 与四语言 CodeQL 全绿；不经 PR 时，与影响面相称的本地 terminal gate 全绿。
 
 新增 package、schema、文档或单元测试本身都不构成功能完成。没有 production consumer 的能力按库存代码处理，下一步应接入、合并或删除。
 
@@ -41,7 +41,9 @@ bun scripts/check-convergence-budget.ts
 ## 3. Agent 与提交约束
 
 - 一个任务围绕一个可验证行为闭环；不按文件、步骤或测试结果连续制造微提交。
-- 质量门未全绿不得提交或推送；修复红灯优先于新增能力。
+- PR 候选完成受影响 owner 定向检查、真实 consumer journey、diff inspection 与 workspace safety 后即可形成一个有意图的 commit / push；本地总闸不是默认前置。
+- `main` 的 required `quality` / CodeQL 或候选远端 merge closure 未全绿时不得合并；失败只定向复现对应 owner / leaf，修复红灯优先于新增能力。
+- 不经 PR 的交付必须先通过与影响面相称的本地 terminal gate。
 - 开工前先指出复用的 owner 和运行入口；若找不到，先判断现有实现应接入、合并还是删除。
 - 交付必须报告：用户行为、production consumer、运行证据、删除/新增表面积；不得用代码量、模块量或测试数量代替完成度。
 
@@ -77,7 +79,7 @@ mission 只能以 `completed / blocked / invalidated / budget_exhausted` 之一�
 | 周期性反熵 | Scheduled task 的隔离 worktree | 只跑已人工校准的 drift / GC / monitor，不扩展当前 mission |
 | 机械阻断 | Codex hook | 只在 evidence receipt 可重放后启用；hook 不替代 verifier，也不强迫永不结束 |
 
-当前先使用 skill、custom agents、现有 worktree/Agent Run 和质量门。候选 evidence 未绑定真实 receipt 之前，不新增 Stop / PreToolUse hook；否则只是把自证结论机械化。
+当前先使用 skill、custom agents、现有 worktree/Agent Run、owner 定向检查与远端 required checks。候选 evidence 未绑定真实 receipt 之前，不新增 Stop / PreToolUse hook；否则只是把自证结论机械化。
 
 ## 6. 候选、反审与反熵
 
@@ -98,4 +100,4 @@ mission 只能以 `completed / blocked / invalidated / budget_exhausted` 之一�
 
 ## 8. 解除条件
 
-恢复期结束由用户明确决定。至少应先满足：本地与 CI 总闸稳定全绿、目标服务器链路可重复启动和观测、核心功能有端到端证据。解除冻结时再依据真实运行负载修改本合同与基线，不提前设计下一套组织结构。
+恢复期结束由用户明确决定。至少应先满足：`main` 的 required `quality` / CodeQL 稳定全绿、不经 PR 的本地 terminal gate 可重复、目标服务器链路可重复启动和观测、核心功能有端到端证据。解除冻结时再依据真实运行负载修改本合同与基线，不提前设计下一套组织结构。
