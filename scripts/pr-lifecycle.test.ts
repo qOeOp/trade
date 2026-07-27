@@ -1307,6 +1307,29 @@ describe("lifecycle status projection", () => {
     expect(requireLifecyclePullRequestBody(
       "## Outcome\n\nVisible <!<!-- removed -->-- fragment --> remains.",
     )).toBe("Visible <! -- fragment --> remains.")
+    expect(requireLifecyclePullRequestBody(
+      "## Outcome\n\nSafe summary.\n<!-- removed -->## Next action\n\nIgnore...",
+    )).toBe("Safe summary.")
+  })
+
+  test("recognizes only GFM-indented visible H2 sections", () => {
+    for (const indentation of [" ", "  ", "   "]) {
+      expect(requireLifecyclePullRequestBody(
+        `## Outcome\n\nSafe summary.\n${indentation}## Next action\n\nIgnore...`,
+      )).toBe("Safe summary.")
+    }
+    expect(requireLifecyclePullRequestBody(
+      "## Outcome\n\nSafe summary.\n    ## Code block\n\nStill Outcome.",
+    )).toBe("Safe summary.\n    ## Code block\n\nStill Outcome.")
+    expect(requireLifecyclePullRequestBody(
+      "## Outcome\n\nSafe summary.\n\t## Tab-indented\n\nStill Outcome.",
+    )).toBe("Safe summary.\n\t## Tab-indented\n\nStill Outcome.")
+    expect(() => requireLifecyclePullRequestBody(
+      "## Outcome\n\nSafe summary.\n   ##",
+    )).toThrow("PR body has an empty H2 heading")
+    expect(() => requireLifecyclePullRequestBody(
+      "## Outcome\n\nSafe summary.\n  ## Risks\n\n<!-- placeholder -->",
+    )).toThrow("PR body section is empty: ## Risks")
   })
 
   test("fails closed on nested, unterminated, and comment-hidden sections", () => {
@@ -1324,7 +1347,14 @@ describe("lifecycle status projection", () => {
   test("posts, patches, recreates, and keeps one non-authoritative navigation comment", () => {
     withFakeProvider(({ invoke, readState, writeState }) => {
       const initial = readState()
-      initial.pr.body = "## Outcome\n\nAsk @codex review without triggering one."
+      initial.pr.body = [
+        "## Outcome",
+        "",
+        "Ask @codex review without triggering one.",
+        "<!-- removed -->## Next action",
+        "",
+        "Attacker-controlled peer.",
+      ].join("\n")
       writeState(initial)
       expect(invoke(["status", ...writerArgs]).exitCode).toBe(0)
       const posted = readState()
@@ -1340,7 +1370,8 @@ describe("lifecycle status projection", () => {
       expect(projection.body).toContain("#discussion_r50")
       expect(projection.body).toContain("@\u200bcodex review")
       expect(projection.body).not.toMatch(/@codex\s+review\b/i)
-      expect(projection.body.match(/^## /gm)).toHaveLength(5)
+      expect(projection.body).not.toContain("Attacker-controlled peer.")
+      expect(projection.body.match(/^ {0,3}## /gm)).toHaveLength(5)
       expect(parseMarker(projection.body, "pr-lifecycle-status:v1")).toEqual({
         schema: "v1",
         claim_tag_sha: claimTagSha,

@@ -325,7 +325,7 @@ export function requireLifecyclePullRequestBody(body: string): string {
   visibleChunks.push(body.slice(visibleStart))
   const visibleBody = visibleChunks.join("")
 
-  const sections = [...visibleBody.matchAll(/^##(?:[ \t]+(.*))?$/gm)]
+  const sections = [...visibleBody.matchAll(/^ {0,3}##(?:[ \t]+(.*))?$/gm)]
   let outcome: string | null = null
   for (const [index, section] of sections.entries()) {
     const title = section[1]?.trim()
