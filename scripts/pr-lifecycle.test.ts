@@ -95,6 +95,7 @@ const seal: ReviewSeal = {
   resultKind: "clean",
   resultActor: "chatgpt-codex-connector[bot]",
   resultId: 10,
+  resultNodeId: "reaction-10",
   resultCreatedAt: "2026-07-26T00:02:00Z",
   resultState: null,
   resultBodyHash: null,
@@ -669,6 +670,21 @@ describe("exact-head receipt", () => {
     })
   })
 
+  test("rejects a recreated clean reaction with a different GraphQL node ID", () => {
+    const replacement = triggerComment()
+    replacement.reactions[0] = {
+      ...replacement.reactions[0]!,
+      id: "replacement-reaction",
+    }
+    const result = verifyReceipt(
+      snapshot({ comments: [replacement] }),
+      claim,
+      cycle,
+    )
+    expect(result.ok).toBeFalse()
+    expect(result.reasons).toContain("current review cycle lacks an exact clean seal")
+  })
+
   test("replays PR #14: an untriggered root thumb is not a review receipt", () => {
     const state = snapshot({
       comments: [],
@@ -766,6 +782,7 @@ describe("exact-head receipt", () => {
       reviewTagSha: oldTag,
       headSha: oldHead,
       resultId: oldTrigger.id,
+      resultNodeId: "old-clean-reaction",
     }
     expect(verifyReceipt(
       snapshot({ comments: [oldTrigger, triggerComment()], commits: [fix, oldHead, head] }),
@@ -914,6 +931,7 @@ describe("exact-head receipt", () => {
       resultKind: "review",
       resultActor: oldReview.actor,
       resultId: oldReview.id,
+      resultNodeId: null,
       resultCreatedAt: oldReview.submittedAt,
       resultState: oldReview.state,
       resultBodyHash: createHash("sha256").update(oldReviewBody).digest("hex"),

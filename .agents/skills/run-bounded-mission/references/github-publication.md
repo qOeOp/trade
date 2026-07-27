@@ -53,7 +53,8 @@ When the repository contains `scripts/pr-lifecycle.ts` and a base-owned
    scripts/pr-lifecycle.ts seal
    --repo <owner/repo> --pr <number> --claim <tag-sha> --capability
    <private-value>`. It creates `codex-pr-review-seal/<pr>/<head>` bound to the
-   exact visible trigger, review state and body, and exact finding-root set.
+   exact visible trigger, clean reaction GraphQL node identity, review state and
+   body, and exact finding-root set.
    Each provider snapshot uses one GraphQL response containing PR identity,
    commits and their immediate parents, reviews, comments, reactions, and
    threads, bracketed by lightweight PR identity reads that must match it

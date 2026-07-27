@@ -106,6 +106,7 @@ interface ReviewSealTagPayload {
   result_kind: "clean" | "review"
   result_actor: string
   result_id: number
+  result_node_id: string | null
   result_created_at: string
   result_state: string | null
   result_body_hash: string | null
@@ -170,6 +171,7 @@ export interface ReviewSeal {
   resultKind: "clean" | "review"
   resultActor: string
   resultId: number
+  resultNodeId: string | null
   resultCreatedAt: string
   resultState: string | null
   resultBodyHash: string | null
@@ -442,6 +444,10 @@ function parseReviewSealTag(
     || !isCodex(payload.result_actor)
     || !Number.isInteger(payload.result_id)
     || payload.result_id <= 0
+    || (
+      payload.result_node_id !== null
+      && (typeof payload.result_node_id !== "string" || payload.result_node_id.length === 0)
+    )
     || !Number.isFinite(Date.parse(payload.result_created_at))
     || (
       payload.result_state !== null
@@ -457,6 +463,7 @@ function parseReviewSealTag(
       && (
         payload.result_state !== null
         || payload.result_body_hash !== null
+        || payload.result_node_id === null
         || findingRoots.length !== 0
       )
     )
@@ -465,6 +472,7 @@ function parseReviewSealTag(
       && (
         payload.result_state === null
         || payload.result_body_hash === null
+        || payload.result_node_id !== null
       )
     )
     || tag.objectSha !== cycle.headSha
@@ -476,6 +484,7 @@ function parseReviewSealTag(
     resultKind: payload.result_kind,
     resultActor: payload.result_actor,
     resultId: payload.result_id,
+    resultNodeId: payload.result_node_id,
     resultCreatedAt: payload.result_created_at,
     resultState: payload.result_state,
     resultBodyHash: payload.result_body_hash,
@@ -561,18 +570,21 @@ function exactSealedResult(
       && codexReviews.length === 0
       && roots.length === 0
       && seal.resultId === trigger.id
+      && seal.resultNodeId === thumbsUp[0]?.id
       && thumbsUp.length === 1
       && codexReactions.every((reaction) =>
         reaction.content === "EYES" || reaction.content === "THUMBS_UP"
       )
       && trigger.reactions.some((reaction) =>
         reaction.actor === seal.resultActor
+        && reaction.id === seal.resultNodeId
         && reaction.content === "THUMBS_UP"
         && reaction.createdAt === seal.resultCreatedAt
       )
   }
   const review = codexReviews[0]
   return codexReviews.length === 1
+    && seal.resultNodeId === null
     && Date.parse(review?.submittedAt ?? "") >= triggerAt
     && thumbsUp.length === 0
     && codexReactions.every((reaction) => reaction.content === "EYES")
@@ -1694,6 +1706,7 @@ async function commandSeal(args: string[]): Promise<void> {
   const result = clean[0] ?? reviews[0]!
   const resultKind = clean.length === 1 ? "clean" : "review"
   const resultId = resultKind === "clean" ? trigger.id : (result as Review).id
+  const resultNodeId = resultKind === "clean" ? (result as Reaction).id : null
   const resultCreatedAt = resultKind === "clean"
     ? (result as Reaction).createdAt
     : (result as Review).submittedAt
@@ -1718,6 +1731,7 @@ async function commandSeal(args: string[]): Promise<void> {
       result_kind: resultKind,
       result_actor: resultActor,
       result_id: resultId,
+      result_node_id: resultNodeId,
       result_created_at: resultCreatedAt,
       result_state: reviewResult?.state ?? null,
       result_body_hash: reviewResult ? contentHash(reviewResult.body) : null,
