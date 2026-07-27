@@ -709,7 +709,7 @@ test("owner cleanup rejects a target file retained by another process", async ()
   }
 })
 
-test("owner cleanup preserves a worktree with an initialized submodule", () => {
+test("owner cleanup preserves a worktree with an initialized or deinitialized submodule", () => {
   const fixture = createFixture()
   const submodule = mkdtempSync(join(tmpdir(), "trade-worktree-cleanup-submodule-"))
   fixtures.push(submodule)
@@ -742,10 +742,26 @@ test("owner cleanup preserves a worktree with an initialized submodule", () => {
     removeIgnored: false,
   }))
 
-  expect(failure.code).toBe("worktree_has_initialized_submodules")
+  expect(failure.code).toBe("worktree_has_registered_submodules")
   expect(failure.receipt?.worktree_claimed).toBe(false)
   expect(failure.receipt?.worktree_removed).toBe(false)
   expect(existsSync(join(fixture.worktree, "nested", "tracked.txt"))).toBe(true)
+  expect(existsSync(fixture.worktree)).toBe(true)
+
+  run(fixture.worktree, ["git", "submodule", "deinit", "-f", "--", "nested"])
+  const deinitializedFailure = captureCleanupError(() => removeOwnedWorktree({
+    repositoryCwd: fixture.root,
+    ownerCommit,
+    worktreeId: identity.worktree_id,
+    expectedGeneration: identity.generation,
+    expectedHead: identity.head,
+    expectedRef: identity.ref,
+    removeIgnored: false,
+  }))
+
+  expect(deinitializedFailure.code).toBe("worktree_has_registered_submodules")
+  expect(deinitializedFailure.receipt?.worktree_claimed).toBe(false)
+  expect(deinitializedFailure.receipt?.worktree_removed).toBe(false)
   expect(existsSync(fixture.worktree)).toBe(true)
 })
 

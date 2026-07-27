@@ -160,7 +160,7 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
     assertExpectedIdentity(initial.identity, options)
     assertClean(initial.worktreePath)
     assertNoTargetUsers(initial.worktreePath)
-    assertNoInitializedSubmodules(initial.worktreePath)
+    assertNoRegisteredSubmodules(initial.worktreePath)
     ownerCwd = initial.commonDir
     if (options.expectedRef !== null) assertFilesRefStorage(ownerCwd)
     const claimedOptions = { ...options, repositoryCwd: ownerCwd }
@@ -1430,16 +1430,13 @@ function rollbackMove(repositoryCwd: string, quarantinePath: string, originalPat
   }
 }
 
-function assertNoInitializedSubmodules(worktreePath: string): void {
+function assertNoRegisteredSubmodules(worktreePath: string): void {
   const result = gitResult(worktreePath, ["submodule", "status", "--recursive"])
   if (result.exitCode !== 0) {
     throw new WorktreeCleanupError("git_operation_failed")
   }
-  if (
-    result.stdout.toString().split("\n")
-      .some((line) => line !== "" && !line.startsWith("-"))
-  ) {
-    throw new WorktreeCleanupError("worktree_has_initialized_submodules")
+  if (result.stdout.toString().split("\n").some((line) => line !== "")) {
+    throw new WorktreeCleanupError("worktree_has_registered_submodules")
   }
 }
 

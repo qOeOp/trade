@@ -73,7 +73,7 @@
     {
       "role": "independent-auditor-test",
       "path": "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/src/lib/replay-independent-release-audit.test.ts",
-      "sha256": "9f0e479df0152bde426238985ed1d42e3f922d8dd8feb87c0b5390a244a904a6"
+      "sha256": "c3eca4f37012b1128c81db2fa88bff6ca6f9e28953cc14afe63cd28b0de47b22"
     },
     {
       "role": "maturity-gate-consumer",
@@ -117,5 +117,5 @@
     "audit-does-not-expand-public-profiles-or-simulator-semantics",
     "remote-distributed-store-shadow-live-and-real-account-evidence-out-of-scope"
   ],
-  "audit_manifest_sha256": "e8ade2a9b29a0900f119cc609c805ac74259de2ef0c66a7c40b1469ae0e61fd2"
+  "audit_manifest_sha256": "ec038cb9dc31df1591f4b3e7cf465b2da9729f945af4a4441011358d4bd03e7b"
 }
