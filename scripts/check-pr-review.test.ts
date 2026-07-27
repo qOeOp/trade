@@ -266,6 +266,7 @@ describe("base-owned gate wiring", () => {
     expect(checkout).toBeGreaterThan(pending)
     expect(verify).toBeGreaterThan(pending)
     expect(final).toBeGreaterThan(verify)
+    expect(workflow).toContain("  actions: read")
     expect(workflow).toContain("if: ${{ always() }}")
     expect(workflow.slice(final)).not.toContain("gh api", "after the final status call")
   })
