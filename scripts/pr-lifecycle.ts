@@ -325,10 +325,10 @@ export function requireLifecyclePullRequestBody(body: string): string {
   visibleChunks.push(body.slice(visibleStart))
   const visibleBody = visibleChunks.join("")
 
-  const sections = [...visibleBody.matchAll(/^ {0,3}##(?:[ \t]+(.*))?$/gm)]
+  const sections = [...visibleBody.matchAll(/^ {0,3}##(?=$|[ \t])([ \t].*)?$/gm)]
   let outcome: string | null = null
   for (const [index, section] of sections.entries()) {
-    const title = section[1]?.trim()
+    const title = (section[1] ?? "").replace(/[ \t]+#+[ \t]*$/, "").trim()
     if (!title) throw new Error("PR body has an empty H2 heading")
     const content = visibleBody
       .slice(section.index! + section[0].length, sections[index + 1]?.index)
@@ -1895,12 +1895,18 @@ async function commandClaim(args: string[]): Promise<void> {
     }),
   )
   const claim = validateClaimTag(created, repository, pr)
-  addComment(repository, pr, markerBody(CLAIM_RECEIPT_MARKER, {
-    claim_tag_sha: claim.tagSha,
-    mission: claim.mission,
-    actor: claim.actor,
-  }))
   process.stdout.write(`${JSON.stringify({ ...claim, capability })}\n`)
+  try {
+    addComment(repository, pr, markerBody(CLAIM_RECEIPT_MARKER, {
+      claim_tag_sha: claim.tagSha,
+      mission: claim.mission,
+      actor: claim.actor,
+    }))
+  } catch {
+    process.stderr.write(
+      "warning: claim receipt comment failed; immutable claim tag remains authoritative\n",
+    )
+  }
 }
 
 async function commandReview(args: string[]): Promise<void> {
@@ -2164,6 +2170,7 @@ async function commandAddress(args: string[]): Promise<void> {
   requireComplete(snapshot)
   const claim = loadClaim(repository, pr, expectedClaim)
   requireWriter(claim, args)
+  if (!snapshot.open || snapshot.merged) throw new Error("pull request is not open")
   requireClaimLineage(snapshot, claim)
   const reviewHistory = loadReviewCycles(repository, snapshot, claim)
   const historyReasons = validateReviewHistory(
@@ -2438,22 +2445,102 @@ export function gateStatusForLiveIdentity(
   }
 }
 
-function publishGateStatus(
+function publishGateFailure(repository: string, pr: number, description: string): void {
+  const live = fetchBasicPullRequest(repository, pr)
+  postStatus(repository, live.headSha, "failure", description)
+}
+
+async function publishGateStatus(
   repository: string,
   pr: number,
-  verified: PullRequestIdentity,
+  verified: PullRequestSnapshot,
+  expected: {
+    head?: string | null
+    baseRef?: string | null
+    baseSha?: string | null
+    workflowSha?: string | null
+  },
+  allowDraft: boolean,
   requestedState: "success" | "failure",
   description: string,
-): boolean {
+): Promise<boolean> {
   const before = fetchBasicPullRequest(repository, pr)
   const initial = gateStatusForLiveIdentity(verified, before, requestedState)
-  postStatus(
-    repository,
-    initial.sha,
-    initial.state,
-    initial.identityChanged ? "PR identity changed during lifecycle verification" : description,
-  )
-  if (initial.identityChanged) return false
+  if (initial.identityChanged) {
+    postStatus(
+      repository,
+      initial.sha,
+      "failure",
+      "PR identity changed during lifecycle verification",
+    )
+    return false
+  }
+
+  if (requestedState === "failure") {
+    postStatus(repository, initial.sha, "failure", description)
+    const after = fetchBasicPullRequest(repository, pr)
+    const confirmation = gateStatusForLiveIdentity(verified, after, requestedState)
+    if (confirmation.identityChanged) {
+      postStatus(
+        repository,
+        confirmation.sha,
+        "failure",
+        "PR identity changed during lifecycle status publication",
+      )
+      return false
+    }
+    return true
+  }
+
+  let beforeWrite: Awaited<ReturnType<typeof verifyLive>>
+  try {
+    beforeWrite = await verifyLive(repository, pr, expected, allowDraft)
+  } catch {
+    publishGateFailure(
+      repository,
+      pr,
+      "PR lifecycle evidence could not be revalidated before status publication",
+    )
+    return false
+  }
+  if (
+    !beforeWrite.snapshot.complete
+    || !beforeWrite.verification.ok
+    || JSON.stringify(beforeWrite.snapshot) !== JSON.stringify(verified)
+  ) {
+    publishGateFailure(
+      repository,
+      pr,
+      "PR lifecycle evidence changed before status publication",
+    )
+    return false
+  }
+
+  postStatus(repository, beforeWrite.snapshot.headSha, "success", description)
+
+  let afterWrite: Awaited<ReturnType<typeof verifyLive>>
+  try {
+    afterWrite = await verifyLive(repository, pr, expected, allowDraft)
+  } catch {
+    publishGateFailure(
+      repository,
+      pr,
+      "PR lifecycle evidence could not be revalidated after status publication",
+    )
+    return false
+  }
+  if (
+    !afterWrite.snapshot.complete
+    || !afterWrite.verification.ok
+    || JSON.stringify(afterWrite.snapshot) !== JSON.stringify(verified)
+  ) {
+    publishGateFailure(
+      repository,
+      pr,
+      "PR lifecycle evidence changed during status publication",
+    )
+    return false
+  }
 
   const after = fetchBasicPullRequest(repository, pr)
   const confirmation = gateStatusForLiveIdentity(verified, after, requestedState)
@@ -2478,13 +2565,18 @@ async function commandVerify(args: string[], writeStatus: boolean): Promise<void
     baseSha: option(args, "--expected-base-sha", false),
     workflowSha: option(args, "--trusted-workflow-sha", false),
   }
+  const allowDraft = args.includes("--allow-draft")
+  let statusPublicationStarted = false
   try {
-    const result = await verifyLive(repository, pr, expected, args.includes("--allow-draft"))
+    const result = await verifyLive(repository, pr, expected, allowDraft)
     if (writeStatus) {
-      const published = publishGateStatus(
+      statusPublicationStarted = true
+      const published = await publishGateStatus(
         repository,
         pr,
         result.snapshot,
+        expected,
+        allowDraft,
         result.verification.ok ? "success" : "failure",
         result.verification.ok
           ? `Codex review receipt verified for ${result.snapshot.headSha.slice(0, 12)}`
@@ -2492,15 +2584,16 @@ async function commandVerify(args: string[], writeStatus: boolean): Promise<void
       )
       if (!published) {
         result.verification.ok = false
-        result.verification.reasons.push("PR identity changed during gate status publication")
+        result.verification.reasons.push(
+          "PR identity or lifecycle evidence changed during gate status publication",
+        )
       }
     }
     process.stdout.write(`${JSON.stringify(result.verification, null, 2)}\n`)
     if (!result.verification.ok) process.exitCode = 1
   } catch (error) {
-    if (writeStatus) {
-      const live = fetchBasicPullRequest(repository, pr)
-      postStatus(repository, live.headSha, "failure", "PR lifecycle verification failed closed")
+    if (writeStatus && !statusPublicationStarted) {
+      publishGateFailure(repository, pr, "PR lifecycle verification failed closed")
     }
     throw error
   }

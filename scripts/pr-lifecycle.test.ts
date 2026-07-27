@@ -309,6 +309,45 @@ const applyProjectionDrift = () => {
     commitSha: state.pr.headSha,
   })
 }
+const applyEvidenceDrift = () => {
+  state.graphReads += 1
+  if (state.evidenceDriftAtGraphRead !== state.graphReads) return
+  if (state.evidenceDriftKind === "trigger") {
+    state.comments[0].body += "\n"
+  } else if (state.evidenceDriftKind === "reaction") {
+    state.comments[0].reactions.push({
+      id: "human-reaction-drift",
+      actor: "human-reviewer",
+      content: "EYES",
+      createdAt: "2026-07-26T00:03:00Z",
+    })
+  } else if (state.evidenceDriftKind === "review") {
+    state.reviews.push({
+      id: 91,
+      actor: "human-reviewer",
+      state: "COMMENTED",
+      body: "review arrived between gate verification phases",
+      submittedAt: "2026-07-26T00:03:00Z",
+      commitSha: state.pr.headSha,
+    })
+  } else if (state.evidenceDriftKind === "thread") {
+    state.threads.push({
+      id: "human-thread-drift",
+      resolved: false,
+      outdated: false,
+      comments: [{
+        id: 60,
+        nodeId: "review-node-60",
+        actor: "human-reviewer",
+        body: "thread arrived between gate verification phases",
+        createdAt: "2026-07-26T00:03:00Z",
+        outdated: false,
+        reviewCommitSha: state.pr.headSha,
+      }],
+    })
+  }
+  state.evidenceDriftAtGraphRead = 0
+}
 const graph = () => {
   const pull = {
     number: 100,
@@ -416,6 +455,7 @@ if (endpoint === "graphql") {
     if (state.mutationFault === "empty-resolve") output({})
     output({ data: { resolveReviewThread: { thread: { id: thread.id, isResolved: true } } } })
   }
+  applyEvidenceDrift()
   output(graph())
 }
 if (endpoint === "repos/qOeOp/trade/pulls/100" && method === "GET") {
@@ -469,6 +509,11 @@ if (endpoint.endsWith("/git/refs") && method === "POST") {
   output({ ref: "refs/tags/" + name, object: { type: "tag", sha: state.refs[name] } })
 }
 if (endpoint === "repos/qOeOp/trade/issues/100/comments" && method === "POST") {
+  if (state.commentFailuresRemaining > 0) {
+    state.commentFailuresRemaining -= 1
+    save()
+    fail("simulated comment failure")
+  }
   state.mutations += 1
   const comment = {
     id: state.nextCommentId++,
@@ -526,6 +571,16 @@ if (replyMatch && method === "POST") {
   if (state.mutationFault === "empty-reply") output({})
   const reply = thread.comments.at(-1)
   output({ id: reply.id, node_id: reply.nodeId, body: reply.body })
+}
+if (endpoint.startsWith("repos/qOeOp/trade/statuses/") && method === "POST") {
+  state.mutations += 1
+  state.statuses.push({
+    sha: endpoint.split("/statuses/")[1],
+    state: field("state"),
+    context: field("context"),
+    description: field("description"),
+  })
+  output({ id: state.statuses.length })
 }
 fail("unsupported fake gh endpoint " + endpoint)
 `
@@ -650,9 +705,50 @@ function fakeProviderState() {
     mutations: 0,
     replyCount: 0,
     basicReads: 0,
+    graphReads: 0,
+    statuses: [] as Array<Record<string, string>>,
     fault: null as string | null,
     mutationFault: null as string | null,
     projectionDrift: false,
+    commentFailuresRemaining: 0,
+    evidenceDriftAtGraphRead: 0,
+    evidenceDriftKind: null as string | null,
+  }
+}
+
+function makeGateReady(state: ReturnType<typeof fakeProviderState>): void {
+  const sealTagSha = "7".repeat(40)
+  const reaction = {
+    id: "reaction-clean",
+    actor: "chatgpt-codex-connector[bot]",
+    content: "THUMBS_UP",
+    createdAt: "2026-07-26T00:02:00Z",
+  }
+  state.pr.draft = false
+  state.comments[0]!.reactions = [reaction]
+  state.reviews = []
+  state.threads = []
+  state.refs[`codex-pr-review-seal/100/${head}`] = sealTagSha
+  state.tags[sealTagSha] = {
+    sha: sealTagSha,
+    message: markerBody("pr-lifecycle-review-seal-tag:v1", {
+      repository: "qOeOp/trade",
+      pr: 100,
+      claim_tag_sha: claimTagSha,
+      review_tag_sha: reviewTagSha,
+      mission: "mission-a",
+      actor: "qOeOp",
+      head,
+      result_kind: "clean",
+      result_actor: reaction.actor,
+      result_id: 10,
+      result_node_id: reaction.id,
+      result_created_at: reaction.createdAt,
+      result_state: null,
+      result_body_hash: null,
+      finding_roots: [],
+    }),
+    object: { sha: head, type: "commit" },
   }
 }
 
@@ -1332,6 +1428,18 @@ describe("lifecycle status projection", () => {
     )).toThrow("PR body section is empty: ## Risks")
   })
 
+  test("normalizes GFM closing hashes without consuming title hashes", () => {
+    expect(requireLifecyclePullRequestBody(
+      "## Outcome ##\n\nSafe summary.\n\n## Verification ###\n\nFocused tests.",
+    )).toBe("Safe summary.")
+    expect(() => requireLifecyclePullRequestBody(
+      "## Outcome ##\n\nSafe summary.\n\n## C#\n\n",
+    )).toThrow("PR body section is empty: ## C#")
+    expect(() => requireLifecyclePullRequestBody(
+      "## ##\n\nContent without a heading title.",
+    )).toThrow("PR body has an empty H2 heading")
+  })
+
   test("fails closed on nested, unterminated, and comment-hidden sections", () => {
     expect(() => requireLifecyclePullRequestBody(
       "## Outcome\n\nVisible <!-- outer <!-- nested -->",
@@ -1506,6 +1614,58 @@ describe("lifecycle status projection", () => {
 })
 
 describe("command lifecycle with a fake provider", () => {
+  test("returns a usable claim capability when the receipt comment fails", () => {
+    withFakeProvider(({ invoke, readState, writeState }) => {
+      const state = readState()
+      state.refs = {}
+      state.tags = {}
+      state.comments = []
+      state.reviews = []
+      state.threads = []
+      state.commentFailuresRemaining = 1
+      writeState(state)
+
+      const claimed = invoke([
+        "claim",
+        "--repo", "qOeOp/trade",
+        "--pr", "100",
+        "--mission", "receipt-recovery",
+      ])
+      expect(claimed.exitCode, claimed.stderr.toString()).toBe(0)
+      const stdout = claimed.stdout.toString()
+      expect(stdout.trim().split("\n")).toHaveLength(1)
+      const receipt = JSON.parse(stdout)
+      expect(receipt.capability).toMatch(/^[0-9a-f]{64}$/)
+      expect(claimed.stderr.toString()).toBe(
+        "warning: claim receipt comment failed; immutable claim tag remains authoritative\n",
+      )
+
+      const afterClaim = readState()
+      expect(Object.keys(afterClaim.refs).filter((name) =>
+        name === "codex-pr-claim/100"
+      )).toHaveLength(1)
+      expect(afterClaim.comments).toHaveLength(0)
+      expect(JSON.stringify(afterClaim)).not.toContain(receipt.capability)
+
+      const status = invoke([
+        "status",
+        "--repo", "qOeOp/trade",
+        "--pr", "100",
+        "--claim", receipt.tagSha,
+        "--capability", receipt.capability,
+      ])
+      expect(status.exitCode, status.stderr.toString()).toBe(0)
+      const recovered = readState()
+      expect(Object.keys(recovered.refs).filter((name) =>
+        name === "codex-pr-claim/100"
+      )).toHaveLength(1)
+      expect(recovered.comments.filter((entry) =>
+        entry.body.includes("pr-lifecycle-claim-receipt:v1")
+      )).toHaveLength(0)
+      expect(JSON.stringify(recovered)).not.toContain(receipt.capability)
+    })
+  }, 20_000)
+
   test("seals a finding, addresses it with a descendant, and verifies the next clean cycle", () => {
     withFakeProvider(({ invoke, readState, writeState }) => {
       const writerArgs = [
@@ -1779,6 +1939,36 @@ describe("command lifecycle with a fake provider", () => {
     }
   }, 20_000)
 
+  test("rejects closed or merged PRs before addressing a finding", () => {
+    for (const stateChange of [
+      { open: false, merged: false },
+      { open: false, merged: true },
+    ]) {
+      withFakeProvider(({ invoke, readState, writeState }) => {
+        const state = readState()
+        state.pr.open = stateChange.open
+        state.pr.merged = stateChange.merged
+        writeState(state)
+        const before = state.mutations
+        const result = invoke([
+          "address",
+          "--repo", "qOeOp/trade",
+          "--pr", "100",
+          "--claim", claimTagSha,
+          "--capability", capability,
+          "--thread-id", "thread-1",
+          "--finding-comment-id", "50",
+          "--disposition", "fixed",
+          "--fix-sha", head,
+          "--reason", "must not mutate a terminal pull request",
+        ])
+        expect(result.exitCode).not.toBe(0)
+        expect(result.stderr.toString()).toContain("pull request is not open")
+        expect(readState().mutations).toBe(before)
+      })
+    }
+  }, 20_000)
+
   test("rejects a Codex down-reaction on a non-trigger historical comment", () => {
     withFakeProvider(({ invoke, readState, writeState }) => {
       const state = readState()
@@ -1814,6 +2004,15 @@ describe("command lifecycle with a fake provider", () => {
 
 describe("gate status publication", () => {
   const identity = { headSha: head, baseRef: "main", baseSha: base }
+  const gateArgs = [
+    "gate",
+    "--repo", "qOeOp/trade",
+    "--pr", "100",
+    "--expected-head", head,
+    "--expected-base-ref", "main",
+    "--expected-base-sha", base,
+    "--trusted-workflow-sha", base,
+  ]
 
   test("publishes success only to the verified live identity", () => {
     expect(gateStatusForLiveIdentity(identity, identity, "success")).toEqual({
@@ -1844,6 +2043,63 @@ describe("gate status publication", () => {
       })
     }
   })
+
+  test("brackets a successful status with unchanged complete evidence snapshots", () => {
+    withFakeProvider(({ invoke, readState, writeState }) => {
+      const state = readState()
+      makeGateReady(state)
+      writeState(state)
+
+      const result = invoke(gateArgs)
+      expect(result.exitCode, result.stderr.toString()).toBe(0)
+      expect(JSON.parse(result.stdout.toString())).toMatchObject({ ok: true })
+      const confirmed = readState()
+      expect(confirmed.graphReads).toBe(3)
+      expect(confirmed.statuses).toEqual([{
+        sha: head,
+        state: "success",
+        context: "pr-lifecycle-gate",
+        description: `Codex review receipt verified for ${head.slice(0, 12)}`,
+      }])
+      expect(confirmed.mutations).toBe(1)
+    })
+  }, 20_000)
+
+  test("downgrades trigger, reaction, review, or thread drift before and after success", () => {
+    for (const evidenceDriftKind of ["trigger", "reaction", "review", "thread"]) {
+      for (const evidenceDriftAtGraphRead of [2, 3]) {
+        withFakeProvider(({ invoke, readState, writeState }) => {
+          const state = readState()
+          makeGateReady(state)
+          state.evidenceDriftKind = evidenceDriftKind
+          state.evidenceDriftAtGraphRead = evidenceDriftAtGraphRead
+          writeState(state)
+
+          const result = invoke(gateArgs)
+          expect(
+            result.exitCode,
+            `${evidenceDriftKind} at read ${evidenceDriftAtGraphRead}`,
+          ).not.toBe(0)
+          expect(JSON.parse(result.stdout.toString())).toMatchObject({ ok: false })
+          const confirmed = readState()
+          expect(
+            confirmed.statuses.map((status) => status.state),
+            `${evidenceDriftKind} at read ${evidenceDriftAtGraphRead}`,
+          ).toEqual(
+            evidenceDriftAtGraphRead === 2
+              ? ["failure"]
+              : ["success", "failure"],
+          )
+          expect(confirmed.statuses.at(-1)).toMatchObject({
+            sha: head,
+            state: "failure",
+            context: "pr-lifecycle-gate",
+          })
+          expect(confirmed.mutations).toBe(confirmed.statuses.length)
+        })
+      }
+    }
+  }, 40_000)
 })
 
 describe("base-owned workflow", () => {
