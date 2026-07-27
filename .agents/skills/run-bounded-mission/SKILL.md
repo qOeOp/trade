@@ -31,10 +31,27 @@ Trace each material rule to user or project authority and classify it as binding
 
 For analysis, product or technical design, planning, or audit, name the decision owner, outcome consumer, and adoption journey. For implementation, name the production consumer and exact usage journey. If authority, consumer, or journey is missing or conflicting, investigate read-only and apply the ordered terminal rules; never resolve external authority by assertion.
 
-### 2. Contract
+### 2. Admit
+
+Before freezing a contract or permitting implementation, test whether the mission itself is worth admitting.
+
+State the no-change counterfactual: name the consumer failure that remains if nothing is built or changed. Check whether the outcome is already satisfied, can close through an answer, existing owner, wiring, deletion, rollback, or narrower decision, and has finite acceptance independent of the candidate. Do not treat the user's requested implementation, a reviewer suggestion, effort already spent, or a plausible future benefit as proof of need.
+
+Choose exactly one admission result:
+
+- `admit`: an authorized consumer outcome remains unsatisfied, its journey and finite acceptance are known, and a permitted analysis or change can plausibly close it;
+- `completed`: direct consumer evidence shows the outcome is already satisfied without a candidate;
+- `invalidated`: intrinsic evidence shows the objective is contradictory, open-ended, proxy-only, has no real consumer failure, or cannot fit the external outcome and effect ceiling;
+- `blocked`: required external authority, consumer identity, fact, or evidence is unavailable;
+- route outside this skill when the task is a simple stable fact, tiny mechanical edit, or fully owned by a more specific workflow.
+
+Only `admit` proceeds to a mission contract. Preserve the evidence and terminate immediately for the other terminal results. Never invent a mission score, demand taxonomy, or implementation merely to make an objective admissible.
+
+### 3. Contract
 
 Only after the authority and oracle audit, freeze one mission in the working plan:
 
+- admission evidence and the no-change counterfactual;
 - outcome and current failure;
 - named outcome consumer and exact adoption or usage journey;
 - scope, non-goals, acceptance signals, and owners to reuse;
@@ -48,7 +65,7 @@ Use project budgets when present. Otherwise allow three candidates per uncertain
 
 An explicit replan may refreeze mission-selected design, effects, and a falsified mission-selected oracle only within the original authority, outcome, consumer journey, externally imposed acceptance requirements, effect ceiling, and cumulative budgets. Candidates and evaluators cannot change or weaken the oracle. Do not reset budgets through a new context, renamed request, persistent goal, recurring run, or replan. Expanding an external bound requires external admission and a new mission.
 
-### 3. Design
+### 4. Design
 
 Choose analysis, a decision artifact, or implementation according to the outcome. Challenge implementation necessity. Prefer wiring, consolidation, simplification, or deletion when sufficient.
 
@@ -58,7 +75,17 @@ When implementation is required, build dependency-ordered vertical slices. Close
 
 For read-only analysis, design, planning, or audit, use bounded decision steps and preserve independently reviewable evidence without inventing an implementation slice.
 
-### 4. Execute
+### 5. Execute
+
+The fresh evaluator is the admitted mission's semantic acceptance judge. Deterministic gates and externally required provider evidence remain binding; other reviewers are adversarial evidence sources and do not gain authority to redefine the objective, acceptance, or scope.
+
+Classify every new finding before remediation:
+
+- `blocking`: reproducible evidence ties it to binding authority, a frozen acceptance signal, the real consumer journey, or a material safety/security invariant at the changed boundary;
+- `invalidating`: it shows that the mission or selected design is intrinsically wrong, disproportionate, or outside the frozen effect ceiling;
+- `residual`: it is plausible or useful but outside the frozen mission.
+
+Fix only blocking findings within the existing revision budget. Replan or terminate on invalidating findings. Report residual findings without implementing them. Reviewer labels, repetition, novelty, and hypothetical edge cases do not change this classification. Every reviewer-driven candidate change consumes the same cumulative revision and non-progress budgets.
 
 For each decision step or implementation slice:
 
@@ -85,7 +112,7 @@ If and only if the frozen outcome explicitly includes a covered GitHub PR lifecy
 
 Keep mission progress in the working plan and recover current facts from Git, the PR, checks, and reviews. Do not create a lifecycle ledger, project state machine, daemon, hook, or second orchestrator. A changed candidate invalidates evidence that is not bound to its current identity.
 
-### 5. Terminate
+### 6. Terminate
 
 End in exactly one state. Apply these predicates in order:
 
