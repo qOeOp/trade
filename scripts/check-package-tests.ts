@@ -54,10 +54,7 @@ function inspectPackage(packagePath: string): TypeScriptPackage[] {
   if (sourceFiles.length === 0) return []
 
   const label = relative(root, packageDir).replaceAll("\\", "/")
-  const testFiles = [
-    ...findTypeScript(sourceDir),
-    ...findTypeScript(join(packageDir, "scripts")),
-  ].filter(isTest).sort()
+  const testFiles = findTypeScript(sourceDir).filter(isTest).sort()
   if (!existsSync(join(packageDir, "tsconfig.json"))) {
     violations.push(`${label}: production TypeScript has no tsconfig.json`)
   }
