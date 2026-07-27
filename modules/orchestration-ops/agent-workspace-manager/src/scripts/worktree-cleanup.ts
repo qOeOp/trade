@@ -7,15 +7,21 @@ import {
 import { basename, dirname, join, resolve } from "node:path"
 import { randomBytes } from "node:crypto"
 
-const GENERATION_FILE = "trade-cleanup-generation"
+const OWNER_FILE = "trade-cleanup-owner.json"
+
+interface OwnerMarker {
+  schema_version: "trade.worktree-cleanup-owner.v1"
+  generation: string
+  owned_ref: string
+}
 
 export interface WorktreeIdentity {
   schema_version: "trade.worktree-cleanup-identity.v1"
-  operation: "identify-linked-worktree"
+  operation: "create-linked-worktree" | "refresh-linked-worktree"
   worktree_id: string
   generation: string
   head: string
-  ref: string | null
+  ref: string
   status: "completed"
 }
 
@@ -36,19 +42,27 @@ export interface CleanupReceipt {
   reason_code: string | null
 }
 
+export interface CreateOptions {
+  repositoryCwd: string
+  worktreePath: string
+  branchRef: string
+  startPoint: string
+}
+
 export interface RemoveOptions {
   repositoryCwd: string
   ownerCommit: string
   worktreeId: string
   expectedGeneration: string
   expectedHead: string
-  expectedRef: string | null
+  expectedRef: string
 }
 
 interface ResolvedTarget {
   commonDir: string
   adminDir: string
   worktreePath: string
+  marker: OwnerMarker
   identity: WorktreeIdentity
 }
 
@@ -64,52 +78,58 @@ class CleanupError extends Error {
   }
 }
 
-export function identifyLinkedWorktree(worktreeCwd: string): WorktreeIdentity {
-  const worktreePath = realpathSync(git(worktreeCwd, [
-    "rev-parse",
-    "--path-format=absolute",
-    "--show-toplevel",
-  ]))
-  const adminDir = realpathSync(git(worktreePath, [
-    "rev-parse",
-    "--path-format=absolute",
-    "--git-dir",
-  ]))
-  const commonDir = realpathSync(git(worktreePath, [
-    "rev-parse",
-    "--path-format=absolute",
-    "--git-common-dir",
-  ]))
-  if (dirname(adminDir) !== join(commonDir, "worktrees")) {
-    throw new CleanupError("linked_worktree_required")
+export function createOwnedWorktree(options: CreateOptions): WorktreeIdentity {
+  assertOid(options.startPoint)
+  assertBranchRef(options.repositoryCwd, options.branchRef)
+  if (existsSync(options.worktreePath)) throw new CleanupError("worktree_path_exists")
+  if (
+    gitResult(options.repositoryCwd, [
+      "show-ref",
+      "--verify",
+      "--quiet",
+      options.branchRef,
+    ]).exitCode !== 1
+  ) {
+    throw new CleanupError("branch_already_exists")
   }
-  const worktreeId = basename(adminDir)
-  assertWorktreeId(worktreeId)
-  const generationPath = join(adminDir, GENERATION_FILE)
-  if (!existsSync(generationPath)) {
-    writeFileSync(generationPath, `${randomBytes(32).toString("hex")}\n`, {
-      flag: "wx",
-      mode: 0o600,
-    })
+  const startPoint = resolveCommit(options.repositoryCwd, options.startPoint)
+  const branchName = options.branchRef.slice("refs/heads/".length)
+  const created = gitResult(options.repositoryCwd, [
+    "worktree",
+    "add",
+    "-q",
+    "--no-track",
+    "-b",
+    branchName,
+    "--",
+    options.worktreePath,
+    startPoint,
+  ])
+  if (created.exitCode !== 0) throw new CleanupError("worktree_creation_failed")
+
+  const location = resolveLinkedWorktree(options.worktreePath)
+  const marker: OwnerMarker = {
+    schema_version: "trade.worktree-cleanup-owner.v1",
+    generation: randomBytes(32).toString("hex"),
+    owned_ref: options.branchRef,
   }
-  const generation = readGeneration(generationPath)
-  return {
-    schema_version: "trade.worktree-cleanup-identity.v1",
-    operation: "identify-linked-worktree",
-    worktree_id: worktreeId,
-    generation,
-    head: git(worktreePath, ["rev-parse", "--verify", "HEAD"]),
-    ref: readHeadRef(worktreePath),
-    status: "completed",
-  }
+  writeFileSync(join(location.adminDir, OWNER_FILE), `${JSON.stringify(marker)}\n`, {
+    flag: "wx",
+    mode: 0o600,
+  })
+  return readOwnedWorktree(options.worktreePath, "create-linked-worktree")
+}
+
+export function refreshOwnedWorktree(worktreeCwd: string): WorktreeIdentity {
+  return readOwnedWorktree(worktreeCwd, "refresh-linked-worktree")
 }
 
 export function removeOwnedWorktree(options: RemoveOptions): CleanupReceipt {
   let ownerCommit = sanitizeOid(options.ownerCommit)
+  let expectedRefForReceipt: string | null = null
   let observedGeneration: string | null = null
   let observedHead: string | null = null
   let observedRef: string | null = null
-  let expectedRefForReceipt: string | null = null
   let worktreeRemoved = false
   let localBranchDeleted = false
 
@@ -138,25 +158,21 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupReceipt {
     assertGeneration(options.expectedGeneration)
     assertOid(options.ownerCommit)
     assertOid(options.expectedHead)
-    if (options.expectedRef !== null) {
-      assertBranchRef(options.repositoryCwd, options.expectedRef)
-      expectedRefForReceipt = options.expectedRef
-    }
+    assertBranchRef(options.repositoryCwd, options.expectedRef)
+    expectedRefForReceipt = options.expectedRef
     ownerCommit = resolveCommit(options.repositoryCwd, options.ownerCommit)
 
     let target = resolveTarget(options.repositoryCwd, options.worktreeId)
-    observedGeneration = target.identity.generation
-    observedHead = target.identity.head
-    observedRef = target.identity.ref
-    assertExpectedIdentity(target.identity, options)
+    bindObserved(target.identity)
+    assertExpectedIdentity(target, options)
     assertPristine(target.worktreePath)
+    assertUnused(target.worktreePath, target.adminDir)
 
     target = resolveTarget(target.commonDir, options.worktreeId)
-    observedGeneration = target.identity.generation
-    observedHead = target.identity.head
-    observedRef = target.identity.ref
-    assertExpectedIdentity(target.identity, options)
+    bindObserved(target.identity)
+    assertExpectedIdentity(target, options)
     assertPristine(target.worktreePath)
+    assertUnused(target.worktreePath, target.adminDir)
 
     const removal = gitResult(target.commonDir, [
       "worktree",
@@ -171,29 +187,33 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupReceipt {
       )
     }
 
-    if (options.expectedRef !== null) {
-      const deletion = gitResult(target.commonDir, [
-        "update-ref",
-        "--no-deref",
-        "-d",
+    const deletion = gitResult(target.commonDir, [
+      "update-ref",
+      "--no-deref",
+      "-d",
+      options.expectedRef,
+      options.expectedHead,
+    ])
+    localBranchDeleted = deletion.exitCode === 0
+      && gitResult(target.commonDir, [
+        "show-ref",
+        "--verify",
+        "--quiet",
         options.expectedRef,
-        options.expectedHead,
-      ])
-      localBranchDeleted = deletion.exitCode === 0
-        && gitResult(target.commonDir, [
-          "show-ref",
-          "--verify",
-          "--quiet",
-          options.expectedRef,
-        ]).exitCode === 1
-      if (!localBranchDeleted) {
-        return receipt("partial", "local_branch_preserved")
-      }
+      ]).exitCode !== 0
+    if (!localBranchDeleted) {
+      return receipt("partial", "local_branch_preserved")
     }
     return receipt("completed", null)
   } catch (error) {
     const reason = error instanceof CleanupError ? error.code : "owner_operation_failed"
     return receipt(worktreeRemoved ? "partial" : "failed", reason)
+  }
+
+  function bindObserved(identity: WorktreeIdentity): void {
+    observedGeneration = identity.generation
+    observedHead = identity.head
+    observedRef = identity.ref
   }
 }
 
@@ -207,8 +227,7 @@ function resolveTarget(repositoryCwd: string, worktreeId: string): ResolvedTarge
   if (!existsSync(adminDir)) throw new CleanupError("worktree_identity_missing")
   const gitdirPointer = readFileSync(join(adminDir, "gitdir"), "utf8").trim()
   if (!gitdirPointer) throw new CleanupError("worktree_identity_missing")
-  const gitdirPath = resolve(adminDir, gitdirPointer)
-  const worktreePath = dirname(gitdirPath)
+  const worktreePath = dirname(resolve(adminDir, gitdirPointer))
   if (!existsSync(worktreePath)) throw new CleanupError("worktree_identity_missing")
   const observedAdminDir = realpathSync(git(worktreePath, [
     "rev-parse",
@@ -218,63 +237,148 @@ function resolveTarget(repositoryCwd: string, worktreeId: string): ResolvedTarge
   if (observedAdminDir !== realpathSync(adminDir)) {
     throw new CleanupError("worktree_identity_drift")
   }
+  const marker = readMarker(adminDir)
   return {
     commonDir,
     adminDir,
     worktreePath,
-    identity: identifyLinkedWorktree(worktreePath),
+    marker,
+    identity: readOwnedWorktree(worktreePath, "refresh-linked-worktree"),
   }
 }
 
-function assertExpectedIdentity(identity: WorktreeIdentity, options: RemoveOptions): void {
-  if (identity.generation !== options.expectedGeneration) {
+function resolveLinkedWorktree(worktreeCwd: string): {
+  adminDir: string
+  commonDir: string
+  worktreeId: string
+} {
+  const adminDir = realpathSync(git(worktreeCwd, [
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-dir",
+  ]))
+  const commonDir = realpathSync(git(worktreeCwd, [
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-common-dir",
+  ]))
+  if (dirname(adminDir) !== join(commonDir, "worktrees")) {
+    throw new CleanupError("linked_worktree_required")
+  }
+  const worktreeId = basename(adminDir)
+  assertWorktreeId(worktreeId)
+  return { adminDir, commonDir, worktreeId }
+}
+
+function readOwnedWorktree(
+  worktreeCwd: string,
+  operation: WorktreeIdentity["operation"],
+): WorktreeIdentity {
+  const location = resolveLinkedWorktree(worktreeCwd)
+  const marker = readMarker(location.adminDir)
+  const ref = readHeadRef(worktreeCwd)
+  if (ref !== marker.owned_ref) throw new CleanupError("worktree_ref_drift")
+  return {
+    schema_version: "trade.worktree-cleanup-identity.v1",
+    operation,
+    worktree_id: location.worktreeId,
+    generation: marker.generation,
+    head: git(worktreeCwd, ["rev-parse", "--verify", "HEAD"]),
+    ref,
+    status: "completed",
+  }
+}
+
+function readMarker(adminDir: string): OwnerMarker {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(join(adminDir, OWNER_FILE), "utf8"))
+  } catch {
+    throw new CleanupError("cleanup_ownership_missing")
+  }
+  if (
+    typeof parsed !== "object"
+    || parsed === null
+    || !("schema_version" in parsed)
+    || parsed.schema_version !== "trade.worktree-cleanup-owner.v1"
+    || !("generation" in parsed)
+    || typeof parsed.generation !== "string"
+    || !("owned_ref" in parsed)
+    || typeof parsed.owned_ref !== "string"
+  ) {
+    throw new CleanupError("cleanup_ownership_invalid")
+  }
+  assertGeneration(parsed.generation)
+  return parsed as OwnerMarker
+}
+
+function assertExpectedIdentity(target: ResolvedTarget, options: RemoveOptions): void {
+  if (target.marker.generation !== options.expectedGeneration) {
     throw new CleanupError("worktree_generation_drift")
   }
-  if (identity.head !== options.expectedHead) {
+  if (target.marker.owned_ref !== options.expectedRef) {
+    throw new CleanupError("worktree_ref_not_owned")
+  }
+  if (target.identity.head !== options.expectedHead) {
     throw new CleanupError("worktree_head_drift")
   }
-  if (identity.ref !== options.expectedRef) {
+  if (target.identity.ref !== options.expectedRef) {
     throw new CleanupError("worktree_ref_drift")
   }
 }
 
 function assertPristine(worktreePath: string): void {
-  const index = gitResult(worktreePath, ["ls-files", "-v", "-z"])
-  if (index.exitCode !== 0) throw new CleanupError("worktree_inspection_failed")
-  if (
-    index.stdout.toString().split("\0")
-      .some((entry) => entry !== "" && (/^[a-z]/.test(entry) || entry.startsWith("S ")))
-  ) {
-    throw new CleanupError("worktree_index_hints_present")
+  const tracked = gitResult(worktreePath, ["ls-files", "--stage", "-z"])
+  if (tracked.exitCode !== 0) throw new CleanupError("worktree_inspection_failed")
+  for (const entry of tracked.stdout.toString().split("\0")) {
+    if (entry === "") continue
+    const match = /^(\d{6}) ([0-9a-f]{40}|[0-9a-f]{64}) ([0-3])\t(.*)$/s.exec(entry)
+    if (!match || match[3] !== "0") throw new CleanupError("worktree_not_pristine")
+    if (match[1] === "160000") {
+      throw new CleanupError("worktree_has_registered_submodules")
+    }
+    const actual = gitResult(worktreePath, [
+      "hash-object",
+      `--path=${match[4]}`,
+      "--",
+      match[4]!,
+    ])
+    if (
+      actual.exitCode !== 0
+      || actual.stdout.toString().trim() !== match[2]
+    ) {
+      throw new CleanupError("worktree_not_pristine")
+    }
   }
-  const status = gitResult(worktreePath, [
-    "-c",
-    "core.fsmonitor=false",
-    "status",
-    "--porcelain=v1",
-    "--untracked-files=all",
-    "--ignored=matching",
-  ])
-  if (status.exitCode !== 0) throw new CleanupError("worktree_inspection_failed")
-  if (status.stdout.length > 0) throw new CleanupError("worktree_not_pristine")
-  const submodules = gitResult(worktreePath, ["submodule", "status", "--recursive"])
-  if (submodules.exitCode !== 0) throw new CleanupError("worktree_inspection_failed")
-  if (submodules.stdout.length > 0) {
-    throw new CleanupError("worktree_has_registered_submodules")
+  for (const arguments_ of [
+    ["ls-files", "--others", "--exclude-standard", "-z"],
+    ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"],
+  ]) {
+    const residue = gitResult(worktreePath, arguments_)
+    if (residue.exitCode !== 0) throw new CleanupError("worktree_inspection_failed")
+    if (residue.stdout.length > 0) throw new CleanupError("worktree_not_pristine")
   }
 }
 
-function readHeadRef(cwd: string): string | null {
+function assertUnused(worktreePath: string, adminDir: string): void {
+  const lsof = process.platform === "darwin" ? "/usr/sbin/lsof" : "/usr/bin/lsof"
+  if (!existsSync(lsof)) throw new CleanupError("worktree_usage_inspection_unavailable")
+  for (const target of [worktreePath, adminDir]) {
+    const result = Bun.spawnSync([lsof, "-n", "-P", "-t", "+D", target], {
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    if (result.stdout.length > 0) throw new CleanupError("target_in_use")
+    if (result.exitCode !== 1 || result.stderr.length > 0) {
+      throw new CleanupError("worktree_usage_inspection_unavailable")
+    }
+  }
+}
+
+function readHeadRef(cwd: string): string {
   const result = gitResult(cwd, ["symbolic-ref", "-q", "HEAD"])
-  if (result.exitCode === 0) return result.stdout.toString().trim()
-  if (result.exitCode === 1 && result.stderr.length === 0) return null
-  throw new CleanupError("worktree_inspection_failed")
-}
-
-function readGeneration(path: string): string {
-  const generation = readFileSync(path, "utf8").trim()
-  assertGeneration(generation)
-  return generation
+  if (result.exitCode !== 0) throw new CleanupError("owned_branch_required")
+  return result.stdout.toString().trim()
 }
 
 function resolveCommit(cwd: string, value: string): string {
@@ -289,17 +393,17 @@ function git(cwd: string, arguments_: string[]): string {
   return result.stdout.toString().trim()
 }
 
-function gitResult(cwd: string, arguments_: string[]): CommandResult {
+function gitResult(
+  cwd: string,
+  arguments_: string[],
+  environment: NodeJS.ProcessEnv = process.env,
+): CommandResult {
   const result = Bun.spawnSync(["git", "--no-replace-objects", "-C", cwd, ...arguments_], {
-    env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+    env: { ...environment, GIT_OPTIONAL_LOCKS: "0" },
     stdout: "pipe",
     stderr: "pipe",
   })
-  return {
-    exitCode: result.exitCode,
-    stdout: result.stdout,
-    stderr: result.stderr,
-  }
+  return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr }
 }
 
 function assertWorktreeId(value: string): void {
@@ -320,8 +424,9 @@ function assertOid(value: string): void {
 
 function assertBranchRef(cwd: string, value: string): void {
   if (!value.startsWith("refs/heads/")) throw new CleanupError("invalid_expected_ref")
-  const result = gitResult(cwd, ["check-ref-format", value])
-  if (result.exitCode !== 0) throw new CleanupError("invalid_expected_ref")
+  if (gitResult(cwd, ["check-ref-format", value]).exitCode !== 0) {
+    throw new CleanupError("invalid_expected_ref")
+  }
 }
 
 function sanitizeWorktreeId(value: string): string {
@@ -359,19 +464,30 @@ function required(values: Map<string, string>, key: string): string {
 export function main(arguments_: string[]): number {
   try {
     const { command, values } = parseArguments(arguments_)
-    if (command === "identify") {
-      process.stdout.write(`${JSON.stringify(identifyLinkedWorktree(required(values, "cwd")))}\n`)
+    if (command === "create") {
+      const identity = createOwnedWorktree({
+        repositoryCwd: process.cwd(),
+        worktreePath: required(values, "worktree-path"),
+        branchRef: required(values, "branch-ref"),
+        startPoint: required(values, "start-point"),
+      })
+      process.stdout.write(`${JSON.stringify(identity)}\n`)
+      return 0
+    }
+    if (command === "refresh") {
+      process.stdout.write(
+        `${JSON.stringify(refreshOwnedWorktree(required(values, "cwd")))}\n`,
+      )
       return 0
     }
     if (command !== "remove") throw new CleanupError("invalid_arguments")
-    const expectedRef = required(values, "expected-ref")
     const receipt = removeOwnedWorktree({
       repositoryCwd: process.cwd(),
       ownerCommit: required(values, "owner-commit"),
       worktreeId: required(values, "worktree-id"),
       expectedGeneration: required(values, "expected-generation"),
       expectedHead: required(values, "expected-head"),
-      expectedRef: expectedRef === "null" ? null : expectedRef,
+      expectedRef: required(values, "expected-ref"),
     })
     process.stdout.write(`${JSON.stringify(receipt)}\n`)
     return receipt.status === "completed" ? 0 : 1

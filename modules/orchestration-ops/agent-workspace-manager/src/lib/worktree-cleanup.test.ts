@@ -5,16 +5,27 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { basename, dirname, join } from "node:path"
 import {
-  identifyLinkedWorktree,
+  createOwnedWorktree,
+  refreshOwnedWorktree,
   removeOwnedWorktree,
+  type WorktreeIdentity,
 } from "../scripts/worktree-cleanup"
 
 const fixtures: string[] = []
+
+interface Fixture {
+  root: string
+  worktree: string
+  ownerCommit: string
+  identity: WorktreeIdentity
+}
 
 interface CommandResult {
   exitCode: number
@@ -28,48 +39,38 @@ afterEach(() => {
   }
 })
 
-test("identify returns a stable path-free linked-worktree identity", () => {
+test("only the owner create operation mints cleanup provenance", () => {
   const fixture = createFixture()
-  const first = identifyLinkedWorktree(fixture.worktree)
-  const second = identifyLinkedWorktree(fixture.worktree)
+  expect(fixture.identity.operation).toBe("create-linked-worktree")
+  expect(fixture.identity.ref).toBe("refs/heads/mission-branch")
+  expect(fixture.identity.generation).toMatch(/^[0-9a-f]{64}$/)
+  expect(JSON.stringify(fixture.identity)).not.toContain(fixture.root)
 
-  expect(first).toEqual(second)
-  expect(first.worktree_id).toBe("linked-worktree")
-  expect(first.ref).toBe("refs/heads/mission-branch")
-  expect(first.generation).toMatch(/^[0-9a-f]{64}$/)
-  expect(JSON.stringify(first)).not.toContain(fixture.root)
+  const unrelated = join(fixture.root, "unrelated")
+  git(fixture.root, ["worktree", "add", "-qb", "unrelated-branch", unrelated])
+  expect(() => refreshOwnedWorktree(unrelated)).toThrow("cleanup_ownership_missing")
+  expect(() => createOwnedWorktree({
+    repositoryCwd: fixture.root,
+    worktreePath: unrelated,
+    branchRef: "refs/heads/unrelated-branch",
+    startPoint: fixture.ownerCommit,
+  })).toThrow()
+  expect(existsSync(unrelated)).toBe(true)
 })
 
-test("immutable owner removes only the exact pristine worktree and direct branch", () => {
+test("final refresh closes a writable mission before immutable owner removal", () => {
   const fixture = createFixture()
-  const identity = identifyLinkedWorktree(fixture.worktree)
-  const ownerCommit = installOwnerTool(fixture.root)
-  const producer = gitResult(fixture.root, [
-    "show",
-    `${ownerCommit}:modules/orchestration-ops/agent-workspace-manager/src/scripts/worktree-cleanup.ts`,
-  ])
-  expect(producer.exitCode).toBe(0)
-  const cleanup = Bun.spawnSync([
-    "bun",
-    "run",
-    "-",
-    "remove",
-    "--owner-commit",
-    ownerCommit,
-    "--worktree-id",
-    identity.worktree_id,
-    "--expected-generation",
-    identity.generation,
-    "--expected-head",
-    identity.head,
-    "--expected-ref",
-    identity.ref!,
-  ], {
-    cwd: fixture.root,
-    stdin: producer.stdout,
-    stdout: "pipe",
-    stderr: "pipe",
-  })
+  writeFileSync(join(fixture.worktree, "tracked.txt"), "candidate\n")
+  git(fixture.worktree, ["commit", "-qam", "candidate"])
+
+  const stale = remove(fixture, fixture.identity)
+  expect(stale.reason_code).toBe("worktree_head_drift")
+  expect(stale.worktree_removed).toBe(false)
+
+  const finalIdentity = refreshOwnedWorktree(fixture.worktree)
+  expect(finalIdentity.generation).toBe(fixture.identity.generation)
+  expect(finalIdentity.head).not.toBe(fixture.identity.head)
+  const cleanup = runStreamedRemoval(fixture, finalIdentity)
   const receipt = JSON.parse(cleanup.stdout.toString())
 
   expect(cleanup.exitCode).toBe(0)
@@ -78,41 +79,28 @@ test("immutable owner removes only the exact pristine worktree and direct branch
   expect(receipt.local_branch_deleted).toBe(true)
   expect(JSON.stringify(receipt)).not.toContain(fixture.root)
   expect(existsSync(fixture.worktree)).toBe(false)
-  expect(gitResult(fixture.root, ["show-ref", "--verify", identity.ref!]).exitCode).not.toBe(0)
 })
 
-test("generation, head, and ref drift all preserve the target", () => {
-  for (const drift of ["generation", "head", "ref"] as const) {
-    const fixture = createFixture()
-    const identity = identifyLinkedWorktree(fixture.worktree)
-    const ownerCommit = git(fixture.root, ["rev-parse", "HEAD"])
-    if (drift === "head") {
-      writeFileSync(join(fixture.worktree, "tracked.txt"), "changed\n")
-      git(fixture.worktree, ["commit", "-qam", "drift"])
-    }
-    if (drift === "ref") {
-      git(fixture.worktree, ["switch", "-q", "-c", "different-branch"])
-    }
-    const receipt = removeOwnedWorktree({
-      repositoryCwd: fixture.root,
-      ownerCommit,
-      worktreeId: identity.worktree_id,
-      expectedGeneration: drift === "generation" ? "0".repeat(64) : identity.generation,
-      expectedHead: identity.head,
-      expectedRef: identity.ref,
-    })
+test("wrong generation and ref drift preserve the owner-created target", () => {
+  const generationFixture = createFixture()
+  const wrongGeneration = remove(generationFixture, {
+    ...generationFixture.identity,
+    generation: "0".repeat(64),
+  })
+  expect(wrongGeneration.reason_code).toBe("worktree_generation_drift")
+  expect(existsSync(generationFixture.worktree)).toBe(true)
 
-    expect(receipt.status).toBe("failed")
-    expect(receipt.worktree_removed).toBe(false)
-    expect(existsSync(fixture.worktree)).toBe(true)
-  }
+  const refFixture = createFixture()
+  git(refFixture.worktree, ["switch", "-qc", "different-branch"])
+  expect(() => refreshOwnedWorktree(refFixture.worktree)).toThrow("worktree_ref_drift")
+  const drift = remove(refFixture, refFixture.identity)
+  expect(drift.reason_code).toBe("worktree_ref_drift")
+  expect(existsSync(refFixture.worktree)).toBe(true)
 })
 
 test("tracked, untracked, and ignored residue all preserve the target", () => {
   for (const residue of ["tracked", "untracked", "ignored"] as const) {
     const fixture = createFixture()
-    const identity = identifyLinkedWorktree(fixture.worktree)
-    const ownerCommit = git(fixture.root, ["rev-parse", "HEAD"])
     if (residue === "tracked") {
       writeFileSync(join(fixture.worktree, "tracked.txt"), "dirty\n")
     } else if (residue === "untracked") {
@@ -121,134 +109,115 @@ test("tracked, untracked, and ignored residue all preserve the target", () => {
       writeFileSync(join(fixture.root, ".git", "info", "exclude"), "ignored.tmp\n")
       writeFileSync(join(fixture.worktree, "ignored.tmp"), "preserve\n")
     }
-    const receipt = removeOwnedWorktree({
-      repositoryCwd: fixture.root,
-      ownerCommit,
-      worktreeId: identity.worktree_id,
-      expectedGeneration: identity.generation,
-      expectedHead: identity.head,
-      expectedRef: identity.ref,
-    })
-
-    expect(receipt.status).toBe("failed")
+    const receipt = remove(fixture, fixture.identity)
     expect(receipt.reason_code).toBe("worktree_not_pristine")
     expect(receipt.worktree_removed).toBe(false)
     expect(existsSync(fixture.worktree)).toBe(true)
   }
 })
 
-test("index hints never hide tracked residue from cleanup", () => {
+test("tracked contents are hashed instead of trusting the index stat cache", () => {
   const fixture = createFixture()
-  const identity = identifyLinkedWorktree(fixture.worktree)
-  git(fixture.worktree, ["update-index", "--assume-unchanged", "tracked.txt"])
-  writeFileSync(join(fixture.worktree, "tracked.txt"), "hidden change\n")
-  const receipt = removeOwnedWorktree({
-    repositoryCwd: fixture.root,
-    ownerCommit: git(fixture.root, ["rev-parse", "HEAD"]),
-    worktreeId: identity.worktree_id,
-    expectedGeneration: identity.generation,
-    expectedHead: identity.head,
-    expectedRef: identity.ref,
-  })
+  git(fixture.worktree, ["config", "core.trustctime", "false"])
+  git(fixture.worktree, ["config", "core.checkStat", "minimal"])
+  const tracked = join(fixture.worktree, "tracked.txt")
+  const metadata = statSync(tracked)
+  writeFileSync(tracked, "evil\n")
+  utimesSync(tracked, metadata.atime, metadata.mtime)
 
-  expect(receipt.reason_code).toBe("worktree_index_hints_present")
+  const receipt = remove(fixture, fixture.identity)
+  expect(receipt.reason_code).toBe("worktree_not_pristine")
   expect(receipt.worktree_removed).toBe(false)
-  expect(readFileSync(join(fixture.worktree, "tracked.txt"), "utf8")).toBe("hidden change\n")
+  expect(readFileSync(tracked, "utf8")).toBe("evil\n")
 })
 
-test("an ignored nested worktree is preserved without special ownership discovery", () => {
+test("a live process using the worktree causes conservative refusal", async () => {
+  const fixture = createFixture()
+  const ready = join(fixture.root, "process.ready")
+  const user = Bun.spawn([
+    "/bin/sh",
+    "-c",
+    "cd \"$1\" && : > \"$2\" && exec sleep 30",
+    "sh",
+    fixture.worktree,
+    ready,
+  ], {
+    cwd: fixture.root,
+    stdout: "ignore",
+    stderr: "ignore",
+  })
+  try {
+    await waitForPath(ready)
+    const receipt = remove(fixture, fixture.identity)
+    expect(receipt.reason_code).toBe("target_in_use")
+    expect(receipt.worktree_removed).toBe(false)
+    expect(existsSync(fixture.worktree)).toBe(true)
+  } finally {
+    user.kill()
+    await user.exited
+  }
+})
+
+test("ignored nested worktrees and their payload are preserved", () => {
   const fixture = createFixture()
   writeFileSync(join(fixture.root, ".git", "info", "exclude"), "ignored.tmp/\n")
   const nested = join(fixture.worktree, "ignored.tmp")
   git(fixture.root, ["worktree", "add", "-qb", "nested-branch", nested])
   writeFileSync(join(nested, "payload.txt"), "preserve\n")
-  const identity = identifyLinkedWorktree(fixture.worktree)
-  const receipt = removeOwnedWorktree({
-    repositoryCwd: fixture.root,
-    ownerCommit: git(fixture.root, ["rev-parse", "HEAD"]),
-    worktreeId: identity.worktree_id,
-    expectedGeneration: identity.generation,
-    expectedHead: identity.head,
-    expectedRef: identity.ref,
-  })
 
+  const receipt = remove(fixture, fixture.identity)
   expect(receipt.reason_code).toBe("worktree_not_pristine")
   expect(receipt.worktree_removed).toBe(false)
   expect(readFileSync(join(nested, "payload.txt"), "utf8")).toBe("preserve\n")
 })
 
-if (process.platform === "linux" && canBindMount()) {
-  test("a bind-aliased ignored nested worktree is preserved", () => {
-    const fixture = createFixture()
-    const alias = join(fixture.root, "alias")
-    const nestedAlias = join(alias, "ignored.tmp")
-    const physicalNested = join(fixture.worktree, "ignored.tmp")
-    mkdirSync(alias)
-    git(fixture.root, ["mount", "--bind", fixture.worktree, alias])
-    try {
-      writeFileSync(join(fixture.root, ".git", "info", "exclude"), "ignored.tmp/\n")
-      git(fixture.root, ["git", "worktree", "add", "-qb", "nested-branch", nestedAlias])
-      writeFileSync(join(physicalNested, "payload.txt"), "preserve\n")
-      const identity = identifyLinkedWorktree(fixture.worktree)
-      const receipt = removeOwnedWorktree({
-        repositoryCwd: fixture.root,
-        ownerCommit: git(fixture.root, ["rev-parse", "HEAD"]),
-        worktreeId: identity.worktree_id,
-        expectedGeneration: identity.generation,
-        expectedHead: identity.head,
-        expectedRef: identity.ref,
-      })
-
-      expect(receipt.reason_code).toBe("worktree_not_pristine")
-      expect(receipt.worktree_removed).toBe(false)
-      expect(readFileSync(join(physicalNested, "payload.txt"), "utf8")).toBe("preserve\n")
-    } finally {
-      gitResult(fixture.root, ["git", "worktree", "remove", "--force", "--", nestedAlias])
-      gitResult(fixture.root, ["umount", alias])
-    }
-  })
-}
-
-test("detached pristine worktrees are removed without deleting a branch", () => {
+test("registered submodules are preserved even when clean", () => {
   const fixture = createFixture()
-  git(fixture.root, ["worktree", "remove", "--", fixture.worktree])
-  git(fixture.root, ["branch", "-D", "mission-branch"])
-  git(fixture.root, ["worktree", "add", "-q", "--detach", fixture.worktree, "HEAD"])
-  const identity = identifyLinkedWorktree(fixture.worktree)
-  const receipt = removeOwnedWorktree({
-    repositoryCwd: fixture.root,
-    ownerCommit: git(fixture.root, ["rev-parse", "HEAD"]),
-    worktreeId: identity.worktree_id,
-    expectedGeneration: identity.generation,
-    expectedHead: identity.head,
-    expectedRef: null,
-  })
+  const source = createRepository("trade-cleanup-submodule-")
+  git(fixture.worktree, [
+    "-c",
+    "protocol.file.allow=always",
+    "submodule",
+    "add",
+    "-q",
+    source,
+    "dependency",
+  ])
+  git(fixture.worktree, ["commit", "-qam", "submodule"])
+  const finalIdentity = refreshOwnedWorktree(fixture.worktree)
 
-  expect(receipt.status).toBe("completed")
-  expect(receipt.worktree_removed).toBe(true)
-  expect(receipt.local_branch_deleted).toBe(false)
+  const receipt = remove(fixture, finalIdentity)
+  expect(receipt.reason_code).toBe("worktree_has_registered_submodules")
+  expect(receipt.worktree_removed).toBe(false)
+  expect(existsSync(fixture.worktree)).toBe(true)
 })
 
-test("receipts retain Git-valid ref characters after authoritative validation", () => {
-  const fixture = createFixture()
-  git(fixture.worktree, ["branch", "-m", "evaluator@target"])
-  const identity = identifyLinkedWorktree(fixture.worktree)
-  const receipt = removeOwnedWorktree({
-    repositoryCwd: fixture.root,
-    ownerCommit: git(fixture.root, ["rev-parse", "HEAD"]),
-    worktreeId: identity.worktree_id,
-    expectedGeneration: identity.generation,
-    expectedHead: identity.head,
-    expectedRef: identity.ref,
-  })
+test("Git-valid ref characters remain bound through create, refresh, and removal", () => {
+  const fixture = createFixture("refs/heads/evaluator@target")
+  const finalIdentity = refreshOwnedWorktree(fixture.worktree)
+  const receipt = remove(fixture, finalIdentity)
 
   expect(receipt.status).toBe("completed")
   expect(receipt.expected_ref).toBe("refs/heads/evaluator@target")
   expect(receipt.observed_ref).toBe("refs/heads/evaluator@target")
+  expect(receipt.local_branch_deleted).toBe(true)
 })
 
-function createFixture(): { root: string; worktree: string } {
-  const root = mkdtempSync(join(tmpdir(), "trade-cleanup-"))
+function createFixture(branchRef = "refs/heads/mission-branch"): Fixture {
+  const root = createRepository("trade-cleanup-")
+  const ownerCommit = installOwnerTool(root)
+  const worktree = join(root, "linked-worktree")
+  const identity = createOwnedWorktree({
+    repositoryCwd: root,
+    worktreePath: worktree,
+    branchRef,
+    startPoint: ownerCommit,
+  })
+  return { root, worktree, ownerCommit, identity }
+}
+
+function createRepository(prefix: string): string {
+  const root = mkdtempSync(join(tmpdir(), prefix))
   fixtures.push(root)
   git(root, ["init", "-q"])
   git(root, ["config", "user.name", "test"])
@@ -256,9 +225,7 @@ function createFixture(): { root: string; worktree: string } {
   writeFileSync(join(root, "tracked.txt"), "base\n")
   git(root, ["add", "tracked.txt"])
   git(root, ["commit", "-qm", "base"])
-  const worktree = join(root, "linked-worktree")
-  git(root, ["worktree", "add", "-qb", "mission-branch", worktree])
-  return { root, worktree }
+  return root
 }
 
 function installOwnerTool(root: string): string {
@@ -273,20 +240,53 @@ function installOwnerTool(root: string): string {
   return git(root, ["rev-parse", "HEAD"])
 }
 
-function canBindMount(): boolean {
-  if (process.geteuid?.() !== 0) return false
-  const root = mkdtempSync(join(tmpdir(), "trade-mount-check-"))
-  fixtures.push(root)
-  const source = join(root, "source")
-  const target = join(root, "target")
-  mkdirSync(source)
-  mkdirSync(target)
-  const mounted = Bun.spawnSync(["mount", "--bind", source, target], {
-    stdout: "ignore",
-    stderr: "ignore",
-  }).exitCode === 0
-  if (mounted) Bun.spawnSync(["umount", target])
-  return mounted
+function remove(fixture: Fixture, identity: WorktreeIdentity) {
+  return removeOwnedWorktree({
+    repositoryCwd: fixture.root,
+    ownerCommit: fixture.ownerCommit,
+    worktreeId: identity.worktree_id,
+    expectedGeneration: identity.generation,
+    expectedHead: identity.head,
+    expectedRef: identity.ref,
+  })
+}
+
+function runStreamedRemoval(fixture: Fixture, identity: WorktreeIdentity): CommandResult {
+  const producer = gitResult(fixture.root, [
+    "show",
+    `${fixture.ownerCommit}:modules/orchestration-ops/agent-workspace-manager/src/scripts/worktree-cleanup.ts`,
+  ])
+  if (producer.exitCode !== 0) throw new Error(producer.stderr.toString())
+  const result = Bun.spawnSync([
+    "bun",
+    "run",
+    "-",
+    "remove",
+    "--owner-commit",
+    fixture.ownerCommit,
+    "--worktree-id",
+    identity.worktree_id,
+    "--expected-generation",
+    identity.generation,
+    "--expected-head",
+    identity.head,
+    "--expected-ref",
+    identity.ref,
+  ], {
+    cwd: fixture.root,
+    stdin: producer.stdout,
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr }
+}
+
+async function waitForPath(path: string): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (existsSync(path)) return
+    await Bun.sleep(10)
+  }
+  throw new Error(`fixture did not become ready: ${basename(path)}`)
 }
 
 function git(cwd: string, arguments_: string[]): string {
@@ -298,17 +298,10 @@ function git(cwd: string, arguments_: string[]): string {
 }
 
 function gitResult(cwd: string, arguments_: string[]): CommandResult {
-  const command = arguments_[0] === "git" || arguments_[0] === "mount" || arguments_[0] === "umount"
-    ? arguments_
-    : ["git", "-C", cwd, ...arguments_]
-  const result = Bun.spawnSync(command, {
+  const result = Bun.spawnSync(["git", "-C", cwd, ...arguments_], {
     cwd,
     stdout: "pipe",
     stderr: "pipe",
   })
-  return {
-    exitCode: result.exitCode,
-    stdout: result.stdout,
-    stderr: result.stderr,
-  }
+  return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr }
 }
