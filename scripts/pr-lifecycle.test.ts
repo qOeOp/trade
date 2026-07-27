@@ -1300,6 +1300,27 @@ describe("lifecycle status projection", () => {
     )).toThrow("section is empty: ## Risks")
   })
 
+  test("removes complete comments without joining visible Outcome fragments", () => {
+    expect(requireLifecyclePullRequestBody(
+      "## Outcome\n\nShip<!-- first -->exact<!-- second -->evidence.",
+    )).toBe("Ship exact evidence.")
+    expect(requireLifecyclePullRequestBody(
+      "## Outcome\n\nVisible <!<!-- removed -->-- fragment --> remains.",
+    )).toBe("Visible <! -- fragment --> remains.")
+  })
+
+  test("fails closed on nested, unterminated, and comment-hidden sections", () => {
+    expect(() => requireLifecyclePullRequestBody(
+      "## Outcome\n\nVisible <!-- outer <!-- nested -->",
+    )).toThrow("PR body contains a nested HTML comment")
+    expect(() => requireLifecyclePullRequestBody(
+      "## Outcome\n\nVisible <!-- unterminated",
+    )).toThrow("PR body contains an unterminated HTML comment")
+    expect(() => requireLifecyclePullRequestBody(
+      "<!--\n## Outcome\n\nHidden\n-->\n## Verification\n\nReady",
+    )).toThrow("missing required section: ## Outcome")
+  })
+
   test("posts, patches, recreates, and keeps one non-authoritative navigation comment", () => {
     withFakeProvider(({ invoke, readState, writeState }) => {
       const initial = readState()

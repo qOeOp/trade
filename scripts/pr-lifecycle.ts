@@ -296,14 +296,42 @@ export function parseMarker<T>(body: string, marker: string): T | null {
 }
 
 export function requireLifecyclePullRequestBody(body: string): string {
-  const sections = [...body.matchAll(/^##(?:[ \t]+(.*))?$/gm)]
+  const visibleChunks: string[] = []
+  let visibleStart = 0
+  let index = 0
+  while (index < body.length) {
+    if (!body.startsWith("<!--", index)) {
+      index += 1
+      continue
+    }
+
+    visibleChunks.push(body.slice(visibleStart, index), " ")
+    let commentIndex = index + 4
+    while (commentIndex < body.length && !body.startsWith("-->", commentIndex)) {
+      if (body.startsWith("<!--", commentIndex)) {
+        throw new Error("PR body contains a nested HTML comment")
+      }
+      if (body[commentIndex] === "\n" || body[commentIndex] === "\r") {
+        visibleChunks.push(body[commentIndex])
+      }
+      commentIndex += 1
+    }
+    if (commentIndex === body.length) {
+      throw new Error("PR body contains an unterminated HTML comment")
+    }
+    index = commentIndex + 3
+    visibleStart = index
+  }
+  visibleChunks.push(body.slice(visibleStart))
+  const visibleBody = visibleChunks.join("")
+
+  const sections = [...visibleBody.matchAll(/^##(?:[ \t]+(.*))?$/gm)]
   let outcome: string | null = null
   for (const [index, section] of sections.entries()) {
     const title = section[1]?.trim()
     if (!title) throw new Error("PR body has an empty H2 heading")
-    const content = body
+    const content = visibleBody
       .slice(section.index! + section[0].length, sections[index + 1]?.index)
-      .replace(/<!--[\s\S]*?-->/g, "")
       .trim()
     if (!content) throw new Error(`PR body section is empty: ## ${title}`)
     if (title === "Outcome") outcome = content
