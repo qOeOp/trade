@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  chmodSync,
   rmSync,
   statSync,
   utimesSync,
@@ -43,6 +44,7 @@ test("only the owner create operation mints cleanup provenance", () => {
   const fixture = createFixture()
   expect(fixture.identity.operation).toBe("create-linked-worktree")
   expect(fixture.identity.ref).toBe("refs/heads/mission-branch")
+  expect(fixture.identity.owner_commit).toBe(fixture.ownerCommit)
   expect(fixture.identity.generation).toMatch(/^[0-9a-f]{64}$/)
   expect(JSON.stringify(fixture.identity)).not.toContain(fixture.root)
 
@@ -54,6 +56,7 @@ test("only the owner create operation mints cleanup provenance", () => {
     worktreePath: unrelated,
     branchRef: "refs/heads/unrelated-branch",
     startPoint: fixture.ownerCommit,
+    ownerCommit: fixture.ownerCommit,
   })).toThrow()
   expect(existsSync(unrelated)).toBe(true)
 })
@@ -129,6 +132,113 @@ test("tracked contents are hashed instead of trusting the index stat cache", () 
   expect(receipt.reason_code).toBe("worktree_not_pristine")
   expect(receipt.worktree_removed).toBe(false)
   expect(readFileSync(tracked, "utf8")).toBe("evil\n")
+})
+
+test("tracked special files and executable-bit drift preserve the target", () => {
+  const specialFixture = createFixture()
+  const tracked = join(specialFixture.worktree, "tracked.txt")
+  rmSync(tracked)
+  const fifo = Bun.spawnSync(["mkfifo", tracked])
+  expect(fifo.exitCode).toBe(0)
+  const special = remove(specialFixture, specialFixture.identity)
+  expect(special.reason_code).toBe("worktree_not_pristine")
+  expect(existsSync(specialFixture.worktree)).toBe(true)
+
+  const modeFixture = createFixture()
+  git(modeFixture.worktree, ["config", "core.fileMode", "false"])
+  chmodSync(join(modeFixture.worktree, "tracked.txt"), 0o755)
+  const mode = remove(modeFixture, modeFixture.identity)
+  expect(mode.reason_code).toBe("worktree_not_pristine")
+  expect(existsSync(modeFixture.worktree)).toBe(true)
+})
+
+test("untracked special entries and empty directories preserve the target", () => {
+  const fifoFixture = createFixture()
+  const fifo = Bun.spawnSync(["mkfifo", join(fifoFixture.worktree, "untracked-fifo")])
+  expect(fifo.exitCode).toBe(0)
+  const special = remove(fifoFixture, fifoFixture.identity)
+  expect(special.reason_code).toBe("worktree_not_pristine")
+  expect(existsSync(fifoFixture.worktree)).toBe(true)
+
+  const directoryFixture = createFixture()
+  mkdirSync(join(directoryFixture.worktree, "empty-directory"))
+  const directory = remove(directoryFixture, directoryFixture.identity)
+  expect(directory.reason_code).toBe("worktree_not_pristine")
+  expect(existsSync(directoryFixture.worktree)).toBe(true)
+})
+
+test("owner commit is bound at creation and required at removal", () => {
+  const fixture = createFixture()
+  writeFileSync(join(fixture.root, "unrelated.txt"), "unrelated\n")
+  git(fixture.root, ["add", "unrelated.txt"])
+  git(fixture.root, ["commit", "-qm", "unrelated"])
+  const unrelatedCommit = git(fixture.root, ["rev-parse", "HEAD"])
+  const receipt = removeOwnedWorktree({
+    repositoryCwd: fixture.root,
+    ownerCommit: unrelatedCommit,
+    worktreeId: fixture.identity.worktree_id,
+    expectedGeneration: fixture.identity.generation,
+    expectedHead: fixture.identity.head,
+    expectedRef: fixture.identity.ref,
+  })
+
+  expect(receipt.reason_code).toBe("owner_commit_drift")
+  expect(existsSync(fixture.worktree)).toBe(true)
+
+  const commitWithoutOwner = git(fixture.root, ["rev-parse", `${fixture.ownerCommit}^`])
+  expect(() => createOwnedWorktree({
+    repositoryCwd: fixture.root,
+    worktreePath: join(fixture.root, "wrong-owner"),
+    branchRef: "refs/heads/wrong-owner",
+    startPoint: fixture.ownerCommit,
+    ownerCommit: commitWithoutOwner,
+  })).toThrow("owner_source_mismatch")
+})
+
+test("invalid short branch names and partial create failures preserve state", () => {
+  const root = createRepository("trade-cleanup-create-")
+  const ownerCommit = installOwnerTool(root)
+  expect(() => createOwnedWorktree({
+    repositoryCwd: root,
+    worktreePath: join(root, "invalid"),
+    branchRef: "refs/heads/-invalid",
+    startPoint: ownerCommit,
+    ownerCommit,
+  })).toThrow("invalid_expected_ref")
+
+  mkdirSync(join(root, ".git", "hooks"), { recursive: true })
+  const hook = join(root, ".git", "hooks", "post-checkout")
+  writeFileSync(hook, "#!/bin/sh\nexit 1\n")
+  chmodSync(hook, 0o755)
+  const worktree = join(root, "partial")
+  expect(() => createOwnedWorktree({
+    repositoryCwd: root,
+    worktreePath: worktree,
+    branchRef: "refs/heads/partial-branch",
+    startPoint: ownerCommit,
+    ownerCommit,
+  })).toThrow("worktree_creation_incomplete_preserved")
+  expect(existsSync(worktree)).toBe(true)
+  expect(gitResult(root, [
+    "show-ref",
+    "--verify",
+    "--quiet",
+    "refs/heads/partial-branch",
+  ]).exitCode).toBe(0)
+})
+
+test("owned branch configuration is removed with its ref", () => {
+  const fixture = createFixture()
+  git(fixture.root, ["config", "branch.mission-branch.remote", "origin"])
+  git(fixture.root, ["config", "branch.mission-branch.merge", "refs/heads/main"])
+  const receipt = remove(fixture, fixture.identity)
+
+  expect(receipt.status).toBe("completed")
+  expect(gitResult(fixture.root, [
+    "config",
+    "--get-regexp",
+    "^branch\\.mission-branch\\.",
+  ]).exitCode).not.toBe(0)
 })
 
 test("a live process using the worktree causes conservative refusal", async () => {
@@ -212,6 +322,7 @@ function createFixture(branchRef = "refs/heads/mission-branch"): Fixture {
     worktreePath: worktree,
     branchRef,
     startPoint: ownerCommit,
+    ownerCommit,
   })
   return { root, worktree, ownerCommit, identity }
 }
