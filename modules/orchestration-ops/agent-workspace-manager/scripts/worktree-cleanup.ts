@@ -895,6 +895,7 @@ function assertNoUnixSocketsFrom(
           mountViewProcessPath,
           socketPath,
           targetSocketPaths,
+          targetSocketIdentities,
         )
       ) {
         throw new WorktreeCleanupError("target_in_use")
@@ -940,6 +941,7 @@ function overlaySocketUsesTarget(
   processPath: string,
   socketPath: string,
   targetSocketPaths: Set<string>,
+  targetSocketIdentities: Set<string>,
 ): boolean {
   let mountInfo
   try {
@@ -975,7 +977,17 @@ function overlaySocketUsesTarget(
   if (matchingUpperDirectory === null) return false
   const socketRelativePath = relative(matchingMountPoint, socketPath)
   if (socketRelativePath === ".." || socketRelativePath.startsWith("../")) return false
-  return targetSocketPaths.has(resolve(matchingUpperDirectory, socketRelativePath))
+  const upperSocketPath = resolve(matchingUpperDirectory, socketRelativePath)
+  if (targetSocketPaths.has(upperSocketPath)) return true
+  try {
+    const metadata = statSync(upperSocketPath, { bigint: true })
+    return targetSocketIdentities.has(
+      `${metadata.dev.toString(16)}:${metadata.ino.toString(16)}`,
+    )
+  } catch (error) {
+    if (isMissingProcessEntry(error)) return false
+    throw new WorktreeCleanupError("process_guard_unavailable")
+  }
 }
 
 function decodeMountInfoField(value: string): string {

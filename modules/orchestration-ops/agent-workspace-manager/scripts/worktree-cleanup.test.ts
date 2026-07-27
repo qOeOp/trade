@@ -1842,6 +1842,71 @@ createServer().listen("/alias/root-aliased.sock", () => writeFileSync("/ready", 
         run("/", ["umount", mountRoot])
       }
     }, 15_000)
+
+    test("owner cleanup resolves a bind-aliased OverlayFS upper directory", async () => {
+      const mountRoot = mkdtempSync(join(tmpdir(), "trade-overlay-bind-socket-"))
+      const bindAlias = mkdtempSync(join(tmpdir(), "trade-overlay-bind-alias-"))
+      fixtures.push(mountRoot)
+      fixtures.push(bindAlias)
+      run(mountRoot, ["mount", "-t", "tmpfs", "tmpfs", mountRoot])
+      const root = join(mountRoot, "repo")
+      const worktree = join(root, "linked worktree")
+      const lower = join(mountRoot, "lower")
+      const overlayWork = join(mountRoot, "overlay-work")
+      const alias = join(mountRoot, "alias")
+      run(mountRoot, ["/bin/mkdir", "-p", root, lower, overlayWork, alias])
+      run(root, ["git", "init", "-q"])
+      run(root, ["git", "config", "user.name", "test"])
+      run(root, ["git", "config", "user.email", "test@example.com"])
+      writeFileSync(join(root, "tracked.txt"), "base\n")
+      writeFileSync(join(root, ".gitignore"), "*.sock\n")
+      run(root, ["git", "add", "tracked.txt", ".gitignore"])
+      run(root, ["git", "commit", "-qm", "base"])
+      run(root, ["git", "worktree", "add", "-qb", "mission-branch", worktree])
+      const identity = identifyLinkedWorktree(worktree)
+      const ownerCommit = installOwnerTool(root)
+      run(root, ["mount", "--bind", mountRoot, bindAlias])
+      run(root, [
+        "mount",
+        "-t",
+        "overlay",
+        "overlay",
+        "-o",
+        `lowerdir=${lower},upperdir=${join(bindAlias, "repo", "linked worktree")},workdir=${join(bindAlias, "overlay-work")}`,
+        alias,
+      ])
+      const targetSocket = join(worktree, "overlay.sock")
+      const aliasSocket = join(alias, "overlay.sock")
+      const server = createServer()
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject)
+        server.listen(aliasSocket, resolve)
+      })
+      try {
+        expect(statSync(aliasSocket, { bigint: true }).dev)
+          .not.toBe(statSync(targetSocket, { bigint: true }).dev)
+        const failure = captureCleanupError(() => removeOwnedWorktree({
+          repositoryCwd: root,
+          ownerCommit,
+          worktreeId: identity.worktree_id,
+          expectedGeneration: identity.generation,
+          expectedHead: identity.head,
+          expectedRef: identity.ref,
+          removeIgnored: true,
+        }))
+        expect(failure.code).toBe("target_in_use")
+        expect(failure.receipt?.worktree_claimed).toBe(false)
+        expect(existsSync(worktree)).toBe(true)
+        expect(server.listening).toBe(true)
+      } finally {
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => error ? reject(error) : resolve())
+        })
+        run(root, ["umount", alias])
+        run(root, ["umount", bindAlias])
+        run("/", ["umount", mountRoot])
+      }
+    }, 15_000)
   }
 
   const networkNamespaceArgs = process.geteuid?.() === 0 ? ["-n"] : ["-Urn"]
