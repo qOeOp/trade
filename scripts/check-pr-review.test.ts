@@ -239,6 +239,14 @@ describe("native review evidence", () => {
       "expected one current-head explicit Codex trigger, found 0",
     )
   })
+
+  test("requires the latest matching head observation to strictly predate the trigger", () => {
+    const simultaneous = snapshot()
+    simultaneous.headObservations = ["2026-07-27T01:05:00Z"]
+    expect(verify(simultaneous).reasons).toContain(
+      "expected one current-head explicit Codex trigger, found 0",
+    )
+  })
 })
 
 describe("base-owned gate wiring", () => {

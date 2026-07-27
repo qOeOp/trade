@@ -236,7 +236,7 @@ export function verifySnapshot(
     reasons.push("no pull_request workflow run proves when the head entered this PR")
   }
   const explicit = snapshot.comments.filter((comment) => /@codex\s+review\b/i.test(comment.body))
-  const currentWindow = explicit.filter((comment) => Date.parse(comment.createdAt) >= headTime)
+  const currentWindow = explicit.filter((comment) => Date.parse(comment.createdAt) > headTime)
   const exact = explicit.filter((comment) => {
     const marker = parseReviewMarker(comment.body)
     return marker?.head === snapshot.headSha
