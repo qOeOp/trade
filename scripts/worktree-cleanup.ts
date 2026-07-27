@@ -160,6 +160,7 @@ export function removeOwnedWorktree(options: RemoveOptions): CleanupExecutionRec
     assertExpectedIdentity(initial.identity, options)
     assertClean(initial.worktreePath)
     assertNoTargetUsers(initial.worktreePath)
+    assertNoInitializedSubmodules(initial.worktreePath)
     ownerCwd = initial.commonDir
     if (options.expectedRef !== null) assertFilesRefStorage(ownerCwd)
     const claimedOptions = { ...options, repositoryCwd: ownerCwd }
@@ -924,7 +925,17 @@ function claimRef(
     nullOid(cwd),
   ])
   if (createGuard.exitCode !== 0) {
-    throw new WorktreeCleanupError("branch_identity_drift_before_worktree_removal")
+    const guardHead = gitResult(cwd, ["rev-parse", "--verify", guardRef])
+    if (
+      guardHead.exitCode !== 0
+      || guardHead.stdout.toString().trim() !== expectedHead
+    ) {
+      throw new WorktreeCleanupError(
+        "branch_identity_drift_before_worktree_removal",
+        undefined,
+        survivingGuardRef(cwd, guardRef) ?? undefined,
+      )
+    }
   }
   try {
     deleteLockedSymbolicRef(cwd, ref, snapshot.target, expectedHead)
@@ -1283,7 +1294,7 @@ function deleteGuardRef(
   originalRef: string,
 ): void {
   const deleteGuard = gitResult(cwd, ["update-ref", "-d", guardRef, expectedHead])
-  if (deleteGuard.exitCode !== 0) {
+  if (deleteGuard.exitCode !== 0 && !refMissingNoDeref(cwd, guardRef)) {
     throw new WorktreeCleanupError("guard_ref_cleanup_failed")
   }
   if (!snapshot) return
@@ -1416,6 +1427,19 @@ function rollbackMove(repositoryCwd: string, quarantinePath: string, originalPat
     && (!existsSync(originalPath) || existsSync(quarantinePath))
   ) {
     throw new WorktreeCleanupError("rollback_failed")
+  }
+}
+
+function assertNoInitializedSubmodules(worktreePath: string): void {
+  const result = gitResult(worktreePath, ["submodule", "status", "--recursive"])
+  if (result.exitCode !== 0) {
+    throw new WorktreeCleanupError("git_operation_failed")
+  }
+  if (
+    result.stdout.toString().split("\n")
+      .some((line) => line !== "" && !line.startsWith("-"))
+  ) {
+    throw new WorktreeCleanupError("worktree_has_initialized_submodules")
   }
 }
 
