@@ -55,10 +55,12 @@ CLI.
 6. The read-only checker takes a complete GraphQL snapshot of commits, comments,
    reactions, reviews, and threads, bracketed by REST identity and authoritative
    live-base reads. It rejects provider errors, malformed data, duplicates,
-   forks, drift, or any connection over 100 items. It repeats the complete read
-   before success. Native evidence can still be deleted or rewritten by a
-   privileged actor; the checker certifies only the exact visible snapshot and
-   does not claim tamper-proof history.
+   forks, drift, any connection over 100 items, or provider output beyond its
+   bounded 64 MiB subprocess buffer. Reviews and finding roots count as current
+   only when they postdate the latest exact head/base observation. It repeats
+   the complete read before success. Native evidence can still be deleted or
+   rewritten by a privileged actor; the checker certifies only the exact visible
+   snapshot and does not claim tamper-proof history.
 7. Dispatch the base-owned workflow with exact PR, head, base ref, and live-base
    SHA. It must publish a non-success status before checkout, setup, live-base
    binding, or verification; its `always()` final step replaces pending with

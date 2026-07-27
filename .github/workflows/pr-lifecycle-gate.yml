@@ -75,7 +75,8 @@ jobs:
             --pr "$PR_NUMBER" \
             --expected-head "$EXPECTED_HEAD_SHA" \
             --expected-base-ref "$EXPECTED_BASE_REF" \
-            --expected-base-sha "$EXPECTED_BASE_SHA"
+            --expected-base-sha "$EXPECTED_BASE_SHA" \
+            --allow-draft
       - name: Publish final status
         if: ${{ always() }}
         env:

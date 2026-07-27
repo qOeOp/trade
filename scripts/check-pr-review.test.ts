@@ -137,6 +137,38 @@ describe("native review evidence", () => {
     )
   })
 
+  test("does not reuse same-head reviews or roots from an earlier base window", () => {
+    const stale = snapshot()
+    stale.reviews.push({
+      id: 21,
+      actor: "chatgpt-codex-connector",
+      submittedAt: "2026-07-27T01:00:00Z",
+      commitSha: head,
+    })
+    stale.threads.push({
+      id: "T_stale_window",
+      resolved: true,
+      comments: [{
+        id: 22,
+        nodeId: "RC_22",
+        actor: "chatgpt-codex-connector",
+        association: "NONE",
+        body: "Finding from an invalidated base window.",
+        createdAt: "2026-07-27T01:00:00Z",
+        includesCreatedEdit: false,
+        lastEditedAt: null,
+        reviewCommitSha: head,
+      }],
+    })
+    expect(verify(stale)).toMatchObject({ ok: true, reasons: [] })
+
+    stale.reviews[0]!.submittedAt = "2026-07-27T01:02:00Z"
+    stale.threads[0]!.comments[0]!.createdAt = "2026-07-27T01:02:00Z"
+    expect(verify(stale).reasons).toContain(
+      "current head has a Codex finding review instead of a clean result",
+    )
+  })
+
   test("requires one strict-descendant reply and resolution for historical findings", () => {
     const finding = snapshot()
     finding.threads.push({
@@ -396,7 +428,10 @@ describe("base-owned gate wiring", () => {
     expect(verify).toBeGreaterThan(pending)
     expect(final).toBeGreaterThan(verify)
     expect(workflow).toContain("  actions: read")
+    expect(workflow).toContain("--allow-draft")
     expect(workflow).toContain("if: ${{ always() }}")
     expect(workflow.slice(final)).not.toContain("gh api", "after the final status call")
+    expect(checker).toContain("maxBuffer: GH_MAX_BUFFER_BYTES")
+    expect(checker).toContain("const GH_MAX_BUFFER_BYTES = 64 * 1024 * 1024")
   })
 })

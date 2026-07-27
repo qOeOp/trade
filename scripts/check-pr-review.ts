@@ -8,6 +8,7 @@ const CODEX_LOGINS = new Set([
   "chatgpt-codex-connector[bot]",
 ])
 const ELIGIBLE_ASSOCIATIONS = new Set(["OWNER", "MEMBER", "COLLABORATOR"])
+const GH_MAX_BUFFER_BYTES = 64 * 1024 * 1024
 
 type JsonObject = Record<string, unknown>
 
@@ -311,13 +312,18 @@ export function verifySnapshot(
   }
 
   const currentReviews = snapshot.reviews.filter((review) =>
-    isCodex(review.actor) && review.commitSha === snapshot.headSha
+    isCodex(review.actor)
+    && review.commitSha === snapshot.headSha
+    && Date.parse(review.submittedAt) > headTime
   )
   const codexRoots = snapshot.threads.flatMap((thread) => {
     const root = thread.comments[0]
     return root && isCodex(root.actor) ? [{ thread, root }] : []
   })
-  const currentRoots = codexRoots.filter(({ root }) => root.reviewCommitSha === snapshot.headSha)
+  const currentRoots = codexRoots.filter(({ root }) =>
+    root.reviewCommitSha === snapshot.headSha
+    && Date.parse(root.createdAt) > headTime
+  )
   if (currentReviews.length > 0 || currentRoots.length > 0) {
     reasons.push("current head has a Codex finding review instead of a clean result")
   }
@@ -399,7 +405,10 @@ export function verifySnapshot(
 }
 
 function runGh(args: string[]): unknown {
-  const result = spawnSync("gh", args, { encoding: "utf8" })
+  const result = spawnSync("gh", args, {
+    encoding: "utf8",
+    maxBuffer: GH_MAX_BUFFER_BYTES,
+  })
   if (result.status !== 0) {
     throw new Error(result.stderr.trim() || `gh ${args.join(" ")} failed`)
   }
