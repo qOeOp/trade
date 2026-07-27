@@ -1380,6 +1380,24 @@ test("identify failures report the identify operation", () => {
   })
 })
 
+test("identify parse failures report the identify operation", () => {
+  const fixture = createFixture()
+  const result = runResult(fixture.root, [
+    "bun",
+    join(import.meta.dir, "worktree-cleanup.ts"),
+    "identify",
+    "unexpected-argument",
+  ])
+
+  expect(result.exitCode).toBe(1)
+  expect(JSON.parse(result.stdout.toString())).toEqual({
+    schema_version: "trade.worktree-cleanup-identity.v3",
+    operation: "identify-linked-worktree",
+    status: "failed",
+    reason_code: "unexpected_argument",
+  })
+})
+
 test("owner cleanup rejects a tree object as owner commit", () => {
   const fixture = createFixture()
   const identity = identifyLinkedWorktree(fixture.worktree)
@@ -1675,6 +1693,60 @@ exec "${realGit}" "$@"
   expect(receipt.rollback_attempted).toBe(true)
   expect(receipt.rollback_completed).toBe(false)
   expect(run(fixture.root, ["git", "rev-parse", identity.ref!])).toBe(concurrentHead)
+})
+
+test("owner cleanup preserves a same-target symbolic ref recreated during rollback", () => {
+  const fixture = createFixture()
+  const identity = identifyLinkedWorktree(fixture.worktree)
+  const ownerCommit = installOwnerTool(fixture.root)
+  const targetRef = "refs/heads/victim"
+  run(fixture.root, ["git", "update-ref", targetRef, identity.head])
+  run(fixture.root, ["git", "symbolic-ref", identity.ref!, targetRef])
+  run(fixture.root, ["git", "pack-refs", "--all"])
+  const packedRefsPath = join(fixture.root, ".git", "packed-refs")
+  writeFileSync(
+    packedRefsPath,
+    `${readFileSync(packedRefsPath, "utf8").trimEnd()}\n${identity.head} ${identity.ref!}\n`,
+  )
+  const symbolicRefPath = join(fixture.root, ".git", identity.ref!)
+  const packedRefsLock = `${packedRefsPath}.lock`
+  const trigger = join(fixture.root, "rollback-trigger")
+  const recreated = join(fixture.root, "rollback-ref-recreated")
+  const realGit = Bun.which("git")
+  if (!realGit) throw new Error("git unavailable")
+  const bin = join(fixture.root, "bin")
+  run(fixture.root, ["/bin/mkdir", "-p", bin])
+  const wrapper = join(bin, "git")
+  writeFileSync(
+    wrapper,
+    `#!/bin/sh
+case " $* " in
+  *" worktree remove "*)
+    : > "${trigger}"
+    exit 71
+    ;;
+  *" rev-parse --path-format=absolute --git-common-dir "*)
+    if [ -f "${trigger}" ] && [ -f "${symbolicRefPath}" ] && [ ! -f "${recreated}" ]; then
+      /bin/rm -f "${symbolicRefPath}"
+      "${realGit}" -C "${fixture.root}" symbolic-ref "${identity.ref!}" "${targetRef}" || exit $?
+      echo "external packed writer" > "${packedRefsLock}"
+      : > "${recreated}"
+    fi
+    ;;
+esac
+exec "${realGit}" "$@"
+`,
+  )
+  chmodSync(wrapper, 0o755)
+  const cleanup = runCleanupCli(fixture.root, identity, ownerCommit, bin)
+
+  expect(cleanup.exitCode).toBe(1)
+  const receipt = JSON.parse(cleanup.stdout.toString())
+  expect(receipt.reason_code).toBe("rollback_failed")
+  expect(receipt.rollback_attempted).toBe(true)
+  expect(receipt.rollback_completed).toBe(false)
+  expect(run(fixture.root, ["git", "symbolic-ref", identity.ref!])).toBe(targetRef)
+  expect(readFileSync(packedRefsLock, "utf8").trim()).toBe("external packed writer")
 })
 
 test("owner cleanup restores the branch and public path when worktree removal fails", () => {

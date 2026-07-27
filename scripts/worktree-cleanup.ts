@@ -991,23 +991,38 @@ function restoreRef(
     }
     return
   }
-  restoreSymbolicRef(cwd, ref, expectedHead, snapshot.target, snapshot.mode)
+  const restoredIdentity = restoreSymbolicRef(
+    cwd,
+    ref,
+    expectedHead,
+    snapshot.target,
+    snapshot.mode,
+  )
   try {
     restorePackedRefEntry(cwd, ref, snapshot.packedEntry)
   } catch {
-    removeRestoredSymbolicRef(cwd, ref, snapshot.target)
+    removeRestoredSymbolicRef(cwd, ref, snapshot.target, restoredIdentity)
     throw new WorktreeCleanupError("ref_restore_failed")
   }
 }
 
-function removeRestoredSymbolicRef(cwd: string, ref: string, target: string): void {
+function removeRestoredSymbolicRef(
+  cwd: string,
+  ref: string,
+  target: string,
+  restoredIdentity: FileIdentity,
+): void {
   const refPath = looseRefPath(cwd, ref)
   const lockPath = `${refPath}.lock`
   let lockIdentity: FileIdentity | undefined
   try {
     linkSync(refPath, lockPath)
     lockIdentity = lstatSync(lockPath)
-    if (readFileSync(lockPath, "utf8") !== `ref: ${target}\n`) {
+    if (
+      !lockMatches(lockPath, restoredIdentity)
+      || readFileSync(lockPath, "utf8") !== `ref: ${target}\n`
+      || !lockMatches(refPath, restoredIdentity)
+    ) {
       throw new WorktreeCleanupError("ref_restore_failed")
     }
     unlinkSync(refPath)
@@ -1045,9 +1060,9 @@ function restoreSymbolicRef(
   expectedHead: string,
   target: string,
   mode: number,
-): void {
+): FileIdentity {
   try {
-    createLockedSymbolicRef(cwd, ref, target, expectedHead, mode)
+    return createLockedSymbolicRef(cwd, ref, target, expectedHead, mode)
   } catch {
     throw new WorktreeCleanupError("ref_restore_failed")
   }
@@ -1246,7 +1261,7 @@ function createLockedSymbolicRef(
   target: string,
   expectedHead: string,
   mode: number,
-): void {
+): FileIdentity {
   const refPath = looseRefPath(cwd, ref)
   const targetPath = looseRefPath(cwd, target)
   const refLock = `${refPath}.lock`
@@ -1292,6 +1307,7 @@ function createLockedSymbolicRef(
     }
     renameSync(refLock, refPath)
     refRestored = true
+    return refLockIdentity
   } catch {
     throw new WorktreeCleanupError("ref_restore_failed")
   } finally {
@@ -1741,16 +1757,19 @@ function output(value: unknown): void {
 }
 
 if (import.meta.main) {
-  let parsedAction: "identify" | "remove" | undefined
+  const requestedAction = process.argv[2] === "identify"
+    ? "identify"
+    : process.argv[2] === "remove"
+      ? "remove"
+      : undefined
   try {
     const parsed = parseArgs(process.argv.slice(2))
-    parsedAction = parsed.action
     output(parsed.action === "identify"
       ? identifyLinkedWorktree(parsed.cwd)
       : removeOwnedWorktree(parsed.options))
   } catch (error) {
     const failure = error instanceof WorktreeCleanupError ? error : new WorktreeCleanupError("unknown")
-    output(failure.receipt ?? (parsedAction === "identify" ? {
+    output(failure.receipt ?? (requestedAction === "identify" ? {
       schema_version: IDENTITY_SCHEMA,
       operation: "identify-linked-worktree",
       status: "failed",
