@@ -3,7 +3,7 @@ title: Development Convergence Contract
 role: engineering-contract
 status: active
 owner: engineering
-last_verified: 2026-07-29 CST
+last_verified: 2026-07-30 CST
 ---
 
 # Development Convergence Contract
@@ -63,7 +63,7 @@ Stop 覆盖整个 mission，并在开工前冻结。修订计数或连续无进�
 
 mission 只使用 skill 的 `accept / revise / replan / blocked` 四条 route。`revise / replan` 只在冻结 Stop 内继续且不得重置预算；`accept / blocked` 终止当前 mission，blocked 原因随证据报告，不另造 route。Goal 或 Agent Run 的宿主状态只是投影，不能反向扩张 lifecycle。
 
-代码 mission 应明确交付终点。若终点是 GitHub merge，Handoff 可为当前 candidate 的非 draft PR 启用 squash auto-merge，但只有绑定该 candidate 的必需检查与 review 通过且 GitHub 报告已合并后才能 `accept`。该权限不含修改 ruleset、review 操作、conversation resolution、评论及手动或管理员合并；远程等待和修订仍消耗同一 Stop。
+代码 mission 应明确交付终点。若终点是 GitHub merge，Handoff 可为当前 candidate 的非 draft PR 启用 squash auto-merge，但只有绑定该 candidate 的必需检查与 review 通过、所有 conversation 已闭合且 GitHub 报告已合并后才能 `accept`。该权限不含修改 ruleset、review dismissal / approval、评论及手动或管理员合并；回复、重新请求 review 与 conversation resolution 必须分别冻结写权限，并在精确 head 上验证 finding 已处理后执行。远程等待和修订仍消耗同一 Stop。
 
 ## 5. Codex 能力归位
 

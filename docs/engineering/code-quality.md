@@ -3,7 +3,7 @@ title: Code Quality Contract
 role: engineering-contract
 status: active
 owner: engineering
-last_verified: 2026-07-27 CST
+last_verified: 2026-07-30 CST
 ---
 
 # Code Quality Contract
@@ -84,9 +84,9 @@ Replay release evidence 对若干源码文件绑定字节哈希。为避免候�
 
 GitHub Actions 在 pull request 与 `main` push 上调用同一编排器的独立 scope，并把事件 base commit 传给 policy 检查精确候选范围。`copilot-setup-steps.yml` 只配置 Copilot coding agent 的工具环境，不参与普通 Actions 加速或合并裁决。workflow 成功是否阻止合并仍由 GitHub repository ruleset / branch protection 决定。
 
-当前采用单 owner、黑灯工厂式 PR：ruleset 强制最新 `main`、`quality`、四语言 CodeQL 与 review thread resolution，不要求 approving review、required reviewer、CODEOWNER / last-push approval，也不得引入 manual exact-SHA、repository variable 管理员确认或其他人在环 authority gate。Agent 合并还要求当前精确 head 的 fresh evaluator 和自动 Codex review 均无未关闭发现；失败由 Agent 定向修复 / 重试，无法在预算内收口则保持阻断或有界终止，不转交人工审批。
+当前采用单 owner、黑灯工厂式 PR：ruleset 强制最新 `main`、`quality`、四语言 CodeQL 与 review thread resolution，普通开发候选默认不要求 approving review、required reviewer、CODEOWNER / last-push approval、manual exact-SHA、repository variable 管理员确认或其他人在环 authority gate。Agent 合并还要求当前精确 head 的 fresh evaluator 和自动 Codex review 均无未关闭发现；失败由 Agent 定向修复 / 重试，无法在预算内收口则保持阻断或有界终止。
 
-候选仍可能在同一 PR 修改 workflow 或质量裁判；这是单 owner 模型明确接受的信任限制。不得恢复已删除的 manual quality-authority，也不得把 required context 名称或 GitHub Actions integration 当成 provider-enforced independence。
+普通开发候选不得包含合并 workflow、quality judge、裁判 policy 或结果签发面的改动。确需升级该信任面时，先拆成独立 governance candidate，由外置 required workflow、独立 GitHub App 或其他候选不可控的 owner surface 验收；验收完成后再从新基线生成开发候选。GitHub Actions integration 与 required context 名称只约束结果来源，不能让同仓 workflow 和脚本自动成为独立 authority；当前 owner surface 不具备该能力时必须阻塞，也不默认恢复已删除的 manual exact-SHA quality-authority。
 
 同一仓库同一时刻只允许一个 `quality-check.sh` 实例。第二个实例必须快速失败并报告持锁 PID；异常退出遗留的死锁可在确认 owner PID 不存活后自动回收，禁止多个全量 Replay 测试争抢 CPU 后把资源竞争误判为代码慢。
 

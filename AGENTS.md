@@ -74,11 +74,11 @@
 
 ## Quality Guardrails
 
-- 仓库采用单 owner、黑灯工厂式 PR：不得引入人工 reviewer、required approval、CODEOWNER / last-push approval、manual exact-SHA、repository variable 管理员确认或其他人在环 authority gate；Codex、Dependabot、CI、CodeQL、fresh evaluator 与自动 review / fix / retry / merge 可以参与
+- 当前单 owner、黑灯工厂式 PR 对普通开发候选默认不引入人工 reviewer、required approval、CODEOWNER / last-push approval、manual exact-SHA、repository variable 管理员确认或其他人在环 authority gate；Codex、Dependabot、CI、CodeQL、fresh evaluator 与自动 review / fix / retry / merge 可以参与
 - 经 PR 交付时，本地只跑受影响 owner 的定向 test / typecheck / doc-or-architecture check、真实 production consumer journey、完整 diff inspection 与必要 workspace safety；不默认运行 `quality-check-changed.ts`，也不把本地 `scripts/quality-check.sh` 当作 commit / push 前总闸
-- GitHub required `quality` aggregate 与 JavaScript/TypeScript、Python、Rust、Go 四个 CodeQL context 承担全仓 merge closure；某个 CI leaf 失败后只本地复现并修复对应 owner / leaf，不自动重跑本地全仓门
+- GitHub required `quality` aggregate 与 JavaScript/TypeScript、Python、Rust、Go 四个 CodeQL context 承担未触及其信任面的普通候选的全仓 merge closure；某个 CI leaf 失败后只本地复现并修复对应 owner / leaf，不自动重跑本地全仓门
 - 不经 PR 的交付保留与风险相称的本地 terminal gate；CI 不能替代 live / runtime / production consumer acceptance
-- 单 owner 模型明确接受候选可修改仓库内 workflow / quality judge 的信任限制；不得恢复 manual quality-authority 或把候选可控裁判表述成 provider-enforced independence
+- 普通开发候选不得包含合并 workflow、quality judge、裁判 policy 或结果签发面的改动。确需升级该信任面时，先拆成独立 governance candidate，由候选不可控的 owner surface 验收；验收完成后再生成新的开发候选。缺少该 authority 时必须阻塞，也不默认恢复 manual exact-SHA quality-authority
 - 依赖更新与普通代码 PR 走同一自动收口链路；无法在 mission 预算内收口时保持阻断或有界终止，不转交人工审批
 - 不把 compiler / typecheck / test / vet warning 当成可忽略噪音；能修则修，不能修必须在交付说明里标明原因
 - 不把本机绝对路径写进 docs / code / helper 输出契约
