@@ -11,31 +11,41 @@ Quiesce integration that could merge before the frozen prerequisites close, incl
 prerequisites close.
 For `open`, confirm the PR's Draft/Ready state matches the frozen state before accepting.
 
+Classify each review producer as either a bounded discovery source or a current-candidate acceptance
+signal. Freeze its provider trigger, completion indication, and whether a candidate change requires
+another attempt. Never invent a trigger or promote discovery to acceptance.
+
 For a `merge-ready` or `merged` endpoint:
 
 1. Confirm the PR targets the frozen base and its head equals the evaluated candidate.
 2. Snapshot reviews and thread-aware conversation state, including each thread ID, resolution and
    outdated status, resolve permission, path, and comments. Bind every required review to the commit
    it reviewed; flat comments or aggregate review labels are insufficient.
-3. Wait behind one bounded barrier for the frozen check and review producers to reach a terminal
-   state for the current head. While provider state proves integration cannot advance, preclassify
-   the snapshot and resolve previously verified findings that remain closed on the current candidate.
-   Keep current-head findings open until the barrier closes, then re-fetch once and adjudicate the
+3. Allow at most one outstanding attempt per review producer. For a create-only discovery review,
+   bind the PR creation event and its head, then publish no new candidate until the provider returns
+   one complete review or clean-completion indication, or the frozen wait Stop expires. A clean
+   reaction closes only a uniquely correlated attempt; it is not commit-bound semantic evidence.
+4. Wait behind one bounded barrier for required checks, required current-candidate reviews, and
+   outstanding discovery attempts. While integration is quiesced, preclassify the snapshot and
+   resolve previously verified findings that remain closed on the current candidate. Keep findings
+   from the pending attempt open until the barrier closes, then re-fetch once and adjudicate the
    combined remainder; do not revise from partial arrivals.
-4. Reproduce each unresolved finding against the current candidate. Route a demonstrated material
+5. Reproduce each unresolved finding against the current candidate. Route a demonstrated material
    failure to Evaluate without resolving it. Resolve a thread only when the finding is verified as
    addressed, inapplicable, duplicate, or non-material; `outdated` alone is not evidence. Leave an
    ambiguous or unverified thread open and route to `blocked`.
-5. Combine findings that preserve the same design into one bounded revision. After any candidate
-   change, return through Evaluate, publish the new identity, wait for every
-   required reviewer to report on that head, then fetch all threads again. A new finding consumes the
-   same Stop.
-6. Conversation writes require frozen authority. Immediately before resolving, confirm the PR still
+6. Combine findings that preserve the same design into one bounded revision. After any candidate
+   change, return through Evaluate and publish the new identity. Reacquire required checks and only
+   review signals whose frozen authority requires the new candidate; never retrigger a create-only
+   discovery review. Fetch all threads again and verify its findings against the revised candidate.
+   A new finding consumes the same Stop.
+7. Conversation writes require frozen authority. Immediately before resolving, confirm the PR still
    has the evaluated head, the exact thread remains unresolved, and the actor can resolve it. Reply,
    review request, review dismissal, review submission, and thread resolution are distinct effects;
    never dismiss or approve a review merely to make the PR mergeable.
-7. Re-fetch the PR after all authorized resolutions. `merge-ready` requires every required check and
-   current-head review condition to be satisfied with zero unresolved conversations.
+8. Re-fetch the PR after all authorized resolutions. `merge-ready` requires every required check and
+   current-candidate acceptance review to pass, every frozen discovery attempt to be terminal, and
+   zero unresolved conversations.
 
 For a `merged` endpoint:
 
