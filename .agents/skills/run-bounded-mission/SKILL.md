@@ -39,7 +39,8 @@ Scope: included work, bounded discovery perimeter, and explicit non-goals
 Authority: permitted effects, including each external write, and forbidden external actions
 Acceptance: falsifiable consumer, regression, and delivery signals
 Origin: immutable starting revision, tree, content, or diff identity
-Stop: total revision, wait, retry, time, tool, or cost boundary for the mission
+Stop: total revision, wait, retry, time, tool, or cost boundary for the mission; externally pending
+work also requires an overall wait, retry, or elapsed-time bound
 ```
 
 Do not build without enough authority or a decisive acceptance signal. Treat Acceptance as the frozen
@@ -91,8 +92,9 @@ Authority or Stop, `replan` or `blocked`.
 Define the candidate, exact consumer exercise, regression checks, and the first condition that forces
 `replan`. For a change mission, define whether delivery ends at local changes, a commit, a remote
 change request, merge-ready state, merge, or another repository-owned endpoint. When the request or
-repository establishes remote delivery, include its required current checks and reviews in Acceptance
-rather than treating local green as completion. For a GitHub pull-request endpoint, load
+repository establishes remote delivery, include only the current signals required by that endpoint:
+an `open` endpoint need not wait for merge gates; `merge-ready` or `merged` includes its required
+checks and reviews. For a GitHub pull-request endpoint, load
 [GitHub PR handoff](references/github-pr-handoff.md). Use task decomposition, alternatives, TDD, or
 specialist analysis only when the risk justifies their cost.
 
