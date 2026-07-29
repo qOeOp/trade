@@ -41,6 +41,10 @@ jobs:
           bun-version: 1.3.13
       - name: Install repository dependencies
         run: env -u BINANCE_API_KEY -u BINANCE_API_SECRET -u SILICONFLOW_API_KEY bun --no-env-file install --frozen-lockfile --ignore-scripts
+      - name: Install ShellCheck binary
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./node_modules/.bin/shellcheck --version
       - name: Ensure ripgrep is available
         run: command -v rg >/dev/null || (sudo apt-get update && sudo apt-get install --yes ripgrep)
       - run: scripts/quality-check.sh policy
