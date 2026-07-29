@@ -55,6 +55,7 @@ __pycache__/
 .ruff_cache/
 coverage/
 target/
+.sentrux/baseline.json
 
 npm-debug.log*
 *.pyc
