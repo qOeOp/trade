@@ -1,6 +1,6 @@
 ---
 name: run-bounded-mission
-description: "Use when explicitly invoked. Otherwise use for a repository-required bounded mission: non-trivial software work or consequential technical decisions that need project-level control of scope, authority, acceptance, revision limits, and authorized handoff. It may wrap a more specific implementation, CI, review, or delivery skill only when project-level admission, cross-domain control, or total Stop remains. Do not auto-activate when a more specific skill fully owns the workflow, or for explanation or reporting only, mechanical edits, passive waiting, generic advice, exact-command execution, or already-validated delivery-only work."
+description: "Use when explicitly invoked. Otherwise use for a repository-required bounded mission: non-trivial software work or consequential technical decisions that need project-level control of scope, authority, acceptance, revision limits, and authorized handoff. It may wrap a more specific implementation, CI, review, or delivery skill when project-level admission, cross-domain control, total Stop, or terminal delivery remains. Do not auto-activate when a more specific skill owns the complete workflow through its terminal endpoint, or for explanation or reporting only, mechanical edits, passive waiting, generic advice, exact-command execution, or already-validated delivery-only work."
 ---
 
 # Run Bounded Mission
@@ -51,6 +51,8 @@ oracle: a material change after Build starts invalidates the candidate's evaluat
 
 Select only the stages needed. The main agent alone owns the contract, candidate, evidence, and final
 route. Tools and subagents may perform bounded work or supply evidence; they do not own the lifecycle.
+Once admitted, this lifecycle remains active through its terminal route. A specialist skill returns
+control here after its bounded work; it cannot end the mission, defer Handoff, or ask whether to continue.
 
 For non-mechanical work, before `Plan`, inspect bounded repository history when the request repeats or
 extends a correction on the same owner, or current evidence indicates concentrated churn or co-change.
@@ -97,6 +99,8 @@ an `open` endpoint need not wait for merge gates; `merge-ready` or `merged` incl
 checks and reviews. For a GitHub pull-request endpoint, load
 [GitHub PR handoff](references/github-pr-handoff.md). Use task decomposition, alternatives, TDD, or
 specialist analysis only when the risk justifies their cost.
+Freeze the endpoint and each permitted delivery effect once; Handoff must not request confirmation
+again for an effect already authorized here.
 
 An implementation candidate must not change the workflow, judge, policy, or reporting authority that
 decides its acceptance. If the outcome requires such a change, split it into a governance candidate
@@ -162,9 +166,10 @@ structural change, cross-owner effects, or persistent patch pressure.
 
 ## Handoff
 
-If Evaluate has a material failure, choose a route without publishing. When the local candidate passes
-and frozen Acceptance requires a commit or remote delivery, Handoff owns a bounded
-publish-and-observe loop:
+If Evaluate requires `revise`, `replan`, or `blocked`, choose that route without publishing. Otherwise
+enter Handoff immediately; never stop at local completion, readiness to publish, or a continuation
+prompt. Bind and report a local-only endpoint. When frozen Acceptance requires a commit or remote
+delivery, Handoff owns a bounded publish-and-observe loop:
 
 1. before remote publication or another provider-triggering effect, audit candidate-controlled
    execution, token and secret access, and existing integration automation; constrain execution and
