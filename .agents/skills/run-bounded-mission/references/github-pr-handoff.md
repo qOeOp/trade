@@ -16,8 +16,10 @@ For a `merge-ready` or `merged` endpoint:
    outdated status, resolve permission, path, and comments. Bind every required review to the commit
    it reviewed; flat comments or aggregate review labels are insufficient.
 3. Wait behind one bounded barrier for the frozen check and review producers to reach a terminal
-   state for the current head. Preclassify the snapshot while waiting, then re-fetch once and
-   adjudicate the combined findings; do not revise or resolve from partial arrivals.
+   state for the current head. While provider state proves integration cannot advance, preclassify
+   the snapshot and resolve previously verified findings that remain closed on the current candidate.
+   Keep current-head findings open until the barrier closes, then re-fetch once and adjudicate the
+   combined remainder; do not revise from partial arrivals.
 4. Reproduce each unresolved finding against the current candidate. Route a demonstrated material
    failure to Evaluate without resolving it. Resolve a thread only when the finding is verified as
    addressed, inapplicable, duplicate, or non-material; `outdated` alone is not evidence. Leave an
