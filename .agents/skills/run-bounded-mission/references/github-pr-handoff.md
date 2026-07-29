@@ -16,9 +16,10 @@ For a `merged` endpoint:
    ```
 
 3. If the base requires a merge queue, use it without `--admin`.
-4. Observe the current head, checks, reviews, unresolved conversations, auto-merge or queue state, and
-   merge result. A head-changing push creates a new candidate and requires Evaluate. Rebind a changed
-   base, and `replan` when it materially changes the contract or candidate.
+4. Observe the current head, base, checks, reviews, unresolved conversations, auto-merge or queue
+   state, and merge result. Bind acceptance to the evaluated head and base SHAs, or to the prospective
+   merge tree. A change to either SHA invalidates Evaluate and its required signals; evaluate the new
+   pair or merge tree, and `replan` if the change materially affects the contract or design.
 
 Armed or queued is pending. Accept `merged` only when GitHub reports the evaluated head merged; record
 the PR, head, merge commit, and time. Use GitHub's [auto-merge documentation](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/automatically-merging-a-pull-request)
