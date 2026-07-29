@@ -1,13 +1,15 @@
 # GitHub Pull Request Handoff
 
 Load only when Acceptance includes a GitHub pull request. Freeze the repository, base, pull request,
-candidate head SHA, endpoint (`open`, `merge-ready`, or `merged`), required signals, merge method, and
-authority for PR writes, repository settings, auto-merge, review actions, and manual merge.
+candidate head SHA, endpoint (`open`, `merge-ready`, or `merged`), required Draft/Ready state,
+signals, merge method, and authority for PR writes, repository settings, auto-merge, review actions,
+and manual merge.
 
 Before publishing or accepting any endpoint, inspect existing auto-merge or merge-queue state.
 Quiesce integration that could merge before the frozen prerequisites close, including for a
 `merged` endpoint; disable it when authorized or route to `blocked`. Re-arm it only after those
 prerequisites close.
+For `open`, confirm the PR's Draft/Ready state matches the frozen state before accepting.
 
 For a `merge-ready` or `merged` endpoint:
 
@@ -37,8 +39,10 @@ For a `merge-ready` or `merged` endpoint:
 
 For a `merged` endpoint:
 
-1. If authorized and repository auto-merge is allowed, arm the repository-approved method with a
-   head guard. A squash-only repository may use:
+1. If authorized and repository auto-merge is allowed, arm it only when branch rules require the
+   evaluated head to remain up to date with the base or the provider guards the evaluated merge tree.
+   Reconfirm head and base, then use the repository-approved method with a head guard. A squash-only
+   repository may use:
 
    ```text
    gh pr merge --repo <owner/repository> --auto --squash \
