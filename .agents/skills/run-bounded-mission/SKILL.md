@@ -51,7 +51,7 @@ oracle: a material change after Build starts invalidates the candidate's evaluat
 
 Select only the stages needed. The main agent alone owns the contract, candidate, evidence, and final
 route. Tools and subagents may perform bounded work or supply evidence; they do not own the lifecycle.
-Once admitted, this lifecycle remains active through its terminal route. A specialist skill returns
+Once selected, this lifecycle remains active through its terminal route. A specialist skill returns
 control here after its bounded work; it cannot end the mission, defer Handoff, or ask whether to continue.
 
 For non-mechanical work, before `Plan`, inspect bounded repository history when the request repeats or
@@ -166,10 +166,11 @@ structural change, cross-owner effects, or persistent patch pressure.
 
 ## Handoff
 
-If Evaluate requires `revise`, `replan`, or `blocked`, choose that route without publishing. Otherwise
-enter Handoff immediately; never stop at local completion, readiness to publish, or a continuation
-prompt. Bind and report a local-only endpoint. When frozen Acceptance requires a commit or remote
-delivery, Handoff owns a bounded publish-and-observe loop:
+If Evaluate requires `revise` or `replan`, choose that route without publishing. Otherwise enter
+Handoff immediately; never stop at local completion, readiness to publish, or a continuation prompt.
+A `blocked` route skips publication and proceeds to terminal reporting. If the frozen endpoint is
+local-only, bind and report it. When frozen Acceptance requires a commit or remote delivery, Handoff
+owns a bounded publish-and-observe loop:
 
 1. before remote publication or another provider-triggering effect, audit candidate-controlled
    execution, token and secret access, and existing integration automation; constrain execution and
