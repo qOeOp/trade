@@ -4,7 +4,6 @@
   "documents": [
     { "id": "docs.index", "path": "docs/README.md", "role": "documentation-index", "status": "active", "owner": "architecture" },
     { "id": "docs.history-index", "path": "docs/history/README.md", "role": "history-index", "status": "active", "owner": "architecture" },
-    { "id": "history.run-bounded-mission-design-scaffold", "path": "docs/history/run-bounded-mission-design-scaffold.md", "role": "historical-design", "status": "legacy-reference", "owner": "engineering" },
     { "id": "product.vision", "path": "docs/product/vision.md", "role": "product-contract", "status": "active", "owner": "product" },
     { "id": "product.prd", "path": "docs/product/prd.md", "role": "product-contract", "status": "active", "owner": "product" },
     { "id": "product.user-story", "path": "docs/product/user-story.md", "role": "product-contract", "status": "active", "owner": "product" },
