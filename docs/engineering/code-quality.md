@@ -84,7 +84,7 @@ Replay release evidence 对若干源码文件绑定字节哈希。为避免候�
 
 GitHub Actions 在 pull request 与 `main` push 上调用同一编排器的独立 scope，并把事件 base commit 传给 policy 检查精确候选范围。`copilot-setup-steps.yml` 只配置 Copilot coding agent 的工具环境，不参与普通 Actions 加速或合并裁决。workflow 成功是否阻止合并仍由 GitHub repository ruleset / branch protection 决定。
 
-当前采用单 owner、黑灯工厂式 PR：ruleset 强制最新 `main`、`quality`、四语言 CodeQL 与 review thread resolution，普通开发候选默认不要求 approving review、required reviewer、CODEOWNER / last-push approval、manual exact-SHA、repository variable 管理员确认或其他人在环 authority gate。Agent 合并还要求当前精确 head 的 fresh evaluator 和自动 Codex review 均无未关闭发现；失败由 Agent 定向修复 / 重试，无法在预算内收口则保持阻断或有界终止。
+当前采用单 owner、黑灯工厂式 PR：ruleset 强制最新 `main`、`quality`、四语言 CodeQL 与 review thread resolution，普通开发候选默认不要求 approving review、required reviewer、CODEOWNER / last-push approval、manual exact-SHA、repository variable 管理员确认或其他人在环 authority gate。Agent 合并还要求当前精确 head 的 fresh evaluator。自动 Codex review 只在创建 PR 时运行一次全面 discovery；Handoff 在初始 head 上等待完整结果，修订后不手动重触发，也不把它当作 current-head oracle。一次带 threads 的 Codex review submission，或在没有 threads 时与唯一创建触发关联的 👍，终止该 discovery attempt；全面模式只改变内部审查深度，不产生新的 trigger 或验收 authority。最终 head 由 fresh evaluator、required checks 与已验证的 thread closure 验收；初始审查未在冻结等待预算内完成或 findings 未收口时保持阻断。
 
 普通开发候选不得包含合并 workflow、quality judge、裁判 policy 或结果签发面的改动。确需升级该信任面时，先拆成独立 governance candidate，由外置 required workflow、独立 GitHub App 或其他候选不可控的 owner surface 验收；验收完成后再从新基线生成开发候选。GitHub Actions integration 与 required context 名称只约束结果来源，不能让同仓 workflow 和脚本自动成为独立 authority；当前 owner surface 不具备该能力时必须阻塞，也不默认恢复已删除的 manual exact-SHA quality-authority。
 
