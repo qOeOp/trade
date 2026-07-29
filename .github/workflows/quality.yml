@@ -41,6 +41,18 @@ jobs:
           bun-version: 1.3.13
       - name: Install repository dependencies
         run: env -u BINANCE_API_KEY -u BINANCE_API_SECRET -u SILICONFLOW_API_KEY bun --no-env-file install --frozen-lockfile --ignore-scripts
+      - name: Install ShellCheck binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v0.11.0 \
+            --repo koalaman/shellcheck \
+            --pattern shellcheck-v0.11.0.linux.x86_64.tar.xz \
+            --output "$RUNNER_TEMP/shellcheck.tar.xz"
+          tar -xJf "$RUNNER_TEMP/shellcheck.tar.xz" -C "$RUNNER_TEMP"
+          install "$RUNNER_TEMP/shellcheck-v0.11.0/shellcheck" node_modules/shellcheck/bin/shellcheck
+      - name: Verify ShellCheck binary
+        run: ./node_modules/.bin/shellcheck --version
       - name: Ensure ripgrep is available
         run: command -v rg >/dev/null || (sudo apt-get update && sudo apt-get install --yes ripgrep)
       - run: scripts/quality-check.sh policy
