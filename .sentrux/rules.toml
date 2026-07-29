@@ -1,0 +1,6 @@
+# Calibrated from the first Sentrux 0.5.7 shadow scan on 2026-07-28.
+# This ceiling freezes the observed cycle count; it does not endorse existing cycles.
+# Repository-native architecture gates remain authoritative.
+
+[constraints]
+max_cycles = 3
