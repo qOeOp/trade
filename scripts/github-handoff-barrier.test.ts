@@ -93,7 +93,7 @@ describe("GitHub Handoff barrier", () => {
     const current = snapshot({ reviews: [] });
     current.triggers[0]!.reactions.push({
       content: "THUMBS_UP",
-      login: expectation.provider,
+      login: `${expectation.provider}[bot]`,
       createdAt: "2026-07-30T06:36:02Z",
     });
     expect(inspectBarrier(current, expectation)).toMatchObject({

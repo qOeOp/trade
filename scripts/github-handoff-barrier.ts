@@ -89,6 +89,10 @@ function marker(head: string): string {
   return `<!-- ${MARKER_PREFIX}:${head} -->`;
 }
 
+function sameGitHubActor(actual: string, expected: string): boolean {
+  return actual.replace(/\[bot\]$/, "") === expected.replace(/\[bot\]$/, "");
+}
+
 export function triggerBody(head: string): string {
   return `@codex review\n\n${marker(head)}`;
 }
@@ -158,13 +162,13 @@ export function inspectBarrier(
   const trigger = triggers[0]!;
   const reviews = snapshot.reviews.filter(
     (review) =>
-      review.login === expectation.provider &&
+      sameGitHubActor(review.login, expectation.provider) &&
       review.commit === expectation.head &&
       review.submittedAt > trigger.createdAt,
   );
   const thumbsUp = trigger.reactions.filter(
     (reaction) =>
-      reaction.login === expectation.provider &&
+      sameGitHubActor(reaction.login, expectation.provider) &&
       reaction.content === "THUMBS_UP" &&
       reaction.createdAt > trigger.createdAt,
   );
