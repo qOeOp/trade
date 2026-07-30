@@ -3,7 +3,7 @@ title: Remote Container Runtime Integration
 role: architecture-migration
 status: active-migration
 owner: architecture
-last_verified: 2026-07-30 CST
+last_verified: 2026-07-23 CST
 ---
 
 # 远程容器常驻 Runtime 设计与迁移计划
@@ -49,14 +49,14 @@ flowchart TB
   RD --> STORES
   CTRL --> STORES
   OC --> PROVIDER["SiliconFlow or replaceable provider"]
-  CODEX["Codex development / Host benchmark"] --> MCPLOCAL["Local read-only MCP"]
+  CODEX["Codex development / manual baseline"] --> MCPLOCAL["Local stdio MCP"]
   MCPLOCAL --> CTRL
 ```
 
 这里有两个不同方向的协议：
 
 1. Program → Agent Host：提交、观察、取消和等待一个 Agent Run；OpenClaw 候选使用其 Gateway WebSocket RPC。
-2. Agent Host → Trade capabilities：查询或提交受控 proposal；跨容器目标为私有 Streamable HTTP MCP adapter，本机 Codex 只通过 read-only stdio 投影做开发诊断，不构成 R&D 调度入口。
+2. Agent Host → Trade capabilities：查询或提交受控 proposal；跨容器目标为私有 Streamable HTTP MCP adapter，本机 Codex 继续使用 stdio adapter。
 
 两条协议不可合并成“让 Agent 自己调度所有任务”。Program 仍决定何时需要语义任务，owner 仍决定结果是否接纳。
 
@@ -70,7 +70,7 @@ flowchart TB
 | replay / research execution | Trial、Replay、Result、lineage | 现有 TypeScript + Bun；独立 oracle 可用 Python | Agent session 作为事实 |
 | semantic Agent Host | Planner / Developer / Reviewer 的有界 tool loop | OpenClaw Gateway + native Codex App Server 优先候选；direct Codex 保留基线 | scheduler、Replay owner、策略 lifecycle |
 | optional workflow | 单个 Agent Run 内的 checkpoint / interrupt | LangGraph JS library，仅在评测证明需要时 | J01–J07 或 R&D durable lifecycle |
-| interactive development | 代码理解、人工迭代、质量基线 | Codex + read-only owner diagnostics | R&D scheduler、远程生产 daemon |
+| interactive development | 代码理解、人工迭代、质量基线 | Codex + 同一 owner capability surface | 远程生产 daemon |
 
 首个远程 profile 不引入 Kafka、Kubernetes、LangGraph Agent Server 或自托管 LangSmith。只有跨主机、多独立 consumer、durable offset / backlog / replay 已成为真实需求时，才按 [Physical Runtime and Transport Decision](../physical-runtime-transport.md) 评审 broker；L2 当前继续使用 raw segment + bounded read port。
 
@@ -157,7 +157,7 @@ Compose restart 不证明业务 ready。聚合 readiness 必须分别显示 proc
 
 1. 冻结容器不变量、private network、volume/secret matrix 和 foreground entrypoint；只做 no-live Compose fixture。
 2. 复用现有 L2/control process contract，完成 stop/restart、epoch、lease、备份恢复和资源上限演练。
-3. 建立 direct Codex App Server Agent Run adapter 与私有网络 MCP adapter；本地只保留 read-only stdio 开发诊断，不复制 tool 业务逻辑或旧 R&D 编排。
+3. 建立 direct Codex App Server Agent Run adapter 与私有网络 MCP adapter；保留本地 stdio，不复制 tool 业务逻辑。
 4. 建立 OpenClaw Gateway → native Codex runtime profile，并用同一模型、输入、能力和输出合同对比 Direct Model、direct Codex、OpenClaw-Codex 与 OpenClaw alternate runtime。
 5. 先接 Planner proposal-only，再完成 Developer 隔离 worktree → patch/test → owner Replay → 失败诊断 → 二次修改纵切，最后接 Reviewer；Replay 与 Registry 始终由 owner 执行。
 6. 将现有 program terminal 拆为长期 Factory 与有界 Campaign/Run/Trial，先验证空队列、局部预算耗尽、candidate handoff 和重启恢复。

@@ -3,7 +3,7 @@ title: Program-Owned Runtime Migration
 role: architecture-migration
 status: proposed
 owner: architecture
-last_verified: 2026-07-30 CST
+last_verified: 2026-07-23 CST
 ---
 
 # Program-Owned Runtime Migration
@@ -293,11 +293,10 @@ JSON mode 只保证 JSON 倾向，不保证业务 schema，也可能因 token �
 ### 首个纵切
 
 ```text
-Program / Control Plane plan_next
-  -> 简单语义缺口: bounded model task
-  -> 复杂语义缺口: Planner Agent Run
-  -> owner validation / Proposal admission
-  -> 既有 deterministic / resident R&D chain
+research_hypothesis_brief
+  -> model task: one hypothesis contract
+  -> research_hypothesis_prepare
+  -> research_job_submit
 ```
 
 R&D 纵切无 Binance write，且已有 schema / queue / budget / holdout gate。通过后才评估 slow PLAN；J02 fast guard、preflight、execution 和 reconcile 不接 LLM。
@@ -402,20 +401,19 @@ R&D 纵切无 Binance write，且已有 schema / queue / budget / holdout gate�
 
 ## 12. 切换与回滚
 
-采用按 owner 切换、切换后删除旧入口的迁移：
+采用 strangler migration：
 
 ```text
 existing Agent path
   -> program shadow parity
   -> no-live-write program jobs
   -> one owner/job at a time
-  -> Program / Control Plane cutover
-  -> legacy Agent scheduler and interactive R&D entry removed
+  -> Agent fallback retained
 ```
 
 - 目录移动、行为迁移、store migration 和 authority cutover 分开提交。
-- 切换前可以用相同输入 parity fixture 验证旧路径；切换后不保留可执行兼容入口。
-- 回滚使用前一版服务器 release / profile，不恢复旧 Agent scheduler，不回写或删除已接纳的 authority facts。
+- 每一阶段都有旧入口、feature flag / mode 和相同输入 parity fixture。
+- 回滚只切换调用入口，不回写或删除新旧 authority facts。
 - Program runtime 或 LLM 不健康时，系统降级为 `blocked / no_action / defensive-only`，不得自动扩大风险。
 
 ## 13. 完成定义
@@ -424,7 +422,7 @@ existing Agent path
 - 任一 L2 时间段可回答 coverage、epoch、gap、hash、source 与派生 lineage。
 - 任一 LLM 决策可回答输入 refs、prompt/model/schema、预算、输出与 owner verdict。
 - LLM/API/broker/telemetry 全部失效时，交易链保守停止而不是绕过门禁。
-- MCP、operator API 与 program runtime 复用同一 owner capability，不保留 human CLI 研发调度语义。
+- MCP、program runtime 和 human CLI 对同一 owner capability 不产生三套业务语义。
 - 只有满足 adoption gate 的 Rust、broker、LangGraph、Temporal 或 LangSmith 才进入 active manifest / contract。
 
 ## 14. Official references

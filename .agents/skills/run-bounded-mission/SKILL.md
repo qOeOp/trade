@@ -177,13 +177,14 @@ After Handoff actions finish, mark the working-plan Handoff item `completed`. Th
 contain exactly one single-line JSON receipt:
 
 ```text
-Mission-Handoff: {"endpoint":"local-only","candidate":"sha256:<identity>","acceptance":"passed","effects":[],"cleanup":"complete","route":"accept"}
+Mission-Handoff: {"endpoint":"local-only","candidate":"sha256:0000000000000000000000000000000000000000000000000000000000000000","acceptance":"passed","effects":[],"cleanup":"complete","route":"accept"}
 ```
 
 Required fields:
 
 - `endpoint`: frozen endpoint;
-- `candidate`: immutable identity or `none`;
+- `candidate`: `none`, `sha256:` plus 64 lowercase hex characters, or `git:` plus a 40- or
+  64-character lowercase commit hash;
 - `acceptance`: `passed` or `blocked`;
 - `effects`: array of external or working-tree effects;
 - `cleanup`: `complete` or `preserved`;
@@ -198,10 +199,11 @@ Before any message that may terminate while the mission is still active, append 
 Mission-Terminal: active
 ```
 
-The repository Stop hook checks only the current `last_assistant_message`: a valid Handoff receipt
-closes the mission; `Mission-Terminal: active` requests one bounded continuation. A second miss
-terminates as an explicit failure instead of looping. Do not rely on transcript history for
-activation.
+The repository Stop hook reconstructs lifecycle state from assistant messages in the session
+transcript and the current `last_assistant_message`. A valid Handoff receipt closes the mission only
+when it is the latest lifecycle marker; a later `Mission-Terminal: active` keeps it active. A first
+miss requests one bounded continuation and a second terminates as an explicit failure instead of
+looping.
 
 ## Terminal
 

@@ -1,6 +1,9 @@
+import { readFileSync } from "node:fs";
+
 type StopHookInput = {
   stop_hook_active?: unknown;
   last_assistant_message?: unknown;
+  transcript_path?: unknown;
 };
 
 type StopHookOutput =
@@ -14,6 +17,8 @@ type StopHookOutput =
 
 const ACTIVE_MARKER = "Mission-Terminal: active";
 const HANDOFF_MARKER = "Mission-Handoff:";
+const START_MARKER = "Mission-Start:";
+const TERMINAL_ROUTE_PATTERN = /\bMission route:\s*(accept|blocked)\b/gi;
 
 function readString(value: unknown): string {
   return typeof value === "string" ? value : "";
@@ -45,8 +50,12 @@ function parseHandoffReceiptAt(
   }
 }
 
-function parseHandoffReceipt(message: string): Record<string, unknown> | null {
-  return parseHandoffReceiptAt(message, message.lastIndexOf(HANDOFF_MARKER));
+function isImmutableCandidate(candidate: string): boolean {
+  return (
+    candidate === "none" ||
+    /^sha256:[0-9a-f]{64}$/.test(candidate) ||
+    /^git:(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(candidate)
+  );
 }
 
 function isValidReceipt(receipt: Record<string, unknown> | null): boolean {
@@ -63,7 +72,7 @@ function isValidReceipt(receipt: Record<string, unknown> | null): boolean {
 
   if (
     !endpoint ||
-    !candidate ||
+    !isImmutableCandidate(candidate) ||
     !Array.isArray(effects) ||
     effects.some((effect) => typeof effect !== "string") ||
     !["complete", "preserved"].includes(cleanup)
@@ -77,17 +86,117 @@ function isValidReceipt(receipt: Record<string, unknown> | null): boolean {
   );
 }
 
-export function evaluateMissionStop(input: StopHookInput): StopHookOutput {
-  const lastMessage = readString(input.last_assistant_message);
-  const claimsTerminalRoute = /\bMission route:\s*(accept|blocked)\b/i.test(lastMessage);
-
-  if (isValidReceipt(parseHandoffReceipt(lastMessage))) {
-    return { continue: true };
+function readAssistantMessages(transcriptPath: string): string[] {
+  if (!transcriptPath) {
+    return [];
   }
 
-  const missionActive =
-    lastMessage.includes(ACTIVE_MARKER) || claimsTerminalRoute;
-  if (!missionActive) {
+  try {
+    return readFileSync(transcriptPath, "utf8")
+      .split(/\r?\n/)
+      .flatMap((line) => {
+        if (!line.trim()) {
+          return [];
+        }
+
+        let entry: {
+          type?: unknown;
+          payload?: {
+            type?: unknown;
+            role?: unknown;
+            content?: unknown;
+          };
+        };
+        try {
+          entry = JSON.parse(line) as typeof entry;
+        } catch {
+          return [];
+        }
+
+        const payload = entry.payload;
+        if (
+          entry.type !== "response_item" ||
+          payload?.type !== "message" ||
+          payload.role !== "assistant" ||
+          !Array.isArray(payload.content)
+        ) {
+          return [];
+        }
+        return payload.content.flatMap((content) => {
+          if (
+            content !== null &&
+            typeof content === "object" &&
+            "type" in content &&
+            content.type === "output_text" &&
+            "text" in content &&
+            typeof content.text === "string"
+          ) {
+            return [content.text];
+          }
+          return [];
+        });
+      });
+  } catch {
+    return [];
+  }
+}
+
+type LifecycleMarker = {
+  index: number;
+  state: "active" | "closed";
+};
+
+function lifecycleMarkers(message: string): LifecycleMarker[] {
+  const markers: LifecycleMarker[] = [];
+
+  for (const marker of [START_MARKER, ACTIVE_MARKER]) {
+    let index = message.indexOf(marker);
+    while (index >= 0) {
+      markers.push({ index, state: "active" });
+      index = message.indexOf(marker, index + marker.length);
+    }
+  }
+
+  for (const match of message.matchAll(TERMINAL_ROUTE_PATTERN)) {
+    markers.push({ index: match.index, state: "active" });
+  }
+
+  let handoffIndex = message.indexOf(HANDOFF_MARKER);
+  while (handoffIndex >= 0) {
+    markers.push({
+      index: handoffIndex,
+      state: isValidReceipt(parseHandoffReceiptAt(message, handoffIndex))
+        ? "closed"
+        : "active",
+    });
+    handoffIndex = message.indexOf(
+      HANDOFF_MARKER,
+      handoffIndex + HANDOFF_MARKER.length,
+    );
+  }
+
+  return markers.sort((left, right) => left.index - right.index);
+}
+
+function missionState(input: StopHookInput): "inactive" | "active" | "closed" {
+  const messages = readAssistantMessages(readString(input.transcript_path));
+  const lastMessage = readString(input.last_assistant_message);
+  if (lastMessage && messages.at(-1) !== lastMessage) {
+    messages.push(lastMessage);
+  }
+
+  let state: "inactive" | "active" | "closed" = "inactive";
+  for (const message of messages) {
+    for (const marker of lifecycleMarkers(message)) {
+      state = marker.state;
+    }
+  }
+  return state;
+}
+
+export function evaluateMissionStop(input: StopHookInput): StopHookOutput {
+  const state = missionState(input);
+  if (state === "closed" || state === "inactive") {
     return { continue: true };
   }
 

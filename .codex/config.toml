@@ -25,6 +25,11 @@ enabled_tools = [
   "artifact_read",
   "rd_program_read",
   "ops_cycle_summary",
+  "research_hypothesis_brief",
+  "research_hypothesis_prepare",
+  "research_job_submit",
+  "research_job_status",
+  "research_job_result",
 ]
 
 [mcp_servers.sentrux]
