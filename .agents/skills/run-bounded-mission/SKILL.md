@@ -208,11 +208,14 @@ it to frozen Acceptance, the real consumer, binding authority, or a material saf
 at the changed boundary. `replan` when it invalidates the design; report other out-of-scope findings
 without implementing them.
 
-When independent review is required or materially improves correctness, dispatch a fresh-context,
-read-only reviewer with [the reviewer handoff](references/reviewer-handoff.md). Add specialist
-reviewers only for genuinely independent high-risk domains; give each a disjoint lens and bounded
-return. Use [architecture sensor evidence](references/architecture-sensor.md) only for material
-structural change, cross-owner effects, or persistent patch pressure.
+Before `accept`, every non-mechanical writable candidate requires a completed fresh-context,
+read-only independent acceptance review bound to its current identity through [the reviewer
+handoff](references/reviewer-handoff.md). `partial`, `unsupported`, or any material failed or
+unverified result leaves Acceptance unsatisfied. For read-only outcomes, dispatch a reviewer when
+independence is required or materially improves correctness. Add specialist reviewers only for
+genuinely independent high-risk domains; give each a disjoint lens and bounded return. Use
+[architecture sensor evidence](references/architecture-sensor.md) only for material structural
+change, cross-owner effects, or persistent patch pressure.
 
 ## Handoff
 
