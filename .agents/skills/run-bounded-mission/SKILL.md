@@ -186,6 +186,9 @@ For commit or remote endpoints:
 4. observe current signals through the repository's host-native owner;
 5. return changed candidates to Evaluate before republishing.
 
+A material Handoff finding or candidate change returns to Evaluate. Unexpected drift in a tracked
+remote head, base, or merge tree invalidates prior candidate-bound evidence before delivery continues.
+
 Pending remote work keeps Handoff active inside Stop. A missing or started signal is outstanding, not
 clean. `blocked` skips publication but still completes terminal reporting.
 
@@ -266,3 +269,6 @@ discovery paths are host projections and cannot add routes, authority, state, or
 Use native spawn and wait operations for stage-internal work; hooks may guard mechanical tool or
 terminal behavior but cannot orchestrate fan-out. Verify each claimed host with activation and one
 behavior-equivalent lifecycle exercise.
+
+Only when this skill is explicitly invoked to maintain, audit, or explain this workflow, load the
+[lifecycle shape](references/lifecycle-shape.md); do not load it during ordinary mission execution.
