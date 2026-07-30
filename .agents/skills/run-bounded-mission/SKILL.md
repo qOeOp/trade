@@ -100,8 +100,13 @@ Stop: total revision, retry, wait, time, tool, or cost boundary
 ```
 
 The endpoint is one of `local-only`, `commit`, `change-request`, `merge-ready`, `merged`, deployment,
-or another repository-owned endpoint. Freeze each external effect separately. Never infer commit,
-push, review, merge, deployment, scheduling, secret access, or shared-state authority.
+or another repository-owned endpoint. In this repository, a user-requested writable mission defaults
+to `merged` unless the user explicitly selects another endpoint or forbids a required remote effect.
+That request authorizes the mission's ordinary dedicated worktree, commit, push, single pull request,
+review-thread resolution, and direct non-admin merge effects; freeze each in Authority. A read-only,
+explanation, or reporting request authorizes no mutation or external effect. Never infer repository
+settings, automatic merge, merge-queue enrollment, administrator bypass, deployment, scheduling,
+secret access, or unrelated shared-state authority.
 
 Acceptance is the frozen oracle. A material change after Build starts routes to `replan`; never weaken
 Acceptance to fit a candidate.
@@ -221,17 +226,19 @@ clean. `blocked` skips publication but still completes terminal reporting.
 After Handoff actions finish, mark the working-plan Handoff item `completed`. The final response must
 carry exactly one Handoff receipt and then one final Mission-Terminate receipt.
 
-For an ordinary response, emit one standalone line outside a code fence:
+For an ordinary response, substitute the frozen endpoint and actual performed effects, then emit one
+standalone line outside a code fence. A passed `merged` Handoff always reports at least one effect;
+use an empty effects array only when no effect was performed:
 
 ```text
-Mission-Handoff: {"turn_id":"<hook turn id>","status":"done","endpoint":"local-only","origin":"sha256:1111111111111111111111111111111111111111111111111111111111111111","candidate":"sha256:0000000000000000000000000000000000000000000000000000000000000000","acceptance":"passed","effects":[],"cleanup":"complete","route":"accept"}
+Mission-Handoff: {"turn_id":"<hook turn id>","status":"done","endpoint":"<frozen endpoint>","origin":"sha256:1111111111111111111111111111111111111111111111111111111111111111","candidate":"sha256:0000000000000000000000000000000000000000000000000000000000000000","acceptance":"passed","effects":["<performed effect>"],"cleanup":"complete","route":"accept"}
 ```
 
 When a JSON schema permits lifecycle metadata, freeze this envelope in Acceptance and return the
 exact JSON document instead of raw marker lines:
 
 ```json
-{"result":{},"mission_handoff":{"turn_id":"<hook turn id>","status":"done","endpoint":"local-only","origin":"sha256:1111111111111111111111111111111111111111111111111111111111111111","candidate":"sha256:0000000000000000000000000000000000000000000000000000000000000000","acceptance":"passed","effects":[],"cleanup":"complete","route":"accept"},"mission_terminate":{"turn_id":"<hook turn id>","status":"done"}}
+{"result":{},"mission_handoff":{"turn_id":"<hook turn id>","status":"done","endpoint":"<frozen endpoint>","origin":"sha256:1111111111111111111111111111111111111111111111111111111111111111","candidate":"sha256:0000000000000000000000000000000000000000000000000000000000000000","acceptance":"passed","effects":["<performed effect>"],"cleanup":"complete","route":"accept"},"mission_terminate":{"turn_id":"<hook turn id>","status":"done"}}
 ```
 
 If an immutable external schema cannot include lifecycle fields, do not begin writable work. Route

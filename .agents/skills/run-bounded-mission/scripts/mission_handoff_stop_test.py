@@ -121,6 +121,8 @@ class MissionHookTest(unittest.TestCase):
         self.assertIn("Mission-Start", context)
         self.assertIn("Mission-Terminate", context)
         self.assertIn('"status":"noop"', context)
+        self.assertIn("writable mission defaults to merged", context)
+        self.assertIn("automatic merge", context)
         self.assertIsNotNone(MISSION.read_state(self.input))
 
     def test_exact_json_without_trusted_host_signal_fails_closed(self) -> None:
@@ -311,6 +313,29 @@ class MissionHookTest(unittest.TestCase):
         state = MISSION.read_state(self.input)
         state["tool_seen"] = True
         MISSION.write_state(self.input, state)
+        empty_effects_handoff = json.dumps(
+            {
+                "turn_id": "turn-1",
+                "status": "done",
+                "endpoint": "merged",
+                "origin": f"git:{'1' * 40}",
+                "candidate": f"git:{'3' * 40}",
+                "acceptance": "passed",
+                "effects": [],
+                "cleanup": "complete",
+                "route": "accept",
+            },
+            separators=(",", ":"),
+        )
+        empty_effects_message = "\n".join(
+            (
+                self.delivery_prefix("build", "evaluate"),
+                f"Mission-Handoff: {empty_effects_handoff}",
+                MISSION.receipt_line("terminate", "turn-1", "done"),
+            )
+        )
+        self.assertEqual(self.stop(empty_effects_message)["decision"], "block")
+
         handoff = json.dumps(
             {
                 "turn_id": "turn-1",

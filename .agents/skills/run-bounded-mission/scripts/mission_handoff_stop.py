@@ -282,12 +282,18 @@ def valid_stage_record(
         ) or (
             record.get("acceptance") == "blocked" and record.get("route") == "blocked"
         )
+        effects = record.get("effects")
+        effects_valid = isinstance(effects, list) and (
+            record.get("endpoint") != "merged"
+            or record.get("acceptance") != "passed"
+            or bool(effects)
+        )
         return (
             isinstance(record.get("endpoint"), str)
             and bool(record["endpoint"])
             and immutable_identity(record.get("origin"))
             and immutable_identity(record.get("candidate"))
-            and isinstance(record.get("effects"), list)
+            and effects_valid
             and record.get("cleanup") in {"complete", "preserved"}
             and disposition
         )
@@ -435,8 +441,12 @@ def prompt_submit(input_value: dict[str, Any], now: float) -> dict[str, Any]:
         "Plan, Build, Evaluate, Handoff, Mission-Terminate. Run every stage in order; "
         "each may be done, noop, or blocked. Make Plan visible for work: use a mini-plan "
         "for exact mechanical work; for consequential choices, clarify, compare real options, "
-        "recommend, and obtain alignment before Build. Respect the user's delivery authority: "
-        "writable work is not automatically a PR. For an answer-only request, use no tools, "
+        "recommend, and obtain alignment before Build. A user-requested writable mission defaults "
+        "to merged, including its ordinary worktree, commit, push, single PR, review-thread "
+        "resolution, and direct non-admin merge, unless the user selects another endpoint or "
+        "forbids a required remote effect. Read-only work has no effects; automatic merge, merge "
+        "queues, admin/settings, deployment, scheduling, secrets, and unrelated shared state "
+        "remain separate authority. For an answer-only request, use no tools, "
         "answer briefly, mark Plan noop, then append exactly:\n"
         f"{answer_receipts}\n"
         "For other work, emit each stage receipt exactly once after that stage. Start must "
