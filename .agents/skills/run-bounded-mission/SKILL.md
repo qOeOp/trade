@@ -20,6 +20,19 @@ For other requests, use only the stages required by the request, but once a non-
 starts it remains active through `Handoff` and `Terminal`. A specialist skill returns here after its
 bounded work and cannot terminate, defer Handoff, or ask whether to continue.
 
+Stages are serial. Do not enter a later stage until the required work and subagent returns for the
+current stage are complete or explicitly unavailable. Within a stage, use host-native agent tools to
+start stable, independent packets together, continue non-dependent main-context work, then collect
+the required returns. Do not create a coordinator agent, queue, ledger, or stage hook.
+
+| Stage | Stage-internal execution |
+| --- | --- |
+| Contract | The main agent fixes provisional Scope, Authority, Origin, and total Stop. |
+| Plan | When multiple decision-changing evidence paths exist, start all stable independent lanes together within current host capacity: built-in `explorer` for repository paths and `mission_researcher` for current external sources. After required briefs return, use one `mission_planner` to synthesize the contract and smallest vertical plan. Keep one short evidence chain in the main context. |
+| Build | Keep exactly one writable winner. Read-only support may run only on non-overlapping evidence paths. |
+| Evaluate | Run fresh `mission_evaluator` instances against the same immutable candidate, one admitted lens per instance. |
+| Handoff / Terminal | The main agent owns effects, receipts, and the route; these stages do not fan out. |
+
 Before mutation:
 
 1. announce this skill and any specialist skill being used;
@@ -89,11 +102,12 @@ Trace changed meaning through direct producers, consumers, restatements, and enf
 first evidence-backed compatible boundary. Put each affected surface and its exercise in Scope and
 Acceptance.
 
-Identify critical-path packets before Plan and each Build or Evaluate wave. Dispatch only when inputs
-are stable, work is independent, integration remains with the main agent, and parallelism saves more
-than coordination. Keep one writable winner. Use a fresh read-only planner for consequential
-ambiguity that one short verification chain cannot resolve; use a bounded researcher for noisy
-current-source evidence.
+Split evidence by independent decision question, not by agent count. Give every lane a unique
+evidence path and bounded return; do not send multiple agents to repeat the same repository or source
+scan. Research briefs go to the planner, not raw search transcripts. The planner synthesizes only:
+it does not repeat repository or external research and never owns admission, dispatch, Build, or the
+lifecycle route. Load [planning methods](references/planning-methods.md) only for the evidence method
+needed by a lane.
 
 Define the candidate, exact consumer exercise, regression checks, delivery endpoint, and first
 condition forcing `replan`. For a GitHub endpoint, load
@@ -134,23 +148,23 @@ Evaluate the identified candidate against the frozen Contract:
 Unit tests, static checks, documents, and packages are supporting evidence unless they are the frozen
 consumer. Candidate-caused repository architecture violations are material failures.
 
-Use a fresh-context read-only reviewer when independence is required or materially improves
-correctness; load [reviewer handoff](references/reviewer-handoff.md). A reviewer supplies evidence,
-not the lifecycle route. Use [architecture sensor](references/architecture-sensor.md) only for
-material structural change, cross-owner effects, or persistent patch pressure.
-
 Admit a finding only when reproducible evidence ties it to Acceptance, the consumer, binding
 authority, or a material safety rule. Route design-invalidating findings to `replan`; report
 out-of-scope findings without implementing them.
 
-Before `accept`, every non-mechanical writable candidate requires a completed fresh-context,
-read-only independent acceptance review bound to its current identity through [the reviewer
-handoff](references/reviewer-handoff.md). `partial`, `unsupported`, or any material failed or
-unverified result leaves Acceptance unsatisfied. For read-only outcomes, dispatch a reviewer when
-independence is required or materially improves correctness. Add specialist reviewers only for
-genuinely independent high-risk domains; give each a disjoint lens and bounded return. Use
-[architecture sensor evidence](references/architecture-sensor.md) only for material structural
-change, cross-owner effects, or persistent patch pressure.
+Use [reviewer handoff](references/reviewer-handoff.md) for every evaluator. A mechanical or read-only
+outcome may use one general lens. Every non-mechanical writable candidate requires at least two
+fresh, read-only lenses before `accept`: `behavior` for the consumer outcome and `architecture` for
+ownership, affected-boundary closure, reuse, and entropy. Add only acceptance-critical independent
+lenses such as `regression`, `security-authority`, and `runtime-operations`. Do not add reviewers for
+confidence, voting, or duplicate scans. One reproducible material failure is not cancelled by other
+passes.
+
+All evaluator returns must bind the same candidate identity. Any candidate change invalidates every
+earlier evaluator result and starts a new Evaluate wave. `partial`, `unsupported`, or a material
+failed or unverified result leaves Acceptance unsatisfied. Use
+[architecture sensor evidence](references/architecture-sensor.md) only when a material structural
+change, cross-owner effect, or persistent patch pressure needs that method.
 
 ## Handoff
 
@@ -249,4 +263,6 @@ lifecycle route. A reviewer must be fresh, read-only, and uninvolved in Build.
 
 Keep lifecycle semantics here. Agent definitions, tool mappings, hooks, MCP configuration, and
 discovery paths are host projections and cannot add routes, authority, state, or peer coordination.
-Verify each claimed host with activation and one behavior-equivalent lifecycle exercise.
+Use native spawn and wait operations for stage-internal work; hooks may guard mechanical tool or
+terminal behavior but cannot orchestrate fan-out. Verify each claimed host with activation and one
+behavior-equivalent lifecycle exercise.
