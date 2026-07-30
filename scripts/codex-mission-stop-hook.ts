@@ -21,6 +21,7 @@ type MissionBoundary = {
 };
 
 type LifecycleEvent =
+  | { kind: "start"; boundary: MissionBoundary }
   | { kind: "active"; boundary: MissionBoundary }
   | { kind: "handoff"; boundary: MissionBoundary }
   | { kind: "invalid-handoff" };
@@ -29,10 +30,6 @@ type MessageLifecycle = {
   events: LifecycleEvent[];
   handoffCount: number;
 };
-
-type PendingHandoff =
-  | { kind: "valid"; boundary: MissionBoundary }
-  | { kind: "invalid" };
 
 type MarkdownFence = {
   character: "`" | "~";
@@ -148,7 +145,7 @@ function lifecycleForMessage(message: string): MessageLifecycle {
         parseObject(line.slice(START_MARKER.length).trim()),
       );
       if (boundary) {
-        events.push({ kind: "active", boundary });
+        events.push({ kind: "start", boundary });
       }
       continue;
     }
@@ -302,7 +299,7 @@ function missionState(
   })();
   let skippedCurrentDuplicate = false;
   let firstMessage = true;
-  let pendingHandoff: PendingHandoff | null = null;
+  const lifecycleHistoryNewestFirst: MessageLifecycle[] = [];
 
   for (const message of messages) {
     if (
@@ -317,34 +314,64 @@ function missionState(
     firstMessage = false;
 
     const lifecycle = lifecycleForMessage(message);
-    if (lifecycle.handoffCount > 1) {
-      return "active";
+    if (lifecycle.events.length === 0) {
+      continue;
     }
 
-    for (const event of lifecycle.events.toReversed()) {
-      if (!pendingHandoff) {
-        if (event.kind === "active") {
-          return "active";
-        }
-        pendingHandoff =
-          event.kind === "handoff"
-            ? { kind: "valid", boundary: event.boundary }
-            : { kind: "invalid" };
-        continue;
-      }
-
-      if (event.kind !== "active") {
-        pendingHandoff = { kind: "invalid" };
-        continue;
-      }
-      return pendingHandoff.kind === "valid" &&
-        sameBoundary(event.boundary, pendingHandoff.boundary)
-        ? "closed"
-        : "active";
+    const isNewestLifecycle = lifecycleHistoryNewestFirst.length === 0;
+    lifecycleHistoryNewestFirst.push(lifecycle);
+    const newestEvent = lifecycle.events.at(-1);
+    if (
+      isNewestLifecycle &&
+      (newestEvent?.kind === "start" || newestEvent?.kind === "active")
+    ) {
+      return "active";
     }
   }
 
-  return "inactive";
+  let activeBoundary: MissionBoundary | null = null;
+  let boundaryConflict = false;
+  let closed = false;
+
+  for (const lifecycle of lifecycleHistoryNewestFirst.toReversed()) {
+    if (lifecycle.handoffCount > 1 && activeBoundary) {
+      boundaryConflict = true;
+    }
+
+    for (const event of lifecycle.events) {
+      if (event.kind === "start" || event.kind === "active") {
+        if (!activeBoundary) {
+          activeBoundary = event.boundary;
+          boundaryConflict = false;
+        } else if (!sameBoundary(activeBoundary, event.boundary)) {
+          boundaryConflict = true;
+        }
+        closed = false;
+        continue;
+      }
+
+      if (event.kind === "invalid-handoff") {
+        if (activeBoundary) {
+          boundaryConflict = true;
+        }
+        continue;
+      }
+
+      if (
+        activeBoundary &&
+        !boundaryConflict &&
+        lifecycle.handoffCount === 1 &&
+        sameBoundary(activeBoundary, event.boundary)
+      ) {
+        activeBoundary = null;
+        closed = true;
+      } else if (activeBoundary) {
+        boundaryConflict = true;
+      }
+    }
+  }
+
+  return activeBoundary ? "active" : closed ? "closed" : "inactive";
 }
 
 export function evaluateMissionStop(

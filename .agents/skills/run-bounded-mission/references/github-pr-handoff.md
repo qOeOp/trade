@@ -59,10 +59,26 @@ For a `merge-ready` or `merged` endpoint:
    required current-candidate review states; zero unresolved conversations; and quiesced integration
    state. Unknown, absent, stale, or pending data fails the barrier. Re-fetch head and base after the
    snapshot; any change invalidates it.
+10. On repositories that provide `scripts/github-handoff-barrier.ts`, use it as the only Handoff
+    path that may arm auto-merge. Wait for any create-triggered discovery attempt first, address and
+    resolve verified findings, freeze the final head and current base, then run:
+
+    ```text
+    bun scripts/github-handoff-barrier.ts \
+      --repo <owner/repository> --pr <pull-request> \
+      --head <candidate-head-sha> --base <base-sha>
+    ```
+
+    The script posts one idempotent exact-head `@codex review` trigger, requires that attempt to
+    terminate on the exact head, holds a stable review/thread activity window, requires all provider
+    required checks and zero unresolved threads, re-fetches the frozen snapshot, and only then calls
+    guarded squash auto-merge. A finding, candidate revision, timeout, ambiguous signal, armed
+    integration, incomplete pagination, or changed head/base returns non-zero and must route back
+    through Evaluate or to `blocked`; do not bypass the script with a separate merge command.
 
 For a `merged` endpoint:
 
-1. Treat auto-merge as the final authorized integration effect after step 9, never as a way to wait
+1. Treat auto-merge as the final authorized integration effect after the complete barrier, never as a way to wait
    for checks or reviews. If repository auto-merge is allowed, arm it only when branch rules require
    the evaluated head to remain up to date with the base or the provider guards the evaluated merge
    tree. Reconfirm head and base, then use the repository-approved method with a head guard. A

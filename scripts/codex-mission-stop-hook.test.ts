@@ -145,11 +145,40 @@ describe("bounded mission Stop hook", () => {
     });
   });
 
-  test("uses the nearest structured active boundary", () => {
+  test("keeps the original start when a later marker changes the boundary", () => {
     const oldStart = `Mission-Start: {"endpoint":"local-only","origin":"git:${"d".repeat(40)}","stop":"one revision"}`;
     expect(
-      evaluate("Implemented.", [active, oldStart]),
+      evaluate(handoff(), [active, oldStart]),
     ).toMatchObject({ decision: "block" });
+  });
+
+  test("accepts continuation markers that preserve the original boundary", () => {
+    expect(evaluate(handoff(), [active, start])).toEqual({ continue: true });
+  });
+
+  test("does not let a second start replace the original mission", () => {
+    const replacementOrigin = `git:${"d".repeat(40)}`;
+    const replacementStart =
+      `Mission-Start: {"endpoint":"local-only","origin":"${replacementOrigin}","stop":"one revision"}`;
+    expect(
+      evaluate(
+        handoff({ endpoint: "local-only", origin: replacementOrigin }),
+        [replacementStart, start],
+      ),
+    ).toMatchObject({ decision: "block" });
+  });
+
+  test("allows a new mission after the previous mission closed", () => {
+    const nextOrigin = `git:${"d".repeat(40)}`;
+    const nextStart =
+      `Mission-Start: {"endpoint":"local-only","origin":"${nextOrigin}","stop":"one revision"}`;
+    const nextHandoff = handoff({
+      endpoint: "local-only",
+      origin: nextOrigin,
+    });
+    expect(evaluate(nextHandoff, [nextStart, handoff(), start])).toEqual({
+      continue: true,
+    });
   });
 
   test("bounds continuation instead of looping forever", () => {
