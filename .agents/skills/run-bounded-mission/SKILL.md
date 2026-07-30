@@ -23,7 +23,9 @@ hard-to-reverse choice:
 - ask the user the smallest question that resolves a preference or authority choice.
 
 At any stage, use Plan's research method before a decision or mutation that depends on current
-upstream behavior, compatibility, standards, limits, or a correction likely covered by prior art.
+upstream behavior, compatibility, standards, limits, or a correction for which repository evidence
+leaves a decision-changing upstream or prior-art unknown. The prior-art method is mandatory when this
+condition holds even though references are otherwise optional.
 Observe candidate-bound runtime and delivery state through its owner instead; research only when
 interpreting it requires unfamiliar upstream knowledge. If research changes the owner, candidate,
 acceptance, or design, `replan`. Skip it when repository evidence makes the decision mechanical.
@@ -93,12 +95,13 @@ boundary is ambiguous, writes overlap, or coordination would erase the expected 
 
 Use a fresh read-only planner when consequential ambiguity, an unclear owner or consumer, cross-owner
 design, governance or acceptance-oracle change, or expensive reversal cannot be resolved by one short
-verification chain. Use Plan's research method for noisy source investigation. During Build, allow at
-most one writable winner and delegate a candidate only when the main agent can concurrently prepare
-candidate-independent consumer, regression, or evaluation evidence; never split coupled work by file
-merely to create parallelism. After the candidate is frozen, dispatch required fresh review and
-genuinely independent specialist lenses concurrently when capacity permits. A reviewer must not have
-participated in planning or Build.
+verification chain. The planner may frame decision questions but does not repeat source collection
+assigned to a fresh read-only researcher. Use Plan's research method for noisy source investigation.
+During Build, allow at most one writable winner and delegate a candidate only when the main agent can
+concurrently prepare candidate-independent consumer, regression, or evaluation evidence; never split
+coupled work by file merely to create parallelism. After the candidate is frozen, dispatch required
+fresh review and genuinely independent specialist lenses concurrently when capacity permits. A
+reviewer must not have participated in planning or Build.
 
 If a qualifying acceleration is unavailable, continue in the main context and record the lost
 parallelism; route to `blocked` only when the missing independence or isolation is required by
@@ -117,9 +120,14 @@ that changes or supports the reuse-versus-build decision. Prefer the existing ow
 thin adapter, bounded adaptation, then evidence-backed new implementation. If research needed to
 choose a candidate is unavailable, stop at design and report the missing evidence.
 
+Before freezing a candidate, account for every decision-changing unknown as resolved from repository
+evidence, assigned to current-source research, owned by the user, or unavailable. This is transient
+planning, not a new record. Do not silently freeze a candidate with an unassigned upstream gap.
+
 Before inventing workflow, skill, agent, or evaluator infrastructure, search current official sources
-and GitHub for close implementations. Clone the strongest candidates and inspect their relevant
-documentation, source, tests, release status and history, and license. Use [planning
+and GitHub for close implementations. Inspect the strongest candidates at a pinned revision across
+their relevant documentation, source, tests, release status and history, and license; clone only when
+local reproduction or source traversal requires it. Use [planning
 methods](references/planning-methods.md) for decision-driven research, consequential ambiguity,
 alternatives, or independently falsifiable slices; load only the relevant method.
 
