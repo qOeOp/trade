@@ -70,6 +70,7 @@ mission 只使用 skill 的 `accept / revise / replan / blocked` 四条 route。
 | 需要 | 直接复用 | 项目边界 |
 | --- | --- | --- |
 | 模糊方向变成合同 | Plan / working plan + 条件触发 `mission_planner` | consequential ambiguity、owner / consumer 不清、跨 owner 设计、governance / oracle 变化或昂贵反转无法由一条短验证链解决时派发；主上下文负责准入和冻结 |
+| 当前来源与 prior art | 条件触发 `mission_researcher` + host-native search | 单短证据链留在主上下文；未知候选集、多类外部证据、候选源码核验或高 source volume 使用只读 researcher；独立问题并发、依赖问题串行，主上下文复核决定性 locator |
 | 一个逻辑任务长时续跑 | Goal mode | Goal 负责续跑；mission contract 负责成功、失败和停机，禁止 `until perfect` |
 | 有界工作与独立反审 | subagent + 条件触发 `mission_evaluator` | 对关键路径上输入已稳定、相互独立且净节省时间的 packet 尽早使用宿主容量；保持单 writable winner 与主上下文唯一裁决 |
 | 写入隔离 | Codex worktree + 既有 `agent-workspace-manager` | 一个 mission 同时只有一个可写 winner |
@@ -81,7 +82,7 @@ mission 只使用 skill 的 `accept / revise / replan / blocked` 四条 route。
 
 当前先使用 skill、custom agents、现有 worktree/Agent Run、owner 定向检查与远端 required checks。候选 evidence 未绑定真实 receipt 之前，不新增 Stop / PreToolUse hook；否则只是把自证结论机械化。
 
-`.codex/agents/mission-planner.toml` 与 `mission-evaluator.toml` 是当前可选 Codex 宿主投影，不是旧 lifecycle authority；跨宿主语义只以 skill 为准。
+`.codex/agents/mission-planner.toml`、`mission-researcher.toml` 与 `mission-evaluator.toml` 是当前可选 Codex 宿主投影，不是旧 lifecycle authority；跨宿主语义只以 skill 为准。
 
 ## 6. 候选、反审与反熵
 
