@@ -6,10 +6,11 @@ workflow architecture. It is a visual model, not lifecycle authority; operationa
 
 ```mermaid
 flowchart LR
-    C["Contract：主 Agent 冻结边界"] --> P["Plan：主 Agent"]
+    S["Mission-Start：Hook 绑定 root turn"] --> C["Contract：主 Agent 冻结边界"]
+    C --> P["Plan：主 Agent"]
     P -->|"存在多个独立 decision-changing evidence gaps"| R["Research：快速 Scout 并行"]
-    R -->|"briefs ready"| S["Planner：只综合 briefs"]
-    S -->|"proposal 返回主 Agent admission"| P
+    R -->|"briefs ready"| Y["Planner：只综合 briefs"]
+    Y -->|"proposal 返回主 Agent admission"| P
     P -->|"evidence chain 闭合且主 Agent admit"| B["Build：单一 Writer"]
     B --> E["Evaluate：独立 Lens 并行"]
     E -->|"局部实现错误：revise"| B
@@ -17,13 +18,14 @@ flowchart LR
     E -->|"全部通过"| H["Handoff"]
     X["任一阶段：required Authority、Facts、Capability、Independence 或 Stop 不可用"] -->|"blocked"| H
     H -->|"material finding、candidate 变化，或远端 identity 意外漂移"| E
-    H -->|"accept：交付完成 / blocked：报告完成"| T["Terminal：accept / blocked"]
+    H -->|"accept：交付完成 / blocked：报告完成"| T["Mission-Terminate：清理并终止"]
 ```
 
 Scout 或 Lens 数量不固定。仅在存在独立且会改变决策的任务包时，才在当前 host 容量内并行；
 不要为了凑数量制造工作。
 
-- Contract、Plan、Build、Evaluate、Handoff、Terminal 是串行阶段。
+- Mission-Start、Contract、Plan、Build、Evaluate、Handoff、Mission-Terminate 是串行阶段；任一
+  阶段可以 noop，但不可跳过。
 - Contract 后由主 Agent 进入 Plan。仅在仍有多个独立 decision-changing evidence gaps 时并行
   Research；required briefs 返回后才用 Planner 综合；零或单一 evidence chain 留在主 Plan。
 - Build 保持单一可写者；Evaluate 针对同一候选运行互不重叠的独立 lens。
