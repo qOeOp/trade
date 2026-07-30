@@ -1,6 +1,14 @@
 [agents]
 max_threads = 3
 
+[[hooks.Stop]]
+
+[[hooks.Stop.hooks]]
+type = "command"
+command = 'bun "$(git rev-parse --show-toplevel)/scripts/codex-mission-stop-hook.ts"'
+timeout = 5
+statusMessage = "Checking bounded mission Handoff"
+
 [mcp_servers.trade-agent]
 command = "bun"
 args = ["modules/orchestration-ops/agent-mcp/src/scripts/main.ts"]
