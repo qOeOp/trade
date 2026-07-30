@@ -40,7 +40,7 @@ last_verified: 2026-07-30 CST
 | --- | --- | --- |
 | 质量路径高频修订 | 自 2026-07-22 起，当前 first-parent 历史中质量 workflow、脚本和三份工程合同被 74 个提交触及 | 反复修补集中在流程边界，不是单个 checker 缺陷 |
 | 中央编排器过载 | `scripts/quality-check.sh policy` 同时运行 whitespace、shell、helper、secret、lint、judge regression、docs、convergence、architecture、storage、logical store 与 test boundary | 一个 scope 的失败域、维护域和输出过宽；`policy` 已不再是单一概念 |
-| 影响面选择不足 | `quality-check-changed.ts` 只对单 owner 和 docs 提供便利；共享 contract、scripts、CI、跨语言改动直接拒绝，跨 owner consumer 仅硬编码 Replay 路径 | Agent 仍需从长表人工选检查；选择正确性不可度量 |
+| 影响面选择缺失 | 已删除仅支持单 owner / docs、硬编码 Replay consumer 且无 production consumer 的 changed gate；当前由 Check Contract 人工路由 | 不再维护伪自动化，但选择正确性与时延仍不可度量 |
 | PR 反馈尚快但不分流 | 最近 45 次 PR `repository-quality` 平均约 239 秒；最新 main run 约 4 分钟。仅修改工作流 skill 的 PR 仍执行 TypeScript 双分片、Replay、native 与四语言 CodeQL | 未超过 10 分钟上限，但无关算力、噪声和重跑成本持续增长 |
 | 测试存在性强、层次证据弱 | TypeScript owner 必须有 colocated test，根 judge 直接编译和执行；但没有统一记录 unit / contract / integration / consumer journey / release test 的覆盖关系 | “有测试文件”可以阻止空套件，不能证明高价值行为闭合 |
 | merge enforcement 部分可靠 | GitHub ruleset 要求最新 `main`、`quality`、四语言 CodeQL、review thread resolution，且无 bypass；Actions 使用只读权限和完整 SHA pin | 普通候选已有强机械阻断 |
@@ -179,7 +179,7 @@ required reviewer、CODEOWNER / last-push approval、repository variable 管理�
 
 ### M5：删除债务
 
-- 删除被新路由替代的 changed gate 特例、重复文案和无 consumer checker；
+- 已删除无 consumer 的 changed gate；继续删除重复文案和无 consumer checker；
 - 根据 90 天指标合并低收益 leaf，修复高频 flake；
 - 每季度只审查失败分布、逃逸缺陷、时延和治理例外，不开展“增加检查数量”运动。
 

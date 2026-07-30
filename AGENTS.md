@@ -73,7 +73,7 @@
 ## Quality Guardrails
 
 - 当前单 owner、黑灯工厂式 PR 对普通开发候选默认不引入人工 reviewer、required approval、CODEOWNER / last-push approval、manual exact-SHA、repository variable 管理员确认或其他人在环 authority gate；Codex、Dependabot、CI、CodeQL 与自动 review / fix / retry / merge 可以参与
-- 经 PR 交付时，本地只跑受影响 owner 的定向 test / typecheck / doc-or-architecture check、真实 production consumer journey、完整 diff inspection 与必要 workspace safety；不默认运行 `quality-check-changed.ts`，也不把本地 `scripts/quality-check.sh` 当作 commit / push 前总闸
+- 经 PR 交付时，本地只跑受影响 owner 的定向 test / typecheck / doc-or-architecture check、真实 production consumer journey、完整 diff inspection 与必要 workspace safety；不把本地聚合质量门当作 commit / push 前总闸
 - GitHub required `quality` aggregate 与 JavaScript/TypeScript、Python、Rust、Go 四个 CodeQL context 承担未触及其信任面的普通候选的全仓 merge closure；某个 CI leaf 失败后只本地复现并修复对应 owner / leaf，不自动重跑本地全仓门
 - 不经 PR 的交付保留与风险相称的本地检查；CI 不能替代 live / runtime / production consumer 验收
 - 普通开发候选不得包含合并 workflow、quality judge、裁判 policy 或结果签发面的改动。确需升级该信任面时，先拆成独立 governance candidate，由候选不可控的 owner surface 验收；验收完成后再生成新的开发候选。缺少该 authority 时必须阻塞，也不默认恢复 manual exact-SHA quality-authority

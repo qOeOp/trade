@@ -3,7 +3,7 @@ title: Storage Architecture
 role: architecture-feature-contract
 status: active
 owner: architecture
-last_verified: 2026-07-23 CST
+last_verified: 2026-07-30 CST
 ---
 
 # Storage Architecture
@@ -58,4 +58,4 @@ last_verified: 2026-07-23 CST
 2. owner module 提供唯一 `ensureSchema/init` 入口。
 3. 外部模块只能通过 protocol ref 或 owner CLI / contract 使用，不直接写表。
 4. 把 [architecture-manifest.json](./architecture-manifest.json) 对应 store 状态从 `planned` 更新为 `implemented` 或 `implemented-derived`。
-5. 增加 owner module check，并让 `scripts/quality-check.sh` 通过。
+5. 增加 owner module check，并按 [Check Contract](../engineering/check-contract.md) 运行受影响的 storage schema、architecture 与 consumer 检查；全仓 closure 由交付端点决定。

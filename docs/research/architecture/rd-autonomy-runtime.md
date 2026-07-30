@@ -3,7 +3,7 @@ title: R&D Autonomy Runtime
 role: research-feature-contract
 status: active-partial
 owner: research-strategy-development
-last_verified: 2026-07-23 CST
+last_verified: 2026-07-30 CST
 ---
 
 # R&D Autonomy Runtime
@@ -117,7 +117,7 @@ Strategy Factory 中不能代码化的核心不是 Replay accounting，而是问
 
 - 读取 Universe、策略 MD、implementation、历史 Result / rejected mechanism 和带 citation 的 research finding。
 - 判断 hypothesis 只需新参数 / MD version，还是缺 data / indicator / family implementation / portfolio / execution capability。
-- Developer 在冻结 revision 的隔离 worktree 修改 MD、代码和测试；运行 allowlisted compile / unit / changed quality gate。
+- Developer 在冻结 revision 的隔离 worktree 修改 MD、代码和测试；运行 allowlisted owner package / repository suite checks。
 - 通过 owner MCP 请求 dataset、Trial、Replay 和 artifact read；Replay owner 生成唯一 Result，Agent 不直接写研究事实。
 - 根据失败证据继续修改或终止，不因“一次回测失败”退出整个 Factory，也不以重复参数搜索伪装进展。
 - 返回 patch、typed submission、test refs 和 evidence refs；CI / review / release 仍在 Agent 外。

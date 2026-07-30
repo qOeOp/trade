@@ -17,7 +17,7 @@ last_verified: 2026-07-30 CST
 ## 1. 通用规则
 
 - 所有改动最后检查完整 diff、运行 `git diff --no-renames --check HEAD`，并确认验收没有产生非预期 workspace side effect
-- 经 PR 交付：按本合同的“改动域到最小检查”直接运行受影响 owner 检查与真实 consumer journey；不默认运行 `changed-quality` 或本地 `project-quality`
+- 经 PR 交付：按本合同的“改动域到最小检查”直接运行受影响 owner 检查与真实 consumer journey；不默认运行本地 `project-quality`
 - CI 失败：只本地复现失败的 owner / leaf；修复后由当前 exact head 的 required `quality` 与四语言 CodeQL 重新完成全仓 merge closure，不自动追加本地总闸
 - 不经 PR 的交付：按影响面选择可在本地闭合结果的 terminal gate；CI 仍不能替代 live / runtime / consumer acceptance
 - 涉及 TS tool：需要直接验 owner 时用根 `bun scripts/check-package-tests.ts --run-package <owner-dir>` 或下表对应 owner check。package 内 `bun run check` 只作开发便利，不是项目验收 authority
@@ -32,8 +32,7 @@ last_verified: 2026-07-30 CST
 | --- | --- | --- | --- |
 | `repo-whitespace` | repo root | 本地 `git diff --no-renames --check HEAD`；CI `git diff --no-renames --check <base>...HEAD` | 本地覆盖 staged + unstaged，CI 覆盖精确候选范围；关闭 rename detection，避免重命名隐藏空白错误 |
 | `project-quality` | repo root | `scripts/quality-check.sh [all\|policy\|typescript\|replay\|native]` | CI scope 与可选的本地全仓诊断 / 非 PR terminal gate；不安装依赖，也不是 PR commit / push 前置门。PR 并发执行 policy、两个 TS shard、Replay semantic、native，稳定 `quality` job 汇总 |
-| `changed-quality` | repo root | `bun scripts/quality-check-changed.ts --path <repo-relative-path>` | 可选的 docs-only / 单模块便利入口：全局 hygiene、secret、doc 与受影响 package；只接受它能安全归属的 diff，拒绝共享 contract、脚本/CI、机器 manifest 或跨语言范围不等于要求 PR 本地跑总闸 |
-| `typescript-lint` | repo root | `bun run lint` | ESLint flat recommended 覆盖 `modules/`、`scripts/`，warning 上限 0，unused disable hard fail；changed code gate 与 policy scope 共用 |
+| `typescript-lint` | repo root | `bun run lint` | ESLint flat recommended 覆盖 `modules/`、`scripts/`，warning 上限 0，unused disable hard fail；可直接运行，也由 `project-quality policy` 调用 |
 | `shell-lint` | repo root | `bun run lint:shell` | ShellCheck warning/error hard fail；仅排除兼容 `CDPATH= cd` 写法的 `SC1007` |
 | `workspace-hygiene` | repo root | `bun scripts/check-workspace-hygiene.ts` | 禁止新增 tracked runtime SQLite / sidecar 与 module-local DB；历史 exception 只减不增 |
 | `workspace-side-effect` | repo root | `bun scripts/check-workspace-side-effects.ts --action capture/check --snapshot tmp/check/<name>.json` | 对 tracked + unignored 内容做前后哈希；允许进入检查前已有改动，拒绝本轮新增、删除或改写；CI preflight 额外要求 clean checkout |

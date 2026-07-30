@@ -74,7 +74,6 @@ export default defineConfig(
       "modules/orchestration-ops/trade-flow/src/scripts/lib/program-shadow-supervisor.ts",
       "modules/orchestration-ops/trade-flow/src/scripts/lib/program-shadow.ts",
       "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/src/lib/replay-independent-release-audit.test.ts",
-      "scripts/quality-check-changed.ts",
     ],
     rules: {
       "no-unsafe-finally": "off",
