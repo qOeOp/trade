@@ -72,7 +72,7 @@ mission 只使用 skill 的 `accept / revise / replan / blocked` 四条 route。
 | 模糊方向变成合同 | Plan / working plan + 条件触发 `mission_planner` | consequential ambiguity、owner / consumer 不清、跨 owner 设计、governance / oracle 变化或昂贵反转无法由一条短验证链解决时派发；主上下文负责准入和冻结 |
 | 当前来源与 prior art | 条件触发 `mission_researcher` + host-native search | 单短证据链留在主上下文；未知候选集、多类外部证据、候选源码核验或高 source volume 使用只读 researcher；独立问题并发、依赖问题串行，主上下文复核决定性 locator |
 | 一个逻辑任务长时续跑 | Goal mode | Goal 负责续跑；mission contract 负责成功、失败和停机，禁止 `until perfect` |
-| 有界工作与独立反审 | subagent + 条件触发 `mission_evaluator` | 对关键路径上输入已稳定、相互独立且净节省时间的 packet 尽早使用宿主容量；保持单 writable winner 与主上下文唯一裁决 |
+| 有界工作与独立反审 | subagent + `mission_evaluator` | 非机械 writable candidate 接纳前至少完成一次 fresh evaluator；额外 specialist 只按独立高风险维度触发；保持单 writable winner 与主上下文唯一裁决 |
 | 写入隔离 | Codex worktree + 既有 `agent-workspace-manager` | 一个 mission 同时只有一个可写 winner |
 | 可复用流程 | project skill + `AGENTS.md` | lifecycle authority 在 skill；领域事实与仓库 invariant 仍在 docs / owner contract |
 | 领域事实与动作 | 既有 MCP / owner tool | Agent 不复制领域判断或写权限 |

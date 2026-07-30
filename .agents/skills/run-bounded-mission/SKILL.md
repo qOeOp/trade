@@ -141,8 +141,14 @@ Admit a finding only when reproducible evidence ties it to Acceptance, the consu
 authority, or a material safety rule. Route design-invalidating findings to `replan`; report
 out-of-scope findings without implementing them.
 
-If evaluation requires `revise` or `replan`, continue inside the same Stop and do not enter Handoff.
-Otherwise move the working-plan Handoff item to `in_progress` immediately.
+Before `accept`, every non-mechanical writable candidate requires a completed fresh-context,
+read-only independent acceptance review bound to its current identity through [the reviewer
+handoff](references/reviewer-handoff.md). `partial`, `unsupported`, or any material failed or
+unverified result leaves Acceptance unsatisfied. For read-only outcomes, dispatch a reviewer when
+independence is required or materially improves correctness. Add specialist reviewers only for
+genuinely independent high-risk domains; give each a disjoint lens and bounded return. Use
+[architecture sensor evidence](references/architecture-sensor.md) only for material structural
+change, cross-owner effects, or persistent patch pressure.
 
 ## Handoff
 
