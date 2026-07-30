@@ -10,7 +10,7 @@ flowchart LR
     D -->|"是：继续 / 修正 / review / status"| S
     D -->|"否：Host 自动创建新 Task + Worktree"| NS["并行新 Mission"]
     D -->|"Host 不允许主动 dispatch"| X
-    S["Mission-Start：Hook 绑定 root turn"] --> C["Contract：主 Agent 冻结边界"]
+    S["Mission-Start：Hook 绑定 root turn"] --> C["Contract：可写默认 merged；只读无写权限"]
     C --> P["Plan：主 Agent"]
     P -->|"存在多个独立 decision-changing evidence gaps"| R["Research：快速 Scout 并行"]
     R -->|"briefs ready"| Y["Planner：只综合 briefs"]
