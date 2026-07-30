@@ -12,12 +12,11 @@ queue as the waiting mechanism. Arm integration only after the complete pre-merg
 passes.
 For `open`, confirm the PR's Draft/Ready state matches the frozen state before accepting.
 
-Classify each review producer as either a bounded discovery source or a current-candidate acceptance
-signal. Freeze its provider trigger, completion indication, and whether a candidate change requires
-another attempt. Never invent a trigger or promote discovery to acceptance. A missing result, a
-started reaction such as eyes, or another in-progress marker remains outstanding. A create-triggered
-discovery becomes terminal only through one complete review submission containing at least one
-thread, or, when it produces no threads, the uniquely correlated thumbs-up reaction.
+Treat the PR-opening Codex review as one bounded discovery source, not a current-candidate acceptance
+signal. Never publish `@codex review` from Handoff and never repeat agent review after a candidate
+revision. A missing result or a started reaction such as eyes remains outstanding. The opening
+discovery becomes terminal through a review submission containing at least one thread or, when it
+produces no threads, the provider thumbs-up reaction on the pull request.
 
 For a `merge-ready` or `merged` endpoint:
 
@@ -25,36 +24,29 @@ For a `merge-ready` or `merged` endpoint:
 2. Snapshot reviews and thread-aware conversation state, including each thread ID, resolution and
    outdated status, resolve permission, path, and comments. Bind every required review to the commit
    it reviewed; flat comments or aggregate review labels are insufficient.
-3. Allow at most one outstanding attempt per review producer. For a create-only discovery review,
-   bind the PR creation event and its head, then publish no new candidate until the provider returns
-   one complete review submission containing threads or the no-thread thumbs-up, or the frozen wait
-   Stop expires. The thumbs-up closes only a uniquely correlated attempt; it is not commit-bound
-   semantic evidence.
-4. Wait behind one bounded barrier for required checks, a candidate-uncontrollable fresh evaluator
-   accepting the exact current head, required current-candidate reviews, and outstanding discovery
-   attempts. Launch the evaluator under the frozen reviewer handoff from the immutable origin or a
-   neutral context. While integration is quiesced, preclassify the snapshot and resolve previously
-   verified findings that remain closed on the current candidate. Keep findings from the pending
-   attempt open until the barrier closes, then re-fetch once and adjudicate the combined remainder;
-   do not revise from partial arrivals.
+3. Start no review attempt from Handoff. Let the PR-opening Codex review and initial CI overlap, then
+   wait for the opening review's complete review/thread result or PR thumbs-up. A provider failure
+   without either completion signal blocks; it does not authorize a retry loop.
+4. Wait behind one bounded barrier for the opening discovery, required checks, conversation state,
+   and any separately frozen evaluator. While integration is quiesced, collect the opening review
+   completely, then adjudicate its combined findings; do not revise from partial arrivals.
 5. Reproduce each unresolved finding against the current candidate. Route a demonstrated material
    failure to Evaluate without resolving it. Resolve a thread only when the finding is verified as
    addressed, inapplicable, duplicate, or non-material; `outdated` alone is not evidence. Leave an
    ambiguous or unverified thread open and route to `blocked`.
 6. Combine findings that preserve the same design into one bounded revision. After any candidate
-   change, return through Evaluate and publish the new identity. Reacquire required checks and only
-   review signals whose frozen authority requires the new candidate; never retrigger a create-only
-   discovery review. Fetch all threads again and verify its findings against the revised candidate.
-   A new finding consumes the same Stop.
+   change, publish the new identity and reacquire only deterministic current-head checks. Never
+   retrigger Codex review. Fetch all original threads again and verify those findings against the
+   revised candidate.
 7. Conversation writes require frozen authority. Immediately before resolving, confirm the PR still
    has the evaluated head, the exact thread remains unresolved, and the actor can resolve it. Reply,
    review request, review dismissal, review submission, and thread resolution are distinct effects;
    never dismiss or approve a review merely to make the PR mergeable.
-8. Re-fetch the PR after all authorized resolutions. `merge-ready` requires every required check and
-   required current-candidate review to remain passing, the exact-head fresh evaluator to pass,
-   every frozen discovery attempt to be terminal, and zero unresolved conversations.
+8. Re-fetch the PR after all authorized resolutions. `merge-ready` requires the opening discovery to
+   be terminal, every final-head required check to pass, every separately frozen evaluator to be
+   terminal, and zero unresolved conversations.
 9. Immediately before any merge, queue, or auto-merge command, build one transient pre-merge snapshot:
-   current head and base; terminal evidence for every frozen discovery attempt; the evaluator's
+   current head and base; terminal evidence for the opening discovery; the evaluator's
    instruction origin, candidate identity, and acceptance result; required check conclusions;
    required current-candidate review states; zero unresolved conversations; and quiesced integration
    state. Unknown, absent, stale, or pending data fails the barrier. Re-fetch head and base after the
@@ -70,15 +62,14 @@ For a `merge-ready` or `merged` endpoint:
       --head <candidate-head-sha> --base <base-sha>
     ```
 
-    The script posts one idempotent exact-head `@codex review` trigger, requires that attempt to
-    terminate through an associated review thread or the trigger's unique no-finding thumbs-up,
-    rejects unmarked or concurrent attempts, holds a stable review/thread activity window, paginates
-    all activity, reads the complete required-context set from the base branch rules, requires every
-    context and zero unresolved threads, and re-fetches the frozen snapshot. It then calls direct
-    squash merge with an exact-head guard, observes the merge metadata, and never uses `--auto` or
-    `--admin`. A finding, candidate revision, timeout, ambiguous signal, armed integration, changed
-    head/base, or missing final observation returns non-zero and must route through Evaluate or to
-    `blocked`; do not bypass the script with another merge command.
+    The script cannot publish comments or trigger reviews. It consumes the PR-opening Codex review,
+    holds a stable review/thread activity window, paginates all activity, reads the complete
+    required-context set from the base branch rules, requires every final-head context and zero
+    unresolved threads, and re-fetches the frozen snapshot. It then calls direct squash merge with
+    an exact-head guard, observes the merge metadata, and never uses `--auto` or `--admin`. A failed
+    opening review, timeout, armed integration, changed head/base, or missing final observation
+    returns non-zero and must route through Evaluate or to `blocked`; do not bypass the script with
+    another merge command.
 
 For a `merged` endpoint:
 

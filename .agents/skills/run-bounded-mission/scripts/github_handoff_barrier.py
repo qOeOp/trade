@@ -15,10 +15,8 @@ from typing import Any, cast
 from urllib.parse import quote
 
 
-MARKER_PREFIX = "trade-final-head-review"
 PROVIDER_DEFAULT = "chatgpt-codex-connector"
-MARKER_PATTERN = re.compile(rf"<!--\s*{MARKER_PREFIX}:([0-9a-f]{{40}})\s*-->")
-TRIGGER_PATTERN = re.compile(r"(?i)(?:^|\s)@codex\s+review(?:\s|$)")
+CODEX_ERROR_PREFIX = "Codex Review: Something went wrong."
 
 Snapshot = dict[str, Any]
 Expectation = dict[str, Any]
@@ -50,14 +48,6 @@ def actor_matches(actual: str, expected: str) -> bool:
     return actual.removesuffix("[bot]") == expected.removesuffix("[bot]")
 
 
-def marker(head: str) -> str:
-    return f"<!-- {MARKER_PREFIX}:{head} -->"
-
-
-def trigger_body(head: str) -> str:
-    return f"@codex review\n\n{marker(head)}"
-
-
 def merge_arguments(expectation: Expectation) -> list[str]:
     return [
         "gh",
@@ -75,6 +65,7 @@ def merge_arguments(expectation: Expectation) -> list[str]:
 def activity_fingerprint(snapshot: Snapshot) -> str:
     activity = {
         "comments": snapshot["comments"],
+        "pull_request_reactions": snapshot["pull_request_reactions"],
         "reviews": snapshot["reviews"],
         "threads": snapshot["threads"],
     }
@@ -82,121 +73,49 @@ def activity_fingerprint(snapshot: Snapshot) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def marked_triggers(snapshot: Snapshot) -> tuple[list[dict[str, Any]], str | None]:
-    triggers: list[dict[str, Any]] = []
-    for comment in snapshot["comments"]:
-        if not TRIGGER_PATTERN.search(comment["body"]):
-            continue
-        markers = MARKER_PATTERN.findall(comment["body"])
-        if len(markers) != 1:
-            return [], "unmarked or multiply marked Codex trigger is ambiguous"
-        trigger = dict(comment)
-        trigger["head"] = markers[0]
-        triggers.append(trigger)
-    return triggers, None
-
-
-def terminal_signals(
-    snapshot: Snapshot,
-    trigger: dict[str, Any],
-    provider: str,
-) -> list[str]:
+def inspect_initial_review(snapshot: Snapshot, provider: str) -> Decision:
+    fingerprint = activity_fingerprint(snapshot)
     thread_review_ids = {
         comment["review_id"]
         for thread in snapshot["threads"]
         for comment in thread["comments"]
         if comment["review_id"] and actor_matches(comment["login"], provider)
     }
-    reviews = [
+    completed_reviews = [
         review["id"]
         for review in snapshot["reviews"]
         if actor_matches(review["login"], provider)
-        and review["commit"] == trigger["head"]
         and isinstance(review["submitted_at"], str)
-        and review["submitted_at"] > trigger["created_at"]
+        and review["submitted_at"] >= snapshot["created_at"]
         and review["id"] in thread_review_ids
     ]
     thumbs_up = [
         reaction["created_at"]
-        for reaction in trigger["reactions"]
+        for reaction in snapshot["pull_request_reactions"]
         if actor_matches(reaction["login"], provider)
         and reaction["content"] == "THUMBS_UP"
-        and reaction["created_at"] >= trigger["created_at"]
+        and reaction["created_at"] >= snapshot["created_at"]
     ]
-    return [f"review:{review_id}" for review_id in reviews] + [
-        f"thumb:{created_at}" for created_at in thumbs_up
+    if completed_reviews or thumbs_up:
+        return {"status": "ready", "fingerprint": fingerprint}
+    failed = [
+        comment
+        for comment in snapshot["comments"]
+        if actor_matches(comment["login"], provider)
+        and comment["created_at"] >= snapshot["created_at"]
+        and comment["body"].startswith(CODEX_ERROR_PREFIX)
     ]
-
-
-def inspect_attempts(
-    snapshot: Snapshot,
-    expectation: Expectation,
-) -> Decision:
-    fingerprint = activity_fingerprint(snapshot)
-    triggers, trigger_error = marked_triggers(snapshot)
-    if trigger_error:
+    if failed:
         return {
             "status": "blocked",
-            "reason": trigger_error,
+            "reason": "initial Codex review failed without a completion signal",
             "fingerprint": fingerprint,
         }
-
-    for trigger in triggers:
-        if not actor_matches(trigger["login"], expectation["trigger_actor"]):
-            return {
-                "status": "blocked",
-                "reason": "Codex trigger actor is not the frozen actor",
-                "fingerprint": fingerprint,
-            }
-
-    current = [
-        trigger for trigger in triggers if trigger["head"] == expectation["head"]
-    ]
-    if len(current) > 1:
-        return {
-            "status": "blocked",
-            "reason": "multiple exact-head Codex triggers are ambiguous",
-            "fingerprint": fingerprint,
-        }
-
-    for trigger in triggers:
-        if current and trigger["id"] == current[0]["id"]:
-            continue
-        signals = terminal_signals(snapshot, trigger, expectation["provider"])
-        if len(signals) == 0:
-            return {
-                "status": "pending",
-                "reason": "a prior Codex review attempt is still outstanding",
-                "fingerprint": fingerprint,
-            }
-        if len(signals) > 1:
-            return {
-                "status": "blocked",
-                "reason": "a prior Codex review completion is ambiguous",
-                "fingerprint": fingerprint,
-            }
-
-    if not current:
-        return {
-            "status": "pending",
-            "reason": "exact-head Codex review has not been triggered",
-            "fingerprint": fingerprint,
-        }
-
-    signals = terminal_signals(snapshot, current[0], expectation["provider"])
-    if len(signals) == 0:
-        return {
-            "status": "pending",
-            "reason": "exact-head Codex review is still outstanding",
-            "fingerprint": fingerprint,
-        }
-    if len(signals) > 1:
-        return {
-            "status": "blocked",
-            "reason": "exact-head Codex review completion is ambiguous",
-            "fingerprint": fingerprint,
-        }
-    return {"status": "ready", "fingerprint": fingerprint}
+    return {
+        "status": "pending",
+        "reason": "initial Codex review has not completed",
+        "fingerprint": fingerprint,
+    }
 
 
 def inspect_snapshot(snapshot: Snapshot, expectation: Expectation) -> Decision:
@@ -249,9 +168,9 @@ def inspect_snapshot(snapshot: Snapshot, expectation: Expectation) -> Decision:
             "fingerprint": fingerprint,
         }
 
-    attempt = inspect_attempts(snapshot, expectation)
-    if attempt["status"] != "ready":
-        return attempt
+    initial_review = inspect_initial_review(snapshot, expectation["provider"])
+    if initial_review["status"] != "ready":
+        return initial_review
 
     unresolved = [thread for thread in snapshot["threads"] if not thread["is_resolved"]]
     if unresolved:
@@ -355,9 +274,13 @@ CORE_QUERY = """
 query($owner:String!,$name:String!,$number:Int!){
   repository(owner:$owner,name:$name){
     pullRequest(number:$number){
-      number headRefOid baseRefOid baseRefName state isDraft mergedAt
+      id number createdAt headRefOid baseRefOid baseRefName state isDraft mergedAt
       mergeCommit{oid}
       autoMergeRequest{enabledAt}
+      reactions(first:100){
+        pageInfo{hasNextPage endCursor}
+        nodes{content createdAt user{login}}
+      }
     }
   }
 }
@@ -386,6 +309,19 @@ REACTIONS_QUERY = """
 query($id:ID!,$after:String){
   node(id:$id){
     ... on IssueComment{
+      reactions(first:100,after:$after){
+        pageInfo{hasNextPage endCursor}
+        nodes{content createdAt user{login}}
+      }
+    }
+  }
+}
+"""
+
+PULL_REQUEST_REACTIONS_QUERY = """
+query($id:ID!,$after:String){
+  node(id:$id){
+    ... on PullRequest{
       reactions(first:100,after:$after){
         pageInfo{hasNextPage endCursor}
         nodes{content createdAt user{login}}
@@ -524,6 +460,23 @@ def load_snapshot(
         pull_request["baseRefName"],
         runner,
     )
+    pull_request_reactions = list(pull_request["reactions"]["nodes"])
+    reaction_info = pull_request["reactions"]["pageInfo"]
+    reaction_cursor = reaction_info["endCursor"]
+    pull_request_reaction_seen: set[str] = set()
+    while reaction_info["hasNextPage"]:
+        if not reaction_cursor or reaction_cursor in pull_request_reaction_seen:
+            raise BarrierError("pull request reaction cursor did not advance")
+        pull_request_reaction_seen.add(reaction_cursor)
+        response = graphql(
+            PULL_REQUEST_REACTIONS_QUERY,
+            {"id": pull_request["id"], "after": reaction_cursor},
+            runner,
+        )
+        reaction_page = response["data"]["node"]["reactions"]
+        pull_request_reactions.extend(reaction_page["nodes"])
+        reaction_info = reaction_page["pageInfo"]
+        reaction_cursor = reaction_info["endCursor"]
 
     def comments_page(cursor: str | None) -> dict[str, Any]:
         variables = dict(base_variables)
@@ -626,6 +579,7 @@ def load_snapshot(
     return {
         "repository": expectation["repository"],
         "pull_request": pull_request["number"],
+        "created_at": pull_request["createdAt"],
         "head": pull_request["headRefOid"],
         "base": pull_request["baseRefOid"],
         "state": pull_request["state"],
@@ -649,6 +603,14 @@ def load_snapshot(
                 ],
             }
             for comment in comments
+        ],
+        "pull_request_reactions": [
+            {
+                "content": reaction["content"],
+                "login": (reaction.get("user") or {}).get("login", ""),
+                "created_at": reaction["createdAt"],
+            }
+            for reaction in pull_request_reactions
         ],
         "reviews": [
             {
@@ -682,69 +644,6 @@ def load_snapshot(
     }
 
 
-def prepare_trigger(
-    expectation: Expectation,
-    runner: Runner = run_command,
-) -> None:
-    snapshot = load_snapshot(expectation, runner)
-    decision = inspect_snapshot(snapshot, expectation)
-    if decision["status"] == "merged":
-        return
-    if snapshot["head"] != expectation["head"]:
-        raise BarrierError("cannot trigger Codex review: head changed")
-    if snapshot["base"] != expectation["base"]:
-        raise BarrierError("cannot trigger Codex review: base changed")
-    if snapshot["state"] != "OPEN" or snapshot["is_draft"]:
-        raise BarrierError("cannot trigger Codex review: PR is not open and ready")
-    if snapshot["auto_merge_armed"]:
-        raise BarrierError("cannot trigger Codex review: auto-merge is armed")
-    unresolved = [thread for thread in snapshot["threads"] if not thread["is_resolved"]]
-    if unresolved:
-        raise BarrierError(
-            "cannot trigger Codex review: "
-            f"{len(unresolved)} review thread(s) remain unresolved"
-        )
-
-    triggers, trigger_error = marked_triggers(snapshot)
-    if trigger_error:
-        raise BarrierError(trigger_error)
-    for trigger in triggers:
-        if not actor_matches(trigger["login"], expectation["trigger_actor"]):
-            raise BarrierError("Codex trigger actor is not the frozen actor")
-        signals = terminal_signals(snapshot, trigger, expectation["provider"])
-        if trigger["head"] == expectation["head"]:
-            if (
-                len(
-                    [
-                        candidate
-                        for candidate in triggers
-                        if candidate["head"] == expectation["head"]
-                    ]
-                )
-                > 1
-            ):
-                raise BarrierError("multiple exact-head Codex triggers are ambiguous")
-            return
-        if len(signals) != 1:
-            raise BarrierError("a prior Codex review attempt is not terminal")
-
-    require_success(
-        runner(
-            [
-                "gh",
-                "api",
-                (
-                    f"repos/{expectation['repository']}/issues/"
-                    f"{expectation['pull_request']}/comments"
-                ),
-                "-f",
-                f"body={trigger_body(expectation['head'])}",
-            ]
-        ),
-        "Codex review trigger",
-    )
-
-
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", required=True)
@@ -752,7 +651,6 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--head", required=True)
     parser.add_argument("--base", required=True)
     parser.add_argument("--provider", default=PROVIDER_DEFAULT)
-    parser.add_argument("--actor")
     parser.add_argument("--settle-seconds", type=float, default=30)
     parser.add_argument("--timeout-seconds", type=float, default=900)
     parser.add_argument("--poll-seconds", type=float, default=10)
@@ -780,22 +678,14 @@ def parse_arguments() -> argparse.Namespace:
 
 def main() -> int:
     arguments = parse_arguments()
-    actor = arguments.actor
-    if not actor:
-        actor = require_success(
-            run_command(["gh", "api", "user", "--jq", ".login"]),
-            "GitHub actor lookup",
-        ).strip()
     expectation: Expectation = {
         "repository": arguments.repo,
         "pull_request": arguments.pr,
         "head": arguments.head,
         "base": arguments.base,
         "provider": arguments.provider,
-        "trigger_actor": actor,
     }
 
-    prepare_trigger(expectation)
     decision = wait_for_barrier(
         expectation,
         lambda: load_snapshot(expectation),
