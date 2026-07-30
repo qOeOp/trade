@@ -1,178 +1,156 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import { evaluateMissionStop } from "./codex-mission-stop-hook";
 
-const validReceipt =
-  `Mission-Handoff: {"endpoint":"local-only","candidate":"sha256:${"a".repeat(64)}","acceptance":"passed","effects":[],"cleanup":"complete","route":"accept"}`;
+const origin = `git:${"b".repeat(40)}`;
+const candidate = `sha256:${"a".repeat(64)}`;
+const start = `Mission-Start: {"endpoint":"merged","origin":"${origin}","stop":"two revisions"}`;
+const active = `Mission-Terminal: {"status":"active","endpoint":"merged","origin":"${origin}"}`;
 
-function withTranscript(messages: string[], run: (path: string) => void): void {
-  const directory = mkdtempSync(join(tmpdir(), "mission-stop-hook-"));
-  const path = join(directory, "rollout.jsonl");
-  const transcript = messages
-    .map((text) =>
-      JSON.stringify({
-        type: "response_item",
-        payload: {
-          type: "message",
-          role: "assistant",
-          content: [{ type: "output_text", text }],
-        },
-      }),
-    )
-    .join("\n");
-  writeFileSync(path, transcript);
-  try {
-    run(path);
-  } finally {
-    rmSync(directory, { recursive: true });
-  }
+function receipt(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    endpoint: "merged",
+    origin,
+    candidate,
+    acceptance: "passed",
+    effects: [],
+    cleanup: "complete",
+    route: "accept",
+    ...overrides,
+  };
+}
+
+function handoff(overrides: Record<string, unknown> = {}): string {
+  return `Mission-Handoff: ${JSON.stringify(receipt(overrides))}`;
+}
+
+function evaluate(
+  lastAssistantMessage: string,
+  transcriptMessagesNewestFirst: string[] = [],
+  stopHookActive = false,
+) {
+  return evaluateMissionStop(
+    {
+      last_assistant_message: lastAssistantMessage,
+      stop_hook_active: stopHookActive,
+    },
+    transcriptMessagesNewestFirst,
+  );
 }
 
 describe("bounded mission Stop hook", () => {
   test("does not affect a normal turn", () => {
-    expect(
-      evaluateMissionStop({ last_assistant_message: "Done." }),
-    ).toEqual({ continue: true });
+    expect(evaluate("Done.")).toEqual({ continue: true });
   });
 
   test("continues an active mission that omitted Handoff", () => {
-    expect(
-      evaluateMissionStop(
-        { last_assistant_message: "Work remains.\nMission-Terminal: active" },
-      ),
-    ).toEqual({
+    expect(evaluate(`Work remains.\n${active}`)).toEqual({
       decision: "block",
       reason:
-        "The bounded mission is still active. Complete the separate Handoff stage, update its plan item, and end with one valid Mission-Handoff JSON receipt.",
+        "The bounded mission is still active. Complete the separate Handoff stage, update its plan item, and end with one valid Mission-Handoff receipt.",
     });
   });
 
   test("tracks an active mission across assistant messages", () => {
-    withTranscript(
-      [
-        "Mission-Start: endpoint=merged; origin=git:abc; stop=bounded",
-        "Implemented and tested.",
-      ],
-      (transcriptPath) => {
-        expect(
-          evaluateMissionStop({
-            transcript_path: transcriptPath,
-            last_assistant_message: "Implemented and tested.",
-          }),
-        ).toMatchObject({ decision: "block" });
-      },
-    );
+    expect(evaluate("Implemented and tested.", [start])).toMatchObject({
+      decision: "block",
+    });
   });
 
-  test("ignores an incomplete transcript line without losing prior state", () => {
-    const directory = mkdtempSync(join(tmpdir(), "mission-stop-hook-"));
-    const path = join(directory, "rollout.jsonl");
-    writeFileSync(
-      path,
-      `${JSON.stringify({
-        type: "response_item",
-        payload: {
-          type: "message",
-          role: "assistant",
-          content: [
-            {
-              type: "output_text",
-              text: "Mission-Start: endpoint=merged; origin=git:abc; stop=bounded",
-            },
-          ],
-        },
-      })}\n{"type":"response_item"`,
-    );
-    try {
-      expect(
-        evaluateMissionStop({
-          transcript_path: path,
-          last_assistant_message: "Implemented and tested.",
-        }),
-      ).toMatchObject({ decision: "block" });
-    } finally {
-      rmSync(directory, { recursive: true });
-    }
+  test("accepts one receipt bound to the active mission", () => {
+    expect(evaluate(`Completed.\n${handoff()}`, [start])).toEqual({
+      continue: true,
+    });
   });
 
-  test("accepts a valid terminal Handoff receipt", () => {
+  test("does not activate from a receipt without an active mission", () => {
+    expect(evaluate(handoff())).toEqual({ continue: true });
+  });
+
+  test("rejects a receipt with a different endpoint", () => {
     expect(
-      evaluateMissionStop(
-        { last_assistant_message: `Completed.\n${validReceipt}` },
+      evaluate(handoff({ endpoint: "local-only" }), [start]),
+    ).toMatchObject({ decision: "block" });
+  });
+
+  test("rejects a receipt with a different origin", () => {
+    expect(
+      evaluate(handoff({ origin: `git:${"c".repeat(40)}` }), [start]),
+    ).toMatchObject({ decision: "block" });
+  });
+
+  test("does not accept a receipt followed by an active marker", () => {
+    expect(evaluate(`${handoff()}\n${active}`, [start])).toMatchObject({
+      decision: "block",
+    });
+  });
+
+  test("does not activate from prose, a quote, or a fenced example", () => {
+    const message = [
+      "The label Mission-Start: is documented here.",
+      `> ${start}`,
+      "```text",
+      start,
+      "```",
+    ].join("\n");
+    expect(evaluate(message)).toEqual({ continue: true });
+  });
+
+  test("ignores malformed start and active labels", () => {
+    expect(
+      evaluate("Mission-Start: example only\nMission-Terminal: active"),
+    ).toEqual({ continue: true });
+  });
+
+  test("rejects malformed or inconsistent receipts", () => {
+    expect(
+      evaluate(
+        handoff({
+          candidate: "abc",
+          acceptance: "blocked",
+          route: "accept",
+        }),
+        [start],
+      ),
+    ).toMatchObject({ decision: "block" });
+  });
+
+  test("accepts structured effect entries without inventing their schema", () => {
+    expect(
+      evaluate(
+        handoff({
+          effects: [{ kind: "pull-request", number: 38 }, "branch pushed"],
+        }),
+        [start],
       ),
     ).toEqual({ continue: true });
   });
 
-  test("does not accept a receipt followed by an active marker", () => {
-    expect(
-      evaluateMissionStop({
-        last_assistant_message: `${validReceipt}\nMission-Terminal: active`,
-      }),
-    ).toMatchObject({ decision: "block" });
+  test("accepts a strict JSON output envelope", () => {
+    const envelope = JSON.stringify({
+      result: { status: "done" },
+      mission_handoff: receipt(),
+    });
+    expect(evaluate(envelope, [start])).toEqual({ continue: true });
   });
 
-  test("does not activate from non-assistant transcript content", () => {
-    const directory = mkdtempSync(join(tmpdir(), "mission-stop-hook-"));
-    const path = join(directory, "rollout.jsonl");
-    writeFileSync(
-      path,
-      JSON.stringify({
-        type: "response_item",
-        payload: {
-          type: "custom_tool_call_output",
-          output: "Mission-Start: example only",
-        },
-      }),
-    );
-    try {
-      expect(
-        evaluateMissionStop({
-          transcript_path: path,
-          last_assistant_message: "Done.",
-        }),
-      ).toEqual({ continue: true });
-    } finally {
-      rmSync(directory, { recursive: true });
-    }
+  test("rejects multiple receipts in one response", () => {
+    expect(evaluate(`${handoff()}\n${handoff()}`, [start])).toMatchObject({
+      decision: "block",
+    });
   });
 
-  test("rejects malformed or inconsistent receipts", () => {
-    const malformed =
-      'Mission-Terminal: active\nMission-Handoff: {"endpoint":"local-only","candidate":"abc","acceptance":"blocked","effects":[],"cleanup":"complete","route":"accept"}';
+  test("uses the nearest structured active boundary", () => {
+    const oldStart = `Mission-Start: {"endpoint":"local-only","origin":"git:${"d".repeat(40)}","stop":"one revision"}`;
     expect(
-      evaluateMissionStop({ last_assistant_message: malformed }),
-    ).toMatchObject({ decision: "block" });
-  });
-
-  test("rejects receipts without an immutable candidate", () => {
-    const mutableCandidate =
-      'Mission-Handoff: {"endpoint":"local-only","candidate":"abc","acceptance":"passed","effects":[],"cleanup":"complete","route":"accept"}';
-    expect(
-      evaluateMissionStop({
-        last_assistant_message:
-          `Mission-Start: endpoint=local-only\n${mutableCandidate}`,
-      }),
-    ).toMatchObject({ decision: "block" });
-  });
-
-  test("a terminal route claim without a receipt remains active", () => {
-    expect(
-      evaluateMissionStop({ last_assistant_message: "Mission route: accept" }),
+      evaluate("Implemented.", [active, oldStart]),
     ).toMatchObject({ decision: "block" });
   });
 
   test("bounds continuation instead of looping forever", () => {
-    expect(
-      evaluateMissionStop(
-        {
-          stop_hook_active: true,
-          last_assistant_message: "Still incomplete.\nMission-Terminal: active",
-        },
-      ),
-    ).toEqual({
+    expect(evaluate(`Still incomplete.\n${active}`, [], true)).toEqual({
       continue: false,
       stopReason:
         "Bounded mission Handoff remained incomplete after one continuation.",

@@ -28,11 +28,13 @@ Before mutation:
 4. emit this visible activation receipt:
 
 ```text
-Mission-Start: endpoint=<endpoint>; origin=<immutable identity>; stop=<total boundary>
+Mission-Start: {"endpoint":"merged","origin":"git:0000000000000000000000000000000000000000","stop":"<total boundary>"}
 ```
 
-`Mission-Start:` is the human-visible audit receipt. Do not emit it for an answer-only task that does
-not require the full lifecycle.
+Emit it as one standalone line outside a code fence. `endpoint` and `origin` freeze the mission
+boundary that Handoff must close; `origin` uses the same immutable identity forms as `candidate`
+below. `Mission-Start:` is the human-visible audit receipt. Do not emit it for an answer-only task
+that does not require the full lifecycle.
 
 After compaction, resume, or context transfer, re-read governing instructions and this file, then bind
 the frozen contract, repository state, candidate identity, remaining Stop, and raw evidence before
@@ -174,36 +176,52 @@ Pending remote work keeps Handoff active inside Stop. A missing or started signa
 clean. `blocked` skips publication but still completes terminal reporting.
 
 After Handoff actions finish, mark the working-plan Handoff item `completed`. The final response must
-contain exactly one single-line JSON receipt:
+carry exactly one Handoff receipt using one of these equivalent forms.
+
+For an ordinary response, emit one standalone line outside a code fence:
 
 ```text
-Mission-Handoff: {"endpoint":"local-only","candidate":"sha256:0000000000000000000000000000000000000000000000000000000000000000","acceptance":"passed","effects":[],"cleanup":"complete","route":"accept"}
+Mission-Handoff: {"endpoint":"local-only","origin":"sha256:1111111111111111111111111111111111111111111111111111111111111111","candidate":"sha256:0000000000000000000000000000000000000000000000000000000000000000","acceptance":"passed","effects":[],"cleanup":"complete","route":"accept"}
 ```
+
+When a strict JSON document owns the final output, freeze this envelope in Acceptance and return the
+exact JSON document instead of a raw marker line:
+
+```json
+{"result":{},"mission_handoff":{"endpoint":"local-only","origin":"sha256:1111111111111111111111111111111111111111111111111111111111111111","candidate":"sha256:0000000000000000000000000000000000000000000000000000000000000000","acceptance":"passed","effects":[],"cleanup":"complete","route":"accept"}}
+```
+
+If an immutable external schema cannot include that envelope, freeze a compatible owner-provided
+receipt field before Build or route `blocked`; do not append invalid text to the JSON document.
 
 Required fields:
 
 - `endpoint`: frozen endpoint;
+- `origin`: frozen immutable starting identity, equal to the activation receipt;
 - `candidate`: `none`, `sha256:` plus 64 lowercase hex characters, or `git:` plus a 40- or
   64-character lowercase commit hash;
 - `acceptance`: `passed` or `blocked`;
-- `effects`: array of external or working-tree effects;
+- `effects`: array of external or working-tree effects; entries may be any JSON values owned by the
+  reporting consumer;
 - `cleanup`: `complete` or `preserved`;
 - `route`: `accept` or `blocked`.
 
 `acceptance=passed` requires `route=accept`; `acceptance=blocked` requires `route=blocked`. Do not emit
-the receipt before Handoff finishes.
+the receipt before Handoff finishes. A Handoff closes only the active mission with the same
+`endpoint` and `origin`; multiple raw or enveloped Handoff receipts in one response are invalid.
 
 Before any message that may terminate while the mission is still active, append this exact line:
 
 ```text
-Mission-Terminal: active
+Mission-Terminal: {"status":"active","endpoint":"merged","origin":"git:0000000000000000000000000000000000000000"}
 ```
 
-The repository Stop hook reconstructs lifecycle state from assistant messages in the session
-transcript and the current `last_assistant_message`. A valid Handoff receipt closes the mission only
-when it is the latest lifecycle marker; a later `Mission-Terminal: active` keeps it active. A first
-miss requests one bounded continuation and a second terminates as an explicit failure instead of
-looping.
+Use the frozen endpoint and origin. Lifecycle markers are valid only as structurally valid standalone
+lines outside fenced examples, or as the exact structured-output envelope above. The repository Stop
+hook reads assistant JSONL records backward from the transcript tail and stops after the nearest
+boundary needed to decide the state. A matching valid Handoff closes the mission only when it is the
+latest lifecycle marker; a later active marker keeps it active. A first miss requests one bounded
+continuation and a second terminates as an explicit failure instead of looping.
 
 ## Terminal
 
