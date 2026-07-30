@@ -69,9 +69,9 @@ mission 只使用 skill 的 `accept / revise / replan / blocked` 四条 route。
 
 | 需要 | 直接复用 | 项目边界 |
 | --- | --- | --- |
-| 模糊方向变成合同 | Plan / working plan + 可选 `mission_planner` | planner 先调查事实并暴露用户选择，再提出七字段合同与受影响边界；主上下文负责准入和冻结 |
+| 模糊方向变成合同 | Plan / working plan + 条件触发 `mission_planner` | consequential ambiguity、owner / consumer 不清、跨 owner 设计、governance / oracle 变化或昂贵反转无法由一条短验证链解决时派发；主上下文负责准入和冻结 |
 | 一个逻辑任务长时续跑 | Goal mode | Goal 负责续跑；mission contract 负责成功、失败和停机，禁止 `until perfect` |
-| 有界工作与独立反审 | subagent + 可选 `mission_evaluator` | 受 frozen Stop、风险和宿主容量约束；主上下文唯一裁决 |
+| 有界工作与独立反审 | subagent + 条件触发 `mission_evaluator` | 对关键路径上输入已稳定、相互独立且净节省时间的 packet 尽早使用宿主容量；保持单 writable winner 与主上下文唯一裁决 |
 | 写入隔离 | Codex worktree + 既有 `agent-workspace-manager` | 一个 mission 同时只有一个可写 winner |
 | 可复用流程 | project skill + `AGENTS.md` | lifecycle authority 在 skill；领域事实与仓库 invariant 仍在 docs / owner contract |
 | 领域事实与动作 | 既有 MCP / owner tool | Agent 不复制领域判断或写权限 |
@@ -98,7 +98,7 @@ mission 只使用 skill 的 `accept / revise / replan / blocked` 四条 route。
 
 长期 Factory 可以连续执行大量 mission，但不能把同一高层目标做成无限上下文和无限 patch loop。每个 mission 都有独立合同、隔离 workspace、预算、轨迹、验收和终态；上一个 mission 的证据只能成为下一个 mission 的输入，不能自动扩权。
 
-单主上下文负责方向、合同和最终裁决；subagent 只承担有界工作或证据返回。上下文压缩或重启后只能从仓库合同、任务状态和原始证据恢复，不依赖对话记忆猜测事实。
+单主上下文负责方向、合同和最终裁决；subagent 只承担有界工作或证据返回。主上下文按 skill 的 critical-path 条件尽早派发合格 packet，同时继续非重叠工作，只在依赖 barrier 汇合；不为填满容量制造任务。上下文压缩或重启后只能从仓库合同、任务状态和原始证据恢复，不依赖对话记忆猜测事实。
 
 ## 8. 解除条件
 

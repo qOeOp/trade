@@ -66,6 +66,44 @@ remains. If existing behavior, an answer, wiring, deletion, rollback, or a narro
 it, take that smaller route. A requested implementation, reviewer suggestion, or effort already spent
 does not prove that a change is needed.
 
+### Dispatch critical-path work
+
+Before Plan and before each Build or Evaluate wave, identify only the work packets needed by the
+current outcome. Do not turn that identification into a required record. In the working plan, state
+only non-obvious scheduling context needed to verify and integrate a qualifying packet; reuse the
+existing Host Boundary handoff when dispatch actually occurs instead of repeating its safety context.
+Keep transient notes in the working plan; do not create another scheduler, ledger, or lifecycle.
+
+Dispatch a packet as soon as its inputs are stable when all of these are true:
+
+- it can change the candidate, contract, affected boundary, or required evidence and is not one short
+  local verification chain;
+- it is independent of other in-flight writes and lifecycle decisions;
+- the main agent can verify and integrate its return without transferring lifecycle ownership;
+- expected overlap saves more critical-path time than dispatch, context, and verification cost.
+
+Use available host capacity for every qualifying packet on the current critical path, inside the
+frozen Stop. Continue the earliest non-overlapping main-context work while packets run and join only
+at their dependency barrier. When at least two read-only packets have stable inputs, distinct owner
+or source evidence paths, and neither is one short local verification chain, dispatch them
+concurrently by default; do not inspect one serially before starting the other. Override that default
+only with concrete host-capacity, Stop, or coordination-cost evidence. Do not fill capacity for its
+own sake. Keep work serial when a result defines the next packet, the task is trivial, the packet
+boundary is ambiguous, writes overlap, or coordination would erase the expected latency gain.
+
+Use a fresh read-only planner when consequential ambiguity, an unclear owner or consumer, cross-owner
+design, governance or acceptance-oracle change, or expensive reversal cannot be resolved by one short
+verification chain. Use Plan's research method for noisy source investigation. During Build, allow at
+most one writable winner and delegate a candidate only when the main agent can concurrently prepare
+candidate-independent consumer, regression, or evaluation evidence; never split coupled work by file
+merely to create parallelism. After the candidate is frozen, dispatch required fresh review and
+genuinely independent specialist lenses concurrently when capacity permits. A reviewer must not have
+participated in planning or Build.
+
+If a qualifying acceleration is unavailable, continue in the main context and record the lost
+parallelism; route to `blocked` only when the missing independence or isolation is required by
+Acceptance.
+
 ## Plan
 
 Choose the smallest vertical change that can reach the outcome through an existing owner and real
@@ -98,7 +136,8 @@ repository establishes remote delivery, include only the current signals require
 an `open` endpoint need not wait for merge gates; `merge-ready` or `merged` includes its required
 checks and reviews. For a GitHub pull-request endpoint, load
 [GitHub PR handoff](references/github-pr-handoff.md). Use task decomposition, alternatives, TDD, or
-specialist analysis only when the risk justifies their cost.
+specialist analysis only when they expose a decision or critical-path packet whose value justifies
+their cost.
 Freeze the endpoint and each permitted delivery effect once; Handoff must not request confirmation
 again for an effect already authorized here.
 
