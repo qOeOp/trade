@@ -3,7 +3,7 @@ title: Documentation History
 role: history-index
 status: active
 owner: architecture
-last_verified: 2026-07-23 CST
+last_verified: 2026-07-29 CST
 ---
 
 # Documentation History
@@ -25,6 +25,7 @@ last_verified: 2026-07-23 CST
 | 架构旧稿与施工 | `legacy-design-architecture.md`、`legacy-blueprint-code-migration-plan.md`、`architecture-cleanup-plan.md`、`module-structure-refactor-plan.md` |
 | R&D 详细演进 | `legacy-rd-*.md` |
 | 审查与基线 | `documentation-audit.md`、`architecture-inventory.md`、`nofx-design-absorption.md`、`upstream-source-audit-2026-07-22.md` |
+| Skill 设计旧稿 | `run-bounded-mission-design-scaffold.md` |
 | 运行演练 | `server-no-live-rehearsal-2026-07-23.md`、`macos-no-live-release-staging-2026-07-23.md`、`macos-no-live-host-adoption-2026-07-23.md` |
 | v1 图 | `architecture-v1/` |
 

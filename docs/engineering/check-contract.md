@@ -3,7 +3,7 @@ title: Check Contract
 role: engineering-contract
 status: active
 owner: engineering
-last_verified: 2026-07-25 CST
+last_verified: 2026-07-27 CST
 ---
 
 # Check Contract
@@ -16,8 +16,11 @@ last_verified: 2026-07-25 CST
 
 ## 1. 通用规则
 
-- 所有改动最后跑：`git diff --no-renames --check HEAD`
-- 涉及 TS tool：日常使用 `bun scripts/quality-check-changed.ts --path <改动路径>`；需要直接验 owner 时用根 `bun scripts/check-package-tests.ts --run-package <owner-dir>`。package 内 `bun run check` 只作开发便利，不是项目验收 authority
+- 所有改动最后检查完整 diff、运行 `git diff --no-renames --check HEAD`，并确认验收没有产生非预期 workspace side effect
+- 经 PR 交付：按本合同的“改动域到最小检查”直接运行受影响 owner 检查与真实 consumer journey；不默认运行 `changed-quality` 或本地 `project-quality`
+- CI 失败：只本地复现失败的 owner / leaf；修复后由当前 exact head 的 required `quality` 与四语言 CodeQL 重新完成全仓 merge closure，不自动追加本地总闸
+- 不经 PR 的交付：按影响面选择可在本地闭合结果的 terminal gate；CI 仍不能替代 live / runtime / consumer acceptance
+- 涉及 TS tool：需要直接验 owner 时用根 `bun scripts/check-package-tests.ts --run-package <owner-dir>` 或下表对应 owner check。package 内 `bun run check` 只作开发便利，不是项目验收 authority
 - 涉及真实 Binance 写接口：默认只跑单测 / dry-run / preview；真实 live 或 test endpoint 必须用户明确授权
 - 涉及 schema：同时跑 registry / schema 相关测试，再跑 owner tool 全量 check
 - 涉及 docs-only：不要求代码测试，但必须确保相对链接可达、当前态路径真实存在、历史计划有明确状态，且没有把未实现结构写成已完成事实
@@ -28,8 +31,8 @@ last_verified: 2026-07-25 CST
 | Check id | 目录 | 命令 | 覆盖 |
 | --- | --- | --- | --- |
 | `repo-whitespace` | repo root | 本地 `git diff --no-renames --check HEAD`；CI `git diff --no-renames --check <base>...HEAD` | 本地覆盖 staged + unstaged，CI 覆盖精确候选范围；关闭 rename detection，避免重命名隐藏空白错误 |
-| `project-quality` | repo root | `scripts/quality-check.sh [all\|policy\|typescript\|replay\|native]` | 同一编排器的提交总闸与 CI scope；PR 并发执行 policy、两个 TS shard、Replay semantic、native，稳定 `quality` job 汇总；Replay 本地收据可用 `QUALITY_FRESH=1` 强制失效，CI 永不复用 |
-| `changed-quality` | repo root | `bun scripts/quality-check-changed.ts --path <repo-relative-path>` | docs-only / 单模块日常门：全局 hygiene、secret、doc 与受影响 package；Replay 改动按 owner 选包，contracts / engine / accounting / data-adapter 额外验证 runner consumer；共享 contract、脚本/CI、机器 manifest 和跨语言改动要求总闸 |
+| `project-quality` | repo root | `scripts/quality-check.sh [all\|policy\|typescript\|replay\|native]` | CI scope 与可选的本地全仓诊断 / 非 PR terminal gate；不安装依赖，也不是 PR commit / push 前置门。PR 并发执行 policy、两个 TS shard、Replay semantic、native，稳定 `quality` job 汇总 |
+| `changed-quality` | repo root | `bun scripts/quality-check-changed.ts --path <repo-relative-path>` | 可选的 docs-only / 单模块便利入口：全局 hygiene、secret、doc 与受影响 package；只接受它能安全归属的 diff，拒绝共享 contract、脚本/CI、机器 manifest 或跨语言范围不等于要求 PR 本地跑总闸 |
 | `typescript-lint` | repo root | `bun run lint` | ESLint flat recommended 覆盖 `modules/`、`scripts/`，warning 上限 0，unused disable hard fail；changed code gate 与 policy scope 共用 |
 | `shell-lint` | repo root | `bun run lint:shell` | ShellCheck warning/error hard fail；仅排除兼容 `CDPATH= cd` 写法的 `SC1007` |
 | `workspace-hygiene` | repo root | `bun scripts/check-workspace-hygiene.ts` | 禁止新增 tracked runtime SQLite / sidecar 与 module-local DB；历史 exception 只减不增 |
@@ -47,12 +50,11 @@ last_verified: 2026-07-25 CST
 | `package-test-integrity` | repo root | `bun scripts/check-package-tests.ts --run-all` 或 `--run-shard <index>/<count>` | 从文件系统发现生产 TS package，直接执行根 compiler 与全部 colocated 测试，不读取 package scripts；排序后确定性分片完整且互斥；Replay worker-v10 只由 semantic gate 独占执行一次 |
 | `codeql` | GitHub Actions | `.github/workflows/codeql.yml` | JavaScript/TypeScript、Python、Go、Rust 的独立默认高精度查询扫描；结果进入 GitHub code scanning，不替代 correctness gate |
 | `replay-release-schedule` | GitHub Actions | `.github/workflows/replay-certification.yml` | nightly/manual 执行 release evidence closure；不阻塞每个 PR 的快速 semantic gate |
-| `zero-duplication` | repo root | `bun scripts/check-duplication.ts` | 六类源码在既定检测粒度下重复片段必须为 0 |
-| `ts-architecture-boundary` | repo root | `bun scripts/check-ts-tool-boundaries.ts` | 静态 package 边界、禁止动态逃逸 / eval、跨 package dependency cycle |
+| `ts-architecture-boundary` | repo root | `bun scripts/check-ts-tool-boundaries.ts` | 静态 package 边界、module-local lockfile、禁止动态逃逸 / eval、跨 package dependency cycle |
 | `secret-scan` | repo root | `bun scripts/check-secrets.ts` | tracked / unignored provider token、非空 SiliconFlow assignment 与 literal bearer credential |
-| `doc-contract-check` | repo root | `bun scripts/check-doc-contracts.ts` | 文档元数据唯一性、current/history 一级标题结构、role→status、可解析 owner、文档及 index 的 `last_verified` CST 日历日期、current index 精确闭包、ID/implementation ref、根入口及 `.agents/`、`docs/`、`modules/`、`strategies/` Markdown 本地链接边界、历史状态、risk Guard ID 对齐；不验证 freshness SLA、外部 URL 或页面 anchor |
+| `doc-contract-check` | repo root | `bun scripts/check-doc-contracts.ts` | docs 根目录与 owner 目录、文档元数据、current index、ID/implementation ref、仓库 Markdown 本地链接边界、历史状态及 risk Guard ID 对齐 |
 | `workspace-skill-check` | repo root | `sh scripts/check-workspace-skills.sh` | project-local skill 命名、frontmatter、placeholder 与领域实现边界 |
-| `architecture-manifest-check` | repo root | `bun scripts/check-architecture-manifest.ts` | 顶层域 / job / store / rail 与真实目录、DDL、protocol schema 对齐 |
+| `architecture-manifest-check` | repo root | `bun scripts/check-architecture-manifest.ts` | 顶层域 / job / store / rail 与真实目录、DDL、protocol schema 对齐；module marker 必须有 CONTRACT，TypeScript module 必须有 tsconfig/package |
 | `storage-schema-check` | repo root | `bun scripts/check-storage-schemas.ts` | logical store DDL 可执行，且 manifest 声明表真实创建 |
 | `trade-flow-typecheck` | `modules/orchestration-ops/trade-flow` | `bun run typecheck` | TS 类型与未使用变量 |
 | `trade-flow-test` | `modules/orchestration-ops/trade-flow` | `bun run test` | 当前全部 trade-flow 单测 / 契约测 |
@@ -172,7 +174,7 @@ last_verified: 2026-07-25 CST
 | local helper scripts | `scripts/*.sh`, README helper 入口 | `helper-scripts-smoke` + `repo-whitespace` |
 | workspace skill | `.agents/skills/**` | `workspace-skill-check` + `repo-whitespace`；若新增领域能力，必须移入 owner module 并升级为对应 module check |
 
-## 4. 何时升级为全量
+## 4. 何时使用全量
 
 必须跑 `trade-flow-check`：
 
@@ -183,13 +185,7 @@ last_verified: 2026-07-25 CST
 - 新增 command、schema、strategy family、evidence record 或 promotion gate
 - targeted test 失败后修复完成
 
-必须跑 `project-quality`：
-
-- 准备提交或交给别人 review
-- 跨语言改动
-- 新增脚本、helper、tool 或测试入口
-- 发现 warning / error / formatter / 本机路径泄漏后修复完成
-- 修改 architecture manifest / blueprint、质量审查脚本、package 测试入口或共享抽象
+经 PR 交付不因准备 commit / push、跨语言、脚本/CI、共享 contract 或质量基础设施改动自动升级为本地 `project-quality`；逐项运行受影响 owner / consumer 检查，远端 required checks 负责全仓闭包。只有不经 PR 且结果需要本地全仓终结、用户明确要求，或定位无法缩小到单个 owner / leaf 的全仓问题时，才把 `project-quality` 作为本地 terminal / 诊断入口。
 
 必须额外跑相关 tool 的 `bun run check`：
 

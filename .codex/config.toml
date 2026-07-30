@@ -23,3 +23,13 @@ enabled_tools = [
   "research_job_status",
   "research_job_result",
 ]
+
+[mcp_servers.sentrux]
+command = "sentrux"
+args = ["--mcp"]
+cwd = ".."
+enabled = true
+required = false
+startup_timeout_sec = 45
+tool_timeout_sec = 180
+default_tools_approval_mode = "auto"

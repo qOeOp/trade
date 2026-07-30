@@ -3,7 +3,7 @@ title: Tool Layout
 role: architecture-contract
 status: active
 owner: architecture
-last_verified: 2026-07-23 CST
+last_verified: 2026-07-27 CST
 ---
 
 # Tool Layout
@@ -25,7 +25,7 @@ last_verified: 2026-07-23 CST
 
 Skill 可以说明如何调用既有 MCP / owner tool，但不能绕过 preflight、Control Plane、governance 或 durable write contract。`scripts/check-workspace-skills.sh` 校验命名、frontmatter、placeholder 和领域实现越界。
 - strategy policy 的唯一源码位置是 `strategies/`。
-- negative control 命名是唯一口径。
+- Reviewer Agent 的 machine evidence role 使用 `negative_control`；其他文档与源码不做词面替换。
 
 ## Registry Contract
 

@@ -1,6 +1,6 @@
 {
   "schema_version": "trade.doc-contract-index.v1",
-  "last_verified": "2026-07-24 CST",
+  "last_verified": "2026-07-29 CST",
   "documents": [
     { "id": "docs.index", "path": "docs/README.md", "role": "documentation-index", "status": "active", "owner": "architecture" },
     { "id": "docs.history-index", "path": "docs/history/README.md", "role": "history-index", "status": "active", "owner": "architecture" },

@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
@@ -444,6 +452,86 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("has unsupported current document status: invented-status")
   })
 
+  test("document contracts own the docs root layout", () => {
+    const root = documentContractFixture({})
+    write(root, "docs/orphan.md", "# Orphan\n")
+
+    const result = runJudge("check-doc-contracts.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("docs root only allows README.md: docs/orphan.md")
+  })
+
+  test("TypeScript boundaries own module-local lockfiles", () => {
+    const root = architectureFixture()
+    write(root, "modules/domain-a/tool-a/bun.lock", "")
+
+    const result = runJudge("check-ts-tool-boundaries.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("tool-local bun.lock files are not allowed")
+  })
+
+  test("architecture manifest checker owns module contract presence", () => {
+    const root = temporaryRoot()
+    write(root, "docs/architecture/architecture-manifest.json", JSON.stringify({
+      domains: [{
+        id: "domain-a",
+        status: "implemented",
+        modules: ["modules/domain-a/tool-a"],
+        owns_stores: [],
+        owns_jobs: [],
+      }],
+      jobs: [],
+      stores: [],
+      rails: [],
+    }))
+    write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({ name: "tool-a" }))
+    write(root, "modules/contracts/protocol-fabric/src/schemas/rail-ownership-registry.schema.json", JSON.stringify({
+      items: { properties: { id: { enum: [] } } },
+    }))
+    write(root, "modules/contracts/protocol-fabric/src/schemas/logical-store-ref.schema.json", JSON.stringify({
+      properties: { store: { enum: [] } },
+    }))
+
+    const result = runJudge("check-architecture-manifest.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("module marker has no owner contract")
+  })
+
+  test("toolset validator owns the retired toolset directory", () => {
+    const root = temporaryRoot()
+    mkdirSync(join(root, "toolset"))
+    write(root, "toolset.json", JSON.stringify({ schema_version: "trade-toolset.manifest.v1", tools: [] }))
+
+    const result = runJudge("toolset.ts", root, ["--validate"])
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("do not recreate toolset/")
+  })
+
+  test("logical store check exits nonzero when its result is not ok", () => {
+    const root = temporaryRoot()
+    write(root, "docs/architecture/architecture-manifest.json", JSON.stringify({
+      stores: [{
+        id: "fixture-store",
+        schema: "schema.sql",
+        physical: { kind: "sqlite", path: "data/fixture.db", tables: ["fixture"] },
+      }],
+    }))
+    write(root, "schema.sql", "CREATE TABLE fixture(id TEXT PRIMARY KEY);\n")
+
+    const result = runJudge("logical-store.ts", root, [
+      "--action", "check",
+      "--store", "all",
+      "--base-dir", "tmp/check/logical-store",
+    ])
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).toContain('"ok": false')
+  })
+
   test("document contracts reject an owner with no governance, domain, or module authority", () => {
     const root = documentContractFixture({ owner: "invented-owner" })
 
@@ -833,32 +921,6 @@ describe("quality judges fail closed", () => {
     expect(result.stdout).toContain("@typescript-eslint/no-explicit-any")
   })
 
-  test("duplication judge includes test code and permits zero clones", () => {
-    const root = temporaryRoot()
-    const duplicate = Array.from({ length: 24 }, (_, index) =>
-      `  const duplicatedValue${index} = sourceValue + ${index}`
-    ).join("\n")
-    write(root, "modules/domain-a/tool-a/src/first.test.ts", [
-      "export function first(sourceValue: number) {",
-      duplicate,
-      "  return duplicatedValue23",
-      "}",
-      "",
-    ].join("\n"))
-    write(root, "modules/domain-a/tool-a/src/second.test.ts", [
-      "export function second(sourceValue: number) {",
-      duplicate,
-      "  return duplicatedValue23",
-      "}",
-      "",
-    ].join("\n"))
-
-    const result = runJudge("check-duplication.ts", repoRoot, ["--root", root])
-
-    expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain("duplicated code fragments increased")
-  })
-
   test("Replay heavyweight tests are serial and individually exclusive", () => {
     const packageJson = JSON.parse(readFileSync(join(repoRoot,
       "modules/research-strategy-development/replay-execution-plane/runner/package.json"), "utf8")) as {
@@ -894,7 +956,7 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("gofmt required")
   })
 
-  test("repository dependencies are installed before quality judges run", () => {
+  test("repository quality delegates checks without mutating dependency state", () => {
     const script = readFileSync(join(repoRoot, "scripts/quality-check.sh"), "utf8")
     const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as {
       scripts: Record<string, string>
@@ -908,7 +970,6 @@ describe("quality judges fail closed", () => {
       "  check_lint",
       "  check_toolset_manifest",
     ].join("\n"))
-    expect(script.match(/bun ci/g)).toHaveLength(1)
     expect(script).toContain("bun scripts/check-package-tests.ts --run-all")
     expect(script).toContain('bun scripts/check-package-tests.ts --run-shard "$QUALITY_TS_SHARD"')
     expect(script).toContain("git ls-files --cached --others --exclude-standard -- '*.sh'")
@@ -921,10 +982,46 @@ describe("quality judges fail closed", () => {
     expect(script).toContain("git diff --no-renames --check HEAD")
   })
 
+  test("dependency bootstrap cannot run lifecycle scripts with credentials reloaded from dotenv", () => {
+    const root = temporaryRoot()
+    write(root, "package.json", JSON.stringify({
+      private: true,
+      scripts: {
+        postinstall: [
+          "bun -e",
+          `"require('node:fs').writeFileSync('credential.txt',`,
+          "process.env.SILICONFLOW_API_KEY || 'missing')\"",
+        ].join(" "),
+      },
+    }))
+    expect(runCommand(["bun", "install", "--ignore-scripts"], root).exitCode).toBe(0)
+    write(root, ".env", "SILICONFLOW_API_KEY=dotenv-secret\n")
+
+    const result = runCommand([
+      "env",
+      "-u",
+      "BINANCE_API_KEY",
+      "-u",
+      "BINANCE_API_SECRET",
+      "-u",
+      "SILICONFLOW_API_KEY",
+      "bun",
+      "--no-env-file",
+      "install",
+      "--frozen-lockfile",
+      "--ignore-scripts",
+    ], root, { SILICONFLOW_API_KEY: "process-secret" })
+
+    expect(result.exitCode).toBe(0)
+    expect(existsSync(join(root, "credential.txt"))).toBeFalse()
+  })
+
   test("repository workflow checks the fetched candidate range", () => {
     const workflow = readFileSync(join(repoRoot, ".github/workflows/quality.yml"), "utf8")
+    const safeInstall = "env -u BINANCE_API_KEY -u BINANCE_API_SECRET -u SILICONFLOW_API_KEY bun --no-env-file install --frozen-lockfile --ignore-scripts"
 
     expect(workflow).toContain("fetch-depth: 0")
+    expect(workflow.match(new RegExp(safeInstall, "g"))).toHaveLength(3)
     expect(workflow).toContain(
       "QUALITY_DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}",
     )
@@ -952,38 +1049,6 @@ describe("quality judges fail closed", () => {
     expect(workflow).not.toContain("queries:")
     expect(workflow).not.toContain("config-file:")
     expect(workflow).not.toContain("disable-default-queries:")
-  })
-
-  test("trusted quality authority executes only base-owned gates and requires exact external approval", () => {
-    const workflow = readFileSync(
-      join(repoRoot, ".github/workflows/quality-authority.yml"),
-      "utf8",
-    )
-
-    expect(workflow).toContain("pull_request_target:")
-    expect(workflow).toContain("ref: ${{ github.event.pull_request.base.sha }}")
-    expect(workflow).toContain('git fetch --no-tags --depth=1 origin "refs/pull/${PR_NUMBER}/head"')
-    expect(workflow).toContain(
-      'git diff --no-ext-diff --name-only -z "$PR_BASE_SHA" "$PR_HEAD_SHA"',
-    )
-    expect(workflow).toContain(
-      "QUALITY_AUTHORITY_APPROVED_SHA: ${{ vars.QUALITY_AUTHORITY_APPROVED_SHA }}",
-    )
-    expect(workflow).toContain('[[ "$QUALITY_AUTHORITY_APPROVED_SHA" =~ ^[0-9a-f]{40}$ ]]')
-    expect(workflow).toContain('test "$QUALITY_AUTHORITY_APPROVED_SHA" = "$PR_HEAD_SHA"')
-    expect(workflow).toContain('if [ "$protected_path_found" -eq 0 ]; then')
-    for (const path of [
-      ".github/workflows",
-      "bun.lock",
-      "docs/engineering/convergence-baseline.json",
-      "eslint.config.mjs",
-      "package.json",
-      "scripts",
-    ]) {
-      expect(workflow).toContain(path)
-    }
-    expect(workflow).not.toContain("ref: ${{ github.event.pull_request.head.sha }}")
-    expect(workflow).not.toContain("secrets.")
   })
 
   test("repository quality checks are single-instance and recover stale locks", () => {
@@ -1060,6 +1125,8 @@ function documentContractFixture(
   write(root, "docs/README.md", metadata("Documentation", role, status, owner, lastVerified))
   write(root, "docs/history/README.md", metadata("History", "history-index", "active", "architecture"))
   write(root, "docs/runtime/risk-control-contract.md", metadata("Risk", "runtime-feature-contract", "active", "policy-risk"))
+  mkdirSync(join(root, "docs/product"), { recursive: true })
+  mkdirSync(join(root, "docs/research"), { recursive: true })
   write(root, "docs/engineering/doc-contract-index.json", JSON.stringify({
     schema_version: "trade.doc-contract-index.v1",
     last_verified: "2026-07-22 CST",

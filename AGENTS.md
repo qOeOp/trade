@@ -62,20 +62,23 @@
 ## Development Convergence Guardrails
 
 - 当前处于恢复期，先修复红灯并打通已有链路，不继续扩张责任面
-- 除简单问答、验收显然的微小机械修改和由更具体 skill 完整拥有的流程外，涉及产品或工程判断的非平凡任务使用 `.agents/skills/run-bounded-mission/SKILL.md`：先形成 mission contract、真实 outcome consumer 验收和迭代预算，再分析、决策或写代码；若具体 skill 仍需要项目级 admission、跨域或终止控制，则组合使用
-- 同一 mission 禁止无限循环；默认一个 slice 最多 3 次实现修订，连续 2 轮验收无进展必须重做设计或以 `blocked / invalidated / budget_exhausted` 终止
+- 除简单问答、验收显然的微小机械修改和由更具体 skill 完整拥有的流程外，涉及产品或工程判断的非平凡任务使用 `.agents/skills/run-bounded-mission/SKILL.md`：只读发现前先限定暂定 Scope、Authority 和总 Stop；完成证据调查与必要对齐后，在 Build 或重大决策前冻结完整 mission contract；若具体 skill 仍需要项目级 admission、跨域或终止控制，则组合使用
+- 同一 mission 禁止无限循环；开工前冻结覆盖整个 mission 的 Stop。重复修订或验收无进展先触发 revision-pressure 诊断，再按证据选择 route；`revise / replan` 不得重置 Stop，预算耗尽时以 `blocked` 终止并报告原因
 - 开工前先确定复用的 owner 与 production consumer；找不到 consumer 的实现优先接入、合并或删除
 - `module owner / registered tool / domain / store / job / rail` 不得超过 `docs/engineering/convergence-baseline.json`
 - Agent 不得自行提高 convergence baseline；只有用户明确批准后才能修改上限
 - package、schema、文档或单元测试本身不算功能完成；必须提供现有 runtime / CLI / server 入口的消费证据和跨 owner 链路证据
-- 不按文件或步骤制造微提交；一个可验证行为闭环并通过提交门后，才形成一个有意图的提交
-- `main` 或完整质量门为红时，不提交、不推送新增功能
+- 不按文件或步骤制造微提交；一个可验证行为闭环完成定向验收后，才形成一个有意图的提交
+- `main` 的 required `quality` / CodeQL 为红时只修复红灯，不推进新增功能；PR 候选在合并前由远端 required checks 收口
 - 交付按 `docs/engineering/development-convergence.md` 报告用户行为、production consumer、运行证据和表面积变化
 
 ## Quality Guardrails
 
-- 普通 docs-only 或单模块开发先跑 `bun scripts/quality-check-changed.ts --path <本次改动路径>`；它只执行全局静态门与受影响 package，不得用它替代提交门
-- 准备提交、跨语言改动、新增/修改脚本、共享 contract、Replay execution plane 或 CI/质量基础设施后，跑 `scripts/quality-check.sh`
-- 需要忽略本机 Replay 重型通过缓存并强制重跑时，使用 `QUALITY_FRESH=1 scripts/quality-check.sh`；CI 永不复用该缓存
+- 当前单 owner、黑灯工厂式 PR 对普通开发候选默认不引入人工 reviewer、required approval、CODEOWNER / last-push approval、manual exact-SHA、repository variable 管理员确认或其他人在环 authority gate；Codex、Dependabot、CI、CodeQL、fresh evaluator 与自动 review / fix / retry / merge 可以参与
+- 经 PR 交付时，本地只跑受影响 owner 的定向 test / typecheck / doc-or-architecture check、真实 production consumer journey、完整 diff inspection 与必要 workspace safety；不默认运行 `quality-check-changed.ts`，也不把本地 `scripts/quality-check.sh` 当作 commit / push 前总闸
+- GitHub required `quality` aggregate 与 JavaScript/TypeScript、Python、Rust、Go 四个 CodeQL context 承担未触及其信任面的普通候选的全仓 merge closure；某个 CI leaf 失败后只本地复现并修复对应 owner / leaf，不自动重跑本地全仓门
+- 不经 PR 的交付保留与风险相称的本地 terminal gate；CI 不能替代 live / runtime / production consumer acceptance
+- 普通开发候选不得包含合并 workflow、quality judge、裁判 policy 或结果签发面的改动。确需升级该信任面时，先拆成独立 governance candidate，由候选不可控的 owner surface 验收；验收完成后再生成新的开发候选。缺少该 authority 时必须阻塞，也不默认恢复 manual exact-SHA quality-authority
+- 依赖更新与普通代码 PR 走同一自动收口链路；无法在 mission 预算内收口时保持阻断或有界终止，不转交人工审批
 - 不把 compiler / typecheck / test / vet warning 当成可忽略噪音；能修则修，不能修必须在交付说明里标明原因
 - 不把本机绝对路径写进 docs / code / helper 输出契约

@@ -57,6 +57,18 @@ const allowedRoleStatuses = new Map<string, Set<string>>([
   ["engineering-contract", new Set(["active"])],
 ])
 const currentRoots = ["docs/product", "docs/architecture", "docs/runtime", "docs/research", "docs/engineering"]
+const requiredOwnerDirectories = ["product", "architecture", "runtime", "research", "engineering", "history"]
+for (const entry of readdirSync("docs", { withFileTypes: true })) {
+  if (entry.isFile() && entry.name !== "README.md") {
+    issues.push(`docs root only allows README.md: docs/${entry.name}`)
+  }
+}
+for (const directory of requiredOwnerDirectories) {
+  if (!existsSync(`docs/${directory}`)) {
+    console.error(`doc contract violations:\nrequired docs owner directory is missing: docs/${directory}`)
+    process.exit(1)
+  }
+}
 const indexPath = "docs/engineering/doc-contract-index.json"
 const index = JSON.parse(readFileSync(indexPath, "utf8")) as ContractIndex
 const architectureManifest = JSON.parse(
@@ -70,7 +82,6 @@ const retiredCurrentPaths = [
   "docs/architecture/audits",
   "docs/architecture/migrations/nofx-design-absorption.md",
 ]
-
 if (index.schema_version !== "trade.doc-contract-index.v1") {
   issues.push(`unsupported doc contract index schema: ${index.schema_version}`)
 }
