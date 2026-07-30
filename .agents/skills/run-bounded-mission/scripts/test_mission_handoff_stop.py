@@ -61,6 +61,19 @@ class StopHookTests(unittest.TestCase):
         self.assertEqual(evaluate("Implemented.", [START])["decision"], "block")
         self.assertEqual(evaluate(ACTIVE)["decision"], "block")
 
+    def test_active_tail_does_not_consume_older_transcript(self) -> None:
+        def older_messages() -> object:
+            self.fail("active tail should stop transcript iteration")
+            yield "unreachable"
+
+        self.assertEqual(
+            hook.mission_state(
+                {"last_assistant_message": ACTIVE},
+                older_messages(),
+            ),
+            "active",
+        )
+
     def test_matching_receipt_closes_original_mission(self) -> None:
         self.assertEqual(evaluate(handoff(), [START]), {"continue": True})
         self.assertEqual(evaluate(handoff(), [ACTIVE, START]), {"continue": True})

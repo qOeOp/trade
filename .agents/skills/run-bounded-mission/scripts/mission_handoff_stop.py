@@ -196,25 +196,25 @@ def mission_state(
         )
     )
 
-    messages: list[str] = []
+    lifecycle_history: list[tuple[list[Event], int]] = []
     if last_message:
-        messages.append(last_message)
+        lifecycle = lifecycle_for_message(last_message)
+        if lifecycle[0]:
+            lifecycle_history.append(lifecycle)
+            if lifecycle[0][-1][0] in {"start", "active"}:
+                return "active"
+
     skipped_duplicate = False
     for message in history:
         if last_message and message == last_message and not skipped_duplicate:
             skipped_duplicate = True
             continue
-        messages.append(message)
-
-    lifecycle_history: list[tuple[list[Event], int]] = []
-    for message in messages:
         lifecycle = lifecycle_for_message(message)
         if not lifecycle[0]:
             continue
         newest = len(lifecycle_history) == 0
         lifecycle_history.append(lifecycle)
-        newest_event = lifecycle[0][-1]
-        if newest and newest_event[0] in {"start", "active"}:
+        if newest and lifecycle[0][-1][0] in {"start", "active"}:
             return "active"
 
     active_boundary: Boundary | None = None

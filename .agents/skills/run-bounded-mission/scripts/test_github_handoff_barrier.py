@@ -270,6 +270,12 @@ class BarrierTests(unittest.TestCase):
         )
         self.assertEqual(missing["status"], "pending")
         self.assertIn("codeql-python", missing["reason"])
+        empty = barrier.inspect_snapshot(
+            snapshot(required_contexts=[], required_checks=[]),
+            EXPECTATION,
+        )
+        self.assertEqual(empty["status"], "blocked")
+        self.assertIn("empty", empty["reason"])
         self.assertEqual(
             barrier.inspect_snapshot(
                 snapshot(

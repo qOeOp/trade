@@ -262,6 +262,12 @@ def inspect_snapshot(snapshot: Snapshot, expectation: Expectation) -> Decision:
         }
 
     required_contexts = set(snapshot["required_contexts"])
+    if not required_contexts:
+        return {
+            "status": "blocked",
+            "reason": "required status-check context set is empty",
+            "fingerprint": fingerprint,
+        }
     checks = [
         check
         for check in snapshot["required_checks"]
