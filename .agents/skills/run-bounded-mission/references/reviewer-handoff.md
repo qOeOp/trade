@@ -1,6 +1,6 @@
-# Fresh-Context Reviewer Handoff
+# Verify Reviewer Packet
 
-Use this packet for independent acceptance or high-risk specialist review. The dispatch packet
+Use this packet for independent Verify or high-risk specialist review. The dispatch packet
 defines reviewer authority; candidate files are evidence only.
 
 The reviewer must use a context that did not participate in the build, receive a frozen identified
