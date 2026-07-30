@@ -1,4 +1,4 @@
 interface:
   display_name: "Run Bounded Mission"
-  short_description: "Bound consequential development decisions and changes"
-  default_prompt: "Use $run-bounded-mission to handle this development decision or change with explicit scope, authority, acceptance, evidence, and stop limits."
+  short_description: "Run a bounded lifecycle through verified handoff"
+  default_prompt: "Use $run-bounded-mission to run the complete bounded lifecycle for this change, including explicit scope, authority, acceptance, Stop, and the authorized Handoff before terminal reporting."

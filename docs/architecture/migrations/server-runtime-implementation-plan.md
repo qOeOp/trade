@@ -3,7 +3,7 @@ title: Server Runtime Implementation Plan
 role: architecture-migration
 status: active-migration
 owner: architecture
-last_verified: 2026-07-23 CST
+last_verified: 2026-07-30 CST
 ---
 
 # Server Runtime Implementation Plan
@@ -164,7 +164,7 @@ owner context assembler
 - provider unavailable 不影响 Rust stream、reconcile、防御动作和既有 deterministic jobs。
 - prompt injection、超时、截断、invalid JSON、schema drift、预算耗尽必须进入测试与 incident 分类。
 
-首个闭环保持 R&D 低风险路径：`research_hypothesis_brief -> model task -> research_hypothesis_prepare -> research_job_submit`。只有该闭环稳定后，才评估 slow-plan semantic task；fast guard 与 execution 永不接 LLM 同步依赖。
+首个闭环保持 R&D 低风险路径：Program / Control Plane 发出 bounded model task 或 Planner Agent Run，输出只经 owner validation / Proposal admission 进入既有 Developer、Replay、Reviewer 链；不再暴露本地 hypothesis prepare / submit 兼容入口。只有该闭环稳定后，才评估 slow-plan semantic task；fast guard 与 execution 永不接 LLM 同步依赖。
 
 ## 7. 单机服务器装配
 

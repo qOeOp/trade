@@ -3,7 +3,7 @@ title: Pluggable Agent Host Runtime Integration
 role: architecture-migration
 status: active-migration
 owner: architecture
-last_verified: 2026-07-23 CST
+last_verified: 2026-07-30 CST
 ---
 
 # 可替换 Agent Host Runtime 设计与迁移计划
@@ -15,7 +15,7 @@ last_verified: 2026-07-23 CST
 - `program-supervisor` 常驻运行，J01–J07 与领域 owner 决定 cadence、状态和写权限。
 - `ops.model-gateway` 只执行无 tool、`execution_authority=none` 的 `research_hypothesis` 结构化任务。
 - `agent.mcp` 已同时提供同机 stdio 与 bearer-authenticated private HTTP profile；`ops.operator-http` 仍是 loopback-only 小型 allowlist。
-- Codex 是当前开发与人工操作环境；OpenClaw `2026.7.1` alternate Chat runtime 已完成本机 proposal-only 采用，LangGraph 未引入。
+- Codex 是当前开发与 Host 评测环境，不是 R&D scheduler；OpenClaw `2026.7.1` alternate Chat runtime 已完成本机 proposal-only 采用，LangGraph 未引入。
 - 仓库已有 no-live Compose / OpenClaw / Agent Host / MCP fixture，但本机没有 Docker，尚无真实 Linux 容器采用证据。
 - canonical Planner → Developer → owner freeze / Trial Plan → compatibility evaluation → Reviewer → Registry 已形成服务器驻留骨架。正式 Replay 经 durable single-slot queue 发布 `mechanical_replay/replay_owner` Result；Reviewer resident 只消费该 classified Result并由既有 Control Plane owner 接纳 Decision；Strategy Registry resident 再从 `accept_for_draft` owner facts、Developer source provenance 与 Replay build/runtime hashes 确定性编译授权和 policy source，经 fenced queue 把 create-if-absent Draft 与 self-hashed candidate manifest 写入独立 `trade-release-candidates`，不会修改运行镜像的 `strategies/`。统一 resident adopter 已可串行完成 Strategy candidate 的 frozen-revision worktree、完整 lint/quality/Replay audit、确定性 commit/archive 与标准 no-live source package，仍不推进 checkout、不 hot-load、不部署或交易。source bridge 跨 Ops/Research/release artifacts 重验认证链并写入 exact Forward source admission；后继 resident 从 owner facts固定 Observation Program并续租严格 post-freeze OHLCV demand，另一 resident 再把 owner-selected plan、零 gap audit、MarketDataFact 与 immutable slice 固定成 gapless candle segment chain。任意 Draft 不能直接启动 Forward，数据请求或 segment 也不能冒充 Dataset Manifest/Session/Replay authority。真实 status/spec/risk Manifest compiler、Forward Session/Result、Governance、Linux 容器采用与新 revision 部署尚未闭环。
 
@@ -33,8 +33,8 @@ flowchart TB
   AH --> MCP["Private MCP adapter<br/>approved owner capabilities"]
   CK --> MCP
   MCP --> OW
-  CODEXMCP["Local stdio MCP"] --> OW
-  CODEX["Codex interactive"] --> CODEXMCP
+  DEVREAD["Local read-only MCP<br/>development diagnostics"] --> OW
+  CODEX["Codex development"] --> DEVREAD
   LG["Optional LangGraph library<br/>one Agent Run only"] -. "checkpoint / interrupt" .-> AR
   MT --> MG["Model Gateway"]
   MG --> SF["Provider profile<br/>SiliconFlow today"]
@@ -132,7 +132,7 @@ Program 调用 Host 与 Agent kernel 调用 MCP 是两条不同链路：
 ```text
 Program -- Gateway RPC: agent / wait / cancel --> OpenClaw
 OpenClaw/Codex kernel -- private Streamable HTTP MCP --> capability adapter --> owner
-Codex interactive ---- local stdio MCP ------------------------------> owner
+Codex development ---- local read-only MCP --------------------------> owner
 ```
 
 首个生产 profile：
@@ -183,7 +183,7 @@ J04 / Control Plane
 
 ### 6.1 策略研发不退化合同
 
-远程迁移必须保留当前 Codex 工作形态，而不只是保留“生成一段 JSON”：
+远程 Agent Host 必须保留当前 Codex 多轮研发能力，而不只是保留“生成一段 JSON”；这是一项 Host 能力基线，不是兼容旧交互式 R&D 调度入口：
 
 ```text
 读取 Universe / strategy MD / 代码 / 历史失败
@@ -422,7 +422,7 @@ P6 的真实容器运行若因本机无 Docker 且没有远程 runner 阻断，�
 - Developer 能在隔离 worktree 中完成“读代码→修改→测试→请求 Replay→读失败→再次修改”，不是一次性代码生成。
 - 本机 Codex、direct App Server 与 OpenClaw-managed Codex 使用同一 capability 语义，但 transport、session 和权限可独立演进。
 
-回滚只禁用对应 adapter/profile，保留 Program、owner、MCP 合同和既有 Codex 人工路径；不迁移或回写领域状态。任何候选失败只形成评测证据，不要求继续投入。
+回滚只禁用对应 adapter/profile 或恢复前一版服务器 release，保留 Program、owner 和 MCP 合同；不恢复旧 Codex 人工研发编排，也不迁移或回写领域状态。任何候选失败只形成评测证据，不要求继续投入。
 
 ## 11. 暂不决定
 

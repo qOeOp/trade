@@ -41,23 +41,13 @@
 - 一律通过 `scripts/automation-memory-path.sh <automation-id>` 解析 memory 路径；当 `CODEX_HOME` 为空时，它会自动回退到仓库内 `.codex`
 - 需要 Python 命令时，不要假设 `python` 存在；优先用 `python3`，或先通过 `scripts/resolve-python.sh` 解析可用命令
 
-## R&D Strategy Development Runbook
+## R&D Runtime Boundary
 
-当用户要求“运行一次 RD 开发策略 / 跑一次策略研发 / J04 R&D”时，不要从 `package.json`、`toolset.json` 重新摸入口；直接按本节执行。
-
-- 标准入口是 `research.rd-supervisor`：
-  `bun modules/research-strategy-development/research-control-plane/program-supervisor/src/scripts/main.ts --supervisor-job --db ./data/rd_state.db --program-id rd-program --catalog-db ./data/data_catalog.db --json '<payload>'`
-- 若 `rd_program_state` 不存在，使用 `--supervisor-job` 让 supervisor 自行初始化；不要先手写 DB。
-- 若 supervisor 返回空队列或无 ready hypothesis，这不是一次有效策略开发。按 `docs/research/strategy/rd-strategy-universe-design.md` 与 `modules/research-strategy-development/agent-roles/planner/strategy-hypothesis-designer/CONTRACT.md` 的边界生成结构化 hypothesis contract，执行：
-  - `research.strategy-hypothesis-designer --action validate`
-  - `research.strategy-hypothesis-designer --action queue_item`
-  - `research.rd-program-state --json '{"action":"update", ...}'` 写入 `next_hypothesis_queue` 并恢复 `status=active`
-- 若 hypothesis 需要 discovery / validation / locked_holdout，先用 `research.data-split` 生成 repo-relative manifest；locked holdout 不得打开，除非用户明确要求冻结后验证。
-- K 线不是稀缺资源。若现有 manifest 不够默认 `min_segment_rows` 或样本量明显不足，先用 `modules/market-data-products/ohlcv-fetch` 补足 OHLCV，或让 `research.data-split` 直接从 `data/ohlcv.db.canonical_candle` 切分；不要为了跑通流程降低 `min_segment_rows`。
-- `ohlcv-fetch` 常用形态：`bun modules/market-data-products/ohlcv-fetch/src/scripts/main.ts --symbol BTCUSDT --timeframes 4h --limit 1500 --ohlcv-db data/ohlcv.db --market-data-db data/market_data.db --export-files --output-dir tmp/panels/<run-id>/source/btcusdt`。
-- 带 `validation_manifest_path` 的 ready hypothesis 应优先作为 campaign 跑；如果显式用 `mode=loop`，必须说明它只跑 discovery，不会消费 validation。
-- 运行结束后必须回看 artifact、RD state 和 gate，判断策略质量；`no_promote` 也算完成一次开发，但不能表述成“找到策略”。
-- 过程问题、优化点、策略质量复盘记录到 `docs/research/reliability/rd-audit.md`；临时 hypothesis、split、artifact、DB 默认留在 ignored 的 `tmp/` / `data/`，不要写进长期 memory 或正式 strategy policy。
+- 策略研发由服务器 Program / Research Control Plane 持有调度、状态和恢复；Codex 不再作为 J04 scheduler，也不保留旧的交互式研发兼容入口。
+- 用户要求运行或继续策略研发时，先读取服务器 program / ops 状态；需要显式唤醒时只使用 `ops.operator-http` 的 authenticated、approved autonomy wakeup，不直接调用 supervisor CLI、手写 queue 或恢复旧 Agent 路径。
+- 语义缺口由 Control Plane 分别派发 Planner、Developer、Reviewer Agent Run；Host 可以是 OpenClaw、Codex App Server 或后续接纳的 adapter，但不拥有 Trial、Replay、Result、Registry、Forward 或 Governance authority。
+- 本地 Codex 只保留开发与只读诊断能力；不得通过本地 MCP 重建已退役的交互式研发编排。
+- locked holdout、live write、promotion 与策略 lifecycle 继续服从既有 owner gate，不因 operator 或 Agent 请求扩权。
 
 ## Development Convergence Guardrails
 
