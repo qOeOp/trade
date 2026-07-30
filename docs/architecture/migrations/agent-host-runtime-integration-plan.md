@@ -3,7 +3,7 @@ title: Pluggable Agent Host Runtime Integration
 role: architecture-migration
 status: active-migration
 owner: architecture
-last_verified: 2026-07-23 CST
+last_verified: 2026-07-30 CST
 ---
 
 # 可替换 Agent Host Runtime 设计与迁移计划
@@ -257,7 +257,7 @@ Host 运行状态属于 ops plane。是否新增 durable store、复用 `ops_run
 
 ## 9. 主实施计划
 
-按 `P0 → P8` 顺序连续施工；同一阶段内只有明确标注可并行的测试 / 文档步骤可以并行。每阶段结束必须执行 changed-quality、diff review、secret / workspace hygiene 与临时产物清理；跨语言、共享 contract、Replay 或基础设施改动还必须跑总质量门。失败先修复或记录为有证据的 adoption blocker，不跳过 gate。
+按 `P0 → P8` 顺序连续施工；同一阶段内只有明确标注可并行的测试 / 文档步骤可以并行。每阶段结束按 [Check Contract](../../engineering/check-contract.md) 运行受影响 owner / consumer 检查，并完成 diff review、必要的 secret / workspace hygiene 与临时产物清理；交付端点的全仓 closure 也由该合同决定。失败先修复或记录为有证据的 adoption blocker，不跳过 gate。
 
 | 阶段 | 状态 | 目标 | 阶段 gate |
 | --- | --- | --- | --- |
@@ -280,7 +280,7 @@ Host 运行状态属于 ops plane。是否新增 durable store、复用 `ops_run
 | P0.3 | 验证 `.secrets/siliconflow.env` 只作为本地进程注入且被 Git / secret scan 排除 | 权限、ignore、变量名检查通过 |
 | P0.4 | 生成并保存到 `tmp/` 的 Codex App Server stable / experimental protocol schema | schema hash 与 CLI version 记录 |
 | P0.5 | 冻结四个评测 profile 和仓库内脱敏任务 corpus 清单 | fixture manifest 可重复 |
-| P0.6 | 为每阶段定义 changed-quality / full-quality、artifact retention 与 cleanup 命令 | 本文与工程合同一致 |
+| P0.6 | 为每阶段记录 owners / consumers / checks / reasons、artifact retention 与 cleanup 命令 | 本文与工程合同一致 |
 | P0.7 | 跑当前基线 contract / package tests，区分既有失败与本轮回归 | baseline report |
 
 ### P1 Agent Run 合同
@@ -343,7 +343,7 @@ P5/P6 本机采用新增确定性证据：OpenClaw `2026.7.1` 通过最小 MCP r
 | P4.4 | 实现 task-profile tool projection 与 progressive discovery | capability leakage tests |
 | P4.5 | 新增 Developer workspace manager：冻结 revision、创建 / 清理隔离 worktree | lifecycle tests |
 | P4.6 | 实现路径、symlink、secret、owner DB、Docker socket和默认网络禁用检查 | escape / deny tests |
-| P4.7 | 实现 allowlisted compile / unit / changed-quality runner 与资源 / 输出上限 | timeout / overflow tests |
+| P4.7 | 实现 allowlisted owner package / repository suite check runner 与资源 / 输出上限 | timeout / overflow tests |
 | P4.8 | 生成 patch、source hash、test refs 与 artifact manifest；不自动 apply / merge | reproducibility tests |
 | P4.9 | 验证 Planner / Reviewer 只读，Developer 权限不外溢到 Host | role boundary tests |
 | P4.10 | 异常退出、残留 worktree、磁盘软线与 GC 清理 | recovery / cleanup report |

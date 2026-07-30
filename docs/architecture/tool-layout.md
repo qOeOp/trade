@@ -3,7 +3,7 @@ title: Tool Layout
 role: architecture-contract
 status: active
 owner: architecture
-last_verified: 2026-07-27 CST
+last_verified: 2026-07-30 CST
 ---
 
 # Tool Layout
@@ -179,6 +179,6 @@ Skill 可以说明如何调用既有 MCP / owner tool，但不能绕过 prefligh
 
 ## 检查入口
 
-- 仓库级：`scripts/quality-check.sh`
+- CI / R&D certification 与可选的非 PR 本地全仓终结：`scripts/quality-check.sh`
 - 目录契约：`scripts/check-ts-tool-boundaries.ts` 当前检查 `modules` 的跨工具 import 边界。
 - 具体“改哪里跑什么”：见 [check-contract.md](../engineering/check-contract.md)。

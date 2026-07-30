@@ -3,7 +3,7 @@ title: Server Runtime Implementation Plan
 role: architecture-migration
 status: active-migration
 owner: architecture
-last_verified: 2026-07-23 CST
+last_verified: 2026-07-30 CST
 ---
 
 # Server Runtime Implementation Plan
@@ -248,7 +248,7 @@ validate config/secrets/volumes
 
 ### 9.1 完整服务器交付账本
 
-目标交付物不是单个 adapter，而是一套可在远程 Linux 服务器长期运行、经模拟和分阶段采用的无人值守交易系统。按 `D0 → D12` 连续施工；Agent Host 子步骤以 [Agent Host Runtime plan](./agent-host-runtime-integration-plan.md) 的 `P0–P8` 为准。每个阶段都必须包含 scoped diff review、changed/full quality、secret scan、workspace / artifact cleanup 和目标态 / 当前态文档核对。
+目标交付物不是单个 adapter，而是一套可在远程 Linux 服务器长期运行、经模拟和分阶段采用的无人值守交易系统。按 `D0 → D12` 连续施工；Agent Host 子步骤以 [Agent Host Runtime plan](./agent-host-runtime-integration-plan.md) 的 `P0–P8` 为准。每个阶段都必须包含 scoped diff review、按 [Check Contract](../../engineering/check-contract.md) 运行受影响 owner / consumer 检查、必要的 secret scan、workspace / artifact cleanup 和目标态 / 当前态文档核对；全仓 closure 只在该合同规定的交付端点执行。
 
 | 阶段 | 状态 | 交付目标 | 阶段 gate |
 | --- | --- | --- | --- |
