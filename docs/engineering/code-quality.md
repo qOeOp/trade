@@ -13,7 +13,6 @@ last_verified: 2026-07-30 CST
 当前项目不是“缺少质量保障”，而是**保障密度高、体系化不足**：
 
 - 基础正确性、架构约束、仓库卫生和静态安全检查较强；
-- mission、AGENTS、工程合同、脚本、CI 与 ruleset 的职责多次重述，authority 边界不够清楚；
 - PR 闸门速度尚可，但所有改动普遍支付全语言、Replay 与 CodeQL 成本，缺少风险分流；
 - package 有测试不等于用户旅程被验证；production consumer 仍主要由 Agent 文字流程要求，未形成稳定的可执行证据；
 - Replay 已有 release certification，项目整体仍缺 release artifact、provenance、运行前 smoke 与运行后反馈的统一闭环；
@@ -31,7 +30,7 @@ last_verified: 2026-07-30 CST
 | release / runtime 闭环 | 局部具备 |
 | 可观测与持续改进 | 低 |
 
-本合同是项目质量保障体系的唯一总入口。它定义层级、authority、风险路由和升级条件；不复制检查命令、mission 生命周期或领域验收细节。
+本合同是项目质量保障体系的唯一总入口。它定义层级、authority、风险路由和升级条件；不复制检查命令或领域验收细节。
 
 ## 1. 当前证据与技术债
 
@@ -39,13 +38,12 @@ last_verified: 2026-07-30 CST
 
 | 观察 | 仓库证据 | 影响 |
 | --- | --- | --- |
-| 规则重复 | [Check Contract](./check-contract.md)、[Development Convergence Contract](./development-convergence.md)、`AGENTS.md` 与 `run-bounded-mission` 都描述本地验收、PR closure、consumer evidence 或远端等待 | 同一政策修改需要多点同步，文字一致不等于 authority 唯一 |
-| 质量路径高频修订 | 自 2026-07-22 起，当前 first-parent 历史中质量 workflow、脚本和三份工程合同被 74 个提交触及；mission skill 被 13 个提交触及 | 反复修补集中在流程边界，不是单个 checker 缺陷 |
+| 质量路径高频修订 | 自 2026-07-22 起，当前 first-parent 历史中质量 workflow、脚本和三份工程合同被 74 个提交触及 | 反复修补集中在流程边界，不是单个 checker 缺陷 |
 | 中央编排器过载 | `scripts/quality-check.sh policy` 同时运行 whitespace、shell、helper、secret、lint、judge regression、docs、convergence、architecture、storage、logical store 与 test boundary | 一个 scope 的失败域、维护域和输出过宽；`policy` 已不再是单一概念 |
 | 影响面选择不足 | `quality-check-changed.ts` 只对单 owner 和 docs 提供便利；共享 contract、scripts、CI、跨语言改动直接拒绝，跨 owner consumer 仅硬编码 Replay 路径 | Agent 仍需从长表人工选检查；选择正确性不可度量 |
-| PR 反馈尚快但不分流 | 最近 45 次 PR `repository-quality` 平均约 239 秒；最新 main run 约 4 分钟。仅修改 mission skill 的 PR 仍执行 TypeScript 双分片、Replay、native 与四语言 CodeQL | 未超过 10 分钟上限，但无关算力、噪声和重跑成本持续增长 |
+| PR 反馈尚快但不分流 | 最近 45 次 PR `repository-quality` 平均约 239 秒；最新 main run 约 4 分钟。仅修改工作流 skill 的 PR 仍执行 TypeScript 双分片、Replay、native 与四语言 CodeQL | 未超过 10 分钟上限，但无关算力、噪声和重跑成本持续增长 |
 | 测试存在性强、层次证据弱 | TypeScript owner 必须有 colocated test，根 judge 直接编译和执行；但没有统一记录 unit / contract / integration / consumer journey / release test 的覆盖关系 | “有测试文件”可以阻止空套件，不能证明高价值行为闭合 |
-| merge enforcement 部分可靠 | GitHub ruleset 要求最新 `main`、`quality`、四语言 CodeQL、review thread resolution，且无 bypass；Actions 使用只读权限和完整 SHA pin | 普通候选有强机械阻断，但 fresh evaluator / Codex review 仍是 Agent 流程要求，不是 provider required context |
+| merge enforcement 部分可靠 | GitHub ruleset 要求最新 `main`、`quality`、四语言 CodeQL、review thread resolution，且无 bypass；Actions 使用只读权限和完整 SHA pin | 普通候选已有强机械阻断 |
 | 裁判可被候选控制 | workflow、质量脚本与实现位于同仓；required checks 都由 GitHub Actions integration 签发 | 修改裁判的候选可以影响自己的验收，普通代码绿灯不能证明治理候选可信 |
 | 供应链保障不完整 | CodeQL、secret scanning、push protection、Dependabot alerts/security updates、lockfile 与 action SHA pin 已启用；Actions 仍允许任意 action，PR 无 dependency-review required gate | 已知依赖风险可被发现，但新增依赖的准入、许可与 action allowlist 未闭合 |
 | 重证据只在 Replay 成熟 | nightly Replay release certification 平均约 352 秒；其他 runtime 没有统一 release candidate、构建 provenance、部署 smoke 或 post-deploy verification | CI correctness 容易被误当成交付完成 |
@@ -57,11 +55,10 @@ last_verified: 2026-07-30 CST
 
 | Surface | 唯一职责 | 不得承担 |
 | --- | --- | --- |
-| 本合同 | 定义质量层级、风险类别、required 条件、SLO 与升级原则 | 罗列每个 owner 命令、重述 mission 状态机 |
+| 本合同 | 定义质量层级、风险类别、required 条件、SLO 与升级原则 | 罗列每个 owner 命令 |
 | [Check Contract](./check-contract.md) | “改了什么 → 跑什么”的可执行目录；登记 check id、owner、consumer 与命令 | 决定 merge/release authority、复制质量理念 |
 | [Development Convergence Contract](./development-convergence.md) | 约束责任面增长、production consumer 与交付证据 | 编排语言工具、定义 checker 实现 |
-| `.agents/skills/run-bounded-mission/SKILL.md` | 管理单次任务的 Scope、Authority、Acceptance、Stop、candidate identity 与 route | 成为仓库质量规则、检查清单或第二 CI |
-| `AGENTS.md` | 路由到上述 authority，并保留少量仓库硬约束 | 重写完整交付协议、复制 check catalog |
+| `AGENTS.md` | 保留少量仓库硬约束 | 重写工程合同、复制 check catalog |
 | owner `CONTRACT.md` / package | 定义领域行为、consumer、owner test 与 release-specific acceptance | 自行签发项目级 merge 结论 |
 | `scripts/check-*.{ts,sh}` | 实现一个边界清楚、可单独复现的 checker | 决定风险等级、自动扩张必跑范围 |
 | `scripts/quality-check.sh` | 本地兼容入口与 CI leaf 编排适配器 | 继续吸收新的领域政策或成为所有改动的默认本地总闸 |
@@ -77,7 +74,7 @@ last_verified: 2026-07-30 CST
 
 | 层 | 目的 | 触发 | 典型证据 | Authority | 目标时延 |
 | --- | --- | --- | --- | --- | --- |
-| Q0 Admission | 在写代码前冻结结果、风险、consumer 与 acceptance | 非平凡产品/工程判断 | mission contract、owner/consumer 路径、Stop | 主 mission 上下文 | 开工前完成 |
+| Q0 Admission | 在写代码前明确结果、风险与 consumer | 非平凡产品/工程判断 | admission evidence、owner/consumer 路径 | 主任务上下文 | 开工前完成 |
 | Q1 Fast local | 尽早发现本次改动的直接错误 | 每次候选修订 | diff check、owner lint/type/unit、最小 consumer exercise | 开发者/Agent，本地非签发 | P95 ≤ 2 分钟 |
 | Q2 PR candidate | 证明候选在仓库集成面可合并 | 每个 PR head | policy、受影响 owner/consumer、集成/合同测试、CodeQL、完整 diff | GitHub required checks | P95 ≤ 10 分钟 |
 | Q3 Governance | 防止候选修改并自证裁判、workflow 或 merge policy | 触及质量 trust surface | 外置、不可由候选修改的 verifier 结果 | 独立 required workflow / GitHub App / 等价 owner | Q2 之外独立签发 |
@@ -88,14 +85,17 @@ last_verified: 2026-07-30 CST
 
 1. Q0 是准入，不签发代码质量；Q1 是反馈，不签发 merge。
 2. Q2 只验证可在隔离候选环境中确定复现的事实，不执行真实 Binance 写动作。
-3. Q3 与普通实现候选必须分离；缺少候选不可控 authority 时，治理候选保持 blocked。
+3. Q3 与普通实现候选必须分离；缺少候选不可控 authority 时不得接纳治理候选。
 4. Q4/Q5 只在真实 artifact 或运行 consumer 存在时建立，不为空架构提前造平台。
 5. 低层绿灯不能替代高层：unit test 不能替代 consumer journey，PR 绿灯不能替代 release/runtime evidence。
 6. 每个 hard gate 必须有 owner、失败处置和删除条件；没有明确消费者的检查不进入 required 集合。
 
 ## 4. 风险路由
 
-当前采用单 owner、黑灯工厂式 PR：ruleset 强制最新 `main`、`quality`、四语言 CodeQL 与 review thread resolution，普通开发候选默认不要求 approving review、required reviewer、CODEOWNER / last-push approval、repository variable 管理员确认或其他人在环 authority gate。Codex review 只在 PR 创建时作为一次 discovery 与首轮 CI 并行；修复其完整 findings 后只重跑 final-head deterministic checks，不再触发 agent review。`.agents/skills/run-bounded-mission/scripts/github_handoff_barrier.py` 没有评论或 review-trigger 能力，只消费 opening review/thread 或无 finding 的 PR 👍，从 base branch rules 读取完整 required context 集合，等待活动稳定、全部 context 通过、conversation 清零且 head/base 未变化，最终执行带 exact-head guard 的 direct squash merge并观察 merge metadata，不遗留 auto-merge 请求。脚本约束 Agent Handoff consumer，不冒充 GitHub ruleset；若要约束所有 actor，必须另立 governance candidate 把独立信号接入 provider required gate。
+当前采用单 owner、黑灯工厂式 PR：ruleset 强制最新 `main`、`quality`、四语言 CodeQL 与
+review thread resolution，且无 bypass。普通开发候选默认不要求 approving review、
+required reviewer、CODEOWNER / last-push approval、repository variable 管理员确认或其他
+人在环 authority gate。
 
 先按**改变的语义**分类，再选择闸门；文件路径只是输入，不是结论。
 
@@ -105,7 +105,7 @@ last_verified: 2026-07-30 CST
 | R1 单 owner | owner 内部实现与局部合同 | Q0（非机械时）+ Q1 owner + Q2 owner/直接 consumer/security |
 | R2 跨 owner/runtime | shared contract、schema、store、rail、跨语言或 runtime behavior | Q0 + Q1 所有受影响边界 + Q2 integration/architecture + 必要 Q4 |
 | R3 高风险交易/数据 | execution、risk、资金、凭证、不可逆数据迁移 | R2 + 独立安全验收 + Q4 + 授权后的 Q5 |
-| R4 治理/trust surface | `.github/workflows`、quality judge、ruleset、签发 policy | 独立 governance mission；Q3 必需，不能与普通实现同 candidate |
+| R4 治理/trust surface | `.github/workflows`、quality judge、ruleset、签发 policy | 独立治理候选；Q3 必需，不能与普通实现同候选 |
 
 影响面规划器未来可以输出 `risk_class / owners / consumers / checks / reasons`，但必须 fail closed：
 
@@ -124,7 +124,7 @@ last_verified: 2026-07-30 CST
 | Q2 wall time P95 | ≤ 10 分钟 | 维持快速 PR 闭环 |
 | 首个可行动失败时间 P95 | ≤ 3 分钟 | 优先运行高信号快闸 |
 | flaky rerun rate | < 1% | 超标先修 flake，不增加 retry 掩盖 |
-| broken-main 恢复时间 | 可在一个有界修复 mission 内闭合 | 红灯优先于能力扩张 |
+| broken-main 恢复时间 | 可在一个有界修复周期内闭合 | 红灯优先于能力扩张 |
 | failure classification coverage | 100%：candidate / flaky / infra / policy / external | 防止因不明失败盲目加规则 |
 | escaped defect | 记录触发层与缺失 acceptance | 只把可重复根因转成新 gate |
 | gate utility | 每个 hard gate 有近 90 天命中或高后果 justification | 删除长期无消费者、无命中的噪声 |
@@ -147,10 +147,8 @@ last_verified: 2026-07-30 CST
 
 - `check-contract.md` 只保留路由与命令目录；
 - `development-convergence.md` 只保留表面积、consumer 与交付证据；
-- `AGENTS.md` 缩成路由和真正仓库 invariant；
-- mission skill 保持宿主无关 lifecycle，不复制质量表。
-
-退出：每条规范只有一个 authority；其他位置只引用，不同义改写。
+- `AGENTS.md` 只保留真正仓库 invariant；
+退出：每条规范只在其 owner surface 出现，不建立同义副本或文档依赖网。
 
 ### M2：快慢闸和影响面
 

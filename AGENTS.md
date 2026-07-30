@@ -62,8 +62,6 @@
 ## Development Convergence Guardrails
 
 - 当前处于恢复期，先修复红灯并打通已有链路，不继续扩张责任面
-- 除简单问答、验收显然的微小机械修改和由更具体 skill 完整拥有的流程外，涉及产品或工程判断的非平凡任务使用 `.agents/skills/run-bounded-mission/SKILL.md`：只读发现前先限定暂定 Scope、Authority 和总 Stop；完成证据调查与必要对齐后，在 Build 或重大决策前冻结完整 mission contract；若具体 skill 仍需要项目级 admission、跨域或终止控制，则组合使用
-- 同一 mission 禁止无限循环；开工前冻结覆盖整个 mission 的 Stop。重复修订或验收无进展先触发 revision-pressure 诊断，再按证据选择 route；`revise / replan` 不得重置 Stop，预算耗尽时以 `blocked` 终止并报告原因
 - 开工前先确定复用的 owner 与 production consumer；找不到 consumer 的实现优先接入、合并或删除
 - `module owner / registered tool / domain / store / job / rail` 不得超过 `docs/engineering/convergence-baseline.json`
 - Agent 不得自行提高 convergence baseline；只有用户明确批准后才能修改上限
@@ -74,11 +72,11 @@
 
 ## Quality Guardrails
 
-- 当前单 owner、黑灯工厂式 PR 对普通开发候选默认不引入人工 reviewer、required approval、CODEOWNER / last-push approval、manual exact-SHA、repository variable 管理员确认或其他人在环 authority gate；Codex、Dependabot、CI、CodeQL、fresh evaluator 与自动 review / fix / retry / merge 可以参与
+- 当前单 owner、黑灯工厂式 PR 对普通开发候选默认不引入人工 reviewer、required approval、CODEOWNER / last-push approval、manual exact-SHA、repository variable 管理员确认或其他人在环 authority gate；Codex、Dependabot、CI、CodeQL 与自动 review / fix / retry / merge 可以参与
 - 经 PR 交付时，本地只跑受影响 owner 的定向 test / typecheck / doc-or-architecture check、真实 production consumer journey、完整 diff inspection 与必要 workspace safety；不默认运行 `quality-check-changed.ts`，也不把本地 `scripts/quality-check.sh` 当作 commit / push 前总闸
 - GitHub required `quality` aggregate 与 JavaScript/TypeScript、Python、Rust、Go 四个 CodeQL context 承担未触及其信任面的普通候选的全仓 merge closure；某个 CI leaf 失败后只本地复现并修复对应 owner / leaf，不自动重跑本地全仓门
-- 不经 PR 的交付保留与风险相称的本地 terminal gate；CI 不能替代 live / runtime / production consumer acceptance
+- 不经 PR 的交付保留与风险相称的本地检查；CI 不能替代 live / runtime / production consumer 验收
 - 普通开发候选不得包含合并 workflow、quality judge、裁判 policy 或结果签发面的改动。确需升级该信任面时，先拆成独立 governance candidate，由候选不可控的 owner surface 验收；验收完成后再生成新的开发候选。缺少该 authority 时必须阻塞，也不默认恢复 manual exact-SHA quality-authority
-- 依赖更新与普通代码 PR 走同一自动收口链路；无法在 mission 预算内收口时保持阻断或有界终止，不转交人工审批
+- 依赖更新与普通代码 PR 走同一自动收口链路；无法收口时保持阻断，不转交人工审批
 - 不把 compiler / typecheck / test / vet warning 当成可忽略噪音；能修则修，不能修必须在交付说明里标明原因
 - 不把本机绝对路径写进 docs / code / helper 输出契约

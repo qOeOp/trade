@@ -36,12 +36,11 @@ Return to lifecycle Plan with the demonstrated structural cause and affected own
 reuse-before-build research and boundary closure before admitting a replacement; this method does not
 authorize Build by itself.
 
-1. After admission, build the replacement in isolation as the smallest coherent answer to the
-   structural cause. Do not add another patch to the incumbent.
-2. Preserve the replacement, then give it, the owner chain, invariants, acceptance signals, and raw
-   revision evidence to a fresh context for at most one materially different alternative or
-   simplification: the challenger. Give each proposal a distinct immutable identity. Do not broaden
-   scope or replenish the mission Stop.
+1. When the structural cause, incumbent, owner chain, and acceptance signals are stable, a fresh
+   read-only planner may propose at most one materially different alternative or simplification
+   during the Plan wave. The main agent admits at most one replacement design.
+2. After admission, build that replacement in isolation as the smallest coherent answer to the
+   structural cause. Do not add another patch to the incumbent or create multiple writable winners.
 3. Do not invent a challenger when no credible alternative remains. An existing repository-native
    implementation or deterministic transformation may be a candidate when it actually covers the
    change; do not install infrastructure merely to run this comparison.

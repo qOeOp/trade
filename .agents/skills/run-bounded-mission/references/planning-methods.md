@@ -31,13 +31,8 @@ Keep a lookup in the main context only when one source or one short verification
 Use one fresh-context, read-only researcher when the candidate set is unknown, resolving the question
 requires more than one independent external evidence class, a candidate repository needs inspection
 beyond one short check, or source volume would materially displace contract and candidate context.
-If the planner framed the question, dispatch source collection without repeating the planner's work.
-
-Dispatch genuinely disjoint, decision-changing questions or already-known candidate evidence paths
-concurrently when they qualify under the skill's critical-path rule. Start them together as soon as
-their shared search envelope is stable; do not finish one merely to discover the next. Keep dependent
-questions serial. The main agent continues non-overlapping work, verifies decisive sources, and
-chooses.
+The skill owns lane selection and concurrency. This reference only defines how a selected evidence
+lane investigates and returns.
 
 Give each researcher only its decision question, decision impact, scope, installed or target version,
 public locators or safe public search terms, source priorities, required return, and branch Stop. Do
@@ -52,6 +47,11 @@ preserved, the strongest credible alternative is covered, and another distinct q
 decision-relevant evidence. Also stop on the branch's hard time, query, or tool boundary; empty or
 repeated results do not justify another wave. Failure to find a candidate does not prove none exists.
 Use host-native web, GitHub, code-search, or isolated research tools; require no particular tool.
+
+Useful independent lanes include repository owner and consumer evidence; official specifications and
+version compatibility; candidate source, tests, releases, and license; maintenance and failure-mode
+evidence; and independent evaluation, cost, or operational constraints. Use only lanes that can
+change the decision, and assign each source tree or canonical locator to one lane.
 
 ## Resolve consequential ambiguity
 
