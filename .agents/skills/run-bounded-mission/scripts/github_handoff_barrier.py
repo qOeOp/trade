@@ -5,12 +5,14 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import subprocess
 import sys
 import time
 from collections.abc import Callable
 from typing import Any, cast
+from urllib.parse import quote
 
 
 MARKER_PREFIX = "trade-final-head-review"
@@ -110,6 +112,7 @@ def terminal_signals(
         for review in snapshot["reviews"]
         if actor_matches(review["login"], provider)
         and review["commit"] == trigger["head"]
+        and isinstance(review["submitted_at"], str)
         and review["submitted_at"] > trigger["created_at"]
         and review["id"] in thread_review_ids
     ]
@@ -258,11 +261,19 @@ def inspect_snapshot(snapshot: Snapshot, expectation: Expectation) -> Decision:
             "fingerprint": fingerprint,
         }
 
-    checks = snapshot["required_checks"]
-    if not checks:
+    required_contexts = set(snapshot["required_contexts"])
+    checks = [
+        check
+        for check in snapshot["required_checks"]
+        if check["name"] in required_contexts
+    ]
+    observed_contexts = {check["name"] for check in checks}
+    missing_contexts = sorted(required_contexts - observed_contexts)
+    if missing_contexts:
         return {
             "status": "pending",
-            "reason": "required checks are not available",
+            "reason": "required checks are not available: "
+            + ", ".join(missing_contexts),
             "fingerprint": fingerprint,
         }
     failed = [check for check in checks if check["bucket"] in {"fail", "cancel"}]
@@ -338,7 +349,7 @@ CORE_QUERY = """
 query($owner:String!,$name:String!,$number:Int!){
   repository(owner:$owner,name:$name){
     pullRequest(number:$number){
-      number headRefOid baseRefOid state isDraft mergedAt
+      number headRefOid baseRefOid baseRefName state isDraft mergedAt
       mergeCommit{oid}
       autoMergeRequest{enabledAt}
     }
@@ -431,6 +442,43 @@ def repository_parts(repository: str) -> tuple[str, str]:
     return parts[0], parts[1]
 
 
+def load_required_contexts(
+    repository: str,
+    branch: str,
+    runner: Runner = run_command,
+) -> list[str]:
+    output = require_success(
+        runner(
+            [
+                "gh",
+                "api",
+                f"repos/{repository}/rules/branches/{quote(branch, safe='')}",
+            ]
+        ),
+        "required status-check rules lookup",
+    )
+    raw_rules: object = json.loads(output)
+    if not isinstance(raw_rules, list):
+        raise BarrierError("required status-check rules response is not an array")
+    contexts: set[str] = set()
+    for raw_rule in raw_rules:
+        if not isinstance(raw_rule, dict) or raw_rule.get("type") != (
+            "required_status_checks"
+        ):
+            continue
+        parameters = raw_rule.get("parameters")
+        if not isinstance(parameters, dict):
+            raise BarrierError("required status-check rule has no parameters")
+        checks = parameters.get("required_status_checks")
+        if not isinstance(checks, list):
+            raise BarrierError("required status-check rule has no check list")
+        for check in checks:
+            if not isinstance(check, dict) or not isinstance(check.get("context"), str):
+                raise BarrierError("required status-check context is malformed")
+            contexts.add(check["context"])
+    return sorted(contexts)
+
+
 def page_nodes(
     fetch: Callable[[str | None], dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -465,6 +513,11 @@ def load_snapshot(
     )
     if not pull_request:
         raise BarrierError("pull request was not found")
+    required_contexts = load_required_contexts(
+        expectation["repository"],
+        pull_request["baseRefName"],
+        runner,
+    )
 
     def comments_page(cursor: str | None) -> dict[str, Any]:
         variables = dict(base_variables)
@@ -619,6 +672,7 @@ def load_snapshot(
             for thread in threads
         ],
         "required_checks": checks,
+        "required_contexts": required_contexts,
     }
 
 
@@ -703,8 +757,14 @@ def parse_arguments() -> argparse.Namespace:
         parser.error("--head must be a 40-character lowercase Git SHA")
     if not re.fullmatch(r"[0-9a-f]{40}", arguments.base):
         parser.error("--base must be a 40-character lowercase Git SHA")
+    timing_values = (
+        arguments.settle_seconds,
+        arguments.timeout_seconds,
+        arguments.poll_seconds,
+    )
     if (
-        arguments.settle_seconds < 0
+        not all(math.isfinite(value) for value in timing_values)
+        or arguments.settle_seconds < 0
         or arguments.timeout_seconds <= 0
         or arguments.poll_seconds <= 0
     ):

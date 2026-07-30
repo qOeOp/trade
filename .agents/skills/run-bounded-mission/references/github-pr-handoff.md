@@ -73,11 +73,12 @@ For a `merge-ready` or `merged` endpoint:
     The script posts one idempotent exact-head `@codex review` trigger, requires that attempt to
     terminate through an associated review thread or the trigger's unique no-finding thumbs-up,
     rejects unmarked or concurrent attempts, holds a stable review/thread activity window, paginates
-    all activity, requires provider required checks and zero unresolved threads, and re-fetches the
-    frozen snapshot. It then calls direct squash merge with an exact-head guard, observes the merge
-    metadata, and never uses `--auto` or `--admin`. A finding, candidate revision, timeout, ambiguous
-    signal, armed integration, changed head/base, or missing final observation returns non-zero and
-    must route through Evaluate or to `blocked`; do not bypass the script with another merge command.
+    all activity, reads the complete required-context set from the base branch rules, requires every
+    context and zero unresolved threads, and re-fetches the frozen snapshot. It then calls direct
+    squash merge with an exact-head guard, observes the merge metadata, and never uses `--auto` or
+    `--admin`. A finding, candidate revision, timeout, ambiguous signal, armed integration, changed
+    head/base, or missing final observation returns non-zero and must route through Evaluate or to
+    `blocked`; do not bypass the script with another merge command.
 
 For a `merged` endpoint:
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 import github_handoff_barrier as barrier
 
@@ -64,6 +65,7 @@ def snapshot(**overrides: object) -> dict[str, object]:
                 "workflow": "repository-quality",
             }
         ],
+        "required_contexts": ["quality"],
     }
     value.update(overrides)
     return value
@@ -83,6 +85,11 @@ class BarrierTests(unittest.TestCase):
                 }
             ],
         )
+        self.assertEqual(
+            barrier.inspect_snapshot(current, EXPECTATION)["status"],
+            "pending",
+        )
+        current["reviews"][0]["submitted_at"] = None
         self.assertEqual(
             barrier.inspect_snapshot(current, EXPECTATION)["status"],
             "pending",
@@ -255,6 +262,14 @@ class BarrierTests(unittest.TestCase):
             ],
             "pending",
         )
+        missing = barrier.inspect_snapshot(
+            snapshot(
+                required_contexts=["quality", "codeql-python"],
+            ),
+            EXPECTATION,
+        )
+        self.assertEqual(missing["status"], "pending")
+        self.assertIn("codeql-python", missing["reason"])
         self.assertEqual(
             barrier.inspect_snapshot(
                 snapshot(
@@ -352,6 +367,61 @@ class BarrierTests(unittest.TestCase):
         }
         with self.assertRaises(barrier.BarrierError):
             barrier.page_nodes(lambda _cursor: stalled)
+
+    def test_required_contexts_are_loaded_from_base_rules(self) -> None:
+        calls: list[list[str]] = []
+
+        def runner(
+            arguments: list[str],
+        ) -> barrier.subprocess.CompletedProcess[str]:
+            calls.append(arguments)
+            return barrier.subprocess.CompletedProcess(
+                arguments,
+                0,
+                stdout=(
+                    '[{"type":"required_status_checks","parameters":'
+                    '{"required_status_checks":['
+                    '{"context":"quality"},{"context":"codeql-python"},'
+                    '{"context":"quality"}]}}]'
+                ),
+                stderr="",
+            )
+
+        self.assertEqual(
+            barrier.load_required_contexts("owner/repo", "release/v1", runner),
+            ["codeql-python", "quality"],
+        )
+        self.assertEqual(
+            calls,
+            [["gh", "api", "repos/owner/repo/rules/branches/release%2Fv1"]],
+        )
+
+    def test_non_finite_timing_is_rejected(self) -> None:
+        common = [
+            "github_handoff_barrier.py",
+            "--repo",
+            "owner/repo",
+            "--pr",
+            "39",
+            "--head",
+            HEAD,
+            "--base",
+            BASE,
+        ]
+        for flag, value in [
+            ("--settle-seconds", "nan"),
+            ("--timeout-seconds", "inf"),
+            ("--poll-seconds", "-inf"),
+        ]:
+            with (
+                self.subTest(flag=flag),
+                patch(
+                    "sys.argv",
+                    [*common, f"{flag}={value}"],
+                ),
+            ):
+                with self.assertRaises(SystemExit):
+                    barrier.parse_arguments()
 
 
 if __name__ == "__main__":
