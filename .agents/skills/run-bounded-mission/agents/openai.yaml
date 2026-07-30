@@ -1,4 +1,4 @@
 interface:
   display_name: "Run Bounded Mission"
-  short_description: "Run a bounded lifecycle through verified handoff"
-  default_prompt: "Use $run-bounded-mission to handle this change."
+  short_description: "Plan together, build once, and terminate cleanly"
+  default_prompt: "Use $run-bounded-mission to plan this with me before building."

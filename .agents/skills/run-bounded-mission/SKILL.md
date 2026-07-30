@@ -1,274 +1,142 @@
 ---
 name: run-bounded-mission
-description: "Use when explicitly invoked. Otherwise use for repository-required non-trivial software work or consequential technical decisions that need one bounded lifecycle across scope, authority, planning, implementation, evaluation, authorized handoff, and terminal reporting. It may wrap a specialist skill, which must return control before Handoff. Do not auto-activate for explanation or reporting only, obvious mechanical edits, passive waiting, generic advice, exact-command execution, or a specialist workflow that already owns the complete terminal endpoint."
+description: "Run every root user message through one bounded Mission-Start, Contract, Plan, Build, Evaluate, Handoff, and Mission-Terminate lifecycle. Use for all repository turns, including answer-only and mechanical requests; stages without work are explicit noop stages."
 ---
 
 # Run Bounded Mission
 
-This file is the sole lifecycle authority. References provide methods; host hooks only enforce the
-terminal receipt. The main agent owns the contract, candidate, evidence, Handoff, and final route.
-
-## Lifecycle
-
-For an explicitly requested complete mission, run every stage:
+Run every root user message exactly once through:
 
 ```text
-Contract -> Plan -> Build -> Evaluate -> Handoff -> Terminal
+Mission-Start -> Contract -> Plan -> Build -> Evaluate -> Handoff -> Mission-Terminate
 ```
 
-For other requests, use only the stages required by the request, but once a non-trivial change mission
-starts it remains active through `Handoff` and `Terminal`. A specialist skill returns here after its
-bounded work and cannot terminate, defer Handoff, or ask whether to continue.
+A stage may be `done`, `noop`, or `blocked`; never omit one. The main agent owns the lifecycle.
+Hooks enforce admission, the standard write gate, and termination; they do not plan or orchestrate.
 
-Stages are serial. Do not enter a later stage until the required work and subagent returns for the
-current stage are complete or explicitly unavailable. Within a stage, use host-native agent tools to
-start stable, independent packets together, continue non-dependent main-context work, then collect
-the required returns. Do not create a coordinator agent, queue, ledger, or stage hook.
+## Receipts
 
-| Stage | Stage-internal execution |
-| --- | --- |
-| Contract | The main agent fixes provisional Scope, Authority, Origin, and total Stop. |
-| Plan | When multiple decision-changing evidence paths exist, start all stable independent lanes together within current host capacity: built-in `explorer` for repository paths and `mission_researcher` for current external sources. After required briefs return, use one `mission_planner` to synthesize the contract and smallest vertical plan. Keep one short evidence chain in the main context. |
-| Build | Keep exactly one writable winner. Read-only support may run only on non-overlapping evidence paths. |
-| Evaluate | Run fresh `mission_evaluator` instances against the same immutable candidate, one admitted lens per instance. |
-| Handoff / Terminal | The main agent owns effects, receipts, and the route; these stages do not fan out. |
-
-Before mutation:
-
-1. announce this skill and any specialist skill being used;
-2. create a working plan with separate `Contract`, `Plan`, `Build`, `Evaluate`, and `Handoff` items;
-3. never combine `Evaluate`, `Handoff`, or `Terminal`;
-4. emit this visible activation receipt:
+Use the `turn_id` supplied by `UserPromptSubmit`. Emit each receipt once after its stage finishes:
 
 ```text
-Mission-Start: {"endpoint":"merged","origin":"git:0000000000000000000000000000000000000000","stop":"<total boundary>"}
+Mission-Start: {"turn_id":"<turn>","status":"done"}
+Mission-Contract: {"turn_id":"<turn>","status":"done"}
+Mission-Plan: {"turn_id":"<turn>","status":"done"}
+Mission-Build: {"turn_id":"<turn>","status":"noop"}
+Mission-Evaluate: {"turn_id":"<turn>","status":"noop"}
+Mission-Handoff: {"turn_id":"<turn>","status":"noop"}
+Mission-Terminate: {"turn_id":"<turn>","status":"done"}
 ```
 
-Emit it as one standalone line outside a code fence. `endpoint` and `origin` freeze the mission
-boundary that Handoff must close; `origin` uses the same immutable identity forms as `candidate`
-below. `Mission-Start:` is the human-visible audit receipt. Do not emit it for an answer-only task
-that does not require the full lifecycle.
+Receipts are standalone lines outside code fences. Use only `done`, `noop`, or `blocked`.
+`Mission-Terminate` is the last non-whitespace line of the final assistant message. A Stop
+continuation resumes the same turn and never emits a second receipt.
 
-After compaction, resume, or context transfer, re-read governing instructions and this file, then bind
-the frozen contract, repository state, candidate identity, remaining Stop, and raw evidence before
-mutation. A summary is a locator, not evidence.
+## Mission-Start
+
+Bind the immutable origin, intended endpoint, workspace, and one total Stop. For writable work,
+reuse the host-created task worktree or create one sibling worktree and target every later repository
+tool at it. Never modify an unrelated dirty checkout. If isolation is required but unavailable,
+block.
+
+For answer-only work, the endpoint is the response and no worktree is needed. For repository
+changes, use the project-authorized PR endpoint.
 
 ## Contract
 
-Before investigation, set provisional discovery Scope, Authority, and total Stop. They may narrow;
-expansion requires explicit authority. Separate decision-changing gaps into:
+State the smallest user-visible outcome, consumer, provisional scope, authority, acceptance, origin,
+and total Stop. Keep factual investigation separate from user-owned choices. Scope may narrow;
+expansion requires user authority.
 
-- repository or current-source facts to investigate;
-- user-owned preferences or external effects requiring the smallest question.
-
-For repeated corrections or concentrated churn, inspect bounded history before planning. Use
-[revision-pressure replan](references/revision-pressure-replan.md) when a finding recurs or another
-additive correction would protect the same design.
-
-State the no-change counterfactual. Prefer an answer, existing behavior, wiring, deletion, rollback,
-or a narrower decision when it closes the consumer outcome.
-
-Before Build or a consequential final decision, freeze:
+Before Build, freeze:
 
 ```text
-Outcome: user-observable result and delivery endpoint
-Consumer: real user, system, or entry point that must exhibit it
-Scope: included work, bounded discovery, and explicit non-goals
-Authority: permitted effects and forbidden external actions
-Acceptance: falsifiable consumer, regression, review, and delivery signals
-Origin: immutable starting revision, tree, content, or diff identity
-Stop: total revision, retry, wait, time, tool, or cost boundary
+Outcome:
+Consumer:
+Scope:
+Authority:
+Acceptance:
+Origin:
+Stop:
 ```
 
-The endpoint is one of `local-only`, `commit`, `change-request`, `merge-ready`, `merged`, deployment,
-or another repository-owned endpoint. Freeze each external effect separately. Never infer commit,
-push, review, merge, deployment, scheduling, secret access, or shared-state authority.
-
-Acceptance is the frozen oracle. A material change after Build starts routes to `replan`; never weaken
-Acceptance to fit a candidate.
+Do not weaken Acceptance or reset Stop after Build begins.
 
 ## Plan
 
-Choose the smallest vertical change through an existing owner and real consumer. Inspect that path,
-its implementation, tests, current behavior, and governing documentation.
+Make Plan a user-facing design conversation:
 
-Resolve reuse before build: existing owner, direct reuse, thin adapter, bounded adaptation, then
-evidence-backed new implementation. Before inventing workflow, skill, agent, or evaluator
-infrastructure, use current official and primary sources when repository evidence leaves a
-decision-changing unknown. Load only the relevant method from
-[planning methods](references/planning-methods.md).
+1. **Understand** — restate the outcome, constraints, and current assumptions.
+2. **Clarify** — ask one high-leverage question at a time when a user-owned choice matters.
+3. **Explore** — present materially different viable options only when a real choice exists.
+4. **Compare** — explain consumer impact, tradeoffs, reversibility, and verification cost.
+5. **Align** — recommend one path and incorporate the user's correction or approval.
+6. **Freeze** — emit the executable change set, acceptance checks, endpoint, and Stop.
 
-Trace changed meaning through direct producers, consumers, restatements, and enforcers. Stop at the
-first evidence-backed compatible boundary. Put each affected surface and its exercise in Scope and
-Acceptance.
+Every Plan is visible. An exact mechanical request uses a short mini-plan and proceeds without an
+extra approval prompt. A product, architecture, experience, authority, or acceptance choice requires
+explicit user alignment before Build. In Plan mode, use the host's structured question surface when
+available. Outside Plan mode, return one smallest question; later stages are `noop`, terminate the
+turn, and use the next user message to continue from the answer.
 
-Split evidence by independent decision question, not by agent count. Give every lane a unique
-evidence path and bounded return; do not send multiple agents to repeat the same repository or source
-scan. Research briefs go to the planner, not raw search transcripts. The planner synthesizes only:
-it does not repeat repository or external research and never owns admission, dispatch, Build, or the
-lifecycle route. Load [planning methods](references/planning-methods.md) only for the evidence method
-needed by a lane.
+Repository inspection and current-source research support this conversation; they do not replace it.
+Use [planning methods](references/planning-methods.md) only for a decision-changing gap. Do not create
+options, agents, or research lanes merely to make Plan look substantial.
 
-Define the candidate, exact consumer exercise, regression checks, delivery endpoint, and first
-condition forcing `replan`. For a GitHub endpoint, load
-[GitHub PR handoff](references/github-pr-handoff.md).
-
-An implementation candidate cannot change the workflow, judge, policy, or reporting authority that
-accepts it. Such work is a separate governance candidate and requires candidate-uncontrollable
-acceptance evidence.
+The standard file-write hook opens only after a current-turn `Mission-Plan status=done` receipt.
 
 ## Build
 
-Implement only the candidate needed for the consumer journey. Prefer verification-first for
-configuration and integration; use TDD when stable behavior needs regression protection.
+Implement only the frozen vertical change through an existing owner and real consumer. Keep one
+writable candidate. Prefer direct edits over new layers and delete superseded paths.
 
-Keep effects inside Authority. Treat candidate-controlled executable content as untrusted until
-accepted and run it only in credential-free containment.
+The standard Build write window is 30 minutes from `UserPromptSubmit`. `PreToolUse` denies
+`apply_patch` before Plan completion, in Plan mode, or after that window. This is a practical
+repository guardrail, not a security boundary: specialized and hosted tools may bypass local hooks.
 
-Give every cumulative candidate a new immutable revision, tree, content, or diff identity. Bind
-evidence to Contract, Origin, candidate, invocation, status, and raw output or artifact identity.
-Delete temporary and superseded paths before evaluation.
-
-Before every revision, inspect the cumulative candidate. If exceptions, adapters, rules, or paths are
-accumulating to protect the design, stop Build and use
-[revision-pressure replan](references/revision-pressure-replan.md). Replanning cannot reset Origin or
-Stop.
+Allow one local correction when the design still holds. A design-invalidating finding, repeated
+failure, or additive correction ends the current mission as `blocked`; propose a new Plan in the next
+user turn instead of looping through replan and Build.
 
 ## Evaluate
 
-Evaluate the identified candidate against the frozen Contract:
+Exercise the real consumer, inspect the complete candidate, and run the smallest authoritative
+regression checks. Bind evidence to the exact candidate.
 
-1. exercise the real consumer through its actual entry point;
-2. inspect the complete candidate, including staged, unstaged, and untracked material;
-3. falsify affected-boundary closure, including omitted unchanged dependents;
-4. run the smallest authoritative regression checks;
-5. verify exact commands, status, raw output, versions, and unavailable evidence;
-6. compare with Origin and delete structure without a distinct consumer or acceptance need.
-
-Unit tests, static checks, documents, and packages are supporting evidence unless they are the frozen
-consumer. Candidate-caused repository architecture violations are material failures.
-
-Admit a finding only when reproducible evidence ties it to Acceptance, the consumer, binding
-authority, or a material safety rule. Route design-invalidating findings to `replan`; report
-out-of-scope findings without implementing them.
-
-Use [reviewer handoff](references/reviewer-handoff.md) for every evaluator. A mechanical or read-only
-outcome may use one general lens. Every non-mechanical writable candidate requires at least two
-fresh, read-only lenses before `accept`: `behavior` for the consumer outcome and `architecture` for
-ownership, affected-boundary closure, reuse, and entropy. Add only acceptance-critical independent
-lenses such as `regression`, `security-authority`, and `runtime-operations`. Do not add reviewers for
-confidence, voting, or duplicate scans. One reproducible material failure is not cancelled by other
-passes.
-
-All evaluator returns must bind the same candidate identity. Any candidate change invalidates every
-earlier evaluator result and starts a new Evaluate wave. `partial`, `unsupported`, or a material
-failed or unverified result leaves Acceptance unsatisfied. Use
-[architecture sensor evidence](references/architecture-sensor.md) only when a material structural
-change, cross-owner effect, or persistent patch pressure needs that method.
+Use one focused evaluation wave. Add independent lenses only when Acceptance contains genuinely
+independent risks. A candidate change invalidates earlier evidence but does not create an unlimited
+review cycle. For `candidate=none`, Evaluate is `noop`.
 
 ## Handoff
 
-Handoff is always a separate stage. Never stop at local completion, readiness to publish, or a
-continuation prompt.
+Run Handoff separately:
 
-For `local-only`:
+- Response-only: `noop`, with no commit or remote effect.
+- Repository candidate: commit the exact evaluated candidate, push, create a PR, observe required
+  checks, and use the existing GitHub handoff barrier for an authorized merge.
+- Missing authority, failed Acceptance, remote drift requiring code changes, or exhausted Stop:
+  `blocked`; never publish around the failure.
 
-1. bind the exact candidate identity and complete Acceptance evidence;
-2. remove mission-owned temporary resources;
-3. report the working-tree effects and recovery path;
-4. perform no commit or remote effect.
+Pending remote work remains inside the original Stop. Handoff never resets the budget.
 
-For commit or remote endpoints:
+## Mission-Terminate
 
-1. audit candidate-controlled execution, secrets, tokens, and integration automation;
-2. publish only the exact candidate through separately authorized effects;
-3. bind every commit, change request, release, deployment, review, and required signal;
-4. observe current signals through the repository's host-native owner;
-5. return changed candidates to Evaluate before republishing.
+Terminate every mission, including response-only and blocked missions:
 
-A material Handoff finding or candidate change returns to Evaluate. Unexpected drift in a tracked
-remote head, base, or merge tree invalidates prior candidate-bound evidence before delivery continues.
+1. report the outcome, candidate, decisive evidence, and performed effects;
+2. remove mission-created temporary resources;
+3. delete merged or abandoned mission branches and worktrees when safe;
+4. preserve unrelated user changes;
+5. emit the terminal receipt last.
 
-Pending remote work keeps Handoff active inside Stop. A missing or started signal is outstanding, not
-clean. `blocked` skips publication but still completes terminal reporting.
+Only accepted or blocked missions terminate. Preserve cleanup residue only when blocked and report
+the exact reason.
 
-After Handoff actions finish, mark the working-plan Handoff item `completed`. The final response must
-carry exactly one Handoff receipt using one of these equivalent forms.
+## Host boundary
 
-For an ordinary response, emit one standalone line outside a code fence:
+`UserPromptSubmit` admits each root turn. `PreToolUse` guards standard file edits. `Stop` validates
+the ordered receipts and allows one completion continuation. Add `PostToolUse`, compaction, session,
+or subagent hooks only for a demonstrated missing behavior; they are not lifecycle stages.
 
-```text
-Mission-Handoff: {"endpoint":"local-only","origin":"sha256:1111111111111111111111111111111111111111111111111111111111111111","candidate":"sha256:0000000000000000000000000000000000000000000000000000000000000000","acceptance":"passed","effects":[],"cleanup":"complete","route":"accept"}
-```
-
-When a strict JSON document owns the final output, freeze this envelope in Acceptance and return the
-exact JSON document instead of a raw marker line:
-
-```json
-{"result":{},"mission_handoff":{"endpoint":"local-only","origin":"sha256:1111111111111111111111111111111111111111111111111111111111111111","candidate":"sha256:0000000000000000000000000000000000000000000000000000000000000000","acceptance":"passed","effects":[],"cleanup":"complete","route":"accept"}}
-```
-
-If an immutable external schema cannot include that recognized envelope, route `blocked`; do not
-invent an unparsed field or append invalid text to the JSON document.
-
-Required fields:
-
-- `endpoint`: frozen endpoint;
-- `origin`: frozen immutable starting identity, equal to the activation receipt;
-- `candidate`: `none`, `sha256:` plus 64 lowercase hex characters, or `git:` plus a 40- or
-  64-character lowercase commit hash;
-- `acceptance`: `passed` or `blocked`;
-- `effects`: array of external or working-tree effects; entries may be any JSON values owned by the
-  reporting consumer;
-- `cleanup`: `complete` or `preserved`;
-- `route`: `accept` or `blocked`.
-
-`acceptance=passed` requires `route=accept`; `acceptance=blocked` requires `route=blocked`. Do not emit
-the receipt before Handoff finishes. A Handoff closes only the active mission with the same
-`endpoint` and `origin`; multiple raw or enveloped Handoff receipts in one response are invalid.
-
-Before any message that may terminate while the mission is still active, append this exact line:
-
-```text
-Mission-Terminal: {"status":"active","endpoint":"merged","origin":"git:0000000000000000000000000000000000000000"}
-```
-
-Use the frozen endpoint and origin. Lifecycle markers are valid only as structurally valid standalone
-lines outside fenced examples, or as the exact structured-output envelope above. The repository Stop
-hook reads assistant JSONL records backward from the transcript tail. An active tail marker returns
-immediately; a closing attempt reconstructs the lifecycle back to its original start so a later
-continuation cannot replace the frozen endpoint or origin. A matching valid Handoff closes the
-mission only when it is the latest lifecycle marker; a later active marker keeps it active. A first
-miss requests one bounded continuation and a second terminates as an explicit failure instead of
-looping.
-
-## Terminal
-
-Choose exactly one route:
-
-- `accept`: every material Acceptance and delivery signal passes for the identified candidate;
-- `revise`: the design holds and one bounded replacement remains;
-- `replan`: ownership, design, or Acceptance failed, or the next correction would be additive;
-- `blocked`: required authority, facts, capability, independence, or Stop is unavailable.
-
-Only `accept` and `blocked` terminate. `revise` and `replan` continue inside the original Stop and do
-not produce a terminal Handoff receipt.
-
-Report Outcome, Consumer, candidate identity, decisive evidence, residual limits, performed effects,
-and route. Never claim evidence that was not produced or accept with a material failed or unverified
-signal.
-
-## Host Boundary
-
-Subagents receive one bounded packet containing scope, authority, candidate, required return, and
-Stop. They return evidence only to the main agent, do not communicate laterally, and never own the
-lifecycle route. A reviewer must be fresh, read-only, and uninvolved in Build.
-
-Keep lifecycle semantics here. Agent definitions, tool mappings, hooks, MCP configuration, and
-discovery paths are host projections and cannot add routes, authority, state, or peer coordination.
-Use native spawn and wait operations for stage-internal work; hooks may guard mechanical tool or
-terminal behavior but cannot orchestrate fan-out. Verify each claimed host with activation and one
-behavior-equivalent lifecycle exercise.
-
-Only when this skill is explicitly invoked to maintain, audit, or explain this workflow, load the
-[lifecycle shape](references/lifecycle-shape.md); do not load it during ordinary mission execution.
+Only when maintaining, auditing, or explaining this workflow, load
+[lifecycle shape](references/lifecycle-shape.md).
