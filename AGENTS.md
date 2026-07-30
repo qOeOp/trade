@@ -19,7 +19,7 @@
 - 已完成施工计划和一次性审查进入 `docs/history/`；不得在 `docs/` 根目录新增散文件，也不得让 history 覆盖当前合同
 - 当前手写文档统一声明 `title / role / status / owner / last_verified`，并登记到 `docs/engineering/doc-contract-index.json`；`bun scripts/check-doc-contracts.ts` 是文档级最低检查
 - 单模块合同留在模块 `CONTRACT.md`；只有跨模块或大功能语义才上提到 `docs/`
-- `.agents/skills/` 只允许保存 Codex 工作流说明与可选 UI metadata；它可以调用既有 MCP / toolset owner surface，但不得承载领域源码、schema、数据库、第二套 CLI 或独立 authority
+- `.agents/skills/` 只允许保存 Codex 工作流说明、可选 UI metadata 与 `scripts/` 下无项目依赖的确定性工作流 helper；helper 只能编排既有 MCP / toolset / host owner surface，不得承载领域源码、schema、数据库、第二套领域 CLI 或独立 authority
 - 文档写作保持高承重和克制，不提供大段文字，优先追求极致压缩的信息密度
 - 如果新的写法和现有核心文档还没对齐，不要提前把临时想法写成固定制度
 

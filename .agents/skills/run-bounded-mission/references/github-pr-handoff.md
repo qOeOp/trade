@@ -59,41 +59,34 @@ For a `merge-ready` or `merged` endpoint:
    required current-candidate review states; zero unresolved conversations; and quiesced integration
    state. Unknown, absent, stale, or pending data fails the barrier. Re-fetch head and base after the
    snapshot; any change invalidates it.
-10. On repositories that provide `scripts/github-handoff-barrier.ts`, use it as the only Handoff
-    path that may arm auto-merge. Wait for any create-triggered discovery attempt first, address and
-    resolve verified findings, freeze the final head and current base, then run:
+10. Use the skill-owned `scripts/github_handoff_barrier.py` as the only Handoff path that may perform
+    a direct merge when that effect is frozen in Authority. Wait for any create-triggered discovery
+    attempt first, address and resolve verified findings, freeze the final head and current base,
+    then run the script from this skill directory:
 
     ```text
-    bun scripts/github-handoff-barrier.ts \
+    python3 scripts/github_handoff_barrier.py \
       --repo <owner/repository> --pr <pull-request> \
       --head <candidate-head-sha> --base <base-sha>
     ```
 
     The script posts one idempotent exact-head `@codex review` trigger, requires that attempt to
-    terminate on the exact head, holds a stable review/thread activity window, requires all provider
-    required checks and zero unresolved threads, re-fetches the frozen snapshot, and only then calls
-    guarded squash auto-merge. A finding, candidate revision, timeout, ambiguous signal, armed
-    integration, incomplete pagination, or changed head/base returns non-zero and must route back
-    through Evaluate or to `blocked`; do not bypass the script with a separate merge command.
+    terminate through an associated review thread or the trigger's unique no-finding thumbs-up,
+    rejects unmarked or concurrent attempts, holds a stable review/thread activity window, paginates
+    all activity, requires provider required checks and zero unresolved threads, and re-fetches the
+    frozen snapshot. It then calls direct squash merge with an exact-head guard, observes the merge
+    metadata, and never uses `--auto` or `--admin`. A finding, candidate revision, timeout, ambiguous
+    signal, armed integration, changed head/base, or missing final observation returns non-zero and
+    must route through Evaluate or to `blocked`; do not bypass the script with another merge command.
 
 For a `merged` endpoint:
 
-1. Treat auto-merge as the final authorized integration effect after the complete barrier, never as a way to wait
-   for checks or reviews. If repository auto-merge is allowed, arm it only when branch rules require
-   the evaluated head to remain up to date with the base or the provider guards the evaluated merge
-   tree. Reconfirm head and base, then use the repository-approved method with a head guard. A
-   squash-only repository may use:
-
-   ```text
-   gh pr merge --repo <owner/repository> --auto --squash \
-     --match-head-commit <head-sha> <pull-request>
-   ```
-
-2. If the base requires a merge queue, use it without `--admin`.
-3. If neither auto-merge nor a required queue can reach the endpoint, use a direct merge only when
-   it is separately authorized and the provider can guard the frozen candidate plus base or merge
-   tree; otherwise route to `blocked`.
-4. Observe the current head, base, checks, reviews, unresolved conversations, auto-merge or queue
+1. Use the skill-owned barrier for a direct merge only when Authority separately permits it and the
+   repository protects the frozen candidate against a changed base. Never leave a persistent
+   auto-merge request as the outcome of the barrier.
+2. If the base requires a merge queue, use it without `--admin` only when queue authority and its
+   merge-tree acceptance identity were frozen; otherwise route to `blocked`.
+3. Observe the current head, base, checks, reviews, unresolved conversations, integration
    state, and merge result. Bind acceptance to the evaluated head and base SHAs, or to the prospective
    merge tree. A change to either SHA invalidates Evaluate and its required signals; evaluate the new
    pair or merge tree, and `replan` if the change materially affects the contract or design.

@@ -5,7 +5,7 @@ max_threads = 3
 
 [[hooks.Stop.hooks]]
 type = "command"
-command = 'bun "$(git rev-parse --show-toplevel)/scripts/codex-mission-stop-hook.ts"'
+command = 'PYTHON_BIN="$(sh "$(git rev-parse --show-toplevel)/scripts/resolve-python.sh")" && "$PYTHON_BIN" "$(git rev-parse --show-toplevel)/.agents/skills/run-bounded-mission/scripts/mission_handoff_stop.py"'
 timeout = 5
 statusMessage = "Checking bounded mission Handoff"
 
