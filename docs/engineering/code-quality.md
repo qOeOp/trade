@@ -95,7 +95,7 @@ last_verified: 2026-07-30 CST
 
 ## 4. 风险路由
 
-当前采用单 owner、黑灯工厂式 PR：ruleset 强制最新 `main`、`quality`、四语言 CodeQL 与 review thread resolution，普通开发候选默认不要求 approving review、required reviewer、CODEOWNER / last-push approval、manual exact-SHA、repository variable 管理员确认或其他人在环 authority gate。Agent 合并还要求当前精确 head 的 fresh evaluator。自动 Codex review 只在创建 PR 时运行一次全面 discovery；Handoff 在初始 head 上等待完整结果，修订后不手动重触发，也不把它当作 current-head oracle。一次带 threads 的 Codex review submission，或在没有 threads 时与唯一创建触发关联的 👍，终止该 discovery attempt；全面模式只改变内部审查深度，不产生新的 trigger 或验收 authority。最终 head 由 fresh evaluator、required checks 与已验证的 thread closure 验收；初始审查未在冻结等待预算内完成或 findings 未收口时保持阻断。
+当前采用单 owner、黑灯工厂式 PR：ruleset 强制最新 `main`、`quality`、四语言 CodeQL 与 review thread resolution，普通开发候选默认不要求 approving review、required reviewer、CODEOWNER / last-push approval、repository variable 管理员确认或其他人在环 authority gate。Codex review 只在 PR 创建时作为一次 discovery 与首轮 CI 并行；修复其完整 findings 后只重跑 final-head deterministic checks，不再触发 agent review。`.agents/skills/run-bounded-mission/scripts/github_handoff_barrier.py` 没有评论或 review-trigger 能力，只消费 opening review/thread 或无 finding 的 PR 👍，从 base branch rules 读取完整 required context 集合，等待活动稳定、全部 context 通过、conversation 清零且 head/base 未变化，最终执行带 exact-head guard 的 direct squash merge并观察 merge metadata，不遗留 auto-merge 请求。脚本约束 Agent Handoff consumer，不冒充 GitHub ruleset；若要约束所有 actor，必须另立 governance candidate 把独立信号接入 provider required gate。
 
 先按**改变的语义**分类，再选择闸门；文件路径只是输入，不是结论。
 

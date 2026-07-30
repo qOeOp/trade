@@ -191,8 +191,8 @@ exact JSON document instead of a raw marker line:
 {"result":{},"mission_handoff":{"endpoint":"local-only","origin":"sha256:1111111111111111111111111111111111111111111111111111111111111111","candidate":"sha256:0000000000000000000000000000000000000000000000000000000000000000","acceptance":"passed","effects":[],"cleanup":"complete","route":"accept"}}
 ```
 
-If an immutable external schema cannot include that envelope, freeze a compatible owner-provided
-receipt field before Build or route `blocked`; do not append invalid text to the JSON document.
+If an immutable external schema cannot include that recognized envelope, route `blocked`; do not
+invent an unparsed field or append invalid text to the JSON document.
 
 Required fields:
 
@@ -218,10 +218,12 @@ Mission-Terminal: {"status":"active","endpoint":"merged","origin":"git:000000000
 
 Use the frozen endpoint and origin. Lifecycle markers are valid only as structurally valid standalone
 lines outside fenced examples, or as the exact structured-output envelope above. The repository Stop
-hook reads assistant JSONL records backward from the transcript tail and stops after the nearest
-boundary needed to decide the state. A matching valid Handoff closes the mission only when it is the
-latest lifecycle marker; a later active marker keeps it active. A first miss requests one bounded
-continuation and a second terminates as an explicit failure instead of looping.
+hook reads assistant JSONL records backward from the transcript tail. An active tail marker returns
+immediately; a closing attempt reconstructs the lifecycle back to its original start so a later
+continuation cannot replace the frozen endpoint or origin. A matching valid Handoff closes the
+mission only when it is the latest lifecycle marker; a later active marker keeps it active. A first
+miss requests one bounded continuation and a second terminates as an explicit failure instead of
+looping.
 
 ## Terminal
 
