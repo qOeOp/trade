@@ -1,6 +1,6 @@
 ---
 name: run-bounded-mission
-description: "Run a bounded repository mission through Frame, Execute, Verify, and Disposition. Use when explicitly invoked and for repository-required non-trivial software work or consequential technical decisions. Preserve a frozen contract, an identified complete candidate, real-consumer evidence, and separately authorized delivery effects without fixed agent counts, receipts, or revision rituals."
+description: "Run an outcome-scoped repository mission through Frame, Execute, Verify, and Disposition, or route distinct outcomes from a long-lived Codex hub into separate tasks. Use when explicitly invoked and for repository-required non-trivial software work, consequential technical decisions, or interactive task dispatch. Preserve a frozen contract, an identified complete candidate, real-consumer evidence, and separately authorized effects without fixed agent counts, receipts, or revision rituals."
 ---
 
 # Run Bounded Mission
@@ -14,6 +14,11 @@ Frame → Execute → Verify → Disposition
 The main agent owns the contract, candidate, evidence judgment, effects, and final route. Stage names
 are reasoning boundaries, not machine receipts. Do not create lifecycle ledgers, marker parsers,
 stage hooks, coordinators, or parallel work that does not change a decision.
+
+A Mission is identified by one outcome and its owning task/chat, not by a message or root turn. A
+long-lived hub may keep one foreground Mission while holding editable proposals and identities for
+multiple independent child tasks. The hub is not part of a child Mission; every child runs its own
+complete `Frame → Execute → Verify → Disposition`.
 
 For answer-only, mechanical, or already-resolved work, keep the lifecycle implicit and brief. A
 specialist skill returns here before Disposition.
@@ -32,10 +37,17 @@ Origin: immutable starting revision, tree, content, or diff identity
 Stop: total revision, retry, wait, time, tool, or cost boundary
 ```
 
-Classify the requested outcome, not its wording. Continue related corrections, reviews, and status
-requests in the active task. Create or hand off to a separate user-visible task only when the user
-requests it or the host policy independently authorizes it; never transfer an active candidate to a
-subagent.
+Classify every incoming message by outcome, not wording. Keep continuation, correction, review,
+status, or feedback for the foreground outcome in the active task. Route a named child status or
+feedback request to that child without changing the foreground Mission. For each independent outcome,
+prepare a complete editable task proposal and ask for minimal consent; do not create the task first.
+An unambiguous approval of that proposal is an explicit user request for the host to create exactly
+that task.
+
+Load [task dispatch](references/task-dispatch.md) when an incoming message may contain an independent
+outcome or when the host exposes task-management tools. It defines proposal, consent, native task
+creation, immediate return, child controls, and capability fallback. Never serialize another Mission
+inside the active task/worktree or use a subagent as a user-visible task substitute.
 
 State the no-change counterfactual. Prefer an answer, existing behavior, direct wiring, deletion,
 rollback, or narrower change when it closes the outcome.
@@ -144,6 +156,9 @@ Unexpected drift in a tracked head, base, merge tree, instruction origin, or can
 prior evidence before delivery continues. A completed external effect must be observed; an armed or
 queued action is not completion.
 
+Child execution is not pending work of the parent after dispatch. The hub returns immediately and
+observes or updates a child only when the user asks.
+
 Report Outcome, Consumer, candidate identity, decisive evidence, residual limits, effects, cleanup,
 and final route. Do not claim evidence that was not produced.
 
@@ -157,3 +172,7 @@ Keep lifecycle semantics in this file. Agent definitions, tool mappings, MCP con
 host adapters may project capabilities but cannot add routes, authority, state, deadlines, or peer
 coordination. Use host-native task, worktree, review, and delivery primitives under their own
 policies. A host projection is trustworthy only after a behavior-equivalent consumer exercise.
+
+Task dispatch is root-level outcome routing, not stage-internal agent delegation. Parent routing,
+Codex chat Handoff, and a child Mission's delivery Disposition are distinct operations; none transfers
+the child's lifecycle ownership to the hub.
