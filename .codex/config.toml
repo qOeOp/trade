@@ -1,31 +1,6 @@
 [agents]
 max_threads = 5
 
-[[hooks.UserPromptSubmit]]
-
-[[hooks.UserPromptSubmit.hooks]]
-type = "command"
-command = 'PYTHON_BIN="$(sh "$(git rev-parse --show-toplevel)/scripts/resolve-python.sh")" && "$PYTHON_BIN" "$(git rev-parse --show-toplevel)/.agents/skills/run-bounded-mission/scripts/mission_handoff_stop.py"'
-timeout = 5
-statusMessage = "Starting mission lifecycle"
-
-[[hooks.PreToolUse]]
-matcher = "*"
-
-[[hooks.PreToolUse.hooks]]
-type = "command"
-command = 'PYTHON_BIN="$(sh "$(git rev-parse --show-toplevel)/scripts/resolve-python.sh")" && "$PYTHON_BIN" "$(git rev-parse --show-toplevel)/.agents/skills/run-bounded-mission/scripts/mission_handoff_stop.py"'
-timeout = 5
-statusMessage = "Checking mission stage"
-
-[[hooks.Stop]]
-
-[[hooks.Stop.hooks]]
-type = "command"
-command = 'PYTHON_BIN="$(sh "$(git rev-parse --show-toplevel)/scripts/resolve-python.sh")" && "$PYTHON_BIN" "$(git rev-parse --show-toplevel)/.agents/skills/run-bounded-mission/scripts/mission_handoff_stop.py"'
-timeout = 5
-statusMessage = "Checking mission completion"
-
 [mcp_servers.trade-agent]
 command = "bun"
 args = ["modules/orchestration-ops/agent-mcp/src/scripts/main.ts"]
