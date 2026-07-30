@@ -34,6 +34,11 @@ type PendingHandoff =
   | { kind: "valid"; boundary: MissionBoundary }
   | { kind: "invalid" };
 
+type MarkdownFence = {
+  character: "`" | "~";
+  length: number;
+};
+
 const ACTIVE_MARKER = "Mission-Terminal:";
 const HANDOFF_MARKER = "Mission-Handoff:";
 const START_MARKER = "Mission-Start:";
@@ -114,17 +119,27 @@ function parseHandoff(
 function lifecycleForMessage(message: string): MessageLifecycle {
   const events: LifecycleEvent[] = [];
   let handoffCount = 0;
-  let fence: "```" | "~~~" | null = null;
+  let fence: MarkdownFence | null = null;
 
   for (const originalLine of message.split(/\r?\n/)) {
     const line = originalLine.trimEnd();
-    const fenceMatch = line.match(/^(```|~~~)/);
-    if (fenceMatch) {
-      const delimiter = fenceMatch[1] as "```" | "~~~";
-      fence = fence === delimiter ? null : fence ?? delimiter;
+    if (fence) {
+      const closingFence = line.match(/^ {0,3}(`+|~+)[ \t]*$/)?.[1];
+      if (
+        closingFence?.[0] === fence.character &&
+        closingFence.length >= fence.length
+      ) {
+        fence = null;
+      }
       continue;
     }
-    if (fence) {
+
+    const openingFence = line.match(/^ {0,3}(`{3,}|~{3,})/)?.[1];
+    if (openingFence) {
+      fence = {
+        character: openingFence[0] as "`" | "~",
+        length: openingFence.length,
+      };
       continue;
     }
 

@@ -91,9 +91,12 @@ describe("bounded mission Stop hook", () => {
     const message = [
       "The label Mission-Start: is documented here.",
       `> ${start}`,
-      "```text",
+      "   ```text",
       start,
-      "```",
+      "   ```",
+      "~~~~text",
+      start,
+      "~~~~",
     ].join("\n");
     expect(evaluate(message)).toEqual({ continue: true });
   });
