@@ -18,6 +18,11 @@ revision. A missing result or a started reaction such as eyes remains outstandin
 discovery becomes terminal through a review submission containing at least one thread or, when it
 produces no threads, the provider thumbs-up reaction on the pull request.
 
+One Mission owns one PR and at most two candidate heads in it: the initially published head and one
+consolidated revision. Do not close, replace, or reopen through a new PR to obtain another review.
+The opening review is consumed exactly once. Its findings must be fully adjudicated in the same PR
+before the barrier runs; an unresolved finding is not a reason to call the barrier early.
+
 For a `merge-ready` or `merged` endpoint:
 
 1. Confirm the PR targets the frozen base and its head equals the evaluated candidate.
@@ -27,17 +32,18 @@ For a `merge-ready` or `merged` endpoint:
 3. Start no review attempt from Handoff. Let the PR-opening Codex review and initial CI overlap, then
    wait for the opening review's complete review/thread result or PR thumbs-up. A provider failure
    without either completion signal blocks; it does not authorize a retry loop.
-4. Wait behind one bounded barrier for the opening discovery, required checks, conversation state,
-   and any separately frozen evaluator. While integration is quiesced, collect the opening review
-   completely, then adjudicate its combined findings; do not revise from partial arrivals.
+4. Wait for the opening discovery and initial checks while integration is quiesced. Collect the
+   opening review completely, then adjudicate its combined findings; do not revise from partial
+   arrivals and do not invoke the final barrier while findings remain unadjudicated.
 5. Reproduce each unresolved finding against the current candidate. Route a demonstrated material
    failure to Evaluate without resolving it. Resolve a thread only when the finding is verified as
    addressed, inapplicable, duplicate, or non-material; `outdated` alone is not evidence. Leave an
    ambiguous or unverified thread open and route to `blocked`.
-6. Combine findings that preserve the same design into one bounded revision. After any candidate
+6. Combine findings that preserve the same design into the single bounded revision. After any candidate
    change, publish the new identity and reacquire only deterministic current-head checks. Never
    retrigger Codex review. Fetch all original threads again and verify those findings against the
-   revised candidate.
+   revised candidate. A material failure of that second head blocks this Mission; it does not open a
+   third candidate or replacement PR.
 7. Conversation writes require frozen authority. Immediately before resolving, confirm the PR still
    has the evaluated head, the exact thread remains unresolved, and the actor can resolve it. Reply,
    review request, review dismissal, review submission, and thread resolution are distinct effects;

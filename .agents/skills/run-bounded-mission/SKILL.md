@@ -21,6 +21,22 @@ Every stage is present and may be `done`, `noop`, or `blocked`. An answer-only t
 uses no tools; its unnecessary stages are noop. A specialist skill returns here after its bounded
 work and cannot terminate, defer Handoff, or ask whether to continue.
 
+One Mission owns exactly one Codex task/chat, one dedicated worktree, one branch, and at most one
+pull request. At admission, classify the requested outcome rather than its wording:
+
+- a continuation, correction, review, or status request for the active outcome stays in this task
+  and resumes its Mission;
+- an independent outcome is automatically dispatched as a new Codex task with its own worktree and
+  runs in parallel; the user does not need to say “new task” or “parallel”;
+- never nest or serialize a second Mission in the active task/worktree. If the host adapter cannot
+  proactively dispatch a task, route the independent outcome to `blocked` and report the missing
+  capability instead of silently changing the ownership model.
+
+Load [task dispatch](references/task-dispatch.md) only when an incoming request may be a distinct
+outcome or the host exposes task-management tools. Mission-Start binds the task's dedicated
+worktree before Contract; Handoff owns its one PR; Mission-Terminate cleans mission-owned branch and
+worktree resources when the host permits that cleanup.
+
 Stages are serial. Do not enter a later stage until the required work and subagent returns for the
 current stage are complete or explicitly unavailable. Within a stage, use host-native agent tools to
 start stable, independent packets together, continue non-dependent main-context work, then collect
@@ -115,6 +131,13 @@ needed by a lane.
 Define the candidate, exact consumer exercise, regression checks, delivery endpoint, and first
 condition forcing `replan`. For a GitHub endpoint, load
 [GitHub PR handoff](references/github-pr-handoff.md).
+
+One Mission may create or reuse only its own single PR. The PR-opening Codex review is a one-shot
+discovery source, never terminal acceptance. Collect and adjudicate the complete opening review
+before revising. Findings that preserve the admitted design may produce exactly one consolidated
+revision in the same PR; reacquire deterministic final-head checks, but never request another Codex
+review or open a replacement PR. A second material candidate failure routes to `blocked` or a new,
+explicitly distinct Mission after this one terminates.
 
 An implementation candidate cannot change the workflow, judge, policy, or reporting authority that
 accepts it. Such work is a separate governance candidate and requires candidate-uncontrollable
@@ -211,9 +234,11 @@ exact JSON document instead of raw marker lines:
 {"result":{},"mission_handoff":{"turn_id":"<hook turn id>","status":"done","endpoint":"local-only","origin":"sha256:1111111111111111111111111111111111111111111111111111111111111111","candidate":"sha256:0000000000000000000000000000000000000000000000000000000000000000","acceptance":"passed","effects":[],"cleanup":"complete","route":"accept"},"mission_terminate":{"turn_id":"<hook turn id>","status":"done"}}
 ```
 
-If an immutable external schema cannot include lifecycle fields, perform the stages conceptually and
-return only the exact required JSON document. The Stop hook recognizes an exact JSON document and
-does not append text that would violate the schema.
+If an immutable external schema cannot include lifecycle fields, do not begin writable work. Route
+to `blocked`: the current hook payload has no trusted structured-output signal. JSON syntax alone is
+never an exemption because writable work can also return JSON. A future host adapter may provide an
+explicit trusted structured-output signal; until then it must fail closed rather than append text or
+pretend the lifecycle completed.
 
 Required fields:
 
@@ -239,11 +264,11 @@ Mission-Terminate: {"turn_id":"<hook turn id>","status":"done"}
 ```
 
 Lifecycle markers are valid only as structurally valid standalone lines outside fenced examples, or
-as structured-output fields above. The Stop hook reads only the current turn, accepts the seven
-ordered receipts when Mission-Terminate is last, preserves exact JSON documents, requests only a
-missing receipt suffix, and terminates as an explicit failure after one incomplete continuation. If
-tool work occurred, recovery uses `blocked`; it never manufactures noop Build, Evaluate, or Handoff
-results.
+as structured-output fields above. The Stop hook reads backwards only to the current turn boundary,
+accepts the seven ordered receipts when Mission-Terminate is last, requests only a missing receipt
+suffix, and terminates as an explicit failure after one incomplete continuation. If tool work
+occurred, recovery uses a complete blocked boundary; it never manufactures noop Build, Evaluate, or
+Handoff results.
 
 ## Mission-Terminate
 
@@ -272,6 +297,10 @@ discovery paths are host projections and cannot add routes, authority, state, or
 Use native spawn and wait operations for stage-internal work; hooks may guard mechanical tool or
 terminal behavior but cannot orchestrate fan-out. Verify each claimed host with activation and one
 behavior-equivalent lifecycle exercise.
+
+Task dispatch is root-level outcome ownership, not stage-internal subagent fan-out. A native task
+host may create a separate user-visible task and worktree for a distinct outcome; subagents remain
+bounded evidence workers inside one Mission and never substitute for that task boundary.
 
 Only when this skill is explicitly invoked to maintain, audit, or explain this workflow, load the
 [lifecycle shape](references/lifecycle-shape.md); do not load it during ordinary mission execution.
