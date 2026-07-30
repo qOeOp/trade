@@ -1,4 +1,4 @@
 interface:
   display_name: "Run Bounded Mission"
-  short_description: "Run a bounded lifecycle through verified handoff"
-  default_prompt: "Use $run-bounded-mission to handle this change."
+  short_description: "Run every root turn through the full lifecycle"
+  default_prompt: "Use $run-bounded-mission to run this turn from Mission-Start through Mission-Terminate."

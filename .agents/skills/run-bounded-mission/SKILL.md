@@ -1,24 +1,41 @@
 ---
 name: run-bounded-mission
-description: "Use when explicitly invoked. Otherwise use for repository-required non-trivial software work or consequential technical decisions that need one bounded lifecycle across scope, authority, planning, implementation, evaluation, authorized handoff, and terminal reporting. It may wrap a specialist skill, which must return control before Handoff. Do not auto-activate for explanation or reporting only, obvious mechanical edits, passive waiting, generic advice, exact-command execution, or a specialist workflow that already owns the complete terminal endpoint."
+description: "Project lifecycle authority for root user turns. Use when explicitly invoked and for repository-required non-trivial software work or consequential technical decisions. Every root turn follows Mission-Start, Contract, Plan, Build, Evaluate, Handoff, and Mission-Terminate; unnecessary stages may be noop. It may wrap a specialist skill, which must return control before Handoff."
 ---
 
 # Run Bounded Mission
 
-This file is the sole lifecycle authority. References provide methods; host hooks only enforce the
-terminal receipt. The main agent owns the contract, candidate, evidence, Handoff, and final route.
+This file is the sole lifecycle authority. References provide methods; host hooks admit every root
+turn, guard pre-write ordering, and enforce one bounded stop. The main agent owns the contract,
+candidate, evidence, delivery authority, Handoff, and final route.
 
 ## Lifecycle
 
-For an explicitly requested complete mission, run every stage:
+Run every root user turn through:
 
 ```text
-Contract -> Plan -> Build -> Evaluate -> Handoff -> Terminal
+Mission-Start -> Contract -> Plan -> Build -> Evaluate -> Handoff -> Mission-Terminate
 ```
 
-For other requests, use only the stages required by the request, but once a non-trivial change mission
-starts it remains active through `Handoff` and `Terminal`. A specialist skill returns here after its
-bounded work and cannot terminate, defer Handoff, or ask whether to continue.
+Every stage is present and may be `done`, `noop`, or `blocked`. An answer-only turn stays brief and
+uses no tools; its unnecessary stages are noop. A specialist skill returns here after its bounded
+work and cannot terminate, defer Handoff, or ask whether to continue.
+
+One Mission owns exactly one Codex task/chat, one dedicated worktree, one branch, and at most one
+pull request. At admission, classify the requested outcome rather than its wording:
+
+- a continuation, correction, review, or status request for the active outcome stays in this task
+  and resumes its Mission;
+- an independent outcome is automatically dispatched as a new Codex task with its own worktree and
+  runs in parallel; the user does not need to say “new task” or “parallel”;
+- never nest or serialize a second Mission in the active task/worktree. If the host adapter cannot
+  proactively dispatch a task, route the independent outcome to `blocked` and report the missing
+  capability instead of silently changing the ownership model.
+
+Load [task dispatch](references/task-dispatch.md) only when an incoming request may be a distinct
+outcome or the host exposes task-management tools. Mission-Start binds the task's dedicated
+worktree before Contract; Handoff owns its one PR; Mission-Terminate cleans mission-owned branch and
+worktree resources when the host permits that cleanup.
 
 Stages are serial. Do not enter a later stage until the required work and subagent returns for the
 current stage are complete or explicitly unavailable. Within a stage, use host-native agent tools to
@@ -27,27 +44,29 @@ the required returns. Do not create a coordinator agent, queue, ledger, or stage
 
 | Stage | Stage-internal execution |
 | --- | --- |
+| Mission-Start | The project hook binds the root turn and injects its seven-stage receipt contract. |
 | Contract | The main agent fixes provisional Scope, Authority, Origin, and total Stop. |
 | Plan | When multiple decision-changing evidence paths exist, start all stable independent lanes together within current host capacity: built-in `explorer` for repository paths and `mission_researcher` for current external sources. After required briefs return, use one `mission_planner` to synthesize the contract and smallest vertical plan. Keep one short evidence chain in the main context. |
 | Build | Keep exactly one writable winner. Read-only support may run only on non-overlapping evidence paths. |
 | Evaluate | Run fresh `mission_evaluator` instances against the same immutable candidate, one admitted lens per instance. |
-| Handoff / Terminal | The main agent owns effects, receipts, and the route; these stages do not fan out. |
+| Handoff / Mission-Terminate | The main agent owns effects, receipts, cleanup, and the route; these stages do not fan out. |
 
 Before mutation:
 
 1. announce this skill and any specialist skill being used;
-2. create a working plan with separate `Contract`, `Plan`, `Build`, `Evaluate`, and `Handoff` items;
-3. never combine `Evaluate`, `Handoff`, or `Terminal`;
+2. create a working plan with separate `Contract`, `Plan`, `Build`, `Evaluate`, `Handoff`, and
+   `Mission-Terminate` items;
+3. never combine `Evaluate`, `Handoff`, or `Mission-Terminate`;
 4. emit this visible activation receipt:
 
 ```text
-Mission-Start: {"endpoint":"merged","origin":"git:0000000000000000000000000000000000000000","stop":"<total boundary>"}
+Mission-Start: {"turn_id":"<hook turn id>","status":"done","endpoint":"merged","origin":"git:0000000000000000000000000000000000000000","stop":"<total boundary>"}
 ```
 
 Emit it as one standalone line outside a code fence. `endpoint` and `origin` freeze the mission
 boundary that Handoff must close; `origin` uses the same immutable identity forms as `candidate`
-below. `Mission-Start:` is the human-visible audit receipt. Do not emit it for an answer-only task
-that does not require the full lifecycle.
+below. `Mission-Start:` is the human-visible audit receipt. For an answer-only turn, follow the
+hook-provided compact receipts instead of loading this skill.
 
 After compaction, resume, or context transfer, re-read governing instructions and this file, then bind
 the frozen contract, repository state, candidate identity, remaining Stop, and raw evidence before
@@ -112,6 +131,13 @@ needed by a lane.
 Define the candidate, exact consumer exercise, regression checks, delivery endpoint, and first
 condition forcing `replan`. For a GitHub endpoint, load
 [GitHub PR handoff](references/github-pr-handoff.md).
+
+One Mission may create or reuse only its own single PR. The PR-opening Codex review is a one-shot
+discovery source, never terminal acceptance. Collect and adjudicate the complete opening review
+before revising. Findings that preserve the admitted design may produce exactly one consolidated
+revision in the same PR; reacquire deterministic final-head checks, but never request another Codex
+review or open a replacement PR. A second material candidate failure routes to `blocked` or a new,
+explicitly distinct Mission after this one terminates.
 
 An implementation candidate cannot change the workflow, judge, policy, or reporting authority that
 accepts it. Such work is a separate governance candidate and requires candidate-uncontrollable
@@ -193,26 +219,31 @@ Pending remote work keeps Handoff active inside Stop. A missing or started signa
 clean. `blocked` skips publication but still completes terminal reporting.
 
 After Handoff actions finish, mark the working-plan Handoff item `completed`. The final response must
-carry exactly one Handoff receipt using one of these equivalent forms.
+carry exactly one Handoff receipt and then one final Mission-Terminate receipt.
 
 For an ordinary response, emit one standalone line outside a code fence:
 
 ```text
-Mission-Handoff: {"endpoint":"local-only","origin":"sha256:1111111111111111111111111111111111111111111111111111111111111111","candidate":"sha256:0000000000000000000000000000000000000000000000000000000000000000","acceptance":"passed","effects":[],"cleanup":"complete","route":"accept"}
+Mission-Handoff: {"turn_id":"<hook turn id>","status":"done","endpoint":"local-only","origin":"sha256:1111111111111111111111111111111111111111111111111111111111111111","candidate":"sha256:0000000000000000000000000000000000000000000000000000000000000000","acceptance":"passed","effects":[],"cleanup":"complete","route":"accept"}
 ```
 
-When a strict JSON document owns the final output, freeze this envelope in Acceptance and return the
-exact JSON document instead of a raw marker line:
+When a JSON schema permits lifecycle metadata, freeze this envelope in Acceptance and return the
+exact JSON document instead of raw marker lines:
 
 ```json
-{"result":{},"mission_handoff":{"endpoint":"local-only","origin":"sha256:1111111111111111111111111111111111111111111111111111111111111111","candidate":"sha256:0000000000000000000000000000000000000000000000000000000000000000","acceptance":"passed","effects":[],"cleanup":"complete","route":"accept"}}
+{"result":{},"mission_handoff":{"turn_id":"<hook turn id>","status":"done","endpoint":"local-only","origin":"sha256:1111111111111111111111111111111111111111111111111111111111111111","candidate":"sha256:0000000000000000000000000000000000000000000000000000000000000000","acceptance":"passed","effects":[],"cleanup":"complete","route":"accept"},"mission_terminate":{"turn_id":"<hook turn id>","status":"done"}}
 ```
 
-If an immutable external schema cannot include that recognized envelope, route `blocked`; do not
-invent an unparsed field or append invalid text to the JSON document.
+If an immutable external schema cannot include lifecycle fields, do not begin writable work. Route
+to `blocked`: the current hook payload has no trusted structured-output signal. JSON syntax alone is
+never an exemption because writable work can also return JSON. A future host adapter may provide an
+explicit trusted structured-output signal; until then it must fail closed rather than append text or
+pretend the lifecycle completed.
 
 Required fields:
 
+- `turn_id`: current hook turn id;
+- `status`: `done`, or `blocked` when Handoff cannot complete;
 - `endpoint`: frozen endpoint;
 - `origin`: frozen immutable starting identity, equal to the activation receipt;
 - `candidate`: `none`, `sha256:` plus 64 lowercase hex characters, or `git:` plus a 40- or
@@ -226,23 +257,20 @@ Required fields:
 `acceptance=passed` requires `route=accept`; `acceptance=blocked` requires `route=blocked`. Do not emit
 the receipt before Handoff finishes. A Handoff closes only the active mission with the same
 `endpoint` and `origin`; multiple raw or enveloped Handoff receipts in one response are invalid.
-
-Before any message that may terminate while the mission is still active, append this exact line:
+Finish an ordinary response with:
 
 ```text
-Mission-Terminal: {"status":"active","endpoint":"merged","origin":"git:0000000000000000000000000000000000000000"}
+Mission-Terminate: {"turn_id":"<hook turn id>","status":"done"}
 ```
 
-Use the frozen endpoint and origin. Lifecycle markers are valid only as structurally valid standalone
-lines outside fenced examples, or as the exact structured-output envelope above. The repository Stop
-hook reads assistant JSONL records backward from the transcript tail. An active tail marker returns
-immediately; a closing attempt reconstructs the lifecycle back to its original start so a later
-continuation cannot replace the frozen endpoint or origin. A matching valid Handoff closes the
-mission only when it is the latest lifecycle marker; a later active marker keeps it active. A first
-miss requests one bounded continuation and a second terminates as an explicit failure instead of
-looping.
+Lifecycle markers are valid only as structurally valid standalone lines outside fenced examples, or
+as structured-output fields above. The Stop hook reads backwards only to the current turn boundary,
+accepts the seven ordered receipts when Mission-Terminate is last, requests only a missing receipt
+suffix, and terminates as an explicit failure after one incomplete continuation. If tool work
+occurred, recovery uses a complete blocked boundary; it never manufactures noop Build, Evaluate, or
+Handoff results.
 
-## Terminal
+## Mission-Terminate
 
 Choose exactly one route:
 
@@ -252,7 +280,7 @@ Choose exactly one route:
 - `blocked`: required authority, facts, capability, independence, or Stop is unavailable.
 
 Only `accept` and `blocked` terminate. `revise` and `replan` continue inside the original Stop and do
-not produce a terminal Handoff receipt.
+not produce Handoff or Mission-Terminate receipts.
 
 Report Outcome, Consumer, candidate identity, decisive evidence, residual limits, performed effects,
 and route. Never claim evidence that was not produced or accept with a material failed or unverified
@@ -269,6 +297,10 @@ discovery paths are host projections and cannot add routes, authority, state, or
 Use native spawn and wait operations for stage-internal work; hooks may guard mechanical tool or
 terminal behavior but cannot orchestrate fan-out. Verify each claimed host with activation and one
 behavior-equivalent lifecycle exercise.
+
+Task dispatch is root-level outcome ownership, not stage-internal subagent fan-out. A native task
+host may create a separate user-visible task and worktree for a distinct outcome; subagents remain
+bounded evidence workers inside one Mission and never substitute for that task boundary.
 
 Only when this skill is explicitly invoked to maintain, audit, or explain this workflow, load the
 [lifecycle shape](references/lifecycle-shape.md); do not load it during ordinary mission execution.
