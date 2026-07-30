@@ -1,4 +1,4 @@
 interface:
   display_name: "Run Bounded Mission"
-  short_description: "Run a bounded development lifecycle"
-  default_prompt: "Use $run-bounded-mission to plan, build, evaluate, and deliver this development task within explicit scope, authority, evidence, and stop limits."
+  short_description: "Bound consequential development decisions and changes"
+  default_prompt: "Use $run-bounded-mission to handle this development decision or change with explicit scope, authority, acceptance, evidence, and stop limits."

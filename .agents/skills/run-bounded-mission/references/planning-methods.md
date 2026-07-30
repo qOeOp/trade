@@ -24,10 +24,15 @@ Return a compact decision brief: question, repository evidence, candidates, evid
 the recommendation, unresolved facts, and locators. Keep a lookup in the main context when one source
 or one short verification chain can resolve it. When multiple candidate repositories or source volume
 would materially displace the contract and candidate context, use one fresh-context, read-only
-researcher by default. Parallelize only genuinely disjoint questions with separate evidence paths
-inside the Stop. Give each researcher the question, local evidence, source priorities, required
-return, and stop; the main agent verifies decisive sources and chooses. Use host-native web, GitHub,
-code-search, or isolated research tools; require no particular tool.
+researcher by default. Dispatch genuinely disjoint, decision-changing questions with separate evidence
+paths concurrently when they qualify under the skill's critical-path rule. Start them as soon as their
+inputs are stable, inside the Stop and available host capacity; the main agent continues
+non-overlapping work, verifies decisive sources, and chooses. Two or more qualifying read-only
+questions are concurrent by default; serialize them only with the concrete override evidence required
+by the skill. Give each researcher only the non-obvious context needed to bound its question,
+evidence path, and return barrier; the skill's Host Boundary owns the actual handoff. Omit context
+already established by the frozen contract. Use host-native web, GitHub, code-search, or isolated
+research tools; require no particular tool.
 
 ## Resolve consequential ambiguity
 
