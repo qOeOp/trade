@@ -108,7 +108,7 @@ export function evaluateMissionStop(input: StopHookInput): StopHookOutput {
 }
 
 async function main(): Promise<void> {
-  let input: StopHookInput = {};
+  let input: StopHookInput;
   try {
     input = JSON.parse(await Bun.stdin.text()) as StopHookInput;
   } catch {
