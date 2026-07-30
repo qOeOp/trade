@@ -120,9 +120,12 @@ that changes or supports the reuse-versus-build decision. Prefer the existing ow
 thin adapter, bounded adaptation, then evidence-backed new implementation. If research needed to
 choose a candidate is unavailable, stop at design and report the missing evidence.
 
-Before freezing a candidate, account for every decision-changing unknown as resolved from repository
-evidence, assigned to current-source research, owned by the user, or unavailable. This is transient
-planning, not a new record. Do not silently freeze a candidate with an unassigned upstream gap.
+Before freezing a candidate, resolve every decision-changing unknown through repository evidence,
+completed current-source research integrated into the decision, or an aligned user-owned preference
+or authority choice. Assignment to research is not resolution. Pending decision-changing research
+prevents candidate and Acceptance freeze and therefore Build. If required evidence is unavailable
+and the gap can still change the decision, stop at design and report it. Keep this accounting
+transient; do not create another record.
 
 Before inventing workflow, skill, agent, or evaluator infrastructure, search current official sources
 and GitHub for close implementations. Inspect the strongest candidates at a pinned revision across
@@ -233,7 +236,9 @@ owns a bounded publish-and-observe loop:
 
 For a `merge-ready` or `merged` GitHub pull request, use the PR handoff reference to close required
 review conversations. Route unresolved material findings back to Evaluate; treat replies, review
-requests, and thread resolution as separate authorized effects.
+requests, and thread resolution as separate authorized effects. Keep integration quiesced until the
+reference's complete pre-merge barrier is terminal; a missing or merely started result is outstanding,
+not clean.
 
 Before starting an asynchronous review, freeze whether it supplies discovery findings or
 current-candidate acceptance, its provider trigger, and its completion signal. Never invent a trigger

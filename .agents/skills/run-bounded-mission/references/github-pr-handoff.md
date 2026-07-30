@@ -7,13 +7,17 @@ and manual merge.
 
 Before publishing or accepting any endpoint, inspect existing auto-merge or merge-queue state.
 Quiesce integration that could merge before the frozen prerequisites close, including for a
-`merged` endpoint; disable it when authorized or route to `blocked`. Re-arm it only after those
-prerequisites close.
+`merged` endpoint; disable it when authorized or route to `blocked`. Never use auto-merge or a merge
+queue as the waiting mechanism. Arm integration only after the complete pre-merge barrier below
+passes.
 For `open`, confirm the PR's Draft/Ready state matches the frozen state before accepting.
 
 Classify each review producer as either a bounded discovery source or a current-candidate acceptance
 signal. Freeze its provider trigger, completion indication, and whether a candidate change requires
-another attempt. Never invent a trigger or promote discovery to acceptance.
+another attempt. Never invent a trigger or promote discovery to acceptance. A missing result, a
+started reaction such as eyes, or another in-progress marker remains outstanding. A create-triggered
+discovery becomes terminal only through one complete review submission containing at least one
+thread, or, when it produces no threads, the uniquely correlated thumbs-up reaction.
 
 For a `merge-ready` or `merged` endpoint:
 
@@ -23,13 +27,16 @@ For a `merge-ready` or `merged` endpoint:
    it reviewed; flat comments or aggregate review labels are insufficient.
 3. Allow at most one outstanding attempt per review producer. For a create-only discovery review,
    bind the PR creation event and its head, then publish no new candidate until the provider returns
-   one complete review or clean-completion indication, or the frozen wait Stop expires. A clean
-   reaction closes only a uniquely correlated attempt; it is not commit-bound semantic evidence.
-4. Wait behind one bounded barrier for required checks, required current-candidate reviews, and
-   outstanding discovery attempts. While integration is quiesced, preclassify the snapshot and
-   resolve previously verified findings that remain closed on the current candidate. Keep findings
-   from the pending attempt open until the barrier closes, then re-fetch once and adjudicate the
-   combined remainder; do not revise from partial arrivals.
+   one complete review submission containing threads or the no-thread thumbs-up, or the frozen wait
+   Stop expires. The thumbs-up closes only a uniquely correlated attempt; it is not commit-bound
+   semantic evidence.
+4. Wait behind one bounded barrier for required checks, a candidate-uncontrollable fresh evaluator
+   accepting the exact current head, required current-candidate reviews, and outstanding discovery
+   attempts. Launch the evaluator under the frozen reviewer handoff from the immutable origin or a
+   neutral context. While integration is quiesced, preclassify the snapshot and resolve previously
+   verified findings that remain closed on the current candidate. Keep findings from the pending
+   attempt open until the barrier closes, then re-fetch once and adjudicate the combined remainder;
+   do not revise from partial arrivals.
 5. Reproduce each unresolved finding against the current candidate. Route a demonstrated material
    failure to Evaluate without resolving it. Resolve a thread only when the finding is verified as
    addressed, inapplicable, duplicate, or non-material; `outdated` alone is not evidence. Leave an
@@ -44,15 +51,22 @@ For a `merge-ready` or `merged` endpoint:
    review request, review dismissal, review submission, and thread resolution are distinct effects;
    never dismiss or approve a review merely to make the PR mergeable.
 8. Re-fetch the PR after all authorized resolutions. `merge-ready` requires every required check and
-   current-candidate acceptance review to pass, every frozen discovery attempt to be terminal, and
-   zero unresolved conversations.
+   required current-candidate review to remain passing, the exact-head fresh evaluator to pass,
+   every frozen discovery attempt to be terminal, and zero unresolved conversations.
+9. Immediately before any merge, queue, or auto-merge command, build one transient pre-merge snapshot:
+   current head and base; terminal evidence for every frozen discovery attempt; the evaluator's
+   instruction origin, candidate identity, and acceptance result; required check conclusions;
+   required current-candidate review states; zero unresolved conversations; and quiesced integration
+   state. Unknown, absent, stale, or pending data fails the barrier. Re-fetch head and base after the
+   snapshot; any change invalidates it.
 
 For a `merged` endpoint:
 
-1. If authorized and repository auto-merge is allowed, arm it only when branch rules require the
-   evaluated head to remain up to date with the base or the provider guards the evaluated merge tree.
-   Reconfirm head and base, then use the repository-approved method with a head guard. A squash-only
-   repository may use:
+1. Treat auto-merge as the final authorized integration effect after step 9, never as a way to wait
+   for checks or reviews. If repository auto-merge is allowed, arm it only when branch rules require
+   the evaluated head to remain up to date with the base or the provider guards the evaluated merge
+   tree. Reconfirm head and base, then use the repository-approved method with a head guard. A
+   squash-only repository may use:
 
    ```text
    gh pr merge --repo <owner/repository> --auto --squash \
