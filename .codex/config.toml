@@ -1,13 +1,21 @@
 [agents]
 max_threads = 3
 
+[[hooks.UserPromptSubmit]]
+
+[[hooks.UserPromptSubmit.hooks]]
+type = "command"
+command = 'PYTHON_BIN="$(sh "$(git rev-parse --show-toplevel)/scripts/resolve-python.sh")" && "$PYTHON_BIN" "$(git rev-parse --show-toplevel)/.agents/skills/run-bounded-mission/scripts/mission_prompt_submit.py"'
+timeout = 5
+statusMessage = "Starting universal mission"
+
 [[hooks.Stop]]
 
 [[hooks.Stop.hooks]]
 type = "command"
 command = 'PYTHON_BIN="$(sh "$(git rev-parse --show-toplevel)/scripts/resolve-python.sh")" && "$PYTHON_BIN" "$(git rev-parse --show-toplevel)/.agents/skills/run-bounded-mission/scripts/mission_handoff_stop.py"'
-timeout = 5
-statusMessage = "Checking bounded mission Handoff"
+timeout = 15
+statusMessage = "Checking universal mission termination"
 
 [mcp_servers.trade-agent]
 command = "bun"

@@ -49,7 +49,7 @@ bun scripts/check-convergence-budget.ts
 
 ## 4. 无人值守 mission contract
 
-除简单问答、验收显然的微小机械修改和由更具体 skill 完整拥有的流程外，涉及产品或工程判断的非平凡任务走 `.agents/skills/run-bounded-mission/SKILL.md`。具体 skill 若仍需项目级 admission、跨域或终止控制，则与其组合使用。主上下文只持有一个 mission；subagent 可做有界工作或提供证据，但不拥有 scope、合并和完成判定。
+每条根用户消息都走 `.agents/skills/run-bounded-mission/SKILL.md` 的完整 lifecycle。`Mission-Start → Contract → Plan → Build → Evaluate → Handoff → Mission-Terminate` 七个阶段不可省略；简单回答、机械动作和具体 skill 只允许把没有工作的阶段显式记为 `noop`。主上下文只持有当前 turn 的一个 mission；subagent 可做有界工作或提供证据，但不拥有 scope、合并和完成判定。
 
 只读发现前按 skill 限定暂定 Scope、Authority 和覆盖整个 mission 的总 Stop；完成证据调查与必要对齐后，在 Build 或重大决策前冻结完整七字段合同。项目侧另外要求：
 
@@ -78,9 +78,9 @@ mission 只使用 skill 的 `accept / revise / replan / blocked` 四条 route。
 | 领域事实与动作 | 既有 MCP / owner tool | Agent 不复制领域判断或写权限 |
 | Program 化 Host | Codex SDK / App Server + 既有 `agent-run-contract`、`agent-host-codex` | 不新增 shell 无限循环、第二套 Host 或 memory |
 | 周期性反熵 | Scheduled task 的隔离 worktree | 只跑已人工校准的 drift / GC / monitor，不扩展当前 mission |
-| 机械阻断 | Codex hook | 只在 evidence receipt 可重放后启用；hook 不替代 verifier，也不强迫永不结束 |
+| 生命周期 admission / 机械阻断 | Codex `UserPromptSubmit` + `Stop` hook | 从 host transcript 绑定 `turn_id`、cwd/origin/workspace/repository 并强制七阶段有序 receipt；可写闭包复查同仓 GitHub head/state，阶段可 `noop / blocked` 并有界终止 |
 
-当前先使用 skill、custom agents、现有 worktree/Agent Run、owner 定向检查与远端 required checks。候选 evidence 未绑定真实 receipt 之前，不新增 Stop / PreToolUse hook；否则只是把自证结论机械化。
+当前使用 skill、custom agents、现有 worktree、owner 定向检查与远端 required checks。`UserPromptSubmit` 把当前 `turn_id` 的 cwd、origin、workspace 与 repository 写入 developer context；`Stop` 从 host transcript 的 admission/turn_context 验证有序 receipt、同一 boundary、candidate 一致性，并复查 PR repository、head、state 与 merge commit。Hook 不签发测试和 cleanup 事实，也不替代 fresh evaluator 或 GitHub barrier。
 
 `.codex/agents/mission-planner.toml`、`mission-researcher.toml` 与 `mission-evaluator.toml` 是当前可选 Codex 宿主投影，不是旧 lifecycle authority；跨宿主语义只以 skill 为准。
 

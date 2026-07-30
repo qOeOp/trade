@@ -60,7 +60,7 @@ last_verified: 2026-07-30 CST
 | 本合同 | 定义质量层级、风险类别、required 条件、SLO 与升级原则 | 罗列每个 owner 命令、重述 mission 状态机 |
 | [Check Contract](./check-contract.md) | “改了什么 → 跑什么”的可执行目录；登记 check id、owner、consumer 与命令 | 决定 merge/release authority、复制质量理念 |
 | [Development Convergence Contract](./development-convergence.md) | 约束责任面增长、production consumer 与交付证据 | 编排语言工具、定义 checker 实现 |
-| `.agents/skills/run-bounded-mission/SKILL.md` | 管理单次任务的 Scope、Authority、Acceptance、Stop、candidate identity 与 route | 成为仓库质量规则、检查清单或第二 CI |
+| `.agents/skills/run-bounded-mission/SKILL.md` | 管理每个 root user turn 的完整 lifecycle、Scope、Authority、Acceptance、Stop、candidate identity 与 route | 成为仓库质量规则、检查清单或第二 CI |
 | `AGENTS.md` | 路由到上述 authority，并保留少量仓库硬约束 | 重写完整交付协议、复制 check catalog |
 | owner `CONTRACT.md` / package | 定义领域行为、consumer、owner test 与 release-specific acceptance | 自行签发项目级 merge 结论 |
 | `scripts/check-*.{ts,sh}` | 实现一个边界清楚、可单独复现的 checker | 决定风险等级、自动扩张必跑范围 |
@@ -77,7 +77,7 @@ last_verified: 2026-07-30 CST
 
 | 层 | 目的 | 触发 | 典型证据 | Authority | 目标时延 |
 | --- | --- | --- | --- | --- | --- |
-| Q0 Admission | 在写代码前冻结结果、风险、consumer 与 acceptance | 非平凡产品/工程判断 | mission contract、owner/consumer 路径、Stop | 主 mission 上下文 | 开工前完成 |
+| Q0 Admission | 为每个 root user turn 建立完整 mission；在写代码前冻结结果、风险、consumer 与 acceptance | 每条根用户消息；无工作阶段显式 `noop` | turn-bound lifecycle、mission contract、owner/consumer 路径、Stop | 主 mission 上下文 | 开工前完成 |
 | Q1 Fast local | 尽早发现本次改动的直接错误 | 每次候选修订 | diff check、owner lint/type/unit、最小 consumer exercise | 开发者/Agent，本地非签发 | P95 ≤ 2 分钟 |
 | Q2 PR candidate | 证明候选在仓库集成面可合并 | 每个 PR head | policy、受影响 owner/consumer、集成/合同测试、CodeQL、完整 diff | GitHub required checks | P95 ≤ 10 分钟 |
 | Q3 Governance | 防止候选修改并自证裁判、workflow 或 merge policy | 触及质量 trust surface | 外置、不可由候选修改的 verifier 结果 | 独立 required workflow / GitHub App / 等价 owner | Q2 之外独立签发 |

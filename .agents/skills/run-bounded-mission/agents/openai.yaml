@@ -1,4 +1,4 @@
 interface:
   display_name: "Run Bounded Mission"
-  short_description: "Run a bounded lifecycle through verified handoff"
-  default_prompt: "Use $run-bounded-mission to run the complete bounded lifecycle for this change, including explicit scope, authority, acceptance, Stop, and the authorized Handoff before terminal reporting."
+  short_description: "Run every turn through the complete mission lifecycle"
+  default_prompt: "Use $run-bounded-mission for this entire turn. Emit the ordered Mission-Start, Contract, Plan, Build, Evaluate, Handoff, and Mission-Terminate receipts; use noop for stages without work instead of skipping them."
