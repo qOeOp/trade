@@ -921,31 +921,6 @@ describe("quality judges fail closed", () => {
     expect(result.stdout).toContain("@typescript-eslint/no-explicit-any")
   })
 
-  test("Replay heavyweight tests are serial and individually exclusive", () => {
-    const packageJson = JSON.parse(readFileSync(join(repoRoot,
-      "modules/research-strategy-development/replay-execution-plane/runner/package.json"), "utf8")) as {
-      scripts: Record<string, string>
-    }
-    const scripts = packageJson.scripts
-
-    expect(scripts.test).toBe("bun run test:worker-v10 && bun run test:remaining")
-    expect(scripts["test:remaining"]).toBe(
-      "bun run test:remaining:main && bun run test:remaining:protective-stop-cancel-cycle",
-    )
-    expect(scripts["test:remaining:main"]).toContain("^(?!protective-stop cancel releases")
-    for (const name of [
-      "test:worker-v10",
-      "test:remaining:main",
-      "test:remaining:protective-stop-cancel-cycle",
-    ]) {
-      expect(scripts[name]).toContain("run-exclusive-test.sh replay-runner-heavyweight")
-    }
-    const semantic = readFileSync(join(repoRoot, "scripts/check-replay-semantic.sh"), "utf8")
-    expect(semantic).toContain("REPLAY_TEST_PROFILE=1")
-    expect(semantic).toContain("replay-decision-worker-input-assembly-v4.test.ts")
-    expect(semantic).not.toContain("bun run test:worker-v10")
-  })
-
   test("Go formatting rejects an unformatted file instead of swallowing gofmt errors", () => {
     const root = temporaryRoot()
     write(root, "main.go", "package main\nfunc main(){println(\"bad\")}\n")
@@ -954,32 +929,6 @@ describe("quality judges fail closed", () => {
 
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain("gofmt required")
-  })
-
-  test("repository quality delegates checks without mutating dependency state", () => {
-    const script = readFileSync(join(repoRoot, "scripts/quality-check.sh"), "utf8")
-    const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as {
-      scripts: Record<string, string>
-    }
-
-    expect(script).toContain([
-      "  check_project_hygiene",
-      "  check_shell",
-      "  check_helpers",
-      "  check_secrets",
-      "  check_lint",
-      "  check_toolset_manifest",
-    ].join("\n"))
-    expect(script).toContain("bun scripts/check-package-tests.ts --run-all")
-    expect(script).toContain('bun scripts/check-package-tests.ts --run-shard "$QUALITY_TS_SHARD"')
-    expect(script).toContain("git ls-files --cached --others --exclude-standard -- '*.sh'")
-    expect(packageJson.scripts["lint:shell"]).toContain(
-      "git ls-files --cached --others --exclude-standard -z -- '*.sh'",
-    )
-    expect(packageJson.scripts["lint:shell"]).not.toContain("scripts/*.sh")
-    expect(script).not.toContain("bun run check")
-    expect(script).toContain('git diff --no-renames --check "$QUALITY_DIFF_BASE"...HEAD')
-    expect(script).toContain("git diff --no-renames --check HEAD")
   })
 
   test("dependency bootstrap cannot run lifecycle scripts with credentials reloaded from dotenv", () => {
@@ -1014,41 +963,6 @@ describe("quality judges fail closed", () => {
 
     expect(result.exitCode).toBe(0)
     expect(existsSync(join(root, "credential.txt"))).toBeFalse()
-  })
-
-  test("repository workflow checks the fetched candidate range", () => {
-    const workflow = readFileSync(join(repoRoot, ".github/workflows/quality.yml"), "utf8")
-    const safeInstall = "env -u BINANCE_API_KEY -u BINANCE_API_SECRET -u SILICONFLOW_API_KEY bun --no-env-file install --frozen-lockfile --ignore-scripts"
-
-    expect(workflow).toContain("fetch-depth: 0")
-    expect(workflow.match(new RegExp(safeInstall, "g"))).toHaveLength(3)
-    expect(workflow).toContain(
-      "QUALITY_DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}",
-    )
-    expect(workflow).toContain("name: typescript-${{ matrix.name }}")
-    expect(workflow).toContain("- name: even-packages\n            shard: 0/2")
-    expect(workflow).toContain("- name: odd-packages\n            shard: 1/2")
-    expect(workflow).toContain("QUALITY_TS_SHARD: ${{ matrix.shard }}")
-    expect(workflow).toContain("if: ${{ always() }}")
-    for (const result of [
-      "needs.policy.result",
-      "needs.typescript.result",
-      "needs.replay.result",
-      "needs.native.result",
-    ]) {
-      expect(workflow).toContain(result)
-    }
-  })
-
-  test("CodeQL merge gate uses the high-precision default query suite", () => {
-    const workflow = readFileSync(join(repoRoot, ".github/workflows/codeql.yml"), "utf8")
-
-    for (const language of ["javascript-typescript", "python", "rust", "go"]) {
-      expect(workflow).toContain(`language: ${language}`)
-    }
-    expect(workflow).not.toContain("queries:")
-    expect(workflow).not.toContain("config-file:")
-    expect(workflow).not.toContain("disable-default-queries:")
   })
 
   test("repository quality checks are single-instance and recover stale locks", () => {

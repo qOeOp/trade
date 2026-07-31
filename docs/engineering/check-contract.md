@@ -44,7 +44,7 @@ last_verified: 2026-07-31 CST
 | `replay-semantic` | repo root | `bun run check:replay-semantic` | worker-v10 核心确定性、authority、resume、Artifact 与切换语义；不运行 release closure |
 | `replay-release` | repo root | `bun run check:replay-release` | maturity evidence closure + Plane 全部 canonical/compatibility package certification；runner certification 必须包含 worker-v10 semantic，独立审计绑定裁判与 golden 测试源码 |
 | `replay-certification` | `modules/research-strategy-development/replay-execution-plane/certification/replay-certification` | `bun run certify` | Plane 内全部 canonical/compatibility package 的唯一、顺序、fail-fast certification 入口 |
-| `quality-judge-regression` | repo root | `bun test ./scripts/*.test.ts` | 用恶意反例证明架构、evidence、测试完整性审查 fail closed |
+| `quality-judge-regression` | repo root | `scripts/quality-check.sh policy` | 其中显式执行全部现有 root 可执行行为回归；拒绝重新纳入纯自然语言、排版或源码快照测试 |
 | `development-convergence` | repo root | `bun scripts/check-convergence-budget.ts` | 恢复期冻结 module owner、registered tool、domain、store、job、rail 表面积；超出基线 hard fail |
 | `package-test-integrity` | repo root | `bun scripts/check-package-tests.ts --run-all` 或 `--run-shard <index>/<count>` | 从文件系统发现生产 TS package，直接执行根 compiler 与全部 colocated 测试，不读取 package scripts；排序后确定性分片完整且互斥；Replay worker-v10 只由 semantic gate 独占执行一次 |
 | `codeql` | GitHub Actions | `.github/workflows/codeql.yml` | JavaScript/TypeScript、Python、Go、Rust 的独立默认高精度查询扫描；结果进入 GitHub code scanning，不替代 correctness gate |

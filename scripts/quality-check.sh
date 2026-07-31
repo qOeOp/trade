@@ -94,7 +94,21 @@ check_lint() {
 check_toolset_manifest() {
   require_cmd bun
   log "quality judge regression"
-  bun test ./scripts/*.test.ts >/dev/null
+  bun test \
+    ./scripts/audit-workspace-footprint.test.ts \
+    ./scripts/check-convergence-budget.test.ts \
+    ./scripts/check-test-source-boundaries.test.ts \
+    ./scripts/check-workspace-hygiene.test.ts \
+    ./scripts/check-workspace-side-effects.test.ts \
+    ./scripts/mission-impact-evidence.test.ts \
+    ./scripts/quality-judges.test.ts \
+    ./scripts/rd-developer-patch-adoption.test.ts \
+    ./scripts/rd-developer-workspace-cycle.test.ts \
+    ./scripts/rd-forward-candle-segment.test.ts \
+    ./scripts/rd-forward-market-data-demand.test.ts \
+    ./scripts/rd-strategy-source-adoption.test.ts \
+    ./scripts/run-cached-quality-check.test.ts \
+    >/dev/null
   log "doc contracts"
   bun scripts/check-doc-contracts.ts >/dev/null
   log "development convergence"
