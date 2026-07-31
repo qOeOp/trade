@@ -579,9 +579,9 @@ function importSpecifiers(
   const loader = loaderForPath(path)
   const transpiler = new Bun.Transpiler({ loader })
   const parsedSource = source.replace(/^#![^\n]*(?:\n|$)/, "")
-  let runtimeSpecifiers: string[]
+  let runtimeImports: ReturnType<Bun.Transpiler["scanImports"]>
   try {
-    runtimeSpecifiers = transpiler.scanImports(parsedSource).map((item) => item.path)
+    runtimeImports = transpiler.scanImports(parsedSource)
   } catch {
     return {
       specifiers: [],
@@ -593,10 +593,11 @@ function importSpecifiers(
     parsedSource,
     transpiler,
     loader === "ts" || loader === "tsx",
+    runtimeImports.filter((item) => item.kind === "dynamic-import").length,
   )
   const reasons = [...new Set(supplemental.reasons)].sort()
   return {
-    specifiers: [...new Set([...runtimeSpecifiers, ...supplemental.specifiers])].sort(),
+    specifiers: [...new Set([...runtimeImports.map((item) => item.path), ...supplemental.specifiers])].sort(),
     ...(reasons.length > 0
       ? { issue: { path, reasons } }
       : {}),
@@ -607,6 +608,7 @@ function supplementalModuleSpecifiers(
   source: string,
   transpiler: Bun.Transpiler,
   isTypeScript: boolean,
+  provenDynamicImports: number,
 ): { specifiers: string[]; reasons: ImportAnalysisReason[] } {
   const specifiers: string[] = []
   const reasons: ImportAnalysisReason[] = []
@@ -620,7 +622,7 @@ function supplementalModuleSpecifiers(
   if (isTypeScript && (/\b(?:import|export)\s+type\b/.test(source) || /\b(?:import|export)\s*\{\s*type\b/.test(source))) {
     reasons.push("unsupported_module_syntax")
   }
-  if (isTypeScript && /\b(?:typeof\s+)?import\s*\(/.test(source)) {
+  if (isTypeScript && [...source.matchAll(/\bimport\s*\(/g)].length > provenDynamicImports) {
     reasons.push("unsupported_module_syntax")
   }
   if (/\b(?:import|require)\s*\((?!\s*["'])/.test(source)

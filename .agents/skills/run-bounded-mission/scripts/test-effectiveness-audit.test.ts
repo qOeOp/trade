@@ -218,7 +218,7 @@ describe("test-effectiveness audit", () => {
       'test("loads a multiline import", () => expect(add(1, 2)).toBe(3))',
       "",
     ].join("\n"))
-    write(fixture.root, "apps/example/calc/src/dynamic.test.js", [
+    write(fixture.root, "apps/example/calc/src/dynamic.test.ts", [
       "void import(",
       '  "./calc"',
       ")",
@@ -267,7 +267,7 @@ describe("test-effectiveness audit", () => {
     expect(candidateTests).toEqual(expect.arrayContaining([
       "apps/example/calc/src/calc.test.ts",
       "apps/example/calc/src/colon: spaced.test.ts",
-      "apps/example/calc/src/dynamic.test.js",
+      "apps/example/calc/src/dynamic.test.ts",
       "apps/example/calc/src/multiline.test.ts",
       "apps/example/calc/src/module-require.test.cjs",
       "apps/example/calc/src/re-export.test.ts",
@@ -290,7 +290,11 @@ describe("test-effectiveness audit", () => {
       "void import(target)",
       "",
     ].join("\n"))
-    write(fixture.root, "apps/example/calc/src/import-type.test.ts", 'type Add = import("./calc").add\n')
+    write(fixture.root, "apps/example/calc/src/import-type.test.ts", [
+      'void import("./calc")',
+      'type Add = import("./calc").add',
+      "",
+    ].join("\n"))
     const origin = commit(fixture.root, "add incomplete import fixtures")
     write(fixture.root, "apps/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
     const candidate = commit(fixture.root, "change calculation source")
@@ -320,8 +324,12 @@ describe("test-effectiveness audit", () => {
       ],
     })
     expect(evidence.summary).toMatchObject({
-      candidate_tests: 0,
+      candidate_tests: 1,
       no_direct_static_candidate_evidence: false,
+    })
+    expect(evidence.affected_owners[0].candidate_tests[0]).toMatchObject({
+      path: "apps/example/calc/src/import-type.test.ts",
+      direct_changed_source_imports: ["apps/example/calc/src/calc.ts"],
     })
     expect(evidence.affected_owners[0].consumer_leads.reverse_importers).toContain(
       "apps/example/calc/src/main.ts",
