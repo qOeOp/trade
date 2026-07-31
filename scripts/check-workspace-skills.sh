@@ -70,6 +70,14 @@ for skill_dir in "$skills_root"/*; do
       exit 1
     fi
   done
+  for test_file in "$skill_dir"/scripts/*.test.ts; do
+    [ -f "$test_file" ] || continue
+    if ! command -v bun >/dev/null 2>&1; then
+      printf 'workspace-skill: bun is required for helper tests: %s\n' "$test_file" >&2
+      exit 1
+    fi
+    bun test "./$test_file" >/dev/null
+  done
 done
 
 printf 'workspace skills ok: %s\n' "$skill_count"

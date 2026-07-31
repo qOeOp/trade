@@ -31,7 +31,7 @@ bun .agents/skills/run-bounded-mission/scripts/test-effectiveness-audit.ts \
 
 ## 原始输出摘要
 
-- stdout SHA-256：`4e9ad395c43fc328656c384606546979a838f613776c5117376c3fb6cd709548`；
+- stdout SHA-256：`33da48854ee64540bd60c0617a1cabf5b93fc071d487a9245470ca3be6e0f136`；
   连续两次执行相同。
 - 4 个 changed files、3 个 changed source files、1 个 affected owner；定位 3 个候选测试，
   而不是把 35 个测试全部当作影响证据。

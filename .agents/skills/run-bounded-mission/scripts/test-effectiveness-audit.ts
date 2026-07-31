@@ -5,7 +5,10 @@ import { createHash } from "node:crypto"
 import { posix } from "node:path"
 
 const schemaVersion = "trade.test-effectiveness-proposal.v1"
-const sourceExtensions = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".py", ".rs", ".go"]
+const sourceExtensions = [
+  ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs",
+  ".py", ".rs", ".go", ".sh", ".bash", ".zsh",
+]
 const importExtensions = ["", ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", "/index.ts", "/index.tsx", "/index.js", "/index.mjs"]
 const classifications = [
   "real_behavior_regression",
@@ -78,7 +81,7 @@ try {
   const origin = resolveRevision(args.origin)
   const candidate = resolveRevision(args.candidate)
   const changes = readChanges(origin.commit, candidate.commit, args.scope)
-  const candidatePaths = readTree(candidate.commit, args.scope)
+  const candidatePaths = readTree(candidate.commit)
   const candidatePathSet = new Set(candidatePaths)
   const markerRoots = readMarkerRoots(candidatePaths)
   const changesByOwner = new Map<string, Change[]>()
@@ -103,15 +106,21 @@ try {
     candidate.commit,
     candidatePaths,
     changes,
-    changesByOwner,
     importEdges,
     changedSourcePaths,
     args.classification,
   )
+  const deletedTestPaths = changes
+    .filter((change) => change.status === "D" && isTestPath(change.path))
+    .map((change) => change.path)
+    .sort()
+  const affectedOwnerNames = new Set(changesByOwner.keys())
+  for (const test of allAffectedTests) affectedOwnerNames.add(ownerForPath(test.path, markerRoots))
 
-  const affectedOwners = [...changesByOwner.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([owner, ownerChanges]) => {
+  const affectedOwners = [...affectedOwnerNames]
+    .sort()
+    .map((owner) => {
+      const ownerChanges = changesByOwner.get(owner) ?? []
       const ownerTests = allAffectedTests.filter((test) => ownerForPath(test.path, markerRoots) === owner)
       const ownerChangedSources = ownerChanges
         .filter((change) => change.status !== "D" && isSourcePath(change.path))
@@ -120,19 +129,21 @@ try {
       const reverseImporters = [...new Set(ownerChangedSources.flatMap((path) => importersByTarget.get(path) ?? []))]
         .filter((path) => !isTestPath(path))
         .sort()
+      const entrypointPaths = candidatePaths.filter((path) => isEntrypoint(owner, path)).sort()
       return {
         owner,
         changes: ownerChanges.map(publicChange),
         consumer_evidence: {
           contract_paths: candidatePathSet.has(`${owner}/CONTRACT.md`) ? [`${owner}/CONTRACT.md`] : [],
-          entrypoint_paths: candidatePaths.filter((path) => isEntrypoint(owner, path)).sort(),
+          entrypoint_paths: entrypointPaths,
           package_scripts: readPackageScripts(candidate.commit, owner, candidatePathSet),
           reverse_importers: reverseImporters,
-          status: reverseImporters.length > 0 || candidatePathSet.has(`${owner}/CONTRACT.md`)
+          status: reverseImporters.length > 0 || entrypointPaths.length > 0
             ? "evidence_found"
             : "unresolved",
         },
         changed_source_paths: ownerChangedSources,
+        deleted_test_paths: deletedTestPaths.filter((path) => ownerForPath(path, markerRoots) === owner),
         candidate_tests: ownerTests.map(stripPrivateTestFields),
       }
     })
@@ -142,7 +153,9 @@ try {
     || (actionCounts.lower_layer ?? 0) > 0
     || (actionCounts.delete_candidate ?? 0) > 0
     || (actionCounts.strengthen ?? 0) >= 2
-  const noDirectStaticCandidateEvidence = changes.length > 0 && allAffectedTests.length === 0
+    || deletedTestPaths.length > 0
+  const noDirectStaticCandidateEvidence =
+    changes.length > 0 && allAffectedTests.length === 0 && deletedTestPaths.length === 0
 
   const proposal = {
     schema_version: schemaVersion,
@@ -152,7 +165,12 @@ try {
       scope: args.scope ?? null,
       classification: args.classification == null
         ? { status: "unresolved", value: null, allowed_values: classifications }
-        : { status: "provided", value: args.classification, allowed_values: classifications },
+        : {
+            status: "provided",
+            value: args.classification,
+            allowed_values: classifications,
+            recommendation_binding: allAffectedTests.length === 1 ? "only_candidate_test" : "unbound",
+          },
     },
     authority: {
       mode: "read_only",
@@ -175,10 +193,18 @@ try {
       affected_owners: affectedOwners.length,
       changed_source_files: changedSourcePaths.size,
       candidate_tests: allAffectedTests.length,
+      deleted_test_files: deletedTestPaths.length,
       no_direct_static_candidate_evidence: noDirectStaticCandidateEvidence,
       action_counts: actionCounts,
     },
     affected_owners: affectedOwners,
+    deleted_test_review: {
+      paths: deletedTestPaths,
+      status: deletedTestPaths.length > 0 ? "requires_origin_review" : "none",
+      uncertainty: deletedTestPaths.length > 0
+        ? "deleted test behavior, unique value, and replacement evidence are not present in the candidate tree"
+        : null,
+    },
     escaped_defect_review: {
       classification_status: args.classification == null ? "unresolved" : "provided",
       classification: args.classification ?? null,
@@ -195,7 +221,7 @@ try {
       test_refactor_mission: {
         recommendation: refactorSignal ? "conditional" : "not_recommended",
         signal: refactorSignal
-          ? "replacement, layer move, deletion candidate, or coordinated strengthening is present"
+          ? "replacement, layer move, deleted-test evidence, deletion candidate, or coordinated strengthening is present"
           : "no structural or multi-test refactor signal is established",
         required_conditions: [
           "the actionable set contains replace, lower_layer, delete_candidate, or coordinated changes to at least two tests",
@@ -216,6 +242,8 @@ try {
         "Runtime timing is reported only when tracked evidence exists; this helper does not execute tests.",
         "No coverage, mutation effectiveness, behavioral equivalence, or deletion safety is inferred.",
         "no_direct_static_candidate_evidence means only that no changed test or direct candidate-tree import was found; transitive paths and deleted sources remain unresolved.",
+        "Deleted tests are listed as origin-review uncertainty; candidate-tree absence is never deletion evidence.",
+        "A provided failure classification changes a recommendation only when exactly one candidate test is selected.",
         "Non-JavaScript/TypeScript reverse imports and dynamic routing may remain unresolved.",
       ],
     },
@@ -336,7 +364,6 @@ function buildTestMetadata(
   candidate: string,
   candidatePaths: string[],
   changes: Change[],
-  changesByOwner: Map<string, Change[]>,
   importEdges: ImportEdge[],
   changedSourcePaths: Set<string>,
   classification?: Classification,
@@ -349,9 +376,16 @@ function buildTestMetadata(
     edges.push(edge)
     importsByFile.set(edge.importer, edges)
   }
+  const relevantTestOwners = new Set(candidatePaths
+    .filter(isTestPath)
+    .filter((path) => {
+      if (changeStatus.has(path)) return true
+      return (importsByFile.get(path) ?? []).some((edge) => changedSourcePaths.has(edge.target))
+    })
+    .map((path) => ownerForPath(path, markerRoots)))
   const allOwnerTests = candidatePaths
     .filter(isTestPath)
-    .filter((path) => changesByOwner.has(ownerForPath(path, markerRoots)))
+    .filter((path) => relevantTestOwners.has(ownerForPath(path, markerRoots)))
   const records = allOwnerTests.map((path): TestMetadata & { relevant: boolean } => {
     const content = git(["show", `${candidate}:${path}`])
     const directChangedImports = [...new Set(
@@ -390,6 +424,10 @@ function buildTestMetadata(
   const importFrequency = frequency(records.flatMap((record) => record.direct_changed_source_imports))
   const labelFrequency = frequency(records.flatMap((record) => record.labels))
   const contentGroups = groupBy(records, (record) => record.content_hash)
+  const relevantRecords = records.filter((record) => record.relevant)
+  const classifiedPath = classification != null && relevantRecords.length === 1
+    ? relevantRecords[0].path
+    : null
 
   for (const record of records) {
     record.unique_value_evidence.changed_source_imports_unique_to_test =
@@ -401,11 +439,13 @@ function buildTestMetadata(
         .map((item) => item.path)
         .filter((path) => path !== record.path)
         .sort()
-    record.recommendation = recommendationFor(record, classification)
+    record.recommendation = recommendationFor(
+      record,
+      record.path === classifiedPath ? classification : undefined,
+    )
   }
 
-  return records
-    .filter((record) => record.relevant)
+  return relevantRecords
     .sort((left, right) => left.path.localeCompare(right.path))
 }
 
@@ -458,7 +498,7 @@ function readImportEdges(candidate: string, candidatePaths: string[], pathSet: S
     "-n",
     "-I",
     "-E",
-    "from|import\\(|require\\(",
+    "from|import|require\\(",
     candidate,
     "--",
     "*.ts",

@@ -64,10 +64,14 @@ bun .agents/skills/run-bounded-mission/scripts/test-effectiveness-audit.ts \
 
 Both revision arguments must be complete 40- or 64-character lowercase Git commit hashes; symbolic
 refs, abbreviated hashes, and revision expressions fail closed. The helper reads `git diff` plus
-tracked source, test, `CONTRACT.md`, and `package.json` metadata. It emits one JSON proposal to
+tracked source (including shell programs), test, `CONTRACT.md`, and `package.json` metadata. It emits one JSON proposal to
 stdout. It does not execute tests or mutation, modify files, inspect a database, infer coverage, or
 declare deletion safe. Treat its import, name, duplicate-content, size, mock, and time/concurrency
-signals as review leads. Missing runtime timing remains unavailable rather than estimated.
+signals as review leads. Direct candidate-tree test importers remain candidates even when their owner
+did not change. Deleted tests are named as origin-review uncertainty, never treated as candidate-tree
+proof that deletion was safe. Missing runtime timing remains unavailable rather than estimated.
+`--scope` limits the changed-path input; candidate-tree metadata remains repository-wide so direct
+dependent tests and their owner markers outside that scope are not hidden.
 
 The proposal must retain resolved origin/candidate commit and tree identities, affected owner and
 consumer evidence, candidate tests and unique-value leads, cost signals, recommended review actions,
@@ -75,6 +79,11 @@ the five escaped-defect questions, uncertainty, and the Test Refactor Mission de
 `no_direct_static_candidate_evidence=true` means only that no changed test or direct candidate-tree
 import was found. It must not be restated as “no tests exist”; transitive paths, dynamic routing, and
 deleted sources remain unresolved.
+
+A supplied failure classification describes the escaped defect. It may influence a per-test action
+only when the helper selects exactly one candidate test; with multiple candidates it remains unbound
+and every unmatched test stays `further_investigation`. The existing workspace-skill check executes
+tracked helper regression suites under `.agents/skills/*/scripts/*.test.ts`.
 
 ## Choose an action
 

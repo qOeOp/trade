@@ -107,8 +107,119 @@ describe("test-effectiveness audit", () => {
       candidate_tests: 0,
       no_direct_static_candidate_evidence: true,
     })
+    expect(proposal.affected_owners[0].consumer_evidence).toMatchObject({
+      contract_paths: ["modules/example/no-test/CONTRACT.md"],
+      entrypoint_paths: [],
+      reverse_importers: [],
+      status: "unresolved",
+    })
     expect(proposal.authority.forbidden_claims).toContain("coverage_proven")
     expect(proposal.proposal.test_refactor_mission.recommendation).toBe("not_recommended")
+
+    write(fixture.root, "scripts/audit-helper.sh", "#!/usr/bin/env sh\nprintf 'one\\n'\n")
+    const shellOrigin = commit(fixture.root, "add shell source")
+    write(fixture.root, "scripts/audit-helper.sh", "#!/usr/bin/env sh\nprintf 'two\\n'\n")
+    const shellCandidate = commit(fixture.root, "change shell source")
+    const shell = JSON.parse(audit(fixture.root, [
+      "--origin", shellOrigin,
+      "--candidate", shellCandidate,
+      "--scope", "scripts",
+    ]).stdout)
+    expect(shell.summary).toMatchObject({
+      changed_source_files: 1,
+      candidate_tests: 0,
+      no_direct_static_candidate_evidence: true,
+    })
+  })
+
+  test("includes direct and side-effect test importers from unchanged owners", () => {
+    const fixture = createFixture()
+    write(fixture.root, "modules/example/calc/src/calc-side-effect.test.ts", [
+      'import "./calc"',
+      'import { expect, test } from "bun:test"',
+      'test("loads calculation side effects", () => expect(true).toBe(true))',
+      "",
+    ].join("\n"))
+    write(fixture.root, "modules/example/integration/CONTRACT.md", "# Integration Contract\n")
+    write(fixture.root, "modules/example/integration/package.json", '{"name":"integration","private":true}\n')
+    write(fixture.root, "modules/example/integration/src/calc.integration.test.ts", [
+      'import { expect, test } from "bun:test"',
+      'import { add } from "../../calc/src/calc"',
+      'test("uses calculation across owners", () => expect(add(1, 2)).toBe(3))',
+      "",
+    ].join("\n"))
+    const origin = commit(fixture.root, "add cross-owner and side-effect tests")
+    write(fixture.root, "modules/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
+    const candidate = commit(fixture.root, "change calculation source")
+
+    const proposal = JSON.parse(audit(fixture.root, [
+      "--origin", origin,
+      "--candidate", candidate,
+      "--scope", "modules/example/calc",
+    ]).stdout)
+    const candidatePaths = proposal.affected_owners
+      .flatMap((owner: { candidate_tests: Array<{ path: string }> }) => owner.candidate_tests)
+      .map((item: { path: string }) => item.path)
+    expect(candidatePaths).toContain("modules/example/calc/src/calc-side-effect.test.ts")
+    expect(candidatePaths).toContain("modules/example/integration/src/calc.integration.test.ts")
+    expect(proposal.affected_owners.find(
+      (owner: { owner: string }) => owner.owner === "modules/example/integration",
+    )).toMatchObject({
+      changes: [],
+      candidate_tests: [{
+        path: "modules/example/integration/src/calc.integration.test.ts",
+        direct_changed_source_imports: ["modules/example/calc/src/calc.ts"],
+      }],
+    })
+  })
+
+  test("reports deleted tests as origin-review uncertainty", () => {
+    const fixture = createFixture()
+    rmSync(join(fixture.root, "modules/example/calc/src/calc.test.ts"))
+    const candidate = commit(fixture.root, "delete calculation test")
+    const proposal = JSON.parse(audit(fixture.root, [
+      "--origin", fixture.origin,
+      "--candidate", candidate,
+    ]).stdout)
+
+    expect(proposal.summary).toMatchObject({
+      changed_files: 1,
+      candidate_tests: 0,
+      deleted_test_files: 1,
+      no_direct_static_candidate_evidence: false,
+    })
+    expect(proposal.deleted_test_review).toMatchObject({
+      paths: ["modules/example/calc/src/calc.test.ts"],
+      status: "requires_origin_review",
+    })
+    expect(proposal.affected_owners[0].deleted_test_paths).toEqual([
+      "modules/example/calc/src/calc.test.ts",
+    ])
+    expect(proposal.proposal.test_refactor_mission.recommendation).toBe("conditional")
+  })
+
+  test("does not broadcast a failure classification across multiple candidate tests", () => {
+    const fixture = createFixture()
+    write(fixture.root, "modules/example/calc/src/calc-second.test.ts", [
+      'import { expect, test } from "bun:test"',
+      'import { add } from "./calc"',
+      'test("adds another pair", () => expect(add(2, 2)).toBe(4))',
+      "",
+    ].join("\n"))
+    const origin = commit(fixture.root, "add second calculation test")
+    write(fixture.root, "modules/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
+    const candidate = commit(fixture.root, "change calculation source")
+    const proposal = JSON.parse(audit(fixture.root, [
+      "--origin", origin,
+      "--candidate", candidate,
+      "--classification", "outdated_contract_or_assertion",
+    ]).stdout)
+
+    expect(proposal.inputs.classification.recommendation_binding).toBe("unbound")
+    expect(proposal.summary.candidate_tests).toBe(2)
+    for (const candidateTest of proposal.affected_owners[0].candidate_tests) {
+      expect(candidateTest.recommendation.action).toBe("further_investigation")
+    }
   })
 
   test("keeps exact duplicates as investigation leads instead of deletion candidates", () => {

@@ -166,6 +166,13 @@ import、名称、重复内容、规模、mock、时间/并发信号都只是调
 表述为 `no_direct_static_candidate_evidence`，不得改写成“没有测试”，transitive 与 deleted
 source 关系保持未知。
 
+跨 owner 的 direct test importer 仍是候选；删除的测试必须以 origin-review uncertainty 单列，
+不得因 candidate tree 中缺席而宣称删除安全。合同路径与 executable consumer evidence 分列，
+只有 entrypoint 或 reverse importer 能把 consumer lead 标为 found。一次 failure classification
+仅在唯一候选测试时绑定推荐动作，多候选时保持 unbound。workspace-skill check 执行
+`.agents/skills/*/scripts/*.test.ts`，不另建 quality gate。`--scope` 只限制 changed-path 输入，
+direct dependent test 与 owner marker 的 candidate-tree metadata 仍按全仓只读扫描。
+
 只有同时满足以下条件才派发独立 Test Refactor Mission：动作集包含 replace、降层、删除候选
 或至少两项协调测试修改；当前合同与 consumer acceptance 可冻结不变；test-only candidate
 能与生产行为修复及其验收 authority 分离；预期价值、成本证据、affected owner 与 stopping
