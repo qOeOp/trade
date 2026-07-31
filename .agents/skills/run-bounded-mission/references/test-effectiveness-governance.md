@@ -79,6 +79,8 @@ candidate-side source path remains the changed source while `previous_path` pres
 origin-side movement evidence.
 `--scope` limits the changed-path input; candidate-tree metadata remains repository-wide so direct
 dependent tests and their owner markers outside that scope are not hidden.
+Bare package imports resolve only through tracked package manifests; a coincidental repository path
+with the same name is not treated as an internal dependency.
 
 The evidence must retain resolved origin/candidate commit and tree identities, affected owners,
 unverified consumer leads, candidate tests and unique-value leads, cost signals, the five
