@@ -1,8 +1,11 @@
 # Codex Task Dispatch
 
-Load this reference only when a long-lived hub may route an independent outcome or operate an
-existing child task. Lifecycle authority remains in `SKILL.md`; this file projects it onto current
-Codex task tools without adding a queue, ledger, daemon, coordinator, or second lifecycle.
+Load this reference only when the user asks a long-lived hub to route or create an independent
+outcome, when the user asks it to operate an existing child task, or when Mission evidence supports
+a separately valuable follow-up proposal with its own consumer and acceptance. The last case permits
+an editable proposal, not task creation. Lifecycle authority remains in `SKILL.md`; this file
+projects it onto current Codex task tools without adding a queue, ledger, daemon, coordinator, or
+second lifecycle.
 
 ## Routing invariants
 
@@ -11,6 +14,10 @@ Classify each outcome independently:
 - foreground continuation, correction, review, status, or feedback stays in the hub;
 - status or feedback naming an existing child routes to that child;
 - every independent outcome becomes an editable proposal before any task is created.
+
+An internal support question or implementation subtask is not an independent outcome and never
+becomes a user-visible proposal. Native task creation always requires the user's explicit request or
+approval of the exact ready proposal.
 
 Task creation is only for a genuinely independent outcome. Repeating, renaming, resuming, or moving
 the same unresolved outcome gap to another task is continuation of its existing Mission and inherits
