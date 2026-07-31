@@ -16,37 +16,37 @@ import {
   buildAgentRunEvent,
   buildAgentRunRequest,
   buildAgentRunResult,
-} from "../modules/contracts/agent-run-contract/src/agent-run-contract"
+} from "../apps/contracts/agent-run-contract/src/agent-run-contract"
 import {
   writeAgentJsonArtifact,
   writeAgentTextArtifact,
-} from "../modules/orchestration-ops/agent-artifact-store/src/lib/agent-artifact-store"
+} from "../apps/orchestration-ops/agent-artifact-store/src/lib/agent-artifact-store"
 import {
   createAgentWorkspace,
   createAgentWorkspaceExecutionScope,
   finalizeAgentWorkspaceEvidence,
   removeAgentWorkspace,
   type AgentWorkspacePackageCheck,
-} from "../modules/orchestration-ops/agent-workspace-manager/src/lib/workspace-manager"
+} from "../apps/orchestration-ops/agent-workspace-manager/src/lib/workspace-manager"
 import {
   appendAgentRunEvent,
   completeAgentRun,
   ensureAgentRunStoreSchema,
   admitAgentRun,
-} from "../modules/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
+} from "../apps/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
 import {
   readAgentPatchAdoption,
-} from "../modules/orchestration-ops/ops-runtime-store/src/lib/agent-patch-adoption-store"
+} from "../apps/orchestration-ops/ops-runtime-store/src/lib/agent-patch-adoption-store"
 import {
   SERVER_CONTAINER_SOURCE_PACKAGE_CRITICAL_REFS,
-} from "../modules/orchestration-ops/trade-flow/src/scripts/lib/server-runtime-container-release-package"
+} from "../apps/orchestration-ops/trade-flow/src/scripts/lib/server-runtime-container-release-package"
 import {
   registerAgentWorkspaceExecutionScope,
-} from "../modules/orchestration-ops/ops-runtime-store/src/lib/agent-workspace-scope-store"
+} from "../apps/orchestration-ops/ops-runtime-store/src/lib/agent-workspace-scope-store"
 import {
   createDeveloperAgentSubmission,
   DEVELOPER_AGENT_SUBMISSION_SCHEMA,
-} from "../modules/research-strategy-development/research-control-plane/contracts/src/lib/developer-agent-submission"
+} from "../apps/research-strategy-development/research-control-plane/contracts/src/lib/developer-agent-submission"
 import {
   AdoptionError,
   runDeveloperPatchAdoption,
@@ -71,7 +71,7 @@ test("Developer patch adoption certifies an exact isolated candidate without adv
     assert.equal(result.manifest.safety.trading_authority, false)
     assert.equal(gitText(fixture.root, ["rev-parse", "HEAD"]).trim(), sourceHead)
     assert.equal(
-      gitText(fixture.root, ["show", `${result.candidate_source_revision}:modules/sample/src/value.ts`]),
+      gitText(fixture.root, ["show", `${result.candidate_source_revision}:apps/sample/src/value.ts`]),
       "export const value = 2\n",
     )
     const manifestPath = resolve(fixture.root, result.manifest_ref)
@@ -165,9 +165,9 @@ async function completedDeveloperRun(changeDependencyManifest: boolean): Promise
   adoptionId: string
 }> {
   const root = mkdtempSync(join(tmpdir(), "rd-patch-adoption-"))
-  mkdirSync(join(root, "modules", "sample", "src"), { recursive: true })
+  mkdirSync(join(root, "apps", "sample", "src"), { recursive: true })
   writeFileSync(
-    join(root, "modules", "sample", "package.json"),
+    join(root, "apps", "sample", "package.json"),
     `${JSON.stringify({
       name: "sample",
       private: true,
@@ -176,7 +176,7 @@ async function completedDeveloperRun(changeDependencyManifest: boolean): Promise
     }, null, 2)}\n`,
   )
   writeFileSync(
-    join(root, "modules", "sample", "src", "value.ts"),
+    join(root, "apps", "sample", "src", "value.ts"),
     "export const value = 1\n",
   )
   for (const ref of SERVER_CONTAINER_SOURCE_PACKAGE_CRITICAL_REFS) {
@@ -203,7 +203,7 @@ async function completedDeveloperRun(changeDependencyManifest: boolean): Promise
   const context = writeAgentJsonArtifact({
     repository_root: root,
     storage: "durable",
-    value: { scope: "modules/sample" },
+    value: { scope: "apps/sample" },
   })
   const request = buildAgentRunRequest({
     run_id: runId,
@@ -244,8 +244,8 @@ async function completedDeveloperRun(changeDependencyManifest: boolean): Promise
     run_id: request.run_id,
     request_hash: request.request_hash,
     source_revision: request.source_revision,
-    allowed_write_prefixes: ["modules/sample"],
-    package_paths: ["modules/sample"],
+    allowed_write_prefixes: ["apps/sample"],
+    package_paths: ["apps/sample"],
     issued_at: "2026-07-23T01:00:01.000Z",
   })
   registerAgentWorkspaceExecutionScope(db, {
@@ -262,13 +262,13 @@ async function completedDeveloperRun(changeDependencyManifest: boolean): Promise
   let evidence
   try {
     if (changeDependencyManifest) {
-      const packagePath = join(workspace.workspace_root, "modules", "sample", "package.json")
+      const packagePath = join(workspace.workspace_root, "apps", "sample", "package.json")
       const packageJson = JSON.parse(readFileSync(packagePath, "utf8"))
       packageJson.description = "dependency manifest changes are release-managed"
       writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`)
     } else {
       writeFileSync(
-        join(workspace.workspace_root, "modules", "sample", "src", "value.ts"),
+        join(workspace.workspace_root, "apps", "sample", "src", "value.ts"),
         "export const value = 2\n",
       )
     }

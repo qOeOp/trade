@@ -1,33 +1,33 @@
 #!/usr/bin/env bun
 
 import { Database } from "bun:sqlite"
-import type { AgentArtifactRef } from "../modules/contracts/agent-run-contract/src/agent-run-contract"
+import type { AgentArtifactRef } from "../apps/contracts/agent-run-contract/src/agent-run-contract"
 import {
   createAgentWorkspaceExecutionScope,
-} from "../modules/orchestration-ops/agent-workspace-manager/src/lib/workspace-manager"
+} from "../apps/orchestration-ops/agent-workspace-manager/src/lib/workspace-manager"
 import {
   ensureAgentRunStoreSchema,
   readAgentRun,
-} from "../modules/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
+} from "../apps/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
 import {
   registerAgentWorkspaceExecutionScope,
-} from "../modules/orchestration-ops/ops-runtime-store/src/lib/agent-workspace-scope-store"
-import { ensureResearchStateSchema } from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/research-state-store"
+} from "../apps/orchestration-ops/ops-runtime-store/src/lib/agent-workspace-scope-store"
+import { ensureResearchStateSchema } from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/research-state-store"
 import {
   configureAgentCycleDatabase,
   parseAgentCyclePayload,
   resolveAgentCyclePaths,
   stringValue,
-} from "../modules/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/agent-cycle-cli"
-import { createAgentArtifactCliPort } from "../modules/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/agent-artifact-cli-port"
-import { AgentHostHttpClient } from "../modules/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/agent-host-http-client"
-import { runDeveloperAgentCycle } from "../modules/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/developer-agent-cycle"
+} from "../apps/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/agent-cycle-cli"
+import { createAgentArtifactCliPort } from "../apps/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/agent-artifact-cli-port"
+import { AgentHostHttpClient } from "../apps/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/agent-host-http-client"
+import { runDeveloperAgentCycle } from "../apps/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/developer-agent-cycle"
 import {
   parseDeveloperAgentCycleInput,
   type DeveloperAgentCycleInput,
-} from "../modules/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/developer-agent-cycle-cli"
-import type { PreparedDeveloperAgentRun } from "../modules/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/developer-agent-run"
-import { resolveDeveloperWorkspacePolicy } from "../modules/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/developer-workspace-policy"
+} from "../apps/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/developer-agent-cycle-cli"
+import type { PreparedDeveloperAgentRun } from "../apps/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/developer-agent-run"
+import { resolveDeveloperWorkspacePolicy } from "../apps/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/developer-workspace-policy"
 import {
   queueDeveloperPatchAdoption,
 } from "./lib/rd-developer-patch-adoption-queue"

@@ -31,7 +31,7 @@ L1 `docs contract` 已有可用骨架，代码、manifest 与生成投影当前�
 | P0 | 未发现断裂的 Markdown 相对链接、manifest 孤儿模块或缺失模块 | 无阻断 |
 | P1 | 两份已完成计划仍以当前态语气展示旧目标路径 | 标为 `completed-historical`，加入 canonical 指向 |
 | P1 | `tool-layout.md` 仍称目录处于迁移中间态，并引用已退役 `trade-flow/src/domain/*` | 改为当前 façade / owner 口径 |
-| P1 | `modules/README.md` 留有 RD 根级旧路径及已删除 Trade-Flow domain contract | 删除旧清单，改为四子树与 façade 口径 |
+| P1 | `apps/README.md` 留有 RD 根级旧路径及已删除 Trade-Flow domain contract | 删除旧清单，改为四子树与 façade 口径 |
 | P1 | `trade-flow/CONTRACT.md` 把 event store、projection、execution、recovery 算法写成自身 owner | 改为 suite routing 与 owner handoff |
 | P1 | `design-architecture.md` 仍把通知模块写成未来且路径错误 | 对齐现有 `ops-notify-dispatch` |
 | P1 | Blueprint 迁移文档宣称跨域源码飞线为 0，而生成投影为 2 | 对齐为两条已登记 Market Data → Replay contracts 债务 |

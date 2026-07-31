@@ -218,7 +218,7 @@ function readDirectDependents(
 ): DirectDependent[] {
   const dependents: DirectDependent[] = []
   const sourceFiles = treeFiles(head)
-    .filter((path) => path.startsWith("modules/"))
+    .filter((path) => path.startsWith("apps/"))
     .filter(isJavaScriptOrTypeScript)
     .filter((path) => !isTestSource(path))
   for (const path of sourceFiles) {

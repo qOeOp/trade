@@ -15,19 +15,19 @@ import type { Database } from "bun:sqlite"
 import type {
   AgentArtifactRef,
   AgentRunRequest,
-} from "../../modules/contracts/agent-run-contract/src/agent-run-contract"
+} from "../../apps/contracts/agent-run-contract/src/agent-run-contract"
 import {
   canonicalHash,
   canonicalJson,
-} from "../../modules/contracts/runtime-core/src/canonical-json"
+} from "../../apps/contracts/runtime-core/src/canonical-json"
 import {
   parseAgentJsonArtifact,
   readAgentArtifact,
-} from "../../modules/orchestration-ops/agent-artifact-store/src/lib/agent-artifact-store"
+} from "../../apps/orchestration-ops/agent-artifact-store/src/lib/agent-artifact-store"
 import type {
   AgentWorkspaceSuite,
   AgentWorkspaceSuiteCheck,
-} from "../../modules/orchestration-ops/agent-workspace-manager/src/lib/isolated-package-checker"
+} from "../../apps/orchestration-ops/agent-workspace-manager/src/lib/isolated-package-checker"
 import {
   assertAgentWorkspaceExecutionScope,
   captureAgentWorkspacePatch,
@@ -38,7 +38,7 @@ import {
   type AgentWorkspace,
   type AgentWorkspaceExecutionScope,
   type AgentWorkspacePackageCheck,
-} from "../../modules/orchestration-ops/agent-workspace-manager/src/lib/workspace-manager"
+} from "../../apps/orchestration-ops/agent-workspace-manager/src/lib/workspace-manager"
 import {
   admitAgentPatchAdoption,
   completeAgentPatchAdoption,
@@ -47,17 +47,17 @@ import {
   startAgentPatchAdoption,
   type AgentPatchAdoptionFailureClass,
   type AgentPatchAdoptionResultProjection,
-} from "../../modules/orchestration-ops/ops-runtime-store/src/lib/agent-patch-adoption-store"
+} from "../../apps/orchestration-ops/ops-runtime-store/src/lib/agent-patch-adoption-store"
 import {
   readAgentRun,
-} from "../../modules/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
+} from "../../apps/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
 import {
   readAgentWorkspaceExecutionScope,
-} from "../../modules/orchestration-ops/ops-runtime-store/src/lib/agent-workspace-scope-store"
+} from "../../apps/orchestration-ops/ops-runtime-store/src/lib/agent-workspace-scope-store"
 import {
   assertDeveloperAgentSubmission,
   type DeveloperAgentSubmission,
-} from "../../modules/research-strategy-development/research-control-plane/contracts/src/lib/developer-agent-submission"
+} from "../../apps/research-strategy-development/research-control-plane/contracts/src/lib/developer-agent-submission"
 
 export interface DeveloperPatchAdoptionManifest {
   schema_version: "trade.rd-developer-patch-adoption-manifest.v1"

@@ -35,15 +35,15 @@ afterEach(() => {
 
 test("single-owner diff maps the canonical owner without inferring structural pressure", () => {
   const fixture = repositoryFixture(true)
-  writeFileSync(join(fixture.root, "modules/domain-a/owner-a/src/index.ts"), "export const value = 2\n")
+  writeFileSync(join(fixture.root, "apps/domain-a/owner-a/src/index.ts"), "export const value = 2\n")
   const head = commit(fixture.root, "mission a")
   const report = runHelper(fixture.root, fixture.base, head)
 
-  expect(report.facts.owners.map((owner) => owner.id)).toEqual(["modules/domain-a/owner-a"])
+  expect(report.facts.owners.map((owner) => owner.id)).toEqual(["apps/domain-a/owner-a"])
   expect(report.facts.direct_dependents).toEqual([{
-    source_path: "modules/domain-b/owner-b/src/index.ts",
+    source_path: "apps/domain-b/owner-b/src/index.ts",
     source_owner: expect.any(Object),
-    target_owner: expect.objectContaining({ id: "modules/domain-a/owner-a" }),
+    target_owner: expect.objectContaining({ id: "apps/domain-a/owner-a" }),
     specifier: "../../../domain-a/owner-a/src/index",
     import_kind: "import-statement",
     evidence: "static-relative-production-import",
@@ -54,10 +54,10 @@ test("single-owner diff maps the canonical owner without inferring structural pr
 
 test("an explicit base-head range spans accepted changes and reports an evidenced owner relation", () => {
   const fixture = repositoryFixture(true)
-  writeFileSync(join(fixture.root, "modules/domain-a/owner-a/src/index.ts"), "export const value = 2\n")
+  writeFileSync(join(fixture.root, "apps/domain-a/owner-a/src/index.ts"), "export const value = 2\n")
   commit(fixture.root, "mission a")
   writeFileSync(
-    join(fixture.root, "modules/domain-b/owner-b/src/index.ts"),
+    join(fixture.root, "apps/domain-b/owner-b/src/index.ts"),
     'import { value } from "../../../domain-a/owner-a/src/index"\nexport const result = value + 1\n',
   )
   const head = commit(fixture.root, "mission b")
@@ -65,8 +65,8 @@ test("an explicit base-head range spans accepted changes and reports an evidence
 
   expect(report.range.commit_count).toBe(2)
   expect(report.facts.owners.map((owner) => owner.id)).toEqual([
-    "modules/domain-a/owner-a",
-    "modules/domain-b/owner-b",
+    "apps/domain-a/owner-a",
+    "apps/domain-b/owner-b",
   ])
   expect(report.reasons.map((reason) => reason.kind)).toEqual(["changed-owner-direct-dependency"])
 })
@@ -83,14 +83,14 @@ test("unassigned paths are reported instead of being forced into an owner", () =
 
 test("contract packages absent from canonical owner data remain unowned", () => {
   const fixture = repositoryFixture(false)
-  mkdirSync(join(fixture.root, "modules/contracts/ghost"), { recursive: true })
-  writeFileSync(join(fixture.root, "modules/contracts/ghost/package.json"), '{"name":"ghost"}\n')
+  mkdirSync(join(fixture.root, "apps/contracts/ghost"), { recursive: true })
+  writeFileSync(join(fixture.root, "apps/contracts/ghost/package.json"), '{"name":"ghost"}\n')
   const head = commit(fixture.root, "unregistered contract package")
   const report = runHelper(fixture.root, fixture.base, head)
 
-  expect(report.facts.unowned_paths).toEqual(["modules/contracts/ghost/package.json"])
+  expect(report.facts.unowned_paths).toEqual(["apps/contracts/ghost/package.json"])
   expect(report.facts.changed_paths[0]).toMatchObject({
-    path: "modules/contracts/ghost/package.json",
+    path: "apps/contracts/ghost/package.json",
     owner: null,
   })
 })
@@ -98,7 +98,7 @@ test("contract packages absent from canonical owner data remain unowned", () => 
 test("churn-only evidence produces facts and no refactor conclusion", () => {
   const fixture = repositoryFixture(false)
   writeFileSync(
-    join(fixture.root, "modules/domain-a/owner-a/src/index.ts"),
+    join(fixture.root, "apps/domain-a/owner-a/src/index.ts"),
     Array.from({ length: 80 }, (_, index) => `export const value${index} = ${index}`).join("\n") + "\n",
   )
   const head = commit(fixture.root, "large local edit")
@@ -111,7 +111,7 @@ test("churn-only evidence produces facts and no refactor conclusion", () => {
 
 test("dirty and unreachable heads are explicit deferral facts", () => {
   const fixture = repositoryFixture(false)
-  writeFileSync(join(fixture.root, "modules/domain-a/owner-a/src/index.ts"), "export const value = 2\n")
+  writeFileSync(join(fixture.root, "apps/domain-a/owner-a/src/index.ts"), "export const value = 2\n")
   const head = commit(fixture.root, "reachable head")
   writeFileSync(join(fixture.root, "scratch.tmp"), "untracked evidence\n")
   const before = workspaceSnapshot(fixture.root)
@@ -132,7 +132,7 @@ test("dirty and unreachable heads are explicit deferral facts", () => {
 
 test("a reachable old head is stale after its declared source ref advances", () => {
   const fixture = repositoryFixture(false)
-  writeFileSync(join(fixture.root, "modules/domain-a/owner-a/src/index.ts"), "export const value = 2\n")
+  writeFileSync(join(fixture.root, "apps/domain-a/owner-a/src/index.ts"), "export const value = 2\n")
   const integratedHead = commit(fixture.root, "integrated missions")
   writeFileSync(join(fixture.root, "later.txt"), "later integration\n")
   const currentTip = commit(fixture.root, "later integration")
@@ -153,13 +153,13 @@ function repositoryFixture(withDependent: boolean): { root: string; base: string
   git(root, ["config", "user.email", "fixture@example.com"])
   mkdirSync(join(root, "docs/architecture"), { recursive: true })
   mkdirSync(join(root, "docs/engineering"), { recursive: true })
-  mkdirSync(join(root, "modules/domain-a/owner-a/src"), { recursive: true })
-  mkdirSync(join(root, "modules/domain-b/owner-b/src"), { recursive: true })
+  mkdirSync(join(root, "apps/domain-a/owner-a/src"), { recursive: true })
+  mkdirSync(join(root, "apps/domain-b/owner-b/src"), { recursive: true })
   writeFileSync(join(root, "docs/architecture/architecture-manifest.json"), JSON.stringify({
     schema_version: "trade.architecture-manifest.v1",
     domains: [
-      { id: "domain-a", modules: ["modules/domain-a/owner-a"] },
-      { id: "domain-b", modules: ["modules/domain-b/owner-b"] },
+      { id: "domain-a", modules: ["apps/domain-a/owner-a"] },
+      { id: "domain-b", modules: ["apps/domain-b/owner-b"] },
     ],
     jobs: [],
     stores: [],
@@ -169,9 +169,9 @@ function repositoryFixture(withDependent: boolean): { root: string; base: string
     schema_version: "trade.doc-contract-index.v1",
     documents: [],
   }))
-  writeFileSync(join(root, "modules/domain-a/owner-a/src/index.ts"), "export const value = 1\n")
+  writeFileSync(join(root, "apps/domain-a/owner-a/src/index.ts"), "export const value = 1\n")
   writeFileSync(
-    join(root, "modules/domain-b/owner-b/src/index.ts"),
+    join(root, "apps/domain-b/owner-b/src/index.ts"),
     withDependent
       ? '#!/usr/bin/env bun\nimport { value } from "../../../domain-a/owner-a/src/index"\nexport const result = value\n'
       : "export const result = 1\n",

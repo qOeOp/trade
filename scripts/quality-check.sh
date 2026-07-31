@@ -145,13 +145,13 @@ check_replay_semantics() {
     --input scripts/run-cached-quality-check.ts \
     --input scripts/run-exclusive-test.sh \
     --input scripts/quality-lock.sh \
-    --input modules/contracts/runtime-core \
-    --input modules/research-strategy-development/research-control-plane/contracts \
-    --input modules/research-strategy-development/replay-execution-plane/accounting \
-    --input modules/research-strategy-development/replay-execution-plane/contracts \
-    --input modules/research-strategy-development/replay-execution-plane/data-adapter \
-    --input modules/research-strategy-development/replay-execution-plane/engine \
-    --input modules/research-strategy-development/replay-execution-plane/runner \
+    --input apps/contracts/runtime-core \
+    --input apps/research-strategy-development/research-control-plane/contracts \
+    --input apps/research-strategy-development/replay-execution-plane/accounting \
+    --input apps/research-strategy-development/replay-execution-plane/contracts \
+    --input apps/research-strategy-development/replay-execution-plane/data-adapter \
+    --input apps/research-strategy-development/replay-execution-plane/engine \
+    --input apps/research-strategy-development/replay-execution-plane/runner \
     -- sh scripts/check-replay-semantic.sh
 }
 
@@ -164,7 +164,7 @@ check_test_source_boundaries() {
 check_go_tools() {
   require_cmd go
   log "go tools"
-  find modules -name go.mod -type f | sort | while IFS= read -r mod; do
+  find apps -name go.mod -type f | sort | while IFS= read -r mod; do
     [ -f "$mod" ] || continue
     dir="$(dirname "$mod")"
     sh scripts/check-native-package.sh go "$dir"
@@ -173,7 +173,7 @@ check_go_tools() {
 
 check_python_tools() {
   log "python tools"
-  find modules -type d -name scripts | sort | while IFS= read -r scripts_dir; do
+  find apps -type d -name scripts | sort | while IFS= read -r scripts_dir; do
     dir="$(dirname "$scripts_dir")"
     [ -d "$dir/scripts" ] || continue
     if find "$dir/scripts" -name '*.py' -type f | grep -q .; then
@@ -185,7 +185,7 @@ check_python_tools() {
 check_rust_tools() {
   require_cmd cargo
   log "rust tools"
-  find modules -name Cargo.toml -type f | sort | while IFS= read -r manifest; do
+  find apps -name Cargo.toml -type f | sort | while IFS= read -r manifest; do
     [ -f "$manifest" ] || continue
     dir="$(dirname "$manifest")"
     sh scripts/check-native-package.sh rust "$dir"

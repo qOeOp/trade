@@ -3,7 +3,7 @@
 set -eu
 
 ROOT="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
-cd "$ROOT/modules/research-strategy-development/replay-execution-plane/runner"
+cd "$ROOT/apps/research-strategy-development/replay-execution-plane/runner"
 
 sh "$ROOT/scripts/run-exclusive-test.sh" \
   replay-runner-heavyweight \

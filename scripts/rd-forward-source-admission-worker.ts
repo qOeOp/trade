@@ -12,13 +12,13 @@ import { dirname, resolve } from "node:path"
 import { Database } from "bun:sqlite"
 import {
   listCertifiedStrategySourceAdoptions,
-} from "../modules/orchestration-ops/ops-runtime-store/src/lib/strategy-source-adoption-store"
+} from "../apps/orchestration-ops/ops-runtime-store/src/lib/strategy-source-adoption-store"
 import {
   readForwardSourceAdmission,
-} from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/forward-source-admission"
+} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/forward-source-admission"
 import {
   ensureResearchControlPlaneSchema,
-} from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/research-control-plane-schema"
+} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/research-control-plane-schema"
 import {
   admitCertifiedStrategyAdoptionToForward,
 } from "./lib/rd-forward-source-admission"

@@ -117,8 +117,8 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            modules/**/target
-          key: rust-${{ runner.os }}-${{ hashFiles('modules/**/Cargo.lock') }}
+            apps/**/target
+          key: rust-${{ runner.os }}-${{ hashFiles('apps/**/Cargo.lock') }}
       - run: scripts/quality-check.sh native
 
   quality:

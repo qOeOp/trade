@@ -14,14 +14,14 @@ describe("workspace hygiene", () => {
   test("rejects runtime databases under module data directories even when untracked", () => {
     expect(findWorkspaceHygieneIssues({
       trackedPaths: [],
-      moduleRuntimePaths: ["modules/example/data/test.db-shm"],
+      moduleRuntimePaths: ["apps/example/data/test.db-shm"],
     })).toEqual([
-      "module-local runtime SQLite file is forbidden: modules/example/data/test.db-shm",
+      "module-local runtime SQLite file is forbidden: apps/example/data/test.db-shm",
     ])
   })
 
   test("reports a tracked module-local runtime database through both zero-exception rules", () => {
-    const path = "modules/example/data/legacy.db"
+    const path = "apps/example/data/legacy.db"
     expect(findWorkspaceHygieneIssues({
       trackedPaths: [path],
       moduleRuntimePaths: [path],

@@ -1685,7 +1685,7 @@ sequenceDiagram
 
 ## DECISION_CARD
 
-慢轨每轮输出 6 行扫读视图，从 `current_plan + latest_observe + strategy` 实时渲染，不存库。工具集边界见 [modules/README.md](../../modules/README.md)。
+慢轨每轮输出 6 行扫读视图，从 `current_plan + latest_observe + strategy` 实时渲染，不存库。工具集边界见 [apps/README.md](../../apps/README.md)。
 
 快轨默认不渲染完整 DECISION_CARD（频率太高、噪音多）；仅在快轨触发执行或防御动作时输出一条精简 fast-track summary（包含 source / target_action / trigger 命中信息 / preflight 结果）。
 
@@ -1947,7 +1947,7 @@ lock 不替代爆仓护栏 / 对账：它只解决"两个 cron 进程同时跑"�
 | `binance_api_failure` | Binance API 持续失败（cron 周期内重试均失败） | warn |
 | `strategy_audit_generated` | strategy degradation watch 触发，已写 audit markdown 到 `data/strategy_audits/` | warn |
 
-通道映射、级别过滤、凭证读取与 ops fallback 由 `modules/orchestration-ops/ops-notify-dispatch` 承接；通知失败不得阻塞 cron 主流程。
+通道映射、级别过滤、凭证读取与 ops fallback 由 `apps/orchestration-ops/ops-notify-dispatch` 承接；通知失败不得阻塞 cron 主流程。
 
 ---
 

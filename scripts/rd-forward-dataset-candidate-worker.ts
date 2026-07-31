@@ -8,25 +8,25 @@ import { dirname, resolve } from "node:path"
 import { Database } from "bun:sqlite"
 import {
   materializeForwardDatasetCandidate,
-} from "../modules/research-strategy-development/forward-evidence-plane/runner/src/lib/forward-dataset-candidate-materializer"
+} from "../apps/research-strategy-development/forward-evidence-plane/runner/src/lib/forward-dataset-candidate-materializer"
 import {
   admitForwardDatasetCandidate,
   ensureForwardDatasetCandidateSchema,
   readLatestForwardDatasetCandidate,
-} from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/forward-dataset-candidate"
+} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/forward-dataset-candidate"
 import {
   readForwardDatasetReadinessAssessment,
-} from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/forward-dataset-readiness-assessment"
+} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/forward-dataset-readiness-assessment"
 import {
   listForwardObservationCandleSegments,
   readLatestForwardObservationCandleSegment,
-} from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/forward-observation-candle-segment"
+} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/forward-observation-candle-segment"
 import {
   listCollectingForwardObservationPrograms,
-} from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/forward-observation-program"
+} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/forward-observation-program"
 import {
   ensureResearchControlPlaneSchema,
-} from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/research-control-plane-schema"
+} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/research-control-plane-schema"
 import {
   resolveWorkerDataPath,
   workerAbsolutePath,

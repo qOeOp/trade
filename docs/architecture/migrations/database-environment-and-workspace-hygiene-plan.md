@@ -87,7 +87,7 @@ environment selection
 
 - 修复所有测试中的隐式默认 DB；临时目录必须贯穿 state、catalog、artifact 与 sidecar。
 - 全局忽略 SQLite sidecar；盘点并从 Git 索引移除运行态 DB/sidecar。若某文件确为 fixture，先转成最小 SQL/JSON 或只读不可变 fixture。
-- 禁止新增 `modules/**/data/` 运行落点；现有文件逐一判定迁移或删除，不把未知 DB 批量当垃圾处理。
+- 禁止新增 `apps/**/data/` 运行落点；现有文件逐一判定迁移或删除，不把未知 DB 批量当垃圾处理。
 - 记录清理前的 path、tracked 状态、bytes、最后修改时间与 catalog/pin 引用；本阶段不做无差别清理。
 
 退出条件：运行已知污染测试后，Git 状态不新增 DB 差异或 module-local sidecar。

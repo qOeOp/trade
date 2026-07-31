@@ -29,7 +29,7 @@ v2 蓝图的物理骨架已落地：10 个顶层 domain、J01-J07、10 个 logic
 - domain job 已有 owner-native result 的主路径。
 - architecture drift 报告进入 quality gate。
 - 新模块按 domain / atomic / contract / internal-engine 规则归位。
-- Market Data / Replay 的 status 与 aggregate-trade wire 已上提 `modules/contracts/replay-contract`，生产源码飞线归零。
+- Market Data / Replay 的 status 与 aggregate-trade wire 已上提 `apps/contracts/replay-contract`，生产源码飞线归零。
 - 无消费者 `research.candidate-freezer` 已从 toolset、manifest 与代码树退役；共享 frozen-candidate ref 协议保留。
 
 ## 3. 剩余迁移债务

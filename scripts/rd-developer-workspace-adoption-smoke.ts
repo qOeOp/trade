@@ -9,19 +9,19 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { readFamilyEvaluationProtocol } from "../modules/contracts/rd-agent-capability-contract/src/rd-agent-capability-contract"
-import { readAgentArtifact } from "../modules/orchestration-ops/agent-artifact-store/src/lib/agent-artifact-store"
-import { ensureAgentRunStoreSchema } from "../modules/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
-import { buildPlannerProposal } from "../modules/research-strategy-development/agent-roles/planner/src/lib/planner-role"
-import { PLANNER_PROPOSAL_INTAKE_REQUEST_SCHEMA_VERSION } from "../modules/research-strategy-development/research-control-plane/contracts/src/lib/planner-proposal-submission"
-import { admitPlannerProposal } from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/planner-proposal-intake"
-import { readPlannerControlPlaneContext } from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/research-control-plane-operations"
-import { ensureResearchStateSchema } from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/research-state-store"
-import { seedDefaultResearchControlPlane } from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/research-universe-default-seed"
+import { readFamilyEvaluationProtocol } from "../apps/contracts/rd-agent-capability-contract/src/rd-agent-capability-contract"
+import { readAgentArtifact } from "../apps/orchestration-ops/agent-artifact-store/src/lib/agent-artifact-store"
+import { ensureAgentRunStoreSchema } from "../apps/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
+import { buildPlannerProposal } from "../apps/research-strategy-development/agent-roles/planner/src/lib/planner-role"
+import { PLANNER_PROPOSAL_INTAKE_REQUEST_SCHEMA_VERSION } from "../apps/research-strategy-development/research-control-plane/contracts/src/lib/planner-proposal-submission"
+import { admitPlannerProposal } from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/planner-proposal-intake"
+import { readPlannerControlPlaneContext } from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/research-control-plane-operations"
+import { ensureResearchStateSchema } from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/research-state-store"
+import { seedDefaultResearchControlPlane } from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/research-universe-default-seed"
 import { runDeveloperWorkspaceCycle } from "./lib/rd-developer-workspace-cycle"
 
 const PACKAGE_PATH =
-  "modules/research-strategy-development/agent-roles/developer/strategy-family-engine"
+  "apps/research-strategy-development/agent-roles/developer/strategy-family-engine"
 
 async function main(): Promise<void> {
   const codexPath = process.env.TRADE_CODEX_PATH || Bun.which("codex")

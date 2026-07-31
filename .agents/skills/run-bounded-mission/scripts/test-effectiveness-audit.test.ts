@@ -13,8 +13,8 @@ afterEach(() => {
 describe("test-effectiveness audit", () => {
   test("emits deterministic owner, consumer, test-value, and action evidence without writes", () => {
     const fixture = createFixture()
-    write(fixture.root, "modules/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
-    write(fixture.root, "modules/example/calc/src/calc.test.ts", [
+    write(fixture.root, "apps/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
+    write(fixture.root, "apps/example/calc/src/calc.test.ts", [
       'import { expect, test } from "bun:test"',
       'import { add } from "./calc"',
       "",
@@ -29,13 +29,13 @@ describe("test-effectiveness audit", () => {
     const first = audit(fixture.root, [
       "--origin", fixture.origin,
       "--candidate", candidate,
-      "--scope", "modules/example/calc",
+      "--scope", "apps/example/calc",
       "--classification", "scenario_gap",
     ])
     const second = audit(fixture.root, [
       "--origin", fixture.origin,
       "--candidate", candidate,
-      "--scope", "modules/example/calc",
+      "--scope", "apps/example/calc",
       "--classification", "scenario_gap",
     ])
 
@@ -56,13 +56,13 @@ describe("test-effectiveness audit", () => {
       candidate_tests: 1,
       no_direct_static_candidate_evidence: false,
     })
-    expect(proposal.affected_owners[0].owner).toBe("modules/example/calc")
+    expect(proposal.affected_owners[0].owner).toBe("apps/example/calc")
     expect(proposal.affected_owners[0].consumer_evidence.reverse_importers).toContain(
-      "modules/example/calc/src/main.ts",
+      "apps/example/calc/src/main.ts",
     )
     expect(proposal.affected_owners[0].candidate_tests[0]).toMatchObject({
-      path: "modules/example/calc/src/calc.test.ts",
-      direct_changed_source_imports: ["modules/example/calc/src/calc.ts"],
+      path: "apps/example/calc/src/calc.test.ts",
+      direct_changed_source_imports: ["apps/example/calc/src/calc.ts"],
       recommendation: { action: "strengthen" },
     })
     expect(proposal.affected_owners[0].candidate_tests[0].relevant).toBeUndefined()
@@ -78,7 +78,7 @@ describe("test-effectiveness audit", () => {
     const empty = audit(fixture.root, [
       "--origin", fixture.origin,
       "--candidate", emptyCandidate,
-      "--scope", "modules/example/calc",
+      "--scope", "apps/example/calc",
     ])
     expect(empty.status).toBe(0)
     expect(JSON.parse(empty.stdout).summary).toMatchObject({
@@ -88,16 +88,16 @@ describe("test-effectiveness audit", () => {
       no_direct_static_candidate_evidence: false,
     })
 
-    write(fixture.root, "modules/example/no-test/CONTRACT.md", "# No Test Owner\n")
-    write(fixture.root, "modules/example/no-test/package.json", '{"name":"no-test","private":true}\n')
-    write(fixture.root, "modules/example/no-test/src/value.ts", "export const value = 1\n")
+    write(fixture.root, "apps/example/no-test/CONTRACT.md", "# No Test Owner\n")
+    write(fixture.root, "apps/example/no-test/package.json", '{"name":"no-test","private":true}\n')
+    write(fixture.root, "apps/example/no-test/src/value.ts", "export const value = 1\n")
     const noTestOrigin = commit(fixture.root, "add owner without tests")
-    write(fixture.root, "modules/example/no-test/src/value.ts", "export const value = 2\n")
+    write(fixture.root, "apps/example/no-test/src/value.ts", "export const value = 2\n")
     const noTestCandidate = commit(fixture.root, "change owner without tests")
     const noTest = audit(fixture.root, [
       "--origin", noTestOrigin,
       "--candidate", noTestCandidate,
-      "--scope", "modules/example/no-test",
+      "--scope", "apps/example/no-test",
     ])
     expect(noTest.status).toBe(0)
     const proposal = JSON.parse(noTest.stdout)
@@ -108,7 +108,7 @@ describe("test-effectiveness audit", () => {
       no_direct_static_candidate_evidence: true,
     })
     expect(proposal.affected_owners[0].consumer_evidence).toMatchObject({
-      contract_paths: ["modules/example/no-test/CONTRACT.md"],
+      contract_paths: ["apps/example/no-test/CONTRACT.md"],
       entrypoint_paths: [],
       reverse_importers: [],
       status: "unresolved",
@@ -134,48 +134,48 @@ describe("test-effectiveness audit", () => {
 
   test("includes direct and side-effect test importers from unchanged owners", () => {
     const fixture = createFixture()
-    write(fixture.root, "modules/example/calc/src/calc-side-effect.test.ts", [
+    write(fixture.root, "apps/example/calc/src/calc-side-effect.test.ts", [
       'import "./calc"',
       'import { expect, test } from "bun:test"',
       'test("loads calculation side effects", () => expect(true).toBe(true))',
       "",
     ].join("\n"))
-    write(fixture.root, "modules/example/integration/CONTRACT.md", "# Integration Contract\n")
-    write(fixture.root, "modules/example/integration/package.json", '{"name":"integration","private":true}\n')
-    write(fixture.root, "modules/example/integration/src/calc.integration.test.ts", [
+    write(fixture.root, "apps/example/integration/CONTRACT.md", "# Integration Contract\n")
+    write(fixture.root, "apps/example/integration/package.json", '{"name":"integration","private":true}\n')
+    write(fixture.root, "apps/example/integration/src/calc.integration.test.ts", [
       'import { expect, test } from "bun:test"',
       'import { add } from "../../calc/src/calc"',
       'test("uses calculation across owners", () => expect(add(1, 2)).toBe(3))',
       "",
     ].join("\n"))
     const origin = commit(fixture.root, "add cross-owner and side-effect tests")
-    write(fixture.root, "modules/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
+    write(fixture.root, "apps/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
     const candidate = commit(fixture.root, "change calculation source")
 
     const proposal = JSON.parse(audit(fixture.root, [
       "--origin", origin,
       "--candidate", candidate,
-      "--scope", "modules/example/calc",
+      "--scope", "apps/example/calc",
     ]).stdout)
     const candidatePaths = proposal.affected_owners
       .flatMap((owner: { candidate_tests: Array<{ path: string }> }) => owner.candidate_tests)
       .map((item: { path: string }) => item.path)
-    expect(candidatePaths).toContain("modules/example/calc/src/calc-side-effect.test.ts")
-    expect(candidatePaths).toContain("modules/example/integration/src/calc.integration.test.ts")
+    expect(candidatePaths).toContain("apps/example/calc/src/calc-side-effect.test.ts")
+    expect(candidatePaths).toContain("apps/example/integration/src/calc.integration.test.ts")
     expect(proposal.affected_owners.find(
-      (owner: { owner: string }) => owner.owner === "modules/example/integration",
+      (owner: { owner: string }) => owner.owner === "apps/example/integration",
     )).toMatchObject({
       changes: [],
       candidate_tests: [{
-        path: "modules/example/integration/src/calc.integration.test.ts",
-        direct_changed_source_imports: ["modules/example/calc/src/calc.ts"],
+        path: "apps/example/integration/src/calc.integration.test.ts",
+        direct_changed_source_imports: ["apps/example/calc/src/calc.ts"],
       }],
     })
   })
 
   test("reports deleted tests as origin-review uncertainty", () => {
     const fixture = createFixture()
-    rmSync(join(fixture.root, "modules/example/calc/src/calc.test.ts"))
+    rmSync(join(fixture.root, "apps/example/calc/src/calc.test.ts"))
     const candidate = commit(fixture.root, "delete calculation test")
     const proposal = JSON.parse(audit(fixture.root, [
       "--origin", fixture.origin,
@@ -189,25 +189,25 @@ describe("test-effectiveness audit", () => {
       no_direct_static_candidate_evidence: false,
     })
     expect(proposal.deleted_test_review).toMatchObject({
-      paths: ["modules/example/calc/src/calc.test.ts"],
+      paths: ["apps/example/calc/src/calc.test.ts"],
       status: "requires_origin_review",
     })
     expect(proposal.affected_owners[0].deleted_test_paths).toEqual([
-      "modules/example/calc/src/calc.test.ts",
+      "apps/example/calc/src/calc.test.ts",
     ])
     expect(proposal.proposal.test_refactor_mission.recommendation).toBe("conditional")
   })
 
   test("does not broadcast a failure classification across multiple candidate tests", () => {
     const fixture = createFixture()
-    write(fixture.root, "modules/example/calc/src/calc-second.test.ts", [
+    write(fixture.root, "apps/example/calc/src/calc-second.test.ts", [
       'import { expect, test } from "bun:test"',
       'import { add } from "./calc"',
       'test("adds another pair", () => expect(add(2, 2)).toBe(4))',
       "",
     ].join("\n"))
     const origin = commit(fixture.root, "add second calculation test")
-    write(fixture.root, "modules/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
+    write(fixture.root, "apps/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
     const candidate = commit(fixture.root, "change calculation source")
     const proposal = JSON.parse(audit(fixture.root, [
       "--origin", origin,
@@ -233,13 +233,13 @@ describe("test-effectiveness audit", () => {
       "})",
       "",
     ].join("\n")
-    write(fixture.root, "modules/example/calc/src/duplicate-a.test.ts", duplicate)
-    write(fixture.root, "modules/example/calc/src/duplicate-b.test.ts", duplicate)
+    write(fixture.root, "apps/example/calc/src/duplicate-a.test.ts", duplicate)
+    write(fixture.root, "apps/example/calc/src/duplicate-b.test.ts", duplicate)
     const candidate = commit(fixture.root, "add exact duplicate tests")
     const result = audit(fixture.root, [
       "--origin", fixture.origin,
       "--candidate", candidate,
-      "--scope", "modules/example/calc",
+      "--scope", "apps/example/calc",
       "--classification", "outdated_contract_or_assertion",
     ])
     expect(result.status).toBe(0)
@@ -254,45 +254,45 @@ describe("test-effectiveness audit", () => {
 
   test("qualifies indirect and deleted-source gaps as absent direct static candidates", () => {
     const fixture = createFixture()
-    write(fixture.root, "modules/example/calc/src/internal.ts", "export const internalValue = 1\n")
+    write(fixture.root, "apps/example/calc/src/internal.ts", "export const internalValue = 1\n")
     write(
       fixture.root,
-      "modules/example/calc/src/public.ts",
+      "apps/example/calc/src/public.ts",
       'import { internalValue } from "./internal"\nexport const publicValue = internalValue\n',
     )
-    write(fixture.root, "modules/example/calc/src/indirect.test.ts", [
+    write(fixture.root, "apps/example/calc/src/indirect.test.ts", [
       'import { expect, test } from "bun:test"',
       'import { publicValue } from "./public"',
       'test("uses the public boundary", () => expect(publicValue).toBe(1))',
       "",
     ].join("\n"))
     const indirectOrigin = commit(fixture.root, "add indirect test path")
-    write(fixture.root, "modules/example/calc/src/internal.ts", "export const internalValue = 2\n")
+    write(fixture.root, "apps/example/calc/src/internal.ts", "export const internalValue = 2\n")
     const indirectCandidate = commit(fixture.root, "change transitive source")
     const indirect = JSON.parse(audit(fixture.root, [
       "--origin", indirectOrigin,
       "--candidate", indirectCandidate,
-      "--scope", "modules/example/calc",
+      "--scope", "apps/example/calc",
     ]).stdout)
     expect(indirect.summary).toMatchObject({
       candidate_tests: 0,
       no_direct_static_candidate_evidence: true,
     })
 
-    write(fixture.root, "modules/example/calc/src/obsolete.ts", "export const obsolete = true\n")
-    write(fixture.root, "modules/example/calc/src/obsolete.test.ts", [
+    write(fixture.root, "apps/example/calc/src/obsolete.ts", "export const obsolete = true\n")
+    write(fixture.root, "apps/example/calc/src/obsolete.test.ts", [
       'import { expect, test } from "bun:test"',
       'import { obsolete } from "./obsolete"',
       'test("reads the obsolete source", () => expect(obsolete).toBe(true))',
       "",
     ].join("\n"))
     const deletedOrigin = commit(fixture.root, "add source that will be deleted")
-    rmSync(join(fixture.root, "modules/example/calc/src/obsolete.ts"))
+    rmSync(join(fixture.root, "apps/example/calc/src/obsolete.ts"))
     const deletedCandidate = commit(fixture.root, "delete source")
     const deleted = JSON.parse(audit(fixture.root, [
       "--origin", deletedOrigin,
       "--candidate", deletedCandidate,
-      "--scope", "modules/example/calc",
+      "--scope", "apps/example/calc",
     ]).stdout)
     expect(deleted.summary).toMatchObject({
       candidate_tests: 0,
@@ -334,15 +334,15 @@ function createFixture(): { root: string; origin: string } {
   const root = mkdtempSync(join(tmpdir(), "test-effectiveness-audit-"))
   temporaryRepositories.push(root)
   git(root, ["init", "--quiet"])
-  write(root, "modules/example/calc/CONTRACT.md", "# Calculator Contract\n")
-  write(root, "modules/example/calc/package.json", JSON.stringify({
+  write(root, "apps/example/calc/CONTRACT.md", "# Calculator Contract\n")
+  write(root, "apps/example/calc/package.json", JSON.stringify({
     name: "calculator",
     private: true,
     scripts: { test: "bun test" },
   }))
-  write(root, "modules/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right\n")
-  write(root, "modules/example/calc/src/main.ts", 'import { add } from "./calc"\nexport const result = add(1, 2)\n')
-  write(root, "modules/example/calc/src/calc.test.ts", [
+  write(root, "apps/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right\n")
+  write(root, "apps/example/calc/src/main.ts", 'import { add } from "./calc"\nexport const result = add(1, 2)\n')
+  write(root, "apps/example/calc/src/calc.test.ts", [
     'import { expect, test } from "bun:test"',
     'import { add } from "./calc"',
     "",

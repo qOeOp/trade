@@ -5,7 +5,7 @@ status: legacy-reference
 owner: research-strategy-development
 last_verified: 2026-07-22 CST
 taxonomy_status: frozen
-implementation_owner: modules/research-strategy-development/research-control-plane/state-store
+implementation_owner: apps/research-strategy-development/research-control-plane/state-store
 machine_backlog: docs/research/strategy/strategy-universe-family-backlog.json
 p0_certificates: docs/research/strategy/strategy-universe-p0-family-certificates.json
 ---

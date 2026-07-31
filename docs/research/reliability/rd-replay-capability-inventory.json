@@ -12,25 +12,25 @@
     {
       "profile": "single-trial",
       "owner": "runner",
-      "path": "modules/research-strategy-development/replay-execution-plane/runner/src/public.ts",
+      "path": "apps/research-strategy-development/replay-execution-plane/runner/src/public.ts",
       "export": "runReplayTrial"
     },
     {
       "profile": "independent-lane-batch",
       "owner": "runner",
-      "path": "modules/research-strategy-development/replay-execution-plane/runner/src/public.ts",
+      "path": "apps/research-strategy-development/replay-execution-plane/runner/src/public.ts",
       "export": "runReplayIndependentLaneBatch"
     },
     {
       "profile": "integrated-portfolio",
       "owner": "runner",
-      "path": "modules/research-strategy-development/replay-execution-plane/runner/src/public.ts",
+      "path": "apps/research-strategy-development/replay-execution-plane/runner/src/public.ts",
       "export": "runReplayIntegratedPortfolio"
     },
     {
       "profile": "terminal-aware-bounded-cycle",
       "owner": "runner",
-      "path": "modules/research-strategy-development/replay-execution-plane/runner/src/public.ts",
+      "path": "apps/research-strategy-development/replay-execution-plane/runner/src/public.ts",
       "export": "runReplayPortfolioProtectiveTerminalCycleSequence"
     }
   ],
@@ -38,73 +38,73 @@
     {
       "milestone": "M4-P2",
       "activation": "dedicated-runner-and-control-plane-authority",
-      "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.ts",
+      "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.ts",
       "export": "runReplaySharedInitialCapitalBatch"
     },
     {
       "milestone": "M4-P19",
       "activation": "dedicated-runner-and-control-plane-authority",
-      "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-stop-replacement-terminal-runner.ts",
+      "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-stop-replacement-terminal-runner.ts",
       "export": "runReplayPortfolioProtectiveStopReplacementTerminal"
     },
     {
       "milestone": "M4-P20",
       "activation": "dedicated-runner-and-committed-parent-artifact",
-      "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-stop-replacement-terminal-accounting-runner.ts",
+      "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-stop-replacement-terminal-accounting-runner.ts",
       "export": "runReplayPortfolioProtectiveStopReplacementTerminalAccounting"
     },
     {
       "milestone": "M4-P21",
       "activation": "dedicated-runner-and-control-plane-authority",
-      "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-stop-replacement-cycle-sequence-runner.ts",
+      "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-stop-replacement-cycle-sequence-runner.ts",
       "export": "runReplayPortfolioProtectiveStopReplacementCycleSequence"
     },
     {
       "milestone": "M4-P22",
       "activation": "dedicated-runner-and-control-plane-authority",
-      "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-take-profit-replacement-cycle-sequence-runner.ts",
+      "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-take-profit-replacement-cycle-sequence-runner.ts",
       "export": "runReplayPortfolioProtectiveTakeProfitReplacementCycleSequence"
     },
     {
       "milestone": "M4-P23",
       "activation": "dedicated-runner-and-control-plane-authority",
-      "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-take-profit-cancel-cycle-sequence-runner.ts",
+      "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-take-profit-cancel-cycle-sequence-runner.ts",
       "export": "runReplayPortfolioProtectiveTakeProfitCancelCycleSequence"
     },
     {
       "milestone": "M4-P24",
       "activation": "dedicated-runner-and-control-plane-authority",
-      "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-strategy-exit-cancel-cycle-sequence-runner.ts",
+      "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-strategy-exit-cancel-cycle-sequence-runner.ts",
       "export": "runReplayPortfolioProtectiveStrategyExitCancelCycleSequence"
     },
     {
       "milestone": "M4-P25",
       "activation": "dedicated-runner-and-control-plane-authority",
-      "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-stop-cancel-cycle-sequence-runner.ts",
+      "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-stop-cancel-cycle-sequence-runner.ts",
       "export": "runReplayPortfolioProtectiveStopCancelCycleSequence"
     },
     {
       "milestone": "M4-P26",
       "activation": "dedicated-runner-and-control-plane-authority",
-      "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-fixed-partial-cycle-sequence-runner.ts",
+      "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-fixed-partial-cycle-sequence-runner.ts",
       "export": "runReplayPortfolioFixedPartialCycleSequence"
     },
     {
       "milestone": "M4-P27",
       "activation": "dedicated-runner-and-control-plane-authority",
-      "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-two-fixed-partial-cycle-sequence-runner.ts",
+      "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-two-fixed-partial-cycle-sequence-runner.ts",
       "export": "runReplayPortfolioTwoFixedPartialCycleSequence"
     },
     {
       "milestone": "M4-P28",
       "activation": "dedicated-runner-and-control-plane-authority",
-      "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-post-partial-stop-replacement-cycle-sequence-runner.ts",
+      "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-post-partial-stop-replacement-cycle-sequence-runner.ts",
       "export": "runReplayPortfolioPostPartialStopReplacementCycleSequence"
     },
     {
       "milestone": "M4-P29",
       "activation": "input.bar_linked_stop_entry_path.activation_mode=explicit_opt_in_pre_result_binding",
-      "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.ts",
+      "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.ts",
       "export": "runReplayTrial"
     }
   ],
@@ -112,19 +112,19 @@
     {
       "milestone": "M4-P10",
       "owner": "legacy-portfolio-cycle",
-      "path": "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/src/lib/replay-portfolio-reallocation-runner.ts",
+      "path": "apps/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/src/lib/replay-portfolio-reallocation-runner.ts",
       "export": "runReplayPortfolioReallocation"
     },
     {
       "milestone": "M4-P11",
       "owner": "legacy-portfolio-cycle",
-      "path": "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/src/lib/replay-two-cycle-portfolio-runner.ts",
+      "path": "apps/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/src/lib/replay-two-cycle-portfolio-runner.ts",
       "export": "runReplayTwoCyclePortfolio"
     },
     {
       "milestone": "M4-P13",
       "owner": "legacy-portfolio-cycle",
-      "path": "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/src/lib/replay-portfolio-cycle-sequence-accounting-runner.ts",
+      "path": "apps/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/src/lib/replay-portfolio-cycle-sequence-accounting-runner.ts",
       "export": "runReplayPortfolioCycleSequenceAccounting"
     }
   ],

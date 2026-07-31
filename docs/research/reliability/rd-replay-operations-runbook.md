@@ -31,10 +31,10 @@ last_verified: 2026-07-22 CST
 ## 3. 上线前与值班检查
 
 ```bash
-bun modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --list --json
+bun apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --list --json
 bun scripts/check-rd-replay-maturity-gate.ts
-bun modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --suite canonical
-bun modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --suite compatibility
+bun apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --suite canonical
+bun apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --suite compatibility
 ```
 
 任何命令非零退出都阻断 release；stdout 和进程退出只证明命令执行状态，不替代 Outcome/Artifact authority。

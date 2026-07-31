@@ -30,13 +30,13 @@
 
 | Ticket | Job | Target domain | Owner module | Owner module domain | Writes |
 | --- | --- | --- | --- | --- | --- |
-| `J01` | `account_reconcile_guard` | `live-execution-control` | `modules/live-execution-control/recovery-runner` | `live-execution-control` | `trade_event_store` |
-| `J02` | `fast_track_guard` | `live-execution-control` | `modules/live-execution-control/fast-track-guard` | `live-execution-control` | `trade_event_store` |
-| `J03` | `slow_track_market_watch` | `live-decision-planning` | `modules/live-decision-planning/slow-track-plan` | `live-decision-planning` | - |
-| `J04` | `rd_strategy_supervisor` | `research-strategy-development` | `modules/research-strategy-development/research-control-plane/program-supervisor` | `research-strategy-development` | `research_state_store`, `artifact_catalog` |
-| `J05` | `rd_forward_shadow_trackers` | `research-strategy-development` | `modules/research-strategy-development/forward-evidence-plane/paper-tracker` | `research-strategy-development` | `artifact_catalog` |
-| `J06` | `catalog_hygiene_scan` | `artifact-knowledge` | `modules/artifact-knowledge/artifact-catalog` | `artifact-knowledge` | `artifact_catalog` |
-| `J07` | `closed_flow_review_sweep` | `governance-review-compliance` | `modules/governance-review-compliance/closed-flow-review-sweep` | `governance-review-compliance` | `governance_ledger` |
+| `J01` | `account_reconcile_guard` | `live-execution-control` | `apps/live-execution-control/recovery-runner` | `live-execution-control` | `trade_event_store` |
+| `J02` | `fast_track_guard` | `live-execution-control` | `apps/live-execution-control/fast-track-guard` | `live-execution-control` | `trade_event_store` |
+| `J03` | `slow_track_market_watch` | `live-decision-planning` | `apps/live-decision-planning/slow-track-plan` | `live-decision-planning` | - |
+| `J04` | `rd_strategy_supervisor` | `research-strategy-development` | `apps/research-strategy-development/research-control-plane/program-supervisor` | `research-strategy-development` | `research_state_store`, `artifact_catalog` |
+| `J05` | `rd_forward_shadow_trackers` | `research-strategy-development` | `apps/research-strategy-development/forward-evidence-plane/paper-tracker` | `research-strategy-development` | `artifact_catalog` |
+| `J06` | `catalog_hygiene_scan` | `artifact-knowledge` | `apps/artifact-knowledge/artifact-catalog` | `artifact-knowledge` | `artifact_catalog` |
+| `J07` | `closed_flow_review_sweep` | `governance-review-compliance` | `apps/governance-review-compliance/closed-flow-review-sweep` | `governance-review-compliance` | `governance_ledger` |
 
 ## Code Flylines
 

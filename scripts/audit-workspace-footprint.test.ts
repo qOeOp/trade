@@ -9,7 +9,7 @@ test("workspace footprint keeps evidence out of automatic cleanup classes", () =
 })
 
 test("workspace footprint separates rebuildable and external residue", () => {
-  expect(classifyWorkspacePath("modules/x/target/debug/tool")).toBe("build_cache")
+  expect(classifyWorkspacePath("apps/x/target/debug/tool")).toBe("build_cache")
   expect(classifyWorkspacePath("tmp/check/final-cargo-target/debug/tool")).toBe("build_cache")
   expect(classifyWorkspacePath("tmp/test/run.db")).toBe("test_residue")
   expect(classifyWorkspacePath("tmp/upstream-source-audit-20260722/repo/.git/config")).toBe("external_audit_clone")

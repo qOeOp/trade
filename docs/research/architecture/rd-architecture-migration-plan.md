@@ -10,7 +10,7 @@ last_verified: 2026-07-23 CST
 
 ## 1. 当前结论
 
-`modules/research-strategy-development/` 的物理根已收口为四个直接子树：
+`apps/research-strategy-development/` 的物理根已收口为四个直接子树：
 
 ```text
 research-control-plane/

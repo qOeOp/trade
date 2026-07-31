@@ -129,7 +129,7 @@ automation-plan
 
 | 约束 | 含义 |
 | --- | --- |
-| `job.tool_id` 必须来自 `toolset.json` | 不在源码里硬编码 `modules/.../src/scripts/main.ts` |
+| `job.tool_id` 必须来自 `toolset.json` | 不在源码里硬编码 `apps/.../src/scripts/main.ts` |
 | 一个 job 只调用一个 atomic tool | 复杂流程必须拆成多个 job |
 | job 必须声明 `capability_class` / `writes` / `concurrency_group` | 调度前先知道写入面 |
 | orchestrator 不得解释子工具业务结果 | 只检查 schema、status、refs、blocked reason |
@@ -156,7 +156,7 @@ automation-plan
 | `stop_conditions` | 预算耗尽、safe mode、data stale、needs_review 等停止条件 |
 | `forbidden_callers` | 如 exchange write 禁止 research / market scan 直接调用 |
 
-所有 rail 的 envelope schema 必须沉到 `modules/contracts/*` 或等价 contract schema registry。重构时先稳定 job ticket、event write envelope、artifact ref、market manifest、exchange command/result ref、policy snapshot 的 JSON schema，再拆具体 handler；否则会把“漂亮的域图”退化成目录之间互相调用。
+所有 rail 的 envelope schema 必须沉到 `apps/contracts/*` 或等价 contract schema registry。重构时先稳定 job ticket、event write envelope、artifact ref、market manifest、exchange command/result ref、policy snapshot 的 JSON schema，再拆具体 handler；否则会把“漂亮的域图”退化成目录之间互相调用。
 
 ## 2. 目标拓扑
 
@@ -196,7 +196,7 @@ automation-plan
 
 通信拆分按 protocol rails 推进，不按“域之间互相 import / 互相调 CLI”推进。当前目标是先稳定 job ticket envelope、event/ref envelope、policy snapshot、market manifest、artifact ref、logical store ref 与 idempotency key；只有 ack/retry/dead-letter、异步多订阅、消费位点或跨进程实时推送成为硬需求时，才把某条 rail 升级为队列 / stream / service bus。
 
-`modules/contracts/protocol-fabric/src/schemas/logical-store-ref.schema.json` 是 logical store 的共享身份协议；它记录 `store / owner_domain / owner_module / physical_locator / write_contract / ref`。后续从当前 SQLite 拆到 DuckDB / 独立 SQLite 时，先迁 `physical_locator` 和 owner module，不改跨域引用语义；不能退回文件 manifest 或 JSONL 作为 durable store。
+`apps/contracts/protocol-fabric/src/schemas/logical-store-ref.schema.json` 是 logical store 的共享身份协议；它记录 `store / owner_domain / owner_module / physical_locator / write_contract / ref`。后续从当前 SQLite 拆到 DuckDB / 独立 SQLite 时，先迁 `physical_locator` 和 owner module，不改跨域引用语义；不能退回文件 manifest 或 JSONL 作为 durable store。
 
 存储落地表见 [storage-architecture.md](../architecture/storage-architecture.md)。新增或拆分任何 store 时，必须同步 [architecture-manifest.json](../architecture/architecture-manifest.json)、`docs/architecture/storage-schema/*.sql` 和 owner module check。
 
@@ -218,7 +218,7 @@ raw capture
 每层只消费上一层 manifest/ref，产出新的 manifest/ref/hash/schema/freshness；大 payload 留在文件或后续列式 store，跨域 rail 只传引用和可校验身份。`market-data-products` 是 raw/canonical/feature/dataset owner，`artifact-knowledge` 是引用、保留和可发现性 owner，`research-strategy-development` 只消费数据产品做实验，不能把实验中间态写回上游数据层。
 
 ```text
-modules/
+apps/
   contracts/        # 跨模块源码 import 的唯一合法层：类型、schema、pure helpers
   orchestration-ops/
   policy-risk/
@@ -243,7 +243,7 @@ modules/
 
 ### 2.2 import 规则
 
-- 跨模块源码 import 只允许指向 `modules/contracts/*` 或同 domain 无 package internal engine。
+- 跨模块源码 import 只允许指向 `apps/contracts/*` 或同 domain 无 package internal engine。
 - 业务模块之间通过 CLI JSON contract 协作。
 - suite 内部可以 import 同 domain internal engine；调用 atomic module 应优先走 CLI / contract，确需源码复用时必须先抽 internal engine。
 - `T` 类 exchange write module 不允许被 research / replay / market scan 直接调用。
@@ -252,9 +252,9 @@ modules/
 
 | 目标模块 | 类型 | 负责 | 当前来源 |
 | --- | --- | --- | --- |
-| `contracts/runtime-core` | contract | JSON、path、time、script envelope、runtime path guard | 已迁入 `modules/contracts/runtime-core` |
-| `contracts/execution-contract` | contract | execution contract type、compile / validate pure logic | 已迁入 `modules/contracts/execution-contract` |
-| `contracts/preflight-contract` | contract | preflight input/output、target action、guard result type | 已迁入 `modules/contracts/preflight-contract` |
+| `contracts/runtime-core` | contract | JSON、path、time、script envelope、runtime path guard | 已迁入 `apps/contracts/runtime-core` |
+| `contracts/execution-contract` | contract | execution contract type、compile / validate pure logic | 已迁入 `apps/contracts/execution-contract` |
+| `contracts/preflight-contract` | contract | preflight input/output、target action、guard result type | 已迁入 `apps/contracts/preflight-contract` |
 | `contracts/catalog-contract` | contract | catalog record/schema/client shape，不拥有扫描和 GC | duplicated `data-catalog.ts` 的稳定类型层 |
 | `contracts/replay-contract` | contract | replay result、trade sample、qualification shell | duplicated `replay-core.ts` 的输出契约层 |
 | `portfolio-execution-state/event-store` | atomic | `trade.db` schema、plan_event append/read；唯一 event write owner | `plan-events.ts` |
@@ -321,10 +321,10 @@ modules/
 任务：
 
 - 更新 `docs/architecture/tool-layout.md`：区分 current layout 与 target topology。
-- 更新 `modules/README.md`：定义 suite / atomic / contract module。
+- 更新 `apps/README.md`：定义 suite / atomic / contract module。
 - 更新 `toolset.json`：新增 `module_type`、`owner_scope`、`entry_contract` 字段。
 - 新增 `job contract` / registry resolver 设计：orchestrator 输出 `tool_id + payload + schema`，不输出裸路径 command。
-- 新增边界检查设计：跨模块 import 只能指向 `modules/contracts/*`。
+- 新增边界检查设计：跨模块 import 只能指向 `apps/contracts/*`。
 
 验收：
 
@@ -336,7 +336,7 @@ modules/
 - `toolset.json` 已新增 `module_type`、`owner_scope`、`entry_contract`、`requires_preflight`、`concurrency_group`、`forbidden_callers`。
 - `scripts/toolset.ts --validate` 已校验上述字段和可选 schema 路径。
 - `schemas/tool-job.schema.json` 已定义编排 job 的稳定 shell。
-- `docs/architecture/tool-layout.md` 与 `modules/README.md` 已区分 current layout、target topology、suite / atomic / contract module。
+- `docs/architecture/tool-layout.md` 与 `apps/README.md` 已区分 current layout、target topology、suite / atomic / contract module。
 - `automation-cycle` 已为 trade / RD / catalog dispatch 输出 registry-backed `tool_job`，包含 `tool_id + payload + entry_contract + writes + command_spec`。
 - `live-decision-planning/observe-builder` 已独立拥有 supplied projections -> observe event body；`trade-flow` 只消费 event candidate。
 - `live-decision-planning/observe-runner` 已独立拥有 account/symbol read tool projection 调用；`trade-flow` 只消费 projection 构建 observe event。
@@ -374,10 +374,10 @@ modules/
 
 当前落地：
 
-- `data-catalog.ts` 的 DB/schema/scan 实现已收敛到 `modules/artifact-knowledge/artifact-catalog/src/lib/data-catalog.ts`。
-- `modules/contracts/catalog-contract/src/catalog-client.ts` 提供跨模块 catalog client；research / governance 旧本地路径只保留 re-export 适配。
+- `data-catalog.ts` 的 DB/schema/scan 实现已收敛到 `apps/artifact-knowledge/artifact-catalog/src/lib/data-catalog.ts`。
+- `apps/contracts/catalog-contract/src/catalog-client.ts` 提供跨模块 catalog client；research / governance 旧本地路径只保留 re-export 适配。
 - artifact-catalog CLI 已新增 direct register / upsert / list 命令，并有 `catalog-cli.test.ts` 覆盖。
-- `replay-core.ts` 实现已收敛到 `modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine/src/lib/replay-core.ts`。
+- `replay-core.ts` 实现已收敛到 `apps/research-strategy-development/replay-execution-plane/compatibility/replay-engine/src/lib/replay-core.ts`。
 - `research-strategy-development/replay-runner` 已成为 agent-facing replay atomic module。
 
 尚未完成：
@@ -392,23 +392,23 @@ modules/
 
 任务：
 
-- runtime JSON、paths、time → `modules/contracts/runtime-core`。
-- `execution-contract.ts` → `modules/contracts/execution-contract`。
-- `preflight.ts`、`target-action.ts` → `modules/contracts/preflight-contract`。
+- runtime JSON、paths、time → `apps/contracts/runtime-core`。
+- `execution-contract.ts` → `apps/contracts/execution-contract`。
+- `preflight.ts`、`target-action.ts` → `apps/contracts/preflight-contract`。
 - 更新所有 import。
 - 删除旧共享目录。
 
 验收：
 
-- 业务源码跨模块 import 只出现 `modules/contracts/*` 或同 domain 无 package internal engine。
+- 业务源码跨模块 import 只出现 `apps/contracts/*` 或同 domain 无 package internal engine。
 - 旧共享目录不再存在。
 - Binance、preflight、trade-flow check 全通过。
 
 当前落地：
 
-- `modules/contracts/runtime-core`、`execution-contract`、`preflight-contract` 已建立并补 `CONTRACT.md`。
-- 所有源码 import 已切到 `modules/contracts/*`。
-- `scripts/check-ts-tool-boundaries.ts` 已只放行 `modules/contracts/*`。
+- `apps/contracts/runtime-core`、`execution-contract`、`preflight-contract` 已建立并补 `CONTRACT.md`。
+- 所有源码 import 已切到 `apps/contracts/*`。
+- `scripts/check-ts-tool-boundaries.ts` 已只放行 `apps/contracts/*`。
 - 旧共享目录已删除。
 
 ### Phase 3：拆旧 R&D 大包
@@ -457,7 +457,7 @@ modules/
 - 旧 R&D 大包已删除单策略 replay 总线入口，`toolset.json` 的 replay intent 只命中 `research.replay-runner`。
 - `strategy-replay` façade 与 registered replay strategy 已迁到 `research-strategy-development/replay-engine`；旧本地 façade 已删除。
 - 旧 R&D 大包已删除 strategy contract compile/lint 总线入口，`toolset.json` 的 contract compile/lint intent 分别命中 `research.strategy-contract-compile` 和 `research.strategy-contract-lint`。
-- strategy contract 解析、编译、lint 语义已迁到 `modules/contracts/strategy-contract`；research 原子 CLI 只负责参数与 response envelope。
+- strategy contract 解析、编译、lint 语义已迁到 `apps/contracts/strategy-contract`；research 原子 CLI 只负责参数与 response envelope。
 - `research.rd-program-state` 已成为 agent-facing atomic module，承接 durable RD memory init/read/update/plan_next；旧大包不再暴露 RD memory CLI。
 - `research.rd-supervisor` 已成为 agent-facing atomic module，承接 plan_next -> loop/campaign -> state writeback；旧大包不再暴露 RD supervisor CLI。
 - `research.rd-shadow-tracker` 已成为 agent-facing atomic module，承接 forward paper setup event chain；旧大包不再暴露 `--rd-shadow-tracker`。
@@ -514,10 +514,10 @@ modules/
 
 任务：
 
-- 旧 `modules/binance` 已拆为 `modules/market-data-products/binance-read`、`modules/market-data-products/liquidation-zones`、`modules/exchange-gateway/binance-read` 与 `modules/exchange-gateway/binance-write`。
-- `modules/ohlcv-fetch` 已迁到 `modules/market-data-products/ohlcv-fetch`。
+- 旧 `apps/binance` 已拆为 `apps/market-data-products/binance-read`、`apps/market-data-products/liquidation-zones`、`apps/exchange-gateway/binance-read` 与 `apps/exchange-gateway/binance-write`。
+- `apps/ohlcv-fetch` 已迁到 `apps/market-data-products/ohlcv-fetch`。
 - `ohlcv-fetch` 内部的 market features / calibration panel 升为独立 data atomic module。
-- `liquidation-zones` 已迁到 `modules/market-data-products/liquidation-zones`，按市场数据产品而不是交易所写接口治理。
+- `liquidation-zones` 已迁到 `apps/market-data-products/liquidation-zones`，按市场数据产品而不是交易所写接口治理。
 
 验收：
 

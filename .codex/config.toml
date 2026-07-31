@@ -3,7 +3,7 @@ max_threads = 5
 
 [mcp_servers.trade-agent]
 command = "bun"
-args = ["modules/orchestration-ops/agent-mcp/src/scripts/main.ts"]
+args = ["apps/orchestration-ops/agent-mcp/src/scripts/main.ts"]
 cwd = ".."
 enabled = true
 required = false

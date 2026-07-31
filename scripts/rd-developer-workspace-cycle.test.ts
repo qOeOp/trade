@@ -11,24 +11,24 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { Database } from "bun:sqlite"
-import { readFamilyEvaluationProtocol } from "../modules/contracts/rd-agent-capability-contract/src/rd-agent-capability-contract"
-import type { AgentArtifactRef } from "../modules/contracts/agent-run-contract/src/agent-run-contract"
+import { readFamilyEvaluationProtocol } from "../apps/contracts/rd-agent-capability-contract/src/rd-agent-capability-contract"
+import type { AgentArtifactRef } from "../apps/contracts/agent-run-contract/src/agent-run-contract"
 import {
   readAgentArtifact,
   writeAgentTextArtifact,
-} from "../modules/orchestration-ops/agent-artifact-store/src/lib/agent-artifact-store"
-import { ensureAgentRunStoreSchema } from "../modules/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
-import type { CodexAppServerClientPort } from "../modules/orchestration-ops/agent-host-codex/src/lib/codex-app-server-client"
-import { buildPlannerProposal } from "../modules/research-strategy-development/agent-roles/planner/src/lib/planner-role"
-import { PLANNER_PROPOSAL_INTAKE_REQUEST_SCHEMA_VERSION } from "../modules/research-strategy-development/research-control-plane/contracts/src/lib/planner-proposal-submission"
-import { admitPlannerProposal } from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/planner-proposal-intake"
-import { readPlannerControlPlaneContext } from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/research-control-plane-operations"
-import { ensureResearchStateSchema } from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/research-state-store"
-import { seedDefaultResearchControlPlane } from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/research-universe-default-seed"
+} from "../apps/orchestration-ops/agent-artifact-store/src/lib/agent-artifact-store"
+import { ensureAgentRunStoreSchema } from "../apps/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
+import type { CodexAppServerClientPort } from "../apps/orchestration-ops/agent-host-codex/src/lib/codex-app-server-client"
+import { buildPlannerProposal } from "../apps/research-strategy-development/agent-roles/planner/src/lib/planner-role"
+import { PLANNER_PROPOSAL_INTAKE_REQUEST_SCHEMA_VERSION } from "../apps/research-strategy-development/research-control-plane/contracts/src/lib/planner-proposal-submission"
+import { admitPlannerProposal } from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/planner-proposal-intake"
+import { readPlannerControlPlaneContext } from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/research-control-plane-operations"
+import { ensureResearchStateSchema } from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/research-state-store"
+import { seedDefaultResearchControlPlane } from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/research-universe-default-seed"
 import { runDeveloperWorkspaceCycle } from "./lib/rd-developer-workspace-cycle"
 
 const PACKAGE_PATH =
-  "modules/research-strategy-development/agent-roles/developer/strategy-family-engine"
+  "apps/research-strategy-development/agent-roles/developer/strategy-family-engine"
 
 test("R&D workspace composition produces cumulative revisions without creating a Contract Draft", async () => {
   const root = fixtureRepository()

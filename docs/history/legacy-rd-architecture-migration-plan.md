@@ -14,7 +14,7 @@ last_verified: 2026-07-22 CST
 
 ## 1. 结论
 
-`modules/research-strategy-development/` 的目标直接责任子树固定为：
+`apps/research-strategy-development/` 的目标直接责任子树固定为：
 
 ```text
 research-control-plane/

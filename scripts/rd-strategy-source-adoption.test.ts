@@ -12,23 +12,23 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { Database } from "bun:sqlite"
-import { canonicalJson } from "../modules/contracts/runtime-core/src/canonical-json"
+import { canonicalJson } from "../apps/contracts/runtime-core/src/canonical-json"
 import {
   readStrategySourceAdoption,
-} from "../modules/orchestration-ops/ops-runtime-store/src/lib/strategy-source-adoption-store"
+} from "../apps/orchestration-ops/ops-runtime-store/src/lib/strategy-source-adoption-store"
 import {
   SERVER_CONTAINER_SOURCE_PACKAGE_CRITICAL_REFS,
-} from "../modules/orchestration-ops/trade-flow/src/scripts/lib/server-runtime-container-release-package"
+} from "../apps/orchestration-ops/trade-flow/src/scripts/lib/server-runtime-container-release-package"
 import {
   createStrategyCandidateServerPackage,
 } from "./lib/rd-strategy-candidate-release-package"
 import {
   createStrategySourceCandidate,
-} from "../modules/research-strategy-development/research-control-plane/contracts/src/lib/strategy-source-candidate-contract"
+} from "../apps/research-strategy-development/research-control-plane/contracts/src/lib/strategy-source-candidate-contract"
 import {
   SOURCE_SCHEMA_VERSION,
   renderStrategyPolicyMarkdown,
-} from "../modules/research-strategy-development/research-control-plane/strategy-policy-writer/src/lib/strategy-policy-writer"
+} from "../apps/research-strategy-development/research-control-plane/strategy-policy-writer/src/lib/strategy-policy-writer"
 import {
   discoverAndQueueStrategySourceCandidates,
   queueStrategySourceCandidate,

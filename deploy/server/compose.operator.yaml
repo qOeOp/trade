@@ -22,7 +22,7 @@ services:
       TRADE_ENVIRONMENT_ID: ${TRADE_ENVIRONMENT_ID:-runtime:primary}
     command:
       - bun
-      - modules/orchestration-ops/operator-http/src/scripts/main.ts
+      - apps/orchestration-ops/operator-http/src/scripts/main.ts
       - --profile
       - profile/operator-http.json
     volumes:

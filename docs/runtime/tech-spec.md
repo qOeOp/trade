@@ -87,7 +87,7 @@ action_intent
 | --- | --- |
 | intent / plan | `live-decision-planning/*` |
 | deterministic guard | `live-execution-control/plan-preflight` |
-| execution contract | `modules/contracts/execution-contract` |
+| execution contract | `apps/contracts/execution-contract` |
 | execution capability | `live-execution-control/execution-capability` + shared validator contract |
 | route / execute / record | `live-execution-control/execution-*` |
 | exchange route / write gate / confirmation | `exchange-gateway/exchange-request-router`、`write-pre-adapter-gate`、`post-write-confirmation` |

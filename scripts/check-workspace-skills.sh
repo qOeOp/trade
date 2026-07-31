@@ -61,12 +61,12 @@ for skill_dir in "$skills_root"/*; do
     -name '*.sqlite' \
   \) -print -quit)"
   if [ -n "$forbidden_marker" ]; then
-    printf 'workspace-skill: domain implementation belongs under modules/, found: %s\n' "$forbidden_marker" >&2
+    printf 'workspace-skill: domain implementation belongs under apps/, found: %s\n' "$forbidden_marker" >&2
     exit 1
   fi
   for forbidden_dir in src schemas data migrations; do
     if [ -d "$skill_dir/$forbidden_dir" ]; then
-      printf 'workspace-skill: domain-owned directory belongs under modules/: %s/%s\n' "$skill_dir" "$forbidden_dir" >&2
+      printf 'workspace-skill: domain-owned directory belongs under apps/: %s/%s\n' "$skill_dir" "$forbidden_dir" >&2
       exit 1
     fi
   done

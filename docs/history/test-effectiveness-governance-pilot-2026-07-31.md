@@ -14,7 +14,7 @@ last_verified: 2026-07-31 CST
 
 ## 输入
 
-- Owner：`modules/orchestration-ops/trade-flow`；当前 Origin 有 36 个 test files，试点 candidate
+- Owner：`apps/orchestration-ops/trade-flow`；当前 Origin 有 36 个 test files，试点 candidate
   tree 有 35 个，属于现有高测试体量 owner。
 - Origin：`149d338550f2769c2d346bdf62ba3a92ddba6751`，tree
   `0fc6ea9f4e0d770a2a8e272a91139b0ec0442745`。
@@ -26,7 +26,7 @@ last_verified: 2026-07-31 CST
 bun .agents/skills/run-bounded-mission/scripts/test-effectiveness-audit.ts \
   --origin 149d338550f2769c2d346bdf62ba3a92ddba6751 \
   --candidate 457a98c29434e0774a0ff30d02f09c5518851b6f \
-  --scope modules/orchestration-ops/trade-flow
+  --scope apps/orchestration-ops/trade-flow
 ```
 
 ## 原始输出摘要

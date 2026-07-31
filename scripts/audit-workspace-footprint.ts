@@ -9,7 +9,7 @@ const staleDays = numericFlag("--stale-days", 14)
 const cutoffMs = Date.now() - staleDays * 86_400_000
 const summary = new Map<FootprintClass, { files: number; bytes: number; stale_files: number; stale_bytes: number }>()
 
-for (const start of ["data", "tmp", "modules", "node_modules"]) walk(resolve(root, start))
+for (const start of ["data", "tmp", "apps", "node_modules"]) walk(resolve(root, start))
 
 console.log(JSON.stringify({
   schema_version: "trade.workspace-footprint-audit.v1",
@@ -41,7 +41,7 @@ function walk(directory: string): void {
       continue
     }
     if (!entry.isFile()) continue
-    if (path.startsWith("modules/") && !path.includes("/target/") && !path.includes("/node_modules/")) continue
+    if (path.startsWith("apps/") && !path.includes("/target/") && !path.includes("/node_modules/")) continue
     const stat = statSync(absolute)
     const kind = classifyWorkspacePath(path)
     const current = summary.get(kind) ?? { files: 0, bytes: 0, stale_files: 0, stale_bytes: 0 }

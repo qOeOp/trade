@@ -12,29 +12,29 @@ import { dirname, resolve } from "node:path"
 import { Database } from "bun:sqlite"
 import {
   compileMarketDataSubscriptionPlan,
-} from "../modules/contracts/market-data-demand-contract/src/market-data-demand-contract"
+} from "../apps/contracts/market-data-demand-contract/src/market-data-demand-contract"
 import {
   compileOhlcvCoverageAudit,
-} from "../modules/contracts/market-data-demand-contract/src/ohlcv-coverage-contract"
+} from "../apps/contracts/market-data-demand-contract/src/ohlcv-coverage-contract"
 import {
   asRecord,
-} from "../modules/contracts/runtime-core/src/json"
+} from "../apps/contracts/runtime-core/src/json"
 import {
   createForwardObservationCandleSegment,
   type ForwardCandleSliceRef,
-} from "../modules/research-strategy-development/research-control-plane/contracts/src/lib/forward-observation-candle-segment"
+} from "../apps/research-strategy-development/research-control-plane/contracts/src/lib/forward-observation-candle-segment"
 import {
   admitForwardObservationCandleSegment,
   ensureForwardObservationCandleSegmentSchema,
   readLatestForwardObservationCandleSegment,
-} from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/forward-observation-candle-segment"
+} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/forward-observation-candle-segment"
 import {
   listCollectingForwardObservationPrograms,
   readLatestForwardMarketDataDemandDelivery,
-} from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/forward-observation-program"
+} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/forward-observation-program"
 import {
   ensureResearchControlPlaneSchema,
-} from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/research-control-plane-schema"
+} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/research-control-plane-schema"
 import {
   nextForwardCandleSegmentWindow,
 } from "./lib/rd-forward-observation-candle-segment"

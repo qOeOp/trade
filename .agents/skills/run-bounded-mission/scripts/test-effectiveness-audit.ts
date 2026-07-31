@@ -355,7 +355,7 @@ function ownerForPath(path: string, markerRoots: string[]): string {
   if (marker) return marker
   const parts = path.split("/")
   if (parts[0] === ".agents" && parts[1] === "skills" && parts[2]) return parts.slice(0, 3).join("/")
-  if (parts[0] === "modules" && parts[1] && parts[2]) return parts.slice(0, 3).join("/")
+  if (parts[0] === "apps" && parts[1] && parts[2]) return parts.slice(0, 3).join("/")
   if (parts[0] === "docs" && parts[1]) return parts.slice(0, 2).join("/")
   return parts[0] || "."
 }
@@ -550,7 +550,7 @@ function resolveImport(
   let base: string | undefined
   if (specifier.startsWith(".")) {
     base = posix.normalize(posix.join(posix.dirname(importer), specifier))
-  } else if (/^(?:modules|scripts|src)\//.test(specifier)) {
+  } else if (/^(?:apps|scripts|src)\//.test(specifier)) {
     base = specifier
   } else {
     const packageName = [...packageRoots.keys()]

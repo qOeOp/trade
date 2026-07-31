@@ -14,29 +14,29 @@ import { join } from "node:path"
 import { Database } from "bun:sqlite"
 import {
   buildAgentRunRequest,
-} from "../modules/contracts/agent-run-contract/src/agent-run-contract"
+} from "../apps/contracts/agent-run-contract/src/agent-run-contract"
 import {
   readAgentArtifact,
   writeAgentTextArtifact,
-} from "../modules/orchestration-ops/agent-artifact-store/src/lib/agent-artifact-store"
+} from "../apps/orchestration-ops/agent-artifact-store/src/lib/agent-artifact-store"
 import {
   createDeveloperWorkspaceOpenClawHost,
-} from "../modules/orchestration-ops/agent-host-openclaw/src/lib/developer-workspace-openclaw-host"
+} from "../apps/orchestration-ops/agent-host-openclaw/src/lib/developer-workspace-openclaw-host"
 import {
   executeOpenClawGatewayHttp,
-} from "../modules/orchestration-ops/agent-host-openclaw/src/lib/openclaw-gateway-http-executor"
+} from "../apps/orchestration-ops/agent-host-openclaw/src/lib/openclaw-gateway-http-executor"
 import {
   runIsolatedAgentWorkspacePackageCheck,
   startIsolatedAgentWorkspaceChecker,
-} from "../modules/orchestration-ops/agent-workspace-manager/src/lib/isolated-package-checker"
+} from "../apps/orchestration-ops/agent-workspace-manager/src/lib/isolated-package-checker"
 import {
   createAgentWorkspaceExecutionScope,
-} from "../modules/orchestration-ops/agent-workspace-manager/src/lib/workspace-manager"
-import { ensureAgentRunStoreSchema } from "../modules/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
+} from "../apps/orchestration-ops/agent-workspace-manager/src/lib/workspace-manager"
+import { ensureAgentRunStoreSchema } from "../apps/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
 import {
   readAgentWorkspaceExecutionScope,
   registerAgentWorkspaceExecutionScope,
-} from "../modules/orchestration-ops/ops-runtime-store/src/lib/agent-workspace-scope-store"
+} from "../apps/orchestration-ops/ops-runtime-store/src/lib/agent-workspace-scope-store"
 import {
   createOpenClawCodeSmokeConfig,
   OPENCLAW_SMOKE_VERSION,
@@ -56,15 +56,15 @@ async function main(): Promise<void> {
   const configPath = join(root, "openclaw.json")
   const token = randomBytes(32).toString("hex")
   const port = await availablePort()
-  mkdirSync(join(repo, "modules", "sample"), { recursive: true })
+  mkdirSync(join(repo, "apps", "sample"), { recursive: true })
   mkdirSync(state, { recursive: true, mode: 0o700 })
   writeFileSync(join(repo, ".gitignore"), "data/\ntmp/\n")
   writeFileSync(
-    join(repo, "modules", "sample", "index.ts"),
+    join(repo, "apps", "sample", "index.ts"),
     "export const value = 1\n",
   )
   writeFileSync(
-    join(repo, "modules", "sample", "package.json"),
+    join(repo, "apps", "sample", "package.json"),
     JSON.stringify({
       name: "sample",
       private: true,
@@ -125,7 +125,7 @@ async function main(): Promise<void> {
       storage: "temporary",
       media_type: "text/markdown",
       text: [
-        "Read modules/sample/index.ts.",
+        "Read apps/sample/index.ts.",
         "Change only that file so it contains exactly:",
         "export const value = 2",
         "Do not create files and do not modify package.json.",
@@ -168,8 +168,8 @@ async function main(): Promise<void> {
       run_id: request.run_id,
       request_hash: request.request_hash,
       source_revision: request.source_revision,
-      allowed_write_prefixes: ["modules/sample"],
-      package_paths: ["modules/sample"],
+      allowed_write_prefixes: ["apps/sample"],
+      package_paths: ["apps/sample"],
       issued_at: new Date().toISOString(),
     })
     registerAgentWorkspaceExecutionScope(db, {

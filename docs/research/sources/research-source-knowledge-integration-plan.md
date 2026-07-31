@@ -289,7 +289,7 @@ edge evidence 指向 canonical finding ref 或 experiment result ref。来源可
 | P3 | artifact-knowledge search projection 与 benchmark | canonical identity |
 | P4 | 既有 J04/J06 job contract 的窄扩展 | 新 scheduler / 新全局 memory |
 
-实际目录名与 tool 数量在对应阶段的 contract review 后确定；跨域调用必须继续经过 `modules/contracts/*`、owner CLI 或 protocol ref，并通过 TypeScript tool-boundary check。
+实际目录名与 tool 数量在对应阶段的 contract review 后确定；跨域调用必须继续经过 `apps/contracts/*`、owner CLI 或 protocol ref，并通过 TypeScript tool-boundary check。
 
 ## 8. 验收不变量
 

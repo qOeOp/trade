@@ -26,8 +26,8 @@ validated plan/proposed action-intent refs
   -> no-authority receipt; any execution still needs a separate authorized path
 ```
 
-- `modules/contracts/watch-task-contract` 拥有 definition、observation、evaluation 与单调状态词汇。
-- `modules/live-decision-planning/watch-task-compiler` 只把 identity/hash/lineage/expiry 一致的 plan draft 与 proposed intent 编译为 definition；proposed 不是执行授权。
+- `apps/contracts/watch-task-contract` 拥有 definition、observation、evaluation 与单调状态词汇。
+- `apps/live-decision-planning/watch-task-compiler` 只把 identity/hash/lineage/expiry 一致的 plan draft 与 proposed intent 编译为 definition；proposed 不是执行授权。
 - `ops.runtime-store` 拥有 task CAS、counter、lease、handoff receipt、terminal reason 与 append-only transition。
 - `ops.watch-task-runtime` 只拥有 loop、固定 owner 调用、lease renew/release 和停止语义。
 - `execution.watch-handoff-revalidation` 绑定 immutable definition/handoff/plan identity，以新 observation 复跑既有 execution gate 与 plan preflight；通过仍不产生 execution authority。

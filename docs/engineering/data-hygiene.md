@@ -23,7 +23,7 @@ fixture；运行数据库、行情、日志和实验 artifact 默认不进入 Gi
 
 | 类型 | 进入 Git | 位置 |
 | --- | --- | --- |
-| docs/source/schema/tests | 是 | `docs/`、`modules/**/src`、owner schema/test |
+| docs/source/schema/tests | 是 | `docs/`、`apps/**/src`、owner schema/test |
 | 最小 example/fixture | 是 | owner `examples/` 或测试 fixture |
 | strategy policy | 是 | `strategies/*.md` |
 | runtime DB/sidecar | 否 | 根 `data/*.db`、`*.sqlite*`、WAL/SHM |
@@ -57,7 +57,7 @@ DB；owner DB 保存所需 hash、schema、coverage、summary、lineage 和引�
 - 删除必须显式，默认 dry-run。
 - `.pin`、catalog ref、ledger ref 或 active evidence 保护的内容不得删除。
 - `tmp/` 是可再生工作区，但清理前仍须确认当前运行和报告引用。
-- `modules/artifact-knowledge/artifact-catalog` 的 GC 只按 owner 已知引用闭包处理候选。
+- `apps/artifact-knowledge/artifact-catalog` 的 GC 只按 owner 已知引用闭包处理候选。
 - 路径型 `--artifact-gc` 不得作用于 `data/` 或 `data/artifacts/`。
 - durable evidence 只有在 catalog-aware、release-aware 引用闭包明确后才能删除；未知引用时保留。
 

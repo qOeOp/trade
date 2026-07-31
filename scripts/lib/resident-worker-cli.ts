@@ -8,7 +8,7 @@ import {
 import { dirname, resolve, sep } from "node:path"
 import {
   asRecord,
-} from "../../modules/contracts/runtime-core/src/json"
+} from "../../apps/contracts/runtime-core/src/json"
 
 export function resolveWorkerDataPath(
   root: string,
@@ -157,7 +157,7 @@ export async function workerMarketDataOwnerCommand(input: {
       process.execPath,
       resolve(
         input.root,
-        "modules/market-data-products/market-data-store/src/scripts/main.ts",
+        "apps/market-data-products/market-data-store/src/scripts/main.ts",
       ),
       "--db",
       input.market_data_db,

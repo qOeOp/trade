@@ -4,7 +4,7 @@ role: research-implementation-record
 status: implemented
 owner: research-strategy-development
 last_verified: 2026-07-22 CST
-contract_owner: modules/contracts/research-source-contract
+contract_owner: apps/contracts/research-source-contract
 parent_plan: docs/research/sources/research-source-knowledge-integration-plan.md
 ---
 
@@ -14,7 +14,7 @@ parent_plan: docs/research/sources/research-source-knowledge-integration-plan.md
 
 ## 1. 已实现合同
 
-新增 `modules/contracts/research-source-contract`，零运行时依赖，当前提供：
+新增 `apps/contracts/research-source-contract`，零运行时依赖，当前提供：
 
 - stable canonical JSON 与 versioned SHA-256 identity policy；
 - exact bytes content-addressed `source_revision`；

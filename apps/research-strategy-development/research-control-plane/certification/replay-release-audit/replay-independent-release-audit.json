@@ -1,0 +1,121 @@
+{
+  "schema_version": "trade.rd-replay-independent-release-audit.v1",
+  "owner": "apps/research-strategy-development/research-control-plane/certification/replay-release-audit",
+  "subject": {
+    "owner": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification",
+    "fixture_pack_path": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-release-candidate-fixture-pack.json",
+    "fixture_pack_content_sha256": "298fe574135c5d82a7ff22521a00b904c6403fb33f81d37b6b57c84226418544",
+    "fixture_pack_sha256": "db43a04c882e638ebecfc96af8c0e261ffbf1752eb6c2d38a93bf3bc84ee7553"
+  },
+  "independence_policy": "auditor-outside-subject-owner-no-subject-implementation-import",
+  "verification_policy": "independent-pack-and-component-rehash-negative-challenges-then-full-certify",
+  "verdict_scope": "release-grade-only-within-frozen-four-profile-declared-evidence-envelope",
+  "runtime": {
+    "name": "bun",
+    "version": "1.3.13"
+  },
+  "required_exit_gates": {
+    "m4": [
+      "p1_through_p29_inventory_frozen",
+      "canonical_public_entrypoints_declared",
+      "opt_in_activation_registry_complete",
+      "compatibility_consumers_isolated",
+      "result_artifact_and_checkpoint_epochs_converged",
+      "single_owner_certification_command",
+      "canonical_and_compatibility_test_suites_separated",
+      "all_supported_profiles_have_golden_resume_idempotency_and_tamper_evidence",
+      "no_unclassified_replay_module_or_production_consumer"
+    ],
+    "m5_pre_audit": [
+      "m4_exit_complete",
+      "cross_process_reproducibility_bundle",
+      "historical_artifact_read_migration_certified",
+      "crash_recovery_and_exactly_once_publication_certified",
+      "declared_capacity_and_performance_envelope_certified",
+      "fault_injection_and_corruption_recovery_certified",
+      "operational_observability_and_runbook_complete",
+      "release_candidate_fixture_pack_frozen"
+    ]
+  },
+  "commands": [
+    {
+      "role": "subject-full-certification",
+      "cwd": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification",
+      "argv": [
+        "bun",
+        "run",
+        "certify"
+      ],
+      "timeout_ms": 600000
+    },
+    {
+      "role": "repository-audit-prerequisite-check",
+      "cwd": ".",
+      "argv": [
+        "bun",
+        "scripts/check-rd-replay-maturity-gate.ts",
+        "--audit-prerequisites"
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "negative_challenges": [
+    "component-content-tamper",
+    "component-authority-tamper",
+    "release-verdict-overclaim"
+  ],
+  "source_bindings": [
+    {
+      "role": "independent-auditor",
+      "path": "apps/research-strategy-development/research-control-plane/certification/replay-release-audit/src/lib/replay-independent-release-audit.ts",
+      "sha256": "59a297bb7d3361911cb190164ace1ba7351a270812d898e98fd30fdc0c2d6c5b"
+    },
+    {
+      "role": "independent-auditor-test",
+      "path": "apps/research-strategy-development/research-control-plane/certification/replay-release-audit/src/lib/replay-independent-release-audit.test.ts",
+      "sha256": "9f0e479df0152bde426238985ed1d42e3f922d8dd8feb87c0b5390a244a904a6"
+    },
+    {
+      "role": "maturity-gate-consumer",
+      "path": "scripts/check-rd-replay-maturity-gate.ts",
+      "sha256": "ef5d006ff107bf98fb9fd2306bd859901dd87eac49fb3f0efc41aabc15b8aa86"
+    },
+    {
+      "role": "release-gate-entry",
+      "path": "scripts/check-replay-release.sh",
+      "sha256": "e4213660cee32fd43923b5bfe129478354ab9683979168275f8ec57122d2bd7a"
+    },
+    {
+      "role": "exclusive-test-runner",
+      "path": "scripts/run-exclusive-test.sh",
+      "sha256": "372d115334e2a53106527cc0127f11a23b360f7616c33caface65564dcffe55a"
+    },
+    {
+      "role": "subject-certification-runner",
+      "path": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-certification.ts",
+      "sha256": "d0f37741d11f527078c7478d34fe3715983db0f3fa5827b8114315968f14cf6f"
+    },
+    {
+      "role": "subject-certification-test",
+      "path": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-certification.test.ts",
+      "sha256": "4c383f231a7960ba60ec0bd26ded1c37ba126f36b149821b9689c315a09a4c67"
+    },
+    {
+      "role": "runner-certification-package",
+      "path": "apps/research-strategy-development/replay-execution-plane/runner/package.json",
+      "sha256": "6366722a6e42c0643d8d5b35edf74d3f4096e43117fab70938ab49b9f37ac2f4"
+    },
+    {
+      "role": "runner-worker-v10-semantic-test",
+      "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-decision-worker-input-assembly-v4.test.ts",
+      "sha256": "cfc4b3fccc93a08104ba5923f1505fd6e4a1e04cb7fbb704f49349db1ec7001b"
+    }
+  ],
+  "limitations": [
+    "audit-subject-is-synthetic-and-owner-test-evidence-not-production-history-corpus",
+    "audit-does-not-prove-cross-host-or-cross-runtime-parity",
+    "audit-does-not-expand-public-profiles-or-simulator-semantics",
+    "remote-distributed-store-shadow-live-and-real-account-evidence-out-of-scope"
+  ],
+  "audit_manifest_sha256": "8d1906df3fd90912a5e6da17ebc75a00674afc79ab0879b8c075cd714ae7af8b"
+}

@@ -10,7 +10,7 @@ last_verified: 2026-07-23 CST
 
 ## 1. 当前合同
 
-`profile/trading-config.json` 是唯一人工维护的项目级交易配置入口。`modules/policy-risk/runtime-policy-compiler` 负责读取、归一化、限幅、hash 并生成 `runtime-policy.v1`；`policy-registry` 记录 snapshot 并签发短期 `runtime-authorization.v1`。二者都不读取 live facts，也不做 preflight 或执行判断。
+`profile/trading-config.json` 是唯一人工维护的项目级交易配置入口。`apps/policy-risk/runtime-policy-compiler` 负责读取、归一化、限幅、hash 并生成 `runtime-policy.v1`；`policy-registry` 记录 snapshot 并签发短期 `runtime-authorization.v1`。二者都不读取 live facts，也不做 preflight 或执行判断。
 
 配置已统一，consumer 尚未全部统一，因此状态是 `active-partial`。
 

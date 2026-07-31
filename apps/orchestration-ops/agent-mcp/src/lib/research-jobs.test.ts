@@ -1,0 +1,566 @@
+import assert from "node:assert/strict"
+import test from "node:test"
+import type { OwnerCliCommand } from "./owner-cli"
+import { ResearchJobService } from "./research-jobs"
+import { canonicalHash } from "../../../../contracts/runtime-core/src/canonical-json"
+
+type JSONRecord = Record<string, unknown>
+
+test("research submit acquires the shared lock and dispatches only J04", async () => {
+  const calls: Array<{ owner: string; action: string; payload: JSONRecord }> = []
+  let startedCommand: OwnerCliCommand | undefined
+  const service = new ResearchJobService({
+    execute: async (command) => {
+      const payload = JSON.parse(argAfter(command.args, "--json")) as JSONRecord
+      if (command.script.includes("strategy-hypothesis-designer")) {
+        const action = argAfter(command.args, "--action")
+        calls.push({ owner: "designer", action, payload })
+        if (action === "validate") return { ok: true, data: { valid: true, errors: [], warnings: [] } }
+        return { ok: true, data: { queue_item: { hypothesis_id: "h-ready", ready: true } } }
+      }
+      if (command.script.includes("program-control")) {
+        const action = String(payload.action)
+        calls.push({ owner: "program", action, payload })
+        throw new Error("rd program not found: rd-program")
+      }
+      const action = argAfter(command.args, "--action")
+      calls.push({ owner: "ops", action, payload })
+      if (action === "summary") return { ok: true, summary: { cycle: null, jobs: [] } }
+      if (action === "acquire_lock") return { ok: true, acquired: true, lock: payload }
+      return { ok: true, action }
+    },
+    start: (command, logPath) => {
+      startedCommand = command
+      return { pid: 4321, log_path: logPath }
+    },
+  })
+
+  const submitted = await service.submit({
+    request_id: "Request-01",
+    program_id: "rd-program",
+    objective: "find a robust 4H swing strategy",
+    budget: { max_hypotheses: 3, max_trials_total: 12 },
+    hypothesis_contract: { schema_version: "trade-flow.strategy-hypothesis-contract.v1", hypothesis_id: "h-ready" },
+  })
+
+  assert.equal(submitted.status, "queued")
+  assert.equal(submitted.cycle_id, "mcp-rd-request-01")
+  assert.equal(submitted.job_ref, "ops-runtime://cycle/mcp-rd-request-01/job/J04")
+  assert.equal(submitted.queue_action, "initial_seed")
+  assert.equal(submitted.hypothesis_id, "h-ready")
+  assert.deepEqual(calls.map((call) => `${call.owner}:${call.action}`), [
+    "ops:summary",
+    "designer:validate",
+    "designer:queue_item",
+    "ops:acquire_lock",
+    "program:read",
+    "ops:record_cycle",
+  ])
+  const lockCall = calls.find((call) => call.action === "acquire_lock")
+  assert.equal(lockCall?.payload.lock_key, "research-rd")
+  assert.match(String(lockCall?.payload.holder_id), /^mcp-rd-request-01:[0-9a-f-]{36}$/)
+  assert.equal(startedCommand?.script, "apps/orchestration-ops/agent-mcp/src/scripts/research-job-worker.ts")
+
+  const workerInput = JSON.parse(argAfter(startedCommand?.args ?? [], "--json")) as JSONRecord
+  const jobGraph = workerInput.job_graph as JSONRecord
+  assert.equal(jobGraph.execute_jobs, true)
+  assert.equal(jobGraph.allow_live_writes, false)
+  assert.equal(jobGraph.include_rd_strategy_supervisor, true)
+  assert.equal(jobGraph.include_fast_track, false)
+  assert.equal(jobGraph.include_slow_track, false)
+  assert.equal(jobGraph.include_runtime_health, false)
+  assert.deepEqual(jobGraph.force_jobs, ["rd_strategy_supervisor"])
+  const goal = jobGraph.rd_strategy_goal as JSONRecord
+  assert.deepEqual(goal.next_hypothesis_queue, [{ hypothesis_id: "h-ready", ready: true }])
+})
+
+test("research hypothesis preparation returns validation errors and blocked projections without writes", async () => {
+  let mode: "invalid" | "blocked" = "invalid"
+  const service = new ResearchJobService({
+    execute: async (command) => {
+      const action = argAfter(command.args, "--action")
+      if (action === "validate" && mode === "invalid") {
+        return { ok: true, data: { valid: false, errors: ["thesis.mechanism is required"], warnings: [] } }
+      }
+      if (action === "validate") return { ok: true, data: { valid: true, errors: [], warnings: ["review cost assumptions"] } }
+      return { ok: true, data: { queue_item: { hypothesis_id: "h-blocked", ready: false, blocked_reason: "manifest_path_required_before_strategy_trials" } } }
+    },
+    start: () => ({ pid: 1, log_path: "tmp/unused.log" }),
+  })
+
+  const invalid = await service.prepareHypothesis({ title: "thin" })
+  assert.equal(invalid.valid, false)
+  assert.equal(invalid.ready, false)
+  assert.deepEqual(invalid.errors, ["thesis.mechanism is required"])
+
+  mode = "blocked"
+  const blocked = await service.prepareHypothesis({ title: "structured" })
+  assert.equal(blocked.valid, true)
+  assert.equal(blocked.ready, false)
+  assert.equal(blocked.blocked_reason, "manifest_path_required_before_strategy_trials")
+  assert.deepEqual(blocked.warnings, ["review cost assumptions"])
+})
+
+test("research submit rejects a blocked projection before acquiring the research lock", async () => {
+  const actions: string[] = []
+  const service = new ResearchJobService({
+    execute: async (command) => {
+      if (command.script.includes("strategy-hypothesis-designer")) {
+        const action = argAfter(command.args, "--action")
+        actions.push(action)
+        if (action === "validate") return { ok: true, data: { valid: true, errors: [], warnings: [] } }
+        return { ok: true, data: { queue_item: { hypothesis_id: "panel-only", ready: false, blocked_reason: "panel_research_requires_panel_evaluator_before_supervisor_strategy_trials" } } }
+      }
+      const action = argAfter(command.args, "--action")
+      actions.push(action)
+      return { ok: true, summary: { cycle: null, jobs: [] } }
+    },
+    start: () => ({ pid: 1, log_path: "tmp/unused.log" }),
+  })
+
+  await assert.rejects(() => service.submit({
+    request_id: "Blocked-Projection",
+    program_id: "rd-program",
+    objective: "must not spend a trial",
+    hypothesis_contract: { schema_version: "trade-flow.strategy-hypothesis-contract.v1" },
+  }), /panel_research_requires_panel_evaluator/)
+  assert.deepEqual(actions, ["summary", "validate", "queue_item"])
+})
+
+test("research submit appends a validated hypothesis through the existing program owner", async () => {
+  let updatePayload: JSONRecord | undefined
+  const service = new ResearchJobService({
+    execute: async (command) => {
+      const payload = JSON.parse(argAfter(command.args, "--json")) as JSONRecord
+      if (command.script.includes("strategy-hypothesis-designer")) {
+        const action = argAfter(command.args, "--action")
+        if (action === "validate") return { ok: true, data: { valid: true, errors: [], warnings: [] } }
+        return { ok: true, data: { queue_item: { hypothesis_id: "h-followup", ready: true } } }
+      }
+      if (command.script.includes("program-control")) {
+        if (payload.action === "read") {
+          return { ok: true, data: { state: {
+            status: "data_or_tool_blocked",
+            budget: { max_hypotheses: 3, max_trials_total: 8 },
+            usage: { hypotheses_run: 1, trials_used: 2 },
+            next_hypothesis_queue: [],
+          } } }
+        }
+        updatePayload = payload
+        return { ok: true, data: { state: { status: "active" } } }
+      }
+      const action = argAfter(command.args, "--action")
+      if (action === "summary") return { ok: true, summary: { cycle: null, jobs: [] } }
+      if (action === "acquire_lock") return { ok: true, acquired: true, lock: payload }
+      return { ok: true, action }
+    },
+    start: () => ({ pid: 9, log_path: "tmp/research.log" }),
+  })
+
+  const submitted = await service.submit({
+    request_id: "Followup-01",
+    program_id: "rd-existing",
+    objective: "continue the existing program",
+    hypothesis_contract: { schema_version: "trade-flow.strategy-hypothesis-contract.v1", hypothesis_id: "h-followup" },
+  })
+  assert.equal(submitted.queue_action, "appended")
+  assert.equal(updatePayload?.status, "active")
+  assert.deepEqual(updatePayload?.followup_hypotheses, [{ hypothesis_id: "h-followup", ready: true }])
+})
+
+test("research hypothesis brief binds durable program memory and control-plane context into the owner prompt", async () => {
+  const designerInputs = new Map<string, JSONRecord>()
+  const service = new ResearchJobService({
+    execute: async (command) => {
+      const payload = JSON.parse(argAfter(command.args, "--json")) as JSONRecord
+      if (command.script.includes("program-control")) {
+        assert.equal(payload.action, "plan_next")
+        return { ok: true, data: {
+          state_ref: "research_state_store:rd_program/rd-brief",
+          state: {
+            program_id: "rd-brief",
+            objective: "find a distinct 4H edge",
+            status: "active",
+            latest_failure_summary: { reason: "cost stress failed" },
+            latest_reliability_gate: { status: "reject" },
+            rejected_mechanisms: [{ family: "funding_carry_v1" }],
+            universe_lessons: [{ lesson: "breadth matters" }],
+            artifact_refs: ["artifact://prior/report"],
+          },
+          next_plan: {
+            status: "blocked",
+            reason: "queue is empty",
+            budget_remaining: { max_hypotheses: 2, max_trials_total: 5 },
+            queue_seed_recommendation: { family_id: "marketability_score_v1" },
+            strategy_universe_backlog: { recommended_queue_order: ["marketability_score_v1"] },
+            scout_subagent_plan: {
+              control_plane_context: { active_canonicals: [{ node_id: "canonical-1" }] },
+              strategy_designer_handoff: { output_contract_schema: "trade-flow.strategy-hypothesis-contract.v1" },
+            },
+          },
+        } }
+      }
+      const action = argAfter(command.args, "--action")
+      designerInputs.set(action, payload)
+      if (action === "context") return { ok: true, data: { schema_version: "trade-flow.strategy-hypothesis-design-context.v1", objective: payload.objective } }
+      if (action === "render_prompt") return { ok: true, data: { prompt: "Return exactly one structured hypothesis contract." } }
+      throw new Error(`unexpected designer action: ${action}`)
+    },
+    start: () => ({ pid: 1, log_path: "tmp/unused.log" }),
+  })
+
+  const brief = await service.hypothesisBrief("rd-brief")
+  assert.equal(brief.program_ref, "research_state_store:rd_program/rd-brief")
+  assert.equal(brief.program_status, "active")
+  assert.match(String(brief.prompt), /structured hypothesis contract/)
+  const planning = brief.planning as JSONRecord
+  assert.equal(planning.status, "blocked")
+  assert.deepEqual(planning.queue_seed_recommendation, { family_id: "marketability_score_v1" })
+  const contextInput = designerInputs.get("context") ?? {}
+  assert.deepEqual(contextInput.latest_failure_summary, { reason: "cost stress failed" })
+  assert.deepEqual(contextInput.rejected_mechanisms, [{ family: "funding_carry_v1" }])
+  assert.deepEqual(contextInput.control_plane_context, { active_canonicals: [{ node_id: "canonical-1" }] })
+  assert.deepEqual(designerInputs.get("render_prompt"), contextInput)
+})
+
+test("research status and terminal result are derived from durable ops state", async () => {
+  let terminal = false
+  const service = new ResearchJobService({
+    execute: async () => ({
+      ok: true,
+      summary: {
+        cycle: {
+          cycle_id: "mcp-rd-request-02",
+          status: terminal ? "completed" : "running",
+        },
+        jobs: [{
+          job_id: "rd_strategy_supervisor",
+          status: terminal ? "completed" : "running",
+          result_ref: terminal ? "artifact://rd/result-02" : null,
+        }],
+        ops_summary: { counts: { total: 1 } },
+      },
+    }),
+    start: () => ({ pid: 1, log_path: "tmp/unused.log" }),
+  })
+
+  const status = await service.status("Request-02")
+  assert.equal(status.status, "running")
+  assert.equal(status.result_ref, null)
+  await assert.rejects(() => service.result("Request-02"), /not complete/)
+
+  terminal = true
+  const result = await service.result("Request-02")
+  assert.equal(result.status, "completed")
+  assert.equal(result.cycle_status, "completed")
+  assert.equal(result.job_ref, "ops-runtime://cycle/mcp-rd-request-02/job/J04")
+  assert.equal(result.result_ref, "artifact://rd/result-02")
+  assert.equal(result.error, null)
+  assert.equal((result.summary as JSONRecord).ops_summary instanceof Object, true)
+})
+
+test("research submit is idempotent for an existing request id", async () => {
+  let starts = 0
+  const service = new ResearchJobService({
+    execute: async () => ({
+      ok: true,
+      summary: {
+        cycle: { cycle_id: "mcp-rd-repeat-01", status: "completed" },
+        jobs: [{ job_id: "rd_strategy_supervisor", status: "completed", result_ref: "artifact://existing" }],
+      },
+    }),
+    start: () => {
+      starts += 1
+      return { pid: 1, log_path: "tmp/unused.log" }
+    },
+  })
+
+  const result = await service.submit({
+    request_id: "Repeat-01",
+    program_id: "rd-program",
+    objective: "must not run twice",
+  })
+  assert.equal(result.duplicate, true)
+  assert.equal(result.status, "completed")
+  assert.equal(starts, 0)
+})
+
+test("research status preserves a blocked J04 inside a failed aggregate cycle", async () => {
+  const service = new ResearchJobService({
+    execute: async () => ({
+      ok: true,
+      summary: {
+        cycle: { cycle_id: "mcp-rd-blocked-01", status: "failed" },
+        jobs: [{
+          job_id: "rd_strategy_supervisor",
+          status: "blocked",
+          result_ref: "research_state_store:rd_program/blocked-01",
+        }],
+      },
+    }),
+    start: () => ({ pid: 1, log_path: "tmp/unused.log" }),
+  })
+
+  const status = await service.status("Blocked-01")
+  assert.equal(status.status, "blocked")
+  assert.equal(status.cycle_status, "failed")
+  const result = await service.result("Blocked-01")
+  assert.equal(result.status, "blocked")
+  assert.equal(result.cycle_status, "failed")
+})
+
+test("Planner and Reviewer preparation persist exact terminal outputs independently of model echo", async () => {
+  const terminalTexts: string[] = []
+  const recordedResults: JSONRecord[] = []
+  const service = new ResearchJobService({
+    execute: async (command) => {
+      if (command.script.includes("agent-artifact-store")) {
+        const input = (command.stdin_json ?? {}) as JSONRecord
+        terminalTexts.push(String(input.text))
+        const sha = String(terminalTexts.length).repeat(64)
+        return {
+          ok: true,
+          artifact: {
+            ref: `agent-artifact://durable/${sha}`,
+            sha256: sha,
+            media_type: "application/json",
+            bytes: Buffer.byteLength(String(input.text)),
+          },
+        }
+      }
+      const action = argAfter(command.args, "--action")
+      const payload = JSON.parse(argAfter(command.args, "--json")) as JSONRecord
+      if (command.script.includes("ops-runtime-store")) {
+        if (action === "record_agent_tool_call") return { ok: true, usage: { tool_calls: 1 } }
+        if (action === "record_agent_tool_result") {
+          recordedResults.push(payload)
+          return { ok: true, tool_result: payload }
+        }
+      }
+      if (action === "prepare_planner_proposal") {
+        return {
+          ok: true,
+          proposal: {
+            schema_version: "trade.rd-planner-proposal-submission.v2",
+            proposal_hash: "a".repeat(64),
+          },
+        }
+      }
+      if (action === "prepare_reviewer_agent_submission") {
+        return {
+          ok: true,
+          submission: {
+            schema_version: "trade.rd-reviewer-agent-submission.v1",
+            submission_hash: "b".repeat(64),
+          },
+        }
+      }
+      throw new Error(`unexpected action: ${action}`)
+    },
+    start: () => ({ pid: 1, log_path: "tmp/unused.log" }),
+  })
+
+  const planner = await service.preparePlannerProposal({
+    planner_run_id: "planner-terminal-1",
+    request_hash: "c".repeat(64),
+    proposal_id: "proposal-terminal-1",
+    hypothesis_id: "hypothesis-terminal-1",
+    universe_node_id: "canonical:trend/time-series-trend/time-series-momentum",
+    objective: "Test a bounded family.",
+    dataset_requirements: ["ohlcv"],
+    candidate_space: { lookback_bars: [24] },
+    trial_budget: 1,
+    requested_at: "2026-07-23T12:00:00.000Z",
+  })
+  const reviewer = await service.prepareReviewerSubmission({
+    reviewer_run_id: "reviewer-terminal-1",
+    request_hash: "d".repeat(64),
+    experiment_id: "experiment-terminal-1",
+    expected_version: 2,
+    stage_id: "discovery",
+    decision: "reject",
+    evidence: [{ result_id: "result-terminal-1", evidence_role: "primary" }],
+    selected_trial_id: null,
+    rationale: "The classified evidence does not meet the frozen gate.",
+    requested_at: "2026-07-23T12:01:00.000Z",
+  })
+
+  assert.equal((planner.proposal as JSONRecord).proposal_hash, "a".repeat(64))
+  assert.equal((reviewer.submission as JSONRecord).submission_hash, "b".repeat(64))
+  assert.deepEqual(terminalTexts.map((text) => JSON.parse(text).schema_version), [
+    "trade.rd-planner-proposal-submission.v2",
+    "trade.rd-reviewer-agent-submission.v1",
+  ])
+  assert.deepEqual(recordedResults.map((result) => [
+    result.task_profile,
+    result.tool_name,
+    result.output_schema_version,
+  ]), [
+    [
+      "planner",
+      "research_planner_proposal_prepare",
+      "trade.rd-planner-proposal-submission.v2",
+    ],
+    [
+      "reviewer",
+      "research_reviewer_submission_prepare",
+      "trade.rd-reviewer-agent-submission.v1",
+    ],
+  ])
+})
+
+test("Developer preparation loads immutable Agent Run context and sends only owner-derived identity", async () => {
+  const body = {
+    schema_version: "trade.rd-developer-agent-context-pack.v1",
+    developer_run_id: "developer-context-bound-1",
+    source_revision: "413a4abe",
+    brief: {
+      brief_id: "brief-context-bound-1",
+      brief_hash: "a".repeat(64),
+      max_trial_budget: 8,
+    },
+    capability_assessment: {
+      required_mode: "existing_implementation",
+      reason_code: "existing_replay_implementation_and_data_ready",
+      required_capabilities: ["dataset_snapshot", "replay_implementation"],
+      family_capability: {
+        canonical_node_id: "canonical:trend/time-series-trend/time-series-momentum",
+        family_id: "time_series_momentum_v1",
+      },
+      data_snapshot_binding: {
+        snapshot_ref: "dataset-split://split/BTCUSDT/discovery/4h",
+      },
+    },
+    next_draft_revision: 2,
+    predecessor_run_id: "developer-context-bound-0",
+    replay_result_refs: [],
+    requested_at: "2026-07-23T13:00:00.000Z",
+  }
+  const context = { ...body, context_pack_hash: canonicalHash(body) }
+  let activeContext: JSONRecord = context
+  const contextRef = {
+    ref: `agent-artifact://temporary/${"d".repeat(64)}`,
+    sha256: "d".repeat(64),
+    media_type: "application/json" as const,
+    bytes: JSON.stringify(context).length,
+  }
+  let statePayload: JSONRecord | undefined
+  let terminalArtifactText = ""
+  let recordedToolResult: JSONRecord | undefined
+  const service = new ResearchJobService({
+    execute: async (command) => {
+      if (command.script.includes("agent-artifact-store")) {
+        const artifactInput = (command.stdin_json ?? {}) as JSONRecord
+        if (artifactInput.action === "read_text") {
+          assert.deepEqual(command.stdin_json, { action: "read_text", artifact: contextRef })
+          return {
+            ok: true,
+            action: "read_text",
+            artifact: contextRef,
+            text: JSON.stringify(activeContext),
+          }
+        }
+        terminalArtifactText = String(artifactInput.text)
+        const artifact = {
+          ref: `agent-artifact://durable/${"e".repeat(64)}`,
+          sha256: "e".repeat(64),
+          media_type: "application/json",
+          bytes: Buffer.byteLength(terminalArtifactText),
+        }
+        return { ok: true, action: "write_text", artifact }
+      }
+      const action = argAfter(command.args, "--action")
+      const payload = JSON.parse(argAfter(command.args, "--json")) as JSONRecord
+      if (command.script.includes("ops-runtime-store")) {
+        if (action === "record_agent_tool_call") return { ok: true, usage: { tool_calls: 1 } }
+        if (action === "record_agent_tool_result") {
+          recordedToolResult = payload
+          return { ok: true, tool_result: payload }
+        }
+        if (action === "read_agent_run") {
+          return {
+            ok: true,
+            agent_run: {
+              status: "running",
+              request: {
+                run_id: body.developer_run_id,
+                request_hash: "b".repeat(64),
+                task_profile: "developer",
+                input_refs: [contextRef],
+              },
+            },
+          }
+        }
+      }
+      statePayload = payload
+      return {
+        ok: true,
+        submission: {
+          schema_version: "trade.rd-developer-agent-submission.v1",
+          submission_hash: "c".repeat(64),
+        },
+      }
+    },
+    start: () => ({ pid: 1, log_path: "tmp/unused.log" }),
+  })
+  const semantic = {
+    schema_version: "trade.rd-developer-semantic-contract.v3" as const,
+    hypothesis: {
+      proposed_market_mechanism: "Directional displacement may persist after new information.",
+      falsifiable_prediction: "The family may retain cost-adjusted out-of-sample expectancy.",
+      null_hypothesis: "The displacement may contain no repeatable directional information.",
+    },
+    economic_rationale: {
+      proposed_edge_source: "Slow positioning adjustment may extend directional moves.",
+      persistence_rationale: "Fragmented reactions might delay complete price adjustment.",
+      failure_modes: ["Fast arbitrage may remove the proposed continuation effect."],
+    },
+    evaluation_question: "Does the bounded family survive all referenced evidence gates?",
+  }
+  const prepared = await service.prepareDeveloperSubmission({
+    developer_run_id: body.developer_run_id,
+    request_hash: "b".repeat(64),
+    requested_trial_budget: 4,
+    semantic_contract: semantic,
+  })
+  assert.equal(statePayload?.brief_id, body.brief.brief_id)
+  assert.equal(statePayload?.source_revision, body.source_revision)
+  assert.equal(statePayload?.draft_revision, 2)
+  assert.equal(statePayload?.implementation_mode, "existing_implementation")
+  assert.equal(statePayload?.requested_at, body.requested_at)
+  assert.equal(statePayload?.requested_trial_budget, 4)
+  assert.deepEqual(statePayload?.semantic_contract, semantic)
+  assert.equal(prepared.submission_hash, "c".repeat(64))
+  assert.equal(prepared.submission, undefined)
+  assert.equal(JSON.parse(terminalArtifactText).submission_hash, "c".repeat(64))
+  assert.equal(recordedToolResult?.tool_name, "research_developer_submission_prepare")
+  assert.equal(recordedToolResult?.output_schema_version, "trade.rd-developer-agent-submission.v1")
+  assert.equal(
+    (recordedToolResult?.artifact as JSONRecord).ref,
+    `agent-artifact://durable/${"e".repeat(64)}`,
+  )
+
+  const codeBody = {
+    ...body,
+    capability_assessment: {
+      ...body.capability_assessment,
+      required_mode: "code_change_required",
+      reason_code: "replay_implementation_not_ready",
+      required_capabilities: ["workspace_read", "workspace_patch", "bounded_quality_check"],
+    },
+  }
+  activeContext = { ...codeBody, context_pack_hash: canonicalHash(codeBody) }
+  await assert.rejects(
+    service.prepareDeveloperSubmission({
+      developer_run_id: body.developer_run_id,
+      request_hash: "b".repeat(64),
+    }),
+    /isolated workspace Host cycle/,
+  )
+})
+
+function argAfter(args: string[], name: string): string {
+  const index = args.indexOf(name)
+  if (index === -1 || !args[index + 1]) throw new Error(`missing ${name}`)
+  return args[index + 1]!
+}

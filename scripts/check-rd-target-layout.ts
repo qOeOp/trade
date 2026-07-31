@@ -10,7 +10,7 @@ interface Disposition {
   relocations: Array<{ legacy_module: string; current_path: string; semantic_status: string; retirement: string }>
 }
 
-const root = "modules/research-strategy-development"
+const root = "apps/research-strategy-development"
 const disposition = JSON.parse(readFileSync("docs/research/architecture/rd-module-disposition.json", "utf8")) as Disposition
 const issues: string[] = []
 
