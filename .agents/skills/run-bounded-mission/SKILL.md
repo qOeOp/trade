@@ -1,6 +1,6 @@
 ---
 name: run-bounded-mission
-description: "Run a compact Frame, Plan, Execute, Verify, Finalize workflow for explicitly invoked or repository-required non-trivial implementation and delivery work. Do not use for answer-only requests, mechanical edits, or routine status queries."
+description: "Run a compact Frame, Plan, Execute, Verify, Finalize workflow. Use when the user explicitly invokes $run-bounded-mission or clearly requests this mission workflow; explicit invocation wins even for otherwise excluded request types. Also use when repository instructions require it for non-trivial implementation or delivery. Without explicit invocation or a repository requirement, do not use it. Never auto-trigger for answer-only, explanation, audit, diagnose-only, mechanical edits, routine status, task creation, or internal subtasks."
 ---
 
 # Run Bounded Mission
