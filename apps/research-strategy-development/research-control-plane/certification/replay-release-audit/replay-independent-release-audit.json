@@ -1,11 +1,11 @@
 {
-  "schema_version": "trade.rd-replay-independent-release-audit.v1",
+  "schema_version": "trade.rd-replay-independent-release-audit.v2",
   "owner": "apps/research-strategy-development/research-control-plane/certification/replay-release-audit",
   "subject": {
     "owner": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification",
     "fixture_pack_path": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-release-candidate-fixture-pack.json",
-    "fixture_pack_content_sha256": "298fe574135c5d82a7ff22521a00b904c6403fb33f81d37b6b57c84226418544",
-    "fixture_pack_sha256": "db43a04c882e638ebecfc96af8c0e261ffbf1752eb6c2d38a93bf3bc84ee7553"
+    "fixture_pack_content_sha256": "e2ad98fbfdff466a34ac7991d653fc84e22dd805c78ab6392edb714c7260f35c",
+    "fixture_pack_sha256": "b4812f5a4000db230d467b354ae23e50c20e8b6243a2a083f00ea466429696f1"
   },
   "independence_policy": "auditor-outside-subject-owner-no-subject-implementation-import",
   "verification_policy": "independent-pack-and-component-rehash-negative-challenges-then-full-certify",
@@ -14,29 +14,57 @@
     "name": "bun",
     "version": "1.3.13"
   },
-  "required_exit_gates": {
-    "m4": [
-      "p1_through_p29_inventory_frozen",
-      "canonical_public_entrypoints_declared",
-      "opt_in_activation_registry_complete",
-      "compatibility_consumers_isolated",
-      "result_artifact_and_checkpoint_epochs_converged",
-      "single_owner_certification_command",
-      "canonical_and_compatibility_test_suites_separated",
-      "all_supported_profiles_have_golden_resume_idempotency_and_tamper_evidence",
-      "no_unclassified_replay_module_or_production_consumer"
-    ],
-    "m5_pre_audit": [
-      "m4_exit_complete",
-      "cross_process_reproducibility_bundle",
-      "historical_artifact_read_migration_certified",
-      "crash_recovery_and_exactly_once_publication_certified",
-      "declared_capacity_and_performance_envelope_certified",
-      "fault_injection_and_corruption_recovery_certified",
-      "operational_observability_and_runbook_complete",
-      "release_candidate_fixture_pack_frozen"
-    ]
-  },
+  "static_inputs_schema_version": "trade.rd-replay-static-inputs.v1",
+  "static_inputs_sha256": "026963b06d2e10c4846170de57a49d2e87c5dba36982d432cc3f34bbe587fe39",
+  "static_input_identities": [
+    { "path": "docs/research/reliability/rd-replay-capability-inventory.json", "kind": "content" },
+    { "path": "docs/research/reliability/rd-replay-evidence-epoch-registry.json", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/accounting/package.json", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/benchmark/package.json", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/certification/calibration-suite/package.json", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification/package.json", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/certification/legacy-replay-fingerprint/package.json", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/package.json", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-certification-suites.json", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-profile-evidence.json", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/package.json", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/src/lib/replay-portfolio-cycle-sequence-accounting-runner.ts", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/src/lib/replay-portfolio-reallocation-runner.ts", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/src/lib/replay-two-cycle-portfolio-runner.ts", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-identity/package.json", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/compatibility/legacy-research-contracts/package.json", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/compatibility/legacy-research-data/package.json", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/compatibility/legacy-research-decision/package.json", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/compatibility/legacy-research-evaluation/package.json", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/compatibility/legacy-research-features/package.json", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel/package.json", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/compatibility/legacy-research-order-lane/package.json", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/compatibility/legacy-research-provenance/package.json", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/compatibility/legacy-research-strategy-fixture/package.json", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/contracts/package.json", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-contracts.ts", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/data-adapter/package.json", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/engine/package.json", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/engine/src/lib/replay-reference-engine.ts", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/metrics/package.json", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/runner/package.json", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts", "kind": "existence" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.ts", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-fixed-partial-cycle-sequence-runner.ts", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-post-partial-stop-replacement-cycle-sequence-runner.ts", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-stop-cancel-cycle-sequence-runner.ts", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-stop-replacement-cycle-sequence-runner.ts", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-stop-replacement-terminal-accounting-runner.ts", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-stop-replacement-terminal-runner.ts", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-strategy-exit-cancel-cycle-sequence-runner.ts", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-take-profit-cancel-cycle-sequence-runner.ts", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-take-profit-replacement-cycle-sequence-runner.ts", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-two-fixed-partial-cycle-sequence-runner.ts", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.test.ts", "kind": "existence" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.ts", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/runner/src/public.ts", "kind": "content" },
+    { "path": "apps/research-strategy-development/replay-execution-plane/tests/package.json", "kind": "content" }
+  ],
   "commands": [
     {
       "role": "subject-full-certification",
@@ -49,12 +77,11 @@
       "timeout_ms": 600000
     },
     {
-      "role": "repository-audit-prerequisite-check",
+      "role": "repository-static-consistency-check",
       "cwd": ".",
       "argv": [
         "bun",
-        "scripts/check-rd-replay-maturity-gate.ts",
-        "--audit-prerequisites"
+        "scripts/check-rd-replay-static-consistency.ts"
       ],
       "timeout_ms": 30000
     }
@@ -66,24 +93,34 @@
   ],
   "source_bindings": [
     {
+      "role": "independent-audit-package",
+      "path": "apps/research-strategy-development/research-control-plane/certification/replay-release-audit/package.json",
+      "sha256": "285a1dc5eda6e4c0980c57a07563a22c94b49fa46be3e3bc4ab1a314a3441a2b"
+    },
+    {
+      "role": "independent-audit-launcher",
+      "path": "apps/research-strategy-development/research-control-plane/certification/replay-release-audit/src/scripts/main.ts",
+      "sha256": "e17163b29d4ddc768595a62ae27c1825982df8eec3ea59adb2d77020b45387f5"
+    },
+    {
       "role": "independent-auditor",
       "path": "apps/research-strategy-development/research-control-plane/certification/replay-release-audit/src/lib/replay-independent-release-audit.ts",
-      "sha256": "59a297bb7d3361911cb190164ace1ba7351a270812d898e98fd30fdc0c2d6c5b"
+      "sha256": "0774fbb4df560d8abbfbf19f2336a317f6e7e7b7e96d54be4189f3b9811bc728"
     },
     {
       "role": "independent-auditor-test",
       "path": "apps/research-strategy-development/research-control-plane/certification/replay-release-audit/src/lib/replay-independent-release-audit.test.ts",
-      "sha256": "9f0e479df0152bde426238985ed1d42e3f922d8dd8feb87c0b5390a244a904a6"
+      "sha256": "189e3ac7947b7aad1832b9cbe1a9f374889294f35d24434dc52a4c3373b81f52"
     },
     {
-      "role": "maturity-gate-consumer",
-      "path": "scripts/check-rd-replay-maturity-gate.ts",
-      "sha256": "ef5d006ff107bf98fb9fd2306bd859901dd87eac49fb3f0efc41aabc15b8aa86"
+      "role": "static-consistency-check",
+      "path": "scripts/check-rd-replay-static-consistency.ts",
+      "sha256": "98e8c850f29189e2c9a8d0308419d7d8362e44d362d28bd2a9602d2ebb668aa2"
     },
     {
       "role": "release-gate-entry",
       "path": "scripts/check-replay-release.sh",
-      "sha256": "e4213660cee32fd43923b5bfe129478354ab9683979168275f8ec57122d2bd7a"
+      "sha256": "56236c4568bf57dc58239a67accf329b624c390278c648c9b1b516e8116a1185"
     },
     {
       "role": "exclusive-test-runner",
@@ -93,12 +130,12 @@
     {
       "role": "subject-certification-runner",
       "path": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-certification.ts",
-      "sha256": "d0f37741d11f527078c7478d34fe3715983db0f3fa5827b8114315968f14cf6f"
+      "sha256": "336637baf95a69fe280886fa823c59143cb37ad229d680cf57cab6439d4c6bac"
     },
     {
       "role": "subject-certification-test",
       "path": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-certification.test.ts",
-      "sha256": "4c383f231a7960ba60ec0bd26ded1c37ba126f36b149821b9689c315a09a4c67"
+      "sha256": "42f19da2f6e18712bf19199ec6ee86040c50e03d0855dbbfdf4a339d7fe66873"
     },
     {
       "role": "runner-certification-package",
@@ -117,5 +154,5 @@
     "audit-does-not-expand-public-profiles-or-simulator-semantics",
     "remote-distributed-store-shadow-live-and-real-account-evidence-out-of-scope"
   ],
-  "audit_manifest_sha256": "8d1906df3fd90912a5e6da17ebc75a00674afc79ab0879b8c075cd714ae7af8b"
+  "audit_manifest_sha256": "033b691826bd8d3ed217a4e63ce21a2ba7a7023b0080aa3022782b72381361d3"
 }

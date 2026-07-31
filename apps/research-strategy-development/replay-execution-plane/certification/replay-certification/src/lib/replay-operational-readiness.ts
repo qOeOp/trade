@@ -97,7 +97,7 @@ const EXPECTED_INCIDENT_CLASSES: ReplayOperationalIncidentClass[] = [
 
 const EXPECTED_COMMANDS = [
   "bun apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --list --json",
-  "bun scripts/check-rd-replay-maturity-gate.ts",
+  "bun scripts/check-rd-replay-static-consistency.ts",
   "bun apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --suite canonical",
   "bun apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --suite compatibility",
 ]

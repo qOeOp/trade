@@ -3,7 +3,7 @@ title: Pluggable Agent Host Runtime Integration
 role: architecture-migration
 status: active-migration
 owner: architecture
-last_verified: 2026-07-30 CST
+last_verified: 2026-07-31 CST
 ---
 
 # 可替换 Agent Host Runtime 设计与迁移计划
@@ -348,7 +348,7 @@ P5/P6 本机采用新增确定性证据：OpenClaw `2026.7.1` 通过最小 MCP r
 | P4.9 | 验证 Planner / Reviewer 只读，Developer 权限不外溢到 Host | role boundary tests |
 | P4.10 | 异常退出、残留 worktree、磁盘软线与 GC 清理 | recovery / cleanup report |
 
-当前 code path 不再“形有神无”：`family_implementation_missing` 与 `replay_implementation_not_ready` 才获得 workspace capability；Research owner 将其映射到封闭 family/capability/state/certification 包，scope v3 绑定 1–8 个检查包并以不可变记录持久化。模块内 `developer-cycle` 仍只组合 Research 与 provider-neutral Host；server 的 semantic/code 双 Host、Ops scope 与 predecessor patch 在仓库级 `scripts/rd-developer-agent-cycle.ts` 装配，未引入 Research → Ops 反向依赖。Direct Codex fixture 已证明 predecessor Result-bound 累计二次修订；OpenClaw code profile 则只开放 `read/write/edit/apply_patch`，独立 Host 串行消费固定槽位，模型 completion 不作证据。检查在无网络、无 secret、无 owner DB 的独立进程执行，Host 比对检查前后 patch 后写 submission/diff/check refs；两个 Host 的 Compose 只挂独立 Ops 与 Agent artifact volume，不再看到 Trade/R&D/Catalog DB。真实 SiliconFlow Gateway 烟测已完成精确代码修改、检查、证据固化与清理。剩余门是 certified Replay 自动回送、patch review/apply/release、新 source revision 上的后继 reassessment，以及真实 Linux 容器/cgroup。
+`family_implementation_missing` 与 `replay_implementation_not_ready` 的 workspace capability、Research owner assessment、scope registry、semantic/code Host、隔离 checker 与 patch adopter 均已有各自 owner 实现；模块内 `developer-cycle` 仍是唯一组合 Research 与 provider-neutral Host 的 CLI。当前 server / Compose 没有 consumer 调用该 cycle，也没有把 `patch_ready` 自动写入 Ops adoption queue；先前仓库级装配与 Direct Codex 累计修订 fixture 因无 runtime consumer 已删除。现有 Compose 只能证明 Host、volume、network 与 checker/adopter 组件边界，历史本机 Gateway smoke 不能替代当前 server 纵切。下一门是复用模块 `developer-cycle` 接入既有 Program/server 入口，实际闭合 code Host、scope registration、predecessor patch、adoption queue 与 certified Replay 后继，再做 Linux 容器/cgroup 验收。
 
 ### P5 Planner / Developer / Replay / Reviewer 纵切
 

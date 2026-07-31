@@ -35,6 +35,7 @@ import {
   admitAgentRun,
 } from "../apps/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
 import {
+  admitAgentPatchAdoption,
   readAgentPatchAdoption,
 } from "../apps/orchestration-ops/ops-runtime-store/src/lib/agent-patch-adoption-store"
 import {
@@ -51,9 +52,6 @@ import {
   AdoptionError,
   runDeveloperPatchAdoption,
 } from "./lib/rd-developer-patch-adoption"
-import {
-  queueDeveloperPatchAdoption,
-} from "./lib/rd-developer-patch-adoption-queue"
 import {
   createDeveloperCandidateServerPackage,
 } from "./lib/rd-developer-candidate-release-package"
@@ -352,13 +350,14 @@ async function completedDeveloperRun(changeDependencyManifest: boolean): Promise
     },
   })
   completeAgentRun(db, completedResult)
-  const queued = queueDeveloperPatchAdoption(db, {
+  const queued = admitAgentPatchAdoption(db, {
+    adoption_id: adoptionId,
     run_id: request.run_id,
     request_hash: request.request_hash,
-    result_hash: completedResult.result_hash,
     scope_hash: scope.scope_hash,
-    admission: { status: "patch_ready" },
-  }, "2026-07-23T01:22:30.000Z")
+    patch: evidence.patch_ref,
+    accepted_at: "2026-07-23T01:22:30.000Z",
+  })
   assert.equal(queued.adoption_id, adoptionId)
   assert.equal(queued.status, "accepted")
   return { root, db, runId, adoptionId }

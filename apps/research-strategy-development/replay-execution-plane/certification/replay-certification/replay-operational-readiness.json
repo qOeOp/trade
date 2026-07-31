@@ -154,7 +154,7 @@
   ],
   "operator_commands": [
     "bun apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --list --json",
-    "bun scripts/check-rd-replay-maturity-gate.ts",
+    "bun scripts/check-rd-replay-static-consistency.ts",
     "bun apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --suite canonical",
     "bun apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --suite compatibility"
   ],
@@ -220,5 +220,5 @@
     "stdout-and-process-exit-are-diagnostic-not-authoritative",
     "shadow-live-and-real-account-operations-out-of-scope"
   ],
-  "registry_sha256": "5ed009689c7e8efa2a91cf145e3812f65db2a1928f006e44151d2a7822400521"
+  "registry_sha256": "b8419983d8d3ff20b1afc4f9fe94a01b4dd4d35bc30050a685adf2a789f970a1"
 }

@@ -3,14 +3,12 @@
 import {
   findReplayReleaseAuditRepoRoot,
   loadReplayIndependentReleaseAuditManifest,
-  loadReplayMaturityForIndependentAudit,
   runReplayIndependentReleaseAudit,
 } from "../lib/replay-independent-release-audit"
 
 const repoRoot = findReplayReleaseAuditRepoRoot()
 const receipt = await runReplayIndependentReleaseAudit(
   loadReplayIndependentReleaseAuditManifest(repoRoot),
-  loadReplayMaturityForIndependentAudit(repoRoot),
   repoRoot,
 )
 process.stdout.write(`${JSON.stringify(receipt, null, 2)}\n`)

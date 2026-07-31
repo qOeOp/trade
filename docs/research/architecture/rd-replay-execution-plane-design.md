@@ -18,13 +18,15 @@ Replay Execution Plane 是冻结实验的确定性执行与证据生产面。它
 
 | 问题 | 权威 |
 | --- | --- |
-| 当前 maturity、active milestone、gate truth | [rd-replay-maturity-gate.json](../reliability/rd-replay-maturity-gate.json) |
+| supported surface 与静态分类 | [Capability Inventory](../reliability/rd-replay-capability-inventory.json) 与 Evidence Epoch Registry |
+| 真实执行证据 | Replay certification owner 的完整 `bun run certify` |
+| 独立发布结论 | Research Control Plane release audit 的自哈希 receipt |
 | 输入输出 wire 与版本 | Plane 下各模块 `CONTRACT.md` / schema |
 | Trial / Attempt / Lease / Reservation | Research Control Plane state store |
 | Dataset / source lineage | frozen Dataset Manifest 与 source attestation |
 | 本文 | 跨模块不变量、能力边界、禁止项 |
 
-旧 R4.x / M4 研发日志见 [Legacy RD Replay Execution Plane Design](../../history/legacy-rd-replay-execution-plane-design.md)，不得覆盖机器 gate。
+旧 R4.x / M4 研发日志见 [Legacy RD Replay Execution Plane Design](../../history/legacy-rd-replay-execution-plane-design.md)，不得覆盖当前 owner contracts、inventory 或 certification evidence。
 
 ## 3. 执行链
 
@@ -54,7 +56,7 @@ Control Plane `rd_trial(status=reserved)` 只冻结 Trial identity 与预算；�
 
 ## 5. 当前能力口径
 
-机器 gate 当前证明的是受限 vertical slices，不是通用交易所模拟器。已认证项只能按 gate 中为 `true` 的 functional / evidence / cutover 字段表述；active milestone 任一要求仍为 `false` 时，不得宣称该 milestone 完成或 maturity 升级。
+当前 inventory 与 owner contracts 声明的是受限 vertical slices，不是通用交易所模拟器。只有 owner certification 实际执行覆盖的能力才可称已认证；static registry check 不证明测试执行、经济正确性或发布状态。
 
 典型已覆盖面包括：
 
@@ -99,23 +101,23 @@ P29 已在上述边界内完成：immutable source、同一 half-open bar window
 
 ## 9. 变更合同
 
-新增能力必须在同一有界 change set 中包含：schema / contract、真实 consumer、golden / tamper / resume evidence、artifact 绑定和 maturity gate 更新。只加 schema、phase 编号或零实例壳不算进展。
+新增能力必须在同一有界 change set 中包含：schema / contract、真实 consumer、golden / tamper / resume evidence、artifact 绑定和 inventory / certification registry 更新。只加 schema、phase 编号或零实例壳不算进展。
 
-完成一个 milestone 前必须运行 owner checks 与 `bun scripts/check-rd-replay-maturity-gate.ts`，并确保 gate 的所有要求同时为真。
+完成一个有界能力变更前必须运行 `bun scripts/check-rd-replay-static-consistency.ts` 与 owner checks；前者只检查静态绑定，后者才证明真实执行。
 
-## 10. 有限 M4/M5 收敛合同
+## 10. 有限能力面与发布责任
 
-P29 是最后一个按功能编号推进的 Replay 纵切；`M4-P30` 明确禁止。后续成熟度只由固定 exit gates 推进，不因新增 schema、successor、测试数或提交数上升。
+P29 是最后一个按功能编号推进的 Replay 纵切；`M4-P30` 明确禁止。提交数、schema、successor、测试文件或 registry 布尔值都不形成能力或发布结论。
 
-| 等级 | 准确含义 | 退出原则 |
+| 责任面 | 准确含义 | Authority |
 | --- | --- | --- |
-| M3 | 多条受认证的有界纵切可产生可信证据，但公共入口、默认/opt-in/compatibility 与 wire epoch 尚未收敛 | 已退出 |
-| M4 | 已声明能力形成有限产品面：公共入口唯一、opt-in 激活显式、compatibility 隔离、Result/Artifact/Checkpoint epoch 收敛、统一 owner certification 可执行 | 已退出；九项 M4 gate 已同时为真 |
-| M5 | M4 产品面达到 release-grade：跨进程复现、历史 Artifact 迁移、crash/exactly-once、容量边界、故障注入、可观测/runbook、冻结 fixture pack 与独立审计全部完成 | 当前状态；九项 M5 gate 已同时为真 |
+| static surface | 公共入口唯一、opt-in 激活显式、compatibility 隔离、Result/Artifact/Checkpoint epoch 与 certification packages 可机读 | inventory / registry + root static checker |
+| execution evidence | canonical 与 compatibility owner suites 在当前 runtime 中真实执行 | Replay certification owner |
+| release verdict | 对冻结 evidence envelope 重哈希、执行 negative challenges，并在 fresh process 运行 full certification 与 static prerequisite | independent release audit receipt |
 
-M4/M5 都相对于**声明的能力包络**，不要求伪造不可能证明的交易所现实。queue、真实 partial-fill、impact、insurance/ADL、cross-margin、borrow 或 Fast 若缺 authority/source/独立实现，保持 typed unsupported 也可以达到 M5；不得为了“升成熟度”把它们偷偷加入范围。
+所有结论都只相对于**声明的能力包络**，不要求伪造不可能证明的交易所现实。queue、真实 partial-fill、impact、insurance/ADL、cross-margin、borrow 或 Fast 若缺 authority/source/独立实现，必须保持 typed unsupported。
 
-机器 gate 的字段集合是封闭集合；新增 exit gate、恢复 P 编号或增加 simulator capability 都需要单独的架构重开决定，不能由自动迭代自行完成。
+恢复 P 编号或增加 simulator capability 都需要单独的架构重开决定，不能由自动迭代、静态 checker 或 audit receipt 自行扩权。
 
 ## 11. P1–P29 归并基线
 
@@ -134,7 +136,7 @@ M4/M5 都相对于**声明的能力包络**，不要求伪造不可能证明的�
 
 [Evidence Epoch Registry](../reliability/rd-replay-evidence-epoch-registry.json) 冻结通用 writer 为唯一一组：Result v53、Artifact Manifest v55、Engine Checkpoint v32、Diagnostic Checkpoint Commit v2、Terminal Checkpoint v1 与 Run Outcome v35。生产源码不得继续写通用旧版本；历史版本只允许由 M5 read-only migration reader 消费，不能恢复 writer。
 
-四个公共 profile 的 profile-scoped Result/Manifest 是上层组合证据，不与通用 single-trial epoch 竞争 authority。`independent-lane-batch` 只引用 child v53/v55 与 child v32 checkpoint；`integrated-portfolio`、`terminal-aware-bounded-cycle` 当前明确没有 resumable checkpoint writer。这里的“收敛”只证明 writer 与 checkpoint mode 唯一、可机读，不把缺失能力伪装成已支持；所有 profile 的 resume/evidence 充分性由独立 M4 gate 验收，不由本节自证。
+四个公共 profile 的 profile-scoped Result/Manifest 是上层组合证据，不与通用 single-trial epoch 竞争 authority。`independent-lane-batch` 只引用 child v53/v55 与 child v32 checkpoint；`integrated-portfolio`、`terminal-aware-bounded-cycle` 当前明确没有 resumable checkpoint writer。这里的“收敛”只证明 writer 与 checkpoint mode 唯一、可机读，不把缺失能力伪装成已支持；profile evidence 的充分性只能由 owner certification 的真实执行与独立审计复核，不由 registry 自证。
 
 ## 13. Certification owner
 
@@ -144,7 +146,7 @@ Plane 内唯一完整认证入口是 `certification/replay-certification` 的 `b
 
 `replay-module-consumer-closure.json` 是 M4 最后一门的机器证据。扫描器以 TypeScript AST 读取 `apps/` 下静态 import、export 与 `import()`，排除 test/spec、Replay certification 源码和 Plane tests，避免把认证边误判成生产采用。当前闭包为 23 个 Replay package、66 条指向 Replay package 的生产依赖边；每个 package 必须唯一归类，每条消费者边必须落入 Replay canonical/compatibility runtime、Research Control Plane、Forward Evidence Plane 或 Agent Roles。分类计数与完整闭包 SHA-256 同时校验，新增模块、消费者或依赖变化均 fail closed。
 
-该快照回答“当前谁在生产中依赖 Replay”，不回答“这些依赖都应该长期保留”。特别是现有 canonical 或域外 owner 对 `compatibility/` 的引用仍是迁移债务；闭包登记只防止其隐身，不授予其 canonical 地位。该 cut-point 完成时 M4 九门全部通过，后续只允许 M5 release certification；第 22 节记录的独立审计现已关闭 M5，当前只允许 maintenance。
+该快照回答“当前谁在生产中依赖 Replay”，不回答“这些依赖都应该长期保留”。特别是现有 canonical 或域外 owner 对 `compatibility/` 的引用仍是迁移债务；闭包登记只防止其隐身，不授予其 canonical 地位。当前只允许 maintenance；执行与发布状态分别由第 13 节 certification owner 和第 22 节 independent audit 持有。
 
 ## 15. M5 cross-process reproducibility bundle
 
@@ -154,7 +156,7 @@ Plane 内唯一完整认证入口是 `certification/replay-certification` 的 `b
 
 ## 16. M5 historical Artifact read migration
 
-P10、P11、P13 的 compatibility certification 以两层证据关闭迁移门：独立 synthetic pack 冻结 exact-v1 Manifest、role、commit marker、Result/Evidence identity 与 expected projection；完整 payload reader 另从真实 manifest-last namespace 逐文件校验 ref/raw SHA，再验证 P10 Result、P11 Result/Fingerprint、P13 Accounting/Trial Balance 的自哈希与现金不变量，输出只读 migration receipt。Pack、reader 与动态 certification test 均有冻结指纹；schema、role、payload、源码或 projection 漂移都 fail closed。Maturity checker 同时执行 pack 并验证 full-payload certification registry，不接受只改 gate 布尔值。
+P10、P11、P13 的 compatibility certification 以两层证据关闭迁移门：独立 synthetic pack 冻结 exact-v1 Manifest、role、commit marker、Result/Evidence identity 与 expected projection；完整 payload reader 另从真实 manifest-last namespace 逐文件校验 ref/raw SHA，再验证 P10 Result、P11 Result/Fingerprint、P13 Accounting/Trial Balance 的自哈希与现金不变量，输出只读 migration receipt。Pack、reader 与动态 certification test 均有冻结指纹；schema、role、payload、源码或 projection 漂移都 fail closed。完整 certification suite 真实执行这些检查；root static checker 不执行 pack，也不签发兼容性结论。
 
 该 reader 没有 writer、数据库、runtime public entrypoint 或经济 authority，不产生 Result v53 / Artifact v55，不修改旧文件，也不把旧 accounting 映射成当前经济语义。Full-payload 证据由冻结测试确定性生成，不等于抽样了生产历史全集；外部生产 corpus 普查和跨版本经济升级仍不在本 gate 内。该 cut-point 完成时 M5 为 `3/9`；后续 gate 见第 17–22 节。
 
@@ -182,14 +184,14 @@ Exactly-once 的权威口径是“同一 deterministic Attempt namespace 最多�
 
 Runbook 固定 preflight、首轮分诊、authority/data-integrity/deterministic/resource/publication/certification 处置、取消/checkpoint、Artifact 损坏、事件包和升级条件。它明确当前只有 local structured Outcome、immutable evidence 与 certification receipt；没有 central durable metrics/logs/traces、dashboard/pager、formal SLO、remote-store operations 或 automatic remediation。本 gate 因此证明“已声明 surface 可值班、限制可审计”，不声称 production observability platform 已建成，也未改变 Runner/Result/模拟语义。该 cut-point 完成时 M5 为 `7/9`；后续 fixture pack 与独立审计见第 21–22 节。
 
-## 21. M5 release-candidate fixture pack
+## 21. Release-candidate fixture pack
 
 `replay-release-candidate-fixture-pack.json` 是 release candidate 的封闭证据清单，不是第二套 Result 或 release verdict。它按 repo-relative content hash 冻结十二项既有 authority：canonical Result fixture、profile evidence、suite、epoch、module/production-consumer closure，以及 reproducibility、historical migration、publication crash recovery、capacity、fault/corruption 与 operational readiness。带自哈希的 registry/bundle 同时核对其内部 authority hash；canonical fixture 还必须回绑 reproducibility probe，不能用任意样本替换。
 
-四个 public profile 各在独立 fresh Bun process 重跑 exact golden，receipt 记录互异 PID、component-set hash、assertion hash、runtime 与 pack hash 并自哈希。Pack/source/component/authority 任一漂移或缺项均 fail closed；generated Result 不被复制进长期 fixture。证据仍限于 synthetic/owner fixtures 与当前 runtime，不证明 production history corpus、cross-host/runtime、remote/distributed store、shadow/live 或 real account，也不新增 profile、checkpoint 或模拟语义。该 cut-point 完成时 M5 为 `8/9`；最终状态由下一节的独立审计决定。
+四个 public profile 各在独立 fresh Bun process 重跑 exact golden，receipt 记录互异 PID、component-set hash、assertion hash、runtime 与 pack hash 并自哈希。Pack/source/component/authority 任一漂移或缺项均 fail closed；generated Result 不被复制进长期 fixture。证据仍限于 synthetic/owner fixtures 与当前 runtime，不证明 production history corpus、cross-host/runtime、remote/distributed store、shadow/live 或 real account，也不新增 profile、checkpoint 或模拟语义。该 pack 是独立审计的输入，不是发布结论。
 
-## 22. M5 independent release audit
+## 22. Independent release audit
 
-最终审计 owner 位于 `research-control-plane/certification/replay-release-audit`，不属于 Replay Plane，也不 import fixture-pack owner 实现。审计 manifest 绑定不再变化的 subject pack 整文件/self hash、auditor/test/maturity-checker source hash、完整 M4 与八项前置 M5 gate、两条外部命令和三项 negative challenge。Auditor 用自己的 canonical hash 实现逐项重算十二个 component content/authority hash 与四 profile golden source，分别注入 component content、authority 和 release-verdict overclaim 篡改，必须全部拒绝。
+最终审计 owner 位于 `research-control-plane/certification/replay-release-audit`，不属于 Replay Plane，也不 import fixture-pack owner 实现。审计 manifest 绑定不再变化的 subject pack 整文件/self hash、auditor/test/static-checker source hash、两条外部命令和三项 negative challenge。Auditor 用自己的 canonical hash 实现逐项重算十二个 component content/authority hash 与四 profile golden source，分别注入 component content、authority 和 release-verdict overclaim 篡改，必须全部拒绝。
 
-动态审计从外部执行 Replay 唯一 `bun run certify` 和 repository maturity checker 的 `--audit-prerequisites` 模式，要求 fresh process 全部返回零，再输出含 subject hash、PID、stdout/stderr hash、challenge outcome、runtime、limitations 的持久自哈希 receipt；normal checker 随后必须连同 receipt 一并重验。通过口径严格限定为冻结四 profile 与已声明 evidence envelope；production history corpus、cross-host/runtime、remote/distributed store、shadow/live、real account 与未声明 simulator capability 仍不在结论内。九项 M5 gate 现已同时为真，Replay 成熟度切换为 **M5**；后续只允许 maintenance，任何新 capability 或扩大发布范围都必须显式重开架构与 gate。
+动态审计从外部执行 Replay 唯一 `bun run certify` 和 repository static consistency checker，要求 fresh process 全部返回零，再输出含 subject hash、PID、stdout/stderr hash、challenge outcome、runtime、limitations 的持久自哈希 receipt。通过口径严格限定为冻结四 profile 与已声明 evidence envelope；static checker 成功不等于 certification 或 release 成功。production history corpus、cross-host/runtime、remote/distributed store、shadow/live、real account 与未声明 simulator capability 仍不在结论内。后续只允许 maintenance，任何新 capability 或扩大发布范围都必须显式重开架构决定并重新审计。

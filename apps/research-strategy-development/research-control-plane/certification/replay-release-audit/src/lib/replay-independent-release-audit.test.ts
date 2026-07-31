@@ -8,7 +8,6 @@ import {
   findReplayReleaseAuditRepoRoot,
   loadReplayIndependentReleaseAuditManifest,
   loadReplayIndependentReleaseAuditReceipt,
-  loadReplayMaturityForIndependentAudit,
   runReplayIndependentAuditCommand,
 } from "./replay-independent-release-audit"
 
@@ -19,11 +18,10 @@ describe("Replay independent release audit", () => {
     const manifest = loadReplayIndependentReleaseAuditManifest(repoRoot)
     expect(() => assertReplayIndependentReleaseAuditManifest(
       manifest,
-      loadReplayMaturityForIndependentAudit(repoRoot),
       repoRoot,
     )).not.toThrow()
     const receipt = loadReplayIndependentReleaseAuditReceipt(repoRoot)
-    expect(() => assertReplayIndependentReleaseAuditReceipt(receipt, manifest)).not.toThrow()
+    expect(() => assertReplayIndependentReleaseAuditReceipt(receipt, manifest, repoRoot)).not.toThrow()
     expect(receipt.verdict).toBe("passed-within-declared-evidence-envelope")
     expect(receipt.negative_challenges).toEqual([
       { challenge: "component-content-tamper", outcome: "rejected" },
@@ -32,52 +30,65 @@ describe("Replay independent release audit", () => {
     ])
     expect(receipt.commands.map((command) => command.role)).toEqual([
       "subject-full-certification",
-      "repository-audit-prerequisite-check",
+      "repository-static-consistency-check",
     ])
     expect(new Set(receipt.commands.map((command) => command.process_id)).size).toBe(2)
     expect(receipt.commands.every((command) => command.exit_code === 0)).toBe(true)
     expect(receipt.receipt_sha256).toHaveLength(64)
   })
 
-  test("rejects auditor capture, subject drift, and an incomplete M5 state", () => {
-    const maturity = loadReplayMaturityForIndependentAudit(repoRoot)
+  test("rejects auditor capture, subject drift, and stale receipts", () => {
     const captured = structuredClone(loadReplayIndependentReleaseAuditManifest(repoRoot))
     captured.owner = captured.subject.owner
-    expect(() => assertReplayIndependentReleaseAuditManifest(captured, maturity, repoRoot))
+    expect(() => assertReplayIndependentReleaseAuditManifest(captured, repoRoot))
       .toThrow("unsupported Replay independent release audit manifest")
 
     const drifted = structuredClone(loadReplayIndependentReleaseAuditManifest(repoRoot))
     drifted.subject.fixture_pack_content_sha256 = "0".repeat(64)
-    expect(() => assertReplayIndependentReleaseAuditManifest(drifted, maturity, repoRoot))
+    expect(() => assertReplayIndependentReleaseAuditManifest(drifted, repoRoot))
       .toThrow("subject fixture-pack content drifted")
 
     const auditorDrift = structuredClone(loadReplayIndependentReleaseAuditManifest(repoRoot))
     Object.assign(auditorDrift.source_bindings[0]!, { sha256: "0".repeat(64) })
-    expect(() => assertReplayIndependentReleaseAuditManifest(auditorDrift, maturity, repoRoot))
+    expect(() => assertReplayIndependentReleaseAuditManifest(auditorDrift, repoRoot))
       .toThrow("independent audit source drifted")
 
-    for (const role of ["release-gate-entry", "exclusive-test-runner"]) {
+    for (const role of [
+      "independent-audit-package",
+      "independent-audit-launcher",
+      "release-gate-entry",
+      "exclusive-test-runner",
+    ]) {
       const executionDrift = structuredClone(loadReplayIndependentReleaseAuditManifest(repoRoot))
       const binding = executionDrift.source_bindings.find((item) => item.role === role)
       expect(binding).toBeDefined()
       Object.assign(binding!, { sha256: "0".repeat(64) })
-      expect(() => assertReplayIndependentReleaseAuditManifest(executionDrift, maturity, repoRoot))
+      expect(() => assertReplayIndependentReleaseAuditManifest(executionDrift, repoRoot))
         .toThrow("independent audit source drifted")
     }
 
-    const incomplete = structuredClone(maturity)
-    incomplete.exit_gates.m5!.release_candidate_fixture_pack_frozen = false
-    expect(() => assertReplayIndependentReleaseAuditManifest(
-      loadReplayIndependentReleaseAuditManifest(repoRoot),
-      incomplete,
+    const staticInputDrift = structuredClone(loadReplayIndependentReleaseAuditManifest(repoRoot))
+    staticInputDrift.static_inputs_sha256 = "0".repeat(64)
+    expect(() => assertReplayIndependentReleaseAuditReceipt(
+      loadReplayIndependentReleaseAuditReceipt(repoRoot),
+      staticInputDrift,
       repoRoot,
-    )).toThrow("prerequisite gate is not closed")
+    )).toThrow("static input identity drifted")
 
     const receiptTamper = structuredClone(loadReplayIndependentReleaseAuditReceipt(repoRoot))
     receiptTamper.verdict = "unbounded-production-release" as never
     expect(() => assertReplayIndependentReleaseAuditReceipt(
       receiptTamper,
       loadReplayIndependentReleaseAuditManifest(repoRoot),
+      repoRoot,
+    )).toThrow("unsupported Replay independent release audit receipt")
+
+    const staleReceipt = structuredClone(loadReplayIndependentReleaseAuditReceipt(repoRoot))
+    staleReceipt.schema_version = "trade.rd-replay-independent-release-audit-receipt.v1" as never
+    expect(() => assertReplayIndependentReleaseAuditReceipt(
+      staleReceipt,
+      loadReplayIndependentReleaseAuditManifest(repoRoot),
+      repoRoot,
     )).toThrow("unsupported Replay independent release audit receipt")
 
     const runtimeDrift = structuredClone(loadReplayIndependentReleaseAuditReceipt(repoRoot))
@@ -85,7 +96,14 @@ describe("Replay independent release audit", () => {
     expect(() => assertReplayIndependentReleaseAuditReceipt(
       runtimeDrift,
       loadReplayIndependentReleaseAuditManifest(repoRoot),
+      repoRoot,
     )).toThrow("unsupported Replay independent release audit receipt")
+
+    expect(() => assertReplayIndependentReleaseAuditReceipt(
+      loadReplayIndependentReleaseAuditReceipt(repoRoot),
+      loadReplayIndependentReleaseAuditManifest(repoRoot),
+      undefined as never,
+    )).toThrow("verification context required")
   })
 
   test("kills the complete command process group when an audit command times out", async () => {

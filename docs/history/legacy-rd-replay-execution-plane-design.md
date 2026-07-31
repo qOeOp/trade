@@ -8,7 +8,7 @@ last_verified: 2026-07-22 CST
 
 # Legacy RD Replay Execution Plane Design
 
-> 本文保留 R4.x / M4 分阶段研发细节与证据链演进，不再承担当前成熟度判断。当前合同见 [RD Replay Execution Plane](../research/architecture/rd-replay-execution-plane-design.md)，机器门见 [rd-replay-maturity-gate.json](../research/reliability/rd-replay-maturity-gate.json)。
+> 本文保留 R4.x / M4 分阶段研发细节与证据链演进，不再承担当前成熟度判断。当前合同见 [RD Replay Execution Plane](../research/architecture/rd-replay-execution-plane-design.md)；文中提到的 `rd-replay-maturity-gate.json` 已退役，不是当前 authority。
 
 > 以下内容是阶段性设计记录，不证明当前实现；机器门禁与当前合同优先。
 

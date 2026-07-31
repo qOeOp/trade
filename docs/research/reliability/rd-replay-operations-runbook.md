@@ -32,12 +32,12 @@ last_verified: 2026-07-22 CST
 
 ```bash
 bun apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --list --json
-bun scripts/check-rd-replay-maturity-gate.ts
+bun scripts/check-rd-replay-static-consistency.ts
 bun apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --suite canonical
 bun apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --suite compatibility
 ```
 
-任何命令非零退出都阻断 release；stdout 和进程退出只证明命令执行状态，不替代 Outcome/Artifact authority。
+任何命令非零退出都阻断后续 release audit；static checker 只证明 registry/path/package/export 一致，owner suites 才产生执行证据。stdout 和进程退出不替代 Outcome/Artifact authority，也不构成独立发布结论。
 
 ## 4. 首轮分诊
 

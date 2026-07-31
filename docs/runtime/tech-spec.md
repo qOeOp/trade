@@ -138,7 +138,7 @@ MCP/HTTP/OpenClaw 只能是同一 owner surface 的北向 allowlist，不能建�
 | domain/job/store/rail | architecture manifest + drift check |
 | module CLI/schema | owner `bun run check` |
 | logical store / DDL | storage schema check |
-| research Plane | target layout + maturity gate + owner tests |
+| research Plane | target layout + static registry consistency + owner certification |
 | 跨语言、脚本经 PR 交付 | 受影响 owner / consumer 检查；远端 required `quality` + 四语言 CodeQL |
 | 不经 PR 的本地全仓终结 | `scripts/quality-check.sh` |
 

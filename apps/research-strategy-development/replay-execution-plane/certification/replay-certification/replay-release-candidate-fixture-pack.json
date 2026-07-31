@@ -16,79 +16,79 @@
     {
       "role": "public-profile-evidence-registry",
       "path": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-profile-evidence.json",
-      "content_sha256": "dd428d148905a1fb2b88ea0d79df1e78531250602a690e3813c20bf765ab1ff9",
+      "content_sha256": "8e10675b8ea8c720973ca5a0f7ab840f5522c40c884e007d0f62999a2447e3b7",
       "authority_hash_field": null,
       "authority_hash": null
     },
     {
       "role": "certification-suite-registry",
       "path": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-certification-suites.json",
-      "content_sha256": "65f6c013efd74d07f258d7bc4af7b50ca7ff120fba38e0b495dad9e02e85dcda",
+      "content_sha256": "112cb82bc349e535ff6afccf865211aa7a2ec3102bd97a4414b54f40b70fc3b3",
       "authority_hash_field": null,
       "authority_hash": null
     },
     {
       "role": "evidence-epoch-registry",
       "path": "docs/research/reliability/rd-replay-evidence-epoch-registry.json",
-      "content_sha256": "24aee273bbc9960d0d388889494db8ca2fd9c88365af1f0c20e33762a6ed1ea0",
+      "content_sha256": "5a05195dc6e35b79a690a9cb580f87364557d20291a074a7792e090f37dad758",
       "authority_hash_field": null,
       "authority_hash": null
     },
     {
       "role": "module-consumer-closure",
       "path": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-module-consumer-closure.json",
-      "content_sha256": "201345c705acad9db3725ab87616306ec024c77e15f9d84ff9e87683abbcb7f8",
+      "content_sha256": "e8ded96f894d026c2da7ef01e732b0a86685b23c756306c41cd23f497d7bb33e",
       "authority_hash_field": "observed_closure_sha256",
-      "authority_hash": "ddabe473a112671c7f3338116496d4503987572c5bd6a31d43e00321fbcfc459"
+      "authority_hash": "6eedcb77ac4f8703079829adc053ff8bfa81196f995868d86c7c6aad01c3a28d"
     },
     {
       "role": "cross-process-reproducibility",
       "path": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-cross-process-reproducibility-bundle.json",
-      "content_sha256": "5eeb1cb8c3e0490931bbf860162c08712181f99d08a13748716d4ea747f2d67d",
+      "content_sha256": "4f0fffed5718ea1e69bed18caf750e64e7c0c1b93c1b961ce57e6f896070d894",
       "authority_hash_field": "bundle_sha256",
-      "authority_hash": "38562aff999fc320c39bb0cede4cf324ad0aa4d158a85da58e1f16f10a7a93ec"
+      "authority_hash": "94ddc2afb15d316d0c2fdfea67bdc309bee4adfa83fe6b4f71a77b2d823cab6b"
     },
     {
       "role": "historical-artifact-migration-registry",
       "path": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-historical-artifact-migration.json",
-      "content_sha256": "bbd038f32d2aa4c937d6a7770e5b362c45790df459e13b810da26cba0ac08037",
+      "content_sha256": "99f8482f0d15f2e6efc5cc385ec2bfe31b5a30a51b66ba2db749d3c5395d1206",
       "authority_hash_field": "registry_sha256",
-      "authority_hash": "a7aa58366ac66739b262318cf754c1d64ca7f9a09e60fb8b6653d80f69d520ed"
+      "authority_hash": "39fccaeecf5e8420a7024a71668728a0b1360ff5e6129a3908b64c0864077660"
     },
     {
       "role": "historical-artifact-fixture-pack",
       "path": "apps/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification/fixtures/historical-artifact-read-migration-v1.json",
-      "content_sha256": "82ccf8199383b8c18873fa0b58b489d070e3e27b1fe0407b612e64ca37471c65",
+      "content_sha256": "d64a97d219179f97c1215282915be391e8ebd39bd65a0f41de45330180b02637",
       "authority_hash_field": "pack_hash",
-      "authority_hash": "9d7526b46e654606f991f23e92b3fdbe3c1127e19ceae6533b9f67452cee5002"
+      "authority_hash": "5d50ef7cff41e44ec8bc8bb36471f705214f8fbdda10eae690fd22c6cd7f3838"
     },
     {
       "role": "publication-crash-recovery",
       "path": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-publication-crash-recovery-bundle.json",
-      "content_sha256": "e490293a1881ed4b6dc49c69cf8b8252d0825e2f58c5ba7f2b07c434b15e9ce1",
+      "content_sha256": "1a249efc990583441c505fbe057ce9c406eac4447b42e5a70ff2eb2adb488a38",
       "authority_hash_field": "bundle_sha256",
-      "authority_hash": "ecda5fb269fead771340b529ff72f6569d50cf24f642a2910987a64980d7e5ee"
+      "authority_hash": "c9868ecb124bd3a0d65060288b0a1ee49371b47bdda7f8526e19632166175dd1"
     },
     {
       "role": "capacity-performance-envelope",
       "path": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-capacity-performance-envelope.json",
-      "content_sha256": "cdd86db3155a09f0cd82b73e2c983866d062905a22bab7d34838f52a83e872d0",
+      "content_sha256": "402e7f5ac3c2f0e2eb0e7ab05c66009ee32a0d5bf50cbea41cf9b7efce9667a0",
       "authority_hash_field": "bundle_sha256",
-      "authority_hash": "6eba5853116c70ed841f460d709c96e560dd370092bbbea2def9d83b60568a7b"
+      "authority_hash": "5ad5ff9c430d1d232ad33178fa62a3199ed6e4b096aab5ca50f0d7849325947e"
     },
     {
       "role": "fault-corruption-recovery",
       "path": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-fault-corruption-recovery-bundle.json",
-      "content_sha256": "504530e3c4b3ced2c0acbff036ad8e0c3a8569a93e278f3ffba8455800fceba2",
+      "content_sha256": "15ed57d4a083d5aa1a25353f9edbd4f60a9ee439c9b12ec41f7dcf658c598a17",
       "authority_hash_field": "bundle_sha256",
-      "authority_hash": "f7fd12d087576000e4b347576b6f51c92172a7b3ff12398129aee4d8ed7b906a"
+      "authority_hash": "4e7ba644a1665e95768397ff9e45c6852d251fffc06fa39bd7332780759f6c2f"
     },
     {
       "role": "operational-readiness",
       "path": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-operational-readiness.json",
-      "content_sha256": "578f2924f47013fae7270cca3822cc43bc8659e7ee11eeb8c2107e6f021596ae",
+      "content_sha256": "628f12181f169b46564670bb6dba94209e5e2a448148f2f990d42f4b036eacda",
       "authority_hash_field": "registry_sha256",
-      "authority_hash": "5ed009689c7e8efa2a91cf145e3812f65db2a1928f006e44151d2a7822400521"
+      "authority_hash": "b8419983d8d3ff20b1afc4f9fe94a01b4dd4d35bc30050a685adf2a789f970a1"
     }
   ],
   "profiles": [
@@ -133,5 +133,5 @@
     "fixture-pack-does-not-authorize-release-without-independent-audit",
     "remote-distributed-store-shadow-live-and-real-account-evidence-out-of-scope"
   ],
-  "pack_sha256": "db43a04c882e638ebecfc96af8c0e261ffbf1752eb6c2d38a93bf3bc84ee7553"
+  "pack_sha256": "b4812f5a4000db230d467b354ae23e50c20e8b6243a2a083f00ea466429696f1"
 }

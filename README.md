@@ -13,7 +13,7 @@
 | 系统如何分域 | [Design Architecture](./docs/architecture/design-architecture.md) |
 | domain / job / store / rail 机器事实 | [Architecture Manifest](./docs/architecture/architecture-manifest.json) |
 | 在线技术合同 | [Technical Contract](./docs/runtime/tech-spec.md) |
-| R&D 边界与成熟度 | [RD Architecture](./docs/research/architecture/rd-architecture-migration-plan.md) / [Replay Gate](./docs/research/reliability/rd-replay-maturity-gate.json) |
+| R&D 与 Replay 边界 | [RD Architecture](./docs/research/architecture/rd-architecture-migration-plan.md) / [Replay Capability Inventory](./docs/research/reliability/rd-replay-capability-inventory.json) |
 | 改动后跑什么 | [Check Contract](./docs/engineering/check-contract.md) |
 
 优先级：产品合同 → 架构合同 / manifest → module `CONTRACT.md` / `toolset.json` → schema / tests。`docs/history/` 只保留历史上下文，不能覆盖当前合同。
@@ -85,4 +85,4 @@ bun scripts/check-doc-contracts.ts
 git diff --check
 ```
 
-涉及架构当前态再运行 manifest、storage、RD layout / maturity 和 drift checks。经 PR 交付时，本地直接运行受影响 owner 检查、真实 consumer journey、diff inspection 与 workspace safety；远端 required `quality` 和四语言 CodeQL 完成全仓 merge closure。不经 PR 且需要本地全仓终结时再运行 `scripts/quality-check.sh`。
+涉及架构当前态再运行 manifest、storage、RD layout / static consistency 和 drift checks。经 PR 交付时，本地直接运行受影响 owner 检查、真实 consumer journey、diff inspection 与 workspace safety；远端 required `quality` 和四语言 CodeQL 完成全仓 merge closure。不经 PR 且需要本地全仓终结时再运行 `scripts/quality-check.sh`。
