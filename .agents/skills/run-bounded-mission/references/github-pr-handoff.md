@@ -18,8 +18,10 @@ result before revising. Reproduce each material finding against the current cand
 started, ambiguous, or failed review remains outstanding.
 
 For a `merge-ready` or `merged` endpoint, freeze exactly one discovery review attempt: the automatic
-native Codex opening review when it starts, or a manually requested substitute with separately
-frozen comment or review-request authority. Wait through the host-native GitHub owner until that
+native Codex opening review when it starts, or a manually requested substitute through an explicit
+`@codex review` issue comment with separately frozen comment authority. Do not use GitHub's generic
+review-request path as a substitute because the repository waiter cannot correlate that event. Wait
+through the host-native GitHub owner until that
 review is terminal or Stop is reached. A correlated provider thumbs-up reaction for the frozen
 discovery attempt is terminal clean completion; eyes, dispatch, queue, and in-progress signals are
 not. For an `open` endpoint, successful publication in the requested Draft/Ready state does not wait

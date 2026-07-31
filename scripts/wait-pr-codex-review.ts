@@ -65,7 +65,7 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
     signal.kind === "reaction"
       && signal.reaction === "EYES"
       && isProvider(signal.author)
-      && (signal.target === "pull-request" || signal.target === attemptTarget)
+      && signal.target === attemptTarget
       && signal.at >= attemptAt,
   )
   for (const signal of relatedEyes) {
@@ -80,7 +80,7 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
     (signal) => (signal.updatedAt ?? signal.at) >= attemptAt,
   )
   const providerThreads = snapshot.threads.filter((thread) =>
-    thread.comments.some((comment) => isProvider(comment.author)),
+    isProvider(thread.comments[0]?.author ?? ""),
   )
   const usageFailure = allProviderSignals.find((signal) => USAGE_FAILURE.test(signal.body ?? ""))
   if (usageFailure) {
@@ -103,9 +103,8 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
 
   const nonCleanReview = allProviderSignals.find((signal) => {
     if (signal.kind === "review") {
-      return signal.reviewState !== "APPROVED" && (signal.reviewState === "CHANGES_REQUESTED"
+      return signal.reviewState === "CHANGES_REQUESTED"
         || Boolean(signal.body?.trim() && !isCleanReview(signal.body))
-      )
     }
     return signal.kind === "comment"
       && Boolean(signal.body?.trim() && !isCleanReview(signal.body))
@@ -118,8 +117,10 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
     signal.at > attemptAt && (
       (signal.kind === "reaction"
         && signal.reaction === "THUMBS_UP"
-        && (signal.target === "pull-request" || signal.target === attemptTarget))
-      || (signal.kind === "review" && signal.reviewState === "APPROVED")
+        && signal.target === attemptTarget)
+      || (signal.kind === "review"
+        && signal.reviewState === "APPROVED"
+        && (!signal.body?.trim() || isCleanReview(signal.body)))
       || (signal.kind === "comment" && isCleanReview(signal.body ?? ""))
     ),
   )

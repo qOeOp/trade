@@ -38,7 +38,7 @@ describe("Codex opening review state", () => {
       comment(bot, "2026-07-31T10:01:00Z", "Didn't find any major issues."),
     ])).status).toBe("passed")
     expect(classifyCodexReview(fixture([
-      review(bot, "2026-07-31T10:01:00Z", "Looks good to me.", "APPROVED"),
+      review(bot, "2026-07-31T10:01:00Z", "", "APPROVED"),
     ])).status).toBe("passed")
   })
 
@@ -51,6 +51,9 @@ describe("Codex opening review state", () => {
     ])).status).toBe("failed")
     expect(classifyCodexReview(fixture([
       comment(bot, "2026-07-31T10:01:00Z", "Didn’t find any major issues here, but another path is unsafe."),
+    ])).status).toBe("failed")
+    expect(classifyCodexReview(fixture([
+      review(bot, "2026-07-31T10:01:00Z", "Approved, but this path can still merge early.", "APPROVED"),
     ])).status).toBe("failed")
   })
 
@@ -91,6 +94,10 @@ describe("Codex opening review state", () => {
     ])).status).toBe("pending")
     expect(classifyCodexReview(fixture([
       request,
+      reaction(bot, "2026-07-31T10:02:00Z", "THUMBS_UP"),
+    ])).status).toBe("pending")
+    expect(classifyCodexReview(fixture([
+      request,
       reaction(bot, "2026-07-31T10:02:00Z", "THUMBS_UP", "comment:request"),
     ])).status).toBe("passed")
   })
@@ -118,6 +125,20 @@ describe("Codex opening review state", () => {
       comments: [{ author: bot, at: "2026-07-31T10:01:00Z", body: "The merge can race review." }],
     })
     expect(classifyCodexReview(resolvedThread).status).toBe("failed")
+  })
+
+  test("a Codex reply does not turn a maintainer thread into a Codex finding", () => {
+    const snapshot = fixture([
+      reaction(bot, "2026-07-31T10:03:00Z", "THUMBS_UP"),
+    ])
+    snapshot.threads.push({
+      resolved: true,
+      comments: [
+        { author: "maintainer", at: "2026-07-31T10:01:00Z", body: "Can this be simpler?" },
+        { author: bot, at: "2026-07-31T10:02:00Z", body: "Yes." },
+      ],
+    })
+    expect(classifyCodexReview(snapshot).status).toBe("passed")
   })
 
   test("truncated evidence and non-open PRs fail closed", () => {
