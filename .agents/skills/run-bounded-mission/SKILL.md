@@ -107,8 +107,8 @@ Activate support only when its Frame predicate is observed:
 
 Select a planning method before constructing any method-bearing support packet:
 
-- load [decision-relevant prior art](references/plan-prior-art.md) only when external evidence can
-  change one researcher decision;
+- load [decision-relevant prior art](references/plan-prior-art.md) only when external evidence from
+  one researcher lane can inform one main-agent decision;
 - load [consequential ambiguity](references/plan-ambiguity.md) only when one unresolved fact can
   change the candidate, consumer behavior, authority, Acceptance, or a hard-to-reverse choice; the
   main agent owns any user preference or authority question;
