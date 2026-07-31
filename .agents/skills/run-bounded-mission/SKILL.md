@@ -85,6 +85,12 @@ or unjustified by a real consumer. State the engineering objection and the narro
 User repetition, urgency, prior effort, or a request to "just implement it" is not contrary evidence
 and does not clear the objection. Do not reject a user-owned preference on taste alone.
 
+When bounded history for named paths can change Origin, the no-change counterfactual, the likely
+owner, or Scope, run `scripts/git-path-history.py` from this skill. Pass repository-relative
+`--path` values and bound the query with `--revision`, dates, `--max-count`, and `--max-files`; use
+`--follow` only for one path whose rename history matters. Do not inspect history without a decision
+question.
+
 Support is a conditional envelope, not a reservation. Define capability classes and observable
 activation predicates from decision gaps and risks, not a subjective complexity score. Do not fix
 agent counts, pre-spawn agents, reserve host capacity, or create work merely to consume the budget.
@@ -159,6 +165,11 @@ no-change or narrower alternative. If decisive evidence rejects the requested me
 the legitimate outcome through a substitute or return `blocked`; do not execute the rejected
 mechanism while discussion continues. An unresolved evidence-backed design objection prevents Plan
 admission and can be cleared only by contrary evidence or a material reframe.
+
+Use `scripts/git-path-history.py --format json` when per-commit path changes can resolve an owner,
+removed invariant, repeated correction, or compatible stopping boundary. Treat full commit hashes,
+timestamps, and per-file numstat as source evidence. Treat line totals and filename overlap only as
+supporting signals; they do not establish intent, semantic ownership, or affected-boundary closure.
 
 Activate support only when its Frame predicate is observed:
 
@@ -259,6 +270,10 @@ route to `reframe`. Faulty or omitted execution of already-admitted structure is
 routes to `revise` while those design fields stay intact. Sunk effort, revision count, and incumbent
 code are never evidence for retention. Compare the cumulative candidate with Origin and the
 narrowest viable alternative, not only with its preceding revision.
+
+Inspect path history with `scripts/git-path-history.py` only when a removed or moved control,
+ambiguous intent, regression hypothesis, or repeated candidate correction makes it probative.
+History never substitutes for exercising the identified candidate and current consumer.
 
 Use [reviewer handoff](references/reviewer-handoff.md) when an evaluator predicate admitted by Plan
 matches the identified candidate. Do not launch one for ceremony. Launch a fresh evaluator for a
@@ -364,6 +379,11 @@ Keep lifecycle semantics in this file. Agent definitions, tool mappings, MCP con
 host adapters may project capabilities but cannot add routes, authority, state, deadlines, or peer
 coordination. Use host-native task, worktree, review, and delivery primitives under their own
 policies. A host projection is trustworthy only after a behavior-equivalent consumer exercise.
+
+The Git history helper is local and read-only. It requires Git and Python 3, emits no Mission state,
+and has no commit, push, pull-request, review, merge, or other GitHub authority. Its merge statistics
+compare a merge commit with its first parent; its result reports whether the local repository is
+shallow and marks boundary statistics unavailable when parent history is missing.
 
 Task dispatch is root-level outcome routing, not stage-internal agent delegation. Parent routing,
 Codex chat Handoff, and a child Mission's delivery Finalize are distinct operations; none transfers
