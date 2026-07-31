@@ -53,20 +53,22 @@ test("fast admission and dispatch packets are observable and bounded", () => {
     expect(support).toContain(requirement)
   }
 
-  for (const field of [
-    "Decision question:",
-    "Scope:",
-    "Authority:",
-    "Inputs:",
-    "Return:",
-    "Validation:",
-    "Branch Stop:",
-    "Escalation:",
+  for (const semantic of [
+    "one decision question",
+    "bounded scope",
+    "read-only authority",
+    "exact inputs or",
+    "compact expected return",
+    "cheap validation method",
+    "one branch Stop",
+    "observable",
+    "escalation conditions",
   ]) {
-    expect(support).toContain(field)
+    expect(support).toContain(semantic)
   }
 
-  expect(support).toContain("Status: sufficient | escalate | unavailable")
+  expect(support).toContain("do not\nrequire a universal serialized record")
+  expect(support).toContain("without imposing a shared status enum or schema")
   expect(support).toContain("Low invocation strength never means a lower evidence-quality bar.")
 })
 
@@ -79,6 +81,9 @@ test("escalation and parallelism preserve the mission boundary", () => {
   )
   expect(support).toContain(
     "Preserve Origin, Frame, Authority, and consumed Stop",
+  )
+  expect(support).toContain(
+    "do not launch an evaluator until an admitted Plan and candidate exist",
   )
   expect(support).toContain(
     "Launch lanes concurrently only when their questions, required inputs, and outputs are mutually",
@@ -116,6 +121,9 @@ test("task dispatch and independent reviewer contracts stay separate", () => {
   expect(support).not.toContain("review_status:")
   expect(support).toContain(
     "final acceptance and candidate-controlled oracles remain high-assurance",
+  )
+  expect(support).toContain(
+    "directly serves as an acceptance oracle or trust boundary",
   )
   expect(support).toContain(
     "Do not hard-code model names, promise unsupported",

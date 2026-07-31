@@ -10,7 +10,7 @@ lifecycle, role, model family, agent roster, queue, or authority transfer.
 | --- | --- | --- |
 | `fast` | Every fast gate below is observable and the result is cheap for the main agent to verify | bounded repository explorer or deterministic read-only query |
 | `standard` | The question remains read-only but needs broader repository synthesis, an unknown candidate set, multiple sources, or ambiguity resolution | explorer, researcher, or planner selected by the existing Plan predicate |
-| `high-assurance` | Evidence affects acceptance or a trust boundary, conflicts remain material, the candidate controls an oracle, or independent evaluation is required | isolated evaluator or another existing high-assurance read-only capability |
+| `high-assurance` | The question directly serves as an acceptance oracle or trust boundary, conflicts remain material, the candidate controls an oracle, or independent evaluation is required | isolated evaluator or another existing high-assurance read-only capability |
 
 Admit `fast` only when all conditions hold:
 
@@ -32,31 +32,15 @@ merge cost.
 
 ## Dispatch and return evidence
 
-Send one dispatch packet:
+Give each dispatch only one decision question, bounded scope, read-only authority, exact inputs or
+sources, a compact expected return, a cheap validation method, one branch Stop, and observable
+escalation conditions. Project these semantics into the host's existing packet fields; do not
+require a universal serialized record.
 
-```text
-Decision question: one decision the evidence can change
-Scope: bounded paths, symbols, sources, or records
-Authority: read-only
-Inputs: exact repository or public-source locators
-Return: compact evidence packet shape
-Validation: how the main agent can cheaply check the answer
-Branch Stop: one bounded termination condition
-Escalation: observable conditions requiring standard or high-assurance
-```
-
-Require one evidence packet:
-
-```text
-Question: exact dispatched question
-Service level: fast | standard | high-assurance
-Status: sufficient | escalate | unavailable
-Answer: bounded factual result, not a lifecycle or route decision
-Evidence: exact locators and minimal raw observations
-Validation: cheapest independent check
-Conflicts or limits: explicit, including scope spill
-Stop: why this branch ended
-```
+Require a compact evidence packet that binds the original question and service level to a bounded
+factual answer, exact locators and minimal observations, the cheapest validation, conflicts or
+limits, and why the branch stopped. It must state whether the evidence is sufficient, requires
+escalation, or is unavailable, without imposing a shared status enum or schema.
 
 The packet is evidence, not deliberation. It cannot freeze Frame, admit Plan, select or modify the
 candidate, authorize effects, judge acceptance, or sign Finalize. The main agent verifies the packet,
@@ -70,8 +54,10 @@ retry fast, append protective fast queries, or generate sibling lanes around the
 
 Promote that same decision question once to `standard` with the unresolved evidence and a new bounded
 Stop. Preserve Origin, Frame, Authority, and consumed Stop; promotion does not widen the question or
-reset lifecycle evidence. If standard evidence activates an existing high-assurance predicate,
-launch at most the already-admitted independent evaluator for that lens. Unavailable independence or
+reset lifecycle evidence. Before Plan admission, high-assurance remains read-only support through an
+existing host capability; if the risk requires reviewer-handoff bindings, return control to the main
+Plan and do not launch an evaluator until an admitted Plan and candidate exist. After those bindings
+exist, launch at most the admitted independent evaluator for that lens. Unavailable independence or
 authority routes through the main Mission rather than another support loop.
 
 ## Parallelize only independent evidence
@@ -104,7 +90,7 @@ available level or keep the work in the main context.
 
 | ID | Fixed scenario | Expected disposition |
 | --- | --- | --- |
-| S1 | Two non-overlapping file or symbol facts change one Plan decision and neither consumes the other | `fast-parallel` |
+| S1 | Two non-overlapping file or symbol facts change one Plan decision, neither consumes the other, every fast gate holds, validation is cheap, and dispatch plus merge cost is lower than the expected saving | `fast-parallel` |
 | S2 | One repository query has a deterministic, compact, directly checkable result | `fast-one-packet` |
 | S3 | The second repository question requires the first result as input | `sequential-not-parallel` |
 | S4 | Architecture alternatives, user authorization, security or trust judgment, or conflicting evidence must be decided | `refuse-fast` |
