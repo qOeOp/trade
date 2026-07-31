@@ -1,26 +1,24 @@
-import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { describe, expect, test } from "bun:test"
+import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
-import { evaluateCapability } from "./evaluator-capability-check"
+import {
+  currentHostDecision,
+  evaluateTrustedCapability,
+} from "./evaluator-capability-check"
 
-const candidateCommit = "1".repeat(40)
+const originCommit = "1".repeat(40)
 const instructionCommit = "2".repeat(40)
-const temporaryRoots: string[] = []
-
-afterEach(() => {
-  for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true })
-})
+const diffDigest = "3".repeat(64)
 
 describe("mission evaluator capability preflight", () => {
-  test("accepts a complete host API fixture with enforced isolation", () => {
+  test("accepts a trusted positive fixture with a complete local candidate", () => {
     const evidence = positiveFixture()
-    const decision = evaluateCapability(evidence, bytes(evidence))
+    const decision = evaluateTrustedCapability(evidence, bytes(evidence))
 
     expect(decision).toMatchObject({
       status: "supported",
       dispatch_allowed: true,
-      candidate_commit: candidateCommit,
+      candidate_locator: `diff:${originCommit}:${diffDigest}`,
       instruction_commit: instructionCommit,
       reasons: [],
     })
@@ -30,55 +28,63 @@ describe("mission evaluator capability preflight", () => {
     const evidence = positiveFixture()
     evidence.authority.filesystem = "workspace-write"
 
-    expect(evaluateCapability(evidence, bytes(evidence))).toMatchObject({
+    expect(evaluateTrustedCapability(evidence, bytes(evidence))).toMatchObject({
       status: "unsupported",
       dispatch_allowed: false,
       reasons: ["runtime authority is not read-only"],
     })
   })
 
-  test("rejects a shared candidate or candidate-controlled policy", () => {
+  test("rejects a shared candidate and incomplete local candidate", () => {
     const shared = positiveFixture()
     shared.candidate.access = "shared-workspace"
-    expect(evaluateCapability(shared, bytes(shared)).reasons).toContain(
+    expect(evaluateTrustedCapability(shared, bytes(shared)).reasons).toContain(
       "candidate is not isolated as evidence-only",
     )
 
-    const candidateControlled = positiveFixture()
-    candidateControlled.candidate.instruction_commit = candidateCommit
-    expect(evaluateCapability(candidateControlled, bytes(candidateControlled)).reasons).toContain(
-      "reviewer instructions are candidate-controlled",
+    const incomplete = positiveFixture()
+    incomplete.candidate.locator.includes_untracked = false
+    expect(evaluateTrustedCapability(incomplete, bytes(incomplete)).reasons).toContain(
+      "candidate locator is not an exact commit or complete diff digest",
+    )
+  })
+
+  test("rejects a builder context or unverified participation", () => {
+    const builder = positiveFixture()
+    builder.context.reviewer_context_id = builder.context.builder_context_ids[0]!
+    expect(evaluateTrustedCapability(builder, bytes(builder)).reasons).toContain(
+      "reviewer context participated in the candidate build",
+    )
+
+    const unknown = positiveFixture()
+    unknown.context.build_participation = "unknown"
+    expect(evaluateTrustedCapability(unknown, bytes(unknown)).reasons).toContain(
+      "reviewer non-participation is unavailable or unverified",
     )
   })
 
   test("rejects delegation and lateral communication", () => {
     const delegated = positiveFixture()
     delegated.authority.delegation = "available"
-    expect(evaluateCapability(delegated, bytes(delegated)).reasons).toContain(
+    expect(evaluateTrustedCapability(delegated, bytes(delegated)).reasons).toContain(
       "delegation is available or unverified",
     )
 
     const lateral = positiveFixture()
     lateral.authority.lateral_communication = "available"
-    expect(evaluateCapability(lateral, bytes(lateral)).reasons).toContain(
+    expect(evaluateTrustedCapability(lateral, bytes(lateral)).reasons).toContain(
       "lateral communication is available or unverified",
     )
   })
 
-  test("rejects prompt, role config, incomplete tools, and write-capable tools", () => {
-    for (const kind of ["prompt", "role-config", "caller-assertion"]) {
-      const declared = positiveFixture()
-      declared.source.kind = kind
-      expect(evaluateCapability(declared, bytes(declared)).dispatch_allowed).toBe(false)
-    }
-
+  test("rejects incomplete and write-capable tool surfaces", () => {
     const incomplete = positiveFixture()
     incomplete.tool_surface.complete = false
-    expect(evaluateCapability(incomplete, bytes(incomplete)).dispatch_allowed).toBe(false)
+    expect(evaluateTrustedCapability(incomplete, bytes(incomplete)).dispatch_allowed).toBe(false)
 
     const writeTool = positiveFixture()
     writeTool.tool_surface.tools.push({ name: "apply_patch", effect: "workspace-write" })
-    expect(evaluateCapability(writeTool, bytes(writeTool)).dispatch_allowed).toBe(false)
+    expect(evaluateTrustedCapability(writeTool, bytes(writeTool)).dispatch_allowed).toBe(false)
   })
 
   test("the evaluator role treats sandbox_mode as a request, not evidence", () => {
@@ -92,25 +98,45 @@ describe("mission evaluator capability preflight", () => {
     expect(role).toContain("does not prove actual runtime authority")
   })
 
-  test("the CLI permits only a supported observation", () => {
-    expect(runCli(positiveFixture()).exitCode).toBe(0)
-
-    const shared = positiveFixture()
-    shared.candidate.access = "shared-workspace"
-    const rejected = runCli(shared)
-    expect(rejected.exitCode).toBe(1)
-    expect(JSON.parse(rejected.stdout?.toString() ?? "")).toMatchObject({
+  test("the current-host consumer cannot be upgraded by caller evidence", () => {
+    expect(currentHostDecision()).toMatchObject({
       status: "unsupported",
       dispatch_allowed: false,
+      evidence_sha256: null,
     })
+
+    const cli = Bun.spawnSync([
+      "bun",
+      resolve(import.meta.dir, "evaluator-capability-check.ts"),
+      "--current-host",
+    ], { stdout: "pipe", stderr: "pipe" })
+    expect(cli.exitCode).toBe(1)
+    expect(JSON.parse(cli.stdout?.toString() ?? "")).toEqual(currentHostDecision())
+
+    const forged = Bun.spawnSync([
+      "bun",
+      resolve(import.meta.dir, "evaluator-capability-check.ts"),
+      "--evidence",
+      "caller.json",
+    ], { stdout: "pipe", stderr: "pipe" })
+    expect(forged.exitCode).toBe(2)
   })
 })
 
 interface Fixture {
   schema_version: string
-  source: { kind: string; locator: string }
+  context: {
+    reviewer_context_id: string
+    builder_context_ids: string[]
+    build_participation: string
+  }
   candidate: {
-    candidate_commit: string
+    locator: {
+      kind: string
+      origin_commit: string
+      diff_sha256: string
+      includes_untracked: boolean
+    }
     instruction_commit: string
     access: string
     automatic_discovery: string
@@ -130,12 +156,18 @@ interface Fixture {
 function positiveFixture(): Fixture {
   return {
     schema_version: "bounded-mission.evaluator-host-capability.v1",
-    source: {
-      kind: "host-capability-api",
-      locator: "fixture://host-observation/isolated-evaluator",
+    context: {
+      reviewer_context_id: "fixture-reviewer",
+      builder_context_ids: ["fixture-builder"],
+      build_participation: "none",
     },
     candidate: {
-      candidate_commit: candidateCommit,
+      locator: {
+        kind: "diff",
+        origin_commit: originCommit,
+        diff_sha256: diffDigest,
+        includes_untracked: true,
+      },
       instruction_commit: instructionCommit,
       access: "evidence-only",
       automatic_discovery: "candidate-excluded",
@@ -155,21 +187,4 @@ function positiveFixture(): Fixture {
 
 function bytes(value: unknown): Uint8Array {
   return Buffer.from(JSON.stringify(value))
-}
-
-function runCli(value: unknown): ReturnType<typeof Bun.spawnSync> {
-  const root = mkdtempSync(`${tmpdir()}/mission-evaluator-capability-`)
-  temporaryRoots.push(root)
-  const evidence = `${root}/evidence.json`
-  writeFileSync(evidence, JSON.stringify(value))
-
-  return Bun.spawnSync([
-    "bun",
-    resolve(import.meta.dir, "evaluator-capability-check.ts"),
-    "--evidence",
-    evidence,
-  ], {
-    stdout: "pipe",
-    stderr: "pipe",
-  })
 }

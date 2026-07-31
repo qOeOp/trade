@@ -26,29 +26,28 @@ evidence to the admitted values, then recheck that the observed host context sti
 Fresh context or a declared read-only role alone is insufficient. Do not dispatch an incomplete or
 mismatched packet, or a reviewer already known to start from candidate-controlled discovery.
 
-Before dispatch, run the fail-closed preflight with a capability observation produced by the host,
-not a file authored by the candidate or caller:
+Before dispatch, run the fail-closed current-host preflight:
 
 ```bash
-bun .agents/skills/run-bounded-mission/scripts/evaluator-capability-check.ts \
-  --evidence <host-capability.json>
+bun .agents/skills/run-bounded-mission/scripts/evaluator-capability-check.ts --current-host
 ```
 
 Only exit `0` with `dispatch_allowed=true` permits evaluator dispatch. Missing or malformed evidence,
-non-host evidence, workspace-write authority, candidate-controlled discovery, a shared candidate,
-an incomplete or write-capable tool surface, delegation, or lateral communication rejects dispatch.
-The output binds the decision to the exact candidate and instruction commits and the SHA-256 of the
-consumed observation. The helper validates the observation's policy closure; it does not turn a
-fixture or caller-authored JSON document into host proof.
+workspace-write authority, candidate-controlled discovery, a shared candidate, prior builder
+participation, an incomplete or write-capable tool surface, delegation, or lateral communication
+rejects dispatch. The current host exposes no trusted capability observation channel, so this CLI
+always returns `unsupported`; it accepts no caller evidence and cannot be upgraded by a role config
+or prompt. Its pure policy fixture covers a host-supplied exact commit or origin-plus-complete-diff
+locator, context non-participation, and the other isolation fields, but is not a dispatch path.
 
 When the current host exposes only subagents in the shared candidate checkout, an instruction,
 skill, agent-definition, discovery-path, judge, or reviewer-policy candidate has no candidate-external
 launch through that path. Record independent acceptance as unavailable and apply the skill's local
 Finalize restriction. A separate CLI or checkout is not an evaluator path until it demonstrably
 loads the admitted reviewer policy from a candidate-external origin, enforces read-only authority,
-can inspect the exact candidate locator, and supplies the host capability observation required by
-the preflight. The helper's positive fixture proves only the decision rule; until this host exposes
-such an observation, it is not dynamic evidence that an independent evaluator can run here.
+can inspect the exact candidate locator, and exposes a trusted capability observation channel wired
+into the preflight. The helper's positive fixture proves only the decision rule; until that trusted
+integration exists, it is not dynamic evidence that an independent evaluator can run here.
 
 Report only mission-attributable, demonstrated consumer or contract failures or acceptance risks.
 Classify whether the cause is local to the candidate, invalidates the admitted Plan, or invalidates a
