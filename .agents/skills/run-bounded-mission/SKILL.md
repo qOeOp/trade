@@ -74,6 +74,12 @@ outcome or when the host exposes task-management tools. It defines proposal, con
 creation, immediate return, child controls, and capability fallback. Never serialize another Mission
 inside the active task/worktree or use a subagent as a user-visible task substitute.
 
+Apply the same outcome rule when evidence at any lifecycle stage reveals work outside the frozen
+Frame or a failure not attributable to the candidate. Preserve the bounded evidence, leave the
+current Scope and attribution unchanged, and use task dispatch only when the finding has its own
+consumer and falsifiable Acceptance. Stage names are examples of discovery timing; they do not
+create stage-specific hooks, Mission types, routes, or dispatch policy.
+
 State the no-change counterfactual. Prefer an answer, existing behavior, direct wiring, deletion,
 rollback, or narrower outcome when it closes the consumer need.
 
@@ -323,6 +329,11 @@ Choose one route:
 The narrowly defined terminal reopen above is the only transition out of `blocked`.
 There is no transition out of `accept`; only the evidence-bound new-gap rule above may start a new
 Mission.
+
+After `accept`, load [Refactor Mission proposals](references/refactor-mission-proposal.md) only when
+read-only evidence spanning accepted Missions may demonstrate a separate structural outcome. This
+follow-up investigation is not another Finalize route, does not reopen or continue an accepted
+Mission, and may produce at most one editable proposal before any native task dispatch.
 
 For `local-only`, bind the exact Frame, Plan, candidate, and evidence, report working-tree effects
 and recovery path, clean mission-owned temporary resources, and perform no commit or remote effect.
