@@ -43,12 +43,12 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
     return { status: "failed", reason: "GitHub response exceeded the supported 100-item window" }
   }
 
-  let attemptAt = snapshot.createdAt
+  let attemptAt = timestampValue(snapshot.createdAt)
   let attemptTarget = "pull-request"
   let ambiguousAttempt = false
   for (const signal of snapshot.signals) {
     if (signal.kind !== "comment" || isProvider(signal.author) || !REVIEW_REQUEST.test(signal.body ?? "")) continue
-    const requestAt = signal.updatedAt ?? signal.at
+    const requestAt = timestampValue(signal.updatedAt ?? signal.at)
     if (requestAt > attemptAt) {
       attemptAt = requestAt
       attemptTarget = signal.target
@@ -66,18 +66,19 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
       && signal.reaction === "EYES"
       && isProvider(signal.author)
       && signal.target === attemptTarget
-      && signal.at >= attemptAt,
+      && timestampValue(signal.at) >= attemptAt,
   )
   for (const signal of relatedEyes) {
-    if (signal.at > attemptAt) {
-      attemptAt = signal.at
+    const signalAt = timestampValue(signal.at)
+    if (signalAt > attemptAt) {
+      attemptAt = signalAt
       attemptTarget = signal.target
     }
   }
 
   const allProviderSignals = snapshot.signals.filter((signal) => isProvider(signal.author))
   const currentProviderSignals = allProviderSignals.filter(
-    (signal) => (signal.updatedAt ?? signal.at) >= attemptAt,
+    (signal) => timestampValue(signal.updatedAt ?? signal.at) >= attemptAt,
   )
   const providerThreads = snapshot.threads.filter((thread) =>
     isProvider(thread.comments[0]?.author ?? ""),
@@ -114,7 +115,7 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
   }
 
   const cleanTerminal = currentProviderSignals.find((signal) =>
-    signal.at > attemptAt && (
+    timestampValue(signal.at) > attemptAt && (
       (signal.kind === "reaction"
         && signal.reaction === "THUMBS_UP"
         && signal.target === attemptTarget)
@@ -139,6 +140,7 @@ interface Connection<T> {
 }
 
 interface GraphPullRequest {
+  number: number
   state: string
   headRefOid: string
   createdAt: string
@@ -168,10 +170,20 @@ interface GraphPullRequest {
   }>
 }
 
+interface ReviewOutput {
+  repository: string
+  pull_request: number
+  head_oid: string | null
+  status: "passed" | "pending" | "failed"
+  reason: string
+}
+
 const QUERY = `
 query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
+    nameWithOwner
     pullRequest(number: $number) {
+      number
       state
       headRefOid
       createdAt
@@ -211,32 +223,50 @@ query($owner: String!, $name: String!, $number: Int!) {
   }
 }`
 
-async function fetchSnapshot(number: number): Promise<CodexReviewSnapshot> {
-  const repo = runGh(["repo", "view", "--json", "nameWithOwner"])
-  const nameWithOwner = (JSON.parse(repo) as { nameWithOwner?: string }).nameWithOwner
-  const [owner, name] = nameWithOwner?.split("/") ?? []
-  if (!owner || !name) throw new Error("gh repo view did not return nameWithOwner")
-
-  const response = JSON.parse(runGh([
-    "api",
-    "graphql",
-    "-f",
-    `query=${QUERY}`,
-    "-F",
-    `owner=${owner}`,
-    "-F",
-    `name=${name}`,
-    "-F",
-    `number=${number}`,
-  ])) as {
-    data?: { repository?: { pullRequest?: GraphPullRequest | null } | null }
-    errors?: Array<{ message?: string }>
+async function fetchSnapshot(repository: string, number: number): Promise<CodexReviewSnapshot> {
+  const [owner, name] = repository.split("/")
+  let response: {
+    data?: {
+      repository?: { nameWithOwner?: string; pullRequest?: GraphPullRequest | null } | null
+    }
+    errors?: unknown[]
+  }
+  try {
+    const parsed: unknown = JSON.parse(runGh([
+      "api",
+      "graphql",
+      "-f",
+      `query=${QUERY}`,
+      "-F",
+      `owner=${owner}`,
+      "-F",
+      `name=${name}`,
+      "-F",
+      `number=${number}`,
+    ])) as typeof response
+    if (!isRecord(parsed)) throw new Error("GitHub returned malformed response")
+    response = parsed as typeof response
+  } catch (error) {
+    if (error instanceof Error && error.message === "GitHub CLI request failed") throw error
+    if (error instanceof Error && error.message === "GitHub returned malformed response") throw error
+    throw new Error("GitHub returned invalid JSON", { cause: error })
+  }
+  if (response.errors !== undefined && !Array.isArray(response.errors)) {
+    throw new Error("GitHub returned malformed response")
   }
   if (response.errors?.length) {
-    throw new Error(response.errors.map((error) => error.message ?? "GraphQL error").join("; "))
+    throw new Error("GitHub query returned errors")
   }
-  const pullRequest = response.data?.repository?.pullRequest
-  if (!pullRequest) throw new Error(`pull request #${number} was not found`)
+  const graphRepository = response.data?.repository
+  if (!graphRepository) throw new Error("repository was not found")
+  if (typeof graphRepository.nameWithOwner !== "string"
+    || !matchesRepository(graphRepository.nameWithOwner, repository)) {
+    throw new Error("GitHub returned a different repository")
+  }
+  const pullRequest = graphRepository.pullRequest
+  if (!pullRequest) throw new Error("pull request was not found")
+  assertPullRequest(pullRequest)
+  if (pullRequest.number !== number) throw new Error("GitHub returned a different pull request")
 
   const signals: ReviewSignal[] = []
   for (const reaction of pullRequest.reactions.nodes) {
@@ -304,9 +334,105 @@ async function fetchSnapshot(number: number): Promise<CodexReviewSnapshot> {
 function runGh(args: string[]): string {
   const result = Bun.spawnSync(["gh", ...args], { stdout: "pipe", stderr: "pipe" })
   if (result.exitCode !== 0) {
-    throw new Error(result.stderr.toString().trim() || `gh exited with status ${result.exitCode}`)
+    throw new Error("GitHub CLI request failed")
   }
   return result.stdout.toString()
+}
+
+function normalizeRepository(value: string): string {
+  const match = /^([a-z\d](?:[a-z\d-]{0,37}[a-z\d])?)\/([a-z\d._-]{1,100})$/i.exec(value)
+  if (!match || match[2] === "." || match[2] === "..") {
+    throw new Error("repository must be owner/name")
+  }
+  return `${match[1].toLowerCase()}/${match[2].toLowerCase()}`
+}
+
+function matchesRepository(value: string, expected: string): boolean {
+  try {
+    return normalizeRepository(value) === expected
+  } catch {
+    return false
+  }
+}
+
+function assertPullRequest(value: GraphPullRequest): void {
+  if (!Number.isSafeInteger(value.number)
+    || value.number <= 0
+    || typeof value.state !== "string"
+    || !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(value.headRefOid)
+    || !isIsoTimestamp(value.createdAt)
+    || !isConnection(value.reactions)
+    || !isConnection(value.comments)
+    || !isConnection(value.reviews)
+    || !isConnection(value.reviewThreads)
+    || value.reactions.nodes.some((reaction) => !isReaction(reaction))
+    || value.comments.nodes.some((comment) => !isComment(comment))
+    || value.reviews.nodes.some((review) => !isReview(review))
+    || value.reviewThreads.nodes.some((thread) => !isReviewThread(thread))) {
+    throw new Error("GitHub returned malformed pull request data")
+  }
+}
+
+function isConnection(value: unknown): value is Connection<unknown> {
+  if (typeof value !== "object" || value === null) return false
+  const connection = value as { nodes?: unknown; pageInfo?: { hasNextPage?: unknown } }
+  return Array.isArray(connection.nodes)
+    && typeof connection.pageInfo?.hasNextPage === "boolean"
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function isActor(value: unknown): boolean {
+  return value === null || (isRecord(value) && typeof value.login === "string")
+}
+
+function isReaction(value: unknown): boolean {
+  return isRecord(value)
+    && typeof value.content === "string"
+    && isIsoTimestamp(value.createdAt)
+    && isActor(value.user)
+}
+
+function isComment(value: unknown): boolean {
+  return isRecord(value)
+    && typeof value.id === "string"
+    && isActor(value.author)
+    && typeof value.body === "string"
+    && isIsoTimestamp(value.createdAt)
+    && isIsoTimestamp(value.updatedAt)
+    && isConnection(value.reactions)
+    && value.reactions.nodes.every((reaction) => isReaction(reaction))
+}
+
+function isReview(value: unknown): boolean {
+  return isRecord(value)
+    && isActor(value.author)
+    && typeof value.body === "string"
+    && typeof value.state === "string"
+    && isIsoTimestamp(value.createdAt)
+    && (value.submittedAt === null || isIsoTimestamp(value.submittedAt))
+}
+
+function isReviewThread(value: unknown): boolean {
+  return isRecord(value)
+    && typeof value.isResolved === "boolean"
+    && isConnection(value.comments)
+    && value.comments.nodes.every((comment) => isRecord(comment)
+      && isActor(comment.author)
+      && typeof comment.body === "string"
+      && isIsoTimestamp(comment.updatedAt))
+}
+
+function isIsoTimestamp(value: unknown): value is string {
+  return typeof value === "string"
+    && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+    && Number.isFinite(Date.parse(value))
+}
+
+function timestampValue(value: string): number {
+  return Date.parse(value)
 }
 
 function isProvider(login: string): boolean {
@@ -320,33 +446,58 @@ function isCleanReview(body: string): boolean {
 async function main(): Promise<number> {
   const args = process.argv.slice(2)
   if (args.includes("--help")) {
-    console.log("usage: bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts <pr-number> [--once]")
+    console.log("usage: bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --repo <owner/name> <pr-number>")
     return 0
   }
-  const once = args.includes("--once")
-  const positional = args.filter((arg) => arg !== "--once")
-  const number = Number(positional[0])
-  if (positional.length !== 1 || !Number.isInteger(number) || number <= 0) {
-    console.error("usage: bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts <pr-number> [--once]")
+  const repoIndex = args.indexOf("--repo")
+  const repositoryArgument = repoIndex >= 0 ? args[repoIndex + 1] : undefined
+  const positional = args.filter((_, index) => index !== repoIndex && index !== repoIndex + 1)
+  const numberToken = positional[0]
+  const number = typeof numberToken === "string" && /^[1-9]\d*$/.test(numberToken)
+    ? Number(numberToken)
+    : Number.NaN
+  let repository: string
+  try {
+    repository = normalizeRepository(repositoryArgument ?? "")
+  } catch {
+    console.error("codex-review: failed: repository must be owner/name")
+    return 2
+  }
+  if (args.filter((arg) => arg === "--repo").length !== 1
+    || positional.length !== 1
+    || !Number.isSafeInteger(number)) {
+    console.error("codex-review: failed: expected --repo <owner/name> and one positive PR number")
     return 2
   }
 
-  while (true) {
-    try {
-      const snapshot = await fetchSnapshot(number)
-      const decision = classifyCodexReview(snapshot)
-      const message = `codex-review: ${decision.status}: PR #${number} ${snapshot.headRefOid}: ${decision.reason}`
-      if (decision.status === "failed") console.error(message)
-      else console.log(message)
-      if (decision.status === "passed") return 0
-      if (decision.status === "failed") return 1
-      if (once) return 10
-    } catch (error) {
-      console.error(`codex-review: failed: ${error instanceof Error ? error.message : String(error)}`)
-      return 1
-    }
-    await Bun.sleep(30_000)
+  try {
+    const snapshot = await fetchSnapshot(repository, number)
+    const decision = classifyCodexReview(snapshot)
+    writeOutput({
+      repository,
+      pull_request: number,
+      head_oid: snapshot.headRefOid,
+      ...decision,
+    })
+    if (decision.status === "passed") return 0
+    if (decision.status === "pending") return 10
+    return 1
+  } catch (error) {
+    writeOutput({
+      repository,
+      pull_request: number,
+      head_oid: null,
+      status: "failed",
+      reason: error instanceof Error ? error.message : "unexpected provider failure",
+    })
+    return 1
   }
+}
+
+function writeOutput(output: ReviewOutput): void {
+  const line = `${JSON.stringify(output)}\n`
+  if (output.status === "failed") process.stderr.write(line)
+  else process.stdout.write(line)
 }
 
 if (import.meta.main) process.exit(await main())
