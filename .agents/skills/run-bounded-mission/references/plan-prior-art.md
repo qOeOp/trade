@@ -1,9 +1,4 @@
-# Plan Methods
-
-These are optional Plan aids, not lifecycle stages or gates. Use only the method that changes a
-material decision. Skip them for mechanical edits.
-
-## Acquire decision-relevant prior art
+# Acquire Decision-Relevant Prior Art
 
 State the decision the research must inform. Inspect repository evidence only until the owner,
 installed or target version, constraints, and safe public search terms are stable; dispatch qualifying
@@ -52,40 +47,3 @@ Useful independent lanes include repository owner and consumer evidence; officia
 version compatibility; candidate source, tests, releases, and license; maintenance and failure-mode
 evidence; and independent evaluation, cost, or operational constraints. Use only lanes that can
 change the decision, and assign each source tree or canonical locator to one lane.
-
-## Resolve consequential ambiguity
-
-Use this when an unresolved fact could change the candidate, consumer behavior, authority,
-acceptance, or a hard-to-reverse choice.
-
-- Inspect repository evidence before asking.
-- Investigate factual gaps; ask only for user-owned preferences or authority.
-- Express each credible interpretation as an assumption, its consumer consequence, and an observation
-  that would disprove it.
-- Present the current understanding and recommendation, then ask one smallest question that separates
-  the interpretations. If no material ambiguity remains, ask nothing.
-
-## Compare viable alternatives
-
-Compare only materially different paths that remain credible; do not invent competitors to a
-dominant repository-native path. Evaluate outcome and consumer fit, existing ownership, added
-responsibility, assumptions, reversibility, and verification cost. Recommend the path with the best
-decisive tradeoff and state why the strongest runner-up loses.
-
-## Form independently falsifiable slices
-
-Make each slice rejectable without rejecting its neighbors. Record:
-
-- its observable result and inspected consumer or owner path;
-- dependencies and the later consumer;
-- the cheapest decisive check and expected evidence;
-- the first result that invalidates the plan while Frame still holds and forces `replan`;
-- the first result that materially changes a frozen Frame field and forces `reframe`.
-
-Put first the slice that reaches a real consumer while exposing the highest-risk assumption. Fold
-setup, configuration, documentation, and cleanup into the slice that consumes them. Do not turn
-diagnosis or mechanical work into feature stories, phases, or test-first steps.
-
-For a failing check or CI job: reproduce its exact command and relevant environment, preserve the
-failure, localize the responsible path, make one bounded correction, then rerun the exact failure
-and the smallest relevant regression.
