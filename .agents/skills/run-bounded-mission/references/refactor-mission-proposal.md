@@ -18,17 +18,20 @@ tip represents integration. `base` must bound the earliest relevant integrated M
 equal the observed tip of the declared source ref. Never infer this range or ref from the working
 tree, changed filenames, conversation recency, or a guessed feature boundary.
 
-Run the repository helper only as a read-only evidence producer:
+Derive the canonical owner roots from the repository authority at `base` and `head`, then pass their
+union to the skill helper. The Agent owns that project-specific mapping; the helper only consumes
+repository-relative roots and Git identities:
 
 ```text
-bun scripts/mission-impact-evidence.ts --base <full-commit> --head <full-commit> --source-ref <full-ref>
+bun .agents/skills/run-bounded-mission/scripts/mission-impact-evidence.ts \
+  --base <full-commit> --head <full-commit> --source-ref <full-ref> \
+  --owner-root <repository-relative-owner> [--owner-root <repository-relative-owner> ...]
 ```
 
-The helper uses the architecture manifest and document contract index at those revisions to map
-changed paths, reports paths those canonical sources cannot assign, and expands evidenced direct
-dependents from static production imports. Its `facts` and `reasons` explain the inspected range;
-they do not decide whether refactoring is required. Preserve the invocation, exit status, complete
-JSON, revisions, and listed coverage limits.
+The helper maps changed paths only against those caller-supplied roots, reports unassigned paths, and
+expands evidenced direct dependents from static production imports. Its `facts` and `reasons` explain
+the inspected range; they do not decide whether refactoring is required. Preserve the invocation,
+exit status, complete JSON, revisions, roots, and listed coverage limits.
 
 If a relevant result exists only as staged, unstaged, or untracked material, `head` is not reachable,
 or the declared source ref no longer resolves to the observed tip equal to `head`, retain at most one

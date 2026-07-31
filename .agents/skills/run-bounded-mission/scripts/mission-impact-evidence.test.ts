@@ -20,7 +20,14 @@ interface EvidenceReport {
     changed_paths: Array<{ path: string; owner: { id: string } | null }>
     owners: Array<{ id: string }>
     unowned_paths: string[]
-    direct_dependents: Array<{ source_path: string; target_owner: { id: string } }>
+    direct_dependents: Array<{
+      source_path: string
+      source_owner: { id: string }
+      target_owner: { id: string }
+      specifier: string
+      import_kind: string
+      evidence: string
+    }>
   }
   reasons: Array<{ kind: string }>
   refactor_decision: null
@@ -35,16 +42,16 @@ afterEach(() => {
 
 test("single-owner diff maps the canonical owner without inferring structural pressure", () => {
   const fixture = repositoryFixture(true)
-  writeFileSync(join(fixture.root, "apps/domain-a/owner-a/src/index.ts"), "export const value = 2\n")
+  writeFileSync(join(fixture.root, "workspace/alpha/src/index.ts"), "export const value = 2\n")
   const head = commit(fixture.root, "mission a")
   const report = runHelper(fixture.root, fixture.base, head)
 
-  expect(report.facts.owners.map((owner) => owner.id)).toEqual(["apps/domain-a/owner-a"])
+  expect(report.facts.owners.map((owner) => owner.id)).toEqual(["workspace/alpha"])
   expect(report.facts.direct_dependents).toEqual([{
-    source_path: "apps/domain-b/owner-b/src/index.ts",
+    source_path: "workspace/beta/src/index.ts",
     source_owner: expect.any(Object),
-    target_owner: expect.objectContaining({ id: "apps/domain-a/owner-a" }),
-    specifier: "../../../domain-a/owner-a/src/index",
+    target_owner: expect.objectContaining({ id: "workspace/alpha" }),
+    specifier: "../../alpha/src/index",
     import_kind: "import-statement",
     evidence: "static-relative-production-import",
   }])
@@ -52,21 +59,53 @@ test("single-owner diff maps the canonical owner without inferring structural pr
   expect(report.refactor_decision).toBeNull()
 })
 
+test("help and repository failures remain portable outside a Git checkout", () => {
+  const root = mkdtempSync(join(tmpdir(), "mission-impact-help-"))
+  roots.push(root)
+  const help = Bun.spawnSync(["bun", helper, "--help"], {
+    cwd: root,
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  expect(help.exitCode).toBe(0)
+  expect(help.stdout.toString()).toContain("Usage: mission-impact-evidence.ts")
+
+  const failure = Bun.spawnSync([
+    "bun",
+    helper,
+    "--base",
+    "1".repeat(40),
+    "--head",
+    "2".repeat(40),
+    "--source-ref",
+    "refs/heads/main",
+    "--owner-root",
+    "workspace/alpha",
+  ], {
+    cwd: root,
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  expect(failure.exitCode).not.toBe(0)
+  expect(failure.stderr.toString()).not.toContain(root)
+  expect(failure.stderr.toString()).not.toContain(helper)
+})
+
 test("an explicit base-head range spans accepted changes and reports an evidenced owner relation", () => {
   const fixture = repositoryFixture(true)
-  writeFileSync(join(fixture.root, "apps/domain-a/owner-a/src/index.ts"), "export const value = 2\n")
+  writeFileSync(join(fixture.root, "workspace/alpha/src/index.ts"), "export const value = 2\n")
   commit(fixture.root, "mission a")
   writeFileSync(
-    join(fixture.root, "apps/domain-b/owner-b/src/index.ts"),
-    'import { value } from "../../../domain-a/owner-a/src/index"\nexport const result = value + 1\n',
+    join(fixture.root, "workspace/beta/src/index.ts"),
+    'import { value } from "../../alpha/src/index"\nexport const result = value + 1\n',
   )
   const head = commit(fixture.root, "mission b")
   const report = runHelper(fixture.root, fixture.base, head)
 
   expect(report.range.commit_count).toBe(2)
   expect(report.facts.owners.map((owner) => owner.id)).toEqual([
-    "apps/domain-a/owner-a",
-    "apps/domain-b/owner-b",
+    "workspace/alpha",
+    "workspace/beta",
   ])
   expect(report.reasons.map((reason) => reason.kind)).toEqual(["changed-owner-direct-dependency"])
 })
@@ -81,24 +120,32 @@ test("unassigned paths are reported instead of being forced into an owner", () =
   expect(report.facts.changed_paths[0]).toMatchObject({ path: "unowned.txt", owner: null })
 })
 
-test("contract packages absent from canonical owner data remain unowned", () => {
+test("paths absent from caller-provided owner roots remain unowned", () => {
   const fixture = repositoryFixture(false)
-  mkdirSync(join(fixture.root, "apps/contracts/ghost"), { recursive: true })
-  writeFileSync(join(fixture.root, "apps/contracts/ghost/package.json"), '{"name":"ghost"}\n')
-  const head = commit(fixture.root, "unregistered contract package")
+  mkdirSync(join(fixture.root, "vendor/ghost"), { recursive: true })
+  writeFileSync(join(fixture.root, "vendor/ghost/package.json"), '{"name":"ghost"}\n')
+  const head = commit(fixture.root, "unregistered path")
   const report = runHelper(fixture.root, fixture.base, head)
 
-  expect(report.facts.unowned_paths).toEqual(["apps/contracts/ghost/package.json"])
+  expect(report.facts.unowned_paths).toEqual(["vendor/ghost/package.json"])
   expect(report.facts.changed_paths[0]).toMatchObject({
-    path: "apps/contracts/ghost/package.json",
+    path: "vendor/ghost/package.json",
     owner: null,
   })
+
+  const invalid = helperProcess(fixture.root, fixture.base, head, ["../escape"])
+  expect(invalid.exitCode).not.toBe(0)
+  expect(invalid.stderr).toContain("normalized repository-relative path")
+
+  const missing = helperProcess(fixture.root, fixture.base, head, ["workspace/missing"])
+  expect(missing.exitCode).not.toBe(0)
+  expect(missing.stderr).toContain("does not exist at base or head")
 })
 
 test("churn-only evidence produces facts and no refactor conclusion", () => {
   const fixture = repositoryFixture(false)
   writeFileSync(
-    join(fixture.root, "apps/domain-a/owner-a/src/index.ts"),
+    join(fixture.root, "workspace/alpha/src/index.ts"),
     Array.from({ length: 80 }, (_, index) => `export const value${index} = ${index}`).join("\n") + "\n",
   )
   const head = commit(fixture.root, "large local edit")
@@ -111,7 +158,7 @@ test("churn-only evidence produces facts and no refactor conclusion", () => {
 
 test("dirty and unreachable heads are explicit deferral facts", () => {
   const fixture = repositoryFixture(false)
-  writeFileSync(join(fixture.root, "apps/domain-a/owner-a/src/index.ts"), "export const value = 2\n")
+  writeFileSync(join(fixture.root, "workspace/alpha/src/index.ts"), "export const value = 2\n")
   const head = commit(fixture.root, "reachable head")
   writeFileSync(join(fixture.root, "scratch.tmp"), "untracked evidence\n")
   const before = workspaceSnapshot(fixture.root)
@@ -132,7 +179,7 @@ test("dirty and unreachable heads are explicit deferral facts", () => {
 
 test("a reachable old head is stale after its declared source ref advances", () => {
   const fixture = repositoryFixture(false)
-  writeFileSync(join(fixture.root, "apps/domain-a/owner-a/src/index.ts"), "export const value = 2\n")
+  writeFileSync(join(fixture.root, "workspace/alpha/src/index.ts"), "export const value = 2\n")
   const integratedHead = commit(fixture.root, "integrated missions")
   writeFileSync(join(fixture.root, "later.txt"), "later integration\n")
   const currentTip = commit(fixture.root, "later integration")
@@ -151,29 +198,13 @@ function repositoryFixture(withDependent: boolean): { root: string; base: string
   git(root, ["init", "-b", "main"])
   git(root, ["config", "user.name", "Fixture"])
   git(root, ["config", "user.email", "fixture@example.com"])
-  mkdirSync(join(root, "docs/architecture"), { recursive: true })
-  mkdirSync(join(root, "docs/engineering"), { recursive: true })
-  mkdirSync(join(root, "apps/domain-a/owner-a/src"), { recursive: true })
-  mkdirSync(join(root, "apps/domain-b/owner-b/src"), { recursive: true })
-  writeFileSync(join(root, "docs/architecture/architecture-manifest.json"), JSON.stringify({
-    schema_version: "trade.architecture-manifest.v1",
-    domains: [
-      { id: "domain-a", modules: ["apps/domain-a/owner-a"] },
-      { id: "domain-b", modules: ["apps/domain-b/owner-b"] },
-    ],
-    jobs: [],
-    stores: [],
-    rails: [],
-  }))
-  writeFileSync(join(root, "docs/engineering/doc-contract-index.json"), JSON.stringify({
-    schema_version: "trade.doc-contract-index.v1",
-    documents: [],
-  }))
-  writeFileSync(join(root, "apps/domain-a/owner-a/src/index.ts"), "export const value = 1\n")
+  mkdirSync(join(root, "workspace/alpha/src"), { recursive: true })
+  mkdirSync(join(root, "workspace/beta/src"), { recursive: true })
+  writeFileSync(join(root, "workspace/alpha/src/index.ts"), "export const value = 1\n")
   writeFileSync(
-    join(root, "apps/domain-b/owner-b/src/index.ts"),
+    join(root, "workspace/beta/src/index.ts"),
     withDependent
-      ? '#!/usr/bin/env bun\nimport { value } from "../../../domain-a/owner-a/src/index"\nexport const result = value\n'
+      ? '#!/usr/bin/env bun\nimport { value } from "../../alpha/src/index"\nexport const result = value\n'
       : "export const result = 1\n",
   )
   return { root, base: commit(root, "base") }
@@ -186,6 +217,19 @@ function commit(root: string, message: string): string {
 }
 
 function runHelper(root: string, base: string, head: string): EvidenceReport {
+  const result = helperProcess(root, base, head, ["workspace/alpha", "workspace/beta"])
+  if (result.exitCode !== 0) {
+    throw new Error(`helper failed (${result.exitCode}): ${result.stderr}`)
+  }
+  return JSON.parse(result.stdout) as EvidenceReport
+}
+
+function helperProcess(
+  root: string,
+  base: string,
+  head: string,
+  ownerRoots: string[],
+): { exitCode: number; stdout: string; stderr: string } {
   const result = Bun.spawnSync([
     "bun",
     helper,
@@ -195,15 +239,17 @@ function runHelper(root: string, base: string, head: string): EvidenceReport {
     head,
     "--source-ref",
     "refs/heads/main",
+    ...ownerRoots.flatMap((ownerRoot) => ["--owner-root", ownerRoot]),
   ], {
     cwd: root,
     stdout: "pipe",
     stderr: "pipe",
   })
-  if (result.exitCode !== 0) {
-    throw new Error(`helper failed (${result.exitCode}): ${result.stderr.toString()}`)
+  return {
+    exitCode: result.exitCode,
+    stdout: result.stdout.toString(),
+    stderr: result.stderr.toString(),
   }
-  return JSON.parse(result.stdout.toString()) as EvidenceReport
 }
 
 function workspaceSnapshot(root: string): { status: string; files: Record<string, string> } {

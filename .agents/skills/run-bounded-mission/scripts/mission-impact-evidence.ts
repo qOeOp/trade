@@ -3,31 +3,25 @@
 import { execFileSync } from "node:child_process"
 import { posix } from "node:path"
 
-type JSONRecord = Record<string, unknown>
-
 interface Owner {
   id: string
-  kind: "module" | "document"
-  domain: string
-  registry_revision: string
 }
 
 interface OwnerRegistry {
-  moduleRoots: Array<{ path: string; owner: Owner }>
-  documents: Map<string, Owner>
-  jobs: Array<{
-    ticket_no: string
-    job_id: string
-    target_domain: string
-    owner_module: string
-  }>
+  roots: Array<{ path: string; owner: Owner }>
+}
+
+interface Arguments {
+  base: string
+  head: string
+  sourceRef: string
+  ownerRoots: string[]
 }
 
 interface ChangedPath {
   status: string
   path: string
   owner: Owner | null
-  owner_source: "base" | "head" | null
 }
 
 interface DirectDependent {
@@ -45,25 +39,34 @@ interface Reason {
   evidence: string[]
 }
 
-const root = execFileSync("git", ["rev-parse", "--show-toplevel"], {
-  cwd: process.cwd(),
-  encoding: "utf8",
-  stdio: ["ignore", "pipe", "pipe"],
-}).trim()
+const invocationDirectory = process.cwd()
+let root = invocationDirectory
 
 function main(): void {
-  const base = immutableCommit(flag("--base"))
-  const head = immutableCommit(flag("--head"))
-  const sourceRef = repositoryRef(flag("--source-ref"))
+  const args = parseArguments(process.argv.slice(2))
+  root = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd: invocationDirectory,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim()
+  const base = immutableCommit(args.base)
+  const head = immutableCommit(args.head)
+  const sourceRef = repositoryRef(args.sourceRef)
   const baseIsAncestor = gitStatus(["merge-base", "--is-ancestor", base, head]) === 0
   if (!baseIsAncestor) throw new Error("--base must be an ancestor of --head")
+  for (const ownerRoot of args.ownerRoots) {
+    const existsAtBase = gitStatus(["cat-file", "-e", `${base}:${ownerRoot}`]) === 0
+    const existsAtHead = gitStatus(["cat-file", "-e", `${head}:${ownerRoot}`]) === 0
+    if (!existsAtBase && !existsAtHead) {
+      throw new Error(`--owner-root does not exist at base or head: ${ownerRoot}`)
+    }
+  }
 
-  const baseRegistry = ownerRegistry(base)
-  const headRegistry = ownerRegistry(head)
-  const changedPaths = readChangedPaths(base, head, baseRegistry, headRegistry)
+  const registry = ownerRegistry(args.ownerRoots)
+  const changedPaths = readChangedPaths(base, head, registry)
   const changedOwners = uniqueOwners(changedPaths.flatMap((item) => item.owner ? [item.owner] : []))
   const changedOwnerIds = new Set(changedOwners.map(ownerKey))
-  const directDependents = readDirectDependents(head, headRegistry, changedOwnerIds)
+  const directDependents = readDirectDependents(head, registry, changedOwnerIds)
   const reachableRefs = lines(git([
     "for-each-ref",
     `--contains=${head}`,
@@ -85,8 +88,11 @@ function main(): void {
   )
 
   const report = {
-    schema_version: "trade.mission-impact-evidence.v1",
+    schema_version: "bounded-mission.impact-evidence.v1",
     analysis_status: "facts-only",
+    inputs: {
+      owner_roots: registry.roots.map((item) => item.path),
+    },
     range: {
       base,
       head,
@@ -107,21 +113,59 @@ function main(): void {
       owners: changedOwners,
       unowned_paths: changedPaths.filter((item) => !item.owner).map((item) => item.path),
       direct_dependents: directDependents,
-      declared_jobs: headRegistry.jobs
-        .filter((job) => changedOwnerIds.has(moduleOwnerKey(job.owner_module)))
-        .sort((left, right) => left.ticket_no.localeCompare(right.ticket_no)),
     },
     reasons,
     refactor_decision: null,
     limits: [
       "Mission identity is not stored in Git; the caller must bind accepted Missions to the explicit range.",
       "Direct dependents cover static relative JavaScript/TypeScript production imports at head only.",
-      "Canonical owner mapping is limited to architecture-manifest modules and indexed documents.",
+      "Owner mapping is limited to the repository-relative roots supplied by the caller.",
       "The helper does not establish a runtime consumer, preserved behavior, or a refactor decision.",
       "Churn, co-change frequency, file count, line count, and complexity scores are intentionally not calculated.",
     ],
   }
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
+}
+
+function parseArguments(values: string[]): Arguments {
+  if (values.includes("--help")) {
+    process.stdout.write([
+      "Usage: mission-impact-evidence.ts --base <full-commit> --head <full-commit>",
+      "  --source-ref <full-ref> --owner-root <repository-relative-path>",
+      "  [--owner-root <repository-relative-path> ...]",
+      "",
+    ].join("\n"))
+    process.exit(0)
+  }
+  const singles = new Map<string, string>()
+  const ownerRoots: string[] = []
+  for (let index = 0; index < values.length; index += 2) {
+    const key = values[index]
+    const value = values[index + 1]
+    if (!key?.startsWith("--") || value == null || value.startsWith("--")) {
+      throw new Error(`invalid arguments near ${key ?? "<end>"}`)
+    }
+    if (key === "--owner-root") {
+      const normalized = normalizePath(value)
+      if (!isRepositoryRelative(normalized)) {
+        throw new Error("--owner-root must be a normalized repository-relative path")
+      }
+      if (!ownerRoots.includes(normalized)) ownerRoots.push(normalized)
+      continue
+    }
+    if (!["--base", "--head", "--source-ref"].includes(key)) {
+      throw new Error(`unsupported argument: ${key}`)
+    }
+    if (singles.has(key)) throw new Error(`duplicate argument: ${key}`)
+    singles.set(key, value)
+  }
+  const base = singles.get("--base")
+  const head = singles.get("--head")
+  const sourceRef = singles.get("--source-ref")
+  if (!base || !head || !sourceRef || ownerRoots.length === 0) {
+    throw new Error("--base, --head, --source-ref, and at least one --owner-root are required")
+  }
+  return { base, head, sourceRef, ownerRoots }
 }
 
 function immutableCommit(value: string): string {
@@ -143,55 +187,18 @@ function repositoryRef(value: string): { name: string; tip: string } {
   }
 }
 
-function ownerRegistry(revision: string): OwnerRegistry {
-  const manifest = readJsonAt(revision, "docs/architecture/architecture-manifest.json")
-  const moduleRoots: Array<{ path: string; owner: Owner }> = []
-  for (const domain of records(manifest.domains)) {
-    const domainId = text(domain.id)
-    for (const modulePath of strings(domain.modules)) {
-      moduleRoots.push({
-        path: normalizePath(modulePath),
-        owner: {
-          id: normalizePath(modulePath),
-          kind: "module",
-          domain: domainId,
-          registry_revision: revision,
-        },
-      })
-    }
-  }
-  moduleRoots.sort((left, right) => right.path.length - left.path.length)
-
-  const documents = new Map<string, Owner>()
-  const documentIndex = tryReadJsonAt(revision, "docs/engineering/doc-contract-index.json")
-  for (const entry of records(documentIndex?.documents)) {
-    const path = normalizePath(text(entry.path))
-    if (!path) continue
-    documents.set(path, {
-      id: text(entry.id),
-      kind: "document",
-      domain: text(entry.owner),
-      registry_revision: revision,
-    })
-  }
-
+function ownerRegistry(ownerRoots: string[]): OwnerRegistry {
   return {
-    moduleRoots,
-    documents,
-    jobs: records(manifest.jobs).map((job) => ({
-      ticket_no: text(job.ticket_no),
-      job_id: text(job.job_id),
-      target_domain: text(job.target_domain),
-      owner_module: normalizePath(text(job.owner_module)),
-    })),
+    roots: ownerRoots
+      .map((path) => ({ path, owner: { id: path } }))
+      .sort((left, right) => right.path.length - left.path.length || left.path.localeCompare(right.path)),
   }
 }
 
 function readChangedPaths(
   base: string,
   head: string,
-  baseRegistry: OwnerRegistry,
-  headRegistry: OwnerRegistry,
+  registry: OwnerRegistry,
 ): ChangedPath[] {
   const fields = git(["diff", "--name-status", "-z", "--no-renames", base, head]).split("\0")
   const changed: ChangedPath[] = []
@@ -199,13 +206,11 @@ function readChangedPaths(
     const status = fields[index]
     const path = normalizePath(fields[index + 1])
     if (!status || !path) continue
-    const headOwner = resolveOwner(headRegistry, path)
-    const baseOwner = resolveOwner(baseRegistry, path)
+    const owner = resolveOwner(registry, path)
     changed.push({
       status,
       path,
-      owner: headOwner ?? baseOwner,
-      owner_source: headOwner ? "head" : baseOwner ? "base" : null,
+      owner,
     })
   }
   return changed.sort((left, right) => left.path.localeCompare(right.path))
@@ -218,19 +223,18 @@ function readDirectDependents(
 ): DirectDependent[] {
   const dependents: DirectDependent[] = []
   const sourceFiles = treeFiles(head)
-    .filter((path) => path.startsWith("apps/"))
     .filter(isJavaScriptOrTypeScript)
     .filter((path) => !isTestSource(path))
   for (const path of sourceFiles) {
     const sourceOwner = resolveOwner(registry, path)
-    if (!sourceOwner || sourceOwner.kind !== "module") continue
+    if (!sourceOwner) continue
     const source = readFileAt(head, path).replace(/^#![^\n]*(?:\n|$)/, "")
     const imports = new Bun.Transpiler({ loader: loaderForPath(path) }).scanImports(source)
     for (const item of imports) {
       if (!item.path.startsWith(".")) continue
       const targetPath = normalizePath(posix.normalize(posix.join(posix.dirname(path), item.path)))
       const targetOwner = resolveOwner(registry, targetPath)
-      if (!targetOwner || targetOwner.kind !== "module") continue
+      if (!targetOwner) continue
       if (ownerKey(sourceOwner) === ownerKey(targetOwner)) continue
       if (!changedOwnerIds.has(ownerKey(targetOwner))) continue
       dependents.push({
@@ -298,9 +302,7 @@ function buildReasons(
 
 function resolveOwner(registry: OwnerRegistry, path: string): Owner | null {
   const normalized = normalizePath(path)
-  const document = registry.documents.get(normalized)
-  if (document) return document
-  return registry.moduleRoots.find((item) =>
+  return registry.roots.find((item) =>
     normalized === item.path || normalized.startsWith(`${item.path}/`))?.owner ?? null
 }
 
@@ -311,24 +313,11 @@ function uniqueOwners(owners: Owner[]): Owner[] {
 }
 
 function ownerKey(owner: Owner): string {
-  return `${owner.kind}:${owner.id}`
-}
-
-function moduleOwnerKey(modulePath: string): string {
-  return `module:${modulePath}`
+  return owner.id
 }
 
 function treeFiles(revision: string): string[] {
   return git(["ls-tree", "-r", "--name-only", "-z", revision]).split("\0").filter(Boolean).sort()
-}
-
-function readJsonAt(revision: string, path: string): JSONRecord {
-  return JSON.parse(readFileAt(revision, path)) as JSONRecord
-}
-
-function tryReadJsonAt(revision: string, path: string): JSONRecord | null {
-  if (gitStatus(["cat-file", "-e", `${revision}:${path}`]) !== 0) return null
-  return readJsonAt(revision, path)
 }
 
 function readFileAt(revision: string, path: string): string {
@@ -353,33 +342,22 @@ function gitStatus(args: string[]): number {
   }
 }
 
-function flag(name: string): string {
-  const index = process.argv.indexOf(name)
-  const value = index >= 0 ? process.argv[index + 1] : ""
-  if (!value || value.startsWith("--")) throw new Error(`${name} requires a value`)
-  return value
-}
-
-function records(value: unknown): JSONRecord[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is JSONRecord => Boolean(item) && typeof item === "object" && !Array.isArray(item))
-    : []
-}
-
-function strings(value: unknown): string[] {
-  return Array.isArray(value) ? value.map(String).filter(Boolean) : []
-}
-
-function text(value: unknown): string {
-  return typeof value === "string" ? value : ""
-}
-
 function lines(value: string): string[] {
   return value.split("\n").map((item) => item.trim()).filter(Boolean).sort()
 }
 
 function normalizePath(value: string): string {
   return value.replaceAll("\\", "/").replace(/\/$/, "")
+}
+
+function isRepositoryRelative(value: string): boolean {
+  return value.length > 0
+    && value !== "."
+    && !value.startsWith("/")
+    && !value.includes("\\")
+    && posix.normalize(value) === value
+    && value !== ".."
+    && !value.startsWith("../")
 }
 
 function isJavaScriptOrTypeScript(path: string): boolean {
@@ -391,7 +369,7 @@ function isTestSource(path: string): boolean {
     || /\.(?:test|spec)\.[^.]+$/.test(path)
 }
 
-function loaderForPath(path: string): Bun.Loader {
+function loaderForPath(path: string): "tsx" | "jsx" | "js" | "ts" {
   if (path.endsWith(".tsx")) return "tsx"
   if (path.endsWith(".jsx")) return "jsx"
   if (/\.(?:js|mjs|cjs)$/.test(path)) return "js"
@@ -401,6 +379,13 @@ function loaderForPath(path: string): Bun.Loader {
 try {
   main()
 } catch (error) {
-  console.error(error instanceof Error ? error.message : String(error))
+  console.error(portableMessage(error instanceof Error ? error.message : String(error)))
   process.exit(1)
+}
+
+function portableMessage(message: string): string {
+  return message
+    .replaceAll(root.replaceAll("\\", "/"), ".")
+    .replaceAll(invocationDirectory.replaceAll("\\", "/"), ".")
+    .replaceAll("\\", "/")
 }
