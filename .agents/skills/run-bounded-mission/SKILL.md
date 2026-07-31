@@ -111,7 +111,7 @@ override may instead terminate directly from any nonterminal stage after effects
 Frame must select an observable finite Stop. Unless the user supplies another explicit finite
 envelope, use all of these defaults for the current Mission:
 
-- at most two distinct evidence attempts for the same unresolved Plan or Verify question;
+- at most two distinct evidence attempts for the same unresolved Frame, Plan, or Verify question;
 - at most two total backward routes after the first `Plan → Execute`, counting `revise`, `replan`,
   and `reframe` together;
 - no repeat of an unchanged failed investigation, check, candidate, or external request;
@@ -129,11 +129,14 @@ change may continue, and that change requires `reframe` before new work.
 
 ### Override and recovery
 
-A user override freezes the next mutation and every unissued external effect. Cancellation ends the
-Mission with its existing candidate preserved when one exists. A materially changed Frame uses
-`reframe`; an unrelated outcome remains a separate request and must not be mixed into this Mission.
-Scope expansion always requires `reframe` and a newly admitted Plan before execution. New authority
-never applies retroactively to an operation already stopped or rejected.
+A user override freezes the next mutation and every unissued external effect. Plain cancellation
+ends the Mission with its existing candidate preserved when one exists. When the user explicitly
+requests discard or revert, that request authorizes cleanup only of the exactly identified
+mission-owned diff after comparing the working tree and preserving unrelated work; then terminate.
+A materially changed Frame uses `reframe`; an unrelated outcome remains a separate request and must
+not be mixed into this Mission. Scope expansion always requires `reframe` and a newly admitted Plan
+before execution. New authority never applies retroactively to an operation already stopped or
+rejected.
 
 After context compaction or on a later turn, continue only when the same Mission can be reconstructed
 from conversation and Git evidence. When that is not otherwise unambiguous, retain or reproduce this
@@ -146,15 +149,16 @@ Plan: <admitted owner, path, boundary, candidate shape, verification route>
 Candidate/effects: <exact commit or complete diff locator; effects already performed>
 Evidence: <decisive checks and remaining blocker>
 Position: <current stage or terminal route; consumed Stop and next legal operation>
+Resume: <stage to re-enter after a named blocker is removed, or none>
 ```
 
 This locator is evidence, not an identity, receipt, file, ledger, or host state. Match the Frame,
-origin, candidate/effects, consumed Stop, and next legal operation before continuing. If any cannot
-be recovered exactly enough to exclude a different Mission or candidate, freeze before the next
-mutation or external effect and route `blocked` or ask for the missing user-owned fact. Resuming an
-exactly recovered `blocked` Mission re-enters the recorded stage only after its named blocker is
-removed, without resetting Stop. Multi-Mission recovery additionally follows the session graph
-contract; this locator does not replace it.
+origin, candidate/effects, consumed Stop, next legal operation, and any resumable stage before
+continuing. If any cannot be recovered exactly enough to exclude a different Mission or candidate,
+freeze before the next mutation or external effect and route `blocked` or ask for the missing
+user-owned fact. Resuming an exactly recovered `blocked` Mission re-enters its explicit `Resume`
+stage only after the named blocker is removed, without resetting Stop. Multi-Mission recovery
+additionally follows the session graph contract; this locator does not replace it.
 
 ## Plan
 

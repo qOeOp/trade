@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test"
 import { execFileSync } from "node:child_process"
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { resolve } from "node:path"
 
 type Stage = "Frame" | "Plan" | "Execute" | "Verify" | "Finalize"
 type Terminal = "accepted" | "blocked" | "cancelled"
 type Position = Stage | Terminal | "suspended"
-type Verification = "pass" | "local-failure" | "design-failure" | "scope-expansion" | null
+type Verification = "pass" | "local-failure" | "design-failure" | "scope-expansion" | "ambiguity-exhausted" | null
 
 interface Scenario {
   name: string
@@ -17,12 +18,6 @@ interface Scenario {
 
 interface Fixture {
   contract_version: number
-  parent_chain_evidence: {
-    name: string
-    source: string
-    proves: string[]
-    does_not_prove: string[]
-  }
   scenarios: Scenario[]
 }
 
@@ -30,12 +25,15 @@ interface ReplayState {
   position: Position
   verification: Verification
   backwardRoutes: number
+  evidenceAttempts: number
   mutations: number
   suspendedEvidence: RecoveryEvidence | null
+  blockedResumeStage: Stage | null
 }
 
 interface RecoveryEvidence {
-  stage: Stage
+  position: Stage | "blocked"
+  blockedResumeStage: Stage | null
   head: string
   branch: string
   status: string
@@ -66,10 +64,11 @@ describe("single-Mission transition contract", () => {
     expect(skill).toContain("`reframe` returns to Frame")
     expect(skill).toContain("`blocked` ends the current run")
     expect(skill).toContain("Scope expansion always requires `reframe`")
+    expect(skill).toContain("cancellation override may instead terminate directly")
   })
 
   test("bounds investigation, retry, revision pressure, and Stop recovery", () => {
-    expect(skill).toContain("at most two distinct evidence attempts")
+    expect(skill).toContain("same unresolved Frame, Plan, or Verify question")
     expect(skill).toContain("at most two total backward routes")
     expect(skill).toContain("no repeat of an unchanged failed investigation")
     expect(skill).toContain("at most one replacement candidate for each admitted replan")
@@ -88,25 +87,20 @@ describe("single-Mission transition contract", () => {
       "Candidate/effects: <exact commit or complete diff locator",
       "Evidence: <decisive checks",
       "Position: <current stage or terminal route",
+      "Resume: <stage to re-enter after a named blocker is removed",
     ]) expect(skill).toContain(field)
 
     expect(skill).toContain("This locator is evidence, not an identity, receipt, file, ledger, or host state")
     expect(skill).toContain("exclude a different Mission or candidate")
+    expect(skill).toContain("explicit `Resume` stage")
     expect(skill).toContain("without resetting Stop")
     expect(skill).toContain("this locator does not replace it")
   })
 
-  test("retains the parent override evidence without overstating recovery proof", () => {
-    expect(fixture.parent_chain_evidence).toEqual({
-      name: "rbm-03-user-override-before-mutation",
-      source: "supplied parent-chain observation",
-      proves: [
-        "the override stopped the prior Mission before mutation",
-        "the worktree remained clean",
-        "no branch, commit, or pull request was created",
-      ],
-      does_not_prove: ["context-compaction recovery", "later-turn recovery"],
-    })
+  test("keeps cancellation preservation and authorized discard distinct", () => {
+    expect(skill).toContain("Plain cancellation ends the Mission with its existing candidate preserved")
+    expect(skill).toContain("explicitly requests discard or revert")
+    expect(skill).toContain("cleanup only of the exactly identified mission-owned diff")
   })
 
   test("replays every required route in isolated temporary Git repositories", () => {
@@ -118,7 +112,10 @@ describe("single-Mission transition contract", () => {
       "scope-expansion-reframe",
       "continuous-nonconvergence-blocked",
       "context-recovery",
+      "frame-ambiguity-blocked",
+      "blocked-context-recovery",
       "user-override-before-mutation",
+      "user-override-discard",
     ])
 
     for (const scenario of fixture.scenarios) {
@@ -134,11 +131,11 @@ describe("single-Mission transition contract", () => {
         expect(git(repository, "rev-parse", "HEAD"), scenario.name).toBe(initialHead)
         expect(git(repository, "branch", "--show-current"), scenario.name).toBe(initialBranch)
 
-        if (scenario.expected_mutations > 0) {
+        if (scenario.expected_mutations > 0 && scenario.name !== "user-override-discard") {
           expect(git(repository, "status", "--porcelain"), scenario.name).not.toBe("")
         }
 
-        if (scenario.name === "user-override-before-mutation") {
+        if (scenario.name === "user-override-before-mutation" || scenario.name === "user-override-discard") {
           expect(git(repository, "status", "--porcelain")).toBe("")
           expect(git(repository, "for-each-ref", "--format=%(refname:short)", "refs/heads")).toBe(initialBranches)
           expect(git(repository, "remote")).toBe("")
@@ -177,8 +174,10 @@ function replay(repository: string, events: string[]): ReplayState {
     position: "Frame",
     verification: null,
     backwardRoutes: 0,
+    evidenceAttempts: 0,
     mutations: 0,
     suspendedEvidence: null,
+    blockedResumeStage: null,
   }
 
   for (const event of events) {
@@ -187,9 +186,15 @@ function replay(repository: string, events: string[]): ReplayState {
       state.position = "cancelled"
       continue
     }
-    if (event === "context-lost") {
+    if (event === "user-override-discard") {
       requireActive(state.position, event)
-      state.suspendedEvidence = recoveryEvidence(repository, state.position)
+      rmSync(resolve(repository, "candidate.txt"), { force: true })
+      state.position = "cancelled"
+      continue
+    }
+    if (event === "context-lost") {
+      requireRecoverable(state.position, event)
+      state.suspendedEvidence = recoveryEvidence(repository, state.position, state.blockedResumeStage)
       state.position = "suspended"
       continue
     }
@@ -197,11 +202,33 @@ function replay(repository: string, events: string[]): ReplayState {
       if (state.position !== "suspended" || state.suspendedEvidence === null) {
         throw new Error("recover-exact requires suspended evidence")
       }
-      if (JSON.stringify(recoveryEvidence(repository, state.suspendedEvidence.stage)) !== JSON.stringify(state.suspendedEvidence)) {
+      if (JSON.stringify(recoveryEvidence(
+        repository,
+        state.suspendedEvidence.position,
+        state.suspendedEvidence.blockedResumeStage,
+      )) !== JSON.stringify(state.suspendedEvidence)) {
         throw new Error("recovery evidence does not match the candidate")
       }
-      state.position = state.suspendedEvidence.stage
+      state.position = state.suspendedEvidence.position
+      state.blockedResumeStage = state.suspendedEvidence.blockedResumeStage
       state.suspendedEvidence = null
+      continue
+    }
+    if (event === "frame-ambiguity") {
+      requireStage(state.position, "Frame", event)
+      continue
+    }
+    if (event === "evidence-attempt") {
+      requireStage(state.position, "Frame", event)
+      state.evidenceAttempts += 1
+      if (state.evidenceAttempts > 2) throw new Error("evidence Stop exhausted")
+      continue
+    }
+    if (event === "evidence-exhausted") {
+      requireStage(state.position, "Frame", event)
+      if (state.evidenceAttempts !== 2) throw new Error("evidence-exhausted requires two attempts")
+      state.position = "Finalize"
+      state.verification = "ambiguity-exhausted"
       continue
     }
     if (event === "frame-complete") {
@@ -267,7 +294,17 @@ function replay(repository: string, events: string[]): ReplayState {
     if (event === "blocked") {
       requireStage(state.position, "Finalize", event)
       if (state.verification === "pass") throw new Error("blocked cannot replace accept")
+      state.blockedResumeStage = resumableStage(state.verification)
       state.position = "blocked"
+      continue
+    }
+    if (event === "resume-blocker-removed") {
+      if (state.position !== "blocked" || state.blockedResumeStage === null) {
+        throw new Error("resume requires an explicit blocked stage")
+      }
+      state.position = state.blockedResumeStage
+      state.blockedResumeStage = null
+      state.verification = null
       continue
     }
     throw new Error(`unknown event: ${event}`)
@@ -291,8 +328,14 @@ function requireActive(position: Position, event: string): asserts position is S
   }
 }
 
+function requireRecoverable(position: Position, event: string): asserts position is Stage | "blocked" {
+  if (position !== "blocked" && !["Frame", "Plan", "Execute", "Verify", "Finalize"].includes(position)) {
+    throw new Error(`${event} requires an active or blocked stage`)
+  }
+}
+
 function createTemporaryRepository(): string {
-  const repository = mkdtempSync("/tmp/rbm-transition-")
+  const repository = mkdtempSync(resolve(tmpdir(), "rbm-transition-"))
   git(repository, "init", "-b", "main")
   git(repository, "config", "user.name", "RBM Test")
   git(repository, "config", "user.email", "rbm-test@example.invalid")
@@ -306,15 +349,27 @@ function git(repository: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd: repository, encoding: "utf8" }).trim()
 }
 
-function recoveryEvidence(repository: string, stage: Stage): RecoveryEvidence {
+function recoveryEvidence(
+  repository: string,
+  position: Stage | "blocked",
+  blockedResumeStage: Stage | null,
+): RecoveryEvidence {
   const candidatePath = resolve(repository, "candidate.txt")
   return {
-    stage,
+    position,
+    blockedResumeStage,
     head: git(repository, "rev-parse", "HEAD"),
     branch: git(repository, "branch", "--show-current"),
     status: git(repository, "status", "--porcelain"),
     candidate: existsSync(candidatePath) ? readFileSync(candidatePath, "utf8") : null,
   }
+}
+
+function resumableStage(verification: Verification): Stage {
+  if (verification === "design-failure") return "Plan"
+  if (verification === "local-failure") return "Execute"
+  if (verification === "scope-expansion" || verification === "ambiguity-exhausted") return "Frame"
+  throw new Error("blocked requires a resumable failure")
 }
 
 function normalized(path: string): string {

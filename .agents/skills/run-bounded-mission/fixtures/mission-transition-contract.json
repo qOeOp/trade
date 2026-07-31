@@ -1,18 +1,5 @@
 {
   "contract_version": 1,
-  "parent_chain_evidence": {
-    "name": "rbm-03-user-override-before-mutation",
-    "source": "supplied parent-chain observation",
-    "proves": [
-      "the override stopped the prior Mission before mutation",
-      "the worktree remained clean",
-      "no branch, commit, or pull request was created"
-    ],
-    "does_not_prove": [
-      "context-compaction recovery",
-      "later-turn recovery"
-    ]
-  },
   "scenarios": [
     {
       "name": "normal-accept",
@@ -51,10 +38,28 @@
       "expected_mutations": 1
     },
     {
+      "name": "frame-ambiguity-blocked",
+      "events": ["frame-ambiguity", "evidence-attempt", "evidence-attempt", "evidence-exhausted", "blocked"],
+      "expected_terminal": "blocked",
+      "expected_mutations": 0
+    },
+    {
+      "name": "blocked-context-recovery",
+      "events": ["frame-complete", "plan-admitted", "candidate-ready", "verify-fail-design", "blocked", "context-lost", "recover-exact", "resume-blocker-removed", "plan-admitted", "candidate-ready", "verify-pass", "accept"],
+      "expected_terminal": "accepted",
+      "expected_mutations": 2
+    },
+    {
       "name": "user-override-before-mutation",
       "events": ["user-override-cancel"],
       "expected_terminal": "cancelled",
       "expected_mutations": 0
+    },
+    {
+      "name": "user-override-discard",
+      "events": ["frame-complete", "plan-admitted", "candidate-ready", "user-override-discard"],
+      "expected_terminal": "cancelled",
+      "expected_mutations": 1
     }
   ]
 }
