@@ -7,6 +7,10 @@ const repositoryRoot = resolve(skillRoot, "../../..")
 const skill = readFileSync(resolve(skillRoot, "SKILL.md"), "utf8")
 const agents = readFileSync(resolve(repositoryRoot, "AGENTS.md"), "utf8")
 const metadata = readFileSync(resolve(skillRoot, "agents/openai.yaml"), "utf8")
+const frontmatter = skill.slice(4, skill.indexOf("\n---", 4))
+const descriptionLine = frontmatter.split("\n").find((line) => line.startsWith("description: "))
+if (!descriptionLine) throw new Error("SKILL.md frontmatter is missing description")
+const description = JSON.parse(descriptionLine.slice("description: ".length)) as string
 const replayFixtures = JSON.parse(
   readFileSync(resolve(skillRoot, "fixtures/trigger-contract.json"), "utf8"),
 ) as Array<{ name: string; prompt: string; expectedWorkflowStart: boolean }>
@@ -26,30 +30,28 @@ describe("run-bounded-mission entry contract", () => {
   })
 
   test("the owner distinguishes affirmative entry from discovery or mention", () => {
-    expect(skill).toContain("affirmatively invokes the exact token $run-bounded-mission")
-    expect(skill).toContain("clearly asks to use or run the bounded mission workflow")
-    expect(skill).toContain("repository instructions require it for non-trivial implementation or delivery")
-    expect(skill).toContain(
+    expect(description).toContain("affirmatively invokes the exact token $run-bounded-mission")
+    expect(description).toContain("clearly asks to use or run the bounded mission workflow")
+    expect(description).toContain("repository instructions require it for non-trivial implementation or delivery")
+    expect(description).toContain(
       "Quoting, naming, linking, inspecting, auditing, explaining, diagnosing, or negating",
     )
-    expect(skill).toContain("An affirmative explicit invocation wins over otherwise excluded request types")
+    expect(description).toContain("An affirmative explicit invocation wins over otherwise excluded request types")
   })
 
   test("static replay fixtures cover the required workflow-start decisions", () => {
-    expect(replayFixtures.map(({ name }) => name)).toEqual([
-      "exact affirmative invocation",
-      "natural-language affirmative invocation",
-      "repository-required non-trivial implementation",
-      "mention only",
-      "explicit negation",
-      "audit only",
-      "diagnose only",
-      "mechanical edit",
-      "routine status",
-      "task management",
-      "appended affirmative request",
+    expect(replayFixtures.map(({ name, expectedWorkflowStart }) => [name, expectedWorkflowStart])).toEqual([
+      ["exact affirmative invocation", true],
+      ["natural-language affirmative invocation", true],
+      ["repository-required non-trivial implementation", true],
+      ["mention only", false],
+      ["explicit negation", false],
+      ["audit only", false],
+      ["diagnose only", false],
+      ["mechanical edit", false],
+      ["routine status", false],
+      ["task management", false],
+      ["appended affirmative request", true],
     ])
-    expect(replayFixtures.filter(({ expectedWorkflowStart }) => expectedWorkflowStart)).toHaveLength(4)
-    expect(replayFixtures.filter(({ expectedWorkflowStart }) => !expectedWorkflowStart)).toHaveLength(7)
   })
 })
