@@ -1,7 +1,7 @@
 # GitHub Delivery
 
 Load only when the frozen endpoint includes a GitHub pull request. GitHub delivery is part of
-Disposition, not a separate lifecycle or a custom merge service.
+Finalize, not a separate lifecycle or a custom merge service.
 
 Freeze the repository, pull request, base, candidate head, endpoint (`open`, `merge-ready`, or
 `merged`), Draft/Ready state, required signals, merge method, and authority for each write:
