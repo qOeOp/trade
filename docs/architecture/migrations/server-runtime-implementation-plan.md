@@ -3,7 +3,7 @@ title: Server Runtime Implementation Plan
 role: architecture-migration
 status: active-migration
 owner: architecture
-last_verified: 2026-07-30 CST
+last_verified: 2026-07-31 CST
 ---
 
 # Server Runtime Implementation Plan
@@ -257,11 +257,11 @@ validate config/secrets/volumes
 | D2 市场数据供给 | active-partial | typed demand registry 已完成；继续多 symbol、L2/OHLCV/indicator lifecycle | coverage / freshness / retention 可审计 |
 | D3 在线决策循环 | active-partial | J01/J02/J03、watch、账户级候选仲裁 | 无 fresh facts / contract / risk 即 no_action |
 | D4 执行与恢复 | active-partial | preflight、execution、confirm/reconcile、保护 / 减风险 | 重投不重复下单；未知事实锁风险 |
-| D5 长期策略工厂 | active-partial | Planner/Developer/Replay/Reviewer/Registry/Forward | Replay→Reviewer→candidate Draft 已常驻且无自动 promotion；Codex 式多轮研发不退化、单 Trial / Result、Forward 待闭环 |
+| D5 长期策略工厂 | active-partial | Planner/Developer/Replay/Reviewer/Registry/Forward | Replay→Reviewer→candidate Draft 已常驻且无自动 promotion；Developer assessment 已有 owner，code-change cycle 尚无 server consumer，单 Trial / Result、Forward 待闭环 |
 | D6 策略治理闭环 | pending | review 成熟度、pause/retire/improve、旧 flow 兼容 | 生命周期决定可回指证据和精确版本 |
 | D7 存储、GC 与灾备 | active-partial | owner-authorized GC、L2 retention、备份 / 恢复 | 空间自愈；受保护事实零误删 |
 | D8 运维、安全与可观察性 | active-partial | health、incident、trace、secret、operator surface | 最小权限、脱敏、可轮换、可告警 |
-| D9 Agent / MCP runtime | active-partial | Codex/OpenClaw Host、私有 MCP、scope registry、固定 workspace 与隔离 checker 已落地并过真实 Gateway smoke；继续 Replay/apply/release 采用 | Host 离线不影响确定性安全链 |
+| D9 Agent / MCP runtime | active-partial | Codex/OpenClaw Host、私有 MCP、scope registry、固定 workspace 与隔离 checker 组件已落地；当前无 server consumer 调用 Developer cycle，历史 Gateway smoke 不作运行闭环 | Host 离线不影响确定性安全链 |
 | D10 远程容器交付 | active-partial | 固定镜像、Compose/systemd、volume/network/secret | 干净主机可部署、回滚和恢复 |
 | D11 模拟、shadow 与可靠性 | pending | 仿真、故障注入、长时 soak、资源与漂移验证 | 无双写、无 silent stale、无 authority violation |
 | D12 live-small 与生产采用 | pending | 逐 job canary、风险限额、生产 runbook | 外部权限齐备且全部 live gate 通过 |
@@ -339,9 +339,9 @@ validate config/secrets/volumes
 | D5.2 | 接入 cited research finding、失败、review 与 improvement request | provenance-separated inputs |
 | D5.3 | Planner 生成 typed hypothesis 并经过既有 admission | complete：真实 OpenClaw Planner、owner-resolved protocol、trial budget / family axis gate 与 accepted revision |
 | D5.4 | Developer 做 family / data / Replay / Runtime capability assessment | complete：真实 Brief、v3 exact data snapshot、registered family/protocol assessment；missing / partial implementation 现明确路由 `code_change_required`，不会误降级成普通 tool blocker |
-| D5.5 | Developer 在隔离 worktree 改 MD / code / tests | active-partial：request-hash-bound scope、OpenClaw code Host、frozen worktree、Host-derived patch/check refs 与 predecessor-bound 累计修订已完成；Research 接纳 `patch_ready` 后自动入 Ops queue，resident adopter 重放 exact patch，拒绝依赖/binary/special-file 变更，重跑 package/full-quality/Replay audit 并原子产出 source candidate；候选可转换成 provenance-bound 标准 no-live server package，但无 deploy/trade authority。尚缺新 revision 实际部署与 Linux 容器证据 |
+| D5.5 | Developer 在隔离 worktree 改 MD / code / tests | active-partial：request-hash-bound scope、OpenClaw code Host、frozen worktree、Host-derived patch/check refs、Ops adoption store 与 resident adopter 均有 owner 实现；当前没有 server consumer 调用 Developer cycle 或把 `patch_ready` 自动入队，因此尚未形成运行纵切。adopter 的 exact patch 重放、依赖/binary/special-file 拒绝、package/full-quality/Replay audit 与 source candidate 只在已有队列输入下成立；仍无 deploy/trade authority |
 | D5.6 | owner 冻结 data、reserve Trial、执行 deterministic Replay | active-partial：6-Trial immutable Plan / Work Package 与 compatibility Result 已实跑；正式作业现从 Request Registration 经 data compile、durable single-slot queue、cancellation recovery、Attempt/Lease/Dispatch 到注册 Replay Runner，并在成功时原子闭合 Attempt、Trial、Result 与 `mechanical_replay/replay_owner` 分类。队列同 worker 重启复用 generation/execution，Lease 过期才轮转后继 Attempt；容器已编排常驻 worker。仍缺真实 status/spec/risk provider evidence → certified Manifest/Reservation owner compiler、Linux 采用与真实数据纵切 |
-| D5.7 | Agent 阅读失败 artifact 并二次修改或 reject | active-partial：Reviewer lesson 已驱动 4H→1h bounded revision；synthetic diagnosis → predecessor patch 重放 → 累计第二版 patch 的真实 worktree/check fixture 已通过；正式 Replay 已有 classified Result 与自动排队入口，尚缺 Reviewer 自动唤醒和真实模型二次修改纵切 |
+| D5.7 | Agent 阅读失败 artifact 并二次修改或 reject | active-partial：Reviewer lesson 已驱动 4H→1h bounded revision，正式 Replay 已有 classified Result；predecessor patch、后继 Developer cycle 与真实模型二次修改尚无 server consumer 纵切，先前 synthetic Direct Codex fixture 不再作为当前完成证据 |
 | D5.8 | Reviewer 基于登记 evidence 提交 decision | complete at historical compatibility stage：Result classification→bounded context→typed modify→lifecycle / lesson 幂等写回 |
 | D5.9 | Registry / Forward / Governance 沿正式入口接纳 | active-partial：Registry owner-fact compiler、fenced resident queue、source/replay provenance、candidate manifest、隔离 source adoption、标准 no-live package、certified-source admission、Observation Program/OHLCV demand续租、gapless candle segment、hash-verified OHLCV-only Dataset Candidate、exact funding demand/raw audit/v2 fact/Replay slice/Research binding，以及 current status/spec resident→owner receipt/raw→独立 provider certification→bounded Forward binding/readiness v3 已完成；候选按观测跨度节流且超出内存边界只报告 pending，不截断。条件 mark/supplemental、venue risk、新 Forward decision、正式 Dataset Manifest/Session/Result 与 Governance 待完成，始终 no hot-load / automatic promotion |
 | D5.10 | mechanical Replay、Agent-assisted evaluation 和 Forward evidence 分权 | active-partial：formal Result 只授予 classified Reviewer input；Reviewer 接受只授予 Registry candidate source；Ops certification只授予 exact source binding；Research Program只请求严格 post-freeze OHLCV，segment 只授予 dataset-materialization input，仍无 Replay admission/Session/deployment/trading/promotion authority；真实 Forward Result 尚待常驻生成 |

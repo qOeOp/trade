@@ -32,12 +32,13 @@ last_verified: 2026-07-22 CST
 
 ```bash
 bun apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --list --json
-bun scripts/check-rd-replay-maturity-gate.ts
+bun scripts/check-rd-replay-static-consistency.ts
 bun apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --suite canonical
 bun apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --suite compatibility
+bun run check:replay-release
 ```
 
-任何命令非零退出都阻断 release；stdout 和进程退出只证明命令执行状态，不替代 Outcome/Artifact authority。
+任何前置命令非零退出都阻断 release audit；static checker 只证明 registry/path/package/export/source identity 一致，owner suites 才产生执行证据。最后一个 canonical repository command 实际调用 Control Plane independent audit；只有它返回并可按当前 repo 重验的 receipt 构成 durable release verdict，普通 stdout 和进程退出不替代 Outcome/Artifact authority。
 
 ## 4. 首轮分诊
 

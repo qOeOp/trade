@@ -25,4 +25,4 @@ P10 / P11 / P13 historical Replay compatibility consumer。
 - P10/P11/P13 历史 Artifact 已有版本化 reader/migration fixture。
 - 仓库内直接生产消费者归零，compatibility certification 能覆盖存量 fixture。
 - P10/P11/P13 fixture 已脱离 canonical runner 大测试，test-only boundary exception 已删除。
-- 删除前由 maturity checker 与 architecture audit 同时证明 source/import closure。
+- 删除前由 static consistency、owner certification 与 architecture audit 分别证明 registry、执行和 source/import closure。

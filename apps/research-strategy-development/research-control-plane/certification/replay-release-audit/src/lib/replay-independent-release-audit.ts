@@ -7,6 +7,7 @@ export const REPLAY_RELEASE_AUDIT_OWNER =
   "apps/research-strategy-development/research-control-plane/certification/replay-release-audit"
 const SUBJECT_OWNER =
   "apps/research-strategy-development/replay-execution-plane/certification/replay-certification"
+const STATIC_CONSISTENCY_CHECKER = "scripts/check-rd-replay-static-consistency.ts"
 
 interface AuditSubject {
   owner: string
@@ -28,29 +29,27 @@ interface AuditSourceBinding {
   sha256: string
 }
 
+interface StaticInputIdentity {
+  path: string
+  kind: "content" | "existence"
+}
+
 export interface ReplayIndependentReleaseAuditManifest {
-  schema_version: "trade.rd-replay-independent-release-audit.v1"
+  schema_version: "trade.rd-replay-independent-release-audit.v2"
   owner: string
   subject: AuditSubject
   independence_policy: string
   verification_policy: string
   verdict_scope: string
   runtime: { name: "bun"; version: string }
-  required_exit_gates: { m4: string[]; m5_pre_audit: string[] }
+  static_inputs_schema_version: "trade.rd-replay-static-inputs.v1"
+  static_inputs_sha256: string
+  static_input_identities: StaticInputIdentity[]
   commands: AuditCommand[]
   negative_challenges: string[]
   source_bindings: AuditSourceBinding[]
   limitations: string[]
   audit_manifest_sha256: string
-}
-
-export interface ReplayMaturityForIndependentAudit {
-  schema_version: string
-  maturity: number
-  maturity_scale: number
-  convergence_workstream: { status: string }
-  exit_gates: Record<string, Record<string, boolean>>
-  next_allowed_outcome: string
 }
 
 interface AuditedComponent {
@@ -80,6 +79,18 @@ interface AuditedFixturePack {
   [key: string]: unknown
 }
 
+interface StaticConsistencySnapshot {
+  schema_version: "trade.rd-replay-static-inputs.v1"
+  ok: true
+  static_inputs_sha256: string
+  inputs: Array<StaticInputIdentity & {
+    role: string
+    sha256?: string
+    exists?: boolean
+  }>
+  issues: []
+}
+
 export interface ReplayIndependentAuditCommandReceipt {
   role: string
   process_id: number
@@ -89,7 +100,7 @@ export interface ReplayIndependentAuditCommandReceipt {
 }
 
 export interface ReplayIndependentReleaseAuditReceipt {
-  schema_version: "trade.rd-replay-independent-release-audit-receipt.v1"
+  schema_version: "trade.rd-replay-independent-release-audit-receipt.v2"
   verdict: "passed-within-declared-evidence-envelope"
   audit_manifest_sha256: string
   subject_pack_sha256: string
@@ -122,29 +133,6 @@ const EXPECTED_PROFILES = [
   "terminal-aware-bounded-cycle",
 ]
 
-const EXPECTED_M4_GATES = [
-  "p1_through_p29_inventory_frozen",
-  "canonical_public_entrypoints_declared",
-  "opt_in_activation_registry_complete",
-  "compatibility_consumers_isolated",
-  "result_artifact_and_checkpoint_epochs_converged",
-  "single_owner_certification_command",
-  "canonical_and_compatibility_test_suites_separated",
-  "all_supported_profiles_have_golden_resume_idempotency_and_tamper_evidence",
-  "no_unclassified_replay_module_or_production_consumer",
-]
-
-const EXPECTED_M5_PRE_AUDIT_GATES = [
-  "m4_exit_complete",
-  "cross_process_reproducibility_bundle",
-  "historical_artifact_read_migration_certified",
-  "crash_recovery_and_exactly_once_publication_certified",
-  "declared_capacity_and_performance_envelope_certified",
-  "fault_injection_and_corruption_recovery_certified",
-  "operational_observability_and_runbook_complete",
-  "release_candidate_fixture_pack_frozen",
-]
-
 const EXPECTED_COMMANDS: AuditCommand[] = [
   {
     role: "subject-full-certification",
@@ -153,9 +141,9 @@ const EXPECTED_COMMANDS: AuditCommand[] = [
     timeout_ms: 600_000,
   },
   {
-    role: "repository-audit-prerequisite-check",
+    role: "repository-static-consistency-check",
     cwd: ".",
-    argv: ["bun", "scripts/check-rd-replay-maturity-gate.ts", "--audit-prerequisites"],
+    argv: ["bun", STATIC_CONSISTENCY_CHECKER],
     timeout_ms: 30_000,
   },
 ]
@@ -167,9 +155,11 @@ const EXPECTED_CHALLENGES = [
 ]
 
 const EXPECTED_SOURCE_BINDINGS = [
+  { role: "independent-audit-package", path: `${REPLAY_RELEASE_AUDIT_OWNER}/package.json` },
+  { role: "independent-audit-launcher", path: `${REPLAY_RELEASE_AUDIT_OWNER}/src/scripts/main.ts` },
   { role: "independent-auditor", path: `${REPLAY_RELEASE_AUDIT_OWNER}/src/lib/replay-independent-release-audit.ts` },
   { role: "independent-auditor-test", path: `${REPLAY_RELEASE_AUDIT_OWNER}/src/lib/replay-independent-release-audit.test.ts` },
-  { role: "maturity-gate-consumer", path: "scripts/check-rd-replay-maturity-gate.ts" },
+  { role: "static-consistency-check", path: STATIC_CONSISTENCY_CHECKER },
   { role: "release-gate-entry", path: "scripts/check-replay-release.sh" },
   { role: "exclusive-test-runner", path: "scripts/run-exclusive-test.sh" },
   { role: "subject-certification-runner", path: `${SUBJECT_OWNER}/src/lib/replay-certification.ts` },
@@ -192,7 +182,7 @@ export function findReplayReleaseAuditRepoRoot(start = import.meta.dir): string 
   let current = start
   while (true) {
     if (existsSync(join(current, "toolset.json"))
-        && existsSync(join(current, "docs/research/reliability/rd-replay-maturity-gate.json"))) {
+        && existsSync(join(current, "docs/research/reliability/rd-replay-capability-inventory.json"))) {
       return current
     }
     const parent = dirname(current)
@@ -208,15 +198,6 @@ export function loadReplayIndependentReleaseAuditManifest(
   return JSON.parse(readFileSync(path, "utf8")) as ReplayIndependentReleaseAuditManifest
 }
 
-export function loadReplayMaturityForIndependentAudit(
-  repoRoot: string,
-): ReplayMaturityForIndependentAudit {
-  return JSON.parse(readFileSync(
-    join(repoRoot, "docs/research/reliability/rd-replay-maturity-gate.json"),
-    "utf8",
-  )) as ReplayMaturityForIndependentAudit
-}
-
 export function loadReplayIndependentReleaseAuditReceipt(
   repoRoot: string,
   path = join(repoRoot, REPLAY_RELEASE_AUDIT_OWNER, "replay-independent-release-audit-receipt.json"),
@@ -226,10 +207,10 @@ export function loadReplayIndependentReleaseAuditReceipt(
 
 export function assertReplayIndependentReleaseAuditManifest(
   manifest: ReplayIndependentReleaseAuditManifest,
-  maturity: ReplayMaturityForIndependentAudit,
   repoRoot: string,
 ): void {
-  if (manifest.schema_version !== "trade.rd-replay-independent-release-audit.v1"
+  if (!repoRoot) throw new Error("Replay release verification context required")
+  if (manifest.schema_version !== "trade.rd-replay-independent-release-audit.v2"
       || manifest.owner !== REPLAY_RELEASE_AUDIT_OWNER
       || manifest.subject.owner !== SUBJECT_OWNER
       || manifest.subject.fixture_pack_path !== `${SUBJECT_OWNER}/replay-release-candidate-fixture-pack.json`
@@ -240,20 +221,23 @@ export function assertReplayIndependentReleaseAuditManifest(
       || manifest.runtime.version !== repositoryBunVersion(repoRoot)) {
     throw new Error("unsupported Replay independent release audit manifest")
   }
+  const staticInputs = runStaticConsistencySnapshot(repoRoot)
+  const staticInputIdentities = staticInputs.inputs.map(({ path, kind }) => ({ path, kind }))
+  if (manifest.static_inputs_schema_version !== staticInputs.schema_version
+      || manifest.static_inputs_sha256 !== staticInputs.static_inputs_sha256
+      || JSON.stringify(manifest.static_input_identities) !== JSON.stringify(staticInputIdentities)) {
+    throw new Error("Replay independent audit static input identity drifted")
+  }
   const auditorOwner: string = manifest.owner
   const subjectOwner: string = manifest.subject.owner
   if (auditorOwner === subjectOwner || auditorOwner.startsWith(`${subjectOwner}/`)) {
     throw new Error("Replay release auditor is not independent from the subject owner")
   }
-  if (JSON.stringify(manifest.required_exit_gates.m4) !== JSON.stringify(EXPECTED_M4_GATES)
-      || JSON.stringify(manifest.required_exit_gates.m5_pre_audit)
-        !== JSON.stringify(EXPECTED_M5_PRE_AUDIT_GATES)
-      || JSON.stringify(manifest.commands) !== JSON.stringify(EXPECTED_COMMANDS)
+  if (JSON.stringify(manifest.commands) !== JSON.stringify(EXPECTED_COMMANDS)
       || JSON.stringify(manifest.negative_challenges) !== JSON.stringify(EXPECTED_CHALLENGES)
       || JSON.stringify(manifest.limitations) !== JSON.stringify(EXPECTED_LIMITATIONS)) {
     throw new Error("Replay independent release audit coverage is incomplete")
   }
-  assertCompleteMaturity(maturity)
   if (manifest.source_bindings.length !== EXPECTED_SOURCE_BINDINGS.length) {
     throw new Error("Replay independent audit source bindings are incomplete")
   }
@@ -287,10 +271,9 @@ export function assertReplayIndependentReleaseAuditManifest(
 
 export async function runReplayIndependentReleaseAudit(
   manifest: ReplayIndependentReleaseAuditManifest,
-  maturity: ReplayMaturityForIndependentAudit,
   repoRoot: string,
 ): Promise<ReplayIndependentReleaseAuditReceipt> {
-  assertReplayIndependentReleaseAuditManifest(manifest, maturity, repoRoot)
+  assertReplayIndependentReleaseAuditManifest(manifest, repoRoot)
   if (Bun.version !== manifest.runtime.version) {
     throw new Error(`Replay independent audit runtime drifted: bun ${Bun.version}`)
   }
@@ -307,7 +290,7 @@ export async function runReplayIndependentReleaseAudit(
     throw new Error("Replay independent audit commands did not run in distinct fresh processes")
   }
   const body = {
-    schema_version: "trade.rd-replay-independent-release-audit-receipt.v1" as const,
+    schema_version: "trade.rd-replay-independent-release-audit-receipt.v2" as const,
     verdict: "passed-within-declared-evidence-envelope" as const,
     audit_manifest_sha256: manifest.audit_manifest_sha256,
     subject_pack_sha256: manifest.subject.fixture_pack_sha256,
@@ -322,8 +305,11 @@ export async function runReplayIndependentReleaseAudit(
 export function assertReplayIndependentReleaseAuditReceipt(
   receipt: ReplayIndependentReleaseAuditReceipt,
   manifest: ReplayIndependentReleaseAuditManifest,
+  repoRoot: string,
 ): void {
-  if (receipt.schema_version !== "trade.rd-replay-independent-release-audit-receipt.v1"
+  if (!repoRoot) throw new Error("Replay release verification context required")
+  assertReplayIndependentReleaseAuditManifest(manifest, repoRoot)
+  if (receipt.schema_version !== "trade.rd-replay-independent-release-audit-receipt.v2"
       || receipt.verdict !== "passed-within-declared-evidence-envelope"
       || receipt.audit_manifest_sha256 !== manifest.audit_manifest_sha256
       || receipt.subject_pack_sha256 !== manifest.subject.fixture_pack_sha256
@@ -350,6 +336,37 @@ export function assertReplayIndependentReleaseAuditReceipt(
   }
 }
 
+function runStaticConsistencySnapshot(repoRoot: string): StaticConsistencySnapshot {
+  const result = Bun.spawnSync(["bun", STATIC_CONSISTENCY_CHECKER, "--json"], {
+    cwd: repoRoot,
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `Replay static consistency failed during release verification: ${result.stderr.toString()}`,
+    )
+  }
+  let snapshot: StaticConsistencySnapshot
+  try {
+    snapshot = JSON.parse(result.stdout.toString()) as StaticConsistencySnapshot
+  } catch {
+    throw new Error("Replay static consistency did not return a machine-readable snapshot")
+  }
+  const paths = snapshot.inputs?.map((input) => input.path) ?? []
+  if (snapshot.schema_version !== "trade.rd-replay-static-inputs.v1"
+      || snapshot.ok !== true || !/^[a-f0-9]{64}$/.test(snapshot.static_inputs_sha256)
+      || !Array.isArray(snapshot.inputs) || snapshot.inputs.length === 0
+      || !Array.isArray(snapshot.issues) || snapshot.issues.length !== 0
+      || snapshot.inputs.some((input) => !input.path || input.path.startsWith("/")
+        || input.path.includes("..") || (input.kind !== "content" && input.kind !== "existence"))
+      || new Set(paths).size !== paths.length
+      || JSON.stringify(paths) !== JSON.stringify([...paths].sort())) {
+    throw new Error("unsupported Replay static consistency snapshot")
+  }
+  return snapshot
+}
+
 function repositoryBunVersion(repoRoot: string): string {
   const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as {
     packageManager?: string
@@ -364,26 +381,6 @@ export function replayIndependentReleaseAuditManifestHash(
 ): string {
   const { audit_manifest_sha256: _manifestHash, ...body } = manifest
   return sha256(stableJson(body))
-}
-
-function assertCompleteMaturity(maturity: ReplayMaturityForIndependentAudit): void {
-  if (maturity.schema_version !== "trade.rd-replay-maturity-gate.v2"
-      || maturity.maturity !== 5 || maturity.maturity_scale !== 5
-      || maturity.convergence_workstream.status !== "complete"
-      || maturity.next_allowed_outcome
-        !== "maintenance-only-new-capability-requires-explicit-reopen-decision") {
-    throw new Error("Replay independent audit requires the complete M5 maturity state")
-  }
-  for (const gate of EXPECTED_M4_GATES) {
-    if (maturity.exit_gates.m4?.[gate] !== true) {
-      throw new Error(`Replay independent audit prerequisite gate is not closed: m4.${gate}`)
-    }
-  }
-  for (const gate of [...EXPECTED_M5_PRE_AUDIT_GATES, "independent_release_audit_passed"]) {
-    if (maturity.exit_gates.m5?.[gate] !== true) {
-      throw new Error(`Replay independent audit prerequisite gate is not closed: m5.${gate}`)
-    }
-  }
 }
 
 function assertAuditedFixturePack(pack: AuditedFixturePack, repoRoot: string): void {
@@ -420,8 +417,7 @@ function assertAuditedFixturePack(pack: AuditedFixturePack, repoRoot: string): v
   })
   for (const profile of pack.profiles) {
     const source = readRepoSource(repoRoot, profile.golden_path)
-    if (sha256(source) !== profile.golden_source_sha256
-        || !source.includes(`test(${JSON.stringify(profile.golden_test_name)}`)) {
+    if (sha256(source) !== profile.golden_source_sha256) {
       throw new Error(`independently audited Replay profile golden drifted: ${profile.profile}`)
     }
   }

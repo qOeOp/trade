@@ -10,7 +10,7 @@ last_verified: 2026-07-22 CST
 
 目标：先证明数据、实验、执行和证据链可信，再扩大策略搜索。本文只给可靠性维度与退出条件，不复制快速变化的 milestone 进度。
 
-当前 Replay maturity、active milestone 和 gate truth 只看 [rd-replay-maturity-gate.json](./rd-replay-maturity-gate.json)；过程问题与修复记录写入 [rd-audit.md](./rd-audit.md)。
+当前 Replay supported surface 以 [capability inventory](./rd-replay-capability-inventory.json)、evidence epoch registry 与 owner contracts 为准；真实执行由 owner full certification 证明，独立发布结论只由 release audit receipt 给出。过程问题与修复记录写入 [rd-audit.md](./rd-audit.md)。
 
 ## 1. 数据可靠性
 
@@ -41,7 +41,7 @@ last_verified: 2026-07-22 CST
 - fee、slippage、funding、turnover 与 missed-fill 分开归因。
 - replay / forward / live-small 的 order、timing、position 与 cost vocabulary 可映射。
 - 无 L2 / queue / historical status 时不伪造 maker probability、impact 或精确 intrabar path。
-- 模拟能力只按已通过 maturity gate 的场景声明。
+- 模拟能力只按 owner contract 与可执行 certification 已覆盖的场景声明。
 
 退出信号：系统能区分 gross edge 不足、成本吞噬、execution mismatch 和数据模型缺口。
 
@@ -81,7 +81,7 @@ last_verified: 2026-07-22 CST
 ## 7. 优先级
 
 1. 修复会污染既有证据的正确性问题。
-2. 闭合 active maturity gate 中已有 consumer 的缺口。
+2. 闭合现有 owner contract 与 production consumer 的缺口。
 3. 补数据 / source completeness 与真实执行 attribution。
 4. 才扩大 family、trial 数量或 simulator capability。
 
@@ -89,11 +89,11 @@ last_verified: 2026-07-22 CST
 
 ## 8. Replay 收敛与维护边界
 
-Replay 的 M4-P1–P29、九项 M4 exit gate 与九项 M5 release gate 均已完成；当前为 M5、M4/M5 `9/9`，不得继续创建 P30。以下序列保留为已完成的收敛依据，不是待办清单：
+Replay 的 P1–P29 已归并为冻结的 supported surface，不得继续创建 P30。以下序列保留为已完成的收敛依据，不是数值成熟度或发布签发：
 
 1. 已依 [capability inventory](./rd-replay-capability-inventory.json) 收敛 canonical / opt-in / compatibility owner boundary。
-2. 已关闭 [maturity gate](./rd-replay-maturity-gate.json) 中固定九项 M4 exit gates，使现有能力成为有限、可解释、可认证的产品面。
-3. 已完成固定九项 M5 release certification，期间未增加 simulator capability。
+2. root static checker 只检查 inventory、epoch、suite/profile registry、package/path/export 的机械一致性，不证明执行成功。
+3. owner full certification 运行 canonical 与 compatibility suites；independent release audit 复核冻结 evidence envelope 并独立签发 receipt。
 4. 当前只允许 maintenance；新市场语义必须由显式架构重开决定，不能借 bugfix、schema epoch 或自动迭代隐式扩权。
 
-提交数、schema 数、测试数、successor 数与 P 编号都不是 maturity 指标。M4 只奖励归并，M5 只奖励可复现、迁移、故障恢复、容量和独立发布审计。
+提交数、schema 数、测试数、successor 数与 P 编号都不是能力或发布结论。registry 一致性、owner execution evidence 与 independent release verdict 不得互相替代。

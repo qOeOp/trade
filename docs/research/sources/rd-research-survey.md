@@ -8,7 +8,7 @@ last_verified: 2026-07-22 CST
 
 # R&D Research Survey
 
-> 本文是方法与外部来源素材；其中“已落地 / 后续”仅代表审查时点，不是当前实现清单。当前 R&D、Replay 和 family 状态分别以 owner `CONTRACT.md`、[maturity gate](../reliability/rd-replay-maturity-gate.json) 与 [family backlog](../strategy/strategy-universe-family-backlog.json) 为准。
+> 本文是方法与外部来源素材；其中“已落地 / 后续”仅代表审查时点，不是当前实现清单。当前 R&D、Replay supported surface 和 family 状态分别以 owner `CONTRACT.md`、[Capability Inventory](../reliability/rd-replay-capability-inventory.json) 与 [family backlog](../strategy/strategy-universe-family-backlog.json) 为准；Replay 执行结论与发布结论分别由 owner certification 和 independent release audit 给出。
 
 结论：先进策略研发不是“搜索更大参数空间”，而是**约束搜索自由度、证明结果不是选择偏差、证明执行链吃不掉 edge**。当前项目方向正确，但若要接近专业研发流程，下一层不是加更多 family，而是补研究审计、统计校正、数据可用性证明与执行现实模型。
 

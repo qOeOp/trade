@@ -85,22 +85,6 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("generated report is stale")
   })
 
-  test("Replay maturity evidence must resolve to a real file", () => {
-    const sourcePath = join(repoRoot, "docs/research/reliability/rd-replay-maturity-gate.json")
-    const manifest = JSON.parse(readFileSync(sourcePath, "utf8")) as { evidence_refs: string[] }
-    manifest.evidence_refs = ["does/not/exist/auditor-evidence.ts", ...manifest.evidence_refs.slice(1)]
-    const root = temporaryRoot()
-    const manifestPath = join(root, "gate.json")
-    writeFileSync(manifestPath, JSON.stringify(manifest))
-
-    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
-      RD_REPLAY_MATURITY_GATE_PATH: manifestPath,
-    })
-
-    expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain("evidence ref does not exist as a file")
-  })
-
   test("Replay capability inventory cannot grow a P30 treadmill", () => {
     const inventory = JSON.parse(readFileSync(
       join(repoRoot, "docs/research/reliability/rd-replay-capability-inventory.json"),
@@ -112,67 +96,93 @@ describe("quality judges fail closed", () => {
     const inventoryPath = join(root, "inventory.json")
     writeFileSync(inventoryPath, JSON.stringify(inventory))
 
-    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
+    const result = runJudge("check-rd-replay-static-consistency.ts", repoRoot, [], {
       RD_REPLAY_CAPABILITY_INVENTORY_PATH: inventoryPath,
     })
 
     expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain("P30 forbidden")
+    expect(result.stderr).toContain("capability inventory freeze policy changed")
   })
 
-  test("Replay opt-in capability cannot bypass its activation registry", () => {
+  test("Replay capability inventory summary is recomputed", () => {
     const inventory = JSON.parse(readFileSync(
       join(repoRoot, "docs/research/reliability/rd-replay-capability-inventory.json"),
       "utf8",
-    )) as { opt_in_activation_registry: unknown[] }
-    inventory.opt_in_activation_registry = inventory.opt_in_activation_registry.slice(1)
+    )) as { summary: { total: number } }
+    inventory.summary.total -= 1
     const root = temporaryRoot()
     const inventoryPath = join(root, "inventory.json")
     writeFileSync(inventoryPath, JSON.stringify(inventory))
 
-    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
+    const result = runJudge("check-rd-replay-static-consistency.ts", repoRoot, [], {
       RD_REPLAY_CAPABILITY_INVENTORY_PATH: inventoryPath,
     })
 
     expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain("cover every opt-in capability exactly once")
+    expect(result.stderr).toContain("summary does not match")
   })
 
-  test("Replay compatibility consumer cannot move back into a canonical owner", () => {
+  test("Replay static input schema drift is rejected", () => {
     const inventory = JSON.parse(readFileSync(
       join(repoRoot, "docs/research/reliability/rd-replay-capability-inventory.json"),
       "utf8",
-    )) as { compatibility_consumer_registry: Array<{ path: string }> }
-    inventory.compatibility_consumer_registry[0]!.path =
-      "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-reallocation-runner.ts"
+    )) as { schema_version: string }
+    inventory.schema_version = "trade.rd-replay-capability-inventory.invalid"
     const root = temporaryRoot()
     const inventoryPath = join(root, "inventory.json")
     writeFileSync(inventoryPath, JSON.stringify(inventory))
 
-    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
+    const result = runJudge("check-rd-replay-static-consistency.ts", repoRoot, [], {
       RD_REPLAY_CAPABILITY_INVENTORY_PATH: inventoryPath,
     })
 
     expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain("not isolated under its declared owner")
+    expect(result.stderr).toContain("capability inventory freeze policy changed")
   })
 
-  test("Replay generic evidence writer cannot reopen an older epoch", () => {
-    const registry = JSON.parse(readFileSync(
-      join(repoRoot, "docs/research/reliability/rd-replay-evidence-epoch-registry.json"),
-      "utf8",
-    )) as { generic_epochs: Array<{ schema_version: string }> }
-    registry.generic_epochs[0]!.schema_version = "trade.rd-replay-result.v52"
-    const root = temporaryRoot()
-    const registryPath = join(root, "evidence-epochs.json")
-    writeFileSync(registryPath, JSON.stringify(registry))
-
-    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
-      RD_REPLAY_EVIDENCE_EPOCH_REGISTRY_PATH: registryPath,
+  test("Replay missing registry path fails closed", () => {
+    const result = runJudge("check-rd-replay-static-consistency.ts", repoRoot, [], {
+      RD_REPLAY_CAPABILITY_INVENTORY_PATH: "does/not/exist/replay-inventory.json",
     })
 
     expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain("do not match the frozen writer set")
+    expect(result.stderr).toContain("JSON input is missing")
+  })
+
+  test("Replay duplicate capability identity is rejected", () => {
+    const inventory = JSON.parse(readFileSync(
+      join(repoRoot, "docs/research/reliability/rd-replay-capability-inventory.json"),
+      "utf8",
+    )) as { entries: Array<{ capability: string }> }
+    inventory.entries[1]!.capability = inventory.entries[0]!.capability
+    const root = temporaryRoot()
+    const inventoryPath = join(root, "inventory.json")
+    writeFileSync(inventoryPath, JSON.stringify(inventory))
+
+    const result = runJudge("check-rd-replay-static-consistency.ts", repoRoot, [], {
+      RD_REPLAY_CAPABILITY_INVENTORY_PATH: inventoryPath,
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("classify P1-P29 exactly once")
+  })
+
+  test("Replay declared export must exist", () => {
+    const inventory = JSON.parse(readFileSync(
+      join(repoRoot, "docs/research/reliability/rd-replay-capability-inventory.json"),
+      "utf8",
+    )) as { canonical_public_entrypoints: Array<{ export: string }> }
+    inventory.canonical_public_entrypoints[0]!.export = "missingReplayEntrypoint"
+    const root = temporaryRoot()
+    const inventoryPath = join(root, "inventory.json")
+    writeFileSync(inventoryPath, JSON.stringify(inventory))
+
+    const result = runJudge("check-rd-replay-static-consistency.ts", repoRoot, [], {
+      RD_REPLAY_CAPABILITY_INVENTORY_PATH: inventoryPath,
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("canonical entrypoint single-trial export is missing")
   })
 
   test("Replay certification owner cannot omit a Plane package", () => {
@@ -185,7 +195,7 @@ describe("quality judges fail closed", () => {
     const registryPath = join(root, "replay-certification-suites.json")
     writeFileSync(registryPath, JSON.stringify(registry))
 
-    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
+    const result = runJudge("check-rd-replay-static-consistency.ts", repoRoot, [], {
       RD_REPLAY_CERTIFICATION_REGISTRY_PATH: registryPath,
     })
 
@@ -193,184 +203,57 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("classify every Plane package exactly once")
   })
 
-  test("Replay module and production consumer closure cannot drift silently", () => {
+  test("Replay profile registry must cover every public profile", () => {
     const registry = JSON.parse(readFileSync(
-      join(repoRoot, "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-module-consumer-closure.json"),
+      join(repoRoot, "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-profile-evidence.json"),
       "utf8",
-    )) as { observed_production_consumer_edge_count: number }
-    registry.observed_production_consumer_edge_count -= 1
+    )) as { profiles: unknown[] }
+    registry.profiles.pop()
     const root = temporaryRoot()
-    const registryPath = join(root, "replay-module-consumer-closure.json")
+    const registryPath = join(root, "replay-profile-evidence.json")
     writeFileSync(registryPath, JSON.stringify(registry))
 
-    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
-      RD_REPLAY_MODULE_CONSUMER_CLOSURE_PATH: registryPath,
+    const result = runJudge("check-rd-replay-static-consistency.ts", repoRoot, [], {
+      RD_REPLAY_PROFILE_EVIDENCE_REGISTRY_PATH: registryPath,
     })
 
     expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain("classify every production consumer edge")
+    expect(result.stderr).toContain("does not cover the public profile surface exactly once")
   })
 
-  test("Replay cross-process reproducibility bundle cannot drift silently", () => {
-    const bundle = JSON.parse(readFileSync(
-      join(repoRoot, "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-cross-process-reproducibility-bundle.json"),
-      "utf8",
-    )) as { bundle_sha256: string }
-    bundle.bundle_sha256 = "0".repeat(64)
-    const root = temporaryRoot()
-    const bundlePath = join(root, "replay-cross-process-reproducibility-bundle.json")
-    writeFileSync(bundlePath, JSON.stringify(bundle))
+  test("Replay compatibility implementations cannot return to canonical owners", () => {
+    const path = join(
+      repoRoot,
+      "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-reallocation-runner.ts",
+    )
+    expect(existsSync(path)).toBe(false)
+    writeFileSync(path, "export function runReplayPortfolioReallocation() {}\n")
+    try {
+      const result = runJudge("check-rd-replay-static-consistency.ts", repoRoot)
 
-    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
-      RD_REPLAY_CROSS_PROCESS_REPRODUCIBILITY_PATH: bundlePath,
-    })
-
-    expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain("reproducibility bundle hash drifted")
-  }, 15_000)
-
-  test("Replay historical Artifact read migration fixture cannot drift silently", () => {
-    const fixture = JSON.parse(readFileSync(
-      join(repoRoot, "apps/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification/fixtures/historical-artifact-read-migration-v1.json"),
-      "utf8",
-    )) as { artifacts: Array<{ manifest: { manifest_hash: string } }> }
-    fixture.artifacts[0]!.manifest.manifest_hash = "0".repeat(64)
-    const root = temporaryRoot()
-    const fixturePath = join(root, "historical-artifact-read-migration-v1.json")
-    writeFileSync(fixturePath, JSON.stringify(fixture))
-
-    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
-      RD_REPLAY_HISTORICAL_ARTIFACT_READ_MIGRATION_PATH: fixturePath,
-    })
-
-    expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain("Historical Artifact read migration fixture pack policy/hash drifted")
+      expect(result.exitCode).toBe(1)
+      expect(result.stderr).toContain("compatibility consumer in canonical owner exists")
+    } finally {
+      rmSync(path, { force: true })
+    }
   })
 
-  test("Replay publication crash recovery bundle cannot overclaim exactly-once execution", () => {
-    const bundle = JSON.parse(readFileSync(
-      join(repoRoot, "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-publication-crash-recovery-bundle.json"),
-      "utf8",
-    )) as { exactly_once_scope: string }
-    bundle.exactly_once_scope = "one-process-execution"
-    const root = temporaryRoot()
-    const bundlePath = join(root, "replay-publication-crash-recovery-bundle.json")
-    writeFileSync(bundlePath, JSON.stringify(bundle))
+  test("Replay production writers cannot emit obsolete generic epochs", () => {
+    const path = join(
+      repoRoot,
+      "apps/research-strategy-development/replay-execution-plane/data-adapter/src/lib/replay-obsolete-epoch-probe.ts",
+    )
+    expect(existsSync(path)).toBe(false)
+    writeFileSync(path, 'export const schemaVersion = "trade.rd-replay-result.v52"\n')
+    try {
+      const result = runJudge("check-rd-replay-static-consistency.ts", repoRoot)
 
-    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
-      RD_REPLAY_PUBLICATION_CRASH_RECOVERY_BUNDLE_PATH: bundlePath,
-    })
-
-    expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain("unsupported Replay publication crash recovery bundle")
-  })
-
-  test("Replay capacity envelope cannot become a portable SLA or silent throughput claim", () => {
-    const envelope = JSON.parse(readFileSync(
-      join(repoRoot, "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-capacity-performance-envelope.json"),
-      "utf8",
-    )) as { timing_policy: string }
-    envelope.timing_policy = "portable-performance-sla"
-    const root = temporaryRoot()
-    const envelopePath = join(root, "replay-capacity-performance-envelope.json")
-    writeFileSync(envelopePath, JSON.stringify(envelope))
-
-    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
-      RD_REPLAY_CAPACITY_PERFORMANCE_ENVELOPE_PATH: envelopePath,
-    })
-
-    expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain("unsupported Replay capacity/performance envelope")
-  }, 15_000)
-
-  test("Replay corruption detection cannot be upgraded to silent automatic repair", () => {
-    const bundle = JSON.parse(readFileSync(
-      join(repoRoot, "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-fault-corruption-recovery-bundle.json"),
-      "utf8",
-    )) as { corruption_policy: string }
-    bundle.corruption_policy = "detect-and-automatically-repair"
-    const root = temporaryRoot()
-    const bundlePath = join(root, "replay-fault-corruption-recovery-bundle.json")
-    writeFileSync(bundlePath, JSON.stringify(bundle))
-
-    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
-      RD_REPLAY_FAULT_CORRUPTION_RECOVERY_BUNDLE_PATH: bundlePath,
-    })
-
-    expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain("unsupported Replay fault/corruption recovery bundle")
-  }, 15_000)
-
-  test("Replay local evidence cannot be overclaimed as central observability or an SLO", () => {
-    const registry = JSON.parse(readFileSync(
-      join(repoRoot, "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-operational-readiness.json"),
-      "utf8",
-    )) as { telemetry_boundary: string }
-    registry.telemetry_boundary = "central-metrics-traces-alerting-and-slo-complete"
-    const root = temporaryRoot()
-    const registryPath = join(root, "replay-operational-readiness.json")
-    writeFileSync(registryPath, JSON.stringify(registry))
-
-    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
-      RD_REPLAY_OPERATIONAL_READINESS_REGISTRY_PATH: registryPath,
-    })
-
-    expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain("unsupported Replay operational readiness registry")
-  }, 15_000)
-
-  test("Replay fixture closure cannot be overclaimed as an independent release verdict", () => {
-    const pack = JSON.parse(readFileSync(
-      join(repoRoot, "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-release-candidate-fixture-pack.json"),
-      "utf8",
-    )) as { verdict_policy: string }
-    pack.verdict_policy = "fixture-pack-is-independent-release-verdict"
-    const root = temporaryRoot()
-    const packPath = join(root, "replay-release-candidate-fixture-pack.json")
-    writeFileSync(packPath, JSON.stringify(pack))
-
-    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
-      RD_REPLAY_RELEASE_CANDIDATE_FIXTURE_PACK_PATH: packPath,
-    })
-
-    expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain("unsupported Replay release candidate fixture pack")
-  }, 15_000)
-
-  test("Replay release audit cannot be captured by the fixture-pack owner", () => {
-    const audit = JSON.parse(readFileSync(
-      join(repoRoot, "apps/research-strategy-development/research-control-plane/certification/replay-release-audit/replay-independent-release-audit.json"),
-      "utf8",
-    )) as { independence_policy: string }
-    audit.independence_policy = "subject-owner-self-attestation"
-    const root = temporaryRoot()
-    const auditPath = join(root, "replay-independent-release-audit.json")
-    writeFileSync(auditPath, JSON.stringify(audit))
-
-    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
-      RD_REPLAY_INDEPENDENT_RELEASE_AUDIT_PATH: auditPath,
-    })
-
-    expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain("unsupported Replay independent release audit manifest")
-  }, 15_000)
-
-  test("Replay historical Artifact payload reader cannot drift silently", () => {
-    const registry = JSON.parse(readFileSync(
-      join(repoRoot, "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-historical-artifact-migration.json"),
-      "utf8",
-    )) as { reader_export: string }
-    registry.reader_export = "missingHistoricalReader"
-    const root = temporaryRoot()
-    const registryPath = join(root, "replay-historical-artifact-migration.json")
-    writeFileSync(registryPath, JSON.stringify(registry))
-
-    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
-      RD_REPLAY_HISTORICAL_ARTIFACT_MIGRATION_REGISTRY_PATH: registryPath,
-    })
-
-    expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain("historical Artifact reader export is missing")
+      expect(result.exitCode).toBe(1)
+      expect(result.stderr).toContain("result production writers expose non-current generic epochs")
+      expect(result.stderr).toContain("trade.rd-replay-result.v52")
+    } finally {
+      rmSync(path, { force: true })
+    }
   })
 
   test("production TypeScript packages require colocated tests", () => {
