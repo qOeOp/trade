@@ -221,6 +221,41 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("does not cover the public profile surface exactly once")
   })
 
+  test("Replay compatibility implementations cannot return to canonical owners", () => {
+    const path = join(
+      repoRoot,
+      "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-reallocation-runner.ts",
+    )
+    expect(existsSync(path)).toBe(false)
+    writeFileSync(path, "export function runReplayPortfolioReallocation() {}\n")
+    try {
+      const result = runJudge("check-rd-replay-static-consistency.ts", repoRoot)
+
+      expect(result.exitCode).toBe(1)
+      expect(result.stderr).toContain("compatibility consumer in canonical owner exists")
+    } finally {
+      rmSync(path, { force: true })
+    }
+  })
+
+  test("Replay production writers cannot emit obsolete generic epochs", () => {
+    const path = join(
+      repoRoot,
+      "apps/research-strategy-development/replay-execution-plane/data-adapter/src/lib/replay-obsolete-epoch-probe.ts",
+    )
+    expect(existsSync(path)).toBe(false)
+    writeFileSync(path, 'export const schemaVersion = "trade.rd-replay-result.v52"\n')
+    try {
+      const result = runJudge("check-rd-replay-static-consistency.ts", repoRoot)
+
+      expect(result.exitCode).toBe(1)
+      expect(result.stderr).toContain("result production writers expose non-current generic epochs")
+      expect(result.stderr).toContain("trade.rd-replay-result.v52")
+    } finally {
+      rmSync(path, { force: true })
+    }
+  })
+
   test("production TypeScript packages require colocated tests", () => {
     const root = temporaryRoot()
     write(root, "apps/domain-a/tool-a/package.json", "{}\n")

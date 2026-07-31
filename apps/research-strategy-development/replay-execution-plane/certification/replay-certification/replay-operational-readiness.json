@@ -220,5 +220,5 @@
     "stdout-and-process-exit-are-diagnostic-not-authoritative",
     "shadow-live-and-real-account-operations-out-of-scope"
   ],
-  "registry_sha256": "b8419983d8d3ff20b1afc4f9fe94a01b4dd4d35bc30050a685adf2a789f970a1"
+  "registry_sha256": "2cf98ec04da383310965a93725cacf62fbd5d26c0b70466f09c54cb60db63b6b"
 }

@@ -98,7 +98,7 @@ interface StaticInputIdentity {
 
 const staticInputsSchemaVersion = "trade.rd-replay-static-inputs.v1"
 const jsonMode = process.argv.includes("--json")
-const replayRoot = "modules/research-strategy-development/replay-execution-plane"
+const replayRoot = "apps/research-strategy-development/replay-execution-plane"
 const certificationOwner = `${replayRoot}/certification/replay-certification`
 const issues: string[] = []
 const staticInputs = new Map<string, StaticInputIdentity>()
@@ -118,6 +118,7 @@ const profiles = readJson<ProfileRegistry>(
   process.env.RD_REPLAY_PROFILE_EVIDENCE_REGISTRY_PATH
     || `${certificationOwner}/replay-profile-evidence.json`,
 )
+const replayCertificationInputs = collectReplayCertificationInputs(replayRoot)
 
 if (inventory.schema_version !== "trade.rd-replay-capability-inventory.v1"
     || inventory.freeze !== "M4-P29" || inventory.p30_creation !== "forbidden") {
@@ -182,6 +183,14 @@ for (const consumer of inventory.compatibility_consumer_registry) {
   }
   assertExport(consumer.path, consumer.export, `compatibility consumer ${consumer.milestone}`)
 }
+for (const formerPath of [
+  `${replayRoot}/runner/src/lib/replay-portfolio-reallocation-runner.ts`,
+  `${replayRoot}/runner/src/lib/replay-two-cycle-portfolio-runner.ts`,
+  `${replayRoot}/runner/src/lib/replay-portfolio-cycle-sequence-accounting-runner.ts`,
+  `${replayRoot}/accounting/src/lib/replay-portfolio-cycle-sequence-accounting.ts`,
+]) {
+  assertAbsent(formerPath, "compatibility consumer in canonical owner")
+}
 
 if (epochs.schema_version !== "trade.rd-replay-evidence-epoch-registry.v1"
     || epochs.freeze !== "M4-CONVERGENCE"
@@ -203,6 +212,26 @@ for (const epoch of epochs.generic_epochs) {
     epoch.schema_version,
     `generic evidence epoch ${epoch.kind}`,
   )
+}
+const productionReplaySources = [...replayCertificationInputs.entries()]
+  .filter(([path]) => path.endsWith(".ts")
+    && !path.endsWith(".test.ts")
+    && !path.includes("/test-support/"))
+for (const epoch of epochs.generic_epochs) {
+  const observed = new Set<string>()
+  const pattern = new RegExp(
+    `${escapeRegExp(epoch.schema_version.replace(/v\d+$/, "v"))}\\d+`,
+    "g",
+  )
+  for (const [, source] of productionReplaySources) {
+    for (const match of source.matchAll(pattern)) observed.add(match[0])
+  }
+  if (!sameSet([...observed], [epoch.schema_version])) {
+    issues.push(
+      `Replay ${epoch.kind} production writers expose non-current generic epochs: `
+      + [...observed].sort().join(","),
+    )
+  }
 }
 if (!unique(epochs.profile_epochs.map((entry) => entry.profile))
     || !sameSet(
@@ -325,6 +354,13 @@ function assertRepoFile(path: string, role: string): void {
   if (!exists) issues.push(`Replay ${role} is missing: ${normalized}`)
 }
 
+function assertAbsent(path: string, role: string): void {
+  const normalized = normalize(path).replace(/\\/g, "/")
+  const exists = existsSync(normalized)
+  recordExistenceInput(normalized, role, exists)
+  if (exists) issues.push(`Replay ${role} exists: ${normalized}`)
+}
+
 function assertExport(path: string, name: string, role: string): void {
   assertRepoFile(path, role)
   if (!existsSync(path)) return
@@ -355,6 +391,25 @@ function collectPackageRoots(root: string): string[] {
     else if (entry.isFile() && entry.name === "package.json") roots.push(root)
   }
   return [...new Set(roots)].sort()
+}
+
+function collectReplayCertificationInputs(root: string): Map<string, string> {
+  const inputs = new Map<string, string>()
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (entry.name === "node_modules") continue
+    const path = `${root}/${entry.name}`
+    if (entry.isDirectory()) {
+      for (const [nestedPath, source] of collectReplayCertificationInputs(path)) {
+        inputs.set(nestedPath, source)
+      }
+      continue
+    }
+    if (!entry.isFile() || !/\.(json|py|ts)$/.test(entry.name)) continue
+    const source = readFileSync(path, "utf8")
+    recordContentInput(path, "Replay certification input", source)
+    inputs.set(path, source)
+  }
+  return inputs
 }
 
 function sameSet(left: string[], right: string[]): boolean {

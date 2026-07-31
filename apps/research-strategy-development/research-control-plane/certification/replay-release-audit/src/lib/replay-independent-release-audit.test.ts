@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs"
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
@@ -104,6 +111,24 @@ describe("Replay independent release audit", () => {
       loadReplayIndependentReleaseAuditManifest(repoRoot),
       undefined as never,
     )).toThrow("verification context required")
+  })
+
+  test("rejects a stale receipt after certified Replay source drift", () => {
+    const sourcePath = join(
+      repoRoot,
+      "apps/research-strategy-development/replay-execution-plane/data-adapter/src/lib/replay-data-adapter.ts",
+    )
+    const source = readFileSync(sourcePath, "utf8")
+    writeFileSync(sourcePath, `${source}\n`)
+    try {
+      expect(() => assertReplayIndependentReleaseAuditReceipt(
+        loadReplayIndependentReleaseAuditReceipt(repoRoot),
+        loadReplayIndependentReleaseAuditManifest(repoRoot),
+        repoRoot,
+      )).toThrow("static input identity drifted")
+    } finally {
+      writeFileSync(sourcePath, source)
+    }
   })
 
   test("kills the complete command process group when an audit command times out", async () => {
