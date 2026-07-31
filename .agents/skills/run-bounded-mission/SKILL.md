@@ -93,10 +93,12 @@ Load [viable alternatives](references/plan-alternatives.md) only when materially
 paths remain. Load [independently falsifiable slices](references/plan-slices.md) only when the route
 needs separable candidate shapes or stopping evidence.
 
-Plan in ordinary prose. Ordinary Missions do not require content hashes or formal Frame and Plan
-identities. When an independent evaluator is admitted, assign exact packet-local Frame and Plan
-identities as required by [reviewer handoff](references/reviewer-handoff.md); those bindings correlate
-the frozen inputs and do not create repository state or another lifecycle.
+Plan in ordinary prose. Content hashes and formal Frame or Plan identities are not required. A
+researcher or planner packet locates the current Frame or Plan by quoting the relevant prose or
+naming where it was supplied. Only an evaluator exact-match needs stronger binding: repeat the
+frozen Frame prose and admitted Plan prose, then identify the candidate by an exact commit or by a
+complete diff against a named origin, including untracked candidate material. These are evidence
+locators, not lifecycle identities or persisted state.
 
 ## Execute
 
@@ -131,9 +133,12 @@ would add structure outside the Plan. Use
 change, cross-owner effects, or persistent patch pressure.
 
 Instruction and judge changes require review that does not rely on the changed rule to approve
-itself. If the host cannot provide independent acceptance, the local candidate may still be prepared
-and verified, but the limitation must be explicit and it must not be represented as independently
-accepted or remotely delivered.
+itself. When an independent evaluator predicate activates, load
+[the Verify reviewer packet](references/reviewer-handoff.md) before dispatch. If the host cannot
+enforce the admitted read-only and candidate-external discovery boundary, do not launch the
+evaluator. The local candidate may still be prepared and verified when the authorized endpoint
+allows that result, but Finalize must call it `prepared and locally verified, independent acceptance
+unavailable`; it must not represent the candidate as independently accepted or remotely delivered.
 
 ## Finalize
 
@@ -162,4 +167,8 @@ The main agent owns scope, implementation, evidence judgment, and final delivery
 one bounded question or non-overlapping file ownership, preserves other work, and cannot authorize
 external effects. Mission role definitions are self-contained host startup packets, not lifecycle
 authority; their returns are evidence or proposals for the main agent, never Plan admission,
-candidate acceptance, or Finalize. Agent count and revision count are never goals.
+candidate acceptance, or Finalize. A researcher activates only for unresolved decision-changing current or external
+evidence, a planner only for an evidenced design dispute or structural choice, and an evaluator only
+for an admitted candidate risk lens with exact bindings and enforceable isolation. Missing fields,
+authority overreach, or unavailable isolation return to the main agent without another lane. Agent
+count and revision count are never goals.

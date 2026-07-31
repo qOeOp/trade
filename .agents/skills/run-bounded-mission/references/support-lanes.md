@@ -88,6 +88,19 @@ contract, Stop, and any isolation predicate. Do not hard-code model names, promi
 reasoning controls, or infer safety from a label. If the host cannot satisfy the minimum, use a safer
 available level or keep the work in the main context.
 
+Map an admitted question to one host role by predicate, not by a subjective strength label:
+
+| Service level | Unique question predicate | Host projection | Refuse or escalate when |
+| --- | --- | --- | --- |
+| `fast` | one deterministic repository fact passes every fast gate | repository `explorer` or deterministic read-only query | any fast gate fails; return the same question once to the main agent for `standard` classification |
+| `standard` evidence | unresolved current-source, compatibility, maintenance, license, failure-mode, or external candidate evidence can change one decision | `mission_researcher` | the packet is incomplete, needs writable reproduction, or becomes a design choice; return evidence unavailable or escalation evidence to the main agent |
+| `standard` design | admitted evidence still leaves a harmful mechanism concern, structural pressure, multiple credible shapes, or consequential cross-owner trade-off | `mission_planner` | the predicate is absent, evidence briefs are incomplete, or user authority is required; return to the main agent without searching or admitting Plan |
+| `high-assurance` | an identified candidate matches one admitted independent risk lens or trust boundary | `mission_evaluator` only with exact bindings, actual read-only authority, and candidate-external discovery when the candidate can affect instructions | any binding or isolation check fails; return `unsupported` once and do not substitute votes, sibling evaluators, or a lower lane |
+
+The two `standard` rows are mutually exclusive evidence and design questions. A researcher gathers
+facts and a planner compares already supplied paths; neither may absorb the other's work. An
+evaluator is not a stronger planner or researcher and cannot be used before a candidate exists.
+
 ## Replay scenarios
 
 | ID | Fixed scenario | Expected disposition |
@@ -99,4 +112,4 @@ available level or keep the work in the main context.
 | S5 | A fast answer is incomplete or conflicts with admitted evidence | `standard-once-no-fast-retry` |
 | S6 | No unresolved main-agent decision can change | `no-support` |
 | S7 | A fast packet attempts to freeze Frame, admit Plan, modify a candidate, or sign Finalize | `evidence-only-reject-authority` |
-| S8 | A governance, instruction, skill, agent-discovery, or judge candidate reaches Verify | `isolated-high-assurance-evaluator` |
+| S8 | A governance, instruction, skill, agent-discovery, or judge candidate reaches Verify | `isolated-high-assurance-evaluator-or-explicitly-unavailable` |
