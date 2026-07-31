@@ -80,6 +80,82 @@ authority stays in conversation prose and checkpoints and never authorizes a sch
 state, queue service, automatic retry or transfer, second CLI, background automation, or hidden
 execution in the hub worktree.
 
+## Session transition contract
+
+The current stage is a reasoning position in this conversation, not durable workflow state. Do not
+skip a stage or infer a transition from elapsed time, a new turn, or a tool result alone. Move
+forward only on these observable conditions:
+
+- `Frame → Plan`: every Frame field is explicit enough to make the next design decision, unresolved
+  consequential ambiguity is resolved or isolated, and the practical Stop is finite;
+- `Plan → Execute`: the owner, path, affected boundary, candidate shape, and verification route are
+  admitted and no decision-changing premise remains unresolved;
+- `Execute → Verify`: the admitted candidate is complete and its full mission-owned diff is
+  available, including untracked candidate material;
+- `Verify → Finalize`: decisive passes, failures, and unavailable evidence have been recorded
+  against the current candidate;
+- `Finalize → accept`: acceptance is satisfied and bound to a recoverable diff or integrated commit.
+
+All other continuation goes through one named Finalize route. `revise` returns to Execute only for a
+candidate-local correction with the same admitted design and oracle. `replan` returns to Plan when
+an admitted design field fails. `reframe` returns to Frame before any material change to outcome,
+consumer, scope, non-goals, authority, acceptance, origin, or Stop. Freeze mutation and external
+effects before taking any backward route. `blocked` ends the current run when a required input is
+unavailable or the next operation would cross Stop; it is not a weaker form of acceptance.
+When a backward or blocked condition is observed in Plan, Execute, or Verify, freeze work, enter the
+Finalize reasoning boundary with that evidence, and then take exactly one route. A cancellation
+override may instead terminate directly from any nonterminal stage after effects are frozen.
+
+### Finite Stop and convergence
+
+Frame must select an observable finite Stop. Unless the user supplies another explicit finite
+envelope, use all of these defaults for the current Mission:
+
+- at most two distinct evidence attempts for the same unresolved Plan or Verify question;
+- at most two total backward routes after the first `Plan → Execute`, counting `revise`, `replan`,
+  and `reframe` together;
+- no repeat of an unchanged failed investigation, check, candidate, or external request;
+- at most one replacement candidate for each admitted replan, as governed by revision pressure.
+
+An attempt or backward route is consumed when its work begins, even if it is interrupted or fails.
+A retry is legal only after naming the changed candidate, input, environment, authority, or evidence
+source and the observation that could now disconfirm the failure. Plan investigation converges by
+admitting the unresolved field or classifying the dependent decision `blocked`; Verify converges by
+accepting changed evidence or selecting one backward route; revision pressure converges by promoting
+one admitted replacement or stopping. A new turn, context compaction, branch, checkout, task, or
+smaller apparent diff does not reset consumed Stop. When the next operation would exceed the
+envelope, freeze the candidate and route `blocked`. Only an explicit user-approved finite Stop
+change may continue, and that change requires `reframe` before new work.
+
+### Override and recovery
+
+A user override freezes the next mutation and every unissued external effect. Cancellation ends the
+Mission with its existing candidate preserved when one exists. A materially changed Frame uses
+`reframe`; an unrelated outcome remains a separate request and must not be mixed into this Mission.
+Scope expansion always requires `reframe` and a newly admitted Plan before execution. New authority
+never applies retroactively to an operation already stopped or rejected.
+
+After context compaction or on a later turn, continue only when the same Mission can be reconstructed
+from conversation and Git evidence. When that is not otherwise unambiguous, retain or reproduce this
+minimal, copyable current-Mission evidence locator in conversation prose:
+
+```text
+Current Mission evidence
+Frame: <current outcome, consumer, scope/non-goals, authority, acceptance, origin, Stop>
+Plan: <admitted owner, path, boundary, candidate shape, verification route>
+Candidate/effects: <exact commit or complete diff locator; effects already performed>
+Evidence: <decisive checks and remaining blocker>
+Position: <current stage or terminal route; consumed Stop and next legal operation>
+```
+
+This locator is evidence, not an identity, receipt, file, ledger, or host state. Match the Frame,
+origin, candidate/effects, consumed Stop, and next legal operation before continuing. If any cannot
+be recovered exactly enough to exclude a different Mission or candidate, freeze before the next
+mutation or external effect and route `blocked` or ask for the missing user-owned fact. Resuming an
+exactly recovered `blocked` Mission re-enters the recorded stage only after its named blocker is
+removed, without resetting Stop. Multi-Mission recovery additionally follows the session graph
+contract; this locator does not replace it.
+
 ## Plan
 
 Inspect the current owner, production entry point when one exists, affected contracts, tests, and

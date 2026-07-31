@@ -10,6 +10,13 @@ rollback, deletion, or narrower route. A successor slice, task, branch, or check
 outcome inherits the pressure and Stop; it cannot convert a rejected incumbent into a fresh patch
 budget.
 
+Activation also consumes the backward route that entered this replan. The main skill's finite Stop
+continues to govern evidence attempts and total backward routes. Do not repeat an unchanged failing
+check or evidence request, and do not start another correction when doing so would cross Stop. A new
+turn, context recovery, branch, or replacement checkout never replenishes the envelope. When the
+same material failure recurs after one correction, do not route to `revise` again: either admit the
+single replacement allowed below while Stop remains, or route `blocked`.
+
 Build an admitted replacement as a new candidate inside the same Mission, never as a successor
 Mission. If no Stop remains, freeze execution before choosing a terminal Finalize route and request
 alignment with the replacement proposal and concrete consumed-Stop evidence. After an explicit
@@ -70,6 +77,11 @@ Frame field must materially change.
 3. Do not invent a challenger when no credible alternative remains. An existing repository-native
    implementation or deterministic transformation may be a candidate when it actually covers the
    change; do not install infrastructure merely to run this comparison.
+
+One replan admits at most one replacement candidate. A failure that invalidates that replacement's
+owner, boundary, responsibility shape, or oracle requires another backward route if Stop permits;
+otherwise freeze it and route `blocked`. Candidate-local execution errors may be corrected only
+within the remaining total backward-route envelope.
 
 Run the same consumer and regression exercises against the incumbent and every proposal. When
 robustness is material, add one probe that varies incidental details while preserving the governing
