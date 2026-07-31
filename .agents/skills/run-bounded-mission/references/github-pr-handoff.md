@@ -27,12 +27,17 @@ discovery attempt is terminal clean completion; eyes, dispatch, queue, and in-pr
 not. For an `open` endpoint, successful publication in the requested Draft/Ready state does not wait
 for discovery.
 
-Run `bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts <pr-number>` for that
-wait. Use
-`--once` when an outer agent loop owns polling: exit `0` means terminal clean, exit `10` means
-pending, and exit `1` means a finding, provider failure, incomplete evidence, or invalid PR state
-that must be routed rather than retried as success. This read-only helper classifies the discovery
-signal only; it is not review acceptance, a required check, or merge authority.
+Run
+`bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --repo <owner/name> <pr-number>`
+through the bounded host/session loop that owns polling. Each invocation reads exactly one snapshot
+for the normalized explicit repository and exits: `0` means terminal clean, `10` means pending, and
+`1` means a finding, provider failure, incomplete evidence, repository mismatch, or invalid PR state
+that must be routed rather than retried as success. Its JSON output binds `repository`,
+`pull_request`, `head_oid`, `status`, and `reason`; failures with no trustworthy head use a null
+`head_oid`. The `head_oid` is the head observed in that snapshot, not evidence that the opening
+review accepted that head. This read-only helper classifies the discovery signal only; it is not
+review acceptance, a required check, or merge authority; the merge-ready barrier still verifies the
+exact final head.
 
 Validate every material finding. Route a candidate-local finding to Execute, an owner, path, boundary,
 or verification-design failure to Plan, and a Frame-contract failure to Frame. Thread resolution is

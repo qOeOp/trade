@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
@@ -151,16 +151,210 @@ describe("Codex opening review state", () => {
     expect(classifyCodexReview(merged).status).toBe("failed")
   })
 
-  test("--once exposes pending and clean exit codes", () => {
+  test("a single invocation exposes pending, clean, and finding exit codes", () => {
     expect(runCli(reactionNode("EYES")).exitCode).toBe(10)
     expect(runCli(reactionNode("THUMBS_UP")).exitCode).toBe(0)
+    expect(runCli(undefined, { reviewBody: "This can merge before review completes." }).exitCode).toBe(1)
+  })
+
+  test("output binds the normalized repository, PR, head, and classification", () => {
+    const result = runCli(reactionNode("THUMBS_UP"), { repository: "Owner/Repo", number: 42 })
+    expect(JSON.parse(result.stdout.toString())).toEqual({
+      repository: "owner/repo",
+      pull_request: 42,
+      head_oid: "0123456789abcdef0123456789abcdef01234567",
+      status: "passed",
+      reason: "Codex opening review completed cleanly",
+    })
+  })
+
+  test("an explicit repository cannot be replaced by a different checkout", () => {
+    const checkout = mkdtempSync(join(tmpdir(), "trade-other-checkout-"))
+    temporaryRoots.push(checkout)
+    Bun.spawnSync(["git", "init", "-q", checkout])
+    const result = runCli(reactionNode("EYES"), { cwd: checkout, repository: "Target/Repo", number: 17 })
+    const calls = readFileSync(result.calls, "utf8")
+
+    expect(result.exitCode).toBe(10)
+    expect(calls).toContain("owner=target")
+    expect(calls).toContain("name=repo")
+    expect(calls).toContain("number=17")
+    expect(calls).not.toContain("repo view")
+    expect(JSON.parse(result.stdout.toString()).repository).toBe("target/repo")
+  })
+
+  test("missing and invalid repository arguments fail before querying GitHub", () => {
+    const missing = runCli(reactionNode("EYES"), { arguments: ["1"] })
+    expect(missing.exitCode).toBe(2)
+    expect(missing.stderr.toString()).toBe("codex-review: failed: repository must be owner/name\n")
+    expect(readFileSync(missing.calls, "utf8")).toBe("")
+
+    const invalid = runCli(reactionNode("EYES"), { arguments: ["--repo", "owner/repo/extra", "1"] })
+    expect(invalid.exitCode).toBe(2)
+    expect(invalid.stderr.toString()).toBe("codex-review: failed: repository must be owner/name\n")
+    expect(readFileSync(invalid.calls, "utf8")).toBe("")
+  })
+
+  test("non-canonical or unsafe PR tokens fail before querying GitHub", () => {
+    const invalidArguments = [
+      ["--repo", "owner/repo", "1e3"],
+      ["--repo", "owner/repo", "01"],
+      ["--repo", "owner/repo", " 1"],
+      ["--repo", "owner/repo", "0"],
+      ["--repo", "owner/repo", "-1"],
+      ["--repo", "owner/repo", "9007199254740992"],
+      ["1", "--once"],
+    ]
+    for (const arguments_ of invalidArguments) {
+      const result = runCli(reactionNode("EYES"), { arguments: arguments_ })
+      expect(result.exitCode, arguments_.join(" ")).toBe(2)
+      const expectedError = arguments_.includes("--once")
+        ? "codex-review: failed: repository must be owner/name\n"
+        : "codex-review: failed: expected --repo <owner/name> and one positive PR number\n"
+      expect(result.stderr.toString(), arguments_.join(" "))
+        .toBe(expectedError)
+      expect(readFileSync(result.calls, "utf8"), arguments_.join(" ")).toBe("")
+    }
+  })
+
+  test("wrong repository and malformed provider output fail closed", () => {
+    const wrongRepository = runCli(reactionNode("EYES"), { responseRepository: "other/repo" })
+    expect(wrongRepository.exitCode).toBe(1)
+    expect(JSON.parse(wrongRepository.stderr.toString())).toEqual({
+      repository: "owner/repo",
+      pull_request: 1,
+      head_oid: null,
+      status: "failed",
+      reason: "GitHub returned a different repository",
+    })
+
+    const malformed = runCli(reactionNode("EYES"), { rawResponse: "not json" })
+    expect(malformed.exitCode).toBe(1)
+    expect(JSON.parse(malformed.stderr.toString()).reason).toBe("GitHub returned invalid JSON")
+
+    const malformedPullRequest = runCli(null, { pullRequest: { state: "OPEN" } })
+    expect(malformedPullRequest.exitCode).toBe(1)
+    expect(JSON.parse(malformedPullRequest.stderr.toString()).reason)
+      .toBe("GitHub returned malformed pull request data")
+
+    const wrongNumber = runCli(null, { pullRequest: pullRequestFixture(undefined, { number: 2 }) })
+    expect(wrongNumber.exitCode).toBe(1)
+    expect(JSON.parse(wrongNumber.stderr.toString()).reason)
+      .toBe("GitHub returned a different pull request")
+
+    const invalidErrors = runCli(reactionNode("EYES"), { errors: { message: "partial failure" } })
+    expect(invalidErrors.exitCode).toBe(1)
+    expect(JSON.parse(invalidErrors.stderr.toString()).reason)
+      .toBe("GitHub returned malformed response")
+
+    const partialErrors = runCli(reactionNode("THUMBS_UP"), { errors: [{ message: "partial failure" }] })
+    expect(partialErrors.exitCode).toBe(1)
+    expect(JSON.parse(partialErrors.stderr.toString()).reason)
+      .toBe("GitHub query returned errors")
+
+    const emptyThread = runCli(null, {
+      pullRequest: pullRequestFixture(reactionNode("THUMBS_UP"), {
+        reviewThreads: connection([{ isResolved: false, comments: connection([]) }]),
+      }),
+    })
+    expect(emptyThread.exitCode).toBe(1)
+    expect(JSON.parse(emptyThread.stderr.toString())).toMatchObject({
+      head_oid: "0123456789abcdef0123456789abcdef01234567",
+      status: "failed",
+      reason: "GitHub returned malformed pull request data",
+    })
+
+    const malformedEvidence = runCli(null, {
+      pullRequest: pullRequestFixture(undefined, {
+        comments: connection([commentNode({ body: undefined })]),
+      }),
+    })
+    expect(malformedEvidence.exitCode).toBe(1)
+    expect(JSON.parse(malformedEvidence.stderr.toString())).toMatchObject({
+      head_oid: "0123456789abcdef0123456789abcdef01234567",
+      status: "failed",
+      reason: "GitHub returned malformed pull request data",
+    })
+  })
+
+  test("malformed timestamps fail closed before review classification", () => {
+    const badTimestamp = "not-a-time"
+    const invalidPullRequests = [
+      pullRequestFixture(reactionNode("THUMBS_UP"), { createdAt: badTimestamp }),
+      pullRequestFixture({ ...reactionNode("THUMBS_UP"), createdAt: badTimestamp }),
+      pullRequestFixture(undefined, {
+        comments: connection([commentNode({ createdAt: badTimestamp })]),
+      }),
+      pullRequestFixture(undefined, {
+        comments: connection([commentNode({ updatedAt: badTimestamp })]),
+      }),
+      pullRequestFixture(undefined, {
+        comments: connection([commentNode({
+          reactions: connection([{ ...reactionNode("THUMBS_UP"), createdAt: badTimestamp }]),
+        })]),
+      }),
+      pullRequestFixture(undefined, {
+        reviews: connection([reviewNode({ createdAt: badTimestamp })]),
+      }),
+      pullRequestFixture(undefined, {
+        reviews: connection([reviewNode({ submittedAt: badTimestamp })]),
+      }),
+      pullRequestFixture(undefined, {
+        reviewThreads: connection([threadNode(badTimestamp)]),
+      }),
+      pullRequestFixture({ ...reactionNode("THUMBS_UP"), createdAt: "2026-02-31T10:01:00Z" }),
+      pullRequestFixture(reactionNode("THUMBS_UP"), { createdAt: "2026-01-01T24:00:00Z" }),
+      pullRequestFixture(reactionNode("THUMBS_UP"), { createdAt: "2025-02-29T10:01:00Z" }),
+      pullRequestFixture({ ...reactionNode("THUMBS_UP"), createdAt: "2026-01-01T10:01:00+02:60" }),
+    ]
+
+    for (const pullRequest of invalidPullRequests) {
+      const result = runCli(null, { pullRequest })
+      expect(result.exitCode).toBe(1)
+      expect(JSON.parse(result.stderr.toString()).reason)
+        .toBe("GitHub returned malformed pull request data")
+    }
+  })
+
+  test("RFC3339 offsets are compared by epoch instead of source text", () => {
+    const pullRequest = pullRequestFixture(reactionNode("THUMBS_UP"), {
+      createdAt: "2026-07-31T12:00:00+02:00",
+    })
+    const result = runCli(null, { pullRequest })
+    expect(result.exitCode).toBe(0)
+    expect(JSON.parse(result.stdout.toString()).status).toBe("passed")
+  })
+
+  test("every paginated evidence connection fails closed", () => {
+    const paginatedPullRequests = [
+      pullRequestFixture(undefined, { reactions: connection([], true) }),
+      pullRequestFixture(undefined, { comments: connection([], true) }),
+      pullRequestFixture(undefined, {
+        comments: connection([commentNode({ reactions: connection([], true) })]),
+      }),
+      pullRequestFixture(undefined, { reviews: connection([], true) }),
+      pullRequestFixture(undefined, { reviewThreads: connection([], true) }),
+      pullRequestFixture(undefined, {
+        reviewThreads: connection([{
+          isResolved: false,
+          comments: connection([{ author: { login: bot }, body: "Finding", updatedAt: createdAt }], true),
+        }]),
+      }),
+    ]
+
+    for (const pullRequest of paginatedPullRequests) {
+      const result = runCli(null, { pullRequest })
+      expect(result.exitCode).toBe(1)
+      expect(JSON.parse(result.stderr.toString()).reason)
+        .toBe("GitHub response exceeded the supported 100-item window")
+    }
   })
 })
 
 function fixture(signals: ReviewSignal[] = []): CodexReviewSnapshot {
   return {
     state: "OPEN",
-    headRefOid: "0123456789abcdef",
+    headRefOid: "0123456789abcdef0123456789abcdef01234567",
     createdAt,
     complete: true,
     signals,
@@ -188,40 +382,104 @@ function reactionNode(content: string): object {
   }
 }
 
-function runCli(node: object): ReturnType<typeof Bun.spawnSync> {
+function commentNode(overrides: Record<string, unknown> = {}): object {
+  return {
+    id: "comment-1",
+    author: { login: "maintainer" },
+    body: "@codex review",
+    createdAt,
+    updatedAt: createdAt,
+    reactions: connection([]),
+    ...overrides,
+  }
+}
+
+function reviewNode(overrides: Record<string, unknown> = {}): object {
+  return {
+    author: { login: bot },
+    body: "Didn't find any major issues.",
+    state: "APPROVED",
+    createdAt,
+    submittedAt: createdAt,
+    ...overrides,
+  }
+}
+
+function threadNode(updatedAt: string): object {
+  return {
+    isResolved: false,
+    comments: connection([{ author: { login: bot }, body: "Finding", updatedAt }]),
+  }
+}
+
+function pullRequestFixture(reaction?: object, overrides: Record<string, unknown> = {}): object {
+  return {
+    number: 1,
+    state: "OPEN",
+    headRefOid: "0123456789abcdef0123456789abcdef01234567",
+    createdAt,
+    reactions: connection(reaction ? [reaction] : []),
+    comments: connection([]),
+    reviews: connection([]),
+    reviewThreads: connection([]),
+    ...overrides,
+  }
+}
+
+interface CliOptions {
+  arguments?: string[]
+  cwd?: string
+  errors?: unknown
+  number?: number
+  rawResponse?: string
+  repository?: string
+  responseRepository?: string
+  reviewBody?: string
+  pullRequest?: object
+}
+
+function runCli(node?: object | null, options: CliOptions = {}) {
   const root = mkdtempSync(join(tmpdir(), "trade-codex-review-"))
   temporaryRoots.push(root)
   const gh = join(root, "gh")
+  const calls = join(root, "calls")
+  writeFileSync(calls, "")
   writeFileSync(gh, `#!/bin/sh
-if [ "$1" = repo ]; then
-  printf '%s' '{"nameWithOwner":"owner/repo"}'
-else
-  printf '%s' "$GH_RESPONSE"
-fi
+printf '%s\\n' "$*" >> "$GH_CALLS"
+printf '%s' "$GH_RESPONSE"
 `)
   chmodSync(gh, 0o755)
   const response = {
+    errors: options.errors,
     data: {
       repository: {
-        pullRequest: {
-          state: "OPEN",
-          headRefOid: "0123456789abcdef",
-          createdAt,
-          reactions: connection([node]),
-          comments: connection([]),
-          reviews: connection([]),
-          reviewThreads: connection([]),
-        },
+        nameWithOwner: options.responseRepository ?? options.repository ?? "owner/repo",
+        pullRequest: options.pullRequest ?? pullRequestFixture(node ?? undefined, {
+          number: options.number ?? 1,
+          reviews: connection(options.reviewBody
+            ? [{ author: { login: bot }, body: options.reviewBody, state: "COMMENTED", createdAt, submittedAt: createdAt }]
+            : []),
+        }),
       },
     },
   }
-  return Bun.spawnSync([process.execPath, join(import.meta.dir, "wait-pr-codex-review.ts"), "1", "--once"], {
-    env: { ...process.env, GH_RESPONSE: JSON.stringify(response), PATH: `${root}:${process.env.PATH ?? ""}` },
+  const cliArguments = options.arguments
+    ?? ["--repo", options.repository ?? "owner/repo", String(options.number ?? 1)]
+  const result = Bun.spawnSync([process.execPath, join(import.meta.dir, "wait-pr-codex-review.ts"), ...cliArguments], {
+    cwd: options.cwd,
+    env: {
+      ...process.env,
+      GH_CALLS: calls,
+      GH_RESPONSE: options.rawResponse ?? JSON.stringify(response),
+      PATH: `${root}:${process.env.PATH ?? ""}`,
+    },
     stdout: "pipe",
     stderr: "pipe",
   })
+  if (!result.stdout || !result.stderr) throw new Error("CLI fixture requires piped output")
+  return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr, calls }
 }
 
-function connection(nodes: object[]): object {
-  return { nodes, pageInfo: { hasNextPage: false } }
+function connection(nodes: object[], hasNextPage = false): object {
+  return { nodes, pageInfo: { hasNextPage } }
 }
