@@ -1,6 +1,6 @@
 ---
 name: run-bounded-mission
-description: "Run a compact Frame, Plan, Execute, Verify, Finalize workflow. Use when the user explicitly invokes $run-bounded-mission or clearly requests this mission workflow; explicit invocation wins even for otherwise excluded request types. Also use when repository instructions require it for non-trivial implementation or delivery, and for a later commit, push, pull-request, or merge turn that continues a candidate produced under this workflow. Otherwise do not auto-trigger for answer-only, explanation, audit, diagnose-only, mechanical edits, routine status, task creation, or internal subtasks."
+description: "Run a compact Frame, Plan, Execute, Verify, Finalize workflow. Use only when the user affirmatively invokes the exact token $run-bounded-mission, clearly asks to use or run the bounded mission workflow, repository instructions require it for non-trivial implementation or delivery, or a later commit, push, pull-request, or merge turn continues a candidate produced under this workflow. Quoting, naming, linking, inspecting, auditing, explaining, diagnosing, or negating the token, skill name, or path is not invocation. Without one of those positive entries, do not use it for answer-only work, mechanical edits, routine status, task management, or internal subtasks. An affirmative explicit invocation wins over otherwise excluded request types, including when appended to the request."
 ---
 
 # Run Bounded Mission
@@ -16,6 +16,9 @@ identities, marker files, coordinators, or helper code unless the requested prod
 them.
 
 The main agent owns the Frame, Plan admission, candidate, evidence judgment, effects, and final route.
+
+The frontmatter description is the single owner for entry classification. This body defines behavior
+after entry and does not broaden discovery, loading, or workflow-start conditions.
 
 ## Frame
 
