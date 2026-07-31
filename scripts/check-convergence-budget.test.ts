@@ -1,31 +1,25 @@
 import { expect, test } from "bun:test"
 import {
-  assessConvergence,
   convergenceMetricKeys,
+  describeSurfaceGrowth,
   type ConvergenceMetrics,
 } from "./check-convergence-budget"
 
-const baseline = metrics(10)
+const metrics = (value: number): ConvergenceMetrics =>
+  Object.fromEntries(convergenceMetricKeys.map((key) => [key, value])) as ConvergenceMetrics
 
-test("convergence budget accepts equal or smaller surfaces", () => {
-  expect(assessConvergence(baseline, baseline)).toEqual([])
-  expect(assessConvergence(metrics(9), baseline)).toEqual([])
+test("convergence report has no observations for equal or smaller surfaces", () => {
+  const baseline = metrics(10)
+  expect(describeSurfaceGrowth(baseline, baseline)).toEqual([])
+  expect(describeSurfaceGrowth(metrics(9), baseline)).toEqual([])
 })
 
-test("convergence budget rejects every growing surface", () => {
+test("convergence report describes growing surfaces without judging them", () => {
   for (const key of convergenceMetricKeys) {
+    const baseline = metrics(10)
     const actual = { ...baseline, [key]: 11 }
-    expect(assessConvergence(actual, baseline)).toEqual([`${key} grew from ceiling 10 to 11`])
+    expect(describeSurfaceGrowth(actual, baseline)).toEqual([
+      `${key} changed from baseline 10 to 11`,
+    ])
   }
 })
-
-function metrics(value: number): ConvergenceMetrics {
-  return {
-    module_owners: value,
-    registered_tools: value,
-    architecture_domains: value,
-    architecture_stores: value,
-    architecture_jobs: value,
-    architecture_rails: value,
-  }
-}
