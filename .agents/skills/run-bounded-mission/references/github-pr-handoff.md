@@ -25,6 +25,12 @@ discovery attempt is terminal clean completion; eyes, dispatch, queue, and in-pr
 not. For an `open` endpoint, successful publication in the requested Draft/Ready state does not wait
 for discovery.
 
+In this repository, run `bun scripts/wait-pr-codex-review.ts <pr-number>` for that wait. Use
+`--once` when an outer agent loop owns polling: exit `0` means terminal clean, exit `10` means
+pending, and exit `1` means a finding, provider failure, incomplete evidence, or invalid PR state
+that must be routed rather than retried as success. This read-only helper classifies the discovery
+signal only; it is not review acceptance, a required check, or merge authority.
+
 Validate every material finding. Route a candidate-local finding to Execute, an owner, path, boundary,
 or verification-design failure to Plan, and a Frame-contract failure to Frame. Thread resolution is
 a separate write authority and may occur only after the finding is verified as addressed,
