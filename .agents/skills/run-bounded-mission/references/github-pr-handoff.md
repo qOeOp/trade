@@ -14,13 +14,28 @@ script as an authority proxy.
 ## Opening discovery
 
 Treat a PR-opening automated review as bounded discovery, not acceptance. Collect its complete
-result before revising. Reproduce each material finding against the current candidate. Resolve a
-thread only when the finding is verified as addressed, inapplicable, duplicate, or non-material;
-`outdated` alone is not evidence. Missing, started, ambiguous, or failed review remains outstanding.
+result before revising. Reproduce each material finding against the current candidate. Missing,
+started, ambiguous, or failed review remains outstanding.
 
-A candidate change invalidates candidate-bound review and verification evidence. Re-run required
-deterministic checks and Verify the new complete candidate. Do not create review loops merely to
-obtain a preferred result.
+For a `merge-ready` or `merged` endpoint, freeze exactly one discovery review attempt: the automatic
+native Codex opening review when it starts, or a manually requested substitute with separately
+frozen comment or review-request authority. Wait through the host-native GitHub owner until that
+review is terminal or Stop is reached. A correlated provider thumbs-up reaction for the frozen
+discovery attempt is terminal clean completion; eyes, dispatch, queue, and in-progress signals are
+not. For an `open` endpoint, successful publication in the requested Draft/Ready state does not wait
+for discovery.
+
+Validate every material finding. Route a candidate-local finding to Execute, an owner, path, boundary,
+or verification-design failure to Plan, and a Frame-contract failure to Frame. Thread resolution is
+a separate write authority and may occur only after the finding is verified as addressed,
+inapplicable, duplicate, or non-material; `outdated` alone is not evidence.
+
+For this repository, the automatic native Codex review is an opening-only discovery signal. A
+candidate changed to address its findings invalidates prior candidate-bound verification, but does
+not require another Codex review. Preserve the opening findings, revalidate every disposition against
+the final candidate, Verify and publish that complete candidate, then wait for its complete non-empty
+set of required final-head checks. Request another review only when the frozen Frame or admitted Plan
+separately requires it. Do not create review loops merely to obtain a preferred result.
 
 ## Merge-ready barrier
 
@@ -30,13 +45,15 @@ Immediately before accepting `merge-ready` or performing a merge, observe one cu
 2. PR is open, has the required Draft/Ready state, and targets the frozen base;
 3. PR head equals the verified candidate;
 4. the complete non-empty set of required final-head checks exists and passes;
-5. required current-candidate reviews are terminal;
+5. the frozen discovery review is terminal, every material finding has a disposition revalidated
+   against the final candidate, and any separately required current-candidate reviews are terminal;
 6. zero unresolved conversations remain;
 7. auto-merge or merge-queue state cannot race the snapshot;
 8. a final refetch shows no head, base, activity, or merge-tree drift.
 
-Unknown, absent, stale, or pending data fails the barrier. A material finding or any candidate,
-head, base, or merge-tree change returns to Verify.
+Unknown, absent, stale, or pending required final-head data fails the barrier. The completed opening
+review is intentionally discovery rather than final-head acceptance evidence. A material finding or
+any candidate, head, base, or merge-tree change returns to Verify.
 
 ## Merge
 
