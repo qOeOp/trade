@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs"
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 
@@ -87,6 +87,24 @@ describe("test-effectiveness audit", () => {
     expect(proposal.caveats).toContain(
       "A provided failure classification is context only and never selects a test action.",
     )
+  })
+
+  test("runs an audit from a dependency-free helper copy", () => {
+    const fixture = createFixture()
+    write(fixture.root, "apps/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
+    const candidate = commit(fixture.root, "change calculation")
+    const standaloneRoot = mkdtempSync(join(tmpdir(), "test-effectiveness-standalone-"))
+    temporaryRepositories.push(standaloneRoot)
+    const standaloneHelper = join(standaloneRoot, "test-effectiveness-audit.ts")
+    copyFileSync(helperPath, standaloneHelper)
+
+    const result = audit(fixture.root, [
+      "--origin", fixture.origin,
+      "--candidate", candidate,
+      "--owner-root", "apps/example/calc",
+    ], standaloneHelper)
+    expect(result.status).toBe(0)
+    expect(JSON.parse(result.stdout).summary.candidate_tests).toBe(1)
   })
 
   test("reports empty diffs and changed owners with no test evidence without inventing coverage", () => {
@@ -200,7 +218,7 @@ describe("test-effectiveness audit", () => {
       'test("loads a multiline import", () => expect(add(1, 2)).toBe(3))',
       "",
     ].join("\n"))
-    write(fixture.root, "apps/example/calc/src/dynamic.test.ts", [
+    write(fixture.root, "apps/example/calc/src/dynamic.test.js", [
       "void import(",
       '  "./calc"',
       ")",
@@ -219,6 +237,14 @@ describe("test-effectiveness audit", () => {
       '} from "./calc"',
       "",
     ].join("\n"))
+    write(fixture.root, "apps/example/calc/src/module-require.test.cjs", 'module.require("./calc")\n')
+    write(fixture.root, "apps/example/calc/src/shebang.test.js", [
+      "#!/usr/bin/env bun",
+      'import { add } from "./calc"',
+      "void add",
+      "",
+    ].join("\n"))
+    write(fixture.root, "apps/example/calc/src/测试\tline\nbreak.test.ts", 'import { add } from "./calc"\n')
     const origin = commit(fixture.root, "add semantic import fixtures")
     write(fixture.root, "apps/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
     const candidate = commit(fixture.root, "change calculation source")
@@ -234,15 +260,20 @@ describe("test-effectiveness audit", () => {
       status: "complete",
       incomplete_files: [],
     })
-    expect(evidence.affected_owners[0].candidate_tests.map(
+    const candidateTests = evidence.affected_owners[0].candidate_tests.map(
       (item: { path: string }) => item.path,
-    )).toEqual([
+    )
+    expect(candidateTests).toHaveLength(8)
+    expect(candidateTests).toEqual(expect.arrayContaining([
       "apps/example/calc/src/calc.test.ts",
       "apps/example/calc/src/colon: spaced.test.ts",
-      "apps/example/calc/src/dynamic.test.ts",
+      "apps/example/calc/src/dynamic.test.js",
       "apps/example/calc/src/multiline.test.ts",
+      "apps/example/calc/src/module-require.test.cjs",
       "apps/example/calc/src/re-export.test.ts",
-    ])
+      "apps/example/calc/src/shebang.test.js",
+      "apps/example/calc/src/测试\tline\nbreak.test.ts",
+    ]))
   })
 
   test("marks incomplete import evidence without discarding proven edges", () => {
@@ -259,6 +290,7 @@ describe("test-effectiveness audit", () => {
       "void import(target)",
       "",
     ].join("\n"))
+    write(fixture.root, "apps/example/calc/src/import-type.test.ts", 'type Add = import("./calc").add\n')
     const origin = commit(fixture.root, "add incomplete import fixtures")
     write(fixture.root, "apps/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
     const candidate = commit(fixture.root, "change calculation source")
@@ -278,9 +310,12 @@ describe("test-effectiveness audit", () => {
           reasons: ["parse_error"],
         },
         {
+          path: "apps/example/calc/src/import-type.test.ts",
+          reasons: ["unsupported_module_syntax"],
+        },
+        {
           path: "apps/example/calc/src/non-literal.test.ts",
-          reasons: ["non_literal_module_specifier"],
-          diagnostic_codes: [],
+          reasons: ["non_literal_module_specifier", "unsupported_module_syntax"],
         },
       ],
     })
@@ -291,6 +326,35 @@ describe("test-effectiveness audit", () => {
     expect(evidence.affected_owners[0].consumer_leads.reverse_importers).toContain(
       "apps/example/calc/src/main.ts",
     )
+  })
+
+  test("does not turn comment, string, regex, or template text into proven edges", () => {
+    const fixture = createFixture()
+    rmSync(join(fixture.root, "apps/example/calc/src/calc.test.ts"))
+    write(fixture.root, "apps/example/calc/src/text-only.test.ts", [
+      '// import type { Add } from "./calc"',
+      'const staticText = \'import type { Add } from "./calc"\'',
+      "const dynamicText = \"import('./calc')\"",
+      'const pattern = /module\\.require\\("\\.\\/calc"\\)/',
+      'const templateText = `require("./calc")`',
+      "void [staticText, dynamicText, pattern, templateText]",
+      "",
+    ].join("\n"))
+    const origin = commit(fixture.root, "add adversarial module text")
+    write(fixture.root, "apps/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
+    const candidate = commit(fixture.root, "change calculation source")
+
+    const evidence = JSON.parse(audit(fixture.root, [
+      "--origin", origin,
+      "--candidate", candidate,
+      "--scope", "apps/example/calc",
+    ]).stdout)
+    expect(evidence.import_analysis.status).toBe("incomplete")
+    expect(evidence.summary).toMatchObject({
+      candidate_tests: 0,
+      no_direct_static_candidate_evidence: false,
+    })
+    expect(evidence.affected_owners[0].candidate_tests).toEqual([])
   })
 
   test("attributes a cross-owner rename to both revision owners within either scope", () => {
@@ -567,7 +631,11 @@ function commit(root: string, message: string, allowEmpty = false): string {
   return git(root, ["rev-parse", "HEAD"]).trim()
 }
 
-function audit(root: string, args: string[]): { status: number; stdout: string; stderr: string } {
+function audit(
+  root: string,
+  args: string[],
+  executable = helperPath,
+): { status: number; stdout: string; stderr: string } {
   let ownerArgs: string[] = []
   if (!args.includes("--help") && !args.includes("--owner-root")) {
     const repositoryRoot = git(root, ["rev-parse", "--show-toplevel"]).trim()
@@ -580,7 +648,7 @@ function audit(root: string, args: string[]): { status: number; stdout: string; 
       .filter((path) => existsSync(join(repositoryRoot, path)))
       .flatMap((path) => ["--owner-root", path])
   }
-  const result = Bun.spawnSync([process.execPath, helperPath, ...args, ...ownerArgs], {
+  const result = Bun.spawnSync([process.execPath, executable, ...args, ...ownerArgs], {
     cwd: root,
     env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" },
     stdout: "pipe",

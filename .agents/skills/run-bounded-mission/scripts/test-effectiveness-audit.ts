@@ -3,7 +3,6 @@
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { posix } from "node:path"
-import ts from "typescript"
 
 const schemaVersion = "bounded-mission.test-effectiveness-evidence.v1"
 const sourceExtensions = [
@@ -52,12 +51,16 @@ interface ImportEdge {
   specifier: string
 }
 
-type ImportAnalysisReason = "parse_error" | "non_literal_module_specifier"
+type ImportAnalysisReason = "parse_error" | "non_literal_module_specifier" | "unsupported_module_syntax"
+
+interface TreeEntry {
+  path: string
+  object: string
+}
 
 interface ImportAnalysisIssue {
   path: string
   reasons: ImportAnalysisReason[]
-  diagnostic_codes: number[]
 }
 
 interface ImportAnalysis {
@@ -103,8 +106,10 @@ try {
     }
   }
   const changes = readChanges(origin.commit, candidate.commit, args.scope)
-  const candidatePaths = readTree(candidate.commit)
+  const candidateTree = readTree(candidate.commit)
+  const candidatePaths = candidateTree.map((entry) => entry.path)
   const candidatePathSet = new Set(candidatePaths)
+  const candidateObjects = new Map(candidateTree.map((entry) => [entry.path, entry.object]))
   const ownerRoots = args.ownerRoots
     .slice()
     .sort((left, right) => right.length - left.length || left.localeCompare(right))
@@ -124,7 +129,7 @@ try {
       .map((change) => change.path),
   )
   const importAnalysis = changedSourcePaths.size > 0
-    ? readImportEdges(candidate.commit, candidatePaths, candidatePathSet)
+    ? readImportEdges(candidate.commit, candidatePaths, candidatePathSet, candidateObjects)
     : { edges: [], files_analyzed: 0, incomplete_files: [] }
   const importEdges = importAnalysis.edges
   const importersByTarget = groupImporters(importEdges)
@@ -366,10 +371,38 @@ function readChanges(origin: string, candidate: string, scope?: string): Change[
     .sort((left, right) => left.path.localeCompare(right.path))
 }
 
-function readTree(candidate: string, scope?: string): string[] {
-  const args = ["ls-tree", "-r", "--name-only", candidate]
+function readTree(candidate: string, scope?: string): TreeEntry[] {
+  const args = ["ls-tree", "-r", "-z", candidate]
   if (scope) args.push("--", scope)
-  return git(args).split("\n").filter(Boolean).sort()
+  const result = spawnSync("git", args, { maxBuffer: 64 * 1024 * 1024 })
+  if (result.status !== 0) throw new Error(result.stderr.toString().trim() || "git ls-tree failed")
+  const decoder = new TextDecoder("utf-8", { fatal: true })
+  const entries: TreeEntry[] = []
+  for (const record of splitNull(result.stdout)) {
+    const pathStart = record.indexOf(9)
+    if (pathStart < 0) throw new Error("git ls-tree returned incomplete entry data")
+    const header = record.toString("ascii", 0, pathStart).split(" ")
+    try {
+      entries.push({
+        object: header[2],
+        path: decoder.decode(record.subarray(pathStart + 1)),
+      })
+    } catch {
+      throw new Error("git tree contains a non-UTF-8 path")
+    }
+  }
+  return entries.sort((left, right) => left.path.localeCompare(right.path))
+}
+
+function splitNull(value: Buffer): Buffer[] {
+  const fields: Buffer[] = []
+  for (let start = 0; start < value.length;) {
+    const end = value.indexOf(0, start)
+    if (end < 0) throw new Error("git returned incomplete NUL-delimited data")
+    fields.push(value.subarray(start, end))
+    start = end + 1
+  }
+  return fields
 }
 
 function ownerForPath(path: string, ownerRoots: string[]): string | null {
@@ -472,7 +505,12 @@ function buildTestMetadata(
     .sort((left, right) => left.path.localeCompare(right.path))
 }
 
-function readImportEdges(candidate: string, candidatePaths: string[], pathSet: Set<string>): ImportAnalysis {
+function readImportEdges(
+  candidate: string,
+  candidatePaths: string[],
+  pathSet: Set<string>,
+  candidateObjects: Map<string, string>,
+): ImportAnalysis {
   const packageRoots = new Map<string, string>()
   for (const packagePath of candidatePaths.filter((path) => path.endsWith("/package.json"))) {
     try {
@@ -485,7 +523,7 @@ function readImportEdges(candidate: string, candidatePaths: string[], pathSet: S
   const edges: ImportEdge[] = []
   const incompleteFiles: ImportAnalysisIssue[] = []
   const importSourcePaths = candidatePaths.filter(isImportSourcePath)
-  const importSources = readRevisionFiles(candidate, importSourcePaths)
+  const importSources = readRevisionFiles(importSourcePaths, candidateObjects)
   for (const importer of importSourcePaths) {
     const source = importSources.get(importer)!
     const analysis = importSpecifiers(importer, source)
@@ -505,10 +543,10 @@ function readImportEdges(candidate: string, candidatePaths: string[], pathSet: S
   }
 }
 
-function readRevisionFiles(revision: string, paths: string[]): Map<string, string> {
+function readRevisionFiles(paths: string[], objects: Map<string, string>): Map<string, string> {
   if (paths.length === 0) return new Map()
   const result = spawnSync("git", ["cat-file", "--batch"], {
-    input: paths.map((path) => `${revision}:${path}\n`).join(""),
+    input: paths.map((path) => `${objects.get(path)!}\n`).join(""),
     maxBuffer: 256 * 1024 * 1024,
   })
   if (result.status !== 0) {
@@ -538,72 +576,65 @@ function importSpecifiers(
   path: string,
   source: string,
 ): { specifiers: string[]; issue?: ImportAnalysisIssue } {
-  const sourceFile = ts.createSourceFile(
-    path,
-    source,
-    ts.ScriptTarget.Latest,
-    false,
-    scriptKind(path),
-  )
-  const parseDiagnostics = (sourceFile as ts.SourceFile & { parseDiagnostics: readonly ts.Diagnostic[] })
-    .parseDiagnostics
-  const diagnosticCodes = [...new Set(parseDiagnostics.map((diagnostic) => diagnostic.code))].sort(
-    (left, right) => left - right,
-  )
-  if (diagnosticCodes.length > 0) {
+  const loader = loaderForPath(path)
+  const transpiler = new Bun.Transpiler({ loader })
+  const parsedSource = source.replace(/^#![^\n]*(?:\n|$)/, "")
+  let runtimeSpecifiers: string[]
+  try {
+    runtimeSpecifiers = transpiler.scanImports(parsedSource).map((item) => item.path)
+  } catch {
     return {
       specifiers: [],
-      issue: { path, reasons: ["parse_error"], diagnostic_codes: diagnosticCodes },
+      issue: { path, reasons: ["parse_error"] },
     }
   }
 
-  const values: string[] = []
-  let nonLiteralModuleSpecifier = false
-  const visit = (node: ts.Node): void => {
-    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) {
-      if (ts.isStringLiteralLike(node.moduleSpecifier)) values.push(node.moduleSpecifier.text)
-    } else if (
-      ts.isImportEqualsDeclaration(node)
-      && ts.isExternalModuleReference(node.moduleReference)
-      && node.moduleReference.expression
-      && ts.isStringLiteralLike(node.moduleReference.expression)
-    ) {
-      values.push(node.moduleReference.expression.text)
-    } else if (
-      ts.isCallExpression(node)
-      && (node.expression.kind === ts.SyntaxKind.ImportKeyword
-        || (ts.isIdentifier(node.expression) && node.expression.text === "require"))
-    ) {
-      const specifier = node.arguments[0]
-      if (specifier && ts.isStringLiteralLike(specifier)) {
-        values.push(specifier.text)
-      } else {
-        nonLiteralModuleSpecifier = true
-      }
-    }
-    ts.forEachChild(node, visit)
-  }
-  visit(sourceFile)
-
+  const supplemental = supplementalModuleSpecifiers(
+    parsedSource,
+    transpiler,
+    loader === "ts" || loader === "tsx",
+  )
+  const reasons = [...new Set(supplemental.reasons)].sort()
   return {
-    specifiers: [...new Set(values)].sort(),
-    ...(nonLiteralModuleSpecifier
-      ? {
-          issue: {
-            path,
-            reasons: ["non_literal_module_specifier" as const],
-            diagnostic_codes: [],
-          },
-        }
+    specifiers: [...new Set([...runtimeSpecifiers, ...supplemental.specifiers])].sort(),
+    ...(reasons.length > 0
+      ? { issue: { path, reasons } }
       : {}),
   }
 }
 
-function scriptKind(path: string): ts.ScriptKind {
-  if (path.endsWith(".tsx")) return ts.ScriptKind.TSX
-  if (path.endsWith(".jsx")) return ts.ScriptKind.JSX
-  if ([".ts", ".mts", ".cts"].some((extension) => path.endsWith(extension))) return ts.ScriptKind.TS
-  return ts.ScriptKind.JS
+function supplementalModuleSpecifiers(
+  source: string,
+  transpiler: Bun.Transpiler,
+  isTypeScript: boolean,
+): { specifiers: string[]; reasons: ImportAnalysisReason[] } {
+  const specifiers: string[] = []
+  const reasons: ImportAnalysisReason[] = []
+  if (/\bmodule\s*\.\s*require\s*\(/.test(source)) {
+    try {
+      specifiers.push(...transpiler.scanImports(transpiler.transformSync(source)).map((item) => item.path))
+    } catch {
+      reasons.push("unsupported_module_syntax")
+    }
+  }
+  if (isTypeScript && (/\b(?:import|export)\s+type\b/.test(source) || /\b(?:import|export)\s*\{\s*type\b/.test(source))) {
+    reasons.push("unsupported_module_syntax")
+  }
+  if (isTypeScript && /\b(?:typeof\s+)?import\s*\(/.test(source)) {
+    reasons.push("unsupported_module_syntax")
+  }
+  if (/\b(?:import|require)\s*\((?!\s*["'])/.test(source)
+    || /\bmodule\s*\.\s*require\s*\((?!\s*["'])/.test(source)) {
+    reasons.push("non_literal_module_specifier")
+  }
+  return { specifiers, reasons }
+}
+
+function loaderForPath(path: string): "ts" | "tsx" | "js" | "jsx" {
+  if (path.endsWith(".tsx")) return "tsx"
+  if (path.endsWith(".jsx")) return "jsx"
+  if ([".ts", ".mts", ".cts"].some((extension) => path.endsWith(extension))) return "ts"
+  return "js"
 }
 
 function resolveImport(
