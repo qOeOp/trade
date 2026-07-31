@@ -1,0 +1,702 @@
+#!/usr/bin/env bun
+
+import { spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
+import { posix } from "node:path"
+
+const schemaVersion = "trade.test-effectiveness-proposal.v1"
+const sourceExtensions = [
+  ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs",
+  ".py", ".rs", ".go", ".sh", ".bash", ".zsh",
+]
+const importExtensions = ["", ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", "/index.ts", "/index.tsx", "/index.js", "/index.mjs"]
+const classifications = [
+  "real_behavior_regression",
+  "outdated_contract_or_assertion",
+  "implementation_coupled_change_detector",
+  "scenario_gap",
+  "oracle_assertion_gap",
+  "selection_or_routing_gap",
+  "mock_or_fake_isolation_distortion",
+  "environment_concurrency_or_time_gap",
+  "flake_or_infrastructure",
+] as const
+
+type Classification = (typeof classifications)[number]
+
+interface Arguments {
+  origin: string
+  candidate: string
+  scope?: string
+  classification?: Classification
+}
+
+interface Revision {
+  requested: string
+  commit: string
+  tree: string
+}
+
+interface Change {
+  status: string
+  path: string
+  previous_path?: string
+}
+
+interface ImportEdge {
+  importer: string
+  target: string
+  specifier: string
+}
+
+interface TestMetadata {
+  path: string
+  changed_status: string
+  direct_changed_source_imports: string[]
+  unique_value_evidence: {
+    changed_source_imports_unique_to_test: string[]
+    test_labels_unique_to_test: string[]
+  }
+  cost_signals: {
+    lines: number
+    bytes: number
+    test_cases: number
+    assertions: number
+    mock_or_fake_mentions: number
+    time_or_concurrency_mentions: number
+    changed_with_imported_source: boolean
+    exact_content_duplicate_paths: string[]
+    runtime: { status: "unavailable"; milliseconds: null }
+  }
+  recommendation: {
+    action: "keep" | "strengthen" | "replace" | "lower_layer" | "delete_candidate" | "further_investigation"
+    reasons: string[]
+  }
+  labels: string[]
+  content_hash: string
+}
+
+try {
+  const args = parseArguments(process.argv.slice(2))
+  const origin = resolveRevision(args.origin)
+  const candidate = resolveRevision(args.candidate)
+  const changes = readChanges(origin.commit, candidate.commit, args.scope)
+  const candidatePaths = readTree(candidate.commit)
+  const candidatePathSet = new Set(candidatePaths)
+  const markerRoots = readMarkerRoots(candidatePaths)
+  const changesByOwner = new Map<string, Change[]>()
+
+  for (const change of changes) {
+    const owner = ownerForPath(change.path, markerRoots)
+    const owned = changesByOwner.get(owner) ?? []
+    owned.push(change)
+    changesByOwner.set(owner, owned)
+  }
+
+  const changedSourcePaths = new Set(
+    changes
+      .filter((change) => change.status !== "D" && isSourcePath(change.path))
+      .map((change) => change.path),
+  )
+  const importEdges = changedSourcePaths.size > 0
+    ? readImportEdges(candidate.commit, candidatePaths, candidatePathSet)
+    : []
+  const importersByTarget = groupImporters(importEdges)
+  const allAffectedTests = buildTestMetadata(
+    candidate.commit,
+    candidatePaths,
+    changes,
+    importEdges,
+    changedSourcePaths,
+    args.classification,
+  )
+  const deletedTestPaths = changes
+    .filter((change) => change.status === "D" && isTestPath(change.path))
+    .map((change) => change.path)
+    .sort()
+  const affectedOwnerNames = new Set(changesByOwner.keys())
+  for (const test of allAffectedTests) affectedOwnerNames.add(ownerForPath(test.path, markerRoots))
+
+  const affectedOwners = [...affectedOwnerNames]
+    .sort()
+    .map((owner) => {
+      const ownerChanges = changesByOwner.get(owner) ?? []
+      const ownerTests = allAffectedTests.filter((test) => ownerForPath(test.path, markerRoots) === owner)
+      const ownerChangedSources = ownerChanges
+        .filter((change) => change.status !== "D" && isSourcePath(change.path))
+        .map((change) => change.path)
+        .sort()
+      const reverseImporters = [...new Set(ownerChangedSources.flatMap((path) => importersByTarget.get(path) ?? []))]
+        .filter((path) => !isTestPath(path))
+        .sort()
+      const entrypointPaths = candidatePaths.filter((path) => isEntrypoint(owner, path)).sort()
+      return {
+        owner,
+        changes: ownerChanges.map(publicChange),
+        consumer_evidence: {
+          contract_paths: candidatePathSet.has(`${owner}/CONTRACT.md`) ? [`${owner}/CONTRACT.md`] : [],
+          entrypoint_paths: entrypointPaths,
+          package_scripts: readPackageScripts(candidate.commit, owner, candidatePathSet),
+          reverse_importers: reverseImporters,
+          status: reverseImporters.length > 0 || entrypointPaths.length > 0
+            ? "evidence_found"
+            : "unresolved",
+        },
+        changed_source_paths: ownerChangedSources,
+        deleted_test_paths: deletedTestPaths.filter((path) => ownerForPath(path, markerRoots) === owner),
+        candidate_tests: ownerTests.map(stripPrivateTestFields),
+      }
+    })
+
+  const actionCounts = countActions(allAffectedTests)
+  const refactorSignal = (actionCounts.replace ?? 0) > 0
+    || (actionCounts.lower_layer ?? 0) > 0
+    || (actionCounts.delete_candidate ?? 0) > 0
+    || (actionCounts.strengthen ?? 0) >= 2
+    || deletedTestPaths.length > 0
+  const noDirectStaticCandidateEvidence =
+    changes.length > 0 && allAffectedTests.length === 0 && deletedTestPaths.length === 0
+
+  const proposal = {
+    schema_version: schemaVersion,
+    inputs: {
+      origin,
+      candidate,
+      scope: args.scope ?? null,
+      classification: args.classification == null
+        ? { status: "unresolved", value: null, allowed_values: classifications }
+        : {
+            status: "provided",
+            value: args.classification,
+            allowed_values: classifications,
+            recommendation_binding: allAffectedTests.length === 1 ? "only_candidate_test" : "unbound",
+          },
+    },
+    authority: {
+      mode: "read_only",
+      priority: [
+        "frozen_outcome_and_current_contract",
+        "production_consumer_behavior",
+        "owner_and_compatible_boundary_contract",
+        "tests_and_test_doubles",
+      ],
+      test_authority_status: "requires_review",
+      forbidden_claims: [
+        "coverage_proven",
+        "deletion_safe",
+        "mutation_score",
+        "acceptance_signed",
+      ],
+    },
+    summary: {
+      changed_files: changes.length,
+      affected_owners: affectedOwners.length,
+      changed_source_files: changedSourcePaths.size,
+      candidate_tests: allAffectedTests.length,
+      deleted_test_files: deletedTestPaths.length,
+      no_direct_static_candidate_evidence: noDirectStaticCandidateEvidence,
+      action_counts: actionCounts,
+    },
+    affected_owners: affectedOwners,
+    deleted_test_review: {
+      paths: deletedTestPaths,
+      status: deletedTestPaths.length > 0 ? "requires_origin_review" : "none",
+      uncertainty: deletedTestPaths.length > 0
+        ? "deleted test behavior, unique value, and replacement evidence are not present in the candidate tree"
+        : null,
+    },
+    escaped_defect_review: {
+      classification_status: args.classification == null ? "unresolved" : "provided",
+      classification: args.classification ?? null,
+      questions: [
+        question("expected_detection_layer", "Which layer or real consumer should have detected the defect?"),
+        question("miss_reason", "Why did the existing selection, scenario, boundary, or oracle miss it?"),
+        question("adjacent_blind_spots", "Which adjacent defects share the same blind spot?"),
+        question("strengthen_or_replace", "Can an existing test be strengthened or replaced instead of adding another test?"),
+        question("obsolete_tests", "Which old tests are now redundant or obsolete, and what unique value evidence prevents deletion?"),
+      ],
+    },
+    proposal: {
+      actions: actionCounts,
+      test_refactor_mission: {
+        recommendation: refactorSignal ? "conditional" : "not_recommended",
+        signal: refactorSignal
+          ? "replacement, layer move, deleted-test evidence, deletion candidate, or coordinated strengthening is present"
+          : "no structural or multi-test refactor signal is established",
+        required_conditions: [
+          "the actionable set contains replace, lower_layer, delete_candidate, or coordinated changes to at least two tests",
+          "the current contract and production-consumer acceptance can remain frozen",
+          "the test-only candidate is separable from production behavior changes and acceptance authority",
+          "expected value, cost evidence, affected owner, and stopping evidence are named",
+          "a separate Refactor Mission also satisfies the integrated-evidence and dispatch contract in refactor-mission-proposal.md",
+        ],
+        unresolved_conditions: [
+          "contract_and_consumer_acceptance_frozen",
+          "test_only_candidate_separable",
+          "value_and_stopping_evidence_reviewed",
+          "integrated_refactor_proposal_evidence",
+        ],
+      },
+      caveats: [
+        "Static imports, labels, exact-content duplicates, size, mock, and time/concurrency mentions are review leads only.",
+        "Runtime timing is reported only when tracked evidence exists; this helper does not execute tests.",
+        "No coverage, mutation effectiveness, behavioral equivalence, or deletion safety is inferred.",
+        "no_direct_static_candidate_evidence means only that no changed test or direct candidate-tree import was found; transitive paths and deleted sources remain unresolved.",
+        "Deleted tests are listed as origin-review uncertainty; candidate-tree absence is never deletion evidence.",
+        "A provided failure classification changes a recommendation only when exactly one candidate test is selected.",
+        "Non-JavaScript/TypeScript reverse imports and dynamic routing may remain unresolved.",
+      ],
+    },
+  }
+
+  process.stdout.write(`${JSON.stringify(proposal, null, 2)}\n`)
+} catch (error) {
+  const message = portableMessage(error instanceof Error ? error.message : String(error))
+  process.stderr.write(`${JSON.stringify({
+    schema_version: "trade.test-effectiveness-error.v1",
+    error: { code: "audit_failed", message },
+  }, null, 2)}\n`)
+  process.exit(1)
+}
+
+function parseArguments(values: string[]): Arguments {
+  if (values.includes("--help")) {
+    process.stdout.write([
+      "Usage: test-effectiveness-audit.ts --origin <commit> --candidate <commit>",
+      "  [--scope <repository-relative-owner>]",
+      `  [--classification <${classifications.join("|")}>]`,
+      "",
+    ].join("\n"))
+    process.exit(0)
+  }
+  const parsed = new Map<string, string>()
+  for (let index = 0; index < values.length; index += 2) {
+    const key = values[index]
+    const value = values[index + 1]
+    if (!key?.startsWith("--") || value == null || value.startsWith("--")) {
+      throw new Error(`invalid arguments near ${key ?? "<end>"}`)
+    }
+    if (parsed.has(key)) throw new Error(`duplicate argument: ${key}`)
+    parsed.set(key, value)
+  }
+  for (const key of parsed.keys()) {
+    if (!["--origin", "--candidate", "--scope", "--classification"].includes(key)) {
+      throw new Error(`unsupported argument: ${key}`)
+    }
+  }
+  const origin = parsed.get("--origin")
+  const candidate = parsed.get("--candidate")
+  if (!origin || !candidate) throw new Error("--origin and --candidate are required")
+  if (!isFullObjectId(origin) || !isFullObjectId(candidate)) {
+    throw new Error("--origin and --candidate must be full Git commit hashes")
+  }
+  const scope = parsed.get("--scope")
+  if (scope != null && !isRepositoryRelative(scope)) {
+    throw new Error("--scope must be a normalized repository-relative path")
+  }
+  const classification = parsed.get("--classification")
+  if (classification != null && !classifications.includes(classification as Classification)) {
+    throw new Error(`unsupported classification: ${classification}`)
+  }
+  return {
+    origin,
+    candidate,
+    scope: scope === "." ? undefined : scope,
+    classification: classification as Classification | undefined,
+  }
+}
+
+function resolveRevision(requested: string): Revision {
+  const commit = git(["rev-parse", "--verify", "--end-of-options", `${requested}^{commit}`]).trim()
+  const tree = git(["rev-parse", "--verify", "--end-of-options", `${commit}^{tree}`]).trim()
+  if (!isFullObjectId(commit) || !isFullObjectId(tree)) {
+    throw new Error(`revision did not resolve to immutable identities: ${requested}`)
+  }
+  if (commit !== requested) {
+    throw new Error("revision token must equal its resolved immutable commit identity")
+  }
+  return { requested, commit, tree }
+}
+
+function readChanges(origin: string, candidate: string, scope?: string): Change[] {
+  const args = ["diff", "--name-status", "-z", "--find-renames", origin, candidate, "--"]
+  if (scope) args.push(scope)
+  const fields = git(args).split("\0")
+  const changes: Change[] = []
+  for (let index = 0; index < fields.length && fields[index];) {
+    const status = fields[index++]
+    if (status.startsWith("R") || status.startsWith("C")) {
+      const previousPath = fields[index++]
+      const path = fields[index++]
+      changes.push({ status, path, previous_path: previousPath })
+    } else {
+      changes.push({ status, path: fields[index++] })
+    }
+  }
+  return changes.sort((left, right) => left.path.localeCompare(right.path))
+}
+
+function readTree(candidate: string, scope?: string): string[] {
+  const args = ["ls-tree", "-r", "--name-only", candidate]
+  if (scope) args.push("--", scope)
+  return git(args).split("\n").filter(Boolean).sort()
+}
+
+function readMarkerRoots(paths: string[]): string[] {
+  return paths
+    .filter((path) => path.endsWith("/CONTRACT.md") || path.endsWith("/package.json"))
+    .map((path) => posix.dirname(path))
+    .filter((path, index, all) => all.indexOf(path) === index)
+    .sort((left, right) => right.length - left.length || left.localeCompare(right))
+}
+
+function ownerForPath(path: string, markerRoots: string[]): string {
+  const marker = markerRoots.find((root) => path === root || path.startsWith(`${root}/`))
+  if (marker) return marker
+  const parts = path.split("/")
+  if (parts[0] === ".agents" && parts[1] === "skills" && parts[2]) return parts.slice(0, 3).join("/")
+  if (parts[0] === "modules" && parts[1] && parts[2]) return parts.slice(0, 3).join("/")
+  if (parts[0] === "docs" && parts[1]) return parts.slice(0, 2).join("/")
+  return parts[0] || "."
+}
+
+function buildTestMetadata(
+  candidate: string,
+  candidatePaths: string[],
+  changes: Change[],
+  importEdges: ImportEdge[],
+  changedSourcePaths: Set<string>,
+  classification?: Classification,
+): TestMetadata[] {
+  const markerRoots = readMarkerRoots(candidatePaths)
+  const changeStatus = new Map(changes.map((change) => [change.path, change.status]))
+  const importsByFile = new Map<string, ImportEdge[]>()
+  for (const edge of importEdges) {
+    const edges = importsByFile.get(edge.importer) ?? []
+    edges.push(edge)
+    importsByFile.set(edge.importer, edges)
+  }
+  const relevantTestOwners = new Set(candidatePaths
+    .filter(isTestPath)
+    .filter((path) => {
+      if (changeStatus.has(path)) return true
+      return (importsByFile.get(path) ?? []).some((edge) => changedSourcePaths.has(edge.target))
+    })
+    .map((path) => ownerForPath(path, markerRoots)))
+  const allOwnerTests = candidatePaths
+    .filter(isTestPath)
+    .filter((path) => relevantTestOwners.has(ownerForPath(path, markerRoots)))
+  const records = allOwnerTests.map((path): TestMetadata & { relevant: boolean } => {
+    const content = git(["show", `${candidate}:${path}`])
+    const directChangedImports = [...new Set(
+      (importsByFile.get(path) ?? [])
+        .map((edge) => edge.target)
+        .filter((target) => changedSourcePaths.has(target)),
+    )].sort()
+    const status = changeStatus.get(path) ?? "unchanged"
+    const labels = testLabels(content)
+    return {
+      path,
+      changed_status: status,
+      direct_changed_source_imports: directChangedImports,
+      unique_value_evidence: {
+        changed_source_imports_unique_to_test: [],
+        test_labels_unique_to_test: [],
+      },
+      cost_signals: {
+        lines: lineCount(content),
+        bytes: Buffer.byteLength(content),
+        test_cases: labels.length,
+        assertions: countMatches(content, /\b(?:expect|assert(?:\.[A-Za-z]+|[A-Z][A-Za-z]+)?)\s*\(/g),
+        mock_or_fake_mentions: countMatches(content, /\b(?:mock|spyOn|stub|fake)\b/gi),
+        time_or_concurrency_mentions: countMatches(content, /\b(?:setTimeout|Date\.now|sleep|concurrent|parallel|thread|worker)\b/g),
+        changed_with_imported_source: status !== "unchanged" && directChangedImports.length > 0,
+        exact_content_duplicate_paths: [],
+        runtime: { status: "unavailable", milliseconds: null },
+      },
+      recommendation: { action: "further_investigation", reasons: [] },
+      labels,
+      content_hash: sha256(content),
+      relevant: status !== "unchanged" || directChangedImports.length > 0,
+    }
+  })
+
+  const importFrequency = frequency(records.flatMap((record) => record.direct_changed_source_imports))
+  const labelFrequency = frequency(records.flatMap((record) => record.labels))
+  const contentGroups = groupBy(records, (record) => record.content_hash)
+  const relevantRecords = records.filter((record) => record.relevant)
+  const classifiedPath = classification != null && relevantRecords.length === 1
+    ? relevantRecords[0].path
+    : null
+
+  for (const record of records) {
+    record.unique_value_evidence.changed_source_imports_unique_to_test =
+      record.direct_changed_source_imports.filter((path) => importFrequency.get(path) === 1)
+    record.unique_value_evidence.test_labels_unique_to_test =
+      record.labels.filter((label) => labelFrequency.get(label) === 1).sort()
+    record.cost_signals.exact_content_duplicate_paths =
+      (contentGroups.get(record.content_hash) ?? [])
+        .map((item) => item.path)
+        .filter((path) => path !== record.path)
+        .sort()
+    record.recommendation = recommendationFor(
+      record,
+      record.path === classifiedPath ? classification : undefined,
+    )
+  }
+
+  return relevantRecords
+    .sort((left, right) => left.path.localeCompare(right.path))
+}
+
+function recommendationFor(
+  test: TestMetadata,
+  classification?: Classification,
+): TestMetadata["recommendation"] {
+  if (test.cost_signals.exact_content_duplicate_paths.length > 0) {
+    return {
+      action: "further_investigation",
+      reasons: ["exact tracked content duplication is a lead only; authority and semantic unique value remain unresolved"],
+    }
+  }
+  if (!classification) {
+    return {
+      action: "further_investigation",
+      reasons: ["escaped-defect or failing-test classification is unresolved"],
+    }
+  }
+  if (classification === "outdated_contract_or_assertion") {
+    return { action: "replace", reasons: ["provided classification says the encoded contract or assertion is obsolete"] }
+  }
+  if (classification === "implementation_coupled_change_detector") {
+    return { action: "replace", reasons: ["provided classification requires a public behavior oracle or deletion review"] }
+  }
+  if (classification === "mock_or_fake_isolation_distortion") {
+    return { action: "replace", reasons: ["provided classification requires a faithful contract or integration boundary"] }
+  }
+  if (classification === "flake_or_infrastructure") {
+    return { action: "further_investigation", reasons: ["provided classification requires signal isolation before behavior changes"] }
+  }
+  return {
+    action: "strengthen",
+    reasons: [`provided classification ${classification} requires stronger authoritative detection evidence`],
+  }
+}
+
+function readImportEdges(candidate: string, candidatePaths: string[], pathSet: Set<string>): ImportEdge[] {
+  const packageRoots = new Map<string, string>()
+  for (const packagePath of candidatePaths.filter((path) => path.endsWith("/package.json"))) {
+    try {
+      const value = JSON.parse(git(["show", `${candidate}:${packagePath}`])) as { name?: unknown }
+      if (typeof value.name === "string") packageRoots.set(value.name, posix.dirname(packagePath))
+    } catch {
+      continue
+    }
+  }
+  const result = spawnSync("git", [
+    "grep",
+    "-n",
+    "-I",
+    "-E",
+    "from|import|require\\(",
+    candidate,
+    "--",
+    "*.ts",
+    "*.tsx",
+    "*.mts",
+    "*.cts",
+    "*.js",
+    "*.jsx",
+    "*.mjs",
+    "*.cjs",
+  ], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
+  if (result.status !== 0 && result.status !== 1) {
+    throw new Error(result.stderr.trim() || "git grep failed")
+  }
+  const edges: ImportEdge[] = []
+  const prefix = `${candidate}:`
+  for (const line of result.stdout.split("\n")) {
+    if (!line.startsWith(prefix)) continue
+    const remainder = line.slice(prefix.length)
+    const pathEnd = remainder.indexOf(":")
+    const lineEnd = remainder.indexOf(":", pathEnd + 1)
+    if (pathEnd < 0 || lineEnd < 0) continue
+    const importer = remainder.slice(0, pathEnd)
+    const source = remainder.slice(lineEnd + 1)
+    for (const specifier of importSpecifiers(source)) {
+      const target = resolveImport(importer, specifier, pathSet, packageRoots)
+      if (target) edges.push({ importer, target, specifier })
+    }
+  }
+  return edges.sort((left, right) =>
+    left.importer.localeCompare(right.importer)
+    || left.target.localeCompare(right.target)
+    || left.specifier.localeCompare(right.specifier))
+}
+
+function importSpecifiers(source: string): string[] {
+  const values: string[] = []
+  const pattern = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s*)["']([^"']+)["']/g
+  for (const match of source.matchAll(pattern)) values.push(match[1])
+  return values
+}
+
+function resolveImport(
+  importer: string,
+  specifier: string,
+  pathSet: Set<string>,
+  packageRoots: Map<string, string>,
+): string | undefined {
+  let base: string | undefined
+  if (specifier.startsWith(".")) {
+    base = posix.normalize(posix.join(posix.dirname(importer), specifier))
+  } else if (/^(?:modules|scripts|src)\//.test(specifier)) {
+    base = specifier
+  } else {
+    const packageName = [...packageRoots.keys()]
+      .sort((left, right) => right.length - left.length)
+      .find((name) => specifier === name || specifier.startsWith(`${name}/`))
+    if (packageName) {
+      const suffix = specifier.slice(packageName.length).replace(/^\//, "")
+      base = posix.join(packageRoots.get(packageName)!, suffix)
+    }
+  }
+  if (!base) return undefined
+  return importExtensions.map((extension) => `${base}${extension}`).find((path) => pathSet.has(path))
+}
+
+function readPackageScripts(candidate: string, owner: string, pathSet: Set<string>): string[] {
+  const path = `${owner}/package.json`
+  if (!pathSet.has(path)) return []
+  try {
+    const value = JSON.parse(git(["show", `${candidate}:${path}`])) as { scripts?: unknown }
+    if (!value.scripts || typeof value.scripts !== "object" || Array.isArray(value.scripts)) return []
+    return Object.keys(value.scripts).sort()
+  } catch {
+    return []
+  }
+}
+
+function isEntrypoint(owner: string, path: string): boolean {
+  if (!(path === owner || path.startsWith(`${owner}/`))) return false
+  return /\/src\/(?:scripts\/)?main\.[^.]+$/.test(path)
+    || /\/src\/index\.[^.]+$/.test(path)
+    || /\/(?:bin|cli)\.[^.]+$/.test(path)
+}
+
+function isSourcePath(path: string): boolean {
+  return sourceExtensions.some((extension) => path.endsWith(extension)) && !isTestPath(path)
+}
+
+function isTestPath(path: string): boolean {
+  return /(?:^|\/)(?:test|tests|test-support)(?:\/|$)/.test(path)
+    || /\.(?:test|spec)\.[^.]+$/.test(path)
+    || /(?:^|\/)test_[^/]+\.py$/.test(path)
+    || /(?:^|\/)[^/]+_test\.go$/.test(path)
+}
+
+function testLabels(content: string): string[] {
+  const labels: string[] = []
+  for (const match of content.matchAll(/\b(?:test|it)\s*\(\s*["'`]([^"'`]+)["'`]/g)) {
+    labels.push(match[1])
+  }
+  return labels.sort()
+}
+
+function countMatches(content: string, pattern: RegExp): number {
+  return [...content.matchAll(pattern)].length
+}
+
+function lineCount(content: string): number {
+  if (content.length === 0) return 0
+  return content.endsWith("\n") ? content.split("\n").length - 1 : content.split("\n").length
+}
+
+function frequency(values: string[]): Map<string, number> {
+  const result = new Map<string, number>()
+  for (const value of values) result.set(value, (result.get(value) ?? 0) + 1)
+  return result
+}
+
+function groupBy<T>(values: T[], key: (value: T) => string): Map<string, T[]> {
+  const result = new Map<string, T[]>()
+  for (const value of values) {
+    const bucket = result.get(key(value)) ?? []
+    bucket.push(value)
+    result.set(key(value), bucket)
+  }
+  return result
+}
+
+function groupImporters(edges: ImportEdge[]): Map<string, string[]> {
+  const result = new Map<string, string[]>()
+  for (const edge of edges) {
+    const importers = result.get(edge.target) ?? []
+    importers.push(edge.importer)
+    result.set(edge.target, importers)
+  }
+  for (const [target, importers] of result) result.set(target, [...new Set(importers)].sort())
+  return result
+}
+
+function countActions(tests: TestMetadata[]): Record<string, number> {
+  const result: Record<string, number> = {}
+  for (const test of tests) {
+    const action = test.recommendation.action
+    result[action] = (result[action] ?? 0) + 1
+  }
+  return Object.fromEntries(Object.entries(result).sort(([left], [right]) => left.localeCompare(right)))
+}
+
+function stripPrivateTestFields(test: TestMetadata): Omit<TestMetadata, "labels" | "content_hash"> {
+  const {
+    labels: _labels,
+    content_hash: _contentHash,
+    relevant: _relevant,
+    ...publicFields
+  } = test as TestMetadata & { relevant?: boolean }
+  return publicFields
+}
+
+function publicChange(change: Change): Change {
+  return change.previous_path
+    ? { status: change.status, path: change.path, previous_path: change.previous_path }
+    : { status: change.status, path: change.path }
+}
+
+function question(id: string, prompt: string): { id: string; prompt: string; status: "unanswered"; answer: null } {
+  return { id, prompt, status: "unanswered", answer: null }
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex")
+}
+
+function isRepositoryRelative(value: string): boolean {
+  return value.length > 0
+    && !value.startsWith("/")
+    && !value.includes("\\")
+    && posix.normalize(value) === value
+    && value !== ".."
+    && !value.startsWith("../")
+}
+
+function isFullObjectId(value: string): boolean {
+  return /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value)
+}
+
+function portableMessage(message: string): string {
+  const root = process.cwd().replaceAll("\\", "/")
+  return message.replaceAll(root, ".").replaceAll("\\", "/")
+}
+
+function git(args: string[]): string {
+  const result = spawnSync("git", args, {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  })
+  if (result.status !== 0) {
+    throw new Error(result.stderr.trim() || `git ${args[0]} failed`)
+  }
+  return result.stdout
+}

@@ -52,7 +52,7 @@ last_verified: 2026-07-31 CST
 | `ts-architecture-boundary` | repo root | `bun scripts/check-ts-tool-boundaries.ts` | 静态 package 边界、module-local lockfile、禁止动态逃逸 / eval、跨 package dependency cycle |
 | `secret-scan` | repo root | `bun scripts/check-secrets.ts` | tracked / unignored provider token、非空 SiliconFlow assignment 与 literal bearer credential |
 | `doc-contract-check` | repo root | `bun scripts/check-doc-contracts.ts` | docs 根目录与 owner 目录、文档元数据、current index、ID/implementation ref、仓库 Markdown 本地链接边界、历史状态及 risk Guard ID 对齐 |
-| `workspace-skill-check` | repo root | `sh scripts/check-workspace-skills.sh` | project-local skill 命名、frontmatter、placeholder 与领域实现边界 |
+| `workspace-skill-check` | repo root | `sh scripts/check-workspace-skills.sh` | project-local skill 命名、frontmatter、placeholder、领域实现边界与 skill helper regression |
 | `architecture-manifest-check` | repo root | `bun scripts/check-architecture-manifest.ts` | 顶层域 / job / store / rail 与真实目录、DDL、protocol schema 对齐；module marker 必须有 CONTRACT，TypeScript module 必须有 tsconfig/package |
 | `storage-schema-check` | repo root | `bun scripts/check-storage-schemas.ts` | logical store DDL 可执行，且 manifest 声明表真实创建 |
 | `trade-flow-typecheck` | `modules/orchestration-ops/trade-flow` | `bun run typecheck` | TS 类型与未使用变量 |

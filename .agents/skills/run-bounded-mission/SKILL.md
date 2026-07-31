@@ -146,6 +146,12 @@ Delivery: prerequisites for the frozen endpoint without adding authority
 Fallback: first conditions forcing revise, replan, reframe, or blocked
 ```
 
+When a failing test can change the candidate, an escaped defect shows that existing tests missed
+required behavior, or the Plan may refactor tests, load
+[test effectiveness governance](references/test-effectiveness-governance.md) before mutation.
+Resolve contract and consumer authority before treating a test as an oracle. Never degrade
+production behavior merely to satisfy an unclassified or obsolete test.
+
 Resolve reuse before new implementation: existing behavior, direct reuse, thin adapter, bounded
 adaptation, then evidence-backed new responsibility. For every non-mechanical Plan that would add,
 replace, or materially redesign responsibility, presume public prior art can change the path until
@@ -279,6 +285,13 @@ Verify one identified, complete candidate against the frozen Frame and admitted 
 
 Tests, static checks, documents, and packages support acceptance unless they are the frozen consumer.
 Candidate-caused architecture or authority violations are material failures.
+
+For an escaped defect or a disputed test oracle, apply the authority, failure classification,
+escaped-defect review, and test restructuring predicates in
+[test effectiveness governance](references/test-effectiveness-governance.md). A green suite cannot
+close an unexercised consumer, and a red test cannot override a compatible higher-authority contract.
+Any separate Refactor Mission remains governed after `accept` by
+[Refactor Mission proposals](references/refactor-mission-proposal.md).
 
 Classify each material failure before correction. A localized implementation error may route to
 `revise`; a wrong owner, path, responsibility boundary, candidate shape, acceptance proxy, or added
