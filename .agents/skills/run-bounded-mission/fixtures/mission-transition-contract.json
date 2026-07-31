@@ -1,0 +1,65 @@
+{
+  "contract_version": 1,
+  "scenarios": [
+    {
+      "name": "normal-accept",
+      "events": ["frame-complete", "plan-admitted", "candidate-ready", "verify-pass", "accept"],
+      "expected_terminal": "accepted",
+      "expected_mutations": 1
+    },
+    {
+      "name": "verify-revise-accept",
+      "events": ["frame-complete", "plan-admitted", "candidate-ready", "verify-fail-local", "revise", "candidate-ready", "verify-pass", "accept"],
+      "expected_terminal": "accepted",
+      "expected_mutations": 2
+    },
+    {
+      "name": "verify-replan-accept",
+      "events": ["frame-complete", "plan-admitted", "candidate-ready", "verify-fail-design", "replan", "plan-admitted", "candidate-ready", "verify-pass", "accept"],
+      "expected_terminal": "accepted",
+      "expected_mutations": 2
+    },
+    {
+      "name": "scope-expansion-reframe",
+      "events": ["frame-complete", "plan-admitted", "scope-expanded", "reframe", "frame-complete", "plan-admitted", "candidate-ready", "verify-pass", "accept"],
+      "expected_terminal": "accepted",
+      "expected_mutations": 1
+    },
+    {
+      "name": "continuous-nonconvergence-blocked",
+      "events": ["frame-complete", "plan-admitted", "candidate-ready", "verify-fail-local", "revise", "candidate-ready", "verify-fail-design", "replan", "plan-admitted", "candidate-ready", "verify-fail-design", "blocked"],
+      "expected_terminal": "blocked",
+      "expected_mutations": 3
+    },
+    {
+      "name": "context-recovery",
+      "events": ["frame-complete", "plan-admitted", "candidate-ready", "context-lost", "recover-exact", "verify-pass", "accept"],
+      "expected_terminal": "accepted",
+      "expected_mutations": 1
+    },
+    {
+      "name": "frame-ambiguity-blocked",
+      "events": ["frame-ambiguity", "evidence-attempt", "evidence-attempt", "evidence-exhausted", "blocked"],
+      "expected_terminal": "blocked",
+      "expected_mutations": 0
+    },
+    {
+      "name": "blocked-context-recovery",
+      "events": ["frame-complete", "plan-admitted", "candidate-ready", "verify-fail-design", "blocked", "context-lost", "recover-exact", "resume-blocker-removed", "plan-admitted", "candidate-ready", "verify-pass", "accept"],
+      "expected_terminal": "accepted",
+      "expected_mutations": 2
+    },
+    {
+      "name": "user-override-before-mutation",
+      "events": ["user-override-cancel"],
+      "expected_terminal": "cancelled",
+      "expected_mutations": 0
+    },
+    {
+      "name": "user-override-discard",
+      "events": ["frame-complete", "plan-admitted", "candidate-ready", "user-override-discard"],
+      "expected_terminal": "cancelled",
+      "expected_mutations": 1
+    }
+  ]
+}
