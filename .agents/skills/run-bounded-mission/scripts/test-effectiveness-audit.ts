@@ -323,7 +323,6 @@ function resolveRevision(requested: string): Revision {
 
 function readChanges(origin: string, candidate: string, scope?: string): Change[] {
   const args = ["diff", "--name-status", "-z", "--find-renames", origin, candidate, "--"]
-  if (scope) args.push(scope)
   const fields = git(args).split("\0")
   const changes: Change[] = []
   for (let index = 0; index < fields.length && fields[index];) {
@@ -336,7 +335,10 @@ function readChanges(origin: string, candidate: string, scope?: string): Change[
       changes.push({ status, path: fields[index++] })
     }
   }
-  return changes.sort((left, right) => left.path.localeCompare(right.path))
+  return changes
+    .filter((change) => scope == null || ownershipPaths(change)
+      .some((path) => path === scope || path.startsWith(`${scope}/`)))
+    .sort((left, right) => left.path.localeCompare(right.path))
 }
 
 function readTree(candidate: string, scope?: string): string[] {
@@ -520,7 +522,7 @@ function resolveImport(
       const suffix = specifier.slice(packageName.length).replace(/^\//, "")
       base = posix.join(packageRoots.get(packageName)!, suffix)
     } else {
-      base = specifier
+      return undefined
     }
   }
   if (!base) return undefined

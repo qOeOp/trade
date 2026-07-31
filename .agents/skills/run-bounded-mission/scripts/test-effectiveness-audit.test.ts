@@ -190,7 +190,7 @@ describe("test-effectiveness audit", () => {
     })
   })
 
-  test("attributes a cross-owner rename to both revision owners", () => {
+  test("attributes a cross-owner rename to both revision owners within either scope", () => {
     const root = mkdtempSync(join(tmpdir(), "test-effectiveness-rename-"))
     temporaryRepositories.push(root)
     git(root, ["init", "--quiet"])
@@ -203,32 +203,64 @@ describe("test-effectiveness audit", () => {
     )
     const candidate = commit(root, "move source between owners")
 
-    const result = audit(root, [
+    for (const scope of [undefined, "workspace/alpha", "workspace/beta"]) {
+      const result = audit(root, [
+        "--origin", origin,
+        "--candidate", candidate,
+        "--owner-root", "workspace/alpha",
+        "--owner-root", "workspace/beta",
+        ...(scope ? ["--scope", scope] : []),
+      ])
+      expect(result.status).toBe(0)
+      const evidence = JSON.parse(result.stdout)
+      expect(evidence.affected_owners.map((owner: { owner: string }) => owner.owner)).toEqual([
+        "workspace/alpha",
+        "workspace/beta",
+      ])
+      expect(evidence.affected_owners[0]).toMatchObject({
+        owner: "workspace/alpha",
+        changed_source_paths: [],
+        changes: [{
+          status: "R100",
+          previous_path: "workspace/alpha/src/value.ts",
+          path: "workspace/beta/src/value.ts",
+        }],
+      })
+      expect(evidence.affected_owners[1]).toMatchObject({
+        owner: "workspace/beta",
+        changed_source_paths: ["workspace/beta/src/value.ts"],
+      })
+      expect(evidence.unowned_changes).toEqual([])
+    }
+  })
+
+  test("does not resolve an external bare package to a coincidental repository path", () => {
+    const fixture = createFixture()
+    write(fixture.root, "config/index.ts", "export const internalConfig = 1\n")
+    write(fixture.root, "apps/example/calc/src/external-config.test.ts", [
+      'import { expect, test } from "bun:test"',
+      'import config from "config"',
+      'test("uses the external package", () => expect(config).toBeDefined())',
+      "",
+    ].join("\n"))
+    const origin = commit(fixture.root, "add coincidental path and external import")
+    write(fixture.root, "config/index.ts", "export const internalConfig = 2\n")
+    const candidate = commit(fixture.root, "change coincidental repository path")
+
+    const result = audit(fixture.root, [
       "--origin", origin,
       "--candidate", candidate,
-      "--owner-root", "workspace/alpha",
-      "--owner-root", "workspace/beta",
+      "--owner-root", "config",
+      "--owner-root", "apps/example/calc",
     ])
     expect(result.status).toBe(0)
     const evidence = JSON.parse(result.stdout)
-    expect(evidence.affected_owners.map((owner: { owner: string }) => owner.owner)).toEqual([
-      "workspace/alpha",
-      "workspace/beta",
-    ])
-    expect(evidence.affected_owners[0]).toMatchObject({
-      owner: "workspace/alpha",
-      changed_source_paths: [],
-      changes: [{
-        status: "R100",
-        previous_path: "workspace/alpha/src/value.ts",
-        path: "workspace/beta/src/value.ts",
-      }],
+    expect(evidence.summary).toMatchObject({
+      affected_owners: 1,
+      candidate_tests: 0,
+      no_direct_static_candidate_evidence: true,
     })
-    expect(evidence.affected_owners[1]).toMatchObject({
-      owner: "workspace/beta",
-      changed_source_paths: ["workspace/beta/src/value.ts"],
-    })
-    expect(evidence.unowned_changes).toEqual([])
+    expect(evidence.affected_owners.map((owner: { owner: string }) => owner.owner)).toEqual(["config"])
   })
 
   test("reports deleted tests as origin-review uncertainty", () => {

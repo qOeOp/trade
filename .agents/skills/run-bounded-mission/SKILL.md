@@ -1,6 +1,6 @@
 ---
 name: run-bounded-mission
-description: "Run a compact Frame, Plan, Execute, Verify, Finalize workflow. Use when the user explicitly invokes $run-bounded-mission or clearly requests this mission workflow; explicit invocation wins even for otherwise excluded request types. Also use when repository instructions require it for non-trivial implementation or delivery. Without explicit invocation or a repository requirement, do not use it. Never auto-trigger for answer-only, explanation, audit, diagnose-only, mechanical edits, routine status, task creation, or internal subtasks."
+description: "Run a compact Frame, Plan, Execute, Verify, Finalize workflow. Use when the user explicitly invokes $run-bounded-mission or clearly requests this mission workflow; explicit invocation wins even for otherwise excluded request types. Also use when repository instructions require it for non-trivial implementation or delivery, and for a later commit, push, pull-request, or merge turn that continues a candidate produced under this workflow. Otherwise do not auto-trigger for answer-only, explanation, audit, diagnose-only, mechanical edits, routine status, task creation, or internal subtasks."
 ---
 
 # Run Bounded Mission
@@ -171,6 +171,9 @@ a lifecycle ledger.
 
 For local-only work, leave the verified diff recoverable and do not commit or publish it. For an
 authorized remote endpoint, publish only the verified candidate and observe the resulting state.
+Treat later authority to commit, push, open a pull request, or merge the preserved candidate as the
+same Mission's Finalize; reload this skill instead of replacing its delivery barriers with a generic
+publication workflow.
 When the endpoint includes a GitHub pull request, load
 [GitHub delivery](references/github-pr-handoff.md) before publication or merge.
 After two or more accepted Missions, load

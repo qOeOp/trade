@@ -37,8 +37,12 @@ bun .agents/skills/run-bounded-mission/scripts/test-effectiveness-audit.ts \
   下列命令从该 commit 读取 helper 源码，可重放历史 stdout identity：
 
 ```bash
-git show 74add3e06da0904c3226b7abe66e892e3538b20c:.agents/skills/run-bounded-mission/scripts/test-effectiveness-audit.ts |
-  bun - \
+set -o pipefail
+replay_dir="$(mktemp -d "${TMPDIR:-/tmp}/test-effectiveness-audit.XXXXXX")"
+trap 'rm -r "$replay_dir"' EXIT
+git show 74add3e06da0904c3226b7abe66e892e3538b20c:.agents/skills/run-bounded-mission/scripts/test-effectiveness-audit.ts \
+  > "$replay_dir/test-effectiveness-audit.ts"
+bun "$replay_dir/test-effectiveness-audit.ts" \
     --origin 149d338550f2769c2d346bdf62ba3a92ddba6751 \
     --candidate 457a98c29434e0774a0ff30d02f09c5518851b6f \
     --scope modules/orchestration-ops/trade-flow |
