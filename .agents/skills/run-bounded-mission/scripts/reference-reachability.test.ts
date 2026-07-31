@@ -14,6 +14,7 @@ const helperFiles = readdirSync(import.meta.dir)
   .map((name) => join(import.meta.dir, name))
   .sort()
 const helperOwners = new Map([
+  ["evaluator-capability-check.ts", "reviewer-handoff.md"],
   ["git-path-history.py", "SKILL.md"],
   ["mission-impact-evidence.ts", "refactor-mission-proposal.md"],
   ["test-effectiveness-audit.ts", "test-effectiveness-governance.md"],
