@@ -126,7 +126,7 @@ Prior art: search exemption or adopt, adapt, reference, or build decision with d
 Shape: responsibility added, retained, and deleted; structural kill conditions
 Execution: coherent implementation slices and one writable integrator
 Support: activated read-only lanes, packets, dependencies, and branch Stops
-Verification: real-consumer exercise, authoritative regressions, and evaluator predicates
+Verification: real-consumer exercise, authoritative regressions, evaluator predicates, and isolation
 Delivery: prerequisites for the frozen endpoint without adding authority
 Fallback: first conditions forcing revise, replan, reframe, or blocked
 ```
@@ -173,6 +173,13 @@ Activate support only when its Frame predicate is observed:
 - admit an independent evaluator predicate for governance or authority-sensitive candidates,
   high-impact failure modes, conflicting evidence, candidate-controlled oracles, and changes to
   instructions, skills, agent definitions, discovery paths, or the judge.
+
+For every evaluator predicate, freeze one risk lens, the planned launch context, its instruction
+origin and automatic discovery boundary, and the evidence that the candidate cannot control them.
+Fresh context and a read-only sandbox do not establish independence when startup can discover the
+candidate checkout. Before admitting the Plan, verify that the host can provide the planned isolation.
+If it cannot, choose another verification design or record independence as unavailable; do not
+mutate on a Plan whose required acceptance cannot be executed.
 
 Select a planning method before constructing any method-bearing support packet:
 
@@ -257,6 +264,15 @@ Use [reviewer handoff](references/reviewer-handoff.md) when an evaluator predica
 matches the identified candidate. Do not launch one for ceremony. Launch a fresh evaluator for a
 governance or authority-sensitive candidate, high-impact failure mode, conflicting evidence, or a
 candidate-controlled oracle. Give each evaluator one non-duplicated risk lens; reviewers do not vote.
+
+Before dispatch, exact-match the packet's Frame identity, Plan identity, activation predicate, risk
+lens, candidate identity, planned launch context, instruction origin, automatic discovery boundary,
+and isolation evidence to the frozen values, then recheck that the observed host context still
+satisfies them. Missing or mismatched bindings, or isolation that is already known to fail, are
+verification design failures: do not launch the evaluator; return to Plan. If unexpected context
+drift is observed only after launch, the evaluator returns `unsupported` and the mission returns to
+Plan. If no independent context is available within Authority and Stop, choose `blocked`; never
+weaken Acceptance.
 
 When a candidate changes instructions, skills, agent definitions, discovery paths, or the judge,
 launch independent review from the immutable Origin or a neutral context that cannot discover the

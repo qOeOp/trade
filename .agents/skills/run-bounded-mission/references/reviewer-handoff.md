@@ -11,6 +11,13 @@ and reviewer policy cannot be changed by the candidate. When the candidate chang
 skill, agent definition, or discovery path, do not launch from its checkout; if candidate instruction
 discovery cannot be excluded and verified, return `unsupported`.
 
+Before dispatch, the main agent must exact-match the Frame identity, admitted Plan identity,
+activation predicate, risk lens, candidate identity, planned launch context, instruction origin,
+automatic discovery boundary, and isolation evidence to the frozen values, then recheck that the
+observed host context still satisfies them. Fresh context or read-only authority alone is
+insufficient. Do not dispatch an incomplete or mismatched packet, or a reviewer already known to
+start from candidate-controlled discovery; return to Plan instead.
+
 Report only mission-attributable, demonstrated consumer or contract failures or acceptance risks.
 Classify whether the cause is local to the candidate, invalidates the admitted Plan, or invalidates a
 frozen Frame field. Use supplied origin or change evidence when available to distinguish those causes
@@ -40,6 +47,12 @@ Admitted Plan
 - affected-boundary closure and compatible stop evidence:
 - evaluator activation predicate:
 
+Isolation
+- planned launch context:
+- instruction origin:
+- automatic discovery boundary:
+- evidence candidate cannot control reviewer policy:
+
 Candidate
 - origin identity:
 - candidate identity:
@@ -53,7 +66,6 @@ Evidence
 
 Review
 - independent risk lens:
-- instruction origin and discovery boundary:
 - required inspected scope:
 - stop condition:
 
@@ -63,6 +75,10 @@ Return
 - plan_identity:
 - activation_predicate:
 - candidate_identity:
+- observed_launch_context:
+- instruction_origin:
+- discovery_boundary:
+- isolation_status: supported | unsupported
 - acceptance_results: signal, pass | fail | unverified, direct evidence
 - findings: severity (blocking | important | nit), failure_class (candidate_local | plan_failure |
   frame_failure), bounded causal claim, location, validation evidence, next action
