@@ -417,7 +417,7 @@ function readImportEdges(candidate: string, candidatePaths: string[], pathSet: S
       const value = JSON.parse(git(["show", `${candidate}:${packagePath}`])) as { name?: unknown }
       if (typeof value.name === "string") packageRoots.set(value.name, posix.dirname(packagePath))
     } catch {
-      continue
+      // Malformed package manifests do not contribute import aliases.
     }
   }
   const result = spawnSync("git", [

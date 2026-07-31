@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 
 const helperPath = resolve(import.meta.dir, "git-path-history.py")
-const python = Bun.which("python3") ?? Bun.which("python")
+const python = Bun.which("python3") ?? Bun.which("python") ?? ""
 if (!python) throw new Error("python3 or python is required")
 
 const temporaryRepositories: string[] = []

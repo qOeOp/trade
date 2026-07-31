@@ -8,6 +8,13 @@ cd "$ROOT"
 skills_root=.agents/skills
 [ -d "$skills_root" ] || exit 0
 
+typescript_compiler=node_modules/.bin/tsc
+if [ ! -x "$typescript_compiler" ]; then
+  printf 'workspace-skill: TypeScript compiler is required: %s\n' "$typescript_compiler" >&2
+  exit 1
+fi
+"$typescript_compiler" --project .agents/tsconfig.json
+
 skill_count=0
 for skill_dir in "$skills_root"/*; do
   [ -d "$skill_dir" ] || continue
