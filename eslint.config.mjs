@@ -12,7 +12,7 @@ export default defineConfig(
     ],
   },
   {
-    files: ["apps/**/*.ts", "scripts/**/*.ts"],
+    files: [".agents/skills/*/scripts/**/*.ts", "apps/**/*.ts", "scripts/**/*.ts"],
     extends: [
       js.configs.recommended,
       tseslint.configs.recommended,
