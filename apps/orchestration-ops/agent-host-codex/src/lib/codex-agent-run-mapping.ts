@@ -11,8 +11,8 @@ import {
 type JSONRecord = Record<string, unknown>
 
 export const CODEX_APP_SERVER_BASELINE = {
-  cli_version: "codex-cli 0.144.6",
-  stable_schema_bundle_sha256: "ae3056d6bd8e634d67e96facee42b0bedba5d4a7b3a6f13ce22592a0aa7b68e2",
+  cli_version: "codex-cli 0.146.0",
+  stable_schema_bundle_sha256: "1a9a00c1ee35d44c8e04e92b394263544f90acaa7afe3c7023b08d9f0eb0d161",
   transport: "jsonl_stdio",
 } as const
 
