@@ -491,6 +491,34 @@ describe("test-effectiveness audit", () => {
     })
   })
 
+  test("fails closed when an exact tree-promised package manifest is missing", () => {
+    for (const branch of ["import-manifest", "package-scripts"] as const) {
+      const fixture = createFixture()
+      if (branch === "import-manifest") {
+        write(fixture.root, "apps/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
+      } else {
+        write(fixture.root, "apps/example/calc/CONTRACT.md", "# Updated Calculator Contract\n")
+      }
+      const candidate = commit(fixture.root, `change ${branch}`)
+      const packagePath = "apps/example/calc/package.json"
+      const object = git(fixture.root, ["rev-parse", `${candidate}:${packagePath}`]).trim()
+      rmSync(join(fixture.root, ".git/objects", object.slice(0, 2), object.slice(2)))
+
+      const result = audit(fixture.root, [
+        "--origin", fixture.origin,
+        "--candidate", candidate,
+        "--scope", "apps/example/calc",
+      ])
+      expect(result.status).not.toBe(0)
+      expect(JSON.parse(result.stderr)).toMatchObject({
+        error: {
+          code: "audit_failed",
+          message: expect.stringContaining(packagePath),
+        },
+      })
+    }
+  })
+
   test("attributes a cross-owner rename to both revision owners within either scope", () => {
     const root = mkdtempSync(join(tmpdir(), "test-effectiveness-rename-"))
     temporaryRepositories.push(root)

@@ -538,8 +538,9 @@ function readImportEdges(
 ): ImportAnalysis {
   const packageRoots = new Map<string, string>()
   for (const packagePath of candidatePaths.filter((path) => path.endsWith("/package.json"))) {
+    const content = git(["show", `${candidate}:${packagePath}`])
     try {
-      const value = JSON.parse(git(["show", `${candidate}:${packagePath}`])) as { name?: unknown }
+      const value = JSON.parse(content) as { name?: unknown }
       if (typeof value.name === "string") packageRoots.set(value.name, posix.dirname(packagePath))
     } catch {
       // Malformed package manifests do not contribute import aliases.
@@ -695,8 +696,9 @@ function resolveImport(
 function readPackageScripts(candidate: string, owner: string, pathSet: Set<string>): string[] {
   const path = `${owner}/package.json`
   if (!pathSet.has(path)) return []
+  const content = git(["show", `${candidate}:${path}`])
   try {
-    const value = JSON.parse(git(["show", `${candidate}:${path}`])) as { scripts?: unknown }
+    const value = JSON.parse(content) as { scripts?: unknown }
     if (!value.scripts || typeof value.scripts !== "object" || Array.isArray(value.scripts)) return []
     return Object.keys(value.scripts).sort()
   } catch {
