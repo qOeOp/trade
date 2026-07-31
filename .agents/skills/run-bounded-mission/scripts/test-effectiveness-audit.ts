@@ -93,6 +93,12 @@ interface TestMetadata {
 }
 
 const invocationDirectory = process.cwd()
+const gitEnvironment = Object.freeze({
+  ...process.env,
+  GIT_NO_LAZY_FETCH: "1",
+  GIT_TERMINAL_PROMPT: "0",
+  GIT_OPTIONAL_LOCKS: "0",
+})
 
 try {
   const args = parseArguments(process.argv.slice(2))
@@ -353,7 +359,10 @@ function resolveRevision(requested: string): Revision {
 
 function readChanges(origin: string, candidate: string, scope?: string): Change[] {
   const args = ["diff", "--name-status", "-z", "--find-renames", origin, candidate, "--"]
-  const result = spawnSync("git", args, { maxBuffer: 64 * 1024 * 1024 })
+  const result = spawnSync("git", args, {
+    env: gitEnvironment,
+    maxBuffer: 64 * 1024 * 1024,
+  })
   if (result.status !== 0) throw new Error(result.stderr.toString().trim() || "git diff failed")
   const rawFields = splitNull(result.stdout)
   let fields: string[]
@@ -387,7 +396,10 @@ function readChanges(origin: string, candidate: string, scope?: string): Change[
 function readTree(candidate: string, scope?: string): TreeEntry[] {
   const args = ["ls-tree", "-r", "-z", candidate]
   if (scope) args.push("--", scope)
-  const result = spawnSync("git", args, { maxBuffer: 64 * 1024 * 1024 })
+  const result = spawnSync("git", args, {
+    env: gitEnvironment,
+    maxBuffer: 64 * 1024 * 1024,
+  })
   if (result.status !== 0) throw new Error(result.stderr.toString().trim() || "git ls-tree failed")
   const decoder = new TextDecoder("utf-8", { fatal: true })
   const entries: TreeEntry[] = []
@@ -559,6 +571,7 @@ function readImportEdges(
 function readRevisionFiles(paths: string[], objects: Map<string, string>): Map<string, string> {
   if (paths.length === 0) return new Map()
   const result = spawnSync("git", ["cat-file", "--batch"], {
+    env: gitEnvironment,
     input: paths.map((path) => `${objects.get(path)!}\n`).join(""),
     maxBuffer: 256 * 1024 * 1024,
   })
@@ -803,6 +816,7 @@ function portableMessage(message: string): string {
 function git(args: string[]): string {
   const result = spawnSync("git", args, {
     encoding: "utf8",
+    env: gitEnvironment,
     maxBuffer: 64 * 1024 * 1024,
   })
   if (result.status !== 0) {
@@ -812,5 +826,5 @@ function git(args: string[]): string {
 }
 
 function gitObjectExists(object: string): boolean {
-  return spawnSync("git", ["cat-file", "-e", object]).status === 0
+  return spawnSync("git", ["cat-file", "-e", object], { env: gitEnvironment }).status === 0
 }

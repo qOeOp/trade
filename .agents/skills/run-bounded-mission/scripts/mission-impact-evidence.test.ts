@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test"
 import { createHash } from "node:crypto"
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
@@ -57,6 +57,62 @@ test("single-owner diff maps the canonical owner without inferring structural pr
   }])
   expect(report.reasons).toEqual([])
   expect(report.refactor_decision).toBeNull()
+})
+
+test("forces non-fetching non-interactive Git environment for every child process", () => {
+  const fixture = repositoryFixture(true)
+  writeFileSync(join(fixture.root, "workspace/alpha/src/index.ts"), "export const value = 2\n")
+  const head = commit(fixture.root, "mission a")
+  utimesSync(
+    join(fixture.root, "workspace/alpha/src/index.ts"),
+    new Date("2030-01-01T00:00:00Z"),
+    new Date("2030-01-01T00:00:00Z"),
+  )
+  const indexBefore = createHash("sha256")
+    .update(readFileSync(join(fixture.root, ".git/index")))
+    .digest("hex")
+  const fakeBin = mkdtempSync(join(tmpdir(), "mission-impact-fake-git-"))
+  roots.push(fakeBin)
+  const probe = join(fakeBin, "calls.log")
+  const fakeGit = join(fakeBin, "git")
+  writeFileSync(fakeGit, [
+    "#!/bin/sh",
+    'if [ "${GIT_NO_LAZY_FETCH-}" != "1" ]'
+      + ' || [ "${GIT_TERMINAL_PROMPT-}" != "0" ]'
+      + ' || [ "${GIT_OPTIONAL_LOCKS-}" != "0" ]; then',
+    "  exit 91",
+    "fi",
+    'printf "%s\\n" "$*" >> "$GIT_ENV_PROBE"',
+    'exec "$REAL_GIT" "$@"',
+    "",
+  ].join("\n"))
+  chmodSync(fakeGit, 0o755)
+
+  const result = helperProcess(
+    fixture.root,
+    fixture.base,
+    head,
+    ["workspace/alpha", "workspace/beta"],
+    {
+      PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+      REAL_GIT: Bun.which("git")!,
+      GIT_ENV_PROBE: probe,
+      GIT_NO_LAZY_FETCH: "0",
+      GIT_TERMINAL_PROMPT: "1",
+      GIT_OPTIONAL_LOCKS: "1",
+    },
+  )
+
+  expect(result.exitCode).toBe(0)
+  const calls = readFileSync(probe, "utf8").trim().split("\n")
+  expect(calls[0]).toBe("rev-parse --show-toplevel")
+  expect(calls).toContain(`merge-base --is-ancestor ${fixture.base} ${head}`)
+  expect(calls.some((call) => call.startsWith("ls-tree "))).toBe(true)
+  expect(calls.some((call) => call.startsWith("status "))).toBe(true)
+  const indexAfter = createHash("sha256")
+    .update(readFileSync(join(fixture.root, ".git/index")))
+    .digest("hex")
+  expect(indexAfter).toBe(indexBefore)
 })
 
 test("help and repository failures remain portable outside a Git checkout", () => {
@@ -229,6 +285,7 @@ function helperProcess(
   base: string,
   head: string,
   ownerRoots: string[],
+  environment: Record<string, string> = {},
 ): { exitCode: number; stdout: string; stderr: string } {
   const result = Bun.spawnSync([
     "bun",
@@ -242,6 +299,7 @@ function helperProcess(
     ...ownerRoots.flatMap((ownerRoot) => ["--owner-root", ownerRoot]),
   ], {
     cwd: root,
+    env: { ...process.env, ...environment },
     stdout: "pipe",
     stderr: "pipe",
   })

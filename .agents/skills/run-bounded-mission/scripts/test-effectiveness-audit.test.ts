@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 
@@ -87,6 +87,57 @@ describe("test-effectiveness audit", () => {
     expect(proposal.caveats).toContain(
       "A provided failure classification is context only and never selects a test action.",
     )
+  })
+
+  test("forces non-fetching non-interactive Git environment for every command family", () => {
+    const fixture = createFixture()
+    write(fixture.root, "apps/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
+    const candidate = commit(fixture.root, "change calculation")
+    const fakeBin = mkdtempSync(join(tmpdir(), "test-effectiveness-env-git-"))
+    temporaryRepositories.push(fakeBin)
+    const probe = join(fakeBin, "families.log")
+    const fakeGit = join(fakeBin, "git")
+    writeFileSync(fakeGit, [
+      "#!/bin/sh",
+      'if [ "${GIT_NO_LAZY_FETCH-}" != "1" ]'
+        + ' || [ "${GIT_TERMINAL_PROMPT-}" != "0" ]'
+        + ' || [ "${GIT_OPTIONAL_LOCKS-}" != "0" ]; then',
+      "  exit 92",
+      "fi",
+      'case "$1 $2" in',
+      '  "diff --name-status") family=diff ;;',
+      '  "ls-tree -r") family=ls-tree ;;',
+      '  "cat-file --batch") family=cat-file-batch ;;',
+      '  "cat-file -e") family=cat-file-e ;;',
+      '  *) family=generic ;;',
+      "esac",
+      'printf "%s\\n" "$family" >> "$GIT_ENV_PROBE"',
+      'exec "$REAL_GIT" "$@"',
+      "",
+    ].join("\n"))
+    chmodSync(fakeGit, 0o755)
+
+    const result = audit(fixture.root, [
+      "--origin", fixture.origin,
+      "--candidate", candidate,
+      "--owner-root", "apps/example/calc",
+    ], helperPath, {
+      PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+      REAL_GIT: Bun.which("git")!,
+      GIT_ENV_PROBE: probe,
+      GIT_NO_LAZY_FETCH: "0",
+      GIT_TERMINAL_PROMPT: "1",
+      GIT_OPTIONAL_LOCKS: "1",
+    })
+
+    expect(result.status).toBe(0)
+    expect(new Set(readFileSync(probe, "utf8").trim().split("\n"))).toEqual(new Set([
+      "diff",
+      "ls-tree",
+      "cat-file-batch",
+      "cat-file-e",
+      "generic",
+    ]))
   })
 
   test("runs an audit from a dependency-free helper copy", () => {

@@ -41,12 +41,19 @@ interface Reason {
 
 const invocationDirectory = process.cwd()
 let root = invocationDirectory
+const gitEnvironment = Object.freeze({
+  ...process.env,
+  GIT_NO_LAZY_FETCH: "1",
+  GIT_TERMINAL_PROMPT: "0",
+  GIT_OPTIONAL_LOCKS: "0",
+})
 
 function main(): void {
   const args = parseArguments(process.argv.slice(2))
   root = execFileSync("git", ["rev-parse", "--show-toplevel"], {
     cwd: invocationDirectory,
     encoding: "utf8",
+    env: gitEnvironment,
     stdio: ["ignore", "pipe", "pipe"],
   }).trim()
   const base = immutableCommit(args.base)
@@ -328,6 +335,7 @@ function git(args: string[]): string {
   return execFileSync("git", args, {
     cwd: root || process.cwd(),
     encoding: "utf8",
+    env: gitEnvironment,
     stdio: ["ignore", "pipe", "pipe"],
   })
 }
