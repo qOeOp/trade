@@ -320,14 +320,14 @@ function isCleanReview(body: string): boolean {
 async function main(): Promise<number> {
   const args = process.argv.slice(2)
   if (args.includes("--help")) {
-    console.log("usage: bun scripts/wait-pr-codex-review.ts <pr-number> [--once]")
+    console.log("usage: bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts <pr-number> [--once]")
     return 0
   }
   const once = args.includes("--once")
   const positional = args.filter((arg) => arg !== "--once")
   const number = Number(positional[0])
   if (positional.length !== 1 || !Number.isInteger(number) || number <= 0) {
-    console.error("usage: bun scripts/wait-pr-codex-review.ts <pr-number> [--once]")
+    console.error("usage: bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts <pr-number> [--once]")
     return 2
   }
 
