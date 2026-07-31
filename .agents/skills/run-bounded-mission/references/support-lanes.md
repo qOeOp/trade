@@ -55,10 +55,12 @@ retry fast, append protective fast queries, or generate sibling lanes around the
 Promote that same decision question once to `standard` with the unresolved evidence and a new bounded
 Stop. Preserve Origin, Frame, Authority, and consumed Stop; promotion does not widen the question or
 reset lifecycle evidence. Before Plan admission, high-assurance remains read-only support through an
-existing host capability; if the risk requires reviewer-handoff bindings, return control to the main
-Plan and do not launch an evaluator until an admitted Plan and candidate exist. After those bindings
-exist, launch at most the admitted independent evaluator for that lens. Unavailable independence or
-authority routes through the main Mission rather than another support loop.
+existing host capability; if the risk requires
+[reviewer-handoff bindings](reviewer-handoff.md), return control to the main Plan and do not launch an
+evaluator until an admitted Plan and candidate exist. After those bindings exist, launch at most the
+admitted independent evaluator for that lens. A fresh agent sharing a candidate-controlled checkout
+does not provide that isolation. Unavailable independence or authority routes through the main
+Mission rather than another support loop.
 
 ## Parallelize only independent evidence
 

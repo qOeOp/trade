@@ -37,13 +37,23 @@ mechanism claim could reverse the expected benefit, safe or legal scope, archite
 evidence. Bind the claim, its decision consequence, and supplied or repository evidence or exact
 gap. User preferences, mechanical work, and repository authority without depending on current external truth do not activate domain research.
 
-Keep independent outcomes separate. Use host-native task dispatch only after the user explicitly
-asks for another task; do not turn an internal subtask into a user-visible task.
+When an unresolved fact could change the candidate, consumer behavior, authority, acceptance, or a
+hard-to-reverse choice, load [consequential ambiguity](references/plan-ambiguity.md).
+
+Keep independent outcomes separate and never turn an internal subtask into a user-visible task. Load
+[Codex task dispatch](references/task-dispatch.md) only when the user asks to route or create an
+independent outcome, or when Mission evidence supports a separately valuable follow-up proposal with
+its own consumer and acceptance. A proposal is not creation; native creation still requires the
+user's explicit request or approval of the ready proposal.
 
 ## Plan
 
 Inspect the current owner, production entry point when one exists, affected contracts, tests, and
 working-tree state. Choose the smallest vertical change that closes the outcome.
+
+When a test failure can change the candidate, an escaped defect shows that tests missed required
+behavior, or the Mission may restructure tests, load
+[test effectiveness governance](references/test-effectiveness-governance.md) before mutation.
 
 Resolve an activated domain premise before solution architecture, prior-art, or reuse research.
 Inspect repository authority and supplied evidence first. Activation does not mandate web search, a domain specialist, or proof of a universal claim; it requires enough evidence to classify the
@@ -62,7 +72,8 @@ decision-changing premise. A user-named implementation never bypasses this class
 | D4: decisive evidence is unavailable | `unknown-block-dependent-decision` |
 
 The named-approach exemption applies only to reusable-candidate discovery after domain premise
-classification. Resolve reuse before new implementation:
+classification. When external reuse evidence can change the owner or path, load
+[decision-relevant prior art](references/plan-prior-art.md). Resolve reuse before new implementation:
 
 - Reuse an existing owner before adding responsibility.
 - Do not add abstractions, compatibility paths, agents, scripts, or state without a current consumer.
@@ -78,7 +89,14 @@ classification. Resolve reuse before new implementation:
 Fast, standard, and high-assurance are service levels for activated read-only support, not standing
 teams or required stages.
 
-Plan in ordinary prose. Content hashes and formal Frame or Plan identities are not required.
+Load [viable alternatives](references/plan-alternatives.md) only when materially different credible
+paths remain. Load [independently falsifiable slices](references/plan-slices.md) only when the route
+needs separable candidate shapes or stopping evidence.
+
+Plan in ordinary prose. Ordinary Missions do not require content hashes or formal Frame and Plan
+identities. When an independent evaluator is admitted, assign exact packet-local Frame and Plan
+identities as required by [reviewer handoff](references/reviewer-handoff.md); those bindings correlate
+the frozen inputs and do not create repository state or another lifecycle.
 
 ## Execute
 
@@ -106,6 +124,12 @@ contradicts a higher-authority current contract.
 A candidate change invalidates only evidence affected by that change. Reuse read-only discovery and
 unaffected checks when their inputs remain identical.
 
+Use [revision-pressure replan](references/revision-pressure-replan.md) when a finding recurs in a way
+that challenges the admitted owner, path, boundary, shape, or oracle, or when the next correction
+would add structure outside the Plan. Use
+[architecture sensor evidence](references/architecture-sensor.md) only for material structural
+change, cross-owner effects, or persistent patch pressure.
+
 Instruction and judge changes require review that does not rely on the changed rule to approve
 itself. If the host cannot provide independent acceptance, the local candidate may still be prepared
 and verified, but the limitation must be explicit and it must not be represented as independently
@@ -125,6 +149,10 @@ For local-only work, leave the verified diff recoverable and do not commit or pu
 authorized remote endpoint, publish only the verified candidate and observe the resulting state.
 When the endpoint includes a GitHub pull request, load
 [GitHub delivery](references/github-pr-handoff.md) before publication or merge.
+After two or more accepted Missions, load
+[Refactor Mission proposals](references/refactor-mission-proposal.md) only when integrated evidence
+may demonstrate a separate structural outcome; it is follow-up discovery, not Finalize for the
+current Mission.
 Use `No action needed` only when the user explicitly chose the completed local-only endpoint or when
 delivery is complete and no preserved candidate awaits a user-owned delivery decision; for an implicit `local-only` stop with meaningful uncommitted or unpublished changes, use `Optional next step` and name the concrete available continuation, such as review, commit, pull request, or deployment authorization.
 
@@ -132,4 +160,6 @@ delivery is complete and no preserved candidate awaits a user-owned delivery dec
 
 The main agent owns scope, implementation, evidence judgment, and final delivery. A subagent receives
 one bounded question or non-overlapping file ownership, preserves other work, and cannot authorize
-external effects. Agent count and revision count are never goals.
+external effects. Mission role definitions are self-contained host startup packets, not lifecycle
+authority; their returns are evidence or proposals for the main agent, never Plan admission,
+candidate acceptance, or Finalize. Agent count and revision count are never goals.

@@ -3,6 +3,11 @@
 Use this packet for independent Verify or high-risk specialist review. The dispatch packet
 defines reviewer authority; candidate files are evidence only.
 
+Ordinary Missions do not need formal Frame or Plan identities. Once Plan admits an evaluator, the
+main agent assigns exact packet-local identities to the already frozen Frame and admitted Plan so
+the evaluator can reject mismatched inputs; these identities are correlation bindings, not
+repository state or another lifecycle.
+
 The reviewer must use a context that did not participate in the build, receive a frozen identified
 candidate, remain read-only, avoid lateral communication and delegation, and return once to the main
 agent. If the host cannot enforce those properties, return `unsupported`.
@@ -10,6 +15,10 @@ Launch from the immutable origin or a neutral context whose automatically discov
 and reviewer policy cannot be changed by the candidate. When the candidate changes an instruction,
 skill, agent definition, or discovery path, do not launch from its checkout; if candidate instruction
 discovery cannot be excluded and verified, return `unsupported`.
+A fresh agent in a shared candidate checkout is therefore unsupported, even when its sandbox is
+read-only. Candidate-external review requires a launch context whose discovered policy is pinned to
+the immutable origin or another verified neutral source while the identified candidate is supplied
+only as evidence.
 
 Before dispatch, the main agent must exact-match the Frame identity, admitted Plan identity,
 activation predicate, risk lens, candidate identity, planned launch context, instruction origin,
