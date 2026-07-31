@@ -3,7 +3,7 @@ title: Quality Assurance System Contract
 role: engineering-contract
 status: active
 owner: engineering
-last_verified: 2026-07-30 CST
+last_verified: 2026-07-31 CST
 ---
 
 # Quality Assurance System Contract
@@ -131,7 +131,51 @@ required reviewer、CODEOWNER / last-push approval、repository variable 管理�
 
 不设置全仓覆盖率、函数复杂度或 LOC 的统一硬阈值。它们只能作为定位信号；只有与高价值行为、风险合同和已校准反例绑定后，才可升级为 owner gate。
 
-## 6. 迁移方案
+## 6. 测试有效性治理
+
+权威顺序是：冻结的用户结果与当前产品/runtime 合同 > 真实 production consumer 行为 >
+owner 与兼容跨 owner 合同 > 测试、fixture、mock、snapshot 和实现假设。测试是证据，不是
+最终判官。任何红灯在改变生产代码前必须先说明它主张的行为、上层 authority 和失败分类；
+禁止为了迎合未分类、错误或过期测试而劣化正确生产行为。绿灯同样不能替代未执行的 consumer。
+
+失败只归入一个有证据的主类；证据不足时保持 unresolved：
+
+| 类别 | 判定问题 |
+| --- | --- |
+| 真实行为回归 | 当前合同要求且 consumer 行为确已退化吗？ |
+| 过期合同/断言 | 测试是否仍主张已被当前合同替代的行为？ |
+| 实现耦合 change-detector | 测试是否只镜像调用顺序、私有结构或代码变换？ |
+| 场景缺口 | 关键状态、边界或序列是否从未执行？ |
+| oracle/断言缺口 | 场景执行后，断言能否区分正确与错误行为？ |
+| 选择/路由缺口 | 受影响 owner、consumer 或 path 是否没有被选中？ |
+| mock/fake 隔离失真 | double 是否偏离真实边界或隐藏 integration 行为？ |
+| 环境/并发/时间缺口 | 环境、顺序、并发、clock 或 timing 是否缺席？ |
+| flake/infra | 信号是否非确定或来自 harness/infrastructure？ |
+
+已有测试未发现缺陷时，必须在加测前回答：本应由哪层或 consumer 发现；为什么既有选择、
+场景、边界或 oracle 没发现；哪些相邻问题共享盲点；能否加强/替换已有测试；哪些旧测试因此
+冗余，以及什么独特价值证据阻止删除。禁止把“一个 bug 再加一个测试”当作默认结论。
+
+`.agents/skills/run-bounded-mission/scripts/test-effectiveness-audit.ts` 只接受两个完整
+40/64 位小写 Git commit hash，symbolic ref、缩写与 revision expression 均 fail closed；它只读
+diff 与 tracked test/source/`CONTRACT.md`/`package.json` 元数据，输出可审阅 JSON 提案。它
+不得执行测试或 mutation、估算 coverage、修改/删除测试、写数据库或签发 acceptance；静态
+import、名称、重复内容、规模、mock、时间/并发信号都只是调查线索。动作仅为
+`keep / strengthen / replace / lower_layer / delete_candidate / further_investigation`，其中
+`delete_candidate` 仍须人工证明没有独特行为价值；未找到 changed test 或 direct import 只能
+表述为 `no_direct_static_candidate_evidence`，不得改写成“没有测试”，transitive 与 deleted
+source 关系保持未知。
+
+只有同时满足以下条件才派发独立 Test Refactor Mission：动作集包含 replace、降层、删除候选
+或至少两项协调测试修改；当前合同与 consumer acceptance 可冻结不变；test-only candidate
+能与生产行为修复及其验收 authority 分离；预期价值、成本证据、affected owner 与 stopping
+evidence 已命名。局部权威回归测试可留在当前 Mission；authority 有争议或仍需改业务行为时
+回到 Plan/进一步调查。这些只是测试有效性 necessary signals，不产生派发 authority；独立
+Test Refactor Mission 还必须在 accept 后满足现有 `refactor-mission-proposal.md` 的至少两个
+已集成 accepted Missions、reachable evidence、结构原因、consumer、consent 与 native dispatch
+合同。
+
+## 7. 迁移方案
 
 迁移不提高 [Convergence Baseline](./convergence-baseline.json)，也不在普通开发 candidate 中修改 trust surface。
 
@@ -185,7 +229,7 @@ required reviewer、CODEOWNER / last-push approval、repository variable 管理�
 
 退出：质量表面积不增长，反馈更快，逃逸和误报可解释。
 
-## 7. 当前保留与明确不做
+## 8. 当前保留与明确不做
 
 当前应保留：
 
@@ -210,7 +254,7 @@ env -u BINANCE_API_KEY -u BINANCE_API_SECRET -u SILICONFLOW_API_KEY bun --no-env
 - 不让 Agent、workflow 或脚本同时成为 policy owner、executor 与最终 signer；
 - 不用自动 retry、baseline、批量 ignore 或降低标准隐藏既存债务。
 
-## 8. 外部基准
+## 9. 外部基准
 
 本方案采用以下原则，不照搬其组织结构：
 
@@ -219,3 +263,7 @@ env -u BINANCE_API_KEY -u BINANCE_API_SECRET -u SILICONFLOW_API_KEY bun --no-env
 - [GitHub Actions Secure Use](https://docs.github.com/en/actions/reference/security/secure-use)：最小权限、完整 commit SHA pin、避免不可信输入进入 workflow 解释；
 - [GitHub Dependency Review](https://docs.github.com/en/code-security/concepts/supply-chain-security/dependency-review)：在 PR 引入依赖时检查已知漏洞和依赖变化；
 - [SLSA Build Requirements v1.2](https://slsa.dev/spec/v1.2/build-requirements)：由 build platform 生成 provenance，并把 hosted、isolated、unforgeable 作为逐级能力，而不是让候选自签。
+- [Google Change-Detector Tests](https://testing.googleblog.com/2015/01/testing-on-toilet-change-detector-tests.html)：测试实现变换而非行为会同时制造漏检与维护成本。
+- [Google Long Term Effects of Mutation Testing](https://research.google/pubs/long-term-effects-of-mutation-testing/)：人工 fault 可作为探测缺口信号，但不自动授权全仓 mutation gate。
+- [pytest Flaky Tests](https://docs.pytest.org/en/stable/explanation/flaky.html)：状态隔离、顺序、并发、时间与过严断言需要和真实行为回归分开分类。
+- [Call Stack Coverage for Test Suite Reduction](https://www.cs.umd.edu/~atif/papers/McMasterMemonICSM2005-abstract.html)：suite reduction 会在成本与 fault detection 间产生权衡，重复信号本身不足以证明删除安全。
