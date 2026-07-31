@@ -251,6 +251,30 @@ describe("Codex opening review state", () => {
     expect(partialErrors.exitCode).toBe(1)
     expect(JSON.parse(partialErrors.stderr.toString()).reason)
       .toBe("GitHub query returned errors")
+
+    const emptyThread = runCli(null, {
+      pullRequest: pullRequestFixture(reactionNode("THUMBS_UP"), {
+        reviewThreads: connection([{ isResolved: false, comments: connection([]) }]),
+      }),
+    })
+    expect(emptyThread.exitCode).toBe(1)
+    expect(JSON.parse(emptyThread.stderr.toString())).toMatchObject({
+      head_oid: "0123456789abcdef0123456789abcdef01234567",
+      status: "failed",
+      reason: "GitHub returned malformed pull request data",
+    })
+
+    const malformedEvidence = runCli(null, {
+      pullRequest: pullRequestFixture(undefined, {
+        comments: connection([commentNode({ body: undefined })]),
+      }),
+    })
+    expect(malformedEvidence.exitCode).toBe(1)
+    expect(JSON.parse(malformedEvidence.stderr.toString())).toMatchObject({
+      head_oid: "0123456789abcdef0123456789abcdef01234567",
+      status: "failed",
+      reason: "GitHub returned malformed pull request data",
+    })
   })
 
   test("malformed timestamps fail closed before review classification", () => {
@@ -278,6 +302,10 @@ describe("Codex opening review state", () => {
       pullRequestFixture(undefined, {
         reviewThreads: connection([threadNode(badTimestamp)]),
       }),
+      pullRequestFixture({ ...reactionNode("THUMBS_UP"), createdAt: "2026-02-31T10:01:00Z" }),
+      pullRequestFixture(reactionNode("THUMBS_UP"), { createdAt: "2026-01-01T24:00:00Z" }),
+      pullRequestFixture(reactionNode("THUMBS_UP"), { createdAt: "2025-02-29T10:01:00Z" }),
+      pullRequestFixture({ ...reactionNode("THUMBS_UP"), createdAt: "2026-01-01T10:01:00+02:60" }),
     ]
 
     for (const pullRequest of invalidPullRequests) {

@@ -178,6 +178,12 @@ interface ReviewOutput {
   reason: string
 }
 
+class ReviewSnapshotError extends Error {
+  constructor(message: string, readonly headOid: string | null, cause: unknown) {
+    super(message, { cause })
+  }
+}
+
 const QUERY = `
 query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
@@ -265,8 +271,16 @@ async function fetchSnapshot(repository: string, number: number): Promise<CodexR
   }
   const pullRequest = graphRepository.pullRequest
   if (!pullRequest) throw new Error("pull request was not found")
-  assertPullRequest(pullRequest)
+  if (!isPullRequestNumber(pullRequest.number)) {
+    throw new Error("GitHub returned malformed pull request data")
+  }
   if (pullRequest.number !== number) throw new Error("GitHub returned a different pull request")
+  const observedHead = isHeadOid(pullRequest.headRefOid) ? pullRequest.headRefOid : null
+  try {
+    assertPullRequest(pullRequest)
+  } catch (error) {
+    throw new ReviewSnapshotError("GitHub returned malformed pull request data", observedHead, error)
+  }
 
   const signals: ReviewSignal[] = []
   for (const reaction of pullRequest.reactions.nodes) {
@@ -356,10 +370,9 @@ function matchesRepository(value: string, expected: string): boolean {
 }
 
 function assertPullRequest(value: GraphPullRequest): void {
-  if (!Number.isSafeInteger(value.number)
-    || value.number <= 0
+  if (!isPullRequestNumber(value.number)
     || typeof value.state !== "string"
-    || !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(value.headRefOid)
+    || !isHeadOid(value.headRefOid)
     || !isIsoTimestamp(value.createdAt)
     || !isConnection(value.reactions)
     || !isConnection(value.comments)
@@ -382,6 +395,14 @@ function isConnection(value: unknown): value is Connection<unknown> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
+}
+
+function isPullRequestNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+}
+
+function isHeadOid(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(value)
 }
 
 function isActor(value: unknown): boolean {
@@ -419,6 +440,7 @@ function isReviewThread(value: unknown): boolean {
   return isRecord(value)
     && typeof value.isResolved === "boolean"
     && isConnection(value.comments)
+    && value.comments.nodes.length > 0
     && value.comments.nodes.every((comment) => isRecord(comment)
       && isActor(comment.author)
       && typeof comment.body === "string"
@@ -426,8 +448,20 @@ function isReviewThread(value: unknown): boolean {
 }
 
 function isIsoTimestamp(value: unknown): value is string {
-  return typeof value === "string"
-    && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+  if (typeof value !== "string") return false
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/.exec(value)
+  if (!match) return false
+  const [year, month, day, hour, minute, second, offsetHour, offsetMinute] = match.slice(1).map(Number)
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
+  const daysInMonth = month === 2 ? (leapYear ? 29 : 28) : ([4, 6, 9, 11].includes(month) ? 30 : 31)
+  return month >= 1
+    && month <= 12
+    && day >= 1
+    && day <= daysInMonth
+    && hour <= 23
+    && minute <= 59
+    && second <= 59
+    && (Number.isNaN(offsetHour) || (offsetHour <= 23 && offsetMinute <= 59))
     && Number.isFinite(Date.parse(value))
 }
 
@@ -486,7 +520,7 @@ async function main(): Promise<number> {
     writeOutput({
       repository,
       pull_request: number,
-      head_oid: null,
+      head_oid: error instanceof ReviewSnapshotError ? error.headOid : null,
       status: "failed",
       reason: error instanceof Error ? error.message : "unexpected provider failure",
     })
