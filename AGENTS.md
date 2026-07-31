@@ -80,3 +80,13 @@
 - 依赖更新与普通代码 PR 走同一自动收口链路；无法收口时保持阻断，不转交人工审批
 - 不把 compiler / typecheck / test / vet warning 当成可忽略噪音；能修则修，不能修必须在交付说明里标明原因
 - 不把本机绝对路径写进 docs / code / helper 输出契约
+
+## Code Review Rules
+
+### Consumer closure
+
+- 若候选宣称功能完成，却未通过既有 runtime / CLI / server consumer 实际执行，或未闭合受影响的跨 owner 边界，应报告 finding。安全路径：复用既有 owner 并展示 consumer journey；package、schema、docs 与 tests 只能作为支持证据。
+
+### Trust-surface independence
+
+- 若普通实现候选同时修改 workflow、quality judge、ruleset、签发 policy、instruction、skill、agent definition 或 discovery path，并依赖候选可控的验收，应报告 finding。安全路径：拆成独立 governance candidate，并从 immutable origin 或 neutral context 完成独立复核。

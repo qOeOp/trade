@@ -18,9 +18,19 @@ result before revising. Reproduce each material finding against the current cand
 thread only when the finding is verified as addressed, inapplicable, duplicate, or non-material;
 `outdated` alone is not evidence. Missing, started, ambiguous, or failed review remains outstanding.
 
-A candidate change invalidates candidate-bound review and verification evidence. Re-run required
-deterministic checks and Verify the new complete candidate. Do not create review loops merely to
-obtain a preferred result.
+After publication, wait through the host-native GitHub owner until the automatic native Codex
+opening review is terminal or Stop is reached. A reaction, dispatch, queue, or in-progress review is
+not completion. Validate every material finding and route an accepted finding back to Execute;
+thread resolution is a separate write authority and may occur only after the finding has the
+disposition above. If automatic review does not start, request it only with separately frozen
+comment or review-request authority; otherwise block.
+
+For this repository, the automatic native Codex review is an opening-only discovery signal. A
+candidate changed to address its findings invalidates prior candidate-bound verification, but does
+not require another Codex review and does not erase the evidenced dispositions of opening findings.
+Verify and publish the new complete candidate, then wait for its complete non-empty set of required
+final-head checks. Request another review only when the frozen Frame or admitted Plan separately
+requires it. Do not create review loops merely to obtain a preferred result.
 
 ## Merge-ready barrier
 
@@ -30,13 +40,15 @@ Immediately before accepting `merge-ready` or performing a merge, observe one cu
 2. PR is open, has the required Draft/Ready state, and targets the frozen base;
 3. PR head equals the verified candidate;
 4. the complete non-empty set of required final-head checks exists and passes;
-5. required current-candidate reviews are terminal;
+5. the opening native Codex review is terminal, every material finding has an evidenced disposition,
+   and any separately required current-candidate reviews are terminal;
 6. zero unresolved conversations remain;
 7. auto-merge or merge-queue state cannot race the snapshot;
 8. a final refetch shows no head, base, activity, or merge-tree drift.
 
-Unknown, absent, stale, or pending data fails the barrier. A material finding or any candidate,
-head, base, or merge-tree change returns to Verify.
+Unknown, absent, stale, or pending required final-head data fails the barrier. The completed opening
+review is intentionally discovery rather than final-head acceptance evidence. A material finding or
+any candidate, head, base, or merge-tree change returns to Verify.
 
 ## Merge
 
