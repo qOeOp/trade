@@ -11,7 +11,16 @@ afterEach(() => {
 })
 
 describe("test-effectiveness audit", () => {
-  test("emits deterministic owner, consumer, test-value, and action evidence without writes", () => {
+  test("prints help without requiring a Git repository", () => {
+    const root = mkdtempSync(join(tmpdir(), "test-effectiveness-help-"))
+    temporaryRepositories.push(root)
+    const result = audit(root, ["--help"])
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain("Usage: test-effectiveness-audit.ts")
+  })
+
+  test("emits deterministic owner, consumer-lead, and test-value evidence without writes", () => {
     const fixture = createFixture()
     write(fixture.root, "apps/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
     write(fixture.root, "apps/example/calc/src/calc.test.ts", [
@@ -38,15 +47,23 @@ describe("test-effectiveness audit", () => {
       "--scope", "apps/example/calc",
       "--classification", "scenario_gap",
     ])
+    const fromSubdirectory = audit(join(fixture.root, "apps/example"), [
+      "--origin", fixture.origin,
+      "--candidate", candidate,
+      "--scope", "apps/example/calc",
+      "--classification", "scenario_gap",
+    ])
 
     expect(first.status).toBe(0)
     expect(second.status).toBe(0)
+    expect(fromSubdirectory.status).toBe(0)
     expect(first.stdout).toBe(second.stdout)
+    expect(first.stdout).toBe(fromSubdirectory.stdout)
     expect(git(fixture.root, ["status", "--porcelain=v1"])).toBe(statusBefore)
     expect(first.stdout).not.toContain(fixture.root)
 
     const proposal = JSON.parse(first.stdout)
-    expect(proposal.schema_version).toBe("trade.test-effectiveness-proposal.v1")
+    expect(proposal.schema_version).toBe("trade.test-effectiveness-evidence.v1")
     expect(proposal.inputs.origin.commit).toBe(fixture.origin)
     expect(proposal.inputs.candidate.commit).toBe(candidate)
     expect(proposal.summary).toMatchObject({
@@ -57,18 +74,17 @@ describe("test-effectiveness audit", () => {
       no_direct_static_candidate_evidence: false,
     })
     expect(proposal.affected_owners[0].owner).toBe("apps/example/calc")
-    expect(proposal.affected_owners[0].consumer_evidence.reverse_importers).toContain(
+    expect(proposal.affected_owners[0].consumer_leads.reverse_importers).toContain(
       "apps/example/calc/src/main.ts",
     )
     expect(proposal.affected_owners[0].candidate_tests[0]).toMatchObject({
       path: "apps/example/calc/src/calc.test.ts",
       direct_changed_source_imports: ["apps/example/calc/src/calc.ts"],
-      recommendation: { action: "strengthen" },
     })
     expect(proposal.affected_owners[0].candidate_tests[0].relevant).toBeUndefined()
     expect(proposal.escaped_defect_review.questions).toHaveLength(5)
-    expect(proposal.proposal.test_refactor_mission.unresolved_conditions).toContain(
-      "integrated_refactor_proposal_evidence",
+    expect(proposal.caveats).toContain(
+      "A provided failure classification is context only and never selects a test action.",
     )
   })
 
@@ -107,14 +123,14 @@ describe("test-effectiveness audit", () => {
       candidate_tests: 0,
       no_direct_static_candidate_evidence: true,
     })
-    expect(proposal.affected_owners[0].consumer_evidence).toMatchObject({
+    expect(proposal.affected_owners[0].consumer_leads).toMatchObject({
       contract_paths: ["apps/example/no-test/CONTRACT.md"],
       entrypoint_paths: [],
       reverse_importers: [],
       status: "unresolved",
+      uncertainty: "static paths do not prove production reachability or execution",
     })
     expect(proposal.authority.forbidden_claims).toContain("coverage_proven")
-    expect(proposal.proposal.test_refactor_mission.recommendation).toBe("not_recommended")
 
     write(fixture.root, "scripts/audit-helper.sh", "#!/usr/bin/env sh\nprintf 'one\\n'\n")
     const shellOrigin = commit(fixture.root, "add shell source")
@@ -195,10 +211,9 @@ describe("test-effectiveness audit", () => {
     expect(proposal.affected_owners[0].deleted_test_paths).toEqual([
       "apps/example/calc/src/calc.test.ts",
     ])
-    expect(proposal.proposal.test_refactor_mission.recommendation).toBe("conditional")
   })
 
-  test("does not broadcast a failure classification across multiple candidate tests", () => {
+  test("keeps a failure classification as context across multiple candidate tests", () => {
     const fixture = createFixture()
     write(fixture.root, "apps/example/calc/src/calc-second.test.ts", [
       'import { expect, test } from "bun:test"',
@@ -215,14 +230,17 @@ describe("test-effectiveness audit", () => {
       "--classification", "outdated_contract_or_assertion",
     ]).stdout)
 
-    expect(proposal.inputs.classification.recommendation_binding).toBe("unbound")
+    expect(proposal.inputs.classification).toMatchObject({
+      status: "provided",
+      value: "outdated_contract_or_assertion",
+    })
     expect(proposal.summary.candidate_tests).toBe(2)
     for (const candidateTest of proposal.affected_owners[0].candidate_tests) {
-      expect(candidateTest.recommendation.action).toBe("further_investigation")
+      expect(candidateTest.recommendation).toBeUndefined()
     }
   })
 
-  test("keeps exact duplicates as investigation leads instead of deletion candidates", () => {
+  test("keeps exact duplicates as investigation leads without selecting an action", () => {
     const fixture = createFixture()
     const duplicate = [
       'import { expect, test } from "bun:test"',
@@ -244,10 +262,9 @@ describe("test-effectiveness audit", () => {
     ])
     expect(result.status).toBe(0)
     const proposal = JSON.parse(result.stdout)
-    expect(proposal.summary.action_counts.delete_candidate).toBeUndefined()
     expect(proposal.affected_owners[0].candidate_tests).toHaveLength(2)
     for (const candidateTest of proposal.affected_owners[0].candidate_tests) {
-      expect(candidateTest.recommendation.action).toBe("further_investigation")
+      expect(candidateTest.recommendation).toBeUndefined()
       expect(candidateTest.cost_signals.exact_content_duplicate_paths).toHaveLength(1)
     }
   })
