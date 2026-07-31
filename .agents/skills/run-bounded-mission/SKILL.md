@@ -82,6 +82,7 @@ contracts, and evidence needed to choose:
 ```text
 Path: selected owner and smallest vertical candidate
 Boundary: affected producers, consumers, restatements, enforcers, and compatible stopping evidence
+Prior art: search exemption or adopt, adapt, reference, or build decision with decisive evidence
 Execution: coherent implementation slices and one writable integrator
 Support: activated read-only lanes, packets, dependencies, and branch Stops
 Verification: real-consumer exercise, authoritative regressions, and evaluator predicates
@@ -90,16 +91,34 @@ Fallback: first conditions forcing revise, replan, reframe, or blocked
 ```
 
 Resolve reuse before new implementation: existing behavior, direct reuse, thin adapter, bounded
-adaptation, then evidence-backed new responsibility. Trace changed meaning to the first
-evidence-backed compatible boundary. Put each affected surface and its exercise in the plan without
-expanding the frozen Scope or weakening Acceptance.
+adaptation, then evidence-backed new responsibility. For every non-mechanical Plan that would add,
+replace, or materially redesign responsibility, presume public prior art can change the path until
+evidence shows otherwise. Before Plan admission, load
+[decision-relevant prior art](references/plan-prior-art.md) and run its method in order:
+breadth-first discovery of materially different open-source, standard, product, and reference
+implementations; shortlist the credible fits; then depth-first verification of only those candidates.
+Record exactly one decision for each proposed responsibility: `adopt`, `adapt`, `reference`, or
+`build`. `build` must explain why the strongest credible reusable candidate fails the frozen outcome,
+constraints, or acceptance.
+
+Skip external prior-art discovery only when the Plan records a falsifiable reason: the change is
+mechanical; it repairs repository-specific behavior already fixed by an authoritative contract; no
+new responsibility or implementation choice is introduced; external lookup is forbidden by
+Authority; or the user explicitly requires a named implementation approach. Unknown candidate
+availability is not an exemption. Missing search capability cannot justify `build`; narrow or replan
+from admitted evidence, or return `blocked` when the unresolved reuse decision can materially change
+the candidate.
+
+Trace changed meaning to the first evidence-backed compatible boundary. Put each affected surface
+and its exercise in the plan without expanding the frozen Scope or weakening Acceptance.
 
 Activate support only when its Frame predicate is observed:
 
 - use a host-native read-only repository explorer for a bounded codebase question whose result can
   change the plan;
-- use a read-only researcher for an unresolved current-source, compatibility, maintenance, license,
-  prior-art, or failure-mode question;
+- use a read-only researcher for the breadth-then-depth prior-art method when the candidate set is
+  unknown, or for another unresolved current-source, compatibility, maintenance, license, or
+  failure-mode question;
 - use a read-only planner only after admitted evidence when multiple credible paths, cross-owner
   trade-offs, or materially different candidate shapes remain;
 - admit an independent evaluator predicate for governance or authority-sensitive candidates,
@@ -108,8 +127,9 @@ Activate support only when its Frame predicate is observed:
 
 Select a planning method before constructing any method-bearing support packet:
 
-- load [decision-relevant prior art](references/plan-prior-art.md) only when external evidence from
-  one researcher lane can inform one main-agent decision;
+- load [decision-relevant prior art](references/plan-prior-art.md) when the prior-art admission
+  predicate above activates, or when external evidence from one researcher lane can inform one
+  main-agent decision;
 - load [consequential ambiguity](references/plan-ambiguity.md) only when one unresolved fact can
   change the candidate, consumer behavior, authority, Acceptance, or a hard-to-reverse choice; the
   main agent owns any user preference or authority question;
