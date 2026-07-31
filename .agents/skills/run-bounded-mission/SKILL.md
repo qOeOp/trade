@@ -327,8 +327,31 @@ an armed or queued action is not completion.
 Child execution is not pending work of the parent after dispatch. The hub returns immediately and
 observes or updates a child only when the user asks.
 
-Report Outcome, Consumer, Frame identity, Plan identity, candidate identity, decisive evidence,
-residual limits, effects, cleanup, and final route. Do not claim evidence that was not produced.
+Bind Finalize to Outcome, Consumer, Frame identity, Plan identity, candidate identity, decisive
+evidence, residual limits, effects, cleanup, and final route. Do not claim evidence that was not
+produced.
+
+When Finalize reaches `accept`, `blocked`, or another point that returns control to the user, write
+the handoff for the user's next decision, not as a lifecycle receipt:
+
+- lead with the user-observable result and exact delivery or effect state;
+- link or name the delivered artifact, change, pull request, deployment, or preserved local work
+  when it helps the user act or verify;
+- summarize only decisive evidence. Omit routine successful commands, logs, and internal identities
+  unless the user requested them or they materially support trust, audit, or recovery;
+- state a failed or unavailable check, omission, unknown, or residual limit only when it changes
+  confidence or what happens next, and make the consequence explicit;
+- end with one labeled next-action line, localized to the user's language: `Next step` for required
+  action, `Optional next step` for a valuable continuation, or `No action needed` when the endpoint
+  is complete;
+- when blocked, name the exact blocking condition recognized by the route, say whether the user can
+  resolve it, and state what will resume after it clears. Never invent user action or replace a
+  resolvable blocker with a generic offer;
+- do not invent follow-up work, ask a generic "what next?", force an optional review after objective
+  acceptance, or end on an internal route token or identity.
+
+Keep the format proportional. Use short prose for a small delivery and a few descriptive headings or
+bullets when they improve scanning; do not impose one universal template.
 
 ## Host and Agent Boundary
 
