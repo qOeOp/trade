@@ -1,65 +1,98 @@
 # Codex Task Dispatch
 
-Load this reference only when the user asks a long-lived hub to route or create an independent
-outcome, when the user asks it to operate an existing child task, or when Mission evidence supports
-a separately valuable follow-up proposal with its own consumer and acceptance. The last case permits
-an editable proposal, not task creation. Lifecycle authority remains in `SKILL.md`; this file
-projects it onto current Codex task tools without adding a queue, ledger, daemon, coordinator, or
-second lifecycle.
+Load this reference only for the session modes selected by `SKILL.md`: routing or creating an
+independent outcome, operating an existing child, or investigating one separately valuable
+follow-up. Lifecycle and orchestration authority remain in `SKILL.md`. This file projects that
+authority onto current Codex task tools without adding durable state, a queue, ledger, daemon,
+scheduler service, database, background automation, generic DAG helper, second CLI, or second
+lifecycle.
 
-## Routing invariants
+## Mission admission and mode
 
-Classify each outcome independently:
+Classify each requested result against the same consumer boundary. An independent Mission must have:
 
-- foreground continuation, correction, review, status, or feedback stays in the hub;
-- status or feedback naming an existing child routes to that child;
-- every independent outcome becomes an editable proposal before any task is created.
+- an Outcome valuable to a named real consumer;
+- bounded Scope and non-goals;
+- Acceptance that can independently falsify its result;
+- an independent owner, write surface, and delivery boundary;
+- a disposition that can be independently accepted, blocked, or cancelled.
 
-An internal support question or implementation subtask is not an independent outcome and never
-becomes a user-visible proposal. Native task creation always requires the user's explicit request or
-approval of the exact ready proposal.
+Diagnosis, testing, documentation synchronization, review corrections, coupled producer/consumer
+changes for one consumer behavior, and researcher, planner, evaluator, or other support roles remain
+internal subtasks and receive no separate child task or pull request. Foreground continuation,
+correction, review, status, or feedback also stays with its Mission. Repeating, renaming, resuming,
+or moving the same unresolved gap is continuation of the existing Mission and inherits its Origin,
+Stop, findings, and rejected candidates.
 
-Task creation is only for a genuinely independent outcome. Repeating, renaming, resuming, or moving
-the same unresolved outcome gap to another task is continuation of its existing Mission and inherits
-its Origin, Stop, structural findings, and rejected candidates; route it to the current owner
-instead of creating a child while that owner is available. If the owner is demonstrably deleted,
-inaccessible, or unable to accept messages, explicit host-transfer authority may move the same
-Mission through a native host operation; preserve its Mission identity, Origin, consumed Stop, and
-applicable findings. Host transfer creates neither a successor Mission nor a fresh Stop. If transfer
-authority or capability is unavailable, report that blocker instead of inventing a host. After
-`accept`, a regression, correction, or changed requirement is a new Mission only when new post-accept
-evidence defines a new gap and binds the accepted predecessor; mere repetition or relabeling remains
-no new work.
+With zero independent Missions, handle the request directly. With one, execute it in the current
+session unless the user explicitly requests creation or routing of a separate task; that request
+continues through proposal and native dispatch. With two or more, the hub admits the minimal session
+graph below. Task creation still requires the user's explicit request or approval of every exact
+ready packet.
 
-One hub may retain one foreground Mission and multiple proposals or child identities. Conversation
-context and host-returned identities are sufficient; do not persist another orchestration model.
-One child task/chat is the host owner for one independent outcome. A Git-backed child also owns its
-managed worktree, eventual branch, and at most one pull request. Do not claim a worktree or branch
-for a non-Git project. Messages and root turns do not create additional Missions.
+## Minimal session graph
 
-An independent outcome remains proposed while the user edits or withholds approval. Each proposal
-has one stable, session-only label such as `G1`, `R1`, or `F1`, including when only one proposal is
-visible. Preserve it across edits so the user can name the packet. Do not persist labels or interpret
-their prefixes, or words such as `governance`, `refactor`, `research`, `fix`, or `migration`, as a
-Mission type, priority, lifecycle, route, template, or dispatch policy.
+Keep the graph only in conversation prose or a compact checkpoint. For each node retain exactly the
+facts needed to resume and make the next gate decision:
 
-Approval permits one native create attempt for the exact labeled packet. A returned identity
-consumes the proposal; a missing capability or failed attempt leaves the approved prompt available
-for fallback. After dispatch, only a user-requested snapshot or message re-enters the parent's work.
+- stable session label;
+- Outcome and real consumer;
+- Scope and non-goals;
+- falsifiable Acceptance;
+- owner and write surface;
+- `after`, listing only direct predecessors;
+- Authority and external effects;
+- source ref and observed exact tip;
+- host identity and next gate.
+
+Do not persist these fields, assign priority, add workflow state enums, or infer scheduling policy
+from labels. Unknown shared write surface returns the affected nodes to the hub's Plan before
+dispatch. Nodes with a direct `after` edge, the same owner, overlapping write surfaces, or a shared
+contract serialize. Only a ready wave with mutually independent owners, write surfaces, contracts,
+premises, and dependencies may prepare in parallel. A downstream node stays deferred until every
+direct predecessor is integrated and its premises remain valid. Premise independence must be
+provable from the retained Outcome, Scope, Acceptance, Authority, and source facts at every dispatch
+or resume gate; otherwise return the affected nodes to Plan instead of adding graph fields.
+
+One child task/chat hosts one independent Outcome. A Git-backed child owns one managed worktree, one
+eventual branch, and at most one pull request. The child owns its Mission candidate and verification;
+the hub owns graph admission, source observation, bounded monitoring, and merge release. Every
+multi-Mission child packet stops at a Ready pull request and explicitly withholds merge authority.
+Messages and root turns do not create additional Missions.
+
+Parallel children may prepare pull requests, but the hub releases at most one exact candidate head
+for merge. The released child must refetch, revalidate, and match that head before merging; no other
+child receives merge authority. After every merge the hub independently fetches and observes that
+node's canonical source tip. Every other open pull request bound to the same source ref then has base
+drift and must be revalidated from that observed tip before a later release. Nodes bound to another
+source ref remain unchanged only after their own ref/tip facts are observed. A dependent child may
+be created only from its newly observed source tip, never from its predecessor's old base.
+
+If a child blocks, freeze its descendants; independent nodes may continue only when the blocked
+premise cannot affect them. If a predecessor is cancelled, freeze its descendants and return that
+branch to Plan; do not remove the edge or leave the branch permanently deferred. A user override
+freezes undispatched nodes and every unissued merge release while the hub re-admits the graph. Do not
+automatically retry, create a replacement, or transfer a host.
+
+After conversation compaction, reconstruct only from exact thread, host, pull-request head, and
+source-ref/tip facts. If an identity cannot be recovered exactly, fail closed at its next operation.
+A queued `clientThreadId` is not a task identity and cannot be passed to wait or send operations.
 
 ## Outcomes discovered during a Mission
 
-When Plan, Execute, Verify, or Finalize evidence reveals an independent outcome, preserve its
-evidence without widening the current Frame, repairing an out-of-scope pre-existing defect, or
-attributing a non-candidate failure to the current candidate. Propose it only when it has an
-independent consumer and Acceptance. If it is a true prerequisite for the current Plan, record the
-exact blocker and use the existing Mission route; do not create a dependency graph, pre-create
-downstream work, order tasks automatically, or wait on a child.
+When Mission evidence reveals another outcome, preserve it without widening the current Frame or
+repairing an unrelated defect. In a single-Mission session, retain at most one narrow follow-up
+proposal. In an already admitted multi-Mission session, add or revise a node only through the hub's
+Plan and re-evaluate direct dependencies and conflicts; do not silently dispatch it. Refactor,
+test, documentation, performance, security, removal, and other descriptions use the same admission
+contract.
 
-For follow-up discoveries made while running one Mission, present at most the highest-value narrow
-proposal in the current interaction. Refactor, test, documentation, performance, security, removal,
-and other descriptions all use this same protocol. Inbound user requests that already contain
-multiple independent outcomes may still receive one labeled packet per outcome.
+An independent outcome remains proposed while the user edits or withholds approval. Each proposal
+has one stable, session-only label such as `G1`, `R1`, or `F1`. Preserve it across edits, but do not
+persist labels or interpret their prefixes as a Mission type, priority, lifecycle, route, template,
+or dispatch policy. Approval permits one native create attempt for the exact labeled packet. A
+returned identity consumes the proposal; a missing capability or failed attempt preserves the
+approved prompt for manual fallback. A retry needs fresh authority.
 
 ## Proposal and consent
 
@@ -90,15 +123,18 @@ Then retain the complete editable child prompt containing every dispatch field:
 - target project and default environment;
 - the complete initial child prompt, including its five-stage Mission and endpoint.
 
+For a multi-Mission node, the endpoint is `merge-ready`; the packet explicitly withholds merge until
+the hub later sends a separately authorized exact-head release.
+
 End a `ready` packet with the direct question **Create this task?** A `deferred` packet instead ends
 with **Create this task? — unavailable until `<exact prerequisite>`**; a reply to that unavailable
 question is not creation authority. The user may edit, reject, approve one, or approve several named
 ready proposals. An ordinary unambiguous approval after the ready question is the explicit request
 required by the task host. Rejection or edits remain in the hub; no task exists yet.
 
-For a message with multiple independent outcomes, present one packet per outcome and preserve a
-stable label so the user can approve a subset. Approval consumes that proposal after one create
-attempt; retrying a failed attempt requires fresh user authority.
+For multiple independent outcomes, present one packet per admitted graph node and preserve the
+stable labels so the user can approve a subset or a ready wave. Approval consumes a proposal after
+its one native create attempt. Deferred nodes cannot be approved around their prerequisites.
 
 ## Native dispatch
 
@@ -118,20 +154,23 @@ After consent:
    provide the required independent workspace;
 7. omit `model`, `thinking`, and `startingState` overrides unless the user explicitly requested them;
 8. pass the approved child prompt without silently expanding its outcome or authority;
-9. immediately return the host-provided `threadId`/`hostId` or queued `clientThreadId`, then follow
-   the host contract to emit its created-task link or directive; never invent a URL.
+9. record the host-provided `threadId`/`hostId` or queued `clientThreadId`, then follow the host
+   contract to emit its created-task link or directive; never invent a URL.
 
-Creation is non-blocking. Do not call `wait_threads`, babysit setup, wait for commentary, or wait for
-child completion before returning. A `clientThreadId` is a queued identity and must not be passed to
-operations that require `threadId`.
+Creation is non-blocking. Outside an admitted multi-Mission orchestration session, return after
+creation without babysitting setup or child commentary. Inside that mode, the hub may use bounded
+native monitoring only for the current ready wave or next merge gate. It must use exact `threadId`
+and `hostId` facts and must not poll a queued `clientThreadId`.
 
 The child independently owns `Frame → Plan → Execute → Verify → Finalize`, its candidate, branch,
-zero-or-one pull request, review closure, delivery, and cleanup. The parent does not run or mirror
-those stages.
+zero-or-one pull request, publication, review closure, and cleanup. In multi-Mission mode its
+Finalize stops at `merge-ready` unless the hub supplies the exact-head merge release. The parent does
+not run or mirror the child's stages.
 
 ## Child controls
 
-Operate on a child only when the user asks:
+Operate on a child when the user asks, or when an admitted multi-Mission checkpoint names that child
+at the current monitoring or merge gate:
 
 - status or one-time monitoring: use one `wait_threads` call with `timeoutMs: 0`;
 - status for up to eight named children: use one bounded snapshot with all targets;
@@ -139,9 +178,9 @@ Operate on a child only when the user asks:
   and the feedback in `prompt`, then return immediately;
 - additional history needed for the request: use a bounded `read_thread`.
 
-Use returned cursors for later snapshots when available. Commentary does not wake `wait_threads` and
-is never a reason to poll. If a child is blocked, report that child's state; do not block the
-foreground Mission, retry it, revise its candidate, or create a replacement without new authority.
+Use returned cursors for later snapshots when available. Commentary is never a reason to poll. If a
+child blocks, freeze its descendants and apply the session graph rule; do not revise its candidate,
+retry it, replace it, or transfer its host without new authority.
 
 ## Capability fallback
 
@@ -151,7 +190,8 @@ independent outcome remains undispatched, but the foreground Mission is not bloc
 the hub cannot create a child.
 
 Do not serialize the outcome in the current worktree, create another branch or pull request there,
-hide it in a subagent, or claim a task identity that the host did not return.
+hide it in a subagent, or claim a task identity that the host did not return. Host unavailability
+never authorizes an automatic retry, replacement, or host transfer.
 
 ## Handoff boundaries
 

@@ -1,9 +1,11 @@
 # Refactor Mission Proposals
 
-Use this method only after two or more Missions have reached `accept` and read-only evidence may show
-that their integrated results created a separate structural outcome gap. The investigation belongs
-to the follow-up proposal consumer after Finalize. It is not a Finalize route, a continuation of an
-accepted Mission, or a way to move its `revise` or `replan` work elsewhere.
+Use this method only after two or more related Missions have reached `accept` and are integrated into
+the current canonical source tip. Those facts establish investigation eligibility only. A proposal
+still requires read-only evidence that the integrated head contains a separate structural outcome
+gap. The investigation belongs to the follow-up proposal consumer after Finalize. It is not a
+Finalize route, a continuation of an accepted Mission, or a way to move its `revise` or `replan`
+work elsewhere.
 
 `revise` remains a candidate-local correction while the admitted owner, path, boundary,
 responsibility shape, and oracle hold. `replan` remains the replacement of a failed owner, path,
@@ -41,25 +43,31 @@ the proposed Mission's Origin.
 
 ## Decide whether a proposal is justified
 
-Reconstruct the accepted Mission evidence needed to test one concrete structural cause. Examples
-include duplicated responsibility across canonical owners, an owner boundary contradicted by a
-direct production consumer, or repeated accepted-Mission corrections that spread one responsibility
-across owners or protective paths. Bind the cause to the helper's paths and owner/dependent facts;
-do not promote an aggregate observation into a cause.
+Reconstruct the accepted Mission evidence needed to test one concrete structural cause. Qualifying
+causes include duplicated responsibility, one behavior split across canonical owners, repeated
+protective patches, multiple production paths for the same behavior, or a smaller candidate that can
+directly reduce owners, paths, branches, states, or adapters. Bind the cause to the helper's paths,
+owner/dependent facts, and the integrated consumer path; do not promote an aggregate observation
+into a cause.
 
-Churn, co-change frequency, file count, line count, age, or an architecture/complexity score alone
-cannot justify a proposal. Neither can a helper reason, an unassigned path, or a static dependency
-alone. Return with no proposal unless all of the following can be stated without inventing future
-structure:
+Churn, co-change frequency, file count, line count, Mission count, age, aesthetic preference, or an
+architecture/complexity score alone cannot justify a proposal. Neither can a helper reason, an
+unassigned path, or a static dependency alone. Return with no proposal unless all of the following
+can be stated without inventing future structure:
 
 - one specific cross-Mission structural cause and the accepted evidence that demonstrates it;
 - one real production consumer or entry point affected by that cause;
 - behavior that the refactor must preserve, expressed as falsifiable consumer acceptance;
+- a no-change counterfactual naming the concrete structural cost that remains if no refactor occurs;
+- a quantitative structural target, such as fewer owners, production paths, branches, states, or
+  adapters, without using churn or line reduction as the success proxy;
 - one bounded outcome independent from every accepted Mission;
 - an authority envelope and non-goals that add no automatic external effect.
 
-Do not preselect internal structure, split owners speculatively, or use the proposal to encode a
-preferred cleanup.
+Prefer deletion, migration, and owner convergence over a new adapter or parallel path. Do not
+preselect internal structure, split owners speculatively, or use the proposal to encode a preferred
+cleanup. The proposal must preserve every bound consumer behavior, and unknown future outcomes are
+not pre-authorized by the accepted Missions or their session graph.
 
 ## Add Refactor-specific evidence to one proposal
 
@@ -68,7 +76,9 @@ When the conditions above pass, add the following to one packet:
 - Origin set to the reachable integrated `head`;
 - a raw evidence summary with the helper invocation, exact `base`/`head`, declared source ref and
   observed tip, owner/dependent facts, concrete structural cause, and limits;
-- Acceptance that preserves the bound consumer behavior.
+- the no-change counterfactual and quantitative structural target;
+- Acceptance that proves both the structural target and preservation of every bound consumer
+  behavior.
 
 The child prompt must require fresh planning. It may use the accepted results as regression evidence,
 but must not inherit their candidates, Plans, Stops, or rejected alternatives.

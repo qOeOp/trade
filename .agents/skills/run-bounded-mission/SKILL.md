@@ -57,6 +57,29 @@ independent outcome, or when Mission evidence supports a separately valuable fol
 its own consumer and acceptance. A proposal is not creation; native creation still requires the
 user's explicit request or approval of the ready proposal.
 
+### Session mode selector
+
+After Frame, select the smallest mode:
+
+- With no independent Mission, handle the request directly.
+- With one, run it in the current session unless the requested outcome is separate task creation or
+  routing; that explicit effect follows task dispatch.
+- With two or more, use the loaded dispatch reference and keep one minimal session-only graph. Admit
+  only outcomes with their own consumer, falsifiable Acceptance, owner and write surface, delivery
+  boundary, and independent acceptance, block, or cancellation. Diagnosis, tests, documentation
+  synchronization, review corrections, coupled producer/consumer work, and support roles stay
+  internal.
+
+In multi-Mission mode the current session alone owns admission, direct `after` edges, conflict
+serialization, source-tip observation, bounded monitoring, and one exact-head merge release.
+Children own their Frame, Plan, candidate, worktree, branch, pull request, and verification; their
+packets withhold merge until released. Parallel ready nodes must be independent in owner, write
+surface, contract, premise, and dependency. A merge invalidates only open children bound to the same
+source ref; observe each affected tip again before another release or dependent child. This
+authority stays in conversation prose and checkpoints and never authorizes a scheduler, durable
+state, queue service, automatic retry or transfer, second CLI, background automation, or hidden
+execution in the hub worktree.
+
 ## Plan
 
 Inspect the current owner, production entry point when one exists, affected contracts, tests, and
@@ -180,10 +203,11 @@ same Mission's Finalize; reload this skill instead of replacing its delivery bar
 publication workflow.
 When the endpoint includes a GitHub pull request, load
 [GitHub delivery](references/github-pr-handoff.md) before publication or merge.
-After two or more accepted Missions, load
-[Refactor Mission proposals](references/refactor-mission-proposal.md) only when integrated evidence
-may demonstrate a separate structural outcome; it is follow-up discovery, not Finalize for the
-current Mission.
+After two or more related Missions are accepted and integrated into the current canonical source
+tip, load [Refactor Mission proposals](references/refactor-mission-proposal.md) only when that
+integrated head contains concrete structural evidence. Acceptance count alone is investigation
+eligibility, not proposal justification. Any justified refactor is a new proposal requiring user
+approval; the old graph does not authorize it.
 Use `No action needed` only when the user explicitly chose the completed local-only endpoint or when
 delivery is complete and no preserved candidate awaits a user-owned delivery decision; for an implicit `local-only` stop with meaningful uncommitted or unpublished changes, use `Optional next step` and name the concrete available continuation, such as review, commit, pull request, or deployment authorization.
 

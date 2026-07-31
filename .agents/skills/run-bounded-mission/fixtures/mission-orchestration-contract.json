@@ -1,0 +1,18 @@
+[
+  { "name": "direct-no-mission", "disposition": "handle-directly" },
+  { "name": "single", "disposition": "execute-in-current-session" },
+  { "name": "parallel-wave", "disposition": "dispatch-mutually-independent-ready-wave" },
+  { "name": "serial-dependency", "disposition": "serialize-direct-after-edge" },
+  { "name": "write-conflict", "disposition": "return-to-plan-and-serialize" },
+  { "name": "deferred-downstream", "disposition": "defer-until-predecessors-integrate" },
+  { "name": "base-drift", "disposition": "revalidate-from-observed-canonical-tip" },
+  { "name": "blocked-descendants", "disposition": "freeze-descendants-continue-independent" },
+  { "name": "covered-leaf-no-task-no-pr", "disposition": "keep-as-internal-subtask" },
+  { "name": "queued-identity", "disposition": "fail-close-wait-and-send" },
+  { "name": "host-unavailable", "disposition": "preserve-undispatched-manual-packet" },
+  { "name": "compaction-resume", "disposition": "reconstruct-from-exact-host-and-git-facts" },
+  { "name": "compaction-lost-identity", "disposition": "fail-close-next-operation" },
+  { "name": "user-override", "disposition": "freeze-undispatched-and-merge-release" },
+  { "name": "no-refactor", "disposition": "return-without-proposal" },
+  { "name": "refactor-proposal", "disposition": "request-user-approval-for-new-mission" }
+]
