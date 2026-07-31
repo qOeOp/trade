@@ -380,7 +380,7 @@ flowchart LR
 
 ## 3. 当前实现审计
 
-用户给出的 `modules/contracts/replay-contracts` 当前不存在；实际模块是 `modules/contracts/replay-contract`。以下按实际路径审计。
+用户给出的 `apps/contracts/replay-contracts` 当前不存在；实际模块是 `apps/contracts/replay-contract`。以下按实际路径审计。
 
 ### 3.1 模块判定
 
@@ -457,7 +457,7 @@ flowchart LR
 目录按稳定责任和 owner boundary 划分，不按 tool 数量划分。目标根与首条纵切已经建立；`data-adapter`、`accounting`、`metrics` 与 Plane-local `tests` 已有 certified single-position 实现，不再是空壳，但其 owner 范围只覆盖当前 capability。`artifacts` 仍是目标 owner，v1 暂由 runner 物化；不得把 runner 内的临时聚合误报为完整迁移。
 
 ```text
-modules/research-strategy-development/
+apps/research-strategy-development/
 ├── research-control-plane/
 │   └── ...                         # Research 治理、合同、Trial、Review、KG；具体迁移另案
 ├── replay-execution-plane/

@@ -1,22 +1,22 @@
 import type { Database } from "bun:sqlite"
-import { canonicalHash } from "../../modules/contracts/runtime-core/src/canonical-json"
+import { canonicalHash } from "../../apps/contracts/runtime-core/src/canonical-json"
 import {
   createForwardObservationProgram,
   type ForwardObservationProgram,
-} from "../../modules/research-strategy-development/research-control-plane/contracts/src/lib/forward-observation-program"
+} from "../../apps/research-strategy-development/research-control-plane/contracts/src/lib/forward-observation-program"
 import {
   listForwardSourceAdmissions,
-} from "../../modules/research-strategy-development/research-control-plane/state-store/src/lib/forward-source-admission"
+} from "../../apps/research-strategy-development/research-control-plane/state-store/src/lib/forward-source-admission"
 import {
   admitForwardObservationProgram,
   readForwardObservationProgram,
-} from "../../modules/research-strategy-development/research-control-plane/state-store/src/lib/forward-observation-program"
+} from "../../apps/research-strategy-development/research-control-plane/state-store/src/lib/forward-observation-program"
 import {
   readRegisteredReplayExecutionRequest,
-} from "../../modules/research-strategy-development/research-control-plane/state-store/src/lib/replay-request-registration"
+} from "../../apps/research-strategy-development/research-control-plane/state-store/src/lib/replay-request-registration"
 import {
   readReadyDraftStrategy,
-} from "../../modules/research-strategy-development/research-control-plane/strategy-registry/src/lib/strategy-registry"
+} from "../../apps/research-strategy-development/research-control-plane/strategy-registry/src/lib/strategy-registry"
 
 export function reconcileForwardObservationPrograms(
   db: Database,

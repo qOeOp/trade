@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import {
   createForwardObservationProgram,
-} from "../modules/research-strategy-development/research-control-plane/contracts/src/lib/forward-observation-program"
+} from "../apps/research-strategy-development/research-control-plane/contracts/src/lib/forward-observation-program"
 import {
   nextForwardCandleSegmentWindow,
 } from "./lib/rd-forward-observation-candle-segment"

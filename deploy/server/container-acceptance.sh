@@ -135,7 +135,7 @@ smoke_runtime() {
   [ -n "$container_id" ] || fail "runtime container was not created"
   wait_healthy "$container_id"
   compose exec -T runtime \
-    bun modules/orchestration-ops/trade-flow/src/scripts/server-runtime-container-status.ts \
+    bun apps/orchestration-ops/trade-flow/src/scripts/server-runtime-container-status.ts \
     > "$evidence_dir/status-before-restart.json"
   canary="acceptance-$source_commit"
   compose exec -T runtime sh -c \
@@ -149,7 +149,7 @@ smoke_runtime() {
     sh -c 'cat /app/tmp/server-runtime/acceptance-volume-canary')
   [ "$observed" = "$canary" ] || fail "named-volume canary did not survive restart"
   compose exec -T runtime \
-    bun modules/orchestration-ops/trade-flow/src/scripts/server-runtime-container-status.ts \
+    bun apps/orchestration-ops/trade-flow/src/scripts/server-runtime-container-status.ts \
     > "$evidence_dir/status-after-restart.json"
   image_id=$(docker image inspect --format '{{.Id}}' "trade-runtime:$TRADE_IMAGE_TAG")
   created_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')

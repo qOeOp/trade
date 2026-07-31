@@ -2,7 +2,7 @@
 
 import {
   startIsolatedAgentWorkspaceChecker,
-} from "../modules/orchestration-ops/agent-workspace-manager/src/lib/isolated-package-checker"
+} from "../apps/orchestration-ops/agent-workspace-manager/src/lib/isolated-package-checker"
 
 async function main(): Promise<void> {
   const input = parseArgs(Bun.argv.slice(2))

@@ -298,7 +298,7 @@ Host 运行状态属于 ops plane。是否新增 durable store、复用 `ops_run
 
 ### P2 Provider 与 Codex capability
 
-P1 已落地 `modules/contracts/agent-run-contract`：request / event / result 均为 canonical hash 合同，四类 profile 使用 closed-world capability，输入输出只携带有 hash / bytes 的 refs，raw reasoning、额外 Host payload、secret-like 内容、绝对路径、身份漂移、事件断序、budget 超限和 uncertain-effect 自动重试全部 fail closed。`AgentHostPort` 再固定 submit / events / status / steer / approve / cancel / result，重复 submit 保持同一 request identity；当前 8 项 contract / fake-host 测试通过。该包不进入 `toolset.json`，因为它没有可执行 authority surface。
+P1 已落地 `apps/contracts/agent-run-contract`：request / event / result 均为 canonical hash 合同，四类 profile 使用 closed-world capability，输入输出只携带有 hash / bytes 的 refs，raw reasoning、额外 Host payload、secret-like 内容、绝对路径、身份漂移、事件断序、budget 超限和 uncertain-effect 自动重试全部 fail closed。`AgentHostPort` 再固定 submit / events / status / steer / approve / cancel / result，重复 submit 保持同一 request identity；当前 8 项 contract / fake-host 测试通过。该包不进入 `toolset.json`，因为它没有可执行 authority surface。
 
 本机 P2/P3 已固定 `codex-cli 0.144.6` 与 stable generated TypeScript bundle hash `ae3056…8e2`。`agent-host-codex` 已实现 App Server client、Host port、deadline / cancel / interrupt、sanitized event、external output sink 和 ops-owned durable run registry；重复 submit 不重复启动，Developer 中断以 `tool_effect_uncertain` 关闭。真实 stdio probe 已完成 initialize / ephemeral thread 与默认 provider read-only turn；2026-07-23 的隔离临时仓库 adoption smoke 又完成一次默认 provider Developer turn，约 35 秒产生 657-byte patch、package check 与 `patch_ready`，生产仓库零修改。后继 code Run 现可从该 predecessor Result 精确重放累计 patch，但真实 provider 的第二轮修改仍未采用。SiliconFlow 因 Responses 404 仍不能驱动 Codex；daemon transport 与远程采用尚未完成，因此 P2/P3 仍为 `active-partial`。
 

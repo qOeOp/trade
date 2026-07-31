@@ -9,7 +9,7 @@ interface TypeScriptPackage {
 
 const root = process.cwd()
 const violations: string[] = []
-const packages = findFiles(join(root, "modules"), "package.json")
+const packages = findFiles(join(root, "apps"), "package.json")
   .flatMap(inspectPackage)
   .sort((left, right) => left.label.localeCompare(right.label))
 
@@ -75,7 +75,7 @@ function runPackage(packageInfo: TypeScriptPackage): void {
 
   const workerPath = join(
     root,
-    "modules/research-strategy-development/replay-execution-plane/runner",
+    "apps/research-strategy-development/replay-execution-plane/runner",
     "src/lib/replay-decision-worker-input-assembly-v4.test.ts",
   )
   let commands = [[
@@ -83,7 +83,7 @@ function runPackage(packageInfo: TypeScriptPackage): void {
     "test",
     ...packageInfo.testFiles.map((path) => relative(packageInfo.dir, path).replaceAll("\\", "/")),
   ]]
-  if (packageInfo.label === "modules/research-strategy-development/replay-execution-plane/runner") {
+  if (packageInfo.label === "apps/research-strategy-development/replay-execution-plane/runner") {
     if (!packageInfo.testFiles.includes(workerPath)) {
       throw new Error(`Replay semantic-owned worker test is missing: ${relative(root, workerPath)}`)
     }

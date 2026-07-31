@@ -139,7 +139,7 @@ for (const domain of domains) {
   compareOwnershipSets(`domain ${domainId} owns_jobs`, declaredOwnedJobs, actualOwnedJobs)
 }
 
-const railRegistry = readJson("modules/contracts/protocol-fabric/src/schemas/rail-ownership-registry.schema.json")
+const railRegistry = readJson("apps/contracts/protocol-fabric/src/schemas/rail-ownership-registry.schema.json")
 const schemaRails = arrayOfStrings(asRecord(asRecord(asRecord(railRegistry.items).properties).id).enum)
 for (const railId of schemaRails) {
   if (!railIds.has(railId)) {
@@ -152,7 +152,7 @@ for (const railId of railIds) {
   }
 }
 
-const protocol = readJson("modules/contracts/protocol-fabric/src/schemas/logical-store-ref.schema.json")
+const protocol = readJson("apps/contracts/protocol-fabric/src/schemas/logical-store-ref.schema.json")
 const schemaStores = new Set(arrayOfStrings(asRecord(asRecord(protocol.properties).store).enum))
 for (const storeId of storeIds) {
   if (!schemaStores.has(storeId)) {
@@ -161,13 +161,13 @@ for (const storeId of storeIds) {
 }
 
 const moduleMarkers = new Set(["package.json", "go.mod", "Cargo.toml", "requirements.txt"])
-for (const markerPath of walkFiles("modules", (name) => moduleMarkers.has(name))) {
+for (const markerPath of walkFiles("apps", (name) => moduleMarkers.has(name))) {
   const moduleDir = dirname(markerPath)
   if (!existsSync(join(moduleDir, "CONTRACT.md"))) {
     issues.push(`module marker has no owner contract: ${moduleDir}/CONTRACT.md`)
   }
 }
-for (const contractPath of walkFiles("modules", (name) => name === "CONTRACT.md")) {
+for (const contractPath of walkFiles("apps", (name) => name === "CONTRACT.md")) {
   const moduleDir = dirname(contractPath)
   const sourceDir = join(moduleDir, "src")
   if (!existsSync(sourceDir) || walkFiles(sourceDir, (name) => name.endsWith(".ts")).length === 0) continue

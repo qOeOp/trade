@@ -42,7 +42,7 @@ product contract
 - 外部只有一个 automation 入口；orchestration 只规划、调度、收口和审计。
 - 在线交易、research、governance、artifact 和 ops 各自拥有事实，不共享一个万能数据库。
 - 跨域传 contract / envelope / ref，不直接读取对方实现或物理表。
-- 生产源码跨域 import 保持为 0；Market Data / Replay 的共享 wire 由 `modules/contracts/replay-contract` 承载。
+- 生产源码跨域 import 保持为 0；Market Data / Replay 的共享 wire 由 `apps/contracts/replay-contract` 承载。
 - 交易所事实优先于本地投影；投影必须可从权威事件重建。
 - research 不写 `trade.db`，不调用 Binance write；market data 不输出交易动作。
 - 新增风险必须经过 registered policy、短期 runtime authorization、fresh account facts、account-scoped portfolio projection、preflight、execution contract 和 bounded execution capability。

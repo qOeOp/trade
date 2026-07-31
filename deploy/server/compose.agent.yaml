@@ -262,7 +262,7 @@ services:
         condition: service_healthy
     command:
       - bun
-      - modules/orchestration-ops/agent-host-openclaw/src/scripts/http.ts
+      - apps/orchestration-ops/agent-host-openclaw/src/scripts/http.ts
       - --host
       - 0.0.0.0
       - --port
@@ -388,7 +388,7 @@ services:
         condition: service_healthy
     command:
       - bun
-      - modules/research-strategy-development/research-control-plane/agent-run-orchestrator/src/scripts/reviewer-resident.ts
+      - apps/research-strategy-development/research-control-plane/agent-run-orchestrator/src/scripts/reviewer-resident.ts
       - --host-url
       - http://agent-host:7313
       - --worker-id
@@ -436,7 +436,7 @@ services:
         condition: service_completed_successfully
     command:
       - bun
-      - modules/research-strategy-development/research-control-plane/strategy-registry/src/scripts/resident.ts
+      - apps/research-strategy-development/research-control-plane/strategy-registry/src/scripts/resident.ts
       - --worker-id
       - strategy-registry:${TRADE_DEPLOYMENT_ID:-server-primary}
     healthcheck:
@@ -689,7 +689,7 @@ services:
           max-file: "5"
     command:
       - bun
-      - modules/orchestration-ops/agent-mcp/src/scripts/http.ts
+      - apps/orchestration-ops/agent-mcp/src/scripts/http.ts
       - --host
       - 0.0.0.0
       - --port
@@ -703,7 +703,7 @@ services:
     <<: *agent-mcp
     command:
       - bun
-      - modules/orchestration-ops/agent-mcp/src/scripts/http.ts
+      - apps/orchestration-ops/agent-mcp/src/scripts/http.ts
       - --host
       - 0.0.0.0
       - --port
@@ -717,7 +717,7 @@ services:
     <<: *agent-mcp
     command:
       - bun
-      - modules/orchestration-ops/agent-mcp/src/scripts/http.ts
+      - apps/orchestration-ops/agent-mcp/src/scripts/http.ts
       - --host
       - 0.0.0.0
       - --port
@@ -731,7 +731,7 @@ services:
     <<: *agent-mcp
     command:
       - bun
-      - modules/orchestration-ops/agent-mcp/src/scripts/http.ts
+      - apps/orchestration-ops/agent-mcp/src/scripts/http.ts
       - --host
       - 0.0.0.0
       - --port

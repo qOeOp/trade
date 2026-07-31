@@ -3,10 +3,10 @@ import { resolve } from "node:path"
 import type { Database } from "bun:sqlite"
 import {
   createServerContainerSourcePackageFromArchive,
-} from "../../modules/orchestration-ops/trade-flow/src/scripts/lib/server-runtime-container-release-package"
+} from "../../apps/orchestration-ops/trade-flow/src/scripts/lib/server-runtime-container-release-package"
 import {
   readAgentPatchAdoption,
-} from "../../modules/orchestration-ops/ops-runtime-store/src/lib/agent-patch-adoption-store"
+} from "../../apps/orchestration-ops/ops-runtime-store/src/lib/agent-patch-adoption-store"
 import {
   readCertifiedDeveloperPatchAdoption,
 } from "./rd-developer-patch-adoption"

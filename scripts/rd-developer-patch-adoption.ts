@@ -6,10 +6,10 @@ import { Database } from "bun:sqlite"
 import {
   runIsolatedAgentWorkspacePackageCheck,
   runIsolatedAgentWorkspaceSuiteCheck,
-} from "../modules/orchestration-ops/agent-workspace-manager/src/lib/isolated-package-checker"
+} from "../apps/orchestration-ops/agent-workspace-manager/src/lib/isolated-package-checker"
 import {
   ensureAgentRunStoreSchema,
-} from "../modules/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
+} from "../apps/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
 import {
   runDeveloperPatchAdoption,
 } from "./lib/rd-developer-patch-adoption"

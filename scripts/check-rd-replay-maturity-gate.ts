@@ -5,45 +5,45 @@ import { isAbsolute, normalize } from "node:path"
 import {
   assertReplayModuleConsumerClosureManifest,
   loadReplayModuleConsumerClosureManifest,
-} from "../modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-module-consumer-closure"
+} from "../apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-module-consumer-closure"
 import {
   assertReplayCrossProcessReproducibilityBundle,
   loadReplayCrossProcessReproducibilityBundle,
-} from "../modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-cross-process-reproducibility"
+} from "../apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-cross-process-reproducibility"
 import {
   assertHistoricalArtifactReadMigrationFixturePack,
   loadHistoricalArtifactReadMigrationFixturePack,
-} from "../modules/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification/src/lib/historical-artifact-read-migration"
+} from "../apps/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification/src/lib/historical-artifact-read-migration"
 import {
   assertReplayHistoricalArtifactMigrationRegistry,
   loadReplayHistoricalArtifactMigrationRegistry,
-} from "../modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-historical-artifact-migration"
+} from "../apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-historical-artifact-migration"
 import {
   assertReplayPublicationCrashRecoveryBundle,
   loadReplayPublicationCrashRecoveryBundle,
-} from "../modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-publication-crash-recovery"
+} from "../apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-publication-crash-recovery"
 import {
   assertReplayCapacityPerformanceEnvelope,
   loadReplayCapacityPerformanceEnvelope,
-} from "../modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-capacity-performance-envelope"
+} from "../apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-capacity-performance-envelope"
 import {
   assertReplayFaultCorruptionRecoveryBundle,
   loadReplayFaultCorruptionRecoveryBundle,
-} from "../modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-fault-corruption-recovery"
+} from "../apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-fault-corruption-recovery"
 import {
   assertReplayOperationalReadinessRegistry,
   loadReplayOperationalReadinessRegistry,
-} from "../modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-operational-readiness"
+} from "../apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-operational-readiness"
 import {
   assertReplayReleaseCandidateFixturePack,
   loadReplayReleaseCandidateFixturePack,
-} from "../modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-release-candidate-fixture-pack"
+} from "../apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-release-candidate-fixture-pack"
 import {
   assertReplayIndependentReleaseAuditManifest,
   assertReplayIndependentReleaseAuditReceipt,
   loadReplayIndependentReleaseAuditManifest,
   loadReplayIndependentReleaseAuditReceipt,
-} from "../modules/research-strategy-development/research-control-plane/certification/replay-release-audit/src/lib/replay-independent-release-audit"
+} from "../apps/research-strategy-development/research-control-plane/certification/replay-release-audit/src/lib/replay-independent-release-audit"
 
 interface GateManifest {
   schema_version: string
@@ -164,7 +164,7 @@ const epochRegistryPath = process.env.RD_REPLAY_EVIDENCE_EPOCH_REGISTRY_PATH
   || "docs/research/reliability/rd-replay-evidence-epoch-registry.json"
 const epochRegistry = JSON.parse(readFileSync(epochRegistryPath, "utf8")) as EvidenceEpochRegistry
 const certificationOwner =
-  "modules/research-strategy-development/replay-execution-plane/certification/replay-certification"
+  "apps/research-strategy-development/replay-execution-plane/certification/replay-certification"
 const certificationRegistryPath = process.env.RD_REPLAY_CERTIFICATION_REGISTRY_PATH
   || `${certificationOwner}/replay-certification-suites.json`
 const certificationRegistry = JSON.parse(
@@ -181,7 +181,7 @@ const crossProcessReproducibilityPath = process.env.RD_REPLAY_CROSS_PROCESS_REPR
   || `${certificationOwner}/replay-cross-process-reproducibility-bundle.json`
 const historicalArtifactReadMigrationPath =
   process.env.RD_REPLAY_HISTORICAL_ARTIFACT_READ_MIGRATION_PATH
-  || "modules/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification/fixtures/historical-artifact-read-migration-v1.json"
+  || "apps/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification/fixtures/historical-artifact-read-migration-v1.json"
 const historicalArtifactMigrationRegistryPath =
   process.env.RD_REPLAY_HISTORICAL_ARTIFACT_MIGRATION_REGISTRY_PATH
   || `${certificationOwner}/replay-historical-artifact-migration.json`
@@ -202,10 +202,10 @@ const releaseCandidateFixturePackPath =
   || `${certificationOwner}/replay-release-candidate-fixture-pack.json`
 const independentReleaseAuditPath =
   process.env.RD_REPLAY_INDEPENDENT_RELEASE_AUDIT_PATH
-  || "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/replay-independent-release-audit.json"
+  || "apps/research-strategy-development/research-control-plane/certification/replay-release-audit/replay-independent-release-audit.json"
 const independentReleaseAuditReceiptPath =
   process.env.RD_REPLAY_INDEPENDENT_RELEASE_AUDIT_RECEIPT_PATH
-  || "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/replay-independent-release-audit-receipt.json"
+  || "apps/research-strategy-development/research-control-plane/certification/replay-release-audit/replay-independent-release-audit-receipt.json"
 const issues: string[] = []
 const certificationCommandIssues: string[] = []
 const testSeparationIssues: string[] = []
@@ -315,7 +315,7 @@ try {
 
 const expectedCapabilityMilestones = Array.from({ length: 29 }, (_, index) => `M4-P${index + 1}`)
 const publicEntrypointPath =
-  "modules/research-strategy-development/replay-execution-plane/runner/src/public.ts"
+  "apps/research-strategy-development/replay-execution-plane/runner/src/public.ts"
 const expectedCanonicalEntrypoints = [
   { profile: "single-trial", owner: "runner", path: publicEntrypointPath, export: "runReplayTrial" },
   { profile: "independent-lane-batch", owner: "runner", path: publicEntrypointPath, export: "runReplayIndependentLaneBatch" },
@@ -323,12 +323,12 @@ const expectedCanonicalEntrypoints = [
   { profile: "terminal-aware-bounded-cycle", owner: "runner", path: publicEntrypointPath, export: "runReplayPortfolioProtectiveTerminalCycleSequence" },
 ]
 const expectedGenericEpochs = [
-  { kind: "result", schema_version: "trade.rd-replay-result.v53", path: "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-contracts.ts", export: "REPLAY_RESULT_SCHEMA_VERSION" },
-  { kind: "artifact_manifest", schema_version: "trade.rd-replay-artifact-manifest.v55", path: "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-contracts.ts", export: "REPLAY_ARTIFACT_SCHEMA_VERSION" },
-  { kind: "engine_checkpoint", schema_version: "trade.rd-replay-engine-checkpoint.v32", path: "modules/research-strategy-development/replay-execution-plane/engine/src/lib/replay-reference-engine.ts", export: "REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION" },
-  { kind: "diagnostic_checkpoint_commit", schema_version: "trade.rd-replay-diagnostic-checkpoint-commit.v2", path: "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.ts", export: "REPLAY_DIAGNOSTIC_CHECKPOINT_COMMIT_SCHEMA_VERSION" },
-  { kind: "terminal_checkpoint", schema_version: "trade.rd-replay-terminal-checkpoint.v1", path: "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.ts", export: "REPLAY_TERMINAL_CHECKPOINT_SCHEMA_VERSION" },
-  { kind: "run_outcome", schema_version: "trade.rd-replay-run-outcome.v35", path: "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.ts", export: "REPLAY_RUN_OUTCOME_SCHEMA_VERSION" },
+  { kind: "result", schema_version: "trade.rd-replay-result.v53", path: "apps/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-contracts.ts", export: "REPLAY_RESULT_SCHEMA_VERSION" },
+  { kind: "artifact_manifest", schema_version: "trade.rd-replay-artifact-manifest.v55", path: "apps/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-contracts.ts", export: "REPLAY_ARTIFACT_SCHEMA_VERSION" },
+  { kind: "engine_checkpoint", schema_version: "trade.rd-replay-engine-checkpoint.v32", path: "apps/research-strategy-development/replay-execution-plane/engine/src/lib/replay-reference-engine.ts", export: "REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION" },
+  { kind: "diagnostic_checkpoint_commit", schema_version: "trade.rd-replay-diagnostic-checkpoint-commit.v2", path: "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.ts", export: "REPLAY_DIAGNOSTIC_CHECKPOINT_COMMIT_SCHEMA_VERSION" },
+  { kind: "terminal_checkpoint", schema_version: "trade.rd-replay-terminal-checkpoint.v1", path: "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.ts", export: "REPLAY_TERMINAL_CHECKPOINT_SCHEMA_VERSION" },
+  { kind: "run_outcome", schema_version: "trade.rd-replay-run-outcome.v35", path: "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.ts", export: "REPLAY_RUN_OUTCOME_SCHEMA_VERSION" },
 ]
 const expectedProfileEpochs = [
   { profile: "single-trial", result_schema_version: "trade.rd-replay-result.v53", artifact_schema_version: "trade.rd-replay-artifact-manifest.v55", checkpoint_mode: "resumable-engine-checkpoint-v32" },
@@ -427,7 +427,7 @@ const genericEpochPatterns = expectedGenericEpochs.map((epoch) => ({
   expected: epoch.schema_version,
   pattern: new RegExp(`${escapeRegExp(epoch.schema_version.replace(/v\d+$/, "v"))}\\d+`, "g"),
 }))
-const replaySourceRoot = "modules/research-strategy-development/replay-execution-plane"
+const replaySourceRoot = "apps/research-strategy-development/replay-execution-plane"
 const productionReplaySources = collectTypeScriptSources(replaySourceRoot)
   .filter((path) => !path.endsWith(".test.ts") && !path.includes("/test-support/"))
 for (const epoch of genericEpochPatterns) {
@@ -492,7 +492,7 @@ for (const path of canonicalTestSources) {
   }
 }
 const legacyCycleCertificationTest =
-  "modules/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification/src/lib/legacy-portfolio-cycle-certification.test.ts"
+  "apps/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification/src/lib/legacy-portfolio-cycle-certification.test.ts"
 const legacyCycleCertificationSource = existsSync(legacyCycleCertificationTest)
   ? readFileSync(legacyCycleCertificationTest, "utf8")
   : ""
@@ -565,7 +565,7 @@ for (const activation of inventory.opt_in_activation_registry) {
 const compatibilityMilestones = inventory.entries
   .filter((entry) => entry.classification === "compatibility")
   .map((entry) => entry.milestone)
-const compatibilityRoot = "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/"
+const compatibilityRoot = "apps/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/"
 if (canonicalArray(inventory.compatibility_consumer_registry.map((entry) => entry.milestone))
     !== canonicalArray(compatibilityMilestones)
     || new Set(inventory.compatibility_consumer_registry.map((entry) => entry.milestone)).size
@@ -580,10 +580,10 @@ for (const consumer of inventory.compatibility_consumer_registry) {
   }
 }
 for (const formerPath of [
-  "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-reallocation-runner.ts",
-  "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-two-cycle-portfolio-runner.ts",
-  "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-cycle-sequence-accounting-runner.ts",
-  "modules/research-strategy-development/replay-execution-plane/accounting/src/lib/replay-portfolio-cycle-sequence-accounting.ts",
+  "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-reallocation-runner.ts",
+  "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-two-cycle-portfolio-runner.ts",
+  "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-cycle-sequence-accounting-runner.ts",
+  "apps/research-strategy-development/replay-execution-plane/accounting/src/lib/replay-portfolio-cycle-sequence-accounting.ts",
 ]) {
   if (existsSync(formerPath)) issues.push(`Replay compatibility consumer remains in a canonical owner: ${formerPath}`)
 }

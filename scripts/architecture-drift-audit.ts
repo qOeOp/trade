@@ -65,13 +65,13 @@ for (const domain of domains) {
   }
 }
 
-const packageModules = findMarkerRoots("modules", "package.json")
-const executablePackageModules = packageModules.filter((path) => !path.startsWith("modules/contracts/"))
+const packageModules = findMarkerRoots("apps", "package.json")
+const executablePackageModules = packageModules.filter((path) => !path.startsWith("apps/contracts/"))
 const orphanPackageModules = executablePackageModules.filter((path) => !moduleToDomain.has(path))
 const missingManifestModules = [...moduleToDomain.keys()].filter((path) => !existsSync(path))
-const contractRoots = findMarkerRoots("modules", "CONTRACT.md")
+const contractRoots = findMarkerRoots("apps", "CONTRACT.md")
 const contractRootsOutsideManifest = contractRoots
-  .filter((path) => !path.startsWith("modules/contracts/"))
+  .filter((path) => !path.startsWith("apps/contracts/"))
   .filter((path) => !moduleToDomain.has(path))
 
 const blueprintPath = "docs/architecture/architecture-overview-v2.mmd"
@@ -275,7 +275,7 @@ function aggregateImportEdges(edges: ImportEdge[]): Array<{
 
 function readSourceImportEdges(inspectionIssues: string[]): ImportEdge[] {
   const edges: ImportEdge[] = []
-  const sourceFiles = walkFiles("modules").filter((file) => isSourceFile(file) && !isTestSource(file))
+  const sourceFiles = walkFiles("apps").filter((file) => isSourceFile(file) && !isTestSource(file))
   for (const file of sourceFiles) {
     const sourceModule = ownerModuleForPath(file)
     if (!sourceModule) continue
@@ -312,14 +312,14 @@ function ownerModuleForPath(path: string): string {
   const normalized = normalizePath(path)
   const moduleRoots = [
     ...moduleToDomain.keys(),
-    ...packageModules.filter((modulePath) => modulePath.startsWith("modules/contracts/")),
+    ...packageModules.filter((modulePath) => modulePath.startsWith("apps/contracts/")),
   ].sort((a, b) => b.length - a.length)
   return moduleRoots.find((root) => normalized === root || normalized.startsWith(`${root}/`)) || ""
 }
 
 function ownerDomainForModule(modulePath: string): string {
   const normalized = normalizePath(modulePath)
-  if (normalized.startsWith("modules/contracts/")) {
+  if (normalized.startsWith("apps/contracts/")) {
     return "contracts"
   }
   return moduleToDomain.get(normalized) || ""
@@ -374,7 +374,7 @@ function normalizePath(path: string): string {
 }
 
 function stripModulesPrefix(path: string): string {
-  return path.startsWith("modules/") ? path.slice("modules/".length) : path
+  return path.startsWith("apps/") ? path.slice("apps/".length) : path
 }
 
 function readJson(path: string): JSONRecord {

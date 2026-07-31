@@ -1,0 +1,116 @@
+{
+  "schema_version": "trade.rd-replay-fault-corruption-recovery-bundle.v1",
+  "owner": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification",
+  "scope": "frozen-owner-fault-and-corruption-assertions-for-four-public-profiles",
+  "authority_policy": "no-partial-result-or-manifest-authority-before-valid-commit",
+  "corruption_policy": "detect-before-use-never-rehash-or-silent-repair",
+  "recovery_policy": "retry-only-when-identical-source-and-owner-contract-permit",
+  "execution_policy": "sequential-fresh-bun-process-exact-frozen-owner-assertion",
+  "cases": [
+    {
+      "case_id": "single-dataset-frozen-hash-corruption",
+      "profile": "single-trial",
+      "fault_stage": "dataset-admission",
+      "fault_kind": "frozen-input-corruption",
+      "evidence_path": "apps/research-strategy-development/replay-execution-plane/tests/src/replay-certification.test.ts",
+      "evidence_test_name": "data integrity: changing a bar without changing the frozen manifest is rejected",
+      "expected_detection": "dataset-hash-mismatch-before-result-publication",
+      "expected_authority_outcome": "no-result-or-authoritative-manifest",
+      "recovery_class": "fresh-attempt-rebuild-required",
+      "timeout_ms": 20000
+    },
+    {
+      "case_id": "single-checkpoint-semantic-corruption",
+      "profile": "single-trial",
+      "fault_stage": "engine-checkpoint",
+      "fault_kind": "checkpoint-semantic-corruption",
+      "evidence_path": "apps/research-strategy-development/replay-execution-plane/engine/src/lib/replay-reference-engine.test.ts",
+      "evidence_test_name": "checkpoint hash and source prefix fencing reject tampered resume state",
+      "expected_detection": "authority-state-or-source-prefix-fence-rejects-resume",
+      "expected_authority_outcome": "no-result-or-authoritative-manifest",
+      "recovery_class": "clean-checkpoint-or-deterministic-rerun-required",
+      "timeout_ms": 20000
+    },
+    {
+      "case_id": "single-committed-artifact-corruption",
+      "profile": "single-trial",
+      "fault_stage": "committed-artifact-read",
+      "fault_kind": "committed-payload-corruption",
+      "evidence_path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.test.ts",
+      "evidence_test_name": "runner fences stale Attempt leases and verifies every committed artifact file",
+      "expected_detection": "artifact-file-hash-mismatch-on-idempotent-read",
+      "expected_authority_outcome": "corrupt-commit-rejected",
+      "recovery_class": "fresh-attempt-rebuild-required",
+      "timeout_ms": 25000
+    },
+    {
+      "case_id": "independent-child-failure",
+      "profile": "independent-lane-batch",
+      "fault_stage": "child-trial-execution",
+      "fault_kind": "injected-child-failure",
+      "evidence_path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
+      "evidence_test_name": "independent lane failure is all-or-nothing and never publishes a partial batch Result",
+      "expected_detection": "failed-or-incomplete-child-blocks-batch-result",
+      "expected_authority_outcome": "no-result-or-authoritative-manifest",
+      "recovery_class": "aggregate-rerun-after-authoritative-children",
+      "timeout_ms": 25000
+    },
+    {
+      "case_id": "independent-child-semantic-corruption",
+      "profile": "independent-lane-batch",
+      "fault_stage": "aggregate-evidence-validation",
+      "fault_kind": "rehash-semantic-tamper",
+      "evidence_path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
+      "evidence_test_name": "independent lane Batch rejects Plan, allocation, authority and child evidence tampering",
+      "expected_detection": "authority-capital-or-child-result-binding-rejected",
+      "expected_authority_outcome": "no-result-or-authoritative-manifest",
+      "recovery_class": "aggregate-rerun-after-authoritative-children",
+      "timeout_ms": 25000
+    },
+    {
+      "case_id": "integrated-owner-port-and-publication-failure",
+      "profile": "integrated-portfolio",
+      "fault_stage": "portfolio-execution-publication",
+      "fault_kind": "injected-owner-port-failure",
+      "evidence_path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
+      "evidence_test_name": "integrated Portfolio makes Allocation the only entry authority and releases exposure/risk through lifecycle Artifact",
+      "expected_detection": "engine-artifact-or-revaluation-owner-failure-blocks-portfolio-result",
+      "expected_authority_outcome": "no-result-or-authoritative-manifest",
+      "recovery_class": "full-profile-rerun-required",
+      "timeout_ms": 30000
+    },
+    {
+      "case_id": "integrated-orphan-payload-publication-interruption",
+      "profile": "integrated-portfolio",
+      "fault_stage": "portfolio-artifact-publication",
+      "fault_kind": "orphan-payload-interruption",
+      "evidence_path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
+      "evidence_test_name": "Portfolio Artifact uses manifest-last commit, is idempotent, and retries orphan payloads without partial Result",
+      "expected_detection": "payload-without-manifest-remains-non-authoritative",
+      "expected_authority_outcome": "no-result-or-authoritative-manifest",
+      "recovery_class": "manifest-last-identical-retry",
+      "timeout_ms": 30000
+    },
+    {
+      "case_id": "terminal-mid-sequence-execution-failure",
+      "profile": "terminal-aware-bounded-cycle",
+      "fault_stage": "terminal-cycle-execution",
+      "fault_kind": "injected-mid-sequence-failure",
+      "evidence_path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
+      "evidence_test_name": "bounded Cycle Sequence executes one, two, and three predeclared full-flat cycles without cycle-number schemas",
+      "expected_detection": "later-cycle-failure-blocks-sequence-result-and-artifact",
+      "expected_authority_outcome": "no-result-or-authoritative-manifest",
+      "recovery_class": "full-profile-rerun-required",
+      "timeout_ms": 30000
+    }
+  ],
+  "limitations": [
+    "frozen-selected-fault-points-not-exhaustive-combinatorial-injection",
+    "filesystem-power-loss-and-fsync-boundary-covered-by-separate-publication-crash-gate",
+    "remote-distributed-artifact-store-corruption-and-recovery-not-certified",
+    "committed-corruption-is-detected-not-automatically-repaired",
+    "integrated-and-terminal-profiles-have-no-checkpoint-and-require-full-rerun",
+    "cross-host-cross-runtime-and-concurrent-fault-schedules-not-certified"
+  ],
+  "bundle_sha256": "f7fd12d087576000e4b347576b6f51c92172a7b3ff12398129aee4d8ed7b906a"
+}

@@ -59,7 +59,7 @@ Research 不写在线交易事件、不调用 Binance write；Replay / Forward �
 | 路径 | 用途 |
 | --- | --- |
 | `docs/` | L1 产品、架构、大功能、research、engineering 合同 |
-| `modules/` | domain-owned atomic tools、suite façade、shared contracts |
+| `apps/` | domain-owned atomic tools、suite façade、shared contracts |
 | `strategies/` | versioned strategy contracts |
 | `profile/` | 本地 trading config 与兼容输入；凭证不入库 |
 | `scripts/` | manifest、drift、storage、docs 和项目质量检查 |

@@ -1,22 +1,22 @@
 import type { Database } from "bun:sqlite"
-import type { AgentArtifactRef } from "../../modules/contracts/agent-run-contract/src/agent-run-contract"
-import type { AgentHostPort } from "../../modules/contracts/agent-run-contract/src/agent-host-port"
+import type { AgentArtifactRef } from "../../apps/contracts/agent-run-contract/src/agent-run-contract"
+import type { AgentHostPort } from "../../apps/contracts/agent-run-contract/src/agent-host-port"
 import {
   readAgentArtifact,
   writeAgentTextArtifact,
-} from "../../modules/orchestration-ops/agent-artifact-store/src/lib/agent-artifact-store"
-import type { CodexAppServerClientPort } from "../../modules/orchestration-ops/agent-host-codex/src/lib/codex-app-server-client"
-import { createDeveloperWorkspaceCodexHost } from "../../modules/orchestration-ops/agent-host-codex/src/lib/developer-workspace-codex-host"
-import { createAgentWorkspaceExecutionScope } from "../../modules/orchestration-ops/agent-workspace-manager/src/lib/workspace-manager"
-import { readAgentRun } from "../../modules/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
+} from "../../apps/orchestration-ops/agent-artifact-store/src/lib/agent-artifact-store"
+import type { CodexAppServerClientPort } from "../../apps/orchestration-ops/agent-host-codex/src/lib/codex-app-server-client"
+import { createDeveloperWorkspaceCodexHost } from "../../apps/orchestration-ops/agent-host-codex/src/lib/developer-workspace-codex-host"
+import { createAgentWorkspaceExecutionScope } from "../../apps/orchestration-ops/agent-workspace-manager/src/lib/workspace-manager"
+import { readAgentRun } from "../../apps/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
 import {
   admitDeveloperAgentResult,
   createDeveloperWorkspaceAgentSubmission,
   prepareDeveloperAgentRun,
-} from "../../modules/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/developer-agent-run"
-import { executeAgentRunThroughHost } from "../../modules/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/agent-run-host-execution"
-import type { AgentArtifactPort } from "../../modules/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/planner-agent-run"
-import type { DeveloperDataSnapshotBinding } from "../../modules/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/developer-capability-assessment"
+} from "../../apps/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/developer-agent-run"
+import { executeAgentRunThroughHost } from "../../apps/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/agent-run-host-execution"
+import type { AgentArtifactPort } from "../../apps/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/planner-agent-run"
+import type { DeveloperDataSnapshotBinding } from "../../apps/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/developer-capability-assessment"
 
 export interface DeveloperWorkspaceCycleInput {
   research_db: Database

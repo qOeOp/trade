@@ -330,7 +330,7 @@ R&D 纵切无 Binance write，且已有 schema / queue / budget / holdout gate�
 
 实施检查点（2026-07-22）：
 
-- 已建立 `modules/market-data-products/l2-recorder-bakeoff`；三种实现共享 fixture/result schema，complete 与 forced-gap 的 book hash / verdict 一致。
+- 已建立 `apps/market-data-products/l2-recorder-bakeoff`；三种实现共享 fixture/result schema，complete 与 forced-gap 的 book hash / verdict 一致。
 - 已把 tracked / unignored secret scan 与 Rust fmt/check/clippy/test 接入项目质量闸。
 - 当前 synthetic smoke（Apple Silicon、每样本十万次 event apply）中，Rust median 约 `1.34 µs/event / 1.8 MB RSS`，Bun 约 `2.05 µs/event / 99 MB`，Go 约 `2.25 µs/event / 12 MB`。
 - 已按 Binance routed public endpoint 捕获 BTCUSDT 真实 fixture：1000-level snapshot、200 个连续 `@depth@100ms` events、约 386 KB；保留 exchange / transaction / local receive time 与 `U/u/pu`。

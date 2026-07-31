@@ -33,7 +33,7 @@ Operator、Agent Host 与 Developer sandbox 仍必须独立，因为它们持有
 普通发布者只能从 committed `HEAD` 生成新路径：
 
 ```bash
-bun modules/orchestration-ops/trade-flow/src/scripts/server-runtime-container-release-package.ts \
+bun apps/orchestration-ops/trade-flow/src/scripts/server-runtime-container-release-package.ts \
   --target-root /absolute/new/trade-container-package
 ```
 
@@ -71,7 +71,7 @@ docker compose -f deploy/server/compose.yaml up --detach runtime
 docker compose -f deploy/server/compose.yaml ps
 docker compose -f deploy/server/compose.yaml logs --follow --tail 200 runtime
 docker compose -f deploy/server/compose.yaml exec runtime \
-  bun modules/orchestration-ops/trade-flow/src/scripts/server-runtime-container-status.ts
+  bun apps/orchestration-ops/trade-flow/src/scripts/server-runtime-container-status.ts
 ```
 
 健康必须同时满足 control supervisor lease active、market-data manager、OHLCV / indicator worker 与 formal Replay resident worker 的新鲜 running heartbeat；具体 symbol 的 L2/OHLCV/indicator 可用性仍由对应 demand fact 的 coverage/freshness 证明，Replay heartbeat 也不代表存在或通过了策略 Result。`container running` 或单一 HTTP 200 不等于 ready。

@@ -11,7 +11,7 @@ const FORBIDDEN_TEST_RUNTIMES = new Set([
 ])
 
 const root = resolve(readRootArgument(process.argv.slice(2)) ?? join(import.meta.dir, ".."))
-const modulesRoot = join(root, "modules")
+const modulesRoot = join(root, "apps")
 const issues: string[] = []
 
 for (const path of collectSources(modulesRoot)) {

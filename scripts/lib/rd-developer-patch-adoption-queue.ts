@@ -2,10 +2,10 @@ import type { Database } from "bun:sqlite"
 import {
   admitAgentPatchAdoption,
   readAgentPatchAdoption,
-} from "../../modules/orchestration-ops/ops-runtime-store/src/lib/agent-patch-adoption-store"
+} from "../../apps/orchestration-ops/ops-runtime-store/src/lib/agent-patch-adoption-store"
 import {
   readAgentRun,
-} from "../../modules/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
+} from "../../apps/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
 
 export interface PatchReadyDeveloperCycleProjection {
   run_id: string

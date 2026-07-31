@@ -3,18 +3,18 @@
 import { Database } from "bun:sqlite"
 import { realpathSync } from "node:fs"
 import { resolve, sep } from "node:path"
-import type { AgentArtifactRef } from "../modules/contracts/agent-run-contract/src/agent-run-contract"
+import type { AgentArtifactRef } from "../apps/contracts/agent-run-contract/src/agent-run-contract"
 import {
   buildDatabaseIdentity,
   ensureDatabaseIdentity,
-} from "../modules/contracts/runtime-core/src/database-identity"
-import { ensureAgentRunStoreSchema } from "../modules/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
-import { configureAgentCycleDatabase } from "../modules/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/agent-cycle-cli"
+} from "../apps/contracts/runtime-core/src/database-identity"
+import { ensureAgentRunStoreSchema } from "../apps/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
+import { configureAgentCycleDatabase } from "../apps/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/agent-cycle-cli"
 import {
   createDeveloperDataSnapshotBinding,
   type DeveloperDataSnapshotBinding,
-} from "../modules/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/developer-capability-assessment"
-import { ensureResearchStateSchema } from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/research-state-store"
+} from "../apps/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/developer-capability-assessment"
+import { ensureResearchStateSchema } from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/research-state-store"
 import { runDeveloperWorkspaceCycle } from "./lib/rd-developer-workspace-cycle"
 
 type JSONRecord = Record<string, unknown>

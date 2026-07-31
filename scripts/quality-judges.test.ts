@@ -21,7 +21,7 @@ afterEach(() => {
 describe("quality judges fail closed", () => {
   test("architecture drift rejects a static cross-domain import", () => {
     const root = architectureFixture()
-    write(root, "modules/domain-a/tool-a/src/main.ts", 'import "../../../domain-b/tool-b/src/main"\n')
+    write(root, "apps/domain-a/tool-a/src/main.ts", 'import "../../../domain-b/tool-b/src/main"\n')
 
     const result = runJudge("architecture-drift-audit.ts", root)
 
@@ -31,7 +31,7 @@ describe("quality judges fail closed", () => {
 
   test("architecture drift and TS boundaries reject computed runtime imports", () => {
     const root = architectureFixture()
-    write(root, "modules/domain-a/tool-a/src/main.ts", [
+    write(root, "apps/domain-a/tool-a/src/main.ts", [
       'const target = "../../../domain-b/tool-b/src/main"',
       "export const load = () => import(target)",
       "",
@@ -48,13 +48,13 @@ describe("quality judges fail closed", () => {
 
   test("TS boundaries do not grant tests a blanket cross-tool import pass", () => {
     const root = architectureFixture()
-    write(root, "modules/domain-a/tool-a/src/main.test.ts", 'import "../../../domain-b/tool-b/src/main"\n')
+    write(root, "apps/domain-a/tool-a/src/main.test.ts", 'import "../../../domain-b/tool-b/src/main"\n')
 
     const result = runJudge("check-ts-tool-boundaries.ts", root)
 
     expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain("modules/domain-a/tool-a/src/main.test.ts")
-    expect(result.stderr).toContain("modules/domain-b/tool-b")
+    expect(result.stderr).toContain("apps/domain-a/tool-a/src/main.test.ts")
+    expect(result.stderr).toContain("apps/domain-b/tool-b")
   })
 
   test("architecture drift rejects job owner and target-domain mismatch", () => {
@@ -63,7 +63,7 @@ describe("quality judges fail closed", () => {
         ticket_no: "J01",
         job_id: "wrong_owner",
         target_domain: "domain-b",
-        owner_module: "modules/domain-a/tool-a",
+        owner_module: "apps/domain-a/tool-a",
         writes: [],
       }],
     })
@@ -144,7 +144,7 @@ describe("quality judges fail closed", () => {
       "utf8",
     )) as { compatibility_consumer_registry: Array<{ path: string }> }
     inventory.compatibility_consumer_registry[0]!.path =
-      "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-reallocation-runner.ts"
+      "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-reallocation-runner.ts"
     const root = temporaryRoot()
     const inventoryPath = join(root, "inventory.json")
     writeFileSync(inventoryPath, JSON.stringify(inventory))
@@ -177,7 +177,7 @@ describe("quality judges fail closed", () => {
 
   test("Replay certification owner cannot omit a Plane package", () => {
     const registry = JSON.parse(readFileSync(
-      join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-certification-suites.json"),
+      join(repoRoot, "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-certification-suites.json"),
       "utf8",
     )) as { suites: unknown[] }
     registry.suites.pop()
@@ -195,7 +195,7 @@ describe("quality judges fail closed", () => {
 
   test("Replay module and production consumer closure cannot drift silently", () => {
     const registry = JSON.parse(readFileSync(
-      join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-module-consumer-closure.json"),
+      join(repoRoot, "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-module-consumer-closure.json"),
       "utf8",
     )) as { observed_production_consumer_edge_count: number }
     registry.observed_production_consumer_edge_count -= 1
@@ -213,7 +213,7 @@ describe("quality judges fail closed", () => {
 
   test("Replay cross-process reproducibility bundle cannot drift silently", () => {
     const bundle = JSON.parse(readFileSync(
-      join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-cross-process-reproducibility-bundle.json"),
+      join(repoRoot, "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-cross-process-reproducibility-bundle.json"),
       "utf8",
     )) as { bundle_sha256: string }
     bundle.bundle_sha256 = "0".repeat(64)
@@ -231,7 +231,7 @@ describe("quality judges fail closed", () => {
 
   test("Replay historical Artifact read migration fixture cannot drift silently", () => {
     const fixture = JSON.parse(readFileSync(
-      join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification/fixtures/historical-artifact-read-migration-v1.json"),
+      join(repoRoot, "apps/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification/fixtures/historical-artifact-read-migration-v1.json"),
       "utf8",
     )) as { artifacts: Array<{ manifest: { manifest_hash: string } }> }
     fixture.artifacts[0]!.manifest.manifest_hash = "0".repeat(64)
@@ -249,7 +249,7 @@ describe("quality judges fail closed", () => {
 
   test("Replay publication crash recovery bundle cannot overclaim exactly-once execution", () => {
     const bundle = JSON.parse(readFileSync(
-      join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-publication-crash-recovery-bundle.json"),
+      join(repoRoot, "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-publication-crash-recovery-bundle.json"),
       "utf8",
     )) as { exactly_once_scope: string }
     bundle.exactly_once_scope = "one-process-execution"
@@ -267,7 +267,7 @@ describe("quality judges fail closed", () => {
 
   test("Replay capacity envelope cannot become a portable SLA or silent throughput claim", () => {
     const envelope = JSON.parse(readFileSync(
-      join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-capacity-performance-envelope.json"),
+      join(repoRoot, "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-capacity-performance-envelope.json"),
       "utf8",
     )) as { timing_policy: string }
     envelope.timing_policy = "portable-performance-sla"
@@ -285,7 +285,7 @@ describe("quality judges fail closed", () => {
 
   test("Replay corruption detection cannot be upgraded to silent automatic repair", () => {
     const bundle = JSON.parse(readFileSync(
-      join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-fault-corruption-recovery-bundle.json"),
+      join(repoRoot, "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-fault-corruption-recovery-bundle.json"),
       "utf8",
     )) as { corruption_policy: string }
     bundle.corruption_policy = "detect-and-automatically-repair"
@@ -303,7 +303,7 @@ describe("quality judges fail closed", () => {
 
   test("Replay local evidence cannot be overclaimed as central observability or an SLO", () => {
     const registry = JSON.parse(readFileSync(
-      join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-operational-readiness.json"),
+      join(repoRoot, "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-operational-readiness.json"),
       "utf8",
     )) as { telemetry_boundary: string }
     registry.telemetry_boundary = "central-metrics-traces-alerting-and-slo-complete"
@@ -321,7 +321,7 @@ describe("quality judges fail closed", () => {
 
   test("Replay fixture closure cannot be overclaimed as an independent release verdict", () => {
     const pack = JSON.parse(readFileSync(
-      join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-release-candidate-fixture-pack.json"),
+      join(repoRoot, "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-release-candidate-fixture-pack.json"),
       "utf8",
     )) as { verdict_policy: string }
     pack.verdict_policy = "fixture-pack-is-independent-release-verdict"
@@ -339,7 +339,7 @@ describe("quality judges fail closed", () => {
 
   test("Replay release audit cannot be captured by the fixture-pack owner", () => {
     const audit = JSON.parse(readFileSync(
-      join(repoRoot, "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/replay-independent-release-audit.json"),
+      join(repoRoot, "apps/research-strategy-development/research-control-plane/certification/replay-release-audit/replay-independent-release-audit.json"),
       "utf8",
     )) as { independence_policy: string }
     audit.independence_policy = "subject-owner-self-attestation"
@@ -357,7 +357,7 @@ describe("quality judges fail closed", () => {
 
   test("Replay historical Artifact payload reader cannot drift silently", () => {
     const registry = JSON.parse(readFileSync(
-      join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-historical-artifact-migration.json"),
+      join(repoRoot, "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-historical-artifact-migration.json"),
       "utf8",
     )) as { reader_export: string }
     registry.reader_export = "missingHistoricalReader"
@@ -375,9 +375,9 @@ describe("quality judges fail closed", () => {
 
   test("production TypeScript packages require colocated tests", () => {
     const root = temporaryRoot()
-    write(root, "modules/domain-a/tool-a/package.json", "{}\n")
-    write(root, "modules/domain-a/tool-a/tsconfig.json", "{}\n")
-    write(root, "modules/domain-a/tool-a/src/main.ts", "export const value = true\n")
+    write(root, "apps/domain-a/tool-a/package.json", "{}\n")
+    write(root, "apps/domain-a/tool-a/tsconfig.json", "{}\n")
+    write(root, "apps/domain-a/tool-a/src/main.ts", "export const value = true\n")
 
     const result = runJudge("check-package-tests.ts", root)
 
@@ -388,18 +388,18 @@ describe("quality judges fail closed", () => {
   test("direct package execution ignores no-op scripts and observes compiler and test outcomes", () => {
     const root = temporaryRoot()
     symlinkSync(join(repoRoot, "node_modules"), join(root, "node_modules"), "dir")
-    write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({
+    write(root, "apps/domain-a/tool-a/package.json", JSON.stringify({
       scripts: {
         test: "bun test --only",
         check: "true || bun test ./src/main.test.ts # && tsc --noEmit",
       },
     }))
-    write(root, "modules/domain-a/tool-a/tsconfig.json", JSON.stringify({
+    write(root, "apps/domain-a/tool-a/tsconfig.json", JSON.stringify({
       compilerOptions: { strict: true, skipLibCheck: true, types: ["bun"] },
       include: ["src/**/*.ts"],
     }))
-    write(root, "modules/domain-a/tool-a/src/main.ts", "export const value: string = 1\n")
-    write(root, "modules/domain-a/tool-a/src/main.test.ts", [
+    write(root, "apps/domain-a/tool-a/src/main.ts", "export const value: string = 1\n")
+    write(root, "apps/domain-a/tool-a/src/main.test.ts", [
       'import { expect, test } from "bun:test"',
       'test("fixture", () => expect(true).toBe(true))',
       "",
@@ -408,15 +408,15 @@ describe("quality judges fail closed", () => {
     const typeFailure = runJudge(
       "check-package-tests.ts",
       root,
-      ["--run-package", "modules/domain-a/tool-a"],
+      ["--run-package", "apps/domain-a/tool-a"],
     )
     expect(typeFailure.exitCode).toBe(1)
     expect(`${typeFailure.stdout}\n${typeFailure.stderr}`).toContain(
       "Type 'number' is not assignable to type 'string'",
     )
 
-    write(root, "modules/domain-a/tool-a/src/main.ts", 'export const value = "valid"\n')
-    write(root, "modules/domain-a/tool-a/src/main.test.ts", [
+    write(root, "apps/domain-a/tool-a/src/main.ts", 'export const value = "valid"\n')
+    write(root, "apps/domain-a/tool-a/src/main.test.ts", [
       'import { expect, test } from "bun:test"',
       'test("fixture", () => expect(false).toBe(true))',
       "",
@@ -424,12 +424,12 @@ describe("quality judges fail closed", () => {
     const testFailure = runJudge(
       "check-package-tests.ts",
       root,
-      ["--run-package", "modules/domain-a/tool-a"],
+      ["--run-package", "apps/domain-a/tool-a"],
     )
     expect(testFailure.exitCode).toBe(1)
     expect(`${testFailure.stdout}\n${testFailure.stderr}`).toContain("1 fail")
 
-    write(root, "modules/domain-a/tool-a/src/main.test.ts", [
+    write(root, "apps/domain-a/tool-a/src/main.test.ts", [
       'import { expect, test } from "bun:test"',
       'test("fixture", () => expect(true).toBe(true))',
       "",
@@ -437,7 +437,7 @@ describe("quality judges fail closed", () => {
     const pass = runJudge(
       "check-package-tests.ts",
       root,
-      ["--run-package", "modules/domain-a/tool-a"],
+      ["--run-package", "apps/domain-a/tool-a"],
     )
     expect(pass.exitCode).toBe(0)
     expect(pass.stdout).toContain("compiled and tested 1 TypeScript packages directly")
@@ -464,7 +464,7 @@ describe("quality judges fail closed", () => {
 
   test("TypeScript boundaries own module-local lockfiles", () => {
     const root = architectureFixture()
-    write(root, "modules/domain-a/tool-a/bun.lock", "")
+    write(root, "apps/domain-a/tool-a/bun.lock", "")
 
     const result = runJudge("check-ts-tool-boundaries.ts", root)
 
@@ -478,7 +478,7 @@ describe("quality judges fail closed", () => {
       domains: [{
         id: "domain-a",
         status: "implemented",
-        modules: ["modules/domain-a/tool-a"],
+        modules: ["apps/domain-a/tool-a"],
         owns_stores: [],
         owns_jobs: [],
       }],
@@ -486,11 +486,11 @@ describe("quality judges fail closed", () => {
       stores: [],
       rails: [],
     }))
-    write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({ name: "tool-a" }))
-    write(root, "modules/contracts/protocol-fabric/src/schemas/rail-ownership-registry.schema.json", JSON.stringify({
+    write(root, "apps/domain-a/tool-a/package.json", JSON.stringify({ name: "tool-a" }))
+    write(root, "apps/contracts/protocol-fabric/src/schemas/rail-ownership-registry.schema.json", JSON.stringify({
       items: { properties: { id: { enum: [] } } },
     }))
-    write(root, "modules/contracts/protocol-fabric/src/schemas/logical-store-ref.schema.json", JSON.stringify({
+    write(root, "apps/contracts/protocol-fabric/src/schemas/logical-store-ref.schema.json", JSON.stringify({
       properties: { store: { enum: [] } },
     }))
 
@@ -795,20 +795,20 @@ describe("quality judges fail closed", () => {
   test("package tests cannot omit a colocated test file", () => {
     const root = temporaryRoot()
     symlinkSync(join(repoRoot, "node_modules"), join(root, "node_modules"), "dir")
-    write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({
+    write(root, "apps/domain-a/tool-a/package.json", JSON.stringify({
       scripts: { test: "bun test ./src/covered.test.ts" },
     }))
-    write(root, "modules/domain-a/tool-a/tsconfig.json", JSON.stringify({
+    write(root, "apps/domain-a/tool-a/tsconfig.json", JSON.stringify({
       compilerOptions: { strict: true, skipLibCheck: true, types: ["bun"] },
       include: ["src/**/*.ts"],
     }))
-    write(root, "modules/domain-a/tool-a/src/main.ts", "export const value = true\n")
-    write(root, "modules/domain-a/tool-a/src/covered.test.ts", [
+    write(root, "apps/domain-a/tool-a/src/main.ts", "export const value = true\n")
+    write(root, "apps/domain-a/tool-a/src/covered.test.ts", [
       'import { expect, test } from "bun:test"',
       'test("covered", () => expect(true).toBe(true))',
       "",
     ].join("\n"))
-    write(root, "modules/domain-a/tool-a/src/omitted.test.ts", [
+    write(root, "apps/domain-a/tool-a/src/omitted.test.ts", [
       'import { expect, test } from "bun:test"',
       'test("omitted", () => expect(false).toBe(true))',
       "",
@@ -817,7 +817,7 @@ describe("quality judges fail closed", () => {
     const result = runJudge(
       "check-package-tests.ts",
       root,
-      ["--run-package", "modules/domain-a/tool-a"],
+      ["--run-package", "apps/domain-a/tool-a"],
     )
 
     expect(result.exitCode).toBe(1)
@@ -827,7 +827,7 @@ describe("quality judges fail closed", () => {
   test("Replay package isolation cannot omit a colocated test file", () => {
     const root = temporaryRoot()
     const packageDir =
-      "modules/research-strategy-development/replay-execution-plane/runner"
+      "apps/research-strategy-development/replay-execution-plane/runner"
     symlinkSync(join(repoRoot, "node_modules"), join(root, "node_modules"), "dir")
     write(root, `${packageDir}/package.json`, JSON.stringify({
       scripts: { "test:remaining": "bun test ./src/lib/covered.test.ts" },
@@ -878,13 +878,13 @@ describe("quality judges fail closed", () => {
     const root = temporaryRoot()
     symlinkSync(join(repoRoot, "node_modules"), join(root, "node_modules"), "dir")
     for (const name of ["tool-a", "tool-b"]) {
-      write(root, `modules/domain-a/${name}/package.json`, JSON.stringify({ name, private: true }))
-      write(root, `modules/domain-a/${name}/tsconfig.json`, JSON.stringify({
+      write(root, `apps/domain-a/${name}/package.json`, JSON.stringify({ name, private: true }))
+      write(root, `apps/domain-a/${name}/tsconfig.json`, JSON.stringify({
         compilerOptions: { strict: true, skipLibCheck: true, types: ["bun"] },
         include: ["src/**/*.ts"],
       }))
-      write(root, `modules/domain-a/${name}/src/main.ts`, `export const value = ${JSON.stringify(name)}\n`)
-      write(root, `modules/domain-a/${name}/src/main.test.ts`, [
+      write(root, `apps/domain-a/${name}/src/main.ts`, `export const value = ${JSON.stringify(name)}\n`)
+      write(root, `apps/domain-a/${name}/src/main.test.ts`, [
         'import { expect, test } from "bun:test"',
         `test(${JSON.stringify(name)}, () => expect(true).toBe(true))`,
         "",
@@ -896,10 +896,10 @@ describe("quality judges fail closed", () => {
 
     expect(first.exitCode).toBe(0)
     expect(second.exitCode).toBe(0)
-    expect(first.stdout).toContain("package-test: modules/domain-a/tool-a")
-    expect(first.stdout).not.toContain("package-test: modules/domain-a/tool-b")
-    expect(second.stdout).toContain("package-test: modules/domain-a/tool-b")
-    expect(second.stdout).not.toContain("package-test: modules/domain-a/tool-a")
+    expect(first.stdout).toContain("package-test: apps/domain-a/tool-a")
+    expect(first.stdout).not.toContain("package-test: apps/domain-a/tool-b")
+    expect(second.stdout).toContain("package-test: apps/domain-a/tool-b")
+    expect(second.stdout).not.toContain("package-test: apps/domain-a/tool-a")
   })
 
   test("ESLint rejects a TypeScript error with zero-warning policy", () => {
@@ -910,7 +910,7 @@ describe("quality judges fail closed", () => {
         "0",
         "--stdin",
         "--stdin-filename",
-        "modules/quality-judge.ts",
+        "apps/quality-judge.ts",
       ],
       repoRoot,
       {},
@@ -987,8 +987,8 @@ function architectureFixture(overrides: { jobs?: unknown[] } = {}): string {
   const root = temporaryRoot()
   const manifest = {
     domains: [
-      { id: "domain-a", status: "implemented", modules: ["modules/domain-a/tool-a"] },
-      { id: "domain-b", status: "implemented", modules: ["modules/domain-b/tool-b"] },
+      { id: "domain-a", status: "implemented", modules: ["apps/domain-a/tool-a"] },
+      { id: "domain-b", status: "implemented", modules: ["apps/domain-b/tool-b"] },
     ],
     jobs: overrides.jobs ?? [],
     stores: [],
@@ -997,9 +997,9 @@ function architectureFixture(overrides: { jobs?: unknown[] } = {}): string {
   write(root, "docs/architecture/architecture-manifest.json", JSON.stringify(manifest))
   write(root, "docs/architecture/architecture-overview-v2.mmd", "flowchart LR\n  a --> b\n")
   for (const [domain, tool] of [["domain-a", "tool-a"], ["domain-b", "tool-b"]]) {
-    write(root, `modules/${domain}/${tool}/package.json`, JSON.stringify({ name: tool }))
-    write(root, `modules/${domain}/${tool}/CONTRACT.md`, `# ${tool}\n`)
-    write(root, `modules/${domain}/${tool}/src/main.ts`, "export const value = true\n")
+    write(root, `apps/${domain}/${tool}/package.json`, JSON.stringify({ name: tool }))
+    write(root, `apps/${domain}/${tool}/CONTRACT.md`, `# ${tool}\n`)
+    write(root, `apps/${domain}/${tool}/src/main.ts`, "export const value = true\n")
   }
   write(root, "package.json", JSON.stringify({ dependencies: {}, devDependencies: {} }))
   return root
@@ -1049,7 +1049,7 @@ function documentContractFixture(
   write(root, "docs/architecture/architecture-manifest.json", JSON.stringify({
     domains: [{ id: "policy-risk" }],
   }))
-  write(root, "modules/contracts/preflight-contract/src/preflight.ts", "export const guards = []\n")
+  write(root, "apps/contracts/preflight-contract/src/preflight.ts", "export const guards = []\n")
   return root
 }
 

@@ -38,7 +38,7 @@ export function collectConvergenceMetrics(root: string): ConvergenceMetrics {
   const toolset = readJson(join(root, "toolset.json"))
   const architecture = readJson(join(root, "docs/architecture/architecture-manifest.json"))
   return {
-    module_owners: countNamedFiles(join(root, "modules"), "CONTRACT.md"),
+    module_owners: countNamedFiles(join(root, "apps"), "CONTRACT.md"),
     registered_tools: arrayLength(toolset.tools, "toolset.tools"),
     architecture_domains: arrayLength(architecture.domains, "architecture.domains"),
     architecture_stores: arrayLength(architecture.stores, "architecture.stores"),

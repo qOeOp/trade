@@ -49,7 +49,7 @@ function trackedPaths(): string[] {
 
 function moduleRuntimePaths(): string[] {
   const paths: string[] = []
-  walkModules(resolve(root, "modules"), paths)
+  walkModules(resolve(root, "apps"), paths)
   return paths
 }
 

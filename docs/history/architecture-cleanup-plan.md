@@ -67,7 +67,7 @@ NOFX 可借鉴的是 runtime discipline，不是产品形态；详细记录见 [
 主要风险：
 
 - `trade-flow` 曾混合 online flow、recovery、execution recording、replay、R&D、calibration、evidence、artifact GC；当前 R&D / review / artifact 已迁到独立 owner。
-- `modules/orchestration-ops/trade-flow/src/scripts/main.ts` 已从全平台命令总线收缩为交易流程入口；后续新增原子能力必须先落 owner 模块。
+- `apps/orchestration-ops/trade-flow/src/scripts/main.ts` 已从全平台命令总线收缩为交易流程入口；后续新增原子能力必须先落 owner 模块。
 - 没有项目级命令契约；各 tool 有各自 `check`，但没有统一“改了什么跑什么”。
 - 动作权限没有机器可读边界；只读、写 evidence、写 `trade.db`、真实下单都靠文档和人工识别。
 - 交易配置缺少统一 runtime policy compiler；账户风险、通知、R&D 成本模型、strategy/lane 权限仍分散在多个文件和 payload。
@@ -130,7 +130,7 @@ NOFX 可借鉴的是 runtime discipline，不是产品形态；详细记录见 [
 先整理模块，不先决定 tool 数量。
 
 ```text
-modules/orchestration-ops/trade-flow/
+apps/orchestration-ops/trade-flow/
 ├─ tool README                  # 只保留 router、权限分级、红线、命令索引
 ├─ stages/                   # observe / plan / execute / review 的人读流程
 ├─ scripts/
@@ -261,7 +261,7 @@ scripts/
 当前每个 TS tool 自带 package / node_modules。先不做 monorepo 迁移，但要形成共享代码边界：
 
 - 短期：复制少量工具可以接受，但 schema / hash / time / envelope 不能继续分叉。
-- 中期：建立 `modules/contracts/*`，由各 tool 只 import contract 层。
+- 中期：建立 `apps/contracts/*`，由各 tool 只 import contract 层。
 - 迁移前先确认 agent runtime 与相对 import / package resolution 是否稳定。
 
 禁止项：
@@ -752,9 +752,9 @@ Jesse 调研后的补充要求：
 
 验证：
 
-- `modules/market-data-products/ohlcv-fetch`: `bun run check`，31 pass / 0 fail
-- `modules/orchestration-ops/trade-flow`: `bun run typecheck`
-- `modules/orchestration-ops/trade-flow`: `bun run test`，206 pass / 0 fail
+- `apps/market-data-products/ohlcv-fetch`: `bun run check`，31 pass / 0 fail
+- `apps/orchestration-ops/trade-flow`: `bun run typecheck`
+- `apps/orchestration-ops/trade-flow`: `bun run test`，206 pass / 0 fail
 - repo root: `git diff --check`
 - repo root: `helper-scripts-smoke`
 - repo root: `scripts/quality-check.sh`
@@ -878,7 +878,7 @@ Jesse 调研后的补充要求：
 
 ### 当前实施状态（2026-07-10）
 
-- J1-J5 均已按本项目边界完成第一版吸收；实现位置以 `modules/contracts/execution-contract/src/execution-contract.ts`、`modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine/src/lib/strategy-replay.ts`、`modules/contracts/strategy-contract/src/strategy-contract.ts`、对应 fixtures 为准。
+- J1-J5 均已按本项目边界完成第一版吸收；实现位置以 `apps/contracts/execution-contract/src/execution-contract.ts`、`apps/research-strategy-development/replay-execution-plane/compatibility/replay-engine/src/lib/strategy-replay.ts`、`apps/contracts/strategy-contract/src/strategy-contract.ts`、对应 fixtures 为准。
 - 吸收方式是重写内核纪律，不引入 Jesse runtime、策略继承、UI、多交易所、优化平台或 ML pipeline。
 - replay 仍保持稳定输出外壳；新增 `fill_model`、`diagnostics`、`lifecycle` 均为扩展字段。
 - Monte Carlo 与 diagnostics 只允许阻断或提示复核，不能单独放行 shadow / live-small。

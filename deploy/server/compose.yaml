@@ -51,7 +51,7 @@ services:
       test:
         - CMD
         - bun
-        - modules/orchestration-ops/trade-flow/src/scripts/server-runtime-container-status.ts
+        - apps/orchestration-ops/trade-flow/src/scripts/server-runtime-container-status.ts
       interval: 15s
       timeout: 10s
       retries: 4

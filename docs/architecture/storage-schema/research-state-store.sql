@@ -2,7 +2,7 @@
 -- physical target: data/rd_state.db
 -- mode: owner-command state plus immutable Control Plane ledgers
 -- executable Control Plane migration:
--- modules/research-strategy-development/research-control-plane/state-store/src/lib/research-control-plane-schema.ts
+-- apps/research-strategy-development/research-control-plane/state-store/src/lib/research-control-plane-schema.ts
 --
 -- Control Plane tables added by that migration:
 -- rd_universe_node, rd_universe_node_axis, rd_data_surface,

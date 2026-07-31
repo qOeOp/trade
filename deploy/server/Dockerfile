@@ -6,18 +6,18 @@ ARG GO_VERSION=1.25
 
 FROM rust:${RUST_VERSION}-bookworm AS l2-builder
 WORKDIR /build
-COPY modules/market-data-products/l2-order-book-core modules/market-data-products/l2-order-book-core
-COPY modules/market-data-products/l2-order-book-service modules/market-data-products/l2-order-book-service
+COPY apps/market-data-products/l2-order-book-core apps/market-data-products/l2-order-book-core
+COPY apps/market-data-products/l2-order-book-service apps/market-data-products/l2-order-book-service
 RUN cargo build \
     --locked \
     --release \
     --bins \
-    --manifest-path modules/market-data-products/l2-order-book-service/Cargo.toml
+    --manifest-path apps/market-data-products/l2-order-book-service/Cargo.toml
 
 FROM golang:${GO_VERSION}-bookworm AS indicator-builder
-WORKDIR /build/modules/market-data-products/tech-indicators
-COPY modules/market-data-products/tech-indicators/go.mod ./
-COPY modules/market-data-products/tech-indicators/src ./src
+WORKDIR /build/apps/market-data-products/tech-indicators
+COPY apps/market-data-products/tech-indicators/go.mod ./
+COPY apps/market-data-products/tech-indicators/src ./src
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o target/release/tech-indicators ./src/scripts
 
 FROM oven/bun:${BUN_VERSION}-debian AS runtime
@@ -31,20 +31,20 @@ RUN bun install --frozen-lockfile --production
 
 COPY AGENTS.md README.md toolset.json ./
 COPY docs docs
-COPY modules modules
+COPY apps apps
 COPY profile profile
 COPY schemas schemas
 COPY scripts scripts
 COPY strategies strategies
 COPY --from=l2-builder \
-    /build/modules/market-data-products/l2-order-book-service/target/release/l2-order-book-service \
-    /app/modules/market-data-products/l2-order-book-service/target/release/l2-order-book-service
+    /build/apps/market-data-products/l2-order-book-service/target/release/l2-order-book-service \
+    /app/apps/market-data-products/l2-order-book-service/target/release/l2-order-book-service
 COPY --from=l2-builder \
-    /build/modules/market-data-products/l2-order-book-service/target/release/l2-order-book-query \
-    /app/modules/market-data-products/l2-order-book-service/target/release/l2-order-book-query
+    /build/apps/market-data-products/l2-order-book-service/target/release/l2-order-book-query \
+    /app/apps/market-data-products/l2-order-book-service/target/release/l2-order-book-query
 COPY --from=indicator-builder \
-    /build/modules/market-data-products/tech-indicators/target/release/tech-indicators \
-    /app/modules/market-data-products/tech-indicators/target/release/tech-indicators
+    /build/apps/market-data-products/tech-indicators/target/release/tech-indicators \
+    /app/apps/market-data-products/tech-indicators/target/release/tech-indicators
 
 ARG TRADE_SOURCE_REVISION=container-local
 RUN case "${TRADE_SOURCE_REVISION}" in \
@@ -72,7 +72,7 @@ ENV NODE_ENV=production
 ENV TRADE_REPO_ROOT=/app
 USER 10001:10001
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["bun", "modules/orchestration-ops/trade-flow/src/scripts/server-runtime-container-foreground.ts", "--profile", "profile/server-runtime-container.json"]
+CMD ["bun", "apps/orchestration-ops/trade-flow/src/scripts/server-runtime-container-foreground.ts", "--profile", "profile/server-runtime-container.json"]
 
 FROM runtime AS developer
 USER 0:0

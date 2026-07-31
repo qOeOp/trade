@@ -10,7 +10,7 @@ last_verified: 2026-07-23 CST
 
 ## 1. Authority
 
-本文区分“当前代码已执行的 guard”和“配置/设计已声明但尚未统一接入的限制”。确定性裁决由 `modules/contracts/preflight-contract` 与 `modules/live-execution-control/plan-preflight` 拥有；本文不覆盖代码 verdict。
+本文区分“当前代码已执行的 guard”和“配置/设计已声明但尚未统一接入的限制”。确定性裁决由 `apps/contracts/preflight-contract` 与 `apps/live-execution-control/plan-preflight` 拥有；本文不覆盖代码 verdict。
 
 ## 2. 动作分类
 

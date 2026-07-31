@@ -95,7 +95,7 @@ for (const path of retiredCurrentPaths) {
   if (existsSync(path)) issues.push(`historical path must not return to the current contract tree: ${path}`)
 }
 
-const implementedGuards = identifiers("modules/contracts/preflight-contract/src/preflight.ts", /G-[A-Z0-9-]+/g)
+const implementedGuards = identifiers("apps/contracts/preflight-contract/src/preflight.ts", /G-[A-Z0-9-]+/g)
 const documentedGuards = identifiers("docs/runtime/risk-control-contract.md", /G-[A-Z0-9-]+/g)
 for (const guard of implementedGuards) {
   if (!documentedGuards.has(guard)) issues.push(`risk contract is missing implemented guard: ${guard}`)
@@ -218,7 +218,7 @@ function walkMarkdown(path: string): string[] {
 
 function repositoryMarkdown(): string[] {
   const files = ["README.md", "AGENTS.md"]
-  for (const path of [".agents", "docs", "modules", "strategies"]) files.push(...walkMarkdown(path))
+  for (const path of [".agents", "docs", "apps", "strategies"]) files.push(...walkMarkdown(path))
   return files.filter(existsSync)
 }
 
@@ -259,7 +259,7 @@ function decodePath(value: string): string {
 
 function ownerResolves(owner: string): boolean {
   if (documentationOwners.has(owner) || architectureDomainIds.has(owner)) return true
-  return [...architectureDomainIds].some((domainId) => existsSync(join("modules", domainId, owner)))
+  return [...architectureDomainIds].some((domainId) => existsSync(join("apps", domainId, owner)))
 }
 
 function documentNamespace(path: string): string | undefined {

@@ -121,7 +121,7 @@ v2 蓝图的长期边界：
 
 现状：
 
-- `modules/contracts/domain-runtime/CONTRACT.md` 定义了 hook 顺序和 result envelope。
+- `apps/contracts/domain-runtime/CONTRACT.md` 定义了 hook 顺序和 result envelope。
 - `J02 fast_track_guard` 已由 `live-execution-control/fast-track-guard` 原生产出 `domain-runtime.domain-job-result.v1`。
 - `J04 rd_strategy_supervisor` 已由 `research-strategy-development/rd-supervisor` 原生产出 `domain-runtime.domain-job-result.v1`。
 - `J05 rd_forward_shadow_trackers` 已由 `research-strategy-development/rd-shadow-tracker` 原生产出 `domain-runtime.domain-job-result.v1`。
@@ -229,40 +229,40 @@ v2 蓝图的长期边界：
 优先补壳，不急着搬业务：
 
 ```text
-modules/contracts/domain-runtime/src/
+apps/contracts/domain-runtime/src/
   hook-context.ts
   domain-job-result.ts
   schemas/domain-job-result.schema.json
   schemas/hook-context.schema.json
 
-modules/contracts/protocol-fabric/src/
+apps/contracts/protocol-fabric/src/
   rail-ownership.ts
   schemas/rail-envelope-header.schema.json
   schemas/rail-ownership-registry.schema.json
 
-modules/orchestration-ops/control-tower-runtime/
+apps/orchestration-ops/control-tower-runtime/
   CONTRACT.md
   src/lib/control-tower-runtime.ts
 
-modules/orchestration-ops/incident-store/
+apps/orchestration-ops/incident-store/
   CONTRACT.md
   src/lib/incident-store.ts
 
-modules/policy-risk/trading-mode-authority/
+apps/policy-risk/trading-mode-authority/
   CONTRACT.md
   src/lib/trading-mode-authority.ts
 
-modules/market-data-products/data-quality-gate/
-modules/market-data-products/market-fact-publisher/
-modules/live-decision-planning/decision-input-assembler/
-modules/live-decision-planning/trade-plan-builder/
-modules/live-decision-planning/action-intent-publisher/
-modules/research-strategy-development/research-control-plane/compatibility/candidate-freezer/
-modules/research-strategy-development/research-control-plane/evidence-registry/
-modules/governance-review-compliance/evidence-intake-gate/
-modules/governance-review-compliance/policy-feedback-compiler/
-modules/artifact-knowledge/lineage-indexer/
-modules/artifact-knowledge/catalog-summary-publisher/
+apps/market-data-products/data-quality-gate/
+apps/market-data-products/market-fact-publisher/
+apps/live-decision-planning/decision-input-assembler/
+apps/live-decision-planning/trade-plan-builder/
+apps/live-decision-planning/action-intent-publisher/
+apps/research-strategy-development/research-control-plane/compatibility/candidate-freezer/
+apps/research-strategy-development/research-control-plane/evidence-registry/
+apps/governance-review-compliance/evidence-intake-gate/
+apps/governance-review-compliance/policy-feedback-compiler/
+apps/artifact-knowledge/lineage-indexer/
+apps/artifact-knowledge/catalog-summary-publisher/
 ```
 
 这些壳的第一版可以只做 schema validation / pass-through / envelope wrapping，不迁业务逻辑。

@@ -13,46 +13,46 @@ import {
 import { createHash } from "node:crypto"
 import { dirname, resolve, sep } from "node:path"
 import { Database } from "bun:sqlite"
-import { asRecord, stringField } from "../modules/contracts/runtime-core/src/json"
+import { asRecord, stringField } from "../apps/contracts/runtime-core/src/json"
 import {
   compileMarketDataDemand,
-} from "../modules/contracts/market-data-demand-contract/src/market-data-demand-contract"
+} from "../apps/contracts/market-data-demand-contract/src/market-data-demand-contract"
 import {
   buildForwardObservationMarketDataDemand,
-} from "../modules/research-strategy-development/research-control-plane/contracts/src/lib/forward-observation-program"
+} from "../apps/research-strategy-development/research-control-plane/contracts/src/lib/forward-observation-program"
 import {
   assertFundingReplaySliceContent,
   compileFundingReplaySliceRef,
-} from "../modules/contracts/market-data-demand-contract/src/funding-replay-slice-contract"
+} from "../apps/contracts/market-data-demand-contract/src/funding-replay-slice-contract"
 import {
   compileFundingCoverageAudit,
-} from "../modules/contracts/market-data-demand-contract/src/funding-coverage-contract"
+} from "../apps/contracts/market-data-demand-contract/src/funding-coverage-contract"
 import {
   compileMarketDataFactRef,
-} from "../modules/contracts/market-data-demand-contract/src/market-data-fact-contract"
+} from "../apps/contracts/market-data-demand-contract/src/market-data-fact-contract"
 import {
   buildForwardFundingMarketDataDemand,
   createForwardFundingEvidenceBinding,
-} from "../modules/research-strategy-development/forward-evidence-plane/contracts/src/lib/forward-funding-evidence"
+} from "../apps/research-strategy-development/forward-evidence-plane/contracts/src/lib/forward-funding-evidence"
 import {
   readLatestForwardDatasetCandidate,
-} from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/forward-dataset-candidate"
+} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/forward-dataset-candidate"
 import {
   admitForwardFundingEvidenceBinding,
   ensureForwardFundingEvidenceSchema,
   readForwardFundingEvidenceBinding,
   readLatestForwardFundingDemandDelivery,
   recordForwardFundingDemandDelivery,
-} from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/forward-funding-evidence"
+} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/forward-funding-evidence"
 import {
   ensureForwardObservationProgramSchema,
   listCollectingForwardObservationPrograms,
   readLatestForwardMarketDataDemandDelivery,
   recordForwardMarketDataDemandDelivery,
-} from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/forward-observation-program"
+} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/forward-observation-program"
 import {
   ensureResearchControlPlaneSchema,
-} from "../modules/research-strategy-development/research-control-plane/state-store/src/lib/research-control-plane-schema"
+} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/research-control-plane-schema"
 import {
   reconcileForwardObservationPrograms,
   shouldRenewForwardMarketDataDemand,

@@ -1,6 +1,6 @@
 {
   "schema_version": "trade-toolset.manifest.v1",
-  "description": "Agent-facing index for the local trading toolset. Source code lives under modules; this manifest is the discovery contract.",
+  "description": "Agent-facing index for the local trading toolset. Source code lives under apps; this manifest is the discovery contract.",
   "tools": [
     {
       "id": "ops.model-gateway",
@@ -13,10 +13,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/orchestration-ops/model-gateway",
+      "path": "apps/orchestration-ops/model-gateway",
       "purpose": "Execute one provider-neutral, budgeted model task through the fixed SiliconFlow profile without granting domain or execution authority.",
       "command": {
-        "cwd": "modules/orchestration-ops/model-gateway",
+        "cwd": "apps/orchestration-ops/model-gateway",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -55,10 +55,10 @@
       "domain": "orchestration-ops",
       "intent": ["operator-api", "http", "openclaw-adapter", "research-control"],
       "capability_class": ["A", "E"],
-      "path": "modules/orchestration-ops/operator-http",
+      "path": "apps/orchestration-ops/operator-http",
       "purpose": "Serve a loopback authenticated HTTP allowlist for tool discovery, RD reads, and explicitly approved J04 autonomy wakeups.",
       "command": {
-        "cwd": "modules/orchestration-ops/operator-http",
+        "cwd": "apps/orchestration-ops/operator-http",
         "argv": ["bun", "src/scripts/main.ts", "--profile", "profile/operator-http.json"]
       },
       "writes": { "trade_db": false, "catalog": true, "artifacts": true, "binance": false, "config": false },
@@ -84,10 +84,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/orchestration-ops/trade-flow",
+      "path": "apps/orchestration-ops/trade-flow",
       "purpose": "Build the single-entry automation plan and isolate trade, research, review, and catalog jobs.",
       "command": {
-        "cwd": "modules/orchestration-ops/trade-flow",
+        "cwd": "apps/orchestration-ops/trade-flow",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -115,7 +115,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/orchestration-ops/trade-flow/src/schemas/automation-cycle-plan.schema.json"
+        "output_schema": "apps/orchestration-ops/trade-flow/src/schemas/automation-cycle-plan.schema.json"
       }
     },
     {
@@ -130,10 +130,10 @@
         "A",
         "V"
       ],
-      "path": "modules/orchestration-ops/trade-flow",
+      "path": "apps/orchestration-ops/trade-flow",
       "purpose": "Execute one leased fixed-profile wakeup: ops-only shadow, J06 canary, or J01-J07 full shadow with exchange writes disabled.",
       "command": {
-        "cwd": "modules/orchestration-ops/trade-flow",
+        "cwd": "apps/orchestration-ops/trade-flow",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -164,7 +164,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/orchestration-ops/trade-flow/src/schemas/program-shadow-wakeup-result.schema.json"
+        "output_schema": "apps/orchestration-ops/trade-flow/src/schemas/program-shadow-wakeup-result.schema.json"
       }
     },
     {
@@ -179,10 +179,10 @@
         "A",
         "V"
       ],
-      "path": "modules/orchestration-ops/trade-flow",
+      "path": "apps/orchestration-ops/trade-flow",
       "purpose": "Run the foreground resident shadow cadence with heartbeat-renewed fenced ownership and graceful shutdown drain.",
       "command": {
-        "cwd": "modules/orchestration-ops/trade-flow",
+        "cwd": "apps/orchestration-ops/trade-flow",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -216,7 +216,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/orchestration-ops/trade-flow/src/schemas/program-shadow-supervisor-result.schema.json"
+        "output_schema": "apps/orchestration-ops/trade-flow/src/schemas/program-shadow-supervisor-result.schema.json"
       }
     },
     {
@@ -243,10 +243,10 @@
         "R",
         "A"
       ],
-      "path": "modules/orchestration-ops/agent-mcp",
+      "path": "apps/orchestration-ops/agent-mcp",
       "purpose": "Expose an explicit MCP allowlist over local owner reads, including L2 retention/reference audit, active service/consumer health, and runtime parity status, plus controlled asynchronous J04 research submission.",
       "command": {
-        "cwd": "modules/orchestration-ops/agent-mcp",
+        "cwd": "apps/orchestration-ops/agent-mcp",
         "argv": [
           "bun",
           "src/scripts/main.ts"
@@ -299,10 +299,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/orchestration-ops/ops-runtime-store",
+      "path": "apps/orchestration-ops/ops-runtime-store",
       "purpose": "Record and summarize cycle/job/health/notify/domain-message observability, immutable Agent/program runtime parity, and bounded Watch Task lifecycle in ops_runtime_store.",
       "command": {
-        "cwd": "modules/orchestration-ops/ops-runtime-store",
+        "cwd": "apps/orchestration-ops/ops-runtime-store",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -351,10 +351,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/orchestration-ops/watch-task-runtime",
+      "path": "apps/orchestration-ops/watch-task-runtime",
       "purpose": "Resume one persisted proposed-plan mark-price watch under a fenced lease, then close its typed revalidation receipt without execution authority.",
       "command": {
-        "cwd": "modules/orchestration-ops/watch-task-runtime",
+        "cwd": "apps/orchestration-ops/watch-task-runtime",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -401,10 +401,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/orchestration-ops/runtime-health-guard",
+      "path": "apps/orchestration-ops/runtime-health-guard",
       "purpose": "Run control tower pre_cycle/pre_job runtime health checks and record the observation in ops_runtime_store.",
       "command": {
-        "cwd": "modules/orchestration-ops/runtime-health-guard",
+        "cwd": "apps/orchestration-ops/runtime-health-guard",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -450,10 +450,10 @@
       "capability_class": [
         "R"
       ],
-      "path": "modules/orchestration-ops/l2-current-book-probe",
+      "path": "apps/orchestration-ops/l2-current-book-probe",
       "purpose": "Require active L2 owner health, then return one same-epoch bounded current-book and exact-decimal microstructure observation for non-economic diagnostics.",
       "command": {
-        "cwd": "modules/orchestration-ops/l2-current-book-probe",
+        "cwd": "apps/orchestration-ops/l2-current-book-probe",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -498,10 +498,10 @@
       "capability_class": [
         "R"
       ],
-      "path": "modules/orchestration-ops/l2-current-book-probe",
+      "path": "apps/orchestration-ops/l2-current-book-probe",
       "purpose": "Require active L2 owner health, then observe a bounded same-epoch latest-only watermark watch and surface explicit resync follow-up.",
       "command": {
-        "cwd": "modules/orchestration-ops/l2-current-book-probe",
+        "cwd": "apps/orchestration-ops/l2-current-book-probe",
         "argv": [
           "bun",
           "src/scripts/watch.ts",
@@ -545,10 +545,10 @@
       "capability_class": [
         "R"
       ],
-      "path": "modules/orchestration-ops/l2-current-book-probe",
+      "path": "apps/orchestration-ops/l2-current-book-probe",
       "purpose": "Run a bounded reconnecting L2 observation session with mandatory current-book baselines after watch failure, epoch change, or resync.",
       "command": {
-        "cwd": "modules/orchestration-ops/l2-current-book-probe",
+        "cwd": "apps/orchestration-ops/l2-current-book-probe",
         "argv": [
           "bun",
           "src/scripts/session.ts",
@@ -593,10 +593,10 @@
       "capability_class": [
         "R"
       ],
-      "path": "modules/orchestration-ops/l2-current-book-probe",
+      "path": "apps/orchestration-ops/l2-current-book-probe",
       "purpose": "Read the fixed health, latest current-book baseline, and aggregate reliability counters of the unique resident L2 watch consumer.",
       "command": {
-        "cwd": "modules/orchestration-ops/l2-current-book-probe",
+        "cwd": "apps/orchestration-ops/l2-current-book-probe",
         "argv": [
           "bun",
           "src/scripts/consumer-read.ts"
@@ -640,10 +640,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/orchestration-ops/ops-notify-dispatch",
+      "path": "apps/orchestration-ops/ops-notify-dispatch",
       "purpose": "Run control tower post_job/post_cycle notification dispatch and record notify_attempt rows in ops_runtime_store.",
       "command": {
-        "cwd": "modules/orchestration-ops/ops-notify-dispatch",
+        "cwd": "apps/orchestration-ops/ops-notify-dispatch",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -687,10 +687,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/orchestration-ops/control-effectiveness-review",
+      "path": "apps/orchestration-ops/control-effectiveness-review",
       "purpose": "Run post_cycle control-system effectiveness review over incidents, job failures, and notify failures; persist improvement items in ops_runtime_store.",
       "command": {
-        "cwd": "modules/orchestration-ops/control-effectiveness-review",
+        "cwd": "apps/orchestration-ops/control-effectiveness-review",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -734,10 +734,10 @@
         "R",
         "V"
       ],
-      "path": "modules/orchestration-ops/trade-flow",
+      "path": "apps/orchestration-ops/trade-flow",
       "purpose": "Initialize and append local plan_event records, reduce flow state, and dry-run slow or fast tracks.",
       "command": {
-        "cwd": "modules/orchestration-ops/trade-flow",
+        "cwd": "apps/orchestration-ops/trade-flow",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -780,10 +780,10 @@
         "R",
         "A"
       ],
-      "path": "modules/portfolio-execution-state/event-store",
+      "path": "apps/portfolio-execution-state/event-store",
       "purpose": "Own local trade event schema, append semantics, chain scans, and latest order-fill reads.",
       "command": {
-        "cwd": "modules/portfolio-execution-state/event-store",
+        "cwd": "apps/portfolio-execution-state/event-store",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -825,10 +825,10 @@
         "R",
         "V"
       ],
-      "path": "modules/portfolio-execution-state/flow-projector",
+      "path": "apps/portfolio-execution-state/flow-projector",
       "purpose": "Own rebuildable flow and account-scoped portfolio projections derived from plan_event.",
       "command": {
-        "cwd": "modules/portfolio-execution-state/flow-projector",
+        "cwd": "apps/portfolio-execution-state/flow-projector",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -868,10 +868,10 @@
         "A",
         "V"
       ],
-      "path": "modules/live-execution-control/fast-track-guard",
+      "path": "apps/live-execution-control/fast-track-guard",
       "purpose": "Run native J02 fast_track_guard over active flows and return a domain-runtime job result.",
       "command": {
-        "cwd": "modules/live-execution-control/fast-track-guard",
+        "cwd": "apps/live-execution-control/fast-track-guard",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -917,10 +917,10 @@
       "capability_class": [
         "V"
       ],
-      "path": "modules/live-decision-planning/account-candidate-arbiter",
+      "path": "apps/live-decision-planning/account-candidate-arbiter",
       "purpose": "Rank already-qualified setup versions and produce one account-scoped, self-hashed risk-unit allocation proposal.",
       "command": {
-        "cwd": "modules/live-decision-planning/account-candidate-arbiter",
+        "cwd": "apps/live-decision-planning/account-candidate-arbiter",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -964,10 +964,10 @@
         "R",
         "A"
       ],
-      "path": "modules/orchestration-ops/trade-flow",
+      "path": "apps/orchestration-ops/trade-flow",
       "purpose": "Load runtime inputs, call read-only snapshot tools, and build normalized observe events.",
       "command": {
-        "cwd": "modules/orchestration-ops/trade-flow",
+        "cwd": "apps/orchestration-ops/trade-flow",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -994,7 +994,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/orchestration-ops/trade-flow/src/schemas/observe-event.schema.json"
+        "output_schema": "apps/orchestration-ops/trade-flow/src/schemas/observe-event.schema.json"
       }
     },
     {
@@ -1009,10 +1009,10 @@
         "R",
         "A"
       ],
-      "path": "modules/live-decision-planning/observe-runner",
+      "path": "apps/live-decision-planning/observe-runner",
       "purpose": "Call read-only exchange projection tools and normalize account/market responses for observe candidates.",
       "command": {
-        "cwd": "modules/live-decision-planning/observe-runner",
+        "cwd": "apps/live-decision-planning/observe-runner",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1054,10 +1054,10 @@
         "A",
         "V"
       ],
-      "path": "modules/live-decision-planning/observe-builder",
+      "path": "apps/live-decision-planning/observe-builder",
       "purpose": "Build normalized observe event candidates from supplied account, market, plan, and policy projections.",
       "command": {
-        "cwd": "modules/live-decision-planning/observe-builder",
+        "cwd": "apps/live-decision-planning/observe-builder",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1084,7 +1084,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/orchestration-ops/trade-flow/src/schemas/observe-event.schema.json"
+        "output_schema": "apps/orchestration-ops/trade-flow/src/schemas/observe-event.schema.json"
       }
     },
     {
@@ -1100,10 +1100,10 @@
         "A",
         "V"
       ],
-      "path": "modules/live-decision-planning/slow-track-plan",
+      "path": "apps/live-decision-planning/slow-track-plan",
       "purpose": "Own read-only J03 planning and emit DecisionInputBundle, TradePlanDraft, unallocated CapitalAllocationProposal, and blocked ActionIntent without live execution.",
       "command": {
-        "cwd": "modules/live-decision-planning/slow-track-plan",
+        "cwd": "apps/live-decision-planning/slow-track-plan",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1148,10 +1148,10 @@
         "A",
         "V"
       ],
-      "path": "modules/live-decision-planning/decision-input-assembler",
+      "path": "apps/live-decision-planning/decision-input-assembler",
       "purpose": "Assemble policy, market, flow, account, and research refs into one explicit planning input bundle.",
       "command": {
-        "cwd": "modules/live-decision-planning/decision-input-assembler",
+        "cwd": "apps/live-decision-planning/decision-input-assembler",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1194,10 +1194,10 @@
         "A",
         "V"
       ],
-      "path": "modules/live-decision-planning/trade-plan-builder",
+      "path": "apps/live-decision-planning/trade-plan-builder",
       "purpose": "Build non-executable trade-plan drafts from assembled decision inputs.",
       "command": {
-        "cwd": "modules/live-decision-planning/trade-plan-builder",
+        "cwd": "apps/live-decision-planning/trade-plan-builder",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1240,10 +1240,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/live-decision-planning/action-intent-publisher",
+      "path": "apps/live-decision-planning/action-intent-publisher",
       "purpose": "Publish trade-plan, watchlist, or no-action decisions as protocol action intent refs.",
       "command": {
-        "cwd": "modules/live-decision-planning/action-intent-publisher",
+        "cwd": "apps/live-decision-planning/action-intent-publisher",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1271,7 +1271,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/contracts/protocol-fabric/src/schemas/action-intent-ref.schema.json"
+        "output_schema": "apps/contracts/protocol-fabric/src/schemas/action-intent-ref.schema.json"
       }
     },
     {
@@ -1286,10 +1286,10 @@
         "A",
         "V"
       ],
-      "path": "modules/live-decision-planning/watch-task-compiler",
+      "path": "apps/live-decision-planning/watch-task-compiler",
       "purpose": "Compile one matching plan draft and proposed action intent into a fixed bounded Watch Task definition.",
       "command": {
-        "cwd": "modules/live-decision-planning/watch-task-compiler",
+        "cwd": "apps/live-decision-planning/watch-task-compiler",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1332,10 +1332,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/exchange-gateway/exchange-runtime-store",
+      "path": "apps/exchange-gateway/exchange-runtime-store",
       "purpose": "Record exchange command/result/snapshot refs in the exchange_runtime_store audit ledger.",
       "command": {
-        "cwd": "modules/exchange-gateway/exchange-runtime-store",
+        "cwd": "apps/exchange-gateway/exchange-runtime-store",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1380,10 +1380,10 @@
         "A",
         "V"
       ],
-      "path": "modules/exchange-gateway/exchange-request-router",
+      "path": "apps/exchange-gateway/exchange-request-router",
       "purpose": "Classify exchange requests into read routes or write-gate routes before adapter-specific handling.",
       "command": {
-        "cwd": "modules/exchange-gateway/exchange-request-router",
+        "cwd": "apps/exchange-gateway/exchange-request-router",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1424,10 +1424,10 @@
       "capability_class": [
         "V"
       ],
-      "path": "modules/exchange-gateway/write-pre-adapter-gate",
+      "path": "apps/exchange-gateway/write-pre-adapter-gate",
       "purpose": "Validate authorized exchange write requests before adapter tools receive them.",
       "command": {
-        "cwd": "modules/exchange-gateway/write-pre-adapter-gate",
+        "cwd": "apps/exchange-gateway/write-pre-adapter-gate",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1469,10 +1469,10 @@
         "A",
         "V"
       ],
-      "path": "modules/exchange-gateway/post-write-confirmation",
+      "path": "apps/exchange-gateway/post-write-confirmation",
       "purpose": "Normalize write result and reread confirmation facts into exchange command refs.",
       "command": {
-        "cwd": "modules/exchange-gateway/post-write-confirmation",
+        "cwd": "apps/exchange-gateway/post-write-confirmation",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1498,7 +1498,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/contracts/protocol-fabric/src/schemas/exchange-command-ref.schema.json"
+        "output_schema": "apps/contracts/protocol-fabric/src/schemas/exchange-command-ref.schema.json"
       }
     },
     {
@@ -1524,10 +1524,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/market-data-products/market-data-store",
+      "path": "apps/market-data-products/market-data-store",
       "purpose": "Record market manifests, typed leased data demands, L2 owner retention/referrer evidence, funding events, feature manifests, instrument-status acquisition receipts/raw payloads, and immutable archives in market_data_store; own canonical candles and immutable candle-slice exports from ohlcv_store.",
       "command": {
-        "cwd": "modules/market-data-products/market-data-store",
+        "cwd": "apps/market-data-products/market-data-store",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1584,10 +1584,10 @@
       "capability_class": [
         "R"
       ],
-      "path": "modules/market-data-products/l2-order-book-service",
+      "path": "apps/market-data-products/l2-order-book-service",
       "purpose": "Read one explicitly selected active L2 supervisor, or require global uniqueness when no symbol is supplied, without exposing lifecycle control.",
       "command": {
-        "cwd": "modules/market-data-products/l2-order-book-service",
+        "cwd": "apps/market-data-products/l2-order-book-service",
         "argv": [
           "bun",
           "src/scripts/owner-health.ts"
@@ -1629,10 +1629,10 @@
       "capability_class": [
         "R"
       ],
-      "path": "modules/market-data-products/l2-order-book-service",
+      "path": "apps/market-data-products/l2-order-book-service",
       "purpose": "Read one bounded, fresh, hash-verified full-depth snapshot from an explicitly selected L2 owner, or from the globally unique owner when no symbol is supplied.",
       "command": {
-        "cwd": "modules/market-data-products/l2-order-book-service",
+        "cwd": "apps/market-data-products/l2-order-book-service",
         "argv": [
           "bun",
           "src/scripts/owner-current-book.ts"
@@ -1674,10 +1674,10 @@
       "capability_class": [
         "R"
       ],
-      "path": "modules/market-data-products/l2-order-book-service",
+      "path": "apps/market-data-products/l2-order-book-service",
       "purpose": "Observe a bounded latest-only L2 watermark stream from an explicitly selected owner, or from the globally unique owner when no symbol is supplied, with explicit timeout, epoch, and resync semantics.",
       "command": {
-        "cwd": "modules/market-data-products/l2-order-book-service",
+        "cwd": "apps/market-data-products/l2-order-book-service",
         "argv": [
           "bun",
           "src/scripts/owner-book-watch.ts"
@@ -1721,10 +1721,10 @@
         "A",
         "V"
       ],
-      "path": "modules/market-data-products/instrument-status-provider",
+      "path": "apps/market-data-products/instrument-status-provider",
       "purpose": "Normalize one finalized immutable venue status-event archive into hash-bound Replay instrument-status epochs and provenance.",
       "command": {
-        "cwd": "modules/market-data-products/instrument-status-provider",
+        "cwd": "apps/market-data-products/instrument-status-provider",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1770,10 +1770,10 @@
       "capability_class": [
         "V"
       ],
-      "path": "modules/market-data-products/data-quality-gate",
+      "path": "apps/market-data-products/data-quality-gate",
       "purpose": "Validate market data manifests before they are consumed by research, decision, or execution domains.",
       "command": {
-        "cwd": "modules/market-data-products/data-quality-gate",
+        "cwd": "apps/market-data-products/data-quality-gate",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1800,7 +1800,7 @@
       ],
       "entry_contract": {
         "kind": "cli-json",
-        "input_schema": "modules/contracts/protocol-fabric/src/schemas/market-data-manifest.schema.json",
+        "input_schema": "apps/contracts/protocol-fabric/src/schemas/market-data-manifest.schema.json",
         "output_schema": ""
       }
     },
@@ -1816,10 +1816,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/market-data-products/market-fact-publisher",
+      "path": "apps/market-data-products/market-fact-publisher",
       "purpose": "Publish market data products as manifest-backed refs for protocol-fabric/event-bus consumption.",
       "command": {
-        "cwd": "modules/market-data-products/market-fact-publisher",
+        "cwd": "apps/market-data-products/market-fact-publisher",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1847,7 +1847,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/contracts/protocol-fabric/src/schemas/market-data-manifest.schema.json"
+        "output_schema": "apps/contracts/protocol-fabric/src/schemas/market-data-manifest.schema.json"
       }
     },
     {
@@ -1863,10 +1863,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/policy-risk/policy-registry",
+      "path": "apps/policy-risk/policy-registry",
       "purpose": "Record runtime policy snapshots and approved strategy refs, then issue bounded runtime authorizations from the registered snapshot.",
       "command": {
-        "cwd": "modules/policy-risk/policy-registry",
+        "cwd": "apps/policy-risk/policy-registry",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1912,10 +1912,10 @@
         "R",
         "V"
       ],
-      "path": "modules/policy-risk/runtime-policy-compiler",
+      "path": "apps/policy-risk/runtime-policy-compiler",
       "purpose": "Compile explicit runtime trading config into normalized policy snapshots without durable writes.",
       "command": {
-        "cwd": "modules/policy-risk/runtime-policy-compiler",
+        "cwd": "apps/policy-risk/runtime-policy-compiler",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1957,10 +1957,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/research-strategy-development/research-control-plane/state-store",
+      "path": "apps/research-strategy-development/research-control-plane/state-store",
       "purpose": "Own durable RD program and Control Plane authority facts, including immutable current-contract Evaluation Work Packages.",
       "command": {
-        "cwd": "modules/research-strategy-development/research-control-plane/state-store",
+        "cwd": "apps/research-strategy-development/research-control-plane/state-store",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -2004,10 +2004,10 @@
         "strategy-policy-registration"
       ],
       "capability_class": ["A", "V"],
-      "path": "modules/research-strategy-development/research-control-plane/strategy-registry",
+      "path": "apps/research-strategy-development/research-control-plane/strategy-registry",
       "purpose": "Materialize and register one Review-authorized Draft Strategy with deterministic lint and content hash.",
       "command": {
-        "cwd": "modules/research-strategy-development/research-control-plane/strategy-registry",
+        "cwd": "apps/research-strategy-development/research-control-plane/strategy-registry",
         "argv": ["bun", "src/scripts/main.ts", "--db", "<rd-state-db>", "--strategy-root", "strategies", "--json", "<payload>"]
       },
       "writes": {
@@ -2040,10 +2040,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/research-strategy-development/research-control-plane/evidence-registry",
+      "path": "apps/research-strategy-development/research-control-plane/evidence-registry",
       "purpose": "Publish research, validation, shadow, candidate, and lesson outputs as protocol evidence refs.",
       "command": {
-        "cwd": "modules/research-strategy-development/research-control-plane/evidence-registry",
+        "cwd": "apps/research-strategy-development/research-control-plane/evidence-registry",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -2071,7 +2071,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/contracts/protocol-fabric/src/schemas/research-evidence-ref.schema.json"
+        "output_schema": "apps/contracts/protocol-fabric/src/schemas/research-evidence-ref.schema.json"
       }
     },
     {
@@ -2087,10 +2087,10 @@
         "A",
         "V"
       ],
-      "path": "modules/governance-review-compliance/closed-flow-review-sweep",
+      "path": "apps/governance-review-compliance/closed-flow-review-sweep",
       "purpose": "Run native J07 closed_flow_review_sweep and record review batch refs in governance_ledger.",
       "command": {
-        "cwd": "modules/governance-review-compliance/closed-flow-review-sweep",
+        "cwd": "apps/governance-review-compliance/closed-flow-review-sweep",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -2139,10 +2139,10 @@
       "capability_class": [
         "V"
       ],
-      "path": "modules/governance-review-compliance/evidence-intake-gate",
+      "path": "apps/governance-review-compliance/evidence-intake-gate",
       "purpose": "Validate governance evidence refs for freshness, data hash, policy hash, and source refs before review or promotion.",
       "command": {
-        "cwd": "modules/governance-review-compliance/evidence-intake-gate",
+        "cwd": "apps/governance-review-compliance/evidence-intake-gate",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -2170,7 +2170,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/contracts/protocol-fabric/src/schemas/governance-ref.schema.json"
+        "output_schema": "apps/contracts/protocol-fabric/src/schemas/governance-ref.schema.json"
       }
     },
     {
@@ -2186,10 +2186,10 @@
         "A",
         "V"
       ],
-      "path": "modules/governance-review-compliance/policy-feedback-compiler",
+      "path": "apps/governance-review-compliance/policy-feedback-compiler",
       "purpose": "Compile review findings into policy feedback refs for policy-risk consumers.",
       "command": {
-        "cwd": "modules/governance-review-compliance/policy-feedback-compiler",
+        "cwd": "apps/governance-review-compliance/policy-feedback-compiler",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -2217,7 +2217,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/contracts/protocol-fabric/src/schemas/governance-ref.schema.json"
+        "output_schema": "apps/contracts/protocol-fabric/src/schemas/governance-ref.schema.json"
       }
     },
     {
@@ -2231,10 +2231,10 @@
       "capability_class": [
         "V"
       ],
-      "path": "modules/research-strategy-development/replay-execution-plane/certification/legacy-replay-fingerprint",
+      "path": "apps/research-strategy-development/replay-execution-plane/certification/legacy-replay-fingerprint",
       "purpose": "Certify compatibility Replay fingerprints for legacy evidence integrity review.",
       "command": {
-        "cwd": "modules/research-strategy-development/replay-execution-plane/certification/legacy-replay-fingerprint",
+        "cwd": "apps/research-strategy-development/replay-execution-plane/certification/legacy-replay-fingerprint",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -2263,7 +2263,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/contracts/replay-contract/src/schemas/replay-fingerprint.schema.json"
+        "output_schema": "apps/contracts/replay-contract/src/schemas/replay-fingerprint.schema.json"
       }
     },
     {
@@ -2276,10 +2276,10 @@
         "formal-replay-data-bundle"
       ],
       "capability_class": ["E"],
-      "path": "modules/research-strategy-development/replay-execution-plane/runner",
+      "path": "apps/research-strategy-development/replay-execution-plane/runner",
       "purpose": "Compile one hash-locked formal Replay data bundle or execute one immutable Trial-bound Replay request and atomically publish its Result Artifact.",
       "command": {
-        "cwd": "modules/research-strategy-development/replay-execution-plane/runner",
+        "cwd": "apps/research-strategy-development/replay-execution-plane/runner",
         "argv": ["bun", "src/scripts/main.ts", "--json", "<payload>"]
       },
       "writes": {
@@ -2311,10 +2311,10 @@
         "no-replay-observation-ack"
       ],
       "capability_class": ["A"],
-      "path": "modules/research-strategy-development/research-control-plane/replay-recovery",
+      "path": "apps/research-strategy-development/research-control-plane/replay-recovery",
       "purpose": "Reconcile validated local Replay cancellation outboxes with Control Plane Observation authority before fresh worker admission.",
       "command": {
-        "cwd": "modules/research-strategy-development/research-control-plane/replay-recovery",
+        "cwd": "apps/research-strategy-development/research-control-plane/replay-recovery",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -2343,7 +2343,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/research-control-plane/replay-recovery/src/schemas/replay-cancellation-recovery-job-result.schema.json"
+        "output_schema": "apps/research-strategy-development/research-control-plane/replay-recovery/src/schemas/replay-cancellation-recovery-job-result.schema.json"
       }
     },
     {
@@ -2355,10 +2355,10 @@
         "replay-worker-lease"
       ],
       "capability_class": ["A"],
-      "path": "modules/research-strategy-development/research-control-plane/replay-recovery",
+      "path": "apps/research-strategy-development/research-control-plane/replay-recovery",
       "purpose": "Recover the certified local cancellation outbox set before issuing one authoritative Replay Attempt lease.",
       "command": {
-        "cwd": "modules/research-strategy-development/research-control-plane/replay-recovery",
+        "cwd": "apps/research-strategy-development/research-control-plane/replay-recovery",
         "argv": [
           "bun",
           "src/scripts/admit.ts",
@@ -2391,7 +2391,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/research-control-plane/replay-recovery/src/schemas/replay-attempt-admission-result.schema.json"
+        "output_schema": "apps/research-strategy-development/research-control-plane/replay-recovery/src/schemas/replay-attempt-admission-result.schema.json"
       }
     },
     {
@@ -2405,10 +2405,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/research-strategy-development/research-control-plane/dataset-governance/data-split",
+      "path": "apps/research-strategy-development/research-control-plane/dataset-governance/data-split",
       "purpose": "Split source OHLCV manifests into discovery, validation, and locked holdout manifests with embargo.",
       "command": {
-        "cwd": "modules/research-strategy-development/research-control-plane/dataset-governance/data-split",
+        "cwd": "apps/research-strategy-development/research-control-plane/dataset-governance/data-split",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -2436,7 +2436,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/research-control-plane/dataset-governance/data-split/src/schemas/strategy-data-split-result.schema.json"
+        "output_schema": "apps/research-strategy-development/research-control-plane/dataset-governance/data-split/src/schemas/strategy-data-split-result.schema.json"
       }
     },
     {
@@ -2450,10 +2450,10 @@
       "capability_class": [
         "V"
       ],
-      "path": "modules/research-strategy-development/research-control-plane/dataset-governance/data-split",
+      "path": "apps/research-strategy-development/research-control-plane/dataset-governance/data-split",
       "purpose": "Bind one discovery or validation split segment to its exact report, manifest, and content hashes without opening locked holdout.",
       "command": {
-        "cwd": "modules/research-strategy-development/research-control-plane/dataset-governance/data-split",
+        "cwd": "apps/research-strategy-development/research-control-plane/dataset-governance/data-split",
         "argv": [
           "bun",
           "src/scripts/segment-snapshot.ts",
@@ -2481,7 +2481,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/research-control-plane/dataset-governance/data-split/src/schemas/data-split-segment-snapshot.schema.json"
+        "output_schema": "apps/research-strategy-development/research-control-plane/dataset-governance/data-split/src/schemas/data-split-segment-snapshot.schema.json"
       }
     },
     {
@@ -2495,10 +2495,10 @@
       "capability_class": [
         "E"
       ],
-      "path": "modules/research-strategy-development/agent-roles/reviewer/signal-evaluator",
+      "path": "apps/research-strategy-development/agent-roles/reviewer/signal-evaluator",
       "purpose": "Evaluate the latest closed-candle signal for one R&D family candidate or compiled strategy contract.",
       "command": {
-        "cwd": "modules/research-strategy-development/agent-roles/reviewer/signal-evaluator",
+        "cwd": "apps/research-strategy-development/agent-roles/reviewer/signal-evaluator",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -2526,7 +2526,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/agent-roles/reviewer/signal-evaluator/src/schemas/strategy-signal-result.schema.json"
+        "output_schema": "apps/research-strategy-development/agent-roles/reviewer/signal-evaluator/src/schemas/strategy-signal-result.schema.json"
       }
     },
     {
@@ -2542,10 +2542,10 @@
         "E",
         "V"
       ],
-      "path": "modules/research-strategy-development/agent-roles/developer/candidate-batch",
+      "path": "apps/research-strategy-development/agent-roles/developer/candidate-batch",
       "purpose": "Evaluate one candidate set across a multi-asset panel with panel negative controls and marketability gates.",
       "command": {
-        "cwd": "modules/research-strategy-development/agent-roles/developer/candidate-batch",
+        "cwd": "apps/research-strategy-development/agent-roles/developer/candidate-batch",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -2575,7 +2575,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/agent-roles/developer/candidate-batch-engine/src/schemas/strategy-panel-rnd-result.schema.json"
+        "output_schema": "apps/research-strategy-development/agent-roles/developer/candidate-batch-engine/src/schemas/strategy-panel-rnd-result.schema.json"
       }
     },
     {
@@ -2591,10 +2591,10 @@
         "A",
         "E"
       ],
-      "path": "modules/research-strategy-development/agent-roles/planner/strategy-hypothesis-designer",
+      "path": "apps/research-strategy-development/agent-roles/planner/strategy-hypothesis-designer",
       "purpose": "Render agent-native strategy design prompts, lint structured strategy hypothesis contracts, and project valid designs into RD queue seed items.",
       "command": {
-        "cwd": "modules/research-strategy-development/agent-roles/planner/strategy-hypothesis-designer",
+        "cwd": "apps/research-strategy-development/agent-roles/planner/strategy-hypothesis-designer",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -2625,7 +2625,7 @@
       ],
       "entry_contract": {
         "kind": "cli-json",
-        "input_schema": "modules/research-strategy-development/agent-roles/planner/strategy-hypothesis-designer/src/schemas/strategy-hypothesis-contract.schema.json",
+        "input_schema": "apps/research-strategy-development/agent-roles/planner/strategy-hypothesis-designer/src/schemas/strategy-hypothesis-contract.schema.json",
         "output_schema": ""
       }
     },
@@ -2640,10 +2640,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/research-strategy-development/research-control-plane/program-control",
+      "path": "apps/research-strategy-development/research-control-plane/program-control",
       "purpose": "Initialize, read, update, plan_next, or atomically queue one validated ready proposal in durable R&D learning memory.",
       "command": {
-        "cwd": "modules/research-strategy-development/research-control-plane/program-control",
+        "cwd": "apps/research-strategy-development/research-control-plane/program-control",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -2676,7 +2676,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/research-control-plane/program-control/src/schemas/rd-program-state-result.schema.json"
+        "output_schema": "apps/research-strategy-development/research-control-plane/program-control/src/schemas/rd-program-state-result.schema.json"
       }
     },
     {
@@ -2689,10 +2689,10 @@
         "rd-supervisor"
       ],
       "capability_class": ["A", "E"],
-      "path": "modules/research-strategy-development/research-control-plane/autonomy-cycle",
+      "path": "apps/research-strategy-development/research-control-plane/autonomy-cycle",
       "purpose": "Run one bounded J04 wakeup: refill an empty active queue through a validated model proposal, then delegate the existing RD supervisor.",
       "command": {
-        "cwd": "modules/research-strategy-development/research-control-plane/autonomy-cycle",
+        "cwd": "apps/research-strategy-development/research-control-plane/autonomy-cycle",
         "argv": ["bun", "src/scripts/main.ts", "--db", "data/rd_state.db", "--catalog-db", "data/data_catalog.db", "--program-id", "<program-id>", "--profile", "profile/model-gateway.json", "--json", "<payload>"]
       },
       "writes": { "trade_db": false, "catalog": true, "artifacts": true, "binance": false, "config": false },
@@ -2725,10 +2725,10 @@
         "A",
         "E"
       ],
-      "path": "modules/research-strategy-development/research-control-plane/program-supervisor",
+      "path": "apps/research-strategy-development/research-control-plane/program-supervisor",
       "purpose": "Run native J04 rd_strategy_supervisor, execute one immutable compatibility Evaluation Work Package, prepare or enqueue registered formal Replay data, and run one or residently consume formal Replay jobs from durable RD state.",
       "command": {
-        "cwd": "modules/research-strategy-development/research-control-plane/program-supervisor",
+        "cwd": "apps/research-strategy-development/research-control-plane/program-supervisor",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -2769,7 +2769,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/research-control-plane/program-supervisor/src/schemas/rd-supervisor-run-result.schema.json"
+        "output_schema": "apps/research-strategy-development/research-control-plane/program-supervisor/src/schemas/rd-supervisor-run-result.schema.json"
       }
     },
     {
@@ -2783,10 +2783,10 @@
       "capability_class": [
         "V"
       ],
-      "path": "modules/research-strategy-development/agent-roles/reviewer/signal-evaluator",
+      "path": "apps/research-strategy-development/agent-roles/reviewer/signal-evaluator",
       "purpose": "Run a legacy-compatible post-freeze signal diagnostic without claiming Forward Evidence authority.",
       "command": {
-        "cwd": "modules/research-strategy-development/agent-roles/reviewer/signal-evaluator",
+        "cwd": "apps/research-strategy-development/agent-roles/reviewer/signal-evaluator",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -2817,7 +2817,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/agent-roles/reviewer/signal-evaluator/src/schemas/forward-holdout-result.schema.json"
+        "output_schema": "apps/research-strategy-development/agent-roles/reviewer/signal-evaluator/src/schemas/forward-holdout-result.schema.json"
       }
     },
     {
@@ -2832,10 +2832,10 @@
         "A",
         "E"
       ],
-      "path": "modules/research-strategy-development/forward-evidence-plane/paper-tracker",
+      "path": "apps/research-strategy-development/forward-evidence-plane/paper-tracker",
       "purpose": "Run canonical J05 R&D paper trackers and project diagnostic entry signals into paper setup event chains.",
       "command": {
-        "cwd": "modules/research-strategy-development/forward-evidence-plane/paper-tracker",
+        "cwd": "apps/research-strategy-development/forward-evidence-plane/paper-tracker",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -2881,10 +2881,10 @@
         "paper-evidence"
       ],
       "capability_class": ["E", "V"],
-      "path": "modules/research-strategy-development/forward-evidence-plane/runner",
+      "path": "apps/research-strategy-development/forward-evidence-plane/runner",
       "purpose": "Run a no-backfill post-freeze evidence session for one ready Draft Strategy binding.",
       "command": {
-        "cwd": "modules/research-strategy-development/forward-evidence-plane/runner",
+        "cwd": "apps/research-strategy-development/forward-evidence-plane/runner",
         "argv": ["bun", "src/scripts/main.ts", "--json", "<payload>"]
       },
       "writes": {
@@ -2917,10 +2917,10 @@
         "E",
         "V"
       ],
-      "path": "modules/research-strategy-development/agent-roles/developer/candidate-batch",
+      "path": "apps/research-strategy-development/agent-roles/developer/candidate-batch",
       "purpose": "Evaluate one bounded candidate batch with candidate negative controls and reliability gates.",
       "command": {
-        "cwd": "modules/research-strategy-development/agent-roles/developer/candidate-batch",
+        "cwd": "apps/research-strategy-development/agent-roles/developer/candidate-batch",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -2949,7 +2949,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/agent-roles/developer/candidate-batch/src/schemas/strategy-rnd-batch-result.schema.json"
+        "output_schema": "apps/research-strategy-development/agent-roles/developer/candidate-batch/src/schemas/strategy-rnd-batch-result.schema.json"
       }
     },
     {
@@ -2964,10 +2964,10 @@
         "A",
         "E"
       ],
-      "path": "modules/research-strategy-development/agent-roles/developer/rd-loop-runner",
+      "path": "apps/research-strategy-development/agent-roles/developer/rd-loop-runner",
       "purpose": "Run one auditable R&D loop iteration with artifact, catalog, ledger, and optional RD state writeback.",
       "command": {
-        "cwd": "modules/research-strategy-development/agent-roles/developer/rd-loop-runner",
+        "cwd": "apps/research-strategy-development/agent-roles/developer/rd-loop-runner",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -2996,7 +2996,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/agent-roles/developer/rd-loop-runner/src/schemas/strategy-rnd-loop-result.schema.json"
+        "output_schema": "apps/research-strategy-development/agent-roles/developer/rd-loop-runner/src/schemas/strategy-rnd-loop-result.schema.json"
       }
     },
     {
@@ -3011,10 +3011,10 @@
         "A",
         "E"
       ],
-      "path": "modules/research-strategy-development/agent-roles/developer/rd-campaign-runner",
+      "path": "apps/research-strategy-development/agent-roles/developer/rd-campaign-runner",
       "purpose": "Run one bounded R&D campaign over a hypothesis queue with discovery, locked validation, artifact writeback, and optional RD state update.",
       "command": {
-        "cwd": "modules/research-strategy-development/agent-roles/developer/rd-campaign-runner",
+        "cwd": "apps/research-strategy-development/agent-roles/developer/rd-campaign-runner",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -3043,7 +3043,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/agent-roles/developer/rd-campaign-runner/src/schemas/strategy-rnd-campaign-result.schema.json"
+        "output_schema": "apps/research-strategy-development/agent-roles/developer/rd-campaign-runner/src/schemas/strategy-rnd-campaign-result.schema.json"
       }
     },
     {
@@ -3057,10 +3057,10 @@
       "capability_class": [
         "V"
       ],
-      "path": "modules/research-strategy-development/research-control-plane/dataset-governance/funding-governance",
+      "path": "apps/research-strategy-development/research-control-plane/dataset-governance/funding-governance",
       "purpose": "Check exact funding event coverage before funding-carry research trials.",
       "command": {
-        "cwd": "modules/research-strategy-development/research-control-plane/dataset-governance/funding-governance",
+        "cwd": "apps/research-strategy-development/research-control-plane/dataset-governance/funding-governance",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -3102,10 +3102,10 @@
       "capability_class": [
         "E"
       ],
-      "path": "modules/research-strategy-development/replay-execution-plane/certification/calibration-suite",
+      "path": "apps/research-strategy-development/replay-execution-plane/certification/calibration-suite",
       "purpose": "Run one fixed multi-asset trend benchmark for R&D pipeline calibration.",
       "command": {
-        "cwd": "modules/research-strategy-development/replay-execution-plane/certification/calibration-suite",
+        "cwd": "apps/research-strategy-development/replay-execution-plane/certification/calibration-suite",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -3135,7 +3135,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/replay-execution-plane/certification/calibration-suite/src/schemas/strategy-benchmark-result.schema.json"
+        "output_schema": "apps/research-strategy-development/replay-execution-plane/certification/calibration-suite/src/schemas/strategy-benchmark-result.schema.json"
       }
     },
     {
@@ -3150,10 +3150,10 @@
         "A",
         "V"
       ],
-      "path": "modules/research-strategy-development/replay-execution-plane/certification/calibration-suite",
+      "path": "apps/research-strategy-development/replay-execution-plane/certification/calibration-suite",
       "purpose": "Run fixed calibration diagnostics across buy-hold, trend, and relative-strength baselines.",
       "command": {
-        "cwd": "modules/research-strategy-development/replay-execution-plane/certification/calibration-suite",
+        "cwd": "apps/research-strategy-development/replay-execution-plane/certification/calibration-suite",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -3182,7 +3182,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/replay-execution-plane/certification/calibration-suite/src/schemas/strategy-calibration-result.schema.json"
+        "output_schema": "apps/research-strategy-development/replay-execution-plane/certification/calibration-suite/src/schemas/strategy-calibration-result.schema.json"
       }
     },
     {
@@ -3196,10 +3196,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/research-strategy-development/agent-roles/developer/strategy-contract-compile",
+      "path": "apps/research-strategy-development/agent-roles/developer/strategy-contract-compile",
       "purpose": "Compile one strategy markdown contract into normalized strategy contract output.",
       "command": {
-        "cwd": "modules/research-strategy-development/agent-roles/developer/strategy-contract-compile",
+        "cwd": "apps/research-strategy-development/agent-roles/developer/strategy-contract-compile",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -3241,10 +3241,10 @@
       "capability_class": [
         "V"
       ],
-      "path": "modules/research-strategy-development/research-control-plane/contract-lint",
+      "path": "apps/research-strategy-development/research-control-plane/contract-lint",
       "purpose": "Lint one strategy markdown contract for lifecycle and R&D readiness.",
       "command": {
-        "cwd": "modules/research-strategy-development/research-control-plane/contract-lint",
+        "cwd": "apps/research-strategy-development/research-control-plane/contract-lint",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -3287,10 +3287,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/orchestration-ops/domain-bus",
+      "path": "apps/orchestration-ops/domain-bus",
       "purpose": "Publish and query logical domain inbox/outbox envelopes in ops_runtime_store.",
       "command": {
-        "cwd": "modules/orchestration-ops/domain-bus",
+        "cwd": "apps/orchestration-ops/domain-bus",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -3319,7 +3319,7 @@
       "forbidden_callers": [],
       "entry_contract": {
         "kind": "cli-json",
-        "input_schema": "modules/contracts/protocol-fabric/src/schemas/domain-inbox-envelope.schema.json",
+        "input_schema": "apps/contracts/protocol-fabric/src/schemas/domain-inbox-envelope.schema.json",
         "output_schema": ""
       }
     },
@@ -3336,10 +3336,10 @@
         "E",
         "V"
       ],
-      "path": "modules/governance-review-compliance/strategy-review",
+      "path": "apps/governance-review-compliance/strategy-review",
       "purpose": "Append strategy evidence, build review reports, and gate strategy status transitions.",
       "command": {
-        "cwd": "modules/governance-review-compliance/strategy-review",
+        "cwd": "apps/governance-review-compliance/strategy-review",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -3384,10 +3384,10 @@
         "A",
         "V"
       ],
-      "path": "modules/orchestration-ops/trade-flow",
+      "path": "apps/orchestration-ops/trade-flow",
       "purpose": "Reduce local flow state, reconcile against account snapshots, and optionally apply safe local drafts.",
       "command": {
-        "cwd": "modules/orchestration-ops/trade-flow",
+        "cwd": "apps/orchestration-ops/trade-flow",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -3416,7 +3416,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/orchestration-ops/trade-flow/src/schemas/reconcile-result.schema.json"
+        "output_schema": "apps/orchestration-ops/trade-flow/src/schemas/reconcile-result.schema.json"
       }
     },
     {
@@ -3432,10 +3432,10 @@
         "V",
         "T"
       ],
-      "path": "modules/orchestration-ops/trade-flow",
+      "path": "apps/orchestration-ops/trade-flow",
       "purpose": "Run the audited execution path, record order_fill events, shadow execution, or explicitly authorized live-small entry.",
       "command": {
-        "cwd": "modules/orchestration-ops/trade-flow",
+        "cwd": "apps/orchestration-ops/trade-flow",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -3465,8 +3465,8 @@
       ],
       "entry_contract": {
         "kind": "cli-json",
-        "input_schema": "modules/orchestration-ops/trade-flow/src/schemas/execution-command-spec.schema.json",
-        "output_schema": "modules/orchestration-ops/trade-flow/src/schemas/live-small-result.schema.json"
+        "input_schema": "apps/orchestration-ops/trade-flow/src/schemas/execution-command-spec.schema.json",
+        "output_schema": "apps/orchestration-ops/trade-flow/src/schemas/live-small-result.schema.json"
       }
     },
     {
@@ -3482,10 +3482,10 @@
         "A",
         "V"
       ],
-      "path": "modules/live-execution-control/recovery-runner",
+      "path": "apps/live-execution-control/recovery-runner",
       "purpose": "Own safe recovery orchestration for a single local flow without exchange writes.",
       "command": {
-        "cwd": "modules/live-execution-control/recovery-runner",
+        "cwd": "apps/live-execution-control/recovery-runner",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -3514,7 +3514,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/orchestration-ops/trade-flow/src/schemas/reconcile-result.schema.json"
+        "output_schema": "apps/orchestration-ops/trade-flow/src/schemas/reconcile-result.schema.json"
       }
     },
     {
@@ -3530,10 +3530,10 @@
         "A",
         "V"
       ],
-      "path": "modules/live-execution-control/execution-router",
+      "path": "apps/live-execution-control/execution-router",
       "purpose": "Route approved executable target actions to exchange command specs without executing them.",
       "command": {
-        "cwd": "modules/live-execution-control/execution-router",
+        "cwd": "apps/live-execution-control/execution-router",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -3562,7 +3562,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/orchestration-ops/trade-flow/src/schemas/execution-command-spec.schema.json"
+        "output_schema": "apps/orchestration-ops/trade-flow/src/schemas/execution-command-spec.schema.json"
       }
     },
     {
@@ -3577,10 +3577,10 @@
       "capability_class": [
         "V"
       ],
-      "path": "modules/live-execution-control/execution-gate",
+      "path": "apps/live-execution-control/execution-gate",
       "purpose": "Evaluate deterministic trigger readiness before an approved action continues toward preflight and command compilation.",
       "command": {
-        "cwd": "modules/live-execution-control/execution-gate",
+        "cwd": "apps/live-execution-control/execution-gate",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -3625,10 +3625,10 @@
         "A",
         "V"
       ],
-      "path": "modules/live-execution-control/watch-handoff-revalidation",
+      "path": "apps/live-execution-control/watch-handoff-revalidation",
       "purpose": "Revalidate one triggered Watch handoff against fresh facts, the existing trigger gate, and plan preflight.",
       "command": {
-        "cwd": "modules/live-execution-control/watch-handoff-revalidation",
+        "cwd": "apps/live-execution-control/watch-handoff-revalidation",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -3671,10 +3671,10 @@
       "capability_class": [
         "V"
       ],
-      "path": "modules/live-execution-control/execution-flow-runner",
+      "path": "apps/live-execution-control/execution-flow-runner",
       "purpose": "Own dry-run and shadow execution flow transitions, skipped observes, and idempotency gates.",
       "command": {
-        "cwd": "modules/live-execution-control/execution-flow-runner",
+        "cwd": "apps/live-execution-control/execution-flow-runner",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -3703,7 +3703,7 @@
       ],
       "entry_contract": {
         "kind": "cli-json",
-        "input_schema": "modules/orchestration-ops/trade-flow/src/schemas/execution-command-spec.schema.json",
+        "input_schema": "apps/orchestration-ops/trade-flow/src/schemas/execution-command-spec.schema.json",
         "output_schema": ""
       }
     },
@@ -3719,10 +3719,10 @@
         "A",
         "V"
       ],
-      "path": "modules/live-execution-control/execution-recorder",
+      "path": "apps/live-execution-control/execution-recorder",
       "purpose": "Convert execution tool results into auditable order_fill event drafts without appending them.",
       "command": {
-        "cwd": "modules/live-execution-control/execution-recorder",
+        "cwd": "apps/live-execution-control/execution-recorder",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -3767,10 +3767,10 @@
       "capability_class": [
         "T"
       ],
-      "path": "modules/live-execution-control/live-small-runner",
+      "path": "apps/live-execution-control/live-small-runner",
       "purpose": "Own explicitly authorized live-small execution, preflight gate, exchange write command execution, and audited fill append.",
       "command": {
-        "cwd": "modules/live-execution-control/live-small-runner",
+        "cwd": "apps/live-execution-control/live-small-runner",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -3800,8 +3800,8 @@
       ],
       "entry_contract": {
         "kind": "cli-json",
-        "input_schema": "modules/orchestration-ops/trade-flow/src/schemas/execution-command-spec.schema.json",
-        "output_schema": "modules/orchestration-ops/trade-flow/src/schemas/live-small-result.schema.json"
+        "input_schema": "apps/orchestration-ops/trade-flow/src/schemas/execution-command-spec.schema.json",
+        "output_schema": "apps/orchestration-ops/trade-flow/src/schemas/live-small-result.schema.json"
       }
     },
     {
@@ -3816,10 +3816,10 @@
         "A",
         "V"
       ],
-      "path": "modules/artifact-knowledge/artifact-catalog",
+      "path": "apps/artifact-knowledge/artifact-catalog",
       "purpose": "Own artifact catalog surfaces, including the native J06 catalog_hygiene_scan domain job, catalog indexing, stale-ref reports, and explicitly authorized GC.",
       "command": {
-        "cwd": "modules/artifact-knowledge/artifact-catalog",
+        "cwd": "apps/artifact-knowledge/artifact-catalog",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -3861,10 +3861,10 @@
         "R",
         "A"
       ],
-      "path": "modules/market-data-products/ohlcv-fetch",
+      "path": "apps/market-data-products/ohlcv-fetch",
       "purpose": "Fetch candles into ohlcv_store and market manifests into market_data_store; also supports funding, calibration panels, and market feature inputs.",
       "command": {
-        "cwd": "modules/market-data-products/ohlcv-fetch",
+        "cwd": "apps/market-data-products/ohlcv-fetch",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -3915,10 +3915,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/market-data-products/tech-indicators",
+      "path": "apps/market-data-products/tech-indicators",
       "purpose": "Compute indicators, structure, BTC beta, and feature series from local OHLCV manifests.",
       "command": {
-        "cwd": "modules/market-data-products/tech-indicators",
+        "cwd": "apps/market-data-products/tech-indicators",
         "argv": [
           "go",
           "run",
@@ -3961,10 +3961,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/live-execution-control/plan-preflight",
+      "path": "apps/live-execution-control/plan-preflight",
       "purpose": "Evaluate deterministic hard guards and render/validate decision cards.",
       "command": {
-        "cwd": "modules/live-execution-control/plan-preflight",
+        "cwd": "apps/live-execution-control/plan-preflight",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -4005,10 +4005,10 @@
       "capability_class": [
         "R"
       ],
-      "path": "modules/exchange-gateway/binance-read/account-snapshot",
+      "path": "apps/exchange-gateway/binance-read/account-snapshot",
       "purpose": "Read canonical account facts with stable venue account ref/scope, as-of time, snapshot ref and content hash, while retaining legacy response fields during migration.",
       "command": {
-        "cwd": "modules/exchange-gateway/binance-read/account-snapshot",
+        "cwd": "apps/exchange-gateway/binance-read/account-snapshot",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -4034,7 +4034,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/exchange-gateway/binance-read/account-snapshot/src/schemas/exchange-account-facts.schema.json"
+        "output_schema": "apps/exchange-gateway/binance-read/account-snapshot/src/schemas/exchange-account-facts.schema.json"
       }
     },
     {
@@ -4050,10 +4050,10 @@
       "capability_class": [
         "R"
       ],
-      "path": "modules/market-data-products/binance-read/symbol-snapshot",
+      "path": "apps/market-data-products/binance-read/symbol-snapshot",
       "purpose": "Read one symbol's ticker, mark price, funding, open interest, and optional recent klines.",
       "command": {
-        "cwd": "modules/market-data-products/binance-read/symbol-snapshot",
+        "cwd": "apps/market-data-products/binance-read/symbol-snapshot",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -4095,10 +4095,10 @@
         "R",
         "A"
       ],
-      "path": "modules/market-data-products/binance-read/instrument-status-collector",
+      "path": "apps/market-data-products/binance-read/instrument-status-collector",
       "purpose": "Fetch the current Binance USDⓈ-M symbol status and persist exact response bytes plus a retry-aware acquisition receipt.",
       "command": {
-        "cwd": "modules/market-data-products/binance-read/instrument-status-collector",
+        "cwd": "apps/market-data-products/binance-read/instrument-status-collector",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -4144,10 +4144,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/market-data-products/binance-read/market-scan",
+      "path": "apps/market-data-products/binance-read/market-scan",
       "purpose": "Rank broad market candidates for follow-up inspection.",
       "command": {
-        "cwd": "modules/market-data-products/binance-read/market-scan",
+        "cwd": "apps/market-data-products/binance-read/market-scan",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -4191,10 +4191,10 @@
         "R",
         "A"
       ],
-      "path": "modules/market-data-products/binance-read/aggtrades-fetch",
+      "path": "apps/market-data-products/binance-read/aggtrades-fetch",
       "purpose": "Fetch recent aggregate trades for microstructure analysis.",
       "command": {
-        "cwd": "modules/market-data-products/binance-read/aggtrades-fetch",
+        "cwd": "apps/market-data-products/binance-read/aggtrades-fetch",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -4236,10 +4236,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/market-data-products/liquidation-zones",
+      "path": "apps/market-data-products/liquidation-zones",
       "purpose": "Infer liquidation-like zones from market data inputs.",
       "command": {
-        "cwd": "modules/market-data-products/liquidation-zones",
+        "cwd": "apps/market-data-products/liquidation-zones",
         "argv": [
           "python3",
           "src/scripts/main.py",
@@ -4281,10 +4281,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/exchange-gateway/binance-write/order-preview",
+      "path": "apps/exchange-gateway/binance-write/order-preview",
       "purpose": "Preview and route USDM order intent without placing an order.",
       "command": {
-        "cwd": "modules/exchange-gateway/binance-write/order-preview",
+        "cwd": "apps/exchange-gateway/binance-write/order-preview",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -4330,10 +4330,10 @@
       "capability_class": [
         "T"
       ],
-      "path": "modules/exchange-gateway/binance-write/order-place",
+      "path": "apps/exchange-gateway/binance-write/order-place",
       "purpose": "Place a USDM main entry or add-risk order after execution gates.",
       "command": {
-        "cwd": "modules/exchange-gateway/binance-write/order-place",
+        "cwd": "apps/exchange-gateway/binance-write/order-place",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -4387,10 +4387,10 @@
       "capability_class": [
         "T"
       ],
-      "path": "modules/exchange-gateway/binance-write/order-cancel",
+      "path": "apps/exchange-gateway/binance-write/order-cancel",
       "purpose": "Cancel regular or algo orders.",
       "command": {
-        "cwd": "modules/exchange-gateway/binance-write/order-cancel",
+        "cwd": "apps/exchange-gateway/binance-write/order-cancel",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -4442,10 +4442,10 @@
       "capability_class": [
         "T"
       ],
-      "path": "modules/exchange-gateway/binance-write/position-protect",
+      "path": "apps/exchange-gateway/binance-write/position-protect",
       "purpose": "Create stop, take-profit, or trailing protective legs.",
       "command": {
-        "cwd": "modules/exchange-gateway/binance-write/position-protect",
+        "cwd": "apps/exchange-gateway/binance-write/position-protect",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -4498,10 +4498,10 @@
       "capability_class": [
         "T"
       ],
-      "path": "modules/exchange-gateway/binance-write/position-adjust",
+      "path": "apps/exchange-gateway/binance-write/position-adjust",
       "purpose": "Reduce or close an existing USDM position.",
       "command": {
-        "cwd": "modules/exchange-gateway/binance-write/position-adjust",
+        "cwd": "apps/exchange-gateway/binance-write/position-adjust",
         "argv": [
           "bun",
           "src/scripts/main.ts",

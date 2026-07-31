@@ -13,16 +13,16 @@ afterEach(() => {
 describe("test source boundaries", () => {
   test("allows test runtimes in tests and test-support", () => {
     const root = fixture({
-      "modules/example/src/example.test.ts": 'import { test } from "bun:test"\n',
-      "modules/example/src/test-support/fixture.ts": 'import { expect } from "bun:test"\n',
-      "modules/example/src/main.ts": 'import { value } from "./value"\n',
+      "apps/example/src/example.test.ts": 'import { test } from "bun:test"\n',
+      "apps/example/src/test-support/fixture.ts": 'import { expect } from "bun:test"\n',
+      "apps/example/src/main.ts": 'import { value } from "./value"\n',
     })
     expect(run(root).exitCode).toBe(0)
   })
 
   test("rejects a test runtime imported by production source", () => {
     const result = run(fixture({
-      "modules/example/src/main.ts": 'import { expect } from "bun:test"\n',
+      "apps/example/src/main.ts": 'import { expect } from "bun:test"\n',
     }))
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain("production source imports test runtime bun:test")
@@ -30,7 +30,7 @@ describe("test source boundaries", () => {
 
   test("rejects test-support imported by production source", () => {
     const result = run(fixture({
-      "modules/example/src/main.ts": 'const fixture = require("./test-support/fixture")\n',
+      "apps/example/src/main.ts": 'const fixture = require("./test-support/fixture")\n',
     }))
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain("production source imports test-support module")
