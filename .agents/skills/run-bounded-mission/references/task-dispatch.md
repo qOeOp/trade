@@ -12,11 +12,23 @@ Classify each outcome independently:
 - status or feedback naming an existing child routes to that child;
 - every independent outcome becomes an editable proposal before any task is created.
 
+Task creation is only for a genuinely independent outcome. Repeating, renaming, resuming, or moving
+the same unresolved outcome gap to another task is continuation of its existing Mission and inherits
+its Origin, Stop, structural findings, and rejected candidates; route it to the current owner
+instead of creating a child while that owner is available. If the owner is demonstrably deleted,
+inaccessible, or unable to accept messages, explicit host-transfer authority may move the same
+Mission through a native host operation; preserve its Mission identity, Origin, consumed Stop, and
+applicable findings. Host transfer creates neither a successor Mission nor a fresh Stop. If transfer
+authority or capability is unavailable, report that blocker instead of inventing a host. After
+`accept`, a regression, correction, or changed requirement is a new Mission only when new post-accept
+evidence defines a new gap and binds the accepted predecessor; mere repetition or relabeling remains
+no new work.
+
 One hub may retain one foreground Mission and multiple proposals or child identities. Conversation
 context and host-returned identities are sufficient; do not persist another orchestration model.
-One child owns one outcome and task/chat. A Git-backed child also owns its managed worktree,
-eventual branch, and at most one pull request. Do not claim a worktree or branch for a non-Git
-project. Messages and root turns do not create additional Missions.
+One child task/chat is the host owner for one independent outcome. A Git-backed child also owns its
+managed worktree, eventual branch, and at most one pull request. Do not claim a worktree or branch
+for a non-Git project. Messages and root turns do not create additional Missions.
 
 An independent outcome remains proposed while the user edits or withholds approval. Approval permits
 one native create attempt. A returned identity consumes the proposal; a missing capability or failed

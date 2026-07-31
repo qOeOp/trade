@@ -1,8 +1,22 @@
 # Revision-pressure Replan
 
-Use this method when another revision would reach the frozen boundary, a material finding recurs, or
-the next correction appears additive on one responsibility surface. A revision count starts
-diagnosis; it does not justify refactoring.
+Use this method when another revision would reach the frozen boundary, a material finding recurs in
+a way that challenges the admitted design, or the next correction appears additive beyond that
+design on one responsibility surface. A revision count starts diagnosis; it does not justify
+refactoring.
+
+Activation freezes the cumulative incumbent. Do not modify it again until Plan admits a replacement,
+rollback, deletion, or narrower route. A successor slice, task, branch, or checkout for the same
+outcome inherits the pressure and Stop; it cannot convert a rejected incumbent into a fresh patch
+budget.
+
+Build an admitted replacement as a new candidate inside the same Mission, never as a successor
+Mission. If no Stop remains, freeze execution before choosing a terminal Finalize route and request
+alignment with the replacement proposal and concrete consumed-Stop evidence. After an explicit
+evidence-bound Stop enlargement, reframe and replan inside that Mission; do not resume a
+structurally rejected incumbent while its causal invariant still applies. Stop-only pressure may
+re-admit the same design under the conditions below. Return `blocked` only when alignment cannot
+supply Stop, such as when enlargement and a narrower Frame are declined or unavailable.
 
 ## Reconstruct the pressure
 
@@ -22,9 +36,13 @@ replacement scope is not ready.
 
 Redesign only when evidence identifies a shared structural cause: a finding returns, acceptance stops
 improving, responsibility spreads, or protective exceptions, branches, adapters, fallbacks, or
-indirection accumulate. If corrections are independent and the surface is stable or shrinking, return
-to lifecycle routing without refactoring. If required authority or evidence is unavailable, route to
-`blocked`.
+indirection accumulate beyond the admitted Plan. A recurring finding is structural only when it
+challenges the admitted owner, path, boundary, responsibility shape, or oracle; an additive
+protective path is structural only when the Plan did not already require it. Faulty or omitted
+execution of admitted structure remains candidate-local while those design fields stay intact. Only
+a trigger caused solely by an approaching Stop may re-admit the same design when corrections are
+independent and the surface is stable or shrinking; re-admission does not extend Stop. If required
+authority or evidence is unavailable, route to `blocked`.
 
 ## Replan and compare
 
@@ -38,8 +56,10 @@ replacement; this method does not authorize Execute by itself. Return to Frame i
 Frame field must materially change.
 
 1. When the structural cause, incumbent, owner chain, and acceptance signals are stable, a fresh
-   read-only planner may propose at most one materially different alternative or simplification
-   when that comparison can change the decision. The main agent admits at most one replacement design.
+   read-only planner acts as the architecture challenger and may propose at most one materially
+   different alternative or simplification when that comparison can change the decision. It must
+   consider rollback, deletion, and a narrower outcome before new structure. The main agent admits at
+   most one replacement design while no evidence-backed design objection remains.
 2. After admission, build that replacement in isolation as the smallest coherent answer to the
    structural cause. Do not add another patch to the incumbent or create multiple writable winners.
 3. Do not invent a challenger when no credible alternative remains. An existing repository-native
@@ -61,6 +81,10 @@ Promote exactly one candidate only when it:
 - leaves one production owner and deletes its superseded path.
 
 Line count, architecture-sensor scores, and reviewer preference are supporting evidence, never the
-decision rule. If neither proposal strictly improves on the incumbent, retain the incumbent and
-route to `replan`, `reframe`, or `blocked` according to the failed boundary; do not force a refactor
-or extend the revision budget.
+decision rule. If neither proposal strictly improves on the incumbent, leave the structurally failed
+incumbent unaccepted and route to `replan`, `reframe`, or `blocked` according to the failed boundary;
+do not force a refactor or extend the revision budget.
+
+Preserve only behavior required by the frozen Frame and real consumer. A past patch or reviewer case
+becomes a regression invariant only when it demonstrates that requirement; accumulated corrective
+behavior is not automatically part of the replacement contract.
