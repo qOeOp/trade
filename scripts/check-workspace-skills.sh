@@ -15,6 +15,36 @@ if [ ! -x "$typescript_compiler" ]; then
 fi
 "$typescript_compiler" --project .agents/tsconfig.json
 
+check_read_only_role() {
+  expected_name="$1"
+  role_file="$2"
+
+  if [ ! -f "$role_file" ]; then
+    printf 'workspace-skill: role %s missing file: %s\n' "$expected_name" "$role_file" >&2
+    exit 1
+  fi
+
+  name_count="$(rg -c '^[[:space:]]*name[[:space:]]*=' "$role_file" || true)"
+  if [ "${name_count:-0}" -ne 1 ] || ! rg -q "^[[:space:]]*name[[:space:]]*=[[:space:]]*\"$expected_name\"[[:space:]]*$" "$role_file"; then
+    printf 'workspace-skill: role %s field name must be exactly one name = "%s": %s\n' \
+      "$expected_name" "$expected_name" "$role_file" >&2
+    exit 1
+  fi
+
+  sandbox_count="$(rg -c '^[[:space:]]*sandbox_mode[[:space:]]*=' "$role_file" || true)"
+  if [ "${sandbox_count:-0}" -ne 1 ] || ! rg -q '^[[:space:]]*sandbox_mode[[:space:]]*=[[:space:]]*"read-only"[[:space:]]*$' "$role_file"; then
+    printf 'workspace-skill: role %s field sandbox_mode must be exactly one sandbox_mode = "read-only": %s\n' \
+      "$expected_name" "$role_file" >&2
+    exit 1
+  fi
+}
+
+if [ -f "$skills_root/run-bounded-mission/SKILL.md" ]; then
+  check_read_only_role mission_researcher .codex/agents/mission-researcher.toml
+  check_read_only_role mission_planner .codex/agents/mission-planner.toml
+  check_read_only_role mission_evaluator .codex/agents/mission-evaluator.toml
+fi
+
 skill_count=0
 for skill_dir in "$skills_root"/*; do
   [ -d "$skill_dir" ] || continue
