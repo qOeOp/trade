@@ -57,6 +57,29 @@ independent outcome, or when Mission evidence supports a separately valuable fol
 its own consumer and acceptance. A proposal is not creation; native creation still requires the
 user's explicit request or approval of the ready proposal.
 
+### Session mode selector
+
+After Frame, select the smallest mode that fits the admitted outcomes:
+
+- With no independent Mission, handle the request directly without dispatch machinery.
+- With one independent Mission, run it in the current session.
+- With two or more independent Missions, use the loaded Codex task dispatch reference and keep one
+  minimal session-only graph. Admit an outcome only when it has its own consumer, falsifiable
+  Acceptance, owner and write surface, delivery boundary, and can be accepted, blocked, or cancelled
+  independently. Diagnosis, tests, documentation synchronization, review corrections, coupled
+  producer/consumer work for one behavior, and support roles remain internal subtasks.
+
+In multi-Mission mode the current session is the sole orchestration authority. It owns graph
+admission, direct `after` edges, conflict serialization, source-tip observation, bounded monitoring,
+and release of at most one exact candidate head for merge at a time. Children still own their
+individual Frame, Plan, candidate, worktree, branch, pull request, and verification. Parallelism is
+limited to a ready wave whose owners, write surfaces, contracts, premises, and direct dependencies
+are mutually independent. A merged child invalidates the observed base of every other open child;
+the hub must observe the canonical source tip again before another merge release or creation of a
+dependent child. This authority exists only in conversation prose and checkpoints. It does not
+authorize a scheduler, durable state, a queue service, automatic retries or transfers, a second CLI,
+background automation, or hidden execution in the hub worktree.
+
 ## Plan
 
 Inspect the current owner, production entry point when one exists, affected contracts, tests, and
@@ -180,10 +203,11 @@ same Mission's Finalize; reload this skill instead of replacing its delivery bar
 publication workflow.
 When the endpoint includes a GitHub pull request, load
 [GitHub delivery](references/github-pr-handoff.md) before publication or merge.
-After two or more accepted Missions, load
-[Refactor Mission proposals](references/refactor-mission-proposal.md) only when integrated evidence
-may demonstrate a separate structural outcome; it is follow-up discovery, not Finalize for the
-current Mission.
+After two or more related Missions are accepted and integrated into the current canonical source
+tip, load [Refactor Mission proposals](references/refactor-mission-proposal.md) only when that
+integrated head contains concrete structural evidence. Acceptance count alone is investigation
+eligibility, not proposal justification. Any justified refactor is a new proposal requiring user
+approval; the old graph does not authorize it.
 Use `No action needed` only when the user explicitly chose the completed local-only endpoint or when
 delivery is complete and no preserved candidate awaits a user-owned delivery decision; for an implicit `local-only` stop with meaningful uncommitted or unpublished changes, use `Optional next step` and name the concrete available continuation, such as review, commit, pull request, or deployment authorization.
 
