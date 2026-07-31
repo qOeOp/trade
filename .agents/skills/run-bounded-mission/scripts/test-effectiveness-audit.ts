@@ -353,16 +353,29 @@ function resolveRevision(requested: string): Revision {
 
 function readChanges(origin: string, candidate: string, scope?: string): Change[] {
   const args = ["diff", "--name-status", "-z", "--find-renames", origin, candidate, "--"]
-  const fields = git(args).split("\0")
+  const result = spawnSync("git", args, { maxBuffer: 64 * 1024 * 1024 })
+  if (result.status !== 0) throw new Error(result.stderr.toString().trim() || "git diff failed")
+  const rawFields = splitNull(result.stdout)
+  let fields: string[]
+  try {
+    const decoder = new TextDecoder("utf-8", { fatal: true })
+    fields = rawFields.map((field) => decoder.decode(field))
+  } catch {
+    throw new Error("git diff contains a non-UTF-8 path")
+  }
   const changes: Change[] = []
-  for (let index = 0; index < fields.length && fields[index];) {
+  for (let index = 0; index < fields.length;) {
     const status = fields[index++]
+    if (!status) throw new Error("git diff returned incomplete change data")
     if (status.startsWith("R") || status.startsWith("C")) {
       const previousPath = fields[index++]
       const path = fields[index++]
+      if (!previousPath || !path) throw new Error("git diff returned incomplete change data")
       changes.push({ status, path, previous_path: previousPath })
     } else {
-      changes.push({ status, path: fields[index++] })
+      const path = fields[index++]
+      if (!path) throw new Error("git diff returned incomplete change data")
+      changes.push({ status, path })
     }
   }
   return changes
@@ -568,6 +581,9 @@ function readRevisionFiles(paths: string[], objects: Map<string, string>): Map<s
     }
     files.set(path, result.stdout.toString("utf8", contentStart, contentEnd))
     offset = contentEnd + 1
+  }
+  if (offset !== result.stdout.length) {
+    throw new Error("git cat-file returned unexpected trailing data")
   }
   return files
 }

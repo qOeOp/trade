@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 
@@ -365,6 +365,72 @@ describe("test-effectiveness audit", () => {
     expect(evidence.affected_owners[0].candidate_tests).toEqual([])
   })
 
+  test("fails closed on a non-UTF-8 changed path", () => {
+    const fixture = createFixture()
+    const candidate = commit(fixture.root, "empty candidate", true)
+    const fakeBin = mkdtempSync(join(tmpdir(), "test-effectiveness-invalid-diff-"))
+    temporaryRepositories.push(fakeBin)
+    const fakeGit = join(fakeBin, "git")
+    writeFileSync(fakeGit, [
+      "#!/bin/sh",
+      'if [ "$1" = "diff" ]; then',
+      "  printf 'D\\000\\377.test.ts\\000'",
+      "  exit 0",
+      "fi",
+      'exec "$REAL_GIT" "$@"',
+      "",
+    ].join("\n"))
+    chmodSync(fakeGit, 0o755)
+
+    const result = audit(fixture.root, [
+      "--origin", fixture.origin,
+      "--candidate", candidate,
+      "--owner-root", "apps/example/calc",
+    ], helperPath, {
+      PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+      REAL_GIT: Bun.which("git")!,
+    })
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).not.toContain("�.test.ts")
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      error: { code: "audit_failed", message: "git diff contains a non-UTF-8 path" },
+    })
+  })
+
+  test("fails closed on trailing cat-file batch output", () => {
+    const fixture = createFixture()
+    write(fixture.root, "apps/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
+    const candidate = commit(fixture.root, "change calculation")
+    const fakeBin = mkdtempSync(join(tmpdir(), "test-effectiveness-fake-git-"))
+    temporaryRepositories.push(fakeBin)
+    const fakeGit = join(fakeBin, "git")
+    writeFileSync(fakeGit, [
+      "#!/bin/sh",
+      'if [ "$1" = "cat-file" ] && [ "$2" = "--batch" ]; then',
+      '  "$REAL_GIT" "$@"',
+      "  status=$?",
+      '  [ "$status" -eq 0 ] || exit "$status"',
+      "  printf UNEXPECTED-TRAILER",
+      "  exit 0",
+      "fi",
+      'exec "$REAL_GIT" "$@"',
+      "",
+    ].join("\n"))
+    chmodSync(fakeGit, 0o755)
+
+    const result = audit(fixture.root, [
+      "--origin", fixture.origin,
+      "--candidate", candidate,
+    ], helperPath, {
+      PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+      REAL_GIT: Bun.which("git")!,
+    })
+    expect(result.status).not.toBe(0)
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      error: { code: "audit_failed", message: "git cat-file returned unexpected trailing data" },
+    })
+  })
+
   test("attributes a cross-owner rename to both revision owners within either scope", () => {
     const root = mkdtempSync(join(tmpdir(), "test-effectiveness-rename-"))
     temporaryRepositories.push(root)
@@ -643,6 +709,7 @@ function audit(
   root: string,
   args: string[],
   executable = helperPath,
+  environment: Record<string, string> = {},
 ): { status: number; stdout: string; stderr: string } {
   let ownerArgs: string[] = []
   if (!args.includes("--help") && !args.includes("--owner-root")) {
@@ -658,7 +725,7 @@ function audit(
   }
   const result = Bun.spawnSync([process.execPath, executable, ...args, ...ownerArgs], {
     cwd: root,
-    env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" },
+    env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", ...environment },
     stdout: "pipe",
     stderr: "pipe",
   })

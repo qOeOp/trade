@@ -89,6 +89,8 @@ module form the runtime scanner does not prove; `incomplete_files` retains stabl
 paths and reason codes while imports proven in other files remain available. Consumers must not
 treat an incomplete analysis as a complete candidate set, and
 `no_direct_static_candidate_evidence` remains false until the analysis is complete.
+Unsupported and non-literal markers are conservative lexical signals: they can lower completeness
+without proving real syntax, and they never create a proven import edge.
 
 The evidence must retain resolved origin/candidate commit and tree identities, affected owners,
 unverified consumer leads, candidate tests and unique-value leads, cost signals, the five
