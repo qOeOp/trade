@@ -18,12 +18,20 @@ result before revising. Reproduce each material finding against the current cand
 started, ambiguous, or failed review remains outstanding.
 
 For a `merge-ready` or `merged` endpoint, freeze exactly one discovery review attempt: the automatic
-native Codex opening review when it starts, or a manually requested substitute with separately
-frozen comment or review-request authority. Wait through the host-native GitHub owner until that
+native Codex opening review when it starts, or a manually requested substitute through an explicit
+`@codex review` issue comment with separately frozen comment authority. Do not use GitHub's generic
+review-request path as a substitute because the repository waiter cannot correlate that event. Wait
+through the host-native GitHub owner until that
 review is terminal or Stop is reached. A correlated provider thumbs-up reaction for the frozen
 discovery attempt is terminal clean completion; eyes, dispatch, queue, and in-progress signals are
 not. For an `open` endpoint, successful publication in the requested Draft/Ready state does not wait
 for discovery.
+
+In this repository, run `bun scripts/wait-pr-codex-review.ts <pr-number>` for that wait. Use
+`--once` when an outer agent loop owns polling: exit `0` means terminal clean, exit `10` means
+pending, and exit `1` means a finding, provider failure, incomplete evidence, or invalid PR state
+that must be routed rather than retried as success. This read-only helper classifies the discovery
+signal only; it is not review acceptance, a required check, or merge authority.
 
 Validate every material finding. Route a candidate-local finding to Execute, an owner, path, boundary,
 or verification-design failure to Plan, and a Frame-contract failure to Frame. Thread resolution is
