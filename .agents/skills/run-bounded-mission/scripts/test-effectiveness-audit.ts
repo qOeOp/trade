@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { posix } from "node:path"
 
-const schemaVersion = "trade.test-effectiveness-proposal.v1"
+const schemaVersion = "trade.test-effectiveness-evidence.v1"
 const sourceExtensions = [
   ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs",
   ".py", ".rs", ".go", ".sh", ".bash", ".zsh",
@@ -68,16 +68,16 @@ interface TestMetadata {
     exact_content_duplicate_paths: string[]
     runtime: { status: "unavailable"; milliseconds: null }
   }
-  recommendation: {
-    action: "keep" | "strengthen" | "replace" | "lower_layer" | "delete_candidate" | "further_investigation"
-    reasons: string[]
-  }
   labels: string[]
   content_hash: string
 }
 
+const invocationDirectory = process.cwd()
+
 try {
   const args = parseArguments(process.argv.slice(2))
+  const repositoryRoot = git(["rev-parse", "--show-toplevel"]).trim()
+  process.chdir(repositoryRoot)
   const origin = resolveRevision(args.origin)
   const candidate = resolveRevision(args.candidate)
   const changes = readChanges(origin.commit, candidate.commit, args.scope)
@@ -108,7 +108,6 @@ try {
     changes,
     importEdges,
     changedSourcePaths,
-    args.classification,
   )
   const deletedTestPaths = changes
     .filter((change) => change.status === "D" && isTestPath(change.path))
@@ -133,14 +132,15 @@ try {
       return {
         owner,
         changes: ownerChanges.map(publicChange),
-        consumer_evidence: {
+        consumer_leads: {
           contract_paths: candidatePathSet.has(`${owner}/CONTRACT.md`) ? [`${owner}/CONTRACT.md`] : [],
           entrypoint_paths: entrypointPaths,
           package_scripts: readPackageScripts(candidate.commit, owner, candidatePathSet),
           reverse_importers: reverseImporters,
           status: reverseImporters.length > 0 || entrypointPaths.length > 0
-            ? "evidence_found"
+            ? "static_leads_found"
             : "unresolved",
+          uncertainty: "static paths do not prove production reachability or execution",
         },
         changed_source_paths: ownerChangedSources,
         deleted_test_paths: deletedTestPaths.filter((path) => ownerForPath(path, markerRoots) === owner),
@@ -148,16 +148,10 @@ try {
       }
     })
 
-  const actionCounts = countActions(allAffectedTests)
-  const refactorSignal = (actionCounts.replace ?? 0) > 0
-    || (actionCounts.lower_layer ?? 0) > 0
-    || (actionCounts.delete_candidate ?? 0) > 0
-    || (actionCounts.strengthen ?? 0) >= 2
-    || deletedTestPaths.length > 0
   const noDirectStaticCandidateEvidence =
     changes.length > 0 && allAffectedTests.length === 0 && deletedTestPaths.length === 0
 
-  const proposal = {
+  const evidence = {
     schema_version: schemaVersion,
     inputs: {
       origin,
@@ -169,7 +163,6 @@ try {
             status: "provided",
             value: args.classification,
             allowed_values: classifications,
-            recommendation_binding: allAffectedTests.length === 1 ? "only_candidate_test" : "unbound",
           },
     },
     authority: {
@@ -195,7 +188,6 @@ try {
       candidate_tests: allAffectedTests.length,
       deleted_test_files: deletedTestPaths.length,
       no_direct_static_candidate_evidence: noDirectStaticCandidateEvidence,
-      action_counts: actionCounts,
     },
     affected_owners: affectedOwners,
     deleted_test_review: {
@@ -216,40 +208,18 @@ try {
         question("obsolete_tests", "Which old tests are now redundant or obsolete, and what unique value evidence prevents deletion?"),
       ],
     },
-    proposal: {
-      actions: actionCounts,
-      test_refactor_mission: {
-        recommendation: refactorSignal ? "conditional" : "not_recommended",
-        signal: refactorSignal
-          ? "replacement, layer move, deleted-test evidence, deletion candidate, or coordinated strengthening is present"
-          : "no structural or multi-test refactor signal is established",
-        required_conditions: [
-          "the actionable set contains replace, lower_layer, delete_candidate, or coordinated changes to at least two tests",
-          "the current contract and production-consumer acceptance can remain frozen",
-          "the test-only candidate is separable from production behavior changes and acceptance authority",
-          "expected value, cost evidence, affected owner, and stopping evidence are named",
-          "a separate Refactor Mission also satisfies the integrated-evidence and dispatch contract in refactor-mission-proposal.md",
-        ],
-        unresolved_conditions: [
-          "contract_and_consumer_acceptance_frozen",
-          "test_only_candidate_separable",
-          "value_and_stopping_evidence_reviewed",
-          "integrated_refactor_proposal_evidence",
-        ],
-      },
-      caveats: [
-        "Static imports, labels, exact-content duplicates, size, mock, and time/concurrency mentions are review leads only.",
-        "Runtime timing is reported only when tracked evidence exists; this helper does not execute tests.",
-        "No coverage, mutation effectiveness, behavioral equivalence, or deletion safety is inferred.",
-        "no_direct_static_candidate_evidence means only that no changed test or direct candidate-tree import was found; transitive paths and deleted sources remain unresolved.",
-        "Deleted tests are listed as origin-review uncertainty; candidate-tree absence is never deletion evidence.",
-        "A provided failure classification changes a recommendation only when exactly one candidate test is selected.",
-        "Non-JavaScript/TypeScript reverse imports and dynamic routing may remain unresolved.",
-      ],
-    },
+    caveats: [
+      "Static imports, labels, exact-content duplicates, size, mock, and time/concurrency mentions are review leads only.",
+      "Runtime timing is reported only when tracked evidence exists; this helper does not execute tests.",
+      "No coverage, mutation effectiveness, behavioral equivalence, production reachability, or deletion safety is inferred.",
+      "no_direct_static_candidate_evidence means only that no changed test or direct candidate-tree import was found; transitive paths and deleted sources remain unresolved.",
+      "Deleted tests are listed as origin-review uncertainty; candidate-tree absence is never deletion evidence.",
+      "A provided failure classification is context only and never selects a test action.",
+      "Non-JavaScript/TypeScript reverse imports and dynamic routing may remain unresolved.",
+    ],
   }
 
-  process.stdout.write(`${JSON.stringify(proposal, null, 2)}\n`)
+  process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`)
 } catch (error) {
   const message = portableMessage(error instanceof Error ? error.message : String(error))
   process.stderr.write(`${JSON.stringify({
@@ -366,7 +336,6 @@ function buildTestMetadata(
   changes: Change[],
   importEdges: ImportEdge[],
   changedSourcePaths: Set<string>,
-  classification?: Classification,
 ): TestMetadata[] {
   const markerRoots = readMarkerRoots(candidatePaths)
   const changeStatus = new Map(changes.map((change) => [change.path, change.status]))
@@ -414,7 +383,6 @@ function buildTestMetadata(
         exact_content_duplicate_paths: [],
         runtime: { status: "unavailable", milliseconds: null },
       },
-      recommendation: { action: "further_investigation", reasons: [] },
       labels,
       content_hash: sha256(content),
       relevant: status !== "unchanged" || directChangedImports.length > 0,
@@ -425,9 +393,6 @@ function buildTestMetadata(
   const labelFrequency = frequency(records.flatMap((record) => record.labels))
   const contentGroups = groupBy(records, (record) => record.content_hash)
   const relevantRecords = records.filter((record) => record.relevant)
-  const classifiedPath = classification != null && relevantRecords.length === 1
-    ? relevantRecords[0].path
-    : null
 
   for (const record of records) {
     record.unique_value_evidence.changed_source_imports_unique_to_test =
@@ -439,48 +404,10 @@ function buildTestMetadata(
         .map((item) => item.path)
         .filter((path) => path !== record.path)
         .sort()
-    record.recommendation = recommendationFor(
-      record,
-      record.path === classifiedPath ? classification : undefined,
-    )
   }
 
   return relevantRecords
     .sort((left, right) => left.path.localeCompare(right.path))
-}
-
-function recommendationFor(
-  test: TestMetadata,
-  classification?: Classification,
-): TestMetadata["recommendation"] {
-  if (test.cost_signals.exact_content_duplicate_paths.length > 0) {
-    return {
-      action: "further_investigation",
-      reasons: ["exact tracked content duplication is a lead only; authority and semantic unique value remain unresolved"],
-    }
-  }
-  if (!classification) {
-    return {
-      action: "further_investigation",
-      reasons: ["escaped-defect or failing-test classification is unresolved"],
-    }
-  }
-  if (classification === "outdated_contract_or_assertion") {
-    return { action: "replace", reasons: ["provided classification says the encoded contract or assertion is obsolete"] }
-  }
-  if (classification === "implementation_coupled_change_detector") {
-    return { action: "replace", reasons: ["provided classification requires a public behavior oracle or deletion review"] }
-  }
-  if (classification === "mock_or_fake_isolation_distortion") {
-    return { action: "replace", reasons: ["provided classification requires a faithful contract or integration boundary"] }
-  }
-  if (classification === "flake_or_infrastructure") {
-    return { action: "further_investigation", reasons: ["provided classification requires signal isolation before behavior changes"] }
-  }
-  return {
-    action: "strengthen",
-    reasons: [`provided classification ${classification} requires stronger authoritative detection evidence`],
-  }
 }
 
 function readImportEdges(candidate: string, candidatePaths: string[], pathSet: Set<string>): ImportEdge[] {
@@ -639,15 +566,6 @@ function groupImporters(edges: ImportEdge[]): Map<string, string[]> {
   return result
 }
 
-function countActions(tests: TestMetadata[]): Record<string, number> {
-  const result: Record<string, number> = {}
-  for (const test of tests) {
-    const action = test.recommendation.action
-    result[action] = (result[action] ?? 0) + 1
-  }
-  return Object.fromEntries(Object.entries(result).sort(([left], [right]) => left.localeCompare(right)))
-}
-
 function stripPrivateTestFields(test: TestMetadata): Omit<TestMetadata, "labels" | "content_hash"> {
   const {
     labels: _labels,
@@ -687,7 +605,8 @@ function isFullObjectId(value: string): boolean {
 
 function portableMessage(message: string): string {
   const root = process.cwd().replaceAll("\\", "/")
-  return message.replaceAll(root, ".").replaceAll("\\", "/")
+  const invocation = invocationDirectory.replaceAll("\\", "/")
+  return message.replaceAll(root, ".").replaceAll(invocation, ".").replaceAll("\\", "/")
 }
 
 function git(args: string[]): string {
