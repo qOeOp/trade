@@ -25,8 +25,10 @@ or moving the same unresolved gap is continuation of the existing Mission and in
 Stop, findings, and rejected candidates.
 
 With zero independent Missions, handle the request directly. With one, execute it in the current
-session. With two or more, the hub admits the minimal session graph below. Task creation still
-requires the user's explicit request or approval of every exact ready packet.
+session unless the user explicitly requests creation or routing of a separate task; that request
+continues through proposal and native dispatch. With two or more, the hub admits the minimal session
+graph below. Task creation still requires the user's explicit request or approval of every exact
+ready packet.
 
 ## Minimal session graph
 
@@ -48,23 +50,29 @@ from labels. Unknown shared write surface returns the affected nodes to the hub'
 dispatch. Nodes with a direct `after` edge, the same owner, overlapping write surfaces, or a shared
 contract serialize. Only a ready wave with mutually independent owners, write surfaces, contracts,
 premises, and dependencies may prepare in parallel. A downstream node stays deferred until every
-direct predecessor is integrated and its premises remain valid.
+direct predecessor is integrated and its premises remain valid. Premise independence must be
+provable from the retained Outcome, Scope, Acceptance, Authority, and source facts at every dispatch
+or resume gate; otherwise return the affected nodes to Plan instead of adding graph fields.
 
 One child task/chat hosts one independent Outcome. A Git-backed child owns one managed worktree, one
 eventual branch, and at most one pull request. The child owns its Mission candidate and verification;
-the hub owns graph admission, source observation, bounded monitoring, and merge release. Messages and
-root turns do not create additional Missions.
+the hub owns graph admission, source observation, bounded monitoring, and merge release. Every
+multi-Mission child packet stops at a Ready pull request and explicitly withholds merge authority.
+Messages and root turns do not create additional Missions.
 
 Parallel children may prepare pull requests, but the hub releases at most one exact candidate head
-for merge. After every merge it independently fetches and observes the canonical source tip. Every
-other open pull request then has base drift and must be revalidated from that observed tip before a
-later release. A dependent child may be created only from the newly observed tip, never from its
-predecessor's old base.
+for merge. The released child must refetch, revalidate, and match that head before merging; no other
+child receives merge authority. After every merge the hub independently fetches and observes that
+node's canonical source tip. Every other open pull request bound to the same source ref then has base
+drift and must be revalidated from that observed tip before a later release. Nodes bound to another
+source ref remain unchanged only after their own ref/tip facts are observed. A dependent child may
+be created only from its newly observed source tip, never from its predecessor's old base.
 
 If a child blocks, freeze its descendants; independent nodes may continue only when the blocked
-premise cannot affect them. A user override freezes undispatched nodes and every unissued merge
-release while the hub re-admits the graph. Do not automatically retry, create a replacement, or
-transfer a host.
+premise cannot affect them. If a predecessor is cancelled, freeze its descendants and return that
+branch to Plan; do not remove the edge or leave the branch permanently deferred. A user override
+freezes undispatched nodes and every unissued merge release while the hub re-admits the graph. Do not
+automatically retry, create a replacement, or transfer a host.
 
 After conversation compaction, reconstruct only from exact thread, host, pull-request head, and
 source-ref/tip facts. If an identity cannot be recovered exactly, fail closed at its next operation.
@@ -115,6 +123,9 @@ Then retain the complete editable child prompt containing every dispatch field:
 - target project and default environment;
 - the complete initial child prompt, including its five-stage Mission and endpoint.
 
+For a multi-Mission node, the endpoint is `merge-ready`; the packet explicitly withholds merge until
+the hub later sends a separately authorized exact-head release.
+
 End a `ready` packet with the direct question **Create this task?** A `deferred` packet instead ends
 with **Create this task? — unavailable until `<exact prerequisite>`**; a reply to that unavailable
 question is not creation authority. The user may edit, reject, approve one, or approve several named
@@ -152,8 +163,9 @@ native monitoring only for the current ready wave or next merge gate. It must us
 and `hostId` facts and must not poll a queued `clientThreadId`.
 
 The child independently owns `Frame → Plan → Execute → Verify → Finalize`, its candidate, branch,
-zero-or-one pull request, review closure, delivery, and cleanup. The parent does not run or mirror
-those stages.
+zero-or-one pull request, publication, review closure, and cleanup. In multi-Mission mode its
+Finalize stops at `merge-ready` unless the hub supplies the exact-head merge release. The parent does
+not run or mirror the child's stages.
 
 ## Child controls
 

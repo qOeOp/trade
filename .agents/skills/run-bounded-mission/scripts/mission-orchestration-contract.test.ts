@@ -47,6 +47,7 @@ describe("session-only Mission orchestration contract", () => {
     expect(dispatch).toContain("no separate child task or pull request")
     expect(dispatch).toContain("With zero independent Missions, handle the request directly")
     expect(dispatch).toContain("With one, execute it in the current session")
+    expect(dispatch).toContain("explicitly requests creation or routing of a separate task")
   })
 
   test("keeps the graph session-only and releases merges serially", () => {
@@ -63,9 +64,15 @@ describe("session-only Mission orchestration contract", () => {
     ]) expect(dispatch).toContain(field)
 
     expect(dispatch).toContain("Only a ready wave with mutually independent")
+    expect(dispatch).toContain("Premise independence must be provable from the retained")
+    expect(dispatch).toContain("otherwise return the affected nodes to Plan")
     expect(dispatch).toContain("releases at most one exact candidate head for merge")
-    expect(dispatch).toContain("Every other open pull request then has base drift")
-    expect(dispatch).toContain("A dependent child may be created only from the newly observed tip")
+    expect(dispatch).toContain("Every multi-Mission child packet stops at a Ready pull request")
+    expect(dispatch).toContain("explicitly withholds merge authority")
+    expect(dispatch).toContain("no other child receives merge authority")
+    expect(dispatch).toContain("bound to the same source ref then has base drift")
+    expect(dispatch).toContain("Nodes bound to another source ref remain unchanged")
+    expect(dispatch).toContain("A dependent child may be created only from its newly observed source tip")
     expect(dispatch).not.toContain(
       "do not create a dependency graph, pre-create downstream work, order tasks automatically, or wait on a child",
     )
@@ -74,6 +81,8 @@ describe("session-only Mission orchestration contract", () => {
   test("fails closed across blocked work, identity loss, and host failure", () => {
     expect(dispatch).toContain("If a child blocks, freeze its descendants")
     expect(dispatch).toContain("independent nodes may continue only when")
+    expect(dispatch).toContain("If a predecessor is cancelled, freeze its descendants")
+    expect(dispatch).toContain("do not remove the edge or leave the branch permanently deferred")
     expect(dispatch).toContain("Unknown shared write surface returns")
     expect(dispatch).toContain("user override freezes undispatched nodes")
     expect(dispatch).toContain("reconstruct only from exact thread, host, pull-request head")
