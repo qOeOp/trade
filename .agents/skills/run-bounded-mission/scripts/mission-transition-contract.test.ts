@@ -21,9 +21,15 @@ interface Fixture {
   scenarios: Scenario[]
 }
 
+interface PlanAdmission {
+  inventoryComplete: boolean
+  bindingsAdmissible: boolean
+}
+
 interface ReplayState {
   position: Position
   verification: Verification
+  admittedPlan: PlanAdmission | null
   backwardRoutes: number
   evidenceAttempts: number
   mutations: number
@@ -34,6 +40,7 @@ interface ReplayState {
 interface RecoveryEvidence {
   position: Stage | "blocked"
   blockedResumeStage: Stage | null
+  planAdmission: PlanAdmission | null
   head: string
   branch: string
   status: string
@@ -42,8 +49,10 @@ interface RecoveryEvidence {
 
 const skillRoot = resolve(import.meta.dir, "..")
 const skill = normalized(resolve(skillRoot, "SKILL.md"))
+const planner = normalized(resolve(skillRoot, "../../../.codex/agents/mission-planner.toml"))
 const ambiguity = normalized(resolve(skillRoot, "references/plan-ambiguity.md"))
 const revisionPressure = normalized(resolve(skillRoot, "references/revision-pressure-replan.md"))
+const admissiblePlan: PlanAdmission = { inventoryComplete: true, bindingsAdmissible: true }
 const fixture = JSON.parse(
   readFileSync(resolve(skillRoot, "fixtures/mission-transition-contract.json"), "utf8"),
 ) as Fixture
@@ -84,6 +93,7 @@ describe("single-Mission transition contract", () => {
       "Current Mission evidence",
       "Frame: <current outcome",
       "Plan: <admitted owner",
+      "complete required-action inventory and each admitted binding or later-stage gate",
       "Candidate/effects: <exact commit or complete diff locator",
       "Evidence: <decisive checks",
       "Position: <current stage or terminal route",
@@ -91,7 +101,9 @@ describe("single-Mission transition contract", () => {
     ]) expect(skill).toContain(field)
 
     expect(skill).toContain("This locator is evidence, not an identity, receipt, file, ledger, or host state")
-    expect(skill).toContain("exclude a different Mission or candidate")
+    expect(skill).toContain("complete admitted Plan including its action inventory, bindings, and later-stage gates")
+    expect(skill).toContain("Do not assume that prior Plan admission still holds")
+    expect(skill).toContain("exclude a different Mission, Plan admission, or candidate")
     expect(skill).toContain("explicit `Resume` stage")
     expect(skill).toContain("without resetting Stop")
     expect(skill).toContain("this locator does not replace it")
@@ -101,6 +113,70 @@ describe("single-Mission transition contract", () => {
     expect(skill).toContain("Plain cancellation ends the Mission with its existing candidate preserved")
     expect(skill).toContain("explicitly requests discard or revert")
     expect(skill).toContain("cleanup only of the exactly identified mission-owned diff")
+  })
+
+  test("admits complete executable actions without requiring a candidate during Plan", () => {
+    expect(skill).toContain("independently derives the complete required-action inventory")
+    expect(skill).toContain("implementation, verification, delivery, and support needs")
+    expect(skill).toContain("An omitted required action makes the inventory incomplete")
+    expect(skill).toContain("proposed bindings do not prove completeness")
+    expect(skill).toContain("Do not require a candidate locator or completed-candidate fact during Plan")
+    expect(skill).toContain("The main agent owns candidate creation, copying, packaging, and evaluator dispatch")
+    expect(skill).toContain("After Execute and before Verify launch")
+    expect(planner).toContain("This proposal does not prove inventory completeness, binding admissibility, or live capability")
+    expect(planner).toContain("do not require a candidate locator during Plan")
+  })
+
+  test("requires inventory completeness and admissible bindings independently", () => {
+    for (const admission of [
+      { inventoryComplete: false, bindingsAdmissible: true },
+      { inventoryComplete: true, bindingsAdmissible: false },
+    ]) {
+      const repository = createTemporaryRepository()
+      try {
+        const state = replay(repository, ["frame-complete", "plan-admitted"], admission)
+        expect(state.position).toBe("Plan")
+        expect(state.mutations).toBe(0)
+      } finally {
+        rmSync(repository, { recursive: true, force: true })
+      }
+    }
+  })
+
+  test("recovers an admitted Plan before candidate mutation only from exact admission evidence", () => {
+    const events = [
+      "frame-complete",
+      "plan-admitted",
+      "context-lost",
+      "recover-exact",
+      "candidate-ready",
+      "verify-pass",
+      "accept",
+    ]
+
+    for (const recoveredPlan of [
+      null,
+      { inventoryComplete: true, bindingsAdmissible: false },
+    ]) {
+      const repository = createTemporaryRepository()
+      try {
+        expect(() => replay(repository, events, admissiblePlan, recoveredPlan)).toThrow(
+          "recovery evidence does not match the candidate",
+        )
+        expect(git(repository, "status", "--porcelain")).toBe("")
+      } finally {
+        rmSync(repository, { recursive: true, force: true })
+      }
+    }
+
+    const repository = createTemporaryRepository()
+    try {
+      const state = replay(repository, events, admissiblePlan, admissiblePlan)
+      expect(state.position).toBe("accepted")
+      expect(state.mutations).toBe(1)
+    } finally {
+      rmSync(repository, { recursive: true, force: true })
+    }
   })
 
   test("replays every required route in isolated temporary Git repositories", () => {
@@ -124,7 +200,7 @@ describe("single-Mission transition contract", () => {
         const initialHead = git(repository, "rev-parse", "HEAD")
         const initialBranch = git(repository, "branch", "--show-current")
         const initialBranches = git(repository, "for-each-ref", "--format=%(refname:short)", "refs/heads")
-        const state = replay(repository, scenario.events)
+        const state = replay(repository, scenario.events, admissiblePlan)
 
         expect(state.position, scenario.name).toBe(scenario.expected_terminal)
         expect(state.mutations, scenario.name).toBe(scenario.expected_mutations)
@@ -149,7 +225,7 @@ describe("single-Mission transition contract", () => {
   test("rejects illegal shortcuts and a third backward route", () => {
     const repository = createTemporaryRepository()
     try {
-      expect(() => replay(repository, ["accept"])).toThrow("accept requires Finalize")
+      expect(() => replay(repository, ["accept"], admissiblePlan)).toThrow("accept requires Finalize")
       expect(() => replay(repository, [
         "frame-complete",
         "plan-admitted",
@@ -162,17 +238,23 @@ describe("single-Mission transition contract", () => {
         "revise",
         "scope-expanded",
         "reframe",
-      ])).toThrow("backward Stop exhausted")
+      ], admissiblePlan)).toThrow("backward Stop exhausted")
     } finally {
       rmSync(repository, { recursive: true, force: true })
     }
   })
 })
 
-function replay(repository: string, events: string[]): ReplayState {
+function replay(
+  repository: string,
+  events: string[],
+  planAdmission: PlanAdmission,
+  recoveredPlanAdmission: PlanAdmission | null = planAdmission,
+): ReplayState {
   const state: ReplayState = {
     position: "Frame",
     verification: null,
+    admittedPlan: null,
     backwardRoutes: 0,
     evidenceAttempts: 0,
     mutations: 0,
@@ -194,7 +276,12 @@ function replay(repository: string, events: string[]): ReplayState {
     }
     if (event === "context-lost") {
       requireRecoverable(state.position, event)
-      state.suspendedEvidence = recoveryEvidence(repository, state.position, state.blockedResumeStage)
+      state.suspendedEvidence = recoveryEvidence(
+        repository,
+        state.position,
+        state.blockedResumeStage,
+        state.admittedPlan,
+      )
       state.position = "suspended"
       continue
     }
@@ -206,11 +293,13 @@ function replay(repository: string, events: string[]): ReplayState {
         repository,
         state.suspendedEvidence.position,
         state.suspendedEvidence.blockedResumeStage,
+        state.suspendedEvidence.planAdmission === null ? null : recoveredPlanAdmission,
       )) !== JSON.stringify(state.suspendedEvidence)) {
         throw new Error("recovery evidence does not match the candidate")
       }
       state.position = state.suspendedEvidence.position
       state.blockedResumeStage = state.suspendedEvidence.blockedResumeStage
+      state.admittedPlan = state.suspendedEvidence.planAdmission
       state.suspendedEvidence = null
       continue
     }
@@ -238,6 +327,8 @@ function replay(repository: string, events: string[]): ReplayState {
     }
     if (event === "plan-admitted") {
       requireStage(state.position, "Plan", event)
+      if (!planAdmission.inventoryComplete || !planAdmission.bindingsAdmissible) continue
+      state.admittedPlan = { ...planAdmission }
       state.position = "Execute"
       continue
     }
@@ -273,6 +364,7 @@ function replay(repository: string, events: string[]): ReplayState {
       if (state.verification !== expected) throw new Error(`${event} has the wrong failure class`)
       consumeBackwardRoute(state)
       state.position = event === "revise" ? "Execute" : "Plan"
+      if (event === "replan") state.admittedPlan = null
       continue
     }
     if (event === "scope-expanded") {
@@ -288,6 +380,7 @@ function replay(repository: string, events: string[]): ReplayState {
       }
       consumeBackwardRoute(state)
       state.position = "Frame"
+      state.admittedPlan = null
       state.verification = null
       continue
     }
@@ -353,11 +446,13 @@ function recoveryEvidence(
   repository: string,
   position: Stage | "blocked",
   blockedResumeStage: Stage | null,
+  planAdmission: PlanAdmission | null,
 ): RecoveryEvidence {
   const candidatePath = resolve(repository, "candidate.txt")
   return {
     position,
     blockedResumeStage,
+    planAdmission: planAdmission === null ? null : { ...planAdmission },
     head: git(repository, "rev-parse", "HEAD"),
     branch: git(repository, "branch", "--show-current"),
     status: git(repository, "status", "--porcelain"),

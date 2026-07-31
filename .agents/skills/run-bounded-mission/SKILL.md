@@ -89,7 +89,8 @@ forward only on these observable conditions:
 - `Frame → Plan`: every Frame field is explicit enough to make the next design decision, unresolved
   consequential ambiguity is resolved or isolated, and the practical Stop is finite;
 - `Plan → Execute`: the owner, path, affected boundary, candidate shape, and verification route are
-  admitted and no decision-changing premise remains unresolved;
+  admitted, the required-action inventory is complete, every entry is Plan-admissible, and no
+  decision-changing premise remains unresolved;
 - `Execute → Verify`: the admitted candidate is complete and its full mission-owned diff is
   available, including untracked candidate material;
 - `Verify → Finalize`: decisive passes, failures, and unavailable evidence have been recorded
@@ -145,20 +146,24 @@ minimal, copyable current-Mission evidence locator in conversation prose:
 ```text
 Current Mission evidence
 Frame: <current outcome, consumer, scope/non-goals, authority, acceptance, origin, Stop>
-Plan: <admitted owner, path, boundary, candidate shape, verification route>
+Plan: <admitted owner, path, boundary, candidate shape, verification route; complete required-action
+inventory and each admitted binding or later-stage gate>
 Candidate/effects: <exact commit or complete diff locator; effects already performed>
 Evidence: <decisive checks and remaining blocker>
 Position: <current stage or terminal route; consumed Stop and next legal operation>
 Resume: <stage to re-enter after a named blocker is removed, or none>
 ```
 
-This locator is evidence, not an identity, receipt, file, ledger, or host state. Match the Frame,
-origin, candidate/effects, consumed Stop, next legal operation, and any resumable stage before
-continuing. If any cannot be recovered exactly enough to exclude a different Mission or candidate,
-freeze before the next mutation or external effect and route `blocked` or ask for the missing
-user-owned fact. Resuming an exactly recovered `blocked` Mission re-enters its explicit `Resume`
-stage only after the named blocker is removed, without resetting Stop. Multi-Mission recovery
-additionally follows the session graph contract; this locator does not replace it.
+This locator is evidence, not an identity, receipt, file, ledger, or host state. Match the Frame, the
+complete admitted Plan including its action inventory, bindings, and later-stage gates, origin,
+candidate/effects, consumed Stop, next legal operation, and any resumable stage before continuing.
+Do not assume that prior Plan admission still holds when any of those Plan facts is missing or
+changed. If any field cannot be recovered exactly enough to exclude a different Mission, Plan
+admission, or candidate, freeze before the next mutation or external effect and route `blocked` or
+ask for the missing user-owned fact. Resuming an exactly recovered `blocked` Mission re-enters its
+explicit `Resume` stage only after the named blocker is removed, without resetting Stop.
+Multi-Mission recovery additionally follows the session graph contract; this locator does not
+replace it.
 
 ## Plan
 
@@ -166,6 +171,28 @@ Inspect the current owner, production entry point when one exists, affected cont
 working-tree state. Choose the smallest vertical change that closes the outcome.
 Plan is read-only. Admit the owner, path, affected boundary, candidate shape, and verification route
 before mutation; when any of them remains unresolved, keep investigating or return to Frame.
+
+Before `Plan → Execute`, the main agent independently derives the complete required-action inventory
+from all admitted implementation, verification, delivery, and support needs. An omitted required
+action makes the inventory incomplete; proposed bindings do not prove completeness. Each entry is
+Plan-admissible only when it records a named executor, exact effect, effect authority, required
+context, and either evidence of capability observable during Plan or an explicit later-stage gate
+for a predicate that can only be judged against the completed candidate. A later-stage gate must
+name executable owners for producing the exact candidate, running the gate, and taking its failure
+route; it is not permission to defer an otherwise observable executability gap. Do not require a
+candidate locator or completed-candidate fact during Plan. Assign actions to the main agent when it
+can legally execute them; do not invent or require a subagent.
+
+For an evaluator action, Plan records only the prospective inspection, its required isolation and
+capability predicates, and a candidate-bound gate before Verify launch. The main agent owns candidate
+creation, copying, packaging, and evaluator dispatch; the evaluator only read-only inspects the
+admitted exact candidate and never creates, copies, writes, packages, or dispatches it. After Execute
+and before Verify launch, validate actual evaluator capability and same-exact-candidate binding. If
+independent acceptance is frozen and its evaluator route is observably unavailable during Plan,
+return `evidence_unavailable`. If the endpoint authorizes local preparation, admit executable local
+actions and make unavailable independent review a delivery limitation; Finalize must report
+`prepared and locally verified, independent acceptance unavailable` rather than blocking candidate
+creation or claiming acceptance.
 
 When a test failure can change the candidate, an escaped defect shows that tests missed required
 behavior, or the Mission may restructure tests, load
