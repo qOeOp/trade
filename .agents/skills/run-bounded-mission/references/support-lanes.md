@@ -92,14 +92,18 @@ Map an admitted question to one host role by predicate, not by a subjective stre
 
 | Service level | Unique question predicate | Host projection | Refuse or escalate when |
 | --- | --- | --- | --- |
-| `fast` | one deterministic repository fact passes every fast gate | repository `explorer` or deterministic read-only query | any fast gate fails; return the same question once to the main agent for `standard` classification |
+| `fast` | one deterministic repository fact passes every fast gate | repository `explorer` or deterministic read-only query | refuse forbidden authority, acceptance, or decisionless packets; only an incomplete, ambiguous, conflicting, or source-blocked read-only result returns once to the main agent for `standard` classification |
+| `standard` repository | a read-only question needs broader repository synthesis from named locators but is not an external-evidence or design question | repository `explorer` | the packet becomes external research, a design choice, or an authority decision; return to the main agent for the matching predicate or refusal |
 | `standard` evidence | unresolved current-source, compatibility, maintenance, license, failure-mode, or external candidate evidence can change one decision | `mission_researcher` | the packet is incomplete, needs writable reproduction, or becomes a design choice; return evidence unavailable or escalation evidence to the main agent |
 | `standard` design | admitted evidence still leaves a harmful mechanism concern, structural pressure, multiple credible shapes, or consequential cross-owner trade-off | `mission_planner` | the predicate is absent, evidence briefs are incomplete, or user authority is required; return to the main agent without searching or admitting Plan |
-| `high-assurance` | an identified candidate matches one admitted independent risk lens or trust boundary | `mission_evaluator` only with exact bindings, actual read-only authority, and candidate-external discovery when the candidate can affect instructions | any binding or isolation check fails; return `unsupported` once and do not substitute votes, sibling evaluators, or a lower lane |
+| `high-assurance` pre-candidate | an acceptance-oracle, trust-boundary, or material-conflict question needs stronger read-only support before an admitted candidate exists | an existing isolated high-assurance read-only capability selected by the main agent; never `mission_evaluator` | if reviewer-handoff bindings would be required or no matching capability exists, return to the main Plan without launching an evaluator or lowering the lane |
+| `high-assurance` candidate | an identified candidate matches one admitted independent risk lens or trust boundary | `mission_evaluator` only with exact bindings, actual read-only authority, and candidate-external discovery when the candidate can affect instructions | any binding or isolation check fails; return `unsupported` once and do not substitute votes, sibling evaluators, or a lower lane |
 
-The two `standard` rows are mutually exclusive evidence and design questions. A researcher gathers
-facts and a planner compares already supplied paths; neither may absorb the other's work. An
-evaluator is not a stronger planner or researcher and cannot be used before a candidate exists.
+The three `standard` rows are mutually exclusive repository-synthesis, external-evidence, and design
+questions. An explorer synthesizes named repository evidence, a researcher gathers current or
+external facts, and a planner compares already supplied paths; none may absorb another's work. An
+evaluator is not a stronger planner, researcher, or pre-candidate support capability and cannot be
+used before a candidate exists.
 
 ## Replay scenarios
 
@@ -113,3 +117,5 @@ evaluator is not a stronger planner or researcher and cannot be used before a ca
 | S6 | No unresolved main-agent decision can change | `no-support` |
 | S7 | A fast packet attempts to freeze Frame, admit Plan, modify a candidate, or sign Finalize | `evidence-only-reject-authority` |
 | S8 | A governance, instruction, skill, agent-discovery, or judge candidate reaches Verify | `isolated-high-assurance-evaluator-or-explicitly-unavailable` |
+| S9 | A named-locator repository question needs broader read-only synthesis but no external evidence or design choice | `standard-repository-explorer` |
+| S10 | A trust-boundary or acceptance-oracle question needs high-assurance support before a candidate exists | `existing-high-assurance-capability-or-return-to-plan` |

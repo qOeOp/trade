@@ -37,7 +37,9 @@ frozen Frame field. Use supplied origin or change evidence when available to dis
 from unrelated pre-existing behavior. Before reporting, trace the relevant path through callers,
 guards, validation, and the consumer or acceptance effect, then actively test whether context refutes
 the claim. Inspect history only when removed or moved controls, ambiguous intent, or a regression
-hypothesis makes it probative; do not require PR metadata, a textual diff, or history.
+hypothesis makes it probative; do not require PR metadata or history. An integrated exact commit
+does not need a textual diff, but a local candidate requires the complete supplied diff and untracked
+material bound above.
 Caller labels such as `passed`, `verified`, or `strict improvement` are claims, not evidence.
 A supplied change set is a starting claim, not proof of scope completeness. Reconstruct the material
 affected-boundary closure; an omitted affected dependent is a scope failure, not reviewer scope
@@ -91,6 +93,7 @@ Return
 - observed_launch_context:
 - instruction_origin:
 - discovery_boundary:
+- actual_runtime_authority:
 - isolation_status: supported | unsupported
 - acceptance_results: signal, pass | fail | unverified, direct evidence
 - findings: severity (blocking | important | nit), failure_class (candidate_local | plan_failure |
