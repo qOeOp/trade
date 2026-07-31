@@ -32,7 +32,7 @@ bun .agents/skills/run-bounded-mission/scripts/test-effectiveness-audit.ts \
 
 ## 原始输出摘要
 
-- 原试点由 commit `74add3e06da0904c3226b7abe66e892e3538b20c` 中的 helper 生成，stdout
+- 原试点由 `origin/main` 可达 commit `4ae4ac783933b62c1522c9b32777992917349e1f` 中的 helper 生成，stdout
   SHA-256 为 `33da48854ee64540bd60c0617a1cabf5b93fc071d487a9245470ca3be6e0f136`；连续两次执行相同。
   下列命令从该 commit 读取 helper 源码，可重放历史 stdout identity：
 
@@ -40,7 +40,7 @@ bun .agents/skills/run-bounded-mission/scripts/test-effectiveness-audit.ts \
 set -o pipefail
 replay_dir="$(mktemp -d "${TMPDIR:-/tmp}/test-effectiveness-audit.XXXXXX")"
 trap 'rm -r "$replay_dir"' EXIT
-git show 74add3e06da0904c3226b7abe66e892e3538b20c:.agents/skills/run-bounded-mission/scripts/test-effectiveness-audit.ts \
+git show 4ae4ac783933b62c1522c9b32777992917349e1f:.agents/skills/run-bounded-mission/scripts/test-effectiveness-audit.ts \
   > "$replay_dir/test-effectiveness-audit.ts"
 bun "$replay_dir/test-effectiveness-audit.ts" \
     --origin 149d338550f2769c2d346bdf62ba3a92ddba6751 \
