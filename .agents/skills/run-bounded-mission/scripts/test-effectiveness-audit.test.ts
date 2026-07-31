@@ -190,6 +190,109 @@ describe("test-effectiveness audit", () => {
     })
   })
 
+  test("finds multiline, dynamic, re-export, and punctuation-path importers", () => {
+    const fixture = createFixture()
+    write(fixture.root, "apps/example/calc/src/multiline.test.ts", [
+      "import {",
+      "  add,",
+      "} from",
+      '  "./calc"',
+      'test("loads a multiline import", () => expect(add(1, 2)).toBe(3))',
+      "",
+    ].join("\n"))
+    write(fixture.root, "apps/example/calc/src/dynamic.test.ts", [
+      "void import(",
+      '  "./calc"',
+      ")",
+      "",
+    ].join("\n"))
+    write(fixture.root, "apps/example/calc/src/re-export.test.ts", [
+      "export {",
+      "  add,",
+      "} from",
+      '  "./calc"',
+      "",
+    ].join("\n"))
+    write(fixture.root, "apps/example/calc/src/colon: spaced.test.ts", [
+      "import {",
+      "  add,",
+      '} from "./calc"',
+      "",
+    ].join("\n"))
+    const origin = commit(fixture.root, "add semantic import fixtures")
+    write(fixture.root, "apps/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
+    const candidate = commit(fixture.root, "change calculation source")
+
+    const result = audit(fixture.root, [
+      "--origin", origin,
+      "--candidate", candidate,
+      "--scope", "apps/example/calc",
+    ])
+    expect(result.status).toBe(0)
+    const evidence = JSON.parse(result.stdout)
+    expect(evidence.import_analysis).toMatchObject({
+      status: "complete",
+      incomplete_files: [],
+    })
+    expect(evidence.affected_owners[0].candidate_tests.map(
+      (item: { path: string }) => item.path,
+    )).toEqual([
+      "apps/example/calc/src/calc.test.ts",
+      "apps/example/calc/src/colon: spaced.test.ts",
+      "apps/example/calc/src/dynamic.test.ts",
+      "apps/example/calc/src/multiline.test.ts",
+      "apps/example/calc/src/re-export.test.ts",
+    ])
+  })
+
+  test("marks incomplete import evidence without discarding proven edges", () => {
+    const fixture = createFixture()
+    rmSync(join(fixture.root, "apps/example/calc/src/calc.test.ts"))
+    write(fixture.root, "apps/example/calc/src/broken.test.ts", [
+      "import {",
+      "  add",
+      'from "./calc"',
+      "",
+    ].join("\n"))
+    write(fixture.root, "apps/example/calc/src/non-literal.test.ts", [
+      'const target = "./calc"',
+      "void import(target)",
+      "",
+    ].join("\n"))
+    const origin = commit(fixture.root, "add incomplete import fixtures")
+    write(fixture.root, "apps/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
+    const candidate = commit(fixture.root, "change calculation source")
+
+    const result = audit(fixture.root, [
+      "--origin", origin,
+      "--candidate", candidate,
+      "--scope", "apps/example/calc",
+    ])
+    expect(result.status).toBe(0)
+    const evidence = JSON.parse(result.stdout)
+    expect(evidence.import_analysis).toMatchObject({
+      status: "incomplete",
+      incomplete_files: [
+        {
+          path: "apps/example/calc/src/broken.test.ts",
+          reasons: ["parse_error"],
+        },
+        {
+          path: "apps/example/calc/src/non-literal.test.ts",
+          reasons: ["non_literal_module_specifier"],
+          diagnostic_codes: [],
+        },
+      ],
+    })
+    expect(evidence.summary).toMatchObject({
+      candidate_tests: 0,
+      no_direct_static_candidate_evidence: false,
+    })
+    expect(evidence.affected_owners[0].consumer_leads.reverse_importers).toContain(
+      "apps/example/calc/src/main.ts",
+    )
+  })
+
   test("attributes a cross-owner rename to both revision owners within either scope", () => {
     const root = mkdtempSync(join(tmpdir(), "test-effectiveness-rename-"))
     temporaryRepositories.push(root)

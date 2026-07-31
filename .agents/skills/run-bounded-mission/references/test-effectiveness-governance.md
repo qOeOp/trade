@@ -81,6 +81,13 @@ origin-side movement evidence.
 dependent tests and their owner markers outside that scope are not hidden.
 Bare package imports resolve only through tracked package manifests; a coincidental repository path
 with the same name is not treated as an internal dependency.
+JavaScript and TypeScript direct-import evidence comes from file-level syntax parsing and includes
+static imports, literal dynamic imports, re-exports, and CommonJS `require`. The output
+`import_analysis.status` is `incomplete` when a candidate file cannot be parsed or uses a non-literal
+dynamic module specifier; `incomplete_files` retains stable repository-relative paths and reason
+codes while imports proven in other files remain available. Consumers must not treat an incomplete
+analysis as a complete candidate set, and `no_direct_static_candidate_evidence` remains false until
+the analysis is complete.
 
 The evidence must retain resolved origin/candidate commit and tree identities, affected owners,
 unverified consumer leads, candidate tests and unique-value leads, cost signals, the five

@@ -3,12 +3,14 @@
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { posix } from "node:path"
+import ts from "typescript"
 
 const schemaVersion = "bounded-mission.test-effectiveness-evidence.v1"
 const sourceExtensions = [
   ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs",
   ".py", ".rs", ".go", ".sh", ".bash", ".zsh",
 ]
+const importSourceExtensions = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]
 const importExtensions = ["", ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", "/index.ts", "/index.tsx", "/index.js", "/index.mjs"]
 const classifications = [
   "real_behavior_regression",
@@ -48,6 +50,20 @@ interface ImportEdge {
   importer: string
   target: string
   specifier: string
+}
+
+type ImportAnalysisReason = "parse_error" | "non_literal_module_specifier"
+
+interface ImportAnalysisIssue {
+  path: string
+  reasons: ImportAnalysisReason[]
+  diagnostic_codes: number[]
+}
+
+interface ImportAnalysis {
+  edges: ImportEdge[]
+  files_analyzed: number
+  incomplete_files: ImportAnalysisIssue[]
 }
 
 interface TestMetadata {
@@ -107,9 +123,10 @@ try {
       .filter((change) => change.status !== "D" && isSourcePath(change.path))
       .map((change) => change.path),
   )
-  const importEdges = changedSourcePaths.size > 0
+  const importAnalysis = changedSourcePaths.size > 0
     ? readImportEdges(candidate.commit, candidatePaths, candidatePathSet)
-    : []
+    : { edges: [], files_analyzed: 0, incomplete_files: [] }
+  const importEdges = importAnalysis.edges
   const importersByTarget = groupImporters(importEdges)
   const allAffectedTests = buildTestMetadata(
     candidate.commit,
@@ -165,7 +182,10 @@ try {
     })
 
   const noDirectStaticCandidateEvidence =
-    changes.length > 0 && allAffectedTests.length === 0 && deletedTestPaths.length === 0
+    importAnalysis.incomplete_files.length === 0
+    && changes.length > 0
+    && allAffectedTests.length === 0
+    && deletedTestPaths.length === 0
 
   const evidence = {
     schema_version: schemaVersion,
@@ -197,6 +217,11 @@ try {
         "mutation_score",
         "acceptance_signed",
       ],
+    },
+    import_analysis: {
+      status: importAnalysis.incomplete_files.length === 0 ? "complete" : "incomplete",
+      files_analyzed: importAnalysis.files_analyzed,
+      incomplete_files: importAnalysis.incomplete_files,
     },
     summary: {
       changed_files: changes.length,
@@ -235,7 +260,7 @@ try {
       "no_direct_static_candidate_evidence means only that no changed test or direct candidate-tree import was found; transitive paths and deleted sources remain unresolved.",
       "Deleted tests are listed as origin-review uncertainty; candidate-tree absence is never deletion evidence.",
       "A provided failure classification is context only and never selects a test action.",
-      "Non-JavaScript/TypeScript reverse imports and dynamic routing may remain unresolved.",
+      "Non-JavaScript/TypeScript reverse imports remain unresolved; non-literal module routing is reported as incomplete.",
       "Owner mapping is limited to the repository-relative roots supplied by the caller.",
     ],
   }
@@ -447,7 +472,7 @@ function buildTestMetadata(
     .sort((left, right) => left.path.localeCompare(right.path))
 }
 
-function readImportEdges(candidate: string, candidatePaths: string[], pathSet: Set<string>): ImportEdge[] {
+function readImportEdges(candidate: string, candidatePaths: string[], pathSet: Set<string>): ImportAnalysis {
   const packageRoots = new Map<string, string>()
   for (const packagePath of candidatePaths.filter((path) => path.endsWith("/package.json"))) {
     try {
@@ -457,52 +482,98 @@ function readImportEdges(candidate: string, candidatePaths: string[], pathSet: S
       // Malformed package manifests do not contribute import aliases.
     }
   }
-  const result = spawnSync("git", [
-    "grep",
-    "-n",
-    "-I",
-    "-E",
-    "from|import|require\\(",
-    candidate,
-    "--",
-    "*.ts",
-    "*.tsx",
-    "*.mts",
-    "*.cts",
-    "*.js",
-    "*.jsx",
-    "*.mjs",
-    "*.cjs",
-  ], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
-  if (result.status !== 0 && result.status !== 1) {
-    throw new Error(result.stderr.trim() || "git grep failed")
-  }
   const edges: ImportEdge[] = []
-  const prefix = `${candidate}:`
-  for (const line of result.stdout.split("\n")) {
-    if (!line.startsWith(prefix)) continue
-    const remainder = line.slice(prefix.length)
-    const pathEnd = remainder.indexOf(":")
-    const lineEnd = remainder.indexOf(":", pathEnd + 1)
-    if (pathEnd < 0 || lineEnd < 0) continue
-    const importer = remainder.slice(0, pathEnd)
-    const source = remainder.slice(lineEnd + 1)
-    for (const specifier of importSpecifiers(source)) {
+  const incompleteFiles: ImportAnalysisIssue[] = []
+  const importSourcePaths = candidatePaths.filter(isImportSourcePath)
+  for (const importer of importSourcePaths) {
+    const source = git(["show", `${candidate}:${importer}`])
+    const analysis = importSpecifiers(importer, source)
+    if (analysis.issue) incompleteFiles.push(analysis.issue)
+    for (const specifier of analysis.specifiers) {
       const target = resolveImport(importer, specifier, pathSet, packageRoots)
       if (target) edges.push({ importer, target, specifier })
     }
   }
-  return edges.sort((left, right) =>
-    left.importer.localeCompare(right.importer)
-    || left.target.localeCompare(right.target)
-    || left.specifier.localeCompare(right.specifier))
+  return {
+    edges: edges.sort((left, right) =>
+      left.importer.localeCompare(right.importer)
+      || left.target.localeCompare(right.target)
+      || left.specifier.localeCompare(right.specifier)),
+    files_analyzed: importSourcePaths.length,
+    incomplete_files: incompleteFiles.sort((left, right) => left.path.localeCompare(right.path)),
+  }
 }
 
-function importSpecifiers(source: string): string[] {
+function importSpecifiers(
+  path: string,
+  source: string,
+): { specifiers: string[]; issue?: ImportAnalysisIssue } {
+  const sourceFile = ts.createSourceFile(
+    path,
+    source,
+    ts.ScriptTarget.Latest,
+    false,
+    scriptKind(path),
+  )
+  const parseDiagnostics = (sourceFile as ts.SourceFile & { parseDiagnostics: readonly ts.Diagnostic[] })
+    .parseDiagnostics
+  const diagnosticCodes = [...new Set(parseDiagnostics.map((diagnostic) => diagnostic.code))].sort(
+    (left, right) => left - right,
+  )
+  if (diagnosticCodes.length > 0) {
+    return {
+      specifiers: [],
+      issue: { path, reasons: ["parse_error"], diagnostic_codes: diagnosticCodes },
+    }
+  }
+
   const values: string[] = []
-  const pattern = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s*)["']([^"']+)["']/g
-  for (const match of source.matchAll(pattern)) values.push(match[1])
-  return values
+  let nonLiteralModuleSpecifier = false
+  const visit = (node: ts.Node): void => {
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) {
+      if (ts.isStringLiteralLike(node.moduleSpecifier)) values.push(node.moduleSpecifier.text)
+    } else if (
+      ts.isImportEqualsDeclaration(node)
+      && ts.isExternalModuleReference(node.moduleReference)
+      && node.moduleReference.expression
+      && ts.isStringLiteralLike(node.moduleReference.expression)
+    ) {
+      values.push(node.moduleReference.expression.text)
+    } else if (
+      ts.isCallExpression(node)
+      && (node.expression.kind === ts.SyntaxKind.ImportKeyword
+        || (ts.isIdentifier(node.expression) && node.expression.text === "require"))
+    ) {
+      const specifier = node.arguments[0]
+      if (specifier && ts.isStringLiteralLike(specifier)) {
+        values.push(specifier.text)
+      } else {
+        nonLiteralModuleSpecifier = true
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sourceFile)
+
+  return {
+    specifiers: [...new Set(values)].sort(),
+    ...(nonLiteralModuleSpecifier
+      ? {
+          issue: {
+            path,
+            reasons: ["non_literal_module_specifier" as const],
+            diagnostic_codes: [],
+          },
+        }
+      : {}),
+  }
+}
+
+function scriptKind(path: string): ts.ScriptKind {
+  if (path.endsWith(".tsx")) return ts.ScriptKind.TSX
+  if (path.endsWith(".jsx")) return ts.ScriptKind.JSX
+  if ([".ts", ".mts", ".cts"].some((extension) => path.endsWith(extension))) return ts.ScriptKind.TS
+  return ts.ScriptKind.JS
 }
 
 function resolveImport(
@@ -550,6 +621,10 @@ function isEntrypoint(owner: string, path: string): boolean {
 
 function isSourcePath(path: string): boolean {
   return sourceExtensions.some((extension) => path.endsWith(extension)) && !isTestPath(path)
+}
+
+function isImportSourcePath(path: string): boolean {
+  return importSourceExtensions.some((extension) => path.endsWith(extension))
 }
 
 function isTestPath(path: string): boolean {
