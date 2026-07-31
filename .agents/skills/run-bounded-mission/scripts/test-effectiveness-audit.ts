@@ -485,8 +485,9 @@ function readImportEdges(candidate: string, candidatePaths: string[], pathSet: S
   const edges: ImportEdge[] = []
   const incompleteFiles: ImportAnalysisIssue[] = []
   const importSourcePaths = candidatePaths.filter(isImportSourcePath)
+  const importSources = readRevisionFiles(candidate, importSourcePaths)
   for (const importer of importSourcePaths) {
-    const source = git(["show", `${candidate}:${importer}`])
+    const source = importSources.get(importer)!
     const analysis = importSpecifiers(importer, source)
     if (analysis.issue) incompleteFiles.push(analysis.issue)
     for (const specifier of analysis.specifiers) {
@@ -502,6 +503,35 @@ function readImportEdges(candidate: string, candidatePaths: string[], pathSet: S
     files_analyzed: importSourcePaths.length,
     incomplete_files: incompleteFiles.sort((left, right) => left.path.localeCompare(right.path)),
   }
+}
+
+function readRevisionFiles(revision: string, paths: string[]): Map<string, string> {
+  if (paths.length === 0) return new Map()
+  const result = spawnSync("git", ["cat-file", "--batch"], {
+    input: paths.map((path) => `${revision}:${path}\n`).join(""),
+    maxBuffer: 256 * 1024 * 1024,
+  })
+  if (result.status !== 0) {
+    throw new Error(result.stderr.toString().trim() || "git cat-file failed")
+  }
+
+  const files = new Map<string, string>()
+  let offset = 0
+  for (const path of paths) {
+    const headerEnd = result.stdout.indexOf(10, offset)
+    if (headerEnd < 0) throw new Error(`git cat-file returned an incomplete header for ${path}`)
+    const header = result.stdout.toString("utf8", offset, headerEnd)
+    const match = /^[0-9a-f]+ blob ([0-9]+)$/.exec(header)
+    if (!match) throw new Error(`git cat-file could not read ${path}`)
+    const contentStart = headerEnd + 1
+    const contentEnd = contentStart + Number(match[1])
+    if (result.stdout[contentEnd] !== 10) {
+      throw new Error(`git cat-file returned incomplete content for ${path}`)
+    }
+    files.set(path, result.stdout.toString("utf8", contentStart, contentEnd))
+    offset = contentEnd + 1
+  }
+  return files
 }
 
 function importSpecifiers(
