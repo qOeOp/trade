@@ -100,6 +100,9 @@ question.
 Support is a conditional envelope, not a reservation. Define capability classes and observable
 activation predicates from decision gaps and risks, not a subjective complexity score. Do not fix
 agent counts, pre-spawn agents, reserve host capacity, or create work merely to consume the budget.
+Fast, standard, and high-assurance are service levels for an activated read-only question, not
+lifecycle stages, agent roles, model names, or standing teams. The main agent selects the lowest
+level that can safely return decision-changing evidence.
 
 Freeze each external effect separately. Never infer commit, push, pull-request creation, comment,
 review, thread resolution, merge, deployment, scheduling, secret access, or shared-state authority.
@@ -180,7 +183,8 @@ supporting signals; they do not establish intent, semantic ownership, or affecte
 Activate support only when its Frame predicate is observed:
 
 - use a host-native read-only repository explorer for a bounded codebase question whose result can
-  change the plan;
+  change the plan; a fast lane is admissible only under the observable gate in
+  [read-only support service levels](references/support-lanes.md);
 - use a read-only researcher for the breadth-then-depth prior-art method when the candidate set is
   unknown, or for another unresolved current-source, compatibility, maintenance, license, or
   failure-mode question;
@@ -190,6 +194,13 @@ Activate support only when its Frame predicate is observed:
 - admit an independent evaluator predicate for governance or authority-sensitive candidates,
   high-impact failure modes, conflicting evidence, candidate-controlled oracles, and changes to
   instructions, skills, agent definitions, discovery paths, or the judge.
+
+Load [read-only support service levels](references/support-lanes.md) before dispatching a fast lane,
+promoting a support question, or launching two or more lanes concurrently. It defines the detailed
+admission and exclusion matrix, minimum dispatch and evidence packets, one-way escalation,
+dependency-aware concurrency, host projection boundary, stage fit, and replay scenarios. Do not
+dispatch when no real main-agent decision gap remains or when dispatch and merge cost is not expected
+to beat direct inspection.
 
 For every evaluator predicate, freeze one risk lens, the planned launch context, its instruction
 origin and automatic discovery boundary, and the evidence that the candidate cannot control them.
