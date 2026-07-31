@@ -34,21 +34,23 @@ interface DirectDependent {
 }
 
 interface Reason {
-  kind: "changed-owner-direct-dependency" | "head-not-reachable" | "head-not-source-ref-tip" | "head-worktree-dirty"
+  kind: "changed-owner-direct-dependency" | "head-not-reachable" | "head-not-source-ref-tip"
   detail: string
   evidence: string[]
 }
 
 const invocationDirectory = process.cwd()
+const gitEnvironment = Object.freeze({
+  ...process.env,
+  GIT_NO_LAZY_FETCH: "1",
+  GIT_TERMINAL_PROMPT: "0",
+  GIT_OPTIONAL_LOCKS: "0",
+})
 let root = invocationDirectory
 
 function main(): void {
   const args = parseArguments(process.argv.slice(2))
-  root = execFileSync("git", ["rev-parse", "--show-toplevel"], {
-    cwd: invocationDirectory,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  }).trim()
+  root = git(["rev-parse", "--show-toplevel"]).trim()
   const base = immutableCommit(args.base)
   const head = immutableCommit(args.head)
   const sourceRef = repositoryRef(args.sourceRef)
@@ -76,19 +78,16 @@ function main(): void {
     "refs/tags",
   ]))
   const workspaceHead = immutableCommit(git(["rev-parse", "HEAD"]).trim())
-  const workspaceStatus = git(["status", "--porcelain=v1", "--untracked-files=all"])
   const reasons = buildReasons(
     head,
     sourceRef,
-    workspaceHead,
-    workspaceStatus,
     reachableRefs,
     directDependents,
     changedOwnerIds,
   )
 
   const report = {
-    schema_version: "bounded-mission.impact-evidence.v1",
+    schema_version: "bounded-mission.impact-evidence.v2",
     analysis_status: "facts-only",
     inputs: {
       owner_roots: registry.roots.map((item) => item.path),
@@ -106,7 +105,6 @@ function main(): void {
     workspace: {
       head: workspaceHead,
       head_matches_range: workspaceHead === head,
-      clean: workspaceStatus.length === 0,
     },
     facts: {
       changed_paths: changedPaths,
@@ -120,6 +118,7 @@ function main(): void {
       "Mission identity is not stored in Git; the caller must bind accepted Missions to the explicit range.",
       "Direct dependents cover static relative JavaScript/TypeScript production imports at head only.",
       "Owner mapping is limited to the repository-relative roots supplied by the caller.",
+      "Working-tree files and cleanliness are intentionally not inspected; the caller must bind the immutable range to the canonical source tip.",
       "The helper does not establish a runtime consumer, preserved behavior, or a refactor decision.",
       "Churn, co-change frequency, file count, line count, and complexity scores are intentionally not calculated.",
     ],
@@ -254,8 +253,6 @@ function readDirectDependents(
 function buildReasons(
   head: string,
   sourceRef: { name: string; tip: string },
-  workspaceHead: string,
-  workspaceStatus: string,
   reachableRefs: string[],
   directDependents: DirectDependent[],
   changedOwnerIds: Set<string>,
@@ -273,13 +270,6 @@ function buildReasons(
       kind: "head-not-source-ref-tip",
       detail: "head does not equal the declared source ref tip",
       evidence: [`${sourceRef.name} -> ${sourceRef.tip}`, `head -> ${head}`],
-    })
-  }
-  if (workspaceHead === head && workspaceStatus.length > 0) {
-    reasons.push({
-      kind: "head-worktree-dirty",
-      detail: "the current worktree contains material outside the immutable head",
-      evidence: ["git status --porcelain=v1 --untracked-files=all returned entries"],
     })
   }
   const relations = new Map<string, string[]>()
@@ -327,6 +317,7 @@ function readFileAt(revision: string, path: string): string {
 function git(args: string[]): string {
   return execFileSync("git", args, {
     cwd: root || process.cwd(),
+    env: gitEnvironment,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   })
