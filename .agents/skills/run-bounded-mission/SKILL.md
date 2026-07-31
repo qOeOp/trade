@@ -89,7 +89,8 @@ forward only on these observable conditions:
 - `Frame → Plan`: every Frame field is explicit enough to make the next design decision, unresolved
   consequential ambiguity is resolved or isolated, and the practical Stop is finite;
 - `Plan → Execute`: the owner, path, affected boundary, candidate shape, and verification route are
-  admitted and no decision-changing premise remains unresolved;
+  admitted, every recorded action binding has been validated, and no decision-changing premise
+  remains unresolved;
 - `Execute → Verify`: the admitted candidate is complete and its full mission-owned diff is
   available, including untracked candidate material;
 - `Verify → Finalize`: decisive passes, failures, and unavailable evidence have been recorded
@@ -166,6 +167,19 @@ Inspect the current owner, production entry point when one exists, affected cont
 working-tree state. Choose the smallest vertical change that closes the outcome.
 Plan is read-only. Admit the owner, path, affected boundary, candidate shape, and verification route
 before mutation; when any of them remains unresolved, keep investigating or return to Frame.
+
+Derive the required-action inventory from the admitted implementation, verification, delivery, and
+support needs, then record every non-trivial slice and external action in the Plan with a named
+executor, the exact effect, authority for that effect, and capability evidence observable in the
+required context. Proposed bindings do not establish their own completeness. The main agent
+validates the actual bindings before admission; a role proposal or declared authority is not
+capability evidence. A missing, conflicting, or unavailable binding stays in Plan: select a legal
+executor, keep the action with the main agent when it can execute it, or return
+`evidence_unavailable` or `blocked`. Do not invent or require a subagent when none is available.
+An evaluator may only inspect the exact admitted candidate; it never creates, copies, writes, or
+packages candidate material. Evaluator dispatch is itself an action whose binding must include
+observed yes/no evidence for the required read-only, candidate-external, no-delegation, and
+no-lateral-communication capabilities and the same exact candidate.
 
 When a test failure can change the candidate, an escaped defect shows that tests missed required
 behavior, or the Mission may restructure tests, load

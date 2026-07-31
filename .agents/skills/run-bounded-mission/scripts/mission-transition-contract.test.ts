@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process"
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { resolve } from "node:path"
+import { currentHostDecision } from "./evaluator-capability-check"
 
 type Stage = "Frame" | "Plan" | "Execute" | "Verify" | "Finalize"
 type Terminal = "accepted" | "blocked" | "cancelled"
@@ -42,6 +43,7 @@ interface RecoveryEvidence {
 
 const skillRoot = resolve(import.meta.dir, "..")
 const skill = normalized(resolve(skillRoot, "SKILL.md"))
+const planner = normalized(resolve(skillRoot, "../../../.codex/agents/mission-planner.toml"))
 const ambiguity = normalized(resolve(skillRoot, "references/plan-ambiguity.md"))
 const revisionPressure = normalized(resolve(skillRoot, "references/revision-pressure-replan.md"))
 const fixture = JSON.parse(
@@ -65,6 +67,46 @@ describe("single-Mission transition contract", () => {
     expect(skill).toContain("`blocked` ends the current run")
     expect(skill).toContain("Scope expansion always requires `reframe`")
     expect(skill).toContain("cancellation override may instead terminate directly")
+  })
+
+  test("anchors complete executable-action admission predicates", () => {
+    expect(skill).toContain(normalizedText(`
+      - \`Plan → Execute\`: the owner, path, affected boundary, candidate shape, and verification
+        route are admitted, every recorded action binding has been validated, and no
+        decision-changing premise remains unresolved;
+    `))
+    expect(skill).toContain(normalizedText(`
+      Derive the required-action inventory from the admitted implementation, verification,
+      delivery, and support needs, then record every non-trivial slice and external action in the
+      Plan with a named executor, the exact effect, authority for that effect, and capability
+      evidence observable in the required context. Proposed bindings do not establish their own
+      completeness. The main agent validates the actual bindings before admission; a role proposal
+      or declared authority is not capability evidence. A missing, conflicting, or unavailable
+      binding stays in Plan: select a legal executor, keep the action with the main agent when it
+      can execute it, or return \`evidence_unavailable\` or \`blocked\`. Do not invent or require a
+      subagent when none is available. An evaluator may only inspect the exact admitted candidate;
+      it never creates, copies, writes, or packages candidate material. Evaluator dispatch is itself
+      an action whose binding must include observed yes/no evidence for the required read-only,
+      candidate-external, no-delegation, and no-lateral-communication capabilities and the same
+      exact candidate.
+    `))
+    expect(planner).toContain(normalizedText(`
+      For every non-trivial execution slice and external action in a
+      \`ready_for_plan_admission\` result or a \`mechanism_rejected\` admission packet, propose a
+      named executor, exact effect, required authority, required context, and the capability
+      evidence that the main agent must observe before admission. Include implementation,
+      verification, delivery, candidate packaging, and support or evaluator dispatch. The main
+      agent independently derives that required-action inventory; proposed bindings do not prove
+      their own completeness. Treat live capability as an unverified prerequisite unless the
+      supplied packet already contains admissible evidence; never claim to have observed the host,
+      thread, or executor. If the packet cannot name a legal actor with authority and observable
+      capability for every action, return \`evidence_unavailable\`, or \`frame_mismatch\` when closing
+      the gap would materially change the frozen Frame. Keep an executable action with the main
+      agent when it can legally perform it, and do not invent or require a subagent. An evaluator
+      only inspects the exact admitted candidate; bind its inspection and the dispatch preflight
+      prerequisite to that same candidate, and never assign it candidate creation, copying,
+      neutral-location writes, packaging, dispatch, or any other effect.
+    `))
   })
 
   test("bounds investigation, retry, revision pressure, and Stop recovery", () => {
@@ -167,18 +209,21 @@ describe("single-Mission transition contract", () => {
       rmSync(repository, { recursive: true, force: true })
     }
   })
+
+  test("keeps Plan when main-agent action validation is false", () => {
+    const state = replayState("Plan")
+    const currentHost = currentHostDecision()
+
+    expect(currentHost.dispatch_allowed).toBe(false)
+    expect(() => admitPlanTransition(state, currentHost.dispatch_allowed))
+      .toThrow("Plan action validation is unavailable")
+    expect(state.position).toBe("Plan")
+    expect(state.mutations).toBe(0)
+  })
 })
 
 function replay(repository: string, events: string[]): ReplayState {
-  const state: ReplayState = {
-    position: "Frame",
-    verification: null,
-    backwardRoutes: 0,
-    evidenceAttempts: 0,
-    mutations: 0,
-    suspendedEvidence: null,
-    blockedResumeStage: null,
-  }
+  const state = replayState("Frame")
 
   for (const event of events) {
     if (event === "user-override-cancel") {
@@ -237,8 +282,7 @@ function replay(repository: string, events: string[]): ReplayState {
       continue
     }
     if (event === "plan-admitted") {
-      requireStage(state.position, "Plan", event)
-      state.position = "Execute"
+      admitPlanTransition(state, true)
       continue
     }
     if (event === "candidate-ready") {
@@ -313,6 +357,24 @@ function replay(repository: string, events: string[]): ReplayState {
   return state
 }
 
+function admitPlanTransition(state: ReplayState, actionsValidated: boolean): void {
+  requireStage(state.position, "Plan", "plan-admitted")
+  if (!actionsValidated) throw new Error("Plan action validation is unavailable")
+  state.position = "Execute"
+}
+
+function replayState(position: Position): ReplayState {
+  return {
+    position,
+    verification: null,
+    backwardRoutes: 0,
+    evidenceAttempts: 0,
+    mutations: 0,
+    suspendedEvidence: null,
+    blockedResumeStage: null,
+  }
+}
+
 function consumeBackwardRoute(state: ReplayState): void {
   state.backwardRoutes += 1
   if (state.backwardRoutes > 2) throw new Error("backward Stop exhausted")
@@ -373,5 +435,9 @@ function resumableStage(verification: Verification): Stage {
 }
 
 function normalized(path: string): string {
-  return readFileSync(path, "utf8").replace(/\s+/g, " ")
+  return normalizedText(readFileSync(path, "utf8"))
+}
+
+function normalizedText(value: string): string {
+  return value.replace(/\s+/g, " ").trim()
 }
