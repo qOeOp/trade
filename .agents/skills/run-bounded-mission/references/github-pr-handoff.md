@@ -27,7 +27,8 @@ discovery attempt is terminal clean completion; eyes, dispatch, queue, and in-pr
 not. For an `open` endpoint, successful publication in the requested Draft/Ready state does not wait
 for discovery.
 
-In this repository, run `bun scripts/wait-pr-codex-review.ts <pr-number>` for that wait. Use
+Run `bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts <pr-number>` for that
+wait. Use
 `--once` when an outer agent loop owns polling: exit `0` means terminal clean, exit `10` means
 pending, and exit `1` means a finding, provider failure, incomplete evidence, or invalid PR state
 that must be routed rather than retried as success. This read-only helper classifies the discovery

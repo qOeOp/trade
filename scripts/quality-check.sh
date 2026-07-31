@@ -108,7 +108,6 @@ check_toolset_manifest() {
     ./scripts/rd-forward-market-data-demand.test.ts \
     ./scripts/rd-strategy-source-adoption.test.ts \
     ./scripts/run-cached-quality-check.test.ts \
-    ./scripts/wait-pr-codex-review.test.ts \
     >/dev/null
   log "doc contracts"
   bun scripts/check-doc-contracts.ts >/dev/null
