@@ -105,9 +105,23 @@ Activate support only when its Frame predicate is observed:
   high-impact failure modes, conflicting evidence, candidate-controlled oracles, and changes to
   instructions, skills, agent definitions, discovery paths, or the judge.
 
-Load [planning methods](references/planning-methods.md) only for the needed method. Use
-[revision-pressure replan](references/revision-pressure-replan.md) when a finding recurs or the next
-correction would add another protective path.
+Select a planning method before constructing any method-bearing support packet:
+
+- load [decision-relevant prior art](references/plan-prior-art.md) only when external evidence can
+  change one researcher decision;
+- load [consequential ambiguity](references/plan-ambiguity.md) only when one unresolved fact can
+  change the candidate, consumer behavior, authority, Acceptance, or a hard-to-reverse choice; the
+  main agent owns any user preference or authority question;
+- load [viable alternatives](references/plan-alternatives.md) only when admitted evidence leaves
+  materially different credible paths for one planner comparison;
+- load [independently falsifiable slices](references/plan-slices.md) only when the selected route
+  needs separable candidate shapes or stopping evidence.
+
+When a support lane uses one of these methods, bind its packet to exactly that method and one
+non-overlapping decision question. Do not bundle methods into a lane or create an agent role for a
+method. Apply main-agent methods in the main context; dispatch separate support lanes only for
+independent questions. Use [revision-pressure replan](references/revision-pressure-replan.md) when a
+finding recurs or the next correction would add another protective path.
 
 Give every lane one non-overlapping decision question, read-only authority, required return, and
 branch Stop. The main agent admits the Plan after the required evidence returns. Researchers and
