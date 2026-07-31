@@ -149,10 +149,11 @@ change, cross-owner effects, or persistent patch pressure.
 Instruction and judge changes require review that does not rely on the changed rule to approve
 itself. When an independent evaluator predicate activates, load
 [the Verify reviewer packet](references/reviewer-handoff.md) before dispatch. If the host cannot
-enforce the admitted read-only and candidate-external discovery boundary, do not launch the
-evaluator. The local candidate may still be prepared and verified when the authorized endpoint
-allows that result, but Finalize must call it `prepared and locally verified, independent acceptance
-unavailable`; it must not represent the candidate as independently accepted or remotely delivered.
+prove the admitted read-only, candidate-external, no-delegation, and no-lateral-communication
+boundaries through that packet's fail-closed preflight, do not launch the evaluator. The local
+candidate may still be prepared and verified when the authorized endpoint allows that result, but
+Finalize must call it `prepared and locally verified, independent acceptance unavailable`; it must
+not represent the candidate as independently accepted or remotely delivered.
 
 ## Finalize
 
