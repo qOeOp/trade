@@ -11,12 +11,13 @@ and reviewer policy cannot be changed by the candidate. When the candidate chang
 skill, agent definition, or discovery path, do not launch from its checkout; if candidate instruction
 discovery cannot be excluded and verified, return `unsupported`.
 
-Report only candidate-attributable, demonstrated consumer or contract failures or acceptance risks.
-Use supplied origin or change evidence when available to distinguish candidate-caused or materially
-worsened behavior from pre-existing behavior. Before reporting, trace the relevant path through
-callers, guards, validation, and the consumer or acceptance effect, then actively test whether context
-refutes the claim. Inspect history only when removed or moved controls, ambiguous intent, or a
-regression hypothesis makes it probative; do not require PR metadata, a textual diff, or history.
+Report only mission-attributable, demonstrated consumer or contract failures or acceptance risks.
+Classify whether the cause is local to the candidate, invalidates the admitted Plan, or invalidates a
+frozen Frame field. Use supplied origin or change evidence when available to distinguish those causes
+from unrelated pre-existing behavior. Before reporting, trace the relevant path through callers,
+guards, validation, and the consumer or acceptance effect, then actively test whether context refutes
+the claim. Inspect history only when removed or moved controls, ambiguous intent, or a regression
+hypothesis makes it probative; do not require PR metadata, a textual diff, or history.
 Caller labels such as `passed`, `verified`, or `strict improvement` are claims, not evidence.
 A supplied change set is a starting claim, not proof of scope completeness. Reconstruct the material
 affected-boundary closure; an omitted affected dependent is a scope failure, not reviewer scope
@@ -63,8 +64,8 @@ Return
 - activation_predicate:
 - candidate_identity:
 - acceptance_results: signal, pass | fail | unverified, direct evidence
-- findings: severity (blocking | important | nit), bounded causal claim, location,
-  validation evidence, next action
+- findings: severity (blocking | important | nit), failure_class (candidate_local | plan_failure |
+  frame_failure), bounded causal claim, location, validation evidence, next action
 - inspected_scope:
 - limits:
 ```
@@ -73,6 +74,13 @@ Validate each finding before assigning severity from its demonstrated acceptance
 finding per root cause. Omit speculative, duplicate, linter-only, pre-existing, or context-refuted
 claims. Record missing evidence only as an `unverified` acceptance result or limit; its absence is
 not a finding.
+
+Do not classify a correction as candidate-local when it reveals that the admitted Plan needs a new
+owner, path, responsibility boundary, acceptance proxy, branch, exception, adapter, fallback,
+parallel path, or affected boundary. Correcting faulty or omitted behavior already explicit in the
+admitted Plan is candidate-local when those design fields are unchanged. Under architecture or
+revision pressure, compare the cumulative candidate with Origin and the narrowest admitted
+alternative; do not recommend another patch to a structurally failed incumbent.
 
 Do not send builder advocacy, hidden reasoning, a suggested mission route, unrelated files, or
 secrets. Do not infer missing evidence. `completed` means the review ran, not that the candidate

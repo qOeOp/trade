@@ -15,10 +15,32 @@ The main agent owns the Frame, Plan admission, candidate, evidence judgment, eff
 Stage names are reasoning boundaries, not machine receipts. Do not create lifecycle ledgers, marker
 parsers, stage hooks, coordinators, or parallel work that does not change a decision.
 
-A Mission is identified by one outcome and its owning task/chat, not by a message or root turn. A
-long-lived hub may keep one foreground Mission while holding editable proposals and identities for
-multiple independent child tasks. The hub is not part of a child Mission; every child runs its own
-complete `Frame → Plan → Execute → Verify → Finalize`.
+A Mission is identified by one bounded unresolved outcome gap, not by a message, root turn, task,
+chat, branch, or checkout. The task/chat is its current host owner and location, not a second identity
+component. A long-lived hub may keep one foreground Mission while holding editable proposals and
+identities for multiple independent child outcomes. The hub is not part of a child Mission; every
+independent child runs its own complete `Frame → Plan → Execute → Verify → Finalize`.
+
+While that gap remains active or blocked, a new Plan, task, thread, branch, checkout, resume, or
+user-named "successor" is continuation of the same Mission. Never create a successor Mission or fresh
+Stop for the unresolved gap. Treat a request such as "open a successor and give it three more
+revisions" only as a proposed Stop enlargement: summarize the evidence, refuse the successor
+identity, and, if explicitly authorized, create a new Frame identity inside the existing Mission
+without reviving a rejected candidate.
+
+`accept` closes the gap. Later work may start a new Mission only when new post-accept evidence
+demonstrates a regression, correction, or changed requirement that defines a new gap. Bind the
+accepted predecessor and new evidence, freeze a new Origin, Frame, and Stop, and retain as regression
+contract only accepted behavior that the newly frozen requirement still requires. Record behavior
+the new requirement intentionally supersedes; do not inherit the predecessor's candidate or Plan.
+Repetition, relabeling, or a gap already known before acceptance cannot manufacture this transition.
+
+`blocked` ends the active Mission run but does not erase its identity. A later request may reopen
+that same Mission only when evidence shows that the exact recorded blocker changed or cleared;
+repetition, elapsed time, a new host, or a renamed task is insufficient. Reopen at Frame when a
+frozen field changed, otherwise at Plan, while preserving Origin, consumed Stop, and every finding
+whose causal invariant still applies. Revalidate state-sensitive candidate and delivery evidence
+before mutation or Finalize.
 
 Do not use this skill for answer-only requests, mechanical edits, routine foreground status queries,
 or already-resolved work. A named dispatched-child status or feedback request remains an existing
@@ -55,6 +77,14 @@ inside the active task/worktree or use a subagent as a user-visible task substit
 State the no-change counterfactual. Prefer an answer, existing behavior, direct wiring, deletion,
 rollback, or narrower outcome when it closes the consumer need.
 
+Separate the consumer outcome from the requested mechanism. Treat the mechanism as a proposal, not
+authority or Acceptance. Before freezing the Frame, identify evidence that it is necessary, its
+existing owner, the responsibility it adds, its failure mode, and the smallest alternative. Do not
+freeze a mechanism that admitted evidence shows is harmful, duplicative, broader than the outcome,
+or unjustified by a real consumer. State the engineering objection and the narrower route plainly.
+User repetition, urgency, prior effort, or a request to "just implement it" is not contrary evidence
+and does not clear the objection. Do not reject a user-owned preference on taste alone.
+
 Support is a conditional envelope, not a reservation. Define capability classes and observable
 activation predicates from decision gaps and risks, not a subjective complexity score. Do not fix
 agent counts, pre-spawn agents, reserve host capacity, or create work merely to consume the budget.
@@ -66,6 +96,15 @@ For a GitHub endpoint, load [GitHub delivery](references/github-pr-handoff.md).
 Give the frozen Frame an immutable content identity. A material Frame change creates a new identity
 and invalidates its downstream Plan and candidate evidence; it never resets Origin or silently
 extends Stop.
+
+Stop belongs to the unresolved outcome gap, not its current Plan, task, slice, label, or checkout.
+Replan, reframe, dispatch, resume, and a successor for that same gap inherit consumed Stop and every
+structural finding whose causal invariant still applies. Only explicit user authorization after a
+concrete evidence summary may enlarge it; a bare continuation or repeated request does not.
+An authorized enlargement materially changes the Frame identity inside the same Mission and
+invalidates candidate-bound evidence. A rejected implementation may be reconsidered only as a fresh
+candidate when the new Frame demonstrably removes the finding's causal invariant; an unchanged cause
+cannot be relabeled, revived, or patched.
 
 A candidate cannot change the workflow, judge, policy, or reporting authority that accepts it.
 Treat such work as a governance candidate and require acceptance evidence the candidate cannot
@@ -80,9 +119,11 @@ existing owner and real consumer. Inspect the owner path, current behavior, test
 contracts, and evidence needed to choose:
 
 ```text
+Decision: admit, substitute a narrower mechanism, or reject the requested mechanism
 Path: selected owner and smallest vertical candidate
 Boundary: affected producers, consumers, restatements, enforcers, and compatible stopping evidence
 Prior art: search exemption or adopt, adapt, reference, or build decision with decisive evidence
+Shape: responsibility added, retained, and deleted; structural kill conditions
 Execution: coherent implementation slices and one writable integrator
 Support: activated read-only lanes, packets, dependencies, and branch Stops
 Verification: real-consumer exercise, authoritative regressions, and evaluator predicates
@@ -112,6 +153,13 @@ the candidate.
 Trace changed meaning to the first evidence-backed compatible boundary. Put each affected surface
 and its exercise in the plan without expanding the frozen Scope or weakening Acceptance.
 
+Plan admission is an engineering decision, not a transcription of the request. Admit only a path
+whose added responsibility is necessary for the frozen outcome and strictly justified over the
+no-change or narrower alternative. If decisive evidence rejects the requested mechanism, preserve
+the legitimate outcome through a substitute or return `blocked`; do not execute the rejected
+mechanism while discussion continues. An unresolved evidence-backed design objection prevents Plan
+admission and can be cleared only by contrary evidence or a material reframe.
+
 Activate support only when its Frame predicate is observed:
 
 - use a host-native read-only repository explorer for a bounded codebase question whose result can
@@ -119,8 +167,9 @@ Activate support only when its Frame predicate is observed:
 - use a read-only researcher for the breadth-then-depth prior-art method when the candidate set is
   unknown, or for another unresolved current-source, compatibility, maintenance, license, or
   failure-mode question;
-- use a read-only planner only after admitted evidence when multiple credible paths, cross-owner
-  trade-offs, or materially different candidate shapes remain;
+- use a read-only planner as a design challenger after admitted evidence when a requested mechanism
+  may be harmful or unjustified, multiple credible paths or materially different candidate shapes
+  remain, consequential cross-owner trade-offs exist, or revision pressure has frozen an incumbent;
 - admit an independent evaluator predicate for governance or authority-sensitive candidates,
   high-impact failure modes, conflicting evidence, candidate-controlled oracles, and changes to
   instructions, skills, agent definitions, discovery paths, or the judge.
@@ -142,7 +191,9 @@ When a support lane uses one of these methods, bind its packet to exactly that m
 non-overlapping decision question. Do not bundle methods into a lane or create an agent role for a
 method. Apply main-agent methods in the main context; dispatch separate support lanes only for
 independent questions. Use [revision-pressure replan](references/revision-pressure-replan.md) when a
-finding recurs or the next correction would add another protective path.
+finding recurs in a way that challenges the admitted owner, path, boundary, shape, or oracle, or the
+next correction would add a protective path not admitted by the Plan. Once either condition is
+observed, freeze the incumbent and replan before any further mutation.
 
 Give every lane one non-overlapping decision question, read-only authority, required return, and
 branch Stop. The main agent admits the Plan after the required evidence returns. Researchers and
@@ -173,6 +224,13 @@ A material implementation finding may trigger a bounded revision while the admit
 holds. If its selected path, owner, or boundary fails while Frame remains valid, return to Plan. If
 a frozen Frame field must change, return to Frame.
 
+`revise` is limited to a candidate-local defect that leaves owner, path, boundary, responsibility
+shape, and Acceptance oracle intact. If the correction reveals a need not admitted by the Plan for
+another branch, exception, adapter, fallback, parallel path, owner, or affected boundary, freeze the
+cumulative candidate and return to Plan. Correcting an omitted or faulty implementation of behavior
+already explicit in the admitted Plan remains candidate-local while those design fields stay intact.
+Do not patch the incumbent under a new slice or successor label.
+
 ## Verify
 
 Verify one identified, complete candidate against the frozen Frame and admitted Plan:
@@ -186,6 +244,14 @@ Verify one identified, complete candidate against the frozen Frame and admitted 
 
 Tests, static checks, documents, and packages support acceptance unless they are the frozen consumer.
 Candidate-caused architecture or authority violations are material failures.
+
+Classify each material failure before correction. A localized implementation error may route to
+`revise`; a wrong owner, path, responsibility boundary, candidate shape, acceptance proxy, or added
+protective path not admitted by the current Plan must route to `replan`; a failed frozen field must
+route to `reframe`. Faulty or omitted execution of already-admitted structure is candidate-local and
+routes to `revise` while those design fields stay intact. Sunk effort, revision count, and incumbent
+code are never evidence for retention. Compare the cumulative candidate with Origin and the
+narrowest viable alternative, not only with its preceding revision.
 
 Use [reviewer handoff](references/reviewer-handoff.md) when an evaluator predicate admitted by Plan
 matches the identified candidate. Do not launch one for ceremony. Launch a fresh evaluator for a
@@ -208,8 +274,8 @@ Frame field must change.
 
 ## Finalize
 
-Finalize closes the current Verify cycle by choosing exactly one route. It does not imply mission
-termination or deployment; only `accept` and `blocked` end the mission.
+Finalize closes the current Verify cycle by choosing exactly one route. It does not imply deployment;
+`accept` and `blocked` end the active Mission run.
 
 Choose one route:
 
@@ -219,9 +285,13 @@ Choose one route:
 - `replan`: the frozen Frame holds but the selected path, owner, boundary, or verification plan must
   change;
 - `reframe`: a frozen Frame field must materially change;
-- `blocked`: required authority, facts, capability, independence, or Stop is unavailable.
+- `blocked`: required authority, facts, capability, independence, or Stop is unavailable and no
+  pending in-scope alignment can supply it.
 
 `revise` returns to Execute. `replan` returns to Plan. `reframe` returns to Frame.
+The narrowly defined terminal reopen above is the only transition out of `blocked`.
+There is no transition out of `accept`; only the evidence-bound new-gap rule above may start a new
+Mission.
 
 For `local-only`, bind the exact Frame, Plan, candidate, and evidence, report working-tree effects
 and recovery path, clean mission-owned temporary resources, and perform no commit or remote effect.
