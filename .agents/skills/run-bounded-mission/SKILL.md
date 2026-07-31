@@ -1,6 +1,6 @@
 ---
 name: run-bounded-mission
-description: "Run an outcome-scoped repository mission through Frame, Plan, Execute, Verify, and Finalize, or route distinct outcomes from a long-lived Codex hub into separate tasks. Use when explicitly invoked and for repository-required non-trivial software work, consequential technical decisions, or interactive task dispatch. Preserve a frozen Frame, an admitted Plan, an identified complete candidate, real-consumer evidence, and separately authorized effects without fixed agent counts, receipts, or revision rituals."
+description: "Run Frame, Plan, Execute, Verify, and Finalize for explicitly invoked or repository-required non-trivial implementation and delivery work, and for independent Codex task dispatch. Do not use for answer-only requests, mechanical edits, or routine foreground status queries."
 ---
 
 # Run Bounded Mission
@@ -20,8 +20,9 @@ long-lived hub may keep one foreground Mission while holding editable proposals 
 multiple independent child tasks. The hub is not part of a child Mission; every child runs its own
 complete `Frame → Plan → Execute → Verify → Finalize`.
 
-For answer-only, mechanical, or already-resolved work, keep unnecessary stages implicit and brief. A
-specialist skill returns here before Finalize.
+Do not use this skill for answer-only requests, mechanical edits, routine foreground status queries,
+or already-resolved work. A named dispatched-child status or feedback request remains an existing
+Mission control. A specialist skill returns here before Finalize.
 
 ## Frame
 
