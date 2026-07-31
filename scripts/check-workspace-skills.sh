@@ -1,12 +1,83 @@
 #!/usr/bin/env sh
 
 set -eu
+unset RIPGREP_CONFIG_PATH
 
 ROOT="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 skills_root=.agents/skills
 [ -d "$skills_root" ] || exit 0
+
+check_mission_role() {
+  role_file=$1
+  expected_name=$2
+
+  if [ ! -f "$role_file" ]; then
+    printf 'workspace-skill: role %s file %s field file: required role locator is missing\n' \
+      "$expected_name" "$role_file" >&2
+    return 1
+  fi
+
+  awk -v role="$expected_name" -v file="$role_file" '
+    function fail(field, message) {
+      printf "workspace-skill: role %s file %s field %s: %s\n", role, file, field, message > "/dev/stderr"
+      failed = 1
+    }
+
+    {
+      if (preamble_ended) {
+        next
+      }
+      if ($0 ~ /^[[:space:]]*\[/ || index($0, "\"\"\"") || index($0, "\047\047\047")) {
+        preamble_ended = 1
+        next
+      }
+      if ($0 ~ /^[[:space:]]*name[[:space:]]*=/) {
+        name_count++
+        if ($0 != "name = \"" role "\"") {
+          name_exact = 0
+        } else {
+          name_exact = 1
+        }
+      }
+      if ($0 ~ /^[[:space:]]*sandbox_mode[[:space:]]*=/) {
+        sandbox_count++
+        if ($0 != "sandbox_mode = \"read-only\"") {
+          sandbox_exact = 0
+        } else {
+          sandbox_exact = 1
+        }
+      }
+    }
+
+    END {
+      if (name_count == 0) {
+        fail("name", "exact canonical assignment is required before any table or multiline string")
+      } else if (name_count != 1) {
+        fail("name", "exact canonical assignment must be unique")
+      } else if (!name_exact) {
+        fail("name", "expected exact canonical value " role)
+      }
+
+      if (sandbox_count == 0) {
+        fail("sandbox_mode", "exact canonical assignment is required before any table or multiline string")
+      } else if (sandbox_count != 1) {
+        fail("sandbox_mode", "exact canonical assignment must be unique")
+      } else if (!sandbox_exact) {
+        fail("sandbox_mode", "expected exact canonical value read-only")
+      }
+
+      exit failed
+    }
+  ' "$role_file"
+}
+
+if [ -f "$skills_root/run-bounded-mission/SKILL.md" ]; then
+  check_mission_role .codex/agents/mission-researcher.toml mission_researcher
+  check_mission_role .codex/agents/mission-planner.toml mission_planner
+  check_mission_role .codex/agents/mission-evaluator.toml mission_evaluator
+fi
 
 typescript_compiler=node_modules/.bin/tsc
 if [ ! -x "$typescript_compiler" ]; then
