@@ -24,16 +24,29 @@ check_read_only_role() {
     exit 1
   fi
 
+  first_table_line="$(rg -n -m 1 '^[[:space:]]*\[\[?.*\]\]?[[:space:]]*(#.*)?$' "$role_file" | sed -n 's/:.*//p' || true)"
   name_count="$(rg -c '^[[:space:]]*name[[:space:]]*=' "$role_file" || true)"
-  if [ "${name_count:-0}" -ne 1 ] || ! rg -q "^[[:space:]]*name[[:space:]]*=[[:space:]]*\"$expected_name\"[[:space:]]*$" "$role_file"; then
-    printf 'workspace-skill: role %s field name must be exactly one name = "%s": %s\n' \
+  name_line="$(rg -n "^[[:space:]]*name[[:space:]]*=[[:space:]]*\"$expected_name\"[[:space:]]*$" "$role_file" | sed -n 's/:.*//p' || true)"
+  if [ "${name_count:-0}" -ne 1 ] || [ -z "$name_line" ]; then
+    printf 'workspace-skill: role %s field name must be exactly one top-level name = "%s": %s\n' \
+      "$expected_name" "$expected_name" "$role_file" >&2
+    exit 1
+  fi
+  if [ -n "$first_table_line" ] && [ "$name_line" -gt "$first_table_line" ]; then
+    printf 'workspace-skill: role %s field name must be exactly one top-level name = "%s": %s\n' \
       "$expected_name" "$expected_name" "$role_file" >&2
     exit 1
   fi
 
   sandbox_count="$(rg -c '^[[:space:]]*sandbox_mode[[:space:]]*=' "$role_file" || true)"
-  if [ "${sandbox_count:-0}" -ne 1 ] || ! rg -q '^[[:space:]]*sandbox_mode[[:space:]]*=[[:space:]]*"read-only"[[:space:]]*$' "$role_file"; then
-    printf 'workspace-skill: role %s field sandbox_mode must be exactly one sandbox_mode = "read-only": %s\n' \
+  sandbox_line="$(rg -n '^[[:space:]]*sandbox_mode[[:space:]]*=[[:space:]]*"read-only"[[:space:]]*$' "$role_file" | sed -n 's/:.*//p' || true)"
+  if [ "${sandbox_count:-0}" -ne 1 ] || [ -z "$sandbox_line" ]; then
+    printf 'workspace-skill: role %s field sandbox_mode must be exactly one top-level sandbox_mode = "read-only": %s\n' \
+      "$expected_name" "$role_file" >&2
+    exit 1
+  fi
+  if [ -n "$first_table_line" ] && [ "$sandbox_line" -gt "$first_table_line" ]; then
+    printf 'workspace-skill: role %s field sandbox_mode must be exactly one top-level sandbox_mode = "read-only": %s\n' \
       "$expected_name" "$role_file" >&2
     exit 1
   fi
