@@ -179,7 +179,7 @@ test("domain premise replays preserve refusal, validation-first, and no-trigger 
     "The named-approach exemption applies only to reusable-candidate discovery after domain",
   )
   expect(skill).toContain(
-    "User-owned preferences, mechanical work, and facts already settled by governing repository authority",
+    "repository authority without depending on current external truth do not activate domain research",
   )
 })
 

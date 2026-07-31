@@ -97,8 +97,8 @@ material ambiguity could reverse consumer benefit, safe or legal Scope, the sele
 Acceptance. Bind the claim, its decision consequence, and supplied or repository evidence or exact
 gap to the existing Scope and Acceptance. Do not infer a premise from the user's confidence,
 vocabulary, or apparent expertise.
-User-owned preferences, mechanical work, and facts already settled by governing repository authority
-do not activate domain research.
+User-owned preferences, mechanical work, and repository-internal facts settled by governing
+repository authority without depending on current external truth do not activate domain research.
 
 When bounded history for named paths can change Origin, the no-change counterfactual, the likely
 owner, or Scope, run `scripts/git-path-history.py` from this skill. Pass repository-relative
@@ -178,7 +178,7 @@ Classify each activated premise and route it without laundering uncertainty into
 | --- | --- |
 | D1: a user-named mechanism depends on a claim contradicted by admitted domain evidence | `contradicted-reject-before-solution-search` |
 | D2: a plausible unvalidated claim has a bounded falsifiable check and the Frame permits research | `testable-hypothesis-validation-first` |
-| D3: mechanical work or repository authority already settles every material domain fact | `not-applicable-no-domain-research` |
+| D3: mechanical work or repository authority settles every material repository-internal fact without relying on current external truth | `not-applicable-no-domain-research` |
 | D4: a material premise remains unresolved within Authority and Stop | `unknown-block-dependent-decision` |
 
 When a failing test can change the candidate, an escaped defect shows that existing tests missed
