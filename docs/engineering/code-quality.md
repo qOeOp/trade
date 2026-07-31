@@ -152,6 +152,9 @@ owner 与兼容跨 owner 合同 > 测试、fixture、mock、snapshot 和实现�
 | 环境/并发/时间缺口 | 环境、顺序、并发、clock 或 timing 是否缺席？ |
 | flake/infra | 信号是否非确定或来自 harness/infrastructure？ |
 
+测试不得通过读取自然语言正文、脚本、package script 或 workflow 源码后匹配句子、片段、
+换行或排版来充当行为 oracle；机器合同必须解析后断言结构，流程必须通过真实入口执行。
+
 已有测试未发现缺陷时，必须在加测前回答：本应由哪层或 consumer 发现；为什么既有选择、
 场景、边界或 oracle 没发现；哪些相邻问题共享盲点；能否加强/替换已有测试；哪些旧测试因此
 冗余，以及什么独特价值证据阻止删除。禁止把“一个 bug 再加一个测试”当作默认结论。

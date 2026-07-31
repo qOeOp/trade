@@ -298,7 +298,6 @@ describe("test-effectiveness audit", () => {
       candidate_tests: 0,
       no_direct_static_candidate_evidence: true,
     })
-    expect(deleted.proposal.caveats.join(" ")).toContain("deleted sources remain unresolved")
   })
 
   test("fails closed on escaping scopes, invalid classifications, symbolic refs, and unknown revisions", () => {

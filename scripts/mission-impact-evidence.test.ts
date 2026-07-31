@@ -27,14 +27,6 @@ interface EvidenceReport {
 }
 
 const helper = resolve(import.meta.dir, "mission-impact-evidence.ts")
-const proposalReference = resolve(
-  import.meta.dir,
-  "../.agents/skills/run-bounded-mission/references/refactor-mission-proposal.md",
-)
-const taskDispatchReference = resolve(
-  import.meta.dir,
-  "../.agents/skills/run-bounded-mission/references/task-dispatch.md",
-)
 const roots: string[] = []
 
 afterEach(() => {
@@ -151,25 +143,6 @@ test("a reachable old head is stale after its declared source ref advances", () 
   expect(report.range.source_ref_tip).toBe(currentTip)
   expect(report.range.head_matches_source_ref_tip).toBe(false)
   expect(report.reasons.map((reason) => reason.kind)).toContain("head-not-source-ref-tip")
-})
-
-test("proposal contract withholds native dispatch before explicit authorization", () => {
-  const proposal = readFileSync(proposalReference, "utf8")
-  const dispatch = readFileSync(taskDispatchReference, "utf8")
-  const helperSource = readFileSync(helper, "utf8")
-
-  expect(dispatch).toContain("**Create this task?**")
-  expect(dispatch).toContain("An ordinary unambiguous approval")
-  expect(dispatch).toContain("if any fact drifted, do not create a task")
-  expect(dispatch).toContain("session-only label")
-  expect(dispatch).toContain("Present a short default summary first")
-  expect(dispatch).toContain("Then retain the complete editable child prompt")
-  expect(proposal).toContain("`deferred` proposal")
-  expect(proposal).toContain("two or more Missions")
-  expect(proposal).toContain("source ref")
-  expect(dispatch).toContain("source ref")
-  expect(proposal).toContain("Refactor is a user-readable description only")
-  expect(helperSource).not.toContain("create_thread")
 })
 
 function repositoryFixture(withDependent: boolean): { root: string; base: string } {
