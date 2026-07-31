@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 
@@ -105,6 +105,45 @@ describe("test-effectiveness audit", () => {
     ], standaloneHelper)
     expect(result.status).toBe(0)
     expect(JSON.parse(result.stdout).summary.candidate_tests).toBe(1)
+  })
+
+  test("overrides hostile caller Git settings for every Git child path", () => {
+    const fixture = createFixture()
+    write(fixture.root, "apps/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
+    const candidate = commit(fixture.root, "change calculation")
+    const fakeRoot = mkdtempSync(join(tmpdir(), "test-effectiveness-observed-git-"))
+    temporaryRepositories.push(fakeRoot)
+    const fakeGit = join(fakeRoot, "git")
+    const observed = join(fakeRoot, "observed.txt")
+    writeFileSync(fakeGit, [
+      "#!/bin/sh",
+      `printf '%s\\t%s\\t%s\\t' "$GIT_NO_LAZY_FETCH" "$GIT_TERMINAL_PROMPT" "$GIT_OPTIONAL_LOCKS" >> ${shellQuote(observed)}`,
+      `printf '%s ' "$@" >> ${shellQuote(observed)}`,
+      `printf '\\n' >> ${shellQuote(observed)}`,
+      'exec "$REAL_GIT" "$@"',
+      "",
+    ].join("\n"))
+    chmodSync(fakeGit, 0o755)
+
+    const result = audit(fixture.root, [
+      "--origin", fixture.origin,
+      "--candidate", candidate,
+      "--scope", "apps/example/calc",
+    ], helperPath, {
+      PATH: `${fakeRoot}:${process.env.PATH ?? ""}`,
+      REAL_GIT: Bun.which("git")!,
+      GIT_NO_LAZY_FETCH: "0",
+      GIT_TERMINAL_PROMPT: "1",
+      GIT_OPTIONAL_LOCKS: "1",
+    })
+    expect(result.status).toBe(0)
+    const observations = readFileSync(observed, "utf8").trim().split("\n")
+    expect(observations.length).toBeGreaterThan(8)
+    for (const observation of observations) expect(observation).toStartWith("1\t0\t0\t")
+    const commands = observations.map((observation) => observation.split("\t")[3].trim())
+    for (const command of ["diff", "ls-tree", "cat-file --batch", "rev-parse", "show", "cat-file -e"]) {
+      expect(commands.some((observedCommand) => observedCommand.includes(command))).toBe(true)
+    }
   })
 
   test("reports empty diffs and changed owners with no test evidence without inventing coverage", () => {
@@ -431,6 +470,55 @@ describe("test-effectiveness audit", () => {
     })
   })
 
+  test("fails closed when an exact tree-promised blob is missing", () => {
+    const fixture = createFixture()
+    write(fixture.root, "apps/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
+    const candidate = commit(fixture.root, "change calculation")
+    const object = git(fixture.root, ["rev-parse", `${candidate}:apps/example/calc/src/calc.ts`]).trim()
+    rmSync(join(fixture.root, ".git/objects", object.slice(0, 2), object.slice(2)))
+
+    const result = audit(fixture.root, [
+      "--origin", fixture.origin,
+      "--candidate", candidate,
+      "--scope", "apps/example/calc",
+    ])
+    expect(result.status).not.toBe(0)
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      error: {
+        code: "audit_failed",
+        message: "git cat-file could not read apps/example/calc/src/calc.ts",
+      },
+    })
+  })
+
+  test("fails closed when an exact tree-promised package manifest is missing", () => {
+    for (const branch of ["import-manifest", "package-scripts"] as const) {
+      const fixture = createFixture()
+      if (branch === "import-manifest") {
+        write(fixture.root, "apps/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
+      } else {
+        write(fixture.root, "apps/example/calc/CONTRACT.md", "# Updated Calculator Contract\n")
+      }
+      const candidate = commit(fixture.root, `change ${branch}`)
+      const packagePath = "apps/example/calc/package.json"
+      const object = git(fixture.root, ["rev-parse", `${candidate}:${packagePath}`]).trim()
+      rmSync(join(fixture.root, ".git/objects", object.slice(0, 2), object.slice(2)))
+
+      const result = audit(fixture.root, [
+        "--origin", fixture.origin,
+        "--candidate", candidate,
+        "--scope", "apps/example/calc",
+      ])
+      expect(result.status).not.toBe(0)
+      expect(JSON.parse(result.stderr)).toMatchObject({
+        error: {
+          code: "audit_failed",
+          message: expect.stringContaining(packagePath),
+        },
+      })
+    }
+  })
+
   test("attributes a cross-owner rename to both revision owners within either scope", () => {
     const root = mkdtempSync(join(tmpdir(), "test-effectiveness-rename-"))
     temporaryRepositories.push(root)
@@ -745,4 +833,8 @@ function git(root: string, args: string[]): string {
   })
   if (result.exitCode !== 0) throw new Error(result.stderr.toString())
   return result.stdout.toString()
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`
 }
