@@ -129,3 +129,71 @@ test("task dispatch and independent reviewer contracts stay separate", () => {
     "Do not hard-code model names, promise unsupported",
   )
 })
+
+test("decision-changing domain premises resolve before solution and reuse research", () => {
+  const domainGate = skill.indexOf(
+    "Resolve an activated domain premise before solution architecture, prior-art, or reuse research",
+  )
+  const reuse = skill.indexOf("Resolve reuse before new implementation")
+
+  expect(domainGate).toBeGreaterThan(-1)
+  expect(reuse).toBeGreaterThan(domainGate)
+  expect(skill).toContain(
+    "Bind the claim, its decision consequence, and supplied or repository evidence or exact",
+  )
+  expect(skill).toContain(
+    "Bind the classification and decisive evidence to the existing Decision",
+  )
+  expect(skill).toContain(
+    "A user-named implementation never bypasses this classification.",
+  )
+  expect(skill).toContain(
+    "Activation does not mandate web search, a domain specialist, or proof of a",
+  )
+
+  for (const disposition of [
+    "`supported`",
+    "`testable_hypothesis`",
+    "`contradicted`",
+    "`unknown`",
+  ]) {
+    expect(skill).toContain(disposition)
+  }
+})
+
+test("domain premise replays preserve refusal, validation-first, and no-trigger behavior", () => {
+  const actual = new Map<string, string>()
+  for (const line of skill.split("\n")) {
+    const match = line.match(/^\| (D\d): .+ \| `([^`]+)` \|$/)
+    if (match) actual.set(match[1], match[2])
+  }
+
+  expect(actual).toEqual(new Map([
+    ["D1", "contradicted-reject-before-solution-search"],
+    ["D2", "testable-hypothesis-validation-first"],
+    ["D3", "not-applicable-no-domain-research"],
+    ["D4", "unknown-block-dependent-decision"],
+  ]))
+
+  expect(skill).toContain(
+    "The named-approach exemption applies only to reusable-candidate discovery after domain",
+  )
+  expect(skill).toContain(
+    "User-owned preferences, mechanical work, and facts already settled by governing repository authority",
+  )
+})
+
+test("local-only handoff names the pending delivery decision", () => {
+  expect(skill).toContain(
+    "is complete and no preserved candidate awaits a user-owned delivery decision",
+  )
+  expect(skill).toContain(
+    "for an implicit `local-only` stop with meaningful uncommitted or unpublished changes",
+  )
+  expect(skill).toContain(
+    "`Optional next step` and name the concrete available continuation, such as review, commit, pull",
+  )
+  expect(skill).toContain(
+    "Use `No action needed` only when the user explicitly chose",
+  )
+})

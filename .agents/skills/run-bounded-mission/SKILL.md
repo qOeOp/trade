@@ -91,6 +91,15 @@ or unjustified by a real consumer. State the engineering objection and the narro
 User repetition, urgency, prior effort, or a request to "just implement it" is not contrary evidence
 and does not clear the objection. Do not reject a user-owned preference on taste alone.
 
+Identify a decision-changing domain premise when the Outcome or proposed mechanism depends on an
+empirical, regulatory, operational, economic, scientific, or other domain claim whose falsity or
+material ambiguity could reverse consumer benefit, safe or legal Scope, the selected mechanism, or
+Acceptance. Bind the claim, its decision consequence, and supplied or repository evidence or exact
+gap to the existing Scope and Acceptance. Do not infer a premise from the user's confidence,
+vocabulary, or apparent expertise.
+User-owned preferences, mechanical work, and facts already settled by governing repository authority
+do not activate domain research.
+
 When bounded history for named paths can change Origin, the no-change counterfactual, the likely
 owner, or Scope, run `scripts/git-path-history.py` from this skill. Pass repository-relative
 `--path` values and bound the query with `--revision`, dates, `--max-count`, and `--max-files`; use
@@ -146,6 +155,32 @@ Delivery: prerequisites for the frozen endpoint without adding authority
 Fallback: first conditions forcing revise, replan, reframe, or blocked
 ```
 
+Resolve an activated domain premise before solution architecture, prior-art, or reuse research when
+it can eliminate or materially change the responsibility. Inspect governing repository authority
+first. If it is insufficient, acquire only bounded current evidence suitable to the claim, preferring
+applicable official sources, standards, primary research, authoritative data, and reproducible
+consumer evidence. Activation does not mandate web search, a domain specialist, or proof of a
+user-owned preference. A user-named implementation never bypasses this classification.
+Bind the classification and decisive evidence to the existing Decision, and bind any unresolved
+stopping condition to Fallback.
+
+Classify each activated premise and route it without laundering uncertainty into implementation:
+
+- `supported`: proceed only within the evidence's stated conditions and limits;
+- `testable_hypothesis`: admit only a bounded validation-first path when frozen Outcome and Acceptance
+  permit it, and withhold the dependent mechanism; otherwise reframe or return `blocked`;
+- `contradicted`: reject the dependent mechanism and preserve any legitimate outcome through an
+  answer, no-change route, deletion, or the smallest supported substitute;
+- `unknown`: acquire decisive evidence or narrow to discovery when the frozen Frame permits it;
+  otherwise return `blocked` while the premise can still change the decision.
+
+| Domain replay | Expected disposition |
+| --- | --- |
+| D1: a user-named mechanism depends on a claim contradicted by admitted domain evidence | `contradicted-reject-before-solution-search` |
+| D2: a plausible unvalidated claim has a bounded falsifiable check and the Frame permits research | `testable-hypothesis-validation-first` |
+| D3: mechanical work or repository authority already settles every material domain fact | `not-applicable-no-domain-research` |
+| D4: a material premise remains unresolved within Authority and Stop | `unknown-block-dependent-decision` |
+
 When a failing test can change the candidate, an escaped defect shows that existing tests missed
 required behavior, or the Plan may refactor tests, load
 [test effectiveness governance](references/test-effectiveness-governance.md) before mutation.
@@ -169,7 +204,8 @@ new responsibility or implementation choice is introduced; external lookup is fo
 Authority; or the user explicitly requires a named implementation approach. Unknown candidate
 availability is not an exemption. Missing search capability cannot justify `build`; narrow or replan
 from admitted evidence, or return `blocked` when the unresolved reuse decision can materially change
-the candidate.
+the candidate. The named-approach exemption applies only to reusable-candidate discovery after domain
+evidence; it never bypasses an activated premise classification.
 
 Trace changed meaning to the first evidence-backed compatible boundary. Put each affected surface
 and its exercise in the plan without expanding the frozen Scope or weakening Acceptance.
@@ -193,7 +229,8 @@ Activate support only when its Frame predicate is observed:
   [read-only support service levels](references/support-lanes.md);
 - use a read-only researcher for the breadth-then-depth prior-art method when the candidate set is
   unknown, or for another unresolved current-source, compatibility, maintenance, license, or
-  failure-mode question;
+  failure-mode question, including an activated domain premise whose repository evidence is
+  insufficient;
 - use a read-only planner as a design challenger after admitted evidence when a requested mechanism
   may be harmful or unjustified, multiple credible paths or materially different candidate shapes
   remain, consequential cross-owner trade-offs exist, or revision pressure has frozen an incumbent;
@@ -217,6 +254,8 @@ mutate on a Plan whose required acceptance cannot be executed.
 
 Select a planning method before constructing any method-bearing support packet:
 
+- apply the domain-evidence disposition above before any later method when its predicate activates;
+  use one researcher lane only when the unresolved evidence volume or source classes justify it;
 - load [decision-relevant prior art](references/plan-prior-art.md) when the prior-art admission
   predicate above activates, or when external evidence from one researcher lane can inform one
   main-agent decision;
@@ -393,7 +432,11 @@ the handoff for the user's next decision, not as a lifecycle receipt:
   confidence or what happens next, and make the consequence explicit;
 - end with one labeled next-action line, localized to the user's language: `Next step` for required
   action, `Optional next step` for a valuable continuation, or `No action needed` when the endpoint
-  is complete;
+  is complete and no preserved candidate awaits a user-owned delivery decision;
+- for an implicit `local-only` stop with meaningful uncommitted or unpublished changes, use
+  `Optional next step` and name the concrete available continuation, such as review, commit, pull
+  request, or deployment authorization. Use `No action needed` only when the user explicitly chose
+  the completed local-only endpoint or no further delivery decision remains;
 - when blocked, name the exact blocking condition recognized by the route, say whether the user can
   resolve it, and state what will resume after it clears. Never invent user action or replace a
   resolvable blocker with a generic offer;
