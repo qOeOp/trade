@@ -10,7 +10,7 @@
 ## Implementation
 
 - 采用能闭合当前结果的最简单实现；优先复用现有 owner、入口和合同，不为单次逻辑新增抽象层。
-- 仓库内非平凡实现或交付工作必须使用 `$run-bounded-mission`；未点名的普通非平凡实现因此自动触发。answer-only / explain / audit、diagnose-only、mechanical edit、routine status、新 task 管理和内部子问题不因本规则自动触发。用户显式点名 skill 或明确要求 mission workflow 时，以显式调用为准。
+- `.agents/skills/run-bounded-mission/SKILL.md` 的 frontmatter description 是该 workflow 的唯一触发 owner。本仓库只声明其中的 repository-required 分支：仓库内非平凡实现或交付必须使用 `$run-bounded-mission`；其余入口、显式调用优先级与排除项均由该 description 判定，本文件不重复分类。
 - skill 自动触发不授权创建独立 Codex task；只有用户明确要求新 task 时才可创建，内部子问题留在当前 task。
 - 只修改当前结果需要的范围，不顺带重构、扩展职责或预先设计尚未决定的 tool、记录模型和策略流程。
 - 只有宣称新增或完成用户功能时，才要求通过既有 runtime、CLI 或 server consumer 展示行为；文档修正、局部缺陷和内部维护按实际影响面验证，不强制制造跨 owner 改动。
