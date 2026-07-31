@@ -9,6 +9,7 @@ const sourceExtensions = [
   ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs",
   ".py", ".rs", ".go", ".sh", ".bash", ".zsh",
 ]
+const importSourceExtensions = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]
 const importExtensions = ["", ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", "/index.ts", "/index.tsx", "/index.js", "/index.mjs"]
 const classifications = [
   "real_behavior_regression",
@@ -50,6 +51,24 @@ interface ImportEdge {
   specifier: string
 }
 
+type ImportAnalysisReason = "parse_error" | "non_literal_module_specifier" | "unsupported_module_syntax"
+
+interface TreeEntry {
+  path: string
+  object: string
+}
+
+interface ImportAnalysisIssue {
+  path: string
+  reasons: ImportAnalysisReason[]
+}
+
+interface ImportAnalysis {
+  edges: ImportEdge[]
+  files_analyzed: number
+  incomplete_files: ImportAnalysisIssue[]
+}
+
 interface TestMetadata {
   path: string
   changed_status: string
@@ -87,8 +106,10 @@ try {
     }
   }
   const changes = readChanges(origin.commit, candidate.commit, args.scope)
-  const candidatePaths = readTree(candidate.commit)
+  const candidateTree = readTree(candidate.commit)
+  const candidatePaths = candidateTree.map((entry) => entry.path)
   const candidatePathSet = new Set(candidatePaths)
+  const candidateObjects = new Map(candidateTree.map((entry) => [entry.path, entry.object]))
   const ownerRoots = args.ownerRoots
     .slice()
     .sort((left, right) => right.length - left.length || left.localeCompare(right))
@@ -107,9 +128,10 @@ try {
       .filter((change) => change.status !== "D" && isSourcePath(change.path))
       .map((change) => change.path),
   )
-  const importEdges = changedSourcePaths.size > 0
-    ? readImportEdges(candidate.commit, candidatePaths, candidatePathSet)
-    : []
+  const importAnalysis = changedSourcePaths.size > 0
+    ? readImportEdges(candidate.commit, candidatePaths, candidatePathSet, candidateObjects)
+    : { edges: [], files_analyzed: 0, incomplete_files: [] }
+  const importEdges = importAnalysis.edges
   const importersByTarget = groupImporters(importEdges)
   const allAffectedTests = buildTestMetadata(
     candidate.commit,
@@ -165,7 +187,10 @@ try {
     })
 
   const noDirectStaticCandidateEvidence =
-    changes.length > 0 && allAffectedTests.length === 0 && deletedTestPaths.length === 0
+    importAnalysis.incomplete_files.length === 0
+    && changes.length > 0
+    && allAffectedTests.length === 0
+    && deletedTestPaths.length === 0
 
   const evidence = {
     schema_version: schemaVersion,
@@ -197,6 +222,11 @@ try {
         "mutation_score",
         "acceptance_signed",
       ],
+    },
+    import_analysis: {
+      status: importAnalysis.incomplete_files.length === 0 ? "complete" : "incomplete",
+      files_analyzed: importAnalysis.files_analyzed,
+      incomplete_files: importAnalysis.incomplete_files,
     },
     summary: {
       changed_files: changes.length,
@@ -235,7 +265,7 @@ try {
       "no_direct_static_candidate_evidence means only that no changed test or direct candidate-tree import was found; transitive paths and deleted sources remain unresolved.",
       "Deleted tests are listed as origin-review uncertainty; candidate-tree absence is never deletion evidence.",
       "A provided failure classification is context only and never selects a test action.",
-      "Non-JavaScript/TypeScript reverse imports and dynamic routing may remain unresolved.",
+      "Non-JavaScript/TypeScript reverse imports remain unresolved; non-literal module routing is reported as incomplete.",
       "Owner mapping is limited to the repository-relative roots supplied by the caller.",
     ],
   }
@@ -323,16 +353,29 @@ function resolveRevision(requested: string): Revision {
 
 function readChanges(origin: string, candidate: string, scope?: string): Change[] {
   const args = ["diff", "--name-status", "-z", "--find-renames", origin, candidate, "--"]
-  const fields = git(args).split("\0")
+  const result = spawnSync("git", args, { maxBuffer: 64 * 1024 * 1024 })
+  if (result.status !== 0) throw new Error(result.stderr.toString().trim() || "git diff failed")
+  const rawFields = splitNull(result.stdout)
+  let fields: string[]
+  try {
+    const decoder = new TextDecoder("utf-8", { fatal: true })
+    fields = rawFields.map((field) => decoder.decode(field))
+  } catch {
+    throw new Error("git diff contains a non-UTF-8 path")
+  }
   const changes: Change[] = []
-  for (let index = 0; index < fields.length && fields[index];) {
+  for (let index = 0; index < fields.length;) {
     const status = fields[index++]
+    if (!status) throw new Error("git diff returned incomplete change data")
     if (status.startsWith("R") || status.startsWith("C")) {
       const previousPath = fields[index++]
       const path = fields[index++]
+      if (!previousPath || !path) throw new Error("git diff returned incomplete change data")
       changes.push({ status, path, previous_path: previousPath })
     } else {
-      changes.push({ status, path: fields[index++] })
+      const path = fields[index++]
+      if (!path) throw new Error("git diff returned incomplete change data")
+      changes.push({ status, path })
     }
   }
   return changes
@@ -341,10 +384,38 @@ function readChanges(origin: string, candidate: string, scope?: string): Change[
     .sort((left, right) => left.path.localeCompare(right.path))
 }
 
-function readTree(candidate: string, scope?: string): string[] {
-  const args = ["ls-tree", "-r", "--name-only", candidate]
+function readTree(candidate: string, scope?: string): TreeEntry[] {
+  const args = ["ls-tree", "-r", "-z", candidate]
   if (scope) args.push("--", scope)
-  return git(args).split("\n").filter(Boolean).sort()
+  const result = spawnSync("git", args, { maxBuffer: 64 * 1024 * 1024 })
+  if (result.status !== 0) throw new Error(result.stderr.toString().trim() || "git ls-tree failed")
+  const decoder = new TextDecoder("utf-8", { fatal: true })
+  const entries: TreeEntry[] = []
+  for (const record of splitNull(result.stdout)) {
+    const pathStart = record.indexOf(9)
+    if (pathStart < 0) throw new Error("git ls-tree returned incomplete entry data")
+    const header = record.toString("ascii", 0, pathStart).split(" ")
+    try {
+      entries.push({
+        object: header[2],
+        path: decoder.decode(record.subarray(pathStart + 1)),
+      })
+    } catch {
+      throw new Error("git tree contains a non-UTF-8 path")
+    }
+  }
+  return entries.sort((left, right) => left.path.localeCompare(right.path))
+}
+
+function splitNull(value: Buffer): Buffer[] {
+  const fields: Buffer[] = []
+  for (let start = 0; start < value.length;) {
+    const end = value.indexOf(0, start)
+    if (end < 0) throw new Error("git returned incomplete NUL-delimited data")
+    fields.push(value.subarray(start, end))
+    start = end + 1
+  }
+  return fields
 }
 
 function ownerForPath(path: string, ownerRoots: string[]): string | null {
@@ -447,7 +518,12 @@ function buildTestMetadata(
     .sort((left, right) => left.path.localeCompare(right.path))
 }
 
-function readImportEdges(candidate: string, candidatePaths: string[], pathSet: Set<string>): ImportEdge[] {
+function readImportEdges(
+  candidate: string,
+  candidatePaths: string[],
+  pathSet: Set<string>,
+  candidateObjects: Map<string, string>,
+): ImportAnalysis {
   const packageRoots = new Map<string, string>()
   for (const packagePath of candidatePaths.filter((path) => path.endsWith("/package.json"))) {
     try {
@@ -457,52 +533,126 @@ function readImportEdges(candidate: string, candidatePaths: string[], pathSet: S
       // Malformed package manifests do not contribute import aliases.
     }
   }
-  const result = spawnSync("git", [
-    "grep",
-    "-n",
-    "-I",
-    "-E",
-    "from|import|require\\(",
-    candidate,
-    "--",
-    "*.ts",
-    "*.tsx",
-    "*.mts",
-    "*.cts",
-    "*.js",
-    "*.jsx",
-    "*.mjs",
-    "*.cjs",
-  ], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
-  if (result.status !== 0 && result.status !== 1) {
-    throw new Error(result.stderr.trim() || "git grep failed")
-  }
   const edges: ImportEdge[] = []
-  const prefix = `${candidate}:`
-  for (const line of result.stdout.split("\n")) {
-    if (!line.startsWith(prefix)) continue
-    const remainder = line.slice(prefix.length)
-    const pathEnd = remainder.indexOf(":")
-    const lineEnd = remainder.indexOf(":", pathEnd + 1)
-    if (pathEnd < 0 || lineEnd < 0) continue
-    const importer = remainder.slice(0, pathEnd)
-    const source = remainder.slice(lineEnd + 1)
-    for (const specifier of importSpecifiers(source)) {
+  const incompleteFiles: ImportAnalysisIssue[] = []
+  const importSourcePaths = candidatePaths.filter(isImportSourcePath)
+  const importSources = readRevisionFiles(importSourcePaths, candidateObjects)
+  for (const importer of importSourcePaths) {
+    const source = importSources.get(importer)!
+    const analysis = importSpecifiers(importer, source)
+    if (analysis.issue) incompleteFiles.push(analysis.issue)
+    for (const specifier of analysis.specifiers) {
       const target = resolveImport(importer, specifier, pathSet, packageRoots)
       if (target) edges.push({ importer, target, specifier })
     }
   }
-  return edges.sort((left, right) =>
-    left.importer.localeCompare(right.importer)
-    || left.target.localeCompare(right.target)
-    || left.specifier.localeCompare(right.specifier))
+  return {
+    edges: edges.sort((left, right) =>
+      left.importer.localeCompare(right.importer)
+      || left.target.localeCompare(right.target)
+      || left.specifier.localeCompare(right.specifier)),
+    files_analyzed: importSourcePaths.length,
+    incomplete_files: incompleteFiles.sort((left, right) => left.path.localeCompare(right.path)),
+  }
 }
 
-function importSpecifiers(source: string): string[] {
-  const values: string[] = []
-  const pattern = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s*)["']([^"']+)["']/g
-  for (const match of source.matchAll(pattern)) values.push(match[1])
-  return values
+function readRevisionFiles(paths: string[], objects: Map<string, string>): Map<string, string> {
+  if (paths.length === 0) return new Map()
+  const result = spawnSync("git", ["cat-file", "--batch"], {
+    input: paths.map((path) => `${objects.get(path)!}\n`).join(""),
+    maxBuffer: 256 * 1024 * 1024,
+  })
+  if (result.status !== 0) {
+    throw new Error(result.stderr.toString().trim() || "git cat-file failed")
+  }
+
+  const files = new Map<string, string>()
+  let offset = 0
+  for (const path of paths) {
+    const headerEnd = result.stdout.indexOf(10, offset)
+    if (headerEnd < 0) throw new Error(`git cat-file returned an incomplete header for ${path}`)
+    const header = result.stdout.toString("utf8", offset, headerEnd)
+    const match = /^[0-9a-f]+ blob ([0-9]+)$/.exec(header)
+    if (!match) throw new Error(`git cat-file could not read ${path}`)
+    const contentStart = headerEnd + 1
+    const contentEnd = contentStart + Number(match[1])
+    if (result.stdout[contentEnd] !== 10) {
+      throw new Error(`git cat-file returned incomplete content for ${path}`)
+    }
+    files.set(path, result.stdout.toString("utf8", contentStart, contentEnd))
+    offset = contentEnd + 1
+  }
+  if (offset !== result.stdout.length) {
+    throw new Error("git cat-file returned unexpected trailing data")
+  }
+  return files
+}
+
+function importSpecifiers(
+  path: string,
+  source: string,
+): { specifiers: string[]; issue?: ImportAnalysisIssue } {
+  const loader = loaderForPath(path)
+  const transpiler = new Bun.Transpiler({ loader })
+  const parsedSource = source.replace(/^#![^\n]*(?:\n|$)/, "")
+  let runtimeImports: ReturnType<Bun.Transpiler["scanImports"]>
+  try {
+    runtimeImports = transpiler.scanImports(parsedSource)
+  } catch {
+    return {
+      specifiers: [],
+      issue: { path, reasons: ["parse_error"] },
+    }
+  }
+
+  const supplemental = supplementalModuleSpecifiers(
+    parsedSource,
+    transpiler,
+    loader === "ts" || loader === "tsx",
+    runtimeImports.filter((item) => item.kind === "dynamic-import").length,
+  )
+  const reasons = [...new Set(supplemental.reasons)].sort()
+  return {
+    specifiers: [...new Set([...runtimeImports.map((item) => item.path), ...supplemental.specifiers])].sort(),
+    ...(reasons.length > 0
+      ? { issue: { path, reasons } }
+      : {}),
+  }
+}
+
+function supplementalModuleSpecifiers(
+  source: string,
+  transpiler: Bun.Transpiler,
+  isTypeScript: boolean,
+  provenDynamicImports: number,
+): { specifiers: string[]; reasons: ImportAnalysisReason[] } {
+  const specifiers: string[] = []
+  const reasons: ImportAnalysisReason[] = []
+  if (/\bmodule\s*\.\s*require\s*\(/.test(source)) {
+    try {
+      specifiers.push(...transpiler.scanImports(transpiler.transformSync(source)).map((item) => item.path))
+    } catch {
+      reasons.push("unsupported_module_syntax")
+    }
+  }
+  if (isTypeScript && (/\b(?:import|export)\s+type\b/.test(source) || /\b(?:import|export)\s*\{\s*type\b/.test(source))) {
+    reasons.push("unsupported_module_syntax")
+  }
+  if (isTypeScript && [...source.matchAll(/\bimport\s*\(/g)].length > provenDynamicImports) {
+    reasons.push("unsupported_module_syntax")
+  }
+  if (/\b(?:import|require)\s*\((?!\s*["'])/.test(source)
+    || /\bmodule\s*\.\s*require\s*\((?!\s*["'])/.test(source)) {
+    reasons.push("non_literal_module_specifier")
+  }
+  return { specifiers, reasons }
+}
+
+function loaderForPath(path: string): "ts" | "tsx" | "js" | "jsx" {
+  if (path.endsWith(".tsx")) return "tsx"
+  if (path.endsWith(".jsx")) return "jsx"
+  if ([".ts", ".mts", ".cts"].some((extension) => path.endsWith(extension))) return "ts"
+  return "js"
 }
 
 function resolveImport(
@@ -550,6 +700,10 @@ function isEntrypoint(owner: string, path: string): boolean {
 
 function isSourcePath(path: string): boolean {
   return sourceExtensions.some((extension) => path.endsWith(extension)) && !isTestPath(path)
+}
+
+function isImportSourcePath(path: string): boolean {
+  return importSourceExtensions.some((extension) => path.endsWith(extension))
 }
 
 function isTestPath(path: string): boolean {

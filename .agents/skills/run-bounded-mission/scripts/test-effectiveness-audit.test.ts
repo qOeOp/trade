@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 
@@ -87,6 +87,24 @@ describe("test-effectiveness audit", () => {
     expect(proposal.caveats).toContain(
       "A provided failure classification is context only and never selects a test action.",
     )
+  })
+
+  test("runs an audit from a dependency-free helper copy", () => {
+    const fixture = createFixture()
+    write(fixture.root, "apps/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
+    const candidate = commit(fixture.root, "change calculation")
+    const standaloneRoot = mkdtempSync(join(tmpdir(), "test-effectiveness-standalone-"))
+    temporaryRepositories.push(standaloneRoot)
+    const standaloneHelper = join(standaloneRoot, "test-effectiveness-audit.ts")
+    copyFileSync(helperPath, standaloneHelper)
+
+    const result = audit(fixture.root, [
+      "--origin", fixture.origin,
+      "--candidate", candidate,
+      "--owner-root", "apps/example/calc",
+    ], standaloneHelper)
+    expect(result.status).toBe(0)
+    expect(JSON.parse(result.stdout).summary.candidate_tests).toBe(1)
   })
 
   test("reports empty diffs and changed owners with no test evidence without inventing coverage", () => {
@@ -187,6 +205,229 @@ describe("test-effectiveness audit", () => {
         path: "apps/example/integration/src/calc.integration.test.ts",
         direct_changed_source_imports: ["apps/example/calc/src/calc.ts"],
       }],
+    })
+  })
+
+  test("finds multiline, dynamic, re-export, and punctuation-path importers", () => {
+    const fixture = createFixture()
+    write(fixture.root, "apps/example/calc/src/multiline.test.ts", [
+      "import {",
+      "  add,",
+      "} from",
+      '  "./calc"',
+      'test("loads a multiline import", () => expect(add(1, 2)).toBe(3))',
+      "",
+    ].join("\n"))
+    write(fixture.root, "apps/example/calc/src/dynamic.test.ts", [
+      "void import(",
+      '  "./calc"',
+      ")",
+      "",
+    ].join("\n"))
+    write(fixture.root, "apps/example/calc/src/re-export.test.ts", [
+      "export {",
+      "  add,",
+      "} from",
+      '  "./calc"',
+      "",
+    ].join("\n"))
+    write(fixture.root, "apps/example/calc/src/colon: spaced.test.ts", [
+      "import {",
+      "  add,",
+      '} from "./calc"',
+      "",
+    ].join("\n"))
+    write(fixture.root, "apps/example/calc/src/module-require.test.cjs", 'module.require("./calc")\n')
+    write(fixture.root, "apps/example/calc/src/shebang.test.js", [
+      "#!/usr/bin/env bun",
+      'import { add } from "./calc"',
+      "void add",
+      "",
+    ].join("\n"))
+    write(fixture.root, "apps/example/calc/src/测试\tline\nbreak.test.ts", 'import { add } from "./calc"\n')
+    const origin = commit(fixture.root, "add semantic import fixtures")
+    write(fixture.root, "apps/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
+    const candidate = commit(fixture.root, "change calculation source")
+
+    const result = audit(fixture.root, [
+      "--origin", origin,
+      "--candidate", candidate,
+      "--scope", "apps/example/calc",
+    ])
+    expect(result.status).toBe(0)
+    const evidence = JSON.parse(result.stdout)
+    expect(evidence.import_analysis).toMatchObject({
+      status: "complete",
+      incomplete_files: [],
+    })
+    const candidateTests = evidence.affected_owners[0].candidate_tests.map(
+      (item: { path: string }) => item.path,
+    )
+    expect(candidateTests).toHaveLength(8)
+    expect(candidateTests).toEqual(expect.arrayContaining([
+      "apps/example/calc/src/calc.test.ts",
+      "apps/example/calc/src/colon: spaced.test.ts",
+      "apps/example/calc/src/dynamic.test.ts",
+      "apps/example/calc/src/multiline.test.ts",
+      "apps/example/calc/src/module-require.test.cjs",
+      "apps/example/calc/src/re-export.test.ts",
+      "apps/example/calc/src/shebang.test.js",
+      "apps/example/calc/src/测试\tline\nbreak.test.ts",
+    ]))
+  })
+
+  test("marks incomplete import evidence without discarding proven edges", () => {
+    const fixture = createFixture()
+    rmSync(join(fixture.root, "apps/example/calc/src/calc.test.ts"))
+    write(fixture.root, "apps/example/calc/src/broken.test.ts", [
+      "import {",
+      "  add",
+      'from "./calc"',
+      "",
+    ].join("\n"))
+    write(fixture.root, "apps/example/calc/src/non-literal.test.ts", [
+      'const target = "./calc"',
+      "void import(target)",
+      "",
+    ].join("\n"))
+    write(fixture.root, "apps/example/calc/src/import-type.test.ts", [
+      'void import("./calc")',
+      'type Add = import("./calc").add',
+      "",
+    ].join("\n"))
+    const origin = commit(fixture.root, "add incomplete import fixtures")
+    write(fixture.root, "apps/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
+    const candidate = commit(fixture.root, "change calculation source")
+
+    const result = audit(fixture.root, [
+      "--origin", origin,
+      "--candidate", candidate,
+      "--scope", "apps/example/calc",
+    ])
+    expect(result.status).toBe(0)
+    const evidence = JSON.parse(result.stdout)
+    expect(evidence.import_analysis).toMatchObject({
+      status: "incomplete",
+      incomplete_files: [
+        {
+          path: "apps/example/calc/src/broken.test.ts",
+          reasons: ["parse_error"],
+        },
+        {
+          path: "apps/example/calc/src/import-type.test.ts",
+          reasons: ["unsupported_module_syntax"],
+        },
+        {
+          path: "apps/example/calc/src/non-literal.test.ts",
+          reasons: ["non_literal_module_specifier", "unsupported_module_syntax"],
+        },
+      ],
+    })
+    expect(evidence.summary).toMatchObject({
+      candidate_tests: 1,
+      no_direct_static_candidate_evidence: false,
+    })
+    expect(evidence.affected_owners[0].candidate_tests[0]).toMatchObject({
+      path: "apps/example/calc/src/import-type.test.ts",
+      direct_changed_source_imports: ["apps/example/calc/src/calc.ts"],
+    })
+    expect(evidence.affected_owners[0].consumer_leads.reverse_importers).toContain(
+      "apps/example/calc/src/main.ts",
+    )
+  })
+
+  test("does not turn comment, string, regex, or template text into proven edges", () => {
+    const fixture = createFixture()
+    rmSync(join(fixture.root, "apps/example/calc/src/calc.test.ts"))
+    write(fixture.root, "apps/example/calc/src/text-only.test.ts", [
+      '// import type { Add } from "./calc"',
+      'const staticText = \'import type { Add } from "./calc"\'',
+      "const dynamicText = \"import('./calc')\"",
+      'const pattern = /module\\.require\\("\\.\\/calc"\\)/',
+      'const templateText = `require("./calc")`',
+      "void [staticText, dynamicText, pattern, templateText]",
+      "",
+    ].join("\n"))
+    const origin = commit(fixture.root, "add adversarial module text")
+    write(fixture.root, "apps/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
+    const candidate = commit(fixture.root, "change calculation source")
+
+    const evidence = JSON.parse(audit(fixture.root, [
+      "--origin", origin,
+      "--candidate", candidate,
+      "--scope", "apps/example/calc",
+    ]).stdout)
+    expect(evidence.import_analysis.status).toBe("incomplete")
+    expect(evidence.summary).toMatchObject({
+      candidate_tests: 0,
+      no_direct_static_candidate_evidence: false,
+    })
+    expect(evidence.affected_owners[0].candidate_tests).toEqual([])
+  })
+
+  test("fails closed on a non-UTF-8 changed path", () => {
+    const fixture = createFixture()
+    const candidate = commit(fixture.root, "empty candidate", true)
+    const fakeBin = mkdtempSync(join(tmpdir(), "test-effectiveness-invalid-diff-"))
+    temporaryRepositories.push(fakeBin)
+    const fakeGit = join(fakeBin, "git")
+    writeFileSync(fakeGit, [
+      "#!/bin/sh",
+      'if [ "$1" = "diff" ]; then',
+      "  printf 'D\\000\\377.test.ts\\000'",
+      "  exit 0",
+      "fi",
+      'exec "$REAL_GIT" "$@"',
+      "",
+    ].join("\n"))
+    chmodSync(fakeGit, 0o755)
+
+    const result = audit(fixture.root, [
+      "--origin", fixture.origin,
+      "--candidate", candidate,
+      "--owner-root", "apps/example/calc",
+    ], helperPath, {
+      PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+      REAL_GIT: Bun.which("git")!,
+    })
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).not.toContain("�.test.ts")
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      error: { code: "audit_failed", message: "git diff contains a non-UTF-8 path" },
+    })
+  })
+
+  test("fails closed on trailing cat-file batch output", () => {
+    const fixture = createFixture()
+    write(fixture.root, "apps/example/calc/src/calc.ts", "export const add = (left: number, right: number) => left + right + 0\n")
+    const candidate = commit(fixture.root, "change calculation")
+    const fakeBin = mkdtempSync(join(tmpdir(), "test-effectiveness-fake-git-"))
+    temporaryRepositories.push(fakeBin)
+    const fakeGit = join(fakeBin, "git")
+    writeFileSync(fakeGit, [
+      "#!/bin/sh",
+      'if [ "$1" = "cat-file" ] && [ "$2" = "--batch" ]; then',
+      '  "$REAL_GIT" "$@"',
+      "  status=$?",
+      '  [ "$status" -eq 0 ] || exit "$status"',
+      "  printf UNEXPECTED-TRAILER",
+      "  exit 0",
+      "fi",
+      'exec "$REAL_GIT" "$@"',
+      "",
+    ].join("\n"))
+    chmodSync(fakeGit, 0o755)
+
+    const result = audit(fixture.root, [
+      "--origin", fixture.origin,
+      "--candidate", candidate,
+    ], helperPath, {
+      PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+      REAL_GIT: Bun.which("git")!,
+    })
+    expect(result.status).not.toBe(0)
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      error: { code: "audit_failed", message: "git cat-file returned unexpected trailing data" },
     })
   })
 
@@ -464,7 +705,12 @@ function commit(root: string, message: string, allowEmpty = false): string {
   return git(root, ["rev-parse", "HEAD"]).trim()
 }
 
-function audit(root: string, args: string[]): { status: number; stdout: string; stderr: string } {
+function audit(
+  root: string,
+  args: string[],
+  executable = helperPath,
+  environment: Record<string, string> = {},
+): { status: number; stdout: string; stderr: string } {
   let ownerArgs: string[] = []
   if (!args.includes("--help") && !args.includes("--owner-root")) {
     const repositoryRoot = git(root, ["rev-parse", "--show-toplevel"]).trim()
@@ -477,9 +723,9 @@ function audit(root: string, args: string[]): { status: number; stdout: string; 
       .filter((path) => existsSync(join(repositoryRoot, path)))
       .flatMap((path) => ["--owner-root", path])
   }
-  const result = Bun.spawnSync([process.execPath, helperPath, ...args, ...ownerArgs], {
+  const result = Bun.spawnSync([process.execPath, executable, ...args, ...ownerArgs], {
     cwd: root,
-    env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" },
+    env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", ...environment },
     stdout: "pipe",
     stderr: "pipe",
   })
