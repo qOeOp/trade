@@ -1,4 +1,4 @@
 interface:
   display_name: "Run Bounded Mission"
-  short_description: "Run and route outcome-scoped bounded missions"
-  default_prompt: "Use $run-bounded-mission to run this outcome or propose a separate Codex task when it is independent."
+  short_description: "Run and route five-stage bounded missions"
+  default_prompt: "Use $run-bounded-mission to frame, plan, execute, verify, and finalize this outcome, or propose a separate Codex task when it is independent."

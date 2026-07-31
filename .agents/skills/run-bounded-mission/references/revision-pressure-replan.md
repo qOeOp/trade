@@ -1,4 +1,4 @@
-# Revision-pressure Reframe
+# Revision-pressure Replan
 
 Use this method when another revision would reach the frozen boundary, a material finding recurs, or
 the next correction appears additive on one responsibility surface. A revision count starts
@@ -26,15 +26,16 @@ indirection accumulate. If corrections are independent and the surface is stable
 to lifecycle routing without refactoring. If required authority or evidence is unavailable, route to
 `blocked`.
 
-## Reframe and compare
+## Replan and compare
 
-Keep the mission origin unchanged. Freeze the cumulative candidate and contract as the incumbent.
-Preserve required corrected behavior; treat past failures as regression cases expecting that
-correction. Keep pre-chain code only as evidence of growth.
+Keep the mission origin unchanged. Freeze the cumulative candidate, Frame, and admitted Plan as the
+incumbent. Preserve required corrected behavior; treat past failures as regression cases expecting
+that correction. Keep pre-chain code only as evidence of growth.
 
-Return to Frame with the demonstrated structural cause and affected owner chain. Reapply
-reuse-before-execution research and boundary closure before admitting a replacement; this method
-does not authorize Execute by itself.
+Return to Plan with the demonstrated structural cause and affected owner chain when the frozen Frame
+still holds. Reapply reuse-before-execution research and boundary closure before admitting a
+replacement; this method does not authorize Execute by itself. Return to Frame instead when a frozen
+Frame field must materially change.
 
 1. When the structural cause, incumbent, owner chain, and acceptance signals are stable, a fresh
    read-only planner may propose at most one materially different alternative or simplification
@@ -61,4 +62,5 @@ Promote exactly one candidate only when it:
 
 Line count, architecture-sensor scores, and reviewer preference are supporting evidence, never the
 decision rule. If neither proposal strictly improves on the incumbent, retain the incumbent and
-route to `reframe` or `blocked`; do not force a refactor or extend the revision budget.
+route to `replan`, `reframe`, or `blocked` according to the failed boundary; do not force a refactor
+or extend the revision budget.

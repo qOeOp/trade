@@ -25,19 +25,24 @@ expansion. Stop at evidence-backed compatible boundaries and ignore lexical matc
 ```text
 Purpose: independent acceptance review | high-risk specialist review
 
-Frozen contract
-- contract identity:
+Frozen Frame
+- frame identity:
 - outcome and consumer:
 - scope and non-goals:
 - authority: read-only
 - unchanged acceptance oracle:
 - stop condition:
 
+Admitted Plan
+- plan identity:
+- selected owner and candidate shape:
+- affected-boundary closure and compatible stop evidence:
+- evaluator activation predicate:
+
 Candidate
 - origin identity:
 - candidate identity:
 - complete change set:
-- affected-boundary closure and compatible stop evidence:
 
 Evidence
 - consumer invocation, status, and raw output or artifact identity:
@@ -53,6 +58,9 @@ Review
 
 Return
 - review_status: completed | partial | unsupported
+- frame_identity:
+- plan_identity:
+- activation_predicate:
 - candidate_identity:
 - acceptance_results: signal, pass | fail | unverified, direct evidence
 - findings: severity (blocking | important | nit), bounded causal claim, location,

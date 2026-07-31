@@ -32,7 +32,7 @@ Prepare a reviewable packet containing:
 - authority and required external effects;
 - falsifiable acceptance;
 - target project and default environment;
-- the complete initial child prompt, including its four-stage Mission and endpoint.
+- the complete initial child prompt, including its five-stage Mission and endpoint.
 
 End with a direct consent question such as “Create this task?”. The user may edit, reject, approve
 one, or approve several named proposals. An ordinary unambiguous approval after that question is the
@@ -63,7 +63,7 @@ Creation is non-blocking. Do not call `wait_threads`, babysit setup, wait for co
 child completion before returning. A `clientThreadId` is a queued identity and must not be passed to
 operations that require `threadId`.
 
-The child independently owns `Frame → Execute → Verify → Disposition`, its candidate, branch,
+The child independently owns `Frame → Plan → Execute → Verify → Finalize`, its candidate, branch,
 zero-or-one pull request, review closure, delivery, and cleanup. The parent does not run or mirror
 those stages.
 
@@ -96,7 +96,7 @@ hide it in a subagent, or claim a task identity that the host did not return.
 - Parent hub routing creates or operates a separate child identity.
 - Codex chat Handoff moves the same chat and git state between Local and Worktree; it does not create
   a new Mission or deliver a candidate.
-- A child Mission's GitHub delivery belongs to its own Disposition.
+- A child Mission's GitHub delivery belongs to its own Finalize.
 
 Use `fork_thread`, `handoff_thread`, archival, pinning, and renaming only under their separate current
 host contracts. They are not substitutes for proposal-to-`create_thread` dispatch.
