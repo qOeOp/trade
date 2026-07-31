@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { posix } from "node:path"
 
-const schemaVersion = "trade.test-effectiveness-evidence.v1"
+const schemaVersion = "bounded-mission.test-effectiveness-evidence.v1"
 const sourceExtensions = [
   ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs",
   ".py", ".rs", ".go", ".sh", ".bash", ".zsh",
@@ -27,6 +27,7 @@ type Classification = (typeof classifications)[number]
 interface Arguments {
   origin: string
   candidate: string
+  ownerRoots: string[]
   scope?: string
   classification?: Classification
 }
@@ -80,17 +81,25 @@ try {
   process.chdir(repositoryRoot)
   const origin = resolveRevision(args.origin)
   const candidate = resolveRevision(args.candidate)
+  for (const ownerRoot of args.ownerRoots) {
+    if (!gitObjectExists(`${origin.commit}:${ownerRoot}`) && !gitObjectExists(`${candidate.commit}:${ownerRoot}`)) {
+      throw new Error(`--owner-root does not exist at origin or candidate: ${ownerRoot}`)
+    }
+  }
   const changes = readChanges(origin.commit, candidate.commit, args.scope)
   const candidatePaths = readTree(candidate.commit)
   const candidatePathSet = new Set(candidatePaths)
-  const markerRoots = readMarkerRoots(candidatePaths)
+  const ownerRoots = args.ownerRoots
+    .slice()
+    .sort((left, right) => right.length - left.length || left.localeCompare(right))
   const changesByOwner = new Map<string, Change[]>()
 
   for (const change of changes) {
-    const owner = ownerForPath(change.path, markerRoots)
-    const owned = changesByOwner.get(owner) ?? []
-    owned.push(change)
-    changesByOwner.set(owner, owned)
+    for (const owner of ownersForChange(change, ownerRoots)) {
+      const owned = changesByOwner.get(owner) ?? []
+      owned.push(change)
+      changesByOwner.set(owner, owned)
+    }
   }
 
   const changedSourcePaths = new Set(
@@ -108,21 +117,28 @@ try {
     changes,
     importEdges,
     changedSourcePaths,
+    ownerRoots,
   )
   const deletedTestPaths = changes
     .filter((change) => change.status === "D" && isTestPath(change.path))
     .map((change) => change.path)
     .sort()
   const affectedOwnerNames = new Set(changesByOwner.keys())
-  for (const test of allAffectedTests) affectedOwnerNames.add(ownerForPath(test.path, markerRoots))
+  for (const test of allAffectedTests) {
+    const owner = ownerForPath(test.path, ownerRoots)
+    if (owner) affectedOwnerNames.add(owner)
+  }
 
   const affectedOwners = [...affectedOwnerNames]
     .sort()
     .map((owner) => {
       const ownerChanges = changesByOwner.get(owner) ?? []
-      const ownerTests = allAffectedTests.filter((test) => ownerForPath(test.path, markerRoots) === owner)
+      const ownerTests = allAffectedTests.filter((test) => ownerForPath(test.path, ownerRoots) === owner)
       const ownerChangedSources = ownerChanges
-        .filter((change) => change.status !== "D" && isSourcePath(change.path))
+        .filter((change) =>
+          change.status !== "D"
+          && ownerForPath(change.path, ownerRoots) === owner
+          && isSourcePath(change.path))
         .map((change) => change.path)
         .sort()
       const reverseImporters = [...new Set(ownerChangedSources.flatMap((path) => importersByTarget.get(path) ?? []))]
@@ -143,7 +159,7 @@ try {
           uncertainty: "static paths do not prove production reachability or execution",
         },
         changed_source_paths: ownerChangedSources,
-        deleted_test_paths: deletedTestPaths.filter((path) => ownerForPath(path, markerRoots) === owner),
+        deleted_test_paths: deletedTestPaths.filter((path) => ownerForPath(path, ownerRoots) === owner),
         candidate_tests: ownerTests.map(stripPrivateTestFields),
       }
     })
@@ -156,6 +172,7 @@ try {
     inputs: {
       origin,
       candidate,
+      owner_roots: ownerRoots,
       scope: args.scope ?? null,
       classification: args.classification == null
         ? { status: "unresolved", value: null, allowed_values: classifications }
@@ -190,6 +207,9 @@ try {
       no_direct_static_candidate_evidence: noDirectStaticCandidateEvidence,
     },
     affected_owners: affectedOwners,
+    unowned_changes: changes
+      .filter((change) => ownershipPaths(change).some((path) => !ownerForPath(path, ownerRoots)))
+      .map(publicChange),
     deleted_test_review: {
       paths: deletedTestPaths,
       status: deletedTestPaths.length > 0 ? "requires_origin_review" : "none",
@@ -216,6 +236,7 @@ try {
       "Deleted tests are listed as origin-review uncertainty; candidate-tree absence is never deletion evidence.",
       "A provided failure classification is context only and never selects a test action.",
       "Non-JavaScript/TypeScript reverse imports and dynamic routing may remain unresolved.",
+      "Owner mapping is limited to the repository-relative roots supplied by the caller.",
     ],
   }
 
@@ -223,7 +244,7 @@ try {
 } catch (error) {
   const message = portableMessage(error instanceof Error ? error.message : String(error))
   process.stderr.write(`${JSON.stringify({
-    schema_version: "trade.test-effectiveness-error.v1",
+    schema_version: "bounded-mission.test-effectiveness-error.v1",
     error: { code: "audit_failed", message },
   }, null, 2)}\n`)
   process.exit(1)
@@ -233,6 +254,7 @@ function parseArguments(values: string[]): Arguments {
   if (values.includes("--help")) {
     process.stdout.write([
       "Usage: test-effectiveness-audit.ts --origin <commit> --candidate <commit>",
+      "  --owner-root <repository-relative-path> [--owner-root <repository-relative-path> ...]",
       "  [--scope <repository-relative-owner>]",
       `  [--classification <${classifications.join("|")}>]`,
       "",
@@ -240,11 +262,19 @@ function parseArguments(values: string[]): Arguments {
     process.exit(0)
   }
   const parsed = new Map<string, string>()
+  const ownerRoots: string[] = []
   for (let index = 0; index < values.length; index += 2) {
     const key = values[index]
     const value = values[index + 1]
     if (!key?.startsWith("--") || value == null || value.startsWith("--")) {
       throw new Error(`invalid arguments near ${key ?? "<end>"}`)
+    }
+    if (key === "--owner-root") {
+      if (!isRepositoryRelative(value)) {
+        throw new Error("--owner-root must be a normalized repository-relative path")
+      }
+      if (!ownerRoots.includes(value)) ownerRoots.push(value)
+      continue
     }
     if (parsed.has(key)) throw new Error(`duplicate argument: ${key}`)
     parsed.set(key, value)
@@ -256,7 +286,9 @@ function parseArguments(values: string[]): Arguments {
   }
   const origin = parsed.get("--origin")
   const candidate = parsed.get("--candidate")
-  if (!origin || !candidate) throw new Error("--origin and --candidate are required")
+  if (!origin || !candidate || ownerRoots.length === 0) {
+    throw new Error("--origin, --candidate, and at least one --owner-root are required")
+  }
   if (!isFullObjectId(origin) || !isFullObjectId(candidate)) {
     throw new Error("--origin and --candidate must be full Git commit hashes")
   }
@@ -271,6 +303,7 @@ function parseArguments(values: string[]): Arguments {
   return {
     origin,
     candidate,
+    ownerRoots,
     scope: scope === "." ? undefined : scope,
     classification: classification as Classification | undefined,
   }
@@ -312,22 +345,20 @@ function readTree(candidate: string, scope?: string): string[] {
   return git(args).split("\n").filter(Boolean).sort()
 }
 
-function readMarkerRoots(paths: string[]): string[] {
-  return paths
-    .filter((path) => path.endsWith("/CONTRACT.md") || path.endsWith("/package.json"))
-    .map((path) => posix.dirname(path))
-    .filter((path, index, all) => all.indexOf(path) === index)
-    .sort((left, right) => right.length - left.length || left.localeCompare(right))
+function ownerForPath(path: string, ownerRoots: string[]): string | null {
+  return ownerRoots.find((root) => path === root || path.startsWith(`${root}/`)) ?? null
 }
 
-function ownerForPath(path: string, markerRoots: string[]): string {
-  const marker = markerRoots.find((root) => path === root || path.startsWith(`${root}/`))
-  if (marker) return marker
-  const parts = path.split("/")
-  if (parts[0] === ".agents" && parts[1] === "skills" && parts[2]) return parts.slice(0, 3).join("/")
-  if (parts[0] === "apps" && parts[1] && parts[2]) return parts.slice(0, 3).join("/")
-  if (parts[0] === "docs" && parts[1]) return parts.slice(0, 2).join("/")
-  return parts[0] || "."
+function ownershipPaths(change: Change): string[] {
+  return change.status.startsWith("R") && change.previous_path
+    ? [change.previous_path, change.path]
+    : [change.path]
+}
+
+function ownersForChange(change: Change, ownerRoots: string[]): string[] {
+  return [...new Set(ownershipPaths(change)
+    .map((path) => ownerForPath(path, ownerRoots))
+    .filter((owner): owner is string => owner != null))]
 }
 
 function buildTestMetadata(
@@ -336,8 +367,8 @@ function buildTestMetadata(
   changes: Change[],
   importEdges: ImportEdge[],
   changedSourcePaths: Set<string>,
+  ownerRoots: string[],
 ): TestMetadata[] {
-  const markerRoots = readMarkerRoots(candidatePaths)
   const changeStatus = new Map(changes.map((change) => [change.path, change.status]))
   const importsByFile = new Map<string, ImportEdge[]>()
   for (const edge of importEdges) {
@@ -351,10 +382,14 @@ function buildTestMetadata(
       if (changeStatus.has(path)) return true
       return (importsByFile.get(path) ?? []).some((edge) => changedSourcePaths.has(edge.target))
     })
-    .map((path) => ownerForPath(path, markerRoots)))
+    .map((path) => ownerForPath(path, ownerRoots))
+    .filter((owner): owner is string => owner != null))
   const allOwnerTests = candidatePaths
     .filter(isTestPath)
-    .filter((path) => relevantTestOwners.has(ownerForPath(path, markerRoots)))
+    .filter((path) => {
+      const owner = ownerForPath(path, ownerRoots)
+      return owner != null && relevantTestOwners.has(owner)
+    })
   const records = allOwnerTests.map((path): TestMetadata & { relevant: boolean } => {
     const content = git(["show", `${candidate}:${path}`])
     const directChangedImports = [...new Set(
@@ -477,8 +512,6 @@ function resolveImport(
   let base: string | undefined
   if (specifier.startsWith(".")) {
     base = posix.normalize(posix.join(posix.dirname(importer), specifier))
-  } else if (/^(?:apps|scripts|src)\//.test(specifier)) {
-    base = specifier
   } else {
     const packageName = [...packageRoots.keys()]
       .sort((left, right) => right.length - left.length)
@@ -486,6 +519,8 @@ function resolveImport(
     if (packageName) {
       const suffix = specifier.slice(packageName.length).replace(/^\//, "")
       base = posix.join(packageRoots.get(packageName)!, suffix)
+    } else {
+      base = specifier
     }
   }
   if (!base) return undefined
@@ -618,4 +653,8 @@ function git(args: string[]): string {
     throw new Error(result.stderr.trim() || `git ${args[0]} failed`)
   }
   return result.stdout
+}
+
+function gitObjectExists(object: string): boolean {
+  return spawnSync("git", ["cat-file", "-e", object]).status === 0
 }

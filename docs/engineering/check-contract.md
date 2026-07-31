@@ -52,7 +52,7 @@ last_verified: 2026-07-31 CST
 | --- | --- |
 | current docs、模块 `CONTRACT.md` | `doc-contract-check` + `repo-whitespace` |
 | 模块路径或边界、架构路径、domain、job、store、rail | docs 检查 + `architecture-manifest-check` + `architecture-drift-check` |
-| `AGENTS.md` 或 `.agents/skills/**` | `workspace-skill-check` + `bun test ./scripts/mission-impact-evidence.test.ts` + `repo-whitespace` |
+| `AGENTS.md` 或 `.agents/skills/**` | `workspace-skill-check` + `repo-whitespace` |
 | 单 TypeScript owner | `package-test --run-package <owner-dir>` + 受影响的真实 consumer |
 | shared contract、schema、跨 owner 类型 | 所有受影响 owner checks + 最窄 integration/consumer journey |
 | Go owner | owner 目录执行 `go test ./...`；有 vet 合同时再执行 `go vet ./...` |

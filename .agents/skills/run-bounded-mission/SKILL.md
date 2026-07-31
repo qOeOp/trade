@@ -27,10 +27,18 @@ Before mutation, state only what changes a decision:
 - falsifiable acceptance evidence;
 - current Git origin and a practical stop condition.
 
+Treat these fields as the current Frame. Change a material field explicitly before continuing; do
+not silently widen scope, authority, acceptance, or the stop condition.
+
 Prefer no change, deletion, direct reuse, or a narrower behavior when it closes the outcome. Treat a
 requested mechanism as a proposal when repository evidence shows that it is broader or harmful.
 Repository history and external prior art are optional evidence: inspect them only when they can
 materially change ownership, compatibility, or the implementation choice.
+When bounded history for named paths can change the origin, no-change counterfactual, owner, scope,
+removed invariant, or regression hypothesis, run
+`python3 .agents/skills/run-bounded-mission/scripts/git-path-history.py --format json` with
+repository-relative paths and a bounded revision, date, count, and file range. Use `--follow` only
+for one path whose rename history matters; history never replaces current consumer evidence.
 
 Identify a decision-changing domain premise only when an empirical, regulatory, market, or
 mechanism claim could reverse the expected benefit, safe or legal scope, architecture, or acceptance
@@ -50,6 +58,8 @@ user's explicit request or approval of the ready proposal.
 
 Inspect the current owner, production entry point when one exists, affected contracts, tests, and
 working-tree state. Choose the smallest vertical change that closes the outcome.
+Plan is read-only. Admit the owner, path, affected boundary, candidate shape, and verification route
+before mutation; when any of them remains unresolved, keep investigating or return to Frame.
 
 When a test failure can change the candidate, an escaped defect shows that tests missed required
 behavior, or the Mission may restructure tests, load
@@ -109,6 +119,13 @@ the checkout.
 Do not perform commit, push, PR, merge, deployment, scheduling, live writes, or other shared-state
 effects without authority for that effect.
 
+Route a finding to `revise` only when the admitted owner, path, affected boundary, responsibility
+shape, and acceptance oracle still hold. Return to Plan for `replan` when any of those design fields
+fails or the next correction would add an unadmitted branch, exception, adapter, fallback, owner, or
+boundary. Return to Frame for `reframe` when a Frame field must materially change. When a finding
+recurs against the design or another correction would grow the candidate outside the Plan, load
+[revision-pressure replan](references/revision-pressure-replan.md) before further mutation.
+
 ## Verify
 
 Verify the exact mission-owned diff in proportion to risk:
@@ -126,10 +143,7 @@ contradicts a higher-authority current contract.
 A candidate change invalidates only evidence affected by that change. Reuse read-only discovery and
 unaffected checks when their inputs remain identical.
 
-Use [revision-pressure replan](references/revision-pressure-replan.md) when a finding recurs in a way
-that challenges the admitted owner, path, boundary, shape, or oracle, or when the next correction
-would add structure outside the Plan. Use
-[architecture sensor evidence](references/architecture-sensor.md) only for material structural
+Use [architecture sensor evidence](references/architecture-sensor.md) only for material structural
 change, cross-owner effects, or persistent patch pressure.
 
 Instruction and judge changes require review that does not rely on the changed rule to approve
@@ -141,6 +155,11 @@ allows that result, but Finalize must call it `prepared and locally verified, in
 unavailable`; it must not represent the candidate as independently accepted or remotely delivered.
 
 ## Finalize
+
+Choose one evidence-backed route: `accept`, `revise`, `replan`, `reframe`, or `blocked`. `revise`
+returns to Execute, `replan` returns to Plan, and `reframe` returns to Frame. Use `blocked` only when
+required authority, evidence, capability, independence, or stop alignment is unavailable; do not
+weaken acceptance to manufacture `accept`.
 
 Lead with the user-visible result and exact effect state. Summarize changed paths, decisive checks,
 and material limits. Do not emit lifecycle receipts, internal identities, generic follow-up work, or

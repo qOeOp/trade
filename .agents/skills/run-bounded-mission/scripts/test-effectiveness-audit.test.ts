@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 
@@ -63,9 +63,10 @@ describe("test-effectiveness audit", () => {
     expect(first.stdout).not.toContain(fixture.root)
 
     const proposal = JSON.parse(first.stdout)
-    expect(proposal.schema_version).toBe("trade.test-effectiveness-evidence.v1")
+    expect(proposal.schema_version).toBe("bounded-mission.test-effectiveness-evidence.v1")
     expect(proposal.inputs.origin.commit).toBe(fixture.origin)
     expect(proposal.inputs.candidate.commit).toBe(candidate)
+    expect(proposal.inputs.owner_roots).toContain("apps/example/calc")
     expect(proposal.summary).toMatchObject({
       changed_files: 2,
       affected_owners: 1,
@@ -187,6 +188,47 @@ describe("test-effectiveness audit", () => {
         direct_changed_source_imports: ["apps/example/calc/src/calc.ts"],
       }],
     })
+  })
+
+  test("attributes a cross-owner rename to both revision owners", () => {
+    const root = mkdtempSync(join(tmpdir(), "test-effectiveness-rename-"))
+    temporaryRepositories.push(root)
+    git(root, ["init", "--quiet"])
+    write(root, "workspace/alpha/src/value.ts", "export const value = 1\n")
+    const origin = commit(root, "origin owner")
+    mkdirSync(join(root, "workspace/beta/src"), { recursive: true })
+    renameSync(
+      join(root, "workspace/alpha/src/value.ts"),
+      join(root, "workspace/beta/src/value.ts"),
+    )
+    const candidate = commit(root, "move source between owners")
+
+    const result = audit(root, [
+      "--origin", origin,
+      "--candidate", candidate,
+      "--owner-root", "workspace/alpha",
+      "--owner-root", "workspace/beta",
+    ])
+    expect(result.status).toBe(0)
+    const evidence = JSON.parse(result.stdout)
+    expect(evidence.affected_owners.map((owner: { owner: string }) => owner.owner)).toEqual([
+      "workspace/alpha",
+      "workspace/beta",
+    ])
+    expect(evidence.affected_owners[0]).toMatchObject({
+      owner: "workspace/alpha",
+      changed_source_paths: [],
+      changes: [{
+        status: "R100",
+        previous_path: "workspace/alpha/src/value.ts",
+        path: "workspace/beta/src/value.ts",
+      }],
+    })
+    expect(evidence.affected_owners[1]).toMatchObject({
+      owner: "workspace/beta",
+      changed_source_paths: ["workspace/beta/src/value.ts"],
+    })
+    expect(evidence.unowned_changes).toEqual([])
   })
 
   test("reports deleted tests as origin-review uncertainty", () => {
@@ -326,6 +368,7 @@ describe("test-effectiveness audit", () => {
     git(fixture.root, ["branch", hexRef64, fixture.origin])
     const cases = [
       ["--origin", fixture.origin, "--candidate", fixture.origin, "--scope", "../escape"],
+      ["--origin", fixture.origin, "--candidate", fixture.origin, "--owner-root", "../escape"],
       ["--origin", fixture.origin, "--candidate", fixture.origin, "--classification", "guess"],
       ["--origin", "HEAD", "--candidate", fixture.origin],
       ["--origin", "symbolic-branch", "--candidate", fixture.origin],
@@ -340,7 +383,7 @@ describe("test-effectiveness audit", () => {
       expect(result.status).not.toBe(0)
       expect(result.stderr).not.toContain(fixture.root)
       expect(JSON.parse(result.stderr)).toMatchObject({
-        schema_version: "trade.test-effectiveness-error.v1",
+        schema_version: "bounded-mission.test-effectiveness-error.v1",
         error: { code: "audit_failed" },
       })
     }
@@ -390,7 +433,19 @@ function commit(root: string, message: string, allowEmpty = false): string {
 }
 
 function audit(root: string, args: string[]): { status: number; stdout: string; stderr: string } {
-  const result = Bun.spawnSync([process.execPath, helperPath, ...args], {
+  let ownerArgs: string[] = []
+  if (!args.includes("--help") && !args.includes("--owner-root")) {
+    const repositoryRoot = git(root, ["rev-parse", "--show-toplevel"]).trim()
+    ownerArgs = [
+      "apps/example/calc",
+      "apps/example/integration",
+      "apps/example/no-test",
+      "scripts",
+    ]
+      .filter((path) => existsSync(join(repositoryRoot, path)))
+      .flatMap((path) => ["--owner-root", path])
+  }
+  const result = Bun.spawnSync([process.execPath, helperPath, ...args, ...ownerArgs], {
     cwd: root,
     env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" },
     stdout: "pipe",

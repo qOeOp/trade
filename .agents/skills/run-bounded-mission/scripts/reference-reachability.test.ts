@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { existsSync, readFileSync, readdirSync } from "node:fs"
-import { dirname, join, resolve } from "node:path"
+import { basename, dirname, join, resolve } from "node:path"
 
 const skillRoot = resolve(import.meta.dir, "..")
 const skillFile = join(skillRoot, "SKILL.md")
@@ -9,6 +9,16 @@ const referenceFiles = readdirSync(referencesRoot)
   .filter((name) => name.endsWith(".md"))
   .map((name) => join(referencesRoot, name))
   .sort()
+const helperFiles = readdirSync(import.meta.dir)
+  .filter((name) => !name.endsWith(".test.ts"))
+  .map((name) => join(import.meta.dir, name))
+  .sort()
+const helperOwners = new Map([
+  ["git-path-history.py", "SKILL.md"],
+  ["mission-impact-evidence.ts", "refactor-mission-proposal.md"],
+  ["test-effectiveness-audit.ts", "test-effectiveness-governance.md"],
+  ["wait-pr-codex-review.ts", "github-pr-handoff.md"],
+])
 
 function localLinks(file: string): string[] {
   const source = readFileSync(file, "utf8")
@@ -35,23 +45,26 @@ describe("run-bounded-mission reference routing", () => {
     }
   })
 
-  test("every reference is reachable from SKILL.md", () => {
-    const reachable = new Set<string>()
-    const pending = [skillFile]
+  test("every risk reference is selected directly from SKILL.md", () => {
+    const directReferences = localLinks(skillFile)
+      .filter((target) => dirname(target) === referencesRoot)
+      .sort()
 
-    while (pending.length > 0) {
-      const file = pending.pop()!
-      if (reachable.has(file)) {
-        continue
-      }
-      reachable.add(file)
-      for (const target of localLinks(file)) {
-        if (target.endsWith(".md") && target.startsWith(skillRoot)) {
-          pending.push(target)
-        }
-      }
+    expect(directReferences).toEqual(referenceFiles)
+  })
+
+  test("every helper has one owning workflow invocation", () => {
+    expect([...helperOwners.keys()].sort()).toEqual(helperFiles.map((file) => basename(file)))
+
+    for (const helper of helperFiles) {
+      const name = basename(helper)
+      const owner = helperOwners.get(name)
+      if (!owner) throw new Error(`missing workflow owner for ${name}`)
+      const consumers = [skillFile, ...referenceFiles]
+        .filter((file) => readFileSync(file, "utf8").includes(`scripts/${name}`))
+        .map((file) => basename(file))
+
+      expect(consumers, `${name} must have one owning workflow`).toEqual([owner])
     }
-
-    expect(referenceFiles.filter((file) => !reachable.has(file))).toEqual([])
   })
 })

@@ -14,7 +14,7 @@ last_verified: 2026-07-31 CST
 
 ## 输入
 
-- Owner：`apps/orchestration-ops/trade-flow`；当前 Origin 有 36 个 test files，试点 candidate
+- Owner：`modules/orchestration-ops/trade-flow`；该 frozen Origin 有 36 个 test files，试点 candidate
   tree 有 35 个，属于现有高测试体量 owner。
 - Origin：`149d338550f2769c2d346bdf62ba3a92ddba6751`，tree
   `0fc6ea9f4e0d770a2a8e272a91139b0ec0442745`。
@@ -26,13 +26,30 @@ last_verified: 2026-07-31 CST
 bun .agents/skills/run-bounded-mission/scripts/test-effectiveness-audit.ts \
   --origin 149d338550f2769c2d346bdf62ba3a92ddba6751 \
   --candidate 457a98c29434e0774a0ff30d02f09c5518851b6f \
-  --scope apps/orchestration-ops/trade-flow
+  --owner-root modules/orchestration-ops/trade-flow \
+  --scope modules/orchestration-ops/trade-flow
 ```
 
 ## 原始输出摘要
 
-- stdout SHA-256：`33da48854ee64540bd60c0617a1cabf5b93fc071d487a9245470ca3be6e0f136`；
-  连续两次执行相同。
+- 原试点由 commit `74add3e06da0904c3226b7abe66e892e3538b20c` 中的 helper 生成，stdout
+  SHA-256 为 `33da48854ee64540bd60c0617a1cabf5b93fc071d487a9245470ca3be6e0f136`；连续两次执行相同。
+  下列命令从该 commit 读取 helper 源码，可重放历史 stdout identity：
+
+```bash
+git show 74add3e06da0904c3226b7abe66e892e3538b20c:.agents/skills/run-bounded-mission/scripts/test-effectiveness-audit.ts |
+  bun - \
+    --origin 149d338550f2769c2d346bdf62ba3a92ddba6751 \
+    --candidate 457a98c29434e0774a0ff30d02f09c5518851b6f \
+    --scope modules/orchestration-ops/trade-flow |
+  shasum -a 256
+```
+
+- 后续 facts-only 中间版本绑定 commit
+  `112f5066cfa29bea05b4e4f850501991de64aab3`，其 stdout SHA-256 为
+  `a7303e3f70f2a08a7905d22e175de020d2863a049e24e262f5f88a1050a4bdd4`。该版本不再包含旧版
+  per-test action 或 Test Refactor Mission recommendation，但仍含项目路径与 `trade.*`
+  schema 耦合；当前通用 helper 不把该中间输出 identity 冒充为自身历史结果。
 - 4 个 changed files、3 个 changed source files、1 个 affected owner；定位 3 个候选测试，
   而不是把 35 个测试全部当作影响证据。
 - Consumer leads：owner `CONTRACT.md`、`src/scripts/main.ts`、package scripts 与 5 个
@@ -41,9 +58,9 @@ bun .agents/skills/run-bounded-mission/scripts/test-effectiveness-audit.ts \
   `server-runtime-container-status.test.ts` 是 status source 的唯一直接候选 import；
   foreground/profile/status 三个候选均保留规模、assertion、mock/time signal 和 runtime
   unavailable。
-- classification 保持 unresolved；3 个动作均为 `further_investigation`，Test Refactor
-  Mission 为 `not_recommended`。输出没有宣称 coverage、mutation score、behavioral
-  equivalence 或删除安全。
+- classification 保持 unresolved；旧版输出中的 3 个动作均为 `further_investigation`，Test
+  Refactor Mission 为 `not_recommended`。当前 facts-only 输出不再生成这些建议。两版均没有
+  宣称 coverage、mutation score、behavioral equivalence 或删除安全。
 
 ## 人工决策价值与修订
 
