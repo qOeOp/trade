@@ -7,7 +7,7 @@ import { resolve } from "node:path"
 type Stage = "Frame" | "Plan" | "Execute" | "Verify" | "Finalize"
 type Terminal = "accepted" | "blocked" | "cancelled"
 type Position = Stage | Terminal | "suspended"
-type Verification = "pass" | "local-failure" | "design-failure" | "scope-expansion" | "ambiguity-exhausted" | null
+type Verification = "pass" | "local-failure" | "design-failure" | "gate-unavailable" | "scope-expansion" | "ambiguity-exhausted" | null
 
 interface Scenario {
   name: string
@@ -24,12 +24,15 @@ interface Fixture {
 interface PlanAdmission {
   inventoryComplete: boolean
   bindingsAdmissible: boolean
+  actionBindings: string[]
+  preVerifyGates: string[]
 }
 
 interface ReplayState {
   position: Position
   verification: Verification
   admittedPlan: PlanAdmission | null
+  candidateReady: boolean
   backwardRoutes: number
   evidenceAttempts: number
   mutations: number
@@ -52,7 +55,15 @@ const skill = normalized(resolve(skillRoot, "SKILL.md"))
 const planner = normalized(resolve(skillRoot, "../../../.codex/agents/mission-planner.toml"))
 const ambiguity = normalized(resolve(skillRoot, "references/plan-ambiguity.md"))
 const revisionPressure = normalized(resolve(skillRoot, "references/revision-pressure-replan.md"))
-const admissiblePlan: PlanAdmission = { inventoryComplete: true, bindingsAdmissible: true }
+const admissiblePlan: PlanAdmission = {
+  inventoryComplete: true,
+  bindingsAdmissible: true,
+  actionBindings: [
+    "main creates and packages the candidate with workspace-write authority and repository context",
+    "main dispatches read-only exact-candidate inspection after Execute and owns the failure route",
+  ],
+  preVerifyGates: ["main validates evaluator capability, isolation, and same-exact-candidate binding"],
+}
 const fixture = JSON.parse(
   readFileSync(resolve(skillRoot, "fixtures/mission-transition-contract.json"), "utf8"),
 ) as Fixture
@@ -123,14 +134,16 @@ describe("single-Mission transition contract", () => {
     expect(skill).toContain("Do not require a candidate locator or completed-candidate fact during Plan")
     expect(skill).toContain("The main agent owns candidate creation, copying, packaging, and evaluator dispatch")
     expect(skill).toContain("After Execute and before Verify launch")
+    expect(skill).toContain("every admitted pre-Verify gate has passed")
+    expect(skill).toContain("enter Finalize, and route `blocked`")
     expect(planner).toContain("This proposal does not prove inventory completeness, binding admissibility, or live capability")
     expect(planner).toContain("do not require a candidate locator during Plan")
   })
 
   test("requires inventory completeness and admissible bindings independently", () => {
     for (const admission of [
-      { inventoryComplete: false, bindingsAdmissible: true },
-      { inventoryComplete: true, bindingsAdmissible: false },
+      { ...admissiblePlan, inventoryComplete: false },
+      { ...admissiblePlan, bindingsAdmissible: false },
     ]) {
       const repository = createTemporaryRepository()
       try {
@@ -150,14 +163,17 @@ describe("single-Mission transition contract", () => {
       "context-lost",
       "recover-exact",
       "candidate-ready",
+      "pre-verify-gates-pass",
       "verify-pass",
       "accept",
     ]
 
-    for (const recoveredPlan of [
+    const recoveredPlans: Array<PlanAdmission | null> = [
       null,
-      { inventoryComplete: true, bindingsAdmissible: false },
-    ]) {
+      { ...admissiblePlan, actionBindings: ["evaluator creates the candidate", ...admissiblePlan.actionBindings.slice(1)] },
+      { ...admissiblePlan, preVerifyGates: ["main trusts the evaluator label without capability evidence"] },
+    ]
+    for (const recoveredPlan of recoveredPlans) {
       const repository = createTemporaryRepository()
       try {
         expect(() => replay(repository, events, admissiblePlan, recoveredPlan)).toThrow(
@@ -176,6 +192,30 @@ describe("single-Mission transition contract", () => {
       expect(state.mutations).toBe(1)
     } finally {
       rmSync(repository, { recursive: true, force: true })
+    }
+  })
+
+  test("requires admitted pre-Verify gates and routes an unavailable gate through Finalize", () => {
+    const repository = createTemporaryRepository()
+    try {
+      const waiting = replay(repository, ["frame-complete", "plan-admitted", "candidate-ready"], admissiblePlan)
+      expect(waiting.position).toBe("Execute")
+    } finally {
+      rmSync(repository, { recursive: true, force: true })
+    }
+
+    const unavailableRepository = createTemporaryRepository()
+    try {
+      const unavailable = replay(unavailableRepository, [
+        "frame-complete",
+        "plan-admitted",
+        "candidate-ready",
+        "pre-verify-gates-unavailable",
+        "blocked",
+      ], admissiblePlan)
+      expect(unavailable.position).toBe("blocked")
+    } finally {
+      rmSync(unavailableRepository, { recursive: true, force: true })
     }
   })
 
@@ -200,7 +240,9 @@ describe("single-Mission transition contract", () => {
         const initialHead = git(repository, "rev-parse", "HEAD")
         const initialBranch = git(repository, "branch", "--show-current")
         const initialBranches = git(repository, "for-each-ref", "--format=%(refname:short)", "refs/heads")
-        const state = replay(repository, scenario.events, admissiblePlan)
+        const events = scenario.events.flatMap((event) =>
+          event === "candidate-ready" ? [event, "pre-verify-gates-pass"] : [event])
+        const state = replay(repository, events, admissiblePlan)
 
         expect(state.position, scenario.name).toBe(scenario.expected_terminal)
         expect(state.mutations, scenario.name).toBe(scenario.expected_mutations)
@@ -230,10 +272,12 @@ describe("single-Mission transition contract", () => {
         "frame-complete",
         "plan-admitted",
         "candidate-ready",
+        "pre-verify-gates-pass",
         "verify-fail-design",
         "replan",
         "plan-admitted",
         "candidate-ready",
+        "pre-verify-gates-pass",
         "verify-fail-local",
         "revise",
         "scope-expanded",
@@ -255,6 +299,7 @@ function replay(
     position: "Frame",
     verification: null,
     admittedPlan: null,
+    candidateReady: false,
     backwardRoutes: 0,
     evidenceAttempts: 0,
     mutations: 0,
@@ -299,7 +344,10 @@ function replay(
       }
       state.position = state.suspendedEvidence.position
       state.blockedResumeStage = state.suspendedEvidence.blockedResumeStage
-      state.admittedPlan = state.suspendedEvidence.planAdmission
+      state.admittedPlan = state.suspendedEvidence.planAdmission === null
+        ? null
+        : structuredClone(state.suspendedEvidence.planAdmission)
+      state.candidateReady = state.suspendedEvidence.candidate !== null
       state.suspendedEvidence = null
       continue
     }
@@ -328,7 +376,8 @@ function replay(
     if (event === "plan-admitted") {
       requireStage(state.position, "Plan", event)
       if (!planAdmission.inventoryComplete || !planAdmission.bindingsAdmissible) continue
-      state.admittedPlan = { ...planAdmission }
+      state.admittedPlan = structuredClone(planAdmission)
+      state.candidateReady = false
       state.position = "Execute"
       continue
     }
@@ -336,8 +385,22 @@ function replay(
       requireStage(state.position, "Execute", event)
       state.mutations += 1
       writeFileSync(resolve(repository, "candidate.txt"), `candidate-${state.mutations}\n`)
-      state.position = "Verify"
+      state.candidateReady = true
       state.verification = null
+      if (state.admittedPlan?.preVerifyGates.length === 0) state.position = "Verify"
+      continue
+    }
+    if (event === "pre-verify-gates-pass") {
+      requireStage(state.position, "Execute", event)
+      if (!state.candidateReady) throw new Error("pre-Verify gates require a complete candidate")
+      state.position = "Verify"
+      continue
+    }
+    if (event === "pre-verify-gates-unavailable") {
+      requireStage(state.position, "Execute", event)
+      if (!state.candidateReady) throw new Error("pre-Verify gates require a complete candidate")
+      state.position = "Finalize"
+      state.verification = "gate-unavailable"
       continue
     }
     if (event === "verify-pass") {
@@ -365,6 +428,7 @@ function replay(
       consumeBackwardRoute(state)
       state.position = event === "revise" ? "Execute" : "Plan"
       if (event === "replan") state.admittedPlan = null
+      state.candidateReady = false
       continue
     }
     if (event === "scope-expanded") {
@@ -381,6 +445,7 @@ function replay(
       consumeBackwardRoute(state)
       state.position = "Frame"
       state.admittedPlan = null
+      state.candidateReady = false
       state.verification = null
       continue
     }
@@ -452,7 +517,7 @@ function recoveryEvidence(
   return {
     position,
     blockedResumeStage,
-    planAdmission: planAdmission === null ? null : { ...planAdmission },
+    planAdmission: planAdmission === null ? null : structuredClone(planAdmission),
     head: git(repository, "rev-parse", "HEAD"),
     branch: git(repository, "branch", "--show-current"),
     status: git(repository, "status", "--porcelain"),
@@ -463,6 +528,7 @@ function recoveryEvidence(
 function resumableStage(verification: Verification): Stage {
   if (verification === "design-failure") return "Plan"
   if (verification === "local-failure") return "Execute"
+  if (verification === "gate-unavailable") return "Execute"
   if (verification === "scope-expansion" || verification === "ambiguity-exhausted") return "Frame"
   throw new Error("blocked requires a resumable failure")
 }

@@ -92,7 +92,7 @@ forward only on these observable conditions:
   admitted, the required-action inventory is complete, every entry is Plan-admissible, and no
   decision-changing premise remains unresolved;
 - `Execute → Verify`: the admitted candidate is complete and its full mission-owned diff is
-  available, including untracked candidate material;
+  available, including untracked candidate material, and every admitted pre-Verify gate has passed;
 - `Verify → Finalize`: decisive passes, failures, and unavailable evidence have been recorded
   against the current candidate;
 - `Finalize → accept`: acceptance is satisfied and bound to a recoverable diff or integrated commit.
@@ -187,12 +187,14 @@ For an evaluator action, Plan records only the prospective inspection, its requi
 capability predicates, and a candidate-bound gate before Verify launch. The main agent owns candidate
 creation, copying, packaging, and evaluator dispatch; the evaluator only read-only inspects the
 admitted exact candidate and never creates, copies, writes, packages, or dispatches it. After Execute
-and before Verify launch, validate actual evaluator capability and same-exact-candidate binding. If
-independent acceptance is frozen and its evaluator route is observably unavailable during Plan,
-return `evidence_unavailable`. If the endpoint authorizes local preparation, admit executable local
-actions and make unavailable independent review a delivery limitation; Finalize must report
-`prepared and locally verified, independent acceptance unavailable` rather than blocking candidate
-creation or claiming acceptance.
+and before Verify launch, validate actual evaluator capability and same-exact-candidate binding. Do
+not enter Verify until every admitted pre-Verify gate passes; a failed or unavailable gate freezes
+work, enters Finalize, and takes its admitted failure route. If independent acceptance is frozen and
+its evaluator route is observably unavailable during Plan, record `evidence_unavailable`, freeze
+work, enter Finalize, and route `blocked`. If the endpoint authorizes local preparation, admit
+executable local actions and make unavailable independent review a delivery limitation; Finalize
+must report `prepared and locally verified, independent acceptance unavailable` rather than
+blocking candidate creation or claiming acceptance.
 
 When a test failure can change the candidate, an escaped defect shows that tests missed required
 behavior, or the Mission may restructure tests, load
