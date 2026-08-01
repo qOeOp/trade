@@ -136,7 +136,9 @@ At the first exhaustion only, the user may explicitly approve one larger positiv
 ceiling for the same Mission. The approval must name a value greater than the current ceiling,
 preserve all prior consumption, mark the enlargement used, and leave one mandatory pending
 `reframe → replan replacement` transition; approval itself does not consume a backward route. That
-pending transition is the only non-blocked continuation. When its work begins, consume it exactly
+exhausted decision may be blocked with Resume at that same Finalize decision, or with no Resume; it
+never resumes ordinary Execute, Plan, or Frame work. The pending transition is the only non-blocked
+continuation. When its work begins, consume it exactly
 once before entering Frame, then admit one coherent replacement Plan that combines the known
 findings; never resume the rejected incumbent. If blocked before it begins, Resume returns to the
 pending Finalize decision, not Frame. If blocked after it begins, recovery retains both the consumed
