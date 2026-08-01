@@ -5,12 +5,16 @@ name = "Trade repository bootstrap"
 script = '''
 set -eu
 
-env -u BINANCE_API_KEY -u BINANCE_API_SECRET -u SILICONFLOW_API_KEY bun --no-env-file install --frozen-lockfile --ignore-scripts
-
 if ! shellcheck_path="$(command -v shellcheck 2>/dev/null)"; then
   printf 'setup: ShellCheck 0.11.0 is required on PATH; command not found\n' >&2
   exit 1
 fi
+case "$shellcheck_path" in
+  node_modules/*|*/node_modules/*)
+    printf 'setup: refusing stale npm ShellCheck wrapper at %s; install native ShellCheck 0.11.0 on PATH\n' "$shellcheck_path" >&2
+    exit 1
+    ;;
+esac
 if ! shellcheck_output="$(shellcheck --version)"; then
   printf 'setup: unable to read ShellCheck version from %s\n' "$shellcheck_path" >&2
   exit 1
@@ -20,4 +24,6 @@ if [ "$shellcheck_version" != "0.11.0" ]; then
   printf 'setup: ShellCheck 0.11.0 is required on PATH; found %s at %s\n' "${shellcheck_version:-unknown}" "$shellcheck_path" >&2
   exit 1
 fi
+
+env -u BINANCE_API_KEY -u BINANCE_API_SECRET -u SILICONFLOW_API_KEY bun --no-env-file install --frozen-lockfile --ignore-scripts
 '''

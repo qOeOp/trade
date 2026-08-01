@@ -64,6 +64,12 @@ require_shellcheck() {
     printf 'quality: ShellCheck 0.11.0 is required on PATH; command not found\n' >&2
     exit 1
   fi
+  case "$shellcheck_path" in
+    node_modules/*|*/node_modules/*)
+      printf 'quality: refusing stale npm ShellCheck wrapper at %s; install native ShellCheck 0.11.0 on PATH\n' "$shellcheck_path" >&2
+      exit 1
+      ;;
+  esac
   if ! shellcheck_output="$(shellcheck --version)"; then
     printf 'quality: unable to read ShellCheck version from %s\n' "$shellcheck_path" >&2
     exit 1
