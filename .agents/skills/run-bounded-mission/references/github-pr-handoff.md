@@ -8,8 +8,17 @@ Freeze the repository, pull request, base, candidate head, endpoint (`open`, `me
 publication, comment, review request or submission, thread resolution, repository settings,
 auto-merge or queue changes, and merge.
 
-Use the connected GitHub owner or `gh` under its current official contract. Do not use a skill-owned
-script as an authority proxy.
+Raw GitHub data remains authority for pull-request facts. Use the connected GitHub owner or `gh`
+under its current official contract. The skill-owned waiter below is only the deterministic owner of
+Codex opening-discovery classification; it is not an authority proxy for acceptance or merge.
+
+Close only the exact frozen endpoint:
+
+- `open`: publish the exact candidate to the frozen repository, base, and authorized Draft/Ready
+  state. Do not import review, check, conversation, race, or merge requirements into this endpoint.
+- `merge-ready`: satisfy the complete barrier below for the exact candidate without merging it.
+- `merged`: first satisfy the merge-ready barrier, then verify that GitHub actually merged that
+  exact head under separately frozen merge authority.
 
 ## Opening discovery
 
@@ -21,11 +30,9 @@ For a `merge-ready` or `merged` endpoint, freeze exactly one discovery review at
 native Codex opening review when it starts, or a manually requested substitute through an explicit
 `@codex review` issue comment with separately frozen comment authority. Do not use GitHub's generic
 review-request path as a substitute because the repository waiter cannot correlate that event. Wait
-through the host-native GitHub owner until that
-review is terminal or Stop is reached. A correlated provider thumbs-up reaction for the frozen
-discovery attempt is terminal clean completion; eyes, dispatch, queue, and in-progress signals are
-not. For an `open` endpoint, successful publication in the requested Draft/Ready state does not wait
-for discovery.
+through the bounded host loop until the waiter reports a terminal classification or Stop is reached.
+Do not interpret individual provider signals outside that classifier. For an `open` endpoint,
+successful publication in the requested Draft/Ready state does not wait for discovery.
 
 Run
 `bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --repo <owner/name> <pr-number>`
@@ -38,6 +45,12 @@ that must be routed rather than retried as success. Its JSON output binds `repos
 review accepted that head. This read-only helper classifies the discovery signal only; it is not
 review acceptance, a required check, or merge authority; the merge-ready barrier still verifies the
 exact final head.
+
+Consume the helper's structured JSON and exit code together as the only `passed`, `pending`, or
+`failed` classification. `gh pr view --json reviews`, top-level review bodies, `reviewDecision`,
+comment summaries, or agent prose can omit `reviewThreads` and must not substitute for or override
+that result. Raw GitHub data may support forensic facts and the endpoint barrier, but the main agent
+must not reinterpret a pending or failed opening discovery as clean.
 
 Validate every material finding. Route a candidate-local finding to Execute, an owner, path, boundary,
 or verification-design failure to Plan, and a Frame-contract failure to Frame. Thread resolution is
@@ -59,8 +72,9 @@ Immediately before accepting `merge-ready` or performing a merge, observe one cu
 2. PR is open, has the required Draft/Ready state, and targets the frozen base;
 3. PR head equals the verified candidate;
 4. the complete non-empty set of required final-head checks exists and passes;
-5. the frozen discovery review is terminal, every material finding has a disposition revalidated
-   against the final candidate, and any separately required current-candidate reviews are terminal;
+5. the frozen discovery classification has its required terminal disposition, every material finding
+   has a disposition revalidated against the final candidate, and any separately required current-
+   candidate reviews are terminal;
 6. zero unresolved conversations remain;
 7. auto-merge or merge-queue state cannot race the snapshot;
 8. a final refetch shows no head, base, activity, or merge-tree drift.

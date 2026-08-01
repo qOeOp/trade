@@ -52,33 +52,51 @@ When an unresolved fact could change the candidate, consumer behavior, authority
 hard-to-reverse choice, load [consequential ambiguity](references/plan-ambiguity.md).
 
 Keep independent outcomes separate and never turn an internal subtask into a user-visible task. Load
-[Codex task dispatch](references/task-dispatch.md) only when the user asks to route or create an
-independent outcome, or when Mission evidence supports a separately valuable follow-up proposal with
-its own consumer and acceptance. A proposal is not creation; native creation still requires the
-user's explicit request or approval of the ready proposal.
+[Codex task dispatch](references/task-dispatch.md) for separate task creation, an existing child, a
+separately valuable follow-up, or multi-Mission operation. A proposal is not creation; native task
+creation still requires the user's explicit request or approval of the ready proposal.
 
-### Session mode selector
+### Session mode and Goal boundary
 
-After Frame, select the smallest mode:
+At workflow entry, a new turn, compaction recovery, or a resumed hub checkpoint, call `get_goal` in
+the current thread before selecting a Goal-bound mode or issuing a Goal-driven effect. Reconcile the
+observed Goal with the current request and, for multi-Mission work, the complete replacement
+checkpoint defined by task dispatch. Missing node restatement in the latest turn is not evidence
+that prior approved work disappeared.
 
-- With no independent Mission, handle the request directly.
-- With one, run it in the current session unless the requested outcome is separate task creation or
-  routing; that explicit effect follows task dispatch.
-- With two or more, use the loaded dispatch reference and keep one minimal session-only graph. Admit
-  only outcomes with their own consumer, falsifiable Acceptance, owner and write surface, delivery
-  boundary, and independent acceptance, block, or cancellation. Diagnosis, tests, documentation
-  synchronization, review corrections, coupled producer/consumer work, and support roles stay
-  internal.
+Select the smallest mode:
 
-In multi-Mission mode the current session alone owns admission, direct `after` edges, conflict
-serialization, source-tip observation, bounded monitoring, and one exact-head merge release.
-Children own their Frame, Plan, candidate, worktree, branch, pull request, and verification; their
-packets withhold merge until released. Parallel ready nodes must be independent in owner, write
-surface, contract, premise, and dependency. A merge invalidates only open children bound to the same
-source ref; observe each affected tip again before another release or dependent child. This
-authority stays in conversation prose and checkpoints and never authorizes a scheduler, durable
-state, queue service, automatic retry or transfer, second CLI, background automation, or hidden
-execution in the hub worktree.
+- With zero independent Missions, handle the request directly and do not create, complete, block, or
+  otherwise change an observed Goal.
+- With one, run it in the current thread unless separate task creation or routing was explicitly
+  requested. A Goal is unnecessary unless explicit Goal authority and a matching overall Outcome
+  make it part of the request.
+- With two or more, require a matching overall Goal and load task dispatch for the hub checkpoint,
+  dependencies, native identities, and exact endpoints. Diagnosis, tests, documentation sync,
+  review corrections, coupled producer/consumer work, and support roles remain internal.
+
+When multi-Mission mode observes no Goal, retain the complete proposed hub checkpoint and make no
+child, task, publication, or merge-release effect. Report the one missing authority: an explicit
+user, system, or developer request to create the overall Goal. Only that authority permits one
+`create_goal` call followed by reconciliation before dispatch. If the user explicitly declines
+persistent multi-Mission operation, return to Frame and define Goal-unbound current-thread work; do
+not describe it as persistent scheduling.
+
+A Goal holds only the overall Outcome, constraints, and completion boundary. Never store nodes,
+edges, task identities, candidates, retries, Stop, or GitHub facts in Goal prose. `get_goal` reads
+only the current thread; `create_goal` requires explicit authority; `update_goal` only marks the
+matching overall Goal `complete` or `blocked` when its current tool contract permits that terminal
+effect. A child does not inherit the hub Goal and must not create or update one for ordinary child
+work.
+
+Continue a matching active Goal only after checkpoint reconciliation. A paused Goal freezes
+Goal-driven effects until the host or user resumes it or explicitly reframes the current work. A
+matching blocked Goal resumes only through the current Goal contract and preserves prior Stop. Do
+not reopen a complete Goal, overwrite a nonmatching unfinished Goal, or treat either as authority
+for the current Outcome; freeze the affected Goal-driven effect and surface the exact mismatch.
+These boundaries never authorize repository workflow state, a scheduler, queue, ledger, daemon,
+automatic retry or transfer, Goal wrapper, second CLI, second lifecycle, or hidden hub-worktree
+execution.
 
 ## Session transition contract
 
