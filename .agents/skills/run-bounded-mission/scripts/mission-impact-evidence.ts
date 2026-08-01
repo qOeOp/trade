@@ -297,9 +297,12 @@ function candidateSourcePaths(
   changedOwnerIds: Set<string>,
 ): string[] {
   const changedRoots = registry.roots.filter((item) => changedOwnerIds.has(ownerKey(item.owner)))
+  const dotPattern = javascriptStringLiteralPattern(".")
+  const slashPattern = javascriptStringLiteralPattern("/")
   const ownerSegmentPatterns = [...new Set(changedRoots.map((item) => {
     const segment = item.path.split("/").at(-1)!
-    return `["'][.][.]?/([^/"']+/|[.][.]/)*${escapeExtendedRegex(segment)}(/|["'])`
+    const segmentPattern = javascriptStringLiteralPattern(segment)
+    return `["']${dotPattern}${dotPattern}?${slashPattern}([^"']*${slashPattern})?${segmentPattern}(${slashPattern}|["'])`
   }))]
   const candidates = new Set(gitGrepPaths(head, ownerSegmentPatterns))
   const relativeSpecifierPattern = `["'][.][.]?/`
@@ -350,6 +353,30 @@ function gitGrepPaths(revision: string, patterns: string[], scope?: string): str
 
 function escapeExtendedRegex(value: string): string {
   return value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")
+}
+
+function javascriptStringLiteralPattern(value: string): string {
+  return [...value].map((character) => {
+    const codePoint = character.codePointAt(0)!
+    const alternatives = [escapeExtendedRegex(character)]
+    if (codePoint <= 0xff) {
+      alternatives.push(`\\\\x${hexPattern(codePoint, 2)}`)
+    }
+    if (codePoint <= 0xffff) {
+      alternatives.push(`\\\\u${hexPattern(codePoint, 4)}`)
+    } else {
+      const offset = codePoint - 0x10000
+      alternatives.push(
+        `\\\\u${hexPattern(0xd800 + (offset >> 10), 4)}\\\\u${hexPattern(0xdc00 + (offset & 0x3ff), 4)}`,
+      )
+    }
+    alternatives.push(`\\\\u\\{${hexPattern(codePoint)}\\}`)
+    return `(${alternatives.join("|")})`
+  }).join("")
+}
+
+function hexPattern(value: number, width = 0): string {
+  return value.toString(16).padStart(width, "0").replace(/[a-f]/g, (digit) => `[${digit}${digit.toUpperCase()}]`)
 }
 
 function buildReasons(
