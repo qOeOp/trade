@@ -645,7 +645,7 @@ function discoverImportSourcePaths(
       if (isWithin(target, packageRoot)) hints.add(packageName)
     }
   }
-  for (const path of grepPaths(candidate, [...hints])) {
+  for (const path of grepPaths(candidate, [...hints, "\\"])) {
     if (isImportSourcePath(path)) paths.add(path)
   }
   return [...paths].sort()
