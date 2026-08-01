@@ -349,17 +349,10 @@ function invokePythonEconomicOracle(request: unknown): {
   response: PythonOracleResponse
   stderr: string
 } {
-  const resolverPath = fileURLToPath(
-    new URL("../../../../../scripts/resolve-python.sh", import.meta.url),
-  )
   const oraclePath = fileURLToPath(
     new URL("../scripts/ohlcv_economic_oracle.py", import.meta.url),
   )
-  const resolution = spawnSync("sh", [resolverPath], { encoding: "utf8" })
-  if (resolution.status !== 0 || !resolution.stdout.trim()) {
-    throw new Error(`Python resolver failed: ${resolution.stderr}`)
-  }
-  const execution = spawnSync(resolution.stdout.trim(), [oraclePath], {
+  const execution = spawnSync("python3", [oraclePath], {
     encoding: "utf8",
     input: JSON.stringify(request),
   })

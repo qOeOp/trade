@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs"
-import { dirname, relative } from "node:path"
+import { existsSync, mkdirSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs"
+import { dirname, join, relative } from "node:path"
 
 interface PackageContract {
   check: string
@@ -8,12 +8,20 @@ interface PackageContract {
   name: string
 }
 
-const root = process.cwd()
+const rootResult = Bun.spawnSync({
+  cmd: ["git", "rev-parse", "--show-toplevel"],
+  stdout: "pipe",
+  stderr: "pipe",
+})
+if (rootResult.exitCode !== 0) {
+  throw new Error(`unable to resolve repository root: ${rootResult.stderr.toString()}`)
+}
+const root = rootResult.stdout.toString().trim()
 const contracts = discoverContracts(root)
 const [mode, target, extra] = process.argv.slice(2)
 
 if (extra || (mode && !["--run-all", "--run-package", "--run-shard"].includes(mode))) {
-  throw new Error(`usage: bun scripts/check-workspace-contracts.ts [--run-all|--run-package <name>|--run-shard <index>/<count>]`)
+  throw new Error(`usage: repository-package-checks [--run-all|--run-package <name>|--run-shard <index>/<count>]`)
 }
 
 const selected = mode === "--run-all"
@@ -24,7 +32,12 @@ const selected = mode === "--run-all"
       ? selectShard(contracts, target)
       : []
 
-for (const contract of selected) runContract(contract)
+const releaseRunAllLock = mode === "--run-all" ? acquireRunAllLock(root) : () => {}
+try {
+  for (const contract of selected) runContract(contract)
+} finally {
+  releaseRunAllLock()
+}
 
 console.log(mode
   ? `workspace contracts: executed ${selected.length} of ${contracts.length} package checks`
@@ -104,4 +117,56 @@ function runContract(contract: PackageContract): void {
   if (result.exitCode !== 0) {
     throw new Error(`package contract failed: ${contract.name} (${relative(root, `${root}/${contract.manifestPath}`)})`)
   }
+}
+
+function acquireRunAllLock(cwd: string): () => void {
+  const lockDir = join(cwd, "tmp/check/repository-package-checks.lock")
+  const ownerPath = join(lockDir, "owner-pid")
+  mkdirSync(dirname(lockDir), { recursive: true })
+
+  try {
+    mkdirSync(lockDir)
+  } catch (error) {
+    if (errorCode(error) !== "EEXIST") throw error
+    const owner = readOwnerPid(ownerPath)
+    if (owner !== null && processIsRunning(owner)) {
+      throw new Error(`repository package check is already active (pid ${owner})`, { cause: error })
+    }
+    if (existsSync(ownerPath)) unlinkSync(ownerPath)
+    try {
+      rmdirSync(lockDir)
+    } catch (error) {
+      throw new Error("stale repository package check lock cannot be recovered safely", { cause: error })
+    }
+    mkdirSync(lockDir)
+  }
+
+  writeFileSync(ownerPath, `${process.pid}\n`)
+  return () => {
+    if (readOwnerPid(ownerPath) !== process.pid) return
+    unlinkSync(ownerPath)
+    rmdirSync(lockDir)
+  }
+}
+
+function readOwnerPid(path: string): number | null {
+  try {
+    const value = readFileSync(path, "utf8").trim()
+    return /^\d+$/.test(value) ? Number(value) : null
+  } catch {
+    return null
+  }
+}
+
+function processIsRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return errorCode(error) === "EPERM"
+  }
+}
+
+function errorCode(error: unknown): string {
+  return error && typeof error === "object" && "code" in error ? String(error.code) : ""
 }

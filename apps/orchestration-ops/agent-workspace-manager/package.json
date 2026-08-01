@@ -10,6 +10,9 @@
     "typecheck": "tsc --noEmit",
     "lint": "bun run typecheck",
     "test": "bun test ./src/lib/*.test.ts",
+    "repository:packages": "bun ./src/scripts/repository-package-checks.ts",
+    "repository:secrets": "bun ./src/scripts/repository-secret-scan.ts",
+    "repository:side-effects": "bun ./src/lib/repository-side-effects.ts",
     "check": "bun run lint && bun run test"
   }
 }

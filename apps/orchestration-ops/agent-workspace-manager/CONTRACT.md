@@ -7,6 +7,7 @@
 - Optional successor seeding may reconstruct one exact prior Host-generated diff only when that diff ref is bound into the new request; reapplication must reproduce the same cumulative patch hash before the model starts.
 - Closed write-prefix policy, bounded deterministic package checks, reviewable patch capture, explicit slot cleanup, and stale-workspace GC candidates.
 - Host-owned finalization that rejects an empty patch, failed/timed-out checks, check-induced patch mutation, or artifact-writer hash drift, then emits patch plus JSON quality evidence with no domain authority.
+- Repository package-check routing, tracked/unignored secret scanning, and workspace side-effect detection used by CI and isolated candidate verification; these consume declared interfaces and do not own project topology.
 - Candidate adoption may reconstruct that exact cumulative patch in a separate fixed slot and ask the isolated checker to run package checks, repository quality, and the independent Replay release audit. The checker returns only bounded hashes/exit metadata; passing it certifies a source candidate, not a deployment.
 - Its resident adoption worker consumes queued Developer patches and Registry strategy-source candidates, certifies exact isolated revisions, and exposes a no-deploy Developer candidate-package CLI for the existing server source-package owner.
 - A container mount projection that exposes only the isolated worktree and an output directory to the Developer job.

@@ -178,6 +178,6 @@ Skill 可以说明如何调用既有 MCP / owner tool，但不能绕过 prefligh
 
 ## 检查入口
 
-- CI / R&D certification 与可选的非 PR 本地全仓终结：`scripts/quality-check.sh`
+- CI 与本地全仓入口都只调用 package `scripts.check`；标准语言命令由 native owner 自己声明。
 - package 通过自己的 `scripts.check` 验证公开输入输出和直接 consumer；中央质量门不维护目录或 import 白名单。
 - 项目质量接口见 [Quality Contract](../engineering/code-quality.md)。

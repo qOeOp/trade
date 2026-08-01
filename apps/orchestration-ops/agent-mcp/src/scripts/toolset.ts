@@ -34,7 +34,16 @@ interface ToolManifest {
   tools: ToolEntry[]
 }
 
-const MANIFEST_PATH = "toolset.json"
+const repoRootResult = Bun.spawnSync({
+  cmd: ["git", "rev-parse", "--show-toplevel"],
+  stdout: "pipe",
+  stderr: "pipe",
+})
+if (repoRootResult.exitCode !== 0) {
+  throw new Error(`unable to resolve repository root: ${repoRootResult.stderr.toString()}`)
+}
+const REPO_ROOT = repoRootResult.stdout.toString().trim()
+const MANIFEST_PATH = join(REPO_ROOT, "toolset.json")
 const VALID_CAPABILITIES = new Set(["R", "A", "E", "V", "T", "C"])
 const VALID_WRITES = ["trade_db", "catalog", "artifacts", "binance", "config"]
 const VALID_MODULE_TYPES = new Set(["suite", "atomic", "contract"])
@@ -44,7 +53,7 @@ function main(argv: string[]): void {
   const args = parseArgs(argv)
   const manifest = readManifest()
   const issues = validateManifest(manifest)
-  if (existsSync("toolset")) {
+  if (existsSync(join(REPO_ROOT, "toolset"))) {
     issues.push("tool registry belongs at ./toolset.json; do not recreate toolset/")
   }
   if (args.validate) {
@@ -56,7 +65,7 @@ function main(argv: string[]): void {
     return
   }
   if (issues.length > 0) {
-    throw new Error(`manifest is invalid; run scripts/toolset.ts --validate`)
+    throw new Error(`manifest is invalid; run bun run --cwd apps/orchestration-ops/agent-mcp check:toolset`)
   }
 
   const tools = filterTools(manifest.tools, args)
@@ -134,7 +143,7 @@ function validateManifest(manifest: ToolManifest): string[] {
       }
       ids.add(tool.id)
     }
-    if (!existsSync(tool.path)) {
+    if (!existsSync(join(REPO_ROOT, tool.path))) {
       issues.push(`${prefix}.path does not exist: ${tool.path}`)
     }
     if (!Array.isArray(tool.intent) || tool.intent.length === 0) {
@@ -172,14 +181,14 @@ function validateCommand(tool: ToolEntry, prefix: string, issues: string[]): voi
     return
   }
   validateString(tool.command.cwd, `${prefix}.command.cwd`, issues)
-  if (tool.command.cwd && !existsSync(tool.command.cwd)) {
+  if (tool.command.cwd && !existsSync(join(REPO_ROOT, tool.command.cwd))) {
     issues.push(`${prefix}.command.cwd does not exist: ${tool.command.cwd}`)
   }
   if (!Array.isArray(tool.command.argv) || tool.command.argv.length === 0) {
     issues.push(`${prefix}.command.argv must be a non-empty array`)
   }
   if (tool.command.cwd && isLocalScriptArg(tool.command.argv?.[1])) {
-    const scriptPath = join(tool.command.cwd, tool.command.argv[1])
+    const scriptPath = join(REPO_ROOT, tool.command.cwd, tool.command.argv[1])
     if (!existsSync(scriptPath)) {
       issues.push(`${prefix}.command script does not exist: ${scriptPath}`)
     }
@@ -226,7 +235,7 @@ function validateOptionalSchemaPath(value: unknown, field: string, issues: strin
     issues.push(`${field} must be a string`)
     return
   }
-  if (value !== "" && !existsSync(value)) {
+  if (value !== "" && !existsSync(join(REPO_ROOT, value))) {
     issues.push(`${field} does not exist: ${value}`)
   }
 }
@@ -290,11 +299,11 @@ function printList(tools: ToolEntry[]): void {
 
 function printHelp(): void {
   console.log(`Usage:
-  bun scripts/toolset.ts --validate
-  bun scripts/toolset.ts --json
-  bun scripts/toolset.ts --intent rd
-  bun scripts/toolset.ts --capability T
-  bun scripts/toolset.ts --domain exchange-read
+  bun run --cwd apps/orchestration-ops/agent-mcp toolset --validate
+  bun run --cwd apps/orchestration-ops/agent-mcp toolset --json
+  bun run --cwd apps/orchestration-ops/agent-mcp toolset --intent rd
+  bun run --cwd apps/orchestration-ops/agent-mcp toolset --capability T
+  bun run --cwd apps/orchestration-ops/agent-mcp toolset --domain exchange-read
 `)
 }
 

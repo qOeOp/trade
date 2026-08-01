@@ -66,12 +66,12 @@ DB；owner DB 保存所需 hash、schema、coverage、summary、lineage 和引�
 `.gitignore` 覆盖根 DB、SQLite sidecar、`tmp/` 和本地 profile。package owner 负责声明
 自身 runtime data 位置，不由中央检查冻结模块目录结构。
 
-`scripts/check-workspace-side-effects.ts` 只检查质量运行前后的 tracked/unignored 副作用；
-它不自动删除数据，也不替代 catalog 的引用判断。
+workspace manager 的 repository side-effect check 只比较质量运行前后的 tracked/unignored
+变化；它不要求某个文件存在，不自动删除数据，也不替代 catalog 的引用判断。
 
 ## 已知边界
 
 - catalog 是本地 SQLite 索引，扫描和清理按顺序执行，不假设并发写安全。
 - 大型文件保留在文件系统，DB 只保存其可验证身份、摘要和引用。
 - 历史错位文件不会自动迁移；迁移前先解析 owner 和引用，删除另行显式执行。
-- automation memory 不是业务数据库，通过仓库 helper 访问，不进入 catalog。
+- automation memory 不是业务数据库，不进入 catalog。

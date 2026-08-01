@@ -15,14 +15,11 @@ last_verified: 2026-08-01 CST
 | 接口 | 保证 |
 | --- | --- |
 | `bun run check` | 本地完整检查入口 |
-| `scripts/quality-check.sh policy` | diff、lint、secret、toolset 与质量内核自测 |
-| `scripts/quality-check.sh packages` | 发现并执行所有 package 的 `scripts.check` |
-| `scripts/quality-check.sh native` | Go、Rust、Python 的标准 compiler/test 工具 |
 | package `scripts.check` | package 自己签发 compiler、unit/contract/consumer 行为 |
 | GitHub `quality` | exact PR head 的稳定 merge context |
 | CodeQL contexts | GitHub 签发的静态安全分析 |
 
-中央 runner 只读取 repository-visible `package.json` 的唯一 `name` 和 `scripts.check`，并传播进程退出码。它不预设 package 位于哪个目录、使用什么语言、测试文件叫什么，也不解析测试 runner 的人类输出。
+中央 runner 只读取 repository-visible `package.json` 的唯一 `name` 和 `scripts.check`，并传播进程退出码。它属于 workspace manager，不预设 package 位于哪个目录、使用什么语言、测试文件叫什么，也不解析测试 runner 的人类输出。Go、Rust、Python owner 与 TypeScript package 使用同一接口；CI 不再复制 owner 的 compiler 或 test 命令。
 
 ## 边界
 
@@ -46,7 +43,7 @@ Required merge gate 不检查：
 
 ## Ownership
 
-- package owner 决定 `scripts.check` 内部如何组合 compiler 与测试。
+- package owner 决定 `scripts.check` 内部如何组合 compiler 与测试；全仓 `--run-all` 在同一 checkout 内串行占用，shard 仍可在隔离 checkout 并行。
 - Replay、release 和 runtime owner 保留自己的高成本认证，不复制到中央 runner。
 - workflow 只编排上述接口；stable `quality` context 负责 merge，不代表 release 或 runtime 完成。
 - 新 package 缺少唯一 `name` 或 `scripts.check` 时 fail closed。

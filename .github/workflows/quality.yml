@@ -2,7 +2,7 @@ name: repository-quality
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main]
 
@@ -22,6 +22,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Validate pull request title
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        shell: bash
+        run: |
+          pattern='^[[:alnum:]][[:alnum:]._-]*\([^()]+\)!?: .+'
+          if [[ ! "$PR_TITLE" =~ $pattern ]]; then
+            printf 'pull request title must use Conventional Commits: type(scope): description\n' >&2
+            exit 1
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -42,7 +53,21 @@ jobs:
           install "$RUNNER_TEMP/shellcheck-v0.11.0/shellcheck" node_modules/shellcheck/bin/shellcheck
       - name: Verify ShellCheck binary
         run: ./node_modules/.bin/shellcheck --version
-      - run: scripts/quality-check.sh policy
+      - name: Capture clean workspace
+        run: bun run --cwd apps/orchestration-ops/agent-workspace-manager repository:side-effects --action capture --snapshot tmp/check/policy-workspace.json --require-clean
+      - name: Check diff, source, secrets, and tool registry
+        run: |
+          git diff --no-renames --check "$QUALITY_DIFF_BASE"...HEAD
+          git ls-files -- '*.sh' | while IFS= read -r file; do
+            sh -n "$file"
+            ./node_modules/.bin/shellcheck --severity=warning -e SC1007 "$file"
+          done
+          bun run lint
+          bun run --cwd apps/orchestration-ops/agent-workspace-manager repository:secrets
+          bun run --cwd apps/orchestration-ops/agent-mcp check:toolset
+      - name: Verify no workspace mutations
+        if: ${{ always() }}
+        run: bun run --cwd apps/orchestration-ops/agent-workspace-manager repository:side-effects --action check --snapshot tmp/check/policy-workspace.json
 
   packages:
     name: packages-${{ matrix.name }}
@@ -58,19 +83,6 @@ jobs:
             shard: 1/2
     env:
       QUALITY_PACKAGE_SHARD: ${{ matrix.shard }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: 1.3.13
-      - name: Install repository dependencies
-        run: env -u BINANCE_API_KEY -u BINANCE_API_SECRET -u SILICONFLOW_API_KEY bun --no-env-file install --frozen-lockfile --ignore-scripts
-      - run: scripts/quality-check.sh packages
-
-  native:
-    name: native
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -93,12 +105,20 @@ jobs:
             ~/.cargo/git
             **/target
           key: rust-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-      - run: scripts/quality-check.sh native
+      - name: Install repository dependencies
+        run: env -u BINANCE_API_KEY -u BINANCE_API_SECRET -u SILICONFLOW_API_KEY bun --no-env-file install --frozen-lockfile --ignore-scripts
+      - name: Capture clean workspace
+        run: bun run --cwd apps/orchestration-ops/agent-workspace-manager repository:side-effects --action capture --snapshot tmp/check/packages-workspace.json --require-clean
+      - name: Run package checks
+        run: bun run --cwd apps/orchestration-ops/agent-workspace-manager repository:packages --run-shard "$QUALITY_PACKAGE_SHARD"
+      - name: Verify no workspace mutations
+        if: ${{ always() }}
+        run: bun run --cwd apps/orchestration-ops/agent-workspace-manager repository:side-effects --action check --snapshot tmp/check/packages-workspace.json
 
   quality:
     name: quality
     if: ${{ always() }}
-    needs: [policy, packages, native]
+    needs: [policy, packages]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -106,8 +126,7 @@ jobs:
         env:
           POLICY_RESULT: ${{ needs.policy.result }}
           PACKAGES_RESULT: ${{ needs.packages.result }}
-          NATIVE_RESULT: ${{ needs.native.result }}
         run: |
-          for result in "$POLICY_RESULT" "$PACKAGES_RESULT" "$NATIVE_RESULT"; do
+          for result in "$POLICY_RESULT" "$PACKAGES_RESULT"; do
             test "$result" = success
           done

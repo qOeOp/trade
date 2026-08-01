@@ -19,7 +19,9 @@
     "typescript-eslint": "8.65.0"
   },
   "scripts": {
-    "check": "scripts/quality-check.sh",
+    "check": "bun run lint && bun run check:secrets && bun run check:packages",
+    "check:secrets": "bun run --cwd apps/orchestration-ops/agent-workspace-manager repository:secrets",
+    "check:packages": "bun run --cwd apps/orchestration-ops/agent-workspace-manager repository:packages --run-all",
     "check:replay-release": "bun run --cwd apps/research-strategy-development/research-control-plane/certification/replay-release-audit audit",
     "lint": "eslint --max-warnings 0 .",
     "certify:replay": "bun run --cwd apps/research-strategy-development/replay-execution-plane/certification/replay-certification certify",

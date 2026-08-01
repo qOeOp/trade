@@ -42,8 +42,8 @@ function pathHash(path: string): string {
 
 function main(): void {
   const action = flag("--action")
-  const snapshotPath = resolve(flag("--snapshot"))
-  const root = resolve(process.cwd())
+  const root = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim()
+  const snapshotPath = resolve(root, flag("--snapshot"))
   if (!snapshotPath.startsWith(resolve(root, "tmp") + "/")) throw new Error("workspace snapshot must stay under tmp/")
   if (action === "capture") {
     if (process.argv.includes("--require-clean")) {

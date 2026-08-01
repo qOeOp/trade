@@ -31,7 +31,7 @@ last_verified: 2026-07-23 CST
 
 - 仓库已跟踪多份运行态 `.db`、`.db-wal`、`.db-shm`；ignore 无法保护已跟踪文件。
 - `.gitignore` 只覆盖根 `data/*.db` / `data/*.sqlite*`，没有完整覆盖 SQLite sidecar 与 module-local `data/`。
-- `legacy-integration-suite` 有测试创建临时 artifact root，却让 RD state 继续使用相对默认 `data/rd_state.db`；`quality-check.sh` 进入 package 目录执行测试后会改写已跟踪 DB。
+- `legacy-integration-suite` 有测试创建临时 artifact root，却让 RD state 继续使用相对默认 `data/rd_state.db`；中央 package runner 进入 package 目录执行测试后会改写已跟踪 DB。
 - `git diff --check` 只检查文本差异，不证明测试没有新增二进制、未跟踪文件或 ignored 磁盘负担。
 - `tmp/`、Rust `target/` 和 SQLite sidecar 均已形成 GB 级本地占用；其中一部分是有效证据或缓存，不能用无差别删除处理。
 
@@ -44,7 +44,7 @@ last_verified: 2026-07-23 CST
 | `DBE-03` | unit / integration / certification 默认不得写 repo durable `data/`；测试数据库必须显式注入。 |
 | `DBE-04` | CI job、并行测试和重试使用独立实例；同名 program/run 不造成跨用例状态串扰。 |
 | `DBE-05` | SQLite WAL/SHM 与主 DB 同生命周期、同目录边界；它们永不作为 Git 资产。 |
-| `DBE-06` | `quality-check.sh` 连跑两次不改变进入检查前的 tracked / unignored 工作区状态。 |
+| `DBE-06` | `bun run check` 连跑两次不改变进入检查前的 tracked / unignored 工作区状态。 |
 | `DBE-07` | 源码目录不承载运行 DB、artifact、cache 或恢复快照；可提交 fixture 必须不可变且位于 `fixtures/` / `examples/`。 |
 | `DBE-08` | 自检只报告和阻断污染，不静默删除用户数据；删除继续显式且受 catalog ref、`.pin` 与 retention 保护。 |
 | `DBE-09` | environment 不是权限；任何环境名都不能放宽真实交易写入边界。 |
