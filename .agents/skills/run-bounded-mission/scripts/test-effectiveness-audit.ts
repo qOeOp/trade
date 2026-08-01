@@ -112,10 +112,8 @@ try {
     }
   }
   const changes = readChanges(origin.commit, candidate.commit, args.scope)
-  const candidateTree = readTree(candidate.commit)
-  const candidatePaths = candidateTree.map((entry) => entry.path)
+  const candidatePaths = changes.length > 0 ? readTreePaths(candidate.commit) : []
   const candidatePathSet = new Set(candidatePaths)
-  const candidateObjects = new Map(candidateTree.map((entry) => [entry.path, entry.object]))
   const ownerRoots = args.ownerRoots
     .slice()
     .sort((left, right) => right.length - left.length || left.localeCompare(right))
@@ -135,7 +133,13 @@ try {
       .map((change) => change.path),
   )
   const importAnalysis = changedSourcePaths.size > 0
-    ? readImportEdges(candidate.commit, candidatePaths, candidatePathSet, candidateObjects)
+    ? readImportEdges(
+        candidate.commit,
+        candidatePaths,
+        candidatePathSet,
+        changedSourcePaths,
+        args.scope,
+      )
     : { edges: [], files_analyzed: 0, incomplete_files: [] }
   const importEdges = importAnalysis.edges
   const importersByTarget = groupImporters(importEdges)
@@ -146,6 +150,7 @@ try {
     importEdges,
     changedSourcePaths,
     ownerRoots,
+    args.scope,
   )
   const deletedTestPaths = changes
     .filter((change) => change.status === "D" && isTestPath(change.path))
@@ -359,6 +364,15 @@ function resolveRevision(requested: string): Revision {
 
 function readChanges(origin: string, candidate: string, scope?: string): Change[] {
   const args = ["diff", "--name-status", "-z", "--find-renames", origin, candidate, "--"]
+  if (scope) args.push(literalPathspec(scope))
+  const scopedChanges = readChangeDiff(args)
+  if (scope == null) return scopedChanges
+  if (scopedChanges.length === 0) return []
+  return readChangeDiff(["diff", "--name-status", "-z", "--find-renames", origin, candidate, "--"])
+    .filter((change) => ownershipPaths(change).some((path) => isWithin(path, scope)))
+}
+
+function readChangeDiff(args: string[]): Change[] {
   const result = spawnSync("git", args, {
     env: gitEnvironment,
     maxBuffer: 64 * 1024 * 1024,
@@ -387,15 +401,12 @@ function readChanges(origin: string, candidate: string, scope?: string): Change[
       changes.push({ status, path })
     }
   }
-  return changes
-    .filter((change) => scope == null || ownershipPaths(change)
-      .some((path) => path === scope || path.startsWith(`${scope}/`)))
-    .sort((left, right) => left.path.localeCompare(right.path))
+  return changes.sort((left, right) => left.path.localeCompare(right.path))
 }
 
-function readTree(candidate: string, scope?: string): TreeEntry[] {
+function readTree(candidate: string, paths?: string[]): TreeEntry[] {
   const args = ["ls-tree", "-r", "-z", candidate]
-  if (scope) args.push("--", scope)
+  if (paths && paths.length > 0) args.push("--", ...paths.map(literalPathspec))
   const result = spawnSync("git", args, {
     env: gitEnvironment,
     maxBuffer: 64 * 1024 * 1024,
@@ -417,6 +428,20 @@ function readTree(candidate: string, scope?: string): TreeEntry[] {
     }
   }
   return entries.sort((left, right) => left.path.localeCompare(right.path))
+}
+
+function readTreePaths(candidate: string): string[] {
+  const result = spawnSync("git", ["ls-tree", "-r", "-z", "--name-only", candidate], {
+    env: gitEnvironment,
+    maxBuffer: 64 * 1024 * 1024,
+  })
+  if (result.status !== 0) throw new Error(result.stderr.toString().trim() || "git ls-tree failed")
+  const decoder = new TextDecoder("utf-8", { fatal: true })
+  try {
+    return splitNull(result.stdout).map((path) => decoder.decode(path)).sort()
+  } catch {
+    throw new Error("git tree contains a non-UTF-8 path")
+  }
 }
 
 function splitNull(value: Buffer): Buffer[] {
@@ -453,6 +478,7 @@ function buildTestMetadata(
   importEdges: ImportEdge[],
   changedSourcePaths: Set<string>,
   ownerRoots: string[],
+  scope?: string,
 ): TestMetadata[] {
   const changeStatus = new Map(changes.map((change) => [change.path, change.status]))
   const importsByFile = new Map<string, ImportEdge[]>()
@@ -475,8 +501,13 @@ function buildTestMetadata(
       const owner = ownerForPath(path, ownerRoots)
       return owner != null && relevantTestOwners.has(owner)
     })
+  const testObjects = new Map(allOwnerTests.length === 0
+    ? []
+    : readTree(candidate, [...relevantTestOwners, ...(scope ? [scope] : [])])
+      .map((entry) => [entry.path, entry.object]))
+  const testContents = readRevisionFiles(allOwnerTests, testObjects)
   const records = allOwnerTests.map((path): TestMetadata & { relevant: boolean } => {
-    const content = git(["show", `${candidate}:${path}`])
+    const content = testContents.get(path)!
     const directChangedImports = [...new Set(
       (importsByFile.get(path) ?? [])
         .map((edge) => edge.target)
@@ -534,13 +565,17 @@ function readImportEdges(
   candidate: string,
   candidatePaths: string[],
   pathSet: Set<string>,
-  candidateObjects: Map<string, string>,
+  changedSourcePaths: Set<string>,
+  scope?: string,
 ): ImportAnalysis {
+  const packagePaths = candidatePaths.filter((path) => path === "package.json" || path.endsWith("/package.json"))
+  const packageEntries = packagePaths.length === 0 ? [] : readTree(candidate, packagePaths)
+  const packageObjects = new Map(packageEntries.map((entry) => [entry.path, entry.object]))
+  const packageContents = readRevisionFiles(packagePaths, packageObjects)
   const packageRoots = new Map<string, string>()
-  for (const packagePath of candidatePaths.filter((path) => path.endsWith("/package.json"))) {
-    const content = git(["show", `${candidate}:${packagePath}`])
+  for (const packagePath of packagePaths) {
     try {
-      const value = JSON.parse(content) as { name?: unknown }
+      const value = JSON.parse(packageContents.get(packagePath)!) as { name?: unknown }
       if (typeof value.name === "string") packageRoots.set(value.name, posix.dirname(packagePath))
     } catch {
       // Malformed package manifests do not contribute import aliases.
@@ -548,8 +583,19 @@ function readImportEdges(
   }
   const edges: ImportEdge[] = []
   const incompleteFiles: ImportAnalysisIssue[] = []
-  const importSourcePaths = candidatePaths.filter(isImportSourcePath)
-  const importSources = readRevisionFiles(importSourcePaths, candidateObjects)
+  const importSourcePaths = discoverImportSourcePaths(
+    candidate,
+    candidatePaths,
+    changedSourcePaths,
+    packageRoots,
+    scope,
+  )
+  const scopedPaths = scope == null
+    ? undefined
+    : [scope, ...importSourcePaths.filter((path) => !isWithin(path, scope))]
+  const importEntries = readTree(candidate, scopedPaths)
+  const importObjects = new Map(importEntries.map((entry) => [entry.path, entry.object]))
+  const importSources = readRevisionFiles(importSourcePaths, importObjects)
   for (const importer of importSourcePaths) {
     const source = importSources.get(importer)!
     const analysis = importSpecifiers(importer, source)
@@ -566,6 +612,67 @@ function readImportEdges(
       || left.specifier.localeCompare(right.specifier)),
     files_analyzed: importSourcePaths.length,
     incomplete_files: incompleteFiles.sort((left, right) => left.path.localeCompare(right.path)),
+  }
+}
+
+function discoverImportSourcePaths(
+  candidate: string,
+  candidatePaths: string[],
+  changedSourcePaths: Set<string>,
+  packageRoots: Map<string, string>,
+  scope?: string,
+): string[] {
+  const allImportSourcePaths = candidatePaths.filter(isImportSourcePath)
+  if (scope == null) return allImportSourcePaths
+
+  const hints = new Set<string>()
+  const paths = new Set(allImportSourcePaths.filter((path) =>
+    isWithin(path, scope) || changedSourcePaths.has(path)))
+  for (const target of changedSourcePaths) {
+    const extension = importSourceExtensions.find((candidateExtension) => target.endsWith(candidateExtension))
+    if (!extension) continue
+    const extensionless = target.slice(0, -extension.length)
+    const basename = posix.basename(extensionless)
+    hints.add(basename)
+    if (basename === "index") {
+      const indexRoot = posix.dirname(extensionless)
+      hints.add(posix.basename(indexRoot))
+      for (const path of allImportSourcePaths) {
+        if (isWithin(path, indexRoot)) paths.add(path)
+      }
+    }
+    for (const [packageName, packageRoot] of packageRoots) {
+      if (isWithin(target, packageRoot)) hints.add(packageName)
+    }
+  }
+  for (const path of grepPaths(candidate, [...hints])) {
+    if (isImportSourcePath(path)) paths.add(path)
+  }
+  return [...paths].sort()
+}
+
+function grepPaths(candidate: string, patterns: string[]): string[] {
+  if (patterns.length === 0) return []
+  const args = ["grep", "-l", "-z", "-I", "-F"]
+  for (const pattern of patterns) args.push("-e", pattern)
+  args.push(candidate, "--")
+  const result = spawnSync("git", args, {
+    env: gitEnvironment,
+    maxBuffer: 64 * 1024 * 1024,
+  })
+  if (result.status === 1) return []
+  if (result.status !== 0) throw new Error(result.stderr.toString().trim() || "git grep failed")
+  const prefix = `${candidate}:`
+  const decoder = new TextDecoder("utf-8", { fatal: true })
+  try {
+    return splitNull(result.stdout).map((record) => {
+      const value = decoder.decode(record)
+      if (!value.startsWith(prefix)) throw new Error("git grep returned an unexpected path")
+      return value.slice(prefix.length)
+    }).sort()
+  } catch (error) {
+    if (error instanceof Error && error.message === "git grep returned an unexpected path") throw error
+    throw new Error("git grep contains a non-UTF-8 path", { cause: error })
   }
 }
 
@@ -803,6 +910,14 @@ function isRepositoryRelative(value: string): boolean {
     && posix.normalize(value) === value
     && value !== ".."
     && !value.startsWith("../")
+}
+
+function isWithin(path: string, root: string): boolean {
+  return root === "." || path === root || path.startsWith(`${root}/`)
+}
+
+function literalPathspec(path: string): string {
+  return `:(literal)${path}`
 }
 
 function isFullObjectId(value: string): boolean {
