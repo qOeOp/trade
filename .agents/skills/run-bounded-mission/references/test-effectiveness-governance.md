@@ -102,8 +102,7 @@ import was found. It must not be restated as “no tests exist”; transitive pa
 deleted sources remain unresolved.
 
 A supplied failure classification describes the escaped defect as review context only. It never
-selects a per-test action. The workspace-skill check discovers all tracked skill-local helper tests
-under `.agents/skills/*/scripts/*.test.ts`.
+selects a per-test action.
 
 ## Choose an action
 
