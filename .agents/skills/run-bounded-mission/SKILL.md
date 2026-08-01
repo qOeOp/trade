@@ -277,6 +277,8 @@ Documents, static checks, and unit tests support a behavior claim but do not rep
 consumer. Conversely, do not change correct production behavior merely to satisfy a test that
 contradicts a higher-authority current contract.
 
+Do not keep repository tests for this skill's instructions or bundled helpers; validate them through actual helper calls in real Missions and hub observation, and fix the real owner when a failure is observed.
+
 A candidate change invalidates only evidence affected by that change. Reuse read-only discovery and
 unaffected checks only when their evidence-specific affected inputs, source and dependency inputs,
 proven consumer closure, configuration, toolchain, and environment remain identical; track the
