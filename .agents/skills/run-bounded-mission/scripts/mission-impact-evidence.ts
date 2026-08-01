@@ -55,6 +55,10 @@ const gitEnvironment = Object.freeze({
   GIT_NO_LAZY_FETCH: "1",
   GIT_TERMINAL_PROMPT: "0",
   GIT_OPTIONAL_LOCKS: "0",
+  GIT_LITERAL_PATHSPECS: "0",
+  GIT_GLOB_PATHSPECS: "0",
+  GIT_NOGLOB_PATHSPECS: "0",
+  GIT_ICASE_PATHSPECS: "0",
 })
 let root = invocationDirectory
 
@@ -328,9 +332,10 @@ function gitGrepPaths(revision: string, patterns: string[], scope?: string): str
     : ["*.ts", "*.tsx", "*.mts", "*.cts", "*.js", "*.jsx", "*.mjs", "*.cjs"]
   const args = [
     "grep",
+    "--no-color",
     "-z",
     "-l",
-    "-I",
+    "--text",
     "-E",
     ...patterns.flatMap((pattern) => ["-e", pattern]),
     revision,
