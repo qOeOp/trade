@@ -861,7 +861,9 @@ test("Control Plane compiles a complete Trial Plan from the immutable Freeze wit
 })
 
 test("Control Plane compiles one immutable compatibility evaluation work package from current Contract facts", () => {
-  const root = mkdtempSync(join(repoRoot(), "tmp", "test-runs", "evaluation-work-package-"))
+  const testRunsRoot = join(repoRoot(), "tmp", "test-runs")
+  mkdirSync(testRunsRoot, { recursive: true })
+  const root = mkdtempSync(join(testRunsRoot, "evaluation-work-package-"))
   const dataRoot = join(root, "btcusdt", "discovery")
   mkdirSync(dataRoot, { recursive: true })
   const csv = "date,timestamp,open,high,low,close,volume\n2026-01-01T00:00:00.000Z,1767225600000,1,2,1,2,10\n"

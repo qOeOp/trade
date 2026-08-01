@@ -1,12 +1,12 @@
 import assert from "node:assert/strict"
-import { rmSync } from "node:fs"
+import { mkdirSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import test from "node:test"
 import { repoRoot } from "../../../../contracts/runtime-core/src/paths"
 import { run } from "./main"
 
 test("event store CLI returns structured errors", () => {
-  const dbPath = join(repoRoot(), "tmp", "test", `event-store-errors-${crypto.randomUUID()}.db`)
+  const dbPath = testDbPath("event-store-errors")
   try {
     const result = run(["--append-event", "--db", dbPath, "--json", "{}"])
     assert.equal(result.ok, false)
@@ -17,7 +17,7 @@ test("event store CLI returns structured errors", () => {
 })
 
 test("event store CLI exposes latest order fill as owner read surface", () => {
-  const dbPath = join(repoRoot(), "tmp", "test", `event-store-cli-${crypto.randomUUID()}.db`)
+  const dbPath = testDbPath("event-store-cli")
   try {
     const event = {
       event_key: "fill-cli-1",
@@ -48,7 +48,7 @@ test("event store CLI exposes latest order fill as owner read surface", () => {
 })
 
 test("event store CLI appends event write envelopes", () => {
-  const dbPath = join(repoRoot(), "tmp", "test", `event-store-envelope-${crypto.randomUUID()}.db`)
+  const dbPath = testDbPath("event-store-envelope")
   try {
     const event = {
       event_key: "observe-envelope-1",
@@ -89,7 +89,7 @@ test("event store CLI appends event write envelopes", () => {
 })
 
 test("event store CLI lists chain ids for owner-side scans", () => {
-  const dbPath = join(repoRoot(), "tmp", "test", `event-store-chain-list-${crypto.randomUUID()}.db`)
+  const dbPath = testDbPath("event-store-chain-list")
   try {
     for (const chainId of ["flow-b", "flow-a"]) {
       const append = run(["--append-event", "--db", dbPath, "--json", JSON.stringify({
@@ -112,3 +112,9 @@ test("event store CLI lists chain ids for owner-side scans", () => {
     rmSync(dbPath, { force: true })
   }
 })
+
+function testDbPath(prefix: string): string {
+  const root = join(repoRoot(), "tmp", "test")
+  mkdirSync(root, { recursive: true })
+  return join(root, `${prefix}-${crypto.randomUUID()}.db`)
+}
