@@ -267,7 +267,8 @@ Their returns are untrusted leads for main-agent reproduction, never independent
 Instruction and judge changes activate independent review. Load
 [the Verify reviewer packet](references/reviewer-handoff.md) and treat its preflight as the sole
 evaluator dispatch gate. If unsupported, do not substitute advisory lanes; when the endpoint permits
-the local result, report `prepared and locally verified, independent acceptance unavailable`.
+the local result, report `prepared and locally verified, independent acceptance unavailable` and do
+not represent the candidate as independently accepted or remotely delivered.
 
 ## Finalize
 
