@@ -33,6 +33,16 @@ interface DirectDependent {
   evidence: "static-relative-production-import"
 }
 
+interface DirectDependencyWarning {
+  path: string
+  reason: "source-read-failed" | "source-parse-failed"
+}
+
+interface DirectDependencyAnalysis {
+  status: "complete" | "incomplete"
+  warnings: DirectDependencyWarning[]
+}
+
 interface Reason {
   kind: "changed-owner-direct-dependency" | "head-not-reachable" | "head-not-source-ref-tip"
   detail: string
@@ -68,7 +78,8 @@ function main(): void {
   const changedPaths = readChangedPaths(base, head, registry)
   const changedOwners = uniqueOwners(changedPaths.flatMap((item) => item.owner ? [item.owner] : []))
   const changedOwnerIds = new Set(changedOwners.map(ownerKey))
-  const directDependents = readDirectDependents(head, registry, changedOwnerIds)
+  const directDependencyEvidence = readDirectDependents(head, registry, changedOwnerIds)
+  const directDependents = directDependencyEvidence.dependents
   const reachableRefs = lines(git([
     "for-each-ref",
     `--contains=${head}`,
@@ -111,6 +122,7 @@ function main(): void {
       owners: changedOwners,
       unowned_paths: changedPaths.filter((item) => !item.owner).map((item) => item.path),
       direct_dependents: directDependents,
+      direct_dependency_analysis: directDependencyEvidence.analysis,
     },
     reasons,
     refactor_decision: null,
@@ -219,16 +231,38 @@ function readDirectDependents(
   head: string,
   registry: OwnerRegistry,
   changedOwnerIds: Set<string>,
-): DirectDependent[] {
+): { dependents: DirectDependent[]; analysis: DirectDependencyAnalysis } {
+  if (changedOwnerIds.size === 0) {
+    return {
+      dependents: [],
+      analysis: {
+        status: "complete",
+        warnings: [],
+      },
+    }
+  }
+
   const dependents: DirectDependent[] = []
-  const sourceFiles = treeFiles(head)
-    .filter(isJavaScriptOrTypeScript)
+  const warnings: DirectDependencyWarning[] = []
+  const sourceFiles = candidateSourcePaths(head, registry, changedOwnerIds)
     .filter((path) => !isTestSource(path))
   for (const path of sourceFiles) {
     const sourceOwner = resolveOwner(registry, path)
     if (!sourceOwner) continue
-    const source = readFileAt(head, path).replace(/^#![^\n]*(?:\n|$)/, "")
-    const imports = new Bun.Transpiler({ loader: loaderForPath(path) }).scanImports(source)
+    let source: string
+    try {
+      source = readFileAt(head, path).replace(/^#![^\n]*(?:\n|$)/, "")
+    } catch {
+      warnings.push({ path, reason: "source-read-failed" })
+      continue
+    }
+    let imports: ReturnType<Bun.Transpiler["scanImports"]>
+    try {
+      imports = new Bun.Transpiler({ loader: loaderForPath(path) }).scanImports(source)
+    } catch {
+      warnings.push({ path, reason: "source-parse-failed" })
+      continue
+    }
     for (const item of imports) {
       if (!item.path.startsWith(".")) continue
       const targetPath = normalizePath(posix.normalize(posix.join(posix.dirname(path), item.path)))
@@ -246,8 +280,76 @@ function readDirectDependents(
       })
     }
   }
-  return dependents.sort((left, right) =>
-    `${left.source_path}:${left.specifier}`.localeCompare(`${right.source_path}:${right.specifier}`))
+  return {
+    dependents: dependents.sort((left, right) =>
+      `${left.source_path}:${left.specifier}`.localeCompare(`${right.source_path}:${right.specifier}`)),
+    analysis: {
+      status: warnings.length === 0 ? "complete" : "incomplete",
+      warnings: warnings.sort((left, right) =>
+        left.path.localeCompare(right.path) || left.reason.localeCompare(right.reason)),
+    },
+  }
+}
+
+function candidateSourcePaths(
+  head: string,
+  registry: OwnerRegistry,
+  changedOwnerIds: Set<string>,
+): string[] {
+  const changedRoots = registry.roots.filter((item) => changedOwnerIds.has(ownerKey(item.owner)))
+  const ownerSegmentPatterns = [...new Set(changedRoots.map((item) => {
+    const segment = item.path.split("/").at(-1)!
+    return `["'][.][.]?/([^/"']+/|[.][.]/)*${escapeExtendedRegex(segment)}(/|["'])`
+  }))]
+  const candidates = new Set(gitGrepPaths(head, ownerSegmentPatterns))
+  const relativeSpecifierPattern = `["'][.][.]?/`
+  for (const target of changedRoots) {
+    for (const source of registry.roots) {
+      if (source.path.startsWith(`${target.path}/`)) {
+        for (const path of gitGrepPaths(head, [relativeSpecifierPattern], source.path)) {
+          candidates.add(path)
+        }
+      }
+    }
+  }
+  return [...candidates]
+    .filter(isJavaScriptOrTypeScript)
+    .filter((path) => resolveOwner(registry, path) != null)
+    .sort()
+}
+
+function gitGrepPaths(revision: string, patterns: string[], scope?: string): string[] {
+  if (patterns.length === 0) return []
+  const pathspecs = scope
+    ? [`:(top,literal)${scope}`]
+    : ["*.ts", "*.tsx", "*.mts", "*.cts", "*.js", "*.jsx", "*.mjs", "*.cjs"]
+  const args = [
+    "grep",
+    "-z",
+    "-l",
+    "-I",
+    "-E",
+    ...patterns.flatMap((pattern) => ["-e", pattern]),
+    revision,
+    "--",
+    ...pathspecs,
+  ]
+  let output: string
+  try {
+    output = git(args)
+  } catch (error) {
+    if ((error as { status?: number }).status === 1) return []
+    throw error
+  }
+  const prefix = `${revision}:`
+  return output
+    .split("\0")
+    .filter(Boolean)
+    .map((item) => item.startsWith(prefix) ? item.slice(prefix.length) : item)
+}
+
+function escapeExtendedRegex(value: string): string {
+  return value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")
 }
 
 function buildReasons(
@@ -304,10 +406,6 @@ function uniqueOwners(owners: Owner[]): Owner[] {
 
 function ownerKey(owner: Owner): string {
   return owner.id
-}
-
-function treeFiles(revision: string): string[] {
-  return git(["ls-tree", "-r", "--name-only", "-z", revision]).split("\0").filter(Boolean).sort()
 }
 
 function readFileAt(revision: string, path: string): string {
