@@ -35,18 +35,9 @@ bun .agents/skills/run-bounded-mission/scripts/evaluator-capability-check.ts --c
 Only exit `0` with `dispatch_allowed=true` permits evaluator dispatch. Missing or malformed evidence,
 workspace-write authority, candidate-controlled discovery, a shared candidate, prior builder
 participation, an incomplete or write-capable tool surface, delegation, or lateral communication
-rejects dispatch. The current host exposes no trusted capability observation channel, so this CLI
-always returns `unsupported`; it accepts no caller evidence and cannot be upgraded by a role config
-or prompt.
-
-When the current host exposes only subagents in the shared candidate checkout, an instruction,
-skill, agent-definition, discovery-path, judge, or reviewer-policy candidate has no candidate-external
-launch through that path. Record independent acceptance as unavailable and apply the skill's local
-Finalize restriction. A separate CLI or checkout is not an evaluator path until it demonstrably
-loads the admitted reviewer policy from a candidate-external origin, enforces read-only authority,
-can inspect the exact candidate locator, and exposes a trusted capability observation channel wired
-into the preflight. Until that trusted integration exists, no dynamic evidence proves that an
-independent evaluator can run here.
+rejects dispatch. This host's helper reports `unsupported` because no trusted capability observation
+channel exists; prompts, role configuration, shared-checkout subagents, or alternate CLIs cannot
+override it. Record independent acceptance as unavailable and apply the skill's Finalize restriction.
 
 Report only mission-attributable, demonstrated consumer or contract failures or acceptance risks.
 Classify whether the cause is local to the candidate, invalidates the admitted Plan, or invalidates a
