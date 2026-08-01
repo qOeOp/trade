@@ -44,6 +44,7 @@ interface RecoveryEvidence {
   position: Stage | "blocked"
   blockedResumeStage: Stage | null
   planAdmission: PlanAdmission | null
+  candidateReady: boolean
   head: string
   branch: string
   status: string
@@ -206,16 +207,61 @@ describe("single-Mission transition contract", () => {
 
     const unavailableRepository = createTemporaryRepository()
     try {
-      const unavailable = replay(unavailableRepository, [
+      const resumed = replay(unavailableRepository, [
         "frame-complete",
         "plan-admitted",
         "candidate-ready",
         "pre-verify-gates-unavailable",
         "blocked",
+        "context-lost",
+        "recover-exact",
+        "resume-blocker-removed",
+        "pre-verify-gates-pass",
+        "verify-pass",
+        "accept",
       ], admissiblePlan)
-      expect(unavailable.position).toBe("blocked")
+      expect(resumed.position).toBe("accepted")
+      expect(resumed.mutations).toBe(1)
     } finally {
       rmSync(unavailableRepository, { recursive: true, force: true })
+    }
+  })
+
+  test("does not recover a failed candidate as ready after revise", () => {
+    const beforeReplacement = [
+      "frame-complete",
+      "plan-admitted",
+      "candidate-ready",
+      "pre-verify-gates-pass",
+      "verify-fail-local",
+      "revise",
+      "context-lost",
+      "recover-exact",
+    ]
+
+    const repository = createTemporaryRepository()
+    try {
+      const recovered = replay(repository, beforeReplacement, admissiblePlan)
+      expect(recovered.position).toBe("Execute")
+      expect(recovered.candidateReady).toBe(false)
+      expect(recovered.mutations).toBe(1)
+      expect(() => replay(repository, [
+        ...beforeReplacement,
+        "pre-verify-gates-pass",
+      ], admissiblePlan)).toThrow("pre-Verify gates require a complete candidate")
+      expect(readFileSync(resolve(repository, "candidate.txt"), "utf8")).toBe("candidate-1\n")
+      const replaced = replay(repository, [
+        ...beforeReplacement,
+        "candidate-ready",
+        "pre-verify-gates-pass",
+        "verify-pass",
+        "accept",
+      ], admissiblePlan)
+      expect(replaced.position).toBe("accepted")
+      expect(replaced.mutations).toBe(2)
+      expect(readFileSync(resolve(repository, "candidate.txt"), "utf8")).toBe("candidate-2\n")
+    } finally {
+      rmSync(repository, { recursive: true, force: true })
     }
   })
 
@@ -326,6 +372,7 @@ function replay(
         state.position,
         state.blockedResumeStage,
         state.admittedPlan,
+        state.candidateReady,
       )
       state.position = "suspended"
       continue
@@ -339,6 +386,7 @@ function replay(
         state.suspendedEvidence.position,
         state.suspendedEvidence.blockedResumeStage,
         state.suspendedEvidence.planAdmission === null ? null : recoveredPlanAdmission,
+        state.suspendedEvidence.candidateReady,
       )) !== JSON.stringify(state.suspendedEvidence)) {
         throw new Error("recovery evidence does not match the candidate")
       }
@@ -347,7 +395,7 @@ function replay(
       state.admittedPlan = state.suspendedEvidence.planAdmission === null
         ? null
         : structuredClone(state.suspendedEvidence.planAdmission)
-      state.candidateReady = state.suspendedEvidence.candidate !== null
+      state.candidateReady = state.suspendedEvidence.candidateReady
       state.suspendedEvidence = null
       continue
     }
@@ -512,12 +560,14 @@ function recoveryEvidence(
   position: Stage | "blocked",
   blockedResumeStage: Stage | null,
   planAdmission: PlanAdmission | null,
+  candidateReady: boolean,
 ): RecoveryEvidence {
   const candidatePath = resolve(repository, "candidate.txt")
   return {
     position,
     blockedResumeStage,
     planAdmission: planAdmission === null ? null : structuredClone(planAdmission),
+    candidateReady,
     head: git(repository, "rev-parse", "HEAD"),
     branch: git(repository, "branch", "--show-current"),
     status: git(repository, "status", "--porcelain"),
