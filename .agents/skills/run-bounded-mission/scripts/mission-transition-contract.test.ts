@@ -1,375 +1,398 @@
 import { describe, expect, test } from "bun:test"
-import { execFileSync } from "node:child_process"
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
-type Stage = "Frame" | "Plan" | "Execute" | "Verify" | "Finalize"
-type Terminal = "accepted" | "blocked" | "cancelled"
-type Position = Stage | Terminal | "suspended"
-type Verification = "pass" | "local-failure" | "design-failure" | "scope-expansion" | "ambiguity-exhausted" | null
+type Position = "Frame" | "Plan" | "Execute" | "Verify" | "Finalize" | "accepted" | "blocked" | "cancelled"
+type Failure = "local" | "design" | "scope" | "material" | "ambiguity" | null
+type Pending = "reframe-replan-replacement" | "replacement-plan" | null
+type Route = "accept" | "revise" | "replan" | "reframe" | "reframe-replacement" | "enlarge" | "blocked"
+type Fault = "none" | "advertise-split" | "hard-coded-enlargement" | "skip-consumption"
+  | "resume-frame" | "reset-on-move" | "second-enlargement"
+
+interface State {
+  position: Position
+  failure: Failure
+  passed: boolean
+  absolute: bigint
+  used: bigint
+  enlarged: boolean
+  attempts: Record<string, bigint>
+  pending: Pending
+  resume: Position | null
+  mutations: number
+}
+
+interface Intent {
+  route: Route
+  absolute?: bigint
+}
 
 interface Scenario {
   name: string
   events: string[]
-  expected_terminal: Terminal
+  expected_terminal: Position
   expected_mutations: number
 }
 
-interface Fixture {
-  contract_version: number
-  scenarios: Scenario[]
-}
-
-interface ReplayState {
-  position: Position
-  verification: Verification
-  backwardRoutes: number
-  evidenceAttempts: number
-  mutations: number
-  suspendedEvidence: RecoveryEvidence | null
-  blockedResumeStage: Stage | null
-}
-
-interface RecoveryEvidence {
-  position: Stage | "blocked"
-  blockedResumeStage: Stage | null
-  head: string
-  branch: string
-  status: string
-  candidate: string | null
-}
-
-const skillRoot = resolve(import.meta.dir, "..")
-const skill = normalized(resolve(skillRoot, "SKILL.md"))
-const ambiguity = normalized(resolve(skillRoot, "references/plan-ambiguity.md"))
-const revisionPressure = normalized(resolve(skillRoot, "references/revision-pressure-replan.md"))
-const fixture = JSON.parse(
-  readFileSync(resolve(skillRoot, "fixtures/mission-transition-contract.json"), "utf8"),
-) as Fixture
+const root = resolve(import.meta.dir, "..")
+const skill = normalized(resolve(root, "SKILL.md"))
+const pressure = normalized(resolve(root, "references/revision-pressure-replan.md"))
+const scenarios = (JSON.parse(
+  readFileSync(resolve(root, "fixtures/mission-transition-contract.json"), "utf8"),
+) as { scenarios: Scenario[] }).scenarios
 
 describe("single-Mission transition contract", () => {
-  test("states observable forward and backward boundaries without durable state", () => {
-    for (const transition of [
-      "Frame → Plan",
-      "Plan → Execute",
-      "Execute → Verify",
-      "Verify → Finalize",
-      "Finalize → accept",
-    ]) expect(skill).toContain(transition)
-
-    expect(skill).toContain("reasoning position in this conversation, not durable workflow state")
-    expect(skill).toContain("`revise` returns to Execute")
-    expect(skill).toContain("`replan` returns to Plan")
-    expect(skill).toContain("`reframe` returns to Frame")
-    expect(skill).toContain("`blocked` ends the current run")
-    expect(skill).toContain("Scope expansion always requires `reframe`")
-    expect(skill).toContain("cancellation override may instead terminate directly")
-  })
-
-  test("bounds investigation, retry, revision pressure, and Stop recovery", () => {
-    expect(skill).toContain("same unresolved Frame, Plan, or Verify question")
-    expect(skill).toContain("at most two total backward routes")
-    expect(skill).toContain("no repeat of an unchanged failed investigation")
-    expect(skill).toContain("at most one replacement candidate for each admitted replan")
-    expect(skill).toContain("does not reset consumed Stop")
-    expect(skill).toContain("Only an explicit user-approved finite Stop change may continue")
-    expect(ambiguity).toContain("Repeating the same search, command, request, or argument")
-    expect(revisionPressure).toContain("same material failure recurs after one correction")
-    expect(revisionPressure).toContain("One replan admits at most one replacement candidate")
-  })
-
-  test("defines a minimal evidence locator and fail-closed recovery", () => {
-    for (const field of [
-      "Current Mission evidence",
-      "Frame: <current outcome",
-      "Plan: <admitted owner",
-      "Candidate/effects: <exact commit or complete diff locator",
-      "Evidence: <decisive checks",
-      "Position: <current stage or terminal route",
-      "Resume: <stage to re-enter after a named blocker is removed",
-    ]) expect(skill).toContain(field)
-
-    expect(skill).toContain("This locator is evidence, not an identity, receipt, file, ledger, or host state")
-    expect(skill).toContain("exclude a different Mission or candidate")
-    expect(skill).toContain("explicit `Resume` stage")
-    expect(skill).toContain("without resetting Stop")
-    expect(skill).toContain("this locator does not replace it")
-  })
-
-  test("keeps cancellation preservation and authorized discard distinct", () => {
+  test("keeps forward, cancellation, and one backward-decision authority", () => {
+    for (const transition of ["Frame → Plan", "Plan → Execute", "Execute → Verify", "Verify → Finalize"]) {
+      expect(skill).toContain(transition)
+    }
     expect(skill).toContain("Plain cancellation ends the Mission with its existing candidate preserved")
-    expect(skill).toContain("explicitly requests discard or revert")
-    expect(skill).toContain("cleanup only of the exactly identified mission-owned diff")
+    expect(skill).toContain("Use one backward-transition decision for route advertisement and work admission")
+    expect(skill).toContain("apply that same decision and record its consumption before any other work")
+    expect(skill).toContain("one mandatory pending `reframe → replan replacement` transition")
+    expect(skill).toContain("without relying on ambient in-memory state")
+    expect(pressure).toContain("main skill's single backward-transition decision exclusively owns")
+    expect(pressure).toContain("Do not restate or override those decisions here")
   })
 
-  test("replays every required route in isolated temporary Git repositories", () => {
-    expect(fixture.contract_version).toBe(1)
-    expect(fixture.scenarios.map(({ name }) => name)).toEqual([
-      "normal-accept",
-      "verify-revise-accept",
-      "verify-replan-accept",
-      "scope-expansion-reframe",
-      "continuous-nonconvergence-blocked",
-      "context-recovery",
-      "frame-ambiguity-blocked",
-      "blocked-context-recovery",
-      "user-override-before-mutation",
-      "user-override-discard",
-    ])
-
-    for (const scenario of fixture.scenarios) {
-      const repository = createTemporaryRepository()
-      try {
-        const initialHead = git(repository, "rev-parse", "HEAD")
-        const initialBranch = git(repository, "branch", "--show-current")
-        const initialBranches = git(repository, "for-each-ref", "--format=%(refname:short)", "refs/heads")
-        const state = replay(repository, scenario.events)
-
-        expect(state.position, scenario.name).toBe(scenario.expected_terminal)
-        expect(state.mutations, scenario.name).toBe(scenario.expected_mutations)
-        expect(git(repository, "rev-parse", "HEAD"), scenario.name).toBe(initialHead)
-        expect(git(repository, "branch", "--show-current"), scenario.name).toBe(initialBranch)
-
-        if (scenario.expected_mutations > 0 && scenario.name !== "user-override-discard") {
-          expect(git(repository, "status", "--porcelain"), scenario.name).not.toBe("")
-        }
-
-        if (scenario.name === "user-override-before-mutation" || scenario.name === "user-override-discard") {
-          expect(git(repository, "status", "--porcelain")).toBe("")
-          expect(git(repository, "for-each-ref", "--format=%(refname:short)", "refs/heads")).toBe(initialBranches)
-          expect(git(repository, "remote")).toBe("")
-        }
-      } finally {
-        rmSync(repository, { recursive: true, force: true })
-      }
+  test("retains the existing lifecycle journeys through that decision", () => {
+    for (const scenario of scenarios) {
+      const state = replay(scenario.events)
+      expect(state.position, scenario.name).toBe(scenario.expected_terminal)
+      expect(state.mutations, scenario.name).toBe(scenario.expected_mutations)
     }
   })
 
-  test("rejects illegal shortcuts and a third backward route", () => {
-    const repository = createTemporaryRepository()
-    try {
-      expect(() => replay(repository, ["accept"])).toThrow("accept requires Finalize")
-      expect(() => replay(repository, [
-        "frame-complete",
-        "plan-admitted",
-        "candidate-ready",
-        "verify-fail-design",
-        "replan",
-        "plan-admitted",
-        "candidate-ready",
-        "verify-fail-local",
-        "revise",
-        "scope-expanded",
-        "reframe",
-      ])).toThrow("backward Stop exhausted")
-    } finally {
-      rmSync(repository, { recursive: true, force: true })
+  test("uses complete arbitrary ceilings and makes every advertised route reachable", () => {
+    for (const absolute of [1n, 2n, 4n, 17n, 9_007_199_254_740_993n]) {
+      const beforeLast = atFailure("local", absolute - 1n, absolute)
+      const started = begin(beforeLast, { route: "revise" })
+      expect(started.used).toBe(absolute)
+
+      const exhausted = atFailure("local", absolute, absolute)
+      expect(routes(exhausted)).toEqual(["enlarge", "blocked"])
+      expect(advertisedReachable(exhausted)).toBe(true)
     }
+
+    const enlarged = begin(atFailure("design", 4n, 4n), { route: "enlarge", absolute: 5n })
+    expect(enlarged).toMatchObject({ absolute: 5n, used: 4n, enlarged: true })
+    expect(routes(enlarged)).toEqual(["reframe-replacement", "blocked"])
+    const reframed = begin(enlarged, { route: "reframe-replacement" })
+    expect(reframed).toMatchObject({ position: "Frame", used: 5n, pending: "replacement-plan" })
+  })
+
+  test("does not advertise or begin exhausted local and scope routes", () => {
+    for (const [failure, ordinary] of [["local", "revise"], ["scope", "reframe"]] as const) {
+      const state = atFailure(failure, 4n, 4n)
+      expect(routes(state)).toEqual(["enlarge", "blocked"])
+      expect(() => begin(state, { route: ordinary })).toThrow("route is not available")
+    }
+  })
+
+  test("recovers attempts, budgets, and pending work from evidence alone", () => {
+    const state = begin(atFailure("design", 4n, 4n), { route: "enlarge", absolute: 5n })
+    state.attempts.ambiguity = 1n
+    const evidence = checkpoint(state)
+    const recovered = recover(JSON.parse(JSON.stringify(evidence)) as unknown)
+
+    expect(recovered).toEqual(state)
+    expect(recovered.attempts).toEqual({ ambiguity: 1n })
+    expect(routes(recovered)).toEqual(["reframe-replacement", "blocked"])
+
+    for (const field of ["absolute", "used", "enlarged", "attempts", "pending", "resume", "mutations"]) {
+      const incomplete = structuredClone(evidence) as Record<string, unknown>
+      delete incomplete[field]
+      expect(() => recover(incomplete), field).toThrow("incomplete recovery evidence")
+    }
+  })
+
+  test("cannot Resume around reframe or enlarge twice after a material recurrence", () => {
+    const enlarged = begin(atFailure("scope", 4n, 4n), { route: "enlarge", absolute: 5n })
+    const resumed = resume(recover(checkpoint(begin(enlarged, { route: "blocked" }))))
+    expect(resumed).toMatchObject({ position: "Finalize", pending: "reframe-replan-replacement", used: 4n })
+    expect(() => admitPlan(resumed, true)).toThrow("plan admission requires Plan")
+
+    let replacement = begin(resumed, { route: "reframe-replacement" })
+    expect(replacement.used).toBe(5n)
+    replacement = completeFrame(recover(checkpoint(replacement)))
+    replacement = admitPlan(replacement, true)
+    replacement = candidateReady(replacement)
+    replacement = verify(replacement, "material")
+    expect(routes(replacement)).toEqual(["blocked"])
+    expect(() => begin(replacement, { route: "enlarge", absolute: 6n })).toThrow("route is not available")
+    expect(() => resume(begin(replacement, { route: "blocked" }))).toThrow("blocked Mission has no Resume")
+  })
+
+  test("preserves the envelope across incidental moves and allows explicit positive controls", () => {
+    const state = atFailure("design", 2n, 4n)
+    const moved = continueMission(state, ["turn", "compaction", "successor", "branch", "checkout", "rename"])
+    expect(stopOf(moved)).toEqual(stopOf(state))
+
+    for (const [reason, absolute] of [["materially-changed-frame", 7n], ["independent-outcome", 3n]] as const) {
+      const fresh = newEnvelope(reason, absolute)
+      expect(stopOf(fresh)).toEqual({ absolute, used: 0n, enlarged: false, attempts: {}, pending: null })
+    }
+  })
+
+  test("kills the escaped mechanisms and adjacent mutants", () => {
+    expect(approveFive("none")).toBe(true)
+    expect(approveFive("hard-coded-enlargement")).toBe(false)
+    expect(advertisedReachable(atFailure("local", 4n, 4n), "none")).toBe(true)
+    expect(advertisedReachable(atFailure("local", 4n, 4n), "advertise-split")).toBe(false)
+
+    const incomplete = checkpoint(initial()) as Record<string, unknown>
+    delete incomplete.attempts
+    expect(() => recover(incomplete)).toThrow("incomplete recovery evidence")
+
+    expect(pendingSurvivesResume("none")).toBe(true)
+    expect(pendingSurvivesResume("resume-frame")).toBe(false)
+    expect(begin(atFailure("local", 0n, 2n), { route: "revise" }).used).toBe(1n)
+    expect(begin(atFailure("local", 0n, 2n), { route: "revise" }, "skip-consumption").used).toBe(0n)
+    expect(continueMission(atFailure("design", 2n, 4n), ["rename"]).used).toBe(2n)
+    expect(continueMission(atFailure("design", 2n, 4n), ["rename"], "reset-on-move").used).toBe(0n)
+    expect(secondEnlargement("none")).toBe(false)
+    expect(secondEnlargement("second-enlargement")).toBe(true)
   })
 })
 
-function replay(repository: string, events: string[]): ReplayState {
-  const state: ReplayState = {
-    position: "Frame",
-    verification: null,
-    backwardRoutes: 0,
-    evidenceAttempts: 0,
-    mutations: 0,
-    suspendedEvidence: null,
-    blockedResumeStage: null,
+function decision(state: State, intent?: Intent, fault: Fault = "none"): { available: Route[]; next?: State } {
+  if (state.position !== "Finalize") throw new Error("backward decision requires Finalize")
+  if (state.used > state.absolute) throw new Error("consumption exceeds absolute ceiling")
+
+  let available: Route[]
+  if (state.pending === "reframe-replan-replacement") available = ["reframe-replacement", "blocked"]
+  else if (state.passed) available = ["accept"]
+  else if (state.failure === "material" && state.enlarged) {
+    available = fault === "second-enlargement" ? ["enlarge", "blocked"] : ["blocked"]
+  } else if (state.used === state.absolute) {
+    available = state.enlarged ? ["blocked"] : ["enlarge", "blocked"]
+    if (fault === "advertise-split" && intent === undefined) {
+      const ordinary = ordinaryRoute(state.failure)
+      if (ordinary !== null) available = [ordinary, ...available]
+    }
+  } else {
+    const ordinary = ordinaryRoute(state.failure)
+    available = ordinary === null ? ["blocked"] : [ordinary, "blocked"]
   }
 
-  for (const event of events) {
-    if (event === "user-override-cancel") {
-      requireActive(state.position, event)
-      state.position = "cancelled"
-      continue
-    }
-    if (event === "user-override-discard") {
-      requireActive(state.position, event)
-      rmSync(resolve(repository, "candidate.txt"), { force: true })
-      state.position = "cancelled"
-      continue
-    }
-    if (event === "context-lost") {
-      requireRecoverable(state.position, event)
-      state.suspendedEvidence = recoveryEvidence(repository, state.position, state.blockedResumeStage)
-      state.position = "suspended"
-      continue
-    }
-    if (event === "recover-exact") {
-      if (state.position !== "suspended" || state.suspendedEvidence === null) {
-        throw new Error("recover-exact requires suspended evidence")
-      }
-      if (JSON.stringify(recoveryEvidence(
-        repository,
-        state.suspendedEvidence.position,
-        state.suspendedEvidence.blockedResumeStage,
-      )) !== JSON.stringify(state.suspendedEvidence)) {
-        throw new Error("recovery evidence does not match the candidate")
-      }
-      state.position = state.suspendedEvidence.position
-      state.blockedResumeStage = state.suspendedEvidence.blockedResumeStage
-      state.suspendedEvidence = null
-      continue
-    }
-    if (event === "frame-ambiguity") {
-      requireStage(state.position, "Frame", event)
-      continue
-    }
-    if (event === "evidence-attempt") {
-      requireStage(state.position, "Frame", event)
-      state.evidenceAttempts += 1
-      if (state.evidenceAttempts > 2) throw new Error("evidence Stop exhausted")
-      continue
-    }
-    if (event === "evidence-exhausted") {
-      requireStage(state.position, "Frame", event)
-      if (state.evidenceAttempts !== 2) throw new Error("evidence-exhausted requires two attempts")
-      state.position = "Finalize"
-      state.verification = "ambiguity-exhausted"
-      continue
-    }
-    if (event === "frame-complete") {
-      requireStage(state.position, "Frame", event)
-      state.position = "Plan"
-      continue
-    }
-    if (event === "plan-admitted") {
-      requireStage(state.position, "Plan", event)
-      state.position = "Execute"
-      continue
-    }
-    if (event === "candidate-ready") {
-      requireStage(state.position, "Execute", event)
-      state.mutations += 1
-      writeFileSync(resolve(repository, "candidate.txt"), `candidate-${state.mutations}\n`)
-      state.position = "Verify"
-      state.verification = null
-      continue
-    }
-    if (event === "verify-pass") {
-      requireStage(state.position, "Verify", event)
-      state.position = "Finalize"
-      state.verification = "pass"
-      continue
-    }
-    if (event === "verify-fail-local" || event === "verify-fail-design") {
-      requireStage(state.position, "Verify", event)
-      state.position = "Finalize"
-      state.verification = event === "verify-fail-local" ? "local-failure" : "design-failure"
-      continue
-    }
-    if (event === "accept") {
-      requireStage(state.position, "Finalize", event)
-      if (state.verification !== "pass") throw new Error("accept requires passing evidence")
-      state.position = "accepted"
-      continue
-    }
-    if (event === "revise" || event === "replan") {
-      requireStage(state.position, "Finalize", event)
-      const expected = event === "revise" ? "local-failure" : "design-failure"
-      if (state.verification !== expected) throw new Error(`${event} has the wrong failure class`)
-      consumeBackwardRoute(state)
-      state.position = event === "revise" ? "Execute" : "Plan"
-      continue
-    }
-    if (event === "scope-expanded") {
-      requireActive(state.position, event)
-      state.position = "Finalize"
-      state.verification = "scope-expansion"
-      continue
-    }
-    if (event === "reframe") {
-      requireStage(state.position, "Finalize", event)
-      if (state.verification !== "scope-expansion") {
-        throw new Error("reframe requires a material Frame change")
-      }
-      consumeBackwardRoute(state)
-      state.position = "Frame"
-      state.verification = null
-      continue
-    }
-    if (event === "blocked") {
-      requireStage(state.position, "Finalize", event)
-      if (state.verification === "pass") throw new Error("blocked cannot replace accept")
-      state.blockedResumeStage = resumableStage(state.verification)
-      state.position = "blocked"
-      continue
-    }
-    if (event === "resume-blocker-removed") {
-      if (state.position !== "blocked" || state.blockedResumeStage === null) {
-        throw new Error("resume requires an explicit blocked stage")
-      }
-      state.position = state.blockedResumeStage
-      state.blockedResumeStage = null
-      state.verification = null
-      continue
-    }
-    throw new Error(`unknown event: ${event}`)
-  }
+  if (intent === undefined) return { available }
+  if (!available.includes(intent.route)) throw new Error(`route is not available: ${intent.route}`)
+  const next = clone(state)
 
+  if (intent.route === "accept") next.position = "accepted"
+  else if (intent.route === "blocked") {
+    next.position = "blocked"
+    next.resume = resumeFromDecision(state)
+  } else if (intent.route === "enlarge") {
+    if (intent.absolute === undefined || intent.absolute <= state.absolute) {
+      throw new Error("enlargement must name a larger absolute ceiling")
+    }
+    if (fault === "hard-coded-enlargement" && ![3n, 4n].includes(intent.absolute)) {
+      throw new Error("unknown enlargement event")
+    }
+    next.absolute = intent.absolute
+    next.enlarged = true
+    next.pending = "reframe-replan-replacement"
+    next.failure = null
+  } else {
+    if (fault !== "skip-consumption") next.used += 1n
+    if (next.used > next.absolute) throw new Error("absolute backward Stop exhausted")
+    next.failure = null
+    if (intent.route === "revise") next.position = "Execute"
+    if (intent.route === "replan") next.position = "Plan"
+    if (intent.route === "reframe") next.position = "Frame"
+    if (intent.route === "reframe-replacement") {
+      next.position = "Frame"
+      next.pending = "replacement-plan"
+    }
+  }
+  return { available, next }
+}
+
+function routes(state: State, fault: Fault = "none"): Route[] {
+  return decision(state, undefined, fault).available
+}
+
+function begin(state: State, intent: Intent, fault: Fault = "none"): State {
+  const next = decision(state, intent, fault).next
+  if (next === undefined) throw new Error("decision did not produce a next state")
+  return next
+}
+
+function ordinaryRoute(failure: Failure): "revise" | "replan" | "reframe" | null {
+  if (failure === "local") return "revise"
+  if (failure === "design") return "replan"
+  if (failure === "scope") return "reframe"
+  return null
+}
+
+function resumeFromDecision(state: State): Position | null {
+  if (state.failure === "material" && state.enlarged) return null
+  if (state.pending === "reframe-replan-replacement") return "Finalize"
+  if (state.failure === "local") return "Execute"
+  if (state.failure === "design") return "Plan"
+  if (state.failure === "scope" || state.failure === "ambiguity") return "Frame"
+  return null
+}
+
+function initial(absolute = 2n): State {
+  if (absolute <= 0n) throw new Error("absolute ceiling must be positive")
+  return {
+    position: "Frame", failure: null, passed: false, absolute, used: 0n, enlarged: false,
+    attempts: {}, pending: null, resume: null, mutations: 0,
+  }
+}
+
+function atFailure(failure: Exclude<Failure, null>, used: bigint, absolute: bigint): State {
+  return { ...initial(absolute), position: "Finalize", failure, used }
+}
+
+function completeFrame(state: State): State {
+  if (state.position !== "Frame") throw new Error("frame completion requires Frame")
+  return { ...clone(state), position: "Plan" }
+}
+
+function admitPlan(state: State, replacement = false): State {
+  if (state.position !== "Plan") throw new Error("plan admission requires Plan")
+  if ((state.pending === "replacement-plan") !== replacement) throw new Error("replacement Plan mismatch")
+  return { ...clone(state), position: "Execute", pending: replacement ? null : state.pending }
+}
+
+function candidateReady(state: State): State {
+  if (state.position !== "Execute") throw new Error("candidate requires Execute")
+  return { ...clone(state), position: "Verify", mutations: state.mutations + 1 }
+}
+
+function verify(state: State, result: "pass" | Exclude<Failure, null>): State {
+  if (state.position !== "Verify") throw new Error("verification requires Verify")
+  return { ...clone(state), position: "Finalize", passed: result === "pass", failure: result === "pass" ? null : result }
+}
+
+function resume(state: State, fault: Fault = "none"): State {
+  if (state.position !== "blocked" || state.resume === null) throw new Error("blocked Mission has no Resume")
+  const position = fault === "resume-frame" && state.pending === "reframe-replan-replacement"
+    ? "Frame" : state.resume
+  return { ...clone(state), position, resume: null }
+}
+
+function continueMission(state: State, moves: string[], fault: Fault = "none"): State {
+  if (moves.length > 0 && fault === "reset-on-move") return initial(state.absolute)
+  return clone(state)
+}
+
+function newEnvelope(reason: "materially-changed-frame" | "independent-outcome", absolute: bigint): State {
+  if (!reason) throw new Error("new envelope requires user-owned reason")
+  return initial(absolute)
+}
+
+function checkpoint(state: State): Record<string, unknown> {
+  return {
+    position: state.position, failure: state.failure, passed: state.passed,
+    absolute: state.absolute.toString(), used: state.used.toString(), enlarged: state.enlarged,
+    attempts: Object.fromEntries(Object.entries(state.attempts).map(([key, value]) => [key, value.toString()])),
+    pending: state.pending, resume: state.resume, mutations: state.mutations,
+  }
+}
+
+function recover(value: unknown): State {
+  const keys = ["position", "failure", "passed", "absolute", "used", "enlarged", "attempts", "pending", "resume", "mutations"]
+  if (!record(value) || !keys.every((key) => Object.hasOwn(value, key)) || !record(value.attempts)) {
+    throw new Error("incomplete recovery evidence")
+  }
+  if (typeof value.absolute !== "string" || typeof value.used !== "string") throw new Error("invalid recovery evidence")
+  const attempts: Record<string, bigint> = {}
+  for (const [key, count] of Object.entries(value.attempts)) {
+    if (typeof count !== "string") throw new Error("invalid recovery evidence")
+    attempts[key] = BigInt(count)
+  }
+  const state = {
+    position: value.position, failure: value.failure, passed: value.passed,
+    absolute: BigInt(value.absolute), used: BigInt(value.used), enlarged: value.enlarged,
+    attempts, pending: value.pending, resume: value.resume, mutations: value.mutations,
+  }
+  if (!validState(state)) throw new Error("invalid recovery evidence")
   return state
 }
 
-function consumeBackwardRoute(state: ReplayState): void {
-  state.backwardRoutes += 1
-  if (state.backwardRoutes > 2) throw new Error("backward Stop exhausted")
-}
-
-function requireStage(position: Position, expected: Stage, event: string): asserts position is Stage {
-  if (position !== expected) throw new Error(`${event} requires ${expected}`)
-}
-
-function requireActive(position: Position, event: string): asserts position is Stage {
-  if (!["Frame", "Plan", "Execute", "Verify", "Finalize"].includes(position)) {
-    throw new Error(`${event} requires an active stage`)
+function replay(events: string[]): State {
+  let state = initial()
+  let evidence: Record<string, unknown> | null = null
+  for (const event of events) {
+    if (event === "frame-complete") state = completeFrame(state)
+    else if (event === "plan-admitted") state = admitPlan(state)
+    else if (event === "candidate-ready") state = candidateReady(state)
+    else if (event === "verify-pass") state = verify(state, "pass")
+    else if (event === "verify-fail-local") state = verify(state, "local")
+    else if (event === "verify-fail-design") state = verify(state, "design")
+    else if (["revise", "replan", "reframe"].includes(event)) state = begin(state, { route: event as Route })
+    else if (event === "scope-expanded") state = { ...state, position: "Finalize", failure: "scope" }
+    else if (event === "blocked") state = begin(state, { route: "blocked" })
+    else if (event === "resume-blocker-removed") state = resume(state)
+    else if (event === "context-lost") { evidence = checkpoint(state); state = initial(99n) }
+    else if (event === "recover-exact") {
+      if (evidence === null) throw new Error("recover-exact requires evidence")
+      state = recover(evidence); evidence = null
+    } else if (event === "frame-ambiguity") state.failure = "ambiguity"
+    else if (event === "evidence-attempt") {
+      state.attempts.ambiguity = (state.attempts.ambiguity ?? 0n) + 1n
+      if (state.attempts.ambiguity > 2n) throw new Error("evidence Stop exhausted")
+    } else if (event === "evidence-exhausted") state.position = "Finalize"
+    else if (event === "accept") state = begin(state, { route: "accept" })
+    else if (event.startsWith("user-override-")) state.position = "cancelled"
+    else throw new Error(`unknown event: ${event}`)
   }
+  return state
 }
 
-function requireRecoverable(position: Position, event: string): asserts position is Stage | "blocked" {
-  if (position !== "blocked" && !["Frame", "Plan", "Execute", "Verify", "Finalize"].includes(position)) {
-    throw new Error(`${event} requires an active or blocked stage`)
-  }
+function advertisedReachable(state: State, fault: Fault = "none"): boolean {
+  return routes(state, fault).every((route) => {
+    try {
+      begin(state, route === "enlarge" ? { route, absolute: state.absolute + 1n } : { route }, fault)
+      return true
+    } catch { return false }
+  })
 }
 
-function createTemporaryRepository(): string {
-  const repository = mkdtempSync(resolve(tmpdir(), "rbm-transition-"))
-  git(repository, "init", "-b", "main")
-  git(repository, "config", "user.name", "RBM Test")
-  git(repository, "config", "user.email", "rbm-test@example.invalid")
-  writeFileSync(resolve(repository, "baseline.txt"), "baseline\n")
-  git(repository, "add", "baseline.txt")
-  git(repository, "commit", "-m", "baseline")
-  return repository
+function approveFive(fault: Fault): boolean {
+  try { return begin(atFailure("design", 4n, 4n), { route: "enlarge", absolute: 5n }, fault).absolute === 5n }
+  catch { return false }
 }
 
-function git(repository: string, ...args: string[]): string {
-  return execFileSync("git", args, { cwd: repository, encoding: "utf8" }).trim()
+function pendingSurvivesResume(fault: Fault): boolean {
+  const enlarged = begin(atFailure("scope", 4n, 4n), { route: "enlarge", absolute: 5n })
+  const state = resume(begin(enlarged, { route: "blocked" }), fault)
+  return state.position === "Finalize" && state.pending === "reframe-replan-replacement"
 }
 
-function recoveryEvidence(
-  repository: string,
-  position: Stage | "blocked",
-  blockedResumeStage: Stage | null,
-): RecoveryEvidence {
-  const candidatePath = resolve(repository, "candidate.txt")
-  return {
-    position,
-    blockedResumeStage,
-    head: git(repository, "rev-parse", "HEAD"),
-    branch: git(repository, "branch", "--show-current"),
-    status: git(repository, "status", "--porcelain"),
-    candidate: existsSync(candidatePath) ? readFileSync(candidatePath, "utf8") : null,
-  }
+function secondEnlargement(fault: Fault): boolean {
+  const state = atFailure("material", 3n, 3n)
+  state.enlarged = true
+  try { begin(state, { route: "enlarge", absolute: 4n }, fault); return true }
+  catch { return false }
 }
 
-function resumableStage(verification: Verification): Stage {
-  if (verification === "design-failure") return "Plan"
-  if (verification === "local-failure") return "Execute"
-  if (verification === "scope-expansion" || verification === "ambiguity-exhausted") return "Frame"
-  throw new Error("blocked requires a resumable failure")
+function stopOf(state: State): Pick<State, "absolute" | "used" | "enlarged" | "attempts" | "pending"> {
+  return { absolute: state.absolute, used: state.used, enlarged: state.enlarged, attempts: state.attempts, pending: state.pending }
+}
+
+function clone(state: State): State {
+  return { ...state, attempts: { ...state.attempts } }
+}
+
+function record(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function validState(value: unknown): value is State {
+  if (!record(value) || !record(value.attempts)) return false
+  return ["Frame", "Plan", "Execute", "Verify", "Finalize", "accepted", "blocked", "cancelled"].includes(value.position as string)
+    && (value.failure === null || ["local", "design", "scope", "material", "ambiguity"].includes(value.failure as string))
+    && typeof value.passed === "boolean" && typeof value.absolute === "bigint" && value.absolute > 0n
+    && typeof value.used === "bigint" && value.used >= 0n && value.used <= value.absolute
+    && typeof value.enlarged === "boolean"
+    && (value.pending === null || ["reframe-replan-replacement", "replacement-plan"].includes(value.pending as string))
+    && (value.resume === null || ["Frame", "Plan", "Execute", "Verify", "Finalize"].includes(value.resume as string))
+    && typeof value.mutations === "number"
 }
 
 function normalized(path: string): string {

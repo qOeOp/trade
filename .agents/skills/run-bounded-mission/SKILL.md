@@ -108,8 +108,9 @@ override may instead terminate directly from any nonterminal stage after effects
 
 ### Finite Stop and convergence
 
-Frame must select an observable finite Stop. Unless the user supplies another explicit finite
-envelope, use all of these defaults for the current Mission:
+Frame must select an observable finite Stop. Express each limit as a positive-integer absolute
+ceiling with its current consumed amount, not as a fresh allowance. Unless the user supplies another
+explicit finite envelope, use all of these defaults for the current Mission:
 
 - at most two distinct evidence attempts for the same unresolved Frame, Plan, or Verify question;
 - at most two total backward routes after the first `Plan → Execute`, counting `revise`, `replan`,
@@ -117,15 +118,36 @@ envelope, use all of these defaults for the current Mission:
 - no repeat of an unchanged failed investigation, check, candidate, or external request;
 - at most one replacement candidate for each admitted replan, as governed by revision pressure.
 
-An attempt or backward route is consumed when its work begins, even if it is interrupted or fails.
+Use one backward-transition decision for route advertisement and work admission. Reconstruct it from
+the current failure, position, consumed and absolute amounts, whether the one enlargement was used,
+and any pending transition. Its available routes are the only routes that may be advertised. When
+the chosen route's work begins, apply that same decision and record its consumption before any other
+work; interruption or failure does not refund it. A route whose start would cross its absolute
+ceiling is unavailable and must not be advertised. Never derive route availability, Resume, or
+consumption from a separate stage-only rule.
+
 A retry is legal only after naming the changed candidate, input, environment, authority, or evidence
 source and the observation that could now disconfirm the failure. Plan investigation converges by
 admitting the unresolved field or classifying the dependent decision `blocked`; Verify converges by
 accepting changed evidence or selecting one backward route; revision pressure converges by promoting
-one admitted replacement or stopping. A new turn, context compaction, branch, checkout, task, or
-smaller apparent diff does not reset consumed Stop. When the next operation would exceed the
-envelope, freeze the candidate and route `blocked`. Only an explicit user-approved finite Stop
-change may continue, and that change requires `reframe` before new work.
+one admitted replacement or stopping.
+
+At the first exhaustion only, the user may explicitly approve one larger positive-integer absolute
+ceiling for the same Mission. The approval must name a value greater than the current ceiling,
+preserve all prior consumption, mark the enlargement used, and leave one mandatory pending
+`reframe → replan replacement` transition; approval itself does not consume a backward route. That
+pending transition is the only non-blocked continuation. When its work begins, consume it exactly
+once before entering Frame, then admit one coherent replacement Plan that combines the known
+findings; never resume the rejected incumbent. If blocked before it begins, Resume returns to the
+pending Finalize decision, not Frame. If blocked after it begins, recovery retains both the consumed
+route and the pending replacement Plan.
+
+After that enlargement, a material finding on the same responsibility surface is terminal
+`blocked` with no Resume, and a second enlargement is unavailable. A new turn, context compaction,
+resume, successor task or label, branch, checkout, rename, or smaller apparent diff preserves the
+absolute ceiling, every consumed amount, the enlargement marker, and the pending transition. Only
+an explicitly user-owned materially changed Frame that makes the prior causal findings inapplicable,
+or an independent new Outcome, may establish a new authorization envelope.
 
 ### Override and recovery
 
@@ -148,13 +170,17 @@ Frame: <current outcome, consumer, scope/non-goals, authority, acceptance, origi
 Plan: <admitted owner, path, boundary, candidate shape, verification route>
 Candidate/effects: <exact commit or complete diff locator; effects already performed>
 Evidence: <decisive checks and remaining blocker>
-Position: <current stage or terminal route; consumed Stop and next legal operation>
+Position: <current stage or terminal route; evidence attempts by unresolved question; backward
+  routes consumed/absolute; enlargement used; pending transition and whether begun; next legal
+  operation>
 Resume: <stage to re-enter after a named blocker is removed, or none>
 ```
 
 This locator is evidence, not an identity, receipt, file, ledger, or host state. Match the Frame,
-origin, candidate/effects, consumed Stop, next legal operation, and any resumable stage before
-continuing. If any cannot be recovered exactly enough to exclude a different Mission or candidate,
+origin, candidate/effects, every cumulative attempt and route amount, the enlargement marker,
+pending transition, next legal operation, and any resumable stage before continuing. Reconstruct
+from this evidence without relying on ambient in-memory state. If any cannot be recovered exactly
+enough to exclude a different Mission or candidate,
 freeze before the next mutation or external effect and route `blocked` or ask for the missing
 user-owned fact. Resuming an exactly recovered `blocked` Mission re-enters its explicit `Resume`
 stage only after the named blocker is removed, without resetting Stop. Multi-Mission recovery

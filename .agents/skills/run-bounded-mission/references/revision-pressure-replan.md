@@ -10,20 +10,19 @@ rollback, deletion, or narrower route. A successor slice, task, branch, or check
 outcome inherits the pressure and Stop; it cannot convert a rejected incumbent into a fresh patch
 budget.
 
-Activation also consumes the backward route that entered this replan. The main skill's finite Stop
-continues to govern evidence attempts and total backward routes. Do not repeat an unchanged failing
-check or evidence request, and do not start another correction when doing so would cross Stop. A new
-turn, context recovery, branch, or replacement checkout never replenishes the envelope. When the
-same material failure recurs after one correction, do not route to `revise` again: either admit the
-single replacement allowed below while Stop remains, or route `blocked`.
+This method classifies structural pressure and replacement shape; the main skill's single
+backward-transition decision exclusively owns route advertisement, work admission, consumption,
+exhaustion, enlargement, pending transition, Resume, and recovery. Do not restate or override those
+decisions here. Activation consumes the admitted `replan` when its work begins. Do not repeat an
+unchanged failed check or evidence request, and do not start another correction when the decision
+does not admit it. A new turn, context recovery, successor task, branch, checkout, or rename never
+replenishes the envelope.
 
 Build an admitted replacement as a new candidate inside the same Mission, never as a successor
-Mission. If no Stop remains, freeze execution before choosing a terminal Finalize route and request
-alignment with the replacement proposal and concrete consumed-Stop evidence. After an explicit
-evidence-bound Stop enlargement, reframe and replan inside that Mission; do not resume a
-structurally rejected incumbent while its causal invariant still applies. Stop-only pressure may
-re-admit the same design under the conditions below. Return `blocked` only when alignment cannot
-supply Stop, such as when enlargement and a narrower Frame are declined or unavailable.
+Mission. After the one permitted post-exhaustion enlargement, complete its mandatory coherent
+`reframe → replan replacement`; do not resume a structurally rejected incumbent while its causal
+invariant still applies. A later material finding on the same responsibility surface is terminal
+`blocked` with no Resume, and this method cannot request another enlargement.
 
 ## Reconstruct the pressure
 
@@ -52,9 +51,10 @@ indirection accumulate beyond the admitted Plan. A recurring finding is structur
 challenges the admitted owner, path, boundary, responsibility shape, or oracle; an additive
 protective path is structural only when the Plan did not already require it. Faulty or omitted
 execution of admitted structure remains candidate-local while those design fields stay intact. Only
-a trigger caused solely by an approaching Stop may re-admit the same design when corrections are
-independent and the surface is stable or shrinking; re-admission does not extend Stop. If required
-authority or evidence is unavailable, route to `blocked`.
+a trigger caused solely by approaching Stop may re-admit the same design while the main transition
+decision still admits an ordinary replan, corrections are independent, and the surface is stable or
+shrinking. It never extends Stop or applies after the one enlargement. If required authority or
+evidence is unavailable, route to `blocked`.
 
 ## Replan and compare
 
