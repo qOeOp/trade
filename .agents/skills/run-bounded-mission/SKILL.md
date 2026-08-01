@@ -195,9 +195,15 @@ additionally follows the session graph contract; this locator does not replace i
 Inspect the current owner, production entry point when one exists, affected contracts, tests, and
 working-tree state. Choose the smallest vertical change that closes the outcome.
 Plan is read-only. Admit the owner, path, affected boundary, candidate shape, and verification route
-before mutation; freeze the mission-owned boundary against the named Origin and the observed
-pre-existing user work instead of admitting paths later from Execute. When any Plan field remains
-unresolved, keep investigating or return to Frame.
+before mutation. For every required nontrivial action outside the main agent's ordinary observed
+capability, also bind its execution owner and exact effect and authority, plus either the necessary
+capability observed at the stage where the action must run or a named, owned later-stage fail-closed
+gate. An inherently candidate-bound capability may use such a gate after Execute; Plan must not claim
+that its candidate locator or capability is already proven. If neither current capability nor such a
+gate exists, remain in Plan with the necessary capability evidence unavailable. Freeze the
+mission-owned boundary against the named Origin and the observed pre-existing user work instead of
+admitting paths later from Execute. When any Plan field remains unresolved, keep investigating or
+return to Frame.
 
 When a test failure can change the candidate, an escaped defect shows that tests missed required
 behavior, or the Mission may restructure tests, load
