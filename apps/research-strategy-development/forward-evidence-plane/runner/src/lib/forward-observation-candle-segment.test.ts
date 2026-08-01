@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test"
 import {
   createForwardObservationProgram,
-} from "../apps/research-strategy-development/research-control-plane/contracts/src/lib/forward-observation-program"
+} from "../../../../research-control-plane/contracts/src/lib/forward-observation-program"
 import {
   nextForwardCandleSegmentWindow,
-} from "./lib/rd-forward-observation-candle-segment"
+} from "./forward-observation-candle-segment"
 
 const HASH = "a".repeat(64)
 

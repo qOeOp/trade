@@ -3,13 +3,13 @@ import { resolve } from "node:path"
 import type { Database } from "bun:sqlite"
 import {
   createServerContainerSourcePackageFromArchive,
-} from "../../apps/orchestration-ops/trade-flow/src/scripts/lib/server-runtime-container-release-package"
+} from "../../../trade-flow/src/scripts/lib/server-runtime-container-release-package"
 import {
   readAgentPatchAdoption,
-} from "../../apps/orchestration-ops/ops-runtime-store/src/lib/agent-patch-adoption-store"
+} from "../../../ops-runtime-store/src/lib/agent-patch-adoption-store"
 import {
   readCertifiedDeveloperPatchAdoption,
-} from "./rd-developer-patch-adoption"
+} from "./developer-patch-adoption"
 
 export function createDeveloperCandidateServerPackage(input: {
   db: Database

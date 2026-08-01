@@ -12,32 +12,32 @@ import { dirname, resolve } from "node:path"
 import { Database } from "bun:sqlite"
 import {
   compileMarketDataSubscriptionPlan,
-} from "../apps/contracts/market-data-demand-contract/src/market-data-demand-contract"
+} from "../../../../../contracts/market-data-demand-contract/src/market-data-demand-contract"
 import {
   compileOhlcvCoverageAudit,
-} from "../apps/contracts/market-data-demand-contract/src/ohlcv-coverage-contract"
+} from "../../../../../contracts/market-data-demand-contract/src/ohlcv-coverage-contract"
 import {
   asRecord,
-} from "../apps/contracts/runtime-core/src/json"
+} from "../../../../../contracts/runtime-core/src/json"
 import {
   createForwardObservationCandleSegment,
   type ForwardCandleSliceRef,
-} from "../apps/research-strategy-development/research-control-plane/contracts/src/lib/forward-observation-candle-segment"
+} from "../../../../research-control-plane/contracts/src/lib/forward-observation-candle-segment"
 import {
   admitForwardObservationCandleSegment,
   ensureForwardObservationCandleSegmentSchema,
   readLatestForwardObservationCandleSegment,
-} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/forward-observation-candle-segment"
+} from "../../../../research-control-plane/state-store/src/lib/forward-observation-candle-segment"
 import {
   listCollectingForwardObservationPrograms,
   readLatestForwardMarketDataDemandDelivery,
-} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/forward-observation-program"
+} from "../../../../research-control-plane/state-store/src/lib/forward-observation-program"
 import {
   ensureResearchControlPlaneSchema,
-} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/research-control-plane-schema"
+} from "../../../../research-control-plane/state-store/src/lib/research-control-plane-schema"
 import {
   nextForwardCandleSegmentWindow,
-} from "./lib/rd-forward-observation-candle-segment"
+} from "../lib/forward-observation-candle-segment"
 import {
   resolveWorkerDataPath,
   workerBoundedInteger,
@@ -45,7 +45,7 @@ import {
   workerFlagValues,
   workerMarketDataOwnerCommand,
   workerResearchMarketDataPaths,
-} from "./lib/resident-worker-cli"
+} from "../lib/resident-worker-cli"
 
 const SLICE_ROOT = "data/artifacts/market-data/candle-slices"
 

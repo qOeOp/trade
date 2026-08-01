@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test"
 import {
   shouldRenewForwardMarketDataDemand,
-} from "./lib/rd-forward-observation-program"
+} from "./forward-observation-program"
 import {
   parseArgs,
-} from "./rd-forward-market-data-demand-worker"
+} from "../scripts/market-data-demand-worker"
 
 test("Forward market-data lease renewal waits until the bounded renewal window", () => {
   const observedAt = "2026-07-23T00:00:00.000Z"

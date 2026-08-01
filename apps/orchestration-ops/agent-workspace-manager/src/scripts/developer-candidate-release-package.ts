@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { runCandidateReleasePackageCli } from "./lib/candidate-release-package-cli"
+import { runCandidateReleasePackageCli } from "../lib/candidate-release-package-cli"
 
 if (import.meta.main) {
   try {

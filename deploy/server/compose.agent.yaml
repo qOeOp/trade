@@ -113,7 +113,7 @@ services:
         condition: service_completed_successfully
     command:
       - bun
-      - scripts/agent-workspace-checker.ts
+      - apps/orchestration-ops/agent-workspace-manager/src/scripts/checker.ts
       - --socket-path
       - /control/checker.sock
       - --workspace-root
@@ -159,7 +159,7 @@ services:
         condition: service_completed_successfully
     command:
       - bun
-      - scripts/agent-workspace-checker.ts
+      - apps/orchestration-ops/agent-workspace-manager/src/scripts/checker.ts
       - --socket-path
       - /control/release-checker.sock
       - --workspace-root
@@ -213,7 +213,7 @@ services:
         condition: service_healthy
     command:
       - bun
-      - scripts/rd-developer-patch-adoption-worker.ts
+      - apps/orchestration-ops/agent-workspace-manager/src/scripts/patch-adoption-worker.ts
       - --ready-file
       - /app/control/adopter.ready
     healthcheck:
@@ -331,7 +331,7 @@ services:
         condition: service_healthy
     command:
       - bun
-      - scripts/agent-host-openclaw-workspace-http.ts
+      - apps/orchestration-ops/agent-host-openclaw/src/scripts/workspace-http.ts
       - --host
       - 0.0.0.0
       - --port
@@ -486,7 +486,7 @@ services:
         condition: service_healthy
     command:
       - bun
-      - scripts/rd-forward-source-admission-worker.ts
+      - apps/research-strategy-development/forward-evidence-plane/runner/src/scripts/source-admission-worker.ts
     healthcheck:
       test:
         - CMD
@@ -533,7 +533,7 @@ services:
         condition: service_healthy
     command:
       - bun
-      - scripts/rd-forward-market-data-demand-worker.ts
+      - apps/research-strategy-development/forward-evidence-plane/runner/src/scripts/market-data-demand-worker.ts
     healthcheck:
       test:
         - CMD
@@ -580,7 +580,7 @@ services:
         condition: service_healthy
     command:
       - bun
-      - scripts/rd-forward-candle-segment-worker.ts
+      - apps/research-strategy-development/forward-evidence-plane/runner/src/scripts/candle-segment-worker.ts
     healthcheck:
       test:
         - CMD
@@ -625,7 +625,7 @@ services:
         condition: service_healthy
     command:
       - bun
-      - scripts/rd-forward-dataset-candidate-worker.ts
+      - apps/research-strategy-development/forward-evidence-plane/runner/src/scripts/dataset-candidate-worker.ts
     healthcheck:
       test:
         - CMD

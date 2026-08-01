@@ -79,7 +79,7 @@ check_policy() {
   log "security and machine interfaces"
   bun scripts/check-secrets.ts
   bun scripts/toolset.ts --validate
-  bun test ./scripts/check-workspace-contracts.test.ts
+  bun test ./scripts/check-workspace-contracts.test.ts ./scripts/check-workspace-side-effects.test.ts
 }
 
 check_packages() {

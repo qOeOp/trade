@@ -3,10 +3,10 @@ import { resolve } from "node:path"
 import type { Database } from "bun:sqlite"
 import {
   createServerContainerSourcePackageFromArchive,
-} from "../../apps/orchestration-ops/trade-flow/src/scripts/lib/server-runtime-container-release-package"
+} from "../../../trade-flow/src/scripts/lib/server-runtime-container-release-package"
 import {
   readStrategySourceAdoption,
-} from "../../apps/orchestration-ops/ops-runtime-store/src/lib/strategy-source-adoption-store"
+} from "../../../ops-runtime-store/src/lib/strategy-source-adoption-store"
 export function createStrategyCandidateServerPackage(input: {
   db: Database
   repository_root: string

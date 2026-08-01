@@ -10,26 +10,26 @@ import { dirname, resolve, sep } from "node:path"
 import type { Database } from "bun:sqlite"
 import {
   canonicalJson,
-} from "../../apps/contracts/runtime-core/src/canonical-json"
+} from "../../../../../contracts/runtime-core/src/canonical-json"
 import {
   readStrategySourceAdoptionReadonly,
-} from "../../apps/orchestration-ops/ops-runtime-store/src/lib/strategy-source-adoption-store"
+} from "../../../../../orchestration-ops/ops-runtime-store/src/lib/strategy-source-adoption-store"
 import {
   CERTIFIED_STRATEGY_SOURCE_BINDING_SCHEMA_VERSION,
   createCertifiedStrategySourceBinding,
   type CertifiedStrategySourceBinding,
-} from "../../apps/research-strategy-development/research-control-plane/contracts/src/lib/certified-strategy-source-binding"
+} from "../../../../research-control-plane/contracts/src/lib/certified-strategy-source-binding"
 import {
   assertStrategySourceCandidate,
   type StrategySourceCandidate,
-} from "../../apps/research-strategy-development/research-control-plane/contracts/src/lib/strategy-source-candidate-contract"
+} from "../../../../research-control-plane/contracts/src/lib/strategy-source-candidate-contract"
 import {
   admitCertifiedStrategySourceForForward,
-} from "../../apps/research-strategy-development/research-control-plane/state-store/src/lib/forward-source-admission"
+} from "../../../../research-control-plane/state-store/src/lib/forward-source-admission"
 import {
   assertCertifiedStrategySourceAdoptionPackage,
   readCertifiedStrategySourceAdoptionManifest,
-} from "./rd-strategy-source-adoption"
+} from "../../../../../orchestration-ops/agent-workspace-manager/src/lib/strategy-source-adoption"
 
 export function admitCertifiedStrategyAdoptionToForward(input: {
   research_db: Database
