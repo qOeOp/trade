@@ -34,12 +34,13 @@ export interface ReviewSignal {
   body?: string
   reaction?: string
   reviewState?: string
+  reviewId?: string
   updatedAt?: string
 }
 
 export interface ReviewThread {
   resolved: boolean
-  comments: Array<{ author: string; at: string; body: string }>
+  comments: Array<{ author: string; at: string; body: string; reviewId?: string }>
 }
 
 export interface CodexReviewSnapshot {
@@ -120,6 +121,21 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
     && (explicitAttemptAt === null || explicitAttemptAt <= latestResolvedThreadAt)) {
     return { status: "failed", reason: "Codex returned a review finding" }
   }
+  const undisposedHistoricalFinding = explicitAttemptAt !== null && allProviderSignals.some((signal) => {
+    if (timestampValue(signal.updatedAt ?? signal.at) >= explicitAttemptAt
+      || !isNonCleanProviderResult(signal, snapshot.headRefOid)) return false
+    if (signal.kind !== "review"
+      || signal.reviewState !== "COMMENTED"
+      || signal.reviewId === undefined
+      || !isFindingReviewSummary(signal.body ?? "")) return true
+    const matchingThreads = providerThreads.filter(
+      (thread) => thread.comments[0]?.reviewId === signal.reviewId,
+    )
+    return matchingThreads.length === 0 || matchingThreads.some((thread) => !thread.resolved)
+  })
+  if (undisposedHistoricalFinding) {
+    return { status: "failed", reason: "Codex returned a review finding" }
+  }
   const editedProviderComment = currentProviderSignals.find((signal) =>
     signal.kind === "comment" && signal.updatedAt !== undefined && signal.updatedAt !== signal.at,
   )
@@ -127,14 +143,9 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
     return { status: "failed", reason: "an edited Codex comment cannot prove a terminal result" }
   }
 
-  const nonCleanReview = currentProviderSignals.find((signal) => {
-    if (signal.kind === "review") {
-      return signal.reviewState === "CHANGES_REQUESTED"
-        || Boolean(signal.body?.trim() && !isCleanReview(signal.body))
-    }
-    return signal.kind === "comment"
-      && Boolean(signal.body?.trim() && !isCleanComment(signal.body, snapshot.headRefOid))
-  })
+  const nonCleanReview = currentProviderSignals.find(
+    (signal) => isNonCleanProviderResult(signal, snapshot.headRefOid),
+  )
   if (nonCleanReview) {
     return { status: "failed", reason: "Codex returned a non-clean review result" }
   }
@@ -179,6 +190,7 @@ interface GraphPullRequest {
     reactions: Connection<{ content: string; createdAt: string; user: { login: string } | null }>
   }>
   reviews: Connection<{
+    id: string
     author: { login: string } | null
     body: string
     state: string
@@ -191,6 +203,7 @@ interface GraphPullRequest {
       author: { login: string } | null
       body: string
       updatedAt: string
+      pullRequestReview: { id: string }
     }>
   }>
 }
@@ -237,14 +250,14 @@ query($owner: String!, $name: String!, $number: Int!) {
         pageInfo { hasNextPage }
       }
       reviews(first: 100) {
-        nodes { author { login } body state createdAt submittedAt }
+        nodes { id author { login } body state createdAt submittedAt }
         pageInfo { hasNextPage }
       }
       reviewThreads(first: 100) {
         nodes {
           isResolved
           comments(first: 100) {
-            nodes { author { login } body updatedAt }
+            nodes { author { login } body updatedAt pullRequestReview { id } }
             pageInfo { hasNextPage }
           }
         }
@@ -345,6 +358,7 @@ async function fetchSnapshot(repository: string, number: number): Promise<CodexR
       target: "review",
       body: review.body,
       reviewState: review.state,
+      reviewId: review.id,
     })
   }
 
@@ -365,6 +379,7 @@ async function fetchSnapshot(repository: string, number: number): Promise<CodexR
         author: comment.author?.login ?? "",
         at: comment.updatedAt,
         body: comment.body,
+        reviewId: comment.pullRequestReview.id,
       })),
     })),
   }
@@ -454,6 +469,7 @@ function isComment(value: unknown): boolean {
 
 function isReview(value: unknown): boolean {
   return isRecord(value)
+    && typeof value.id === "string"
     && isActor(value.author)
     && typeof value.body === "string"
     && typeof value.state === "string"
@@ -469,7 +485,9 @@ function isReviewThread(value: unknown): boolean {
     && value.comments.nodes.every((comment) => isRecord(comment)
       && isActor(comment.author)
       && typeof comment.body === "string"
-      && isIsoTimestamp(comment.updatedAt))
+      && isIsoTimestamp(comment.updatedAt)
+      && isRecord(comment.pullRequestReview)
+      && typeof comment.pullRequestReview.id === "string")
 }
 
 function isIsoTimestamp(value: unknown): value is string {
@@ -513,6 +531,28 @@ function isCleanComment(body: string, headOid: string): boolean {
     && headOid.startsWith(reviewedCommit)
     && lines.length === CLEAN_COMMENT_SUFFIX.length + 3
     && CLEAN_COMMENT_SUFFIX.every((line, index) => lines[index + 3] === line)
+}
+
+function isNonCleanProviderResult(signal: ReviewSignal, headOid: string): boolean {
+  if (signal.kind === "review") {
+    return signal.reviewState === "CHANGES_REQUESTED"
+      || Boolean(signal.body?.trim() && !isCleanReview(signal.body))
+  }
+  return signal.kind === "comment"
+    && Boolean(signal.body?.trim() && !isCleanComment(signal.body, headOid))
+}
+
+function isFindingReviewSummary(body: string): boolean {
+  const lines = body.trim().split(/\r?\n/).map((line) => line.trimEnd()).filter(
+    (line, index, allLines) => line !== "" || index === 0 || allLines[index - 1] !== "",
+  )
+  return lines[0] === "### 💡 Codex Review"
+    && lines[1] === ""
+    && lines[2] === "Here are some automated review suggestions for this pull request."
+    && lines[3] === ""
+    && REVIEWED_COMMIT.test(lines[4] ?? "")
+    && lines.length === CLEAN_COMMENT_SUFFIX.length + 5
+    && CLEAN_COMMENT_SUFFIX.every((line, index) => lines[index + 5] === line)
 }
 
 async function main(): Promise<number> {
