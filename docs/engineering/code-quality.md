@@ -1,88 +1,59 @@
 ---
-title: Quality Assurance System Contract
+title: Quality Contract
 role: engineering-contract
 status: active
 owner: engineering
-last_verified: 2026-07-31 CST
+last_verified: 2026-08-01 CST
 ---
 
-# Quality Assurance System Contract
+# Quality Contract
 
-## 定位
+质量保障只约束稳定接口和可观察行为，不冻结当前实现形状。
 
-本文是项目质量保障的 policy owner：定义层级、风险、authority 和 hard gate 原则。具体命令
-只在 [Check Contract](./check-contract.md) 登记；领域行为由 owner `CONTRACT.md` 与 runtime
-合同定义。
+## 公共接口
 
-质量目标是尽早发现真实回归，并让 merge、release 和 runtime 结论由对应 owner 签发。规则
-数量、测试数量、覆盖率或代码行数都不是目标。
+| 接口 | 保证 |
+| --- | --- |
+| `bun run check` | 本地完整检查入口 |
+| `scripts/quality-check.sh policy` | diff、lint、secret、toolset 与质量内核自测 |
+| `scripts/quality-check.sh packages` | 发现并执行所有 package 的 `scripts.check` |
+| `scripts/quality-check.sh native` | Go、Rust、Python 的标准 compiler/test 工具 |
+| package `scripts.check` | package 自己签发 compiler、unit/contract/consumer 行为 |
+| GitHub `quality` | exact PR head 的稳定 merge context |
+| CodeQL contexts | GitHub 签发的静态安全分析 |
 
-## Authority
+中央 runner 只读取 repository-visible `package.json` 的唯一 `name` 和 `scripts.check`，并传播进程退出码。它不预设 package 位于哪个目录、使用什么语言、测试文件叫什么，也不解析测试 runner 的人类输出。
 
-| Surface | 负责 | 不负责 |
-| --- | --- | --- |
-| 本合同 | 质量层级、风险分类、required 原则 | owner 命令目录 |
-| [Check Contract](./check-contract.md) | 改动到可执行检查的路由 | merge/release authority |
-| [Development Convergence](./development-convergence.md) | owner/consumer 复用与责任面判断 | 固定数量配额 |
-| owner contract/package | 领域行为、直接测试和 consumer acceptance | 项目级 merge 签发 |
-| checker | 一个可复现的机械边界 | 创造产品或组织 policy |
-| GitHub workflow/ruleset | 隔离执行与 merge 条件 | 替代真实 runtime 验收 |
-| release/runtime owner | artifact、环境、smoke、回退和运行事实 | 用 PR 绿灯代替上线事实 |
+## 边界
 
-产品/runtime 安全合同在其行为边界内优先。质量内部优先级为：本合同 > Check Contract >
-workflow/checker 投影。
+Required merge gate 可以检查：
 
-## 质量层级
+- compiler、lint 和标准语言工具是否成功；
+- package 公开的 check 是否成功；
+- 真实 owner/consumer 场景是否成功；
+- secret、静态安全和 workspace 副作用；
+- release/runtime owner 输出的结构化状态。
 
-| 层 | 目的 | 证据 | Authority |
-| --- | --- | --- | --- |
-| Q0 Admission | 非平凡改动先明确结果、风险与 consumer | owner、scope、acceptance | 当前任务 |
-| Q1 Local | 快速发现直接错误 | diff、owner test/typecheck、最小 consumer | 本地反馈，不签发 merge |
-| Q2 PR | 证明候选可集成 | policy、owner/integration、CodeQL | required checks |
-| Q3 Governance | 防止候选修改并自证裁判 | 候选不可控的独立复核 | 外置或中立 owner |
-| Q4 Release | 证明 immutable artifact 可发布 | provenance、certification、部署 smoke | release owner |
-| Q5 Runtime | 证明真实环境可观测、可回退 | health、shadow/canary、reconciliation | runtime/operator |
+Required merge gate 不检查：
 
-低层绿灯不能代替高层证据。Q2 不执行真实交易写动作；Q4/Q5 只为已经存在的 artifact 和
-runtime consumer 建立。
+- Markdown 用词、frontmatter、标题或中央文档索引；
+- 固定目录、模块数量、文件名、测试名或私有调用顺序；
+- 源码是否包含某段文字；
+- 手写 import/path 白名单或生成的“当前代码图”；
+- package 内部命令的逐字拼写。
 
-## 风险路由
+架构边界通过公开 contract、schema、CLI 和跨 owner consumer tests 证明。若一个约束只能依赖当前路径或源码文本表达，它是迁移提示或审计工具，不是 required quality gate。
 
-| 类别 | 典型改动 | 最低闭包 |
-| --- | --- | --- |
-| R0 文档/元数据 | 不改变 runtime 或 authority | doc/diff；PR 时 policy |
-| R1 单 owner | 局部实现与合同 | owner check + 直接 consumer |
-| R2 跨 owner/runtime | shared contract、schema、store、rail | 所有受影响边界 + integration/architecture |
-| R3 交易/资金/凭证/迁移 | 高后果或不可逆行为 | R2 + 独立安全证据 + 必要 release/runtime |
-| R4 governance | instruction、workflow、judge、ruleset、签发 policy | 与普通实现分离；不得由候选自签 |
+## Ownership
 
-按改变的语义分类，文件路径只作输入。未知 owner、shared contract、跨语言或 planner/judge
-自身改动不能被静默降级。
+- package owner 决定 `scripts.check` 内部如何组合 compiler 与测试。
+- Replay、release 和 runtime owner 保留自己的高成本认证，不复制到中央 runner。
+- workflow 只编排上述接口；stable `quality` context 负责 merge，不代表 release 或 runtime 完成。
+- 新 package 缺少唯一 `name` 或 `scripts.check` 时 fail closed。
+- 影响面未知时执行全部 package contracts；不为提速维护中央路径分类器。
 
-## Hard gate 原则
+当前仍没有候选不可控的 governance verifier。workflow、quality runner、repository instructions 或 signer policy 的修改只能本地准备和验证，不能表述为已获得独立接纳。
 
-- 每个 hard gate 必须有 owner、明确失败处置和删除条件；没有真实消费者或高后果依据的检查不进入 required 集合。
-- 不设置全仓覆盖率、复杂度、LOC、测试数量或表面积计数硬阈值；这些只能作调查信号。
-- 本地检查用于反馈，远端 required checks 签发 merge；PR 绿灯不签发 release/runtime。
-- 普通实现候选不得同时修改其 workflow、judge 或签发 policy。
-- 当前仓库没有候选不可控的 Q3 verifier。治理候选可以本地准备和验证，但缺少独立 authority 时不得表述为已独立接纳。
-- compiler、lint、test 或 vet warning 不能被当作噪声；不能在当前范围修复时必须说明影响。
+## 新增或删除检查
 
-## 测试有效性
-
-权威顺序是：当前用户结果与产品/runtime 合同 > 真实 consumer 行为 > owner/边界合同 >
-测试及其 fixture、mock、snapshot。
-
-- 红灯先分类为真实回归、过期断言、实现耦合、场景/oracle 缺口、路由缺口、mock 失真、环境/并发/时间问题或 flake/infra，再决定改代码还是改测试。
-- 绿灯不能替代未执行的 consumer；红灯也不能授权劣化正确生产行为。
-- escaped defect 优先加强或替换已有 oracle；“一个 bug 新增一个测试”不是默认结论。
-- 不把自然语言正文、脚本、package script 或 workflow 源码的字符串与排版快照当行为 oracle；机器合同解析结构，流程测试执行真实入口。
-- 删除或重写测试必须证明其独特行为价值已由更高层证据承接；静态重复、规模和命名不足以证明可删。
-- 测试治理复用现有 owner 和 quality leaf，不在 `.agents` 中建立第二套 policy authority。
-
-## 当前 merge 边界
-
-`main` 当前 required contexts 为稳定 `quality` aggregate 与 JavaScript/TypeScript、Python、
-Rust、Go CodeQL，且要求最新 base 和 review thread resolution。普通候选不默认增加人工
-approval、CODEOWNER、last-push approval 或 manual exact-SHA gate。修改这些 trust surfaces
-必须作为独立 governance candidate 处理。
+新增 required check 必须同时给出真实风险消费者、稳定输入输出、失败处置和删除条件。连续没有独特行为收益的检查应删除或退回 owner；不能用测试数量、文件数量、文本快照或目录一致性证明质量。

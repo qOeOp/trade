@@ -7,11 +7,11 @@ cd "$ROOT"
 
 QUALITY_SCOPE="${1:-all}"
 if [ "$#" -gt 1 ]; then
-  printf 'quality: usage: scripts/quality-check.sh [all|policy|typescript|replay|native]\n' >&2
+  printf 'quality: usage: scripts/quality-check.sh [all|policy|packages|native]\n' >&2
   exit 2
 fi
 case "$QUALITY_SCOPE" in
-  all|policy|typescript|replay|native) ;;
+  all|policy|packages|native) ;;
   *)
     printf 'quality: unsupported scope: %s\n' "$QUALITY_SCOPE" >&2
     exit 2
@@ -22,9 +22,7 @@ QUALITY_LOCK_DIR="$ROOT/tmp/check/quality-check.lock"
 QUALITY_WORKSPACE_SNAPSHOT="$ROOT/tmp/check/quality-workspace-snapshot.json"
 QUALITY_WORKSPACE_POSTFLIGHT=0
 sh scripts/quality-lock.sh acquire "$QUALITY_LOCK_DIR" "$$"
-release_quality_lock() {
-  sh scripts/quality-lock.sh release "$QUALITY_LOCK_DIR" "$$"
-}
+
 finish_quality_check() {
   quality_status=$?
   postflight_status=0
@@ -32,7 +30,7 @@ finish_quality_check() {
   if [ "$QUALITY_WORKSPACE_POSTFLIGHT" -eq 1 ]; then
     bun scripts/check-workspace-side-effects.ts --action check --snapshot "$QUALITY_WORKSPACE_SNAPSHOT" || postflight_status=$?
   fi
-  release_quality_lock
+  sh scripts/quality-lock.sh release "$QUALITY_LOCK_DIR" "$$"
   if [ "$quality_status" -ne 0 ]; then
     exit "$quality_status"
   fi
@@ -61,183 +59,78 @@ require_cmd() {
   fi
 }
 
-check_shell() {
-  log "shell syntax"
-  git ls-files --cached --others --exclude-standard -- '*.sh' | while IFS= read -r file; do
-    sh -n "$file"
-  done
-  bun run lint:shell
-}
-
-check_helpers() {
-  log "helper scripts"
-  sh scripts/resolve-codex-home.sh >/dev/null
-  CODEX_HOME=/tmp/codex-home sh scripts/resolve-codex-home.sh >/dev/null
-  sh scripts/automation-memory-path.sh demo-id >/dev/null
-  CODEX_HOME=/tmp/codex-home sh scripts/automation-memory-path.sh demo-id >/dev/null
-  sh scripts/resolve-python.sh >/dev/null
-  sh scripts/check-workspace-skills.sh >/dev/null
-}
-
-check_secrets() {
+check_policy() {
   require_cmd bun
-  log "secret scan"
-  bun scripts/check-secrets.ts >/dev/null
-}
-
-check_lint() {
-  require_cmd bun
-  log "eslint"
-  bun run lint
-}
-
-check_toolset_manifest() {
-  require_cmd bun
-  log "quality judge regression"
-  bun test \
-    ./scripts/audit-workspace-footprint.test.ts \
-    ./scripts/check-convergence-budget.test.ts \
-    ./scripts/check-test-source-boundaries.test.ts \
-    ./scripts/check-workspace-hygiene.test.ts \
-    ./scripts/check-workspace-side-effects.test.ts \
-    ./scripts/quality-judges.test.ts \
-    ./scripts/rd-developer-patch-adoption.test.ts \
-    ./scripts/rd-developer-workspace-cycle.test.ts \
-    ./scripts/rd-forward-candle-segment.test.ts \
-    ./scripts/rd-forward-market-data-demand.test.ts \
-    ./scripts/rd-strategy-source-adoption.test.ts \
-    ./scripts/run-cached-quality-check.test.ts \
-    >/dev/null
-  log "doc contracts"
-  bun scripts/check-doc-contracts.ts >/dev/null
-  log "toolset manifest"
-  bun scripts/toolset.ts --validate >/dev/null
-  bun scripts/check-architecture-manifest.ts >/dev/null
-  bun scripts/check-rd-target-layout.ts >/dev/null
-  bun scripts/check-rd-replay-static-consistency.ts >/dev/null
-  bun scripts/check-storage-schemas.ts >/dev/null
-  bun scripts/architecture-drift-audit.ts --check >/dev/null
-  bun scripts/logical-store.ts --action init --store all --base-dir tmp/check/logical-store >/dev/null
-  bun scripts/logical-store.ts --action check --store all --base-dir tmp/check/logical-store >/dev/null
-}
-
-check_typescript_tools() {
-  require_cmd bun
-  log "typescript tools"
-  bun scripts/check-ts-tool-boundaries.ts
-  if [ -n "${QUALITY_TS_SHARD:-}" ]; then
-    bun scripts/check-package-tests.ts --run-shard "$QUALITY_TS_SHARD"
-  else
-    bun scripts/check-package-tests.ts --run-all
-  fi
-}
-
-check_replay_semantics() {
-  require_cmd bun
-  log "Replay semantic regression"
-  bun scripts/run-cached-quality-check.ts \
-    --cache-id replay-semantic \
-    --workdir . \
-    --input package.json \
-    --input bun.lock \
-    --input scripts/check-replay-semantic.sh \
-    --input scripts/run-cached-quality-check.ts \
-    --input scripts/run-exclusive-test.sh \
-    --input scripts/quality-lock.sh \
-    --input apps/contracts/runtime-core \
-    --input apps/research-strategy-development/research-control-plane/contracts \
-    --input apps/research-strategy-development/replay-execution-plane/accounting \
-    --input apps/research-strategy-development/replay-execution-plane/contracts \
-    --input apps/research-strategy-development/replay-execution-plane/data-adapter \
-    --input apps/research-strategy-development/replay-execution-plane/engine \
-    --input apps/research-strategy-development/replay-execution-plane/runner \
-    -- sh scripts/check-replay-semantic.sh
-}
-
-check_test_source_boundaries() {
-  require_cmd bun
-  log "test source boundaries"
-  bun scripts/check-test-source-boundaries.ts
-}
-
-check_go_tools() {
-  require_cmd go
-  log "go tools"
-  find apps -name go.mod -type f | sort | while IFS= read -r mod; do
-    [ -f "$mod" ] || continue
-    dir="$(dirname "$mod")"
-    sh scripts/check-native-package.sh go "$dir"
-  done
-}
-
-check_python_tools() {
-  log "python tools"
-  find apps -type d -name scripts | sort | while IFS= read -r scripts_dir; do
-    dir="$(dirname "$scripts_dir")"
-    [ -d "$dir/scripts" ] || continue
-    if find "$dir/scripts" -name '*.py' -type f | grep -q .; then
-      sh scripts/check-native-package.sh python "$dir"
-    fi
-  done
-}
-
-check_rust_tools() {
-  require_cmd cargo
-  log "rust tools"
-  find apps -name Cargo.toml -type f | sort | while IFS= read -r manifest; do
-    [ -f "$manifest" ] || continue
-    dir="$(dirname "$manifest")"
-    sh scripts/check-native-package.sh rust "$dir"
-  done
-}
-
-check_project_hygiene() {
-  require_cmd rg
-  require_cmd bun
-  log "project hygiene"
+  log "diff"
   if [ -n "${QUALITY_DIFF_BASE:-}" ]; then
     git diff --no-renames --check "$QUALITY_DIFF_BASE"...HEAD
   else
     git diff --no-renames --check HEAD
   fi
-  bun scripts/check-workspace-hygiene.ts
+
+  log "shell and source lint"
+  git ls-files --cached --others --exclude-standard -- '*.sh' | while IFS= read -r file; do
+    [ -f "$file" ] || continue
+    sh -n "$file"
+    ./node_modules/.bin/shellcheck --severity=warning -e SC1007 "$file"
+  done
+  bun run lint
+
+  log "security and machine interfaces"
+  bun scripts/check-secrets.ts
+  bun scripts/toolset.ts --validate
+  bun test ./scripts/check-workspace-contracts.test.ts
 }
 
-check_policy_suite() {
-  check_project_hygiene
-  check_shell
-  check_helpers
-  check_secrets
-  check_lint
-  check_toolset_manifest
-  check_test_source_boundaries
+check_packages() {
+  require_cmd bun
+  log "package contracts"
+  if [ -n "${QUALITY_PACKAGE_SHARD:-}" ]; then
+    bun scripts/check-workspace-contracts.ts --run-shard "$QUALITY_PACKAGE_SHARD"
+  else
+    bun scripts/check-workspace-contracts.ts --run-all
+  fi
 }
 
-check_native_suite() {
-  check_go_tools
-  check_python_tools
-  check_rust_tools
+check_native() {
+  if git ls-files --cached --others --exclude-standard -- '**/go.mod' | grep -q .; then
+    require_cmd go
+    git ls-files --cached --others --exclude-standard -- '**/go.mod' | while IFS= read -r manifest; do
+      [ -f "$manifest" ] || continue
+      sh scripts/check-native-package.sh go "$(dirname "$manifest")"
+    done
+  fi
+
+  if git ls-files --cached --others --exclude-standard -- '**/Cargo.toml' | grep -q .; then
+    require_cmd cargo
+    git ls-files --cached --others --exclude-standard -- '**/Cargo.toml' | while IFS= read -r manifest; do
+      [ -f "$manifest" ] || continue
+      sh scripts/check-native-package.sh rust "$(dirname "$manifest")"
+    done
+  fi
+
+  python_cmd="$(sh scripts/resolve-python.sh)"
+  python_files="$(git ls-files --cached --others --exclude-standard -- '**/*.py')"
+  if [ -n "$python_files" ]; then
+    printf '%s\n' "$python_files" | while IFS= read -r file; do
+      [ -f "$file" ] || continue
+      "$python_cmd" -B -m py_compile "$file"
+      case "${file##*/}" in
+        test*.py) "$python_cmd" -B -W error "$file" ;;
+      esac
+    done
+  fi
 }
 
 case "$QUALITY_SCOPE" in
   all)
-    check_policy_suite
-    check_typescript_tools
-    check_replay_semantics
-    check_native_suite
+    check_policy
+    check_packages
+    check_native
     ;;
-  policy)
-    check_policy_suite
-    ;;
-  typescript)
-    check_typescript_tools
-    ;;
-  replay)
-    check_replay_semantics
-    ;;
-  native)
-    check_native_suite
-    ;;
+  policy) check_policy ;;
+  packages) check_packages ;;
+  native) check_native ;;
 esac
 
 log "$QUALITY_SCOPE ok"

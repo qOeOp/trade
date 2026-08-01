@@ -1,22 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
-  assertReplayCertificationManifest,
   assertReplayProfileEvidenceManifest,
-  assertReplayRunnerCertificationScripts,
-  replayCertificationCommand,
-  discoverReplayPackageRoots,
   findReplayCertificationRepoRoot,
-  loadReplayCertificationManifest,
   loadReplayProfileEvidenceManifest,
 } from "./replay-certification"
-import {
-  assertReplayModuleConsumerClosureManifest,
-  discoverReplayModuleConsumerClosure,
-  loadReplayModuleConsumerClosureManifest,
-} from "./replay-module-consumer-closure"
 import {
   assertReplayCrossProcessReproducibilityBundle,
   loadReplayCrossProcessReproducibilityBundle,
@@ -54,38 +44,6 @@ import {
 describe("Replay certification owner", () => {
   const repoRoot = findReplayCertificationRepoRoot()
 
-  test("classifies every Plane package once and keeps canonical/compatibility separate", () => {
-    const manifest = loadReplayCertificationManifest(repoRoot)
-    expect(() => assertReplayCertificationManifest(manifest, repoRoot)).not.toThrow()
-    expect(manifest.suites.filter((suite) => suite.classification === "canonical")).toHaveLength(9)
-    expect(manifest.suites.filter((suite) => suite.classification === "compatibility")).toHaveLength(13)
-    expect(discoverReplayPackageRoots(repoRoot)).toHaveLength(23)
-  })
-
-  test("rejects an unclassified package", () => {
-    const manifest = structuredClone(loadReplayCertificationManifest(repoRoot))
-    manifest.suites.pop()
-    expect(() => assertReplayCertificationManifest(manifest, repoRoot))
-      .toThrow("classify every Plane package exactly once")
-  })
-
-  test("full certification runs the runner semantic suite", () => {
-    expect(replayCertificationCommand(
-      "apps/research-strategy-development/replay-execution-plane/runner",
-    )).toEqual(["bun", "run", "test:release"])
-    expect(replayCertificationCommand(
-      "apps/research-strategy-development/replay-execution-plane/accounting",
-    )).toEqual(["bun", "run", "check"])
-    const runnerPackage = JSON.parse(readFileSync(join(
-      repoRoot,
-      "apps/research-strategy-development/replay-execution-plane/runner/package.json",
-    ), "utf8")) as { scripts: Record<string, string> }
-    expect(() => assertReplayRunnerCertificationScripts(runnerPackage.scripts)).not.toThrow()
-    runnerPackage.scripts["test:worker-v10"] = "bun test ./src/lib/other.test.ts"
-    expect(() => assertReplayRunnerCertificationScripts(runnerPackage.scripts))
-      .toThrow("Replay runner certification script drifted: test:worker-v10")
-  })
-
   test("binds every public profile to golden, resume, idempotency and tamper evidence", () => {
     const manifest = loadReplayProfileEvidenceManifest(repoRoot)
     expect(() => assertReplayProfileEvidenceManifest(manifest, repoRoot)).not.toThrow()
@@ -108,24 +66,6 @@ describe("Replay certification owner", () => {
     expect(() => assertReplayProfileEvidenceManifest(manifest, repoRoot))
       .toThrow("explicit unsupported evidence is invalid")
   })
-
-  test("discovers every Replay module and production consumer edge deterministically", () => {
-    const first = discoverReplayModuleConsumerClosure(repoRoot)
-    const second = discoverReplayModuleConsumerClosure(repoRoot)
-    expect(first).toEqual(second)
-    expect(first.modules).toHaveLength(23)
-    expect(new Set(first.modules.map((entry) => entry.package_path))).toHaveLength(23)
-    expect(first.production_consumer_edges.length).toBeGreaterThan(0)
-  }, 15_000)
-
-  test("rejects module or production consumer closure drift", () => {
-    const manifest = loadReplayModuleConsumerClosureManifest(repoRoot)
-    expect(() => assertReplayModuleConsumerClosureManifest(manifest, repoRoot)).not.toThrow()
-    const drifted = structuredClone(manifest)
-    drifted.observed_production_consumer_edge_count -= 1
-    expect(() => assertReplayModuleConsumerClosureManifest(drifted, repoRoot))
-      .toThrow("classify every production consumer edge")
-  }, 15_000)
 
   test("reproduces canonical Result and every public profile in distinct processes", async () => {
     const bundle = loadReplayCrossProcessReproducibilityBundle(repoRoot)
@@ -295,7 +235,7 @@ describe("Replay certification owner", () => {
     )).toThrow("case overclaim or drift")
   })
 
-  test("freezes operational observability, incident triage and the operator runbook", () => {
+  test("freezes operational observability, incident triage and the owner command", () => {
     const registry = loadReplayOperationalReadinessRegistry(repoRoot)
     expect(() => assertReplayOperationalReadinessRegistry(
       registry,
@@ -304,7 +244,7 @@ describe("Replay certification owner", () => {
     )).not.toThrow()
     expect(registry.profile_observability).toHaveLength(4)
     expect(registry.incident_classes).toHaveLength(6)
-    expect(registry.operator_commands).toHaveLength(4)
+    expect(registry.operator_commands).toEqual(["bun run certify"])
   })
 
   test("rejects telemetry, retry, partial-evidence or runbook overclaims", () => {
@@ -327,11 +267,11 @@ describe("Replay certification owner", () => {
       partialOverclaim, profileEvidence, repoRoot,
     )).toThrow("observability is incomplete or overclaimed")
 
-    const runbookDrift = structuredClone(loadReplayOperationalReadinessRegistry(repoRoot))
-    runbookDrift.runbook.required_sections.pop()
+    const commandDrift = structuredClone(loadReplayOperationalReadinessRegistry(repoRoot))
+    commandDrift.operator_commands = ["bun src/scripts/main.ts"]
     expect(() => assertReplayOperationalReadinessRegistry(
-      runbookDrift, profileEvidence, repoRoot,
-    )).toThrow("runbook contract drifted")
+      commandDrift, profileEvidence, repoRoot,
+    )).toThrow("operational commands drifted")
   })
 
   test("freezes the release-candidate evidence closure and reruns every profile golden", async () => {
@@ -341,7 +281,7 @@ describe("Replay certification owner", () => {
       loadReplayProfileEvidenceManifest(repoRoot),
       repoRoot,
     )
-    expect(pack.components).toHaveLength(12)
+    expect(pack.components).toHaveLength(10)
     expect(receipt.profiles.map((entry) => entry.profile)).toEqual([
       "independent-lane-batch",
       "integrated-portfolio",
@@ -368,7 +308,10 @@ describe("Replay certification owner", () => {
     )).toThrow("unsupported Replay release candidate fixture pack")
 
     const authorityDrift = structuredClone(loadReplayReleaseCandidateFixturePack(repoRoot))
-    authorityDrift.components[5]!.authority_hash = "0".repeat(64)
+    const authorityComponent = authorityDrift.components.find((component) =>
+      component.authority_hash_field !== null)
+    expect(authorityComponent).toBeDefined()
+    authorityComponent!.authority_hash = "0".repeat(64)
     expect(() => assertReplayReleaseCandidateFixturePack(
       authorityDrift, profileEvidence, repoRoot,
     )).toThrow("component authority hash drifted")

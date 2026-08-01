@@ -23,7 +23,7 @@ last_verified: 2026-07-30 CST
 
 `.agents/skills/<skill>/` 是 Codex 工作流适配层，不是项目 tool 目录。允许内容只有 `SKILL.md`、`agents/openai.yaml` 以及确有复用价值的 skill resource；领域实现、schema、DB、CLI 和 authority 必须继续留在 `apps/`、`toolset.json` 与 owner store。
 
-Skill 可以说明如何调用既有 MCP / owner tool，但不能绕过 preflight、Control Plane、governance 或 durable write contract。`scripts/check-workspace-skills.sh` 校验命名、frontmatter、placeholder 和领域实现越界。
+Skill 可以说明如何调用既有 MCP / owner tool，但不能绕过 preflight、Control Plane、governance 或 durable write contract。Skill 内容由使用它的宿主验证，不进入项目 required quality gate。
 - strategy policy 的唯一源码位置是 `strategies/`。
 - Reviewer Agent 的 machine evidence role 使用 `negative_control`；其他文档与源码不做词面替换。
 
@@ -162,7 +162,6 @@ Skill 可以说明如何调用既有 MCP / owner tool，但不能绕过 prefligh
 - 顶层责任域、模块清单、job 与 logical store ownership 以 [architecture-manifest.json](./architecture-manifest.json) 为机器真相。
 - `apps/research-strategy-development/` 已收敛为 `research-control-plane / replay-execution-plane / forward-evidence-plane / agent-roles` 四个直接子树。
 - `trade-flow` 保留为 suite façade；退役的 `src/domain/*` 不得恢复，真实行为 owner 已下沉到 portfolio、decision、execution 等责任域。
-- 当前代码投影及剩余飞线看 [generated/architecture-drift-report.md](./generated/architecture-drift-report.md)。
 
 ## 边界规则
 
@@ -180,5 +179,5 @@ Skill 可以说明如何调用既有 MCP / owner tool，但不能绕过 prefligh
 ## 检查入口
 
 - CI / R&D certification 与可选的非 PR 本地全仓终结：`scripts/quality-check.sh`
-- 目录契约：`scripts/check-ts-tool-boundaries.ts` 当前检查 `apps` 的跨工具 import 边界。
-- 具体“改哪里跑什么”：见 [check-contract.md](../engineering/check-contract.md)。
+- package 通过自己的 `scripts.check` 验证公开输入输出和直接 consumer；中央质量门不维护目录或 import 白名单。
+- 项目质量接口见 [Quality Contract](../engineering/code-quality.md)。

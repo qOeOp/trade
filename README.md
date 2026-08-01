@@ -14,7 +14,7 @@
 | domain / job / store / rail 机器事实 | [Architecture Manifest](./docs/architecture/architecture-manifest.json) |
 | 在线技术合同 | [Technical Contract](./docs/runtime/tech-spec.md) |
 | R&D 与 Replay 边界 | [RD Architecture](./docs/research/architecture/rd-architecture-migration-plan.md) / [Replay Capability Inventory](./docs/research/reliability/rd-replay-capability-inventory.json) |
-| 改动后跑什么 | [Check Contract](./docs/engineering/check-contract.md) |
+| 质量接口 | [Quality Contract](./docs/engineering/code-quality.md) |
 
 优先级：产品合同 → 架构合同 / manifest → module `CONTRACT.md` / `toolset.json` → schema / tests。`docs/history/` 只保留历史上下文，不能覆盖当前合同。
 
@@ -81,7 +81,7 @@ Research 不写在线交易事件、不调用 Binance write；Replay / Forward �
 文档改动最低检查：
 
 ```text
-bun scripts/check-doc-contracts.ts
+bun run check
 git diff --check
 ```
 

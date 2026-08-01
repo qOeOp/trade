@@ -16,7 +16,6 @@ last_verified: 2026-07-30 CST
 - 物理库可以少，logical store 必须先分清。
 - 跨 store 不做强外键，只传 `event_key / artifact_ref / manifest_ref / strategy_ref / logical-store-ref`。
 - Durable fact 只进入数据库；大 payload 若存在，只能作为 `tmp/` 工作区材料，并由 DB 记录 summary/ref/hash。
-- `scripts/check-architecture-manifest.ts` 会校验 manifest、目录、rail schema 和 SQL 表名一致。
 
 ## Local Data Plane
 
@@ -58,4 +57,4 @@ last_verified: 2026-07-30 CST
 2. owner module 提供唯一 `ensureSchema/init` 入口。
 3. 外部模块只能通过 protocol ref 或 owner CLI / contract 使用，不直接写表。
 4. 把 [architecture-manifest.json](./architecture-manifest.json) 对应 store 状态从 `planned` 更新为 `implemented` 或 `implemented-derived`。
-5. 增加 owner module check，并按 [Check Contract](../engineering/check-contract.md) 运行受影响的 storage schema、architecture 与 consumer 检查；全仓 closure 由交付端点决定。
+5. 增加 owner package check，并按 [Quality Contract](../engineering/code-quality.md) 验证 schema 的真实初始化和直接 consumer；全仓 closure 由交付端点决定。
