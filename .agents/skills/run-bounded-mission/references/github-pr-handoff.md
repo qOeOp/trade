@@ -51,6 +51,21 @@ the final candidate, Verify and publish that complete candidate, then wait for i
 set of required final-head checks. Request another review only when the frozen Frame or admitted Plan
 separately requires it. Do not create review loops merely to obtain a preferred result.
 
+## Exact-head parent-adjudication signal
+
+The official [Codex code review in GitHub](https://learn.chatgpt.com/docs/third-party/github)
+contract describes Codex as following applicable `AGENTS.md`, posting a standard teammate-style
+GitHub review, and flagging only P0/P1 issues. Treat that result as a GitHub P0/P1 signal. It does not
+prove candidate-external discovery, evaluator isolation, runtime authority, independent acceptance,
+or material P2 coverage; require the separate advisory evidence defined by the acceptance owner.
+
+For a parent-adjudicated route frozen before mutation, bind the automatic opening review to the
+exact final head only when the Ready pull request first publishes that final candidate and no later
+candidate, head, base, applicable review policy, acceptance route, executor, authority, observed
+capability, or evidence-prerequisite drift occurs. Otherwise keep it as opening discovery. Verify
+the complete non-empty final-head checks and unresolved conversations separately; neither the review
+nor `mergeStateStatus` substitutes for them.
+
 ## Merge-ready barrier
 
 Immediately before accepting `merge-ready` or performing a merge, observe one current snapshot:
@@ -66,8 +81,11 @@ Immediately before accepting `merge-ready` or performing a merge, observe one cu
 8. a final refetch shows no head, base, activity, or merge-tree drift.
 
 Unknown, absent, stale, or pending required final-head data fails the barrier. The completed opening
-review is intentionally discovery rather than final-head acceptance evidence. A material finding or
-any candidate, head, base, or merge-tree change returns to Verify.
+review is normally discovery rather than final-head acceptance evidence. Under the exact first-final
+publication condition above, it supplies only the parent route's P0/P1 signal, never acceptance by
+itself. A material finding or any candidate, head, base, applicable review-policy, acceptance-route,
+executor, authority, observed-capability, evidence-prerequisite, or merge-tree change invalidates
+affected evidence and returns to Verify.
 
 ## Merge
 

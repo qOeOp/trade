@@ -167,6 +167,13 @@ working-tree state. Choose the smallest vertical change that closes the outcome.
 Plan is read-only. Admit the owner, path, affected boundary, candidate shape, and verification route
 before mutation; when any of them remains unresolved, keep investigating or return to Frame.
 
+Only when the frozen endpoint's completion claim depends on named external, parent, remote,
+independent, or publication acceptance, load
+[acceptance admission and the reviewer packet](references/reviewer-handoff.md) during Plan. Before
+mutation or child dispatch, bind that endpoint to an executable, honestly named route, executor,
+authority, observed capability, evidence prerequisites, and invalidation conditions. Keep an
+ordinary locally verified outcome under the existing acceptance path without an external route.
+
 When a test failure can change the candidate, an escaped defect shows that tests missed required
 behavior, or the Mission may restructure tests, load
 [test effectiveness governance](references/test-effectiveness-governance.md) before mutation.
@@ -253,8 +260,8 @@ Use [architecture sensor evidence](references/architecture-sensor.md) only for m
 change, cross-owner effects, or persistent patch pressure.
 
 Instruction and judge changes require review that does not rely on the changed rule to approve
-itself. When an independent evaluator predicate activates, load
-[the Verify reviewer packet](references/reviewer-handoff.md) before dispatch. If the host cannot
+itself. When an independent evaluator predicate activates, use the acceptance admission and reviewer
+packet selected in Plan before dispatch. If the host cannot
 prove the admitted read-only, candidate-external, no-delegation, and no-lateral-communication
 boundaries through that packet's fail-closed preflight, do not launch the evaluator. The local
 candidate may still be prepared and verified when the authorized endpoint allows that result, but
