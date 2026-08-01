@@ -221,45 +221,95 @@ describe("single-Mission transition contract", () => {
         "accept",
       ], admissiblePlan)
       expect(resumed.position).toBe("accepted")
+      expect(resumed.candidateReady).toBe(true)
       expect(resumed.mutations).toBe(1)
     } finally {
       rmSync(unavailableRepository, { recursive: true, force: true })
     }
   })
 
-  test("does not recover a failed candidate as ready after revise", () => {
-    const beforeReplacement = [
+  test("preserves evidence-owned candidate readiness across Finalize routes", () => {
+    const readyCandidate = [
       "frame-complete",
       "plan-admitted",
       "candidate-ready",
       "pre-verify-gates-pass",
-      "verify-fail-local",
-      "revise",
-      "context-lost",
-      "recover-exact",
     ]
+
+    for (const route of [
+      ["revise", "context-lost", "recover-exact"],
+      ["blocked", "resume-blocker-removed"],
+      ["blocked", "context-lost", "recover-exact", "resume-blocker-removed"],
+    ]) {
+      const repository = createTemporaryRepository()
+      try {
+        const beforeReplacement = [...readyCandidate, "verify-fail-local", ...route]
+        const resumed = replay(repository, beforeReplacement, admissiblePlan)
+        expect(resumed.position).toBe("Execute")
+        expect(resumed.candidateReady).toBe(false)
+        expect(resumed.mutations).toBe(1)
+        expect(() => replay(repository, [
+          ...beforeReplacement,
+          "pre-verify-gates-pass",
+        ], admissiblePlan)).toThrow("pre-Verify gates require a complete candidate")
+        expect(readFileSync(resolve(repository, "candidate.txt"), "utf8")).toBe("candidate-1\n")
+        const replaced = replay(repository, [
+          ...beforeReplacement,
+          "candidate-ready",
+          "pre-verify-gates-pass",
+          "verify-pass",
+          "accept",
+        ], admissiblePlan)
+        expect(replaced.position).toBe("accepted")
+        expect(replaced.mutations).toBe(2)
+        expect(readFileSync(resolve(repository, "candidate.txt"), "utf8")).toBe("candidate-2\n")
+      } finally {
+        rmSync(repository, { recursive: true, force: true })
+      }
+    }
+
+    for (const path of [
+      {
+        evidence: "verify-fail-design",
+        directRoute: ["replan"],
+        resumePosition: "Plan" as const,
+      },
+      {
+        evidence: "scope-expanded",
+        directRoute: ["reframe"],
+        resumePosition: "Frame" as const,
+      },
+    ]) {
+      const repository = createTemporaryRepository()
+      try {
+        const invalidated = replay(repository, [...readyCandidate, path.evidence], admissiblePlan)
+        expect(invalidated.position).toBe("Finalize")
+        expect(invalidated.candidateReady).toBe(false)
+
+        for (const route of [
+          path.directRoute,
+          ["blocked", "context-lost", "recover-exact", "resume-blocker-removed"],
+        ]) {
+          const routed = [...readyCandidate, path.evidence, ...route]
+          const resumed = replay(repository, routed, admissiblePlan)
+          expect(resumed.position).toBe(path.resumePosition)
+          expect(resumed.candidateReady).toBe(false)
+        }
+      } finally {
+        rmSync(repository, { recursive: true, force: true })
+      }
+    }
 
     const repository = createTemporaryRepository()
     try {
-      const recovered = replay(repository, beforeReplacement, admissiblePlan)
-      expect(recovered.position).toBe("Execute")
-      expect(recovered.candidateReady).toBe(false)
-      expect(recovered.mutations).toBe(1)
+      const passed = replay(repository, [...readyCandidate, "verify-pass", "accept"], admissiblePlan)
+      expect(passed.position).toBe("accepted")
+      expect(passed.mutations).toBe(1)
       expect(() => replay(repository, [
-        ...beforeReplacement,
-        "pre-verify-gates-pass",
-      ], admissiblePlan)).toThrow("pre-Verify gates require a complete candidate")
-      expect(readFileSync(resolve(repository, "candidate.txt"), "utf8")).toBe("candidate-1\n")
-      const replaced = replay(repository, [
-        ...beforeReplacement,
-        "candidate-ready",
-        "pre-verify-gates-pass",
-        "verify-pass",
+        ...readyCandidate,
+        "verify-fail-local",
         "accept",
-      ], admissiblePlan)
-      expect(replaced.position).toBe("accepted")
-      expect(replaced.mutations).toBe(2)
-      expect(readFileSync(resolve(repository, "candidate.txt"), "utf8")).toBe("candidate-2\n")
+      ], admissiblePlan)).toThrow("accept requires passing evidence")
     } finally {
       rmSync(repository, { recursive: true, force: true })
     }
@@ -459,6 +509,7 @@ function replay(
     }
     if (event === "verify-fail-local" || event === "verify-fail-design") {
       requireStage(state.position, "Verify", event)
+      state.candidateReady = false
       state.position = "Finalize"
       state.verification = event === "verify-fail-local" ? "local-failure" : "design-failure"
       continue
@@ -476,11 +527,11 @@ function replay(
       consumeBackwardRoute(state)
       state.position = event === "revise" ? "Execute" : "Plan"
       if (event === "replan") state.admittedPlan = null
-      state.candidateReady = false
       continue
     }
     if (event === "scope-expanded") {
       requireActive(state.position, event)
+      state.candidateReady = false
       state.position = "Finalize"
       state.verification = "scope-expansion"
       continue
@@ -493,7 +544,6 @@ function replay(
       consumeBackwardRoute(state)
       state.position = "Frame"
       state.admittedPlan = null
-      state.candidateReady = false
       state.verification = null
       continue
     }

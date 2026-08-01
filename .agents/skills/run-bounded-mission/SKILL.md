@@ -97,6 +97,9 @@ forward only on these observable conditions:
   against the current candidate;
 - `Finalize → accept`: acceptance is satisfied and bound to a recoverable diff or integrated commit.
 
+Verification failure or scope expansion invalidates candidate readiness immediately; gate
+unavailability does not. Finalize routing, blocking, recovery, and resume preserve that decision.
+
 All other continuation goes through one named Finalize route. `revise` returns to Execute only for a
 candidate-local correction with the same admitted design and oracle. `replan` returns to Plan when
 an admitted design field fails. `reframe` returns to Frame before any material change to outcome,
