@@ -10,7 +10,7 @@
     "test:release": "bun run lint && bun run test",
     "typecheck": "tsc --noEmit",
     "lint": "bun run typecheck",
-    "test": "sh ../../../../scripts/run-exclusive-test.sh replay-runner-heavyweight env REPLAY_TEST_PROFILE=1 bun test ./src",
+    "test": "sh ./src/scripts/exclusive-test.sh replay-runner-heavyweight env REPLAY_TEST_PROFILE=1 bun test ./src",
     "check": "bun run lint && bun run test"
   }
 }

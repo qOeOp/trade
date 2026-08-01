@@ -263,7 +263,7 @@ async function executeSuiteCheck(
   )
   const materializedWorkspaceRoot = realpathSync(workspaceRoot)
   const command = suite === "repository_quality"
-    ? ["/bin/sh", "scripts/quality-check.sh"]
+    ? ["bun", "run", "check"]
     : [
         process.execPath,
         "--no-install",

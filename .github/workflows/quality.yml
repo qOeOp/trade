@@ -42,7 +42,21 @@ jobs:
           install "$RUNNER_TEMP/shellcheck-v0.11.0/shellcheck" node_modules/shellcheck/bin/shellcheck
       - name: Verify ShellCheck binary
         run: ./node_modules/.bin/shellcheck --version
-      - run: scripts/quality-check.sh policy
+      - name: Capture clean workspace
+        run: bun run --cwd apps/orchestration-ops/agent-workspace-manager repository:side-effects --action capture --snapshot tmp/check/policy-workspace.json --require-clean
+      - name: Check diff, source, secrets, and tool registry
+        run: |
+          git diff --no-renames --check "$QUALITY_DIFF_BASE"...HEAD
+          git ls-files -- '*.sh' | while IFS= read -r file; do
+            sh -n "$file"
+            ./node_modules/.bin/shellcheck --severity=warning -e SC1007 "$file"
+          done
+          bun run lint
+          bun run --cwd apps/orchestration-ops/agent-workspace-manager repository:secrets
+          bun run --cwd apps/orchestration-ops/agent-mcp check:toolset
+      - name: Verify no workspace mutations
+        if: ${{ always() }}
+        run: bun run --cwd apps/orchestration-ops/agent-workspace-manager repository:side-effects --action check --snapshot tmp/check/policy-workspace.json
 
   packages:
     name: packages-${{ matrix.name }}
@@ -65,7 +79,13 @@ jobs:
           bun-version: 1.3.13
       - name: Install repository dependencies
         run: env -u BINANCE_API_KEY -u BINANCE_API_SECRET -u SILICONFLOW_API_KEY bun --no-env-file install --frozen-lockfile --ignore-scripts
-      - run: scripts/quality-check.sh packages
+      - name: Capture clean workspace
+        run: bun run --cwd apps/orchestration-ops/agent-workspace-manager repository:side-effects --action capture --snapshot tmp/check/packages-workspace.json --require-clean
+      - name: Run package checks
+        run: bun run --cwd apps/orchestration-ops/agent-workspace-manager repository:packages --run-shard "$QUALITY_PACKAGE_SHARD"
+      - name: Verify no workspace mutations
+        if: ${{ always() }}
+        run: bun run --cwd apps/orchestration-ops/agent-workspace-manager repository:side-effects --action check --snapshot tmp/check/packages-workspace.json
 
   native:
     name: native
@@ -93,7 +113,35 @@ jobs:
             ~/.cargo/git
             **/target
           key: rust-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-      - run: scripts/quality-check.sh native
+      - name: Capture clean workspace
+        run: bun run --cwd apps/orchestration-ops/agent-workspace-manager repository:side-effects --action capture --snapshot tmp/check/native-workspace.json --require-clean
+      - name: Run native checks
+        run: |
+          set -euo pipefail
+          while IFS= read -r manifest; do
+            package_dir="$(dirname "$manifest")"
+            unformatted="$(find "$package_dir" -name '*.go' -type f -exec gofmt -l {} +)"
+            test -z "$unformatted" || { printf 'gofmt required:\n%s\n' "$unformatted" >&2; exit 1; }
+            (cd "$package_dir" && go test ./... && go vet ./...)
+          done < <(git ls-files '**/go.mod' | sort)
+
+          while IFS= read -r manifest; do
+            package_dir="$(dirname "$manifest")"
+            (cd "$package_dir" && cargo fmt --all -- --check)
+            (cd "$package_dir" && cargo check)
+            (cd "$package_dir" && cargo clippy --all-targets -- -D warnings)
+            (cd "$package_dir" && cargo test)
+          done < <(git ls-files '**/Cargo.toml' | sort)
+
+          while IFS= read -r file; do
+            python3 -B -m py_compile "$file"
+            case "${file##*/}" in
+              test*.py) python3 -B -W error "$file" ;;
+            esac
+          done < <(git ls-files '**/*.py' | sort)
+      - name: Verify no workspace mutations
+        if: ${{ always() }}
+        run: bun run --cwd apps/orchestration-ops/agent-workspace-manager repository:side-effects --action check --snapshot tmp/check/native-workspace.json
 
   quality:
     name: quality

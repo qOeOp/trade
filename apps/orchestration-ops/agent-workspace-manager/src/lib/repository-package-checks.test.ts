@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
-const judge = join(import.meta.dir, "check-workspace-contracts.ts")
+const judge = join(import.meta.dir, "../scripts/repository-package-checks.ts")
 const roots: string[] = []
 
 afterEach(() => {

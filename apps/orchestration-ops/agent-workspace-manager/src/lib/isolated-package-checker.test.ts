@@ -22,7 +22,6 @@ test("isolated package checker exchanges only bounded check evidence over Unix s
   const dependencyRoot = join(root, "dependencies")
   mkdirSync(packageRoot, { recursive: true })
   mkdirSync(dependencyRoot)
-  mkdirSync(join(workspaceRoot, "scripts"), { recursive: true })
   mkdirSync(join(
     workspaceRoot,
     "apps",
@@ -38,10 +37,13 @@ test("isolated package checker exchanges only bounded check evidence over Unix s
     private: true,
     scripts: { check: "bun -e \"process.exit(0)\"" },
   }))
-  writeFileSync(
-    join(workspaceRoot, "scripts", "quality-check.sh"),
-    "set -eu\n[ -L node_modules ]\n",
-  )
+  writeFileSync(join(workspaceRoot, "package.json"), JSON.stringify({
+    name: "sample-workspace",
+    private: true,
+    scripts: {
+      check: "bun -e \"import { lstatSync } from 'node:fs'; if (!lstatSync('node_modules').isSymbolicLink()) process.exit(1)\"",
+    },
+  }))
   writeFileSync(
     join(
       workspaceRoot,

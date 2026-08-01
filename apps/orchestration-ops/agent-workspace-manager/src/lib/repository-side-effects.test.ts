@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { diffWorkspaceSnapshots } from "./check-workspace-side-effects"
+import { diffWorkspaceSnapshots } from "./repository-side-effects"
 
 const snapshot = (files: Record<string, string>) => ({
   schema_version: "trade.workspace-snapshot.v1" as const,

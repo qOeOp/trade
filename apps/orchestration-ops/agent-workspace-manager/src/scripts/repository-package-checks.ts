@@ -8,12 +8,20 @@ interface PackageContract {
   name: string
 }
 
-const root = process.cwd()
+const rootResult = Bun.spawnSync({
+  cmd: ["git", "rev-parse", "--show-toplevel"],
+  stdout: "pipe",
+  stderr: "pipe",
+})
+if (rootResult.exitCode !== 0) {
+  throw new Error(`unable to resolve repository root: ${rootResult.stderr.toString()}`)
+}
+const root = rootResult.stdout.toString().trim()
 const contracts = discoverContracts(root)
 const [mode, target, extra] = process.argv.slice(2)
 
 if (extra || (mode && !["--run-all", "--run-package", "--run-shard"].includes(mode))) {
-  throw new Error(`usage: bun scripts/check-workspace-contracts.ts [--run-all|--run-package <name>|--run-shard <index>/<count>]`)
+  throw new Error(`usage: repository-package-checks [--run-all|--run-package <name>|--run-shard <index>/<count>]`)
 }
 
 const selected = mode === "--run-all"

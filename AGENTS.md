@@ -22,7 +22,7 @@
 - 保留用户已有改动，不把无关 staged、unstaged 或 untracked 内容纳入当前候选。
 - 不把 secret、本机绝对路径或运行数据库写入 docs、code、helper 输出合同。
 - 新增文档路径使用 ASCII、小写和短横线；`README.md`、`CONTRACT.md`、`SKILL.md` 等仓库约定名称除外。文档正文优先中文，时间默认 `Asia/Shanghai`。
-- automation memory 通过 `scripts/automation-memory-path.sh <automation-id>` 解析；需要 Python 时优先用 `python3` 或 `scripts/resolve-python.sh`。
+- 需要 Python 时使用 `python3`。
 
 ## R&D strategy requests
 

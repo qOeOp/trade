@@ -85,4 +85,4 @@ bun run check
 git diff --check
 ```
 
-涉及架构当前态时运行受影响 owner 的 package check 和真实 consumer journey。经 PR 交付时，本地直接运行受影响 owner 检查、diff inspection 与 workspace safety；远端 required `quality` 和四语言 CodeQL 完成全仓 merge closure。不经 PR 且需要本地全仓终结时再运行 `scripts/quality-check.sh`。
+涉及架构当前态时运行受影响 owner 的 package check 和真实 consumer journey。经 PR 交付时，本地直接运行 `bun run check`、受影响 owner 检查与 diff inspection；远端 required `quality` 和四语言 CodeQL 完成全仓 merge closure。

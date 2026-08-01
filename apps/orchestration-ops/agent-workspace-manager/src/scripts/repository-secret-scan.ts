@@ -1,6 +1,17 @@
 #!/usr/bin/env bun
 
 import { readFileSync, statSync } from "node:fs"
+import { resolve } from "node:path"
+
+const repoRootResult = Bun.spawnSync({
+  cmd: ["git", "rev-parse", "--show-toplevel"],
+  stdout: "pipe",
+  stderr: "pipe",
+})
+if (repoRootResult.exitCode !== 0) {
+  throw new Error(`unable to resolve repository root: ${repoRootResult.stderr.toString()}`)
+}
+const repoRoot = repoRootResult.stdout.toString().trim()
 
 interface SecretPattern {
   name: string
@@ -24,6 +35,7 @@ const patterns: SecretPattern[] = [
 
 const candidates = Bun.spawnSync({
   cmd: ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+  cwd: repoRoot,
   stdout: "pipe",
   stderr: "pipe",
 })
@@ -35,12 +47,12 @@ const findings: string[] = []
 for (const path of candidates.stdout.toString().split("\0").filter(Boolean)) {
   let stats
   try {
-    stats = statSync(path)
+    stats = statSync(resolve(repoRoot, path))
   } catch {
     continue
   }
   if (!stats.isFile() || stats.size > 2_000_000) continue
-  const content = readFileSync(path)
+  const content = readFileSync(resolve(repoRoot, path))
   if (content.includes(0)) continue
   const lines = content.toString("utf8").split(/\r?\n/)
   for (const [lineIndex, line] of lines.entries()) {
@@ -59,6 +71,7 @@ if (findings.length > 0) {
 
 const ignoredSecretFile = Bun.spawnSync({
   cmd: ["git", "check-ignore", "-q", ".secrets/siliconflow.env"],
+  cwd: repoRoot,
   stdout: "ignore",
   stderr: "ignore",
 })

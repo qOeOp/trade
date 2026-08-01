@@ -5,6 +5,7 @@
 ## Responsibilities
 
 - 提供 toolset 能力搜索与单项读取。
+- 校验根 `toolset.json` 的公开 registry contract 与所引用的可执行入口。
 - 提供 artifact catalog 查询、按 ID 的哈希校验正文读取、Market Data owner exact / bounded-page L2 retention/reference 审计、active L2 service health、resident book-watch consumer health、runtime parity 状态、RD program 状态和 ops cycle 摘要读取。
 - 提供 RD memory + Control Plane 的只读 designer brief、hypothesis contract 校验/queue projection，以及 J04 研发任务的幂等提交、状态读取与终态结果读取。
 - 固定调用目标、参数结构、超时和输出上限。

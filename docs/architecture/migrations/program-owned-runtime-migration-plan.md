@@ -170,7 +170,7 @@ Rust 候选栈：Tokio、WebSocket client、Serde、`tracing`、Arrow/Parquet、
 - 调用方拥有 timeout、cancellation、retry 和 idempotency；被调用方不得跨边界隐式写另一 domain store。
 - 错误使用稳定 code + typed detail；日志、exit code 和自然语言 stderr 不作为业务判断依据。
 - 只有 IPC 被 profile 证明是瓶颈且 contract 已稳定，才评审 Arrow IPC / Flight、共享内存或 FFI。
-- 引入首个 Rust crate 时，同步把 `cargo fmt --check`、`cargo check`、`cargo clippy -- -D warnings`、`cargo test` 和依赖审计接入 `scripts/quality-check.sh`；缺一项不得进入 active runtime。
+- Rust crate 由 CI 动态发现 `Cargo.toml`，直接运行 `cargo fmt --check`、`cargo check`、`cargo clippy -- -D warnings` 和 `cargo test`。
 
 ### P0 语言采用门
 

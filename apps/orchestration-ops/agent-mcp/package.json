@@ -14,6 +14,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "bun run typecheck",
     "test": "bun test ./src/lib/*.test.ts ./src/scripts/*.test.ts",
-    "check": "bun run lint && bun run test"
+    "toolset": "bun ./src/scripts/toolset.ts",
+    "check:toolset": "bun run toolset --validate",
+    "check": "bun run lint && bun run test && bun run check:toolset"
   }
 }
