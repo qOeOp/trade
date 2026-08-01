@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
@@ -61,6 +61,28 @@ describe("workspace package contracts", () => {
     expect(second.exitCode).toBe(0)
     expect(output.match(/alpha-ran/g)?.length).toBe(1)
     expect(output.match(/beta-ran/g)?.length).toBe(1)
+  })
+
+  test("rejects a concurrent full repository check", async () => {
+    const root = fixture({
+      "service/package.json": manifest("slow-service", "bun -e 'await Bun.sleep(500)'"),
+    })
+    const first = Bun.spawn(["bun", judge, "--run-all"], {
+      cwd: root,
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const ownerPath = join(root, "tmp/check/repository-package-checks.lock/owner-pid")
+    for (let attempt = 0; attempt < 50 && !existsSync(ownerPath); attempt += 1) {
+      await Bun.sleep(10)
+    }
+
+    const second = run(root, ["--run-all"])
+
+    expect(second.exitCode).not.toBe(0)
+    expect(second.stderr).toContain("repository package check is already active")
+    expect(await first.exited).toBe(0)
+    expect(existsSync(ownerPath)).toBe(false)
   })
 })
 

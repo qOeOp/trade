@@ -1,0 +1,7 @@
+{
+  "name": "@trade/l2-order-book-compactor",
+  "private": true,
+  "scripts": {
+    "check": "cargo fmt --all -- --check && cargo check && cargo clippy --all-targets -- -D warnings && cargo test"
+  }
+}

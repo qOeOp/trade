@@ -19,7 +19,7 @@ last_verified: 2026-08-01 CST
 | GitHub `quality` | exact PR head 的稳定 merge context |
 | CodeQL contexts | GitHub 签发的静态安全分析 |
 
-中央 runner 只读取 repository-visible `package.json` 的唯一 `name` 和 `scripts.check`，并传播进程退出码。它属于 workspace manager，不预设 package 位于哪个目录、使用什么语言、测试文件叫什么，也不解析测试 runner 的人类输出。CI 直接调用标准语言工具，不再经过根脚本分层。
+中央 runner 只读取 repository-visible `package.json` 的唯一 `name` 和 `scripts.check`，并传播进程退出码。它属于 workspace manager，不预设 package 位于哪个目录、使用什么语言、测试文件叫什么，也不解析测试 runner 的人类输出。Go、Rust、Python owner 与 TypeScript package 使用同一接口；CI 不再复制 owner 的 compiler 或 test 命令。
 
 ## 边界
 
@@ -43,7 +43,7 @@ Required merge gate 不检查：
 
 ## Ownership
 
-- package owner 决定 `scripts.check` 内部如何组合 compiler 与测试。
+- package owner 决定 `scripts.check` 内部如何组合 compiler 与测试；全仓 `--run-all` 在同一 checkout 内串行占用，shard 仍可在隔离 checkout 并行。
 - Replay、release 和 runtime owner 保留自己的高成本认证，不复制到中央 runner。
 - workflow 只编排上述接口；stable `quality` context 负责 merge，不代表 release 或 runtime 完成。
 - 新 package 缺少唯一 `name` 或 `scripts.check` 时 fail closed。

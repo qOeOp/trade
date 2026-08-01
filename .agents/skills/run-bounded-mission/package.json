@@ -1,0 +1,7 @@
+{
+  "name": "@trade/run-bounded-mission-skill",
+  "private": true,
+  "scripts": {
+    "check": "python3 -B -m py_compile scripts/git-path-history.py"
+  }
+}

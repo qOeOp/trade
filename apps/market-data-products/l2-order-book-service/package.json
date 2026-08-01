@@ -10,6 +10,6 @@
     "typecheck": "tsc --noEmit",
     "lint": "bun run typecheck",
     "test": "bun test ./src/control/*.test.ts ./src/scripts/*.test.ts",
-    "check": "bun run lint && bun run test"
+    "check": "bun run lint && bun run test && cargo fmt --all -- --check && cargo check && cargo clippy --all-targets -- -D warnings && cargo test"
   }
 }

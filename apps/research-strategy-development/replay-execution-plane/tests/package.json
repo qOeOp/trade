@@ -10,6 +10,6 @@
     "typecheck": "tsc --noEmit",
     "lint": "bun run typecheck",
     "test": "bun test ./src/*.test.ts",
-    "check": "bun run lint && bun run test"
+    "check": "bun run lint && bun run test && python3 -B -W error scripts/test_ohlcv_economic_oracle.py"
   }
 }
