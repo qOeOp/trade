@@ -1,6 +1,0 @@
-version = 1
-name = "Install locked Bun dependencies"
-
-# Remove this setup when Codex managed worktree hosts natively guarantee lockfile dependencies are materialized before agent startup.
-[setup]
-script = "env -u BINANCE_API_KEY -u BINANCE_API_SECRET -u SILICONFLOW_API_KEY bun --no-env-file install --frozen-lockfile --ignore-scripts"
