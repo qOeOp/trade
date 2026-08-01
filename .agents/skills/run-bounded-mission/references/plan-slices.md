@@ -13,5 +13,5 @@ setup, configuration, documentation, and cleanup into the slice that consumes th
 diagnosis or mechanical work into feature stories, phases, or test-first steps.
 
 For a failing check or CI job: reproduce its exact command and relevant environment, preserve the
-failure, localize the responsible path, make one bounded correction, then rerun the exact failure
-and the smallest relevant regression.
+failure, localize the causal root, make the smallest coherent correction for that root, then rerun
+the exact failure and the smallest relevant regression. Coherence is not a global attempt quota.

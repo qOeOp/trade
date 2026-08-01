@@ -28,13 +28,24 @@ Before mutation, state only what changes a decision:
 - included scope and explicit non-goals;
 - permitted effects, especially commit, push, PR, deployment, scheduling, secrets, or live writes;
 - falsifiable acceptance evidence;
-- current Git origin and a practical stop condition.
+- current Git origin and a practical Stop predicate tied to concrete authority, evidence,
+  capability, candidate convergence, boundary growth, or repeated-root-cause evidence.
 
 Treat these fields as the current Frame. Change a material field explicitly before continuing; do
 not silently widen scope, authority, acceptance, or the stop condition.
 
-Prefer no change, deletion, direct reuse, or a narrower behavior when it closes the outcome. Treat a
-requested mechanism as a proposal when repository evidence shows that it is broader or harmful.
+Prefer no change, deletion, direct reuse, or a narrower behavior when it closes the outcome. These
+are solution-selection principles, not acceptance or routing oracles. Treat a requested mechanism
+as a proposal when repository evidence shows that it is broader or harmful.
+
+Line count, file count, diffstat, step count, agent count, and revision count are diagnostic or
+supporting evidence only. Unless the user explicitly defines one as the observable Outcome, none may
+decide Plan admission, Stop, `accept`, `revise`, `replan`, `reframe`, or `blocked`; reject the same
+metric substitution when it appears in a child or task packet. Even an explicit compression request
+cannot trade away required behavior, a real consumer exercise, dynamic verification, readability,
+or owner and boundary closure. Judge minimality by removing unconsumed owners, duplicate authority,
+state, branches, adapters, exceptions, indirection, and superseded paths—not by the sign of a net
+diff.
 Repository history and external prior art are optional evidence: inspect them only when they can
 materially change ownership, compatibility, or the implementation choice.
 When bounded history for named paths can change the origin, no-change counterfactual, owner, scope,
@@ -52,33 +63,48 @@ When an unresolved fact could change the candidate, consumer behavior, authority
 hard-to-reverse choice, load [consequential ambiguity](references/plan-ambiguity.md).
 
 Keep independent outcomes separate and never turn an internal subtask into a user-visible task. Load
-[Codex task dispatch](references/task-dispatch.md) only when the user asks to route or create an
-independent outcome, or when Mission evidence supports a separately valuable follow-up proposal with
-its own consumer and acceptance. A proposal is not creation; native creation still requires the
-user's explicit request or approval of the ready proposal.
+[Codex task dispatch](references/task-dispatch.md) for separate task creation, an existing child, a
+separately valuable follow-up, or multi-Mission operation. A proposal is not creation; native task
+creation still requires the user's explicit request or approval of the ready proposal.
 
-### Session mode selector
+### Session mode and Goal boundary
 
-After Frame, select the smallest mode:
+At workflow entry, a new turn, compaction recovery, or a resumed hub checkpoint, call `get_goal` in
+the current thread before selecting a Goal-bound mode or issuing a Goal-driven effect. Reconcile the
+observation with the request and, for multi-Mission work, the complete replacement checkpoint in task
+dispatch. Missing node restatement in the latest turn does not remove prior approved work.
 
-- With no independent Mission, handle the request directly.
-- With one, run it in the current session unless the requested outcome is separate task creation or
-  routing; that explicit effect follows task dispatch.
-- With two or more, use the loaded dispatch reference and keep one minimal session-only graph. Admit
-  only outcomes with their own consumer, falsifiable Acceptance, owner and write surface, delivery
-  boundary, and independent acceptance, block, or cancellation. Diagnosis, tests, documentation
-  synchronization, review corrections, coupled producer/consumer work, and support roles stay
-  internal.
+Select the smallest mode:
 
-In multi-Mission mode the current session alone owns admission, direct `after` edges, conflict
-serialization, source-tip observation, bounded monitoring, and one exact-head merge release.
-Children own their Frame, Plan, candidate, worktree, branch, pull request, and verification; their
-packets withhold merge until released. Parallel ready nodes must be independent in owner, write
-surface, contract, premise, and dependency. A merge invalidates only open children bound to the same
-source ref; observe each affected tip again before another release or dependent child. This
-authority stays in conversation prose and checkpoints and never authorizes a scheduler, durable
-state, queue service, automatic retry or transfer, second CLI, background automation, or hidden
-execution in the hub worktree.
+- With zero independent Missions, handle the request directly; an observed Goal has no effect.
+- With one, use the current thread unless separate routing was explicitly requested. A Goal is needed
+  only when explicit Goal authority and a matching overall Outcome make it part of the request.
+- With two or more, require a matching active overall Goal and load task dispatch. Diagnosis, tests,
+  documentation sync, review corrections, coupled work, and support roles remain internal.
+
+When multi-Mission mode observes no Goal, retain the complete proposed checkpoint and freeze child,
+task, publication, and merge-release effects. Ordinary work or child-packet approval does not imply
+Goal authority. Only an explicit user, system, or developer request for the overall Goal permits one
+`create_goal` call; call `get_goal` again and dispatch only after the observed Goal matches.
+
+For a completed Goal, an ordinary new task never reopens, updates, or replaces it: zero or single
+Mission work remains Goal-unbound; multi-Mission work retains its proposed checkpoint and freezes
+only Goal-driven effects. Explicit user, system, or developer authority for a new, different overall
+multi-Mission Goal requires retaining the old terminal evidence and new checkpoint, one replacement
+`create_goal`, then `get_goal`; dispatch only when the new active Goal matches. Never use
+`update_goal` to reopen or replace it or infer replacement authority from task approval.
+
+A matching active Goal continues after checkpoint reconciliation. A matching paused or blocked Goal
+follows the current host Goal contract, freezes Goal-driven effects, and preserves causal Stop
+evidence. Never overwrite a nonmatching unfinished Goal. If persistent multi-Mission operation is
+declined, return to Frame and define Goal-unbound current-thread work without claiming persistent
+scheduling.
+
+A Goal holds only the overall Outcome, constraints, and completion boundary, never nodes, edges,
+task identities, candidates, findings, Stop evidence, or GitHub facts. `update_goal` only marks the
+matching overall Goal terminal when its current tool contract permits;
+zero-Mission work and ordinary children have no Goal effect. These boundaries never authorize
+durable orchestration, automatic retry, a Goal wrapper, second CLI/lifecycle, or hidden execution.
 
 ## Session transition contract
 
@@ -100,32 +126,59 @@ All other continuation goes through one named Finalize route. `revise` returns t
 candidate-local correction with the same admitted design and oracle. `replan` returns to Plan when
 an admitted design field fails. `reframe` returns to Frame before any material change to outcome,
 consumer, scope, non-goals, authority, acceptance, origin, or Stop. Freeze mutation and external
-effects before taking any backward route. `blocked` ends the current run when a required input is
-unavailable or the next operation would cross Stop; it is not a weaker form of acceptance.
+effects before taking any backward route. `blocked` ends the current run only on an evidenced
+unavailable required input, unsatisfiable acceptance, or no viable path after a completed replan; it
+is not a weaker form of acceptance.
 When a backward or blocked condition is observed in Plan, Execute, or Verify, freeze work, enter the
 Finalize reasoning boundary with that evidence, and then take exactly one route. A cancellation
 override may instead terminate directly from any nonterminal stage after effects are frozen.
 
-### Finite Stop and convergence
+### Stop predicates and convergence
 
-Frame must select an observable finite Stop. Unless the user supplies another explicit finite
-envelope, use all of these defaults for the current Mission:
+Frame must select observable stopping predicates. A main candidate never fails because a revision,
+patch, correction, replacement, or backward-route count was reached. Revision count is diagnostic
+only and never decides `accept`, `revise`, `replan`, `reframe`, or `blocked`.
 
-- at most two distinct evidence attempts for the same unresolved Frame, Plan, or Verify question;
-- at most two total backward routes after the first `Plan → Execute`, counting `revise`, `replan`,
-  and `reframe` together;
-- no repeat of an unchanged failed investigation, check, candidate, or external request;
-- at most one replacement candidate for each admitted replan, as governed by revision pressure.
+Route a coherent evidence set by its highest boundary, in this order:
 
-An attempt or backward route is consumed when its work begins, even if it is interrupted or fails.
-A retry is legal only after naming the changed candidate, input, environment, authority, or evidence
-source and the observation that could now disconfirm the failure. Plan investigation converges by
-admitting the unresolved field or classifying the dependent decision `blocked`; Verify converges by
-accepting changed evidence or selecting one backward route; revision pressure converges by promoting
-one admitted replacement or stopping. A new turn, context compaction, branch, checkout, task, or
-smaller apparent diff does not reset consumed Stop. When the next operation would exceed the
-envelope, freeze the candidate and route `blocked`. Only an explicit user-approved finite Stop
-change may continue, and that change requires `reframe` before new work.
+1. a changed outcome, consumer, scope, non-goal, authority, acceptance, origin, or Stop predicate
+   returns to Frame;
+2. an invalid owner, path, boundary, responsibility shape, or oracle, recurrence of the same causal
+   root, or a non-shrinking or growing candidate returns to Plan through revision-pressure replan;
+3. otherwise, a candidate-local finding with the admitted design and oracle intact returns to
+   Execute as the smallest coherent root-cause correction;
+4. `blocked` requires observed provenance bound to a required decision showing unavailable
+   authority, evidence, or capability; unsatisfiable acceptance; or no viable route after a completed
+   replan under the unchanged Frame. A hint, failure class, finding, resource budget, or count is not
+   such a predicate.
+
+A no-viable comparison is admissible only after an actually taken Finalize-to-Plan structural
+replan and binds the current Frame and replan generation. Another replan or reframe makes it stale.
+Candidate non-convergence likewise requires comparison of the admitted and observed candidate
+fingerprint or boundary; size or count alone is not that evidence. Once a coherent finding set picks
+the highest route, a later lower-boundary finding cannot overwrite it.
+
+Only a genuinely temporary unavailable authority, evidence, or capability predicate may carry a
+`Resume` stage. Resume requires a new observation that changes the named blocker or source; merely
+removing the label is not evidence. Unsatisfiable acceptance has no Resume under the unchanged Frame
+and continues only through `reframe` with new acceptance evidence. A completed replan with no viable
+path also has no Resume; a later credible path returns through Plan with its new evidence, never
+directly to Verify on the original candidate.
+
+Do not repeat an unchanged failed investigation, check, candidate, or external request. Each retry
+must name the changed candidate, input, environment, authority, or evidence source and the
+observation that can now disconfirm the prior result. Maintain one writable winner at a time as an
+integrity constraint, never as an attempt quota.
+
+A separately isolated read-only research or wait lane may have a bounded time, query, or tool budget
+for the same unresolved Frame, Plan, or Verify question. Exhaustion returns evidence unavailable,
+escalation, or an explicit recovery gate; it does not reject the Mission or candidate. Only an
+explicit user-approved finite Stop change may continue that exhausted lane. A new turn, compaction,
+branch, checkout, task, or smaller diff does not reset consumed Stop evidence or erase an observed
+causal predicate.
+When a decision depends on that exhausted lane, no admission or main-Mission block route may proceed
+until recovery or escalation disposes the lane. Any later `blocked` route requires a separate
+post-disposition observation with its own required-decision binding and provenance.
 
 ### Override and recovery
 
@@ -148,16 +201,17 @@ Frame: <current outcome, consumer, scope/non-goals, authority, acceptance, origi
 Plan: <admitted owner, path, boundary, candidate shape, verification route>
 Candidate/effects: <exact commit or complete diff locator; effects already performed>
 Evidence: <decisive checks and remaining blocker>
-Position: <current stage or terminal route; consumed Stop and next legal operation>
+Position: <current stage or terminal route; observed Stop predicates and next legal operation>
 Resume: <stage to re-enter after a named blocker is removed, or none>
 ```
 
 This locator is evidence, not an identity, receipt, file, ledger, or host state. Match the Frame,
-origin, candidate/effects, consumed Stop, next legal operation, and any resumable stage before
+origin, candidate/effects, Stop predicates, next legal operation, and any resumable stage before
 continuing. If any cannot be recovered exactly enough to exclude a different Mission or candidate,
 freeze before the next mutation or external effect and route `blocked` or ask for the missing
-user-owned fact. Resuming an exactly recovered `blocked` Mission re-enters its explicit `Resume`
-stage only after the named blocker is removed, without resetting Stop. Multi-Mission recovery
+user-owned fact. An exactly recovered temporary `blocked` Mission re-enters its explicit `Resume`
+stage only after changed evidence removes the named blocker; terminal blocked predicates follow the
+reframe or Plan routes above. Multi-Mission recovery
 additionally follows the session graph contract; this locator does not replace it.
 
 ## Plan
@@ -228,9 +282,10 @@ effects without authority for that effect.
 Route a finding to `revise` only when the admitted owner, path, affected boundary, responsibility
 shape, and acceptance oracle still hold. Return to Plan for `replan` when any of those design fields
 fails or the next correction would add an unadmitted branch, exception, adapter, fallback, owner, or
-boundary. Return to Frame for `reframe` when a Frame field must materially change. When a finding
-recurs against the design or another correction would grow the candidate outside the Plan, load
-[revision-pressure replan](references/revision-pressure-replan.md) before further mutation.
+boundary. Return to Frame for `reframe` when a Frame field must materially change. When the same
+causal root recurs, the candidate does not shrink, its boundary grows, or pressure invalidates the
+admitted design, load [revision-pressure replan](references/revision-pressure-replan.md) before
+further mutation.
 
 ## Verify
 
@@ -265,8 +320,9 @@ not represent the candidate as independently accepted or remotely delivered.
 
 Choose one evidence-backed route: `accept`, `revise`, `replan`, `reframe`, or `blocked`. `revise`
 returns to Execute, `replan` returns to Plan, and `reframe` returns to Frame. Use `blocked` only when
-required authority, evidence, capability, independence, or stop alignment is unavailable; do not
-weaken acceptance to manufacture `accept`.
+observed provenance bound to a required decision proves unavailable authority, evidence, or
+capability, acceptance is unsatisfiable, or a completed replan under the unchanged Frame proves no
+viable route; do not weaken acceptance to manufacture `accept`.
 
 Lead with the user-visible result and exact effect state. Summarize changed paths, decisive checks,
 and material limits. Do not emit lifecycle receipts, internal identities, generic follow-up work, or
@@ -300,5 +356,4 @@ authority; their returns are evidence or proposals for the main agent, never Pla
 candidate acceptance, or Finalize. A researcher activates only for unresolved decision-changing current or external
 evidence, a planner only for an evidenced design dispute or structural choice, and an evaluator only
 for an admitted candidate risk lens with exact bindings and enforceable isolation. Missing fields,
-authority overreach, or unavailable isolation return to the main agent without another lane. Agent
-count and revision count are never goals.
+authority overreach, or unavailable isolation return to the main agent without another lane.

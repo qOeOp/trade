@@ -1,5 +1,5 @@
 {
-  "contract_version": 1,
+  "contract_version": 2,
   "scenarios": [
     {
       "name": "normal-accept",
@@ -8,28 +8,64 @@
       "expected_mutations": 1
     },
     {
-      "name": "verify-revise-accept",
-      "events": ["frame-complete", "plan-admitted", "candidate-ready", "verify-fail-local", "revise", "candidate-ready", "verify-pass", "accept"],
+      "name": "candidate-local-revise",
+      "events": ["frame-complete", "plan-admitted", "candidate-ready", "finding:local:root-a", "revise", "candidate-ready", "verify-pass", "accept"],
       "expected_terminal": "accepted",
       "expected_mutations": 2
     },
     {
-      "name": "verify-replan-accept",
-      "events": ["frame-complete", "plan-admitted", "candidate-ready", "verify-fail-design", "replan", "plan-admitted", "candidate-ready", "verify-pass", "accept"],
+      "name": "design-replan",
+      "events": ["frame-complete", "plan-admitted", "candidate-ready", "finding:design", "replan", "plan-admitted", "candidate-ready", "verify-pass", "accept"],
       "expected_terminal": "accepted",
       "expected_mutations": 2
     },
     {
-      "name": "scope-expansion-reframe",
-      "events": ["frame-complete", "plan-admitted", "scope-expanded", "reframe", "frame-complete", "plan-admitted", "candidate-ready", "verify-pass", "accept"],
+      "name": "scope-reframe",
+      "events": ["frame-complete", "plan-admitted", "finding:scope", "reframe", "frame-complete", "plan-admitted", "candidate-ready", "verify-pass", "accept"],
       "expected_terminal": "accepted",
       "expected_mutations": 1
     },
     {
-      "name": "continuous-nonconvergence-blocked",
-      "events": ["frame-complete", "plan-admitted", "candidate-ready", "verify-fail-local", "revise", "candidate-ready", "verify-fail-design", "replan", "plan-admitted", "candidate-ready", "verify-fail-design", "blocked"],
-      "expected_terminal": "blocked",
+      "name": "same-root-pressure",
+      "events": ["frame-complete", "plan-admitted", "candidate-ready", "finding:local:root-a", "revise", "candidate-ready", "finding:local:root-a", "replan", "plan-admitted", "candidate-ready", "verify-pass", "accept"],
+      "expected_terminal": "accepted",
       "expected_mutations": 3
+    },
+    {
+      "name": "root-recurrence-after-intervening-finding",
+      "events": ["frame-complete", "plan-admitted", "candidate-ready", "finding:local:root-a", "revise", "candidate-ready", "finding:local:root-b", "revise", "candidate-ready", "finding:local:root-a", "replan", "plan-admitted", "candidate-ready", "verify-pass", "accept"],
+      "expected_terminal": "accepted",
+      "expected_mutations": 4
+    },
+    {
+      "name": "candidate-non-shrinking-pressure",
+      "events": ["frame-complete", "plan-admitted", "candidate-ready", "finding:local:root-a", "revise", "candidate-ready-unchanged", "finding:local:root-b", "replan", "plan-admitted", "candidate-ready", "verify-pass", "accept"],
+      "expected_terminal": "accepted",
+      "expected_mutations": 3
+    },
+    {
+      "name": "candidate-boundary-growth",
+      "events": ["frame-complete", "plan-admitted", "candidate-ready", "candidate-adds-extra-path", "verify-pass", "replan", "plan-admitted", "candidate-ready", "verify-pass", "accept"],
+      "expected_terminal": "accepted",
+      "expected_mutations": 2
+    },
+    {
+      "name": "different-root-remains-local",
+      "events": ["frame-complete", "plan-admitted", "candidate-ready", "finding:local:root-a", "revise", "candidate-ready", "finding:local:root-b", "revise", "candidate-ready", "verify-pass", "accept"],
+      "expected_terminal": "accepted",
+      "expected_mutations": 3
+    },
+    {
+      "name": "readonly-dependent-recovery",
+      "events": ["readonly:frame-premise", "readonly-exhausted", "recovery-gate", "frame-complete", "plan-admitted", "candidate-ready", "verify-pass", "accept"],
+      "expected_terminal": "accepted",
+      "expected_mutations": 1
+    },
+    {
+      "name": "readonly-independent-exhaustion",
+      "events": ["readonly-exhausted", "frame-complete", "plan-admitted", "candidate-ready", "verify-pass", "accept"],
+      "expected_terminal": "accepted",
+      "expected_mutations": 1
     },
     {
       "name": "context-recovery",
@@ -38,16 +74,16 @@
       "expected_mutations": 1
     },
     {
-      "name": "frame-ambiguity-blocked",
-      "events": ["frame-ambiguity", "evidence-attempt", "evidence-attempt", "evidence-exhausted", "blocked"],
-      "expected_terminal": "blocked",
-      "expected_mutations": 0
+      "name": "blocked-context-recovery",
+      "events": ["frame-complete", "plan-admitted", "candidate-ready", "require:finalize", "unavailable:capability:host-preflight", "blocked", "context-lost", "recover-exact", "resume-blocker-changed:host-supported", "verify-pass", "accept"],
+      "expected_terminal": "accepted",
+      "expected_mutations": 1
     },
     {
-      "name": "blocked-context-recovery",
-      "events": ["frame-complete", "plan-admitted", "candidate-ready", "verify-fail-design", "blocked", "context-lost", "recover-exact", "resume-blocker-removed", "plan-admitted", "candidate-ready", "verify-pass", "accept"],
-      "expected_terminal": "accepted",
-      "expected_mutations": 2
+      "name": "completed-replan-no-viable-route",
+      "events": ["frame-complete", "plan-admitted", "candidate-ready", "finding:design", "replan", "replan-compared", "no-viable:planner-comparison", "blocked"],
+      "expected_terminal": "blocked",
+      "expected_mutations": 1
     },
     {
       "name": "user-override-before-mutation",
