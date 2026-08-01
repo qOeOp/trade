@@ -75,7 +75,9 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
   let ambiguousAttempt = false
   for (const signal of snapshot.signals) {
     if (signal.kind !== "comment" || isProvider(signal.author) || !REVIEW_REQUEST.test(signal.body ?? "")) continue
-    if (signal.updatedAt !== undefined && signal.updatedAt !== signal.at) {
+    if (signal.includesCreatedEdit === true
+      || signal.lastEditedAt !== undefined
+      || (signal.updatedAt !== undefined && signal.updatedAt !== signal.at)) {
       return { status: "failed", reason: "an edited Codex review request cannot start an attempt" }
     }
     const requestAt = timestampValue(signal.at)
@@ -161,7 +163,11 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
     return { status: "failed", reason: "Codex returned a review finding" }
   }
   const editedProviderComment = currentProviderSignals.find((signal) =>
-    signal.kind === "comment" && signal.updatedAt !== undefined && signal.updatedAt !== signal.at,
+    signal.kind === "comment" && (
+      signal.includesCreatedEdit === true
+      || signal.lastEditedAt !== undefined
+      || (signal.updatedAt !== undefined && signal.updatedAt !== signal.at)
+    ),
   )
   if (editedProviderComment) {
     return { status: "failed", reason: "an edited Codex comment cannot prove a terminal result" }
@@ -221,6 +227,8 @@ interface GraphPullRequest {
     body: string
     createdAt: string
     updatedAt: string
+    includesCreatedEdit: boolean
+    lastEditedAt: string | null
     reactions: Connection<{ content: string; createdAt: string; user: { login: string } | null }>
   }>
   reviews: Connection<{
@@ -280,6 +288,8 @@ query($owner: String!, $name: String!, $number: Int!) {
           body
           createdAt
           updatedAt
+          includesCreatedEdit
+          lastEditedAt
           reactions(first: 100) {
             nodes { content createdAt user { login } }
             pageInfo { hasNextPage }
@@ -385,6 +395,8 @@ async function fetchSnapshot(repository: string, number: number): Promise<CodexR
       author: comment.author?.login ?? "",
       at: comment.createdAt,
       updatedAt: comment.updatedAt,
+      includesCreatedEdit: comment.includesCreatedEdit,
+      lastEditedAt: comment.lastEditedAt ?? undefined,
       kind: "comment",
       target,
       body: comment.body,
@@ -516,6 +528,8 @@ function isComment(value: unknown): boolean {
     && typeof value.body === "string"
     && isIsoTimestamp(value.createdAt)
     && isIsoTimestamp(value.updatedAt)
+    && typeof value.includesCreatedEdit === "boolean"
+    && (value.lastEditedAt === null || isIsoTimestamp(value.lastEditedAt))
     && isConnection(value.reactions)
     && value.reactions.nodes.every((reaction) => isReaction(reaction))
 }
