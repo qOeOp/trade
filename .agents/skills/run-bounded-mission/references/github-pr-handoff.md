@@ -46,26 +46,12 @@ discovery.
 
 Run
 `bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --repo <owner/name> <pr-number>`
-through the bounded host/session loop that owns polling. Each invocation reads exactly one snapshot
-for the normalized explicit repository and exits: `0` means terminal clean, `10` means pending, and
-`1` means a finding, provider failure, incomplete evidence, repository mismatch, or invalid PR state
-that must be routed rather than retried as success. Its JSON output binds `repository`,
-`pull_request`, `head_oid`, `status`, and `reason`; failures with no trustworthy head use a null
-`head_oid`. The `head_oid` is the head observed in that snapshot, not evidence that the opening
-review accepted that head. This read-only helper classifies the discovery signal only; it is not
-review acceptance, a required check, or merge authority; the merge-ready barrier still verifies the
-exact final head.
-
-Consume the helper's structured JSON and exit code together as the only `passed`, `pending`, or
-`failed` classification. `gh pr view --json reviews`, top-level review bodies, `reviewDecision`,
-comment summaries, or agent prose can omit `reviewThreads` and must not substitute for or override
-that result. Raw GitHub data may support forensic facts and the endpoint barrier, but the main agent
-must not reinterpret a pending or failed opening discovery as clean.
-
-`failed` with exit `1` is a route-required discovery status, not Mission or candidate failure. It may
-represent a finding, provider failure, incomplete evidence, repository mismatch, or invalid PR
-state. Preserve its JSON and raw GitHub facts, reproduce material findings, and identify missing
-evidence or capability before routing.
+through the bounded loop that owns polling. Each read-only invocation consumes one snapshot and emits
+JSON binding `repository`, `pull_request`, `head_oid`, `status`, and `reason`; exit `0` is terminal
+clean, `10` pending, and `1` a route-required finding, provider failure, incomplete evidence,
+repository mismatch, or invalid PR state. Consume JSON and exit code together and fail closed; other
+GitHub summaries cannot override this classifier. The helper classifies opening discovery only, not
+acceptance, required checks, or merge authority.
 
 Collect and validate the complete opening result before changing the candidate. Route the coherent
 set by its highest material boundary: a Frame-contract failure returns to Frame; an owner, path,

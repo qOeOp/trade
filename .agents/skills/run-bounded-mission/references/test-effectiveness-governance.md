@@ -66,43 +66,13 @@ bun .agents/skills/run-bounded-mission/scripts/test-effectiveness-audit.ts \
 
 Both revision arguments must be complete 40- or 64-character lowercase Git commit hashes; symbolic
 refs, abbreviated hashes, and revision expressions fail closed. The Agent derives canonical owner
-roots from repository authority at both revisions and passes their union; the helper does not know
-the repository's manifest or owner schema. It reads `git diff` plus tracked source (including shell
-programs), test, `CONTRACT.md`, and `package.json` metadata. It emits one JSON evidence document to
-stdout. It does not execute tests or mutation, modify files, inspect a database, infer coverage, or
-declare deletion safe. Treat its import, name, duplicate-content, size, mock, and time/concurrency
-signals as review leads. Direct candidate-tree test importers remain candidates even when their owner
-did not change. Deleted tests are named as origin-review uncertainty, never treated as candidate-tree
-proof that deletion was safe. Missing runtime timing remains unavailable rather than estimated.
-Renames across supplied owner roots contribute both the origin-side and candidate-side owners; the
-candidate-side source path remains the changed source while `previous_path` preserves the
-origin-side movement evidence.
-`--scope` limits the changed-path input; candidate-tree metadata remains repository-wide so direct
-dependent tests and their owner markers outside that scope are not hidden.
-Bare package imports resolve only through tracked package manifests; a coincidental repository path
-with the same name is not treated as an internal dependency.
-JavaScript and TypeScript direct-import evidence comes from Bun's runtime-owned file parser and
-includes static imports, literal dynamic imports, re-exports, bare `require`, and `module.require`.
-The helper has no workspace package dependency. The output `import_analysis.status` is `incomplete`
-when a candidate file cannot be parsed or contains a non-literal, template, type-only, or other
-module form the runtime scanner does not prove; `incomplete_files` retains stable repository-relative
-paths and reason codes while imports proven in other files remain available. Consumers must not
-treat an incomplete analysis as a complete candidate set, and
-`no_direct_static_candidate_evidence` remains false until the analysis is complete.
-Unsupported and non-literal markers are conservative lexical signals: they can lower completeness
-without proving real syntax, and they never create a proven import edge.
-
-The evidence must retain resolved origin/candidate commit and tree identities, affected owners,
-unverified consumer leads, candidate tests and unique-value leads, cost signals, the five
-escaped-defect questions, and uncertainty. Static paths do not prove production reachability or
-execution, and the helper does not recommend test actions or decide whether to open a Test Refactor
-Mission.
-`no_direct_static_candidate_evidence=true` means only that no changed test or direct candidate-tree
-import was found. It must not be restated as “no tests exist”; transitive paths, dynamic routing, and
-deleted sources remain unresolved.
-
-A supplied failure classification describes the escaped defect as review context only. It never
-selects a per-test action.
+roots from authority at both revisions and passes their union; `--scope` only narrows changed paths.
+The helper reads immutable Git source and metadata and emits one JSON evidence document. It never
+runs tests or mutation, writes files, infers coverage, or declares deletion safe. Treat its importer,
+duplication, size, mock, timing, and concurrency signals as leads. Parse gaps set
+`import_analysis.status=incomplete`; missing or dynamic evidence stays unresolved, and
+`no_direct_static_candidate_evidence` does not mean no tests exist. The helper does not recommend an
+action or authorize a Test Refactor Mission.
 
 ## Choose an action
 
@@ -136,20 +106,3 @@ Consider a separate Test Refactor Mission only when all of these are true:
 A localized authoritative regression test may stay in the current Mission. Missing answers, mixed
 production behavior, or disputed authority route to further investigation or Plan, not an automatic
 child Mission. This reference never dispatches or labels a Refactor Mission by itself.
-
-## Evidence basis
-
-- Google Testing Blog,
-  [Change-Detector Tests Considered Harmful](https://testing.googleblog.com/2015/01/testing-on-toilet-change-detector-tests.html):
-  implementation mirroring can add maintenance cost without proving behavior.
-- Google Research,
-  [Long Term Effects of Mutation Testing](https://research.google/pubs/long-term-effects-of-mutation-testing/):
-  artificial faults can reveal test-suite holes, but this reference does not authorize a repository
-  mutation gate.
-- pytest,
-  [Flaky tests](https://docs.pytest.org/en/stable/explanation/flaky.html): uncontrolled state,
-  ordering, concurrency, timing, and overly strict assertions are distinct failure sources.
-- McMaster and Memon,
-  [Call Stack Coverage for Test Suite Reduction](https://www.cs.umd.edu/~atif/papers/McMasterMemonICSM2005-abstract.html):
-  reduction can trade suite size against fault detection, so static duplication is never deletion
-  proof.
