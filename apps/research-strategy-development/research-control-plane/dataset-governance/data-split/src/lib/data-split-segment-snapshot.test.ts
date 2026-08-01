@@ -16,7 +16,9 @@ afterEach(() => {
 })
 
 test("data split owner binds exact report, manifest, and content without opening holdout", async () => {
-  const root = mkdtempSync(join(repoRoot(), "tmp", "test-runs", "data-split-snapshot-"))
+  const testRunsRoot = join(repoRoot(), "tmp", "test-runs")
+  mkdirSync(testRunsRoot, { recursive: true })
+  const root = mkdtempSync(join(testRunsRoot, "data-split-snapshot-"))
   roots.push(root)
   const discovery = join(root, "btcusdt", "discovery")
   mkdirSync(discovery, { recursive: true })
