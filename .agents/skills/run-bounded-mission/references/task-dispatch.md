@@ -18,65 +18,61 @@ Classify each requested result against the same consumer boundary. An independen
 - a disposition that can be independently accepted, blocked, or cancelled.
 
 Diagnosis, testing, documentation synchronization, review corrections, coupled producer/consumer
-changes for one consumer behavior, and researcher, planner, evaluator, or other support roles remain
-internal subtasks and receive no separate child task or pull request. Foreground continuation,
-correction, review, status, or feedback also stays with its Mission. Repeating, renaming, resuming,
-or moving the same unresolved gap is continuation of the existing Mission and inherits its Origin,
-Stop, findings, and rejected candidates.
+changes for one behavior, and support roles remain internal and receive no separate task or pull
+request. Foreground continuation, correction, review, status, or feedback also stays with its
+Mission. Repeating, renaming, resuming, or moving the same unresolved gap is continuation of the
+existing Mission and inherits its Origin, Stop, findings, and rejected candidates.
 
-With zero independent Missions, handle the request directly. With one, execute it in the current
-session unless the user explicitly requests creation or routing of a separate task; that request
-continues through proposal and native dispatch. With two or more, the hub admits the minimal session
-graph below. Task creation still requires the user's explicit request or approval of every exact
-ready packet.
+## Hub checkpoint
 
-## Minimal session graph
+Keep one complete replacement checkpoint in the current hub thread. Before every mode, dispatch,
+identity, monitoring, source, merge, continuation, or recovery gate, reconcile it with the Goal as
+required by `SKILL.md` and with current native task and Git facts. The checkpoint is conversation
+evidence, not repository state, a task registry, or another lifecycle.
 
-Keep the graph only in conversation prose or a compact checkpoint. For each node retain exactly the
-facts needed to resume and make the next gate decision:
+Every replacement preserves all approved or admitted nodes still inside the overall completion
+boundary until the hub legally terminates. For each node retain:
 
-- stable session label;
-- Outcome and real consumer;
-- Scope and non-goals;
-- falsifiable Acceptance;
-- owner and write surface;
-- `after`, listing only direct predecessors;
-- Authority and external effects;
+- stable label; Outcome and real consumer; Scope and non-goals; falsifiable Acceptance;
+- owner and write surface; only direct `after` predecessors; Authority and external effects;
 - source ref and observed exact tip;
-- host identity and next gate.
+- approval and create-attempt facts;
+- finite Stop and consumed evidence or backward-route facts;
+- `clientThreadId`, `threadId`, and `hostId`, or `unknown` for each absent identity;
+- pull request and exact head, or the authorized no-PR/non-Git endpoint;
+- next gate; terminal, blocked, rejected, or superseded evidence.
 
-Do not persist these fields, assign priority, add workflow state enums, or infer scheduling policy
-from labels. Unknown shared write surface returns the affected nodes to the hub's Plan before
-dispatch. Nodes with a direct `after` edge, the same owner, overlapping write surfaces, or a shared
-contract serialize. Only a ready wave with mutually independent owners, write surfaces, contracts,
-premises, and dependencies may prepare in parallel. A downstream node stays deferred until every
-direct predecessor is integrated and its premises remain valid. Premise independence must be
-provable from the retained Outcome, Scope, Acceptance, Authority, and source facts at every dispatch
-or resume gate; otherwise return the affected nodes to Plan instead of adding graph fields.
+Do not copy the complete prompt into the checkpoint, assign priority or retry counts, add workflow
+enums, or append partial updates that could drop older nodes. Goal prose holds only the overall
+completion contract; native task/thread and Git/PR hosts remain authoritative for identities and
+candidates.
 
-One child task/chat hosts one independent Outcome. A Git-backed child owns one managed worktree, one
+Nodes with a direct `after` edge, the same owner, overlapping write surfaces, or a shared contract
+serialize. Only a ready wave with provably independent owners, write surfaces, contracts, premises,
+and dependencies may prepare in parallel. Unknown overlap returns affected nodes to Plan. A
+downstream node stays deferred until every direct predecessor is integrated and its premises remain
+valid.
+
+One child task hosts one independent Outcome. A Git-backed child owns one managed worktree, one
 eventual branch, and at most one pull request. The child owns its Mission candidate and verification;
-the hub owns graph admission, source observation, bounded monitoring, and merge release. Every
-multi-Mission child packet stops at a Ready pull request and explicitly withholds merge authority.
-Messages and root turns do not create additional Missions.
+the hub owns admission, the checkpoint, source observation, bounded monitoring, and merge release.
+Every multi-Mission child packet stops at a Ready pull request and withholds merge authority.
 
-Parallel children may prepare pull requests, but the hub releases at most one exact candidate head
-for merge. The released child must refetch, revalidate, and match that head before merging; no other
-child receives merge authority. After every merge the hub independently fetches and observes that
-node's canonical source tip. Every other open pull request bound to the same source ref then has base
-drift and must be revalidated from that observed tip before a later release. Nodes bound to another
-source ref remain unchanged only after their own ref/tip facts are observed. A dependent child may
-be created only from its newly observed source tip, never from its predecessor's old base.
+Child candidate rejection or verification failure preserves the node and does not block the overall
+Goal. While the original Frame, task, Stop, and endpoint still allow another candidate, continue in
+the same child thread through its normal replan route. Do not automatically create a replacement
+task. Return to the user before another task-creation effect or a material change to Frame, Stop,
+endpoint, or authority. When Stop is exhausted, retain that terminal candidate/Plan evidence and
+freeze direct successors. A true external child block also freezes descendants; independent nodes
+may continue only when its premise cannot affect them.
 
-If a child blocks, freeze its descendants; independent nodes may continue only when the blocked
-premise cannot affect them. If a predecessor is cancelled, freeze its descendants and return that
-branch to Plan; do not remove the edge or leave the branch permanently deferred. A user override
-freezes undispatched nodes and every unissued merge release while the hub re-admits the graph. Do not
-automatically retry, create a replacement, or transfer a host.
-
-After conversation compaction, reconstruct only from exact thread, host, pull-request head, and
-source-ref/tip facts. If an identity cannot be recovered exactly, fail closed at its next operation.
-A queued `clientThreadId` is not a task identity and cannot be passed to wait or send operations.
+Parallel children may prepare pull requests, but release at most one exact head for merge. The
+released child must refetch, revalidate, and match that head. After every merge the hub fetches and
+observes the canonical source tip; revalidate every other open pull request bound to that ref before
+another release. Create a dependent child only from the newly observed tip. A closed or superseded
+pull request preserves node evidence and routes through the same child rather than a replacement.
+User insertion or source drift freezes undispatched effects until Goal, checkpoint, source, and
+authority reconcile again.
 
 ## Outcomes discovered during a Mission
 
@@ -120,8 +116,21 @@ Then retain the complete editable child prompt containing every dispatch field:
 - authority and required external effects;
 - falsifiable acceptance;
 - exact Origin, prerequisites, declared source ref/tip when applicable, and revalidation evidence;
-- target project and default environment;
+- target project and observed native environment selection;
+- a pre-mutation dependency and tool preflight derived from that repository's current owner manifests
+  and lockfile;
 - the complete initial child prompt, including its five-stage Mission and endpoint.
+
+The preflight names exact checks. When required dependencies are absent, the packet authorizes the
+repository-evidenced, non-interactive locked install command before substantive reads or mutation,
+with credentials, secret acquisition, scripts or live effects excluded as required by the repository.
+If current owner and lockfile evidence does not admit a safe deterministic command, the child reports
+the exact missing tool or dependency and stops before mutation. Do not invent package-manager policy
+or assume a repository environment file is active unless native creation carries or observes its
+selected environment path.
+
+An absent or null native environment path is evidence that no environment selection was carried,
+not that repository setup ran; the child prompt's preflight remains the only admitted next effect.
 
 For a multi-Mission node, the endpoint is `merge-ready`; the packet explicitly withholds merge until
 the hub later sends a separately authorized exact-head release.
@@ -144,18 +153,27 @@ After consent:
    prerequisite, decisive fact, exact Origin, and applicable source ref/tip still matches;
 2. if any fact drifted, do not create a task; refresh the packet as `deferred` or materially revised,
    preserve its label, and require fresh approval after any material revision;
-3. call `list_projects` before project-backed creation;
-4. resolve the intended saved project and inspect `isGitRepository`;
-5. for a Git project, call `create_thread` exactly once for each approved proposal with
+3. replace the hub checkpoint with the approved effect and `create attempt: pending` before calling
+   the host;
+4. call `list_projects` before project-backed creation;
+5. resolve the intended saved project and inspect `isGitRepository`;
+6. for a Git project, call `create_thread` exactly once for each approved proposal with
    `target.type=project`, the resolved `target.projectId`, and
    `target.environment.type=worktree`;
-6. for a non-Git project, use `target.environment.type=local` only when the resolved saved project
+7. for a non-Git project, use `target.environment.type=local` only when the resolved saved project
    cannot share the foreground candidate; otherwise use capability fallback because the host cannot
    provide the required independent workspace;
-7. omit `model`, `thinking`, and `startingState` overrides unless the user explicitly requested them;
-8. pass the approved child prompt without silently expanding its outcome or authority;
-9. record the host-provided `threadId`/`hostId` or queued `clientThreadId`, then follow the host
+8. omit `model`, `thinking`, and `startingState` overrides unless the user explicitly requested them;
+9. pass the approved child prompt without silently expanding its outcome or authority;
+10. record the host-provided `threadId`/`hostId` or queued `clientThreadId`, then follow the host
    contract to emit its created-task link or directive; never invent a URL.
+
+A normal return containing only `clientThreadId` consumes the create attempt but does not provide an
+operable task identity. At the next identity-dependent gate, perform one bounded reconciliation:
+call `list_threads` once to locate candidates, then use exact `read_thread` prompt, source,
+project, and worktree facts to confirm one mapping. Never match only by title or summary, pass
+`clientThreadId` to wait/read/send, or repeat `create_thread`. If the mapping remains missing or
+ambiguous, retain the Outcome and freeze only the identity-dependent effect.
 
 Creation is non-blocking. Outside an admitted multi-Mission orchestration session, return after
 creation without babysitting setup or child commentary. Inside that mode, the hub may use bounded
@@ -178,9 +196,18 @@ at the current monitoring or merge gate:
   and the feedback in `prompt`, then return immediately;
 - additional history needed for the request: use a bounded `read_thread`.
 
-Use returned cursors for later snapshots when available. Commentary is never a reason to poll. If a
-child blocks, freeze its descendants and apply the session graph rule; do not revise its candidate,
-retry it, replace it, or transfer its host without new authority.
+Use returned cursors for later snapshots when available. Commentary is never a reason to poll. A
+true external child block freezes its descendants under the checkpoint rule; it does not authorize a
+retry, replacement, or host transfer.
+
+## Completion
+
+Complete the overall Goal only after every required Outcome and the final evidence handoff are
+closed. For a pull-request endpoint, terminal completion requires the exact verified candidate head
+to be merged. For an authorized no-PR, no-op, or non-Git endpoint, retain its terminal acceptance
+evidence instead of manufacturing an empty pull request. A child Ready pull request, rejected
+candidate, closed pull request, or blocked node is evidence for the next checkpoint gate, not overall
+completion by itself.
 
 ## Capability fallback
 

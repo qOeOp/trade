@@ -52,33 +52,42 @@ When an unresolved fact could change the candidate, consumer behavior, authority
 hard-to-reverse choice, load [consequential ambiguity](references/plan-ambiguity.md).
 
 Keep independent outcomes separate and never turn an internal subtask into a user-visible task. Load
-[Codex task dispatch](references/task-dispatch.md) only when the user asks to route or create an
-independent outcome, or when Mission evidence supports a separately valuable follow-up proposal with
-its own consumer and acceptance. A proposal is not creation; native creation still requires the
-user's explicit request or approval of the ready proposal.
+[Codex task dispatch](references/task-dispatch.md) for separate task creation, an existing child, a
+separately valuable follow-up, or multi-Mission operation. Native creation still requires the user's
+explicit request or approval of the ready proposal.
 
 ### Session mode selector
 
-After Frame, select the smallest mode:
+On workflow entry, automatic continuation, a new turn, compaction recovery, or an existing hub
+checkpoint, first call `get_goal` in the current thread and reconcile the observed Goal with that
+checkpoint and native task/Git facts; only then classify the mode. Missing node restatement in the
+latest turn does not mean zero Missions.
 
-- With no independent Mission, handle the request directly.
-- With one, run it in the current session unless the requested outcome is separate task creation or
-  routing; that explicit effect follows task dispatch.
-- With two or more, use the loaded dispatch reference and keep one minimal session-only graph. Admit
-  only outcomes with their own consumer, falsifiable Acceptance, owner and write surface, delivery
-  boundary, and independent acceptance, block, or cancellation. Diagnosis, tests, documentation
-  synchronization, review corrections, coupled producer/consumer work, and support roles stay
-  internal.
+Use the smallest mode:
 
-In multi-Mission mode the current session alone owns admission, direct `after` edges, conflict
-serialization, source-tip observation, bounded monitoring, and one exact-head merge release.
-Children own their Frame, Plan, candidate, worktree, branch, pull request, and verification; their
-packets withhold merge until released. Parallel ready nodes must be independent in owner, write
-surface, contract, premise, and dependency. A merge invalidates only open children bound to the same
-source ref; observe each affected tip again before another release or dependent child. This
-authority stays in conversation prose and checkpoints and never authorizes a scheduler, durable
-state, queue service, automatic retry or transfer, second CLI, background automation, or hidden
-execution in the hub worktree.
+- With zero independent Missions, handle the request directly without creating, replacing,
+  completing, or blocking any observed Goal.
+- With one, run it in the current thread unless separate task creation or routing is explicitly
+  requested. Bind or create a Goal only with explicit Goal authority.
+- With two or more, require the matching overall Goal and the complete hub checkpoint defined in the
+  dispatch reference. Keep diagnosis, tests, documentation sync, review corrections, coupled
+  producer/consumer work, and support roles internal.
+
+A Goal anchors only the overall Outcome, constraints, and completion boundary. Never put nodes,
+edges, priority, retries, Stop, task identity, or pull-request facts in it. `get_goal` reads only the
+current thread; `create_goal` is legal only when the user or system/developer explicitly requests it;
+`update_goal` can only mark `complete` or `blocked`, never pause, resume, or edit. A child does not
+inherit the hub Goal and must not create or update one for ordinary multi-Mission work.
+
+Continue a matching active Goal from its checkpoint. A matching paused Goal permits no goal-driven
+automatic effect, although an exact effect explicitly requested in the current turn may proceed
+without changing status. For a matching blocked Goal, a user resume begins the host's fresh
+three-consecutive-turn blocked audit; it is not a status edit. Do not treat a complete Goal as
+unfinished or overwrite a nonmatching unfinished Goal. Native
+task/thread identity and Git or pull-request facts remain at their own hosts; the dispatch checkpoint
+only reconciles them. These rules never authorize a scheduler, repository state, queue, ledger,
+daemon, automatic retry or transfer, second CLI, hidden hub-worktree execution, or a second
+lifecycle.
 
 ## Session transition contract
 
@@ -158,7 +167,7 @@ continuing. If any cannot be recovered exactly enough to exclude a different Mis
 freeze before the next mutation or external effect and route `blocked` or ask for the missing
 user-owned fact. Resuming an exactly recovered `blocked` Mission re-enters its explicit `Resume`
 stage only after the named blocker is removed, without resetting Stop. Multi-Mission recovery
-additionally follows the session graph contract; this locator does not replace it.
+additionally follows the hub checkpoint contract; this locator does not replace it.
 
 ## Plan
 
