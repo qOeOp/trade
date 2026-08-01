@@ -21,7 +21,6 @@ product contract
 ```
 
 - 顶层域、job、store、rail 的机器真相是 [architecture-manifest.json](./architecture-manifest.json)。
-- 当前代码投影是 [architecture-drift-report.md](./generated/architecture-drift-report.md)。
 - 历史设计过程只在 `docs/history/`，不得覆盖本文。
 
 ### 1.1 架构视图

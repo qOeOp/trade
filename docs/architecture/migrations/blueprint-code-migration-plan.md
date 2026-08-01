@@ -15,7 +15,7 @@ v2 蓝图的物理骨架已落地：10 个顶层 domain、J01-J07、10 个 logic
 当前事实只看：
 
 - [architecture-manifest.json](../architecture-manifest.json)：domain / job / store / rail。
-- [architecture-drift-report.md](../generated/architecture-drift-report.md)：代码投影和飞线。
+- [architecture-manifest.json](../architecture-manifest.json)：当前 domain、module、job、store 与 rail 清单。
 - [Design Architecture](../design-architecture.md)：责任与不变量。
 - owner module `CONTRACT.md`：实际输入输出。
 
@@ -79,11 +79,7 @@ v2 蓝图的物理骨架已落地：10 个顶层 domain、J01-J07、10 个 logic
 ## 6. 机器门
 
 ```text
-bun scripts/check-doc-contracts.ts
-bun scripts/check-architecture-manifest.ts
-bun scripts/check-storage-schemas.ts
-bun scripts/architecture-drift-audit.ts --check
-bun scripts/check-ts-tool-boundaries.ts
+bun run check
 ```
 
-迁移完成的判据不是文档打勾，而是：manifest / registry / schema / owner contract / generated drift 与代码同时一致，旧路径已不可调用。
+迁移完成的判据不是文档打勾，而是：owner package、公开 schema/CLI、真实 consumer 与旧路径退役同时成立。

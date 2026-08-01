@@ -59,9 +59,7 @@ agent-roles/
 ## 6. 验收
 
 ```text
-bun scripts/check-rd-target-layout.ts
-bun scripts/check-rd-replay-static-consistency.ts
-bun scripts/architecture-drift-audit.ts --check
+bun run check
 ```
 
 “位于新目录”不等于迁移完成；只有 authority、consumer、durable write、tests 和旧入口退役同时成立，语义迁移才完成。

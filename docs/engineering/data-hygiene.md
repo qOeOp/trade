@@ -66,9 +66,8 @@ DB；owner DB 保存所需 hash、schema、coverage、summary、lineage 和引�
 `.gitignore` 覆盖根 DB、SQLite sidecar、`tmp/` 和本地 profile。当前不允许 module-local
 runtime `data/`。
 
-`scripts/check-workspace-hygiene.ts` 扫描 Git index 与 module-local data，不因 ignore 漏掉
-源码目录污染。`scripts/check-workspace-side-effects.ts` 检查本轮 tracked/unignored 副作用；
-`scripts/audit-workspace-footprint.ts` 只报告 ignored 区域体量和 stale 候选。三者都不自动
+`scripts/check-workspace-hygiene.ts` 可扫描 Git index 与 module-local data；
+`scripts/check-workspace-side-effects.ts` 检查本轮 tracked/unignored 副作用。两者都不自动
 删除数据，也不替代 catalog 的引用判断。
 
 ## 已知边界

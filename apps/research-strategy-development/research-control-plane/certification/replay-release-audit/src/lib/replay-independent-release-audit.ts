@@ -7,7 +7,6 @@ export const REPLAY_RELEASE_AUDIT_OWNER =
   "apps/research-strategy-development/research-control-plane/certification/replay-release-audit"
 const SUBJECT_OWNER =
   "apps/research-strategy-development/replay-execution-plane/certification/replay-certification"
-const STATIC_CONSISTENCY_CHECKER = "scripts/check-rd-replay-static-consistency.ts"
 
 interface AuditSubject {
   owner: string
@@ -23,31 +22,16 @@ export interface AuditCommand {
   timeout_ms: number
 }
 
-interface AuditSourceBinding {
-  role: string
-  path: string
-  sha256: string
-}
-
-interface StaticInputIdentity {
-  path: string
-  kind: "content" | "existence"
-}
-
 export interface ReplayIndependentReleaseAuditManifest {
-  schema_version: "trade.rd-replay-independent-release-audit.v2"
+  schema_version: "trade.rd-replay-independent-release-audit.v3"
   owner: string
   subject: AuditSubject
   independence_policy: string
   verification_policy: string
   verdict_scope: string
   runtime: { name: "bun"; version: string }
-  static_inputs_schema_version: "trade.rd-replay-static-inputs.v1"
-  static_inputs_sha256: string
-  static_input_identities: StaticInputIdentity[]
   commands: AuditCommand[]
   negative_challenges: string[]
-  source_bindings: AuditSourceBinding[]
   limitations: string[]
   audit_manifest_sha256: string
 }
@@ -79,18 +63,6 @@ interface AuditedFixturePack {
   [key: string]: unknown
 }
 
-interface StaticConsistencySnapshot {
-  schema_version: "trade.rd-replay-static-inputs.v1"
-  ok: true
-  static_inputs_sha256: string
-  inputs: Array<StaticInputIdentity & {
-    role: string
-    sha256?: string
-    exists?: boolean
-  }>
-  issues: []
-}
-
 export interface ReplayIndependentAuditCommandReceipt {
   role: string
   process_id: number
@@ -100,7 +72,7 @@ export interface ReplayIndependentAuditCommandReceipt {
 }
 
 export interface ReplayIndependentReleaseAuditReceipt {
-  schema_version: "trade.rd-replay-independent-release-audit-receipt.v2"
+  schema_version: "trade.rd-replay-independent-release-audit-receipt.v3"
   verdict: "passed-within-declared-evidence-envelope"
   audit_manifest_sha256: string
   subject_pack_sha256: string
@@ -114,9 +86,7 @@ export interface ReplayIndependentReleaseAuditReceipt {
 const EXPECTED_COMPONENTS: Array<Pick<AuditedComponent, "role" | "path" | "authority_hash_field">> = [
   { role: "canonical-result-fixture", path: "apps/research-strategy-development/replay-execution-plane/tests/src/fixtures/certified-single-position-v24.json", authority_hash_field: null },
   { role: "public-profile-evidence-registry", path: `${SUBJECT_OWNER}/replay-profile-evidence.json`, authority_hash_field: null },
-  { role: "certification-suite-registry", path: `${SUBJECT_OWNER}/replay-certification-suites.json`, authority_hash_field: null },
   { role: "evidence-epoch-registry", path: "docs/research/reliability/rd-replay-evidence-epoch-registry.json", authority_hash_field: null },
-  { role: "module-consumer-closure", path: `${SUBJECT_OWNER}/replay-module-consumer-closure.json`, authority_hash_field: "observed_closure_sha256" },
   { role: "cross-process-reproducibility", path: `${SUBJECT_OWNER}/replay-cross-process-reproducibility-bundle.json`, authority_hash_field: "bundle_sha256" },
   { role: "historical-artifact-migration-registry", path: `${SUBJECT_OWNER}/replay-historical-artifact-migration.json`, authority_hash_field: "registry_sha256" },
   { role: "historical-artifact-fixture-pack", path: "apps/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification/fixtures/historical-artifact-read-migration-v1.json", authority_hash_field: "pack_hash" },
@@ -140,35 +110,12 @@ const EXPECTED_COMMANDS: AuditCommand[] = [
     argv: ["bun", "run", "certify"],
     timeout_ms: 600_000,
   },
-  {
-    role: "repository-static-consistency-check",
-    cwd: ".",
-    argv: ["bun", STATIC_CONSISTENCY_CHECKER],
-    timeout_ms: 30_000,
-  },
 ]
 
 const EXPECTED_CHALLENGES = [
   "component-content-tamper",
   "component-authority-tamper",
   "release-verdict-overclaim",
-]
-
-const EXPECTED_SOURCE_BINDINGS = [
-  { role: "independent-audit-package", path: `${REPLAY_RELEASE_AUDIT_OWNER}/package.json` },
-  { role: "independent-audit-launcher", path: `${REPLAY_RELEASE_AUDIT_OWNER}/src/scripts/main.ts` },
-  { role: "independent-auditor", path: `${REPLAY_RELEASE_AUDIT_OWNER}/src/lib/replay-independent-release-audit.ts` },
-  { role: "independent-auditor-test", path: `${REPLAY_RELEASE_AUDIT_OWNER}/src/lib/replay-independent-release-audit.test.ts` },
-  { role: "static-consistency-check", path: STATIC_CONSISTENCY_CHECKER },
-  { role: "release-gate-entry", path: "scripts/check-replay-release.sh" },
-  { role: "exclusive-test-runner", path: "scripts/run-exclusive-test.sh" },
-  { role: "subject-certification-runner", path: `${SUBJECT_OWNER}/src/lib/replay-certification.ts` },
-  { role: "subject-certification-test", path: `${SUBJECT_OWNER}/src/lib/replay-certification.test.ts` },
-  { role: "runner-certification-package", path: "apps/research-strategy-development/replay-execution-plane/runner/package.json" },
-  {
-    role: "runner-worker-v10-semantic-test",
-    path: "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-decision-worker-input-assembly-v4.test.ts",
-  },
 ]
 
 const EXPECTED_LIMITATIONS = [
@@ -210,23 +157,16 @@ export function assertReplayIndependentReleaseAuditManifest(
   repoRoot: string,
 ): void {
   if (!repoRoot) throw new Error("Replay release verification context required")
-  if (manifest.schema_version !== "trade.rd-replay-independent-release-audit.v2"
+  if (manifest.schema_version !== "trade.rd-replay-independent-release-audit.v3"
       || manifest.owner !== REPLAY_RELEASE_AUDIT_OWNER
       || manifest.subject.owner !== SUBJECT_OWNER
       || manifest.subject.fixture_pack_path !== `${SUBJECT_OWNER}/replay-release-candidate-fixture-pack.json`
       || manifest.independence_policy !== "auditor-outside-subject-owner-no-subject-implementation-import"
-      || manifest.verification_policy !== "independent-pack-and-component-rehash-negative-challenges-then-full-certify"
+      || manifest.verification_policy !== "independent-pack-rehash-negative-challenges-then-owner-certification"
       || manifest.verdict_scope !== "release-grade-only-within-frozen-four-profile-declared-evidence-envelope"
       || manifest.runtime.name !== "bun"
       || manifest.runtime.version !== repositoryBunVersion(repoRoot)) {
     throw new Error("unsupported Replay independent release audit manifest")
-  }
-  const staticInputs = runStaticConsistencySnapshot(repoRoot)
-  const staticInputIdentities = staticInputs.inputs.map(({ path, kind }) => ({ path, kind }))
-  if (manifest.static_inputs_schema_version !== staticInputs.schema_version
-      || manifest.static_inputs_sha256 !== staticInputs.static_inputs_sha256
-      || JSON.stringify(manifest.static_input_identities) !== JSON.stringify(staticInputIdentities)) {
-    throw new Error("Replay independent audit static input identity drifted")
   }
   const auditorOwner: string = manifest.owner
   const subjectOwner: string = manifest.subject.owner
@@ -238,23 +178,6 @@ export function assertReplayIndependentReleaseAuditManifest(
       || JSON.stringify(manifest.limitations) !== JSON.stringify(EXPECTED_LIMITATIONS)) {
     throw new Error("Replay independent release audit coverage is incomplete")
   }
-  if (manifest.source_bindings.length !== EXPECTED_SOURCE_BINDINGS.length) {
-    throw new Error("Replay independent audit source bindings are incomplete")
-  }
-  manifest.source_bindings.forEach((binding, index) => {
-    const expected = EXPECTED_SOURCE_BINDINGS[index]!
-    if (binding.role !== expected.role || binding.path !== expected.path) {
-      throw new Error(`Replay independent audit source identity drifted: ${binding.role}`)
-    }
-    const source = readRepoSource(repoRoot, binding.path)
-    if (sha256(source) !== binding.sha256) {
-      throw new Error(`Replay independent audit source drifted: ${binding.role}`)
-    }
-    if (binding.role === "independent-auditor"
-        && /from\s+["'][^"']*replay-certification\//.test(source)) {
-      throw new Error("Replay independent auditor imports subject-owner implementation")
-    }
-  })
   const fixtureSource = readRepoSource(repoRoot, manifest.subject.fixture_pack_path)
   if (sha256(fixtureSource) !== manifest.subject.fixture_pack_content_sha256) {
     throw new Error("Replay independent audit subject fixture-pack content drifted")
@@ -290,7 +213,7 @@ export async function runReplayIndependentReleaseAudit(
     throw new Error("Replay independent audit commands did not run in distinct fresh processes")
   }
   const body = {
-    schema_version: "trade.rd-replay-independent-release-audit-receipt.v2" as const,
+    schema_version: "trade.rd-replay-independent-release-audit-receipt.v3" as const,
     verdict: "passed-within-declared-evidence-envelope" as const,
     audit_manifest_sha256: manifest.audit_manifest_sha256,
     subject_pack_sha256: manifest.subject.fixture_pack_sha256,
@@ -309,7 +232,7 @@ export function assertReplayIndependentReleaseAuditReceipt(
 ): void {
   if (!repoRoot) throw new Error("Replay release verification context required")
   assertReplayIndependentReleaseAuditManifest(manifest, repoRoot)
-  if (receipt.schema_version !== "trade.rd-replay-independent-release-audit-receipt.v2"
+  if (receipt.schema_version !== "trade.rd-replay-independent-release-audit-receipt.v3"
       || receipt.verdict !== "passed-within-declared-evidence-envelope"
       || receipt.audit_manifest_sha256 !== manifest.audit_manifest_sha256
       || receipt.subject_pack_sha256 !== manifest.subject.fixture_pack_sha256
@@ -334,37 +257,6 @@ export function assertReplayIndependentReleaseAuditReceipt(
   if (receipt.receipt_sha256 !== sha256(stableJson(body))) {
     throw new Error("Replay independent release audit receipt hash drifted")
   }
-}
-
-function runStaticConsistencySnapshot(repoRoot: string): StaticConsistencySnapshot {
-  const result = Bun.spawnSync(["bun", STATIC_CONSISTENCY_CHECKER, "--json"], {
-    cwd: repoRoot,
-    stdout: "pipe",
-    stderr: "pipe",
-  })
-  if (result.exitCode !== 0) {
-    throw new Error(
-      `Replay static consistency failed during release verification: ${result.stderr.toString()}`,
-    )
-  }
-  let snapshot: StaticConsistencySnapshot
-  try {
-    snapshot = JSON.parse(result.stdout.toString()) as StaticConsistencySnapshot
-  } catch {
-    throw new Error("Replay static consistency did not return a machine-readable snapshot")
-  }
-  const paths = snapshot.inputs?.map((input) => input.path) ?? []
-  if (snapshot.schema_version !== "trade.rd-replay-static-inputs.v1"
-      || snapshot.ok !== true || !/^[a-f0-9]{64}$/.test(snapshot.static_inputs_sha256)
-      || !Array.isArray(snapshot.inputs) || snapshot.inputs.length === 0
-      || !Array.isArray(snapshot.issues) || snapshot.issues.length !== 0
-      || snapshot.inputs.some((input) => !input.path || input.path.startsWith("/")
-        || input.path.includes("..") || (input.kind !== "content" && input.kind !== "existence"))
-      || new Set(paths).size !== paths.length
-      || JSON.stringify(paths) !== JSON.stringify([...paths].sort())) {
-    throw new Error("unsupported Replay static consistency snapshot")
-  }
-  return snapshot
 }
 
 function repositoryBunVersion(repoRoot: string): string {
@@ -436,7 +328,10 @@ function runNegativeChallenges(
   contentTamper.components[0]!.content_sha256 = "0".repeat(64)
   challenges.push(["component-content-tamper", contentTamper, "component content drifted"])
   const authorityTamper = structuredClone(fixturePack)
-  authorityTamper.components[5]!.authority_hash = "0".repeat(64)
+  const authorityComponent = authorityTamper.components.find((component) =>
+    component.authority_hash_field !== null)
+  if (!authorityComponent) throw new Error("Replay fixture pack has no authority-bearing component")
+  authorityComponent.authority_hash = "0".repeat(64)
   challenges.push(["component-authority-tamper", authorityTamper, "component authority drifted"])
   const verdictOverclaim = structuredClone(fixturePack)
   verdictOverclaim.verdict_policy = "fixture-pack-is-unbounded-production-release-verdict"

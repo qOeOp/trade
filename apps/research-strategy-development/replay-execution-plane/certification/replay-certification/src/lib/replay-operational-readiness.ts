@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { existsSync, readFileSync } from "node:fs"
+import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { REPLAY_CERTIFICATION_OWNER, type ReplayProfileEvidenceManifest } from "./replay-certification"
 
@@ -20,11 +20,6 @@ interface ReplayOperationalIncidentClass {
   retry_policy: string
 }
 
-interface ReplayOperationalSourceEvidence {
-  path: string
-  required_fragments: string[]
-}
-
 export interface ReplayOperationalReadinessRegistry {
   schema_version: "trade.rd-replay-operational-readiness.v1"
   owner: string
@@ -34,11 +29,6 @@ export interface ReplayOperationalReadinessRegistry {
   profile_observability: ReplayOperationalProfile[]
   incident_classes: ReplayOperationalIncidentClass[]
   operator_commands: string[]
-  runbook: {
-    path: string
-    required_sections: string[]
-  }
-  source_evidence: ReplayOperationalSourceEvidence[]
   limitations: string[]
   registry_sha256: string
 }
@@ -96,46 +86,7 @@ const EXPECTED_INCIDENT_CLASSES: ReplayOperationalIncidentClass[] = [
 ]
 
 const EXPECTED_COMMANDS = [
-  "bun apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --list --json",
-  "bun scripts/check-rd-replay-static-consistency.ts",
-  "bun apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --suite canonical",
-  "bun apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --suite compatibility",
-]
-
-const EXPECTED_RUNBOOK_PATH = "docs/research/reliability/rd-replay-operations-runbook.md"
-const EXPECTED_RUNBOOK_SECTIONS = [
-  "## 1. 适用范围与权威边界",
-  "## 2. 可观测面与完成判据",
-  "## 3. 上线前与值班检查",
-  "## 4. 首轮分诊",
-  "## 5. 故障类别与处置",
-  "## 6. 取消与恢复",
-  "## 7. Artifact 与损坏处理",
-  "## 8. 事件包与升级",
-  "## 9. 明确未覆盖",
-]
-
-const EXPECTED_SOURCE_IDENTITIES = [
-  {
-    path: "apps/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-independent-lane-batch-contracts.ts",
-    required_fragments: ["export interface ReplayIndependentLaneBatchOutcome", "partial_result_published: false"],
-  },
-  {
-    path: "apps/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-integrated-portfolio-contracts.ts",
-    required_fragments: ["export interface ReplayIntegratedPortfolioOutcome", "partial_result_published: false"],
-  },
-  {
-    path: "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.ts",
-    required_fragments: ["export interface ReplayTrialRunOutcome", "failure_class:", "retryable: boolean", "partial_result_published: false"],
-  },
-  {
-    path: "apps/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-portfolio-protective-terminal-cycle-sequence-contracts.ts",
-    required_fragments: ["export interface ReplayPortfolioProtectiveTerminalCycleSequenceOutcome", "partial_sequence_result_published: false"],
-  },
-  {
-    path: "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts",
-    required_fragments: ["--suite must be canonical, compatibility, or all", "args.includes(\"--list\")", "args.includes(\"--json\")"],
-  },
+  "bun run certify",
 ]
 
 const EXPECTED_LIMITATIONS = [
@@ -157,7 +108,7 @@ export function loadReplayOperationalReadinessRegistry(
 export function assertReplayOperationalReadinessRegistry(
   registry: ReplayOperationalReadinessRegistry,
   profileEvidence: ReplayProfileEvidenceManifest,
-  repoRoot: string,
+  _repoRoot: string,
 ): void {
   if (registry.schema_version !== "trade.rd-replay-operational-readiness.v1"
       || registry.owner !== REPLAY_CERTIFICATION_OWNER
@@ -181,29 +132,6 @@ export function assertReplayOperationalReadinessRegistry(
   if (JSON.stringify(registry.limitations) !== JSON.stringify(EXPECTED_LIMITATIONS)) {
     throw new Error("Replay operational limitations drifted")
   }
-  if (registry.runbook.path !== EXPECTED_RUNBOOK_PATH
-      || JSON.stringify(registry.runbook.required_sections) !== JSON.stringify(EXPECTED_RUNBOOK_SECTIONS)) {
-    throw new Error("Replay operations runbook contract drifted")
-  }
-  const runbook = readSource(repoRoot, registry.runbook.path, "runbook")
-  for (const section of EXPECTED_RUNBOOK_SECTIONS) {
-    if (!runbook.includes(section)) throw new Error(`Replay operations runbook section is missing: ${section}`)
-  }
-  for (const command of EXPECTED_COMMANDS) {
-    if (!runbook.includes(command)) throw new Error(`Replay operations runbook command is missing: ${command}`)
-  }
-  const observedSourceIdentity = registry.source_evidence.map(({ path, required_fragments }) => ({
-    path, required_fragments,
-  }))
-  if (JSON.stringify(observedSourceIdentity) !== JSON.stringify(EXPECTED_SOURCE_IDENTITIES)) {
-    throw new Error("Replay operational source evidence identity drifted")
-  }
-  for (const evidence of registry.source_evidence) {
-    const source = readSource(repoRoot, evidence.path, "source evidence")
-    for (const fragment of evidence.required_fragments) {
-      if (!source.includes(fragment)) throw new Error(`Replay operational source fragment is missing: ${evidence.path}`)
-    }
-  }
   if (registry.registry_sha256 !== replayOperationalReadinessRegistryHash(registry)) {
     throw new Error("Replay operational readiness registry hash drifted")
   }
@@ -214,15 +142,6 @@ export function replayOperationalReadinessRegistryHash(
 ): string {
   const { registry_sha256: _registryHash, ...body } = registry
   return sha256(stableJson(body))
-}
-
-function readSource(repoRoot: string, path: string, role: string): string {
-  if (!path || path.startsWith("/") || path.includes("..")) {
-    throw new Error(`Replay operational ${role} path is not repo-relative`)
-  }
-  const absolute = join(repoRoot, path)
-  if (!existsSync(absolute)) throw new Error(`Replay operational ${role} is missing`)
-  return readFileSync(absolute, "utf8")
 }
 
 function stableJson(value: unknown): string {

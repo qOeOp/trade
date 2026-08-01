@@ -1,84 +1,47 @@
 ---
-title: Documentation Contract
+title: Documentation
 role: documentation-index
 status: active
 owner: architecture
-last_verified: 2026-07-23 CST
+last_verified: 2026-08-01 CST
 ---
 
 # Documentation
 
-`docs/` 是项目 L1 contract 层。它先定义产品边界、责任域、运行语义和大功能合同，再由 CLI/schema/event contract 与代码实现承接。
+`docs/` 解释产品边界、跨模块语义、架构决策和运行方式。它不是第二套类型系统，也不通过逐字文本、frontmatter、索引或固定目录来签发代码质量。
 
-## 目录
+## 入口
 
-| 目录 | 负责 | 不负责 |
-| --- | --- | --- |
-| [product](./product/) | vision、PRD、用户故事、高价值产品素材 | 技术拓扑、实施计划 |
-| [architecture](./architecture/) | 当前顶层架构、domain/store/rail ownership、机器 manifest、图和迁移设计 | 具体策略实验、临时施工记录 |
-| [runtime](./runtime/) | 交易配置、执行工具、市场数据等大功能运行合同 | 顶层产品边界、R&D 证据 |
-| [research](./research/) | R&D architecture、strategy universe、可靠性、research sources | live 授权、真钱事实 |
-| [engineering](./engineering/) | check、code quality、development convergence、data hygiene | 产品或业务规则 |
-| [history](./history/) | 已完成施工图、一次性审查和被替换的 legacy contract | 当前产品、架构或运行真相 |
+| 目录 | 内容 |
+| --- | --- |
+| [product](./product/) | 产品目标、PRD、用户故事 |
+| [architecture](./architecture/) | 当前系统边界、通信、数据与迁移设计 |
+| [runtime](./runtime/) | 运行配置、交易、市场数据和部署合同 |
+| [research](./research/) | R&D 架构、策略空间和可靠性材料 |
+| [engineering](./engineering/) | 工程质量、数据卫生和维护说明 |
+| [history](./history/) | 已完成计划、审计记录和被替换设计 |
+
+关键入口：
+
+- 当前产品：[product/prd.md](./product/prd.md)
+- 当前架构：[architecture/design-architecture.md](./architecture/design-architecture.md)
+- 工具接口：[architecture/tool-layout.md](./architecture/tool-layout.md) 与 `toolset.json`
+- 质量接口：[engineering/code-quality.md](./engineering/code-quality.md)
+- 运行合同：[runtime](./runtime/)
+- R&D 合同：[research](./research/)
 
 ## Authority
 
-| 问题 | 入口 |
-| --- | --- |
-| 为什么做、做什么 | [product/vision.md](./product/vision.md) → [product/prd.md](./product/prd.md) |
-| 用户如何使用 | [product/user-story.md](./product/user-story.md) |
-| 系统当前如何分域 | [architecture/design-architecture.md](./architecture/design-architecture.md) |
-| 市场数据、在线交易、长期策略工厂如何闭环，目标与当前差距是什么 | [architecture/design-architecture.md](./architecture/design-architecture.md) |
-| 哪些域可以互相传什么 | [architecture/architecture-communication-v2.mmd](./architecture/architecture-communication-v2.mmd) |
-| 消息如何物理传递、何时拆服务或采用 broker、各 runtime 用什么语言 | [architecture/physical-runtime-transport.md](./architecture/physical-runtime-transport.md) |
-| profile、账户、资金和凭证归谁 | [architecture/architecture-data-trust-v2.mmd](./architecture/architecture-data-trust-v2.mmd) |
-| 当前 J01–J07 如何调度 | [architecture/architecture-runtime-v2.mmd](./architecture/architecture-runtime-v2.mmd) |
-| 当前模块、job、store、rail | [architecture/architecture-manifest.json](./architecture/architecture-manifest.json) |
-| 代码与蓝图是否漂移 | [architecture/generated/architecture-drift-report.md](./architecture/generated/architecture-drift-report.md) |
-| 一体化服务器如何装配与施工 | [architecture/migrations/server-runtime-implementation-plan.md](./architecture/migrations/server-runtime-implementation-plan.md) |
-| 远程 Linux 容器如何承载快慢轨、数据面、R&D 与 Agent Host | [设计](./architecture/migrations/remote-container-runtime-integration-plan.md) → [当前 no-live 部署合同](./runtime/server-container-deployment.md) → [运行总图](./architecture/remote-server-runtime.mmd) |
-| Agent Host 如何选择、切换与评测，Codex/OpenClaw/LangGraph 各在什么位置，当前按哪些步骤施工 | [architecture/migrations/agent-host-runtime-integration-plan.md](./architecture/migrations/agent-host-runtime-integration-plan.md) |
-| 一个模块如何调用 | [architecture/tool-layout.md](./architecture/tool-layout.md) → `toolset.json` → module `CONTRACT.md` |
-| 一个大功能如何运行 | [runtime](./runtime/) 下对应合同 |
-| R&D 如何演进 | [research](./research/) 下对应 architecture / strategy / reliability 文档 |
-| 改动后跑什么 | [engineering/check-contract.md](./engineering/check-contract.md) |
-| 高速 Agent 开发如何保持收敛 | [engineering/development-convergence.md](./engineering/development-convergence.md) |
-| 哪些文档是当前合同、由谁负责 | [engineering/doc-contract-index.json](./engineering/doc-contract-index.json) |
+优先级为：用户结果与产品/runtime 合同 > owner `CONTRACT.md` 和公开 schema/CLI > consumer 行为 > 文档说明 > 历史记录。
 
-优先级：产品边界 > 当前架构合同 > domain/module contract > 历史施工记录。生成文件只投影当前代码，不反向定义产品。
+- 文档描述稳定语义，不冻结实现排版、源码字符串、私有函数、测试名或仓库拓扑。
+- 模块移动、重命名或内部重写不需要更新中央文档索引；只有公开行为、owner 或跨模块合同改变时才更新相关文档。
+- 机器可消费的约束使用 package `scripts.check`、schema、CLI 输入输出和退出码，不从 Markdown 反向推导。
+- `history/` 只保留背景，不定义当前实现。
 
-## 状态词汇
+## 维护
 
-| Status | 含义 |
-| --- | --- |
-| `active` | 当前有效合同或入口 |
-| `active-partial` | 已实现并生效的有限子集；正文必须声明未完成边界 |
-| `active-migration` | 当前迁移合同；目标态不得冒充现状 |
-| `proposed` | 尚未进入当前 authority 的提案 |
-| `source-material` | 可引用的上游素材，不直接定义当前实现 |
-| `implemented` | 已完成的实现记录，不自动升级为持续 authority |
-| `audit-log` | 按时间追加的审计事实，不覆盖当前合同 |
-
-current 文档只允许以上状态，并必须与 `doc-contract-index.json` 一致；index 必须精确覆盖 current 手写文档，不得夹带 generated、普通 history 或其他路径。history 正文只允许 `completed-historical` 或 `legacy-reference`。frontmatter 每个键只能声明一次，禁止同一文档为权威元数据保留多种解释。受治理 Markdown（根 `README.md` / `AGENTS.md` 及 `.agents/`、`docs/`、`apps/`、`strategies/`）的本地链接必须使用相对路径并解析到仓库内真实目标；允许在仓库内使用 `../`，禁止绝对路径、`file://`、越界或符号链接逃逸。机器检查不证明外部 URL 可用，也不校验页面 anchor 语义。
-
-index `id` 使用 `<文档域>.<短名>`：只允许小写 ASCII、数字、点和短横线，且命名空间必须与 `docs/product|architecture|runtime|research|engineering` 路径一致；`docs/README.md` 与 `docs/history/README.md` 使用 `docs.*`。ID 是稳定引用，不使用标题、临时任务名或跨域别名。
-
-`implementation_refs` 只连接当前合同与已有实现证据：每项必须是仓库相对且已规范化的真实文件或目录，不得重复、使用本机绝对路径、`..` 越界或通过符号链接逃逸仓库。目录引用表示 owner surface，不等于其全部内容都已实现。
-
-`owner` 不能是自由标签：它必须是 `product / architecture / engineering` 文档治理 owner、`architecture-manifest.json` 中的 domain，或该 domain 下真实存在的模块组。新增 owner 必须先建立实际 authority，不能只让 frontmatter 与 index 同时新增一个名字。
-
-`role` 也不是自由标签，并与 status 绑定：contract / index / decision / roadmap / runbook 使用 `active`；feature contract 可使用 `active-partial`；migration 只使用 `proposed` 或 `active-migration`；source material、implementation record、audit log 分别只使用 `source-material`、`implemented`、`audit-log`。精确 role→status 组合由 `check-doc-contracts.ts` 执法，新增组合必须先修改本合同与 checker。
-
-`title` 是稳定、可读的元数据标题，不要求与正文展示标题逐字相同。current 文档必须且只能有一个 `#` 一级标题；history 可为保留原始结构包含多个一级标题，但至少有一个。
-
-文档 frontmatter 与 index 顶层的 `last_verified` 统一使用 `YYYY-MM-DD CST`，日期必须真实存在。它表示 owner 最近一次核对当前内容或索引闭包的日期；机器检查不定义 freshness SLA，也不会因自然时间流逝自动改写日期。
-
-## 归档规则
-
-- 跨域合同、顶层架构和大功能设计必须进入对应子目录，不在 `docs/` 根目录新增散文件。
-- 单模块输入输出写在模块 `CONTRACT.md`；只有跨模块或大功能语义才进入 `docs/`。
-- 已完成 plan、cleanup、一次性 audit 和被替换的详细旧稿移入 `history/`，并标明状态；不得继续充当当前入口。
-- 运行 artifact、临时 hypothesis、实验输出不进入 `docs/`。
-- 新目录只在出现稳定 owner 后建立，不按一次任务临时分组。
-- 当前手写文档必须声明 `title / role / status / owner / last_verified`，并登记到 `doc-contract-index.json`；历史文档只允许 `completed-historical` 或 `legacy-reference`。
-- `active-partial`、`active-migration`、`proposed` 等状态必须在正文说明未完成边界，不得用目标设计冒充已实现事实。
+- 新文档只在存在稳定读者和 owner 时创建；短期施工记录优先写入已有计划或 issue/PR。
+- 单模块细节留在模块附近，避免复制到多个总文档。
+- 失效内容直接删除或移入 `history/`，不保留兼容索引、路径 tombstone 或逐字防回归测试。
+- 相对链接应可读；链接失效由修改者在相关文档变更中修复，不作为所有代码候选的 required gate。

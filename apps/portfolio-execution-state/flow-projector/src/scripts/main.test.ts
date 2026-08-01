@@ -10,6 +10,7 @@ import { run } from "./main"
 
 test("flow projector CLI returns structured errors", () => {
   const dbPath = join(repoRoot(), "tmp", "test", `flow-projector-errors-${crypto.randomUUID()}.db`)
+  mkdirSync(dirname(dbPath), { recursive: true })
   try {
     const result = run(["--apply-reconcile", "--db", dbPath, "--json", "{}"])
     assert.equal(result.ok, false)

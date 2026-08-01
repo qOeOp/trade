@@ -92,8 +92,8 @@ last_verified: 2026-07-22 CST
 Replay 的 P1–P29 已归并为冻结的 supported surface，不得继续创建 P30。以下序列保留为已完成的收敛依据，不是数值成熟度或发布签发：
 
 1. 已依 [capability inventory](./rd-replay-capability-inventory.json) 收敛 canonical / opt-in / compatibility owner boundary。
-2. root static checker 只检查 inventory、epoch、suite/profile registry、package/path/export 的机械一致性，不证明执行成功。
-3. owner full certification 运行 canonical 与 compatibility suites；independent release audit 复核冻结 evidence envelope 并独立签发 receipt。
+2. 默认 repository quality 只调用通用 package `scripts.check`，不冻结 Replay 路径、模块数量或测试名称。
+3. 显式 owner certification 执行动态 release evidence；independent release audit 复核冻结 evidence envelope 并独立签发 receipt。
 4. 当前只允许 maintenance；新市场语义必须由显式架构重开决定，不能借 bugfix、schema epoch 或自动迭代隐式扩权。
 
-提交数、schema 数、测试数、successor 数与 P 编号都不是能力或发布结论。registry 一致性、owner execution evidence 与 independent release verdict 不得互相替代。
+提交数、schema 数、测试数、successor 数与 P 编号都不是能力或发布结论。package interface、owner execution evidence 与 independent release verdict 不得互相替代。

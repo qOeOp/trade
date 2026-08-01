@@ -108,4 +108,4 @@ broker 采用不改变 logical rail、interaction、domain owner 或 store autho
 2. 本文的 route、ordering、delivery、replay、payload 与 adoption gate；
 3. `protocol-fabric` schema / ACL、owner `CONTRACT.md`、idempotency 与 failure tests；
 4. 若采用新 service / broker / runtime language，新增 ADR、部署 profile、health、shutdown、recovery、telemetry 与回滚证据；
-5. 按 [Check Contract](../engineering/check-contract.md) 运行受影响的 architecture、document、owner 与 consumer 检查；全仓 closure 由交付端点决定。
+5. 按 [Quality Contract](../engineering/code-quality.md) 运行受影响 package 与 consumer 的公开检查接口；全仓 closure 由交付端点决定。

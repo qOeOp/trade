@@ -5,7 +5,6 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
-  writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -37,9 +36,8 @@ describe("Replay independent release audit", () => {
     ])
     expect(receipt.commands.map((command) => command.role)).toEqual([
       "subject-full-certification",
-      "repository-static-consistency-check",
     ])
-    expect(new Set(receipt.commands.map((command) => command.process_id)).size).toBe(2)
+    expect(new Set(receipt.commands.map((command) => command.process_id)).size).toBe(1)
     expect(receipt.commands.every((command) => command.exit_code === 0)).toBe(true)
     expect(receipt.receipt_sha256).toHaveLength(64)
   })
@@ -55,32 +53,10 @@ describe("Replay independent release audit", () => {
     expect(() => assertReplayIndependentReleaseAuditManifest(drifted, repoRoot))
       .toThrow("subject fixture-pack content drifted")
 
-    const auditorDrift = structuredClone(loadReplayIndependentReleaseAuditManifest(repoRoot))
-    Object.assign(auditorDrift.source_bindings[0]!, { sha256: "0".repeat(64) })
-    expect(() => assertReplayIndependentReleaseAuditManifest(auditorDrift, repoRoot))
-      .toThrow("independent audit source drifted")
-
-    for (const role of [
-      "independent-audit-package",
-      "independent-audit-launcher",
-      "release-gate-entry",
-      "exclusive-test-runner",
-    ]) {
-      const executionDrift = structuredClone(loadReplayIndependentReleaseAuditManifest(repoRoot))
-      const binding = executionDrift.source_bindings.find((item) => item.role === role)
-      expect(binding).toBeDefined()
-      Object.assign(binding!, { sha256: "0".repeat(64) })
-      expect(() => assertReplayIndependentReleaseAuditManifest(executionDrift, repoRoot))
-        .toThrow("independent audit source drifted")
-    }
-
-    const staticInputDrift = structuredClone(loadReplayIndependentReleaseAuditManifest(repoRoot))
-    staticInputDrift.static_inputs_sha256 = "0".repeat(64)
-    expect(() => assertReplayIndependentReleaseAuditReceipt(
-      loadReplayIndependentReleaseAuditReceipt(repoRoot),
-      staticInputDrift,
-      repoRoot,
-    )).toThrow("static input identity drifted")
+    const commandDrift = structuredClone(loadReplayIndependentReleaseAuditManifest(repoRoot))
+    commandDrift.commands[0]!.argv = ["bun", "src/scripts/main.ts"]
+    expect(() => assertReplayIndependentReleaseAuditManifest(commandDrift, repoRoot))
+      .toThrow("coverage is incomplete")
 
     const receiptTamper = structuredClone(loadReplayIndependentReleaseAuditReceipt(repoRoot))
     receiptTamper.verdict = "unbounded-production-release" as never
@@ -111,24 +87,6 @@ describe("Replay independent release audit", () => {
       loadReplayIndependentReleaseAuditManifest(repoRoot),
       undefined as never,
     )).toThrow("verification context required")
-  })
-
-  test("rejects a stale receipt after certified Replay source drift", () => {
-    const sourcePath = join(
-      repoRoot,
-      "apps/research-strategy-development/replay-execution-plane/data-adapter/src/lib/replay-data-adapter.ts",
-    )
-    const source = readFileSync(sourcePath, "utf8")
-    writeFileSync(sourcePath, `${source}\n`)
-    try {
-      expect(() => assertReplayIndependentReleaseAuditReceipt(
-        loadReplayIndependentReleaseAuditReceipt(repoRoot),
-        loadReplayIndependentReleaseAuditManifest(repoRoot),
-        repoRoot,
-      )).toThrow("static input identity drifted")
-    } finally {
-      writeFileSync(sourcePath, source)
-    }
   })
 
   test("kills the complete command process group when an audit command times out", async () => {

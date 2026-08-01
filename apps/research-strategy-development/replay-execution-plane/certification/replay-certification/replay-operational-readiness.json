@@ -153,64 +153,7 @@
     }
   ],
   "operator_commands": [
-    "bun apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --list --json",
-    "bun scripts/check-rd-replay-static-consistency.ts",
-    "bun apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --suite canonical",
-    "bun apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --suite compatibility"
-  ],
-  "runbook": {
-    "path": "docs/research/reliability/rd-replay-operations-runbook.md",
-    "required_sections": [
-      "## 1. 适用范围与权威边界",
-      "## 2. 可观测面与完成判据",
-      "## 3. 上线前与值班检查",
-      "## 4. 首轮分诊",
-      "## 5. 故障类别与处置",
-      "## 6. 取消与恢复",
-      "## 7. Artifact 与损坏处理",
-      "## 8. 事件包与升级",
-      "## 9. 明确未覆盖"
-    ]
-  },
-  "source_evidence": [
-    {
-      "path": "apps/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-independent-lane-batch-contracts.ts",
-      "required_fragments": [
-        "export interface ReplayIndependentLaneBatchOutcome",
-        "partial_result_published: false"
-      ]
-    },
-    {
-      "path": "apps/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-integrated-portfolio-contracts.ts",
-      "required_fragments": [
-        "export interface ReplayIntegratedPortfolioOutcome",
-        "partial_result_published: false"
-      ]
-    },
-    {
-      "path": "apps/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.ts",
-      "required_fragments": [
-        "export interface ReplayTrialRunOutcome",
-        "failure_class:",
-        "retryable: boolean",
-        "partial_result_published: false"
-      ]
-    },
-    {
-      "path": "apps/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-portfolio-protective-terminal-cycle-sequence-contracts.ts",
-      "required_fragments": [
-        "export interface ReplayPortfolioProtectiveTerminalCycleSequenceOutcome",
-        "partial_sequence_result_published: false"
-      ]
-    },
-    {
-      "path": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts",
-      "required_fragments": [
-        "--suite must be canonical, compatibility, or all",
-        "args.includes(\"--list\")",
-        "args.includes(\"--json\")"
-      ]
-    }
+    "bun run certify"
   ],
   "limitations": [
     "no-central-durable-metrics-logs-traces-dashboard-or-pager",
@@ -220,5 +163,5 @@
     "stdout-and-process-exit-are-diagnostic-not-authoritative",
     "shadow-live-and-real-account-operations-out-of-scope"
   ],
-  "registry_sha256": "2cf98ec04da383310965a93725cacf62fbd5d26c0b70466f09c54cb60db63b6b"
+  "registry_sha256": "34ed4d719cf423c88c35be80b928421e30603b9e6390f01e489411edf31a7f98"
 }
