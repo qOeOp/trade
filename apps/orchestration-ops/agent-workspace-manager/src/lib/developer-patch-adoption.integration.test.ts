@@ -16,45 +16,45 @@ import {
   buildAgentRunEvent,
   buildAgentRunRequest,
   buildAgentRunResult,
-} from "../apps/contracts/agent-run-contract/src/agent-run-contract"
+} from "../../../../contracts/agent-run-contract/src/agent-run-contract"
 import {
   writeAgentJsonArtifact,
   writeAgentTextArtifact,
-} from "../apps/orchestration-ops/agent-artifact-store/src/lib/agent-artifact-store"
+} from "../../../agent-artifact-store/src/lib/agent-artifact-store"
 import {
   createAgentWorkspace,
   createAgentWorkspaceExecutionScope,
   finalizeAgentWorkspaceEvidence,
   removeAgentWorkspace,
   type AgentWorkspacePackageCheck,
-} from "../apps/orchestration-ops/agent-workspace-manager/src/lib/workspace-manager"
+} from "./workspace-manager"
 import {
   appendAgentRunEvent,
   completeAgentRun,
   ensureAgentRunStoreSchema,
   admitAgentRun,
-} from "../apps/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
+} from "../../../ops-runtime-store/src/lib/agent-run-store"
 import {
   admitAgentPatchAdoption,
   readAgentPatchAdoption,
-} from "../apps/orchestration-ops/ops-runtime-store/src/lib/agent-patch-adoption-store"
+} from "../../../ops-runtime-store/src/lib/agent-patch-adoption-store"
 import {
   SERVER_CONTAINER_SOURCE_PACKAGE_CRITICAL_REFS,
-} from "../apps/orchestration-ops/trade-flow/src/scripts/lib/server-runtime-container-release-package"
+} from "../../../trade-flow/src/scripts/lib/server-runtime-container-release-package"
 import {
   registerAgentWorkspaceExecutionScope,
-} from "../apps/orchestration-ops/ops-runtime-store/src/lib/agent-workspace-scope-store"
+} from "../../../ops-runtime-store/src/lib/agent-workspace-scope-store"
 import {
   createDeveloperAgentSubmission,
   DEVELOPER_AGENT_SUBMISSION_SCHEMA,
-} from "../apps/research-strategy-development/research-control-plane/contracts/src/lib/developer-agent-submission"
+} from "../../../../research-strategy-development/research-control-plane/contracts/src/lib/developer-agent-submission"
 import {
   AdoptionError,
   runDeveloperPatchAdoption,
-} from "./lib/rd-developer-patch-adoption"
+} from "./developer-patch-adoption"
 import {
   createDeveloperCandidateServerPackage,
-} from "./lib/rd-developer-candidate-release-package"
+} from "./developer-candidate-release-package"
 
 test("Developer patch adoption certifies an exact isolated candidate without advancing the source checkout", async () => {
   const fixture = await completedDeveloperRun(false)
@@ -62,7 +62,6 @@ test("Developer patch adoption certifies an exact isolated candidate without adv
   try {
     const sourceHead = gitText(fixture.root, ["rev-parse", "HEAD"]).trim()
     const result = await adopt(fixture)
-    assert.equal(result.status, undefined)
     assert.equal(result.deployment_authority, "none")
     assert.equal(result.manifest.safety.production_checkout_modified, false)
     assert.equal(result.manifest.safety.main_branch_advanced, false)

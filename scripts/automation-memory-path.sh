@@ -8,6 +8,6 @@ if [ "$#" -ne 1 ]; then
 fi
 
 automation_id="$1"
-codex_home="$(sh "$(dirname "$0")/resolve-codex-home.sh")"
+codex_home="${CODEX_HOME:-.codex}"
 
 printf '%s/automations/%s/memory.md\n' "$codex_home" "$automation_id"

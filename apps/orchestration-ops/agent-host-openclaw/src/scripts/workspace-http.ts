@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
 
-import { startAgentHostHttpServer } from "../apps/orchestration-ops/agent-host-openclaw/src/lib/agent-host-http-server"
+import { startAgentHostHttpServer } from "../lib/agent-host-http-server"
 import {
   installAgentHostShutdown,
   openAgentHostHttpRuntime,
   parseAgentHostHttpRuntimeArgs,
-} from "../apps/orchestration-ops/agent-host-openclaw/src/lib/agent-host-http-runtime"
-import { executeOpenClawGatewayHttp } from "../apps/orchestration-ops/agent-host-openclaw/src/lib/openclaw-gateway-http-executor"
-import { createResidentOpenClawWorkspaceHost } from "./lib/rd-openclaw-workspace-host"
+} from "../lib/agent-host-http-runtime"
+import { executeOpenClawGatewayHttp } from "../lib/openclaw-gateway-http-executor"
+import { createResidentOpenClawWorkspaceHost } from "../lib/openclaw-workspace-host"
 
 async function main(): Promise<void> {
   const input = parseAgentHostHttpRuntimeArgs(Bun.argv.slice(2), {

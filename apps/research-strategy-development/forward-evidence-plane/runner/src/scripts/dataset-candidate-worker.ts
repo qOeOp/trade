@@ -8,25 +8,25 @@ import { dirname, resolve } from "node:path"
 import { Database } from "bun:sqlite"
 import {
   materializeForwardDatasetCandidate,
-} from "../apps/research-strategy-development/forward-evidence-plane/runner/src/lib/forward-dataset-candidate-materializer"
+} from "../lib/forward-dataset-candidate-materializer"
 import {
   admitForwardDatasetCandidate,
   ensureForwardDatasetCandidateSchema,
   readLatestForwardDatasetCandidate,
-} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/forward-dataset-candidate"
+} from "../../../../research-control-plane/state-store/src/lib/forward-dataset-candidate"
 import {
   readForwardDatasetReadinessAssessment,
-} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/forward-dataset-readiness-assessment"
+} from "../../../../research-control-plane/state-store/src/lib/forward-dataset-readiness-assessment"
 import {
   listForwardObservationCandleSegments,
   readLatestForwardObservationCandleSegment,
-} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/forward-observation-candle-segment"
+} from "../../../../research-control-plane/state-store/src/lib/forward-observation-candle-segment"
 import {
   listCollectingForwardObservationPrograms,
-} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/forward-observation-program"
+} from "../../../../research-control-plane/state-store/src/lib/forward-observation-program"
 import {
   ensureResearchControlPlaneSchema,
-} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/research-control-plane-schema"
+} from "../../../../research-control-plane/state-store/src/lib/research-control-plane-schema"
 import {
   resolveWorkerDataPath,
   workerAbsolutePath,
@@ -37,7 +37,7 @@ import {
   workerMarkReady,
   workerRepoPath,
   workerWriteState,
-} from "./lib/resident-worker-cli"
+} from "../lib/resident-worker-cli"
 
 async function main(): Promise<void> {
   const input = parseArgs(Bun.argv.slice(2))

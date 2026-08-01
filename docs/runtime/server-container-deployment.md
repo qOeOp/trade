@@ -42,7 +42,7 @@ bun apps/orchestration-ops/trade-flow/src/scripts/server-runtime-container-relea
 Developer 代码候选不能绕过同一入口。只有 Ops 中已是 `candidate_certified`、且 archive/manifest/patch/check evidence 全部重验通过的 adoption，才能转换成相同包型：
 
 ```bash
-bun scripts/rd-developer-candidate-release-package.ts --json '{
+bun apps/orchestration-ops/agent-workspace-manager/src/scripts/developer-candidate-release-package.ts --json '{
   "adoption_id":"<developer-run-id>:candidate",
   "target_root":"/absolute/new/trade-candidate-package"
 }'

@@ -1,12 +1,12 @@
 import {
   timeframeMilliseconds,
-} from "../../apps/contracts/market-data-demand-contract/src/ohlcv-coverage-contract"
+} from "../../../../../contracts/market-data-demand-contract/src/ohlcv-coverage-contract"
 import type {
   ForwardObservationCandleSegment,
-} from "../../apps/research-strategy-development/research-control-plane/contracts/src/lib/forward-observation-candle-segment"
+} from "../../../../research-control-plane/contracts/src/lib/forward-observation-candle-segment"
 import type {
   ForwardObservationProgram,
-} from "../../apps/research-strategy-development/research-control-plane/contracts/src/lib/forward-observation-program"
+} from "../../../../research-control-plane/contracts/src/lib/forward-observation-program"
 
 export interface ForwardCandleSegmentWindow {
   start_open_time: number
