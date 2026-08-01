@@ -90,8 +90,8 @@ forward only on these observable conditions:
 
 - `Frame → Plan`: every Frame field is explicit enough to make the next design decision, unresolved
   consequential ambiguity is resolved or isolated, and the practical Stop is finite;
-- `Plan → Execute`: the owner, path, affected boundary, candidate shape, and verification route are
-  admitted and no decision-changing premise remains unresolved;
+- `Plan → Execute`: the owner, path, affected boundary, candidate shape, verification route, and every
+  required Plan action binding are admitted, and no decision-changing premise remains unresolved;
 - `Execute → Verify`: the admitted candidate is complete and its full mission-owned diff is
   available, including untracked candidate material;
 - `Verify → Finalize`: decisive passes, failures, and unavailable evidence have been recorded
@@ -174,7 +174,7 @@ minimal, copyable current-Mission evidence locator in conversation prose:
 ```text
 Current Mission evidence
 Frame: <current outcome, consumer, scope/non-goals, authority, acceptance, origin, Stop>
-Plan: <admitted owner, path, boundary, candidate shape, verification route>
+Plan: <admitted owner, path, boundary, candidate shape, verification route, required action bindings>
 Candidate/effects: <exact commit or complete diff locator; effects already performed>
 Evidence: <decisive checks and remaining blocker>
 Position: <current stage or terminal route; observed Stop predicates and next legal operation>
@@ -182,12 +182,12 @@ Resume: <stage to re-enter after a named blocker is removed, or none>
 ```
 
 This locator is evidence, not an identity, receipt, file, ledger, or host state. Match the Frame,
-origin, candidate/effects, Stop predicates, next legal operation, and any resumable stage before
-continuing. If any cannot be recovered exactly enough to exclude a different Mission or candidate,
-freeze before the next mutation or external effect and route `blocked` or ask for the missing
-user-owned fact. An exactly recovered temporary `blocked` Mission re-enters its explicit `Resume`
-stage only after changed evidence removes the named blocker; terminal blocked predicates follow the
-reframe or Plan routes above. Multi-Mission recovery
+admitted Plan prose, origin, candidate/effects, Stop predicates, next legal operation, and any
+resumable stage before continuing. If any cannot be recovered exactly enough to exclude a different
+Mission or candidate, freeze before the next mutation or external effect and route `blocked` or ask
+for the missing user-owned fact. An exactly recovered temporary `blocked` Mission re-enters its
+explicit `Resume` stage only after changed evidence removes the named blocker; terminal blocked
+predicates follow the reframe or Plan routes above. Multi-Mission recovery
 additionally follows the session graph contract; this locator does not replace it.
 
 ## Plan
@@ -195,9 +195,15 @@ additionally follows the session graph contract; this locator does not replace i
 Inspect the current owner, production entry point when one exists, affected contracts, tests, and
 working-tree state. Choose the smallest vertical change that closes the outcome.
 Plan is read-only. Admit the owner, path, affected boundary, candidate shape, and verification route
-before mutation; freeze the mission-owned boundary against the named Origin and the observed
-pre-existing user work instead of admitting paths later from Execute. When any Plan field remains
-unresolved, keep investigating or return to Frame.
+before mutation. For every required nontrivial action outside the main agent's ordinary observed
+capability, also bind its execution owner and exact effect and authority, plus either the necessary
+capability observed at the stage where the action must run or a named, owned later-stage fail-closed
+gate. An inherently candidate-bound capability may use such a gate after Execute; Plan must not claim
+that its candidate locator or capability is already proven. If neither current capability nor such a
+gate exists, remain in Plan with the necessary capability evidence unavailable. These are the
+required Plan action bindings. Freeze the mission-owned boundary against the named Origin and the
+observed pre-existing user work instead of admitting paths later from Execute. When any Plan field
+remains unresolved, keep investigating or return to Frame.
 
 When a test failure can change the candidate, an escaped defect shows that tests missed required
 behavior, or the Mission may restructure tests, load
