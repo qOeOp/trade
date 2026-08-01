@@ -122,10 +122,27 @@ A retry is legal only after naming the changed candidate, input, environment, au
 source and the observation that could now disconfirm the failure. Plan investigation converges by
 admitting the unresolved field or classifying the dependent decision `blocked`; Verify converges by
 accepting changed evidence or selecting one backward route; revision pressure converges by promoting
-one admitted replacement or stopping. A new turn, context compaction, branch, checkout, task, or
-smaller apparent diff does not reset consumed Stop. When the next operation would exceed the
-envelope, freeze the candidate and route `blocked`. Only an explicit user-approved finite Stop
-change may continue, and that change requires `reframe` before new work.
+one admitted replacement or stopping.
+
+Treat every finite Stop as an absolute cumulative ceiling for the whole Mission, never as a local
+allowance that can be extended by serial `+1` approvals. A larger ceiling supplied in the initial
+Frame works normally. A new turn, context compaction, successor task, rename, branch, checkout,
+resume, or smaller apparent diff preserves the consumed amount and cannot reset the ceiling. When
+the next operation would cross it, freeze the candidate and route `blocked`.
+
+At the first exhaustion only, the user may explicitly approve one larger absolute ceiling for the
+same Mission. Before asking, present the consumed and proposed absolute values and one coherent
+replacement route that combines all known material findings and freezes its owner, path, boundary,
+candidate shape, at most one replacement candidate, and one named review attempt. Approval consumes
+the Mission's only post-exhaustion enlargement, preserves prior consumption, and requires `reframe`
+then `replan` before mutation; never resume the rejected incumbent. A material finding on the same
+responsibility surface during or after the frozen review terminates the Mission `blocked` with no
+Resume stage. Do not request or suggest a second enlargement.
+
+Only an explicitly user-owned materially changed Frame whose changed outcome, consumer, scope, or
+acceptance makes the prior causal findings inapplicable, or an independent new Outcome, may take a
+new authorization path. A Stop-only edit, successor label, or renamed candidate is not such a
+change. Cancellation, candidate preservation, and explicit discard retain their existing authority.
 
 ### Override and recovery
 

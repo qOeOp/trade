@@ -1,65 +1,106 @@
 {
-  "contract_version": 1,
+  "contract_version": 2,
   "scenarios": [
     {
       "name": "normal-accept",
       "events": ["frame-complete", "plan-admitted", "candidate-ready", "verify-pass", "accept"],
       "expected_terminal": "accepted",
-      "expected_mutations": 1
+      "expected_mutations": 1,
+      "expected_stop": { "used": 0, "absolute": 2, "enlargement_used": false, "replacement_candidates": 0, "review_attempts": 0 }
     },
     {
-      "name": "verify-revise-accept",
-      "events": ["frame-complete", "plan-admitted", "candidate-ready", "verify-fail-local", "revise", "candidate-ready", "verify-pass", "accept"],
+      "name": "default-stop-exhausted-accept",
+      "events": ["frame-complete", "plan-admitted", "candidate-ready", "verify-fail-local", "revise", "candidate-ready", "verify-fail-design", "replan", "plan-admitted", "candidate-ready", "verify-pass", "accept"],
       "expected_terminal": "accepted",
-      "expected_mutations": 2
+      "expected_mutations": 3,
+      "expected_stop": { "used": 2, "absolute": 2, "enlargement_used": false, "replacement_candidates": 0, "review_attempts": 0 }
     },
     {
-      "name": "verify-replan-accept",
-      "events": ["frame-complete", "plan-admitted", "candidate-ready", "verify-fail-design", "replan", "plan-admitted", "candidate-ready", "verify-pass", "accept"],
+      "name": "first-enlargement-replacement-accept",
+      "events": ["frame-complete", "plan-admitted", "candidate-ready", "verify-fail-local", "revise", "candidate-ready", "verify-fail-design", "replan", "plan-admitted", "candidate-ready", "verify-fail-design", "approve-absolute-stop-3", "reframe", "frame-complete", "plan-admitted-replacement", "candidate-ready", "replacement-review-pass", "accept"],
       "expected_terminal": "accepted",
-      "expected_mutations": 2
+      "expected_mutations": 4,
+      "expected_stop": { "used": 3, "absolute": 3, "enlargement_used": true, "replacement_candidates": 1, "review_attempts": 1 }
+    },
+    {
+      "name": "replacement-material-terminal",
+      "events": ["frame-complete", "plan-admitted", "candidate-ready", "verify-fail-local", "revise", "candidate-ready", "verify-fail-design", "replan", "plan-admitted", "candidate-ready", "verify-fail-design", "approve-absolute-stop-3", "reframe", "frame-complete", "plan-admitted-replacement", "candidate-ready", "replacement-review-material", "blocked"],
+      "expected_terminal": "blocked",
+      "expected_mutations": 4,
+      "expected_stop": { "used": 3, "absolute": 3, "enlargement_used": true, "replacement_candidates": 1, "review_attempts": 1 }
+    },
+    {
+      "name": "same-outcome-moves-do-not-reset",
+      "events": ["frame-complete", "plan-admitted", "candidate-ready", "verify-fail-local", "revise", "candidate-ready", "verify-fail-design", "replan", "plan-admitted", "candidate-ready", "verify-fail-design", "approve-absolute-stop-3", "reframe", "frame-complete", "plan-admitted-replacement", "candidate-ready", "context-lost", "recover-exact", "same-outcome-turn-task-branch-checkout-rename", "replacement-review-material", "blocked"],
+      "expected_terminal": "blocked",
+      "expected_mutations": 4,
+      "expected_stop": { "used": 3, "absolute": 3, "enlargement_used": true, "replacement_candidates": 1, "review_attempts": 1 },
+      "expected_moves": 1
+    },
+    {
+      "name": "predeclared-larger-envelope",
+      "events": ["predeclare-absolute-stop-4", "frame-complete", "plan-admitted", "candidate-ready", "verify-fail-local", "revise", "candidate-ready", "verify-fail-design", "replan", "plan-admitted", "candidate-ready", "verify-fail-local", "revise", "candidate-ready", "verify-pass", "accept"],
+      "expected_terminal": "accepted",
+      "expected_mutations": 4,
+      "expected_stop": { "used": 3, "absolute": 4, "enlargement_used": false, "replacement_candidates": 0, "review_attempts": 0 }
+    },
+    {
+      "name": "materially-new-frame",
+      "events": ["frame-complete", "plan-admitted", "candidate-ready", "verify-fail-local", "revise", "candidate-ready", "verify-fail-design", "replan", "plan-admitted", "candidate-ready", "verify-fail-design", "user-authorized-material-new-frame", "frame-complete", "plan-admitted", "candidate-ready", "verify-pass", "accept"],
+      "expected_terminal": "accepted",
+      "expected_mutations": 4,
+      "expected_stop": { "used": 0, "absolute": 2, "enlargement_used": false, "replacement_candidates": 0, "review_attempts": 0 },
+      "expected_generation": 2
+    },
+    {
+      "name": "independent-new-outcome",
+      "events": ["frame-complete", "plan-admitted", "candidate-ready", "verify-fail-local", "revise", "candidate-ready", "verify-fail-design", "replan", "plan-admitted", "candidate-ready", "verify-fail-design", "user-authorized-independent-outcome", "frame-complete", "plan-admitted", "candidate-ready", "verify-pass", "accept"],
+      "expected_terminal": "accepted",
+      "expected_mutations": 4,
+      "expected_stop": { "used": 0, "absolute": 2, "enlargement_used": false, "replacement_candidates": 0, "review_attempts": 0 },
+      "expected_generation": 2
     },
     {
       "name": "scope-expansion-reframe",
       "events": ["frame-complete", "plan-admitted", "scope-expanded", "reframe", "frame-complete", "plan-admitted", "candidate-ready", "verify-pass", "accept"],
       "expected_terminal": "accepted",
-      "expected_mutations": 1
-    },
-    {
-      "name": "continuous-nonconvergence-blocked",
-      "events": ["frame-complete", "plan-admitted", "candidate-ready", "verify-fail-local", "revise", "candidate-ready", "verify-fail-design", "replan", "plan-admitted", "candidate-ready", "verify-fail-design", "blocked"],
-      "expected_terminal": "blocked",
-      "expected_mutations": 3
+      "expected_mutations": 1,
+      "expected_stop": { "used": 1, "absolute": 2, "enlargement_used": false, "replacement_candidates": 0, "review_attempts": 0 }
     },
     {
       "name": "context-recovery",
       "events": ["frame-complete", "plan-admitted", "candidate-ready", "context-lost", "recover-exact", "verify-pass", "accept"],
       "expected_terminal": "accepted",
-      "expected_mutations": 1
+      "expected_mutations": 1,
+      "expected_stop": { "used": 0, "absolute": 2, "enlargement_used": false, "replacement_candidates": 0, "review_attempts": 0 }
     },
     {
       "name": "frame-ambiguity-blocked",
       "events": ["frame-ambiguity", "evidence-attempt", "evidence-attempt", "evidence-exhausted", "blocked"],
       "expected_terminal": "blocked",
-      "expected_mutations": 0
+      "expected_mutations": 0,
+      "expected_stop": { "used": 0, "absolute": 2, "enlargement_used": false, "replacement_candidates": 0, "review_attempts": 0 }
     },
     {
       "name": "blocked-context-recovery",
       "events": ["frame-complete", "plan-admitted", "candidate-ready", "verify-fail-design", "blocked", "context-lost", "recover-exact", "resume-blocker-removed", "plan-admitted", "candidate-ready", "verify-pass", "accept"],
       "expected_terminal": "accepted",
-      "expected_mutations": 2
+      "expected_mutations": 2,
+      "expected_stop": { "used": 0, "absolute": 2, "enlargement_used": false, "replacement_candidates": 0, "review_attempts": 0 }
     },
     {
       "name": "user-override-before-mutation",
       "events": ["user-override-cancel"],
       "expected_terminal": "cancelled",
-      "expected_mutations": 0
+      "expected_mutations": 0,
+      "expected_stop": { "used": 0, "absolute": 2, "enlargement_used": false, "replacement_candidates": 0, "review_attempts": 0 }
     },
     {
       "name": "user-override-discard",
       "events": ["frame-complete", "plan-admitted", "candidate-ready", "user-override-discard"],
       "expected_terminal": "cancelled",
-      "expected_mutations": 1
+      "expected_mutations": 1,
+      "expected_stop": { "used": 0, "absolute": 2, "enlargement_used": false, "replacement_candidates": 0, "review_attempts": 0 }
     }
   ]
 }

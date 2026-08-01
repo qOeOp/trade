@@ -18,12 +18,16 @@ same material failure recurs after one correction, do not route to `revise` agai
 single replacement allowed below while Stop remains, or route `blocked`.
 
 Build an admitted replacement as a new candidate inside the same Mission, never as a successor
-Mission. If no Stop remains, freeze execution before choosing a terminal Finalize route and request
-alignment with the replacement proposal and concrete consumed-Stop evidence. After an explicit
-evidence-bound Stop enlargement, reframe and replan inside that Mission; do not resume a
-structurally rejected incumbent while its causal invariant still applies. Stop-only pressure may
-re-admit the same design under the conditions below. Return `blocked` only when alignment cannot
-supply Stop, such as when enlargement and a narrower Frame are declined or unavailable.
+Mission. If no Stop remains, freeze execution before choosing a Finalize route. Follow the main
+skill's post-exhaustion rule only when that Mission has not used it: present one larger absolute
+ceiling and one coherent proposal that combines all known material findings and freezes the
+replacement owner, path, boundary, candidate shape, single candidate, and named review attempt.
+After explicit approval, reframe and replan inside that Mission; do not resume a structurally
+rejected incumbent while its causal invariant still applies. If the one-time enlargement was
+already used, or the frozen replacement receives a material finding on the same responsibility
+surface during or after its review, route terminal `blocked` with no Resume stage. Do not ask for
+another Stop change. Stop-only pressure may re-admit the same design under the conditions below only
+before this post-exhaustion route is consumed.
 
 ## Reconstruct the pressure
 
@@ -78,10 +82,12 @@ Frame field must materially change.
    implementation or deterministic transformation may be a candidate when it actually covers the
    change; do not install infrastructure merely to run this comparison.
 
-One replan admits at most one replacement candidate. A failure that invalidates that replacement's
-owner, boundary, responsibility shape, or oracle requires another backward route if Stop permits;
-otherwise freeze it and route `blocked`. Candidate-local execution errors may be corrected only
-within the remaining total backward-route envelope.
+One replan admits at most one replacement candidate. After a post-exhaustion enlargement, a failure
+that invalidates that replacement's owner, boundary, responsibility shape, or oracle freezes it and
+routes terminal `blocked`; the frozen boundary cannot admit a second candidate. Candidate-local
+execution errors may be corrected only before the named review attempt and only within the remaining
+absolute backward-route envelope. A material finding on the same responsibility surface during or
+after that attempt is terminal even if a numeric delta appears to remain.
 
 Run the same consumer and regression exercises against the incumbent and every proposal. When
 robustness is material, add one probe that varies incidental details while preserving the governing
