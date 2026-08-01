@@ -39,9 +39,11 @@ jobs:
             --pattern shellcheck-v0.11.0.linux.x86_64.tar.xz \
             --output "$RUNNER_TEMP/shellcheck.tar.xz"
           tar -xJf "$RUNNER_TEMP/shellcheck.tar.xz" -C "$RUNNER_TEMP"
-          install "$RUNNER_TEMP/shellcheck-v0.11.0/shellcheck" node_modules/shellcheck/bin/shellcheck
+          mkdir -p "$RUNNER_TEMP/bin"
+          install "$RUNNER_TEMP/shellcheck-v0.11.0/shellcheck" "$RUNNER_TEMP/bin/shellcheck"
+          printf '%s\n' "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - name: Verify ShellCheck binary
-        run: ./node_modules/.bin/shellcheck --version
+        run: shellcheck --version
       - run: scripts/quality-check.sh policy
 
   packages:

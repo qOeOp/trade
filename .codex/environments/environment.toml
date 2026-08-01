@@ -1,0 +1,23 @@
+version = 1
+name = "Trade repository bootstrap"
+
+[setup]
+script = '''
+set -eu
+
+env -u BINANCE_API_KEY -u BINANCE_API_SECRET -u SILICONFLOW_API_KEY bun --no-env-file install --frozen-lockfile --ignore-scripts
+
+if ! shellcheck_path="$(command -v shellcheck 2>/dev/null)"; then
+  printf 'setup: ShellCheck 0.11.0 is required on PATH; command not found\n' >&2
+  exit 1
+fi
+if ! shellcheck_output="$(shellcheck --version)"; then
+  printf 'setup: unable to read ShellCheck version from %s\n' "$shellcheck_path" >&2
+  exit 1
+fi
+shellcheck_version="$(printf '%s\n' "$shellcheck_output" | sed -n 's/^version: //p')"
+if [ "$shellcheck_version" != "0.11.0" ]; then
+  printf 'setup: ShellCheck 0.11.0 is required on PATH; found %s at %s\n' "${shellcheck_version:-unknown}" "$shellcheck_path" >&2
+  exit 1
+fi
+'''

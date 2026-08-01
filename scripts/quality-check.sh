@@ -59,8 +59,25 @@ require_cmd() {
   fi
 }
 
+require_shellcheck() {
+  if ! shellcheck_path="$(command -v shellcheck 2>/dev/null)"; then
+    printf 'quality: ShellCheck 0.11.0 is required on PATH; command not found\n' >&2
+    exit 1
+  fi
+  if ! shellcheck_output="$(shellcheck --version)"; then
+    printf 'quality: unable to read ShellCheck version from %s\n' "$shellcheck_path" >&2
+    exit 1
+  fi
+  shellcheck_version="$(printf '%s\n' "$shellcheck_output" | sed -n 's/^version: //p')"
+  if [ "$shellcheck_version" != "0.11.0" ]; then
+    printf 'quality: ShellCheck 0.11.0 is required on PATH; found %s at %s\n' "${shellcheck_version:-unknown}" "$shellcheck_path" >&2
+    exit 1
+  fi
+}
+
 check_policy() {
   require_cmd bun
+  require_shellcheck
   log "diff"
   if [ -n "${QUALITY_DIFF_BASE:-}" ]; then
     git diff --no-renames --check "$QUALITY_DIFF_BASE"...HEAD
@@ -72,7 +89,7 @@ check_policy() {
   git ls-files --cached --others --exclude-standard -- '*.sh' | while IFS= read -r file; do
     [ -f "$file" ] || continue
     sh -n "$file"
-    ./node_modules/.bin/shellcheck --severity=warning -e SC1007 "$file"
+    shellcheck --severity=warning -e SC1007 "$file"
   done
   bun run lint
 
