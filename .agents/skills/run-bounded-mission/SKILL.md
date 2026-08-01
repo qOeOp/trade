@@ -67,44 +67,20 @@ Keep independent outcomes separate and never turn an internal subtask into a use
 separately valuable follow-up, or multi-Mission operation. A proposal is not creation; native task
 creation still requires the user's explicit request or approval of the ready proposal.
 
-### Session mode and Goal boundary
+### Session mode
 
-At workflow entry, a new turn, compaction recovery, or a resumed hub checkpoint, call `get_goal` in
-the current thread before selecting a Goal-bound mode or issuing a Goal-driven effect. Reconcile the
-observation with the request and, for multi-Mission work, the complete replacement checkpoint in task
-dispatch. Missing node restatement in the latest turn does not remove prior approved work.
+At workflow entry, a new turn, compaction recovery, or a resumed hub checkpoint, call `get_goal`
+before selecting a Goal-bound mode or issuing a Goal-driven effect. Use the smallest mode:
 
-Select the smallest mode:
+- With zero independent Missions, handle the request directly and leave Goal state untouched.
+- With one, use the current thread unless separate routing was explicitly requested. It participates
+  in a Goal only with explicit Goal authority and a matching overall Outcome.
+- With two or more, require a matching active overall Goal and load task dispatch from its link in
+  Frame before any Goal-driven effect.
 
-- With zero independent Missions, handle the request directly; an observed Goal has no effect.
-- With one, use the current thread unless separate routing was explicitly requested. A Goal is needed
-  only when explicit Goal authority and a matching overall Outcome make it part of the request.
-- With two or more, require a matching active overall Goal and load task dispatch. Diagnosis, tests,
-  documentation sync, review corrections, coupled work, and support roles remain internal.
-
-When multi-Mission mode observes no Goal, retain the complete proposed checkpoint and freeze child,
-task, publication, and merge-release effects. Ordinary work or child-packet approval does not imply
-Goal authority. Only an explicit user, system, or developer request for the overall Goal permits one
-`create_goal` call; call `get_goal` again and dispatch only after the observed Goal matches.
-
-For a completed Goal, an ordinary new task never reopens, updates, or replaces it: zero or single
-Mission work remains Goal-unbound; multi-Mission work retains its proposed checkpoint and freezes
-only Goal-driven effects. Explicit user, system, or developer authority for a new, different overall
-multi-Mission Goal requires retaining the old terminal evidence and new checkpoint, one replacement
-`create_goal`, then `get_goal`; dispatch only when the new active Goal matches. Never use
-`update_goal` to reopen or replace it or infer replacement authority from task approval.
-
-A matching active Goal continues after checkpoint reconciliation. A matching paused or blocked Goal
-follows the current host Goal contract, freezes Goal-driven effects, and preserves causal Stop
-evidence. Never overwrite a nonmatching unfinished Goal. If persistent multi-Mission operation is
-declined, return to Frame and define Goal-unbound current-thread work without claiming persistent
-scheduling.
-
-A Goal holds only the overall Outcome, constraints, and completion boundary, never nodes, edges,
-task identities, candidates, findings, Stop evidence, or GitHub facts. `update_goal` only marks the
-matching overall Goal terminal when its current tool contract permits;
-zero-Mission work and ordinary children have no Goal effect. These boundaries never authorize
-durable orchestration, automatic retry, a Goal wrapper, second CLI/lifecycle, or hidden execution.
+Diagnosis, tests, documentation sync, review corrections, coupled work, and support roles remain
+internal. A missing, completed, paused, blocked, or nonmatching Goal freezes multi-Mission effects
+until task dispatch reconciles it; never infer create, update, replacement, or resume authority.
 
 ## Session transition contract
 
@@ -253,13 +229,11 @@ classification. When external reuse evidence can change the owner or path, load
   hypothetical dependencies.
 - Separate instruction, workflow, judge, ruleset, or signing-policy changes from ordinary
   implementation candidates.
-- Use read-only support only for a concrete unresolved question whose answer can change the plan.
-  When support is needed, load
-  [read-only support service levels](references/support-lanes.md) for its admission and handoff
-  boundary.
+- Use an agent lane only for a concrete unresolved question, a frozen non-overlapping build leaf, or
+  an independently useful frozen-candidate risk lens. When one activates, load
+  [agent lane routing](references/support-lanes.md) before dispatch.
 
-Fast, standard, and high-assurance are service levels for activated read-only support, not standing
-teams or required stages.
+Agent lanes are conditional execution choices, not standing teams or required stages.
 
 Load [viable alternatives](references/plan-alternatives.md) only when materially different credible
 paths remain. Load [independently falsifiable slices](references/plan-slices.md) only when the route
@@ -304,10 +278,18 @@ consumer. Conversely, do not change correct production behavior merely to satisf
 contradicts a higher-authority current contract.
 
 A candidate change invalidates only evidence affected by that change. Reuse read-only discovery and
-unaffected checks when their inputs remain identical.
+unaffected checks only when their evidence-specific affected inputs, source and dependency inputs,
+proven consumer closure, configuration, toolchain, and environment remain identical; track the
+changed whole-candidate locator separately. A full root gate is candidate-bound: run it on the final
+integrated candidate and repeat it only when an input actually changes or a failure is corrected,
+never because a run-count budget was reached.
 
 Use [architecture sensor evidence](references/architecture-sensor.md) only for material structural
 change, cross-owner effects, or persistent patch pressure.
+
+When a frozen candidate has two or more mutually independent, decision-changing risk questions,
+use the advisory candidate-lens contract in agent lane routing and activate only the needed lenses.
+Their returns are untrusted leads for main-agent reproduction, never independent acceptance or votes.
 
 Instruction and judge changes require review that does not rely on the changed rule to approve
 itself. When an independent evaluator predicate activates, load
@@ -342,10 +324,13 @@ publication workflow.
 When the endpoint includes a GitHub pull request, load
 [GitHub delivery](references/github-pr-handoff.md) before publication or merge.
 After two or more related Missions are accepted and integrated into the current canonical source
-tip, load [Refactor Mission proposals](references/refactor-mission-proposal.md) only when that
-integrated head contains concrete structural evidence. Acceptance count alone is investigation
-eligibility, not proposal justification. Any justified refactor is a new proposal requiring user
-approval; the old graph does not authorize it.
+tip, and every related node in the current completion boundary is terminal, load
+[Refactor Mission proposals](references/refactor-mission-proposal.md) only when that integrated head
+contains concrete structural evidence. Acceptance count alone is investigation eligibility, not
+proposal justification. Any justified refactor is a new proposal requiring user approval; the old
+graph does not authorize it. In multi-Mission work only the hub evaluates this trigger after its
+complete checkpoint reconciliation; a child reports terminal evidence but never initiates the
+refactor investigation.
 Use `No action needed` only when the user explicitly chose the completed local-only endpoint or when
 delivery is complete and no preserved candidate awaits a user-owned delivery decision; for an implicit `local-only` stop with meaningful uncommitted or unpublished changes, use `Optional next step` and name the concrete available continuation, such as review, commit, pull request, or deployment authorization.
 
