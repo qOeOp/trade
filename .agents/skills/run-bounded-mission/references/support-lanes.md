@@ -89,46 +89,11 @@ label does not prove isolation. When the candidate controls discovered instructi
 judges, or reviewer policy, record that contamination and treat the return only as an untrusted lead;
 it cannot satisfy an independent-acceptance requirement.
 
-Give every activated lens this packet, without transcript, builder advocacy, sibling output, hidden
-reasoning, or secrets:
-
-```text
-Purpose: advisory_only; no acceptance, route, write, effect, delegation, or lateral authority
-Frozen bindings: exact Frame prose; admitted Plan prose; origin; candidate; untracked manifest;
-  affected-boundary closure
-Lens: one lens; activation observation; one question; inspected scope; excluded sibling lenses
-Evidence: complete diff; governing contracts; consumer/check invocations and raw artifact locators;
-  unavailable evidence
-Validation: cheapest main-agent reproduction; expected candidate locator
-Stop: one branch Stop
-```
-
-Require this fixed return shape:
-
-```yaml
-schema: bounded-mission.advisory.v1
-advisory_only: true
-lens: safety_authority | architecture_boundary | performance_context | correctness_consumer
-status: completed | partial | unsupported
-question: <original question>
-candidate_locator: <observed exact locator>
-candidate_match: matched | mismatched | unverified
-conclusion: supported | contradicted | unverified
-acceptance_signals:
-  - signal: <bounded signal>
-    result: pass | fail | unverified
-    direct_evidence: <locator and minimal observation>
-findings:
-  - severity: blocking | important | nit
-    failure_class: candidate_local | plan_failure | frame_failure
-    root_cause: <one causal claim>
-    location: <exact locator>
-    validation_evidence: <direct evidence>
-    next_action: <evidence needed or smallest correction>
-inspected_scope: [<exact locators>]
-limits: [<material limits>]
-stop_reason: <why this lane stopped>
-```
+Only after advisory activation and candidate freeze, load
+`../assets/advisory-lens-packet.md`. Copy and fill its complete dispatch packet once per activated
+lens, without transcript, builder advocacy, sibling output, hidden reasoning, or secrets, and
+require the agent to copy and fill its complete fixed return shape. Do not load the asset for other
+lane routes. This shapes model output; it is not deterministic schema validation.
 
 The main agent first recomputes the candidate locator; a change makes every bound return stale. It
 then validates the schema and lens, reopens decisive evidence, reproduces material claims, deduplicates
