@@ -278,10 +278,11 @@ consumer. Conversely, do not change correct production behavior merely to satisf
 contradicts a higher-authority current contract.
 
 A candidate change invalidates only evidence affected by that change. Reuse read-only discovery and
-unaffected checks only when the candidate locator, source and dependency inputs, proven consumer
-closure, configuration, toolchain, and environment relevant to that evidence remain identical. A
-full root gate is candidate-bound: run it on the final integrated candidate and repeat it only when
-an input actually changes or a failure is corrected, never because a run-count budget was reached.
+unaffected checks only when their evidence-specific affected inputs, source and dependency inputs,
+proven consumer closure, configuration, toolchain, and environment remain identical; track the
+changed whole-candidate locator separately. A full root gate is candidate-bound: run it on the final
+integrated candidate and repeat it only when an input actually changes or a failure is corrected,
+never because a run-count budget was reached.
 
 Use [architecture sensor evidence](references/architecture-sensor.md) only for material structural
 change, cross-owner effects, or persistent patch pressure.

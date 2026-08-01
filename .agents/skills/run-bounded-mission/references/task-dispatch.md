@@ -82,6 +82,10 @@ Before admission, test the complete proposed `after` edge set for acyclicity. An
 affected graph to hub Plan and permits zero dispatch until an edge or Outcome changes under evidence;
 do not leave every node deferred or add a scheduler, helper, or stored graph to break the cycle.
 
+Also reject any direct `after` edge into a Git-backed node unless every predecessor packet freezes a
+`merged` endpoint on that node's declared canonical source. Do not admit an `open` or `merge-ready`
+predecessor and later force it to merge.
+
 A downstream node remains serial until every direct predecessor reaches its exact endpoint and its
 premises still hold. For a Git-backed downstream node, a direct `after` edge also requires every
 predecessor candidate to be merged into its declared canonical source; `open` or `merge-ready` does
@@ -133,17 +137,19 @@ merged; its Origin is the freshly observed canonical tip, never an `open` or `me
 
 For each slot, the hub observes the canonical ref and tip and messages one exact child. That child
 keeps its Mission, reframes and integrates if Origin changed, revalidates affected owner/consumer
-evidence, runs the root gate on that final integration candidate, publishes its one PR, closes CI,
-opening discovery, findings, and its endpoint, then reports the exact head. The hub observes the
-endpoint; for `merged`, it separately releases the authorized exact-head merge and observes the new
-canonical tip before the next slot. `open` or `merge-ready` closes without a manufactured merge and
-releases only the next independent slot; dependent descendants still wait for merge.
+evidence, runs the root gate on that final integration candidate, and publishes its one PR. An `open`
+endpoint reports that published head immediately. A `merge-ready` or `merged` endpoint first closes
+CI, opening discovery, and findings, then reports the exact head. The hub observes the endpoint; for
+`merged`, it separately releases the authorized exact-head merge and observes the new canonical tip
+before the next slot. `open` or `merge-ready` closes without a manufactured merge and releases only
+the next independent slot; dependent descendants still wait for merge.
 
 Before release, candidate-local revisions rerun only affected targeted/consumer evidence. Reuse
-requires identical candidate, source, dependency, consumer, configuration, toolchain, and environment
-inputs. A changed final integration candidate or corrected gate invalidates root and final-head
-evidence; counts never decide reruns. The hub classifies staleness but never mirrors child gates,
-discovery, or finding disposition.
+requires identical evidence-specific affected inputs, source, dependency, consumer closure,
+configuration, toolchain, and environment; track a changed whole-candidate locator separately. A
+changed final integration candidate or corrected gate invalidates root and final-head evidence;
+counts never decide reruns. The hub classifies staleness but never mirrors child gates, discovery, or
+finding disposition.
 
 ## Outcomes discovered during a Mission
 
