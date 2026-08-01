@@ -2,6 +2,27 @@
 
 const PROVIDER_LOGIN = "chatgpt-codex-connector"
 const CLEAN_REVIEW = /^(?:codex review:?\s*)?didn['’]t find any major issues[.!]?$/i
+const CLEAN_COMMENT_HEADINGS = new Set([
+  "Codex Review: Didn't find any major issues. You're on a roll.",
+  "Codex Review: Didn't find any major issues. :rocket:",
+])
+const REVIEWED_COMMIT = /^\*\*Reviewed commit:\*\* `([0-9a-f]{10,64})`$/
+const CLEAN_COMMENT_SUFFIX = [
+  "",
+  "<details> <summary>ℹ️ About Codex in GitHub</summary>",
+  "<br/>",
+  "",
+  "[Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you",
+  "- Open a pull request for review",
+  "- Mark a draft as ready",
+  "- Comment \"@codex review\".",
+  "",
+  "If Codex has suggestions, it will comment; otherwise it will react with 👍.",
+  "",
+  "Codex can also answer questions or update the PR. Try commenting \"@codex address that feedback\".",
+  "",
+  "</details>",
+]
 const USAGE_FAILURE = /(usage limit|rate limit|quota exceeded|try again later)/i
 const REVIEW_REQUEST = /@codex\s+review\b/i
 
@@ -44,6 +65,7 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
   }
 
   let attemptAt = timestampValue(snapshot.createdAt)
+  let explicitAttemptAt: number | null = null
   let attemptTarget = "pull-request"
   let ambiguousAttempt = false
   for (const signal of snapshot.signals) {
@@ -51,6 +73,7 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
     const requestAt = timestampValue(signal.updatedAt ?? signal.at)
     if (requestAt > attemptAt) {
       attemptAt = requestAt
+      explicitAttemptAt = requestAt
       attemptTarget = signal.target
       ambiguousAttempt = false
     } else if (requestAt === attemptAt && signal.target !== attemptTarget) {
@@ -83,32 +106,34 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
   const providerThreads = snapshot.threads.filter((thread) =>
     isProvider(thread.comments[0]?.author ?? ""),
   )
-  const usageFailure = allProviderSignals.find((signal) => USAGE_FAILURE.test(signal.body ?? ""))
+  const usageFailure = currentProviderSignals.find((signal) => USAGE_FAILURE.test(signal.body ?? ""))
   if (usageFailure) {
     return { status: "failed", reason: "Codex reported a usage or rate limit" }
   }
-  if (providerThreads.length > 0) {
-    const unresolved = providerThreads.some((thread) => !thread.resolved)
-    return {
-      status: "failed",
-      reason: unresolved ? "Codex returned an unresolved review finding" : "Codex returned a review finding",
-    }
+  if (providerThreads.some((thread) => !thread.resolved)) {
+    return { status: "failed", reason: "Codex returned an unresolved review finding" }
   }
-
-  const editedProviderComment = allProviderSignals.find((signal) =>
+  const latestResolvedThreadAt = Math.max(
+    ...providerThreads.flatMap((thread) => thread.comments.map((comment) => timestampValue(comment.at))),
+  )
+  if (providerThreads.length > 0
+    && (explicitAttemptAt === null || explicitAttemptAt <= latestResolvedThreadAt)) {
+    return { status: "failed", reason: "Codex returned a review finding" }
+  }
+  const editedProviderComment = currentProviderSignals.find((signal) =>
     signal.kind === "comment" && signal.updatedAt !== undefined && signal.updatedAt !== signal.at,
   )
   if (editedProviderComment) {
     return { status: "failed", reason: "an edited Codex comment cannot prove a terminal result" }
   }
 
-  const nonCleanReview = allProviderSignals.find((signal) => {
+  const nonCleanReview = currentProviderSignals.find((signal) => {
     if (signal.kind === "review") {
       return signal.reviewState === "CHANGES_REQUESTED"
         || Boolean(signal.body?.trim() && !isCleanReview(signal.body))
     }
     return signal.kind === "comment"
-      && Boolean(signal.body?.trim() && !isCleanReview(signal.body))
+      && Boolean(signal.body?.trim() && !isCleanComment(signal.body, snapshot.headRefOid))
   })
   if (nonCleanReview) {
     return { status: "failed", reason: "Codex returned a non-clean review result" }
@@ -122,7 +147,7 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
       || (signal.kind === "review"
         && signal.reviewState === "APPROVED"
         && (!signal.body?.trim() || isCleanReview(signal.body)))
-      || (signal.kind === "comment" && isCleanReview(signal.body ?? ""))
+      || (signal.kind === "comment" && isCleanComment(signal.body ?? "", snapshot.headRefOid))
     ),
   )
   if (cleanTerminal) {
@@ -475,6 +500,19 @@ function isProvider(login: string): boolean {
 
 function isCleanReview(body: string): boolean {
   return CLEAN_REVIEW.test(body.trim())
+}
+
+function isCleanComment(body: string, headOid: string): boolean {
+  const lines = body.trim().split(/\r?\n/).map((line) => line.trimEnd()).filter(
+    (line, index, allLines) => line !== "" || index === 0 || allLines[index - 1] !== "",
+  )
+  const reviewedCommit = REVIEWED_COMMIT.exec(lines[2] ?? "")?.[1]
+  return lines[1] === ""
+    && CLEAN_COMMENT_HEADINGS.has(lines[0] ?? "")
+    && reviewedCommit !== undefined
+    && headOid.startsWith(reviewedCommit)
+    && lines.length === CLEAN_COMMENT_SUFFIX.length + 3
+    && CLEAN_COMMENT_SUFFIX.every((line, index) => lines[index + 3] === line)
 }
 
 async function main(): Promise<number> {
