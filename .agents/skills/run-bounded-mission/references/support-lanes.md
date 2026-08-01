@@ -1,121 +1,159 @@
-# Select Read-only Support Service Levels
+# Route Agent Lanes
 
-Use this reference only after the main agent observes a decision gap whose evidence work may be
-delegated read-only. A service level selects the minimum safe invocation strength; it is not a
-lifecycle, role, model family, agent roster, queue, or authority transfer.
+Load this reference only when the main agent has one concrete evidence question, one frozen
+non-overlapping build leaf, or at least two independent frozen-candidate risk questions. Agent lanes
+are conditional work routes, not a lifecycle, standing team, vote, authority transfer, or acceptance
+owner. Use no lane when launch, duplicated context, validation, and synthesis cost is not clearly
+lower than doing the work in the main context.
 
-## Admit the lowest sufficient level
+The main agent always owns Frame, Plan admission, conflict judgment, the writable winner, evidence
+synthesis, effects, acceptance, and Finalize. A lane returns evidence, a proposal, or a bounded leaf
+diff; it cannot widen scope, authorize an effect, or choose a Mission route.
 
-| Level | Admit when | Typical capability |
+## Route reasoning and build work
+
+| Work | Route | Admission boundary |
 | --- | --- | --- |
-| `fast` | Every fast gate below is observable and the result is cheap for the main agent to verify | bounded repository explorer or deterministic read-only query |
-| `standard` | The question remains read-only but needs broader repository synthesis, an unknown candidate set, multiple sources, or ambiguity resolution | explorer, researcher, or planner selected by the existing Plan predicate |
-| `high-assurance` | The question directly serves as an acceptance oracle or trust boundary, conflicts remain material, the candidate controls an oracle, or independent evaluation is required | isolated evaluator or another existing high-assurance read-only capability |
+| Frame, Plan admission, cross-owner or safety judgment, finding synthesis, Finalize | high-reasoning main agent | never delegate the decision |
+| evidenced structural Plan challenge | high-reasoning `mission_planner` | proposal only; main agent admits or rejects it |
+| ordinary implementation | main agent or one standard builder | frozen owner, path, boundary, candidate shape, and verification route |
+| low-risk mechanical leaf | `GPT-5.3-Codex-Spark` only when the host exposes that exact capability | every Spark gate below holds |
+| repository fact | fast explorer or deterministic read-only query | every fast evidence gate holds |
+| broader repository, external-evidence, or design question | standard explorer, `mission_researcher`, or `mission_planner` by predicate | one decision-changing question |
+| frozen-candidate advisory lens | ordinary read-only support agent | advisory trigger and packet below |
+| independent candidate evidence | `mission_evaluator` | reviewer preflight proves trusted capability |
 
-Admit `fast` only when all conditions hold:
+Use a standard builder for normal implementation after Plan freezes. Give it non-overlapping file
+ownership and one candidate shape; keep one writable winner for overlapping files. It returns to the
+main agent when the Plan, authority, owner, boundary, or oracle becomes ambiguous.
 
-1. the packet asks one narrow, unambiguous decision question;
-2. authority is read-only and every input or source is named;
-3. the expected return is compact, bounded, and directly checkable;
-4. an error cannot authorize a write, external effect, candidate acceptance, or lifecycle decision;
-5. one short branch Stop is enough; and
-6. the result can change exactly one identified main-agent decision.
+Use Spark only for a deterministic, low-risk leaf when all of these are frozen and supplied: owner,
+exact paths, affected boundary, candidate shape, acceptance commands, and Stop. The leaf must have no
+design branch and be cheap for the main agent to inspect. Spark never owns Frame, cross-owner Plan,
+public contracts, schemas, dependency or concurrency changes, authentication, authorization,
+security, instructions or judges, live effects, acceptance, or Finalize. Any ambiguity, path growth,
+failed assumption, or unavailable exact model returns the same leaf to the main agent for standard
+handling; do not approximate the route with a differently named fast model.
 
-Refuse `fast` for user preference or authority, Frame freezing, Plan admission, candidate writing or
-integration, cross-owner architecture trade-offs, conflict adjudication, security or trust-surface
-judgment, Finalize, final independent acceptance, or a high-consequence conclusion the main agent
-cannot cheaply verify. Low invocation strength never means a lower evidence-quality bar.
+This model routing applies only to internal lanes whose host exposes the capability. Keep the host
+default for a user-visible Codex task unless the user separately authorized that model override. A
+route described here is not capability evidence: observe the exact internal-agent model surface at
+dispatch time, and use standard handling when Spark is absent or unobservable.
 
-Use no support when no real decision gap remains. Eligibility alone does not justify dispatch:
-expected context or latency saved must clearly exceed packet construction, launch, verification, and
-merge cost.
+## Route read-only evidence
 
-## Dispatch and return evidence
+Admit a fast lane only when its packet asks one narrow unambiguous question, names every input,
+requires a compact directly checkable return, cannot authorize a write or acceptance on error, has
+one short Stop, and can change exactly one main-agent decision. Refuse fast handling for user
+authority, Frame or Plan ownership, candidate writing, cross-owner architecture, security or trust
+judgment, conflict adjudication, or Finalize.
 
-Give each dispatch only one decision question, bounded scope, read-only authority, exact inputs or
-sources, a compact expected return, a cheap validation method, one branch Stop, and observable
-escalation conditions. Project these semantics into the host's existing packet fields; do not
-require a universal serialized record.
+Use one standard lane when a broader read-only question remains:
 
-Require a compact evidence packet that binds the original question and service level to a bounded
-factual answer, exact locators and minimal observations, the cheapest validation, conflicts or
-limits, and why the branch stopped. It must state whether the evidence is sufficient, requires
-escalation, or is unavailable, without imposing a shared status enum or schema.
+- a repository explorer synthesizes named repository locators;
+- `mission_researcher` gathers decision-changing current or external evidence;
+- `mission_planner` compares supplied structural choices after its activation predicate holds.
 
-The packet is evidence, not deliberation. It cannot freeze Frame, admit Plan, select or modify the
-candidate, authorize effects, judge acceptance, or sign Finalize. The main agent verifies the packet,
-owns every synthesis, and remains responsible for the resulting decision.
+Each dispatch supplies one question, bounded scope, read-only authority, exact sources, required
+return, cheapest main-agent validation, one Stop, and escalation conditions. Require exact locators,
+minimal observations, conflicts and limits, and a stop reason. The main agent reopens decisive
+locators and verifies the result.
 
-## Escalate without lane loops
+An incomplete, ambiguous, conflicting, or source-blocked fast result may return once for standard
+classification. Preserve Frame, Origin, Authority, and consumed Stop; do not retry fast, surround the
+gap with sibling lanes, or reset evidence. Keep dependent questions sequential. Parallelize only
+mutually independent questions whose inputs and outputs do not overlap or consume one another.
 
-Return `escalate` when a fast result is ambiguous, conflicts with admitted evidence, spills beyond
-scope, lacks a required source, or approaches its branch Stop without a checkable answer. Do not
-retry fast, append protective fast queries, or generate sibling lanes around the uncertainty.
+## Run advisory candidate lenses
 
-Promote that same decision question once to `standard` with the unresolved evidence and a new bounded
-Stop. Preserve Origin, Frame, Authority, and consumed Stop; promotion does not widen the question or
-reset lifecycle evidence. Before Plan admission, high-assurance remains read-only support through an
-existing host capability; if the risk requires
-[reviewer-handoff bindings](reviewer-handoff.md), return control to the main Plan and do not launch an
-evaluator until an admitted Plan and candidate exist. After those bindings exist, launch at most the
-admitted independent evaluator for that lens. A fresh agent sharing a candidate-controlled checkout
-does not provide that isolation. Unavailable independence or authority routes through the main
-Mission rather than another support loop.
+Advisory review finds reproducible leads; it is not independent acceptance. Activate it only after
+the writer stops and the candidate is frozen as an exact commit, or as a named origin plus complete
+diff and untracked manifest. Fan out only when at least two of these mutually exclusive root-cause
+lenses each have an independent question that can change main-agent judgment:
 
-## Parallelize only independent evidence
+1. `safety_authority`: permissions, secrets, untrusted input, live writes, or agent/tool authority;
+2. `architecture_boundary`: owner, responsibility, dependency direction, state, concurrency, or
+   cross-owner contract;
+3. `performance_context`: measured hot path, scale, I/O, memory, payload, or token/context growth;
+4. `correctness_consumer`: remaining observable behavior, error path, contract, real consumer, or
+   regression oracle.
 
-Launch lanes concurrently only when their questions, required inputs, and outputs are mutually
-independent and non-overlapping, neither consumes the other's result, and merge cost is lower than
-the expected elapsed-time or context saving. Give each lane its own packet and branch Stop.
+Assign a root cause to the first matching lens above; shared immutable candidate bindings may repeat,
+but lens questions and evidence slices must not. Keep a dependency sequential. Use no fan-out for a
+small or mechanical candidate, zero or one actual risk question, a changing candidate, an incomplete
+locator, user-owned authority, writable reproduction, external effects, or a question whose answer
+feeds another lens.
 
-Keep a dependency sequential. Do not pre-generate the dependent packet before its input exists,
-disguise a sequence as parallel work, fill host capacity, or let lanes communicate laterally.
-The main agent is the only integrator.
+An ordinary advisory agent is only behaviorally read-only. A shared checkout, fresh prompt, or role
+label does not prove isolation. When the candidate controls discovered instructions, skills, agents,
+judges, or reviewer policy, record that contamination and treat the return only as an untrusted lead;
+it cannot satisfy an independent-acceptance requirement.
 
-## Keep stage and host boundaries
+Give every activated lens this packet, without transcript, builder advocacy, sibling output, hidden
+reasoning, or secrets:
 
-| Mission area | Fast support fit |
-| --- | --- |
-| Frame | Do not delegate user intent, authority, Frame freezing, or the no-change judgment; retain existing bounded discovery only when it is independently justified |
-| Plan | Preferred: independent repository facts and deterministic queries that change one path, owner, boundary, or reuse decision |
-| Execute | No writing or integration; route a newly discovered design question back through the main agent |
-| Verify | Preferred: independent factual checks; final acceptance and candidate-controlled oracles remain high-assurance |
-| Finalize | None; the main agent alone selects and reports the route |
+```text
+Purpose: advisory_only; no acceptance, route, write, effect, delegation, or lateral authority
+Frozen bindings: exact Frame prose; admitted Plan prose; origin; candidate; untracked manifest;
+  affected-boundary closure
+Lens: one lens; activation observation; one question; inspected scope; excluded sibling lenses
+Evidence: complete diff; governing contracts; consumer/check invocations and raw artifact locators;
+  unavailable evidence
+Validation: cheapest main-agent reproduction; expected candidate locator
+Stop: one branch Stop
+```
 
-A host may project a service level only through an existing capability or adapter. Select the lowest
-available configuration that preserves the packet's read-only tools, required source access, output
-contract, Stop, and any isolation predicate. Do not hard-code model names, promise unsupported
-reasoning controls, or infer safety from a label. If the host cannot satisfy the minimum, use a safer
-available level or keep the work in the main context.
+Require this fixed return shape:
 
-Map an admitted question to one host role by predicate, not by a subjective strength label:
+```yaml
+schema: bounded-mission.advisory.v1
+advisory_only: true
+lens: safety_authority | architecture_boundary | performance_context | correctness_consumer
+status: completed | partial | unsupported
+question: <original question>
+candidate_locator: <observed exact locator>
+candidate_match: matched | mismatched | unverified
+conclusion: supported | contradicted | unverified
+acceptance_signals:
+  - signal: <bounded signal>
+    result: pass | fail | unverified
+    direct_evidence: <locator and minimal observation>
+findings:
+  - severity: blocking | important | nit
+    failure_class: candidate_local | plan_failure | frame_failure
+    root_cause: <one causal claim>
+    location: <exact locator>
+    validation_evidence: <direct evidence>
+    next_action: <evidence needed or smallest correction>
+inspected_scope: [<exact locators>]
+limits: [<material limits>]
+stop_reason: <why this lane stopped>
+```
 
-| Service level | Unique question predicate | Host projection | Refuse or escalate when |
-| --- | --- | --- | --- |
-| `fast` | one deterministic repository fact passes every fast gate | repository `explorer` or deterministic read-only query | refuse forbidden authority, acceptance, or decisionless packets; only an incomplete, ambiguous, conflicting, or source-blocked read-only result returns once to the main agent for `standard` classification |
-| `standard` repository | a read-only question needs broader repository synthesis from named locators but is not an external-evidence or design question | repository `explorer` | the packet becomes external research, a design choice, or an authority decision; return to the main agent for the matching predicate or refusal |
-| `standard` evidence | unresolved current-source, compatibility, maintenance, license, failure-mode, or external candidate evidence can change one decision | `mission_researcher` | the packet is incomplete, needs writable reproduction, or becomes a design choice; return evidence unavailable or escalation evidence to the main agent |
-| `standard` design | admitted evidence still leaves a harmful mechanism concern, structural pressure, multiple credible shapes, or consequential cross-owner trade-off | `mission_planner` | the predicate is absent, evidence briefs are incomplete, or user authority is required; return to the main agent without searching or admitting Plan |
-| `high-assurance` pre-candidate | an acceptance-oracle, trust-boundary, or material-conflict question needs stronger read-only support before an admitted candidate exists | an existing isolated high-assurance read-only capability selected by the main agent; never `mission_evaluator` | if reviewer-handoff bindings would be required or no matching capability exists, return to the main Plan without launching an evaluator or lowering the lane |
-| `high-assurance` candidate | an identified candidate matches one admitted independent risk lens or trust boundary | `mission_evaluator` only with exact bindings, actual read-only authority, and candidate-external discovery when the candidate can affect instructions | any binding or isolation check fails; return `unsupported` once and do not substitute votes, sibling evaluators, or a lower lane |
+The main agent first recomputes the candidate locator; a change makes every bound return stale. It
+then validates the schema and lens, reopens decisive evidence, reproduces material claims, deduplicates
+causal roots, and resolves conflicts by provenance and consumer impact rather than agent count.
+`partial`, `unsupported`, `mismatched`, and `unverified` never mean pass. Only the main agent maps a
+verified finding to the highest Mission boundary and chooses the route.
 
-The three `standard` rows are mutually exclusive repository-synthesis, external-evidence, and design
-questions. An explorer synthesizes named repository evidence, a researcher gathers current or
-external facts, and a planner compares already supplied paths; none may absorb another's work. An
-evaluator is not a stronger planner, researcher, or pre-candidate support capability and cannot be
-used before a candidate exists.
+Measure coordination before fan-out from the actual serialized common packet, each lens delta,
+expected return bound, and the dispatch, return, candidate-recheck, validation, and synthesis events.
+Compare their observed characters, available tokenizer count, and event count with the same evidence
+work in the main context. Use fewer lenses whenever expected elapsed-time or context saving does not
+exceed that copied context and coordination cost. These measurements route support only; they never
+decide acceptance, Stop, revision, or an agent-count budget.
 
-## Replay scenarios
+## Keep independent acceptance fail-closed
 
-| ID | Fixed scenario | Expected disposition |
-| --- | --- | --- |
-| S1 | Two non-overlapping file or symbol facts change one Plan decision, neither consumes the other, every fast gate holds, validation is cheap, and dispatch plus merge cost is lower than the expected saving | `fast-parallel` |
-| S2 | One repository query has a deterministic, compact, directly checkable result | `fast-one-packet` |
-| S3 | The second repository question requires the first result as input | `sequential-not-parallel` |
-| S4 | Architecture alternatives, user authorization, security or trust judgment, or conflicting evidence must be decided | `refuse-fast` |
-| S5 | A fast answer is incomplete or conflicts with admitted evidence | `standard-once-no-fast-retry` |
-| S6 | No unresolved main-agent decision can change | `no-support` |
-| S7 | A fast packet attempts to freeze Frame, admit Plan, modify a candidate, or sign Finalize | `evidence-only-reject-authority` |
-| S8 | A governance, instruction, skill, agent-discovery, or judge candidate reaches Verify | `isolated-high-assurance-evaluator-or-explicitly-unavailable` |
-| S9 | A named-locator repository question needs broader read-only synthesis but no external evidence or design choice | `standard-repository-explorer` |
-| S10 | A trust-boundary or acceptance-oracle question needs high-assurance support before a candidate exists | `existing-high-assurance-capability-or-return-to-plan` |
+An advisory lane never substitutes for `mission_evaluator`. When an admitted candidate risk lens
+requires independent acceptance, load [the reviewer handoff](reviewer-handoff.md) and run its current
+host preflight exactly once. Dispatch `mission_evaluator` only when trusted host evidence makes that
+preflight exit `0` with `dispatch_allowed=true` and proves read-only authority, a non-builder context,
+candidate-external instruction discovery, a complete read-only tool surface, no delegation, no
+lateral communication, and exact Frame, Plan, candidate, and lens bindings.
+
+Treat the reviewer-handoff preflight's observed output as the sole capability decision. When it
+returns `unsupported`, do not replace that result with a prompt, role configuration, fresh agent,
+alternate checkout, ordinary advisory lanes, or majority agreement. When the endpoint permits local
+preparation, report `prepared and locally verified, independent acceptance unavailable`; otherwise
+the required acceptance evidence remains unavailable.

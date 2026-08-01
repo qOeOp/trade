@@ -26,6 +26,24 @@ Stop, findings, and rejected candidates.
 
 Task creation requires the user's explicit request or approval of every exact ready packet.
 
+## Goal boundary
+
+Reconcile `get_goal`, the request, and the complete replacement checkpoint before every Goal-driven
+effect; missing restatement does not remove approved work. In multi-Mission mode:
+
+- no Goal retains the proposal and freezes child, publication, and merge-release effects; only
+  explicit overall-Goal authority permits one `create_goal`, followed by a matching observation;
+- an ordinary task never reopens or replaces a completed Goal; an explicitly authorized different
+  Goal preserves old terminal evidence, uses one replacement `create_goal`, then is observed again;
+  never use `update_goal` for reopening or replacement;
+- paused or blocked follows the host Goal contract and preserves causal Stop; never overwrite a
+  nonmatching unfinished Goal. If persistence is declined, reframe Goal-unbound current-thread work.
+
+The Goal holds only overall Outcome, constraints, and completion boundary. Nodes, identities,
+candidates, findings, Stop, and GitHub facts stay in their existing owners. `update_goal` only marks
+the matching overall Goal terminal when permitted; Goal use adds no wrapper, retry, ledger, CLI,
+lifecycle, or hidden execution.
+
 ## Hub replacement checkpoint
 
 For multi-Mission work, keep one complete replacement checkpoint in the current hub conversation.
@@ -64,9 +82,11 @@ Before admission, test the complete proposed `after` edge set for acyclicity. An
 affected graph to hub Plan and permits zero dispatch until an edge or Outcome changes under evidence;
 do not leave every node deferred or add a scheduler, helper, or stored graph to break the cycle.
 
-A downstream node releases only after every direct predecessor reaches its exact endpoint and its
-premises still hold. Integrated-source dependencies must verify that source: `open` or `merge-ready`
-does not imply merge. Create the child only from the required newly observed tip.
+A downstream node remains serial until every direct predecessor reaches its exact endpoint and its
+premises still hold. For a Git-backed downstream node, a direct `after` edge also requires every
+predecessor candidate to be merged into its declared canonical source; `open` or `merge-ready` does
+not imply merge. Observe the new canonical tip and create the child only from that exact tip. A
+non-Git dependent without integrated source may release at the predecessor's exact endpoint.
 
 If a predecessor is cancelled, keep every affected descendant in the replacement checkpoint and
 return it to Plan. For each, either cancel under current authority, reconnect to a proven alternative
@@ -88,9 +108,42 @@ checkpoint reconciles. The hub releases one exact merge head at a time. After me
 canonical tip and revalidate open pull requests on that ref; nodes on other refs require their own
 ref/tip observation.
 
+A hub freeze does not pause a running child. Pause, cancel, or reframe only by one authorized message
+to the exact child, then reconcile its candidate and dependents. To continue an explicitly paused
+child, reconcile the complete checkpoint, authority, identity, candidate, and source, then message
+that child once; it re-enters its existing Mission at the stage current facts warrant. This host
+continuation creates no Mission and is not the lifecycle's temporary-blocker `Resume` record unless
+that separate predicate holds. A priority insertion is a separate request or approved graph node,
+never a silent widening or replacement.
+
 One child hosts one Outcome, managed worktree, eventual branch, and at most one pull request. It owns
 its candidate and verification; the hub owns admission, checkpoint, monitoring, source observation,
 and exact-head release. Messages and root turns create no Mission.
+
+## Critical-path choreography
+
+Use this choreography only when an earlier authorized merge changes a later candidate's source or
+dependency input. Independent endpoints whose evidence remains valid across sibling delivery keep
+their ordinary parallel path; unknown validity returns ordering to Plan.
+
+Within such an integration wave, independent children may build, exercise real consumers, and freeze
+separate recoverable candidates in parallel, but publication remains unmet until the hub grants one
+release slot. A Git-backed dependent is not created or prepared until every direct predecessor is
+merged; its Origin is the freshly observed canonical tip, never an `open` or `merge-ready` head.
+
+For each slot, the hub observes the canonical ref and tip and messages one exact child. That child
+keeps its Mission, reframes and integrates if Origin changed, revalidates affected owner/consumer
+evidence, runs the root gate on that final integration candidate, publishes its one PR, closes CI,
+opening discovery, findings, and its endpoint, then reports the exact head. The hub observes the
+endpoint; for `merged`, it separately releases the authorized exact-head merge and observes the new
+canonical tip before the next slot. `open` or `merge-ready` closes without a manufactured merge and
+releases only the next independent slot; dependent descendants still wait for merge.
+
+Before release, candidate-local revisions rerun only affected targeted/consumer evidence. Reuse
+requires identical candidate, source, dependency, consumer, configuration, toolchain, and environment
+inputs. A changed final integration candidate or corrected gate invalidates root and final-head
+evidence; counts never decide reruns. The hub classifies staleness but never mirrors child gates,
+discovery, or finding disposition.
 
 ## Outcomes discovered during a Mission
 
@@ -218,9 +271,10 @@ and `hostId` facts and must not poll a queued `clientThreadId`.
 
 The child independently owns `Frame → Plan → Execute → Verify → Finalize`, its candidate, branch,
 zero-or-one pull request, publication, review closure, and cleanup. In multi-Mission mode its
-Finalize stops at its frozen endpoint, except that `merged` waits at the merge-ready barrier until
-the hub supplies the exact-head merge release. The parent does not run or mirror the child's stages,
-and the child does not create or update the hub Goal.
+Finalize stops at its frozen endpoint. In a serialized integration wave it prepares locally until
+the hub releases its publication slot; a `merged` endpoint then waits at the merge-ready barrier for
+the exact-head merge release. The parent does not run or mirror the child's stages, and the child
+does not create or update the hub Goal.
 
 ## Child controls
 
@@ -228,14 +282,18 @@ Operate on a child when the user asks, or when an admitted multi-Mission checkpo
 at the current monitoring or merge gate:
 
 - status or one-time monitoring: use one `wait_threads` call with `timeoutMs: 0`;
-- status for up to eight named children: use one bounded snapshot with all targets;
+- ongoing monitoring: use one bounded `wait_threads` event wait for up to eight named children and
+  carry every returned cursor into the next wait;
 - feedback or continuation: call `send_message_to_thread` once with `threadId`, optional `hostId`,
   and the feedback in `prompt`, then return immediately;
-- additional history needed for the request: use a bounded `read_thread`.
+- additional history needed for a current decision: use one bounded `read_thread`.
 
-Use returned cursors for later snapshots when available. Commentary is never a reason to poll. If a
-child blocks, apply the replacement checkpoint and dependency rules; do not retry, replace, or
-transfer it without new authority.
+The child proactively reports only Frame freeze, material replan, required user authority, candidate
+publication, terminal state, or an exception; while actively working it still provides concise
+user-visible progress under the host's timing contract. The hub does not mirror unchanged commentary
+or treat an unchanged timeout snapshot as progress. Events are wake hints: reconcile raw Goal, task,
+Git, and GitHub facts before any effect. If a child blocks, apply the replacement checkpoint and
+dependency rules; do not retry, replace, or transfer it without new authority.
 
 ## Endpoint and overall completion
 
