@@ -20,7 +20,7 @@
   },
   "scripts": {
     "check": "scripts/quality-check.sh",
-    "check:replay-release": "sh scripts/check-replay-release.sh",
+    "check:replay-release": "bun run --cwd apps/research-strategy-development/research-control-plane/certification/replay-release-audit audit",
     "lint": "eslint --max-warnings 0 .",
     "certify:replay": "bun run --cwd apps/research-strategy-development/replay-execution-plane/certification/replay-certification certify",
     "certify:replay:reproducibility": "bun apps/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/reproducibility.ts"

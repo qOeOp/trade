@@ -3,10 +3,10 @@ import { resolve, sep } from "node:path"
 import { Database } from "bun:sqlite"
 import {
   createDeveloperCandidateServerPackage,
-} from "./rd-developer-candidate-release-package"
+} from "./developer-candidate-release-package"
 import {
   createStrategyCandidateServerPackage,
-} from "./rd-strategy-candidate-release-package"
+} from "./strategy-candidate-release-package"
 
 export function runCandidateReleasePackageCli(
   kind: "developer_patch" | "strategy_source",

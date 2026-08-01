@@ -101,7 +101,7 @@ environment selection
 | `ohlcv-fetch/data/ohlcv.db` + `market_data.db` | 2,483 candles / 6 manifests；迁移前根 owner DB 中对应 identity 均缺失 | 已经 owner functions 写入根 data plane并逐行复验；根库 integrity check 通过，module-local 主库与 sidecar 已移除 |
 | `legacy-integration-suite/data/rd_state.db` | 仅含 `rd-loop-state`、`rd-campaign-state` 两个测试 program | 测试已改为显式 temp DB；原测试库已从 Git 与 module data 移除 |
 
-`scripts/check-workspace-hygiene.ts` 的历史 tracked runtime ratchet 已清零；任何 tracked sidecar/runtime DB、module-local DB 或过期 exception 均失败。
+历史 tracked runtime ratchet 已清零；后续由各数据 owner 的 package check 约束运行数据边界，中央质量入口不再冻结 module-local 目录拓扑。
 
 ### P1：环境与路径合同
 

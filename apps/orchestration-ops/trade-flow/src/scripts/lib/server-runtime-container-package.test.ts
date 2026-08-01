@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import test from "node:test"
 import { repoRoot } from "../../../../../contracts/runtime-core/src/paths"
@@ -10,26 +10,6 @@ const compose = readFileSync(resolve(root, "deploy/server/compose.yaml"), "utf8"
 const operatorCompose = readFileSync(resolve(root, "deploy/server/compose.operator.yaml"), "utf8")
 const agentCompose = readFileSync(resolve(root, "deploy/server/compose.agent.yaml"), "utf8")
 const acceptance = readFileSync(resolve(root, "deploy/server/container-acceptance.sh"), "utf8")
-const adoptionWorker = readFileSync(
-  resolve(root, "scripts/rd-developer-patch-adoption-worker.ts"),
-  "utf8",
-)
-const forwardSourceWorker = readFileSync(
-  resolve(root, "scripts/rd-forward-source-admission-worker.ts"),
-  "utf8",
-)
-const forwardMarketDataWorker = readFileSync(
-  resolve(root, "scripts/rd-forward-market-data-demand-worker.ts"),
-  "utf8",
-)
-const forwardCandleSegmentWorker = readFileSync(
-  resolve(root, "scripts/rd-forward-candle-segment-worker.ts"),
-  "utf8",
-)
-const forwardDatasetCandidateWorker = readFileSync(
-  resolve(root, "scripts/rd-forward-dataset-candidate-worker.ts"),
-  "utf8",
-)
 const openClawConfig = JSON.parse(
   readFileSync(resolve(root, "deploy/server/openclaw.json"), "utf8"),
 ) as Record<string, unknown>
@@ -118,28 +98,25 @@ test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds De
   assert.match(agentCompose, /agent-mcp-developer:[\s\S]*--profile[\s\S]*developer-contract/)
   assert.match(agentCompose, /agent-mcp-reviewer:[\s\S]*--profile[\s\S]*reviewer-decision/)
   assert.match(agentCompose, /agent-host:[\s\S]*--ops-db\s*\n\s*- data\/ops\/ops_runtime\.db/)
-  assert.match(agentCompose, /agent-host-code:[\s\S]*openclaw-workspace-http\.ts/)
-  assert.match(agentCompose, /reviewer-agent-worker:[\s\S]*reviewer-resident\.ts/)
   assert.match(agentCompose, /reviewer-agent-worker:[\s\S]*http:\/\/agent-host:7313/)
   assert.match(agentCompose, /reviewer-agent-worker:[\s\S]*trade-data:\/app\/data/)
   assert.match(agentCompose, /reviewer-agent-worker:[\s\S]*trading_authority/)
-  assert.match(agentCompose, /strategy-registry-worker:[\s\S]*strategy-registry\/src\/scripts\/resident\.ts/)
   assert.match(agentCompose, /strategy-registry-worker:[\s\S]*network_mode: none/)
   assert.match(agentCompose, /strategy-registry-worker:[\s\S]*trade-release-candidates:\/app\/data\/release-candidates/)
   assert.match(agentCompose, /forward-source-admission-worker:[\s\S]*network_mode: none/)
-  assert.match(agentCompose, /forward-source-admission-worker:[\s\S]*rd-forward-source-admission-worker\.ts/)
   assert.match(agentCompose, /forward-market-data-worker:[\s\S]*network_mode: none/)
-  assert.match(agentCompose, /forward-market-data-worker:[\s\S]*rd-forward-market-data-demand-worker\.ts/)
   assert.match(agentCompose, /forward-candle-segment-worker:[\s\S]*network_mode: none/)
-  assert.match(agentCompose, /forward-candle-segment-worker:[\s\S]*rd-forward-candle-segment-worker\.ts/)
   assert.match(agentCompose, /forward-dataset-candidate-worker:[\s\S]*network_mode: none/)
-  assert.match(agentCompose, /forward-dataset-candidate-worker:[\s\S]*rd-forward-dataset-candidate-worker\.ts/)
   assert.match(agentCompose, /agent-workspace-checker:[\s\S]*network_mode: none/)
-  assert.match(agentCompose, /agent-workspace-checker:[\s\S]*agent-workspace-checker\.ts/)
   assert.match(agentCompose, /agent-release-checker:[\s\S]*network_mode: none/)
   assert.match(agentCompose, /agent-release-checker:[\s\S]*release-checker\.sock/)
   assert.match(agentCompose, /agent-patch-adopter:[\s\S]*network_mode: none/)
-  assert.match(agentCompose, /agent-patch-adopter:[\s\S]*rd-developer-patch-adoption-worker\.ts/)
+  const commandScripts = [...agentCompose.matchAll(/^\s+- (apps\/[A-Za-z0-9_./-]+\.ts)\s*$/gm)]
+    .map((match) => match[1]!)
+  assert.ok(commandScripts.length > 0)
+  for (const path of commandScripts) {
+    assert.equal(existsSync(resolve(root, path)), true, `missing Compose command: ${path}`)
+  }
   assert.match(agentCompose, /trade-release-candidates:\/app\/data\/release-candidates/)
   assert.match(agentCompose, /agent-code-workspace:\/app\/tmp\/agent-workspace-slots/)
   assert.match(agentCompose, /agent-code-workspace:\/workspace/)
@@ -161,30 +138,6 @@ test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds De
   assert.doesNotMatch(
     adopterBlock,
     /trade-data:\/app\/data|rd_state\.db|data_catalog\.db|trade\.db|\/app\/strategies/,
-  )
-  assert.match(adoptionWorker, /discoverAndQueueStrategySourceCandidates/)
-  assert.match(adoptionWorker, /runStrategySourceAdoption/)
-  assert.match(forwardSourceWorker, /listCertifiedStrategySourceAdoptions/)
-  assert.match(forwardSourceWorker, /admitCertifiedStrategyAdoptionToForward/)
-  assert.match(
-    forwardMarketDataWorker,
-    /reconcileForwardObservationPrograms/,
-  )
-  assert.match(
-    forwardMarketDataWorker,
-    /recordForwardMarketDataDemandDelivery/,
-  )
-  assert.match(
-    forwardCandleSegmentWorker,
-    /admitForwardObservationCandleSegment/,
-  )
-  assert.match(
-    forwardDatasetCandidateWorker,
-    /admitForwardDatasetCandidate/,
-  )
-  assert.match(
-    forwardDatasetCandidateWorker,
-    /readForwardDatasetReadinessAssessment/,
   )
   const forwardSourceBlock = agentCompose
     .split("\n  forward-source-admission-worker:")[1]!

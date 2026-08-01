@@ -12,32 +12,32 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { Database } from "bun:sqlite"
-import { canonicalJson } from "../apps/contracts/runtime-core/src/canonical-json"
+import { canonicalJson } from "../../../../contracts/runtime-core/src/canonical-json"
 import {
   readStrategySourceAdoption,
-} from "../apps/orchestration-ops/ops-runtime-store/src/lib/strategy-source-adoption-store"
+} from "../../../ops-runtime-store/src/lib/strategy-source-adoption-store"
 import {
   SERVER_CONTAINER_SOURCE_PACKAGE_CRITICAL_REFS,
-} from "../apps/orchestration-ops/trade-flow/src/scripts/lib/server-runtime-container-release-package"
+} from "../../../trade-flow/src/scripts/lib/server-runtime-container-release-package"
 import {
   createStrategyCandidateServerPackage,
-} from "./lib/rd-strategy-candidate-release-package"
+} from "./strategy-candidate-release-package"
 import {
   createStrategySourceCandidate,
-} from "../apps/research-strategy-development/research-control-plane/contracts/src/lib/strategy-source-candidate-contract"
+} from "../../../../research-strategy-development/research-control-plane/contracts/src/lib/strategy-source-candidate-contract"
 import {
   SOURCE_SCHEMA_VERSION,
   renderStrategyPolicyMarkdown,
-} from "../apps/research-strategy-development/research-control-plane/strategy-policy-writer/src/lib/strategy-policy-writer"
+} from "../../../../research-strategy-development/research-control-plane/strategy-policy-writer/src/lib/strategy-policy-writer"
 import {
   discoverAndQueueStrategySourceCandidates,
   queueStrategySourceCandidate,
   runStrategySourceAdoption,
   StrategyAdoptionError,
-} from "./lib/rd-strategy-source-adoption"
+} from "./strategy-source-adoption"
 import {
   admitCertifiedStrategyAdoptionToForward,
-} from "./lib/rd-forward-source-admission"
+} from "../../../../research-strategy-development/forward-evidence-plane/runner/src/lib/forward-source-admission"
 
 test("Strategy source adoption certifies an isolated source revision without hot loading", async () => {
   const root = mkdtempSync(join(tmpdir(), "rd-strategy-adoption-"))

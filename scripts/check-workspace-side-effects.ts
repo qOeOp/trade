@@ -4,7 +4,16 @@ import { createHash } from "node:crypto"
 import { execFileSync } from "node:child_process"
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, writeFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
-import { diffWorkspaceSnapshots, type WorkspaceSnapshot } from "./workspace-snapshot"
+
+export interface WorkspaceSnapshot {
+  schema_version: "trade.workspace-snapshot.v1"
+  files: Record<string, string>
+}
+
+export function diffWorkspaceSnapshots(before: WorkspaceSnapshot, after: WorkspaceSnapshot): string[] {
+  const paths = new Set([...Object.keys(before.files), ...Object.keys(after.files)])
+  return [...paths].filter((path) => before.files[path] !== after.files[path]).sort()
+}
 
 function capture(root: string): WorkspaceSnapshot {
   const tracked = gitPaths(root, ["ls-files", "-z"])
@@ -67,9 +76,11 @@ function flag(name: string): string {
   return value
 }
 
-try {
-  main()
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error))
-  process.exit(1)
+if (import.meta.main) {
+  try {
+    main()
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exit(1)
+  }
 }

@@ -1,24 +1,24 @@
 import type { Database } from "bun:sqlite"
 import {
   readAgentArtifact,
-} from "../../apps/orchestration-ops/agent-artifact-store/src/lib/agent-artifact-store"
+} from "../../../agent-artifact-store/src/lib/agent-artifact-store"
 import {
   createDeveloperWorkspaceOpenClawHost,
   type DeveloperWorkspaceOpenClawHostOptions,
-} from "../../apps/orchestration-ops/agent-host-openclaw/src/lib/developer-workspace-openclaw-host"
+} from "./developer-workspace-openclaw-host"
 import {
   assertAgentWorkspaceExecutionScope,
   type AgentWorkspaceExecutionScope,
-} from "../../apps/orchestration-ops/agent-workspace-manager/src/lib/workspace-manager"
+} from "../../../agent-workspace-manager/src/lib/workspace-manager"
 import {
   runIsolatedAgentWorkspacePackageCheck,
-} from "../../apps/orchestration-ops/agent-workspace-manager/src/lib/isolated-package-checker"
+} from "../../../agent-workspace-manager/src/lib/isolated-package-checker"
 import {
   readAgentWorkspaceExecutionScope,
-} from "../../apps/orchestration-ops/ops-runtime-store/src/lib/agent-workspace-scope-store"
+} from "../../../ops-runtime-store/src/lib/agent-workspace-scope-store"
 import {
   createDeveloperWorkspaceAgentSubmissionFromContextPack,
-} from "../../apps/research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/developer-agent-run"
+} from "../../../../research-strategy-development/research-control-plane/agent-run-orchestrator/src/lib/developer-agent-run"
 
 export function createResidentOpenClawWorkspaceHost(input: {
   db: Database

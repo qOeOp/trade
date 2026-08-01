@@ -13,7 +13,11 @@ fi
 
 case "$kind" in
   go)
-    sh "$ROOT/scripts/check-go-format.sh" "$ROOT/$dir"
+    unformatted="$(find "$ROOT/$dir" -name '*.go' -type f -exec gofmt -l {} +)"
+    if [ -n "$unformatted" ]; then
+      printf 'quality: gofmt required:\n%s\n' "$unformatted" >&2
+      exit 1
+    fi
     (cd "$ROOT/$dir" && go test ./... && go vet ./...)
     ;;
   python)

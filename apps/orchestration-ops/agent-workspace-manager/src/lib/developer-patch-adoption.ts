@@ -15,19 +15,19 @@ import type { Database } from "bun:sqlite"
 import type {
   AgentArtifactRef,
   AgentRunRequest,
-} from "../../apps/contracts/agent-run-contract/src/agent-run-contract"
+} from "../../../../contracts/agent-run-contract/src/agent-run-contract"
 import {
   canonicalHash,
   canonicalJson,
-} from "../../apps/contracts/runtime-core/src/canonical-json"
+} from "../../../../contracts/runtime-core/src/canonical-json"
 import {
   parseAgentJsonArtifact,
   readAgentArtifact,
-} from "../../apps/orchestration-ops/agent-artifact-store/src/lib/agent-artifact-store"
+} from "../../../agent-artifact-store/src/lib/agent-artifact-store"
 import type {
   AgentWorkspaceSuite,
   AgentWorkspaceSuiteCheck,
-} from "../../apps/orchestration-ops/agent-workspace-manager/src/lib/isolated-package-checker"
+} from "./isolated-package-checker"
 import {
   assertAgentWorkspaceExecutionScope,
   captureAgentWorkspacePatch,
@@ -38,7 +38,7 @@ import {
   type AgentWorkspace,
   type AgentWorkspaceExecutionScope,
   type AgentWorkspacePackageCheck,
-} from "../../apps/orchestration-ops/agent-workspace-manager/src/lib/workspace-manager"
+} from "./workspace-manager"
 import {
   admitAgentPatchAdoption,
   completeAgentPatchAdoption,
@@ -47,17 +47,17 @@ import {
   startAgentPatchAdoption,
   type AgentPatchAdoptionFailureClass,
   type AgentPatchAdoptionResultProjection,
-} from "../../apps/orchestration-ops/ops-runtime-store/src/lib/agent-patch-adoption-store"
+} from "../../../ops-runtime-store/src/lib/agent-patch-adoption-store"
 import {
   readAgentRun,
-} from "../../apps/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
+} from "../../../ops-runtime-store/src/lib/agent-run-store"
 import {
   readAgentWorkspaceExecutionScope,
-} from "../../apps/orchestration-ops/ops-runtime-store/src/lib/agent-workspace-scope-store"
+} from "../../../ops-runtime-store/src/lib/agent-workspace-scope-store"
 import {
   assertDeveloperAgentSubmission,
   type DeveloperAgentSubmission,
-} from "../../apps/research-strategy-development/research-control-plane/contracts/src/lib/developer-agent-submission"
+} from "../../../../research-strategy-development/research-control-plane/contracts/src/lib/developer-agent-submission"
 
 export interface DeveloperPatchAdoptionManifest {
   schema_version: "trade.rd-developer-patch-adoption-manifest.v1"

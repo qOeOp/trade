@@ -13,50 +13,50 @@ import {
 import { createHash } from "node:crypto"
 import { dirname, resolve, sep } from "node:path"
 import { Database } from "bun:sqlite"
-import { asRecord, stringField } from "../apps/contracts/runtime-core/src/json"
+import { asRecord, stringField } from "../../../../../contracts/runtime-core/src/json"
 import {
   compileMarketDataDemand,
-} from "../apps/contracts/market-data-demand-contract/src/market-data-demand-contract"
+} from "../../../../../contracts/market-data-demand-contract/src/market-data-demand-contract"
 import {
   buildForwardObservationMarketDataDemand,
-} from "../apps/research-strategy-development/research-control-plane/contracts/src/lib/forward-observation-program"
+} from "../../../../research-control-plane/contracts/src/lib/forward-observation-program"
 import {
   assertFundingReplaySliceContent,
   compileFundingReplaySliceRef,
-} from "../apps/contracts/market-data-demand-contract/src/funding-replay-slice-contract"
+} from "../../../../../contracts/market-data-demand-contract/src/funding-replay-slice-contract"
 import {
   compileFundingCoverageAudit,
-} from "../apps/contracts/market-data-demand-contract/src/funding-coverage-contract"
+} from "../../../../../contracts/market-data-demand-contract/src/funding-coverage-contract"
 import {
   compileMarketDataFactRef,
-} from "../apps/contracts/market-data-demand-contract/src/market-data-fact-contract"
+} from "../../../../../contracts/market-data-demand-contract/src/market-data-fact-contract"
 import {
   buildForwardFundingMarketDataDemand,
   createForwardFundingEvidenceBinding,
-} from "../apps/research-strategy-development/forward-evidence-plane/contracts/src/lib/forward-funding-evidence"
+} from "../../../contracts/src/lib/forward-funding-evidence"
 import {
   readLatestForwardDatasetCandidate,
-} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/forward-dataset-candidate"
+} from "../../../../research-control-plane/state-store/src/lib/forward-dataset-candidate"
 import {
   admitForwardFundingEvidenceBinding,
   ensureForwardFundingEvidenceSchema,
   readForwardFundingEvidenceBinding,
   readLatestForwardFundingDemandDelivery,
   recordForwardFundingDemandDelivery,
-} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/forward-funding-evidence"
+} from "../../../../research-control-plane/state-store/src/lib/forward-funding-evidence"
 import {
   ensureForwardObservationProgramSchema,
   listCollectingForwardObservationPrograms,
   readLatestForwardMarketDataDemandDelivery,
   recordForwardMarketDataDemandDelivery,
-} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/forward-observation-program"
+} from "../../../../research-control-plane/state-store/src/lib/forward-observation-program"
 import {
   ensureResearchControlPlaneSchema,
-} from "../apps/research-strategy-development/research-control-plane/state-store/src/lib/research-control-plane-schema"
+} from "../../../../research-control-plane/state-store/src/lib/research-control-plane-schema"
 import {
   reconcileForwardObservationPrograms,
   shouldRenewForwardMarketDataDemand,
-} from "./lib/rd-forward-observation-program"
+} from "../lib/forward-observation-program"
 import {
   resolveWorkerDataPath,
   workerBoundedInteger,
@@ -64,7 +64,7 @@ import {
   workerFlagValues,
   workerMarketDataOwnerCommand,
   workerResearchMarketDataPaths,
-} from "./lib/resident-worker-cli"
+} from "../lib/resident-worker-cli"
 
 async function main(): Promise<void> {
   const input = parseArgs(Bun.argv.slice(2))

@@ -17,19 +17,19 @@ import type { Database } from "bun:sqlite"
 import {
   canonicalHash,
   canonicalJson,
-} from "../../apps/contracts/runtime-core/src/canonical-json"
-import { lintStrategyContract } from "../../apps/contracts/strategy-contract/src/strategy-contract"
+} from "../../../../contracts/runtime-core/src/canonical-json"
+import { lintStrategyContract } from "../../../../contracts/strategy-contract/src/strategy-contract"
 import type {
   AgentWorkspaceSuite,
   AgentWorkspaceSuiteCheck,
-} from "../../apps/orchestration-ops/agent-workspace-manager/src/lib/isolated-package-checker"
+} from "./isolated-package-checker"
 import {
   captureAgentWorkspacePatch,
   cleanupAgentWorkspaceSlot,
   createAgentWorkspace,
   removeAgentWorkspace,
   type AgentWorkspace,
-} from "../../apps/orchestration-ops/agent-workspace-manager/src/lib/workspace-manager"
+} from "./workspace-manager"
 import {
   admitStrategySourceAdoption,
   completeStrategySourceAdoption,
@@ -38,11 +38,11 @@ import {
   startStrategySourceAdoption,
   type StrategySourceAdoptionFailureClass,
   type StrategySourceAdoptionRecord,
-} from "../../apps/orchestration-ops/ops-runtime-store/src/lib/strategy-source-adoption-store"
+} from "../../../ops-runtime-store/src/lib/strategy-source-adoption-store"
 import {
   assertStrategySourceCandidate,
   type StrategySourceCandidate,
-} from "../../apps/research-strategy-development/research-control-plane/contracts/src/lib/strategy-source-candidate-contract"
+} from "../../../../research-strategy-development/research-control-plane/contracts/src/lib/strategy-source-candidate-contract"
 
 export interface StrategySourceAdoptionManifest {
   schema_version: "trade.rd-strategy-source-adoption-manifest.v1"

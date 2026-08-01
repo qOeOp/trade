@@ -6,31 +6,31 @@ import { Database } from "bun:sqlite"
 import {
   runIsolatedAgentWorkspacePackageCheck,
   runIsolatedAgentWorkspaceSuiteCheck,
-} from "../apps/orchestration-ops/agent-workspace-manager/src/lib/isolated-package-checker"
+} from "../lib/isolated-package-checker"
 import {
   listRecoverableAgentPatchAdoptions,
-} from "../apps/orchestration-ops/ops-runtime-store/src/lib/agent-patch-adoption-store"
+} from "../../../ops-runtime-store/src/lib/agent-patch-adoption-store"
 import {
   ensureAgentRunStoreSchema,
-} from "../apps/orchestration-ops/ops-runtime-store/src/lib/agent-run-store"
+} from "../../../ops-runtime-store/src/lib/agent-run-store"
 import {
   ensureStrategySourceAdoptionStoreSchema,
   listRecoverableStrategySourceAdoptions,
-} from "../apps/orchestration-ops/ops-runtime-store/src/lib/strategy-source-adoption-store"
+} from "../../../ops-runtime-store/src/lib/strategy-source-adoption-store"
 import {
   runDeveloperPatchAdoption,
-} from "./lib/rd-developer-patch-adoption"
+} from "../lib/developer-patch-adoption"
 import {
   discoverAndQueueStrategySourceCandidates,
   runStrategySourceAdoption,
-} from "./lib/rd-strategy-source-adoption"
+} from "../lib/strategy-source-adoption"
 import {
   resolveWorkerDataPath,
   workerAbsolutePath,
   workerBoundedInteger,
   workerDelay,
   workerRepoPath,
-} from "./lib/resident-worker-cli"
+} from "../../../../contracts/runtime-core/src/resident-worker"
 
 async function main(): Promise<void> {
   const input = parseArgs(Bun.argv.slice(2))
