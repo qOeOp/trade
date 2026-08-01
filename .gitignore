@@ -6,6 +6,9 @@
 !.codex/config.toml
 !.codex/agents/
 !.codex/agents/*.toml
+!.codex/environments/
+.codex/environments/*
+!.codex/environments/environment.toml
 tmp/
 .env
 .secrets/
