@@ -159,11 +159,11 @@ fingerprint or boundary; size or count alone is not that evidence. Once a cohere
 the highest route, a later lower-boundary finding cannot overwrite it.
 
 Only a genuinely temporary unavailable authority, evidence, or capability predicate may carry a
-`Resume` stage. Resume requires a new observation that changes the named blocker or source; merely
-removing the label is not evidence. Unsatisfiable acceptance has no Resume under the unchanged Frame
-and continues only through `reframe` with new acceptance evidence. A completed replan with no viable
-path also has no Resume; a later credible path returns through Plan with its new evidence, never
-directly to Verify on the original candidate.
+`Resume` stage. Resume requires a new observation that binds the same fact category and required
+decision and proves it is now available; removing or renaming a source is not evidence. Unsatisfiable
+acceptance has no Resume under the unchanged Frame and continues only through `reframe` with new
+acceptance evidence. A completed replan with no viable path also has no Resume; a later credible path
+returns through Plan with its new evidence, never directly to Verify on the original candidate.
 
 Do not repeat an unchanged failed investigation, check, candidate, or external request. Each retry
 must name the changed candidate, input, environment, authority, or evidence source and the
@@ -219,7 +219,9 @@ additionally follows the session graph contract; this locator does not replace i
 Inspect the current owner, production entry point when one exists, affected contracts, tests, and
 working-tree state. Choose the smallest vertical change that closes the outcome.
 Plan is read-only. Admit the owner, path, affected boundary, candidate shape, and verification route
-before mutation; when any of them remains unresolved, keep investigating or return to Frame.
+before mutation; freeze the mission-owned boundary against the named Origin and the observed
+pre-existing user work instead of admitting paths later from Execute. When any Plan field remains
+unresolved, keep investigating or return to Frame.
 
 When a test failure can change the candidate, an escaped defect shows that tests missed required
 behavior, or the Mission may restructure tests, load

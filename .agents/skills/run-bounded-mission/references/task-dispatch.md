@@ -72,8 +72,9 @@ If a predecessor is cancelled, keep every affected descendant in the replacement
 return it to Plan. For each, either cancel under current authority, reconnect to a proven alternative
 and revalidate, remain pending for missing Outcome or authority, or prove that the descendant no
 longer depends on the cancelled predecessor. That fourth disposition removes only the evidenced
-edge, binds the node to the newly observed canonical source tip, and re-admits and revalidates its
-Outcome, Acceptance, owner and write conflicts, prerequisites, and endpoint. Without that complete
+edge, binds the node to its newly observed required source ref and exact tip, and re-admits and
+revalidates its Outcome, Acceptance, owner and write conflicts, prerequisites, and endpoint. Call
+that source canonical only when it is the node's declared canonical source. Without that complete
 evidence, edge removal fails and the node stays in one of the other dispositions. Never silently
 delete a required node, erase an edge without evidence, or leave it permanently deferred.
 
@@ -192,17 +193,23 @@ After consent:
 10. record the host-provided `threadId`/`hostId` or queued `clientThreadId`, then follow the host
    contract to emit its created-task link or directive; never invent a URL.
 
-A returned `clientThreadId` consumes the create attempt but is not a task identity and must never be
-passed to wait, read, or send operations. At the next identity-dependent gate, reconcile once: call
-`list_threads` exactly once, then use bounded `read_thread` evidence to match the exact approved
-prompt, project, source, and worktree. Record a mapping only when exactly one `threadId` and `hostId`
-match. A missing or ambiguous mapping preserves the packet and freezes the identity-dependent effect;
-it never authorizes another create attempt.
+A returned `clientThreadId` consumes the create attempt but is only its receipt, not a task identity.
+Record it, emit the host-required created-task directive, and never pass it to wait, read, or send
+operations. Freeze dependent dispatch, release, and endpoint effects until the host or user supplies
+an exact immutable `threadId`/`hostId` causally mapped to that receipt. `list_threads` and bounded
+`read_thread` may diagnose candidates or ambiguity, but cannot establish or authorize that mapping:
+even the first otherwise identical task observed after the receipt could be a concurrent or manual
+creation. Until an exact causal mapping arrives, preserve the node as pending identity, keep the
+create attempt consumed, and never duplicate it. Pending identity does not by itself block the
+Mission; `blocked` still requires the main skill's evidence predicate, including no viable path after
+a completed replan when that identity is required for completion. A direct `create_thread` return
+containing `threadId` and `hostId` is usable without discovery inference.
 
 An explicit create failure with proof that no task effect occurred also preserves the exact approved
 prompt. Retrying requires fresh authority and revalidation; when prior creation may have succeeded,
-do not retry. Host-provided exact identity or user-owned manual creation can resume the same node
-without inventing an identity.
+do not retry. A later `threadId`/`hostId` resumes the node only when the host or user causally maps it
+to the recorded attempt. A separately created manual task is not that mapping and requires Plan and
+authority before it can own the node.
 
 Creation is non-blocking. Outside an admitted multi-Mission orchestration session, return after
 creation without babysitting setup or child commentary. Inside that mode, the hub may use bounded
