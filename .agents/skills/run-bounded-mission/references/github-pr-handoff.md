@@ -30,11 +30,15 @@ For a `merge-ready` or `merged` endpoint, freeze one discovery attempt: the auto
 opening review, or a manually requested substitute through an explicit `@codex review` issue comment
 with separately frozen comment authority. A later explicit same-head retry may replace the current
 provider-terminal window only when every earlier material finding is represented by provider review
-threads from that same review, every one is resolved, and the request is later than their final
-activity. A historical non-clean provider result without those matching resolved threads continues
-to block. Missing causal order or any unresolved provider thread also fails closed. This is a strict
-exception within one opening-discovery lineage, not a review loop. Do not use GitHub's generic
-review-request path as a substitute because the repository waiter cannot correlate that event. Wait
+threads from that same review, every thread is currently resolved, and its resolver wrote a non-empty
+disposition reply after the provider finding and before the retry. The request must also be later than
+all thread-comment activity. GitHub does not expose the resolution timestamp, so current resolution
+without that resolver-authored causal evidence is insufficient. A historical non-clean provider
+result without those matching disposed threads continues to block. Missing causal order or any
+unresolved provider thread also fails closed. This strict exception classifies an already-observed
+retry within one opening-discovery lineage; it never authorizes a review request or loop. The retry
+effect requires separate write authority frozen in the Frame and admitted Plan. Do not use GitHub's
+generic review-request path as a substitute because the repository waiter cannot correlate that event. Wait
 through the bounded host loop until the waiter reports a terminal classification or the isolated wait
 lane reaches its recovery gate. Do not interpret individual provider signals outside that classifier.
 For an `open` endpoint, successful publication in the requested Draft/Ready state does not wait for
