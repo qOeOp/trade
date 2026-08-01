@@ -1,8 +1,8 @@
 {
-  "schema_version": "trade.rd-replay-independent-release-audit-receipt.v2",
+  "schema_version": "trade.rd-replay-independent-release-audit-receipt.v3",
   "verdict": "passed-within-declared-evidence-envelope",
-  "audit_manifest_sha256": "bcc114fdcdea2f3f9b5656f6dc33d1762d0129feb034aeb59ee78b52fb861a6c",
-  "subject_pack_sha256": "43204f3e296ee7fe73f53f67f5a788d02dd1eee8a3175db673ad4c31e9370c3b",
+  "audit_manifest_sha256": "01c45ad4e5d60e0f347ecbb295f79dfb5c4f84dff58f0593250cb4964e9a4da3",
+  "subject_pack_sha256": "516180e0505c6861d1f0aff648eedb3a17e9a01b6e740db736985eae476d00d1",
   "runtime": {
     "name": "bun",
     "version": "1.3.13"
@@ -24,17 +24,10 @@
   "commands": [
     {
       "role": "subject-full-certification",
-      "process_id": 3537,
+      "process_id": 78863,
       "exit_code": 0,
-      "stdout_sha256": "7b8cdd3061722f75556c4f68e1248bbdbef5c7c6cde96b8c9085a53d563db148",
-      "stderr_sha256": "682402f334a3c86227ec3e1ce40d51c869e38096829fcefc04fbf1ef91c47a92"
-    },
-    {
-      "role": "repository-static-consistency-check",
-      "process_id": 4748,
-      "exit_code": 0,
-      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "stdout_sha256": "ca35b94f2c5b623fccbd1cc9e77eef3e30a6fcf4b045842fc1353f7ae6d8ea32",
+      "stderr_sha256": "84d3981cb5f0b2c5929c8a3e85727a3af9ffc1be22b9c08a84972f4dca33699c"
     }
   ],
   "limitations": [
@@ -43,5 +36,5 @@
     "audit-does-not-expand-public-profiles-or-simulator-semantics",
     "remote-distributed-store-shadow-live-and-real-account-evidence-out-of-scope"
   ],
-  "receipt_sha256": "86c1c97d9208b73e60e6b6a3d52c020627882373c96e26de29d3f1b38160899e"
+  "receipt_sha256": "de3b905329b6282a678bf6df9084df0d4db6552be171d422366a4eb56766fbbc"
 }

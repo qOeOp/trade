@@ -142,4 +142,4 @@ MCP/HTTP/OpenClaw 只能是同一 owner surface 的北向 allowlist，不能建�
 | 跨语言、脚本经 PR 交付 | 受影响 owner / consumer 检查；远端 required `quality` + 四语言 CodeQL |
 | 不经 PR 的本地全仓终结 | `scripts/quality-check.sh` |
 
-详细映射见 [check-contract.md](../engineering/check-contract.md)。
+质量接口见 [Quality Contract](../engineering/code-quality.md)。

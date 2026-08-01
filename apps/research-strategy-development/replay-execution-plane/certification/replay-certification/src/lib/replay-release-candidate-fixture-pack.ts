@@ -63,19 +63,9 @@ const EXPECTED_COMPONENTS: Array<Pick<ReplayReleaseCandidateComponent,
     authority_hash_field: null,
   },
   {
-    role: "certification-suite-registry",
-    path: `${REPLAY_CERTIFICATION_OWNER}/replay-certification-suites.json`,
-    authority_hash_field: null,
-  },
-  {
     role: "evidence-epoch-registry",
     path: "docs/research/reliability/rd-replay-evidence-epoch-registry.json",
     authority_hash_field: null,
-  },
-  {
-    role: "module-consumer-closure",
-    path: `${REPLAY_CERTIFICATION_OWNER}/replay-module-consumer-closure.json`,
-    authority_hash_field: "observed_closure_sha256",
   },
   {
     role: "cross-process-reproducibility",

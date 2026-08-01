@@ -21,25 +21,11 @@
       "authority_hash": null
     },
     {
-      "role": "certification-suite-registry",
-      "path": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-certification-suites.json",
-      "content_sha256": "65f6c013efd74d07f258d7bc4af7b50ca7ff120fba38e0b495dad9e02e85dcda",
-      "authority_hash_field": null,
-      "authority_hash": null
-    },
-    {
       "role": "evidence-epoch-registry",
       "path": "docs/research/reliability/rd-replay-evidence-epoch-registry.json",
       "content_sha256": "24aee273bbc9960d0d388889494db8ca2fd9c88365af1f0c20e33762a6ed1ea0",
       "authority_hash_field": null,
       "authority_hash": null
-    },
-    {
-      "role": "module-consumer-closure",
-      "path": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-module-consumer-closure.json",
-      "content_sha256": "201345c705acad9db3725ab87616306ec024c77e15f9d84ff9e87683abbcb7f8",
-      "authority_hash_field": "observed_closure_sha256",
-      "authority_hash": "ddabe473a112671c7f3338116496d4503987572c5bd6a31d43e00321fbcfc459"
     },
     {
       "role": "cross-process-reproducibility",
@@ -86,9 +72,9 @@
     {
       "role": "operational-readiness",
       "path": "apps/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-operational-readiness.json",
-      "content_sha256": "448eda92797fd1eafc734a7fd52a758d53fd432f49dafde0ce05eee1cf87cdac",
+      "content_sha256": "f68c9711b1d51e5ae63f0aeebe28c2bbc96f1cfe575f4e027ccf87e54fd35c01",
       "authority_hash_field": "registry_sha256",
-      "authority_hash": "2cf98ec04da383310965a93725cacf62fbd5d26c0b70466f09c54cb60db63b6b"
+      "authority_hash": "34ed4d719cf423c88c35be80b928421e30603b9e6390f01e489411edf31a7f98"
     }
   ],
   "profiles": [
@@ -133,5 +119,5 @@
     "fixture-pack-does-not-authorize-release-without-independent-audit",
     "remote-distributed-store-shadow-live-and-real-account-evidence-out-of-scope"
   ],
-  "pack_sha256": "43204f3e296ee7fe73f53f67f5a788d02dd1eee8a3175db673ad4c31e9370c3b"
+  "pack_sha256": "516180e0505c6861d1f0aff648eedb3a17e9a01b6e740db736985eae476d00d1"
 }

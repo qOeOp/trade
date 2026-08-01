@@ -2,20 +2,19 @@
 
 ## Authority and scope
 
-- 以用户要求的可观察结果决定修改代码还是文档；用户指定文件时直接以该文件为目标，不因请求未指定路径而默认改文档。
-- 文档分层、authority、状态和归档规则以 `docs/README.md` 为准。产品、架构、runtime、research、engineering 内容进入对应目录；单模块合同留在模块 `CONTRACT.md`。
-- 当前手写文档按 `docs/README.md` 声明元数据并登记到 `docs/engineering/doc-contract-index.json`；最低检查是 `bun scripts/check-doc-contracts.ts`。
-- `.agents/skills/` 只承载 Codex 工作流说明和无项目依赖的确定性 helper，不承载领域实现、schema、数据库、第二套 CLI 或独立 authority。
+- 以用户要求的可观察结果决定修改代码还是文档；用户指定文件时直接以该文件为目标。
+- 产品与跨模块语义放在 `docs/`，单模块输入输出留在模块 `CONTRACT.md`；文档用于解释和导航，不作为源码排版、目录或命名的机器裁判。
+- 项目质量只公开两个稳定接口：根 `bun run check` 与每个 package 的 `scripts.check`。中央检查不得复制 package 内部命令、测试文件名、源码文本或当前目录拓扑。
+- `.agents/skills/` 是可选 Codex 工作流，不是项目质量 authority；只有用户或 skill 自身触发规则明确要求时才使用，不因仓库内非平凡修改自动启用。
 
 ## Implementation
 
 - 采用能闭合当前结果的最简单实现；优先复用现有 owner、入口和合同，不为单次逻辑新增抽象层。
-- `.agents/skills/run-bounded-mission/SKILL.md` 的 frontmatter description 是该 workflow 的唯一触发 owner。本仓库只声明其中的 repository-required 分支：仓库内非平凡实现或交付必须使用 `$run-bounded-mission`；其余入口、显式调用优先级与排除项均由该 description 判定，本文件不重复分类。
-- skill 自动触发不授权创建独立 Codex task；只有用户明确要求新 task 时才可创建，内部子问题留在当前 task。
-- 只修改当前结果需要的范围，不顺带重构、扩展职责或预先设计尚未决定的 tool、记录模型和策略流程。
-- 只有宣称新增或完成用户功能时，才要求通过既有 runtime、CLI 或 server consumer 展示行为；文档修正、局部缺陷和内部维护按实际影响面验证，不强制制造跨 owner 改动。
-- 受影响边界必须进入修改面或验收面，但无证据表明受影响的边界不扩张。
-- 工程检查入口以 `docs/engineering/check-contract.md` 为准；质量、架构和数据规则由各自 owner 文档定义，`AGENTS.md` 不复制其细节。
+- 每个 repository-visible 非根 `package.json` 必须提供唯一 `name` 和可执行的 `scripts.check`；package 自己决定 compiler、tests 和内部布局。
+- 测试验证公开输入输出、状态转换、失败语义和真实 consumer，不把私有调用顺序、逐字文本、固定文件路径或当前数量当作行为合同。
+- 跨 owner 或 shared contract 改动验证 producer 与直接 consumer；未知影响面运行完整 package contracts，不维护中央路径白名单。
+- 新 required gate 必须有真实风险消费者、稳定接口、失败处置和删除条件；selector、workflow 和文档不得创造领域 policy。
+- 只修改当前结果需要的范围，不顺带预建 tool、记录模型、策略流程或通用质量平台。
 
 ## Safety and conventions
 

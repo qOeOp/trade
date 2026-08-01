@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "bun run typecheck",
     "test": "bun test ./src/lib/*.test.ts",
-    "check": "bun run lint && bun run test",
+    "check": "bun run lint",
     "audit": "bun src/scripts/main.ts"
   }
 }

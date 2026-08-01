@@ -2,7 +2,7 @@ name: repository-quality
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize, reopened]
   push:
     branches: [main]
 
@@ -22,17 +22,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Validate pull request title
-        if: ${{ github.event_name == 'pull_request' }}
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-        shell: bash
-        run: |
-          pattern='^[[:alnum:]][[:alnum:]._-]*(\([^()]+\))?!?: .+'
-          if [[ ! "$PR_TITLE" =~ $pattern ]]; then
-            printf 'pull request title must use Conventional Commits: type(scope): description\n' >&2
-            exit 1
-          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -53,12 +42,10 @@ jobs:
           install "$RUNNER_TEMP/shellcheck-v0.11.0/shellcheck" node_modules/shellcheck/bin/shellcheck
       - name: Verify ShellCheck binary
         run: ./node_modules/.bin/shellcheck --version
-      - name: Ensure ripgrep is available
-        run: command -v rg >/dev/null || (sudo apt-get update && sudo apt-get install --yes ripgrep)
       - run: scripts/quality-check.sh policy
 
-  typescript:
-    name: typescript-${{ matrix.name }}
+  packages:
+    name: packages-${{ matrix.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -70,7 +57,7 @@ jobs:
           - name: odd-packages
             shard: 1/2
     env:
-      QUALITY_TS_SHARD: ${{ matrix.shard }}
+      QUALITY_PACKAGE_SHARD: ${{ matrix.shard }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -78,20 +65,7 @@ jobs:
           bun-version: 1.3.13
       - name: Install repository dependencies
         run: env -u BINANCE_API_KEY -u BINANCE_API_SECRET -u SILICONFLOW_API_KEY bun --no-env-file install --frozen-lockfile --ignore-scripts
-      - run: scripts/quality-check.sh typescript
-
-  replay:
-    name: replay-semantic
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: 1.3.13
-      - name: Install repository dependencies
-        run: env -u BINANCE_API_KEY -u BINANCE_API_SECRET -u SILICONFLOW_API_KEY bun --no-env-file install --frozen-lockfile --ignore-scripts
-      - run: scripts/quality-check.sh replay
+      - run: scripts/quality-check.sh packages
 
   native:
     name: native
@@ -117,24 +91,23 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            apps/**/target
-          key: rust-${{ runner.os }}-${{ hashFiles('apps/**/Cargo.lock') }}
+            **/target
+          key: rust-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
       - run: scripts/quality-check.sh native
 
   quality:
     name: quality
     if: ${{ always() }}
-    needs: [policy, typescript, replay, native]
+    needs: [policy, packages, native]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
       - name: Require every quality leaf
         env:
           POLICY_RESULT: ${{ needs.policy.result }}
-          TYPESCRIPT_RESULT: ${{ needs.typescript.result }}
-          REPLAY_RESULT: ${{ needs.replay.result }}
+          PACKAGES_RESULT: ${{ needs.packages.result }}
           NATIVE_RESULT: ${{ needs.native.result }}
         run: |
-          for result in "$POLICY_RESULT" "$TYPESCRIPT_RESULT" "$REPLAY_RESULT" "$NATIVE_RESULT"; do
+          for result in "$POLICY_RESULT" "$PACKAGES_RESULT" "$NATIVE_RESULT"; do
             test "$result" = success
           done

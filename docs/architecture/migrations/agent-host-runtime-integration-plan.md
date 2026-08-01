@@ -257,7 +257,7 @@ Host 运行状态属于 ops plane。是否新增 durable store、复用 `ops_run
 
 ## 9. 主实施计划
 
-按 `P0 → P8` 顺序连续施工；同一阶段内只有明确标注可并行的测试 / 文档步骤可以并行。每阶段结束按 [Check Contract](../../engineering/check-contract.md) 运行受影响 owner / consumer 检查，并完成 diff review、必要的 secret / workspace hygiene 与临时产物清理；交付端点的全仓 closure 也由该合同决定。失败先修复或记录为有证据的 adoption blocker，不跳过 gate。
+按 `P0 → P8` 顺序连续施工；同一阶段内只有明确标注可并行的测试 / 文档步骤可以并行。每阶段结束按 [Quality Contract](../../engineering/code-quality.md) 运行受影响 package / consumer 的公开检查接口，并完成 diff review、必要的 secret / workspace hygiene 与临时产物清理。失败先修复或记录为有证据的 adoption blocker，不跳过 gate。
 
 | 阶段 | 状态 | 目标 | 阶段 gate |
 | --- | --- | --- | --- |

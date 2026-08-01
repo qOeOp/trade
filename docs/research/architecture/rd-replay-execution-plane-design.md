@@ -103,7 +103,7 @@ P29 已在上述边界内完成：immutable source、同一 half-open bar window
 
 新增能力必须在同一有界 change set 中包含：schema / contract、真实 consumer、golden / tamper / resume evidence、artifact 绑定和 inventory / certification registry 更新。只加 schema、phase 编号或零实例壳不算进展。
 
-完成一个有界能力变更前必须运行 `bun scripts/check-rd-replay-static-consistency.ts` 与 owner checks；前者只检查静态绑定，后者才证明真实执行。
+完成一个有界能力变更前必须运行受影响 package 的 `scripts.check`；发布候选另运行显式 certification。验收以公开结果和执行证据为准，不搜索源码字符串。
 
 ## 10. 有限能力面与发布责任
 
@@ -111,9 +111,9 @@ P29 是最后一个按功能编号推进的 Replay 纵切；`M4-P30` 明确禁�
 
 | 责任面 | 准确含义 | Authority |
 | --- | --- | --- |
-| static surface | 公共入口唯一、opt-in 激活显式、compatibility 隔离、Result/Artifact/Checkpoint epoch 与 certification packages 可机读 | inventory / registry + root static checker |
-| execution evidence | canonical 与 compatibility owner suites 在当前 runtime 中真实执行 | Replay certification owner |
-| release verdict | 对冻结 evidence envelope 重哈希、执行 negative challenges，并在 fresh process 运行 full certification 与 static prerequisite | independent release audit receipt |
+| package quality | 每个 package 的 compiler 与 owner 行为在当前 runtime 中通过公开 `scripts.check` | package owner |
+| execution evidence | 显式 release probes 在当前 runtime 中真实执行 | Replay certification owner |
+| release verdict | 对冻结 evidence envelope 重哈希、执行 negative challenges，并在 fresh process 运行 certification | independent release audit receipt |
 
 所有结论都只相对于**声明的能力包络**，不要求伪造不可能证明的交易所现实。queue、真实 partial-fill、impact、insurance/ADL、cross-margin、borrow 或 Fast 若缺 authority/source/独立实现，必须保持 typed unsupported。
 
@@ -140,13 +140,11 @@ P29 是最后一个按功能编号推进的 Replay 纵切；`M4-P30` 明确禁�
 
 ## 13. Certification owner
 
-Plane 内唯一完整认证入口是 `certification/replay-certification` 的 `bun run certify`。其 registry 必须逐一分类 Plane 下除自身外的全部 package，canonical 与 compatibility 分组顺序执行各 owner 的 `bun run check`，任一失败立即非零退出。Canonical tests 禁止反向 import compatibility；P10/P11/P13 只由 `legacy-portfolio-cycle-certification` 单向消费。该命令聚合已有证据，不产生 release verdict 或新 Artifact；M5 的 fixture pack 与独立 verdict 分别由第 21、22 节的不同 owner 持有。
+Plane 的显式发布认证入口是 `certification/replay-certification` 的 `bun run certify`。普通 repository quality 通过通用 package `scripts.check` 接口验证各 owner；认证入口只运行 Replay 的动态 release evidence probes，不再维护 package 路径分类表或复制 runner 私有测试命令。该命令不产生 release verdict 或新 Artifact；M5 的 fixture pack 与独立 verdict 分别由第 21、22 节的不同 owner 持有。
 
-## 14. Module / production-consumer closure
+## 14. Architecture discovery
 
-`replay-module-consumer-closure.json` 是 M4 最后一门的机器证据。扫描器以 TypeScript AST 读取 `apps/` 下静态 import、export 与 `import()`，排除 test/spec、Replay certification 源码和 Plane tests，避免把认证边误判成生产采用。当前闭包为 23 个 Replay package、66 条指向 Replay package 的生产依赖边；每个 package 必须唯一归类，每条消费者边必须落入 Replay canonical/compatibility runtime、Research Control Plane、Forward Evidence Plane 或 Agent Roles。分类计数与完整闭包 SHA-256 同时校验，新增模块、消费者或依赖变化均 fail closed。
-
-该快照回答“当前谁在生产中依赖 Replay”，不回答“这些依赖都应该长期保留”。特别是现有 canonical 或域外 owner 对 `compatibility/` 的引用仍是迁移债务；闭包登记只防止其隐身，不授予其 canonical 地位。当前只允许 maintenance；执行与发布状态分别由第 13 节 certification owner 和第 22 节 independent audit 持有。
+Replay 的 package 与 consumer 关系按需从 package metadata、公开 imports 和真实 consumer tests 查询，不再冻结为模块数量、目录分类和完整 import graph hash。架构审计可以报告当前关系，但结构变化本身不阻断质量；只有公开 contract 或 consumer 行为改变才需要修复。
 
 ## 15. M5 cross-process reproducibility bundle
 
@@ -156,7 +154,7 @@ Plane 内唯一完整认证入口是 `certification/replay-certification` 的 `b
 
 ## 16. M5 historical Artifact read migration
 
-P10、P11、P13 的 compatibility certification 以两层证据关闭迁移门：独立 synthetic pack 冻结 exact-v1 Manifest、role、commit marker、Result/Evidence identity 与 expected projection；完整 payload reader 另从真实 manifest-last namespace 逐文件校验 ref/raw SHA，再验证 P10 Result、P11 Result/Fingerprint、P13 Accounting/Trial Balance 的自哈希与现金不变量，输出只读 migration receipt。Pack、reader 与动态 certification test 均有冻结指纹；schema、role、payload、源码或 projection 漂移都 fail closed。完整 certification suite 真实执行这些检查；root static checker 不执行 pack，也不签发兼容性结论。
+P10、P11、P13 的 compatibility certification 以两层证据关闭迁移门：独立 synthetic pack 冻结 exact-v1 Manifest、role、commit marker、Result/Evidence identity 与 expected projection；完整 payload reader 另从真实 manifest-last namespace 逐文件校验 ref/raw SHA，再验证 P10 Result、P11 Result/Fingerprint、P13 Accounting/Trial Balance 的自哈希与现金不变量，输出只读 migration receipt。Pack、reader 与动态 certification test 均有冻结指纹；schema、role、payload、源码或 projection 漂移都 fail closed。显式 certification suite 真实执行这些检查；默认 package gate 不执行 release pack，也不签发兼容性结论。
 
 该 reader 没有 writer、数据库、runtime public entrypoint 或经济 authority，不产生 Result v53 / Artifact v55，不修改旧文件，也不把旧 accounting 映射成当前经济语义。Full-payload 证据由冻结测试确定性生成，不等于抽样了生产历史全集；外部生产 corpus 普查和跨版本经济升级仍不在本 gate 内。该 cut-point 完成时 M5 为 `3/9`；后续 gate 见第 17–22 节。
 
@@ -180,18 +178,18 @@ Exactly-once 的权威口径是“同一 deterministic Attempt namespace 最多�
 
 ## 20. M5 operational observability / runbook
 
-`replay-operational-readiness.json` 不创造 telemetry backend，而是冻结已存在的四 profile 可观测合同：Single Trial 的 `run/attempt/lease`、completed/cancelled/failed、typed failure/retryability、checkpoint/cancellation/Artifact；Independent Batch 的 Plan 与完整 child status；Integrated Portfolio 的 Result/Risk/Artifact 三段完成状态；Terminal-aware Cycle 的 Sequence、失败 cycle 与 manifest。Outcome 和已提交 evidence 决定 authority，process exit/stdout 只用于诊断。Registry 同时冻结六类 incident、恢复边界、四条 operator command、Outcome owner source hash 与唯一 [Operations Runbook](../reliability/rd-replay-operations-runbook.md)；任一 field/section/command/source 漂移或 partial evidence、无限重试、自动修复 overclaim 均 fail closed。
+`replay-operational-readiness.json` 不创造 telemetry backend，而是冻结已存在的四 profile 可观测合同：Single Trial 的 `run/attempt/lease`、completed/cancelled/failed、typed failure/retryability、checkpoint/cancellation/Artifact；Independent Batch 的 Plan 与完整 child status；Integrated Portfolio 的 Result/Risk/Artifact 三段完成状态；Terminal-aware Cycle 的 Sequence、失败 cycle 与 manifest。Outcome 和已提交 evidence 决定 authority，process exit/stdout 只用于诊断。Registry 同时冻结六类 incident、恢复边界与公开 `bun run certify` 命令；partial evidence、无限重试或自动修复 overclaim 均 fail closed。Operations Runbook 继续供值班阅读，但不再通过标题、命令文本或源码片段匹配签发认证。
 
 Runbook 固定 preflight、首轮分诊、authority/data-integrity/deterministic/resource/publication/certification 处置、取消/checkpoint、Artifact 损坏、事件包和升级条件。它明确当前只有 local structured Outcome、immutable evidence 与 certification receipt；没有 central durable metrics/logs/traces、dashboard/pager、formal SLO、remote-store operations 或 automatic remediation。本 gate 因此证明“已声明 surface 可值班、限制可审计”，不声称 production observability platform 已建成，也未改变 Runner/Result/模拟语义。该 cut-point 完成时 M5 为 `7/9`；后续 fixture pack 与独立审计见第 21–22 节。
 
 ## 21. Release-candidate fixture pack
 
-`replay-release-candidate-fixture-pack.json` 是 release candidate 的封闭证据清单，不是第二套 Result 或 release verdict。它按 repo-relative content hash 冻结十二项既有 authority：canonical Result fixture、profile evidence、suite、epoch、module/production-consumer closure，以及 reproducibility、historical migration、publication crash recovery、capacity、fault/corruption 与 operational readiness。带自哈希的 registry/bundle 同时核对其内部 authority hash；canonical fixture 还必须回绑 reproducibility probe，不能用任意样本替换。
+`replay-release-candidate-fixture-pack.json` 是 release candidate 的封闭证据清单，不是第二套 Result 或 release verdict。它按 content hash 冻结十项 release evidence：canonical Result fixture、profile evidence、epoch、reproducibility、historical migration、publication crash recovery、capacity、fault/corruption 与 operational readiness。package suite 路径表和 module/consumer closure 已从发布证据删除。带自哈希的 registry/bundle 同时核对其内部 authority hash；canonical fixture 还必须回绑 reproducibility probe，不能用任意样本替换。
 
 四个 public profile 各在独立 fresh Bun process 重跑 exact golden，receipt 记录互异 PID、component-set hash、assertion hash、runtime 与 pack hash 并自哈希。Pack/source/component/authority 任一漂移或缺项均 fail closed；generated Result 不被复制进长期 fixture。证据仍限于 synthetic/owner fixtures 与当前 runtime，不证明 production history corpus、cross-host/runtime、remote/distributed store、shadow/live 或 real account，也不新增 profile、checkpoint 或模拟语义。该 pack 是独立审计的输入，不是发布结论。
 
 ## 22. Independent release audit
 
-最终审计 owner 位于 `research-control-plane/certification/replay-release-audit`，不属于 Replay Plane，也不 import fixture-pack owner 实现。审计 manifest 绑定不再变化的 subject pack 整文件/self hash、auditor/test/static-checker source hash、两条外部命令和三项 negative challenge。Auditor 用自己的 canonical hash 实现逐项重算十二个 component content/authority hash 与四 profile golden source，分别注入 component content、authority 和 release-verdict overclaim 篡改，必须全部拒绝。
+最终审计 owner 位于 `research-control-plane/certification/replay-release-audit`，不属于 Replay Plane，也不 import fixture-pack owner 实现。审计 manifest 绑定 subject pack 整文件/self hash、公开 `certify` 命令和三项 negative challenge，不再冻结 auditor 源码、repository 文件身份或 static input digest。Auditor 用自己的 canonical hash 实现逐项重算十个 component content/authority hash 与四 profile golden source，分别注入 component content、authority 和 release-verdict overclaim 篡改，必须全部拒绝。
 
-动态审计从外部执行 Replay 唯一 `bun run certify` 和 repository static consistency checker，要求 fresh process 全部返回零，再输出含 subject hash、PID、stdout/stderr hash、challenge outcome、runtime、limitations 的持久自哈希 receipt。通过口径严格限定为冻结四 profile 与已声明 evidence envelope；static checker 成功不等于 certification 或 release 成功。production history corpus、cross-host/runtime、remote/distributed store、shadow/live、real account 与未声明 simulator capability 仍不在结论内。后续只允许 maintenance，任何新 capability 或扩大发布范围都必须显式重开架构决定并重新审计。
+动态审计从外部执行 Replay 唯一 `bun run certify`，要求 fresh process 返回零，再输出含 subject hash、PID、stdout/stderr hash、challenge outcome、runtime、limitations 的持久自哈希 receipt。通过口径严格限定为冻结四 profile 与已声明 evidence envelope；production history corpus、cross-host/runtime、remote/distributed store、shadow/live、real account 与未声明 simulator capability 仍不在结论内。后续只允许 maintenance，任何新 capability 或扩大发布范围都必须显式重开架构决定并重新审计。
