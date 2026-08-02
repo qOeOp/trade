@@ -235,6 +235,13 @@ the checkout.
 Do not perform commit, push, PR, merge, deployment, scheduling, live writes, or other shared-state
 effects without authority for that effect.
 
+After the main agent reproduces and classifies a material finding as candidate-local, keep a directly
+obvious one- or two-line correction in the main context. Only when the frozen correction could be a
+low-risk mechanical leaf whose execution saving may exceed its coordination cost, load
+[agent lane routing](references/support-lanes.md) before editing; it owns `fast_builder` admission,
+exact-model observation, and standard-main fallback. Finding judgment, the Mission route, and the
+revision count never select that lane.
+
 Route findings by the highest-boundary rule above. When revision pressure activates, load
 [revision-pressure replan](references/revision-pressure-replan.md) before further mutation.
 
