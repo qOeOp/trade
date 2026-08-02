@@ -20,17 +20,19 @@ interface GitResult {
   stderr: Uint8Array
 }
 
+class BindingRejected extends Error {}
+
 function sha256(bytes: Uint8Array | string): string {
   return createHash("sha256").update(bytes).digest("hex")
 }
 
-function emit(value: unknown, exitCode: number): never {
-  process.stdout.write(`${JSON.stringify(value)}\n`)
-  process.exit(exitCode)
+async function emit(value: unknown, exitCode: number): Promise<void> {
+  await Bun.write(Bun.stdout, `${JSON.stringify(value)}\n`)
+  process.exitCode = exitCode
 }
 
 function reject(reason: string): never {
-  emit({ schema: SCHEMA, status: "rejected", reason }, 1)
+  throw new BindingRejected(reason)
 }
 
 function parseInputs(argv: string[]): Inputs {
@@ -164,6 +166,7 @@ function blobFingerprint(cwd: string, commit: string, path: string, required: bo
   return { present: true as const, oid, sha256: sha256(bytes), size: bytes.length }
 }
 
+try {
 const inputs = parseInputs(Bun.argv.slice(2))
 const initialCwd = process.cwd()
 const repositoryRoot = gitText(initialCwd, ["rev-parse", "--show-toplevel"])
@@ -247,4 +250,8 @@ const binding = {
   replay: { argv: replayArgv },
 }
 const bindingFingerprint = sha256(JSON.stringify(binding))
-emit({ ...binding, binding_fingerprint_sha256: bindingFingerprint }, 0)
+await emit({ ...binding, binding_fingerprint_sha256: bindingFingerprint }, 0)
+} catch (error) {
+  if (!(error instanceof BindingRejected)) throw error
+  await emit({ schema: SCHEMA, status: "rejected", reason: error.message }, 1)
+}
