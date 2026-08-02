@@ -65,7 +65,8 @@ emits at most that many file rows. If it emits the extra row, discard that row, 
 truncation, and stop; otherwise subtract the emitted row count from the remaining limit and continue.
 When merge evidence matters, replace `--no-merges` with `--full-history` and compare each merge only
 with its first parent. Add `--follow` only for one file, use the same commit bound, inspect each commit
-with `git log -1 --follow --format= --numstat --find-renames`, and carry a rename's old path backward.
+with `git --literal-pathspecs log -1 --follow --format= --numstat --find-renames --end-of-options
+'<commit>' -- '<current-path>'`, and carry a rename's old path backward.
 When the repository is shallow, read OIDs from the shell-quoted path returned by
 `git rev-parse --git-path shallow`; mark each matching selected commit and its numstat unavailable,
 exclude it from decisions, and warn that earlier or parent history may be unavailable. Treat any
