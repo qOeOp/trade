@@ -207,12 +207,12 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
     ))
     : undefined
   if (cleanTerminal) {
-    return { status: "passed", reason: "Codex opening review completed cleanly" }
+    return { status: "passed", reason: "Codex review completed cleanly" }
   }
   if (relatedEyes.length > 0) {
-    return { status: "pending", reason: "Codex opening review is still in progress" }
+    return { status: "pending", reason: "Codex review is still in progress" }
   }
-  return { status: "pending", reason: "Codex opening review has not produced a terminal result" }
+  return { status: "pending", reason: "Codex review has not produced a terminal result" }
 }
 
 interface Connection<T> {
