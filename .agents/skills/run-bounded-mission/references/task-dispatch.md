@@ -108,8 +108,8 @@ insertion is a separate request or approved node, never silent widening or repla
 
 One child hosts one Outcome, managed worktree, eventual branch, and at most one pull request. It owns
 its candidate and verification; the hub owns admission, checkpoint, monitoring, source observation,
-and release effects not delegated in the approved packet. Neither mirrors the other's stages or
-lanes. Messages and root turns create no Mission.
+and merge effects. Neither mirrors the other's stages or lanes. Messages and root turns create no
+Mission.
 
 ## Critical-path choreography
 
@@ -122,28 +122,31 @@ work. It creates no child, consent, or effect. A slice keeps only input or prere
 write surface, next effect, freeze, release and invalidation predicates, and output locator; derive
 node facts and retain the locator after consumption.
 
-After a turn, insertion, compaction, or drift, reconcile the checkpoint; only matched or unknown-
-impact slices stay frozen. Once Git predecessors merge, observe the canonical tip, revalidate affected
-evidence, bind a new `ready` packet to that Origin, and ask **Create this task?**; only fresh approval
-creates the child. A non-Git dependent may release at its predecessor's endpoint. Invalidate only
-evidence with a changed source, dependency, base, merge-tree, or declared input.
+After a turn, insertion, compaction, or drift, reconcile the checkpoint; keep only affected or
+unknown-impact slices frozen. Once Git predecessors merge, observe the canonical tip, revalidate
+affected evidence, bind a new `ready` packet to that Origin, and ask **Create this task?**; only fresh
+approval creates the child. A non-Git dependent may release at its predecessor's endpoint. Invalidate
+only evidence with a changed source, dependency, base, merge-tree, or declared input.
 
 Inside one child, independent exact-candidate discovery, evaluation, CI, and security work may fan
 out. Its finding owner validates fan-in, stales affected output, and binds the root gate to the final
-candidate. The hub sees only a decision-changing freeze, release request, or terminal locator, never
-lanes or counts.
+candidate. The hub sees only a decision-changing freeze or terminal locator, never lanes or counts.
 
-For `merged`, existing Authority and effects may delegate one guarded merge only while no sibling can
-merge the same repository and canonical ref. This is live exclusivity, not a stored slot, lease,
-status, or endpoint; different refs still require fully independent effects. Without it, the child
-stops at the barrier and sends one exact-head request; the hub reconciles only its retained ordering,
-authority, or user-approval premise and sends one release.
+A `merged` node derives child delivery as `merge-ready`; child Finalize accepts only at that exact-
+candidate barrier and sends one terminal handoff. Hub Finalize reconciles once, without repeating
+candidate, root, or full-review acceptance: matching Goal and checkpoint authority, the unique
+repository and canonical-ref merge effect, exact head and base, unresolved conversations, required
+final-head and provider signals, mergeability, and queue policy.
 
-Before merging, the child re-observes the GitHub barrier plus `MERGEABLE`, `CLEAN`, and exclusivity.
-Candidate, head, source, base, check, finding, or exclusivity drift returns to the hub without rebase
-or reset. It exact-head merges without admin, auto-merge, a queue, or force and reports
-`MERGED`, candidate head, merge commit, and canonical tip. The hub does not duplicate that read and
-observes the merge at its next checkpoint or source release; dependents wait for the observed merge.
+If those facts match the handoff and [GitHub delivery](github-pr-handoff.md), the hub makes the
+separately authorized guarded exact-head merge in that turn without a release message. Hub-owned
+metadata or authority drift freezes only the effect. Candidate, head, base, merge-tree, finding,
+check, or other affected-input drift stales the handoff; after checkpoint reconciliation, one message
+returns the same child to Verify or Plan for a replacement. It grants no rebase, reset, or merge
+authority. Queue or auto behavior follows GitHub delivery, needs separate authority, and remains
+pending rather than direct-merge evidence. After GitHub reports the exact head merged, record
+`MERGED`, candidate head, merge commit, and canonical tip; dependents wait for that observation.
+Later hygiene belongs to a separately approved Mission.
 
 ## Outcomes discovered during a Mission
 
@@ -191,10 +194,11 @@ Retain the complete editable child prompt in the replacement checkpoint with eve
 - the exact generic child preflight below;
 - the complete initial child prompt, including its five-stage Mission and endpoint.
 
-Freeze the endpoint independently for each node. For a pull-request endpoint, load
-[GitHub delivery](github-pr-handoff.md). An `open` or `merge-ready` packet never grants merge. A
-`merged` packet follows Critical-path choreography using only its existing Authority and external-
-effects facts. A no-pull-request endpoint retains its own falsifiable terminal evidence.
+Freeze one user-approved endpoint for each node. For a `merged` node, derive `merge-ready` for child
+delivery; this owner projection is not another Goal endpoint. Its packet freezes hub merge authority
+and effect and follows Critical-path choreography. For any pull-request endpoint, load
+[GitHub delivery](github-pr-handoff.md); `open` or `merge-ready` never grants merge. A no-pull-request
+endpoint retains its own falsifiable terminal evidence.
 
 End a `ready` packet with the direct question **Create this task?** A `deferred` packet instead ends
 with **Create this task? — unavailable until `<exact prerequisite>`**; a reply to that unavailable
@@ -263,10 +267,8 @@ creation without babysitting setup or child commentary. Inside that mode, the hu
 native monitoring only for the current ready wave or next merge gate. It must use exact `threadId`
 and `hostId` facts and must not poll a queued `clientThreadId`.
 
-The child owns its five stages, candidate, branch, zero-or-one pull request, review closure, and
-cleanup. It merges only when its packet and Critical-path choreography grant that effect; otherwise
-it stops at the shared barrier. The parent does not mirror stages, and the child does not change the
-hub Goal.
+The child owns its five stages through the delivery endpoint and never changes the hub Goal. A
+`merged` node uses the derived `merge-ready` handoff; hub Finalize follows Critical-path choreography.
 
 ## Child controls
 
@@ -281,18 +283,18 @@ at the current monitoring or merge gate:
 - additional history needed for a current decision: use one bounded `read_thread`.
 
 The child proactively reports only material replan, required user authority, publication when it
-changes the endpoint gate, the one release request above, terminal state, or an exception; ordinary
-progress stays in its own task. The hub does not mirror unchanged commentary or timeouts. Events are
-wake hints: reconcile raw Goal, task, Git, and GitHub facts before effects. A blocked child is not
-retried, replaced, or transferred without new authority.
+changes the endpoint gate, terminal handoff or state, or an exception; ordinary progress stays in its
+own task. The hub does not mirror unchanged commentary or timeouts. Events are wake hints: reconcile
+raw Goal, task, Git, and GitHub facts before effects. A blocked child is not retried, replaced, or
+transferred without new authority.
 
 ## Endpoint and overall completion
 
 Compare every node with its own frozen endpoint and evidence owner. A no-pull-request node closes on
-its admitted terminal consumer evidence. A pull-request node closes only under the corresponding
-`open`, `merge-ready`, or `merged` contract in GitHub delivery. Closed or superseded pull requests,
-rejected candidates, pending waits, and blocked nodes remain checkpoint evidence; none silently
-satisfies a different endpoint.
+its admitted terminal consumer evidence. A derived child delivery endpoint is child evidence, not node
+closure. A pull-request node closes only under the corresponding `open`, `merge-ready`, or `merged`
+contract in GitHub delivery. Closed or superseded pull requests, rejected candidates, pending waits,
+and blocked nodes remain checkpoint evidence; none silently satisfies a different endpoint.
 
 Complete the matching overall Goal only after every node still required by its completion boundary
 has exact endpoint evidence, every authorized cancellation is explicit, and the final evidence
@@ -321,7 +323,6 @@ never authorizes an automatic retry, replacement, duplicate create, or host tran
 - Parent hub routing creates or operates a separate child identity.
 - Codex chat Handoff moves the same chat and git state between Local and Worktree; it does not create
   a new Mission or deliver a candidate.
-- A child Mission's GitHub delivery belongs to its own Finalize.
 
 Use `fork_thread`, `handoff_thread`, archival, pinning, and renaming only under their separate current
 host contracts. They are not substitutes for proposal-to-`create_thread` dispatch.
