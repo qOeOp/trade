@@ -192,19 +192,20 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
     return { status: "failed", reason: "Codex returned a non-clean review result" }
   }
 
-  const cleanTerminal = currentProviderSignals.find((signal) =>
-    timestampValue(signal.at) > attemptAt && (
+  const explicitAttemptMatchesCurrentHead = explicitAttemptAt === null
+    || explicitAttemptHead === snapshot.headRefOid
+  const cleanTerminal = explicitAttemptMatchesCurrentHead
+    ? currentProviderSignals.find((signal) => timestampValue(signal.at) > attemptAt && (
       (signal.kind === "reaction"
         && signal.reaction === "THUMBS_UP"
-        && signal.target === attemptTarget
-        && (explicitAttemptAt === null || explicitAttemptHead === snapshot.headRefOid))
+        && signal.target === attemptTarget)
       || (signal.kind === "review"
         && signal.reviewState === "APPROVED"
         && signal.commitOid === snapshot.headRefOid
         && (!signal.body?.trim() || isCleanReview(signal.body)))
       || (signal.kind === "comment" && isCleanComment(signal.body ?? "", snapshot.headRefOid))
-    ),
-  )
+    ))
+    : undefined
   if (cleanTerminal) {
     return { status: "passed", reason: "Codex opening review completed cleanly" }
   }
