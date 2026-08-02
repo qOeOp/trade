@@ -188,13 +188,17 @@ When a test failure can change the candidate, an escaped defect shows that tests
 behavior, or the Mission may restructure tests, load
 [test effectiveness governance](references/test-effectiveness-governance.md) before mutation.
 
-Before solution or reuse research, activate domain-premise classification only when an empirical,
-regulatory, market, or mechanism claim could reverse the affected Plan decision's expected benefit,
-safe or legal scope, architecture, or acceptance evidence. Repository authority, user preference,
-mechanical work, routine status, and simple or no-Mission work do not activate it. Inspect repository
-and supplied evidence first. If current external evidence remains necessary, load [consequential
-ambiguity](references/plan-ambiguity.md) and resolve only that delta before Plan, then bind the claim,
-consequence, evidence or gap, and classification to the affected Plan decision:
+After Mission entry and before solution or reuse research, activate domain-premise classification
+solely when an empirical, regulatory, market, or mechanism claim could reverse the affected Plan
+decision's expected benefit, safe or legal scope, architecture, or acceptance evidence. Apparent size
+or routine shape never overrides that consequence, including for an explicitly invoked small or
+routine-shaped Mission.
+Repository-settled facts, user preference or authority, and mechanical work do not activate it.
+Without an affirmative Mission entry, genuine no-Mission work and ordinary routine status remain
+outside this body under the frontmatter entry contract. Inspect repository and supplied evidence
+first. If current external evidence remains necessary, load
+[consequential ambiguity](references/plan-ambiguity.md) and resolve only that delta before Plan, then
+bind the claim, consequence, evidence or gap, and classification to the affected Plan decision:
 
 - `supported`: continue with the bounded implementation;
 - `testable_hypothesis`: validate before dependent implementation;
