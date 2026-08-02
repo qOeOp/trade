@@ -152,11 +152,13 @@ before execution. New authority never applies retroactively to an operation alre
 rejected.
 
 After context compaction or on a later turn, continue only when the same Mission can be reconstructed
-from conversation and Git evidence. Recovery activates the Frame projection and, when a Plan exists,
-the compatible [Plan projection](assets/plan-projection.md). Reproduce those current projections,
-then retain the exact candidate and effects, decisive evidence, current position and next legal
-operation, observed Stop predicates, and any valid Resume stage. These are copyable conversation
-locators, not persisted workflow state.
+from conversation and Git evidence. If recovery or compaction makes that reconstruction materially
+necessary, activate the Frame projection and, when a Plan exists, the compatible
+[Plan projection](assets/plan-projection.md). An unambiguous later-turn continuation with no other
+activation predicate stays in ordinary prose and loads neither asset. When projection is active,
+reproduce the current projections, then retain the exact candidate and effects, decisive evidence,
+current position and next legal operation, observed Stop predicates, and any valid Resume stage.
+These are copyable conversation locators, not persisted workflow state.
 
 Before continuing, match the Frame and Plan prose, origin, candidate/effects, Stop predicates, next
 legal operation, and any resumable stage. If they cannot exclude a different Mission or candidate,
