@@ -7,6 +7,7 @@ const CLEAN_COMMENT_HEADINGS = new Set([
   "Codex Review: Didn't find any major issues. Bravo.",
   "Codex Review: Didn't find any major issues. :rocket:",
   "Codex Review: Didn't find any major issues. Keep them coming!",
+  "Codex Review: Didn't find any major issues. Another round soon, please!",
 ])
 const REVIEWED_COMMIT = /^\*\*Reviewed commit:\*\* `([0-9a-f]{10,64})`$/
 const CLEAN_COMMENT_SUFFIX = [
