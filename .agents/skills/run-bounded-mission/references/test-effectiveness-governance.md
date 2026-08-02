@@ -70,7 +70,8 @@ roots from authority at both revisions and passes their union; `--scope` only na
 The helper reads immutable Git source and metadata and emits one JSON evidence document. It never
 runs tests or mutation, writes files, infers coverage, or declares deletion safe. Treat its importer,
 duplication, size, mock, timing, and concurrency signals as leads. Parse gaps set
-`import_analysis.status=incomplete`; missing or dynamic evidence stays unresolved, and
+`import_analysis.status=incomplete`; affected non-JavaScript/TypeScript source paths do the same
+with reason `unsupported_language`; missing or dynamic evidence stays unresolved, and
 `no_direct_static_candidate_evidence` does not mean no tests exist. The helper does not recommend an
 action or authorize a Test Refactor Mission.
 
