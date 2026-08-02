@@ -192,6 +192,17 @@ also follows task dispatch.
 
 Inspect the current owner, production entry point when one exists, affected contracts, tests, and
 working-tree state. Choose the smallest vertical change that closes the outcome.
+Before freezing the candidate shape, name the consumer invariant and each representation axis the
+candidate relies on, then ask who closes its value or state space. Admit the axis only when a located
+authority makes it semantically relevant to the consumer contract. When the candidate enumerates or
+otherwise depends on its values or states, also require that authority either makes the exact
+representation part of the consumer contract or defines an exhaustive domain bound to a named
+version with an unknown-value policy. Samples, fixtures, local enums, observed payloads, current path
+presence, configuration declarations, and tool availability do not close a space by themselves. If
+a compatible unseen or changed representation can reach the same consumer outcome without all
+required authority, reject the candidate and remain in Plan.
+When that evidence invalidates an admitted Plan, route it through [revision-pressure
+replan](references/revision-pressure-replan.md).
 For every nontrivial admitted Plan, immediately before Execute emit this compact visible locator:
 
 ```text
