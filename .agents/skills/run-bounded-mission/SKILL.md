@@ -261,6 +261,14 @@ changed whole-candidate locator separately. A full root gate is candidate-bound:
 integrated candidate and repeat it only when an input actually changes or a failure is corrected,
 never because a run-count budget was reached.
 
+Release Verify work from immutable inputs, not another lane's completion. When the final root gate
+and a required independent audit both consume the same frozen candidate locator and neither needs the
+other's output, create the exact commit or named-Origin complete diff and untracked manifest first,
+launch both concurrently, and fan in once. Do not wait for root completion merely to create the
+evaluator locator; mark that root result as pending concurrent evidence in its packet. If one output
+is an admitted input to the other, keep that dependency sequential. Candidate mutation invalidates
+only the evidence whose inputs changed.
+
 Use [architecture sensor evidence](references/architecture-sensor.md) only for material structural
 change, cross-owner effects, or persistent patch pressure.
 

@@ -10,6 +10,9 @@ The main agent always owns Frame, Plan admission, conflict judgment, the writabl
 synthesis, effects, acceptance, and Finalize. A lane returns evidence, a proposal, or a bounded leaf
 diff; it cannot widen scope, authorize an effect, or choose a Mission route.
 
+Classify the work before selecting a route. Model names configure existing roles; they do not define
+the work class or transfer its owner.
+
 ## Route reasoning and build work
 
 | Work | Route | Admission boundary |
@@ -18,10 +21,15 @@ diff; it cannot widen scope, authorize an effect, or choose a Mission route.
 | evidenced structural Plan challenge | high-reasoning `mission_planner` | proposal only; main agent admits or rejects it |
 | ordinary implementation | main agent or one standard builder | frozen owner, path, boundary, candidate shape, and verification route |
 | low-risk mechanical leaf | custom `fast_builder` on exact `gpt-5.3-codex-spark` | every Spark gate below holds |
-| repository fact | fast explorer or deterministic read-only query | every fast evidence gate holds |
-| broader repository, external-evidence, or design question | standard explorer, `mission_researcher`, or `mission_planner` by predicate | one decision-changing question |
+| deterministic repository or environment fact | existing helper or direct read-only command; no agent or model | exact inputs and directly checkable output |
+| bounded repository synthesis | fast explorer | every fast evidence gate holds |
+| bounded current or external evidence | `mission_researcher` | one decision-changing external question |
 | frozen-candidate advisory lens | ordinary read-only support agent | advisory trigger and packet below |
 | independent candidate audit | `mission_evaluator`, or a fresh generic fallback when that route is invalid before inspection | fresh non-builder context, origin-bound policy, exact candidate, and integrity gates |
+
+The role files own their pinned model and reasoning settings. For an unpinned internal route, treat
+the selected model as host-discretionary and do not promise an exact model without observing it.
+User-visible Mission model authority remains with task dispatch.
 
 Use one standard builder for normal implementation after Plan freezes. Give it non-overlapping paths
 and one candidate shape; ambiguity in Plan, authority, owner, boundary, or oracle returns to main.

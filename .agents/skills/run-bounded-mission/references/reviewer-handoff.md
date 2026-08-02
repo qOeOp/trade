@@ -21,6 +21,11 @@ candidate-controlled policy or a host policy that rejects the available tool sur
 agent may review only when it independently satisfies this complete packet. Record that fallback as
 integrity-checked, not sandbox-enforced; role names and prompts are not isolation evidence.
 
+A final root gate is not a packet prerequisite when it consumes the same immutable candidate and its
+output is independent of the audit question. Record it as `pending concurrent fan-in` under unchecked
+evidence, launch the evaluator without that output, and let the main agent fan in both results. Keep
+the routes sequential when the admitted audit question actually consumes the root result.
+
 Fingerprint the candidate diff or commit, an ordered untracked manifest with the content identity of
 every file and symlink target, the Origin review worktree, and relevant worktree status immediately
 before dispatch. Reject unsupported untracked filesystem types. Give the evaluator no write or external-effect
@@ -79,6 +84,7 @@ Candidate
 Evidence
 - consumer invocation, status, and raw output or artifact identity:
 - regression invocations, status, and raw output or artifact identity:
+- concurrently pending independent evidence and locator:
 - governing repository instructions:
 - unavailable or unchecked evidence:
 
