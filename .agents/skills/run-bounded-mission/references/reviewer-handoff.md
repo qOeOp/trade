@@ -11,12 +11,25 @@ candidate cannot change. When the candidate changes instructions, skills, agent 
 discovery, judges, or reviewer policy, supply it only as an object or complete diff; never launch
 from its checkout or let it control automatic discovery.
 
-Fingerprint immediately before dispatch:
+Immediately before dispatch, run the repository-owned binding helper from the clean Origin control
+plane. Supply the repository identity, Origin, committed candidate, enforcement mode, and each
+relevant Origin instruction, skill, agent, reviewer-policy, and consumer file as a repeated
+`--required-file`:
 
-- Origin and candidate commits, trees, parent set, complete binary diff, and changed-path list;
-- every relevant Origin instruction, skill, agent, reviewer-policy, and consumer byte sequence;
-- tracked status plus an ordered untracked manifest containing path, type, content hash, or symlink
-  target for every entry; reject unsupported filesystem types.
+```text
+bun .agents/skills/run-bounded-mission/scripts/evaluator-binding.ts \
+  --repository <owner/name> \
+  --origin <origin> \
+  --candidate <candidate> \
+  --enforcement <sandbox-enforced|integrity-checked> \
+  --required-file <repo-relative-path> [...]
+```
+
+Require exit zero and one `mission-evaluator-binding/v1` JSON line with `status=bound`. Paste that
+line into the packet verbatim. Never transcribe, abbreviate, summarize, or manually replace its Git
+facts. The helper derives the complete commits, trees, actual parent set and Origin relationship,
+binary diff, changed paths, required blob hashes, clean control-plane status, replay argv, and one
+binding fingerprint. A rejection freezes launch; do not repair its facts in prose.
 
 Give no mutation or external-effect authority. A write-capable host surface is an observed risk, not
 automatic unavailability: admit `integrity-checked` behavioral read-only review only when the packet
@@ -33,7 +46,7 @@ that agent independently satisfies this entire packet. Record the changed route 
 `running` state, elapsed time, or repeated wait is not proof of stall and does not authorize fallback.
 With no valid route, return the precise unavailable capability and do not claim an audit.
 
-## Dispatch locator first
+## Dispatch binding first
 
 Send only this compact packet. Repeat the exact frozen Frame and admitted Plan prose; do not copy
 the transcript. Put object locators, the one lens, and replay bytes before supporting claims so the
@@ -42,22 +55,20 @@ evaluator can reject a mismatch without broad repository reading.
 ```text
 Purpose: independent candidate audit
 
-Locator
-- Origin commit and review checkout:
-- candidate commit, or Origin plus complete diff and untracked material:
-- candidate fingerprint and changed paths:
-- control-plane and worktree fingerprints:
+Binding
+- exact `mission-evaluator-binding/v1` stdout line:
 
 Admission
 - planned launch context: dedicated evaluator | fresh generic fallback
 - instruction origin and automatic discovery boundary:
-- enforcement required: sandbox-enforced | integrity-checked
 - parent receipt route: <exact parent identity/tool, or unavailable>
 - activation predicate and one independent risk lens:
 - required inspected scope and compatible stop boundary:
 
 Replay
-- exact commands or supplied bytes for candidate binding:
+- independently compare every binding Git object and fingerprint; rerun its exact argv when the
+  helper belongs to Origin, or inspect the helper diff and replay the Git facts without executing
+  candidate-controlled code when the helper itself is under review:
 - exact consumer/regression commands and expected evidence shape:
 - evidence groups whose completion can emit progress:
 - concurrently pending evidence and locator:
