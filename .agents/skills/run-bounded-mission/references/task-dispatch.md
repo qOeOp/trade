@@ -63,6 +63,12 @@ retain only the evidence needed to reconstruct the next legal effect:
 - pull request, candidate head, checks, discovery disposition, conversations, and endpoint gate;
 - terminal evidence, including the prior completed Goal observation when replacement is proposed.
 
+When assessment is active, retain one checkpoint-level assessment block outside the per-node list.
+It contains either the complete frozen object, rows, baseline scores, maturity, evidence locators,
+targets, weight rationales, critical floors, comparison/scenario controls, cost methods, and required
+endpoint-bound reassessment, or one exact immutable content locator plus hash covering those fields.
+Record assessed node labels once in that block; nodes do not copy the report or its metadata.
+
 The checkpoint is conversation evidence, not Goal prose, repository state, a registry, status model,
 queue, ledger, daemon, scheduler, database, retry engine, or lifecycle. Native task tools own task
 identity; Git and GitHub own repository facts. Labels create no scheduling policy.
@@ -315,6 +321,15 @@ handoff is retained. Do not force `open` or `merge-ready` nodes to merge, manufa
 for a no-PR endpoint, or let a child update the Goal. If progress is unavailable, preserve the full
 checkpoint and use `blocked` only when the Goal tool contract and the main skill's evidence predicate
 both permit it.
+
+When the overall Plan activated an evidence assessment, the hub runs its reassessment only after the
+required nodes are terminal. Use one named integrated head only when every assessed node merged into
+the same declared canonical source and the observed head contains every candidate; otherwise use the
+complete exact terminal candidate-locator set and make no singular integrated-head claim. Use the
+exact PR head for `open`/`merge-ready`, or an exact commit, complete
+preserved diff, or immutable artifact for local/no-PR endpoints. A low score does not reopen an
+accepted child or extend the graph. Preserve each independently valuable gap as a proposal under the
+ordinary admission and consent contract; discard unsupported aggregate gaps.
 
 ## Capability fallback
 

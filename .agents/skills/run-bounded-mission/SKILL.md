@@ -218,6 +218,13 @@ Load [viable alternatives](references/plan-alternatives.md) only when materially
 paths remain. Load [independently falsifiable slices](references/plan-slices.md) only when the route
 needs separable candidate shapes or stopping evidence.
 
+Load [evidence assessment matrices](references/mission-assessment.md) before mutation only when the
+user explicitly requests a scored baseline, scored assessment matrix, or scored before/after report;
+an admitted multi-Mission Goal has a named cross-module quality decision that the comparison can
+change; or an optimization/refactor needs a system baseline to distinguish local gains from overall
+regression. It adds a conditional Plan baseline and endpoint-bound reassessment, not a lifecycle
+stage or acceptance owner. Do not activate it from Mission count, task size, or generic quality alone.
+
 Plan in ordinary prose. Researcher and planner packets quote or locate the relevant prose; only an
 evaluator needs the exact Frame, Plan, and candidate bindings defined by its reviewer packet.
 
@@ -292,6 +299,15 @@ same Mission's Finalize; reload this skill instead of replacing its delivery bar
 publication workflow.
 When the endpoint includes a GitHub pull request, load
 [GitHub delivery](references/github-pr-handoff.md) before publication or merge.
+When an evidence assessment was activated in Plan, a baseline-only read-only request completes with
+the frozen baseline and has no invented post-candidate. Otherwise complete the same-rubric
+reassessment on the exact terminal candidate for one Mission, the exact terminal candidate set when
+the assessed multi-Mission result has no single shared canonical source, or the canonical integrated
+head when every assessed node merged into one declared source and that observed head contains every
+candidate. A terminal locator is the PR head for `open`/`merge-ready`, or an exact commit, complete
+preserved diff, or immutable artifact for a local/no-PR endpoint. Treat scores and deltas as diagnostic evidence; route each
+independently valuable remaining gap through task dispatch instead of silently extending the
+accepted outcome or graph.
 After two or more related Missions are accepted and integrated into the current canonical source
 tip, and every related node in the current completion boundary is terminal, load
 [Refactor Mission proposals](references/refactor-mission-proposal.md) only when that integrated head
