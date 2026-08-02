@@ -182,17 +182,16 @@ Present a short default summary first:
 - falsifiable Acceptance;
 - Authority and external effects.
 
-Retain the complete editable child prompt in the replacement checkpoint with every dispatch field:
+Retain the complete editable child prompt in the replacement checkpoint. For cross-task dispatch,
+quote the active Frame projection and any current Plan projection with exact raw evidence locators,
+never the full transcript. Keep the raw request or a child-accessible exact request locator canonical.
+Also retain:
 
-- outcome and consumer;
-- scope and explicit non-goals;
-- authority and required external effects;
-- falsifiable acceptance;
-- exact Origin, prerequisites, declared source ref/tip when applicable, and revalidation evidence;
 - stable label and exact task title;
+- exact prerequisites, declared source ref and tip, and revalidation evidence not already projected;
 - target project and observed native environment selection;
 - the exact generic child preflight below;
-- the complete initial child prompt, including its five-stage Mission and endpoint.
+- the remaining instructions required to run its five-stage Mission and frozen endpoint.
 
 Freeze one user-approved endpoint for each node. For a `merged` node, derive `merge-ready` for child
 delivery; this owner projection is not another Goal endpoint. Its packet freezes hub merge authority

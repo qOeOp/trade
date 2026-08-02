@@ -21,14 +21,17 @@ effects, admit a Plan, accept a candidate, or choose a route.
 
 ## Frame
 
-Before mutation, state only what changes a decision:
+Before mutation, make only decision-changing Frame facts explicit: outcome and real consumer,
+included scope and non-goals, permitted effects, falsifiable acceptance, current Git Origin, and a
+practical Stop tied to concrete authority, evidence, capability, candidate convergence, boundary
+growth, or repeated-root-cause evidence.
 
-- outcome and real consumer;
-- included scope and explicit non-goals;
-- permitted effects, especially commit, push, PR, deployment, scheduling, secrets, or live writes;
-- falsifiable acceptance evidence;
-- current Git origin and a practical Stop predicate tied to concrete authority, evidence,
-  capability, candidate convergence, boundary growth, or repeated-root-cause evidence.
+After entering Frame, load the reusable [Frame projection](assets/frame-projection.md) only when
+two or more Missions share decision-changing constraints, dependencies, or consumers;
+consequential ambiguity is active; recovery or context compaction must reconstruct the Mission; or
+a Frame or Plan handoff must reach a downstream planner, evaluator, or child task. Otherwise use
+ordinary prose and do not load either projection asset. Projection cannot repair or reinterpret
+initial skill entry.
 
 Treat these fields as the current Frame. Change a material field explicitly before continuing; do
 not silently widen scope, authority, acceptance, or the stop condition.
@@ -149,18 +152,11 @@ before execution. New authority never applies retroactively to an operation alre
 rejected.
 
 After context compaction or on a later turn, continue only when the same Mission can be reconstructed
-from conversation and Git evidence. When that is not otherwise unambiguous, retain or reproduce this
-minimal, copyable current-Mission evidence locator in conversation prose:
-
-```text
-Current Mission evidence
-Frame: <current outcome, consumer, scope/non-goals, authority, acceptance, origin, Stop>
-Plan: <admitted owner, path, boundary, candidate shape, verification route, required action bindings>
-Candidate/effects: <exact commit or complete diff locator; effects already performed>
-Evidence: <decisive checks and remaining blocker>
-Position: <current stage or terminal route; observed Stop predicates and next legal operation>
-Resume: <stage to re-enter after a named blocker is removed, or none>
-```
+from conversation and Git evidence. Recovery activates the Frame projection and, when a Plan exists,
+the compatible [Plan projection](assets/plan-projection.md). Reproduce those current projections,
+then retain the exact candidate and effects, decisive evidence, current position and next legal
+operation, observed Stop predicates, and any valid Resume stage. These are copyable conversation
+locators, not persisted workflow state.
 
 Before continuing, match the Frame and Plan prose, origin, candidate/effects, Stop predicates, next
 legal operation, and any resumable stage. If they cannot exclude a different Mission or candidate,
@@ -173,6 +169,8 @@ also follows task dispatch.
 
 Inspect the current owner, production entry point when one exists, affected contracts, tests, and
 working-tree state. Choose the smallest vertical change that closes the outcome.
+When the Frame projection is active and Plan has decision-changing content, load the Plan projection;
+otherwise keep Plan in ordinary prose and do not load it.
 Plan is read-only. Admit the owner, path, affected boundary, candidate shape, and verification route
 before mutation. For every required nontrivial action outside the main agent's ordinary observed
 capability, also bind its execution owner and exact effect and authority, plus either the necessary
@@ -222,7 +220,8 @@ or an optimization/refactor that must distinguish local gain from system regress
 conditional baseline and terminal reassessment, adds no stage or acceptance owner, and never activates
 from Mission count, task size, or generic quality alone.
 
-Plan in ordinary prose. Researcher and planner packets quote or locate the relevant prose; only an
+Plan remains ordinary prose. When projections are active, downstream packets quote or navigate only
+their relevant current fields and raw evidence locators instead of copying the transcript; only an
 evaluator needs the exact Frame, Plan, and candidate bindings defined by its reviewer packet.
 
 ## Execute
