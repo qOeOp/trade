@@ -3,10 +3,13 @@
 Load only when the frozen endpoint includes a GitHub pull request. GitHub delivery is part of
 Finalize, not a separate lifecycle or a custom merge service.
 
-Freeze the repository, pull request, base, candidate head, endpoint (`open`, `merge-ready`, or
-`merged`), Draft/Ready state, required signals, merge method, and authority for each write:
-publication, comment, review request or submission, thread resolution, repository settings,
-auto-merge or queue changes, and merge.
+Freeze the repository, pull request, base, candidate head, and endpoint (`open`, `merge-ready`,
+`merged`, or `cleanup`). For `open`, `merge-ready`, or `merged`, also freeze the Draft/Ready state,
+required signals, merge method, and authority for each write: publication, comment, review request or
+submission, thread resolution, repository settings, auto-merge or queue changes, and merge. For
+`cleanup`, treat the candidate head as the exact merged head and instead freeze the merge commit and
+evidence, exact inventory, and authority for each cleanup effect; those delivery-only fields and
+authorities do not apply.
 
 Raw GitHub data remains authority for pull-request facts. Use the connected GitHub owner or `gh`
 under its current official contract. The waiter below owns only deterministic Codex opening-
@@ -34,6 +37,10 @@ Close only the exact frozen endpoint:
 - `merge-ready`: satisfy the complete barrier below for the exact candidate without merging it.
 - `merged`: first satisfy the merge-ready barrier, then verify that GitHub merged that exact head
   under separately frozen merge authority.
+- `cleanup`: consume GitHub's exact merged-head evidence, then close only the separately authorized
+  post-merge cleanup contract below; do not rerun publication, opening discovery, merge-ready, or
+  merge barriers. This endpoint belongs only to a direct Mission or hub Finalize after node closure;
+  it is not a task-dispatch pull-request endpoint, child-delivery state, or node closure.
 
 For `open`, complete the Mission's required verification before publication. For `merge-ready` or
 `merged`, an authorized initial head may be published after affected real-consumer and owner checks,
@@ -125,3 +132,56 @@ performed merge is evidence to inspect, not proof that this mission performed an
 
 When behavior is version-sensitive, consult GitHub's current auto-merge documentation and the
 official `gh pr merge` reference before acting.
+
+## Post-merge cleanup
+
+Cleanup is a separately approved effect set after merge, not an implication of publication, merge,
+task ownership, or permission to write the repository. Start only after GitHub reports the exact
+frozen candidate head `MERGED`; record repository, pull request, head, base, merge commit, and
+observation time before inspecting any cleanup target. A pre-existing or externally performed merge
+can satisfy this evidence gate, but grants no cleanup authority.
+
+Freeze an exact inventory before the first effect and retain every exact authorized identity even
+when it is absent. For each artifact record presence as `present`, `absent`, or `unknown`, its
+owner-specific identity and OID, using `N/A` only when it is absent or non-Git, plus its authority and
+recoverability. Include the remote branch; Codex task and observed managed worktree; local branch;
+each local Mission tag and each remote Mission tag as separate artifacts; and the designated
+local-main checkout, local-main OID, remote, canonical full ref, and observed remote-main OID. Keep
+unknown or non-target artifacts out of the inventory. Do not discover a broader cleanup set while
+executing.
+
+Apply only the rows with separately frozen authority. An exact deletion artifact recorded absent
+succeeds as `already_absent`; non-deletion rows use their row-specific status. A pre-effect OID,
+owner, policy, status, or classification mismatch is `preserved` plus its reason, never a request to
+widen authority or force the operation. Use `partial` only when an effect changed state before a
+required postcondition failed; record its actual before/after state, reason, recovery, and dependency
+stop.
+
+| Artifact | Preconditions | Action | Postcondition | Failure disposition |
+| --- | --- | --- | --- | --- |
+| remote candidate branch | Exact full ref, presence, and OID are inventoried separately from merge authority | Preserve it. No current callable owner is proved to atomically bind the expected OID, absence of every open pull-request reference, repository policy, and delete authority; no deletion action is admitted | No branch state changes; an exact post-read records its actual presence and OID, with a present ref reported as `preserved`, never retired | An initially absent ref succeeds as `already_absent`. Drift, protection, an open-PR reference, policy or authority mismatch, or unknown state is preserved with the unavailable-owner capability reason |
+| Codex-managed task/worktree | Exact task and host are terminal, unpinned, confirmed Codex-managed and non-permanent, have no newer activity or user work, and the candidate is recoverable; the observed current Codex app contract owns archive, background managed-worktree retirement, and a restore snapshot for this classification | Archive the exact task through that app owner and observe its background retirement; never remove its directory or run raw `git worktree remove` | Task is archived, managed worktree is absent, and the promised restore snapshot route is recorded | Already fully retired succeeds as `already_equal`. Active, pinned, permanent, dirty, unknown, or pre-effect contract mismatch is preserved. If archive changes task state but retirement or restore evidence is still incomplete, report `partial` and stop dependents |
+| designated local `main` | Exact checkout is on the designated `main`, has empty tracked and untracked status, uses the frozen remote/canonical full ref, still equals the frozen local-main OID, and the observed remote ref still equals the frozen remote-main OID; no user change or divergence is present | Fetch only the explicit remote/full ref without tags, require the fetched ref to equal the frozen remote-main OID, then fast-forward the checkout to that exact OID with `git merge --ff-only <frozen-remote-oid>`; do not use `git pull`, stash, reset, rebase, or switch an unknown checkout | Local `main` and a fresh remote-ref read equal the frozen remote-main OID and the checkout remains clean; record `synchronized` when its OID changed and `already_equal` when it did not | An absent checkout, or any failure before the local-main OID moves, is `preserved` and stops dependents. If it moved but a later remote, cleanliness, or identity postcheck fails, report `partial` with actual before/after state and stop dependents |
+| local candidate branch | Exact local name, full ref, presence, OID, and worktree ownership are inventoried | Preserve it. `git branch -d` does not bind the expected old OID, while expected-OID ref deletion does not enforce worktree ownership; no current native owner binds both, so no deletion action is admitted for ancestry or squash merges | No branch state changes; an exact post-read records its actual presence, OID, and worktree ownership, with a present ref reported as `preserved`, never retired | An initially absent ref succeeds as `already_absent`. Advanced, unmerged, checked-out, worktree-owned, squash-only, or unknown refs are preserved with the unavailable-owner capability reason; never use `-D`, `update-ref`, or a custom helper |
+| local Mission tag | Exact local full tag ref was created for this Mission, was declared ephemeral before cleanup, still equals its frozen local OID, and local-tag cleanup is authorized | Default to preserve. With authority, delete only that explicit local full ref through an expected-OID compare-and-delete owner | An exact local ref read reports absent | Already absent succeeds. Undeclared, non-ephemeral, advanced, unauthorized, or unknown local tags are preserved |
+| remote Mission tag | Exact remote full tag ref is inventoried separately, was created for this Mission, was declared ephemeral before cleanup, still equals its frozen remote OID, and remote-tag cleanup has separate authority and current policy permission | Default to preserve. With authority, delete only that explicit remote full ref through an owner bound to its expected remote OID; never infer its OID from the local tag | An exact remote-ref read reports absent | Already absent succeeds. Undeclared, non-ephemeral, divergent, advanced, policy-blocked, unauthorized, or unknown remote tags are preserved |
+
+Keep the order fail-closed: freeze all rows; retire an eligible managed worktree and synchronize the
+designated local `main` before finalizing the preserved local-branch receipt; and skip every later
+action whose precondition depended on a failed, preserved, or partial earlier row. Independent tag
+effects still need their own authority and current policy observations. Never use unresolved globs,
+broad directories, `-D`, unconditional force, forced worktree removal, or `reset --hard`.
+
+Finish with an exact receipt listing every inventoried artifact as `removed`, `already_absent`,
+`synchronized`, `already_equal`, `preserved`, or `partial`. Record before/after presence and
+owner-specific identity/OID, using `N/A` for absent or non-Git artifacts, plus reason, recoverability,
+and every dependency stop. Managed worktrees use the app's saved snapshot when its observed current
+contract provides one; a deleted tag can be recreated from its frozen OID only while that object
+remains available; a fast-forwarded `main` is not rolled back by cleanup. An idempotent re-run must
+classify the state it actually observes; it never rewrites a prior partial result as success.
+
+Until a current owner proves the missing atomic branch-deletion contracts, Finalize must report the
+aggregate user-visible outcome as safe partial cleanup, not as a `partial` row result, whenever either
+candidate branch remains present and is preserved. An initially absent branch remains
+`already_absent`; when both are absent, do not infer an aggregate partial outcome from the unavailable
+deletion capability. Independently eligible artifacts may still close under their own rows.
