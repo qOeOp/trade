@@ -20,6 +20,12 @@ Close only the exact frozen endpoint:
 - `merged`: first satisfy the merge-ready barrier, then verify that GitHub merged that exact head
   under separately frozen merge authority.
 
+For `open`, complete the Mission's required verification before publication. For `merge-ready` or
+`merged`, an authorized initial head may be published after affected real-consumer and owner checks,
+complete diff inspection, and `git diff --check` so opening discovery can precede the full root gate;
+publication is not the endpoint. After discovery disposition and corrections, run the full root gate
+on the final candidate before the merge-ready barrier. This changes ordering, not verification scope.
+
 ## Opening discovery
 
 Treat a PR-opening automated review as bounded discovery, not acceptance. Collect its complete
@@ -64,12 +70,12 @@ Mission, replacement task, `Stop+1`, or terminal rejection.
 Thread resolution is a separate write authority and may occur only after the finding is verified as
 addressed, inapplicable, duplicate, or non-material; `outdated` alone is not evidence.
 
-For this repository, the automatic native Codex review is an opening-only discovery signal. A
-candidate changed to address its findings invalidates affected candidate-bound verification, but does
-not require another Codex review. Preserve the opening findings, revalidate every disposition against
-the final candidate, Verify and publish that complete candidate, then wait for its complete non-empty
-set of required final-head checks. Request another review only when the frozen Frame or admitted Plan
-separately requires it. Do not create review loops merely to obtain a preferred result.
+For this repository, the automatic native Codex review is opening-only discovery. A correction reruns
+affected evidence but does not require another Codex review. Preserve the findings, revalidate every
+disposition against the final candidate, run the full root gate once that candidate is final, publish
+it, then wait for its complete non-empty final-head checks. Repeat the root gate only when an affected
+input changed or a failure was corrected, never by attempt count. Request another review only when the
+Frame or Plan separately requires it; do not create a review loop for a preferred result.
 
 ## Merge-ready barrier
 
