@@ -12,6 +12,21 @@ Raw GitHub data remains authority for pull-request facts. Use the connected GitH
 under its current official contract. The waiter below owns only deterministic Codex opening-
 discovery classification; it is not acceptance or merge authority.
 
+## Pull request title preflight
+
+Before any pull-request creation or title-edit effect, including `gh pr create` and
+`gh pr edit --title`, resolve the current repository's title authority during Plan. When it
+constrains title shape, bind one repository-owned executable validator shared with the remote gate;
+prose, templates, inferred commit messages, and copied patterns are not validators. Keep this skill
+generic and do not encode repository-specific title formats here. If the repository has no title-
+shape authority, do not invent one.
+
+Generate one proposed title from the Mission outcome under that authority. Immediately before the
+effect, run the admitted validator against that exact string. A missing or stale validator, or a
+nonzero result, freezes before any pull-request effect. On success, pass the same value explicitly
+with `--title`; never let `gh` infer a different title. A changed proposed title requires fresh
+validation.
+
 Close only the exact frozen endpoint:
 
 - `open`: publish the exact candidate to the frozen repository, base, and authorized Draft/Ready
