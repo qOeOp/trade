@@ -51,7 +51,11 @@ interface ImportEdge {
   specifier: string
 }
 
-type ImportAnalysisReason = "parse_error" | "non_literal_module_specifier" | "unsupported_module_syntax"
+type ImportAnalysisReason =
+  | "parse_error"
+  | "non_literal_module_specifier"
+  | "unsupported_module_syntax"
+  | "unsupported_language"
 
 interface TreeEntry {
   path: string
@@ -582,7 +586,10 @@ function readImportEdges(
     }
   }
   const edges: ImportEdge[] = []
-  const incompleteFiles: ImportAnalysisIssue[] = []
+  const incompleteFiles = [...changedSourcePaths]
+    .filter((path) => !isImportSourcePath(path))
+    .sort()
+    .map((path): ImportAnalysisIssue => ({ path, reasons: ["unsupported_language"] }))
   const importSourcePaths = discoverImportSourcePaths(
     candidate,
     candidatePaths,
@@ -821,7 +828,9 @@ function isEntrypoint(owner: string, path: string): boolean {
 }
 
 function isSourcePath(path: string): boolean {
-  return sourceExtensions.some((extension) => path.endsWith(extension)) && !isTestPath(path)
+  return !isTestPath(path)
+    && (sourceExtensions.some((extension) => path.endsWith(extension))
+      || /(?:^|\/)(?:src|proto)(?:\/|$)/.test(path))
 }
 
 function isImportSourcePath(path: string): boolean {
