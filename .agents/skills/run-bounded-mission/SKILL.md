@@ -21,17 +21,21 @@ effects, admit a Plan, accept a candidate, or choose a route.
 
 ## Frame
 
-Before mutation, make only decision-changing Frame facts explicit: outcome and real consumer,
-included scope and non-goals, permitted effects, falsifiable acceptance, current Git Origin, and a
-practical Stop tied to concrete authority, evidence, capability, candidate convergence, boundary
-growth, or repeated-root-cause evidence.
+Immediately after entry and before any decision-changing probe or candidate mutation, emit this
+visible locator:
 
-After entering Frame, load the reusable [Frame projection](assets/frame-projection.md) only when
-two or more Missions share decision-changing constraints, dependencies, or consumers;
-consequential ambiguity is active; recovery or context compaction must reconstruct the Mission; or
-a Frame or Plan handoff must reach a downstream planner, evaluator, or child task. Otherwise use
-ordinary prose and do not load either projection asset. Projection cannot repair or reinterpret
-initial skill entry.
+```text
+Frame projection
+Outcome / consumer: <observable result; real consumer>
+Included / excluded: <scope; non-goals>
+Authority / effects: <canonical authority; permitted and prohibited effects>
+Acceptance: <falsifiable and unavailable evidence>
+Origin / Stop: <current origin; finite evidence-backed stops>
+```
+
+Use ordinary prose in populated labels; never substitute unlabelled prose or omit
+decision-changing Frame content. The raw request and repository or user authority remain canonical;
+the locator cannot repair skill entry or add authority, identity, or lifecycle state.
 
 Treat these fields as the current Frame. Change a material field explicitly before continuing; do
 not silently widen scope, authority, acceptance, or the stop condition.
@@ -172,14 +176,10 @@ not be mixed into this Mission. Scope expansion always requires `reframe` and a 
 before execution. New authority never applies retroactively to an operation already stopped or
 rejected.
 
-After context compaction or on a later turn, continue only when the same Mission can be reconstructed
-from conversation and Git evidence. If recovery or compaction makes that reconstruction materially
-necessary, activate the Frame projection and, when a Plan exists, the compatible
-[Plan projection](assets/plan-projection.md). An unambiguous later-turn continuation with no other
-activation predicate stays in ordinary prose and loads neither asset. When projection is active,
-reproduce the current projections, then retain the exact candidate and effects, decisive evidence,
-current position and next legal operation, observed Stop predicates, and any valid Resume stage.
-These are copyable conversation locators, not persisted workflow state.
+After compaction or on a later turn, continue only when conversation and Git evidence reconstruct the
+same Mission. When recovery materially requires it, reproduce the current projections and retain the
+exact candidate and effects, decisive evidence, current position and next legal operation, observed
+Stop predicates, and any valid Resume stage. Locators are conversation evidence, not workflow state.
 
 Before continuing, match the Frame and Plan prose, origin, candidate/effects, Stop predicates, next
 legal operation, and any resumable stage. If they cannot exclude a different Mission or candidate,
@@ -192,8 +192,19 @@ also follows task dispatch.
 
 Inspect the current owner, production entry point when one exists, affected contracts, tests, and
 working-tree state. Choose the smallest vertical change that closes the outcome.
-When the Frame projection is active and Plan has decision-changing content, load the Plan projection;
-otherwise keep Plan in ordinary prose and do not load it.
+For every nontrivial admitted Plan, immediately before Execute emit this compact visible locator:
+
+```text
+Plan projection
+Owner / path: <existing owner; exact paths>
+Boundary: <affected consumers and contracts; frozen write surface>
+Candidate: <smallest responsibility and behavior shape>
+Verification: <consumer and owner checks; final gate; unavailable evidence>
+Dependencies / action bindings: <prerequisites; effect owner and authority; capability or gate>
+```
+
+Use ordinary prose in populated labels; never substitute unlabelled prose. A tiny
+Mission with no decision-changing Plan emits only the Frame locator and loads no heavy reference.
 Plan is read-only. Admit the owner, path, affected boundary, candidate shape, and verification route
 before mutation. For every required nontrivial action outside the main agent's ordinary observed
 capability, also bind its execution owner and exact effect and authority, plus either the necessary
@@ -249,9 +260,9 @@ or an optimization/refactor that must distinguish local gain from system regress
 conditional baseline and terminal reassessment, adds no stage or acceptance owner, and never activates
 from Mission count, task size, or generic quality alone.
 
-Plan remains ordinary prose. When projections are active, downstream packets quote or navigate only
-their relevant current fields and raw evidence locators instead of copying the transcript; only an
-evaluator needs the exact Frame, Plan, and candidate bindings defined by its reviewer packet.
+Projection values remain ordinary prose. Downstream packets quote or navigate only their relevant
+current fields and raw evidence locators instead of copying the transcript; only an evaluator needs
+the exact Frame, Plan, and candidate bindings defined by its reviewer packet.
 
 ## Execute
 
