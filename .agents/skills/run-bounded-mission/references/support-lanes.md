@@ -25,7 +25,7 @@ the work class or transfer its owner.
 | bounded repository synthesis | fast explorer | every fast evidence gate holds |
 | bounded current or external evidence | `mission_researcher` | one decision-changing external question |
 | frozen-candidate advisory lens | ordinary read-only support agent | advisory trigger and packet below |
-| independent candidate audit | `mission_evaluator`, or a fresh generic fallback when that route is invalid before inspection | fresh non-builder context, origin-bound policy, exact candidate, and integrity gates |
+| independent candidate audit | `mission_evaluator`, or a fresh generic fallback when that route is invalid before inspection or ends in an explicit terminal transport/capability failure without a valid audit | fresh non-builder context, origin-bound policy, exact candidate, and integrity gates |
 
 The role files own their pinned model and reasoning settings. For an unpinned internal route, treat
 the selected model as host-discretionary and do not promise an exact model without observing it.
