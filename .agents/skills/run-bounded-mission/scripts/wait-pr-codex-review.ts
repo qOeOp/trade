@@ -26,6 +26,7 @@ const CLEAN_COMMENT_SUFFIX = [
 ]
 const USAGE_FAILURE = /(usage limit|rate limit|quota exceeded|try again later)/i
 const REVIEW_REQUEST = /@codex\s+review\b/i
+const EXACT_HEAD_REVIEW_REQUEST = /^@codex review\n\nExact head: `([0-9a-f]{40})`$/
 
 export interface ReviewSignal {
   author: string
@@ -72,6 +73,7 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
 
   let attemptAt = timestampValue(snapshot.createdAt)
   let explicitAttemptAt: number | null = null
+  let explicitAttemptHead: string | null = null
   let attemptTarget = "pull-request"
   let ambiguousAttempt = false
   for (const signal of snapshot.signals) {
@@ -85,6 +87,7 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
     if (requestAt > attemptAt) {
       attemptAt = requestAt
       explicitAttemptAt = requestAt
+      explicitAttemptHead = EXACT_HEAD_REVIEW_REQUEST.exec(signal.body ?? "")?.[1] ?? null
       attemptTarget = signal.target
       ambiguousAttempt = false
     } else if (requestAt === attemptAt && signal.target !== attemptTarget) {
@@ -189,10 +192,11 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
     return { status: "failed", reason: "Codex returned a non-clean review result" }
   }
 
-  const cleanTerminal = currentProviderSignals.find((signal) =>
-    timestampValue(signal.at) > attemptAt && (
-      (explicitAttemptAt === null
-        && signal.kind === "reaction"
+  const explicitAttemptMatchesCurrentHead = explicitAttemptAt === null
+    || explicitAttemptHead === snapshot.headRefOid
+  const cleanTerminal = explicitAttemptMatchesCurrentHead
+    ? currentProviderSignals.find((signal) => timestampValue(signal.at) > attemptAt && (
+      (signal.kind === "reaction"
         && signal.reaction === "THUMBS_UP"
         && signal.target === attemptTarget)
       || (signal.kind === "review"
@@ -200,15 +204,15 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
         && signal.commitOid === snapshot.headRefOid
         && (!signal.body?.trim() || isCleanReview(signal.body)))
       || (signal.kind === "comment" && isCleanComment(signal.body ?? "", snapshot.headRefOid))
-    ),
-  )
+    ))
+    : undefined
   if (cleanTerminal) {
-    return { status: "passed", reason: "Codex opening review completed cleanly" }
+    return { status: "passed", reason: "Codex review completed cleanly" }
   }
   if (relatedEyes.length > 0) {
-    return { status: "pending", reason: "Codex opening review is still in progress" }
+    return { status: "pending", reason: "Codex review is still in progress" }
   }
-  return { status: "pending", reason: "Codex opening review has not produced a terminal result" }
+  return { status: "pending", reason: "Codex review has not produced a terminal result" }
 }
 
 interface Connection<T> {
