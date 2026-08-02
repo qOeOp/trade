@@ -47,10 +47,16 @@ dynamic verification, readability, or boundary closure. Judge minimality by remo
 owners, duplicate authority or state, branches, adapters, exceptions, indirection, and superseded
 paths—not by net diff.
 When bounded history for named paths can change the origin, no-change counterfactual, owner, scope,
-removed invariant, or regression hypothesis, run
-`python3 .agents/skills/run-bounded-mission/scripts/git-path-history.py --format json` with
-repository-relative paths and a bounded revision, date, count, and file range. Use `--follow` only
-for one path whose rename history matters; history never replaces current consumer evidence.
+removed invariant, or regression hypothesis, first record `git rev-parse --is-shallow-repository`,
+then run from the repository root:
+`GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 git --literal-pathspecs log --no-merges --date-order
+--since=<date> --until=<date> --max-count=<limit+1> --format='%H%x09%aI%x09%cI%x09%an%x09%s%x09%P'
+--numstat --find-renames --end-of-options <revision-or-range> -- <repo-relative-path>...`.
+Name only narrow paths below the root, retain at most `<limit>` commits, and record an extra result as
+truncation. Add `--follow` only for exactly one file whose rename history matters. When merge evidence
+matters, replace `--no-merges` with `--full-history --diff-merges=first-parent`. Treat a nonzero exit as
+insufficient evidence; when the repository is shallow, warn that earlier or parent history may be
+unavailable. History never replaces current consumer evidence.
 
 When an unresolved fact could change the candidate, consumer behavior, authority, acceptance, or a
 hard-to-reverse choice, load [consequential ambiguity](references/plan-ambiguity.md).
