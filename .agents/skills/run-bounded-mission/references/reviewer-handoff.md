@@ -89,8 +89,10 @@ Replay
   without executing candidate-controlled code when the helper itself is under review:
 - local candidate: independently hash the supplied complete diff and untracked manifest bytes and
   compare the named Origin and clean review-worktree fingerprint without executing candidate code:
-- exact consumer/regression commands and expected evidence shape:
-- evidence groups whose completion can emit progress:
+- required independent terminal evidence: each causal claim to resolve, its exact command or bytes,
+  expected evidence shape, and the representative refutation that closes it:
+- main/CI-owned corroboration, not an evaluator prerequisite:
+- optional supporting claims, unchecked unless one is the only oracle for this lens:
 - concurrently pending evidence and locator:
 - unavailable or unchecked evidence:
 
@@ -112,9 +114,11 @@ the named parent receipt route, it sends this single-line JSON immediately after
 {"schema":"mission-evaluator-receipt/v1","event":"admitted|unsupported","origin":"<oid>","candidate":"<oid-or-diff-sha256>","fingerprint":"<sha256>","evidence":"<admission fact or precise reason>"}
 ```
 
-After admission, send a `progress` receipt through the same route only when a packet-named evidence
-group actually completes. Use the same keys, set `event` to `progress`, and bind `evidence` to the
-group plus its command status and artifact or output hash. Do not send periodic heartbeats. A newer
+After admission, send a `progress` receipt through the same route only when a packet-named required
+prerequisite actually completes. Use the same keys, set `event` to `progress`, and bind `evidence` to
+the prerequisite plus its command status and artifact or output hash. Do not send periodic
+heartbeats. Terminal return takes precedence: once the required independent evidence is resolved,
+return it instead of sending another receipt or starting corroborative or optional work. A newer
 valid receipt proves evidence progress; an observed host state transition proves runtime progress;
 `running` alone proves only process state. If the host cannot expose receipts, record
 `receipt_route=unavailable`; do not infer evidence progress, stall, failure, or success from waits.
@@ -126,12 +130,16 @@ invalidate only affected evidence and the whole-candidate locator; never rerun u
 
 ## Audit and return
 
-Inspect the complete changed surface, affected callers and consumers, supplied replay evidence, and
-the governing Origin controls. Use the supplied commands or bytes first. Read other repository
-content or history only when a demonstrated candidate claim requires it. Treat success labels and
-caller rationale as claims. Actively try to refute each issue through callers, guards, validation,
-and the consumer effect; ignore lexical, speculative, duplicate, pre-existing, or context-refuted
-claims.
+Independently inspect the complete changed surface, affected consumer closure, and governing Origin
+controls, then run only the required terminal evidence. Causal coverage requires a representative
+refutation for every distinct candidate mechanism, relevant terminal path, and fail-close guard in
+the one lens; corpus size does not make evidence required. Do not repeat the main agent's broad
+matrix or raw corpus unless it is the only oracle for a required claim. Use supplied commands or
+bytes first, and read other content or history only when a required claim makes it probative. Treat
+success labels and caller rationale as claims; actively refute them through callers, guards,
+validation, and consumer effects. Ignore lexical, speculative, duplicate, pre-existing, or
+context-refuted claims. Return the terminal immediately when the complete scope and required causal
+claims are resolved; do not extend into main-owned corroboration or optional supporting claims.
 
 Return exactly:
 
@@ -156,7 +164,11 @@ inspected_scope:
 limits:
 ```
 
-`completed` means the audit ran, not that the candidate passed. Missing evidence is an `unverified`
+`completed` requires the complete changed surface and affected consumer closure plus every required
+independent item resolved as pass or fail; it means the audit ran, not that the candidate passed.
+Use `partial` when an admitted audit leaves a required item unverified, and `unsupported` when the
+binding, independence, or capability cannot admit the audit. Identify each unverified item and its
+boundary precisely. Neither status is acceptance evidence. Missing evidence is an `unverified`
 result or limit, not a finding. Report one finding per root cause and assign severity only from its
 demonstrated acceptance impact.
 
