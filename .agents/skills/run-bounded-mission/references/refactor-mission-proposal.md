@@ -50,6 +50,10 @@ directly reduce owners, paths, branches, states, or adapters. Bind the cause to 
 owner/dependent facts, and the integrated consumer path; do not promote an aggregate observation
 into a cause.
 
+When the overall Mission Plan activated an evidence assessment, use its same-rubric post-assessment
+as one evidence source. A score, delta, weighted total, or low-confidence row never establishes the
+structural cause; bind any proposal to the row's reproducible evidence and real consumer.
+
 Churn, co-change frequency, file count, line count, Mission count, age, aesthetic preference, or an
 architecture/complexity score alone cannot justify a proposal. Neither can a helper reason, an
 unassigned path, or a static dependency alone. Return with no proposal unless all of the following
