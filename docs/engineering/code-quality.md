@@ -15,6 +15,7 @@ last_verified: 2026-08-01 CST
 | 接口 | 保证 |
 | --- | --- |
 | `bun run check` | 本地完整检查入口 |
+| `bun run check:pr-title -- <title>` | PR title 的本地交付检查入口 |
 | package `scripts.check` | package 自己签发 compiler、unit/contract/consumer 行为 |
 | GitHub `quality` | exact PR head 的稳定 merge context |
 | CodeQL contexts | GitHub 签发的静态安全分析 |
@@ -29,17 +30,20 @@ Required merge gate 可以检查：
 - package 公开的 check 是否成功；
 - 真实 owner/consumer 场景是否成功；
 - secret、静态安全和 workspace 副作用；
-- release/runtime owner 输出的结构化状态。
+- release/runtime owner 输出的结构化状态；
+- PR delivery contract 公开的 title 结构。
 
 Required merge gate 不检查：
 
-- Markdown 用词、frontmatter、标题或中央文档索引；
+- Markdown 用词、frontmatter、中央文档标题或索引；
 - 固定目录、模块数量、文件名、测试名或私有调用顺序；
 - 源码是否包含某段文字；
 - 手写 import/path 白名单或生成的“当前代码图”；
 - package 内部命令的逐字拼写。
 
 架构边界通过公开 contract、schema、CLI 和跨 owner consumer tests 证明。若一个约束只能依赖当前路径或源码文本表达，它是迁移提示或审计工具，不是 required quality gate。
+
+PR title 属于 GitHub 交付元数据。`.github/scripts/validate-pr-title.sh` 拥有精确格式，workflow backstop 与本地 delivery preflight 共同调用该 validator，不复制规则。
 
 ## Ownership
 
