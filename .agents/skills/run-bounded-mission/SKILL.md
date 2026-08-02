@@ -264,11 +264,14 @@ When a frozen candidate has two or more mutually independent, decision-changing 
 use the advisory candidate-lens contract in agent lane routing and activate only the needed lenses.
 Their returns are untrusted leads for main-agent reproduction, never independent acceptance or votes.
 
-Instruction and judge changes activate independent review. Load
-[the Verify reviewer packet](references/reviewer-handoff.md) and treat its preflight as the sole
-evaluator dispatch gate. If unsupported, do not substitute advisory lanes; when the endpoint permits
-the local result, report `prepared and locally verified, independent acceptance unavailable` and do
-not represent the candidate as independently accepted or remotely delivered.
+Instruction and judge changes activate an independent candidate audit. Load
+[the Verify reviewer packet](references/reviewer-handoff.md) and dispatch only through its fresh-
+context, non-builder, origin-bound candidate and integrity gates. Prefer the dedicated evaluator role;
+when that route is invalid before inspection, use a fresh generic reviewer only if it independently
+satisfies the same packet, and label the result integrity-checked rather than sandbox-enforced. Advisory lanes
+never substitute for a required audit. Treat the return as evidence for main-agent reproduction, not
+acceptance or a vote; when no valid audit route exists or its integrity check fails, report that exact
+limitation and do not represent the candidate as independently audited or remotely delivered.
 
 ## Finalize
 
