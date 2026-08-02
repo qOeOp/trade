@@ -50,8 +50,10 @@ When bounded history for named paths can change the origin, no-change counterfac
 removed invariant, or regression hypothesis, first record `git rev-parse --is-shallow-repository`,
 then run from the repository root:
 `GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 git --literal-pathspecs log --no-merges --date-order
---since=<date> --until=<date> --max-count=<limit+1> --format='%H%x09%aI%x09%cI%x09%an%x09%s%x09%P'
---numstat --find-renames --end-of-options <revision-or-range> -- <repo-relative-path>...`.
+--since '<date>' --until '<date>' --max-count=<limit+1> --format='%H%x09%aI%x09%cI%x09%an%x09%s%x09%P'
+--numstat --find-renames --end-of-options '<revision-or-range>' -- '<repo-relative-path>'...`.
+Pass every revision, date, and path as its own shell-quoted argument; never leave or interpolate one
+unquoted.
 Name only narrow paths below the root, retain at most `<limit>` commits, and record an extra result as
 truncation. Add `--follow` only for exactly one file whose rename history matters. When merge evidence
 matters, replace `--no-merges` with `--full-history --diff-merges=first-parent`. Treat a nonzero exit as
