@@ -290,8 +290,10 @@ For local-only work, leave the verified diff recoverable and do not commit or pu
 authorized remote endpoint, publish only after the evidence required by its delivery contract; a
 publication is not acceptance. A GitHub `merge-ready` or `merged` route may publish its bounded
 pre-root discovery head only as that reference permits, then must Verify the final candidate before
-its endpoint. Treat later commit, push, PR, or merge authority as this Mission's Finalize; reload this
-skill instead of substituting a generic publication workflow.
+its endpoint. Treat later commit, push, PR, or merge authority as the owning Mission's Finalize. For
+a multi-Mission node ending `merged`, task dispatch projects child delivery as `merge-ready`: child
+Finalize accepts that terminal handoff, while hub Finalize owns merge and node closure. Reload this
+skill instead of a generic publication workflow.
 When the endpoint includes a GitHub pull request, load
 [GitHub delivery](references/github-pr-handoff.md) before publication or merge.
 When an evidence assessment was activated, follow its same-rubric terminal-locator and reassessment
