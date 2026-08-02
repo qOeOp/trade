@@ -28,8 +28,10 @@ bun .agents/skills/run-bounded-mission/scripts/evaluator-binding.ts \
 Require exit zero and one `mission-evaluator-binding/v1` JSON line with `status=bound`. Paste that
 line into the packet verbatim. Never transcribe, abbreviate, summarize, or manually replace its Git
 facts. The helper derives the complete commits, trees, actual parent set and Origin relationship,
-binary diff, changed paths, required blob hashes, clean control-plane status, replay argv, and one
-binding fingerprint. A rejection freezes launch; do not repair its facts in prose.
+binary diff, changed paths, required blob hashes, clean tracked and non-ignored untracked candidate
+material, replay argv, and one binding fingerprint. Gitignored dependency or build material is not
+candidate material and is explicitly outside this attestation. A rejection freezes launch; do not
+repair its facts in prose or treat the binding as a full-filesystem or sandbox claim.
 
 Give no mutation or external-effect authority. A write-capable host surface is an observed risk, not
 automatic unavailability: admit `integrity-checked` behavioral read-only review only when the packet

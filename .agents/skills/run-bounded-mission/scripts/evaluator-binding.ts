@@ -225,8 +225,9 @@ const binding = {
     head: controlHead,
     tree: originTree,
     parents: originParents,
-    status_sha256: sha256(controlStatus),
-    worktree_fingerprint_sha256: sha256(`${controlHead}\0${originTree}\0${sha256(controlStatus)}`),
+    candidate_material_status_sha256: sha256(controlStatus),
+    worktree_candidate_material_fingerprint_sha256: sha256(`${controlHead}\0${originTree}\0${sha256(controlStatus)}`),
+    ignored_material_policy: "excluded_non_candidate",
   },
   origin: { commit: origin, tree: originTree, parents: originParents },
   candidate: {
