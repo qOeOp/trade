@@ -26,6 +26,7 @@ const CLEAN_COMMENT_SUFFIX = [
 ]
 const USAGE_FAILURE = /(usage limit|rate limit|quota exceeded|try again later)/i
 const REVIEW_REQUEST = /@codex\s+review\b/i
+const EXACT_HEAD_REVIEW_REQUEST = /^@codex review\n\nExact head: `([0-9a-f]{40})`$/
 
 export interface ReviewSignal {
   author: string
@@ -72,6 +73,7 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
 
   let attemptAt = timestampValue(snapshot.createdAt)
   let explicitAttemptAt: number | null = null
+  let explicitAttemptHead: string | null = null
   let attemptTarget = "pull-request"
   let ambiguousAttempt = false
   for (const signal of snapshot.signals) {
@@ -85,6 +87,7 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
     if (requestAt > attemptAt) {
       attemptAt = requestAt
       explicitAttemptAt = requestAt
+      explicitAttemptHead = EXACT_HEAD_REVIEW_REQUEST.exec(signal.body ?? "")?.[1] ?? null
       attemptTarget = signal.target
       ambiguousAttempt = false
     } else if (requestAt === attemptAt && signal.target !== attemptTarget) {
@@ -191,10 +194,10 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
 
   const cleanTerminal = currentProviderSignals.find((signal) =>
     timestampValue(signal.at) > attemptAt && (
-      (explicitAttemptAt === null
-        && signal.kind === "reaction"
+      (signal.kind === "reaction"
         && signal.reaction === "THUMBS_UP"
-        && signal.target === attemptTarget)
+        && signal.target === attemptTarget
+        && (explicitAttemptAt === null || explicitAttemptHead === snapshot.headRefOid))
       || (signal.kind === "review"
         && signal.reviewState === "APPROVED"
         && signal.commitOid === snapshot.headRefOid

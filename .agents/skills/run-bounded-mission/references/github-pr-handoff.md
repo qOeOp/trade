@@ -81,6 +81,12 @@ A failed local syntax or read-only preflight freezes only the unissued effect; i
 invalidates the candidate. An ambiguous write result requires a fresh issue-comment read before any
 further action and never permits a duplicate request by assumption.
 
+The waiter may accept the provider's `THUMBS_UP` reaction on that same request comment as a clean
+manual result only when the request is unedited, its body matches the template exactly, its embedded
+full head equals the current snapshot head, and the provider, target, and causal ordering all match.
+A bare legacy request, edited request, stale or wrong head, wrong provider or target, ambiguous order,
+or changed PR head remains outstanding and fail-closed.
+
 Wait through the bounded host loop and run
 `bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --repo <owner/name> <pr-number>`
 as its read-only snapshot owner. Each invocation emits JSON binding `repository`, `pull_request`,
