@@ -55,7 +55,8 @@ Preserve every proposed or approved node still inside the overall completion bou
 retain only the evidence needed to reconstruct the next legal effect:
 
 - stable session label and task title, Outcome and consumer, Scope and non-goals, and Acceptance;
-- owner and write surface, direct `after` predecessors, Authority and external effects, and endpoint;
+- owner and write surface, direct `after` predecessors, Authority, effects, endpoint, and any current
+  release-slice delta;
 - source ref, observed exact tip, prerequisites, and the checks that revalidate them;
 - complete proposed or approved child prompt, approval scope, and create-attempt facts;
 - current Stop predicates, pressure evidence, rejected candidates, findings, and resume gate;
@@ -73,78 +74,76 @@ static contract or fresh-context trace is not runtime proof.
 
 ## Dependency and interruption gates
 
-Nodes with a direct `after` edge, the same owner, overlapping write surfaces, or a shared contract
-serialize. Parallel preparation requires proven independence across owner, surface, contract,
-premise, dependency, and effect; unknown independence returns affected nodes to Plan.
+Nodes without a direct `after` edge keep their whole-Mission parallel path when owner, surface,
+contract, premise, dependency, and effect are independent. The same owner, overlapping write
+surfaces, a shared contract, or unknown independence serializes the nodes.
 
 Before admission, test the complete proposed `after` edge set for acyclicity. Any cycle returns the
 affected graph to hub Plan and permits zero dispatch until an edge or Outcome changes under evidence;
 do not leave every node deferred or add a scheduler, helper, or stored graph to break the cycle.
 
-Also reject any direct `after` edge into a Git-backed node unless every predecessor packet freezes a
-`merged` endpoint on that node's declared canonical source. Do not admit an `open` or `merge-ready`
-predecessor and later force it to merge.
+Every cross-node prerequisite that can block task creation, publication, or merge must be an existing
+direct `after` edge in that cycle check; a release slice cannot hide another graph. Reject an edge
+into a Git-backed node unless every predecessor packet freezes `merged` on its declared canonical
+source. Do not admit `open` or `merge-ready` and later force it to merge.
 
-A downstream node remains serial until every direct predecessor reaches its exact endpoint and its
-premises still hold. For a Git-backed downstream node, a direct `after` edge also requires every
-predecessor candidate to be merged into its declared canonical source; `open` or `merge-ready` does
-not imply merge. Observe the new canonical tip and create the child only from that exact tip. A
-non-Git dependent without integrated source may release at the predecessor's exact endpoint.
-
-If a predecessor is cancelled, keep every affected descendant in the replacement checkpoint and
-return it to Plan. For each, either cancel under current authority, reconnect to a proven alternative
-and revalidate, remain pending for missing Outcome or authority, or prove that the descendant no
-longer depends on the cancelled predecessor. That fourth disposition removes only the evidenced
-edge, binds the node to its newly observed required source ref and exact tip, and re-admits and
-revalidates its Outcome, Acceptance, owner and write conflicts, prerequisites, and endpoint. Call
-that source canonical only when it is the node's declared canonical source. Without that complete
-evidence, edge removal fails and the node stays in one of the other dispositions. Never silently
-delete a required node, erase an edge without evidence, or leave it permanently deferred.
+If a predecessor is cancelled, retain affected descendants and return them to Plan. Each is cancelled
+under current authority, reconnected and revalidated, left pending for missing Outcome or authority,
+or proven independent. Removing the edge requires a newly observed source ref and tip plus re-admitted
+Outcome, Acceptance, owner and write conflicts, prerequisites, and endpoint; call the source canonical
+only when declared. Otherwise the edge remains. Never silently delete or indefinitely defer a node.
 
 A rejected candidate stays with its existing child and inherited Frame, findings, Stop predicates,
 and endpoint. Local corrections remain there; causal pressure follows the main skill inside that
 Mission and authorizes no successor, transfer, or Goal replacement. A true block freezes only
 dependent descendants.
 
-A new turn, user insertion, compaction, or source drift freezes every unissued effect until a full
-checkpoint reconciles. The hub releases one exact merge head at a time. After merge, observe the
-canonical tip and revalidate open pull requests on that ref; nodes on other refs require their own
-ref/tip observation.
+A new turn, user insertion, compaction, or source drift freezes every unissued hub effect until the
+complete checkpoint reconciles; then apply the slice contract below before another effect.
 
-A hub freeze does not pause a running child. Pause, cancel, or reframe only by one authorized message
-to the exact child, then reconcile its candidate and dependents. To continue an explicitly paused
-child, reconcile the complete checkpoint, authority, identity, candidate, and source, then message
-that child once; it re-enters its existing Mission at the stage current facts warrant. This host
-continuation creates no Mission and is not the lifecycle's temporary-blocker `Resume` record unless
-that separate predicate holds. A priority insertion is a separate request or approved graph node,
-never a silent widening or replacement.
+A hub freeze does not pause a child. Pause, cancel, or reframe only by one authorized message to its
+exact identity. Continue it only after reconciling checkpoint, authority, identity, candidate, and
+source, then message once. This host continuation creates no Mission or lifecycle `Resume`. A priority
+insertion is a separate request or approved node, never silent widening or replacement.
 
 One child hosts one Outcome, managed worktree, eventual branch, and at most one pull request. It owns
 its candidate and verification; the hub owns admission, checkpoint, monitoring, source observation,
-and exact-head release. Messages and root turns create no Mission.
+and release effects not delegated in the approved packet. Neither mirrors the other's stages or
+lanes. Messages and root turns create no Mission.
 
 ## Critical-path choreography
 
-Use this choreography only when an earlier authorized merge changes a later candidate's source or
-dependency input. Independent endpoints whose evidence remains valid across sibling delivery keep
-their ordinary parallel path; unknown validity returns ordering to Plan.
+Use this protocol only when an earlier endpoint changes a later source or input; independent paths
+keep their ordinary parallel route.
 
-Independent children build, exercise consumers, and publish authorized endpoints in parallel while
-their inputs remain independent. Only the hub's exact-head merge-release effect is single-slot. A
-Git-backed dependent is not created or prepared until every direct predecessor is merged; its Origin
-is the newly observed canonical tip, never an `open` or `merge-ready` head.
+For an existing `after` edge, the hub may prepare reusable read-only evidence before the predecessor
+closes only when owner, surface, contract, and inputs are independent and the dependency affects later
+work. It creates no child, consent, or effect. A slice keeps only input or prerequisite, owner and
+write surface, next effect, freeze, release and invalidation predicates, and output locator; derive
+node facts and retain the locator after consumption.
 
-An `open` child verifies and reports its published head immediately. A `merge-ready` or `merged`
-child may publish after affected consumer/owner evidence, collect opening discovery, correct findings,
-then run the full root gate once on the final integrated candidate and close final-head CI. It reports
-the exact merge-ready head without a hub publication message. The hub separately releases at most
-one authorized exact-head merge, observes the new canonical tip, and revalidates only sibling evidence
-whose source, dependency, base, or merge-tree input changed. Dependent descendants still wait for
-merge.
+After a turn, insertion, compaction, or drift, reconcile the checkpoint; only matched or unknown-
+impact slices stay frozen. Once Git predecessors merge, observe the canonical tip, revalidate affected
+evidence, bind a new `ready` packet to that Origin, and ask **Create this task?**; only fresh approval
+creates the child. A non-Git dependent may release at its predecessor's endpoint. Invalidate only
+evidence with a changed source, dependency, base, merge-tree, or declared input.
 
-Candidate-local corrections rerun affected evidence; the full root gate repeats only when its input
-changed or a failure was corrected. Counts never decide reuse. The hub classifies staleness but never
-mirrors child gates, discovery, or finding disposition.
+Inside one child, independent exact-candidate discovery, evaluation, CI, and security work may fan
+out. Its finding owner validates fan-in, stales affected output, and binds the root gate to the final
+candidate. The hub sees only a decision-changing freeze, release request, or terminal locator, never
+lanes or counts.
+
+For `merged`, existing Authority and effects may delegate one guarded merge only while no sibling can
+merge the same repository and canonical ref. This is live exclusivity, not a stored slot, lease,
+status, or endpoint; different refs still require fully independent effects. Without it, the child
+stops at the barrier and sends one exact-head request; the hub reconciles only its retained ordering,
+authority, or user-approval premise and sends one release.
+
+Before merging, the child re-observes the GitHub barrier plus `MERGEABLE`, `CLEAN`, and exclusivity.
+Candidate, head, source, base, check, finding, or exclusivity drift returns to the hub without rebase
+or reset. It exact-head merges without admin, auto-merge, a queue, or force and reports
+`MERGED`, candidate head, merge commit, and canonical tip. The hub does not duplicate that read and
+observes the merge at its next checkpoint or source release; dependents wait for the observed merge.
 
 ## Outcomes discovered during a Mission
 
@@ -194,8 +193,8 @@ Retain the complete editable child prompt in the replacement checkpoint with eve
 
 Freeze the endpoint independently for each node. For a pull-request endpoint, load
 [GitHub delivery](github-pr-handoff.md). An `open` or `merge-ready` packet never grants merge. A
-`merged` packet still withholds merge until the hub later supplies separately authorized release for
-one exact verified head. A no-pull-request endpoint retains its own falsifiable terminal evidence.
+`merged` packet follows Critical-path choreography using only its existing Authority and external-
+effects facts. A no-pull-request endpoint retains its own falsifiable terminal evidence.
 
 End a `ready` packet with the direct question **Create this task?** A `deferred` packet instead ends
 with **Create this task? — unavailable until `<exact prerequisite>`**; a reply to that unavailable
@@ -265,9 +264,9 @@ native monitoring only for the current ready wave or next merge gate. It must us
 and `hostId` facts and must not poll a queued `clientThreadId`.
 
 The child owns its five stages, candidate, branch, zero-or-one pull request, review closure, and
-cleanup. It stops at its frozen endpoint; only a `merged` endpoint waits at the merge-ready barrier
-for the hub's exact-head merge release. The parent does not mirror stages, and the child does not
-change the hub Goal.
+cleanup. It merges only when its packet and Critical-path choreography grant that effect; otherwise
+it stops at the shared barrier. The parent does not mirror stages, and the child does not change the
+hub Goal.
 
 ## Child controls
 
@@ -282,10 +281,10 @@ at the current monitoring or merge gate:
 - additional history needed for a current decision: use one bounded `read_thread`.
 
 The child proactively reports only material replan, required user authority, publication when it
-changes the endpoint gate, terminal state, or an exception; ordinary progress stays in its own task.
-The hub does not mirror unchanged commentary or timeouts. Events are wake hints: reconcile raw Goal,
-task, Git, and GitHub facts before effects. A blocked child is not retried, replaced, or transferred
-without new authority.
+changes the endpoint gate, the one release request above, terminal state, or an exception; ordinary
+progress stays in its own task. The hub does not mirror unchanged commentary or timeouts. Events are
+wake hints: reconcile raw Goal, task, Git, and GitHub facts before effects. A blocked child is not
+retried, replaced, or transferred without new authority.
 
 ## Endpoint and overall completion
 
