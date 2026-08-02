@@ -54,12 +54,9 @@ overall completion, or recovery.
 Preserve every proposed or approved node still inside the overall completion boundary. For each node
 retain only the evidence needed to reconstruct the next legal effect:
 
-- stable session label and task title, Outcome and consumer, Scope and non-goals, and Acceptance;
-- owner and write surface, direct `after` predecessors, Authority, effects, endpoint, and any current
-  release-slice delta;
-- source ref, observed exact tip, prerequisites, and the checks that revalidate them;
+- current release-slice delta;
 - complete proposed or approved child prompt, approval scope, and create-attempt facts;
-- current Stop predicates, pressure evidence, rejected candidates, findings, and resume gate;
+- pressure evidence, rejected candidates, findings, and resume gate;
 - observed `clientThreadId`, `threadId`, and `hostId`, leaving unknown values explicit;
 - pull request, candidate head, checks, discovery disposition, conversations, and endpoint gate;
 - terminal evidence, including the prior completed Goal observation when replacement is proposed.
@@ -182,17 +179,16 @@ Present a short default summary first:
 - falsifiable Acceptance;
 - Authority and external effects.
 
-Retain the complete editable child prompt in the replacement checkpoint with every dispatch field:
+Retain the complete editable child prompt in the replacement checkpoint. For cross-task dispatch,
+quote the active Frame projection and any current Plan projection with exact raw evidence locators,
+never the full transcript. Keep the raw request or a child-accessible exact request locator canonical.
+Also retain:
 
-- outcome and consumer;
-- scope and explicit non-goals;
-- authority and required external effects;
-- falsifiable acceptance;
-- exact Origin, prerequisites, declared source ref/tip when applicable, and revalidation evidence;
 - stable label and exact task title;
+- exact prerequisites, declared source ref and tip, and revalidation evidence not already projected;
 - target project and observed native environment selection;
 - the exact generic child preflight below;
-- the complete initial child prompt, including its five-stage Mission and endpoint.
+- the remaining instructions required to run its five-stage Mission and frozen endpoint.
 
 Freeze one user-approved endpoint for each node. For a `merged` node, derive `merge-ready` for child
 delivery; this owner projection is not another Goal endpoint. Its packet freezes hub merge authority
