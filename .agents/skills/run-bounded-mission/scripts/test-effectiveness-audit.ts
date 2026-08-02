@@ -828,7 +828,9 @@ function isEntrypoint(owner: string, path: string): boolean {
 }
 
 function isSourcePath(path: string): boolean {
-  return sourceExtensions.some((extension) => path.endsWith(extension)) && !isTestPath(path)
+  return !isTestPath(path)
+    && (sourceExtensions.some((extension) => path.endsWith(extension))
+      || /(?:^|\/)(?:src|proto)(?:\/|$)/.test(path))
 }
 
 function isImportSourcePath(path: string): boolean {
