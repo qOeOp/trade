@@ -14,12 +14,17 @@ from its checkout or let it control automatic discovery.
 Choose one binding route from the frozen candidate form:
 
 - For an exact committed candidate, immediately before dispatch run the repository-owned binding
-  helper from the clean Origin control plane. Supply the repository identity, Origin, candidate,
-  enforcement mode, and each relevant Origin instruction, skill, agent, reviewer-policy, and
-  consumer file as a repeated `--required-file`:
+  helper with the clean Origin control plane as its working directory. Use the helper script from
+  Origin when Origin contains those bytes. Only when the candidate itself introduces or changes the
+  helper may the main agent invoke that exact candidate script path for packet construction: bind its
+  candidate commit, path, blob, and actual invocation argv, while keeping the working directory and
+  automatic discovery at Origin. The evaluator never executes that candidate script; it inspects the
+  helper diff and independently replays the emitted Git facts. Supply the repository identity,
+  Origin, candidate, enforcement mode, and each relevant Origin instruction, skill, agent,
+  reviewer-policy, and consumer file as a repeated `--required-file`:
 
 ```text
-bun .agents/skills/run-bounded-mission/scripts/evaluator-binding.ts \
+bun <helper-script> \
   --repository <owner/name> \
   --origin <origin> \
   --candidate <candidate> \
@@ -68,6 +73,8 @@ Binding
 - committed candidate: exact `mission-evaluator-binding/v1` stdout line; or
 - local candidate: named Origin, complete binary diff bytes and hash, ordered non-ignored untracked
   manifest bytes and hash, and clean Origin review-worktree fingerprint:
+- when the candidate introduces or changes the helper: helper source commit, path, blob, and actual
+  packet-construction argv; the evaluator treats the script as evidence and does not execute it:
 
 Admission
 - planned launch context: dedicated evaluator | fresh generic fallback
