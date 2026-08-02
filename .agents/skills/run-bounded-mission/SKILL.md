@@ -37,14 +37,12 @@ Prefer no change, deletion, direct reuse, or a narrower behavior when it closes 
 are solution-selection principles, not acceptance or routing oracles. Treat a requested mechanism
 as a proposal when repository evidence shows that it is broader or harmful.
 
-Line count, file count, diffstat, step count, agent count, and revision count are diagnostic or
-supporting evidence only. Unless the user explicitly defines one as the observable Outcome, none may
-decide Plan admission, Stop, `accept`, `revise`, `replan`, `reframe`, or `blocked`; reject the same
-metric substitution when it appears in a child or task packet. Even an explicit compression request
-cannot trade away required behavior, a real consumer exercise, dynamic verification, readability,
-or owner and boundary closure. Judge minimality by removing unconsumed owners, duplicate authority,
-state, branches, adapters, exceptions, indirection, and superseded paths—not by the sign of a net
-diff.
+Treat line, file, diff, step, agent, and revision counts only as diagnostics unless the user makes
+one the observable Outcome; never let them decide admission, Stop, a route, or acceptance. The same
+rule applies to child packets. Compression cannot trade away required behavior, consumer evidence,
+dynamic verification, readability, or boundary closure. Judge minimality by removing unconsumed
+owners, duplicate authority or state, branches, adapters, exceptions, indirection, and superseded
+paths—not by net diff.
 When bounded history for named paths can change the origin, no-change counterfactual, owner, scope,
 removed invariant, or regression hypothesis, run
 `python3 .agents/skills/run-bounded-mission/scripts/git-path-history.py --format json` with
@@ -218,12 +216,11 @@ Load [viable alternatives](references/plan-alternatives.md) only when materially
 paths remain. Load [independently falsifiable slices](references/plan-slices.md) only when the route
 needs separable candidate shapes or stopping evidence.
 
-Load [evidence assessment matrices](references/mission-assessment.md) before mutation only when the
-user explicitly requests a scored baseline, scored assessment matrix, or scored before/after report;
-an admitted multi-Mission Goal has a named cross-module quality decision that the comparison can
-change; or an optimization/refactor needs a system baseline to distinguish local gains from overall
-regression. It adds a conditional Plan baseline and endpoint-bound reassessment, not a lifecycle
-stage or acceptance owner. Do not activate it from Mission count, task size, or generic quality alone.
+Load [evidence assessment matrices](references/mission-assessment.md) before mutation only for an
+explicitly requested scored report, a named multi-Mission quality decision the comparison can change,
+or an optimization/refactor that must distinguish local gain from system regression. It owns the
+conditional baseline and terminal reassessment, adds no stage or acceptance owner, and never activates
+from Mission count, task size, or generic quality alone.
 
 Plan in ordinary prose. Researcher and planner packets quote or locate the relevant prose; only an
 evaluator needs the exact Frame, Plan, and candidate bindings defined by its reviewer packet.
@@ -272,13 +269,10 @@ use the advisory candidate-lens contract in agent lane routing and activate only
 Their returns are untrusted leads for main-agent reproduction, never independent acceptance or votes.
 
 Instruction and judge changes activate an independent candidate audit. Load
-[the Verify reviewer packet](references/reviewer-handoff.md) and dispatch only through its fresh-
-context, non-builder, origin-bound candidate and integrity gates. Prefer the dedicated evaluator role;
-when that route is invalid before inspection, use a fresh generic reviewer only if it independently
-satisfies the same packet, and label the result integrity-checked rather than sandbox-enforced. Advisory lanes
-never substitute for a required audit. Treat the return as evidence for main-agent reproduction, not
-acceptance or a vote; when no valid audit route exists or its integrity check fails, report that exact
-limitation and do not represent the candidate as independently audited or remotely delivered.
+[the Verify reviewer packet](references/reviewer-handoff.md); it owns the fresh non-builder context,
+Origin-bound policy, exact candidate, dedicated-first fallback, and integrity gates. Advisory lanes
+never substitute, and the main agent must reproduce findings. If no valid audit survives those gates,
+report the limitation and do not claim independent audit or remote delivery.
 
 ## Finalize
 
@@ -293,26 +287,19 @@ Treat a completed outcome as `accept` only when the verified candidate and decis
 recoverably bound to its integrated commit or preserved local diff.
 
 For local-only work, leave the verified diff recoverable and do not commit or publish it. For an
-authorized remote endpoint, publish only the verified candidate and observe the resulting state.
-Treat later authority to commit, push, open a pull request, or merge the preserved candidate as the
-same Mission's Finalize; reload this skill instead of replacing its delivery barriers with a generic
-publication workflow.
+authorized remote endpoint, publish only after the evidence required by its delivery contract; a
+publication is not acceptance. A GitHub `merge-ready` or `merged` route may publish its bounded
+pre-root discovery head only as that reference permits, then must Verify the final candidate before
+its endpoint. Treat later commit, push, PR, or merge authority as this Mission's Finalize; reload this
+skill instead of substituting a generic publication workflow.
 When the endpoint includes a GitHub pull request, load
 [GitHub delivery](references/github-pr-handoff.md) before publication or merge.
-When an evidence assessment was activated in Plan, a baseline-only read-only request completes with
-the frozen baseline and has no invented post-candidate. Otherwise complete the same-rubric
-reassessment on the exact terminal candidate for one Mission, the exact terminal candidate set when
-the assessed multi-Mission result has no single shared canonical source, or the canonical integrated
-head when every assessed node merged into one declared source and that observed head contains every
-candidate. A terminal locator is the PR head for `open`/`merge-ready`, or an exact commit, complete
-preserved diff, or immutable artifact for a local/no-PR endpoint. Treat scores and deltas as diagnostic evidence; route each
-independently valuable remaining gap through task dispatch instead of silently extending the
-accepted outcome or graph.
-After two or more related Missions are accepted and integrated into the current canonical source
-tip, and every related node in the current completion boundary is terminal, load
-[Refactor Mission proposals](references/refactor-mission-proposal.md) only when that integrated head
-contains concrete structural evidence. Acceptance count alone is investigation eligibility, not
-proposal justification. Any justified refactor is a new proposal requiring user approval; the old
-graph does not authorize it. In multi-Mission work only the hub evaluates this trigger after its
-complete checkpoint reconciliation; a child reports terminal evidence but never initiates the
-refactor investigation.
+When an evidence assessment was activated, follow its same-rubric terminal-locator and reassessment
+contract. Scores remain diagnostic; route an independently valuable gap through task dispatch instead
+of extending the accepted outcome or graph.
+After two or more related Missions are accepted and integrated into the canonical tip, and every
+related node in the current completion boundary is terminal, load
+[Refactor Mission proposals](references/refactor-mission-proposal.md) only for concrete structural
+evidence. Count alone is insufficient and any proposal needs new user approval. In multi-Mission
+work only the hub loads it after checkpoint reconciliation; otherwise the main agent owns the
+decision. A child only reports terminal evidence.

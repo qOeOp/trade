@@ -17,28 +17,28 @@ diff; it cannot widen scope, authorize an effect, or choose a Mission route.
 | Frame, Plan admission, cross-owner or safety judgment, finding synthesis, Finalize | high-reasoning main agent | never delegate the decision |
 | evidenced structural Plan challenge | high-reasoning `mission_planner` | proposal only; main agent admits or rejects it |
 | ordinary implementation | main agent or one standard builder | frozen owner, path, boundary, candidate shape, and verification route |
-| low-risk mechanical leaf | `GPT-5.3-Codex-Spark` only when the host exposes that exact capability | every Spark gate below holds |
+| low-risk mechanical leaf | custom `fast_builder` on exact `gpt-5.3-codex-spark` | every Spark gate below holds |
 | repository fact | fast explorer or deterministic read-only query | every fast evidence gate holds |
 | broader repository, external-evidence, or design question | standard explorer, `mission_researcher`, or `mission_planner` by predicate | one decision-changing question |
 | frozen-candidate advisory lens | ordinary read-only support agent | advisory trigger and packet below |
 | independent candidate audit | `mission_evaluator`, or a fresh generic fallback when that route is invalid before inspection | fresh non-builder context, origin-bound policy, exact candidate, and integrity gates |
 
-Use a standard builder for normal implementation after Plan freezes. Give it non-overlapping file
-ownership and one candidate shape; keep one writable winner for overlapping files. It returns to the
-main agent when the Plan, authority, owner, boundary, or oracle becomes ambiguous.
+Use one standard builder for normal implementation after Plan freezes. Give it non-overlapping paths
+and one candidate shape; ambiguity in Plan, authority, owner, boundary, or oracle returns to main.
 
-Use Spark only for a deterministic, low-risk leaf when all of these are frozen and supplied: owner,
-exact paths, affected boundary, candidate shape, acceptance commands, and Stop. The leaf must have no
-design branch and be cheap for the main agent to inspect. Spark never owns Frame, cross-owner Plan,
-public contracts, schemas, dependency or concurrency changes, authentication, authorization,
-security, instructions or judges, live effects, acceptance, or Finalize. Any ambiguity, path growth,
-failed assumption, or unavailable exact model returns the same leaf to the main agent for standard
-handling; do not approximate the route with a differently named fast model.
+Use the repository's `.codex/agents/fast-builder.toml` only for a deterministic low-risk leaf whose
+packet freezes owner, exact paths, affected boundary, candidate shape, acceptance commands, and Stop.
+It must have no design branch and be cheap for main to inspect. Spark never owns Frame, architecture,
+safety or authority judgment, public contracts or schemas, dependency/concurrency changes,
+authentication, instructions or judges, live effects, acceptance, or Finalize. Ambiguity, path
+growth, a failed premise, or absence of the exact model returns the leaf to standard main handling;
+do not approximate with another fast model.
 
-This model routing applies only to internal lanes whose host exposes the capability. Keep the host
-default for a user-visible Codex task unless the user separately authorized that model override. A
-route described here is not capability evidence: observe the exact internal-agent model surface at
-dispatch time, and use standard handling when Spark is absent or unobservable.
+This is an internal custom sub-agent, not a user-visible task per build or revision. At dispatch,
+observe that the host exposes the custom role and its exact model; the TOML or this prose alone is not
+runtime proof. A separately approved user-visible Mission uses task dispatch's `create_thread` route
+and model-consent contract. No qualifying leaf means no probe: defer dynamic proof to the next
+approved leaf.
 
 ## Route read-only evidence
 
@@ -110,22 +110,10 @@ decide acceptance, Stop, revision, or an agent-count budget.
 
 ## Keep independent audit evidence fail-closed
 
-An advisory lane never substitutes for the independent reviewer packet. When an admitted risk lens
-requires an independent audit, load [the reviewer handoff](reviewer-handoff.md). Prefer a fresh-context
-`mission_evaluator`. If that route is invalid before inspecting the candidate, including candidate-
-controlled policy or a host-level tool-surface restriction, use a fresh generic non-builder reviewer
-only when it independently satisfies the same complete packet. In either route,
-reviewer policy and automatically discovered repository instructions come from the frozen Origin or
-another candidate-external neutral context, and the candidate is supplied only by an exact commit or
-complete diff locator. Bind one reviewer to one lens; parallel lenses require the same independence
-and cost gates as advisory fan-out and never become votes.
-
-A write-capable tool surface alone does not make the audit unavailable. The main agent fingerprints
-the candidate, Origin review context, and relevant worktree state before dispatch and rechecks them
-after return. The evaluator receives read-only authority and must use no mutation or external-effect
-tool; any observed mutation, candidate mismatch, builder context, candidate-controlled policy,
-delegation, lateral communication, or missing binding invalidates the return. When no valid route is
-available, do not substitute prompts, ordinary advisory lanes, self-review, or majority agreement;
-report the independent audit as unavailable and apply the endpoint restriction. A fallback result is
-integrity-checked, not sandbox-enforced, and must retain the residual risk of unobservable external
-effects.
+An advisory lane never substitutes for [the reviewer handoff](reviewer-handoff.md). It owns the
+dedicated-first generic fallback, Origin policy, exact-candidate packet, and pre/post integrity gates;
+one reviewer covers one lens and never becomes a vote. A write-capable surface alone is not
+unavailability, but mutation, candidate mismatch, builder context, candidate-controlled policy,
+delegation, lateral communication, or a missing binding invalidates the return. With no valid route,
+report the audit unavailable and apply its endpoint restriction. Generic fallback evidence is
+integrity-checked, not sandbox-enforced.

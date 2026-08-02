@@ -54,7 +54,7 @@ overall completion, or recovery.
 Preserve every proposed or approved node still inside the overall completion boundary. For each node
 retain only the evidence needed to reconstruct the next legal effect:
 
-- stable session label, Outcome and consumer, Scope and non-goals, and falsifiable Acceptance;
+- stable session label and task title, Outcome and consumer, Scope and non-goals, and Acceptance;
 - owner and write surface, direct `after` predecessors, Authority and external effects, and endpoint;
 - source ref, observed exact tip, prerequisites, and the checks that revalidate them;
 - complete proposed or approved child prompt, approval scope, and create-attempt facts;
@@ -63,20 +63,13 @@ retain only the evidence needed to reconstruct the next legal effect:
 - pull request, candidate head, checks, discovery disposition, conversations, and endpoint gate;
 - terminal evidence, including the prior completed Goal observation when replacement is proposed.
 
-When assessment is active, retain one checkpoint-level assessment block outside the per-node list.
-It contains either the complete frozen object, rows, baseline scores, maturity, evidence locators,
-targets, weight rationales, critical floors, comparison/scenario controls, cost methods, and required
-endpoint-bound reassessment, or one exact immutable content locator plus hash covering those fields.
-Record assessed node labels once in that block; nodes do not copy the report or its metadata.
+When assessment is active, retain one checkpoint-level frozen baseline/reassessment block, or one
+exact immutable locator and hash that covers it. Record assessed labels once; nodes do not copy it.
 
-The checkpoint is conversation evidence, not Goal prose, repository state, a registry, status model,
-queue, ledger, daemon, scheduler, database, retry engine, or lifecycle. Native task tools own task
-identity; Git and GitHub own repository facts. Labels create no scheduling policy.
-
-This repository does not provide a runtime Goal, DAG, task-identity, or endpoint enforcer. These
-contracts are therefore static and unproved by repository execution; reconcile each live use with
-raw Goal, native task, Git, and GitHub facts. A fresh-context trace is adversarial evidence, not a
-runtime guarantee, and must not substitute for those owners.
+The checkpoint is conversation evidence, not Goal prose, repository state, a registry, scheduler,
+ledger, retry engine, or lifecycle. Native tasks own identity; Git and GitHub own repository facts.
+Labels add no Mission type or scheduling policy. Reconcile every effect with those live owners; a
+static contract or fresh-context trace is not runtime proof.
 
 ## Dependency and interruption gates
 
@@ -136,26 +129,22 @@ Use this choreography only when an earlier authorized merge changes a later cand
 dependency input. Independent endpoints whose evidence remains valid across sibling delivery keep
 their ordinary parallel path; unknown validity returns ordering to Plan.
 
-Within such an integration wave, independent children may build, exercise real consumers, and freeze
-separate recoverable candidates in parallel, but publication remains unmet until the hub grants one
-release slot. A Git-backed dependent is not created or prepared until every direct predecessor is
-merged; its Origin is the freshly observed canonical tip, never an `open` or `merge-ready` head.
+Independent children build, exercise consumers, and publish authorized endpoints in parallel while
+their inputs remain independent. Only the hub's exact-head merge-release effect is single-slot. A
+Git-backed dependent is not created or prepared until every direct predecessor is merged; its Origin
+is the newly observed canonical tip, never an `open` or `merge-ready` head.
 
-For each slot, the hub observes the canonical ref and tip and messages one exact child. That child
-keeps its Mission, reframes and integrates if Origin changed, revalidates affected owner/consumer
-evidence, runs the root gate on that final integration candidate, and publishes its one PR. An `open`
-endpoint reports that published head immediately. A `merge-ready` or `merged` endpoint first closes
-CI, opening discovery, and findings, then reports the exact head. The hub observes the endpoint; for
-`merged`, it separately releases the authorized exact-head merge and observes the new canonical tip
-before the next slot. `open` or `merge-ready` closes without a manufactured merge and releases only
-the next independent slot; dependent descendants still wait for merge.
+An `open` child verifies and reports its published head immediately. A `merge-ready` or `merged`
+child may publish after affected consumer/owner evidence, collect opening discovery, correct findings,
+then run the full root gate once on the final integrated candidate and close final-head CI. It reports
+the exact merge-ready head without a hub publication message. The hub separately releases at most
+one authorized exact-head merge, observes the new canonical tip, and revalidates only sibling evidence
+whose source, dependency, base, or merge-tree input changed. Dependent descendants still wait for
+merge.
 
-Before release, candidate-local revisions rerun only affected targeted/consumer evidence. Reuse
-requires identical evidence-specific affected inputs, source, dependency, consumer closure,
-configuration, toolchain, and environment; track a changed whole-candidate locator separately. A
-changed final integration candidate or corrected gate invalidates root and final-head evidence;
-counts never decide reruns. The hub classifies staleness but never mirrors child gates, discovery, or
-finding disposition.
+Candidate-local corrections rerun affected evidence; the full root gate repeats only when its input
+changed or a failure was corrected. Counts never decide reuse. The hub classifies staleness but never
+mirrors child gates, discovery, or finding disposition.
 
 ## Outcomes discovered during a Mission
 
@@ -166,10 +155,11 @@ Plan and re-evaluate direct dependencies and conflicts; do not silently dispatch
 test, documentation, performance, security, removal, and other descriptions use the same admission
 contract.
 
-An independent outcome remains proposed while the user edits or withholds approval. Each proposal
-has one stable, session-only label such as `G1`, `R1`, or `F1`. Preserve it across edits, but do not
-persist labels or interpret their prefixes as a Mission type, priority, lifecycle, route, template,
-or dispatch policy. Approval permits one native create attempt for the exact labeled packet.
+An independent outcome remains proposed while the user edits or withholds approval. Its packet owns
+one stable label matching `[A-Z]+-[0-9]{2}` and one title formed exactly as
+`<label> · <short description>`. Preserve both across edits and recovery. They identify the user-visible
+task only; never interpret the label as a Mission type, priority, lifecycle, route, or scheduling
+policy. Approval permits one native create attempt for that exact packet.
 
 ## Proposal and consent
 
@@ -183,7 +173,7 @@ advanced or mismatched source ref, or dirty-only evidence makes it `deferred`.
 
 Present a short default summary first:
 
-- stable label and `ready | deferred`;
+- stable label, exact task title, and `ready | deferred`;
 - why the independent outcome matters now;
 - Outcome and bounded Scope/non-goals;
 - decisive evidence and exact Origin;
@@ -197,6 +187,7 @@ Retain the complete editable child prompt in the replacement checkpoint with eve
 - authority and required external effects;
 - falsifiable acceptance;
 - exact Origin, prerequisites, declared source ref/tip when applicable, and revalidation evidence;
+- stable label and exact task title;
 - target project and observed native environment selection;
 - the exact generic child preflight below;
 - the complete initial child prompt, including its five-stage Mission and endpoint.
@@ -237,38 +228,30 @@ native setup ran.
 
 ## Native dispatch
 
-After consent:
+After consent, revalidate every packet fact and source tip; drift makes it `deferred` or materially
+revised and requires fresh approval. Mark the create attempt issued, call `list_projects`, and inspect
+the selected project's `isGitRepository`. Call `create_thread` once with the approved prompt and the
+observed project/worktree target for Git, or local only for an observed non-Git project that cannot
+share the foreground candidate. Omit `startingState` and model overrides unless approved. Record only
+the returned exact identity or receipt and emit the host's task link/directive.
 
-1. re-run the packet's declared read-only checks against the same owner surfaces and verify every
-   prerequisite, decisive fact, exact Origin, and applicable source ref/tip still matches;
-2. if any fact drifted, do not create a task; refresh the packet as `deferred` or materially revised,
-   preserve its label, and require fresh approval after any material revision;
-3. replace the checkpoint with the approved prompt and `create attempt issued` before calling the
-   host;
-4. call `list_projects` before project-backed creation;
-5. resolve the intended saved project and inspect `isGitRepository`;
-6. for a Git project, call `create_thread` exactly once for each approved proposal with
-   `target.type=project`, the resolved `target.projectId`, and
-   `target.environment.type=worktree`;
-7. for a non-Git project, use `target.environment.type=local` only when the resolved saved project
-   cannot share the foreground candidate; otherwise use capability fallback because the host cannot
-   provide the required independent workspace;
-8. omit `model`, `thinking`, and `startingState` overrides unless the user explicitly requested them;
-9. pass the approved child prompt without silently expanding its outcome or authority;
-10. record the host-provided `threadId`/`hostId` or queued `clientThreadId`, then follow the host
-   contract to emit its created-task link or directive; never invent a URL.
+Keep the host default model for a user-visible Mission unless its packet explicitly authorizes a
+different full-Mission model. Spark's leaf gates cannot own the child's five stages, so never select
+it for this route or create a user-visible task for an internal build/revision leaf. Route the latter
+through the custom `fast_builder` agent and its standard-main fallback.
 
-A returned `clientThreadId` consumes the create attempt but is only its receipt, not a task identity.
-Record it, emit the host-required created-task directive, and never pass it to wait, read, or send
-operations. Freeze dependent dispatch, release, and endpoint effects until the host or user supplies
-an exact immutable `threadId`/`hostId` causally mapped to that receipt. `list_threads` and bounded
-`read_thread` may diagnose candidates or ambiguity, but cannot establish or authorize that mapping:
-even the first otherwise identical task observed after the receipt could be a concurrent or manual
-creation. Until an exact causal mapping arrives, preserve the node as pending identity, keep the
-create attempt consumed, and never duplicate it. Pending identity does not by itself block the
-Mission; `blocked` still requires the main skill's evidence predicate, including no viable path after
-a completed replan when that identity is required for completion. A direct `create_thread` return
-containing `threadId` and `hostId` is usable without discovery inference.
+The packet's label and title have one owner and freeze title creation, exact-identity read, and at most
+one correction effect. If current `create_thread` accepts `title`, pass it in the create call. After an
+exact `threadId` exists, read that exact task and verify the actual title. If the create surface lacks
+`title`, or the verified title differs, use `set_thread_title` once only when its capability and rename
+authority were observed, then read the exact identity again. A remaining mismatch freezes further
+effects. Without a viable create-or-rename plus exact-read path, keep the packet deferred.
+
+A returned `clientThreadId` consumes the create attempt but is only a receipt. Record and emit it;
+never rename it or pass it to wait, read, or send. Freeze identity-dependent effects until the host
+or user causally maps it to an exact `threadId`/`hostId`; list/search resemblance cannot prove that
+mapping. Then perform the pending exact-title verification before monitoring or release. Preserve
+pending identity without duplicate creation; it is not itself a Mission `blocked` predicate.
 
 An explicit create failure with proof that no task effect occurred also preserves the exact approved
 prompt. Retrying requires fresh authority and revalidation; when prior creation may have succeeded,
@@ -281,12 +264,10 @@ creation without babysitting setup or child commentary. Inside that mode, the hu
 native monitoring only for the current ready wave or next merge gate. It must use exact `threadId`
 and `hostId` facts and must not poll a queued `clientThreadId`.
 
-The child independently owns `Frame → Plan → Execute → Verify → Finalize`, its candidate, branch,
-zero-or-one pull request, publication, review closure, and cleanup. In multi-Mission mode its
-Finalize stops at its frozen endpoint. In a serialized integration wave it prepares locally until
-the hub releases its publication slot; a `merged` endpoint then waits at the merge-ready barrier for
-the exact-head merge release. The parent does not run or mirror the child's stages, and the child
-does not create or update the hub Goal.
+The child owns its five stages, candidate, branch, zero-or-one pull request, review closure, and
+cleanup. It stops at its frozen endpoint; only a `merged` endpoint waits at the merge-ready barrier
+for the hub's exact-head merge release. The parent does not mirror stages, and the child does not
+change the hub Goal.
 
 ## Child controls
 
@@ -300,12 +281,11 @@ at the current monitoring or merge gate:
   and the feedback in `prompt`, then return immediately;
 - additional history needed for a current decision: use one bounded `read_thread`.
 
-The child proactively reports only Frame freeze, material replan, required user authority, candidate
-publication, terminal state, or an exception; while actively working it still provides concise
-user-visible progress under the host's timing contract. The hub does not mirror unchanged commentary
-or treat an unchanged timeout snapshot as progress. Events are wake hints: reconcile raw Goal, task,
-Git, and GitHub facts before any effect. If a child blocks, apply the replacement checkpoint and
-dependency rules; do not retry, replace, or transfer it without new authority.
+The child proactively reports only material replan, required user authority, publication when it
+changes the endpoint gate, terminal state, or an exception; ordinary progress stays in its own task.
+The hub does not mirror unchanged commentary or timeouts. Events are wake hints: reconcile raw Goal,
+task, Git, and GitHub facts before effects. A blocked child is not retried, replaced, or transferred
+without new authority.
 
 ## Endpoint and overall completion
 
@@ -322,14 +302,9 @@ for a no-PR endpoint, or let a child update the Goal. If progress is unavailable
 checkpoint and use `blocked` only when the Goal tool contract and the main skill's evidence predicate
 both permit it.
 
-When the overall Plan activated an evidence assessment, the hub runs its reassessment only after the
-required nodes are terminal. Use one named integrated head only when every assessed node merged into
-the same declared canonical source and the observed head contains every candidate; otherwise use the
-complete exact terminal candidate-locator set and make no singular integrated-head claim. Use the
-exact PR head for `open`/`merge-ready`, or an exact commit, complete
-preserved diff, or immutable artifact for local/no-PR endpoints. A low score does not reopen an
-accepted child or extend the graph. Preserve each independently valuable gap as a proposal under the
-ordinary admission and consent contract; discard unsupported aggregate gaps.
+When assessment is active, the hub follows its conditional reference after required nodes are
+terminal. Scores do not reopen a child or extend the graph; only an independently admitted gap may
+become a new proposal.
 
 ## Capability fallback
 
