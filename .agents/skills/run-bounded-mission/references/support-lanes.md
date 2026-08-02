@@ -21,7 +21,7 @@ diff; it cannot widen scope, authorize an effect, or choose a Mission route.
 | repository fact | fast explorer or deterministic read-only query | every fast evidence gate holds |
 | broader repository, external-evidence, or design question | standard explorer, `mission_researcher`, or `mission_planner` by predicate | one decision-changing question |
 | frozen-candidate advisory lens | ordinary read-only support agent | advisory trigger and packet below |
-| independent candidate evidence | `mission_evaluator` | reviewer preflight proves trusted capability |
+| independent candidate audit | `mission_evaluator`, or a fresh generic fallback when that route is invalid before inspection | fresh non-builder context, origin-bound policy, exact candidate, and integrity gates |
 
 Use a standard builder for normal implementation after Plan freezes. Give it non-overlapping file
 ownership and one candidate shape; keep one writable winner for overlapping files. It returns to the
@@ -87,7 +87,7 @@ feeds another lens.
 An ordinary advisory agent is only behaviorally read-only. A shared checkout, fresh prompt, or role
 label does not prove isolation. When the candidate controls discovered instructions, skills, agents,
 judges, or reviewer policy, record that contamination and treat the return only as an untrusted lead;
-it cannot satisfy an independent-acceptance requirement.
+it cannot satisfy an independent-audit requirement.
 
 Only after advisory activation and candidate freeze, load
 `../assets/advisory-lens-packet.md`. Copy and fill its complete dispatch packet once per activated
@@ -108,17 +108,24 @@ work in the main context. Use fewer lenses whenever expected elapsed-time or con
 exceed that copied context and coordination cost. These measurements route support only; they never
 decide acceptance, Stop, revision, or an agent-count budget.
 
-## Keep independent acceptance fail-closed
+## Keep independent audit evidence fail-closed
 
-An advisory lane never substitutes for `mission_evaluator`. When an admitted candidate risk lens
-requires independent acceptance, load [the reviewer handoff](reviewer-handoff.md) and run its current
-host preflight exactly once. Dispatch `mission_evaluator` only when trusted host evidence makes that
-preflight exit `0` with `dispatch_allowed=true` and proves read-only authority, a non-builder context,
-candidate-external instruction discovery, a complete read-only tool surface, no delegation, no
-lateral communication, and exact Frame, Plan, candidate, and lens bindings.
+An advisory lane never substitutes for the independent reviewer packet. When an admitted risk lens
+requires an independent audit, load [the reviewer handoff](reviewer-handoff.md). Prefer a fresh-context
+`mission_evaluator`. If that route is invalid before inspecting the candidate, including candidate-
+controlled policy or a host-level tool-surface restriction, use a fresh generic non-builder reviewer
+only when it independently satisfies the same complete packet. In either route,
+reviewer policy and automatically discovered repository instructions come from the frozen Origin or
+another candidate-external neutral context, and the candidate is supplied only by an exact commit or
+complete diff locator. Bind one reviewer to one lens; parallel lenses require the same independence
+and cost gates as advisory fan-out and never become votes.
 
-Treat the reviewer-handoff preflight's observed output as the sole capability decision. When it
-returns `unsupported`, do not replace that result with a prompt, role configuration, fresh agent,
-alternate checkout, ordinary advisory lanes, or majority agreement. When the endpoint permits local
-preparation, report `prepared and locally verified, independent acceptance unavailable`; otherwise
-the required acceptance evidence remains unavailable.
+A write-capable tool surface alone does not make the audit unavailable. The main agent fingerprints
+the candidate, Origin review context, and relevant worktree state before dispatch and rechecks them
+after return. The evaluator receives read-only authority and must use no mutation or external-effect
+tool; any observed mutation, candidate mismatch, builder context, candidate-controlled policy,
+delegation, lateral communication, or missing binding invalidates the return. When no valid route is
+available, do not substitute prompts, ordinary advisory lanes, self-review, or majority agreement;
+report the independent audit as unavailable and apply the endpoint restriction. A fallback result is
+integrity-checked, not sandbox-enforced, and must retain the residual risk of unobservable external
+effects.
