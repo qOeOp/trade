@@ -312,6 +312,8 @@ Finalize accepts that terminal handoff, while hub Finalize owns merge and node c
 skill instead of a generic publication workflow.
 When the endpoint includes a GitHub pull request, load
 [GitHub delivery](references/github-pr-handoff.md) before publication or merge.
+When a Mission owns post-merge cleanup for a GitHub pull request, load the same reference before
+inventorying or changing any cleanup target.
 When an evidence assessment was activated, follow its same-rubric terminal-locator and reassessment
 contract. Scores remain diagnostic; route an independently valuable gap through task dispatch instead
 of extending the accepted outcome or graph.
