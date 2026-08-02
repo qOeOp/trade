@@ -36,17 +36,29 @@ and one candidate shape; ambiguity in Plan, authority, owner, boundary, or oracl
 
 Use the repository's `.codex/agents/fast-builder.toml` only for a deterministic low-risk leaf whose
 packet freezes owner, exact paths, affected boundary, candidate shape, acceptance commands, and Stop.
-It must have no design branch and be cheap for main to inspect. Spark never owns Frame, architecture,
-safety or authority judgment, public contracts or schemas, dependency/concurrency changes,
-authentication, instructions or judges, live effects, acceptance, or Finalize. Ambiguity, path
-growth, a failed premise, or absence of the exact model returns the leaf to standard main handling;
-do not approximate with another fast model.
+It must have one writer, no design branch, and be cheap for main to inspect. For a revision leaf, the
+main agent must first reproduce the material finding, classify it as candidate-local, confirm the
+admitted owner, path, boundary, and oracle are unchanged, and freeze the correction semantics and
+shape. No safety, authority, secrets, schema, public-contract, dependency, concurrency,
+authentication, live, or external-effect decision may remain.
+
+Before dispatch, compare the expected mechanical execution saved with the serialized packet, spawn,
+candidate recheck, and main diff inspection. Delegate only when the saving is greater; a directly
+obvious one- or two-line patch stays in main. Neither the existence nor count of revisions activates
+the lane. Spark never interprets or chooses instruction or judge semantics or wording. It may apply
+changes to those files only when the main packet supplies exact replacement bytes, retains the
+independent Origin-bound evaluator, and still clears the efficiency gate; otherwise main applies them.
 
 This is an internal custom sub-agent, not a user-visible task per build or revision. At dispatch,
 observe that the host exposes the custom role and its exact model; the TOML or this prose alone is not
-runtime proof. A separately approved user-visible Mission uses task dispatch's `create_thread` route
-and model-consent contract. No qualifying leaf means no probe: defer dynamic proof to the next
-approved leaf.
+runtime proof. Spark has no authority to branch, commit, push, open or merge a pull request, comment,
+review, resolve a thread, deploy, schedule, perform a live write, alter a queue or automation, accept,
+Finalize, or cause any other external/shared-state effect. Ambiguity, path growth, a failed premise,
+or unavailable exact model returns once to standard main handling; never use another fast model or
+retry the fast lane. Candidate mutation invalidates only affected evidence. A separately approved
+user-visible Mission uses task dispatch's `create_thread` route and model-consent contract. Static
+configuration and role observation are not positive dynamic proof: leave it unproved until the next
+genuine qualifying leaf.
 
 ## Route read-only evidence
 
