@@ -4,6 +4,7 @@ const PROVIDER_LOGIN = "chatgpt-codex-connector"
 const CLEAN_REVIEW = /^(?:codex review:?\s*)?didn['’]t find any major issues[.!]?$/i
 const CLEAN_COMMENT_HEADINGS = new Set([
   "Codex Review: Didn't find any major issues. You're on a roll.",
+  "Codex Review: Didn't find any major issues. Bravo.",
   "Codex Review: Didn't find any major issues. :rocket:",
 ])
 const REVIEWED_COMMIT = /^\*\*Reviewed commit:\*\* `([0-9a-f]{10,64})`$/
