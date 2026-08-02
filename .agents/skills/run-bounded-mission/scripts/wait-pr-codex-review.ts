@@ -192,8 +192,8 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
     return { status: "failed", reason: "Codex returned a non-clean review result" }
   }
 
-  const explicitAttemptMatchesCurrentHead = explicitAttemptAt === null
-    || explicitAttemptHead === snapshot.headRefOid
+  const explicitAttemptMatchesCurrentHead = explicitAttemptAt !== null
+    && explicitAttemptHead === snapshot.headRefOid
   const cleanTerminal = explicitAttemptMatchesCurrentHead
     ? currentProviderSignals.find((signal) => timestampValue(signal.at) > attemptAt && (
       (signal.kind === "reaction"
@@ -208,6 +208,9 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
     : undefined
   if (cleanTerminal) {
     return { status: "passed", reason: "Codex review completed cleanly" }
+  }
+  if (!explicitAttemptMatchesCurrentHead) {
+    return { status: "pending", reason: "Codex review requires an unedited request for the current head" }
   }
   if (relatedEyes.length > 0) {
     return { status: "pending", reason: "Codex review is still in progress" }
