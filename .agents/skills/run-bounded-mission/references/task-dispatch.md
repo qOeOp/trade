@@ -54,12 +54,9 @@ overall completion, or recovery.
 Preserve every proposed or approved node still inside the overall completion boundary. For each node
 retain only the evidence needed to reconstruct the next legal effect:
 
-- stable session label and task title, Outcome and consumer, Scope and non-goals, and Acceptance;
-- owner and write surface, direct `after` predecessors, Authority, effects, endpoint, and any current
-  release-slice delta;
-- source ref, observed exact tip, prerequisites, and the checks that revalidate them;
+- current release-slice delta;
 - complete proposed or approved child prompt, approval scope, and create-attempt facts;
-- current Stop predicates, pressure evidence, rejected candidates, findings, and resume gate;
+- pressure evidence, rejected candidates, findings, and resume gate;
 - observed `clientThreadId`, `threadId`, and `hostId`, leaving unknown values explicit;
 - pull request, candidate head, checks, discovery disposition, conversations, and endpoint gate;
 - terminal evidence, including the prior completed Goal observation when replacement is proposed.
