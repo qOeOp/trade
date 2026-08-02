@@ -11,10 +11,12 @@ candidate cannot change. When the candidate changes instructions, skills, agent 
 discovery, judges, or reviewer policy, supply it only as an object or complete diff; never launch
 from its checkout or let it control automatic discovery.
 
-Immediately before dispatch, run the repository-owned binding helper from the clean Origin control
-plane. Supply the repository identity, Origin, committed candidate, enforcement mode, and each
-relevant Origin instruction, skill, agent, reviewer-policy, and consumer file as a repeated
-`--required-file`:
+Choose one binding route from the frozen candidate form:
+
+- For an exact committed candidate, immediately before dispatch run the repository-owned binding
+  helper from the clean Origin control plane. Supply the repository identity, Origin, candidate,
+  enforcement mode, and each relevant Origin instruction, skill, agent, reviewer-policy, and
+  consumer file as a repeated `--required-file`:
 
 ```text
 bun .agents/skills/run-bounded-mission/scripts/evaluator-binding.ts \
@@ -25,13 +27,18 @@ bun .agents/skills/run-bounded-mission/scripts/evaluator-binding.ts \
   --required-file <repo-relative-path> [...]
 ```
 
-Require exit zero and one `mission-evaluator-binding/v1` JSON line with `status=bound`. Paste that
-line into the packet verbatim. Never transcribe, abbreviate, summarize, or manually replace its Git
-facts. The helper derives the complete commits, trees, actual parent set and Origin relationship,
-binary diff, changed paths, required blob hashes, clean tracked and non-ignored untracked candidate
-material, replay argv, and one binding fingerprint. Gitignored dependency or build material is not
-candidate material and is explicitly outside this attestation. A rejection freezes launch; do not
-repair its facts in prose or treat the binding as a full-filesystem or sandbox claim.
+- Require exit zero and one `mission-evaluator-binding/v1` JSON line with `status=bound`. Paste that
+  line into the packet verbatim. Never transcribe, abbreviate, summarize, or manually replace its Git
+  facts. The helper derives the complete commits, trees, actual parent set and Origin relationship,
+  binary diff, changed paths, required blob hashes, clean tracked and non-ignored untracked candidate
+  material, replay argv, and one binding fingerprint. Gitignored dependency or build material is not
+  candidate material and is explicitly outside this attestation. A rejection freezes launch; do not
+  repair its facts in prose or treat the binding as a full-filesystem or sandbox claim.
+- For a local candidate, the commit helper does not apply. Bind the named Origin, complete binary
+  diff, and an ordered manifest containing every non-ignored untracked path, filesystem type, file
+  content hash, or symlink target. Reject unsupported filesystem types. Include the complete diff and
+  manifest bytes plus their hashes in the packet, fingerprint the clean Origin review worktree, and
+  repeat those exact bytes after return. Missing or changed candidate material freezes launch.
 
 Give no mutation or external-effect authority. A write-capable host surface is an observed risk, not
 automatic unavailability: admit `integrity-checked` behavioral read-only review only when the packet
@@ -58,7 +65,9 @@ evaluator can reject a mismatch without broad repository reading.
 Purpose: independent candidate audit
 
 Binding
-- exact `mission-evaluator-binding/v1` stdout line:
+- committed candidate: exact `mission-evaluator-binding/v1` stdout line; or
+- local candidate: named Origin, complete binary diff bytes and hash, ordered non-ignored untracked
+  manifest bytes and hash, and clean Origin review-worktree fingerprint:
 
 Admission
 - planned launch context: dedicated evaluator | fresh generic fallback
@@ -68,9 +77,11 @@ Admission
 - required inspected scope and compatible stop boundary:
 
 Replay
-- independently compare every binding Git object and fingerprint; rerun its exact argv when the
-  helper belongs to Origin, or inspect the helper diff and replay the Git facts without executing
-  candidate-controlled code when the helper itself is under review:
+- committed candidate: independently compare every binding Git object and fingerprint; rerun its
+  exact argv when the helper belongs to Origin, or inspect the helper diff and replay the Git facts
+  without executing candidate-controlled code when the helper itself is under review:
+- local candidate: independently hash the supplied complete diff and untracked manifest bytes and
+  compare the named Origin and clean review-worktree fingerprint without executing candidate code:
 - exact consumer/regression commands and expected evidence shape:
 - evidence groups whose completion can emit progress:
 - concurrently pending evidence and locator:
