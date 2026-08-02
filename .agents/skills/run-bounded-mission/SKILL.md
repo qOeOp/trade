@@ -48,17 +48,29 @@ owners, duplicate authority or state, branches, adapters, exceptions, indirectio
 paths—not by net diff.
 When bounded history for named paths can change the origin, no-change counterfactual, owner, scope,
 removed invariant, or regression hypothesis, first record `git rev-parse --is-shallow-repository`,
-then run from the repository root:
+then select commits from the repository root:
 `GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 git --literal-pathspecs log --no-merges --date-order
 --since '<date>' --until '<date>' --max-count=<limit+1> --format='%H%x09%aI%x09%cI%x09%an%x09%s%x09%P'
---numstat --find-renames --end-of-options '<revision-or-range>' -- '<repo-relative-path>'...`.
+--end-of-options '<revision-or-range>' -- '<repo-relative-path>'...`.
+Every Git call in this discovery carries the same two environment variables.
 Pass every revision, date, and path as its own shell-quoted argument; never leave or interpolate one
 unquoted.
-Name only narrow paths below the root, retain at most `<limit>` commits, and record an extra result as
-truncation. Add `--follow` only for exactly one file whose rename history matters. When merge evidence
-matters, replace `--no-merges` with `--full-history --diff-merges=first-parent`. Treat a nonzero exit as
-insufficient evidence; when the repository is shallow, warn that earlier or parent history may be
-unavailable. History never replaces current consumer evidence.
+Name finite, narrow files or directories below the root. Retain at most `<limit>` commits and record
+an extra result as commit truncation. For each retained non-boundary commit, run
+`git --literal-pathspecs diff --numstat --find-renames --end-of-options '<first-parent-or-empty-tree>'
+'<commit>' -- '<repo-relative-path>'...`; obtain a root commit's empty tree with
+`printf '' | git hash-object -t tree --stdin`. With shell `pipefail` enabled, pipe every non-NUL
+numstat stream through `awk -v limit='<remaining-file-limit+1>' 'NR <= limit'`, which drains Git but
+emits at most that many file rows. If it emits the extra row, discard that row, record file
+truncation, and stop; otherwise subtract the emitted row count from the remaining limit and continue.
+When merge evidence matters, replace `--no-merges` with `--full-history` and compare each merge only
+with its first parent. Add `--follow` only for one file, use the same commit bound, inspect each commit
+with `git log -1 --follow --format= --numstat --find-renames`, and carry a rename's old path backward.
+When the repository is shallow, read OIDs from the shell-quoted path returned by
+`git rev-parse --git-path shallow`; mark each matching selected commit and its numstat unavailable,
+exclude it from decisions, and warn that earlier or parent history may be unavailable. Treat any
+nonzero pipeline or Git exit as insufficient evidence. History never replaces current consumer
+evidence.
 
 When an unresolved fact could change the candidate, consumer behavior, authority, acceptance, or a
 hard-to-reverse choice, load [consequential ambiguity](references/plan-ambiguity.md).
