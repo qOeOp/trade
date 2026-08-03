@@ -26,10 +26,14 @@ through those consumers. A standalone pass for an error or fail-close guard does
 where another parser, recognizer, or normalization path can suppress or trigger that guard.
 
 Do not infer either risk from task size, file type, revision count, or a generic quality concern. If
-only one risk exists, use one evaluator. Ordinary non-judge work may require no evaluator. All
-packets in one audit set bind the same exact complete current Frame and Plan prose. A replan or
-reframe invalidates every outstanding packet and return in that set even when candidate bytes do not
-change; construct a new set from the complete replacement prose, never a delta or residual excerpt.
+only one risk exists, use one evaluator. Ordinary non-judge work may require no evaluator. `audit_set`
+is only the human-readable `single | complementary_pair` mode. The immutable, content-addressed
+`common_packet_locator` is the set identity: use `sha256:<lowercase-64-hex>` over the exact shared-core
+bytes before adding the locator field; those bytes contain the exact candidate locator, complete
+current Frame and Plan prose, mode, required lens names, and control-plane/binding identity. A replan
+or reframe invalidates every outstanding packet and return in that set even when candidate bytes do
+not change; construct a new shared core from the complete replacement prose, never a delta or
+residual excerpt, and mint its new locator after candidate freeze.
 
 Choose one binding route from the frozen candidate form:
 
@@ -104,7 +108,8 @@ Admission
 - planned launch context: dedicated evaluator | fresh generic fallback
 - instruction origin and automatic discovery boundary:
 - parent receipt route: <exact parent identity/tool, or unavailable>
-- audit set: single | complementary_pair; required lenses and common packet locator:
+- audit set mode: single | complementary_pair; required member/lens set; exact shared-core bytes and
+  immutable `sha256:<lowercase-64-hex>` common packet locator over those bytes:
 - activation predicate and assigned independent risk lens:
 - required inspected scope and compatible stop boundary:
 
@@ -153,10 +158,11 @@ not feed the audit question. Start it concurrently, mark it `pending concurrent 
 once. Keep work sequential only when one result is an admitted input to the other. Candidate changes
 invalidate only affected evidence and the whole-candidate locator; never rerun unchanged gates.
 
-Launch a complementary pair concurrently after the shared binding and packet core freeze. Neither
-lens receives, waits for, or cites its sibling's output. Fan in once, then reject any return whose
-audit-set identity, common packet locator, candidate, or complete Frame and Plan prose no longer
-matches the current audit set. Classify audit
+After the exact candidate is frozen, freeze the shared packet core and mint its content-addressed
+`common_packet_locator`; only then launch a complementary pair concurrently. Neither lens receives,
+waits for, or cites its sibling's output. Fan in once, then reject any return whose mode,
+content-addressed common packet locator, candidate, complete Frame and Plan prose, or required
+member/lens set no longer matches the current audit set. Classify audit
 evidence before routing: a demonstrated implementation defect is `candidate_finding`; contradictory
 or stale governing prose is `frame_plan_drift`; a malformed or mismatched packet is
 `packet_admission_defect`; missing probative material is `unsupported_evidence`. The main agent alone

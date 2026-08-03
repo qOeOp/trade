@@ -89,7 +89,8 @@ mutually independent questions whose inputs and outputs do not overlap or consum
 Use [the reviewer handoff](reviewer-handoff.md) for every independent audit. It alone selects the
 single or risk-triggered complementary-pair route and owns complete Frame and Plan rebinding, result
 classification, fallback, and integrity gates. When it selects a pair, dispatch both one-lens
-`mission_evaluator` instances concurrently from the same frozen binding and common packet core;
+`mission_evaluator` instances concurrently from the same frozen binding and immutable,
+content-addressed common packet core;
 neither may consume sibling output. Fan in once for main-agent reproduction and arbitration.
 
 ## Run advisory candidate lenses
