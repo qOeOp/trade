@@ -59,13 +59,22 @@ attempt or revision budget; it never implies a per-revision request or a request
 For `open`, successful publication in the requested Draft/Ready state does not request or wait for
 discovery.
 
-Use the existing call path: `SKILL.md` selects this GitHub endpoint, this reference selects the
-connected GitHub issue-comment action (`add_comment_to_issue` in the current app surface), and the
-comment triggers Codex. Do not use GitHub's generic reviewer-request path because the repository
-waiter cannot correlate it. Immediately before the external effect:
+Use a user-authenticated `gh` or UI issue-comment path owned by the authorized human actor in the
+admitted Plan. The connected `add_comment_to_issue` action is not trigger authority: a comment
+performed through the `chatgpt-codex-connector` app is a same-app self-trigger and cannot start
+provider discovery. Do not use GitHub's generic reviewer-request path because the repository waiter
+cannot correlate it. Immediately before the external effect:
 
 1. validate any created or edited PR title through the repository-owned title preflight above;
-2. construct and locally validate exactly one trigger plus the frozen full lowercase 40-hex head:
+2. render exactly one trigger from the existing helper, preserve its exact bytes, and validate those
+   bytes offline against the frozen full lowercase 40-hex head before posting:
+
+   ```text
+   bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --render-request <candidate-head>
+   bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --validate-request <candidate-head> < request-body
+   ```
+
+   The rendered body is:
 
    ```text
    @codex review
@@ -75,7 +84,14 @@ waiter cannot correlate it. Immediately before the external effect:
 
 3. re-read the open PR and require its repository, base, Ready state, and head to match the frozen
    candidate; require the stable-candidate evidence above and no existing request for that authority;
-4. call the issue-comment owner with only the frozen repository, PR number, and validated body.
+4. require the active `gh` viewer or UI actor to equal the authorized human actor, then post through
+   that user-authenticated issue-comment path with only the frozen repository, PR number, and
+   validated body;
+5. read back the exact created comment and require its locator, author, exact body, requested head,
+   unedited timestamps/state, and `performed_via_github_app=null` before waiting. Null is a required
+   observed postcondition for this request, not a universal claim about all CLI writes. Missing
+   provenance, any GitHub app, or a readback mismatch fails admission; the exact connector app is
+   classified `self-trigger` immediately.
 
 A failed local syntax or read-only preflight freezes only the unissued effect; it neither mutates nor
 invalidates the candidate. An ambiguous write result requires a fresh issue-comment read before any
@@ -94,20 +110,37 @@ canonical assertion's notification semantics. A non-canonical first line,
 multiline or injected envelope, extra body, or otherwise structurally non-clean provider comment
 blocks a later reaction. Only the structured
 reaction or approval after the exact request supplies terminal authority. A bare legacy request,
-edited request, stale or wrong head, wrong provider or target, ambiguous order, or changed PR head
-remains outstanding and fail-closed.
+edited request, stale or wrong head, same-app or other app transport, wrong provider or target,
+ambiguous order, or changed PR head remains invalid or outstanding and fail-closed. Request admission
+never suppresses already observed provider finding/disposition facts, and provider discovery never
+repairs invalid request admission.
 
 Wait through the bounded host loop and run
 `bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --repo <owner/name> <pr-number>`
-as its read-only snapshot owner. Each invocation emits JSON binding `repository`, `pull_request`,
-`head_oid`, `status`, and `reason`. Consume JSON and exit code together; other GitHub summaries cannot
+as its read-only snapshot owner. Each invocation emits one `codex-review-receipt/v1` JSON object. It
+preserves the legacy `repository`, `pull_request`, `head_oid`, `status`, and `reason` fields and adds
+orthogonal machine projections:
+
+- `request.classification` is one of `valid`, `missing`, `malformed`, `edited`, `ambiguous`,
+  `wrong-head`, `self-trigger`, or `incomplete`, with the request locator, candidate locators, author,
+  timestamps/edit state, body, requested head, performed GitHub app provenance, and the complete
+  observed request history needed to retain an earlier request-to-finding binding;
+- `discovery.status` is one of `waiting`, `clean`, `finding_unrouted`, or `finding_routed`; its
+  reviewed head, provider review, clean/progress signal, structured integrity problems, and finding
+  array retain review, finding, thread, resolver, and non-empty disposition locators/identities/times.
+
+The helper joins those facts inside the same snapshot invocation. Reason text is explanatory only;
+callers consume the machine fields and exit code. Unknown or missing provenance, actor, locator,
+reviewed commit, binding, representation, or pagination fails closed. Other GitHub summaries cannot
 override this classifier:
 
 - exit `0` is a terminal clean result for the exact reviewed head;
 - exit `10` is pending and remains in the bounded wait lane;
-- exit `1` with a provider-finding reason is route-required discovery, not Mission failure;
-- every other exit `1` reason, incomplete snapshot, mismatch, ambiguous signal, provider failure, or
-  unresolved finding remains fail-closed and outstanding.
+- exit `20` is terminal routed discovery only: every finding has a non-empty owner disposition and a
+  resolved thread, but it is not clean;
+- exit `1` covers invalid request admission, same-app self-trigger, provider usage/rate-limit,
+  incomplete evidence, mismatch, ambiguous signal, provider failure, and unrouted finding;
+- exit `2` is reserved for CLI argument or invocation usage errors.
 
 Collect and validate the complete manual result before changing the candidate. Route the coherent
 set by its highest material boundary: a Frame-contract failure returns to Frame; an owner, path,
@@ -132,10 +165,10 @@ Keep related Missions on the direct per-PR path owned by task dispatch. Do not c
 heads, or reviews merely to reduce invocations; admit aggregation only when an existing owner proves
 the complete source, merge, review, and exact-head acceptance chain without new coordinator machinery.
 
-Retain one final delivery receipt in the handoff, not a ledger: repository and PR; request comment
-locator and requested head; waiter `head_oid`, status, and reason; every finding, disposition, and
-thread state; corrected final head and base; complete final-head checks; unresolved-thread count; and
-auto-merge or queue state.
+Retain one final delivery receipt in the handoff, not a ledger. Embed the waiter receipt without
+manually rejoining request, review, finding, disposition, or thread facts; add only the corrected
+final head and base, complete final-head checks, unresolved-thread count, and auto-merge or queue
+state. The receipt does not prove candidate revalidation, final CI, acceptance, or merge authority.
 
 ## Merge-ready barrier
 
