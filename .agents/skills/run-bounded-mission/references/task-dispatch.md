@@ -158,7 +158,8 @@ An independent outcome remains proposed while the user edits or withholds approv
 one stable label matching `[A-Z]+-[0-9]{2}` and one title formed exactly as
 `<label> · <short description>`. Preserve both across edits and recovery. They identify the user-visible
 task only; never interpret the label as a Mission type, priority, lifecycle, route, or scheduling
-policy. Approval permits one native create attempt for that exact packet.
+policy. Keep a packet `deferred` until its frozen label and title satisfy that exact relation. Approval
+permits one native create attempt for that exact packet.
 
 ## Proposal and consent
 
@@ -208,6 +209,20 @@ its one native create attempt. Deferred nodes cannot be approved around their pr
 
 ## Generic child preflight
 
+Freeze the packet's exact title and the caller's observed create-naming branch into the child prompt's
+first instruction. When the calling `create_thread` schema did not expose `title`, before commentary,
+Frame, `get_goal`, file reads, Git, or any other task work, require the child to call the current-task
+`set_thread_title` with `threadId` omitted and only that frozen title. Continue only when its native
+result returns the calling `threadId` and exact title; unavailable capability, failure, or mismatch
+stops before Mission work and reports that evidence. The same exact-value, current-task-only call is
+idempotent and may repeat after recovery only when its earlier success cannot be reconstructed. It
+never maps a hub's `clientThreadId` receipt to that `threadId`.
+
+When that caller schema exposed `title` and the caller recorded passing the frozen title in the one
+create attempt, creation is the pre-Frame title effect: the child does not require or perform a
+redundant setter call. Missing or contradictory branch evidence stops before Mission work. This does
+not replace the hub's exact-identity readback before release.
+
 Derive the child preflight from current repository owner manifests and lockfile before dispatch. The
 packet names exact observations for repository path, HEAD and status, required executables, and the
 dependency directory's existence, symlink, ignore, and repository-status facts. It requires the
@@ -239,18 +254,25 @@ different full-Mission model. Spark's leaf gates cannot own the child's five sta
 it for this route or create a user-visible task for an internal build/revision leaf. Route the latter
 through the custom `fast_builder` agent and its standard-main fallback.
 
-The packet's label and title have one owner and freeze title creation, exact-identity read, and at most
-one correction effect. If current `create_thread` accepts `title`, pass it in the create call. After an
-exact `threadId` exists, read that exact task and verify the actual title. If the create surface lacks
-`title`, or the verified title differs, use `set_thread_title` once only when its capability and rename
-authority were observed, then read the exact identity again. A remaining mismatch freezes further
-effects. Without a viable create-or-rename plus exact-read path, keep the packet deferred.
+The packet's label and title remain the only naming owner. Inspect the calling `create_thread` schema
+for that attempt: when it exposes `title`, pass the frozen exact title in the one create call and
+record the atomic-create branch; when it does not, pass no invented field, record the self-title
+branch, and rely on the child's first instruction above. The latter cannot prevent a transient
+automatic host title, but it permits no Mission work under that title. In either branch, the hub
+never performs a routine post-create rename. Once an exact `threadId`/`hostId` is causally known, read
+only that task and accept its title only on an exact match before release. A mismatch or unavailable
+exact read freezes identity-dependent effects; list or search cannot repair it.
 
 A returned `clientThreadId` consumes the create attempt but is only a receipt. Record and emit it;
 never rename it or pass it to wait, read, or send. Freeze identity-dependent effects until the host
 or user causally maps it to an exact `threadId`/`hostId`; list/search resemblance cannot prove that
 mapping. Then perform the pending exact-title verification before monitoring or release. Preserve
 pending identity without duplicate creation; it is not itself a Mission `blocked` predicate.
+
+On recovery, a previously recorded exact `threadId`/`hostId` resumes that task without creation. An
+existing task with the same title but no causal mapping is only resemblance: never adopt, rename, or
+message it. Before an attempt it does not consume the approved create; after an attempt may have
+succeeded, it cannot authorize a retry. Compaction changes neither rule.
 
 An explicit create failure with proof that no task effect occurred also preserves the exact approved
 prompt. Retrying requires fresh authority and revalidation; when prior creation may have succeeded,
