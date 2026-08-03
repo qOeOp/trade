@@ -81,11 +81,19 @@ A failed local syntax or read-only preflight freezes only the unissued effect; i
 invalidates the candidate. An ambiguous write result requires a fresh issue-comment read before any
 further action and never permits a duplicate request by assumption.
 
-The waiter may accept the provider's `THUMBS_UP` reaction on that same request comment as a clean
-manual result only when the request is unedited, its body matches the template exactly, its embedded
-full head equals the current snapshot head, and the provider, target, and causal ordering all match.
-A bare legacy request, edited request, stale or wrong head, wrong provider or target, ambiguous order,
-or changed PR head remains outstanding and fail-closed.
+The waiter may accept the provider's `THUMBS_UP` reaction on that same request comment or on the pull
+request as a clean manual result only when the request is unedited, its body matches the template
+exactly, its embedded full head equals the current snapshot head, and the reaction follows the
+request within the current attempt and head window with matching provider, target, and causal order.
+A generated clean comment is notification only and cannot itself prove a terminal clean result. Its
+complete fixed envelope must start with the exact canonical clean assertion and may carry a bounded
+same-line remainder. That remainder has no independent review authority and does not alter the
+canonical assertion's notification semantics. A non-canonical first line,
+multiline or injected envelope, extra body, or otherwise structurally non-clean provider comment
+blocks a later reaction. Only the structured
+reaction or approval after the exact request supplies terminal authority. A bare legacy request,
+edited request, stale or wrong head, wrong provider or target, ambiguous order, or changed PR head
+remains outstanding and fail-closed.
 
 Wait through the bounded host loop and run
 `bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --repo <owner/name> <pr-number>`
