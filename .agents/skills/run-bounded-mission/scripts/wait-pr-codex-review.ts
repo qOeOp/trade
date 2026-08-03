@@ -104,13 +104,6 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
       && signal.target === attemptTarget
       && timestampValue(signal.at) >= attemptAt,
   )
-  for (const signal of relatedEyes) {
-    const signalAt = timestampValue(signal.at)
-    if (signalAt > attemptAt) {
-      attemptAt = signalAt
-      attemptTarget = signal.target
-    }
-  }
 
   const allProviderSignals = snapshot.signals.filter((signal) => isProvider(signal.author))
   const editedProviderReview = allProviderSignals.find((signal) =>

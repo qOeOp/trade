@@ -85,6 +85,8 @@ The waiter may accept the provider's `THUMBS_UP` reaction on that same request c
 request as a clean manual result only when the request is unedited, its body matches the template
 exactly, its embedded full head equals the current snapshot head, and the reaction follows the
 request within the current attempt and head window with matching provider, target, and causal order.
+A provider `EYES` reaction on the request is progress evidence only: it neither starts a new attempt
+nor advances the request-bound provider-signal window, and cannot hide a material signal after it.
 A generated clean comment is notification only and cannot itself prove a terminal clean result. Its
 complete fixed envelope must start with the exact canonical clean assertion and may carry a bounded
 same-line remainder. That remainder has no independent review authority and does not alter the
