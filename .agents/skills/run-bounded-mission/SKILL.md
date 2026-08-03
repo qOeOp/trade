@@ -227,16 +227,33 @@ required Plan action bindings. Freeze the mission-owned boundary against the nam
 observed pre-existing user work instead of admitting paths later from Execute. When any Plan field
 remains unresolved, keep investigating or return to Frame.
 
+Before Plan admission, test outward-exploration sufficiency. Activate only when current external facts
+or materially different alternatives could change owner, path, or acceptance and exact local authority
+plus observed consumer behavior cannot close the choice. High-value cues are a weakly known domain or
+business rule; multiple credible architecture or optimization patterns; potentially reusable
+self-built infrastructure; an open or changing protocol, API, or provider; and a structural replan
+with materially unknown alternatives. They are not keyword, novelty, task-size, or effort rules.
+
+Skip repository-owned mechanical or local work; exact local authority that fixes owner, path, or
+representation; external evidence that cannot change acceptance; and an authorized emergency override
+that freezes a known path. Network failure skips only when local evidence proves robustness and marks
+the premise unsupported or deferred; missing essential evidence freezes the dependent choice.
+
+When active, bind the question or independent questions, Plan consequence, freshness and authority,
+and Stop. Use the domain-premise route below or the existing prior-art funnel; route independent
+current-source questions through `mission_researcher`. Main arbitrates evidence and admission;
+`mission_planner` challenges supplied briefs without searching when structural alternatives or
+disputed closure remain, and missing closure invalidates admission. Reapply only for a changed premise
+or material alternative space. The routed reference owns coverage and Stop after claims resolve and
+further sources cannot change owner, path, or acceptance; count or saturation never proves closure.
+
 When a test failure can change the candidate, an escaped defect shows that tests missed required
 behavior, or the Mission may restructure tests, load
 [test effectiveness governance](references/test-effectiveness-governance.md) before mutation.
 
-After Mission entry and before solution or reuse research, activate domain-premise classification
-solely when an empirical, regulatory, market, or mechanism claim could reverse the affected Plan
-decision's expected benefit, safe or legal scope, architecture, or acceptance evidence. Apparent size
-or routine shape never overrides that consequence, including for an explicitly invoked small or
-routine-shaped Mission.
-Repository-settled facts, user preference or authority, and mechanical work do not activate it.
+Within that gate and before solution or reuse research, classify an empirical, regulatory, market,
+or mechanism claim as a domain premise when it could reverse the affected Plan decision's expected
+benefit, safe or legal scope, architecture, or acceptance evidence.
 Without an affirmative Mission entry, genuine no-Mission work and ordinary routine status remain
 outside this body under the frontmatter entry contract. Inspect repository and supplied evidence
 first. If current external evidence remains necessary, load
@@ -248,7 +265,7 @@ bind the claim, consequence, evidence or gap, and classification to the affected
 - `contradicted`: reject or reframe before solution search;
 - `unknown`: block only the decision that depends on it.
 
-When external reuse evidence can change the owner or path, load
+For an activated reuse or alternative-space question, load
 [decision-relevant prior art](references/plan-prior-art.md). Resolve reuse before new implementation:
 
 - Reuse an existing owner before adding responsibility.
@@ -350,6 +367,8 @@ manufacture `accept`.
 Lead with the user-visible result and exact effect state. Summarize changed paths, decisive checks,
 and material limits. Do not emit lifecycle receipts, internal identities, generic follow-up work, or
 a mandatory closing template.
+Distinguish current external evidence actually used, static or local inference, and unproved
+assumptions; never present model memory as current best practice.
 
 Treat a completed outcome as `accept` only when the verified candidate and decisive evidence are
 recoverably bound to its integrated commit or preserved local diff.
