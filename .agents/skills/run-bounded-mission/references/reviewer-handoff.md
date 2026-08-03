@@ -1,7 +1,7 @@
 # Verify Reviewer Packet
 
 Use this packet for the independent candidate audit required by `SKILL.md`. The main agent owns
-findings, acceptance, effects, and Finalize; one evaluator returns evidence for one frozen risk lens.
+findings, acceptance, effects, and Finalize; each evaluator returns evidence for one frozen risk lens.
 
 ## Freeze the launch
 
@@ -10,6 +10,31 @@ Use a fresh non-builder context whose control plane is the immutable Origin or a
 candidate cannot change. When the candidate changes instructions, skills, agent definitions,
 discovery, judges, or reviewer policy, supply it only as an object or complete diff; never launch
 from its checkout or let it control automatic discovery.
+
+Use one evaluator by default. Use the complementary pair only for a deterministic judge or helper
+when both observed risks are material and decision-changing:
+
+- `authority_representation`: it grants or denies authority or acceptance from an open, external, or
+  normalized representation whose producer contract and unknown-value behavior must be challenged;
+- `consumer_fail_close_closure`: that representation or result crosses multiple consumers, terminal
+  or error paths, fail-close guards, or sibling parser or normalization paths.
+
+For `authority_representation`, challenge raw and normalized forms plus the producer's unknown-value
+policy. For `consumer_fail_close_closure`, first enumerate every decision-changing direct consumer of
+the shared representation or result, then cross each admitted and refuting representation boundary
+through those consumers. A standalone pass for an error or fail-close guard does not cover the case
+where another parser, recognizer, or normalization path can suppress or trigger that guard.
+
+Do not infer either risk from task size, file type, revision count, or a generic quality concern. If
+only one risk exists, use one evaluator. Ordinary non-judge work may require no evaluator. `audit_set`
+is only the human-readable `single | complementary_pair` mode. The immutable, content-addressed
+`common_packet_locator` is the set identity: use `sha256:<lowercase-64-hex>` over the exact shared-core
+bytes before adding the locator field; those bytes contain the exact candidate locator, complete
+current Frame and Plan prose, mode, required lens names, an ordered manifest of each lens's exact
+delta-byte SHA-256, and control-plane/binding identity. A replan, reframe, or lens-delta correction
+invalidates every outstanding packet and return in that set even when candidate bytes do not change;
+construct a new shared core from the complete replacement prose and deltas, never residual excerpts,
+and mint its new locator after candidate freeze.
 
 Choose one binding route from the frozen candidate form:
 
@@ -52,19 +77,25 @@ mismatch, candidate-controlled policy or discovery, builder context, delegation,
 communication, external effects, or an incomplete packet. Integrity checks prove only the stated
 repository audit, not sandbox isolation or absence of unobservable effects.
 
-Observe the dedicated `mission_evaluator` route before dispatch. Launch it exactly once from the
-frozen control plane. If it is invalid before inspection, or later reaches an explicit terminal
-transport or capability failure without a valid audit return, use one fresh generic agent only when
-that agent independently satisfies this entire packet. Record the changed route and
-`enforcement_status=integrity-checked`; never retry the same route and context. An ambiguous
-`running` state, elapsed time, or repeated wait is not proof of stall and does not authorize fallback.
-With no valid route, return the precise unavailable capability and do not claim an audit.
+Observe the dedicated `mission_evaluator` route before dispatch. Launch each admitted lens exactly
+once from the frozen control plane. Across the whole audit set, use at most one fresh generic agent,
+and only after a required dedicated route reaches an explicit terminal transport or capability
+failure without a valid audit return. The generic agent must independently satisfy this entire
+packet. A stale or contradictory Frame or Plan, packet or admission defect, unsupported evidence,
+finding, ambiguous `running` state, elapsed time, or repeated wait never authorizes fallback. Record
+the changed route and `enforcement_status=integrity-checked`; never retry the same route and context.
+With no valid route for every required lens, return the precise unavailable capability and do not
+claim an audit.
 
 ## Dispatch binding first
 
-Send only this compact packet. Repeat the exact frozen Frame and admitted Plan prose; do not copy
-the transcript. Put object locators, the one lens, and replay bytes before supporting claims so the
-evaluator can reject a mismatch without broad repository reading.
+Send only this compact packet. Repeat the exact complete current frozen Frame and admitted Plan
+prose; do not copy the transcript or an earlier packet. For a pair, serialize the shared core once
+for measurement. Before hashing it, add an ordered manifest of `<lens>=sha256:<exact-delta-bytes>` for
+every required member; then give each evaluator that same core plus only its exact manifested lens
+delta. Each evaluator recomputes and echoes its assigned delta digest. Put object locators, the one
+lens, and replay bytes before supporting claims so the evaluator can reject a mismatch without broad
+repository reading.
 
 ```text
 Purpose: independent candidate audit
@@ -80,7 +111,10 @@ Admission
 - planned launch context: dedicated evaluator | fresh generic fallback
 - instruction origin and automatic discovery boundary:
 - parent receipt route: <exact parent identity/tool, or unavailable>
-- activation predicate and one independent risk lens:
+- audit set mode: single | complementary_pair; required member/lens set; exact shared-core bytes and
+  immutable `sha256:<lowercase-64-hex>` common packet locator over those bytes:
+- ordered required lens-delta digest manifest; assigned independent risk lens and exact delta bytes:
+- activation predicate:
 - required inspected scope and compatible stop boundary:
 
 Replay
@@ -97,10 +131,10 @@ Replay
 - unavailable or unchecked evidence:
 
 Frozen Frame
-- frame locator (exact prose):
+- frame locator (exact complete current prose):
 
 Admitted Plan
-- plan locator (exact prose):
+- plan locator (exact complete current prose):
 
 Return
 - required terminal schema: reviewer-handoff v1
@@ -128,6 +162,18 @@ not feed the audit question. Start it concurrently, mark it `pending concurrent 
 once. Keep work sequential only when one result is an admitted input to the other. Candidate changes
 invalidate only affected evidence and the whole-candidate locator; never rerun unchanged gates.
 
+After the exact candidate is frozen, freeze the shared packet core and mint its content-addressed
+`common_packet_locator`; only then launch a complementary pair concurrently. Neither lens receives,
+waits for, or cites its sibling's output. Fan in once, then reject any return whose mode,
+content-addressed common packet locator, candidate, complete Frame and Plan prose, or required
+member/lens set no longer matches the current audit set, or whose assigned delta digest does not
+match the core manifest. Classify all audit evidence before routing: a demonstrated implementation
+defect is `candidate_finding`; contradictory
+or stale governing prose is `frame_plan_drift`; a malformed or mismatched packet is
+`packet_admission_defect`; missing probative material is `unsupported_evidence`. The main agent alone
+classifies a return from an older set as `stale_packet` and an observed host-level terminal transport
+or capability failure as `terminal_transport_failure` or `capability_failure`.
+
 ## Audit and return
 
 Independently inspect the complete changed surface, affected consumer closure, and governing Origin
@@ -138,16 +184,24 @@ matrix or raw corpus unless it is the only oracle for a required claim. Use supp
 bytes first, and read other content or history only when a required claim makes it probative. Treat
 success labels and caller rationale as claims; actively refute them through callers, guards,
 validation, and consumer effects. Ignore lexical, speculative, duplicate, pre-existing, or
-context-refuted claims. Return the terminal immediately when the complete scope and required causal
-claims are resolved; do not extend into main-owned corroboration or optional supporting claims.
+context-refuted claims. Do not stop at the first material finding: continue through the admitted
+causal sibling closure and return every distinct material root in the lens. Return the terminal
+immediately when the complete scope and required causal claims are resolved; do not extend into
+main-owned corroboration or optional supporting claims.
 
 Return exactly:
 
 ```text
 review_status: completed | partial | unsupported
+result_classes: [no_finding] | ordered non-empty subset of [candidate_finding, frame_plan_drift,
+  packet_admission_defect, capability_failure, unsupported_evidence]
 frame_locator:
 plan_locator:
+audit_set:
+common_packet_locator:
 activation_predicate:
+assigned_risk_lens:
+assigned_lens_delta_sha256:
 candidate_locator:
 observed_launch_context:
 instruction_origin:
@@ -167,7 +221,10 @@ limits:
 `completed` requires the complete changed surface and affected consumer closure plus every required
 independent item resolved as pass or fail; it means the audit ran, not that the candidate passed.
 Use `partial` when an admitted audit leaves a required item unverified, and `unsupported` when the
-binding, independence, or capability cannot admit the audit. Identify each unverified item and its
+binding, independence, or capability cannot admit the audit. Return every directly evidenced class
+in the fixed schema order; `[no_finding]` is valid only when no other class or material finding exists.
+Unsupported evidence is not a candidate finding, but it may coexist with a finding or Frame/Plan
+drift when different required items support those classes. Identify each unverified item and its
 boundary precisely. Neither status is acceptance evidence. Missing evidence is an `unverified`
 result or limit, not a finding. Report one finding per root cause and assign severity only from its
 demonstrated acceptance impact.
@@ -178,7 +235,10 @@ parallel path, or affected boundary. An omitted or faulty implementation of stru
 in the Plan remains candidate-local. Under architecture or revision pressure, compare the cumulative
 candidate with Origin and the narrowest admitted alternative.
 
-After return, the main agent recomputes every fingerprint, reopens decisive evidence, reproduces
-material findings, and routes the coherent set by its highest boundary. Resolve conflicts by
-provenance and consumer impact, never agent count. Do not send builder advocacy, hidden reasoning,
-unrelated files, secrets, a suggested Mission route, or a Finalize decision.
+After return, the main agent recomputes every fingerprint, verifies the complete Frame and Plan
+binding, reopens decisive evidence, reproduces material findings, and routes the coherent set by its
+highest boundary. Consume the returns as competing evidence: deduplicate shared roots and resolve
+conflicts by current authority, provenance, and consumer impact, never agent count. A stale return
+cannot defeat a current clean result, but acceptance remains fail-closed until every required current
+lens is valid. Do not send builder advocacy, hidden reasoning, unrelated files, secrets, a suggested
+Mission route, or a Finalize decision.
