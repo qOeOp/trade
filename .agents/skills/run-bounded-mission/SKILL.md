@@ -227,16 +227,33 @@ required Plan action bindings. Freeze the mission-owned boundary against the nam
 observed pre-existing user work instead of admitting paths later from Execute. When any Plan field
 remains unresolved, keep investigating or return to Frame.
 
+Before Plan admission, test outward-exploration sufficiency. Activate only when (a) current external
+facts or materially different alternatives could change a Plan decision—including outcome, owner,
+path, expected benefit, safe or legal scope, architecture, or acceptance—and (b) exact local authority
+plus observed consumer behavior cannot close it. High-value cues: a weakly known domain or business
+rule; multiple credible architecture or optimization patterns; possibly reusable self-built
+infrastructure; an open or changing protocol, API, or provider; or a structural replan with materially
+unknown alternatives. Keywords, novelty, task size, and effort do not trigger it.
+
+Skip mechanical or local repository work; exact local authority that fixes owner, path, or
+representation; evidence irrelevant to a dependent Plan decision; and an authorized emergency freeze
+of a known path. If network evidence is unavailable, skip only with locally proved robustness and mark
+the premise unsupported or deferred; if essential, freeze its dependent choice.
+
+When active, bind question(s), Plan consequence, required freshness and authority, and Stop. Use the
+domain-premise route or existing prior-art funnel. Keep a known source or short chain in main; admit
+`mission_researcher` only under the existing agent-lane predicate. Main arbitrates evidence and Plan
+admission; `mission_planner` challenges supplied briefs without searching and may invalidate admission
+for missing closure. Refresh only for a changed premise or material alternative space. The routed
+reference owns coverage and Stop when claims resolve and new sources cannot change the dependent Plan
+decision; counts or saturation never close it.
+
 When a test failure can change the candidate, an escaped defect shows that tests missed required
 behavior, or the Mission may restructure tests, load
 [test effectiveness governance](references/test-effectiveness-governance.md) before mutation.
 
-After Mission entry and before solution or reuse research, activate domain-premise classification
-solely when an empirical, regulatory, market, or mechanism claim could reverse the affected Plan
-decision's expected benefit, safe or legal scope, architecture, or acceptance evidence. Apparent size
-or routine shape never overrides that consequence, including for an explicitly invoked small or
-routine-shaped Mission.
-Repository-settled facts, user preference or authority, and mechanical work do not activate it.
+Within that gate, classify an empirical, regulatory, market, or mechanism claim as a domain premise
+when it could reverse expected benefit, safe or legal scope, architecture, or acceptance.
 Without an affirmative Mission entry, genuine no-Mission work and ordinary routine status remain
 outside this body under the frontmatter entry contract. Inspect repository and supplied evidence
 first. If current external evidence remains necessary, load
@@ -248,7 +265,7 @@ bind the claim, consequence, evidence or gap, and classification to the affected
 - `contradicted`: reject or reframe before solution search;
 - `unknown`: block only the decision that depends on it.
 
-When external reuse evidence can change the owner or path, load
+For an activated reuse or alternative-space question, load
 [decision-relevant prior art](references/plan-prior-art.md). Resolve reuse before new implementation:
 
 - Reuse an existing owner before adding responsibility.
@@ -350,6 +367,8 @@ manufacture `accept`.
 Lead with the user-visible result and exact effect state. Summarize changed paths, decisive checks,
 and material limits. Do not emit lifecycle receipts, internal identities, generic follow-up work, or
 a mandatory closing template.
+Label current external evidence used, static or local inference, and unproved assumptions; never call
+model memory current best practice.
 
 Treat a completed outcome as `accept` only when the verified candidate and decisive evidence are
 recoverably bound to its integrated commit or preserved local diff.
