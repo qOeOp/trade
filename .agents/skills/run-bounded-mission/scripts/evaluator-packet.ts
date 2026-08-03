@@ -1,9 +1,24 @@
 #!/usr/bin/env bun
 
 import { createHash } from "node:crypto"
+import {
+  closeSync,
+  constants as fsConstants,
+  fchmodSync,
+  fstatSync,
+  fsyncSync,
+  lstatSync,
+  openSync,
+  readFileSync,
+  readSync,
+  realpathSync,
+  writeSync,
+} from "node:fs"
+import { basename, dirname, isAbsolute, resolve } from "node:path"
 
 const INPUT_SCHEMA = "mission-evaluator-packet-input/v1"
-const OUTPUT_SCHEMA = "mission-evaluator-packet-set/v1"
+const ARTIFACT_SET_SCHEMA = "mission-evaluator-artifact-set/v1"
+const ADMISSION_SCHEMA = "mission-evaluator-artifact-admission/v1"
 const SHARED_CORE_SCHEMA = "mission-evaluator-shared-core/v1"
 const LENS_DELTA_SCHEMA = "mission-evaluator-lens-delta/v1"
 const DISPATCH_SCHEMA = "mission-evaluator-dispatch/v1"
@@ -22,6 +37,23 @@ interface Arguments {
   candidate: string
   enforcement: string
   requiredFiles: string[]
+  outputDirectory: string
+}
+
+interface AdmissionArguments {
+  artifact: string
+  size: number
+  sha256: string
+  auditSet: "single" | "complementary_pair"
+  assignedRiskLens: LensName
+  assignedLensDeltaSha256: string
+  commonPacketLocator: string
+  helperCommit: string
+  helperPath: string
+  helperBlobOid: string
+  helperBlobSha256: string
+  helperSize: number
+  candidateLocator: string
 }
 
 interface LensInput {
@@ -205,10 +237,16 @@ function parsePacketInput(bytes: Uint8Array): PacketInput {
   return input
 }
 
-function parseArguments(argv: string[]): Arguments {
+function parseMaterializeArguments(argv: string[]): Arguments {
   const values = new Map<string, string>()
   const requiredFiles: string[] = []
-  const singleValueFlags = new Set(["--repository", "--origin", "--candidate", "--enforcement"])
+  const singleValueFlags = new Set([
+    "--repository",
+    "--origin",
+    "--candidate",
+    "--enforcement",
+    "--output-directory",
+  ])
 
   for (let index = 0; index < argv.length; index += 2) {
     const flag = argv[index]
@@ -228,12 +266,96 @@ function parseArguments(argv: string[]): Arguments {
   const origin = values.get("--origin")
   const candidate = values.get("--candidate")
   const enforcement = values.get("--enforcement")
-  if (!repository || !origin || !candidate || !enforcement || requiredFiles.length === 0) {
-    reject("required arguments: --repository --origin --candidate --enforcement --required-file")
+  const outputDirectory = values.get("--output-directory")
+  if (!repository || !origin || !candidate || !enforcement || !outputDirectory || requiredFiles.length === 0) {
+    reject(
+      "required materialize arguments: --repository --origin --candidate --enforcement --output-directory --required-file",
+    )
   }
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) reject("repository must be owner/name")
   if (!ENFORCEMENT_MODES.has(enforcement)) reject("unsupported enforcement mode")
-  return { repository, origin, candidate, enforcement, requiredFiles }
+  if (!isAbsolute(outputDirectory) || outputDirectory.includes("\0") || outputDirectory.includes("\n")) {
+    reject("output directory must be an absolute path without control characters")
+  }
+  return { repository, origin, candidate, enforcement, requiredFiles, outputDirectory }
+}
+
+function decimal(value: string | undefined, field: string): number {
+  if (!value || !/^(0|[1-9][0-9]*)$/.test(value)) reject(`${field} must be a canonical decimal integer`)
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed)) reject(`${field} exceeds the safe integer range`)
+  return parsed
+}
+
+function digest(value: string | undefined, field: string): string {
+  if (!value || !/^sha256:[0-9a-f]{64}$/.test(value)) reject(`${field} must be sha256:<lowercase-64-hex>`)
+  return value
+}
+
+function oid(value: string | undefined, field: string): string {
+  if (!value || !/^[0-9a-f]{40}$/.test(value)) reject(`${field} must be a lowercase full SHA-1 OID`)
+  return value
+}
+
+function parseAdmissionArguments(argv: string[]): AdmissionArguments {
+  const values = new Map<string, string>()
+  const flags = new Set([
+    "--artifact",
+    "--size",
+    "--sha256",
+    "--audit-set",
+    "--assigned-risk-lens",
+    "--assigned-lens-delta-sha256",
+    "--common-packet-locator",
+    "--helper-commit",
+    "--helper-path",
+    "--helper-blob-oid",
+    "--helper-blob-sha256",
+    "--helper-size",
+    "--candidate-locator",
+  ])
+  for (let index = 0; index < argv.length; index += 2) {
+    const flag = argv[index]
+    const value = argv[index + 1]
+    if (value === undefined) reject(`missing value for ${flag ?? "argument"}`)
+    if (!flags.has(flag)) reject(`unsupported admission argument: ${flag}`)
+    if (values.has(flag)) reject(`duplicate admission argument: ${flag}`)
+    values.set(flag, value)
+  }
+  if (values.size !== flags.size) reject(`admit requires exactly: ${[...flags].join(" ")}`)
+
+  const artifact = values.get("--artifact")!
+  if (!isAbsolute(artifact) || resolve(artifact) !== artifact || /[\0\n\r]/.test(artifact)) {
+    reject("artifact must be a canonical absolute path without control characters")
+  }
+  const assignedRiskLens = values.get("--assigned-risk-lens") as LensName
+  if (!LENS_ORDER.includes(assignedRiskLens)) reject("unsupported assigned risk lens")
+  const auditSet = values.get("--audit-set")
+  if (auditSet !== "single" && auditSet !== "complementary_pair") reject("unsupported audit set")
+  const helperPath = values.get("--helper-path")!
+  if (helperPath !== SCRIPT_PATH) reject(`helper path must be ${SCRIPT_PATH}`)
+  const candidateLocator = values.get("--candidate-locator")!
+  if (!/^commit:[0-9a-f]{40}$/.test(candidateLocator)) {
+    reject("candidate locator must be commit:<lowercase-full-SHA-1>")
+  }
+  return {
+    artifact,
+    size: decimal(values.get("--size"), "size"),
+    sha256: digest(values.get("--sha256"), "sha256"),
+    auditSet,
+    assignedRiskLens,
+    assignedLensDeltaSha256: digest(
+      values.get("--assigned-lens-delta-sha256"),
+      "assigned lens delta SHA-256",
+    ),
+    commonPacketLocator: digest(values.get("--common-packet-locator"), "common packet locator"),
+    helperCommit: oid(values.get("--helper-commit"), "helper commit"),
+    helperPath,
+    helperBlobOid: oid(values.get("--helper-blob-oid"), "helper blob OID"),
+    helperBlobSha256: digest(values.get("--helper-blob-sha256"), "helper blob SHA-256"),
+    helperSize: decimal(values.get("--helper-size"), "helper size"),
+    candidateLocator,
+  }
 }
 
 function run(cwd: string, argv: string[]): CommandResult {
@@ -321,22 +443,27 @@ function bindingLine(cwd: string, args: Arguments): { bytes: Uint8Array; value: 
   return { bytes: result.stdout, value }
 }
 
-async function packetHelperIdentity(cwd: string, candidate: string): Promise<Record<string, unknown>> {
-  const commit = immutableCommit(cwd, candidate, "candidate")
+async function helperIdentity(
+  cwd: string,
+  locator: string,
+  label: string,
+  requireRuntimeMatch: boolean,
+): Promise<Record<string, unknown>> {
+  const commit = immutableCommit(cwd, locator, label)
   const oid = gitText(cwd, ["rev-parse", "--verify", "--end-of-options", `${commit}:${SCRIPT_PATH}`])
   const type = gitText(cwd, ["cat-file", "-t", oid])
-  if (type !== "blob") reject(`candidate packet helper is not a blob: ${type}`)
-  const candidateBytes = commandBytes(cwd, ["git", "cat-file", "blob", oid])
+  if (type !== "blob") reject(`${label} packet helper is not a blob: ${type}`)
+  const committedBytes = commandBytes(cwd, ["git", "cat-file", "blob", oid])
   const runtimeBytes = new Uint8Array(await Bun.file(import.meta.path).arrayBuffer())
-  if (!Buffer.from(candidateBytes).equals(Buffer.from(runtimeBytes))) {
-    reject("runtime packet helper bytes do not match candidate blob")
+  if (requireRuntimeMatch && !Buffer.from(committedBytes).equals(Buffer.from(runtimeBytes))) {
+    reject(`runtime packet helper bytes do not match ${label} blob`)
   }
   return {
     commit,
     path: SCRIPT_PATH,
     blob_oid: oid,
-    blob_sha256: sha256(candidateBytes),
-    size: candidateBytes.length,
+    blob_sha256: sha256(committedBytes),
+    size: committedBytes.length,
     invocation_argv: [...Bun.argv],
   }
 }
@@ -350,9 +477,7 @@ function segmentRecord(name: string, bytes: Uint8Array): Record<string, unknown>
   }
 }
 
-async function build(): Promise<Uint8Array> {
-  const args = parseArguments(Bun.argv.slice(2))
-  const inputBytes = new Uint8Array(await Bun.stdin.arrayBuffer())
+async function buildDispatches(args: Arguments, inputBytes: Uint8Array) {
   const input = parsePacketInput(inputBytes)
   const cwd = gitText(process.cwd(), ["rev-parse", "--show-toplevel"])
   const binding = bindingLine(cwd, args)
@@ -382,7 +507,8 @@ async function build(): Promise<Uint8Array> {
     sha256: `sha256:${lens.sha256}`,
     size: lens.size,
   }))
-  const helper = await packetHelperIdentity(cwd, resolvedCandidate)
+  const helper = await helperIdentity(cwd, resolvedCandidate, "candidate", true)
+  const admissionHelper = await helperIdentity(cwd, resolvedOrigin, "Origin", false)
   const frameBytes = new TextEncoder().encode(input.frame)
   const planBytes = new TextEncoder().encode(input.plan)
   const bindingFingerprint = semanticString(
@@ -435,24 +561,425 @@ async function build(): Promise<Uint8Array> {
       bytes,
     }
   })
-  const setHeader = canonicalLine({
-    schema: OUTPUT_SCHEMA,
-    status: "built",
-    common_packet_locator: commonPacketLocator,
-    dispatches: dispatches.map(({ assigned_risk_lens, size, sha256: digest }) => ({
-      assigned_risk_lens,
-      size,
-      sha256: digest,
-    })),
-  })
-  return concatBytes([setHeader, ...dispatches.map((dispatch) => dispatch.bytes)])
+  return {
+    candidateLocator: `commit:${resolvedCandidate}`,
+    commonPacketLocator,
+    auditSet: input.audit_set,
+    dispatches,
+    admissionHelper,
+  }
 }
 
+function sameFile(left: ReturnType<typeof lstatSync>, right: ReturnType<typeof fstatSync>): boolean {
+  return left.dev === right.dev && left.ino === right.ino && left.size === right.size
+}
+
+function materializeArtifact(directory: string, bytes: Uint8Array, digestValue: string): string {
+  const directoryStat = lstatSync(directory)
+  if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) {
+    reject("output directory must be a non-symlink directory")
+  }
+  const canonicalDirectory = realpathSync(directory)
+  if (resolve(directory) !== canonicalDirectory) reject("output directory must be a canonical absolute path")
+  const artifact = resolve(canonicalDirectory, `${digestValue}.dispatch`)
+  let descriptor: number | undefined
+  try {
+    descriptor = openSync(
+      artifact,
+      fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW,
+      0o400,
+    )
+    let offset = 0
+    while (offset < bytes.length) offset += writeSync(descriptor, bytes, offset, bytes.length - offset)
+    fsyncSync(descriptor)
+    fchmodSync(descriptor, 0o400)
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor)
+  }
+  const artifactStat = lstatSync(artifact)
+  if (!artifactStat.isFile() || artifactStat.isSymbolicLink() || (artifactStat.mode & 0o222) !== 0) {
+    reject("materialized artifact must be a read-only regular file")
+  }
+  if (artifactStat.size !== bytes.length || basename(artifact) !== `${digestValue}.dispatch`) {
+    reject("materialized artifact size or content-addressed name mismatch")
+  }
+  return artifact
+}
+
+async function materialize(): Promise<Uint8Array> {
+  const args = parseMaterializeArguments(Bun.argv.slice(3))
+  const inputBytes = new Uint8Array(await Bun.stdin.arrayBuffer())
+  const built = await buildDispatches(args, inputBytes)
+  const helper = record(built.admissionHelper, "admission helper")
+  const artifacts = built.dispatches.map((dispatch) => {
+    const digestValue = dispatch.sha256.slice("sha256:".length)
+    const path = materializeArtifact(args.outputDirectory, dispatch.bytes, digestValue)
+    return {
+      assigned_risk_lens: dispatch.assigned_risk_lens,
+      path,
+      size: dispatch.size,
+      sha256: dispatch.sha256,
+      audit_set: built.auditSet,
+      assigned_lens_delta_sha256: (() => {
+        const headerEnd = dispatch.bytes.indexOf(10)
+        const header = canonicalRecord(dispatch.bytes.slice(0, headerEnd + 1), "dispatch header")
+        return semanticString(header.assigned_lens_delta_sha256, "assigned lens delta SHA-256")
+      })(),
+      common_packet_locator: built.commonPacketLocator,
+      helper: {
+        commit: helper.commit,
+        path: helper.path,
+        blob_oid: helper.blob_oid,
+        blob_sha256: `sha256:${semanticString(helper.blob_sha256, "helper blob SHA-256")}`,
+        size: helper.size,
+      },
+      candidate_locator: built.candidateLocator,
+    }
+  })
+  return canonicalLine({
+    schema: ARTIFACT_SET_SCHEMA,
+    status: "materialized",
+    common_packet_locator: built.commonPacketLocator,
+    artifacts,
+  })
+}
+
+function canonicalRecord(bytes: Uint8Array, label: string): Record<string, unknown> {
+  if (bytes.length === 0 || bytes.at(-1) !== 10 || bytes.slice(0, -1).includes(10)) {
+    reject(`${label} must be exactly one JSON LF frame`)
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(decodeUtf8(bytes.slice(0, -1), label))
+  } catch {
+    reject(`${label} must contain valid JSON`)
+  }
+  if (!Buffer.from(canonicalLine(parsed)).equals(Buffer.from(bytes))) {
+    reject(`${label} must be canonical UTF-8 JSON-LF`)
+  }
+  return record(parsed, label)
+}
+
+function integer(value: unknown, field: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0) reject(`${field} must be a non-negative safe integer`)
+  return value as number
+}
+
+function stringArray(value: unknown, field: string): string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    reject(`${field} must be an array of strings`)
+  }
+  return value as string[]
+}
+
+function replayBinding(cwd: string, value: Record<string, unknown>, bytes: Uint8Array): {
+  repository: string
+  origin: Record<string, unknown>
+  candidate: Record<string, unknown>
+  controlPlane: Record<string, unknown>
+  requiredFiles: string[]
+  fingerprint: string
+  enforcement: string
+} {
+  exactKeys(value, "binding", [
+    "schema", "status", "repository", "enforcement", "control_plane", "origin", "candidate", "diff",
+    "required_files", "replay", "binding_fingerprint_sha256",
+  ])
+  if (value.schema !== BINDING_SCHEMA || value.status !== "bound") reject("binding schema or status mismatch")
+  const controlPlane = record(value.control_plane, "binding.control_plane")
+  const origin = record(value.origin, "binding.origin")
+  const candidate = record(value.candidate, "binding.candidate")
+  if (!Array.isArray(value.required_files)) reject("binding.required_files must be an array")
+  const requiredFiles = value.required_files.map((item, index) => semanticString(
+    record(item, `binding.required_files[${index}]`).path,
+    `binding.required_files[${index}].path`,
+  ))
+  const enforcement = semanticString(value.enforcement, "binding.enforcement")
+  const replayed = bindingLine(cwd, {
+    repository: semanticString(value.repository, "binding.repository"),
+    origin: semanticString(origin.commit, "binding.origin.commit"),
+    candidate: semanticString(candidate.commit, "binding.candidate.commit"),
+    enforcement,
+    requiredFiles,
+    outputDirectory: "/",
+  })
+  if (!Buffer.from(replayed.bytes).equals(Buffer.from(bytes))) reject("binding does not match immutable-Origin replay")
+  const fingerprint = semanticString(replayed.value.binding_fingerprint_sha256, "binding fingerprint")
+  return {
+    repository: semanticString(value.repository, "binding.repository"),
+    origin,
+    candidate,
+    controlPlane,
+    requiredFiles,
+    fingerprint,
+    enforcement,
+  }
+}
+
+function validateRuntimeHelper(cwd: string, args: AdmissionArguments): void {
+  const oidValue = gitText(cwd, [
+    "rev-parse", "--verify", "--end-of-options", `${args.helperCommit}:${args.helperPath}`,
+  ])
+  if (oidValue !== args.helperBlobOid || gitText(cwd, ["cat-file", "-t", oidValue]) !== "blob") {
+    reject("helper commit/path/blob identity mismatch")
+  }
+  const committed = commandBytes(cwd, ["git", "cat-file", "blob", oidValue])
+  const runtime = new Uint8Array(readFileSync(import.meta.path))
+  if (committed.length !== args.helperSize || runtime.length !== args.helperSize) reject("helper size mismatch")
+  if (`sha256:${sha256(committed)}` !== args.helperBlobSha256
+      || `sha256:${sha256(runtime)}` !== args.helperBlobSha256
+      || !Buffer.from(committed).equals(Buffer.from(runtime))) {
+    reject("runtime helper bytes do not match the bound helper blob")
+  }
+}
+
+function validatePacketHelper(
+  cwd: string,
+  value: unknown,
+  args: AdmissionArguments,
+  binding: ReturnType<typeof replayBinding>,
+): void {
+  const helper = record(value, "shared_core.packet_helper")
+  exactKeys(helper, "shared_core.packet_helper", [
+    "commit", "path", "blob_oid", "blob_sha256", "size", "invocation_argv",
+  ])
+  const commit = oid(String(helper.commit), "packet helper commit")
+  const path = semanticString(helper.path, "packet helper path")
+  const blobOid = oid(String(helper.blob_oid), "packet helper blob OID")
+  if (commit !== binding.candidate.commit || commit !== args.candidateLocator.slice("commit:".length)
+      || path !== SCRIPT_PATH) {
+    reject("artifact packet helper role binding mismatch")
+  }
+  const observedOid = gitText(cwd, ["rev-parse", "--verify", "--end-of-options", `${commit}:${path}`])
+  const bytes = commandBytes(cwd, ["git", "cat-file", "blob", observedOid])
+  if (observedOid !== blobOid || helper.blob_sha256 !== sha256(bytes) || helper.size !== bytes.length) {
+    reject("artifact packet helper identity mismatch")
+  }
+  const invocation = stringArray(helper.invocation_argv, "shared_core.packet_helper.invocation_argv")
+  if (invocation.length < 3 || basename(invocation[0]) !== "bun"
+      || (invocation[1] !== SCRIPT_PATH && !invocation[1].endsWith(`/${SCRIPT_PATH}`))
+      || invocation[2] !== "materialize") {
+    reject("artifact packet helper invocation owner mismatch")
+  }
+  const materialize = parseMaterializeArguments(invocation.slice(3))
+  const expectedRequiredFiles = [...binding.requiredFiles].sort()
+  if (materialize.repository !== binding.repository
+      || immutableCommit(cwd, materialize.origin, "packet helper invocation Origin") !== binding.origin.commit
+      || immutableCommit(cwd, materialize.candidate, "packet helper invocation candidate")
+        !== binding.candidate.commit
+      || materialize.enforcement !== binding.enforcement
+      || materialize.outputDirectory !== dirname(args.artifact)
+      || JSON.stringify([...materialize.requiredFiles].sort()) !== JSON.stringify(expectedRequiredFiles)) {
+    reject("artifact packet helper invocation binding mismatch")
+  }
+}
+
+function readArtifact(args: AdmissionArguments): Uint8Array {
+  if (realpathSync(args.artifact) !== args.artifact) reject("artifact path must not contain symlink components")
+  const before = lstatSync(args.artifact)
+  if (!before.isFile() || before.isSymbolicLink()) reject("artifact must be a non-symlink regular file")
+  if ((before.mode & 0o222) !== 0) reject("artifact must be read-only")
+  if (before.size !== args.size) reject("artifact size mismatch")
+  if (basename(args.artifact) !== `${args.sha256.slice("sha256:".length)}.dispatch`) {
+    reject("artifact path is not content-addressed by the expected whole SHA-256")
+  }
+  const descriptor = openSync(args.artifact, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW)
+  try {
+    const opened = fstatSync(descriptor)
+    if (!sameFile(before, opened) || !opened.isFile() || (opened.mode & 0o222) !== 0) {
+      reject("artifact changed between path validation and open")
+    }
+    const bytes = new Uint8Array(args.size)
+    let offset = 0
+    while (offset < bytes.length) {
+      const count = readSync(descriptor, bytes, offset, bytes.length - offset, offset)
+      if (count === 0) reject("artifact truncated during read")
+      offset += count
+    }
+    const extra = new Uint8Array(1)
+    if (readSync(descriptor, extra, 0, 1, offset) !== 0) reject("artifact has appended bytes")
+    const afterRead = fstatSync(descriptor)
+    const afterPath = lstatSync(args.artifact)
+    if (!sameFile(before, afterRead) || !sameFile(afterPath, afterRead)
+        || before.mtimeMs !== afterRead.mtimeMs || before.ctimeMs !== afterRead.ctimeMs) {
+      reject("artifact or path drifted during read")
+    }
+    if (`sha256:${sha256(bytes)}` !== args.sha256) reject("artifact whole SHA-256 mismatch")
+    return bytes
+  } finally {
+    closeSync(descriptor)
+  }
+}
+
+function validateSharedCore(
+  cwd: string,
+  value: Record<string, unknown>,
+  raw: Uint8Array,
+  args: AdmissionArguments,
+  binding: ReturnType<typeof replayBinding>,
+): void {
+  exactKeys(value, "shared_core", [
+    "schema", "candidate_locator", "control_plane", "packet_helper", "frame", "frame_utf8_size",
+    "frame_utf8_sha256", "plan", "plan_utf8_size", "plan_utf8_sha256", "audit_set", "required_lenses",
+    "lens_manifest", "admission", "replay",
+  ])
+  if (value.schema !== SHARED_CORE_SCHEMA || value.candidate_locator !== args.candidateLocator) {
+    reject("shared core schema or candidate locator mismatch")
+  }
+  if (`sha256:${sha256(raw)}` !== args.commonPacketLocator) reject("shared core common locator mismatch")
+  if (args.helperCommit !== binding.origin.commit || args.helperCommit !== binding.controlPlane.head) {
+    reject("admission helper does not belong to binding Origin")
+  }
+  if (binding.candidate.commit !== args.candidateLocator.slice("commit:".length)) {
+    reject("binding candidate does not match compact locator")
+  }
+  const control = record(value.control_plane, "shared_core.control_plane")
+  exactKeys(control, "shared_core.control_plane", [
+    "head", "tree", "worktree_candidate_material_fingerprint_sha256", "enforcement", "binding_identity",
+  ])
+  if (control.head !== binding.controlPlane.head || control.tree !== binding.controlPlane.tree
+      || control.worktree_candidate_material_fingerprint_sha256
+        !== binding.controlPlane.worktree_candidate_material_fingerprint_sha256
+      || control.binding_identity !== `${BINDING_SCHEMA}:${binding.fingerprint}`
+      || control.enforcement !== binding.enforcement) {
+    reject("shared core control-plane or binding identity mismatch")
+  }
+  validatePacketHelper(cwd, value.packet_helper, args, binding)
+  const frame = semanticString(value.frame, "shared_core.frame")
+  const plan = semanticString(value.plan, "shared_core.plan")
+  const frameBytes = new TextEncoder().encode(frame)
+  const planBytes = new TextEncoder().encode(plan)
+  if (value.frame_utf8_size !== frameBytes.length || value.frame_utf8_sha256 !== `sha256:${sha256(frameBytes)}`
+      || value.plan_utf8_size !== planBytes.length || value.plan_utf8_sha256 !== `sha256:${sha256(planBytes)}`) {
+    reject("shared core Frame or Plan byte binding mismatch")
+  }
+  const requiredLenses = stringArray(value.required_lenses, "shared_core.required_lenses")
+  if (value.audit_set !== args.auditSet) reject("shared core audit set mismatch")
+  if (value.audit_set === "single" && requiredLenses.length !== 1) reject("single audit set lens count mismatch")
+  if (value.audit_set === "complementary_pair"
+      && JSON.stringify(requiredLenses) !== JSON.stringify(LENS_ORDER)) reject("complementary lens order mismatch")
+  if (!requiredLenses.includes(args.assignedRiskLens)) reject("assigned lens missing from shared core")
+  if (!Array.isArray(value.lens_manifest) || value.lens_manifest.length !== requiredLenses.length) {
+    reject("shared core lens manifest mismatch")
+  }
+  value.lens_manifest.forEach((item, index) => {
+    const manifest = record(item, `shared_core.lens_manifest[${index}]`)
+    exactKeys(manifest, `shared_core.lens_manifest[${index}]`, ["name", "sha256", "size"])
+    if (manifest.name !== requiredLenses[index]) reject("lens manifest order mismatch")
+    digest(String(manifest.sha256), `shared_core.lens_manifest[${index}].sha256`)
+    integer(manifest.size, `shared_core.lens_manifest[${index}].size`)
+    if (manifest.name === args.assignedRiskLens && manifest.sha256 !== args.assignedLensDeltaSha256) {
+      reject("assigned lens manifest digest mismatch")
+    }
+  })
+  const admission = record(value.admission, "shared_core.admission")
+  exactKeys(admission, "shared_core.admission", [
+    "planned_launch_context", "instruction_origin", "automatic_discovery_boundary", "parent_receipt_route",
+  ])
+  const replay = record(value.replay, "shared_core.replay")
+  exactKeys(replay, "shared_core.replay", [
+    "main_ci_corroboration", "optional_supporting_claims", "concurrently_pending", "unavailable_evidence",
+  ])
+  for (const [field, item] of [...Object.entries(admission), ...Object.entries(replay)]) {
+    semanticString(item, `shared_core.${field}`)
+  }
+}
+
+function validateLens(value: Record<string, unknown>, args: AdmissionArguments): void {
+  exactKeys(value, "lens_delta", [
+    "schema", "assigned_risk_lens", "activation_predicate", "required_inspected_scope",
+    "required_terminal_evidence", "representative_refutation", "stop",
+  ])
+  if (value.schema !== LENS_DELTA_SCHEMA || value.assigned_risk_lens !== args.assignedRiskLens) {
+    reject("lens delta schema or assigned lens mismatch")
+  }
+  for (const field of [
+    "activation_predicate", "required_inspected_scope", "required_terminal_evidence",
+    "representative_refutation", "stop",
+  ]) semanticString(value[field], `lens_delta.${field}`)
+}
+
+function admit(): Uint8Array {
+  const args = parseAdmissionArguments(Bun.argv.slice(3))
+  const cwd = gitText(process.cwd(), ["rev-parse", "--show-toplevel"])
+  validateRuntimeHelper(cwd, args)
+  const bytes = readArtifact(args)
+  const headerEnd = bytes.indexOf(10)
+  if (headerEnd < 0) reject("dispatch header LF is missing")
+  const header = canonicalRecord(bytes.slice(0, headerEnd + 1), "dispatch header")
+  exactKeys(header, "dispatch header", [
+    "schema", "purpose", "reviewer_contract", "common_packet_locator", "assigned_risk_lens",
+    "assigned_lens_delta_sha256", "segments",
+  ])
+  if (header.schema !== DISPATCH_SCHEMA || header.purpose !== "independent candidate audit"
+      || header.reviewer_contract !== REVIEWER_CONTRACT
+      || header.common_packet_locator !== args.commonPacketLocator
+      || header.assigned_risk_lens !== args.assignedRiskLens
+      || header.assigned_lens_delta_sha256 !== args.assignedLensDeltaSha256) {
+    reject("dispatch header binding mismatch")
+  }
+  if (!Array.isArray(header.segments) || header.segments.length !== 3) reject("dispatch segments mismatch")
+  const expectedNames = ["binding", "shared_core", "lens_delta"]
+  const slices: Uint8Array[] = []
+  let offset = headerEnd + 1
+  header.segments.forEach((item, index) => {
+    const segment = record(item, `dispatch.segments[${index}]`)
+    exactKeys(segment, `dispatch.segments[${index}]`, ["name", "encoding", "size", "sha256"])
+    if (segment.name !== expectedNames[index] || segment.encoding !== "utf-8") {
+      reject("dispatch segment order, name, or encoding mismatch")
+    }
+    const size = integer(segment.size, `dispatch.segments[${index}].size`)
+    const end = offset + size
+    if (end > bytes.length) reject(`dispatch segment ${String(segment.name)} is truncated`)
+    const raw = bytes.slice(offset, end)
+    if (segment.sha256 !== `sha256:${sha256(raw)}`) reject(`dispatch segment ${String(segment.name)} digest mismatch`)
+    slices.push(raw)
+    offset = end
+  })
+  if (offset !== bytes.length) reject("dispatch has appended bytes or incorrect segment sizes")
+  if (`sha256:${sha256(slices[1])}` !== args.commonPacketLocator
+      || `sha256:${sha256(slices[2])}` !== args.assignedLensDeltaSha256) {
+    reject("dispatch common or assigned lens raw digest mismatch")
+  }
+
+  const bindingValue = canonicalRecord(slices[0], "binding")
+  const sharedCoreValue = canonicalRecord(slices[1], "shared_core")
+  const lensValue = canonicalRecord(slices[2], "lens_delta")
+  const binding = replayBinding(cwd, bindingValue, slices[0])
+  validateSharedCore(cwd, sharedCoreValue, slices[1], args, binding)
+  validateLens(lensValue, args)
+  return canonicalLine({
+    schema: ADMISSION_SCHEMA,
+    status: "admitted",
+    artifact: { path: args.artifact, size: args.size, sha256: args.sha256 },
+    common_packet_locator: args.commonPacketLocator,
+    audit_set: args.auditSet,
+    assigned_risk_lens: args.assignedRiskLens,
+    assigned_lens_delta_sha256: args.assignedLensDeltaSha256,
+    candidate_locator: args.candidateLocator,
+    helper: {
+      commit: args.helperCommit,
+      path: args.helperPath,
+      blob_oid: args.helperBlobOid,
+      blob_sha256: args.helperBlobSha256,
+      size: args.helperSize,
+    },
+    binding: bindingValue,
+    shared_core: sharedCoreValue,
+    lens_delta: lensValue,
+  })
+}
+
+const mode = Bun.argv[2]
 try {
-  const result = await build()
+  let result: Uint8Array
+  if (mode === "materialize") result = await materialize()
+  else if (mode === "admit") result = admit()
+  else reject("required mode: materialize | admit")
   await Bun.write(Bun.stdout, result)
 } catch (error) {
   const reason = error instanceof Error ? error.message : "unknown failure"
-  await Bun.write(Bun.stdout, canonicalLine({ schema: OUTPUT_SCHEMA, status: "rejected", reason }))
+  const schema = mode === "admit" ? ADMISSION_SCHEMA : ARTIFACT_SET_SCHEMA
+  await Bun.write(Bun.stdout, canonicalLine({ schema, status: "rejected", reason }))
   process.exitCode = 1
 }

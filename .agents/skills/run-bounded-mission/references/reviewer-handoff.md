@@ -39,19 +39,21 @@ semantic input after candidate freeze.
 Choose one binding route from the frozen candidate form:
 
 - For an exact committed candidate, immediately before dispatch run the repository-owned packet
-  helper with the clean Origin control plane as its working directory. It invokes the Origin binding
-  helper and embeds that exact `mission-evaluator-binding/v1` line in every evaluator-consumed
-  dispatch. Use the packet helper from Origin when Origin contains the exact bytes. Only when the
-  candidate introduces or changes it may the main agent invoke that exact candidate script path from
-  the clean Origin working directory. The helper then binds its own candidate commit, fixed path,
-  Git blob, runtime bytes, and actual invocation argv in the shared core. The evaluator never executes
-  candidate-controlled helper code; it inspects the helper diff and independently replays the emitted
-  Git and byte facts. Supply the repository identity, Origin, candidate, enforcement mode, and each
-  relevant Origin instruction, skill, agent, reviewer-policy, and consumer file as a repeated
-  `--required-file`:
+  helper with the clean Origin control plane as its working directory and a fresh canonical absolute
+  output directory. It invokes the Origin binding helper, embeds that exact
+  `mission-evaluator-binding/v1` line, and materializes one content-addressed read-only artifact per
+  lens. Use the packet helper from Origin when Origin contains the exact bytes. Only when the candidate
+  introduces or changes it may the main agent invoke that exact candidate script path from the clean
+  Origin working directory. The helper binds its commit, fixed path, Git blob, runtime bytes, and
+  actual invocation argv. An evaluator may execute only the helper bound to its immutable instruction
+  Origin. For a helper under review, inspect its complete diff and disposable behavior without
+  executing it as independent policy; a fresh-context candidate-helper run is only non-authorizing
+  pre-merge consumer evidence. Supply the repository identity, Origin, candidate, enforcement mode,
+  and each relevant control file as a repeated `--required-file`:
 
 ```text
-bun <packet-helper-script> \
+bun <packet-helper-script> materialize \
+  --output-directory <fresh-canonical-absolute-directory> \
   --repository <owner/name> \
   --origin <origin> \
   --candidate <candidate> \
@@ -59,8 +61,8 @@ bun <packet-helper-script> \
   --required-file <repo-relative-path> [...] < canonical-packet-input.json
 ```
 
-- Require exit zero and parse stdout as the exact framed `mission-evaluator-packet-set/v1` contract
-  below. The nested binding still derives the complete commits, trees, actual parent set and Origin
+- Require exit zero and parse stdout as the single canonical `mission-evaluator-artifact-set/v1`
+  locator frame below. The nested binding still derives the complete commits, trees, actual parent set and Origin
   relationship, binary diff, changed paths, required blob hashes, clean tracked and non-ignored
   untracked candidate material, replay argv, and one binding fingerprint. Gitignored dependency or
   build material remains outside this attestation. Any nonzero exit or `status=rejected` freezes
@@ -89,7 +91,7 @@ the changed route and `enforcement_status=integrity-checked`; never retry the sa
 With no valid route for every required lens, return the precise unavailable capability and do not
 claim an audit.
 
-## Build and dispatch exact packets
+## Materialize and admit exact artifacts
 
 Send the helper one canonical JSON UTF-8 LF input frame with this exact field order and no unknown
 fields. Supply the complete current Frame and Plan prose, not transcript excerpts. The main agent
@@ -99,25 +101,19 @@ chooses every semantic value; the helper only validates and serializes it.
 {"schema":"mission-evaluator-packet-input/v1","frame":"<exact complete Frame projection>","plan":"<exact complete Plan projection>","audit_set":"single|complementary_pair","admission":{"planned_launch_context":"<dedicated evaluator or fresh generic fallback>","instruction_origin":"<immutable source>","automatic_discovery_boundary":"<exact boundary>","parent_receipt_route":"<exact route or unavailable>"},"replay":{"main_ci_corroboration":"<not an evaluator prerequisite>","optional_supporting_claims":"<separately named optional claims or none>","concurrently_pending":"<evidence and locator or none>","unavailable_evidence":"<exact unavailable or unchecked evidence>"},"lenses":[{"name":"authority_representation|consumer_fail_close_closure","activation_predicate":"<exact predicate>","required_inspected_scope":"<exact scope>","required_terminal_evidence":"<claims, commands or bytes, and expected evidence>","representative_refutation":"<exact refutation>","stop":"<compatible Stop>"}]}
 ```
 
-`single` contains exactly one of the named lenses. `complementary_pair` contains exactly two lenses
-in this order: `authority_representation`, then `consumer_fail_close_closure`. Duplicate, unknown,
-missing, or reordered lenses reject. The helper also rejects noncanonical input JSON, invalid UTF-8,
-unpaired surrogates, unknown or missing fields, duplicate CLI facts, stale candidate/binding facts,
-an unsupported mode or enforcement value, dirty or non-Origin control plane, and runtime helper bytes
-that differ from its bound candidate blob. It preserves semantic strings exactly; it never trims,
-normalizes, summarizes, reorders, or chooses their prose.
+`single` contains exactly one named lens. `complementary_pair` contains
+`authority_representation`, then `consumer_fail_close_closure`. Duplicate, unknown, missing, or
+reordered lenses reject. The helper also rejects noncanonical input JSON, invalid UTF-8, unpaired
+surrogates, unknown or missing fields, duplicate CLI facts, stale candidate/binding facts, unsupported
+modes, dirty control planes, and runtime helper/blob drift. It preserves semantic strings exactly.
 
-On success, stdout is one byte-framed packet set:
-
-1. One canonical `mission-evaluator-packet-set/v1` JSON LF header containing `status=built`, the
-   `common_packet_locator`, and the ordered lens, byte size, and SHA-256 of each following dispatch.
-2. Exactly that many dispatch byte sequences, concatenated in header order with no delimiter,
-   encoding, or top-level shared-core copy. Split them only by the declared byte sizes and require the
-   final dispatch to end exactly at stdout EOF.
-3. Each dispatch begins with one canonical `mission-evaluator-dispatch/v1` JSON LF header followed,
-   in its declared order, by exact `binding`, `shared_core`, and assigned `lens_delta` segments. The
-   header binds each segment's UTF-8 encoding, byte size, and SHA-256. Split by byte size, require EOF,
-   and verify every digest before parsing a segment.
+On success, stdout is one compact canonical artifact-set JSON-LF frame. Each ordered locator contains
+only its canonical absolute artifact path, exact byte size, whole SHA-256, human-readable audit-set
+mode, assigned lens and delta SHA-256, common locator, candidate locator, and admission-helper
+commit/path/blob/SHA-256/size. The artifact
+filename is its whole digest plus `.dispatch`; creation is exclusive and mode `0400`. The artifact is
+the existing `mission-evaluator-dispatch/v1` header followed by exact ordered `binding`, `shared_core`,
+and assigned `lens_delta` segments. Do not send artifact bytes or rebuilt fields to the evaluator.
 
 The shared core is canonical `mission-evaluator-shared-core/v1` JSON LF. Its SHA-256 is the exact
 `common_packet_locator`; it binds the complete Frame and Plan plus their UTF-8 sizes/digests, audit
@@ -128,20 +124,27 @@ scope, terminal evidence, representative refutation, and Stop. No packet-set pay
 without a consumer: a single has one dispatch; a pair repeats binding/shared-core bytes exactly once
 for each independently consuming evaluator.
 
-The main agent verifies the set and dispatch frames programmatically, records their actual bytes and
-UTF-8 character counts, and sends one complete dispatch byte sequence unchanged to its assigned
-evaluator. The evaluator starts a raw, no-echo validator exec session and sends that received
-sequence once through `write_stdin`, followed only by EOT (`0x04`); valid JSON-LF cannot contain a raw
-EOT byte. It never trims, normalizes, recodes, converts newlines, or puts packet bytes in literals,
-argv, interpolation, command substitution, `echo`/`printf`, or rebuilt fields. The validator
-accumulates binary stdin until EOT, parses only the dispatch header, slices segments by declared byte
-sizes, requires exact EOF, verifies every raw digest, and only then decodes or parses a segment. An
-early EOT, unavailable raw session or write capability, or any byte after EOT freezes admission.
-Before candidate inspection it checks the common locator and assigned lens digest, independently
-replays the binding, and echoes both. When the packet helper belongs to Origin it may independently
-rerun the exact argv; when the helper is
-under review it inspects the helper diff and replays Git and byte facts without executing
-candidate-controlled code.
+Send one compact locator to its assigned evaluator. Before candidate inspection, the evaluator runs
+the immutable-Origin helper once with `admit` and the locator's exact facts:
+
+```text
+bun <Origin-packet-helper> admit --artifact <absolute-path> --size <bytes> --sha256 <whole> \
+  --audit-set <single|complementary_pair> \
+  --assigned-risk-lens <lens> --assigned-lens-delta-sha256 <digest> \
+  --common-packet-locator <digest> --helper-commit <oid> --helper-path <repo-relative-path> \
+  --helper-blob-oid <oid> --helper-blob-sha256 <digest> --helper-size <bytes> \
+  --candidate-locator <commit:oid>
+```
+
+The helper opens without following symlinks, requires a read-only regular file and stable path/file
+identity, reads exact bytes, and verifies size, content-addressed name, whole digest, canonical header,
+fixed segment order and sizes, exact EOF, and every raw digest before decoding any segment. It then
+requires canonical UTF-8 JSON-LF with exact fields and rebinds expected lens/delta/common locator,
+admission-helper blob/runtime identity, the artifact's independently bound packet-helper blob,
+candidate, control plane, binding fingerprint, Frame/Plan bytes, and lens manifest. Unknown fields,
+unsupported file types, drift, truncation, corruption, appended bytes,
+reordering, or any mismatch returns nonzero `status=rejected` before inspection. Only
+`mission-evaluator-artifact-admission/v1 status=admitted` exposes decoded canonical data.
 
 The evaluator validates `Locator` and `Admission` before candidate inspection. When the host exposes
 the named parent receipt route, it sends this single-line JSON immediately after that validation:
@@ -164,8 +167,8 @@ not feed the audit question. Start it concurrently, mark it `pending concurrent 
 once. Keep work sequential only when one result is an admitted input to the other. Candidate changes
 invalidate only affected evidence and the whole-candidate locator; never rerun unchanged gates.
 
-After the exact candidate is frozen, build and validate one helper-produced packet set; only then
-launch its complementary dispatches concurrently. Neither lens receives, waits for, or cites its
+After the exact candidate is frozen, materialize and admit one helper-produced artifact set; only then
+launch its complementary locators concurrently. Neither lens receives, waits for, or cites its
 sibling's output. Fan in once, then reject any return whose mode,
 content-addressed common packet locator, candidate, complete Frame and Plan prose, or required
 member/lens set no longer matches the current audit set, or whose assigned delta digest does not
