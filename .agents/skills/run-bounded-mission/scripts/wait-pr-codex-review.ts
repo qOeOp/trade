@@ -507,7 +507,7 @@ function projectFindings(snapshot: CodexReviewSnapshot, providerSignals: ReviewS
   for (const signal of providerSignals) {
     if (signal.reviewId && representedReviews.has(signal.reviewId)) continue
     if (USAGE_FAILURE.test(signal.body ?? "")) continue
-    if (!isNonCleanProviderResult(signal, snapshot.headRefOid)) continue
+    if (!isNonCleanProviderResult(signal)) continue
     const evidence = signalEvidence(signal)
     const review = providerReviewProjection(signal)
     if (!evidence || (signal.kind === "review" && !review)) incomplete = true
@@ -730,6 +730,12 @@ async function fetchSnapshot(repository: string, number: number): Promise<CodexR
   }
   const issueComments = fetchIssueComments(repository, number)
   const issueCommentsById = new Map(issueComments.map((comment) => [comment.id, comment]))
+  const graphIssueCommentIds = new Set(pullRequest.comments.nodes.map((comment) => comment.databaseId))
+  if (graphIssueCommentIds.size !== pullRequest.comments.nodes.length
+    || issueComments.length !== pullRequest.comments.nodes.length
+    || issueComments.some((comment) => !graphIssueCommentIds.has(comment.id))) {
+    throw new ReviewSnapshotError("GitHub issue-comment collections did not bind", observedHead, null)
+  }
 
   const signals: ReviewSignal[] = []
   for (const reaction of pullRequest.reactions.nodes) {
@@ -1059,25 +1065,25 @@ function isCleanReview(body: string): boolean {
   return CLEAN_REVIEW.test(body.trim())
 }
 
-function isGeneratedReviewComment(body: string, headOid: string): boolean {
+function isGeneratedReviewComment(body: string, headOid?: string): boolean {
   const lines = body.split("\n")
   const cleanHeading = CLEAN_COMMENT_HEADING.exec(lines[0] ?? "")
   const reviewedCommit = REVIEWED_COMMIT.exec(lines[2] ?? "")?.[1]
   return cleanHeading !== null
     && lines[1] === ""
     && reviewedCommit !== undefined
-    && headOid.startsWith(reviewedCommit)
+    && (headOid === undefined || headOid.startsWith(reviewedCommit))
     && lines.length === CLEAN_COMMENT_SUFFIX.length + 3
     && CLEAN_COMMENT_SUFFIX.every((line, index) => lines[index + 3] === line)
 }
 
-function isNonCleanProviderResult(signal: ReviewSignal, headOid: string): boolean {
+function isNonCleanProviderResult(signal: ReviewSignal): boolean {
   if (signal.kind === "review") {
     return signal.reviewState === "CHANGES_REQUESTED"
       || Boolean(signal.body?.trim() && !isCleanReview(signal.body))
   }
   return signal.kind === "comment"
-    && !isGeneratedReviewComment(signal.body ?? "", headOid)
+    && !isGeneratedReviewComment(signal.body ?? "")
 }
 
 function isFindingReviewSummary(body: string, commitOid: string): boolean {
