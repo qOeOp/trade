@@ -130,12 +130,18 @@ for each independently consuming evaluator.
 
 The main agent verifies the set and dispatch frames programmatically, records their actual bytes and
 UTF-8 character counts, and sends one complete dispatch byte sequence unchanged to its assigned
-evaluator. Do not paste, re-encode, wrap with markers, or reconstruct any segment. The evaluator
-validates the dispatch header and all segment digests before candidate inspection, decodes the exact
-Frame/Plan and lens fields, independently replays the binding, and echoes its assigned lens digest and
-common locator. When the packet helper belongs to Origin it may independently rerun the exact argv;
-when the helper is under review it inspects the helper diff and replays Git and byte facts without
-executing candidate-controlled code.
+evaluator. The evaluator starts a raw, no-echo validator exec session and sends that received
+sequence once through `write_stdin`, followed only by EOT (`0x04`); valid JSON-LF cannot contain a raw
+EOT byte. It never trims, normalizes, recodes, converts newlines, or puts packet bytes in literals,
+argv, interpolation, command substitution, `echo`/`printf`, or rebuilt fields. The validator
+accumulates binary stdin until EOT, parses only the dispatch header, slices segments by declared byte
+sizes, requires exact EOF, verifies every raw digest, and only then decodes or parses a segment. An
+early EOT, unavailable raw session or write capability, or any byte after EOT freezes admission.
+Before candidate inspection it checks the common locator and assigned lens digest, independently
+replays the binding, and echoes both. When the packet helper belongs to Origin it may independently
+rerun the exact argv; when the helper is
+under review it inspects the helper diff and replays Git and byte facts without executing
+candidate-controlled code.
 
 The evaluator validates `Locator` and `Admission` before candidate inspection. When the host exposes
 the named parent receipt route, it sends this single-line JSON immediately after that validation:
