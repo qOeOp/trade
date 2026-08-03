@@ -46,6 +46,7 @@ interface PacketInput {
   }
   replay: {
     main_ci_corroboration: string
+    optional_supporting_claims: string
     concurrently_pending: string
     unavailable_evidence: string
   }
@@ -137,6 +138,7 @@ function parsePacketInput(bytes: Uint8Array): PacketInput {
   const replayValue = record(value.replay, "replay")
   exactKeys(replayValue, "replay", [
     "main_ci_corroboration",
+    "optional_supporting_claims",
     "concurrently_pending",
     "unavailable_evidence",
   ])
@@ -188,6 +190,10 @@ function parsePacketInput(bytes: Uint8Array): PacketInput {
     },
     replay: {
       main_ci_corroboration: semanticString(replayValue.main_ci_corroboration, "replay.main_ci_corroboration"),
+      optional_supporting_claims: semanticString(
+        replayValue.optional_supporting_claims,
+        "replay.optional_supporting_claims",
+      ),
       concurrently_pending: semanticString(replayValue.concurrently_pending, "replay.concurrently_pending"),
       unavailable_evidence: semanticString(replayValue.unavailable_evidence, "replay.unavailable_evidence"),
     },
