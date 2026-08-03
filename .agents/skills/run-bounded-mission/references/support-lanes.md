@@ -25,7 +25,7 @@ the work class or transfer its owner.
 | bounded repository synthesis | fast explorer | every fast evidence gate holds |
 | bounded current or external evidence | `mission_researcher` | one decision-changing external question |
 | frozen-candidate advisory lens | ordinary read-only support agent | advisory trigger and packet below |
-| independent candidate audit | `mission_evaluator`, or a fresh generic fallback when that route is invalid before inspection or ends in an explicit terminal transport/capability failure without a valid audit | fresh non-builder context, origin-bound policy, exact candidate, and integrity gates |
+| independent candidate audit | one `mission_evaluator`, or the reviewer packet's risk-triggered complementary pair | fresh non-builder context, origin-bound policy, exact candidate, and integrity gates; one set-wide generic fallback only after explicit terminal transport or capability failure |
 
 The role files own their pinned model and reasoning settings. For an unpinned internal route, treat
 the selected model as host-discretionary and do not promise an exact model without observing it.
@@ -84,6 +84,14 @@ classification. Preserve Frame, Origin, Authority, and consumed Stop; do not ret
 gap with sibling lanes, or reset evidence. Keep dependent questions sequential. Parallelize only
 mutually independent questions whose inputs and outputs do not overlap or consume one another.
 
+## Run independent audit lenses
+
+Use [the reviewer handoff](reviewer-handoff.md) for every independent audit. It alone selects the
+single or risk-triggered complementary-pair route and owns complete Frame and Plan rebinding, result
+classification, fallback, and integrity gates. When it selects a pair, dispatch both one-lens
+`mission_evaluator` instances concurrently from the same frozen binding and common packet core;
+neither may consume sibling output. Fan in once for main-agent reproduction and arbitration.
+
 ## Run advisory candidate lenses
 
 Advisory review finds reproducible leads; it is not independent acceptance. Activate it only after
@@ -130,10 +138,6 @@ decide acceptance, Stop, revision, or an agent-count budget.
 
 ## Keep independent audit evidence fail-closed
 
-An advisory lane never substitutes for [the reviewer handoff](reviewer-handoff.md). It owns the
-dedicated-first generic fallback, Origin policy, exact-candidate packet, and pre/post integrity gates;
-one reviewer covers one lens and never becomes a vote. A write-capable surface alone is not
-unavailability, but mutation, candidate mismatch, builder context, candidate-controlled policy,
-delegation, lateral communication, or a missing binding invalidates the return. With no valid route,
-report the audit unavailable and apply its endpoint restriction. Generic fallback evidence is
-integrity-checked, not sandbox-enforced.
+An advisory lane never substitutes for the reviewer handoff, and no evaluator becomes a vote. Apply
+that owner's endpoint restriction when any required current lens is invalid or unavailable. Generic
+fallback evidence is integrity-checked, not sandbox-enforced.

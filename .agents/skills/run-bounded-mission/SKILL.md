@@ -333,11 +333,14 @@ When a frozen candidate has two or more mutually independent, decision-changing 
 use the advisory candidate-lens contract in agent lane routing and activate only the needed lenses.
 Their returns are untrusted leads for main-agent reproduction, never independent acceptance or votes.
 
-Instruction and judge changes activate an independent candidate audit. Load
-[the Verify reviewer packet](references/reviewer-handoff.md); it owns the fresh non-builder context,
-Origin-bound policy, exact candidate, dedicated-first fallback, and integrity gates. Advisory lanes
-never substitute, and the main agent must reproduce findings. If no valid audit survives those gates,
-report the limitation and do not claim independent audit or remote delivery.
+Instruction and judge changes activate an independent candidate audit. A deterministic helper
+change does too when at least one reviewer-packet risk is material and decision-changing. Load
+[the Verify reviewer packet](references/reviewer-handoff.md); it owns the risk-specific single or
+complementary-pair route, complete current Frame and Plan binding, fresh non-builder context,
+Origin-bound policy, exact candidate, fallback, result classification, and integrity gates. Advisory
+lanes never substitute. The main agent must consume, reproduce, deduplicate, and arbitrate the
+returns rather than concatenate or vote on them. If no valid audit set survives those gates, report
+the limitation and do not claim independent audit or remote delivery.
 
 ## Finalize
 
