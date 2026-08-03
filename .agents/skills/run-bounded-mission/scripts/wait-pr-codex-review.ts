@@ -2,13 +2,7 @@
 
 const PROVIDER_LOGIN = "chatgpt-codex-connector"
 const CLEAN_REVIEW = /^(?:codex review:?\s*)?didn['’]t find any major issues[.!]?$/i
-const CLEAN_COMMENT_HEADINGS = new Set([
-  "Codex Review: Didn't find any major issues. You're on a roll.",
-  "Codex Review: Didn't find any major issues. Bravo.",
-  "Codex Review: Didn't find any major issues. :rocket:",
-  "Codex Review: Didn't find any major issues. Keep them coming!",
-  "Codex Review: Didn't find any major issues. Another round soon, please!",
-])
+const CLEAN_COMMENT_HEADING = /^Codex Review: Didn['’]t find any major issues\.(?: (?=[^\r\n]{1,64}$)\S(?:[^\r\n]*\S)?)?$/
 const REVIEWED_COMMIT = /^\*\*Reviewed commit:\*\* `([0-9a-f]{10,64})`$/
 const CLEAN_COMMENT_SUFFIX = [
   "",
@@ -22,8 +16,11 @@ const CLEAN_COMMENT_SUFFIX = [
   "",
   "If Codex has suggestions, it will comment; otherwise it will react with 👍.",
   "",
-  "Codex can also answer questions or update the PR. Try commenting \"@codex address that feedback\".",
   "",
+  "",
+  "",
+  "Codex can also answer questions or update the PR. Try commenting \"@codex address that feedback\".",
+  "            ",
   "</details>",
 ]
 const USAGE_FAILURE = /(usage limit|rate limit|quota exceeded|try again later)/i
@@ -128,7 +125,10 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
   const providerThreads = snapshot.threads.filter((thread) =>
     isProvider(thread.comments[0]?.author ?? ""),
   )
-  const usageFailure = currentProviderSignals.find((signal) => USAGE_FAILURE.test(signal.body ?? ""))
+  const usageFailure = currentProviderSignals.find((signal) =>
+    USAGE_FAILURE.test(signal.body ?? "")
+      && !isGeneratedReviewComment(signal.body ?? "", snapshot.headRefOid),
+  )
   if (usageFailure) {
     return { status: "failed", reason: "Codex reported a usage or rate limit" }
   }
@@ -200,12 +200,11 @@ export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewD
     ? currentProviderSignals.find((signal) => timestampValue(signal.at) > attemptAt && (
       (signal.kind === "reaction"
         && signal.reaction === "THUMBS_UP"
-        && signal.target === attemptTarget)
+        && (signal.target === attemptTarget || signal.target === "pull-request"))
       || (signal.kind === "review"
         && signal.reviewState === "APPROVED"
         && signal.commitOid === snapshot.headRefOid
         && (!signal.body?.trim() || isCleanReview(signal.body)))
-      || (signal.kind === "comment" && isCleanComment(signal.body ?? "", snapshot.headRefOid))
     ))
     : undefined
   if (cleanTerminal) {
@@ -602,13 +601,12 @@ function isCleanReview(body: string): boolean {
   return CLEAN_REVIEW.test(body.trim())
 }
 
-function isCleanComment(body: string, headOid: string): boolean {
-  const lines = body.trim().split(/\r?\n/).map((line) => line.trimEnd()).filter(
-    (line, index, allLines) => line !== "" || index === 0 || allLines[index - 1] !== "",
-  )
+function isGeneratedReviewComment(body: string, headOid: string): boolean {
+  const lines = body.split("\n")
+  const cleanHeading = CLEAN_COMMENT_HEADING.exec(lines[0] ?? "")
   const reviewedCommit = REVIEWED_COMMIT.exec(lines[2] ?? "")?.[1]
-  return lines[1] === ""
-    && CLEAN_COMMENT_HEADINGS.has(lines[0] ?? "")
+  return cleanHeading !== null
+    && lines[1] === ""
     && reviewedCommit !== undefined
     && headOid.startsWith(reviewedCommit)
     && lines.length === CLEAN_COMMENT_SUFFIX.length + 3
@@ -621,20 +619,20 @@ function isNonCleanProviderResult(signal: ReviewSignal, headOid: string): boolea
       || Boolean(signal.body?.trim() && !isCleanReview(signal.body))
   }
   return signal.kind === "comment"
-    && Boolean(signal.body?.trim() && !isCleanComment(signal.body, headOid))
+    && !isGeneratedReviewComment(signal.body ?? "", headOid)
 }
 
 function isFindingReviewSummary(body: string): boolean {
-  const lines = body.trim().split(/\r?\n/).map((line) => line.trimEnd()).filter(
-    (line, index, allLines) => line !== "" || index === 0 || allLines[index - 1] !== "",
-  )
-  return lines[0] === "### 💡 Codex Review"
-    && lines[1] === ""
-    && lines[2] === "Here are some automated review suggestions for this pull request."
-    && lines[3] === ""
-    && REVIEWED_COMMIT.test(lines[4] ?? "")
-    && lines.length === CLEAN_COMMENT_SUFFIX.length + 5
-    && CLEAN_COMMENT_SUFFIX.every((line, index) => lines[index + 5] === line)
+  const lines = body.split("\n")
+  return lines[0] === ""
+    && lines[1] === "### 💡 Codex Review"
+    && lines[2] === ""
+    && lines[3] === "Here are some automated review suggestions for this pull request."
+    && lines[4] === ""
+    && REVIEWED_COMMIT.test(lines[5] ?? "")
+    && lines[6] === "    "
+    && lines.length === CLEAN_COMMENT_SUFFIX.length + 7
+    && CLEAN_COMMENT_SUFFIX.every((line, index) => lines[index + 7] === line)
 }
 
 async function main(): Promise<number> {
