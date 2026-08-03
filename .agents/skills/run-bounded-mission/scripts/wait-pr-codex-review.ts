@@ -541,7 +541,6 @@ function projectFindings(snapshot: CodexReviewSnapshot, providerSignals: ReviewS
   }
   for (const signal of providerSignals) {
     if (signal.reviewId && representedReviews.has(signal.reviewId)) continue
-    if (USAGE_FAILURE.test(signal.body ?? "")) continue
     if (!isNonCleanProviderResult(signal)) continue
     const evidence = signalEvidence(signal)
     const review = providerReviewProjection(signal)
