@@ -124,8 +124,16 @@ export interface ObservedReviewRequestProjection {
 }
 
 export interface ReviewRequestProjection extends ObservedReviewRequestProjection {
+  expected_locator: string
+  expected_author: string
+  binding_matches: boolean | null
   candidate_locators: string[]
   observed: ObservedReviewRequestProjection[]
+}
+
+export interface ReviewRequestExpectation {
+  locator: string
+  author: string
 }
 
 export interface ReviewEvidenceProjection {
@@ -196,8 +204,11 @@ export function validateCodexReviewRequest(body: string, expectedHead: string): 
   }
 }
 
-export function classifyCodexReview(snapshot: CodexReviewSnapshot): CodexReviewDecision {
-  const { request, selected } = classifyRequest(snapshot)
+export function classifyCodexReview(
+  snapshot: CodexReviewSnapshot,
+  expectation: ReviewRequestExpectation,
+): CodexReviewDecision {
+  const { request, selected } = classifyRequest(snapshot, expectation)
   const attemptAt = selected ? timestampValue(selected.at) : timestampValue(snapshot.createdAt)
   const attemptTarget = selected?.target ?? "pull-request"
   const allProviderSignals = snapshot.signals.filter((signal) => isProvider(signal.author))
@@ -325,7 +336,7 @@ function discoveryProblemReason(problem: DiscoveryProblem): string {
   return reasons[problem]
 }
 
-function classifyRequest(snapshot: CodexReviewSnapshot): {
+function classifyRequest(snapshot: CodexReviewSnapshot, expectation: ReviewRequestExpectation): {
   request: ReviewRequestProjection
   selected: ReviewSignal | null
 } {
@@ -335,20 +346,27 @@ function classifyRequest(snapshot: CodexReviewSnapshot): {
   const observed = [...requests]
     .sort((left, right) => timestampValue(left.at) - timestampValue(right.at))
     .map((signal) => projectObservedRequest(snapshot, signal))
-  if (requests.length === 0) return { request: emptyRequest("missing"), selected: null }
+  if (requests.length === 0) return { request: emptyRequest("missing", expectation), selected: null }
   const latestAt = Math.max(...requests.map((signal) => timestampValue(signal.at)))
   const latest = requests.filter((signal) => timestampValue(signal.at) === latestAt)
   const candidateLocators = latest.map(signalLocator).filter((value): value is string => value !== null).sort()
   if (latest.length !== 1) {
     return {
-      request: { ...emptyRequest("ambiguous"), candidate_locators: candidateLocators, observed },
+      request: { ...emptyRequest("ambiguous", expectation), candidate_locators: candidateLocators, observed },
       selected: null,
     }
   }
   const selected = latest[0]!
+  const projected = projectObservedRequest(snapshot, selected)
+  const bindingMatches = projected.locator === expectation.locator
+    && projected.author?.toLowerCase() === expectation.author.toLowerCase()
   return {
     request: {
-      ...projectObservedRequest(snapshot, selected),
+      ...projected,
+      classification: bindingMatches ? projected.classification : "incomplete",
+      expected_locator: expectation.locator,
+      expected_author: expectation.author,
+      binding_matches: bindingMatches,
       candidate_locators: candidateLocators,
       observed,
     },
@@ -394,10 +412,16 @@ function projectObservedRequest(
   }
 }
 
-function emptyRequest(classification: RequestClassification): ReviewRequestProjection {
+function emptyRequest(
+  classification: RequestClassification,
+  expectation: ReviewRequestExpectation,
+): ReviewRequestProjection {
   return {
     classification,
     locator: null,
+    expected_locator: expectation.locator,
+    expected_author: expectation.author,
+    binding_matches: null,
     candidate_locators: [],
     observed: [],
     comment_id: null,
@@ -894,6 +918,14 @@ function normalizeRepository(value: string): string {
   return `${match[1].toLowerCase()}/${match[2].toLowerCase()}`
 }
 
+function normalizeRequestExpectation(locator: string, author: string): ReviewRequestExpectation {
+  if (!/^[A-Za-z0-9_-]+$/.test(locator)
+    || !/^[A-Za-z\d](?:[A-Za-z\d-]{0,37}[A-Za-z\d])?$/.test(author)) {
+    throw new Error("invalid request expectation")
+  }
+  return { locator, author }
+}
+
 function matchesRepository(value: string, expected: string): boolean {
   try {
     return normalizeRepository(value) === expected
@@ -1106,7 +1138,7 @@ async function main(): Promise<number> {
   if (args.includes("--help")) {
     console.log([
       "usage:",
-      "  bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --repo <owner/name> <pr-number>",
+      "  bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --repo <owner/name> --request-locator <node-id> --request-author <login> <pr-number>",
       "  bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --render-request <head-oid>",
       "  bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --validate-request <head-oid> < request-body",
     ].join("\n"))
@@ -1140,29 +1172,42 @@ async function main(): Promise<number> {
     }
   }
   const repoIndex = args.indexOf("--repo")
+  const locatorIndex = args.indexOf("--request-locator")
+  const authorIndex = args.indexOf("--request-author")
   const repositoryArgument = repoIndex >= 0 ? args[repoIndex + 1] : undefined
-  const positional = args.filter((_, index) => index !== repoIndex && index !== repoIndex + 1)
+  const locatorArgument = locatorIndex >= 0 ? args[locatorIndex + 1] : undefined
+  const authorArgument = authorIndex >= 0 ? args[authorIndex + 1] : undefined
+  const consumedIndexes = new Set([
+    repoIndex, repoIndex + 1,
+    locatorIndex, locatorIndex + 1,
+    authorIndex, authorIndex + 1,
+  ])
+  const positional = args.filter((_, index) => !consumedIndexes.has(index))
   const numberToken = positional[0]
   const number = typeof numberToken === "string" && /^[1-9]\d*$/.test(numberToken)
     ? Number(numberToken)
     : Number.NaN
   let repository: string
+  let expectation: ReviewRequestExpectation
   try {
     repository = normalizeRepository(repositoryArgument ?? "")
+    expectation = normalizeRequestExpectation(locatorArgument ?? "", authorArgument ?? "")
   } catch {
-    console.error("codex-review: failed: repository must be owner/name")
+    console.error("codex-review: failed: repository, request locator, or request author is invalid")
     return 2
   }
   if (args.filter((arg) => arg === "--repo").length !== 1
+    || args.filter((arg) => arg === "--request-locator").length !== 1
+    || args.filter((arg) => arg === "--request-author").length !== 1
     || positional.length !== 1
     || !Number.isSafeInteger(number)) {
-    console.error("codex-review: failed: expected --repo <owner/name> and one positive PR number")
+    console.error("codex-review: failed: expected repository, request locator/author, and one positive PR number")
     return 2
   }
 
   try {
     const snapshot = await fetchSnapshot(repository, number)
-    const decision = classifyCodexReview(snapshot)
+    const decision = classifyCodexReview(snapshot, expectation)
     writeOutput({
       schema: RECEIPT_SCHEMA,
       repository,
@@ -1182,7 +1227,7 @@ async function main(): Promise<number> {
       head_oid: error instanceof ReviewSnapshotError ? error.headOid : null,
       status: "failed",
       reason: error instanceof Error ? error.message : "unexpected provider failure",
-      request: emptyRequest("incomplete"),
+      request: emptyRequest("incomplete", expectation),
       discovery: {
         status: "waiting",
         reviewed_head: null,

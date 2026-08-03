@@ -116,7 +116,7 @@ never suppresses already observed provider finding/disposition facts, and provid
 repairs invalid request admission.
 
 Wait through the bounded host loop and run
-`bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --repo <owner/name> <pr-number>`
+`bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --repo <owner/name> --request-locator <readback-node-id> --request-author <authorized-login> <pr-number>`
 as its read-only snapshot owner. Each invocation emits one `codex-review-receipt/v1` JSON object. It
 preserves the legacy `repository`, `pull_request`, `head_oid`, `status`, and `reason` fields and adds
 orthogonal machine projections:
@@ -124,7 +124,9 @@ orthogonal machine projections:
 - `request.classification` is one of `valid`, `missing`, `malformed`, `edited`, `ambiguous`,
   `wrong-head`, `self-trigger`, or `incomplete`, with the request locator, candidate locators, author,
   timestamps/edit state, body, requested head, performed GitHub app provenance, and the complete
-  observed request history needed to retain an earlier request-to-finding binding;
+  observed request history needed to retain an earlier request-to-finding binding; the expected
+  readback locator/authorized actor and their binding result are machine fields, and a mismatch is
+  `incomplete` rather than a new attempt;
 - `discovery.status` is one of `waiting`, `clean`, `finding_unrouted`, or `finding_routed`; its
   reviewed head, provider review, clean/progress signal, structured integrity problems, and finding
   array retain review, finding, thread, resolver, and non-empty disposition locators/identities/times.
