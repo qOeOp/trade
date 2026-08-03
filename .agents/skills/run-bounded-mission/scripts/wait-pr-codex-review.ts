@@ -787,7 +787,8 @@ async function fetchSnapshot(repository: string, number: number): Promise<CodexR
     if (!restComment
       || restComment.node_id !== comment.id
       || restComment.html_url !== comment.url
-      || restComment.user.login !== (comment.author?.login ?? "")
+      || (restComment.user.login !== (comment.author?.login ?? "")
+        && !(isProvider(restComment.user.login) && isProvider(comment.author?.login ?? "")))
       || restComment.body !== comment.body
       || restComment.created_at !== comment.createdAt
       || restComment.updated_at !== comment.updatedAt) {
