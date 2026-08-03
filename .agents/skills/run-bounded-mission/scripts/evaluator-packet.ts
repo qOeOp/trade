@@ -360,7 +360,15 @@ async function build(): Promise<Uint8Array> {
   }
 
   const lensRecords = input.lenses.map((lens) => {
-    const bytes = canonicalLine({ schema: LENS_DELTA_SCHEMA, ...lens })
+    const bytes = canonicalLine({
+      schema: LENS_DELTA_SCHEMA,
+      assigned_risk_lens: lens.name,
+      activation_predicate: lens.activation_predicate,
+      required_inspected_scope: lens.required_inspected_scope,
+      required_terminal_evidence: lens.required_terminal_evidence,
+      representative_refutation: lens.representative_refutation,
+      stop: lens.stop,
+    })
     return { name: lens.name, bytes, sha256: sha256(bytes), size: bytes.length }
   })
   const manifest = lensRecords.map((lens) => ({
