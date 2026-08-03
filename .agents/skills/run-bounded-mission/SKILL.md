@@ -176,17 +176,20 @@ not be mixed into this Mission. Scope expansion always requires `reframe` and a 
 before execution. New authority never applies retroactively to an operation already stopped or
 rejected.
 
-After compaction or on a later turn, continue only when conversation and Git evidence reconstruct the
-same Mission. When recovery materially requires it, reproduce the current projections and retain the
-exact candidate and effects, decisive evidence, current position and next legal operation, observed
-Stop predicates, and any valid Resume stage. Locators are conversation evidence, not workflow state.
+Before the shared checkpoint exists, a later turn, user interruption, compaction, Codex chat Handoff,
+or source drift freezes mutation and every unissued effect. If a nontrivial Plan may already have been
+admitted, load the shared reference and continue only after reconstructing and emitting its complete
+checkpoint. Otherwise continue only when the raw request plus current conversation, Git, native-task,
+and external-effect facts reconstruct the same complete Frame, origin, candidate or none, issued and
+unissued effects, decisive evidence and findings, current position and exact next legal operation,
+authority, Stop, any Resume, and terminal conditions. Any unknown or mismatch keeps mutation and
+effects frozen. This checkpoint-absent fallback loads no heavy reference for the tiny-Mission path.
 
-Before continuing, match the Frame and Plan prose, origin, candidate/effects, Stop predicates, next
-legal operation, and any resumable stage. If they cannot exclude a different Mission or candidate,
-freeze before mutation or effects and obtain the missing user-owned fact or take the evidenced route.
-An exactly recovered temporary `blocked` Mission re-enters its named `Resume` stage only after changed
-evidence removes the blocker; terminal predicates follow the routes above. Multi-Mission recovery
-also follows task dispatch.
+After a nontrivial Plan is admitted, load the shared [Mission replacement
+checkpoint](references/mission-checkpoint.md); it owns single-Mission continuity and the compatible
+hub shape. On a later turn, user interruption, compaction, or Codex chat Handoff, freeze mutation and
+unissued effects and follow its recovery gate before continuing. Multi-Mission recovery also follows
+task dispatch.
 
 ## Plan
 

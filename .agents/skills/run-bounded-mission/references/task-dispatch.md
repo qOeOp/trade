@@ -46,13 +46,10 @@ lifecycle, or hidden execution.
 
 ## Hub replacement checkpoint
 
-For multi-Mission work, keep one complete replacement checkpoint in the current hub conversation.
-Replace it as a whole after any node or evidence change; never append an update that can drop older
-facts. Reconcile it with current Goal, native task, Git, and pull-request facts before every effect,
-overall completion, or recovery.
-
-Preserve every proposed or approved node still inside the overall completion boundary. For each node
-retain only the evidence needed to reconstruct the next legal effect:
+Load the shared [Mission replacement checkpoint](mission-checkpoint.md). The hub owns its
+multi-Mission projection and reconciliation; extend the shared shape with every proposed or approved
+node still inside the overall completion boundary. For each node retain only the evidence needed to
+reconstruct the next legal effect:
 
 - current release-slice delta;
 - complete proposed or approved child prompt, approval scope, and create-attempt facts;
@@ -63,11 +60,8 @@ retain only the evidence needed to reconstruct the next legal effect:
 
 When assessment is active, retain one checkpoint-level frozen baseline/reassessment block, or one
 exact immutable locator and hash that covers it. Record assessed labels once; nodes do not copy it.
-
-The checkpoint is conversation evidence, not Goal prose, repository state, a registry, scheduler,
-ledger, retry engine, or lifecycle. Native tasks own identity; Git and GitHub own repository facts.
-Labels add no Mission type or scheduling policy. Reconcile every effect with those live owners; a
-static contract or fresh-context trace is not runtime proof.
+Native tasks own identity; Git and GitHub own repository facts. Labels add no Mission type or
+scheduling policy.
 
 ## Dependency and interruption gates
 
@@ -95,8 +89,8 @@ and endpoint. Local corrections remain there; causal pressure follows the main s
 Mission and authorizes no successor, transfer, or Goal replacement. A true block freezes only
 dependent descendants.
 
-A new turn, user insertion, compaction, or source drift freezes every unissued hub effect until the
-complete checkpoint reconciles; then apply the slice contract below before another effect.
+After the shared recovery gate releases the hub, apply the slice contract below before another
+effect.
 
 A hub freeze does not pause a child. Pause, cancel, or reframe only by one authorized message to its
 exact identity. Continue it only after reconciling checkpoint, authority, identity, candidate, and
@@ -119,11 +113,11 @@ work. It creates no child, consent, or effect. A slice keeps only input or prere
 write surface, next effect, freeze, release and invalidation predicates, and output locator; derive
 node facts and retain the locator after consumption.
 
-After a turn, insertion, compaction, or drift, reconcile the checkpoint; keep only affected or
-unknown-impact slices frozen. Once Git predecessors merge, observe the canonical tip, revalidate
-affected evidence, bind a new `ready` packet to that Origin, and ask **Create this task?**; only fresh
-approval creates the child. A non-Git dependent may release at its predecessor's endpoint. Invalidate
-only evidence with a changed source, dependency, base, merge-tree, or declared input.
+After the shared recovery gate, keep only affected or unknown-impact slices frozen. Once Git
+predecessors merge, observe the canonical tip, revalidate affected evidence, bind a new `ready` packet
+to that Origin, and ask **Create this task?**; only fresh approval creates the child. A non-Git
+dependent may release at its predecessor's endpoint. Invalidate only evidence with a changed source,
+dependency, base, merge-tree, or declared input.
 
 Inside one child, independent exact-candidate discovery, evaluation, CI, and security work may fan
 out. Its finding owner validates fan-in, stales affected output, and binds the root gate to the final
