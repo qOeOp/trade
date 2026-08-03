@@ -214,7 +214,8 @@ export function classifyCodexReview(
   const expectedRequestedHead = expectedAttempt
     ? projectObservedRequest(snapshot, expectedAttempt).requested_head
     : null
-  const allProviderSignals = snapshot.signals.filter((signal) => isProvider(signal.author))
+  const allProviderSignals = snapshot.signals.filter((signal) => isProvider(signal.author)
+    && !(signal.kind === "comment" && signalLocator(signal) === expectation.locator))
   const currentProviderSignals = allProviderSignals.filter(
     (signal) => timestampValue(signal.updatedAt ?? signal.at) >= attemptAt,
   )
@@ -226,7 +227,7 @@ export function classifyCodexReview(
   ))) problems.push("provider-edited")
   const usageFailure = currentProviderSignals.find((signal) =>
     USAGE_FAILURE.test(signal.body ?? "")
-      && !isGeneratedReviewComment(signal.body ?? "", snapshot.headRefOid),
+      && !isGeneratedReviewComment(signal.body ?? ""),
   )
   if (usageFailure) problems.push("usage-failure")
   if (currentProviderSignals.some((signal) => signal.kind === "review"
@@ -346,8 +347,8 @@ function classifyRequest(snapshot: CodexReviewSnapshot, expectation: ReviewReque
 } {
   const requests = snapshot.signals.filter((signal) =>
     signal.kind === "comment"
-      && !isProvider(signal.author)
-      && (REVIEW_REQUEST.test(signal.body ?? "") || signalLocator(signal) === expectation.locator),
+      && (signalLocator(signal) === expectation.locator
+        || (!isProvider(signal.author) && REVIEW_REQUEST.test(signal.body ?? ""))),
   )
   const expectedAttempt = requests.find((signal) => signalLocator(signal) === expectation.locator
     && signal.author.toLowerCase() === expectation.author.toLowerCase()) ?? null
@@ -371,7 +372,9 @@ function classifyRequest(snapshot: CodexReviewSnapshot, expectation: ReviewReque
   return {
     request: {
       ...projected,
-      classification: bindingMatches ? projected.classification : "incomplete",
+      classification: projected.classification === "self-trigger"
+        ? "self-trigger"
+        : (bindingMatches ? projected.classification : "incomplete"),
       expected_locator: expectation.locator,
       expected_author: expectation.author,
       binding_matches: bindingMatches,
@@ -1105,14 +1108,13 @@ function isCleanReview(body: string): boolean {
   return CLEAN_REVIEW.test(body.trim())
 }
 
-function isGeneratedReviewComment(body: string, headOid?: string): boolean {
+function isGeneratedReviewComment(body: string): boolean {
   const lines = body.split("\n")
   const cleanHeading = CLEAN_COMMENT_HEADING.exec(lines[0] ?? "")
   const reviewedCommit = REVIEWED_COMMIT.exec(lines[2] ?? "")?.[1]
   return cleanHeading !== null
     && lines[1] === ""
     && reviewedCommit !== undefined
-    && (headOid === undefined || headOid.startsWith(reviewedCommit))
     && lines.length === CLEAN_COMMENT_SUFFIX.length + 3
     && CLEAN_COMMENT_SUFFIX.every((line, index) => lines[index + 3] === line)
 }
