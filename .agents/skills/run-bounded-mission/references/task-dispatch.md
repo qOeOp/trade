@@ -209,13 +209,19 @@ its one native create attempt. Deferred nodes cannot be approved around their pr
 
 ## Generic child preflight
 
-Freeze the packet's exact title into the child prompt's first instruction. Before commentary, Frame,
-`get_goal`, file reads, Git, or any other task work, require the child to call the current-task
+Freeze the packet's exact title and the caller's observed create-naming branch into the child prompt's
+first instruction. When the calling `create_thread` schema did not expose `title`, before commentary,
+Frame, `get_goal`, file reads, Git, or any other task work, require the child to call the current-task
 `set_thread_title` with `threadId` omitted and only that frozen title. Continue only when its native
 result returns the calling `threadId` and exact title; unavailable capability, failure, or mismatch
 stops before Mission work and reports that evidence. The same exact-value, current-task-only call is
 idempotent and may repeat after recovery only when its earlier success cannot be reconstructed. It
 never maps a hub's `clientThreadId` receipt to that `threadId`.
+
+When that caller schema exposed `title` and the caller recorded passing the frozen title in the one
+create attempt, creation is the pre-Frame title effect: the child does not require or perform a
+redundant setter call. Missing or contradictory branch evidence stops before Mission work. This does
+not replace the hub's exact-identity readback before release.
 
 Derive the child preflight from current repository owner manifests and lockfile before dispatch. The
 packet names exact observations for repository path, HEAD and status, required executables, and the
@@ -249,13 +255,13 @@ it for this route or create a user-visible task for an internal build/revision l
 through the custom `fast_builder` agent and its standard-main fallback.
 
 The packet's label and title remain the only naming owner. Inspect the calling `create_thread` schema
-for that attempt: when it exposes `title`, pass the frozen exact title in the one create call; when it
-does not, pass no invented field and rely on the child's first instruction above. The latter cannot
-prevent a transient automatic host title, but it permits no Mission work under that title. In either
-branch, the hub never performs a routine post-create rename. Once an exact `threadId`/`hostId` is
-causally known, read only that task and accept its title only on an exact match before release. A
-mismatch or unavailable exact read freezes identity-dependent effects; list or search cannot repair
-it.
+for that attempt: when it exposes `title`, pass the frozen exact title in the one create call and
+record the atomic-create branch; when it does not, pass no invented field, record the self-title
+branch, and rely on the child's first instruction above. The latter cannot prevent a transient
+automatic host title, but it permits no Mission work under that title. In either branch, the hub
+never performs a routine post-create rename. Once an exact `threadId`/`hostId` is causally known, read
+only that task and accept its title only on an exact match before release. A mismatch or unavailable
+exact read freezes identity-dependent effects; list or search cannot repair it.
 
 A returned `clientThreadId` consumes the create attempt but is only a receipt. Record and emit it;
 never rename it or pass it to wait, read, or send. Freeze identity-dependent effects until the host
