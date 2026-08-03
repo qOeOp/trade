@@ -30,10 +30,11 @@ only one risk exists, use one evaluator. Ordinary non-judge work may require no 
 is only the human-readable `single | complementary_pair` mode. The immutable, content-addressed
 `common_packet_locator` is the set identity: use `sha256:<lowercase-64-hex>` over the exact shared-core
 bytes before adding the locator field; those bytes contain the exact candidate locator, complete
-current Frame and Plan prose, mode, required lens names, and control-plane/binding identity. A replan
-or reframe invalidates every outstanding packet and return in that set even when candidate bytes do
-not change; construct a new shared core from the complete replacement prose, never a delta or
-residual excerpt, and mint its new locator after candidate freeze.
+current Frame and Plan prose, mode, required lens names, an ordered manifest of each lens's exact
+delta-byte SHA-256, and control-plane/binding identity. A replan, reframe, or lens-delta correction
+invalidates every outstanding packet and return in that set even when candidate bytes do not change;
+construct a new shared core from the complete replacement prose and deltas, never residual excerpts,
+and mint its new locator after candidate freeze.
 
 Choose one binding route from the frozen candidate form:
 
@@ -90,9 +91,11 @@ claim an audit.
 
 Send only this compact packet. Repeat the exact complete current frozen Frame and admitted Plan
 prose; do not copy the transcript or an earlier packet. For a pair, serialize the shared core once
-for measurement and give each evaluator that same core plus only its lens question and evidence
-delta. Put object locators, the one lens, and replay bytes before supporting claims so the evaluator
-can reject a mismatch without broad repository reading.
+for measurement. Before hashing it, add an ordered manifest of `<lens>=sha256:<exact-delta-bytes>` for
+every required member; then give each evaluator that same core plus only its exact manifested lens
+delta. Each evaluator recomputes and echoes its assigned delta digest. Put object locators, the one
+lens, and replay bytes before supporting claims so the evaluator can reject a mismatch without broad
+repository reading.
 
 ```text
 Purpose: independent candidate audit
@@ -110,7 +113,8 @@ Admission
 - parent receipt route: <exact parent identity/tool, or unavailable>
 - audit set mode: single | complementary_pair; required member/lens set; exact shared-core bytes and
   immutable `sha256:<lowercase-64-hex>` common packet locator over those bytes:
-- activation predicate and assigned independent risk lens:
+- ordered required lens-delta digest manifest; assigned independent risk lens and exact delta bytes:
+- activation predicate:
 - required inspected scope and compatible stop boundary:
 
 Replay
@@ -162,8 +166,9 @@ After the exact candidate is frozen, freeze the shared packet core and mint its 
 `common_packet_locator`; only then launch a complementary pair concurrently. Neither lens receives,
 waits for, or cites its sibling's output. Fan in once, then reject any return whose mode,
 content-addressed common packet locator, candidate, complete Frame and Plan prose, or required
-member/lens set no longer matches the current audit set. Classify audit
-evidence before routing: a demonstrated implementation defect is `candidate_finding`; contradictory
+member/lens set no longer matches the current audit set, or whose assigned delta digest does not
+match the core manifest. Classify all audit evidence before routing: a demonstrated implementation
+defect is `candidate_finding`; contradictory
 or stale governing prose is `frame_plan_drift`; a malformed or mismatched packet is
 `packet_admission_defect`; missing probative material is `unsupported_evidence`. The main agent alone
 classifies a return from an older set as `stale_packet` and an observed host-level terminal transport
@@ -188,14 +193,15 @@ Return exactly:
 
 ```text
 review_status: completed | partial | unsupported
-result_class: no_finding | candidate_finding | frame_plan_drift | packet_admission_defect |
-  capability_failure | unsupported_evidence
+result_classes: [no_finding] | ordered non-empty subset of [candidate_finding, frame_plan_drift,
+  packet_admission_defect, capability_failure, unsupported_evidence]
 frame_locator:
 plan_locator:
 audit_set:
 common_packet_locator:
 activation_predicate:
 assigned_risk_lens:
+assigned_lens_delta_sha256:
 candidate_locator:
 observed_launch_context:
 instruction_origin:
@@ -215,11 +221,13 @@ limits:
 `completed` requires the complete changed surface and affected consumer closure plus every required
 independent item resolved as pass or fail; it means the audit ran, not that the candidate passed.
 Use `partial` when an admitted audit leaves a required item unverified, and `unsupported` when the
-binding, independence, or capability cannot admit the audit. Match `result_class` to direct evidence;
-unsupported evidence is not a candidate finding. Identify each unverified item and its boundary
-precisely. Neither status is acceptance evidence. Missing evidence is an `unverified` result or
-limit, not a finding. Report one finding per root cause and assign severity only from its demonstrated
-acceptance impact.
+binding, independence, or capability cannot admit the audit. Return every directly evidenced class
+in the fixed schema order; `[no_finding]` is valid only when no other class or material finding exists.
+Unsupported evidence is not a candidate finding, but it may coexist with a finding or Frame/Plan
+drift when different required items support those classes. Identify each unverified item and its
+boundary precisely. Neither status is acceptance evidence. Missing evidence is an `unverified`
+result or limit, not a finding. Report one finding per root cause and assign severity only from its
+demonstrated acceptance impact.
 
 Classify a finding at the highest material boundary. It is not candidate-local when correction needs
 a new owner, path, responsibility boundary, acceptance proxy, branch, exception, adapter, fallback,

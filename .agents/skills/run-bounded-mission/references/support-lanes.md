@@ -90,7 +90,7 @@ Use [the reviewer handoff](reviewer-handoff.md) for every independent audit. It 
 single or risk-triggered complementary-pair route and owns complete Frame and Plan rebinding, result
 classification, fallback, and integrity gates. When it selects a pair, dispatch both one-lens
 `mission_evaluator` instances concurrently from the same frozen binding and immutable,
-content-addressed common packet core;
+content-addressed common packet core whose ordered manifest binds every exact lens delta;
 neither may consume sibling output. Fan in once for main-agent reproduction and arbitration.
 
 ## Run advisory candidate lenses
