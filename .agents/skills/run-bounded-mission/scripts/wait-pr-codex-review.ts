@@ -168,6 +168,14 @@ export interface ReviewFindingProjection {
   routed: boolean
 }
 
+export interface ReviewAttemptHistoryProjection {
+  request: ObservedReviewRequestProjection
+  provider_signals: ReviewSignal[]
+  boundary_provider_signals: ReviewSignal[]
+  boundary_provider_threads: ReviewThread[]
+  findings: ReviewFindingProjection[]
+}
+
 export interface ReviewDiscoveryProjection {
   status: DiscoveryStatus
   reviewed_head: string | null
@@ -175,6 +183,7 @@ export interface ReviewDiscoveryProjection {
   clean_signal: ReviewEvidenceProjection | null
   progress_signal: ReviewEvidenceProjection | null
   findings: ReviewFindingProjection[]
+  history: ReviewAttemptHistoryProjection[]
   problems: DiscoveryProblem[]
 }
 
@@ -208,20 +217,64 @@ export function classifyCodexReview(
   snapshot: CodexReviewSnapshot,
   expectation: ReviewRequestExpectation,
 ): CodexReviewDecision {
-  const { request, expectedAttempt } = classifyRequest(snapshot, expectation)
-  const attemptAt = expectedAttempt ? timestampValue(expectedAttempt.at) : timestampValue(snapshot.createdAt)
-  const attemptTarget = expectedAttempt?.target ?? "pull-request"
-  const expectedRequestedHead = expectedAttempt
-    ? projectObservedRequest(snapshot, expectedAttempt).requested_head
+  const { request, expectedAttempt, nextRequestAt, attempts } = classifyRequest(snapshot, expectation)
+  const currentAttempt = request.binding_matches === true ? expectedAttempt : null
+  const attemptAt = currentAttempt ? timestampValue(currentAttempt.at) : timestampValue(snapshot.createdAt)
+  const attemptTarget = currentAttempt?.target ?? "pull-request"
+  const expectedRequestedHead = currentAttempt
+    ? projectObservedRequest(snapshot, currentAttempt).requested_head
     : null
   const allProviderSignals = snapshot.signals.filter((signal) => isProvider(signal.author)
     && !(signal.kind === "comment" && signalLocator(signal) === expectation.locator))
+  const history = attempts.map((attempt, index) => {
+    const historyAt = timestampValue(attempt.at)
+    const nextHistoryAt = attempts.slice(index + 1)
+      .map((value) => timestampValue(value.at))
+      .find((value) => value > historyAt) ?? null
+    const historyRequest = projectObservedRequest(snapshot, attempt)
+    const providerSignals = allProviderSignals.filter((signal) =>
+      timestampValue(signal.at) > historyAt
+        && (nextHistoryAt === null || timestampValue(signal.at) < nextHistoryAt),
+    )
+    const boundaryProviderSignals = allProviderSignals.filter((signal) =>
+      timestampValue(signal.at) === historyAt || timestampValue(signal.at) === nextHistoryAt,
+    )
+    const boundaryProviderThreads = snapshot.threads.filter((thread) => {
+      const first = thread.comments[0]
+      const firstAt = timestampValue(first?.at ?? "")
+      return isProvider(first?.author ?? "") && (firstAt === historyAt || firstAt === nextHistoryAt)
+    })
+    const { findings } = projectFindings(
+      snapshot,
+      providerSignals.filter((signal) => signal.kind !== "review" || signal.commitOid === historyRequest.requested_head),
+      attempt.author,
+      historyAt,
+      nextHistoryAt,
+    )
+    return {
+      request: historyRequest,
+      provider_signals: providerSignals,
+      boundary_provider_signals: boundaryProviderSignals,
+      boundary_provider_threads: boundaryProviderThreads,
+      findings,
+    }
+  })
   const currentProviderSignals = allProviderSignals.filter(
-    (signal) => timestampValue(signal.updatedAt ?? signal.at) >= attemptAt,
+    (signal) => currentAttempt !== null
+      && timestampValue(signal.at) > attemptAt
+      && (nextRequestAt === null || timestampValue(signal.at) < nextRequestAt),
   )
   const problems: DiscoveryProblem[] = []
   if (snapshot.state !== "OPEN") problems.push("pull-request-closed")
   if (!snapshot.complete) problems.push("snapshot-incomplete")
+  if (currentAttempt && allProviderSignals.some((signal) =>
+    timestampValue(signal.at) === attemptAt || timestampValue(signal.at) === nextRequestAt,
+  )) problems.push("provider-result-incomplete")
+  if (currentAttempt && snapshot.threads.some((thread) => {
+    const first = thread.comments[0]
+    const firstAt = timestampValue(first?.at ?? "")
+    return isProvider(first?.author ?? "") && (firstAt === attemptAt || firstAt === nextRequestAt)
+  })) problems.push("provider-result-incomplete")
   if (currentProviderSignals.some((signal) => isEditedSignal(signal) && (
     signal.kind === "review" || signal.kind === "comment"
   ))) problems.push("provider-edited")
@@ -232,15 +285,21 @@ export function classifyCodexReview(
   if (usageFailure) problems.push("usage-failure")
   if (currentProviderSignals.some((signal) => {
     if (signal.kind === "review") {
-      return signal.commitOid !== undefined && signal.commitOid !== snapshot.headRefOid
+      return signal.commitOid !== undefined && signal.commitOid !== expectedRequestedHead
     }
     const reviewedCommit = signal.kind === "comment"
       ? generatedReviewCommentHead(signal.body ?? "")
       : null
-    return reviewedCommit !== null && !snapshot.headRefOid.startsWith(reviewedCommit)
+    return reviewedCommit !== null && !expectedRequestedHead?.startsWith(reviewedCommit)
   })) problems.push("provider-wrong-head")
 
-  const { findings, incomplete } = projectFindings(snapshot, allProviderSignals, expectation.author)
+  const { findings, incomplete } = projectFindings(
+    snapshot,
+    currentProviderSignals.filter((signal) => signal.kind !== "review" || signal.commitOid === expectedRequestedHead),
+    currentAttempt?.author ?? expectation.author,
+    attemptAt,
+    nextRequestAt,
+  )
   if (incomplete) problems.push("provider-result-incomplete")
   const relatedEyes = currentProviderSignals.filter((signal) =>
     signal.kind === "reaction"
@@ -248,14 +307,14 @@ export function classifyCodexReview(
       && signal.target === attemptTarget
       && timestampValue(signal.at) >= attemptAt,
   )
-  const cleanTerminal = expectedAttempt
+  const cleanTerminal = currentAttempt
     ? currentProviderSignals.find((signal) => timestampValue(signal.at) > attemptAt && (
       (signal.kind === "reaction"
         && signal.reaction === "THUMBS_UP"
         && (signal.target === attemptTarget || signal.target === "pull-request"))
       || (signal.kind === "review"
         && signal.reviewState === "APPROVED"
-        && signal.commitOid === snapshot.headRefOid
+        && signal.commitOid === expectedRequestedHead
         && (!signal.body?.trim() || isCleanReview(signal.body)))
     ))
     : undefined
@@ -266,7 +325,7 @@ export function classifyCodexReview(
   const findingReview = [...findings].reverse().find((finding) => finding.provider_review !== null)?.provider_review ?? null
   const terminalReview = cleanTerminal?.kind === "review" ? providerReviewProjection(cleanTerminal) : null
   const observedReview = currentProviderSignals
-    .filter((signal) => signal.kind === "review")
+    .filter((signal) => signal.kind === "review" && signal.commitOid === expectedRequestedHead)
     .map(providerReviewProjection)
     .filter((review): review is ProviderReviewProjection => review !== null)
     .at(-1) ?? null
@@ -281,6 +340,7 @@ export function classifyCodexReview(
     clean_signal: cleanTerminal ? signalEvidence(cleanTerminal) : null,
     progress_signal: relatedEyes.length > 0 ? signalEvidence(relatedEyes.at(-1)!) : null,
     findings,
+    history,
     problems: [...new Set(problems)],
   }
 
@@ -350,18 +410,28 @@ function discoveryProblemReason(problem: DiscoveryProblem): string {
 function classifyRequest(snapshot: CodexReviewSnapshot, expectation: ReviewRequestExpectation): {
   request: ReviewRequestProjection
   expectedAttempt: ReviewSignal | null
+  nextRequestAt: number | null
+  attempts: ReviewSignal[]
 } {
   const requests = snapshot.signals.filter((signal) =>
     signal.kind === "comment"
       && (signalLocator(signal) === expectation.locator
-        || (!isProvider(signal.author) && REVIEW_REQUEST.test(signal.body ?? ""))),
+        || (!isProvider(signal.author) && REVIEW_REQUEST.test(signal.body ?? ""))
+        || (isProvider(signal.author) && EXACT_HEAD_REVIEW_REQUEST.test(signal.body ?? ""))),
   )
-  const expectedAttempt = requests.find((signal) => signalLocator(signal) === expectation.locator
+  const attempts = [...requests].sort((left, right) => timestampValue(left.at) - timestampValue(right.at))
+  const expectedAttempt = attempts.find((signal) => signalLocator(signal) === expectation.locator
     && signal.author.toLowerCase() === expectation.author.toLowerCase()) ?? null
-  const observed = [...requests]
-    .sort((left, right) => timestampValue(left.at) - timestampValue(right.at))
-    .map((signal) => projectObservedRequest(snapshot, signal))
-  if (requests.length === 0) return { request: emptyRequest("missing", expectation), expectedAttempt: null }
+  const nextRequestAt = expectedAttempt
+    ? attempts.reduce<number | null>((next, signal) => {
+      const at = timestampValue(signal.at)
+      return at > timestampValue(expectedAttempt.at) && (next === null || at < next) ? at : next
+    }, null)
+    : null
+  const observed = attempts.map((signal) => projectObservedRequest(snapshot, signal))
+  if (requests.length === 0) {
+    return { request: emptyRequest("missing", expectation), expectedAttempt: null, nextRequestAt, attempts }
+  }
   const latestAt = Math.max(...requests.map((signal) => timestampValue(signal.at)))
   const latest = requests.filter((signal) => timestampValue(signal.at) === latestAt)
   const candidateLocators = latest.map(signalLocator).filter((value): value is string => value !== null).sort()
@@ -369,6 +439,8 @@ function classifyRequest(snapshot: CodexReviewSnapshot, expectation: ReviewReque
     return {
       request: { ...emptyRequest("ambiguous", expectation), candidate_locators: candidateLocators, observed },
       expectedAttempt,
+      nextRequestAt,
+      attempts,
     }
   }
   const selected = latest[0]!
@@ -388,6 +460,8 @@ function classifyRequest(snapshot: CodexReviewSnapshot, expectation: ReviewReque
       observed,
     },
     expectedAttempt,
+    nextRequestAt,
+    attempts,
   }
 }
 
@@ -408,7 +482,7 @@ function projectObservedRequest(
   let classification: RequestClassification
   if (edited) classification = "edited"
   else if (!provenanceComplete || !bindingComplete) classification = "incomplete"
-  else if (app?.id === PROVIDER_APP_ID && app.slug === PROVIDER_LOGIN) classification = "self-trigger"
+  else if (isProvider(selected.author) || (app?.id === PROVIDER_APP_ID && app.slug === PROVIDER_LOGIN)) classification = "self-trigger"
   else if (app !== null) classification = "incomplete"
   else if (exactHead === null) classification = "malformed"
   else if (exactHead !== snapshot.headRefOid) classification = "wrong-head"
@@ -501,6 +575,8 @@ function projectFindings(
   snapshot: CodexReviewSnapshot,
   providerSignals: ReviewSignal[],
   authorizedActor: string,
+  attemptAt: number,
+  nextRequestAt: number | null,
 ): {
   findings: ReviewFindingProjection[]
   incomplete: boolean
@@ -508,7 +584,13 @@ function projectFindings(
   const findings: ReviewFindingProjection[] = []
   const representedReviews = new Set<string>()
   let incomplete = false
-  for (const thread of snapshot.threads.filter((value) => isProvider(value.comments[0]?.author ?? ""))) {
+  for (const thread of snapshot.threads.filter((value) => {
+    const first = value.comments[0]
+    const firstAt = timestampValue(first?.at ?? "")
+    return isProvider(first?.author ?? "")
+      && firstAt > attemptAt
+      && (nextRequestAt === null || firstAt < nextRequestAt)
+  })) {
     const first = thread.comments[0]!
     if (first.reviewId) representedReviews.add(first.reviewId)
     const reviewSignal = providerSignals.find((signal) => signal.kind === "review" && signal.reviewId === first.reviewId)
@@ -1272,6 +1354,7 @@ async function main(): Promise<number> {
         clean_signal: null,
         progress_signal: null,
         findings: [],
+        history: [],
         problems: ["snapshot-incomplete"],
       },
     })
