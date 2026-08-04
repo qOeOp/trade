@@ -887,7 +887,7 @@ function validateSharedCore(
   raw: Uint8Array,
   args: AdmissionArguments,
   binding: ReturnType<typeof replayBinding>,
-): void {
+): string {
   exactKeys(value, "shared_core", [
     "schema", "candidate_locator", "control_plane", "packet_helper", "frame", "frame_utf8_size",
     "frame_utf8_sha256", "plan", "plan_utf8_size", "plan_utf8_sha256", "audit_set", "required_lenses",
