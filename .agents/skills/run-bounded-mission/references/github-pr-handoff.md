@@ -138,8 +138,8 @@ override this classifier:
 
 - exit `0` is a terminal clean result for the exact reviewed head;
 - exit `10` is pending and remains in the bounded wait lane;
-- exit `20` is terminal routed discovery only: every finding has a non-empty owner disposition and a
-  resolved thread, but it is not clean;
+- exit `20` is terminal routed discovery only: every finding has a non-empty disposition from the
+  exact authorized request actor and a thread resolved by that same actor, but it is not clean;
 - exit `1` covers invalid request admission, same-app self-trigger, provider usage/rate-limit,
   incomplete evidence, mismatch, ambiguous signal, provider failure, and unrouted finding;
 - exit `2` is reserved for CLI argument or invocation usage errors.

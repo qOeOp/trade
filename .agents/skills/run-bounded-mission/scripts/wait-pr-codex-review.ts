@@ -240,7 +240,7 @@ export function classifyCodexReview(
     return reviewedCommit !== null && !snapshot.headRefOid.startsWith(reviewedCommit)
   })) problems.push("provider-wrong-head")
 
-  const { findings, incomplete } = projectFindings(snapshot, allProviderSignals)
+  const { findings, incomplete } = projectFindings(snapshot, allProviderSignals, expectation.author)
   if (incomplete) problems.push("provider-result-incomplete")
   const relatedEyes = currentProviderSignals.filter((signal) =>
     signal.kind === "reaction"
@@ -497,7 +497,11 @@ function threadCommentEvidence(comment: ReviewThread["comments"][number]): Revie
   }
 }
 
-function projectFindings(snapshot: CodexReviewSnapshot, providerSignals: ReviewSignal[]): {
+function projectFindings(
+  snapshot: CodexReviewSnapshot,
+  providerSignals: ReviewSignal[],
+  authorizedActor: string,
+): {
   findings: ReviewFindingProjection[]
   incomplete: boolean
 } {
@@ -541,7 +545,9 @@ function projectFindings(snapshot: CodexReviewSnapshot, providerSignals: ReviewS
       disposition,
       routed: Boolean(
         review && !review.edited && structuredFindingReview && finding && !finding.edited && threadProjection
-          && thread.resolved && resolver && disposition && !disposition.edited,
+          && thread.resolved && resolver && resolver.toLowerCase() === authorizedActor.toLowerCase()
+          && disposition && disposition.author.toLowerCase() === authorizedActor.toLowerCase()
+          && !disposition.edited,
       ),
     })
   }
@@ -768,7 +774,16 @@ async function fetchSnapshot(repository: string, number: number): Promise<CodexR
   } catch (error) {
     throw new ReviewSnapshotError("GitHub returned malformed pull request data", observedHead, error)
   }
-  const issueComments = fetchIssueComments(repository, number)
+  let issueComments: RestIssueComment[]
+  try {
+    issueComments = fetchIssueComments(repository, number)
+  } catch (error) {
+    throw new ReviewSnapshotError(
+      error instanceof Error ? error.message : "unexpected provider failure",
+      observedHead,
+      error,
+    )
+  }
   const issueCommentsById = new Map(issueComments.map((comment) => [comment.id, comment]))
   const graphIssueCommentIds = new Set(pullRequest.comments.nodes.map((comment) => comment.databaseId))
   if (graphIssueCommentIds.size !== pullRequest.comments.nodes.length
