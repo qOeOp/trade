@@ -117,7 +117,8 @@ repairs invalid request admission.
 
 Wait through the bounded host loop and run
 `bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --repo <owner/name> --request-locator <readback-node-id> --request-author <authorized-login> <pr-number>`
-as its read-only snapshot owner. Each invocation emits one `codex-review-receipt/v1` JSON object. It
+as its read-only snapshot owner. Pass the exact opaque, non-empty readback node ID without
+normalization. Each invocation emits one `codex-review-receipt/v1` JSON object. It
 preserves the legacy `repository`, `pull_request`, `head_oid`, `status`, and `reason` fields and adds
 orthogonal machine projections:
 

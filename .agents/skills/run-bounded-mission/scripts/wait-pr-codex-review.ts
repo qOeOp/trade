@@ -223,7 +223,7 @@ export function classifyCodexReview(
   if (snapshot.state !== "OPEN") problems.push("pull-request-closed")
   if (!snapshot.complete) problems.push("snapshot-incomplete")
   if (currentProviderSignals.some((signal) => isEditedSignal(signal) && (
-    signal.kind === "review" || (signal.kind === "comment" && isNonCleanProviderResult(signal))
+    signal.kind === "review" || signal.kind === "comment"
   ))) problems.push("provider-edited")
   const usageFailure = currentProviderSignals.find((signal) =>
     USAGE_FAILURE.test(signal.body ?? "")
@@ -951,7 +951,7 @@ function normalizeRepository(value: string): string {
 }
 
 function normalizeRequestExpectation(locator: string, author: string): ReviewRequestExpectation {
-  if (!/^[A-Za-z0-9_-]+$/.test(locator)
+  if (locator === ""
     || !/^[A-Za-z\d](?:[A-Za-z\d-]{0,37}[A-Za-z\d])?$/.test(author)) {
     throw new Error("invalid request expectation")
   }
