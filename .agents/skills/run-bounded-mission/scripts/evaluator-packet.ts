@@ -26,6 +26,7 @@ const BINDING_SCHEMA = "mission-evaluator-binding/v1"
 const SCRIPT_PATH = ".agents/skills/run-bounded-mission/scripts/evaluator-packet.ts"
 const BINDING_PATH = ".agents/skills/run-bounded-mission/scripts/evaluator-binding.ts"
 const REVIEWER_CONTRACT = ".agents/skills/run-bounded-mission/references/reviewer-handoff.md"
+const RELOCATED_REVIEWER_CONTRACT = ".agents/skills/run-bounded-mission/references/verification/reviewer-handoff.md"
 const ENFORCEMENT_MODES = new Set(["sandbox-enforced", "integrity-checked"])
 const LENS_ORDER = ["authority_representation", "consumer_fail_close_closure"] as const
 
@@ -738,7 +739,7 @@ function validatePacketHelper(
   value: unknown,
   args: AdmissionArguments,
   binding: ReturnType<typeof replayBinding>,
-): void {
+): string {
   const helper = record(value, "shared_core.packet_helper")
   exactKeys(helper, "shared_core.packet_helper", [
     "commit", "path", "blob_oid", "blob_sha256", "size", "invocation_argv",
@@ -755,6 +756,13 @@ function validatePacketHelper(
   if (observedOid !== blobOid || helper.blob_sha256 !== sha256(bytes) || helper.size !== bytes.length) {
     reject("artifact packet helper identity mismatch")
   }
+  const originHelperOid = gitText(cwd, [
+    "rev-parse", "--verify", "--end-of-options", `${String(binding.origin.commit)}:${SCRIPT_PATH}`,
+  ])
+  const originHelperBytes = commandBytes(cwd, ["git", "cat-file", "blob", originHelperOid])
+  const expectedReviewerContract = Buffer.from(bytes).equals(Buffer.from(originHelperBytes))
+    ? REVIEWER_CONTRACT
+    : validateReviewerContractRelocation(cwd, originHelperBytes, bytes, binding)
   const invocation = stringArray(helper.invocation_argv, "shared_core.packet_helper.invocation_argv")
   if (invocation.length < 3 || basename(invocation[0]) !== "bun"
       || (invocation[1] !== SCRIPT_PATH && !invocation[1].endsWith(`/${SCRIPT_PATH}`))
@@ -772,6 +780,68 @@ function validatePacketHelper(
       || JSON.stringify([...materialize.requiredFiles].sort()) !== JSON.stringify(expectedRequiredFiles)) {
     reject("artifact packet helper invocation binding mismatch")
   }
+  return expectedReviewerContract
+}
+
+function reviewerContractDeclaration(path: string): Uint8Array {
+  return new TextEncoder().encode(`const REVIEWER_${"CONTRACT"} = ${JSON.stringify(path)}`)
+}
+
+function treeBlob(cwd: string, commit: string, path: string): { mode: string; oid: string } | null {
+  const result = run(cwd, ["git", "ls-tree", "-z", commit, "--", path])
+  if (result.exitCode !== 0) reject("reviewer contract tree lookup failed")
+  if (result.stdout.length === 0) return null
+  const text = decodeUtf8(result.stdout, "reviewer contract tree entry")
+  const match = /^([0-7]{6}) blob ([0-9a-f]{40})\t([^\0]+)\0$/.exec(text)
+  if (!match || match[3] !== path) reject("reviewer contract tree entry mismatch")
+  return { mode: match[1], oid: match[2] }
+}
+
+function validateReviewerContractRelocation(
+  cwd: string,
+  originHelperBytes: Uint8Array,
+  candidateHelperBytes: Uint8Array,
+  binding: ReturnType<typeof replayBinding>,
+): string {
+  const oldDeclaration = Buffer.from(reviewerContractDeclaration(REVIEWER_CONTRACT))
+  const newDeclaration = Buffer.from(reviewerContractDeclaration(RELOCATED_REVIEWER_CONTRACT))
+  const originBytes = Buffer.from(originHelperBytes)
+  const candidateBytes = Buffer.from(candidateHelperBytes)
+  const declarationOffset = originBytes.indexOf(oldDeclaration)
+  if (declarationOffset < 0 || originBytes.lastIndexOf(oldDeclaration) !== declarationOffset) {
+    reject("Origin packet helper does not contain exactly one current reviewer contract declaration")
+  }
+  const expectedCandidateBytes = Buffer.concat([
+    originBytes.subarray(0, declarationOffset),
+    newDeclaration,
+    originBytes.subarray(declarationOffset + oldDeclaration.length),
+  ])
+  if (!candidateBytes.equals(expectedCandidateBytes)) {
+    reject("candidate packet helper is not the exact reviewer contract declaration transition")
+  }
+  if (!binding.requiredFiles.includes(REVIEWER_CONTRACT)) {
+    reject("Origin reviewer contract is missing from replayed required-file bindings")
+  }
+
+  const originCommit = semanticString(binding.origin.commit, "binding.origin.commit")
+  const candidateCommit = semanticString(binding.candidate.commit, "binding.candidate.commit")
+  const originOld = treeBlob(cwd, originCommit, REVIEWER_CONTRACT)
+  const originNew = treeBlob(cwd, originCommit, RELOCATED_REVIEWER_CONTRACT)
+  const candidateOld = treeBlob(cwd, candidateCommit, REVIEWER_CONTRACT)
+  const candidateNew = treeBlob(cwd, candidateCommit, RELOCATED_REVIEWER_CONTRACT)
+  if (!originOld || originNew || candidateOld || !candidateNew) {
+    reject("reviewer contract relocation endpoints do not match the predeclared transition")
+  }
+  if (originOld.mode !== candidateNew.mode || originOld.oid !== candidateNew.oid) {
+    reject("reviewer contract relocation changed blob content or file mode")
+  }
+  const rename = commandBytes(cwd, [
+    "git", "diff", "--name-status", "-z", "--find-renames=100%", originCommit, candidateCommit, "--",
+    REVIEWER_CONTRACT, RELOCATED_REVIEWER_CONTRACT,
+  ])
+  const expectedRename = Buffer.from(`R100\0${REVIEWER_CONTRACT}\0${RELOCATED_REVIEWER_CONTRACT}\0`)
+  if (!Buffer.from(rename).equals(expectedRename)) reject("reviewer contract relocation is not the exact Git R100 rename")
+  return RELOCATED_REVIEWER_CONTRACT
 }
 
 function readArtifact(args: AdmissionArguments): Uint8Array {
@@ -817,7 +887,7 @@ function validateSharedCore(
   raw: Uint8Array,
   args: AdmissionArguments,
   binding: ReturnType<typeof replayBinding>,
-): void {
+): string {
   exactKeys(value, "shared_core", [
     "schema", "candidate_locator", "control_plane", "packet_helper", "frame", "frame_utf8_size",
     "frame_utf8_sha256", "plan", "plan_utf8_size", "plan_utf8_sha256", "audit_set", "required_lenses",
@@ -844,7 +914,7 @@ function validateSharedCore(
       || control.enforcement !== binding.enforcement) {
     reject("shared core control-plane or binding identity mismatch")
   }
-  validatePacketHelper(cwd, value.packet_helper, args, binding)
+  const reviewerContract = validatePacketHelper(cwd, value.packet_helper, args, binding)
   const frame = semanticString(value.frame, "shared_core.frame")
   const plan = semanticString(value.plan, "shared_core.plan")
   const frameBytes = new TextEncoder().encode(frame)
@@ -883,6 +953,7 @@ function validateSharedCore(
   for (const [field, item] of [...Object.entries(admission), ...Object.entries(replay)]) {
     semanticString(item, `shared_core.${field}`)
   }
+  return reviewerContract
 }
 
 function validateLens(value: Record<string, unknown>, args: AdmissionArguments): void {
@@ -912,7 +983,6 @@ function admit(): Uint8Array {
     "assigned_lens_delta_sha256", "segments",
   ])
   if (header.schema !== DISPATCH_SCHEMA || header.purpose !== "independent candidate audit"
-      || header.reviewer_contract !== REVIEWER_CONTRACT
       || header.common_packet_locator !== args.commonPacketLocator
       || header.assigned_risk_lens !== args.assignedRiskLens
       || header.assigned_lens_delta_sha256 !== args.assignedLensDeltaSha256) {
@@ -946,7 +1016,8 @@ function admit(): Uint8Array {
   const sharedCoreValue = canonicalRecord(slices[1], "shared_core")
   const lensValue = canonicalRecord(slices[2], "lens_delta")
   const binding = replayBinding(cwd, bindingValue, slices[0])
-  validateSharedCore(cwd, sharedCoreValue, slices[1], args, binding)
+  const expectedReviewerContract = validateSharedCore(cwd, sharedCoreValue, slices[1], args, binding)
+  if (header.reviewer_contract !== expectedReviewerContract) reject("dispatch reviewer contract binding mismatch")
   validateLens(lensValue, args)
   return canonicalLine({
     schema: ADMISSION_SCHEMA,
