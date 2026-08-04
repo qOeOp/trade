@@ -218,7 +218,7 @@ export function classifyCodexReview(
   expectation: ReviewRequestExpectation,
 ): CodexReviewDecision {
   const { request, expectedAttempt, nextRequestAt, attempts } = classifyRequest(snapshot, expectation)
-  const currentAttempt = request.binding_matches === true ? expectedAttempt : null
+  const currentAttempt = request.classification === "valid" ? expectedAttempt : null
   const attemptAt = currentAttempt ? timestampValue(currentAttempt.at) : timestampValue(snapshot.createdAt)
   const attemptTarget = currentAttempt?.target ?? "pull-request"
   const expectedRequestedHead = currentAttempt
@@ -420,8 +420,10 @@ function classifyRequest(snapshot: CodexReviewSnapshot, expectation: ReviewReque
         || (isProvider(signal.author) && EXACT_HEAD_REVIEW_REQUEST.test(signal.body ?? ""))),
   )
   const attempts = [...requests].sort((left, right) => timestampValue(left.at) - timestampValue(right.at))
-  const expectedAttempt = attempts.find((signal) => signalLocator(signal) === expectation.locator
-    && signal.author.toLowerCase() === expectation.author.toLowerCase()) ?? null
+  const locatorAttempts = attempts.filter((signal) => signalLocator(signal) === expectation.locator)
+  const expectedAttempt = locatorAttempts.find((signal) =>
+    signal.author.toLowerCase() === expectation.author.toLowerCase(),
+  ) ?? null
   const nextRequestAt = expectedAttempt
     ? attempts.reduce<number | null>((next, signal) => {
       const at = timestampValue(signal.at)
@@ -431,6 +433,18 @@ function classifyRequest(snapshot: CodexReviewSnapshot, expectation: ReviewReque
   const observed = attempts.map((signal) => projectObservedRequest(snapshot, signal))
   if (requests.length === 0) {
     return { request: emptyRequest("missing", expectation), expectedAttempt: null, nextRequestAt, attempts }
+  }
+  if (locatorAttempts.length > 1) {
+    return {
+      request: {
+        ...emptyRequest("ambiguous", expectation),
+        candidate_locators: [...new Set(locatorAttempts.map(signalLocator).filter((value): value is string => value !== null))].sort(),
+        observed,
+      },
+      expectedAttempt: null,
+      nextRequestAt,
+      attempts,
+    }
   }
   const latestAt = Math.max(...requests.map((signal) => timestampValue(signal.at)))
   const latest = requests.filter((signal) => timestampValue(signal.at) === latestAt)
@@ -443,16 +457,14 @@ function classifyRequest(snapshot: CodexReviewSnapshot, expectation: ReviewReque
       attempts,
     }
   }
-  const selected = latest[0]!
+  const selected = locatorAttempts.length === 1 ? locatorAttempts[0]! : latest[0]!
   const projected = projectObservedRequest(snapshot, selected)
   const bindingMatches = projected.locator === expectation.locator
     && projected.author?.toLowerCase() === expectation.author.toLowerCase()
   return {
     request: {
       ...projected,
-      classification: projected.classification === "self-trigger"
-        ? "self-trigger"
-        : (bindingMatches ? projected.classification : "incomplete"),
+      classification: bindingMatches ? projected.classification : "incomplete",
       expected_locator: expectation.locator,
       expected_author: expectation.author,
       binding_matches: bindingMatches,
