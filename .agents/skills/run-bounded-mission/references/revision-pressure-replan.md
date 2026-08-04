@@ -36,10 +36,11 @@ the smallest owner chain that explains the pressure. Do not infer closure from t
 filename similarity, or the caller's file list. If a material semantic edge remains unresolved, the
 replacement scope is not ready.
 
-When named paths anchor the revision chain, apply the bounded Git path-history rule from Frame. Use
-its exact hashes and per-path stats to select commits for inspection, then recover observed failures,
-intended corrections, diffs, and acceptance results from the commits and Mission evidence
-themselves. The helper output is not a lifecycle ledger.
+When named paths anchor the revision chain, load and apply the
+[bounded Git path-history rule](decision-evidence.md#recover-bounded-source-history). Use its exact
+hashes and per-path stats to select commits for inspection, then recover observed failures, intended
+corrections, diffs, and acceptance results from the commits and Mission evidence themselves. The
+helper output is not a lifecycle ledger.
 
 Redesign only when evidence identifies a shared structural cause: a finding returns, acceptance stops
 improving, responsibility spreads, or protective exceptions, branches, adapters, fallbacks, or

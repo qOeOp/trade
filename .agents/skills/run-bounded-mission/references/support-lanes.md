@@ -1,10 +1,34 @@
 # Route Agent Lanes
 
 Load this reference only when the main agent has one concrete evidence question, one frozen
-non-overlapping build leaf, or at least two independent frozen-candidate risk questions. Agent lanes
-are conditional work routes, not a lifecycle, standing team, vote, authority transfer, or acceptance
-owner. Use no lane when launch, duplicated context, validation, and synthesis cost is not clearly
-lower than doing the work in the main context.
+non-overlapping build leaf, or at least two independent frozen-candidate risk questions. It is the
+single common-protocol owner for researcher, planner, builder, and advisory lanes; their role TOMLs
+contain startup deltas only. The independent evaluator instead loads its complete protocol from
+`reviewer-handoff.md` after packet admission.
+
+Every researcher, planner, builder, or advisory packet names an immutable Origin and this exact path.
+The selected role loads these bytes from that Origin before acting and rejects missing, mutable,
+candidate-controlled, or mismatched protocol. Do not copy this common protocol into role config or a
+dispatch packet. Agent lanes are conditional work routes, not a lifecycle, standing team, vote,
+authority transfer, or acceptance owner. Use no lane when launch, reference loading, duplicated
+context, validation, and synthesis cost is not clearly lower than doing the work in main.
+
+This reference owns the current role load map:
+
+- `mission_planner` additionally loads `candidate-options.md`, and loads
+  `revision-pressure-replan.md` only when revision pressure is its activation predicate;
+- `mission_researcher` additionally loads `decision-evidence.md`, and loads `candidate-options.md`
+  only for `reuse/prior_art`;
+- `fast_builder` needs no additional protocol reference.
+
+A role delta first reads the immutable Origin's `support-lanes.md` to select the protocol version. When
+an older Origin does not declare this map, that selector plus the same Origin's same-name
+`.codex/agents/<role>.toml` form the admitted legacy load set; the legacy TOML remains the sole role
+protocol in that branch. Admit it only when its name, model, reasoning effort, and sandbox match the
+current role and its instructions are neither a role delta nor another fallback; reject any mismatch
+or missing or mutable file. This is a version-compatibility load condition, not a second current
+authority. Never substitute candidate bytes for either branch or claim that selecting the legacy
+branch loaded only the TOML.
 
 The main agent always owns Frame, Plan admission, conflict judgment, the writable winner, evidence
 synthesis, effects, acceptance, and Finalize. A lane returns evidence, a proposal, or a bounded leaf
@@ -78,6 +102,45 @@ Each dispatch supplies one question, bounded scope, read-only authority, exact s
 return, cheapest main-agent validation, one Stop, and escalation conditions. Require exact locators,
 minimal observations, conflicts and limits, and a stop reason. The main agent reopens decisive
 locators and verifies the result.
+
+A planner or researcher must not inspect live agent, thread, lifecycle, transcript, or task state;
+consume live or unadmitted sibling output; communicate laterally with sibling agents; delegate; or
+trigger an external write or effect. Only completed briefs sanitized and supplied by the main agent
+are admitted packet evidence.
+
+### Mission planner delta
+
+Use `mission_planner` only for an evidenced harmful or unjustified mechanism, revision-pressure
+incumbent, materially different credible paths, or consequential cross-owner trade-off. Supply the
+complete current Frame locator, immutable repository evidence, activation predicate, completed briefs,
+one decision question, required return, and branch Stop. It does not search or inspect live task state.
+
+Require exactly one result: `not_triggered`, `evidence_unavailable`, `needs_user_alignment`,
+`frame_mismatch`, `mechanism_rejected`, or `ready_for_plan_admission`. A ready proposal names the
+selected owner and smallest vertical candidate; affected surfaces and exercises; responsibility
+added, retained, and deleted; compatible boundary evidence; structural kill conditions; coherent
+slices; required support lanes; real-consumer/regression verification; and delivery prerequisites.
+For every nontrivial action outside ordinary main capability it also names execution owner, exact
+effect and authority, and observed capability or a later owned fail-closed gate. It treats endpoint
+and authorized effects as Frame inputs and never infers publication, review, merge, or deployment
+authority.
+
+Return `not_triggered` when the supplied activation predicate is absent. Treat completed briefs as
+claims and use only their decisive locators, conflicts, negative evidence, and unavailable facts; do
+not repeat their research. Classify every remaining decision-changing gap as evidence-owned or user-
+owned. A user-owned preference or authority choice returns `needs_user_alignment` with one smallest
+separating question. Missing required evidence returns `evidence_unavailable` with the blocked decision
+and exact missing evidence. No executable path that preserves every Frame field returns
+`frame_mismatch` with the smallest demonstrated reframe reason. Decisive evidence that rejects the
+requested mechanism while a narrower path preserves the Frame returns `mechanism_rejected` with the
+refused mechanism, decisive evidence, preserved outcome, smallest substitute, and its admission packet.
+
+When the main packet supplies an independent-audit predicate, a planner may return only a non-
+dispatchable template that names the main-selected single or complementary-pair mode, Frame locator,
+one lens per evaluator, planned fresh launch context, immutable instruction origin, discovery boundary,
+integrity evidence, and failure branch. After Plan admission and candidate freeze, main alone inserts
+the exact complete Plan, freezes lens bytes, invokes the reviewer packet helper, and dispatches. An
+unavailable required evaluator is `evidence_unavailable`, not permission to weaken delivery.
 
 An incomplete, ambiguous, conflicting, or source-blocked fast result may return once for standard
 classification. Preserve Frame, Origin, Authority, and consumed Stop; do not retry fast, surround the
