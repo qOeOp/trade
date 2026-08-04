@@ -125,7 +125,8 @@ and safety constraints. The main context chooses any isolated reproduction; do n
 unavailable when this bounded packet is possible.
 
 Keep a known source or short verification chain in main. Use one read-only `mission_researcher` only
-when decision-changing breadth or context cost justifies it; load [agent lane routing](support-lanes.md)
+when decision-changing breadth or context cost justifies it; load
+[agent lane routing](../orchestration/support-lanes.md)
 before dispatch. Its packet carries the Frame locator, activation predicate, one route/question and
 impact, bounded scope, public locators or safe terms, source priority, required return, and branch
 Stop. The main agent reopens decisive sources and owns classification and Plan admission.

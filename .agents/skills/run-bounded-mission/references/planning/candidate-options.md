@@ -38,8 +38,8 @@ evidence class is required, a source tree needs nontrivial inspection, or source
 contract/candidate context. Do not split breadth and depth across uncoordinated researchers.
 
 A `reuse/prior_art` researcher packet uses the shared researcher packet in `decision-evidence.md`.
-It additionally names the immutable Origin, the exact protocol paths required by `support-lanes.md`,
-and the installed or target version.
+It additionally names the immutable Origin, the exact protocol paths required by
+`../orchestration/support-lanes.md`, and the installed or target version.
 
 In addition to the shared researcher return in `decision-evidence.md`, a `reuse/prior_art` brief adds
 responsibility, repository constraints, breadth covered, shortlist, decision, evidence for and against,
@@ -75,7 +75,7 @@ Always resolve reuse before adding an abstraction, compatibility path, agent, sc
 only evidenced dependent boundaries into change and verification. Separate instruction, workflow,
 judge, ruleset, and signing-policy changes from ordinary implementation. Use an agent lane only for a
 concrete unresolved question, frozen non-overlapping build leaf, or independently useful frozen-
-candidate risk lens; load [agent lane routing](support-lanes.md) first.
+candidate risk lens; load [agent lane routing](../orchestration/support-lanes.md) first.
 
 ## Form independently falsifiable slices
 

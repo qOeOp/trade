@@ -4,7 +4,7 @@
 Purpose: advisory_only; no acceptance, route, write, effect, delegation, or lateral authority
 Frozen bindings: exact Frame prose; admitted Plan prose; origin; candidate; untracked manifest;
   affected-boundary closure
-Protocol: immutable Origin; .agents/skills/run-bounded-mission/references/support-lanes.md
+Protocol: immutable Origin; .agents/skills/run-bounded-mission/references/orchestration/support-lanes.md
 Lens: one lens; activation observation; one question; inspected scope; excluded sibling lenses
 Evidence: complete diff; governing contracts; consumer/check invocations and raw artifact locators;
   unavailable evidence

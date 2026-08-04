@@ -92,7 +92,7 @@ runtime are signals only; none is a target or automatic gate.
 
 The following are necessary test-effectiveness signals, not dispatch authority. A separate Test
 Refactor Mission is also a Refactor Mission under
-[Refactor Mission proposals](refactor-mission-proposal.md): investigate it only after `accept`, and
+[Refactor Mission proposals](../optimization/refactor-mission-proposal.md): investigate it only after `accept`, and
 only when that method's integrated evidence spanning at least two accepted Missions, reachable
 revision, structural cause, consumer, proposal, consent, and dispatch requirements also pass.
 
