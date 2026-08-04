@@ -230,9 +230,15 @@ export function classifyCodexReview(
       && !isGeneratedReviewComment(signal.body ?? ""),
   )
   if (usageFailure) problems.push("usage-failure")
-  if (currentProviderSignals.some((signal) => signal.kind === "review"
-    && signal.commitOid !== undefined
-    && signal.commitOid !== snapshot.headRefOid)) problems.push("provider-wrong-head")
+  if (currentProviderSignals.some((signal) => {
+    if (signal.kind === "review") {
+      return signal.commitOid !== undefined && signal.commitOid !== snapshot.headRefOid
+    }
+    const reviewedCommit = signal.kind === "comment"
+      ? generatedReviewCommentHead(signal.body ?? "")
+      : null
+    return reviewedCommit !== null && !snapshot.headRefOid.startsWith(reviewedCommit)
+  })) problems.push("provider-wrong-head")
 
   const { findings, incomplete } = projectFindings(snapshot, allProviderSignals)
   if (incomplete) problems.push("provider-result-incomplete")
@@ -1109,6 +1115,10 @@ function isCleanReview(body: string): boolean {
 }
 
 function isGeneratedReviewComment(body: string): boolean {
+  return generatedReviewCommentHead(body) !== null
+}
+
+function generatedReviewCommentHead(body: string): string | null {
   const lines = body.split("\n")
   const cleanHeading = CLEAN_COMMENT_HEADING.exec(lines[0] ?? "")
   const reviewedCommit = REVIEWED_COMMIT.exec(lines[2] ?? "")?.[1]
@@ -1117,6 +1127,8 @@ function isGeneratedReviewComment(body: string): boolean {
     && reviewedCommit !== undefined
     && lines.length === CLEAN_COMMENT_SUFFIX.length + 3
     && CLEAN_COMMENT_SUFFIX.every((line, index) => lines[index + 3] === line)
+    ? reviewedCommit
+    : null
 }
 
 function isNonCleanProviderResult(signal: ReviewSignal): boolean {
