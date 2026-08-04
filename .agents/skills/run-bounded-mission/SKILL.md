@@ -48,7 +48,7 @@ exceptions, indirection, and superseded paths—not by net deletion.
 
 Keep independent outcomes separate from diagnosis, tests, documentation sync, review correction,
 coupled work, and support roles. For a separate outcome, existing child, follow-up, or multi-Mission
-operation, load [Codex task dispatch](references/task-dispatch.md); it owns proposal, consent,
+operation, load [Codex task dispatch](references/orchestration/task-dispatch.md); it owns proposal, consent,
 identity, dependency, title, and endpoint projection.
 
 ### Session mode
@@ -86,7 +86,7 @@ at its highest boundary:
    Frame;
 2. invalid owner, path, boundary, responsibility shape, or oracle; the same causal root recurring;
    or a non-shrinking or growing candidate returns to Plan through
-   [revision-pressure replan](references/revision-pressure-replan.md);
+   [revision-pressure replan](references/planning/revision-pressure-replan.md);
 3. an otherwise candidate-local finding returns to Execute for the smallest coherent root-cause
    correction;
 4. `blocked` requires observed provenance bound to a required decision proving unavailable authority,
@@ -119,7 +119,7 @@ Stop, Resume, and terminal condition. If a nontrivial Plan may have existed, loa
 instead of using this fallback. A tiny Mission with no admitted nontrivial Plan loads no checkpoint.
 
 Immediately after every nontrivial Plan admission, load and emit the complete
-[Mission replacement checkpoint](references/mission-checkpoint.md). It alone owns compatible single-
+[Mission replacement checkpoint](references/orchestration/mission-checkpoint.md). It alone owns compatible single-
 Mission and hub recovery state. Replace it as a whole after any decision-changing fact. On a later
 turn or interruption, call `get_goal`, reconcile its entire shape, and release work only through its
 recovery gate; multi-Mission recovery also follows task dispatch.
@@ -159,18 +159,18 @@ field keeps the Mission in Plan or returns it to Frame.
 
 Load conditional Plan owners only when their exact predicate holds:
 
-- [Decision evidence](references/decision-evidence.md): named-path history can change a decision;
+- [Decision evidence](references/planning/decision-evidence.md): named-path history can change a decision;
   ambiguity can change candidate, consumer, authority, acceptance, or a hard-to-reverse choice; or
   current external/domain evidence is necessary because local authority cannot close the premise.
-- [Candidate options](references/candidate-options.md): a reuse question or materially different
+- [Candidate options](references/planning/candidate-options.md): a reuse question or materially different
   credible paths can change owner, responsibility, architecture, or verification; load its slice
   method only when candidates need independently falsifiable shapes.
-- [Test effectiveness governance](references/test-effectiveness-governance.md): a test failure can
+- [Test effectiveness governance](references/verification/test-effectiveness-governance.md): a test failure can
   change the candidate, an escaped defect exposes a blind spot, or the Mission may restructure tests.
-- [Evidence assessment matrices](references/mission-assessment.md): only an explicitly requested
+- [Evidence assessment matrices](references/optimization/mission-assessment.md): only an explicitly requested
   scored report, a named multi-Mission quality decision, or an optimization/refactor comparison that
   must distinguish local gain from system regression.
-- [Agent lane routing](references/support-lanes.md): one concrete unresolved evidence question, one
+- [Agent lane routing](references/orchestration/support-lanes.md): one concrete unresolved evidence question, one
   frozen non-overlapping build leaf, or independent frozen-candidate risk questions meet its cost and
   integrity predicates.
 
@@ -217,12 +217,12 @@ audit consume the same frozen candidate and neither feeds the other, freeze the 
 Origin diff first, launch both concurrently, and fan in once. Keep them sequential when one is an
 admitted input to the other.
 
-Load [architecture sensor evidence](references/architecture-sensor.md) only for material structural
+Load [architecture sensor evidence](references/optimization/architecture-sensor.md) only for material structural
 change, cross-owner effects, or persistent patch pressure. For two or more independent advisory risk
 questions, use agent lane routing; advisory returns are untrusted leads, never acceptance or votes.
 
 Instruction and judge changes require an independent audit. A deterministic helper does too when a
-reviewer-packet risk is material. Load [the Verify reviewer packet](references/reviewer-handoff.md);
+reviewer-packet risk is material. Load [the Verify reviewer packet](references/verification/reviewer-handoff.md);
 it owns audit-set selection, immutable-Origin policy, exact complete candidate and Frame/Plan binding,
 fresh non-builder context, integrity fallback, result classification, and fail-close gates. Main
 reproduces and arbitrates every return. No valid current audit means no independent-audit or remote-
@@ -245,9 +245,9 @@ For a multi-Mission node ending `merged`, task dispatch projects child delivery 
 child Finalize accepts only that exact-candidate handoff; hub Finalize alone owns guarded merge and
 node closure.
 
-Load [GitHub delivery](references/github-pr-handoff.md) before any pull-request publication, review,
+Load [GitHub delivery](references/delivery/github-pr-handoff.md) before any pull-request publication, review,
 merge, or post-merge cleanup. It owns title validation, exact-head discovery, CI/conversation/
 mergeability barriers, effect authority, and cleanup inventory. Load
-[Refactor Mission proposals](references/refactor-mission-proposal.md) only after two or more related
+[Refactor Mission proposals](references/optimization/refactor-mission-proposal.md) only after two or more related
 Missions are accepted and integrated at the canonical tip and every related node is terminal; a
 child reports evidence only, and every proposal requires new user approval.

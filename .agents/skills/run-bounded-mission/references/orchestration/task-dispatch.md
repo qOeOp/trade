@@ -129,7 +129,7 @@ candidate, root, or full-review acceptance: matching Goal and checkpoint authori
 repository and canonical-ref merge effect, exact head and base, unresolved conversations, required
 final-head and provider signals, mergeability, and queue policy.
 
-If those facts match the handoff and [GitHub delivery](github-pr-handoff.md), the hub makes the
+If those facts match the handoff and [GitHub delivery](../delivery/github-pr-handoff.md), the hub makes the
 separately authorized guarded exact-head merge in that turn without a release message. Hub-owned
 metadata or authority drift freezes only the effect. Candidate, head, base, merge-tree, finding,
 check, or other affected-input drift stales the handoff; after checkpoint reconciliation, one message
@@ -188,7 +188,7 @@ Also retain:
 Freeze one user-approved endpoint for each node. For a `merged` node, derive `merge-ready` for child
 delivery; this owner projection is not another Goal endpoint. Its packet freezes hub merge authority
 and effect and follows Critical-path choreography. For any pull-request endpoint, load
-[GitHub delivery](github-pr-handoff.md); `open` or `merge-ready` never grants merge. A no-pull-request
+[GitHub delivery](../delivery/github-pr-handoff.md); `open` or `merge-ready` never grants merge. A no-pull-request
 endpoint retains its own falsifiable terminal evidence.
 
 End a `ready` packet with the direct question **Create this task?** A `deferred` packet instead ends
