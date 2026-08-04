@@ -97,10 +97,20 @@ A failed local syntax or read-only preflight freezes only the unissued effect; i
 invalidates the candidate. An ambiguous write result requires a fresh issue-comment read before any
 further action and never permits a duplicate request by assumption.
 
-The waiter may accept the provider's `THUMBS_UP` reaction on that same request comment or on the pull
-request as a clean manual result only when the request is unedited, its body matches the template
-exactly, its embedded full head equals the current snapshot head, and the reaction follows the
-request within the current attempt and head window with matching provider, target, and causal order.
+The waiter first selects the locator- and actor-bound request attempt. Its current provider closure is
+the immutable creation/submission-time interval after that request and before the next review request;
+`updatedAt` may detect editing but never admits a lifecycle member. The closure's review threads must
+join a provider review by review ID and that review's exact requested head. The request's original
+actor remains the only authority for its resolver/disposition binding. Historical requests, signals,
+reviews, threads, and dispositions remain machine-visible request history but cannot arbitrate the
+selected attempt's terminal state. A disposition remains with the attempt that owns its finding
+thread and review even when it is posted after a later request. Provider evidence exactly on either
+request boundary is not a lifecycle member: its signals and threads are retained as non-terminal
+boundary history and force incomplete discovery. The waiter may accept the provider's `THUMBS_UP` reaction on that
+same request comment or on the pull request as a clean manual result only when the request is
+unedited, its body matches the template exactly, its embedded full head equals the current snapshot
+head, and the reaction follows the request within that closure with matching provider, target, and
+causal order.
 A provider `EYES` reaction on the request is progress evidence only: it neither starts a new attempt
 nor advances the request-bound provider-signal window, and cannot hide a material signal after it.
 A generated clean comment is notification only and cannot itself prove a terminal clean result. Its
@@ -112,8 +122,8 @@ blocks a later reaction. Only the structured
 reaction or approval after the exact request supplies terminal authority. A bare legacy request,
 edited request, stale or wrong head, same-app or other app transport, wrong provider or target,
 ambiguous order, or changed PR head remains invalid or outstanding and fail-closed. Request admission
-never suppresses already observed provider finding/disposition facts, and provider discovery never
-repairs invalid request admission.
+never suppresses already observed provider facts in its own selected closure, and provider discovery
+never repairs invalid request admission.
 
 Wait through the bounded host loop and run
 `bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --repo <owner/name> --request-locator <readback-node-id> --request-author <authorized-login> <pr-number>`
@@ -130,7 +140,13 @@ orthogonal machine projections:
   `incomplete` rather than a new attempt;
 - `discovery.status` is one of `waiting`, `clean`, `finding_unrouted`, or `finding_routed`; its
   reviewed head, provider review, clean/progress signal, structured integrity problems, and finding
-  array retain review, finding, thread, resolver, and non-empty disposition locators/identities/times.
+  array are only the selected current attempt. Its ordered `history` array retains every request
+  attempt with that request's raw provider signals, non-terminal boundary provider signals, and its
+  non-terminal boundary provider threads, plus request-bound finding/thread/resolver/disposition
+  projections, so consumers do not manually rejoin lifecycles. An exact connector-authored request is retained and classified as its own self-trigger
+attempt rather than projected as a provider finding in another attempt. Every in-window provider
+thread is retained before review-ID/head joining; an absent or mismatched review binding is incomplete
+discovery and cannot be hidden by a clean signal.
 
 The helper joins those facts inside the same snapshot invocation. Reason text is explanatory only;
 callers consume the machine fields and exit code. Unknown or missing provenance, actor, locator,
