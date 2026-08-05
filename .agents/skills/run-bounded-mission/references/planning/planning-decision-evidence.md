@@ -53,23 +53,27 @@ consumer evidence.
 ## Resolve consequential ambiguity
 
 Inspect repository evidence first. Express each credible interpretation as an assumption, consumer
-consequence, and disconfirming observation. Route research internally, then choose exactly one
-external lane for each decision frontier:
+consequence, and disconfirming observation, then preserve the kernel's internal disposition:
 
-- `automatic`: current authority or evidence selects the route, or a safe reversible default exists
-  inside user, safety, and effect authority. Name its invalidator, but open no user turn and never mint
-  authority or choose a hard-to-reverse acceptance tradeoff;
-- `recommended confirmation`: the user owns a material preference or consequence, evidence supports
-  one route, and proceeding without confirmation would create meaningful replan or reversal cost.
-  Present the recommendation, strongest alternative, evidence locator, and consequence;
-- `blocking confirmation`: only the user owns the required fact, preference, or effect authority and
-  no safe evidence-backed route exists. State why recommendation is unavailable and what each
-  concrete answer changes.
+- `default`: current authority or evidence selects the route, or a safe reversible choice exists
+  inside user, safety, and effect authority. Name its invalidator, but never mint authority or choose
+  a hard-to-reverse acceptance tradeoff;
+- `research`: evidence can settle a candidate- or acceptance-changing premise; bind its question,
+  consequence, evidence status, and Stop through the route below;
+- `ask`: only the user owns the required fact, preference, or effect authority and the answer can
+  materially change candidate or acceptance.
 
-Use `research` before those lanes only when evidence can settle a candidate- or acceptance-changing
-premise; bind its question, consequence, evidence status, and Stop through the route below. Unknown or
-unavailable essential evidence freezes only the dependent decision and does not convert it to a user
-preference.
+After research, project exactly one external lane for each frontier:
+
+- `automatic` for a disposed `default` or evidence-settled route; open no user turn;
+- `recommended confirmation` for an `ask` where evidence supports one route and proceeding without
+  confirmation would create meaningful replan or reversal cost; present the recommendation,
+  strongest alternative, evidence locator, and consequence;
+- `blocking confirmation` for an `ask` with no safe evidence-backed route; state why recommendation
+  is unavailable and what each concrete answer changes.
+
+Unknown or unavailable essential evidence remains `research`, freezes only the dependent decision,
+and never becomes a user preference or an automatic route.
 
 Open one user turn only when at least one confirmation remains after internal research. Bundle the
 smallest high-signal confirmation items sharing the next Plan boundary; do not add automatic items,
