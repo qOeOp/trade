@@ -1,9 +1,90 @@
-# Compare Candidate Options
+# Run the Plan Design Loop
 
-Load this reference only when a reuse question or materially different credible candidate paths can
-change owner, responsibility, architecture, verification, or a hard-to-reverse choice. Use its slice
-method only when candidates need independently falsifiable shapes. The main agent owns selection and
+Load this reference only when a material decision frontier needs more than the kernel's direct Plan,
+including a reuse question or credible paths that can change authority, owner, responsibility,
+architecture, verification, or a hard-to-reverse choice. It owns conversation-only
+`Discover -> Deliberate -> Admit` shaping and candidate comparison. It does not own Frame, a durable
+design state, a second Spec system, effects, or acceptance. The main agent owns every decision and
 Plan admission.
+
+## Shape the decision frontier
+
+Choose the cheapest depth that can close the current frontier. Do not persist the depth or turn it
+into another lifecycle:
+
+- **Direct:** one current authority and consumer close a safe, reversible choice with no material
+  alternative or unresolved consequence. Stay in the kernel; do not load this reference or outward
+  research merely to restate the obvious Plan.
+- **Bounded:** one or a few material but reversible owner, authority, or candidate decisions remain.
+  Scan only those frontiers and stop when their evidence and consequences close.
+- **High-consequence:** a hard-to-reverse, cross-owner, public-contract, safety, authority-migration,
+  solution/test-authority, or current external premise can materially change the Plan. Scan every
+  material frontier, but still expose only decisions that need user ownership.
+
+Unknown consequence or authority never defaults to Direct. Move only the affected frontier deeper;
+do not make unrelated slices pay its cost. Depth, question count, discussion length, and elapsed time
+never admit a Plan.
+
+## Discover current authority and frontiers
+
+Start from the current Frame, no-change counterfactual, real consumer, and acceptance. Inspect current
+repository owners and bounded history before treating any existing document, code, schema, test, or
+requested mechanism as correct authority.
+
+Separate authority for user intent and acceptance from authority for solution shape and tests. For
+each object, choose one evidence-backed disposition:
+
+- reuse the current authority unchanged;
+- repair or migrate it and delete the superseded authority in the same admitted slice;
+- create authority only when no current owner can express the required contract;
+- keep the decision Mission-only when no stable downstream consumer justifies repository authority.
+
+Identify only frontiers that can change Outcome, consumer, authority, owner, acceptance, candidate,
+verification, reversibility, or cleanup. Find whether any downstream consumer requires a stable Spec
+shape; a request for a Spec, an existing template, or tests alone does not prove that consumer. Keep
+discovery in conversation and repository evidence, not an exploration document or decision log.
+
+## Deliberate internally and interrupt sparsely
+
+For each active frontier, test the strongest credible objection and name the observation that would
+invalidate the leading route. Use [Decision evidence](planning-decision-evidence.md) for ambiguity,
+history, current premises, and the external interruption lanes. Compare options below only when a
+materially different credible path survives discovery.
+
+Scan with grill-me-level completeness internally, then present a near-complete recommendation. Open
+no user turn for evidence-settled or safely defaulted choices. When confirmation is required, bundle
+only the smallest related frontier, give the recommendation and consequence, and ask no fixed number
+of questions. A confirmation freezes only its dependent decision; continue independent Plan work.
+
+## Admit one current Plan
+
+Freeze the selected intent/acceptance authority before deciding whether solution/test authority or a
+Spec is needed. Admit a Spec only when a named stable consumer needs a solution or test contract that
+the selected current authorities cannot express without ambiguity. Reuse or repair the current owner
+before creating one; never mirror the Plan, intent, tests, or implementation into a parallel Spec
+system.
+
+Preserve only Plan-changing final decisions in the existing Plan projection as concise
+`Decision / basis / rejected alternative / unresolved consequence / evidence locator`. Record no
+deliberation order or rejected-option diary. Promote only the final current authority and bind deletion
+of superseded exploration, Plan, or Spec artifacts to the same slice that replaces them.
+
+Put the following downstream admission facts in the existing `Candidate` and
+`Dependencies / action bindings` fields, not in a new packet, schema, or log:
+
+- the exact intent/acceptance authority locator and immutable revision or digest;
+- the exact solution/test authority locator and immutable revision or digest, or `none` with basis;
+- the authority disposition and every superseded path that the candidate must remove;
+- whether a Spec is required, its named consumer, and its current owner, or `not required` with basis;
+- every unresolved consequence and the evidence status and Stop for its dependent decision;
+- `revalidate_after` bound to the exact authority digest, consumer contract, candidate head, or
+  component snapshot whose change can invalidate downstream TEST admission.
+
+Admit only when each final decision has a downstream consumer, every essential premise is supported
+or explicitly freezes only its dependent decision, authority selection precedes Spec selection, and
+the earliest `replan` and `reframe` observations are named. Missing or unknown admission facts do not
+silently widen authority. Do not emit a Spec for Direct work or for a Mission whose current Plan and
+authorities already close the consumer contract.
 
 ## Resolve reuse before building
 
