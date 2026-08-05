@@ -15,14 +15,14 @@ context, validation, and synthesis cost is not clearly lower than doing the work
 
 This reference owns the current role load map:
 
-- `mission_planner` additionally loads `../planning/candidate-options.md`, and loads
-  `../planning/revision-pressure-replan.md` only when revision pressure is its activation predicate;
-- `mission_researcher` additionally loads `../planning/decision-evidence.md`, and loads
-  `../planning/candidate-options.md`
+- `mission_planner` additionally loads `../planning/planning-decision-workflow.md`, and loads
+  `../planning/planning-revision-workflow.md` only when revision pressure is its activation predicate;
+- `mission_researcher` additionally loads `../planning/planning-decision-evidence.md`, and loads
+  `../planning/planning-decision-workflow.md`
   only for `reuse/prior_art`;
 - `fast_builder` needs no additional protocol reference.
 
-A role delta first reads the immutable Origin's `support-lanes.md` to select the protocol version. When
+A role delta first reads the immutable Origin's `orchestration-agent-routing.md` to select the protocol version. When
 an older Origin does not declare this map, that selector plus the same Origin's same-name
 `.codex/agents/<role>.toml` form the admitted legacy load set; the legacy TOML remains the sole role
 protocol in that branch. Admit it only when its name, model, reasoning effort, and sandbox match the
@@ -183,7 +183,7 @@ judges, or reviewer policy, record that contamination and treat the return only 
 it cannot satisfy an independent-audit requirement.
 
 Only after advisory activation and candidate freeze, load
-`../../assets/advisory-lens-packet.md`. Copy and fill its complete dispatch packet once per activated
+`../../assets/verification-advisory-template.md`. Copy and fill its complete dispatch packet once per activated
 lens, without transcript, builder advocacy, sibling output, hidden reasoning, or secrets, and
 require the agent to copy and fill its complete fixed return shape. Do not load the asset for other
 lane routes. This shapes model output; it is not deterministic schema validation.

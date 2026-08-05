@@ -10,7 +10,7 @@ last_verified: 2026-07-31 CST
 
 本记录是一次只读试点，不定义当前 policy；当前规则见
 [Quality Assurance System Contract](../engineering/code-quality.md) 与
-[Govern Test Effectiveness](../../.agents/skills/run-bounded-mission/references/verification/test-effectiveness-governance.md)。
+[Govern Test Effectiveness](../../.agents/skills/run-bounded-mission/references/verification/verification-test-integrity-policy.md)。
 
 ## 输入
 

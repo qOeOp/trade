@@ -37,7 +37,7 @@ filename similarity, or the caller's file list. If a material semantic edge rema
 replacement scope is not ready.
 
 When named paths anchor the revision chain, load and apply the
-[bounded Git path-history rule](decision-evidence.md#recover-bounded-source-history). Use its exact
+[bounded Git path-history rule](planning-decision-evidence.md#recover-bounded-source-history). Use its exact
 hashes and per-path stats to select commits for inspection, then recover observed failures, intended
 corrections, diffs, and acceptance results from the commits and Mission evidence themselves. The
 helper output is not a lifecycle ledger.
