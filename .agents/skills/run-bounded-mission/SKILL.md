@@ -151,6 +151,15 @@ Verification: <consumer and owner checks; final gate; unavailable evidence>
 Dependencies / action bindings: <prerequisites; effect owner and authority; capability or gate>
 ```
 
+Before admission, route each consequential unknown through Decision evidence as `default`, `research`,
+or `ask`; ask only when no safe default exists and the answer materially changes candidate or
+acceptance. Preserve only Plan-changing final decisions in `Candidate` as `Decision / basis /
+rejected alternative / unresolved consequence`; add no field or log.
+
+Admit only when every material decision has a downstream consumer, every research basis has evidence
+status and Stop, and every slice has its earliest `replan` and `reframe` signal. This Plan-local
+coherence preflight creates no state.
+
 Plan is read-only. Freeze the mission-owned boundary against Origin and pre-existing user work. For
 every nontrivial action outside ordinary observed capability, bind its owner, exact effect and
 authority, plus the observed capability at the required stage or an owned later fail-closed gate.

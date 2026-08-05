@@ -52,10 +52,25 @@ consumer evidence.
 
 ## Resolve consequential ambiguity
 
-Inspect repository evidence before asking. Express each credible interpretation as an assumption,
-its consumer consequence, and an observation that would disprove it. Ask only for user-owned
-preferences or authority, present the current understanding and recommendation, and ask the smallest
-question that separates material interpretations. Ask nothing when no material ambiguity remains.
+Inspect repository evidence first. Express each credible interpretation as an assumption, consumer
+consequence, and disconfirming observation, then classify each unresolved item:
+
+- `default`: safe and reversible inside existing user, safety, and effect authority; name the default
+  and its invalidator, but never mint authority or choose a hard-to-reverse candidate or acceptance;
+- `research`: evidence can settle a candidate- or acceptance-changing premise; bind its question,
+  consequence, evidence status, and Stop through the route below;
+- `ask`: only the user owns the preference, fact, or authority, no safe default exists, and the answer
+  can materially change candidate or acceptance.
+
+Open one user turn only when one or more `ask` items exist. Bundle the smallest high-signal `ask`
+items sharing the next Plan boundary; for each give an evidence-backed recommendation—or state that
+evidence cannot prefer an option—concrete options, and consequence. Include a material `default` from
+that boundary only as non-blocking, with its safe default explicit. Never open a turn for a default
+alone or when no material ambiguity remains.
+
+After disposition, project only a Plan-changing final `Decision / basis / rejected alternative /
+unresolved consequence`; preserve no explored options, discussion order, or deliberation transcript.
+An unresolved consequence remains unresolved and cannot be omitted to admit Plan.
 
 An unresolved Frame, Plan, or Verify question stays unresolved until changed evidence disposes it.
 Any repeat must use a different repository fact, source, or user-owned answer and name the result that
