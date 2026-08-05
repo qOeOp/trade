@@ -56,6 +56,12 @@ export interface GitHubAppProvenance {
   slug: string
 }
 
+export interface ReviewReaction {
+  author: string
+  at: string
+  content: string
+}
+
 export interface ReviewSignal {
   author: string
   at: string
@@ -73,6 +79,7 @@ export interface ReviewSignal {
   includesCreatedEdit?: boolean
   lastEditedAt?: string
   updatedAt?: string
+  reactions?: ReviewReaction[]
 }
 
 export interface ReviewThread {
@@ -88,6 +95,7 @@ export interface ReviewThread {
     reviewId?: string
     includesCreatedEdit?: boolean
     lastEditedAt?: string
+    reactions?: ReviewReaction[]
   }>
 }
 
@@ -699,6 +707,7 @@ interface GraphPullRequest {
     commit: { oid: string }
     includesCreatedEdit: boolean
     lastEditedAt: string | null
+    reactions: Connection<{ content: string; createdAt: string; user: { login: string } | null }>
   }>
   reviewThreads: Connection<{
     id: string
@@ -713,6 +722,7 @@ interface GraphPullRequest {
       includesCreatedEdit: boolean
       lastEditedAt: string | null
       pullRequestReview: { id: string }
+      reactions: Connection<{ content: string; createdAt: string; user: { login: string } | null }>
     }>
   }>
 }
@@ -726,6 +736,7 @@ interface ReviewOutput {
   reason: string
   request: ReviewRequestProjection
   discovery: ReviewDiscoveryProjection
+  provider_snapshot?: CodexReviewSnapshot
 }
 
 interface RestIssueComment {
@@ -788,6 +799,10 @@ query($owner: String!, $name: String!, $number: Int!) {
           commit { oid }
           includesCreatedEdit
           lastEditedAt
+          reactions(first: 100) {
+            nodes { content createdAt user { login } }
+            pageInfo { hasNextPage }
+          }
         }
         pageInfo { hasNextPage }
       }
@@ -806,6 +821,10 @@ query($owner: String!, $name: String!, $number: Int!) {
               includesCreatedEdit
               lastEditedAt
               pullRequestReview { id }
+              reactions(first: 20) {
+                nodes { content createdAt user { login } }
+                pageInfo { hasNextPage }
+              }
             }
             pageInfo { hasNextPage }
           }
@@ -950,14 +969,21 @@ async function fetchSnapshot(repository: string, number: number): Promise<CodexR
       commitOid: review.commit.oid,
       includesCreatedEdit: review.includesCreatedEdit,
       lastEditedAt: review.lastEditedAt ?? undefined,
+      reactions: review.reactions.nodes.map((reaction) => ({
+        author: reaction.user?.login ?? "",
+        at: reaction.createdAt,
+        content: reaction.content,
+      })),
     })
   }
   const actorsComplete = pullRequest.reactions.nodes.every((reaction) => reaction.user !== null)
     && pullRequest.comments.nodes.every((comment) => comment.author !== null
       && comment.reactions.nodes.every((reaction) => reaction.user !== null))
-    && pullRequest.reviews.nodes.every((review) => review.author !== null)
+    && pullRequest.reviews.nodes.every((review) => review.author !== null
+      && review.reactions.nodes.every((reaction) => reaction.user !== null))
     && pullRequest.reviewThreads.nodes.every((thread) => (!thread.isResolved || thread.resolvedBy !== null)
-      && thread.comments.nodes.every((comment) => comment.author !== null))
+      && thread.comments.nodes.every((comment) => comment.author !== null
+        && comment.reactions.nodes.every((reaction) => reaction.user !== null)))
 
   return {
     state: pullRequest.state,
@@ -967,8 +993,10 @@ async function fetchSnapshot(repository: string, number: number): Promise<CodexR
       && !pullRequest.comments.pageInfo.hasNextPage
       && pullRequest.comments.nodes.every((comment) => !comment.reactions.pageInfo.hasNextPage)
       && !pullRequest.reviews.pageInfo.hasNextPage
+      && pullRequest.reviews.nodes.every((review) => !review.reactions.pageInfo.hasNextPage)
       && !pullRequest.reviewThreads.pageInfo.hasNextPage
-      && pullRequest.reviewThreads.nodes.every((thread) => !thread.comments.pageInfo.hasNextPage)
+      && pullRequest.reviewThreads.nodes.every((thread) => !thread.comments.pageInfo.hasNextPage
+        && thread.comments.nodes.every((comment) => !comment.reactions.pageInfo.hasNextPage))
       && actorsComplete,
     signals,
     threads: pullRequest.reviewThreads.nodes.map((thread) => ({
@@ -984,6 +1012,11 @@ async function fetchSnapshot(repository: string, number: number): Promise<CodexR
         reviewId: comment.pullRequestReview.id,
         includesCreatedEdit: comment.includesCreatedEdit,
         lastEditedAt: comment.lastEditedAt ?? undefined,
+        reactions: comment.reactions.nodes.map((reaction) => ({
+          author: reaction.user?.login ?? "",
+          at: reaction.createdAt,
+          content: reaction.content,
+        })),
       })),
     })),
   }
@@ -1141,6 +1174,8 @@ function isReview(value: unknown): boolean {
     && isHeadOid(value.commit.oid)
     && typeof value.includesCreatedEdit === "boolean"
     && (value.lastEditedAt === null || isIsoTimestamp(value.lastEditedAt))
+    && isConnection(value.reactions)
+    && value.reactions.nodes.every((reaction) => isReaction(reaction))
 }
 
 function isReviewThread(value: unknown): boolean {
@@ -1162,7 +1197,9 @@ function isReviewThread(value: unknown): boolean {
       && typeof comment.includesCreatedEdit === "boolean"
       && (comment.lastEditedAt === null || isIsoTimestamp(comment.lastEditedAt))
       && isRecord(comment.pullRequestReview)
-      && typeof comment.pullRequestReview.id === "string")
+      && typeof comment.pullRequestReview.id === "string"
+      && isConnection(comment.reactions)
+      && comment.reactions.nodes.every((reaction) => isReaction(reaction)))
 }
 
 function isRestIssueComment(value: unknown): boolean {
@@ -1348,6 +1385,7 @@ async function main(): Promise<number> {
       reason: decision.reason,
       request: decision.request,
       discovery: decision.discovery,
+      ...(decision.discovery.problems.includes("usage-failure") ? { provider_snapshot: snapshot } : {}),
     })
     return decision.exitCode
   } catch (error) {

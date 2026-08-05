@@ -147,6 +147,11 @@ orthogonal machine projections:
 attempt rather than projected as a provider finding in another attempt. Every in-window provider
 thread is retained before review-ID/head joining; an absent or mismatched review binding is incomplete
 discovery and cannot be hidden by a clean signal.
+- `provider_snapshot` is present only when the broad classifier reports `usage-failure`. It is the
+  lossless normalized snapshot already fetched by the waiter, including PR state/head/completeness,
+  every top-level signal with issue-comment app provenance, every review thread comment, and reactions
+  on every fetched surface. It is evaluator input only and grants no terminal status or acceptance
+  authority.
 
 The helper joins those facts inside the same snapshot invocation. Reason text is explanatory only;
 callers consume the machine fields and exit code. Unknown or missing provenance, actor, locator,
@@ -160,6 +165,37 @@ override this classifier:
 - exit `1` covers invalid request admission, same-app self-trigger, provider usage/rate-limit,
   incomplete evidence, mismatch, ambiguous signal, provider failure, and unrouted finding;
 - exit `2` is reserved for CLI argument or invocation usage errors.
+
+### Provider-unavailability evaluator fallback
+
+The waiter's broad `usage-failure` classification is only a non-authorizing trigger for independent
+inspection. Use this route only when the same receipt includes the lossless `provider_snapshot`
+projection fetched by the waiter. Freeze the exact receipt plus canonical JSON-LF bytes and digest of
+that snapshot, then bind them and the exact candidate into one new `complementary_pair`. A false
+positive may spend evaluator work but cannot accept the review terminal.
+
+Load the reviewer handoff. Assign `authority_representation` to verify the request locator, actor,
+body, head, edit state and app provenance; provider identity and app provenance; genuine capability
+unavailability; pagination completeness; and every unknown or ambiguous representation. Assign
+`consumer_fail_close_closure` to inspect every top-level comment, review, inline reply, reaction,
+edit, attempt boundary and semantic provider result; reject any later or equal-time ambiguous
+invocation or material finding; and verify that the snapshot still concerns the exact open PR and
+candidate head. Neither lens may consume the waiter's classification, reason text, or joined
+findings as its conclusion.
+
+Only valid fan-in of both exact artifacts with `review_status=completed`, `[no_finding]`, matching
+candidate and common locator, no mutation, and successful post-return fingerprint checks may
+substitute for the unavailable manual-discovery terminal. The reviewer handoff's ordinary set-wide
+generic fallback remains the only evaluator-route fallback. A stale, partial, unsupported,
+mismatched, unavailable, mutated, or finding-bearing set supplies no acceptance. Do not request
+another review and do not ask the user for a per-PR confirmation.
+
+This pair replaces only the unavailable manual-discovery result. It does not replace candidate
+verification, affected independent audits, the final root gate, final-head CI, disposition of any
+material finding, zero unresolved conversations, head/base/merge-tree stability, queue policy, or
+merge authority. Missing, incomplete, stale, oversized, or unbound snapshot bytes; PR/head drift;
+request or provenance mismatch; semantic findings; later or ambiguous invocations; edit ambiguity;
+provider siblings; pagination gaps; or post-return drift make the fallback unavailable.
 
 Collect and validate the complete manual result before changing the candidate. Route the coherent
 set by its highest material boundary: a Frame-contract failure returns to Frame; an owner, path,
@@ -197,9 +233,10 @@ Immediately before accepting `merge-ready` or performing a merge, observe one cu
 2. PR is open, has the required Draft/Ready state, and targets the frozen base;
 3. PR head equals the verified candidate;
 4. the complete non-empty set of required final-head checks exists and passes;
-5. the frozen discovery classification has a terminal route disposition, every material finding has
-   a disposition revalidated against the final candidate, and any separately required current-
-   candidate reviews are terminal;
+5. the frozen discovery classification has a terminal route disposition, either directly or through
+   the exact provider-unavailability fallback above; every material finding has a disposition
+   revalidated against the final candidate, and any separately required current-candidate reviews are
+   terminal;
 6. zero unresolved conversations remain;
 7. auto-merge or merge-queue state cannot race the snapshot;
 8. a final refetch shows no head, base, activity, or merge-tree drift.
