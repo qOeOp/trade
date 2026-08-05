@@ -117,8 +117,13 @@ external effect; every dependency-consuming write or effect stays frozen at that
 For the identity-bound final-release edge above, an already approved packet may create its one
 successor child once through Native dispatch before the predecessor closes only after binding the
 canonical source ref and its observed tip immediately before that attempt and requiring immutable
-Origin to equal the tip. Release only hub-proven disjoint Frame, Plan, Execute, and nonidentity checks;
-dependency-consuming work and the identity-bound final slice stay frozen. After
+Origin to equal the tip. Its preflight below reports the exact child-worktree HEAD before substantive
+work. Before any early slice releases, the hub freshly observes the canonical source-ref tip and
+requires both that tip and the child HEAD to equal frozen Origin. Missing, unavailable, advanced, or
+mismatched evidence freezes every early, dependency-consuming, and final slice and returns the same
+child to Plan without replacement, duplicate creation, new consent, or integration. Release only hub-
+proven disjoint Frame, Plan, Execute, and nonidentity checks; dependency-consuming work and the
+identity-bound final slice stay frozen. After
 [GitHub delivery](../delivery/delivery-pullrequest-workflow.md) reports the verified exact predecessor
 head `MERGED`, close the coherence window, observe the latest canonical tip, recover the exact child
 identity in its same worktree, integrate or rebase once, and revalidate affected evidence before
@@ -212,8 +217,10 @@ The setter may repeat after recovery only when prior success cannot be reconstru
 `clientThreadId` to task identity.
 
 Derive preflight from current owner manifests and lockfile. Name exact repository path/HEAD/status,
-executables, and dependency-directory existence/symlink/ignore/status facts. Before substantive work,
-the child calls and reports `get_goal` and never creates or updates the hub Goal.
+executables, and dependency-directory existence/symlink/ignore/status facts. A final-release child
+also receives frozen Origin and reports its exact child-worktree HEAD before substantive work for the
+hub-owned equality gate above. Before substantive work, the child calls and reports `get_goal` and
+never creates or updates the hub Goal.
 
 If tools are absent, authorize at most one manifest/lock-supported, exact non-interactive bootstrap.
 Exclude credentials, relevant secrets, environment files, lifecycle scripts, and live effects. Record
@@ -240,8 +247,8 @@ through the custom `fast_builder` agent and its standard-main fallback.
 
 The packet remains the naming owner. Follow its frozen branch above, never invent a field or perform a
 routine post-create rename. Once an exact `threadId`/`hostId` is causally known, read only that task
-and require the exact title before release; unavailable or mismatched readback freezes identity-
-dependent effects, and list or search cannot repair it.
+and require the exact title plus any final-release preflight HEAD report before release; unavailable
+or mismatched readback freezes identity-dependent effects, and list or search cannot repair it.
 
 A returned `clientThreadId` consumes creation but is only a receipt: record/emit it, never rename or
 pass it to wait/read/send, and freeze identity effects until the host or user causally maps an exact
