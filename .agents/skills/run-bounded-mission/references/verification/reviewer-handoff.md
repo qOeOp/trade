@@ -52,7 +52,7 @@ Choose one binding route from the frozen candidate form:
 - For an exact committed candidate, immediately before dispatch run the repository-owned packet
   helper with the clean Origin control plane as its working directory and a fresh canonical absolute
   output directory. It invokes the Origin binding helper, embeds that exact
-  `mission-evaluator-binding/v1` line, and materializes one content-addressed read-only artifact per
+  `mission-evaluator-binding/v2` line, and materializes one content-addressed read-only artifact per
   lens. Use the packet helper from Origin when Origin contains the exact bytes. Only when the candidate
   introduces or changes it may the main agent invoke that exact candidate script path from the clean
   Origin working directory. The helper binds its commit, fixed path, Git blob, runtime bytes, and
@@ -72,11 +72,31 @@ bun <packet-helper-script> materialize \
   --required-file <repo-relative-path> [...] < canonical-packet-input.json
 ```
 
+When the exact committed candidate belongs to another repository, keep the RBM helper and reviewer
+contract in one clean immutable control-plane Origin; do not copy either into the target. Check out the
+target candidate in a separate canonical absolute worktree with no tracked, untracked, or ignored
+material and add exactly:
+
+```text
+  --control-repository <control-owner/name> \
+  --control-origin <control-origin> \
+  --target-root <canonical-absolute-target-worktree>
+```
+
+Here `--repository`, `--origin`, and `--candidate` continue to name the target repository and its exact
+Origin/candidate. The binding requires target HEAD to equal that candidate and binds both repositories,
+the target tree and binary diff, the immutable control files, and control/target worktree fingerprints.
+The packet and admission helpers both belong to the control-plane Origin. This is the only committed
+candidate-external route; a target-local helper, copied helper, prose-built packet, or alternate packet
+shape rejects.
+
 - Require exit zero and parse stdout as the single canonical `mission-evaluator-artifact-set/v1`
   locator frame below. The nested binding still derives the complete commits, trees, actual parent set and Origin
   relationship, binary diff, changed paths, required blob hashes, clean tracked and non-ignored
-  untracked candidate material, replay argv, and one binding fingerprint. Gitignored dependency or
-  build material remains outside this attestation. Any nonzero exit or `status=rejected` freezes
+  untracked candidate material, replay argv, and one binding fingerprint. A same-repository binding
+  excludes Gitignored dependency or build material. A candidate-external binding instead requires
+  ignored material to be absent so an install or generated dependency tree changes the replay. Any
+  nonzero exit or `status=rejected` freezes
   launch; do not repair its facts or bytes in prose or treat the binding as a full-filesystem or
   sandbox claim.
 - For a local candidate, the commit helper does not apply. Bind the named Origin, complete binary
@@ -86,8 +106,10 @@ bun <packet-helper-script> materialize \
   repeat those exact bytes after return. Missing or changed candidate material freezes launch.
 
 Give no mutation or external-effect authority. A write-capable host surface is an observed risk, not
-automatic unavailability: admit `integrity-checked` behavioral read-only review only when the packet
-does so explicitly, then recompute every fingerprint after return. Reject mutation, candidate
+automatic unavailability and is not by itself a reason to reject the dedicated evaluator: admit
+`integrity-checked` behavioral read-only review only when the packet does so explicitly. Require the
+terminal `mutation_observation=none`, then rerun `admit` from the same immutable control plane after
+return; its binding replay must reproduce the exact target and control fingerprints. Reject mutation, candidate
 mismatch, candidate-controlled policy or discovery, builder context, delegation, lateral
 communication, external effects, or an incomplete packet. Integrity checks prove only the stated
 repository audit, not sandbox isolation or absence of unobservable effects.
@@ -126,7 +148,7 @@ filename is its whole digest plus `.dispatch`; creation is exclusive and mode `0
 the existing `mission-evaluator-dispatch/v1` header followed by exact ordered `binding`, `shared_core`,
 and assigned `lens_delta` segments. Do not send artifact bytes or rebuilt fields to the evaluator.
 
-The shared core is canonical `mission-evaluator-shared-core/v1` JSON LF. Its SHA-256 is the exact
+The shared core is canonical `mission-evaluator-shared-core/v2` JSON LF. Its SHA-256 is the exact
 `common_packet_locator`; it binds the complete Frame and Plan plus their UTF-8 sizes/digests, audit
 mode, ordered lens set and manifest, candidate/control-plane/binding identity, packet-helper identity,
 admission facts, and set-wide replay facts. Each lens delta is canonical
