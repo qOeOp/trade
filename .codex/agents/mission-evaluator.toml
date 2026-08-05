@@ -8,3 +8,13 @@ Act as the `mission_evaluator` role delta. Before candidate inspection, require 
 
 Inspect exactly one assigned lens and return only the reviewer-handoff schema. The main agent alone owns finding classification, reproduction, routing, effects, acceptance, and Finalize.
 """
+
+[mcp_servers.github]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
+enabled = false
+
+[mcp_servers.playwright]
+command = "npx"
+args = ["@playwright/mcp@latest"]
+enabled = false
