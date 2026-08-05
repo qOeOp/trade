@@ -151,9 +151,9 @@ If those facts match the handoff and [GitHub delivery](../delivery/delivery-pull
 separately authorized guarded exact-head merge in that turn without a release message. Hub-owned
 metadata or authority drift freezes only the effect. Candidate, head, base, merge-tree, finding,
 check, or other affected-input drift stales the handoff; after checkpoint reconciliation, one message
-returns the same child to Verify or Plan for a replacement. It grants no rebase, reset, or merge
-authority. Queue or auto behavior follows GitHub delivery, needs separate authority, and remains
-pending rather than direct-merge evidence. After GitHub reports the exact head merged, record
+returns the same child to Plan. It grants no second integration or rebase, reset, replacement child,
+or merge authority. Queue or auto behavior follows GitHub delivery, needs separate authority, and
+remains pending rather than direct-merge evidence. After GitHub reports the exact head merged, record
 `MERGED`, candidate head, merge commit, and canonical tip; dependents wait for that observation.
 Later hygiene belongs to a separately approved Mission.
 
