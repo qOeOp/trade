@@ -96,7 +96,7 @@ question as exactly one route:
 - `domain_premise`: one empirical, regulatory, market, or mechanism fact that could reverse expected
   benefit, safe/legal scope, architecture, or acceptance;
 - `reuse/prior_art`: an external reuse or alternative-space comparison; follow
-  [Candidate options](candidate-options.md) after premise validity is settled.
+  [Candidate options](planning-decision-workflow.md) after premise validity is settled.
 
 Return `not_triggered` when the supplied activation predicate is absent. If the route label is omitted,
 infer `reuse/prior_art` only when that predicate explicitly binds external reuse evidence to an owner
@@ -126,7 +126,7 @@ unavailable when this bounded packet is possible.
 
 Keep a known source or short verification chain in main. Use one read-only `mission_researcher` only
 when decision-changing breadth or context cost justifies it; load
-[agent lane routing](../orchestration/support-lanes.md)
+[agent lane routing](../orchestration/orchestration-agent-routing.md)
 before dispatch. Its packet carries the Frame locator, activation predicate, one route/question and
 impact, bounded scope, public locators or safe terms, source priority, required return, and branch
 Stop. The main agent reopens decisive sources and owns classification and Plan admission.

@@ -18,7 +18,7 @@ included modules or capabilities, excluded scope, and the decision the compariso
 
 Before the first dependent mutation or child dispatch, inspect current owners, contracts, consumers,
 runtime evidence, relevant history, and known failure paths. Then copy and fill
-`../../assets/mission-assessment-matrix.md`.
+`../../assets/optimization-assessment-template.md`.
 
 Choose only decision-relevant dimensions. Each dimension must name one consumer-facing capability or
 system property, a non-zero weight, an evidence-backed weight rationale tied to the named decision,

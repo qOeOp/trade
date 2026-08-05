@@ -87,7 +87,7 @@ When the conditions above pass, add the following to one packet:
 The child prompt must require fresh planning. It may use the accepted results as regression evidence,
 but must not inherit their candidates, Plans, Stops, or rejected alternatives.
 
-Load [task dispatch](../orchestration/task-dispatch.md) for the stable session label, two-layer display, complete
+Load [task dispatch](../orchestration/orchestration-task-workflow.md) for the stable session label, two-layer display, complete
 editable child prompt, `ready | deferred` status, exact prerequisites, pre-dispatch revalidation,
 consent, and native creation. Refactor is a user-readable description only; it does not select a
 different Mission type, lifecycle, route, template, or dispatch policy.
