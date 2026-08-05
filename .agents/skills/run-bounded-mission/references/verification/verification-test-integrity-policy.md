@@ -37,18 +37,12 @@ and investigate:
 | `environment_concurrency_or_time_gap` | environment, ordering, concurrency, clock, or timing behavior was absent | exercise the missing boundary without weakening deterministic lower tests |
 | `flake_or_infrastructure` | the signal is nondeterministic or the harness/infrastructure failed | isolate and repair the signal; never reinterpret it as a product regression without evidence |
 
-## Review every escaped defect
+## Route the repair decision
 
-When an already-tested area lets a defect escape, answer all five questions before adding or changing
-tests:
-
-1. Which layer or real consumer should have detected the defect?
-2. Why did the existing selection, scenario, boundary, or oracle fail to detect it?
-3. Which adjacent defects share the same blind spot?
-4. Can an existing test be strengthened or replaced instead of adding another test?
-5. Which old tests become redundant or obsolete, and what unique value evidence prevents deletion?
-
-“One bug, one new test” is not a conclusion. An unanswered question remains explicit uncertainty.
+After classification, load [test corrosion](verification-test-corrosion-playbook.md) only when the
+current decision must repair test selection, scenario coverage, a boundary, a double, or an oracle.
+It owns the escaped-defect review, repair actions, bounded targeted-mutation method, anti-patterns,
+and repair verification. Keep classification here; do not copy it into the playbook.
 
 ## Select conditional test evidence
 
@@ -84,35 +78,8 @@ by extension or a conventional `src`/`proto` location do the same with reason
 `no_direct_static_candidate_evidence` does not mean no tests exist. The helper does not recommend an
 action or authorize a Test Refactor Mission.
 
-## Choose an action
-
-For each candidate test choose one of:
-
-- `keep`: distinct required behavior is demonstrated;
-- `strengthen`: the scenario is relevant but its path or oracle is incomplete;
-- `replace`: a higher-value behavior or boundary test can carry the requirement;
-- `lower_layer`: the same deterministic rule belongs at a narrower owner layer;
-- `delete_candidate`: no unique required behavior remains after replacement or duplication review;
-- `further_investigation`: authority, consumer behavior, cost, or unique value is not yet known.
-
-Never delete or rewrite a test from helper output alone. Mutation, coverage, LOC, test count, and
-runtime are signals only; none is a target or automatic gate.
-
-The following are necessary test-effectiveness signals, not dispatch authority. A separate Test
-Refactor Mission is also a Refactor Mission under
-[Refactor Mission proposals](../optimization/optimization-refactor-workflow.md): investigate it only after `accept`, and
-only when that method's integrated evidence spanning at least two accepted Missions, reachable
-revision, structural cause, consumer, proposal, consent, and dispatch requirements also pass.
-
-Consider a separate Test Refactor Mission only when all of these are true:
-
-1. the actionable set contains a replacement, layer move, deletion candidate, or coordinated change
-   to at least two tests;
-2. the current contract and consumer acceptance can remain frozen;
-3. the test-only candidate can be separated from any production behavior fix and from its acceptance
-   authority;
-4. expected value, cost evidence, affected owner, and stopping evidence are named.
-
-A localized authoritative regression test may stay in the current Mission. Missing answers, mixed
-production behavior, or disputed authority route to further investigation or Plan, not an automatic
-child Mission. This reference never dispatches or labels a Refactor Mission by itself.
+When the evidence instead supports suite-wide redundancy, obsolescence, layering, or deletion
+pressure, route the optimizer to [Test GC](../optimization/optimization-test-gc-playbook.md). A
+separate Test Refactor Mission still requires the existing
+[Refactor Mission proposal](../optimization/optimization-refactor-workflow.md) predicate, consent, and
+dispatch authority; neither this policy nor either playbook creates it.
