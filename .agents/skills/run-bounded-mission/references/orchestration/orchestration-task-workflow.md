@@ -114,14 +114,18 @@ For an ordinary dependency edge, the hub may release only bounded read-only prep
 inputs plus owner, surface, contract, and writes are disjoint. It creates no Mission, consent, or
 external effect; every dependency-consuming write or effect stays frozen at that barrier.
 
-For the identity-bound final-release edge above, an already approved packet bound to the current ref-
-reachable immutable Origin may create its one successor child once through Native dispatch before the
-predecessor closes. Release only hub-proven disjoint Frame, Plan, Execute, and nonidentity checks;
-dependency-consuming work and the identity-bound final slice stay frozen. After Git reports the exact
-predecessor `MERGED`, close the coherence window, observe the latest canonical tip, recover the exact
-child identity in its same worktree, integrate or rebase once, and revalidate affected evidence before
+For the identity-bound final-release edge above, an already approved packet may create its one
+successor child once through Native dispatch before the predecessor closes only after binding the
+canonical source ref and its observed tip immediately before that attempt and requiring immutable
+Origin to equal the tip. Release only hub-proven disjoint Frame, Plan, Execute, and nonidentity checks;
+dependency-consuming work and the identity-bound final slice stay frozen. After
+[GitHub delivery](../delivery/delivery-pullrequest-workflow.md) reports the verified exact predecessor
+head `MERGED`, close the coherence window, observe the latest canonical tip, recover the exact child
+identity in its same worktree, integrate or rebase once, and revalidate affected evidence before
 releasing those slices. Identity mismatch, conflict, changed input, or lost independence returns that
-same child to Plan; never replace it, create a duplicate, or repeat integration for unchanged evidence.
+same child to Plan. Once that integration is consumed, any later drift, changed input, identity
+mismatch, conflict, or lost independence also returns the same child to Plan without another
+integration; never replace it or create a duplicate.
 
 Only an ordinary dependent ineligible for that early creation waits for predecessor merge, canonical-
 tip observation, a new `ready` packet, and fresh approval before creation. A non-Git dependent may
@@ -171,8 +175,9 @@ Origin, and the read-only owner surface that revalidates state-sensitive facts. 
 requires a ref-reachable Origin and no dirty-only evidence. When readiness needs the latest integrated
 result, bind its canonical source ref and observed tip and require Origin to equal it; any unmet
 prerequisite, unreachable revision, or advanced/mismatched ref makes the packet `deferred`. Final-
-release readiness binds current-Origin creation and early slices; post-merge reconciliation is a
-release gate for the same child, not a new Origin or consent.
+release readiness always binds that source ref and observed tip immediately before its one create
+attempt and requires Origin equality; a changed or mismatched tip defers creation and every early
+slice. Post-merge reconciliation is a release gate for the same child, not a new Origin or consent.
 
 Present a short default summary first: stable label and exact title, `ready | deferred`, why it
 matters now, Outcome and scope/non-goals, decisive evidence and Origin, Acceptance, and authority or
