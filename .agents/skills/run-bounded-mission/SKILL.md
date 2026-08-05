@@ -20,6 +20,14 @@ The main agent owns Frame, Plan admission, the one writable candidate, evidence 
 effects, acceptance, and Finalize. Support lanes return bounded evidence, proposals, or frozen leaves;
 they cannot authorize effects, widen scope, choose a route, or accept the candidate.
 
+Inherit the user's current interaction language across Hub, child, and support-lane user-visible
+commentary and Finalize output unless the user changes it. Preserve code, commands, schemas,
+identifiers, and raw evidence in their original form.
+
+Keep repository authority current-state-only and dependency direction acyclic. Replace or delete
+superseded authority with the slice that promotes the final owner; do not add reverse edges or
+continue a loop that produces no decision-relevant evidence.
+
 ## Frame
 
 Immediately after entry and before any decision-changing probe or mutation, emit:
@@ -124,6 +132,13 @@ Mission and hub recovery state. Replace it as a whole after any decision-changin
 turn or interruption, call `get_goal`, reconcile its entire shape, and release work only through its
 recovery gate; multi-Mission recovery also follows task dispatch.
 
+Load [lifecycle quality assurance](references/quality-assurance/quality-assurance-lifecycle-policy.md)
+only for a concrete lifecycle mismatch; a user concern that the Skill is behaving incorrectly;
+evidenced rework, waiting, permission, audit-duplication, or communication-cost pressure; or active
+anomaly locators at Finalize or Goal-wave closure. With no concrete signal, load nothing. QA classifies
+and routes the root cause to an existing owner; it does not repair or add a sixth stage. Do not copy
+its receipt fields, statistics, clustering, remediation, or recurrence semantics into this kernel.
+
 ## Plan
 
 Inspect the current owner, production entry when one exists, affected contracts and consumers, tests,
@@ -171,9 +186,10 @@ Load conditional Plan owners only when their exact predicate holds:
 - [Decision evidence](references/planning/planning-decision-evidence.md): named-path history can change a decision;
   ambiguity can change candidate, consumer, authority, acceptance, or a hard-to-reverse choice; or
   current external/domain evidence is necessary because local authority cannot close the premise.
-- [Candidate options](references/planning/planning-decision-workflow.md): a reuse question or materially different
-  credible paths can change owner, responsibility, architecture, or verification; load its slice
-  method only when candidates need independently falsifiable shapes.
+- [Plan Design Loop](references/planning/planning-decision-workflow.md): a material frontier needs more
+  than a Direct Plan, including reuse or credible paths that can change authority, owner,
+  responsibility, architecture, verification, or a hard-to-reverse choice; it owns Bounded and
+  High-consequence shaping plus independently falsifiable slices.
 - [Test effectiveness governance](references/verification/verification-test-integrity-policy.md): a test failure can
   change the candidate, an escaped defect exposes a blind spot, or the Mission may restructure tests.
 - [Evidence assessment matrices](references/optimization/optimization-mission-assessment.md): only an explicitly requested
