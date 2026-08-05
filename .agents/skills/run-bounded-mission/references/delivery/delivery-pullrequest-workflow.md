@@ -168,11 +168,28 @@ override this classifier:
 
 ### Provider-unavailability evaluator fallback
 
-The waiter's broad `usage-failure` classification is only a non-authorizing trigger for independent
-inspection. Use this route only when the same receipt includes the lossless `provider_snapshot`
-projection fetched by the waiter. Freeze the exact receipt plus canonical JSON-LF bytes and digest of
-that snapshot, then bind them and the exact candidate into one new `complementary_pair`. A false
-positive may spend evaluator work but cannot accept the review terminal.
+The waiter's broad `usage-failure` classification is non-authorizing. Use this route only when the
+same receipt includes the lossless `provider_snapshot` fetched by the waiter. Main freezes and
+replays the exact receipt plus canonical JSON-LF bytes and digest of that snapshot. It must validate
+the exact current PR, head, request locator, authorized actor, unedited body and app provenance;
+complete pagination and open-PR state; exactly one connector capability-usage signal after the
+request; no semantic finding, clean result, review, thread, reaction, edit, provider sibling,
+ambiguous boundary, equal-time or later invocation, contradiction, or discovery problem other than
+`usage-failure`; and unchanged raw bytes. Reason text, joined findings, a usage signal, or main's
+deterministic replay grants no acceptance.
+
+Before launching fallback evaluators, main checks whether a complementary candidate audit completed
+before the manual request and still binds the exact current candidate, complete Frame and Plan,
+immutable control plane, member manifest, and common locator. Both members must be independently
+admitted, `completed`, `[no_finding]`, and `mutation_observation=none`, with exact post-return replay
+of target, control, artifact, outside-state, and scratch-manifest fingerprints and no drift. When
+that qualifying pair exists, its independent semantic result combines with the valid raw-provider
+replay to substitute for the unavailable manual-discovery terminal. Neither component substitutes
+alone, and an audit that started after the request cannot qualify for reuse.
+
+Only when no qualifying exact-candidate audit exists may main bind the frozen receipt, snapshot, and
+exact candidate into one new `complementary_pair`. A false positive may spend evaluator work but
+cannot accept the review terminal.
 
 Load the reviewer handoff. Assign `authority_representation` to verify the request locator, actor,
 body, head, edit state and app provenance; provider identity and app provenance; genuine capability
@@ -183,8 +200,9 @@ invocation or material finding; and verify that the snapshot still concerns the 
 candidate head. Neither lens may consume the waiter's classification, reason text, or joined
 findings as its conclusion.
 
-Only valid fan-in of both exact artifacts with `review_status=completed`, `[no_finding]`, matching
-candidate and common locator, no mutation, and successful post-return fingerprint checks may
+On the evaluator route, only valid fan-in of both exact artifacts with `review_status=completed`,
+`[no_finding]`, matching candidate and common locator, no mutation, and successful post-return
+fingerprint checks may
 substitute for the unavailable manual-discovery terminal. The reviewer handoff's ordinary set-wide
 generic fallback remains the only evaluator-route fallback. A stale, partial, unsupported,
 mismatched, unavailable, mutated, or finding-bearing set supplies no acceptance. Do not request

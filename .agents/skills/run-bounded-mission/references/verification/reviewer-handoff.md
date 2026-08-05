@@ -25,16 +25,22 @@ the shared representation or result, then cross each admitted and refuting repre
 through those consumers. A standalone pass for an error or fail-close guard does not cover the case
 where another parser, recognizer, or normalization path can suppress or trigger that guard.
 
-The delivery contract's provider-unavailability trigger is a concrete complementary-pair activation,
-not a waiter terminal. Bind the exact raw `provider_snapshot` bytes and digest into both lens deltas.
+The delivery contract's provider-unavailability trigger is not a waiter terminal. It first requires
+main to validate the exact raw receipt and `provider_snapshot`. When delivery also proves that a
+complementary candidate audit completed before the request and still matches the exact candidate,
+complete Frame and Plan, immutable control plane, member set, common locator, and post-return replay,
+it may reuse that pair's independent semantic result under the delivery contract instead of launching
+a second pair. A waiter result, usage signal, or main-only validation never substitutes by itself.
+
+Only when no qualifying exact-candidate pair exists may delivery activate a provider-snapshot
+complementary pair. Bind the exact raw `provider_snapshot` bytes and digest into both lens deltas.
 Assign `authority_representation` to verify the request locator, actor, body, head, edit and app
 provenance; provider identity and app provenance; genuine capability unavailability; complete
 pagination; and unknown or ambiguous representations. Assign `consumer_fail_close_closure` to scan
 every comment, review, inline reply, reaction, edit, boundary, semantic provider result, and later or
 equal-time invocation, then cross the exact candidate through verification, CI, conversation, drift,
-and merge barriers. The waiter's broad `usage-failure` is only a work trigger: a false positive may
-spend this audit but cannot accept. Only valid fan-in of both exact completed no-finding returns may
-substitute for the unavailable manual-discovery terminal.
+and merge barriers. Only valid fan-in of both exact completed no-finding returns may substitute on
+this route.
 
 Do not infer either risk from task size, file type, revision count, or a generic quality concern. If
 only one risk exists, use one evaluator. Ordinary non-judge work may require no evaluator. `audit_set`
@@ -121,6 +127,10 @@ Run `admit` and every later command through a clean environment that sets `HOME`
 `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `TMPDIR`, `TMP`, and `TEMP` to the assigned scratch descendants.
 Preserve only packet-bound values required to locate executables or read system trust, normally
 `PATH`, `LANG`, and `LC_ALL`; add no credential, token, user config, cache, log, or session variable.
+Discard every inherited `PYTHON*` value and set `PYTHONDONTWRITEBYTECODE=1` and
+`PYTHONNOUSERSITE=1`; a Python command that cannot run without user-site or bytecode state is
+unsupported rather than authority to inherit it. Bind these assignments in the packet even when the
+current lens is not expected to invoke Python, because a read or hashing probe may start it indirectly.
 Set non-state controls such as `CI=1`, `NO_COLOR=1`, `GIT_CONFIG_NOSYSTEM=1`,
 `GIT_OPTIONAL_LOCKS=0`, and `GIT_TERMINAL_PROMPT=0` when the command consumes them. Use `env -i` or
 the host-equivalent clean launch, not shell exports inherited by later unbounded commands.
@@ -132,8 +142,12 @@ state surface or a stable pre/post fingerprint is unknown, do not run the comman
 `unsupported_evidence`. Package-manager commands are a required representative consumer because a
 failed probe may still write logs, cache metadata, or update-notifier state.
 
-After the last command, retain the scratch for main-agent inspection and return its exact manifest
-fingerprint. Recompute every packet-named outside fingerprint as well as target/control admission.
+Bind one exact scratch-manifest observer and canonical byte serialization in the packet. After the
+last command, run that read-only observer, retain the scratch for main-agent inspection, and return
+the pre/post manifest digests plus post file count and byte count. Recompute every packet-named
+outside fingerprint as well as target/control admission. Main reruns the same observer after return
+and rejects a missing field, mismatched bytes, or a terminal that reports a different state; command
+success or evaluator prose can never infer an empty scratch.
 Report `mutation_observation=none` when neither the declared scratch manifest nor any outside
 fingerprint changed, `scratch-only` when the scratch manifest changed and every outside fingerprint
 did not, `external` when any target, control, or observed outside state changed, and `unverified` when
@@ -291,6 +305,7 @@ independence_status: supported | compromised | unverified
 enforcement_status: sandbox-enforced | integrity-checked
 receipt_status: admitted | unsupported | unavailable
 mutation_observation: none | scratch-only | external | unverified
+scratch_manifest: not_applicable | pre=sha256:<digest> post=sha256:<digest> files=<canonical-decimal> bytes=<canonical-decimal>
 audit_results: signal, pass | fail | unverified, direct evidence
 findings: severity (blocking | important | nit), failure_class (candidate_local | plan_failure |
   frame_failure), bounded causal claim, location, validation evidence, next action
@@ -300,6 +315,9 @@ limits:
 
 `completed` requires the complete changed surface and affected consumer closure plus every required
 independent item resolved as pass or fail; it means the audit ran, not that the candidate passed.
+For `integrity-checked`, `scratch_manifest` must contain the packet-bound observer's exact values;
+`not_applicable` is allowed only for an admitted mode with no task-owned scratch. Main's post-return
+replay overrides a contradictory terminal and invalidates that audit.
 Use `partial` when an admitted audit leaves a required item unverified, and `unsupported` when the
 binding, independence, or capability cannot admit the audit. Return every directly evidenced class
 in the fixed schema order; `[no_finding]` is valid only when no other class or material finding exists.
