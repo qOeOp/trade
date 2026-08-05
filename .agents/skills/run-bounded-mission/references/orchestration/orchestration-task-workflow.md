@@ -62,6 +62,16 @@ Nodes without a direct `after` edge keep their whole-Mission parallel path when 
 contract, premise, dependency, and effect are independent. The same owner, overlapping write
 surfaces, a shared contract, or unknown independence serializes the nodes.
 
+Independent nodes in one repository may still Frame, Plan, Execute, and run affected checks that do
+not bind the canonical ref in parallel. When two endpoints require merge to the same strict canonical
+ref, admit direct `after` edges for their identity-bound final-Verify/publication release slices. Only
+the one explicit next successor may run final candidate audit, final root gate, publication, manual
+discovery, delivery barrier, or merge effect; the edge does not delay the earlier independent work.
+After its predecessor is observed `merged`, close the coherence window, observe the latest canonical
+tip, integrate or rebase that successor once, and release its final slice. If no direct edge selects
+one successor, freeze every same-ref final slice and return the ordering to hub Plan. Do not record a
+slot, queue, timer, or other lifecycle state.
+
 Before admission, test the complete proposed `after` edge set for acyclicity. Any cycle returns the
 affected graph to hub Plan and permits zero dispatch until an edge or Outcome changes under evidence;
 do not leave every node deferred or add a scheduler, helper, or stored graph to break the cycle.

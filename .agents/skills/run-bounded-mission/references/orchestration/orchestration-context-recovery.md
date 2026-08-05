@@ -16,7 +16,9 @@ as unknown-impact, and close the wave at any declared boundary. Reconcile one au
 including owner arbitration and at most one stage/global judgment, derive the hub position, then emit
 the complete replacement before any hub-issued question/message, effect, dependent release,
 turn/interruption/Handoff/compaction, source or authority drift, or unknown-impact handling. A wave
-cannot cross a boundary, hide changed facts, or weaken the single-Mission rule above.
+cannot cross a boundary, hide changed facts, or weaken the single-Mission rule above. A same-canonical-
+ref predecessor merge or source drift closes the wave; after tip reconciliation, release only its
+direct successor's identity-bound final slice.
 
 ```text
 Mission checkpoint
