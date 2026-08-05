@@ -232,7 +232,11 @@ external effects.
 Retain the complete editable child prompt in the checkpoint. Quote current Frame and Plan projections
 with raw evidence locators, never the transcript; keep the raw request or child-accessible locator
 canonical. Include label/title, prerequisites/source/revalidation, project/environment, the preflight
-below, and remaining five-stage/endpoint instructions.
+below, and remaining five-stage/endpoint instructions. Carry the current user-inherited
+`interaction_language` as an ordinary prompt fact: child-visible commentary and Finalize use it while
+code, commands, schemas, identifiers, and raw evidence keep their original form. Only an explicit user
+change replaces it; task creation, a later turn, Handoff, or compaction never re-infers it from prompt
+content, locale, or recent messages.
 
 Freeze one approved endpoint per node. A `merged` node derives child `merge-ready`, freezes hub merge
 authority/effect, and follows Critical-path choreography; this projection is no new Goal endpoint.
@@ -354,6 +358,34 @@ messages alone are harmless; churn is evidenced when the same causal root repeat
 without changing one of those decisions. Route that pressure to the owning child or component Plan,
 not another Hub round trip. A blocked child is not retried, replaced, or transferred without new
 authority.
+
+## Spare-capacity self-QA retrospective
+
+This is a conditional read-only evidence lane, not standing work. Admit it only when the current hub
+has no runnable critical-path slice—including task creation, dependency release, or dependency-
+consuming work—no publication, merge, or other effect barrier needing attention, and an otherwise
+unused support-agent slot. A pending wait alone does not prove spare capacity. Do not reserve a slot,
+delay task creation or release, or wait for retrospective fan-in after critical-path work becomes
+runnable.
+
+Load [agent lane routing](orchestration-agent-routing.md). Assign one ordinary read-only support agent
+to one exact existing task. It creates no task, file, branch, candidate, comment, or other effect and
+receives no repair, acceptance, QA-classification, or hub authority. Start with that task's terminal
+receipt, latest replacement checkpoint, and exception or anomaly locators. If they expose no concrete
+consequence, return `no-signal` at the finite branch Stop; inspect deeper task, Git, or GitHub history
+only for one signal that can change later classification or owner routing. Never default to a full
+transcript scan.
+
+Return one compact raw brief with the decisive evidence and consequence, observed or unavailable
+cost, candidate causal root and owner, and branch Stop. A concrete return activates the kernel's
+conditional lifecycle-QA route; QA then owns `systemic` or `incidental` classification, causal
+fingerprint, canonical repair-owner routing, tracking, and dynamic acceptance, and may retain a
+delete-first suggestion as advisory evidence. The routed owner alone selects and implements the actual
+repair shape. The hub validates locators, groups matching fingerprints with the current component
+once, and fans in one batch at the next natural checkpoint. It does not create one node per finding or
+make a retrospective result a prerequisite for unaffected critical-path work. Incomplete, late,
+malformed, or unavailable evidence remains fail-closed for its claim and cannot freeze an otherwise
+supported release.
 
 ## Endpoint and overall completion
 

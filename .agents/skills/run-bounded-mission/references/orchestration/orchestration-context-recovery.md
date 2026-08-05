@@ -10,6 +10,12 @@ it as a whole after any decision-changing Frame, Plan, origin, candidate, effect
 position, authority, Stop, Resume, or terminal-route change; never append a delta that can drop an
 older fact. Ordinary progress that changes none of those fields needs no replacement.
 
+Treat the current user-inherited `interaction_language` as a recovery-critical Frame and authority
+fact. Preserve its exact value through task dispatch, interruption, Handoff, and compaction; only an
+explicit user change replaces it. Recovery never guesses it again from recent messages, task output,
+locale, or repository content. User-visible commentary and Finalize use the inherited value while
+code, commands, schemas, identifiers, and raw evidence preserve their original form.
+
 For a multi-Mission hub only, task dispatch may retain one in-turn observation wave before classifying
 its receipts. Preserve every raw receipt and locator, normalize every unrecognized or malformed value
 as unknown-impact, and close the wave at any declared boundary. Reconcile one authoritative snapshot,
@@ -48,6 +54,11 @@ authority; the checkpoint authorizes no effect. A node stays in the inventory wh
 interrupted, blocked, cancelled, terminal, or pending identity until its authoritative disposition is
 reconciled; runnable work is not the inventory boundary.
 
+The hub checkpoint may index current anomaly locators and signals not yet fanned into a component, but
+it remains active-run evidence. At a wave or Goal boundary, the lifecycle-QA owner may emit one
+compressed terminal receipt into native task history and the checkpoint may retain its locator; never
+copy that receipt into a durable hub ledger or treat the checkpoint itself as cross-run authority.
+
 ## Interruption and recovery gate
 
 A later turn, user interruption, compaction, Codex chat Handoff, or source drift freezes the next
@@ -58,7 +69,7 @@ continuing; a static contract or fresh-context trace is not runtime proof.
 
 Match the exact Frame and either the admitted Plan prose or the exact cleared Plan representation,
 plus origin, candidate and effects, decisive evidence and findings, current position, next legal
-operation, authority, Stop predicates, and any Resume or terminal route. If those facts cannot exclude
+operation, interaction language, authority, Stop predicates, and any Resume or terminal route. If those facts cannot exclude
 a different Mission or candidate, freeze before mutation or effects and obtain the missing user-owned
 fact or take the main skill's evidenced route. A user override follows the main skill before this gate
 can release work.

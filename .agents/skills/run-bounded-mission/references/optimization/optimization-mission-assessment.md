@@ -44,6 +44,20 @@ elapsed time, exposed input/output/cached/reasoning tokens, correction and reche
 each value is observed, estimated, or unavailable. Do not require a benchmark harness or repository
 test artifact merely to populate these fields.
 
+When lifecycle QA supplies a compressed self-QA terminal receipt, consume it only as a locator-bound
+trend input. QA remains the owner of signal capture, causal fingerprinting, clustering, cost and
+recurrence reconstruction, classification, repair tracking, and dynamic acceptance; this assessment
+does not recompute those facts into a second history. Read the receipt, current checkpoint, and anomaly
+locators first and drill into native task or Git/GitHub evidence only when one assessment row requires
+it. A single observation is not a trend, and a missing prior window stays unavailable.
+
+For an activated same-rubric comparison, use decision-relevant recurrence, rework, waiting, and
+token/context or coordination-cost evidence from that receipt alongside the frozen dimensions. Bind
+each value to its observation window and evidence locator, keep incidental and systemic signals
+distinct, and expose critical regressions independently of the weighted total. Assessment consumes
+the trend to inform a named Plan, integrated verification, or later refactor decision; it neither
+routes the repair nor creates a task, ledger, benchmark store, or acceptance gate.
+
 When the named assessment decision compares implementation, TDD, frozen mechanical work, or
 model/effort routes, load [execution routing](../execution/execution-mission-routing-policy.md) before
 making that comparison and before the dependent Execute work. Use the existing matrix as the compact
