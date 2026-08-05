@@ -11,10 +11,12 @@ position, authority, Stop, Resume, or terminal-route change; never append a delt
 older fact. Ordinary progress that changes none of those fields needs no replacement.
 
 For a multi-Mission hub only, task dispatch may retain one in-turn observation wave before classifying
-its receipts. Preserve every raw receipt and locator, then reconcile one authoritative snapshot and
-complete replacement before any hub-issued question/message, effect, dependent release, stage/global
-judgment, turn/interruption/Handoff/compaction, source or authority drift, or unknown-impact fact. A
-wave cannot cross a boundary, hide changed facts, or weaken the single-Mission rule above.
+its receipts. Preserve every raw receipt and locator, normalize every unrecognized or malformed value
+as unknown-impact, and close the wave at any declared boundary. Reconcile one authoritative snapshot,
+including owner arbitration and at most one stage/global judgment, derive the hub position, then emit
+the complete replacement before any hub-issued question/message, effect, dependent release,
+turn/interruption/Handoff/compaction, source or authority drift, or unknown-impact handling. A wave
+cannot cross a boundary, hide changed facts, or weaken the single-Mission rule above.
 
 ```text
 Mission checkpoint

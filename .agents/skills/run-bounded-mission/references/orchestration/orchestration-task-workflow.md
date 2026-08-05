@@ -256,7 +256,10 @@ publication, terminal handoff/state, or an exception. Ordinary progress stays th
 mirror commentary, lanes, counts, or unchanged timeouts.
 
 Treat task events as compact wake hints, never arrival-ordered authority. Across cursor-bound waits in
-the current released wave, retain every raw receipt and immutable locator. Close that in-turn
+the current released wave, retain every raw receipt and immutable locator. Normalize every
+unrecognized, unclassifiable, malformed, or newly introduced receipt or status as unknown-impact;
+preserve its raw representation and locator, close the window immediately, and freeze affected
+questions, releases, judgments, and effects until authoritative reconciliation. Close that in-turn
 coherence window at the first of:
 
 - all tasks in the released stage reaching terminal evidence;
@@ -265,10 +268,11 @@ coherence window at the first of:
 - a turn/interruption/Handoff/compaction, source or authority drift, or user request/override.
 
 At the window, reconcile exact Goal, task, Git, GitHub, dependency, and authority facts once; arbitrate
-terminal conflicts by those owners; derive one hub position and next operation; and emit one complete
-checkpoint. Then perform at most one stage-wide global judgment and release only independent next
-stages or declared effects. No hub-issued question/message, dependent release, endpoint judgment, or
-effect may precede it. One receipt never resets the wave, starts a dependent, or triggers a global pass. A
+terminal conflicts by those owners; perform at most one stage-wide global judgment inside that
+reconciliation; derive one hub position and next operation; and emit one complete checkpoint. Only
+after that checkpoint may the hub issue a question/message or release an independent next stage or
+declared effect. A dependent release, endpoint judgment, or other effect may not precede the
+checkpoint. One receipt never resets the wave, starts a dependent, or triggers a global pass. A
 blocked child is not retried, replaced, or transferred without new authority.
 
 ## Endpoint and overall completion
