@@ -50,6 +50,14 @@ tests:
 
 “One bug, one new test” is not a conclusion. An unanswered question remains explicit uncertainty.
 
+## Select conditional test evidence
+
+Load [Conditional test governance](verification-conditional-test-governance.md) only when the
+current decision depends on executable behavior examples, a test-first implementation loop,
+assertion-strength falsification, Gherkin/Step integrity, or a test-deletion candidate. Do not load it
+for an ordinary Mission whose authoritative behavior and cheapest decisive oracle are already clear.
+It selects among those capabilities; it does not make any of them a default stack.
+
 ## Produce read-only evidence
 
 Use the deterministic helper only with immutable Git revisions:
