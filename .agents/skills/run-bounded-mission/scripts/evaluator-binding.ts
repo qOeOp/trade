@@ -1,8 +1,10 @@
 #!/usr/bin/env bun
 
 import { createHash } from "node:crypto"
+import { realpathSync } from "node:fs"
+import { isAbsolute, resolve } from "node:path"
 
-const SCHEMA = "mission-evaluator-binding/v1"
+const SCHEMA = "mission-evaluator-binding/v2"
 const SCRIPT_PATH = ".agents/skills/run-bounded-mission/scripts/evaluator-binding.ts"
 const ENFORCEMENT_MODES = new Set(["sandbox-enforced", "integrity-checked"])
 
@@ -12,6 +14,9 @@ interface Inputs {
   candidate: string
   enforcement: string
   requiredFiles: string[]
+  controlRepository?: string
+  controlOrigin?: string
+  targetRoot?: string
 }
 
 interface GitResult {
@@ -38,7 +43,15 @@ function reject(reason: string): never {
 function parseInputs(argv: string[]): Inputs {
   const values = new Map<string, string>()
   const requiredFiles: string[] = []
-  const singleValueFlags = new Set(["--repository", "--origin", "--candidate", "--enforcement"])
+  const singleValueFlags = new Set([
+    "--repository",
+    "--origin",
+    "--candidate",
+    "--enforcement",
+    "--control-repository",
+    "--control-origin",
+    "--target-root",
+  ])
 
   for (let index = 0; index < argv.length; index += 2) {
     const flag = argv[index]
@@ -57,6 +70,9 @@ function parseInputs(argv: string[]): Inputs {
   const origin = values.get("--origin")
   const candidate = values.get("--candidate")
   const enforcement = values.get("--enforcement")
+  const controlRepository = values.get("--control-repository")
+  const controlOrigin = values.get("--control-origin")
+  const targetRoot = values.get("--target-root")
   if (!repository || !origin || !candidate || !enforcement) {
     reject("required arguments: --repository --origin --candidate --enforcement --required-file")
   }
@@ -64,6 +80,16 @@ function parseInputs(argv: string[]): Inputs {
     reject("repository must be owner/name")
   }
   if (!ENFORCEMENT_MODES.has(enforcement)) reject("unsupported enforcement mode")
+  const externalValues = [controlRepository, controlOrigin, targetRoot].filter(Boolean).length
+  if (externalValues !== 0 && externalValues !== 3) {
+    reject("external binding requires --control-repository --control-origin --target-root together")
+  }
+  if (controlRepository && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(controlRepository)) {
+    reject("control repository must be owner/name")
+  }
+  if (targetRoot && (!isAbsolute(targetRoot) || resolve(targetRoot) !== targetRoot || /[\0\n\r]/.test(targetRoot))) {
+    reject("target root must be a canonical absolute path without control characters")
+  }
   if (requiredFiles.length === 0) reject("at least one --required-file is required")
   for (const value of [origin, candidate, ...requiredFiles]) {
     if (value.includes("\0") || value.includes("\n") || value.includes("\r")) {
@@ -77,7 +103,16 @@ function parseInputs(argv: string[]): Inputs {
       reject(`required file must be repository-relative: ${path}`)
     }
   }
-  return { repository, origin, candidate, enforcement, requiredFiles: normalizedFiles }
+  return {
+    repository,
+    origin,
+    candidate,
+    enforcement,
+    requiredFiles: normalizedFiles,
+    controlRepository,
+    controlOrigin,
+    targetRoot,
+  }
 }
 
 function compareUtf8(left: string, right: string): number {
@@ -169,46 +204,71 @@ function blobFingerprint(cwd: string, commit: string, path: string, required: bo
 try {
 const inputs = parseInputs(Bun.argv.slice(2))
 const initialCwd = process.cwd()
-const repositoryRoot = gitText(initialCwd, ["rev-parse", "--show-toplevel"])
-const observedRepository = normalizeRemoteRepository(gitText(repositoryRoot, ["remote", "get-url", "origin"]))
-if (observedRepository !== inputs.repository) {
-  reject(`repository mismatch: expected ${inputs.repository}, observed ${observedRepository ?? "unresolved"}`)
+const controlRoot = gitText(initialCwd, ["rev-parse", "--show-toplevel"])
+const external = inputs.targetRoot !== undefined
+const controlRepository = inputs.controlRepository ?? inputs.repository
+const observedControlRepository = normalizeRemoteRepository(gitText(controlRoot, ["remote", "get-url", "origin"]))
+if (observedControlRepository !== controlRepository) {
+  reject(
+    `control repository mismatch: expected ${controlRepository}, observed ${observedControlRepository ?? "unresolved"}`,
+  )
 }
 
-const origin = resolveCommit(repositoryRoot, inputs.origin, "Origin")
-const candidate = resolveCommit(repositoryRoot, inputs.candidate, "candidate")
-if (origin === candidate) reject("candidate must differ from Origin")
-
-const controlHead = resolveCommit(repositoryRoot, "HEAD", "control-plane HEAD")
-if (controlHead !== origin) reject(`control-plane HEAD ${controlHead} does not equal Origin ${origin}`)
-const controlStatus = gitBytes(repositoryRoot, ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored=no"])
+const controlOrigin = resolveCommit(controlRoot, inputs.controlOrigin ?? inputs.origin, "control-plane Origin")
+const controlHead = resolveCommit(controlRoot, "HEAD", "control-plane HEAD")
+if (controlHead !== controlOrigin) {
+  reject(`control-plane HEAD ${controlHead} does not equal Origin ${controlOrigin}`)
+}
+const controlStatus = gitBytes(controlRoot, ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored=no"])
 if (controlStatus.length !== 0) {
   reject(`control-plane worktree has tracked or untracked material; status_sha256=${sha256(controlStatus)}`)
 }
 
-const ancestry = runGit(repositoryRoot, ["merge-base", "--is-ancestor", origin, candidate])
+const targetRoot = external ? realpathSync(inputs.targetRoot!) : controlRoot
+if (external && targetRoot !== inputs.targetRoot) reject("target root must not contain symlink components")
+const observedTargetRepository = normalizeRemoteRepository(gitText(targetRoot, ["remote", "get-url", "origin"]))
+if (observedTargetRepository !== inputs.repository) {
+  reject(`target repository mismatch: expected ${inputs.repository}, observed ${observedTargetRepository ?? "unresolved"}`)
+}
+const origin = resolveCommit(targetRoot, inputs.origin, "target Origin")
+const candidate = resolveCommit(targetRoot, inputs.candidate, "target candidate")
+if (origin === candidate) reject("candidate must differ from Origin")
+const targetStatusArgs = external
+  ? ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored=matching"]
+  : ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored=no"]
+const targetStatus = gitBytes(targetRoot, targetStatusArgs)
+if (external && targetStatus.length !== 0) {
+  reject(`target worktree has tracked, untracked, or ignored material; status_sha256=${sha256(targetStatus)}`)
+}
+const targetHead = resolveCommit(targetRoot, "HEAD", "target HEAD")
+if (external && targetHead !== candidate) {
+  reject(`target HEAD ${targetHead} does not equal candidate ${candidate}`)
+}
+
+const ancestry = runGit(targetRoot, ["merge-base", "--is-ancestor", origin, candidate])
 if (ancestry.exitCode === 1) reject("candidate does not descend from Origin")
 if (ancestry.exitCode !== 0) reject("candidate ancestry could not be resolved")
 
-const originTree = gitText(repositoryRoot, ["rev-parse", "--verify", `${origin}^{tree}`])
-const candidateTree = gitText(repositoryRoot, ["rev-parse", "--verify", `${candidate}^{tree}`])
-const originParents = commitParents(repositoryRoot, origin)
-const candidateParents = commitParents(repositoryRoot, candidate)
-const originDistance = Number(gitText(repositoryRoot, ["rev-list", "--count", `${origin}..${candidate}`]))
+const originTree = gitText(targetRoot, ["rev-parse", "--verify", `${origin}^{tree}`])
+const candidateTree = gitText(targetRoot, ["rev-parse", "--verify", `${candidate}^{tree}`])
+const originParents = commitParents(targetRoot, origin)
+const candidateParents = commitParents(targetRoot, candidate)
+const originDistance = Number(gitText(targetRoot, ["rev-list", "--count", `${origin}..${candidate}`]))
 if (!Number.isSafeInteger(originDistance) || originDistance < 1) reject("candidate ancestry distance is invalid")
 
 const diffArgs = [
   "diff", "--binary", "--full-index", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames",
   origin, candidate, "--",
 ]
-const diffBytes = gitBytes(repositoryRoot, diffArgs)
-const changedPaths = splitNulPaths(gitBytes(repositoryRoot, ["diff", "--name-only", "-z", "--no-renames", origin, candidate, "--"]))
+const diffBytes = gitBytes(targetRoot, diffArgs)
+const changedPaths = splitNulPaths(gitBytes(targetRoot, [
+  "diff", "--name-only", "-z", "--no-renames", origin, candidate, "--",
+]))
 if (changedPaths.length === 0 || diffBytes.length === 0) reject("candidate has no complete committed diff from Origin")
 
 const requiredFiles = inputs.requiredFiles.map((path) => ({
   path,
-  origin: blobFingerprint(repositoryRoot, origin, path, true),
-  candidate: blobFingerprint(repositoryRoot, candidate, path, false),
+  control_origin: blobFingerprint(controlRoot, controlOrigin, path, true),
 }))
 
 const replayArgv = [
@@ -218,19 +278,38 @@ const replayArgv = [
   "--candidate", candidate,
   "--enforcement", inputs.enforcement,
   ...inputs.requiredFiles.flatMap((path) => ["--required-file", path]),
+  ...(external ? [
+    "--control-repository", controlRepository,
+    "--control-origin", controlOrigin,
+    "--target-root", targetRoot,
+  ] : []),
 ]
+const controlTree = gitText(controlRoot, ["rev-parse", "--verify", `${controlOrigin}^{tree}`])
+const controlParents = commitParents(controlRoot, controlOrigin)
 const binding = {
   schema: SCHEMA,
   status: "bound",
   repository: inputs.repository,
   enforcement: inputs.enforcement,
   control_plane: {
+    repository: controlRepository,
     head: controlHead,
-    tree: originTree,
-    parents: originParents,
+    tree: controlTree,
+    parents: controlParents,
     candidate_material_status_sha256: sha256(controlStatus),
-    worktree_candidate_material_fingerprint_sha256: sha256(`${controlHead}\0${originTree}\0${sha256(controlStatus)}`),
+    worktree_candidate_material_fingerprint_sha256: sha256(
+      `${controlRepository}\0${controlHead}\0${controlTree}\0${sha256(controlStatus)}`,
+    ),
     ignored_material_policy: "excluded_non_candidate",
+  },
+  target_worktree: {
+    root: targetRoot,
+    head: targetHead,
+    candidate_material_status_sha256: sha256(targetStatus),
+    worktree_candidate_material_fingerprint_sha256: sha256(
+      `${inputs.repository}\0${targetHead}\0${candidateTree}\0${sha256(targetStatus)}`,
+    ),
+    ignored_material_policy: external ? "must_be_absent" : "excluded_non_candidate",
   },
   origin: { commit: origin, tree: originTree, parents: originParents },
   candidate: {

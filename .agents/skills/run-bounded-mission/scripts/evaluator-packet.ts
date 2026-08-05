@@ -19,10 +19,10 @@ import { basename, dirname, isAbsolute, resolve } from "node:path"
 const INPUT_SCHEMA = "mission-evaluator-packet-input/v1"
 const ARTIFACT_SET_SCHEMA = "mission-evaluator-artifact-set/v1"
 const ADMISSION_SCHEMA = "mission-evaluator-artifact-admission/v1"
-const SHARED_CORE_SCHEMA = "mission-evaluator-shared-core/v1"
+const SHARED_CORE_SCHEMA = "mission-evaluator-shared-core/v2"
 const LENS_DELTA_SCHEMA = "mission-evaluator-lens-delta/v1"
 const DISPATCH_SCHEMA = "mission-evaluator-dispatch/v1"
-const BINDING_SCHEMA = "mission-evaluator-binding/v1"
+const BINDING_SCHEMA = "mission-evaluator-binding/v2"
 const SCRIPT_PATH = ".agents/skills/run-bounded-mission/scripts/evaluator-packet.ts"
 const BINDING_PATH = ".agents/skills/run-bounded-mission/scripts/evaluator-binding.ts"
 const REVIEWER_CONTRACT = ".agents/skills/run-bounded-mission/references/verification/reviewer-handoff.md"
@@ -39,6 +39,9 @@ interface Arguments {
   enforcement: string
   requiredFiles: string[]
   outputDirectory: string
+  controlRepository?: string
+  controlOrigin?: string
+  targetRoot?: string
 }
 
 interface AdmissionArguments {
@@ -247,6 +250,9 @@ function parseMaterializeArguments(argv: string[]): Arguments {
     "--candidate",
     "--enforcement",
     "--output-directory",
+    "--control-repository",
+    "--control-origin",
+    "--target-root",
   ])
 
   for (let index = 0; index < argv.length; index += 2) {
@@ -268,6 +274,9 @@ function parseMaterializeArguments(argv: string[]): Arguments {
   const candidate = values.get("--candidate")
   const enforcement = values.get("--enforcement")
   const outputDirectory = values.get("--output-directory")
+  const controlRepository = values.get("--control-repository")
+  const controlOrigin = values.get("--control-origin")
+  const targetRoot = values.get("--target-root")
   if (!repository || !origin || !candidate || !enforcement || !outputDirectory || requiredFiles.length === 0) {
     reject(
       "required materialize arguments: --repository --origin --candidate --enforcement --output-directory --required-file",
@@ -275,10 +284,30 @@ function parseMaterializeArguments(argv: string[]): Arguments {
   }
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) reject("repository must be owner/name")
   if (!ENFORCEMENT_MODES.has(enforcement)) reject("unsupported enforcement mode")
+  const externalValues = [controlRepository, controlOrigin, targetRoot].filter(Boolean).length
+  if (externalValues !== 0 && externalValues !== 3) {
+    reject("external materialize requires --control-repository --control-origin --target-root together")
+  }
+  if (controlRepository && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(controlRepository)) {
+    reject("control repository must be owner/name")
+  }
+  if (targetRoot && (!isAbsolute(targetRoot) || resolve(targetRoot) !== targetRoot || /[\0\n\r]/.test(targetRoot))) {
+    reject("target root must be a canonical absolute path without control characters")
+  }
   if (!isAbsolute(outputDirectory) || outputDirectory.includes("\0") || outputDirectory.includes("\n")) {
     reject("output directory must be an absolute path without control characters")
   }
-  return { repository, origin, candidate, enforcement, requiredFiles, outputDirectory }
+  return {
+    repository,
+    origin,
+    candidate,
+    enforcement,
+    requiredFiles,
+    outputDirectory,
+    controlRepository,
+    controlOrigin,
+    targetRoot,
+  }
 }
 
 function decimal(value: string | undefined, field: string): number {
@@ -401,6 +430,11 @@ function bindingLine(cwd: string, args: Arguments): { bytes: Uint8Array; value: 
     "--candidate", args.candidate,
     "--enforcement", args.enforcement,
     ...args.requiredFiles.flatMap((path) => ["--required-file", path]),
+    ...(args.targetRoot ? [
+      "--control-repository", args.controlRepository!,
+      "--control-origin", args.controlOrigin!,
+      "--target-root", args.targetRoot,
+    ] : []),
   ]
   const result = run(cwd, argv)
   if (result.exitCode !== 0) {
@@ -425,6 +459,7 @@ function bindingLine(cwd: string, args: Arguments): { bytes: Uint8Array; value: 
     "repository",
     "enforcement",
     "control_plane",
+    "target_worktree",
     "origin",
     "candidate",
     "diff",
@@ -485,8 +520,10 @@ async function buildDispatches(args: Arguments, inputBytes: Uint8Array) {
   const origin = record(binding.value.origin, "binding.origin")
   const candidate = record(binding.value.candidate, "binding.candidate")
   const controlPlane = record(binding.value.control_plane, "binding.control_plane")
-  const resolvedOrigin = immutableCommit(cwd, args.origin, "Origin")
-  const resolvedCandidate = immutableCommit(cwd, args.candidate, "candidate")
+  const targetWorktree = record(binding.value.target_worktree, "binding.target_worktree")
+  const targetRoot = semanticString(targetWorktree.root, "binding.target_worktree.root")
+  const resolvedOrigin = immutableCommit(targetRoot, args.origin, "target Origin")
+  const resolvedCandidate = immutableCommit(targetRoot, args.candidate, "target candidate")
   if (origin.commit !== resolvedOrigin || candidate.commit !== resolvedCandidate) {
     reject("stale candidate or binding")
   }
@@ -508,8 +545,13 @@ async function buildDispatches(args: Arguments, inputBytes: Uint8Array) {
     sha256: `sha256:${lens.sha256}`,
     size: lens.size,
   }))
-  const helper = await helperIdentity(cwd, resolvedCandidate, "candidate", true)
-  const admissionHelper = await helperIdentity(cwd, resolvedOrigin, "Origin", false)
+  const external = args.targetRoot !== undefined
+  const packetHelperCommit = external
+    ? immutableCommit(cwd, args.controlOrigin!, "control-plane Origin")
+    : resolvedCandidate
+  const admissionHelperCommit = external ? packetHelperCommit : resolvedOrigin
+  const helper = await helperIdentity(cwd, packetHelperCommit, external ? "control-plane Origin" : "candidate", true)
+  const admissionHelper = await helperIdentity(cwd, admissionHelperCommit, "admission Origin", false)
   const frameBytes = new TextEncoder().encode(input.frame)
   const planBytes = new TextEncoder().encode(input.plan)
   const bindingFingerprint = semanticString(
@@ -525,6 +567,15 @@ async function buildDispatches(args: Arguments, inputBytes: Uint8Array) {
       worktree_candidate_material_fingerprint_sha256: controlPlane.worktree_candidate_material_fingerprint_sha256,
       enforcement: args.enforcement,
       binding_identity: `${BINDING_SCHEMA}:${bindingFingerprint}`,
+      mutation_observation: "none",
+    },
+    target_worktree: {
+      repository: args.repository,
+      head: targetWorktree.head,
+      tree: candidate.tree,
+      worktree_candidate_material_fingerprint_sha256:
+        targetWorktree.worktree_candidate_material_fingerprint_sha256,
+      ignored_material_policy: targetWorktree.ignored_material_policy,
     },
     packet_helper: helper,
     frame: input.frame,
@@ -678,31 +729,42 @@ function replayBinding(cwd: string, value: Record<string, unknown>, bytes: Uint8
   origin: Record<string, unknown>
   candidate: Record<string, unknown>
   controlPlane: Record<string, unknown>
+  targetWorktree: Record<string, unknown>
   requiredFiles: string[]
   fingerprint: string
   enforcement: string
 } {
   exactKeys(value, "binding", [
     "schema", "status", "repository", "enforcement", "control_plane", "origin", "candidate", "diff",
-    "required_files", "replay", "binding_fingerprint_sha256",
+    "target_worktree", "required_files", "replay", "binding_fingerprint_sha256",
   ])
   if (value.schema !== BINDING_SCHEMA || value.status !== "bound") reject("binding schema or status mismatch")
   const controlPlane = record(value.control_plane, "binding.control_plane")
   const origin = record(value.origin, "binding.origin")
   const candidate = record(value.candidate, "binding.candidate")
+  const targetWorktree = record(value.target_worktree, "binding.target_worktree")
   if (!Array.isArray(value.required_files)) reject("binding.required_files must be an array")
   const requiredFiles = value.required_files.map((item, index) => semanticString(
     record(item, `binding.required_files[${index}]`).path,
     `binding.required_files[${index}].path`,
   ))
   const enforcement = semanticString(value.enforcement, "binding.enforcement")
+  const controlRepository = semanticString(controlPlane.repository, "binding.control_plane.repository")
+  const targetRepository = semanticString(value.repository, "binding.repository")
+  const targetRoot = semanticString(targetWorktree.root, "binding.target_worktree.root")
+  const external = controlRepository !== targetRepository || targetRoot !== cwd
   const replayed = bindingLine(cwd, {
-    repository: semanticString(value.repository, "binding.repository"),
+    repository: targetRepository,
     origin: semanticString(origin.commit, "binding.origin.commit"),
     candidate: semanticString(candidate.commit, "binding.candidate.commit"),
     enforcement,
     requiredFiles,
     outputDirectory: "/",
+    ...(external ? {
+      controlRepository,
+      controlOrigin: semanticString(controlPlane.head, "binding.control_plane.head"),
+      targetRoot,
+    } : {}),
   })
   if (!Buffer.from(replayed.bytes).equals(Buffer.from(bytes))) reject("binding does not match immutable-Origin replay")
   const fingerprint = semanticString(replayed.value.binding_fingerprint_sha256, "binding fingerprint")
@@ -711,6 +773,7 @@ function replayBinding(cwd: string, value: Record<string, unknown>, bytes: Uint8
     origin,
     candidate,
     controlPlane,
+    targetWorktree,
     requiredFiles,
     fingerprint,
     enforcement,
@@ -747,8 +810,10 @@ function validatePacketHelper(
   const commit = oid(String(helper.commit), "packet helper commit")
   const path = semanticString(helper.path, "packet helper path")
   const blobOid = oid(String(helper.blob_oid), "packet helper blob OID")
-  if (commit !== binding.candidate.commit || commit !== args.candidateLocator.slice("commit:".length)
-      || path !== SCRIPT_PATH) {
+  const targetRoot = semanticString(binding.targetWorktree.root, "binding.target_worktree.root")
+  const external = targetRoot !== cwd || binding.repository !== binding.controlPlane.repository
+  const expectedHelperCommit = external ? binding.controlPlane.head : binding.candidate.commit
+  if (commit !== expectedHelperCommit || path !== SCRIPT_PATH) {
     reject("artifact packet helper role binding mismatch")
   }
   const observedOid = gitText(cwd, ["rev-parse", "--verify", "--end-of-options", `${commit}:${path}`])
@@ -756,13 +821,16 @@ function validatePacketHelper(
   if (observedOid !== blobOid || helper.blob_sha256 !== sha256(bytes) || helper.size !== bytes.length) {
     reject("artifact packet helper identity mismatch")
   }
+  const admissionOrigin = external ? binding.controlPlane.head : binding.origin.commit
   const originHelperOid = gitText(cwd, [
-    "rev-parse", "--verify", "--end-of-options", `${String(binding.origin.commit)}:${SCRIPT_PATH}`,
+    "rev-parse", "--verify", "--end-of-options", `${String(admissionOrigin)}:${SCRIPT_PATH}`,
   ])
   const originHelperBytes = commandBytes(cwd, ["git", "cat-file", "blob", originHelperOid])
   const expectedReviewerContract = Buffer.from(bytes).equals(Buffer.from(originHelperBytes))
     ? REVIEWER_CONTRACT
-    : validateReviewerContractRelocation(cwd, originHelperBytes, bytes, binding)
+    : external
+      ? reject("external packet helper must equal the immutable control-plane Origin helper")
+      : validateReviewerContractRelocation(cwd, originHelperBytes, bytes, binding)
   const invocation = stringArray(helper.invocation_argv, "shared_core.packet_helper.invocation_argv")
   if (invocation.length < 3 || basename(invocation[0]) !== "bun"
       || (invocation[1] !== SCRIPT_PATH && !invocation[1].endsWith(`/${SCRIPT_PATH}`))
@@ -772,11 +840,17 @@ function validatePacketHelper(
   const materialize = parseMaterializeArguments(invocation.slice(3))
   const expectedRequiredFiles = [...binding.requiredFiles].sort()
   if (materialize.repository !== binding.repository
-      || immutableCommit(cwd, materialize.origin, "packet helper invocation Origin") !== binding.origin.commit
-      || immutableCommit(cwd, materialize.candidate, "packet helper invocation candidate")
+      || immutableCommit(targetRoot, materialize.origin, "packet helper invocation target Origin")
+        !== binding.origin.commit
+      || immutableCommit(targetRoot, materialize.candidate, "packet helper invocation target candidate")
         !== binding.candidate.commit
       || materialize.enforcement !== binding.enforcement
       || materialize.outputDirectory !== dirname(args.artifact)
+      || materialize.targetRoot !== (external ? targetRoot : undefined)
+      || materialize.controlRepository !== (external ? binding.controlPlane.repository : undefined)
+      || (external
+        && immutableCommit(cwd, materialize.controlOrigin!, "packet helper invocation control Origin")
+          !== binding.controlPlane.head)
       || JSON.stringify([...materialize.requiredFiles].sort()) !== JSON.stringify(expectedRequiredFiles)) {
     reject("artifact packet helper invocation binding mismatch")
   }
@@ -889,7 +963,7 @@ function validateSharedCore(
   binding: ReturnType<typeof replayBinding>,
 ): string {
   exactKeys(value, "shared_core", [
-    "schema", "candidate_locator", "control_plane", "packet_helper", "frame", "frame_utf8_size",
+    "schema", "candidate_locator", "control_plane", "target_worktree", "packet_helper", "frame", "frame_utf8_size",
     "frame_utf8_sha256", "plan", "plan_utf8_size", "plan_utf8_sha256", "audit_set", "required_lenses",
     "lens_manifest", "admission", "replay",
   ])
@@ -897,7 +971,10 @@ function validateSharedCore(
     reject("shared core schema or candidate locator mismatch")
   }
   if (`sha256:${sha256(raw)}` !== args.commonPacketLocator) reject("shared core common locator mismatch")
-  if (args.helperCommit !== binding.origin.commit || args.helperCommit !== binding.controlPlane.head) {
+  const external = binding.repository !== binding.controlPlane.repository
+    || binding.targetWorktree.root !== cwd
+  const expectedAdmissionHelper = external ? binding.controlPlane.head : binding.origin.commit
+  if (args.helperCommit !== expectedAdmissionHelper || args.helperCommit !== binding.controlPlane.head) {
     reject("admission helper does not belong to binding Origin")
   }
   if (binding.candidate.commit !== args.candidateLocator.slice("commit:".length)) {
@@ -906,13 +983,27 @@ function validateSharedCore(
   const control = record(value.control_plane, "shared_core.control_plane")
   exactKeys(control, "shared_core.control_plane", [
     "head", "tree", "worktree_candidate_material_fingerprint_sha256", "enforcement", "binding_identity",
+    "mutation_observation",
   ])
   if (control.head !== binding.controlPlane.head || control.tree !== binding.controlPlane.tree
       || control.worktree_candidate_material_fingerprint_sha256
         !== binding.controlPlane.worktree_candidate_material_fingerprint_sha256
       || control.binding_identity !== `${BINDING_SCHEMA}:${binding.fingerprint}`
-      || control.enforcement !== binding.enforcement) {
+      || control.enforcement !== binding.enforcement
+      || control.mutation_observation !== "none") {
     reject("shared core control-plane or binding identity mismatch")
+  }
+  const target = record(value.target_worktree, "shared_core.target_worktree")
+  exactKeys(target, "shared_core.target_worktree", [
+    "repository", "head", "tree", "worktree_candidate_material_fingerprint_sha256", "ignored_material_policy",
+  ])
+  if (target.repository !== binding.repository
+      || target.head !== binding.targetWorktree.head
+      || target.tree !== binding.candidate.tree
+      || target.worktree_candidate_material_fingerprint_sha256
+        !== binding.targetWorktree.worktree_candidate_material_fingerprint_sha256
+      || target.ignored_material_policy !== binding.targetWorktree.ignored_material_policy) {
+    reject("shared core target worktree binding mismatch")
   }
   const reviewerContract = validatePacketHelper(cwd, value.packet_helper, args, binding)
   const frame = semanticString(value.frame, "shared_core.frame")
