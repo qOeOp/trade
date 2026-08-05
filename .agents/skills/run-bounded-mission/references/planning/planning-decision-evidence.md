@@ -62,10 +62,11 @@ consequence, and disconfirming observation, then classify each unresolved item:
 - `ask`: only the user owns the preference, fact, or authority, no safe default exists, and the answer
   can materially change candidate or acceptance.
 
-Open a user turn only when an `ask` exists. Give its evidence-backed recommendation—or state that
-evidence cannot prefer an option—concrete options, and consequence. Bundle another material item that
-shares the next Plan boundary only as a non-blocking `default`, with its safe default explicit. Never
-open a turn for a default alone or when no material ambiguity remains.
+Open one user turn only when one or more `ask` items exist. Bundle the smallest high-signal `ask`
+items sharing the next Plan boundary; for each give an evidence-backed recommendation—or state that
+evidence cannot prefer an option—concrete options, and consequence. Include a material `default` from
+that boundary only as non-blocking, with its safe default explicit. Never open a turn for a default
+alone or when no material ambiguity remains.
 
 After disposition, project only a Plan-changing final `Decision / basis / rejected alternative /
 unresolved consequence`; preserve no explored options, discussion order, or deliberation transcript.
