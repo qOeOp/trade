@@ -64,24 +64,23 @@ surfaces, a shared contract, or unknown independence serializes the nodes.
 
 Independent nodes in one repository may still Frame, Plan, Execute, and run affected checks that do
 not bind the canonical ref in parallel. When two endpoints require merge to the same strict canonical
-ref, admit direct `after` edges for their identity-bound final-Verify/publication release slices. Only
-the one explicit next successor may run final candidate audit, final root gate, publication, manual
-discovery, delivery barrier, or merge effect; the edge does not delay the earlier independent work.
-After its predecessor is observed `merged`, close the coherence window, observe the latest canonical
-tip, integrate or rebase that successor once, and release its final slice. If no direct edge selects
-one successor, freeze every same-ref final slice and return the ordering to hub Plan. Do not record a
-slot, queue, timer, or other lifecycle state.
+ref, admit a direct `after` edge that orders only dependency-consuming work and the successor's
+identity-bound final-Verify/publication release slice. It does not delay approved child creation or
+hub-proven disjoint Frame, Plan, Execute, and nonidentity checks. Every predecessor packet must declare
+the `merged` endpoint on its canonical source; actual observed `MERGED` is the later release predicate,
+and `open`, `merge-ready`, unknown, or mismatched endpoints fail closed. Only the one explicit next
+successor may run final candidate audit, final root gate, publication, manual discovery, delivery
+barrier, or merge effect. If no direct edge selects one successor, freeze every same-ref final slice
+and return the ordering to hub Plan. Do not record a slot, queue, timer, or other lifecycle state.
 
 Before admission, test the complete proposed `after` edge set for acyclicity. Any cycle returns the
 affected graph to hub Plan and permits zero dispatch until an edge or Outcome changes under evidence;
 do not leave every node deferred or add a scheduler, helper, or stored graph to break the cycle.
 
 Every cross-node prerequisite that can block task creation, publication, or merge must be an existing
-direct `after` edge in that cycle check; a release slice cannot hide another graph. Reject an edge
-into a Git-backed node unless every predecessor packet freezes `merged` on its declared canonical
-source, except the identity-bound final-release edge above: before predecessor `merged`, it freezes
-dependency-consuming work and that final slice while independently proven Frame, Plan, Execute, and
-nonidentity checks may proceed. Do not admit `open` or `merge-ready` and later force it to merge.
+direct `after` edge in that cycle check; a release slice cannot hide another graph. Reject every other
+edge into a Git-backed node unless all predecessor packets declare `merged` on their canonical source,
+and never admit `open` or `merge-ready` and later force it to merge.
 
 If a predecessor is cancelled, retain affected descendants and return them to Plan. Each is cancelled
 under current authority, reconnected and revalidated, left pending for missing Outcome or authority,
@@ -110,17 +109,24 @@ Mission.
 Use this protocol only when an earlier endpoint changes a later source or input; independent paths
 keep their ordinary parallel route.
 
-For an existing `after` edge, the hub may release bounded read-only preparation through
-[agent lane routing](orchestration-agent-routing.md) before the predecessor closes only when immutable
+For an ordinary dependency edge, the hub may release only bounded read-only preparation through
+[agent lane routing](orchestration-agent-routing.md) before the predecessor closes when immutable
 inputs plus owner, surface, contract, and writes are disjoint. It creates no Mission, consent, or
-external effect. Keep only the prerequisite, owner/write surface, next effect, barrier and invalidation
-predicates, and output locator. Every dependency-consuming write or effect stays frozen at that barrier.
+external effect; every dependency-consuming write or effect stays frozen at that barrier.
 
-After the shared recovery gate, keep only affected or unknown-impact slices frozen. Once Git
-predecessors merge, observe the canonical tip, revalidate affected evidence, bind a new `ready` packet
-to that Origin, and ask **Create this task?**; only fresh approval creates the child. A non-Git
-dependent may release at its predecessor's endpoint. Invalidate only evidence with a changed source,
-dependency, base, merge-tree, or declared input.
+For the identity-bound final-release edge above, an already approved packet bound to the current ref-
+reachable immutable Origin may create its one successor child once through Native dispatch before the
+predecessor closes. Release only hub-proven disjoint Frame, Plan, Execute, and nonidentity checks;
+dependency-consuming work and the identity-bound final slice stay frozen. After Git reports the exact
+predecessor `MERGED`, close the coherence window, observe the latest canonical tip, recover the exact
+child identity in its same worktree, integrate or rebase once, and revalidate affected evidence before
+releasing those slices. Identity mismatch, conflict, changed input, or lost independence returns that
+same child to Plan; never replace it, create a duplicate, or repeat integration for unchanged evidence.
+
+Only an ordinary dependent ineligible for that early creation waits for predecessor merge, canonical-
+tip observation, a new `ready` packet, and fresh approval before creation. A non-Git dependent may
+release at its predecessor's endpoint. Invalidate only evidence with a changed source, dependency,
+base, merge-tree, or declared input.
 
 Inside one child, independent exact-candidate discovery, evaluation, CI, and security work may fan
 out. Its finding owner validates fan-in, stales affected output, and binds the root gate to the final
@@ -164,7 +170,9 @@ Every packet declares the presentation-time fact `ready` or `deferred`, exact pr
 Origin, and the read-only owner surface that revalidates state-sensitive facts. Git-backed `ready`
 requires a ref-reachable Origin and no dirty-only evidence. When readiness needs the latest integrated
 result, bind its canonical source ref and observed tip and require Origin to equal it; any unmet
-prerequisite, unreachable revision, or advanced/mismatched ref makes the packet `deferred`.
+prerequisite, unreachable revision, or advanced/mismatched ref makes the packet `deferred`. Final-
+release readiness binds current-Origin creation and early slices; post-merge reconciliation is a
+release gate for the same child, not a new Origin or consent.
 
 Present a short default summary first: stable label and exact title, `ready | deferred`, why it
 matters now, Outcome and scope/non-goals, decisive evidence and Origin, Acceptance, and authority or
