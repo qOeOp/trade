@@ -70,7 +70,7 @@ Load the routed owner's existing policy only after classification. In particular
 [reviewer handoff](../verification/reviewer-handoff.md) for independent audit, and
 [GitHub delivery](../delivery/delivery-pullrequest-workflow.md) for remote delivery facts.
 
-## Keep an Assurance Trace, not a ledger
+## Keep an Assurance Trace, not a second ledger
 
 Reconstruct only the relationship needed for the active signal from current owners:
 
@@ -79,11 +79,31 @@ obligation or claim → authority locator → candidate locus or snapshot → ev
                     → signal outcome → responsible owner
 ```
 
-Use existing Frame/Plan projections, Git objects and diffs, task items, check runs, review artifacts,
-and delivery receipts as locators. Do not create a report, database, registry, persistent trace file,
-or second status model. Retain only the decisive relation in the existing checkpoint, finding,
-reviewer packet, or Finalize evidence. When there is `no-signal`, retain nothing and impose no
-ordinary-path context cost.
+Treat native task terminal and checkpoint receipts, Git objects and history, and GitHub pull-request,
+review, CI, and delivery receipts as the cross-run facts. Do not copy those facts into a report,
+database, registry, persistent trace file, or second status model. A hub checkpoint is only the
+active-run index for current anomaly locators and unmerged signals; it is not the cross-run record.
+
+At an architecture-wave or Goal Finalize, inspect only its current terminal, checkpoint, and anomaly
+locators. When they contain one or more concrete signals, emit one compressed, deduplicated self-QA
+terminal receipt in the native task history. Keep only the causal fingerprint and category, decisive
+evidence locators, observed or unavailable cost, `systemic` or `incidental` classification, canonical
+repair owner, current repair status, dynamic acceptance, and the supported recurrence count and
+observation window. This is an index back to native facts, not a copy of them or a new schema. When
+there is `no-signal`, retain nothing and impose no ordinary-path history scan or context cost.
+
+On a later run, read the prior terminal receipt, current checkpoint, and anomaly locators first. Drill
+into native task or Git/GitHub history only for a signal whose classification, cost, recurrence,
+repair status, or acceptance cannot otherwise be reconstructed. Build a fingerprint from the failed
+relationship, causal root, and canonical owner rather than symptom wording. Count recurrence only
+when another observation demonstrates that same root inside the stated window; unknown history or an
+elapsed-time, token, message, or task count alone remains unavailable rather than `systemic`.
+
+Cost may include observed wait, rework, elapsed latency, repeated coordination, and exposed token or
+context load. Preserve unavailable dimensions instead of estimating them as facts. QA owns this
+reconstruction, clustering, classification, tracking, and acceptance evidence; the hub may deduplicate
+and batch routed residuals, but the routed planner, orchestrator, executor, verifier, delivery, or
+optimizer owns every repair.
 
 ## Observe RBM itself
 
@@ -115,6 +135,18 @@ authorization or declining an unadmitted proposal is also `no-signal`.
 
 For a candidate that changes this policy or another instruction/judge, bind immutable Origin and
 candidate evidence and require a fresh independent audit. The changed policy cannot certify itself.
+
+Capture a concrete self-QA signal online at the boundary where it appears, or through task dispatch's
+spare-capacity retrospective lane when that route is independently admitted. Deduplicate both paths
+by causal fingerprint. Do not open one task per issue. Batch only residuals that share a demonstrated
+root and compatible owner, dependency, and acceptance boundary; keep incidental signals with their
+evidence and route them without manufacturing a systemic program.
+
+After the repair owner closes a signal, rerun the same scenario that demonstrated it and retain the
+result in the next applicable terminal receipt. Later observations decide recurrence; a one-time pass
+does not prove a zero recurrence rate. A stable generic case may be proposed to a separately governed
+cross-version Skill evaluation repository, but this policy creates no golden-case file, eval harness,
+or model-cost store in the current repository.
 
 ## Route degradation without taking over repairs
 

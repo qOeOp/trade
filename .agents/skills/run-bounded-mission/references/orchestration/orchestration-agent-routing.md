@@ -13,6 +13,12 @@ dispatch packet. Agent lanes are conditional work routes, not a lifecycle, stand
 authority transfer, or acceptance owner. Use no lane when launch, reference loading, duplicated
 context, validation, and synthesis cost is not clearly lower than doing the work in main.
 
+Every packet also carries the current user-inherited `interaction_language` as an ordinary instruction.
+Use it for user- or hub-visible commentary and Finalize prose while preserving code, commands, schemas,
+identifiers, fixed return shapes, and raw evidence in their original form. Only an explicit user
+change replaces it. A role, task boundary, dispatch, Handoff, later turn, or compaction never infers a
+new value from prompt language, locale, repository text, or recent output.
+
 This reference owns the current role load map:
 
 - `mission_planner` additionally loads `../planning/planning-decision-workflow.md`, and loads
@@ -55,6 +61,7 @@ observation, and fallback owner.
 | deterministic repository or environment fact | existing helper or direct read-only command; no agent or model | exact inputs and directly checkable output |
 | bounded repository synthesis | fast explorer | every fast evidence gate holds |
 | bounded current or external evidence | `mission_researcher` | one decision-changing external question |
+| spare-capacity self-QA retrospective | one ordinary read-only support agent | task dispatch proves the idle predicate and supplies one exact task plus terminal/checkpoint/anomaly locators |
 | frozen-candidate advisory lens | ordinary read-only support agent | advisory trigger and packet below |
 | independent candidate audit | one `mission_evaluator`, or the reviewer packet's risk-triggered complementary pair | fresh non-builder context, origin-bound policy, exact candidate, and integrity gates; one set-wide generic fallback only after explicit terminal transport or capability failure |
 
@@ -83,6 +90,15 @@ Each dispatch supplies one question, bounded scope, read-only authority, exact s
 return, cheapest main-agent validation, one Stop, and escalation conditions. Require exact locators,
 minimal observations, conflicts and limits, and a stop reason. The main agent reopens decisive
 locators and verifies the result.
+
+For a spare-capacity self-QA retrospective, task dispatch alone owns activation and critical-path
+protection. Give one ordinary support agent one exact task and the current terminal, replacement-
+checkpoint, and exception or anomaly locators. Require checkpoint-first inspection, signal-only
+drill-down, and one finite Stop before any broad history scan. The return contains only raw evidence,
+consequence, observed or unavailable cost, a candidate causal root and owner, and the Stop; main later
+activates lifecycle QA for any classification and routing. The lane grants no QA, repair, acceptance,
+task-creation, or effect authority. `no-signal`, late, malformed, incomplete, or unavailable evidence
+ends that lane; do not retry it or delay newly runnable critical-path work for fan-in.
 
 A planner or researcher must not inspect live agent, thread, lifecycle, transcript, or task state;
 consume live or unadmitted sibling output; communicate laterally with sibling agents; delegate; or
