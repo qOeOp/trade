@@ -85,8 +85,8 @@ slice record:
 - observable result and real consumer or owner path;
 - dependencies and later consumer;
 - cheapest decisive check and expected evidence;
-- first result that invalidates Plan while Frame holds and forces `replan`;
-- first result that changes a Frame field and forces `reframe`.
+- earliest result that invalidates Plan while Frame holds and forces `replan`;
+- earliest result that changes a Frame field and forces `reframe`.
 
 Put first the slice that reaches a real consumer while exposing the highest-risk assumption. Fold
 setup, configuration, documentation, and cleanup into the slice that consumes them. Do not turn
