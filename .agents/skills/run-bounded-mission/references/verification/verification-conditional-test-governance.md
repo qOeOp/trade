@@ -40,9 +40,9 @@ different unresolved risk; do not stack the rows as ceremony.
 | --- | --- | --- |
 | BDD outer loop | shared intent or acceptance remains ambiguous, or cross-boundary user/domain behavior needs executable examples as acceptance | agreed rules and examples fail before implementation and pass through the real behavior boundary; stop when examples close the disputed behavior |
 | Selective TDD inner loop | the current evidence decision asks whether test-first feedback would expose a design or boundary error in an already-admitted narrow implementation rule | select or reject that evidence route, then pass an admitted route through [agent lane routing](../orchestration/orchestration-agent-routing.md), which loads [Mission execution](../execution/execution-mission-routing-policy.md) without requiring an agent lane |
-| Targeted mutation | tests pass but a named plausible fault could survive because assertion strength is uncertain | the bounded fault is killed or exposes a scenario/oracle gap; stop after the named risk is resolved or the method ceases to be decisive |
-| Step governance | Gherkin and Step definitions exist or are proposed for the current behavior | the effective runner configuration gives every executable Step one intended match and no unconsumed glue; stop after semantic and runtime matching close |
-| Test GC | test or glue cost, redundancy, obsolescence, or reachability is a current decision | authority, reachability, unique value, replacement, and runtime evidence support an owner-reviewed action; stop at a proposal when deletion safety is not closed |
+| [Targeted mutation](verification-test-corrosion-playbook.md) | tests pass but a named plausible fault could survive because assertion strength is uncertain | the bounded fault is killed or exposes a scenario/oracle gap; stop after the named risk is resolved or the method ceases to be decisive |
+| [Step governance](verification-bdd-step-corrosion-playbook.md) | Gherkin and Step definitions exist or are proposed for the current behavior | the effective runner configuration gives every executable Step one intended match and no unconsumed glue; stop after semantic and runtime matching close |
+| [Test GC](../optimization/optimization-test-gc-playbook.md) | test or glue cost, redundancy, obsolescence, or reachability is a current decision | authority, reachability, unique value, replacement, and runtime evidence support an owner-reviewed action; stop at a proposal when deletion safety is not closed |
 
 When no row activates, use the normal consumer check and narrowest owner regression. Counts, coverage,
 method popularity, an available tool, or a request to add tests do not activate a row.
@@ -66,66 +66,9 @@ If the requirement, Spec, test, and code disagree, repair the authority that is 
 lower-authority test green by changing correct consumer behavior, and do not freeze a scenario that
 consumer evidence disproves.
 
-## Govern Gherkin and Step glue
+## Load only the selected method
 
-Inspect the features, Step definitions, support code, and effective runner configuration together.
-Static text or a directory listing alone cannot prove which glue is loaded. Check these failure
-classes:
-
-- **low cohesion:** group Steps by domain concept and one meaningful state transition or outcome, not
-  by feature file, keyword, UI page, or maximum textual reuse;
-- **duplicate:** detect identical expressions and semantically equivalent Steps that restate one
-  domain behavior;
-- **ambiguous:** fail when one Step can match multiple definitions, including overlaps introduced by
-  broad expressions or custom parameter types;
-- **dead glue:** nominate a definition only when no executable scenario reaches it under the real
-  configuration; dynamic registration or an unobserved entry remains unresolved;
-- **parameter soup:** split Steps whose captures combine unrelated concepts, optional branches, or a
-  miniature command language; use tables or narrower domain Steps when the data itself is cohesive;
-- **shadow Step:** expose near-duplicates or load-scope differences that hide the intended definition,
-  and require the effective matcher set rather than relying on file order;
-- **implementation leakage:** rewrite Steps that encode selectors, endpoints, database operations,
-  internal calls, or code structure instead of observable domain behavior.
-
-Runtime discovery must prove that every executable Step has exactly one intended match and report
-undefined or ambiguous Steps. Semantic review decides cohesion, duplication, parameter soup, and
-implementation leakage; a linter count cannot decide them. Consolidate glue only after every affected
-scenario and support-code consumer is known.
-
-## Falsify assertion strength with targeted mutation
-
-Admit mutation only when all of these hold:
-
-1. a named consumer risk and plausible fault operator can invalidate an assertion;
-2. the production path, affected tests, and mutation scope are bounded;
-3. the unchanged baseline tests pass and the runner/tool can restore the exact candidate;
-4. the expected runtime and review cost fit the Mission's evidence budget;
-5. a surviving mutant would change the test or candidate decision.
-
-Use an existing compatible mutation tool when available. Otherwise a temporary manual fault is
-acceptable only when it is exact, reversible, and followed by a clean-candidate check; do not add a
-repository script or dependency for one probe. A killed mutant supports only the named fault. A
-survivor exposes a scenario, selection, or oracle gap. Timeout, compile failure, runtime error,
-equivalent mutants, and out-of-scope changes remain unresolved rather than increasing confidence.
-
-Never use a global mutation score as acceptance, mutate the whole repository by default, or retain
-temporary faults. Stop when the smallest representative faults settle assertion strength; do not
-chase a numeric threshold.
-
-## Propose Test GC without autonomous deletion
-
-Use coverage, static reachability, import analysis, execution history, duplicate signals, runtime,
-and maintenance cost only as leads. Before proposing removal, bind the test or glue to current intent,
-contract, production consumer, selection path, unique failure value, and any replacement evidence.
-Missing entries, dynamic loading, unsupported languages, stale coverage, an unexecuted test, or a low
-count keeps reachability or value unresolved.
-
-Return the existing test-effectiveness action: `keep`, `strengthen`, `replace`, `lower_layer`,
-`delete_candidate`, or `further_investigation`. Only `delete_candidate` names a proposal; it never
-deletes a file or authorizes a refactor. Deletion requires the responsible Mission to admit the exact
-write, preserve or replace every required behavior, exercise affected consumers and tests, and review
-the complete diff. No Agent, helper, coverage threshold, static analyzer, or test count may delete
-autonomously or serve as proof of safety.
-
-Keep the decision in the current Plan and evidence. Record the selected method, question, bounded
-scope, decisive observation, cost, and remaining risk without adding a report schema or change diary.
+After one row activates, load only its linked owner-local playbook. Keep the method question, bounded
+scope, decisive observation, cost, and remaining risk in the current Plan and evidence. Do not load a
+second row unless it covers a different unresolved consumer risk, and do not add a report schema or
+change diary.

@@ -245,6 +245,11 @@ Unknown, absent, stale, or pending required final-head data fails the barrier. T
 review is intentionally discovery rather than final-head acceptance evidence. A material finding or
 any candidate, head, base, or merge-tree change returns to Verify.
 
+When the failure is rooted in CI selection, triggers, path filters, final-head binding, duplicate
+status authority, or a required-check contract, load [CI corrosion](delivery-ci-corrosion-playbook.md)
+for the owner-local repair. Do not use that playbook to alter provider review, merge, queue, or Hub
+authority.
+
 ## Merge
 
 Merge only with separately frozen authority. Prefer an exact-head guarded host operation; with

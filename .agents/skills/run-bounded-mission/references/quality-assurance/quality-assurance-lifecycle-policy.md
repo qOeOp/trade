@@ -70,6 +70,24 @@ Load the routed owner's existing policy only after classification. In particular
 [reviewer handoff](../verification/reviewer-handoff.md) for independent audit, and
 [GitHub delivery](../delivery/delivery-pullrequest-workflow.md) for remote delivery facts.
 
+When the signal is corrosion, select only the exact owner-local playbook whose activation predicate
+the raw evidence satisfies. The link is a route, not repair authority: QA does not copy, summarize,
+or execute the playbook. Load no playbook for `no-signal`, and do not preload the table.
+
+| Signal root | Repair owner | On-demand playbook |
+| --- | --- | --- |
+| repository structure, authority, or dependency corrosion | optimizer | [architecture corrosion](../optimization/optimization-architecture-corrosion-playbook.md) |
+| current-state documentation drift or superseded exploration | optimizer | [documentation corrosion](../optimization/optimization-documentation-corrosion-playbook.md) |
+| test-suite redundancy, obsolescence, or deletion pressure | optimizer | [Test GC](../optimization/optimization-test-gc-playbook.md) |
+| RBM trigger, authority, load-route, or instruction corrosion | optimizer | [Skill corrosion](../optimization/optimization-skill-corrosion-playbook.md) |
+| weak test selection, scenario, boundary, or oracle | verifier | [test corrosion](../verification/verification-test-corrosion-playbook.md) |
+| duplicate, ambiguous, dead, universal, or parameter-heavy Step glue | verifier | [BDD Step corrosion](../verification/verification-bdd-step-corrosion-playbook.md) |
+| CI selection, trigger, final-head, or required-check corrosion | delivery | [CI corrosion](../delivery/delivery-ci-corrosion-playbook.md) |
+
+Load a minimal set only when the same raw evidence independently activates more than one repair
+boundary. If the boundaries or owners are not independent, route the combined cause to Plan instead
+of making playbooks call one another.
+
 ## Keep an Assurance Trace, not a second ledger
 
 Reconstruct only the relationship needed for the active signal from current owners:
