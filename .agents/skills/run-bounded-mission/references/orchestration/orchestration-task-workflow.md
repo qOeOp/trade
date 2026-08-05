@@ -46,22 +46,15 @@ lifecycle, or hidden execution.
 
 ## Hub replacement checkpoint
 
-Load the shared [Mission replacement checkpoint](orchestration-context-recovery.md). The hub owns its
-multi-Mission projection and reconciliation; extend the shared shape with every proposed or approved
-node still inside the overall completion boundary. For each node retain only the evidence needed to
-reconstruct the next legal effect:
+Load the shared [Mission replacement checkpoint](orchestration-context-recovery.md) and extend it with
+every in-boundary proposed or approved node. Per node retain only the current release slice; approved
+prompt and consent/create facts; pressure, findings, rejected candidates, and resume gate; exact task
+identities or receipt with unknowns explicit; and pull-request/candidate/terminal facts needed for the
+next endpoint effect.
 
-- current release-slice delta;
-- complete proposed or approved child prompt, approval scope, and create-attempt facts;
-- pressure evidence, rejected candidates, findings, and resume gate;
-- observed `clientThreadId`, `threadId`, and `hostId`, leaving unknown values explicit;
-- pull request, candidate head, checks, discovery disposition, conversations, and endpoint gate;
-- terminal evidence, including the prior completed Goal observation when replacement is proposed.
-
-When assessment is active, retain one checkpoint-level frozen baseline/reassessment block, or one
-exact immutable locator and hash that covers it. Record assessed labels once; nodes do not copy it.
-Native tasks own identity; Git and GitHub own repository facts. Labels add no Mission type or
-scheduling policy.
+Keep assessment data once at checkpoint level, or bind one immutable locator and hash; never copy it
+into nodes. Native tasks own identity, Git and GitHub own repository facts, and labels add no Mission
+type or policy. The coherence-window rule below owns replacement timing.
 
 ## Dependency and interruption gates
 
@@ -90,12 +83,10 @@ Mission and authorizes no successor, transfer, or Goal replacement. A true block
 dependent descendants.
 
 After the shared recovery gate releases the hub, apply the slice contract below before another
-effect.
-
-A hub freeze does not pause a child. Pause, cancel, or reframe only by one authorized message to its
-exact identity. Continue it only after reconciling checkpoint, authority, identity, candidate, and
-source, then message once. This host continuation creates no Mission or lifecycle `Resume`. A priority
-insertion is a separate request or approved node, never silent widening or replacement.
+effect. A hub freeze does not pause a child. Pause, cancel, reframe, or continue it only by one
+authorized message to its exact identity after checkpoint, authority, candidate, and source
+reconciliation. That continuation creates no Mission or lifecycle `Resume`; a priority insertion is
+a separate request or approved node.
 
 One child hosts one Outcome, managed worktree, eventual branch, and at most one pull request. It owns
 its candidate and verification; the hub owns admission, checkpoint, monitoring, source observation,
@@ -107,11 +98,11 @@ Mission.
 Use this protocol only when an earlier endpoint changes a later source or input; independent paths
 keep their ordinary parallel route.
 
-For an existing `after` edge, the hub may prepare reusable read-only evidence before the predecessor
-closes only when owner, surface, contract, and inputs are independent and the dependency affects later
-work. It creates no child, consent, or effect. A slice keeps only input or prerequisite, owner and
-write surface, next effect, freeze, release and invalidation predicates, and output locator; derive
-node facts and retain the locator after consumption.
+For an existing `after` edge, the hub may release bounded read-only preparation through
+[agent lane routing](orchestration-agent-routing.md) before the predecessor closes only when immutable
+inputs plus owner, surface, contract, and writes are disjoint. It creates no Mission, consent, or
+external effect. Keep only the prerequisite, owner/write surface, next effect, barrier and invalidation
+predicates, and output locator. Every dependency-consuming write or effect stays frozen at that barrier.
 
 After the shared recovery gate, keep only affected or unknown-impact slices frozen. Once Git
 predecessors merge, observe the canonical tip, revalidate affected evidence, bind a new `ready` packet
@@ -157,78 +148,52 @@ permits one native create attempt for that exact packet.
 
 ## Proposal and consent
 
-Every packet declares `ready` or `deferred`. This is a presentation-time fact, not stored workflow
-state. Include exact prerequisites, an immutable Origin, and the read-only owner surface or
-invocation that can revalidate each state-sensitive fact. A Git-backed `ready` packet requires an
-Origin reachable from a repository ref and may not rely on staged, unstaged, or untracked material.
-When readiness depends on the latest integrated result, also bind its full canonical source ref and
-observed exact tip; Origin must equal that tip. Any unmet prerequisite, unreachable revision,
-advanced or mismatched source ref, or dirty-only evidence makes it `deferred`.
+Every packet declares the presentation-time fact `ready` or `deferred`, exact prerequisites, immutable
+Origin, and the read-only owner surface that revalidates state-sensitive facts. Git-backed `ready`
+requires a ref-reachable Origin and no dirty-only evidence. When readiness needs the latest integrated
+result, bind its canonical source ref and observed tip and require Origin to equal it; any unmet
+prerequisite, unreachable revision, or advanced/mismatched ref makes the packet `deferred`.
 
-Present a short default summary first:
+Present a short default summary first: stable label and exact title, `ready | deferred`, why it
+matters now, Outcome and scope/non-goals, decisive evidence and Origin, Acceptance, and authority or
+external effects.
 
-- stable label, exact task title, and `ready | deferred`;
-- why the independent outcome matters now;
-- Outcome and bounded Scope/non-goals;
-- decisive evidence and exact Origin;
-- falsifiable Acceptance;
-- Authority and external effects.
+Retain the complete editable child prompt in the checkpoint. Quote current Frame and Plan projections
+with raw evidence locators, never the transcript; keep the raw request or child-accessible locator
+canonical. Include label/title, prerequisites/source/revalidation, project/environment, the preflight
+below, and remaining five-stage/endpoint instructions.
 
-Retain the complete editable child prompt in the replacement checkpoint. For cross-task dispatch,
-quote the active Frame projection and any current Plan projection with exact raw evidence locators,
-never the full transcript. Keep the raw request or a child-accessible exact request locator canonical.
-Also retain:
+Freeze one approved endpoint per node. A `merged` node derives child `merge-ready`, freezes hub merge
+authority/effect, and follows Critical-path choreography; this projection is no new Goal endpoint.
+Pull-request endpoints load [GitHub delivery](../delivery/delivery-pullrequest-workflow.md), and `open`
+or `merge-ready` never grants merge. A no-PR endpoint keeps its falsifiable terminal evidence.
 
-- stable label and exact task title;
-- exact prerequisites, declared source ref and tip, and revalidation evidence not already projected;
-- target project and observed native environment selection;
-- the exact generic child preflight below;
-- the remaining instructions required to run its five-stage Mission and frozen endpoint.
+End `ready` with **Create this task?** and `deferred` with **Create this task? — unavailable until
+`<exact prerequisite>`**. A reply to the latter is no authority. The user may edit, reject, or approve
+named ready proposals; unambiguous approval after the ready question is the host-required request.
+Until then, edits and rejection stay in the hub and no task exists.
 
-Freeze one user-approved endpoint for each node. For a `merged` node, derive `merge-ready` for child
-delivery; this owner projection is not another Goal endpoint. Its packet freezes hub merge authority
-and effect and follows Critical-path choreography. For any pull-request endpoint, load
-[GitHub delivery](../delivery/delivery-pullrequest-workflow.md); `open` or `merge-ready` never grants merge. A no-pull-request
-endpoint retains its own falsifiable terminal evidence.
-
-End a `ready` packet with the direct question **Create this task?** A `deferred` packet instead ends
-with **Create this task? — unavailable until `<exact prerequisite>`**; a reply to that unavailable
-question is not creation authority. The user may edit, reject, approve one, or approve several named
-ready proposals. An ordinary unambiguous approval after the ready question is the explicit request
-required by the task host. Rejection or edits remain in the hub; no task exists yet.
-
-For multiple independent outcomes, present one packet per admitted graph node and preserve the
-stable labels so the user can approve a subset or a ready wave. Approval consumes a proposal after
-its one native create attempt. Deferred nodes cannot be approved around their prerequisites.
+For multiple outcomes, present one stable-labeled packet per node so the user can approve a subset or
+ready wave. Its one create attempt consumes approval; deferred nodes cannot bypass prerequisites.
 
 ## Generic child preflight
 
-Freeze the packet's exact title and the caller's observed create-naming branch into the child prompt's
-first instruction. When the calling `create_thread` schema did not expose `title`, before commentary,
-Frame, `get_goal`, file reads, Git, or any other task work, require the child to call the current-task
-`set_thread_title` with `threadId` omitted and only that frozen title. Continue only when its native
-result returns the calling `threadId` and exact title; unavailable capability, failure, or mismatch
-stops before Mission work and reports that evidence. The same exact-value, current-task-only call is
-idempotent and may repeat after recovery only when its earlier success cannot be reconstructed. It
-never maps a hub's `clientThreadId` receipt to that `threadId`.
+Freeze the exact title and observed create-naming branch into the child prompt. If `create_thread`
+exposed `title`, pass it once and record creation as the pre-Frame title effect. Otherwise the prompt's
+first instruction—before commentary, Frame, `get_goal`, reads, Git, or other work—calls current-task
+`set_thread_title` with only that title and requires the returned calling `threadId` plus exact title.
+Missing, contradictory, unavailable, failed, or mismatched branch evidence stops before Mission work.
+The setter may repeat after recovery only when prior success cannot be reconstructed and never maps a
+`clientThreadId` to task identity.
 
-When that caller schema exposed `title` and the caller recorded passing the frozen title in the one
-create attempt, creation is the pre-Frame title effect: the child does not require or perform a
-redundant setter call. Missing or contradictory branch evidence stops before Mission work. This does
-not replace the hub's exact-identity readback before release.
+Derive preflight from current owner manifests and lockfile. Name exact repository path/HEAD/status,
+executables, and dependency-directory existence/symlink/ignore/status facts. Before substantive work,
+the child calls and reports `get_goal` and never creates or updates the hub Goal.
 
-Derive the child preflight from current repository owner manifests and lockfile before dispatch. The
-packet names exact observations for repository path, HEAD and status, required executables, and the
-dependency directory's existence, symlink, ignore, and repository-status facts. It requires the
-child to call `get_goal` before substantive repository work, report the observation, and never create
-or update the hub Goal.
-
-If required tools are absent, authorize at most one exact non-interactive locked bootstrap command
-supported by the current manifest and lockfile. Exclude credential acquisition, relevant secret
-variables, environment-file loading, lifecycle scripts, and live or production effects. Record its
-exit code and elapsed time, then prove generated dependencies remain ignored, uncommitted, and
-outside repository status. If no safe deterministic command can be derived, stop before substantive
-read or mutation and report the missing dependency.
+If tools are absent, authorize at most one manifest/lock-supported, exact non-interactive bootstrap.
+Exclude credentials, relevant secrets, environment files, lifecycle scripts, and live effects. Record
+exit/time and prove generated dependencies ignored and outside status; without a safe deterministic
+command, stop before substantive read/mutation and report the missing dependency.
 
 A null or absent native environment path proves only that no environment selection was carried. A
 repository environment file, dependency directory, or available executable does not prove that
@@ -248,31 +213,23 @@ different full-Mission model. Spark's leaf gates cannot own the child's five sta
 it for this route or create a user-visible task for an internal build/revision leaf. Route the latter
 through the custom `fast_builder` agent and its standard-main fallback.
 
-The packet's label and title remain the only naming owner. Inspect the calling `create_thread` schema
-for that attempt: when it exposes `title`, pass the frozen exact title in the one create call and
-record the atomic-create branch; when it does not, pass no invented field, record the self-title
-branch, and rely on the child's first instruction above. The latter cannot prevent a transient
-automatic host title, but it permits no Mission work under that title. In either branch, the hub
-never performs a routine post-create rename. Once an exact `threadId`/`hostId` is causally known, read
-only that task and accept its title only on an exact match before release. A mismatch or unavailable
-exact read freezes identity-dependent effects; list or search cannot repair it.
+The packet remains the naming owner. Follow its frozen branch above, never invent a field or perform a
+routine post-create rename. Once an exact `threadId`/`hostId` is causally known, read only that task
+and require the exact title before release; unavailable or mismatched readback freezes identity-
+dependent effects, and list or search cannot repair it.
 
-A returned `clientThreadId` consumes the create attempt but is only a receipt. Record and emit it;
-never rename it or pass it to wait, read, or send. Freeze identity-dependent effects until the host
-or user causally maps it to an exact `threadId`/`hostId`; list/search resemblance cannot prove that
-mapping. Then perform the pending exact-title verification before monitoring or release. Preserve
-pending identity without duplicate creation; it is not itself a Mission `blocked` predicate.
+A returned `clientThreadId` consumes creation but is only a receipt: record/emit it, never rename or
+pass it to wait/read/send, and freeze identity effects until the host or user causally maps an exact
+`threadId`/`hostId`. List/search resemblance cannot prove that mapping. Then verify the title before
+monitoring/release; pending identity permits no duplicate and is not Mission `blocked`.
 
-On recovery, a previously recorded exact `threadId`/`hostId` resumes that task without creation. An
-existing task with the same title but no causal mapping is only resemblance: never adopt, rename, or
-message it. Before an attempt it does not consume the approved create; after an attempt may have
-succeeded, it cannot authorize a retry. Compaction changes neither rule.
+Recovery resumes only a recorded exact `threadId`/`hostId`. An unmapped same-title task is resemblance:
+never adopt, rename, or message it. Before an attempt it consumes no approval; after possible success
+it authorizes no retry. Compaction changes neither rule.
 
-An explicit create failure with proof that no task effect occurred also preserves the exact approved
-prompt. Retrying requires fresh authority and revalidation; when prior creation may have succeeded,
-do not retry. A later `threadId`/`hostId` resumes the node only when the host or user causally maps it
-to the recorded attempt. A separately created manual task is not that mapping and requires Plan and
-authority before it can own the node.
+An explicit no-effect create failure preserves the prompt but retry needs fresh authority and
+revalidation; possible success forbids retry. A later identity resumes only through causal mapping to
+that attempt. A separate manual task is not that mapping and needs Plan and authority to own the node.
 
 Creation is non-blocking. Outside an admitted multi-Mission orchestration session, return after
 creation without babysitting setup or child commentary. Inside that mode, the hub may use bounded
@@ -282,7 +239,7 @@ and `hostId` facts and must not poll a queued `clientThreadId`.
 The child owns its five stages through the delivery endpoint and never changes the hub Goal. A
 `merged` node uses the derived `merge-ready` handoff; hub Finalize follows Critical-path choreography.
 
-## Child controls
+## Coherence windows and child controls
 
 Operate on a child when the user asks, or when an admitted multi-Mission checkpoint names that child
 at the current monitoring or merge gate:
@@ -294,11 +251,25 @@ at the current monitoring or merge gate:
   and the feedback in `prompt`, then return immediately;
 - additional history needed for a current decision: use one bounded `read_thread`.
 
-The child proactively reports only material replan, required user authority, publication when it
-changes the endpoint gate, terminal handoff or state, or an exception; ordinary progress stays in its
-own task. The hub does not mirror unchanged commentary or timeouts. Events are wake hints: reconcile
-raw Goal, task, Git, and GitHub facts before effects. A blocked child is not retried, replaced, or
-transferred without new authority.
+The child proactively reports only material replan, required user authority, endpoint-changing
+publication, terminal handoff/state, or an exception. Ordinary progress stays there; the hub does not
+mirror commentary, lanes, counts, or unchanged timeouts.
+
+Treat task events as compact wake hints, never arrival-ordered authority. Across cursor-bound waits in
+the current released wave, retain every raw receipt and immutable locator. Close that in-turn
+coherence window at the first of:
+
+- all tasks in the released stage reaching terminal evidence;
+- an attention, error, conflict, or unknown-impact fact requiring hub authority;
+- a dependency, publication, merge, or other declared effect barrier; or
+- a turn/interruption/Handoff/compaction, source or authority drift, or user request/override.
+
+At the window, reconcile exact Goal, task, Git, GitHub, dependency, and authority facts once; arbitrate
+terminal conflicts by those owners; derive one hub position and next operation; and emit one complete
+checkpoint. Then perform at most one stage-wide global judgment and release only independent next
+stages or declared effects. No hub-issued question/message, dependent release, endpoint judgment, or
+effect may precede it. One receipt never resets the wave, starts a dependent, or triggers a global pass. A
+blocked child is not retried, replaced, or transferred without new authority.
 
 ## Endpoint and overall completion
 

@@ -10,6 +10,12 @@ it as a whole after any decision-changing Frame, Plan, origin, candidate, effect
 position, authority, Stop, Resume, or terminal-route change; never append a delta that can drop an
 older fact. Ordinary progress that changes none of those fields needs no replacement.
 
+For a multi-Mission hub only, task dispatch may retain one in-turn observation wave before classifying
+its receipts. Preserve every raw receipt and locator, then reconcile one authoritative snapshot and
+complete replacement before any hub-issued question/message, effect, dependent release, stage/global
+judgment, turn/interruption/Handoff/compaction, source or authority drift, or unknown-impact fact. A
+wave cannot cross a boundary, hide changed facts, or weaken the single-Mission rule above.
+
 ```text
 Mission checkpoint
 Frame: <exact complete current Frame projection>
@@ -28,9 +34,9 @@ prose. After a new Plan is admitted, replace the whole checkpoint again with its
 projection before Execute.
 
 For a multi-Mission hub, use the same fields and let task dispatch add only node identity, dependency,
-child, release, Goal, and endpoint facts that have no single-Mission equivalent. Keep assessment data
-once at checkpoint level. Native tasks own identity, Git and GitHub own repository facts, and the raw
-request and current Frame remain authority; the checkpoint authorizes no effect.
+child, release, Goal, endpoint, and current-wave facts that have no single-Mission equivalent. Keep
+assessment data once at checkpoint level. Native tasks own identity, Git and GitHub own repository
+facts, and the raw request and current Frame remain authority; the checkpoint authorizes no effect.
 
 ## Interruption and recovery gate
 
