@@ -86,8 +86,9 @@ relation or separate authority. Include every projected edge in the cycle and re
 Before dispatch, derive causal pressure edges from current evidence that one node invalidates another's
 owner, write surface, contract, premise, candidate, or canonical-ref slice. Group nodes only when that
 closure is stable for the current immutable component snapshot. Fan in each stable component's impact
-once. If the pressure graph has a strongly connected component, freeze further member patching and
-return the whole component to hub Plan for one component Mission with one Outcome, owner, write set,
+once. If the pressure graph has a non-trivial strongly connected component with multiple members or
+an explicit self-loop, freeze further member patching and return the whole component to hub Plan for
+one component Mission with one Outcome, owner, write set,
 Acceptance, Origin, and endpoint. Preserve every prior node and identity as source evidence; do not
 sequence the cycle as `A → B → C → A`, transfer a candidate, or create the component without ordinary
 proposal and consent. Recompute the release DAG after component admission and require it to be acyclic.
