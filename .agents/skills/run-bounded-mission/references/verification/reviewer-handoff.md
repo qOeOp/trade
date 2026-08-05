@@ -105,14 +105,56 @@ shape rejects.
   manifest bytes plus their hashes in the packet, fingerprint the clean Origin review worktree, and
   repeat those exact bytes after return. Missing or changed candidate material freezes launch.
 
-Give no mutation or external-effect authority. A write-capable host surface is an observed risk, not
-automatic unavailability and is not by itself a reason to reject the dedicated evaluator: admit
-`integrity-checked` behavioral read-only review only when the packet does so explicitly. Require the
-terminal `mutation_observation=none`, then rerun `admit` from the same immutable control plane after
-return; its binding replay must reproduce the exact target and control fingerprints. Reject mutation, candidate
-mismatch, candidate-controlled policy or discovery, builder context, delegation, lateral
-communication, external effects, or an incomplete packet. Integrity checks prove only the stated
-repository audit, not sandbox isolation or absence of unobservable effects.
+## Contain command state
+
+For every `integrity-checked` evaluator, the main agent creates one fresh task-owned scratch root per
+lens after materialization and before launch. Derive it exactly as
+`<artifact-directory>/scratch/<assigned-risk-lens>` and precreate `home`, `xdg-cache`, `xdg-config`,
+`xdg-data`, and `tmp` as non-symlink `0700` directories. Bind this derivation rule, the minimum
+preserved environment values, and the exact external observation set in the complete Frame, Plan,
+and assigned lens; record the resolved roots and pre-command fingerprints in the launch receipt. The
+artifact path and assigned lens let the evaluator locate its scratch before running `admit`; a
+missing, reused, noncanonical, writable-by-others, symlinked, or other-than-the-five-empty-directories
+boundary rejects launch.
+
+Run `admit` and every later command through a clean environment that sets `HOME`, `XDG_CACHE_HOME`,
+`XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `TMPDIR`, `TMP`, and `TEMP` to the assigned scratch descendants.
+Preserve only packet-bound values required to locate executables or read system trust, normally
+`PATH`, `LANG`, and `LC_ALL`; add no credential, token, user config, cache, log, or session variable.
+Set non-state controls such as `CI=1`, `NO_COLOR=1`, `GIT_CONFIG_NOSYSTEM=1`,
+`GIT_OPTIONAL_LOCKS=0`, and `GIT_TERMINAL_PROMPT=0` when the command consumes them. Use `env -i` or
+the host-equivalent clean launch, not shell exports inherited by later unbounded commands.
+
+Treat this as a general command-state rule, not an npm exception. Before running a tool, account for
+every cache, log, config, temp, home, or other writable state root it may use: redirect it beneath the
+assigned scratch or include the exact outside root in the packet's read-only observation set. If the
+state surface or a stable pre/post fingerprint is unknown, do not run the command and return
+`unsupported_evidence`. Package-manager commands are a required representative consumer because a
+failed probe may still write logs, cache metadata, or update-notifier state.
+
+After the last command, retain the scratch for main-agent inspection and return its exact manifest
+fingerprint. Recompute every packet-named outside fingerprint as well as target/control admission.
+Report `mutation_observation=none` when neither the declared scratch manifest nor any outside
+fingerprint changed, `scratch-only` when the scratch manifest changed and every outside fingerprint
+did not, `external` when any target, control, or observed outside state changed, and `unverified` when
+the observation set is incomplete. These values classify observable state deltas; they do not prove
+that no same-byte overwrite, create-delete activity, or other unobserved write occurred. `scratch-only`
+is the sole permitted disposable probe state; `external` or `unverified` invalidates the audit. The
+main agent independently repeats these checks before cleanup or acceptance. Fingerprints detect only
+their declared observation set and do not imply general sandbox isolation. A changed outside
+fingerprint with an unowned concurrent writer is `unverified`, not attributable evaluator mutation;
+do not accept that audit unless the main agent supplied a stable exact observation boundary.
+
+Give no target, control, outside-scratch mutation, or external-effect authority. The assigned scratch
+is the only disposable command-state write boundary. A write-capable host surface is an observed
+risk, not automatic unavailability and is not by itself a reason to reject the dedicated evaluator:
+admit `integrity-checked` behavioral read-only review only when the packet does so explicitly. Require
+a valid `mutation_observation=none|scratch-only`, then rerun `admit` from the same immutable control
+plane after return; its binding replay must reproduce the exact target and control fingerprints.
+Reject mutation outside the assigned scratch, candidate mismatch, candidate-controlled policy or
+discovery, builder context, delegation, lateral communication, external effects, or an incomplete
+packet. Integrity checks prove only the stated repository audit, not sandbox isolation or absence of
+unobservable effects.
 
 Observe the dedicated `mission_evaluator` route before dispatch. Launch each admitted lens exactly
 once from the frozen control plane. Across the whole audit set, use at most one fresh generic agent,
@@ -248,7 +290,7 @@ observed_available_tool_surface:
 independence_status: supported | compromised | unverified
 enforcement_status: sandbox-enforced | integrity-checked
 receipt_status: admitted | unsupported | unavailable
-mutation_observation: none | observed | unverified
+mutation_observation: none | scratch-only | external | unverified
 audit_results: signal, pass | fail | unverified, direct evidence
 findings: severity (blocking | important | nit), failure_class (candidate_local | plan_failure |
   frame_failure), bounded causal claim, location, validation evidence, next action
