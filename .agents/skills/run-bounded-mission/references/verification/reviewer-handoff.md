@@ -25,6 +25,17 @@ the shared representation or result, then cross each admitted and refuting repre
 through those consumers. A standalone pass for an error or fail-close guard does not cover the case
 where another parser, recognizer, or normalization path can suppress or trigger that guard.
 
+The delivery contract's provider-unavailability trigger is a concrete complementary-pair activation,
+not a waiter terminal. Bind the exact raw `provider_snapshot` bytes and digest into both lens deltas.
+Assign `authority_representation` to verify the request locator, actor, body, head, edit and app
+provenance; provider identity and app provenance; genuine capability unavailability; complete
+pagination; and unknown or ambiguous representations. Assign `consumer_fail_close_closure` to scan
+every comment, review, inline reply, reaction, edit, boundary, semantic provider result, and later or
+equal-time invocation, then cross the exact candidate through verification, CI, conversation, drift,
+and merge barriers. The waiter's broad `usage-failure` is only a work trigger: a false positive may
+spend this audit but cannot accept. Only valid fan-in of both exact completed no-finding returns may
+substitute for the unavailable manual-discovery terminal.
+
 Do not infer either risk from task size, file type, revision count, or a generic quality concern. If
 only one risk exists, use one evaluator. Ordinary non-judge work may require no evaluator. `audit_set`
 is only the human-readable `single | complementary_pair` mode. The immutable, content-addressed
