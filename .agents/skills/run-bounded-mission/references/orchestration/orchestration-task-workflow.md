@@ -50,11 +50,47 @@ Load the shared [Mission replacement checkpoint](orchestration-context-recovery.
 every in-boundary proposed or approved node. Per node retain only the current release slice; approved
 prompt and consent/create facts; pressure, findings, rejected candidates, and resume gate; exact task
 identities or receipt with unknowns explicit; and pull-request/candidate/terminal facts needed for the
-next endpoint effect.
+next endpoint effect. Retain each admitted relation with its evidence locator and affected slice, plus
+the current component snapshot that groups those nodes. Never omit a superseded, interrupted, blocked,
+or identity-pending node merely because it has no runnable slice.
 
 Keep assessment data once at checkpoint level, or bind one immutable locator and hash; never copy it
 into nodes. Native tasks own identity, Git and GitHub own repository facts, and labels add no Mission
 type or policy. The coherence-window rule below owns replacement timing.
+
+## Architecture-wave evidence graph
+
+Build the current wave from approved node packets and authoritative observations; do not persist a
+graph or infer one from labels, receipt order, task titles, elapsed time, or message count. Admit only
+these relation kinds:
+
+- `blocks(predecessor, successor)`: name the exact prerequisite evidence and immutable locator, the
+  successor slice that consumes it, and the observation that releases that slice. Freeze only that
+  consuming slice and any canonical-ref final slice whose identity depends on it. The successor may
+  continue hub-proven disjoint Frame, Plan, Execute, and nonidentity checks.
+- `superseded_by(leaf, architecture_node)`: bind the admitted architecture Outcome and the owner,
+  write-surface, contract, or consumer evidence proving that the leaf would be absorbed or overwritten.
+  Do not create an uncreated leaf. Preserve any existing child identity, candidate, findings, endpoint,
+  and terminal facts; stopping or cancelling it still requires current authority and one message to
+  its exact identity. Revalidate the leaf instead when absorption is unproved.
+- `revalidate_after(node, evidence)`: bind one exact head, authority digest, consumer contract, or
+  component snapshot, the affected node slice, and its revalidation oracle. Independent earlier work
+  may continue, but the affected slice cannot release from age, a label, or predecessor completion
+  alone; it consumes the newly observed evidence and invalidates only changed inputs.
+
+An unknown kind, missing endpoint, mutable or unavailable locator, unbounded affected slice, or hidden
+release predicate is unknown-impact and fails closed. A packet's `after` list is only the task-dispatch
+projection of admitted `blocks` and dependency-bearing `revalidate_after` relations; it is not a fourth
+relation or separate authority. Include every projected edge in the cycle and release checks below.
+
+Before dispatch, derive causal pressure edges from current evidence that one node invalidates another's
+owner, write surface, contract, premise, candidate, or canonical-ref slice. Group nodes only when that
+closure is stable for the current immutable component snapshot. Fan in each stable component's impact
+once. If the pressure graph has a strongly connected component, freeze further member patching and
+return the whole component to hub Plan for one component Mission with one Outcome, owner, write set,
+Acceptance, Origin, and endpoint. Preserve every prior node and identity as source evidence; do not
+sequence the cycle as `A → B → C → A`, transfer a candidate, or create the component without ordinary
+proposal and consent. Recompute the release DAG after component admission and require it to be acyclic.
 
 ## Dependency and interruption gates
 
@@ -73,9 +109,10 @@ successor may run final candidate audit, final root gate, publication, manual di
 barrier, or merge effect. If no direct edge selects one successor, freeze every same-ref final slice
 and return the ordering to hub Plan. Do not record a slot, queue, timer, or other lifecycle state.
 
-Before admission, test the complete proposed `after` edge set for acyclicity. Any cycle returns the
-affected graph to hub Plan and permits zero dispatch until an edge or Outcome changes under evidence;
-do not leave every node deferred or add a scheduler, helper, or stored graph to break the cycle.
+Before admission, test the complete projected `after` edge set for acyclicity after any pressure SCC
+has converged. Any remaining cycle returns the affected graph to hub Plan and permits zero dispatch
+until a relation, component Outcome, or evidence locator changes; do not leave every node deferred or
+add a scheduler, helper, stored graph, or arbitrary edge direction to break the cycle.
 
 Every cross-node prerequisite that can block task creation, publication, or merge must be an existing
 direct `after` edge in that cycle check; a release slice cannot hide another graph. Reject every other
@@ -139,7 +176,10 @@ base, merge-tree, or declared input.
 
 Inside one child, independent exact-candidate discovery, evaluation, CI, and security work may fan
 out. Its finding owner validates fan-in, stales affected output, and binds the root gate to the final
-candidate. The hub sees only a decision-changing freeze or terminal locator, never lanes or counts.
+candidate. It owns all five stages and ordinary local correction through its endpoint. The hub sees
+only Goal/DAG/authority/locator/effect/terminal facts, a component impact that changes those facts, a
+structural or user-authority gap, or a terminal locator; never child stages, lanes, local findings,
+correction turns, or counts.
 
 A `merged` node derives child delivery as `merge-ready`; child Finalize accepts only at that exact-
 candidate barrier and sends one terminal handoff. Hub Finalize reconciles once, without repeating
@@ -299,13 +339,20 @@ coherence window at the first of:
 - a dependency, publication, merge, or other declared effect barrier; or
 - a turn/interruption/Handoff/compaction, source or authority drift, or user request/override.
 
-At the window, reconcile exact Goal, task, Git, GitHub, dependency, and authority facts once; arbitrate
-terminal conflicts by those owners; perform at most one stage-wide global judgment inside that
-reconciliation; derive one hub position and next operation; and emit one complete checkpoint. Only
+At the window, rebuild the current evidence graph, group its stable components, and reconcile exact
+Goal, task, Git, GitHub, dependency, and authority facts once for the whole released wave. Arbitrate
+terminal conflicts by those owners, fan in each component impact once, perform at most one stage-wide
+global judgment, derive one hub position and next operation, and emit one complete checkpoint. Only
 after that checkpoint may the hub issue a question/message or release an independent next stage or
 declared effect. A dependent release, endpoint judgment, or other effect may not precede the
-checkpoint. One receipt never resets the wave, starts a dependent, or triggers a global pass. A
-blocked child is not retried, replaced, or transferred without new authority.
+checkpoint. One receipt never resets the wave, starts a dependent, or triggers a global pass.
+
+Treat coordination as useful only when a new observation changes an admitted relation, component,
+candidate validity, release predicate, authority, effect barrier, or terminal judgment. Low-information
+messages alone are harmless; churn is evidenced when the same causal root repeatedly invalidates work
+without changing one of those decisions. Route that pressure to the owning child or component Plan,
+not another Hub round trip. A blocked child is not retried, replaced, or transferred without new
+authority.
 
 ## Endpoint and overall completion
 
