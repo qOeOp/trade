@@ -20,7 +20,7 @@ This reference owns the current role load map:
 - `mission_researcher` additionally loads `../planning/planning-decision-evidence.md`, and loads
   `../planning/planning-decision-workflow.md`
   only for `reuse/prior_art`;
-- `fast_builder` needs no additional protocol reference.
+- `fast_builder` additionally loads `../execution/execution-mission-routing-policy.md`.
 
 A role delta first reads the immutable Origin's `orchestration-agent-routing.md` to select the protocol version. When
 an older Origin does not declare this map, that selector plus the same Origin's same-name
@@ -40,12 +40,18 @@ the work class or transfer its owner.
 
 ## Route reasoning and build work
 
+For a build-route decision, selective-TDD criteria on that route, model or reasoning-effort
+comparison, or a frozen mechanical leaf, load
+[execution routing](../execution/execution-mission-routing-policy.md). It supplies operational
+criteria under the kernel; this reference remains the sole lane admission, protocol, exact-model
+observation, and fallback owner.
+
 | Work | Route | Admission boundary |
 | --- | --- | --- |
 | Frame, Plan admission, cross-owner or safety judgment, finding synthesis, Finalize | high-reasoning main agent | never delegate the decision |
 | evidenced structural Plan challenge | high-reasoning `mission_planner` | proposal only; main agent admits or rejects it |
 | ordinary implementation | main agent or one standard builder | frozen owner, path, boundary, candidate shape, and verification route |
-| low-risk mechanical leaf | custom `fast_builder` on exact `gpt-5.3-codex-spark` | every Spark gate below holds |
+| low-risk mechanical leaf | custom `fast_builder` on exact `gpt-5.3-codex-spark` | this route admits the lane after every execution-policy Spark gate holds |
 | deterministic repository or environment fact | existing helper or direct read-only command; no agent or model | exact inputs and directly checkable output |
 | bounded repository synthesis | fast explorer | every fast evidence gate holds |
 | bounded current or external evidence | `mission_researcher` | one decision-changing external question |
@@ -54,36 +60,10 @@ the work class or transfer its owner.
 
 The role files own their pinned model and reasoning settings. For an unpinned internal route, treat
 the selected model as host-discretionary and do not promise an exact model without observing it.
-User-visible Mission model authority remains with task dispatch.
-
-Use one standard builder for normal implementation after Plan freezes. Give it non-overlapping paths
-and one candidate shape; ambiguity in Plan, authority, owner, boundary, or oracle returns to main.
-
-Use the repository's `.codex/agents/fast-builder.toml` only for a deterministic low-risk leaf whose
-packet freezes owner, exact paths, affected boundary, candidate shape, acceptance commands, and Stop.
-It must have one writer, no design branch, and be cheap for main to inspect. For a revision leaf, the
-main agent must first reproduce the material finding, classify it as candidate-local, confirm the
-admitted owner, path, boundary, and oracle are unchanged, and freeze the correction semantics and
-shape. No safety, authority, secrets, schema, public-contract, dependency, concurrency,
-authentication, live, or external-effect decision may remain.
-
-Before dispatch, compare the expected mechanical execution saved with the serialized packet, spawn,
-candidate recheck, and main diff inspection. Delegate only when the saving is greater; a directly
-obvious one- or two-line patch stays in main. Neither the existence nor count of revisions activates
-the lane. Spark never interprets or chooses instruction or judge semantics or wording. It may apply
-changes to those files only when the main packet supplies exact replacement bytes, retains the
-independent Origin-bound evaluator, and still clears the efficiency gate; otherwise main applies them.
-
-This is an internal custom sub-agent, not a user-visible task per build or revision. At dispatch,
-observe that the host exposes the custom role and its exact model; the TOML or this prose alone is not
-runtime proof. Spark has no authority to branch, commit, push, open or merge a pull request, comment,
-review, resolve a thread, deploy, schedule, perform a live write, alter a queue or automation, accept,
-Finalize, or cause any other external/shared-state effect. Ambiguity, path growth, a failed premise,
-or unavailable exact model returns once to standard main handling; never use another fast model or
-retry the fast lane. Candidate mutation invalidates only affected evidence. A separately approved
-user-visible Mission uses task dispatch's `create_thread` route and model-consent contract. Static
-configuration and role observation are not positive dynamic proof: leave it unproved until the next
-genuine qualifying leaf.
+User-visible Mission model authority remains with task dispatch. The execution policy details builder
+semantics and the evidence used to compare Spark economics on an activated route. This reference
+admits the lane, observes the exact model, and owns standard-main fallback; ambiguity in Plan, authority,
+owner, boundary, or oracle returns to main before dispatch.
 
 ## Route read-only evidence
 

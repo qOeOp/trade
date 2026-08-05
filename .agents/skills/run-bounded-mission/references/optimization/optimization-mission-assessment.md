@@ -40,8 +40,20 @@ and variation rather than only an average; otherwise label the result as one obs
 
 Record context and coordination cost separately from quality: always-loaded skill characters or
 tokens, conditionally loaded references/assets, copied lane packets, dispatch/return/synthesis events,
-elapsed time, and whether each value is observed or estimated. Do not require a benchmark harness or
-repository test artifact merely to populate these fields.
+elapsed time, exposed input/output/cached/reasoning tokens, correction and recheck work, and whether
+each value is observed, estimated, or unavailable. Do not require a benchmark harness or repository
+test artifact merely to populate these fields.
+
+When the named assessment decision compares implementation, TDD, frozen mechanical work, or
+model/effort routes, load [execution routing](../execution/execution-mission-routing-policy.md) before
+making that comparison and before the dependent Execute work. Use the existing matrix as the compact
+performance receipt; do not create a separate log or artifact. For each materially different
+scenario, bind its candidate or control locator, consumer quality floor and result, observed
+model/effort or `unavailable`, elapsed and token/context evidence, coordination events,
+correction/recheck cost, reused and invalidated evidence, route verdict, and unproved route plus
+fail-safe fallback. Reuse the matrix's scenario coverage, dimension rows, cost surfaces, and limits
+rather than duplicating them in another shape. A missing host metric stays unavailable and makes only
+its dependent comparison non-comparable.
 
 Use these strict score anchors; interpolate only when the evidence explains the difference:
 
