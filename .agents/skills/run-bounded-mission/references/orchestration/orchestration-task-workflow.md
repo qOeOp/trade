@@ -79,7 +79,9 @@ do not leave every node deferred or add a scheduler, helper, or stored graph to 
 Every cross-node prerequisite that can block task creation, publication, or merge must be an existing
 direct `after` edge in that cycle check; a release slice cannot hide another graph. Reject an edge
 into a Git-backed node unless every predecessor packet freezes `merged` on its declared canonical
-source. Do not admit `open` or `merge-ready` and later force it to merge.
+source, except the identity-bound final-release edge above: before predecessor `merged`, it freezes
+dependency-consuming work and that final slice while independently proven Frame, Plan, Execute, and
+nonidentity checks may proceed. Do not admit `open` or `merge-ready` and later force it to merge.
 
 If a predecessor is cancelled, retain affected descendants and return them to Plan. Each is cancelled
 under current authority, reconnected and revalidated, left pending for missing Outcome or authority,
