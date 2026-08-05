@@ -53,24 +53,38 @@ consumer evidence.
 ## Resolve consequential ambiguity
 
 Inspect repository evidence first. Express each credible interpretation as an assumption, consumer
-consequence, and disconfirming observation, then classify each unresolved item:
+consequence, and disconfirming observation, then preserve the kernel's internal disposition:
 
-- `default`: safe and reversible inside existing user, safety, and effect authority; name the default
-  and its invalidator, but never mint authority or choose a hard-to-reverse candidate or acceptance;
+- `default`: current authority or evidence selects the route, or a safe reversible choice exists
+  inside user, safety, and effect authority. Name its invalidator, but never mint authority or choose
+  a hard-to-reverse acceptance tradeoff;
 - `research`: evidence can settle a candidate- or acceptance-changing premise; bind its question,
   consequence, evidence status, and Stop through the route below;
-- `ask`: only the user owns the preference, fact, or authority, no safe default exists, and the answer
-  can materially change candidate or acceptance.
+- `ask`: only the user owns the required fact, preference, or effect authority and the answer can
+  materially change candidate or acceptance.
 
-Open one user turn only when one or more `ask` items exist. Bundle the smallest high-signal `ask`
-items sharing the next Plan boundary; for each give an evidence-backed recommendation—or state that
-evidence cannot prefer an option—concrete options, and consequence. Include a material `default` from
-that boundary only as non-blocking, with its safe default explicit. Never open a turn for a default
-alone or when no material ambiguity remains.
+After research, project exactly one external lane for each frontier:
+
+- `automatic` for a disposed `default` or evidence-settled route; open no user turn;
+- `recommended confirmation` for an `ask` where evidence supports one route and proceeding without
+  confirmation would create meaningful replan or reversal cost; present the recommendation,
+  strongest alternative, evidence locator, and consequence;
+- `blocking confirmation` for an `ask` with no safe evidence-backed route; state why recommendation
+  is unavailable and what each concrete answer changes.
+
+Unknown or unavailable essential evidence remains `research`, freezes only the dependent decision,
+and never becomes a user preference or an automatic route.
+
+Open one user turn only when at least one confirmation remains after internal research. Bundle the
+smallest high-signal confirmation items sharing the next Plan boundary; do not add automatic items,
+ask a fixed number of questions, or reopen a disposed frontier. A recommended confirmation and a
+blocking confirmation both wait for the user on their dependent decision; unrelated Plan work may
+continue. Ask nothing when no material confirmation remains.
 
 After disposition, project only a Plan-changing final `Decision / basis / rejected alternative /
-unresolved consequence`; preserve no explored options, discussion order, or deliberation transcript.
-An unresolved consequence remains unresolved and cannot be omitted to admit Plan.
+unresolved consequence / evidence locator`; preserve no explored options, discussion order, or
+deliberation transcript. An unresolved consequence remains unresolved and cannot be omitted to admit
+Plan.
 
 An unresolved Frame, Plan, or Verify question stays unresolved until changed evidence disposes it.
 Any repeat must use a different repository fact, source, or user-owned answer and name the result that
