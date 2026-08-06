@@ -113,6 +113,18 @@ shape rejects.
 
 ## Contain command state
 
+Before dispatching a dedicated evaluator, enumerate the complete MCP server-name set from every exact
+base configuration layer that the host will combine with the role configuration. Read the role
+configuration as an overlay and require it to contain a full parseable entry with `enabled=false`
+for every observed base server; also require every role-only server to be disabled. Recompute the
+effective set and require zero enabled servers before spawn. A missing base layer, unknown server,
+unparseable entry, uncovered name, non-boolean or non-false `enabled`, or mismatch between the
+enumerated and effective sets rejects prelaunch. Do not infer that an empty table, omitted name,
+profile boundary, read-only instruction, or post-start tool refusal clears inherited servers. Bind
+the ordered base and role name sets plus their configuration fingerprints into the launch receipt;
+any change invalidates admission. This is a prelaunch containment gate: discovering an MCP after the
+evaluator process starts is already unsupported and cannot be repaired by declining to invoke it.
+
 For every `integrity-checked` evaluator, the main agent creates one fresh task-owned scratch root per
 lens after materialization and before launch. Derive it exactly as
 `<artifact-directory>/scratch/<assigned-risk-lens>` and precreate `home`, `xdg-cache`, `xdg-config`,

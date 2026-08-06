@@ -18,3 +18,15 @@ enabled = false
 command = "npx"
 args = ["@playwright/mcp@latest"]
 enabled = false
+
+[mcp_servers.trade-agent]
+command = "bun"
+args = ["apps/orchestration-ops/agent-mcp/src/scripts/main.ts"]
+cwd = ".."
+enabled = false
+
+[mcp_servers.sentrux]
+command = "sentrux"
+args = ["--mcp"]
+cwd = ".."
+enabled = false
