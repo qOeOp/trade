@@ -55,8 +55,9 @@ the current component snapshot that groups those nodes. Never omit a superseded,
 or identity-pending node merely because it has no runnable slice.
 
 Keep assessment data once at checkpoint level, or bind one immutable locator and hash; never copy it
-into nodes. Native tasks own identity, Git and GitHub own repository facts, and labels add no Mission
-type or policy. The coherence-window rule below owns replacement timing.
+into nodes. Native tasks own identity, Git and GitHub own repository facts, and canonical task type is
+non-authorizing metadata from [task type classification](orchestration-task-types.md), not lifecycle,
+priority, route, or policy. The coherence-window rule below owns replacement timing.
 
 ## Architecture-wave evidence graph
 
@@ -231,12 +232,31 @@ Plan and re-evaluate direct dependencies and conflicts; do not silently dispatch
 test, documentation, performance, security, removal, and other descriptions use the same admission
 contract.
 
-An independent outcome remains proposed while the user edits or withholds approval. Its packet owns
-one stable label matching `[A-Z]+-[0-9]{2}` and one title formed exactly as
-`<label> · <short description>`. Preserve both across edits and recovery. They identify the user-visible
-task only; never interpret the label as a Mission type, priority, lifecycle, route, or scheduling
-policy. Keep a packet `deferred` until its frozen label and title satisfy that exact relation. Approval
-permits one native create attempt for that exact packet.
+An independent outcome remains proposed while the user edits or withholds approval. Before assigning
+its label, load [task type classification](orchestration-task-types.md) and classify exactly one
+canonical owner domain from Outcome, consumer, owner, and Acceptance. Missing, ambiguous, unknown, or
+stale classification keeps the packet `deferred` and returns the decision to main; never mint a code
+from wording or a legacy prefix.
+
+The packet owns one stable label matching `[A-Z]{3}-[0-9]{2}` and one title formed exactly as
+`<label> · <short description>`. Its code must be a current canonical member and its number must be
+`01` through `99`. From the complete current proposed/approved-node inventory, the packet owner assigns
+the lowest unused display serial within that canonical code; different codes each begin at `01`.
+Freeze it across edits, consent, creation, recovery, and continuation of that causally identical
+Mission. A same-code collision, exhausted range, or incomplete same-code inventory defers assignment
+to main; never derive identity, priority, order, dependency, or retry count from the number and never
+add a counter service. Historical titles remain exact immutable facts and reserve no inferred mapping;
+recovery never renames or backfills them.
+
+Write the short description and user-visible packet commentary in the inherited
+`interaction_language`; preserve the ASCII code, identifiers, commands, schemas, and raw evidence in
+their original form.
+
+Preserve the exact label, title, compact canonical type projection, and type-authority locator across
+edits and recovery. The type is a metadata hook only and cannot select priority, lifecycle, route,
+lane, model, reasoning effort, dependency, verdict, or scheduling policy. Keep a packet `deferred`
+until all frozen facts satisfy that exact relation. Approval permits one native create attempt for
+that exact packet.
 
 ## Proposal and consent
 
@@ -249,7 +269,7 @@ release readiness always binds that source ref and observed tip immediately befo
 attempt and requires Origin equality; a changed or mismatched tip defers creation and every early
 slice. Post-merge reconciliation is a release gate for the same child, not a new Origin or consent.
 
-Present a short default summary first: stable label and exact title, `ready | deferred`, why it
+Present a short default summary first: canonical task type, stable label and exact title, `ready | deferred`, why it
 matters now, Outcome and scope/non-goals, decisive evidence and Origin, Acceptance, and authority or
 external effects.
 
@@ -317,8 +337,8 @@ DAG, write ownership, user-visible Mission model authority, or task consent; it 
 route table. Ordinary route telemetry stays with the child and is fanned into the Hub only in its
 terminal receipt unless it proves a real exception or structural gap.
 
-After consent, revalidate every packet fact and source tip; drift makes it `deferred` or materially
-revised and requires fresh approval. Mark the create attempt issued, call `list_projects`, and inspect
+After consent, revalidate every packet fact, canonical task type locator, and source tip; drift makes
+it `deferred` or materially revised and requires fresh approval. Mark the create attempt issued, call `list_projects`, and inspect
 the selected project's `isGitRepository`. Call `create_thread` once with the approved prompt and the
 observed project/worktree target for Git, or local only for an observed non-Git project that cannot
 share the foreground candidate. Omit `startingState` and model overrides unless approved. Record only

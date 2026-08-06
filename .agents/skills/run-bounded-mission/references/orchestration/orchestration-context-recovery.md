@@ -56,7 +56,8 @@ prose. After a new Plan is admitted, replace the whole checkpoint again with its
 projection before Execute.
 
 For a multi-Mission hub, use the same fields and let task dispatch add only node identity; approved
-create attempt or receipt; `blocks`, `superseded_by`, and `revalidate_after` evidence locators and
+create attempt or receipt; compact canonical task type projection and its exact authority locator;
+`blocks`, `superseded_by`, and `revalidate_after` evidence locators and
 affected slices; current component snapshot; child, release, Goal, endpoint, and current-wave facts
 that have no single-Mission equivalent; and the compact graph plus cursor-bound target facts needed to
 resume the current wait without replaying history. Keep assessment data once at checkpoint level. Native tasks
@@ -86,7 +87,11 @@ fact or take the main skill's evidenced route. A user override follows the main 
 can release work.
 
 For a recovered hub, also reconcile every approved node and create attempt against its exact native
-identity or unresolved receipt, reopen every relation locator and affected slice, rebuild the current
+identity or unresolved receipt, preserve every historical title byte-for-byte, and reconcile any
+frozen canonical task type projection against its exact authority locator. Missing, unrecognized,
+ambiguous, or stale type metadata returns only the affected create/dispatch or aggregation question
+to task dispatch's main classification; recovery never guesses from a legacy prefix, renames a task,
+or loads the full taxonomy for an otherwise ordinary single-Mission recovery. Reopen every relation locator and affected slice, rebuild the current
 component snapshot and compact graph, verify every continued target's cursor continuity, and test the
 projected release graph for acyclicity. Missing a previously approved
 node, adopting a same-title resemblance, issuing a second create for an unresolved attempt, or treating
