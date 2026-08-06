@@ -114,21 +114,26 @@ causal order.
 A provider `EYES` reaction on the request is progress evidence only: it neither starts a new attempt
 nor advances the request-bound provider-signal window, and cannot hide a material signal after it.
 A generated clean comment is notification only and cannot itself prove a terminal clean result. Its
-complete fixed envelope must start with the exact canonical clean assertion and may carry a bounded
-same-line remainder. That remainder has no independent review authority and does not alter the
-canonical assertion's notification semantics. A non-canonical first line,
-multiline or injected envelope, extra body, or otherwise structurally non-clean provider comment
-blocks a later reaction. Only the structured
-reaction or approval after the exact request supplies terminal authority. A bare legacy request,
+bounded envelope must contain the exact canonical clean assertion, one full exact reviewed-head
+binding, and one closed `<details>...</details>` region whose contents have no authority. This is a
+representation boundary, not a list of generated help-text phrases: changes inside the details region
+do not change classification, while an unknown first line, missing or duplicate head, text outside the
+envelope, malformed boundary, or wrong head fails closed. Only a structured exact-target reaction or
+exact-head GitHub review state after the exact request supplies terminal authority. A bare legacy request,
 edited request, stale or wrong head, same-app or other app transport, wrong provider or target,
 ambiguous order, or changed PR head remains invalid or outstanding and fail-closed. Request admission
 never suppresses already observed provider facts in its own selected closure, and provider discovery
+also exhausts provider-authored replies and nested reactions retained in review threads; any such
+representation without structured envelope authority is unknown and blocks clean arbitration.
 never repairs invalid request admission.
 
-Wait through the bounded host loop and run
+The helper owns one snapshot, not a polling loop. The host waits first for a new GitHub activity/event
+observation; when no event surface is available it waits for one bounded coherence-window expiry. Only
+that changed input permits another snapshot. Do not immediately resubscribe, narrate an unchanged
+snapshot, or rerun the same `gh`/GraphQL pair merely because the prior result was pending. Then run
 `bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --repo <owner/name> --request-locator <readback-node-id> --request-author <authorized-login> <pr-number>`
 as its read-only snapshot owner. Pass the exact opaque, non-empty readback node ID without
-normalization. Each invocation emits one `codex-review-receipt/v1` JSON object. It
+normalization. Each invocation emits one `codex-review-receipt/v2` JSON object. It
 preserves the legacy `repository`, `pull_request`, `head_oid`, `status`, and `reason` fields and adds
 orthogonal machine projections:
 
@@ -140,8 +145,12 @@ orthogonal machine projections:
   `incomplete` rather than a new attempt;
 - `discovery.status` is one of `waiting`, `clean`, `finding_unrouted`, or `finding_routed`; its
   reviewed head, provider review, clean/progress signal, structured integrity problems, and finding
-  array are only the selected current attempt. Its ordered `history` array retains every request
-  attempt with that request's raw provider signals, non-terminal boundary provider signals, and its
+  array are only the selected current attempt. Its `provider_signals` are lossless envelopes classified
+  as `clean_authority`, `progress`, `finding`, `capability_unavailable`, `notification`, or `unknown`.
+  Those classes are derived from GitHub reaction/review state, exact target/head, review/thread join,
+  and issue-comment app provenance; only `clean_authority` is clean, and every `unknown` fails closed.
+  Provider review body wording is not clean/finding authority. Its ordered `history` array retains
+  every request attempt with that request's raw provider signals, non-terminal boundary provider signals, and its
   non-terminal boundary provider threads, plus request-bound finding/thread/resolver/disposition
   projections, so consumers do not manually rejoin lifecycles. An exact connector-authored request is retained and classified as its own self-trigger
 attempt rather than projected as a provider finding in another attempt. Every in-window provider
@@ -250,11 +259,11 @@ is the only authority. Do not copy evaluator packets, check logs, provider snaps
 or long command output into this receipt.
 
 Use the existing waiter helper's single delivery-receipt mode. Feed `create` one canonical JSON-LF
-`delivery-barrier-input/v1` record containing repository, PR, candidate head, observed base ref/OID,
-merge-tree OID or `null`, queue state, and the locator array. The helper validates exact fields,
+`delivery-barrier-input/v2` record containing repository, PR, candidate head and its Git tree OID,
+observed base ref/OID, merge-tree OID or `null`, queue state, and the locator array. The helper validates exact fields,
 normalizes repository and locator order, joins every locator to the same head, requires every named
 evidence kind, bounds the compact representation, and emits one canonical
-`delivery-barrier-receipt/v1` JSON-LF envelope with the inner byte count and SHA-256:
+`delivery-barrier-receipt/v2` JSON-LF envelope with the inner byte count and SHA-256:
 
 ```text
 bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts \
@@ -315,6 +324,20 @@ Immediately before accepting `merge-ready` or performing a merge, observe one cu
 8. a final refetch shows no head, base, merge-tree, queue/auto-merge, required-check, provider-signal,
    or conversation-activity drift from the compact receipt.
 
+Select CI from raw exact-identity data, not a rollup's worst historical conclusion. Resolve the
+complete non-empty required-context authority first. For each required Checks API context, list check
+runs through GitHub's [exact-ref endpoint](https://docs.github.com/en/rest/checks/runs#list-check-runs-for-a-git-reference)
+for the exact candidate or required test-merge SHA with `filter=latest`, retain the returned run
+ID, name, app ID, check-suite ID, `head_sha`, status, conclusion, and timestamps, and require its
+terminal conclusion under the repository rule. A superseded older `CANCELLED` run is history and
+cannot override a newer selected terminal; a selected latest cancelled, stale, pending, missing, or
+wrong-head run fails. Also fetch commit statuses for that exact SHA: when a check run and commit status
+share a required name, both remain required. Pagination, duplicate name/app authority, missing app,
+unknown conclusion, or disagreement between the required-context owner and raw runs fails closed.
+Bind the canonical selected-run/status snapshot and digest to the compact `ci` locator, then repeat the
+same selection during the final freshness read; never substitute `gh pr checks`, a check-suite
+aggregate, or an earlier workflow run as authority.
+
 Unknown, absent, stale, or pending required final-head data fails the barrier. The completed manual
 review is intentionally discovery rather than final-head acceptance evidence. A material finding or
 any candidate, head, base, or merge-tree change returns to Verify.
@@ -355,6 +378,19 @@ each local Mission tag and each remote Mission tag as separate artifacts; and th
 local-main checkout, local-main OID, remote, canonical full ref, and observed remote-main OID. Keep
 unknown or non-target artifacts out of the inventory. Do not discover a broader cleanup set while
 executing.
+
+Classify the cleanup target set before admitting any row:
+
+| Observation | Admission | Required receipt |
+| --- | --- | --- |
+| exact candidate is reported `MERGED` and every target identity/OID is resolved | Admit only the separately authorized rows whose preconditions still match | Record exact before/after identity and safe post-read for each row |
+| target already equals its row postcondition | Perform no write; classify from the live state as `already_absent` or `already_equal` | Record the same exact identity read that proved idempotence |
+| merge identity, target, owner, authority, policy, presence, OID, worktree binding, or remote state is uncertain | Admit no dependent effect and preserve the target | Record `preserved` with the exact unavailable or mismatched fact; do not broaden discovery or authority |
+
+Branch, tag, managed-worktree, and designated-main rows never inherit authority from one another or
+from merge. Resolve every local/remote full ref and OID separately, and require a row-local safe
+readback after any admitted effect. An unavailable atomic owner remains an evidence-backed preserve,
+not permission to synthesize a helper or weaken the expected-identity contract.
 
 Apply only the rows with separately frozen authority. An exact deletion artifact recorded absent
 succeeds as `already_absent`; non-deletion rows use their row-specific status. A pre-effect OID,

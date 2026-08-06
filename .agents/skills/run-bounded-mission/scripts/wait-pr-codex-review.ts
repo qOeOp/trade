@@ -4,33 +4,13 @@ import { createHash } from "node:crypto"
 
 const PROVIDER_LOGIN = "chatgpt-codex-connector"
 const PROVIDER_APP_ID = 1144995
-const RECEIPT_SCHEMA = "codex-review-receipt/v1"
+const RECEIPT_SCHEMA = "codex-review-receipt/v2"
 const REQUEST_VALIDATION_SCHEMA = "codex-review-request-validation/v1"
-const DELIVERY_BARRIER_INPUT_SCHEMA = "delivery-barrier-input/v1"
-const DELIVERY_BARRIER_EVIDENCE_SCHEMA = "delivery-barrier-evidence/v1"
-const DELIVERY_BARRIER_RECEIPT_SCHEMA = "delivery-barrier-receipt/v1"
-const CLEAN_REVIEW = /^(?:codex review:?\s*)?didn['’]t find any major issues[.!]?$/i
+const DELIVERY_BARRIER_INPUT_SCHEMA = "delivery-barrier-input/v2"
+const DELIVERY_BARRIER_EVIDENCE_SCHEMA = "delivery-barrier-evidence/v2"
+const DELIVERY_BARRIER_RECEIPT_SCHEMA = "delivery-barrier-receipt/v2"
 const CLEAN_COMMENT_HEADING = /^Codex Review: Didn['’]t find any major issues\.(?: (?=[^\r\n]{1,64}$)\S(?:[^\r\n]*\S)?)?$/
-const REVIEWED_COMMIT = /^\*\*Reviewed commit:\*\* `([0-9a-f]{10,64})`$/
-const CLEAN_COMMENT_SUFFIX = [
-  "",
-  "<details> <summary>ℹ️ About Codex in GitHub</summary>",
-  "<br/>",
-  "",
-  "[Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you",
-  "- Open a pull request for review",
-  "- Mark a draft as ready",
-  "- Comment \"@codex review\".",
-  "",
-  "If Codex has suggestions, it will comment; otherwise it will react with 👍.",
-  "",
-  "",
-  "",
-  "",
-  "Codex can also answer questions or update the PR. Try commenting \"@codex address that feedback\".",
-  "            ",
-  "</details>",
-]
+const REVIEWED_COMMIT = /^\*\*Reviewed commit:\*\* `([0-9a-f]{40})`$/
 const USAGE_FAILURE = /(usage limit|rate limit|quota exceeded|try again later)/i
 const REVIEW_REQUEST = /@codex\s+review\b/i
 const EXACT_HEAD_REVIEW_REQUEST = /^@codex review\n\nExact head: `([0-9a-f]{40})`$/
@@ -55,6 +35,14 @@ export type DiscoveryProblem =
   | "provider-edited"
   | "provider-wrong-head"
   | "provider-result-incomplete"
+
+export type ProviderSignalClassification =
+  | "clean_authority"
+  | "progress"
+  | "finding"
+  | "capability_unavailable"
+  | "notification"
+  | "unknown"
 
 export interface GitHubAppProvenance {
   id: number
@@ -183,10 +171,16 @@ export interface ReviewFindingProjection {
 
 export interface ReviewAttemptHistoryProjection {
   request: ObservedReviewRequestProjection
-  provider_signals: ReviewSignal[]
-  boundary_provider_signals: ReviewSignal[]
+  provider_signals: ProviderSignalEnvelope[]
+  boundary_provider_signals: ProviderSignalEnvelope[]
   boundary_provider_threads: ReviewThread[]
   findings: ReviewFindingProjection[]
+}
+
+export interface ProviderSignalEnvelope {
+  classification: ProviderSignalClassification
+  reviewed_head: string | null
+  signal: ReviewSignal
 }
 
 export interface ReviewDiscoveryProjection {
@@ -196,6 +190,7 @@ export interface ReviewDiscoveryProjection {
   clean_signal: ReviewEvidenceProjection | null
   progress_signal: ReviewEvidenceProjection | null
   findings: ReviewFindingProjection[]
+  provider_signals: ProviderSignalEnvelope[]
   history: ReviewAttemptHistoryProjection[]
   problems: DiscoveryProblem[]
 }
@@ -225,6 +220,7 @@ interface DeliveryBarrierEvidence {
   repository: string
   pull_request: number
   head_oid: string
+  head_tree_oid: string
   base_ref: string
   base_oid: string
   merge_tree_oid: string | null
@@ -276,8 +272,9 @@ export function classifyCodexReview(
   const expectedRequestedHead = currentAttempt
     ? projectObservedRequest(snapshot, currentAttempt).requested_head
     : null
-  const allProviderSignals = snapshot.signals.filter((signal) => isProvider(signal.author)
-    && !(signal.kind === "comment" && signalLocator(signal) === expectation.locator))
+  const allProviderSignals = exhaustiveProviderSignals(snapshot).filter((signal) =>
+    !(signal.kind === "comment" && signalLocator(signal) === expectation.locator))
+    .sort(compareSignals)
   const history = attempts.map((attempt, index) => {
     const historyAt = timestampValue(attempt.at)
     const nextHistoryAt = attempts.slice(index + 1)
@@ -305,8 +302,16 @@ export function classifyCodexReview(
     )
     return {
       request: historyRequest,
-      provider_signals: providerSignals,
-      boundary_provider_signals: boundaryProviderSignals,
+      provider_signals: providerSignals.map((signal) => providerSignalEnvelope(
+        signal,
+        historyRequest.requested_head,
+        attempt.target,
+      )),
+      boundary_provider_signals: boundaryProviderSignals.map((signal) => providerSignalEnvelope(
+        signal,
+        historyRequest.requested_head,
+        attempt.target,
+      )),
       boundary_provider_threads: boundaryProviderThreads,
       findings,
     }
@@ -316,6 +321,11 @@ export function classifyCodexReview(
       && timestampValue(signal.at) > attemptAt
       && (nextRequestAt === null || timestampValue(signal.at) < nextRequestAt),
   )
+  const providerSignals = currentProviderSignals.map((signal) => providerSignalEnvelope(
+    signal,
+    expectedRequestedHead,
+    attemptTarget,
+  ))
   const problems: DiscoveryProblem[] = []
   if (snapshot.state !== "OPEN") problems.push("pull-request-closed")
   if (!snapshot.complete) problems.push("snapshot-incomplete")
@@ -330,18 +340,17 @@ export function classifyCodexReview(
   if (currentProviderSignals.some((signal) => isEditedSignal(signal) && (
     signal.kind === "review" || signal.kind === "comment"
   ))) problems.push("provider-edited")
-  const usageFailure = currentProviderSignals.find((signal) =>
-    USAGE_FAILURE.test(signal.body ?? "")
-      && !isGeneratedReviewComment(signal.body ?? ""),
-  )
+  if (providerSignals.some((envelope) => envelope.classification === "unknown")) {
+    problems.push("provider-result-incomplete")
+  }
+  const usageFailure = providerSignals.find((envelope) =>
+    envelope.classification === "capability_unavailable")
   if (usageFailure) problems.push("usage-failure")
   if (currentProviderSignals.some((signal) => {
     if (signal.kind === "review") {
       return signal.commitOid !== undefined && signal.commitOid !== expectedRequestedHead
     }
-    const reviewedCommit = signal.kind === "comment"
-      ? generatedReviewCommentHead(signal.body ?? "")
-      : null
+    const reviewedCommit = signal.kind === "comment" ? cleanNotificationHead(signal.body ?? "") : null
     return reviewedCommit !== null && !expectedRequestedHead?.startsWith(reviewedCommit)
   })) problems.push("provider-wrong-head")
 
@@ -353,45 +362,35 @@ export function classifyCodexReview(
     nextRequestAt,
   )
   if (incomplete) problems.push("provider-result-incomplete")
-  const relatedEyes = currentProviderSignals.filter((signal) =>
-    signal.kind === "reaction"
-      && signal.reaction === "EYES"
-      && signal.target === attemptTarget
-      && timestampValue(signal.at) >= attemptAt,
-  )
+  const relatedEyes = providerSignals.filter((envelope) => envelope.classification === "progress")
   const cleanTerminal = currentAttempt
-    ? currentProviderSignals.find((signal) => timestampValue(signal.at) > attemptAt && (
-      (signal.kind === "reaction"
-        && signal.reaction === "THUMBS_UP"
-        && (signal.target === attemptTarget || signal.target === "pull-request"))
-      || (signal.kind === "review"
-        && signal.reviewState === "APPROVED"
-        && signal.commitOid === expectedRequestedHead
-        && (!signal.body?.trim() || isCleanReview(signal.body)))
-    ))
+    ? providerSignals.find((envelope) => envelope.classification === "clean_authority")
     : undefined
   const routedFindings = findings.length > 0 && findings.every((finding) => finding.routed)
   const discoveryStatus: DiscoveryStatus = findings.length > 0
     ? (routedFindings ? "finding_routed" : "finding_unrouted")
     : (cleanTerminal ? "clean" : "waiting")
   const findingReview = [...findings].reverse().find((finding) => finding.provider_review !== null)?.provider_review ?? null
-  const terminalReview = cleanTerminal?.kind === "review" ? providerReviewProjection(cleanTerminal) : null
+  const terminalReview = cleanTerminal?.signal.kind === "review"
+    ? providerReviewProjection(cleanTerminal.signal)
+    : null
   const observedReview = currentProviderSignals
     .filter((signal) => signal.kind === "review" && signal.commitOid === expectedRequestedHead)
     .map(providerReviewProjection)
     .filter((review): review is ProviderReviewProjection => review !== null)
     .at(-1) ?? null
   const reviewedHead = findings.at(-1)?.reviewed_head
-    ?? cleanTerminal?.commitOid
+    ?? cleanTerminal?.reviewed_head
     ?? observedReview?.reviewed_head
     ?? (cleanTerminal ? expectedRequestedHead : null)
   const discovery: ReviewDiscoveryProjection = {
     status: discoveryStatus,
     reviewed_head: reviewedHead ?? null,
     provider_review: findingReview ?? terminalReview ?? observedReview,
-    clean_signal: cleanTerminal ? signalEvidence(cleanTerminal) : null,
-    progress_signal: relatedEyes.length > 0 ? signalEvidence(relatedEyes.at(-1)!) : null,
+    clean_signal: cleanTerminal ? signalEvidence(cleanTerminal.signal) : null,
+    progress_signal: relatedEyes.length > 0 ? signalEvidence(relatedEyes.at(-1)!.signal) : null,
     findings,
+    provider_signals: providerSignals,
     history,
     problems: [...new Set(problems)],
   }
@@ -513,10 +512,15 @@ function classifyRequest(snapshot: CodexReviewSnapshot, expectation: ReviewReque
   const projected = projectObservedRequest(snapshot, selected)
   const bindingMatches = projected.locator === expectation.locator
     && projected.author?.toLowerCase() === expectation.author.toLowerCase()
+  const classification = bindingMatches
+    ? projected.classification
+    : (projected.locator === expectation.locator && projected.classification === "self-trigger"
+      ? "self-trigger"
+      : "incomplete")
   return {
     request: {
       ...projected,
-      classification: bindingMatches ? projected.classification : "incomplete",
+      classification,
       expected_locator: expectation.locator,
       expected_author: expectation.author,
       binding_matches: bindingMatches,
@@ -609,6 +613,94 @@ function signalEvidence(signal: ReviewSignal): ReviewEvidenceProjection | null {
   return { locator, url: signal.url ?? null, author: signal.author, at: signal.at, body, edited: isEditedSignal(signal) }
 }
 
+function compareSignals(left: ReviewSignal, right: ReviewSignal): number {
+  return timestampValue(left.at) - timestampValue(right.at)
+    || left.kind.localeCompare(right.kind)
+    || (signalLocator(left) ?? "").localeCompare(signalLocator(right) ?? "")
+}
+
+function exhaustiveProviderSignals(snapshot: CodexReviewSnapshot): ReviewSignal[] {
+  const signals = snapshot.signals.filter((signal) => isProvider(signal.author))
+  for (const signal of snapshot.signals) {
+    const parentLocator = signalLocator(signal) ?? signal.target
+    for (const [index, reaction] of (signal.reactions ?? []).entries()) {
+      if (!isProvider(reaction.author)) continue
+      signals.push({
+        author: reaction.author,
+        at: reaction.at,
+        kind: "reaction",
+        target: `signal:${parentLocator}`,
+        locator: `${parentLocator}:reaction:${index}`,
+        reaction: reaction.content,
+      })
+    }
+  }
+  for (const thread of snapshot.threads) {
+    for (const [commentIndex, comment] of thread.comments.entries()) {
+      const commentLocator = comment.locator ?? `${thread.locator ?? "thread"}:comment:${commentIndex}`
+      if (commentIndex > 0 && isProvider(comment.author)) {
+        signals.push({
+          author: comment.author,
+          at: comment.at,
+          kind: "comment",
+          target: `thread-comment:${commentLocator}`,
+          locator: commentLocator,
+          url: comment.url,
+          body: comment.body,
+          reviewId: comment.reviewId,
+          includesCreatedEdit: comment.includesCreatedEdit,
+          lastEditedAt: comment.lastEditedAt,
+        })
+      }
+      for (const [reactionIndex, reaction] of (comment.reactions ?? []).entries()) {
+        if (!isProvider(reaction.author)) continue
+        signals.push({
+          author: reaction.author,
+          at: reaction.at,
+          kind: "reaction",
+          target: `thread-comment:${commentLocator}`,
+          locator: `${commentLocator}:reaction:${reactionIndex}`,
+          reaction: reaction.content,
+        })
+      }
+    }
+  }
+  return signals
+}
+
+function providerSignalEnvelope(
+  signal: ReviewSignal,
+  expectedHead: string | null,
+  attemptTarget: string,
+): ProviderSignalEnvelope {
+  let classification: ProviderSignalClassification = "unknown"
+  let reviewedHead: string | null = null
+  if (signal.kind === "reaction") {
+    const targetMatches = signal.target === attemptTarget || signal.target === "pull-request"
+    if (targetMatches && signal.reaction === "THUMBS_UP") classification = "clean_authority"
+    else if (signal.target === attemptTarget && signal.reaction === "EYES") classification = "progress"
+  } else if (signal.kind === "review") {
+    reviewedHead = signal.commitOid ?? null
+    if (expectedHead !== null && reviewedHead === expectedHead) {
+      if (signal.reviewState === "APPROVED") classification = "clean_authority"
+      else if (isFindingReviewState(signal.reviewState)) classification = "finding"
+    }
+  } else if (isProviderApp(signal.performedViaGithubApp)) {
+    reviewedHead = cleanNotificationHead(signal.body ?? "")
+    if (reviewedHead !== null) classification = "notification"
+    else if (USAGE_FAILURE.test(signal.body ?? "")) classification = "capability_unavailable"
+  }
+  return { classification, reviewed_head: reviewedHead, signal }
+}
+
+function isProviderApp(app: GitHubAppProvenance | null | undefined): boolean {
+  return app?.id === PROVIDER_APP_ID && app.slug === PROVIDER_LOGIN
+}
+
+function isFindingReviewState(state: string | undefined): boolean {
+  return state === "COMMENTED" || state === "CHANGES_REQUESTED"
+}
+
 function providerReviewProjection(signal: ReviewSignal): ProviderReviewProjection | null {
   const locator = signalLocator(signal)
   if (signal.kind !== "review" || !locator || !signal.author || !signal.reviewState || !signal.commitOid) return null
@@ -659,8 +751,8 @@ function projectFindings(
     if (first.reviewId) representedReviews.add(first.reviewId)
     const reviewSignal = providerSignals.find((signal) => signal.kind === "review" && signal.reviewId === first.reviewId)
     const review = reviewSignal ? providerReviewProjection(reviewSignal) : null
-    const structuredFindingReview = reviewSignal?.reviewState === "COMMENTED"
-      && isFindingReviewSummary(reviewSignal.body ?? "", reviewSignal.commitOid ?? "")
+    const structuredFindingReview = reviewSignal?.commitOid !== undefined
+      && isFindingReviewState(reviewSignal.reviewState)
     const finding = threadCommentEvidence(first)
     const resolver = thread.resolvedBy && !isProvider(thread.resolvedBy) ? thread.resolvedBy : null
     const dispositionComment = resolver
@@ -699,7 +791,7 @@ function projectFindings(
   }
   for (const signal of providerSignals) {
     if (signal.reviewId && representedReviews.has(signal.reviewId)) continue
-    if (!isNonCleanProviderResult(signal)) continue
+    if (signal.kind !== "review" || !isFindingReviewState(signal.reviewState)) continue
     const evidence = signalEvidence(signal)
     const review = providerReviewProjection(signal)
     if (!evidence || evidence.edited || (signal.kind === "review" && (!review || review.edited))) incomplete = true
@@ -944,8 +1036,8 @@ async function fetchSnapshot(repository: string, number: number): Promise<CodexR
   const issueCommentsById = new Map(issueComments.map((comment) => [comment.id, comment]))
   const graphIssueCommentIds = new Set(pullRequest.comments.nodes.map((comment) => comment.databaseId))
   if (graphIssueCommentIds.size !== pullRequest.comments.nodes.length
-    || issueComments.length !== pullRequest.comments.nodes.length
-    || issueComments.some((comment) => !graphIssueCommentIds.has(comment.id))) {
+    || pullRequest.comments.nodes.some((comment) => !issueCommentsById.has(comment.databaseId))
+    || (!pullRequest.comments.pageInfo.hasNextPage && issueComments.length !== pullRequest.comments.nodes.length)) {
     throw new ReviewSnapshotError("GitHub issue-comment collections did not bind", observedHead, null)
   }
 
@@ -1221,9 +1313,10 @@ function normalizeDeliveryEvidence(value: unknown, expectedHead: string): Delive
       throw new Error("delivery evidence locator or result is invalid")
     }
     if (entry.head_oid !== expectedHead) throw new Error("delivery evidence head does not match candidate")
-    if (entry.content_sha256 !== null && !isSha256(entry.content_sha256)) {
-      throw new Error("delivery evidence content SHA-256 is invalid")
-    }
+    let contentSha256: string | null
+    if (entry.content_sha256 === null) contentSha256 = null
+    else if (isSha256(entry.content_sha256)) contentSha256 = entry.content_sha256
+    else throw new Error("delivery evidence content SHA-256 is invalid")
     const key = `${entry.kind}\u0000${entry.locator}`
     if (seen.has(key)) throw new Error("delivery evidence locator is duplicated")
     seen.add(key)
@@ -1232,7 +1325,7 @@ function normalizeDeliveryEvidence(value: unknown, expectedHead: string): Delive
       locator: entry.locator,
       head_oid: entry.head_oid,
       result: entry.result,
-      content_sha256: entry.content_sha256,
+      content_sha256: contentSha256,
     }
   })
   for (const kind of DELIVERY_EVIDENCE_KINDS) {
@@ -1247,16 +1340,20 @@ function normalizeDeliveryEvidence(value: unknown, expectedHead: string): Delive
 
 function normalizeDeliveryBarrier(value: unknown): DeliveryBarrierEvidence {
   if (!isRecord(value) || !hasExactKeys(value, [
-    "schema", "repository", "pull_request", "head_oid", "base_ref", "base_oid",
+    "schema", "repository", "pull_request", "head_oid", "head_tree_oid", "base_ref", "base_oid",
     "merge_tree_oid", "queue_state", "evidence",
   ]) || value.schema !== DELIVERY_BARRIER_INPUT_SCHEMA) {
     throw new Error("delivery barrier input has an invalid schema or fields")
   }
+  let mergeTreeOid: string | null
+  if (value.merge_tree_oid === null) mergeTreeOid = null
+  else if (isHeadOid(value.merge_tree_oid)) mergeTreeOid = value.merge_tree_oid
+  else throw new Error("delivery barrier identity or mutable snapshot is invalid")
   if (!isPullRequestNumber(value.pull_request)
     || !isHeadOid(value.head_oid)
+    || !isHeadOid(value.head_tree_oid)
     || !isBaseRef(value.base_ref)
     || !isHeadOid(value.base_oid)
-    || (value.merge_tree_oid !== null && !isHeadOid(value.merge_tree_oid))
     || !isBoundedAtom(value.queue_state, 128)) {
     throw new Error("delivery barrier identity or mutable snapshot is invalid")
   }
@@ -1265,9 +1362,10 @@ function normalizeDeliveryBarrier(value: unknown): DeliveryBarrierEvidence {
     repository: normalizeRepository(typeof value.repository === "string" ? value.repository : ""),
     pull_request: value.pull_request,
     head_oid: value.head_oid,
+    head_tree_oid: value.head_tree_oid,
     base_ref: value.base_ref,
     base_oid: value.base_oid,
-    merge_tree_oid: value.merge_tree_oid,
+    merge_tree_oid: mergeTreeOid,
     queue_state: value.queue_state,
     evidence: normalizeDeliveryEvidence(value.evidence, value.head_oid),
   }
@@ -1296,7 +1394,7 @@ function verifyDeliveryBarrierReceipt(bytes: Uint8Array, expectedSha256: string)
     throw new Error("delivery barrier receipt has an invalid envelope or digest")
   }
   if (!hasExactKeys(value.receipt, [
-    "schema", "repository", "pull_request", "head_oid", "base_ref", "base_oid",
+    "schema", "repository", "pull_request", "head_oid", "head_tree_oid", "base_ref", "base_oid",
     "merge_tree_oid", "queue_state", "evidence",
   ]) || value.receipt.schema !== DELIVERY_BARRIER_EVIDENCE_SCHEMA) {
     throw new Error("delivery barrier receipt has an invalid inner schema or fields")
@@ -1499,49 +1597,24 @@ function isProvider(login: string): boolean {
   return login.replace(/\[bot\]$/, "") === PROVIDER_LOGIN
 }
 
-function isCleanReview(body: string): boolean {
-  return CLEAN_REVIEW.test(body.trim())
-}
-
-function isGeneratedReviewComment(body: string): boolean {
-  return generatedReviewCommentHead(body) !== null
-}
-
-function generatedReviewCommentHead(body: string): string | null {
+function cleanNotificationHead(body: string): string | null {
+  if (body.length > 16_384) return null
   const lines = body.split("\n")
   const cleanHeading = CLEAN_COMMENT_HEADING.exec(lines[0] ?? "")
   const reviewedCommit = REVIEWED_COMMIT.exec(lines[2] ?? "")?.[1]
+  const details = lines.slice(4)
   return cleanHeading !== null
     && lines[1] === ""
     && reviewedCommit !== undefined
-    && lines.length === CLEAN_COMMENT_SUFFIX.length + 3
-    && CLEAN_COMMENT_SUFFIX.every((line, index) => lines[index + 3] === line)
+    && lines[3] === ""
+    && details.length >= 3
+    && details[0] === "<details>"
+    && details.at(-1) === "</details>"
+    && !details.slice(1, -1).some((line) =>
+      REVIEWED_COMMIT.test(line) || /<\/?details/i.test(line),
+    )
     ? reviewedCommit
     : null
-}
-
-function isNonCleanProviderResult(signal: ReviewSignal): boolean {
-  if (signal.kind === "review") {
-    return signal.reviewState === "CHANGES_REQUESTED"
-      || Boolean(signal.body?.trim() && !isCleanReview(signal.body))
-  }
-  return signal.kind === "comment"
-    && !isGeneratedReviewComment(signal.body ?? "")
-}
-
-function isFindingReviewSummary(body: string, commitOid: string): boolean {
-  const lines = body.split("\n")
-  const reviewedCommit = REVIEWED_COMMIT.exec(lines[5] ?? "")?.[1]
-  return lines[0] === ""
-    && lines[1] === "### 💡 Codex Review"
-    && lines[2] === ""
-    && lines[3] === "Here are some automated review suggestions for this pull request."
-    && lines[4] === ""
-    && reviewedCommit !== undefined
-    && commitOid.startsWith(reviewedCommit)
-    && lines[6] === "    "
-    && lines.length === CLEAN_COMMENT_SUFFIX.length + 7
-    && CLEAN_COMMENT_SUFFIX.every((line, index) => lines[index + 7] === line)
 }
 
 async function main(): Promise<number> {
@@ -1670,6 +1743,7 @@ async function main(): Promise<number> {
         clean_signal: null,
         progress_signal: null,
         findings: [],
+        provider_signals: [],
         history: [],
         problems: ["snapshot-incomplete"],
       },
@@ -1684,4 +1758,4 @@ function writeOutput(output: ReviewOutput): void {
   else process.stdout.write(line)
 }
 
-if (import.meta.main) process.exit(await main())
+if (import.meta.main) process.exitCode = await main()
