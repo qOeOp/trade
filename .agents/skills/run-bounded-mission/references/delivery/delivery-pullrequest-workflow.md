@@ -274,6 +274,11 @@ and replays caller-supplied facts;
 opaque `result` values remain owned by their real consumer. It cannot choose scope or authority,
 classify a finding, decide acceptance, waive evidence, or authorize merge.
 
+Both `create` and `verify` apply one raw-byte boundary before producing canonical output: stdin must be
+strict valid UTF-8 and byte-for-byte equal to the sole contract-ordered canonical JSON-LF
+serialization of the decoded value. Any prefix, suffix, BOM, alternate newline, reordered key, or
+decode/encode normalization fails before a receipt can be created or replayed.
+
 For a `merged` node, the child sends this verified compact receipt once and stops at `merge-ready`.
 The Hub reconciles its own Goal/DAG/authority effect, replays the receipt, and does not rerun child
 consumer, root, audit, CI, provider, or conversation work. Immediately before guarded merge it

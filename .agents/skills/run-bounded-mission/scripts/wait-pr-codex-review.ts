@@ -1138,23 +1138,30 @@ function canonicalLine(value: unknown): string {
 
 function decodeUtf8(bytes: Uint8Array, label: string): string {
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes)
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes)
   } catch {
     throw new Error(`${label} is not valid UTF-8`)
   }
 }
 
-function parseCanonicalLine(bytes: string, label: string): unknown {
-  if (bytes === "" || !bytes.endsWith("\n") || bytes.slice(0, -1).includes("\n")) {
+function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
+  return left.byteLength === right.byteLength
+    && left.every((byte, index) => byte === right[index])
+}
+
+function parseCanonicalLine(bytes: Uint8Array, label: string): unknown {
+  const decoded = decodeUtf8(bytes, label)
+  if (decoded === "" || !decoded.endsWith("\n") || decoded.slice(0, -1).includes("\n")) {
     throw new Error(`${label} must be one canonical JSON-LF record`)
   }
   let parsed: unknown
   try {
-    parsed = JSON.parse(bytes.slice(0, -1))
+    parsed = JSON.parse(decoded.slice(0, -1))
   } catch {
     throw new Error(`${label} is not valid JSON`)
   }
-  if (canonicalLine(parsed) !== bytes) throw new Error(`${label} is not canonical JSON-LF`)
+  const canonicalBytes = new TextEncoder().encode(canonicalLine(parsed))
+  if (!equalBytes(canonicalBytes, bytes)) throw new Error(`${label} is not canonical JSON-LF`)
   return parsed
 }
 
@@ -1267,10 +1274,7 @@ function normalizeDeliveryBarrier(value: unknown): DeliveryBarrierEvidence {
 }
 
 function createDeliveryBarrierReceipt(bytes: Uint8Array): DeliveryBarrierReceipt {
-  const receipt = normalizeDeliveryBarrier(parseCanonicalLine(
-    decodeUtf8(bytes, "delivery barrier input"),
-    "delivery barrier input",
-  ))
+  const receipt = normalizeDeliveryBarrier(parseCanonicalLine(bytes, "delivery barrier input"))
   const receiptBytes = canonicalLine(receipt)
   return {
     schema: DELIVERY_BARRIER_RECEIPT_SCHEMA,
@@ -1282,8 +1286,7 @@ function createDeliveryBarrierReceipt(bytes: Uint8Array): DeliveryBarrierReceipt
 
 function verifyDeliveryBarrierReceipt(bytes: Uint8Array, expectedSha256: string): DeliveryBarrierReceipt {
   if (!isSha256(expectedSha256)) throw new Error("expected delivery receipt SHA-256 is invalid")
-  const raw = decodeUtf8(bytes, "delivery barrier receipt")
-  const value = parseCanonicalLine(raw, "delivery barrier receipt")
+  const value = parseCanonicalLine(bytes, "delivery barrier receipt")
   if (!isRecord(value) || !hasExactKeys(value, ["schema", "bytes", "sha256", "receipt"])
     || value.schema !== DELIVERY_BARRIER_RECEIPT_SCHEMA
     || !Number.isSafeInteger(value.bytes) || (value.bytes as number) <= 0
@@ -1311,7 +1314,7 @@ function verifyDeliveryBarrierReceipt(bytes: Uint8Array, expectedSha256: string)
   if (canonicalLine(value.receipt) !== receiptBytes
     || value.bytes !== Buffer.byteLength(receiptBytes)
     || value.sha256 !== observedSha256
-    || canonicalLine(replayed) !== raw) {
+    || !equalBytes(new TextEncoder().encode(canonicalLine(replayed)), bytes)) {
     throw new Error("delivery barrier receipt bytes or SHA-256 do not replay")
   }
   return replayed
