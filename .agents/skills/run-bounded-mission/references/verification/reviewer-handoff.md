@@ -113,17 +113,28 @@ shape rejects.
 
 ## Contain command state
 
-Before dispatching a dedicated evaluator, enumerate the complete MCP server-name set from every exact
-base configuration layer that the host will combine with the role configuration. Read the role
-configuration as an overlay and require it to contain a full parseable entry with `enabled=false`
-for every observed base server; also require every role-only server to be disabled. Recompute the
-effective set and require zero enabled servers before spawn. A missing base layer, unknown server,
-unparseable entry, uncovered name, non-boolean or non-false `enabled`, or mismatch between the
-enumerated and effective sets rejects prelaunch. Do not infer that an empty table, omitted name,
-profile boundary, read-only instruction, or post-start tool refusal clears inherited servers. Bind
-the ordered base and role name sets plus their configuration fingerprints into the launch receipt;
-any change invalidates admission. This is a prelaunch containment gate: discovering an MCP after the
-evaluator process starts is already unsupported and cannot be repaired by declining to invoke it.
+Before dispatching a dedicated evaluator, enumerate every config-backed MCP entry from every exact
+base layer that the host will combine with the role configuration, then resolve its effective
+transport through the same layered parser. Treat an effective `command` / `stdio` transport as a
+local process that can start before instructions. Every effective-enabled local process must have a
+full parseable role overlay with a portable command representation, complete arguments, and
+`enabled=false`; every role-only local process must also be disabled. Record an already-disabled base
+local process without requiring a duplicate overlay. Recompute the effective overlay and require zero
+enabled local-process transports before spawn. A missing base layer, unparseable or unclassified
+config-backed transport, uncovered effective-enabled local process, non-boolean or non-false
+`enabled`, or mismatch between the enumerated and effective local-process sets rejects prelaunch.
+
+Do not block spawn solely because a config-backed `url` / HTTP transport, including a localhost URL,
+or a host-injected tool namespace without a config transport is exposed. Record each such name and
+representation in `observed_available_tool_surface`; never invent a TOML entry for a host namespace.
+The evaluator must not invoke these surfaces. Any observed call, external effect, or target, control,
+or packet-bound outside-fingerprint drift returns `unsupported_evidence`. An unknown additional local
+`command` / `stdio` transport rejects before spawn; an unknown remote endpoint or host tool is
+recorded and prohibited from use but does not reject solely because it is visible. Do not infer that
+an empty table, omitted name, profile boundary, read-only instruction, or post-start refusal clears an
+inherited local process, and do not claim sandbox isolation or zero available tools. Bind the ordered
+local-process, remote-endpoint, role-coverage, and observed host-surface sets plus their available
+configuration fingerprints into the launch receipt; any change invalidates admission.
 
 For every `integrity-checked` evaluator, the main agent creates one fresh task-owned scratch root per
 lens after materialization and before launch. Derive it exactly as
