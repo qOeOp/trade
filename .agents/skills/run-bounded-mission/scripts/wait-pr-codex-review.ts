@@ -287,11 +287,7 @@ export function classifyRequestEffectAuthority(
     throw new Error("request author is invalid")
   }
 
-  const rawAttempts = snapshot.signals.filter((signal) =>
-    signal.kind === "comment"
-      && signal.author.toLowerCase() === requestAuthor.toLowerCase()
-      && REVIEW_REQUEST.test(signal.body ?? ""),
-  ).sort(compareSignals)
+  const rawAttempts = extractRequestAttempts(snapshot)
   const attempts = rawAttempts.map((signal) => projectObservedRequest(snapshot, signal))
   const attemptLocators = attempts.map((attempt) => attempt.locator)
     .filter((locator): locator is string => locator !== null)
@@ -529,13 +525,8 @@ function classifyRequest(snapshot: CodexReviewSnapshot, expectation: ReviewReque
   nextRequestAt: number | null
   attempts: ReviewSignal[]
 } {
-  const requests = snapshot.signals.filter((signal) =>
-    signal.kind === "comment"
-      && (signalLocator(signal) === expectation.locator
-        || (!isProvider(signal.author) && REVIEW_REQUEST.test(signal.body ?? ""))
-        || (isProvider(signal.author) && EXACT_HEAD_REVIEW_REQUEST.test(signal.body ?? ""))),
-  )
-  const attempts = [...requests].sort((left, right) => timestampValue(left.at) - timestampValue(right.at))
+  const attempts = extractRequestAttempts(snapshot)
+  const requests = attempts
   const locatorAttempts = attempts.filter((signal) => signalLocator(signal) === expectation.locator)
   const expectedAttempt = locatorAttempts.find((signal) =>
     signal.author.toLowerCase() === expectation.author.toLowerCase(),
@@ -596,6 +587,12 @@ function classifyRequest(snapshot: CodexReviewSnapshot, expectation: ReviewReque
     nextRequestAt,
     attempts,
   }
+}
+
+function extractRequestAttempts(snapshot: CodexReviewSnapshot): ReviewSignal[] {
+  return snapshot.signals.filter((signal) =>
+    signal.kind === "comment" && REVIEW_REQUEST.test(signal.body ?? ""),
+  ).sort(compareSignals)
 }
 
 function projectObservedRequest(

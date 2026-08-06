@@ -72,12 +72,15 @@ cannot correlate it. Immediately before the external effect:
    bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --request-effect-preflight --repo <owner/name> --request-author <authorized-login> <pr-number>
    ```
 
-   The preflight enumerates every owner-authored request comment, exposes its locator and attempt
-   count, and returns a machine `effect_authority.disposition`. It is only a deterministic
+   The preflight and waiter history share one extractor that enumerates every request-shaped PR issue
+   comment before actor, app, edit, head, or provenance classification. The preflight exposes each
+   attempt's locator and the complete attempt count, and returns a machine
+   `effect_authority.disposition`. It is only a deterministic
    no-prior-attempt safety gate; the admitted Mission/delegation remains the external-effect authority.
-   The automated path may pass only when the complete snapshot contains zero prior owner-authored
-   request attempts. Any prior valid, malformed, edited, human-authored, or app-performed attempt
-   freezes automated posting permanently. A candidate/head change, corrected candidate, evidence
+   The automated path may pass only when the complete snapshot contains genuinely zero prior
+   request-shaped attempts. Any prior valid, malformed, edited, wrong-head, human-authored,
+   connector-app, other-app, or unknown-provenance attempt freezes automated posting permanently.
+   A candidate/head change, corrected candidate, evidence
    invalidation, provider result, finding, disposition, revision count, repacket, time, locator, or
    prose never renews that path. The helper accepts no caller-supplied representation of a later
    user/Hub authority event and cannot prove one. A human may act outside this automation, but this
@@ -169,8 +172,9 @@ orthogonal machine projections:
   timestamps/edit state, body, requested head, performed GitHub app provenance, and the complete
   observed request history needed to retain an earlier request-to-finding binding; the expected
   readback locator/authorized actor and their binding result are machine fields, and a mismatch is
-  `incomplete` rather than a new attempt. `request.effect_authority` exposes the owner-authored
-  attempt count/locators/history; zero attempts is only the first-request safety precondition, while
+  `incomplete` rather than a new attempt. `request.effect_authority` exposes the complete shared
+  request-shaped attempt count/locators/history; zero attempts is only the first-request safety
+  precondition, while
   any prior attempt permanently freezes the automated posting path;
 - `discovery.status` is one of `waiting`, `clean`, `finding_unrouted`, or `finding_routed`; its
   reviewed head, provider review, clean/progress signal, structured integrity problems, and finding
