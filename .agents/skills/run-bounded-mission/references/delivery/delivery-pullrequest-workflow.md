@@ -238,11 +238,13 @@ Keep related Missions on the direct per-PR path owned by task dispatch. Do not c
 heads, or reviews merely to reduce invocations; admit aggregation only when an existing owner proves
 the complete source, merge, review, and exact-head acceptance chain without new coordinator machinery.
 
-Retain one final delivery receipt in the handoff, not a ledger. After the complete barrier below is
-observed, collect only compact locators for `real_consumer`, `root`, `audit`, `ci`, `provider`,
-`conversation`, and `drift`, each with its exact candidate head, caller-observed result, and a content
-SHA-256 or explicit `null` when the native locator is the only authority. Do not copy evaluator
-packets, check logs, provider snapshots, conversations, or long command output into this receipt.
+Retain one final delivery receipt in the handoff, not a ledger. After the child-controlled evidence
+producers are terminal and their current candidate identity snapshot is captured, but before the Hub's
+final mutable-identity and activity freshness reread, collect only compact locators for
+`real_consumer`, `root`, `audit`, `ci`, `provider`, `conversation`, and `drift`, each with its exact
+candidate head, caller-observed result, and a content SHA-256 or explicit `null` when the native locator
+is the only authority. Do not copy evaluator packets, check logs, provider snapshots, conversations,
+or long command output into this receipt.
 
 Use the existing waiter helper's single delivery-receipt mode. Feed `create` one canonical JSON-LF
 `delivery-barrier-input/v1` record containing repository, PR, candidate head, observed base ref/OID,
@@ -282,6 +284,11 @@ unresolved conversation, and must match the receipt's corresponding locator, res
 digest. Identity or activity drift stales the handoff and returns the same child through task
 dispatch. This is a freshness reread of authority facts, not a rerun of child evidence production.
 The receipt itself proves neither acceptance nor merge authority.
+
+This ordering is strict: child evidence producers finish, the child creates and verifies one compact
+receipt, and only then may the Hub perform the receipt-bound final freshness reread. Never condition
+receipt creation on completing that final reread; doing so creates a circular barrier with no first
+valid receipt.
 
 ## Merge-ready barrier
 

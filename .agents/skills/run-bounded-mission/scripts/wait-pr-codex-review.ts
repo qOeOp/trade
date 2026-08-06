@@ -1170,7 +1170,9 @@ function isBoundedAtom(value: unknown, maximum: number): value is string {
     && value.length <= maximum
     && [...value].every((character) => {
       const codePoint = character.codePointAt(0)!
-      return codePoint > 31 && codePoint !== 127
+      return codePoint > 31
+        && codePoint !== 127
+        && (codePoint < 0xd800 || codePoint > 0xdfff)
     })
 }
 
@@ -1180,11 +1182,19 @@ function isSha256(value: unknown): value is string {
 
 function isBaseRef(value: unknown): value is string {
   return isBoundedAtom(value, 255)
+    && value !== "@"
     && !value.startsWith("-")
+    && !value.startsWith("/")
+    && !value.endsWith("/")
     && !value.endsWith(".")
+    && !value.includes("//")
     && !value.includes("..")
     && !value.includes("@{")
     && !/[ ~^:?*\\[\\]\\\\]/.test(value)
+    && value.split("/").every((component) =>
+      component.length > 0
+        && !component.startsWith(".")
+        && !component.endsWith(".lock"))
 }
 
 function normalizeDeliveryEvidence(value: unknown, expectedHead: string): DeliveryEvidenceLocator[] {
