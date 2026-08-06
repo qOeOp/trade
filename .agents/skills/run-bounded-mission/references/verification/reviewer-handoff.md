@@ -96,7 +96,7 @@ The packet and admission helpers both belong to the control-plane Origin. This i
 candidate-external route; a target-local helper, copied helper, prose-built packet, or alternate packet
 shape rejects.
 
-- Require exit zero and parse stdout as the single canonical `mission-evaluator-artifact-set/v2`
+- Require exit zero and parse stdout as the single canonical `mission-evaluator-artifact-set/v3`
   locator frame below. The nested binding still derives the complete commits, trees, actual parent set and Origin
   relationship, binary diff, changed paths, required blob hashes, clean tracked and non-ignored
   untracked candidate material, replay argv, and one binding fingerprint. A same-repository binding
@@ -230,10 +230,12 @@ modes, dirty control planes, and runtime helper/blob drift. It preserves semanti
 On success, stdout is one compact canonical artifact-set JSON-LF frame. Each ordered locator contains
 its canonical absolute artifact path, exact byte size, whole SHA-256, human-readable audit-set mode,
 assigned lens and delta SHA-256, common locator, candidate locator, admission-helper
-commit/path/blob/SHA-256/size, and one `admit` object. `admit.role` is exactly `mission_evaluator`;
-reject any other or missing role before dispatch. `admit.cwd` is the canonical immutable control-plane
-working directory. `admit.argv` is the complete ordered argument vector, beginning with `bun` and the
-Origin helper path, for this exact locator. Treat the v2 locator and `admit` keys as closed: missing,
+commit/path/blob/SHA-256/size, one `admit` object, and one `observe` object. `admit.role` and
+`observe.role` are exactly `mission_evaluator`; reject any other or missing role before dispatch.
+Their `cwd` values are the same canonical immutable control-plane working directory. `admit.argv` is
+the complete ordered admission vector. `observe.pre_argv`, `post_argv`, and `verify_argv` are the
+complete ordered vectors for the same helper, artifact, candidate, common locator, assigned lens, and
+derived scratch root. Treat the v3 locator and both objects as closed: missing,
 unknown, or non-string argv members reject launch. Pass the array element-for-element to a process
 launcher with shell interpretation disabled; never join it into a command string, add quoting, strip
 `sha256:`, or reconstruct any argument from the neighboring human-readable fields. The artifact
@@ -292,6 +294,23 @@ valid receipt proves evidence progress; an observed host state transition proves
 `running` alone proves only process state. If the host cannot expose receipts, record
 `receipt_route=unavailable`; do not infer evidence progress, stall, failure, or success from waits.
 
+One bounded event coherence window is a Hub yield boundary, not an evaluator deadline. If the exact
+task remains `running` after that window, retain its identity and latest cursor, yield the current Hub
+turn, and issue no interrupt, convergence prompt, immediate resubscription, replacement, fallback,
+repacket, or restart. Resume only from a later task event or an independently observed health anomaly,
+using the same identity, packet, and cursor. A turn, Handoff, or compaction preserves those bindings
+and never converts delay into a terminal. Elapsed time, including 60 or 120 seconds, is not a terminal
+receipt and cannot classify evidence unavailable.
+
+Classify only observed host or receipt facts: an explicit task error or disconnect is
+`terminal_transport_failure`; an explicit interrupted task is terminal `unsupported_evidence` with
+its interrupt provenance retained; an explicit missing required capability is `capability_failure`; and
+an invalid or contradictory terminal receipt is `packet_admission_defect` or `unsupported_evidence`
+as its exact failed binding requires. Only an explicit task error, disconnect, or
+`capability_failure` can activate the single generic fallback gate above. A Hub-issued interrupt can
+never manufacture fallback admission. `running`, delay, silence, interruption, a stale packet, or an
+invalid receipt never does.
+
 A final root gate is not a packet prerequisite when it consumes the same frozen candidate and does
 not feed the audit question. Start it concurrently, mark it `pending concurrent fan-in`, and fan in
 once. Keep work sequential only when one result is an admitted input to the other. Candidate changes
@@ -308,6 +327,25 @@ or stale governing prose is `frame_plan_drift`; a malformed or mismatched packet
 `packet_admission_defect`; missing probative material is `unsupported_evidence`. The main agent alone
 classifies a return from an older set as `stale_packet` and an observed host-level terminal transport
 or capability failure as `terminal_transport_failure` or `capability_failure`.
+
+For `integrity-checked`, run `observe.pre_argv` once after the five required empty directories exist
+and before any evaluator command. It must emit the canonical pre observation for the exact empty
+manifest; retain those exact raw bytes. After the last command, pass that raw pre observation on
+stdin to `observe.post_argv` once and return its stdout as raw bytes; never copy fields into a
+prose-built manifest. The helper admits the artifact again, derives and validates the only scratch
+path, requires evaluator-user ownership, rejects symlinks, multiply linked files, and group- or
+other-writable entries, and holds non-following directory descriptors while checking identity and
+timestamps across the traversal. It sorts canonical UTF-8 relative paths by raw bytes and hashes
+canonical JSON-LF records whose digest fields always use `sha256:<lowercase-64-hex>`. Its closed
+terminal observation binds the raw pre-observation digest, candidate, common locator, lens, root
+path/mode, pre/post manifests, file/byte counts, admission replay, and the required packet-named
+outside-fingerprint procedure. Before accepting the terminal, main concatenates the exact raw pre
+observation and terminal bytes, in that order, and passes them to `observe.verify_argv`; success must
+reproduce the terminal bytes. Missing or extra fields, alternate
+digest spelling, mode/path/count changes, reordered serialization, invalid UTF-8, or omitted
+outside-state procedure fail closed. The observer completes admission replay; evaluator and main must
+still recompute and compare every packet-named outside fingerprint exactly as declared. Neither step
+substitutes for the other.
 
 ## Audit and return
 
@@ -346,7 +384,9 @@ independence_status: supported | compromised | unverified
 enforcement_status: sandbox-enforced | integrity-checked
 receipt_status: admitted | unsupported | unavailable
 mutation_observation: none | scratch-only | external | unverified
-scratch_manifest: not_applicable | pre=sha256:<digest> post=sha256:<digest> files=<canonical-decimal> bytes=<canonical-decimal>
+pre_observation: not_applicable | exact raw mission-evaluator-terminal-observation/v1 pre JSON-LF
+terminal_observation: not_applicable | exact raw mission-evaluator-terminal-observation/v1 JSON-LF
+outside_state_evidence: exact packet-named fingerprint comparison, or unsupported
 audit_results: signal, pass | fail | unverified, direct evidence
 findings: severity (blocking | important | nit), failure_class (candidate_local | plan_failure |
   frame_failure), bounded causal claim, location, validation evidence, next action
@@ -356,9 +396,11 @@ limits:
 
 `completed` requires the complete changed surface and affected consumer closure plus every required
 independent item resolved as pass or fail; it means the audit ran, not that the candidate passed.
-For `integrity-checked`, `scratch_manifest` must contain the packet-bound observer's exact values;
-`not_applicable` is allowed only for an admitted mode with no task-owned scratch. Main's post-return
-replay overrides a contradictory terminal and invalidates that audit.
+For `integrity-checked`, `pre_observation` and `terminal_observation` must preserve the packet-bound
+observer's exact raw bytes and `outside_state_evidence` must close the complete declared set;
+`not_applicable` is allowed only for an admitted mode with no task-owned scratch. Main concatenates
+the returned pre and terminal bytes for `observe.verify_argv`; its post-return observer/admission/
+outside-state replay overrides a contradictory terminal and invalidates that audit.
 Use `partial` when an admitted audit leaves a required item unverified, and `unsupported` when the
 binding, independence, or capability cannot admit the audit. Return every directly evidenced class
 in the fixed schema order; `[no_finding]` is valid only when no other class or material finding exists.
