@@ -66,7 +66,22 @@ provider discovery. Do not use GitHub's generic reviewer-request path because th
 cannot correlate it. Immediately before the external effect:
 
 1. validate any created or edited PR title through the repository-owned title preflight above;
-2. render exactly one trigger from the existing helper, preserve its exact bytes, and validate those
+2. bind the exact explicit user/Hub authority event locator and timestamp, then run the existing
+   helper's request-effect preflight against a complete live snapshot:
+
+   ```text
+   bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --request-effect-preflight --repo <owner/name> --request-author <authorized-login> --authority-event-locator <exact-user-or-hub-event-locator> --authority-event-at <iso-timestamp> --authority-event-head <candidate-head> <pr-number>
+   ```
+
+   The preflight enumerates every owner-authored request comment, exposes its locator and attempt
+   count, and returns a machine `effect_authority.disposition`. Zero prior attempts may consume the
+   first explicit authority event. With any prior attempt, only a different explicit authority event
+   observed after the latest attempt and explicitly scoped to the current exact head may admit one
+   later request. A candidate/head change, evidence
+   invalidation, provider result, finding, revision count, or earlier authority event never renews
+   effect authority. `posting_frozen_*`, incomplete pagination/provenance, unavailable evidence, or a
+   nonzero exit freezes posting; do not fall back to a browser, connector, or reconstructed count.
+3. render exactly one trigger from the existing helper, preserve its exact bytes, and validate those
    bytes offline against the frozen full lowercase 40-hex head before posting:
 
    ```text
@@ -82,12 +97,12 @@ cannot correlate it. Immediately before the external effect:
    Exact head: `<candidate-head>`
    ```
 
-3. re-read the open PR and require its repository, base, Ready state, and head to match the frozen
-   candidate; require the stable-candidate evidence above and no existing request for that authority;
-4. require the active `gh` viewer or UI actor to equal the authorized human actor, then post through
+4. re-read the open PR and require its repository, base, Ready state, and head to match the frozen
+   candidate; require the stable-candidate evidence above and the still-current allowed preflight;
+5. require the active `gh` viewer or UI actor to equal the authorized human actor, then post through
    that user-authenticated issue-comment path with only the frozen repository, PR number, and
    validated body;
-5. read back the exact created comment and require its locator, author, exact body, requested head,
+6. read back the exact created comment and require its locator, author, exact body, requested head,
    unedited timestamps/state, and `performed_via_github_app=null` before waiting. Null is a required
    observed postcondition for this request, not a universal claim about all CLI writes. Missing
    provenance, any GitHub app, or a readback mismatch fails admission; the exact connector app is
@@ -145,7 +160,8 @@ orthogonal machine projections:
   timestamps/edit state, body, requested head, performed GitHub app provenance, and the complete
   observed request history needed to retain an earlier request-to-finding binding; the expected
   readback locator/authorized actor and their binding result are machine fields, and a mismatch is
-  `incomplete` rather than a new attempt;
+  `incomplete` rather than a new attempt. `request.effect_authority` exposes the owner-authored
+  attempt count/locators/history and freezes posting when no fresh explicit authority event is bound;
 - `discovery.status` is one of `waiting`, `clean`, `finding_unrouted`, or `finding_routed`; its
   reviewed head, provider review, clean/progress signal, structured integrity problems, and finding
   array are only the selected current attempt. Its `provider_signals` are lossless envelopes classified
