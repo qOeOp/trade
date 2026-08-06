@@ -181,9 +181,11 @@ deterministic replay grants no acceptance.
 Before launching fallback evaluators, main checks whether a complementary candidate audit completed
 before the manual request and still binds the exact current candidate, complete Frame and Plan,
 immutable control plane, member manifest, and common locator. Both members must be independently
-admitted, `completed`, `[no_finding]`, and `mutation_observation=none`, with exact post-return replay
-of target, control, artifact, outside-state, and scratch-manifest fingerprints and no drift. When
-that qualifying pair exists, its independent semantic result combines with the valid raw-provider
+admitted, `completed`, `[no_finding]`, and `mutation_observation=not_applicable` as a non-authorizing
+semantic declaration; reject a missing or different member value as an attempted override. Main must
+then project the authoritative `mutation_observation=none` only after exact post-return replay of
+target, control, artifact, outside-state, and scratch-manifest fingerprints with no drift. When that
+qualifying pair exists, its independent semantic result combines with the valid raw-provider
 replay to substitute for the unavailable manual-discovery terminal. Neither component substitutes
 alone, and an audit that started after the request cannot qualify for reuse.
 
@@ -201,11 +203,12 @@ candidate head. Neither lens may consume the waiter's classification, reason tex
 findings as its conclusion.
 
 On the evaluator route, only valid fan-in of both exact artifacts with `review_status=completed`,
-`[no_finding]`, matching candidate and common locator, no mutation, and successful post-return
-fingerprint checks may
+`[no_finding]`, matching candidate and common locator, and the literal non-authorizing member
+`mutation_observation=not_applicable`, followed by Main's authoritative `mutation_observation=none`
+after successful post-return fingerprint checks, may
 substitute for the unavailable manual-discovery terminal. The reviewer handoff's ordinary set-wide
 generic fallback remains the only evaluator-route fallback. A stale, partial, unsupported,
-mismatched, unavailable, mutated, or finding-bearing set supplies no acceptance. Do not request
+mismatched, unavailable, finding-bearing, or non-`none` Main projection supplies no acceptance. Do not request
 another review and do not ask the user for a per-PR confirmation.
 
 This pair replaces only the unavailable manual-discovery result. It does not replace candidate
