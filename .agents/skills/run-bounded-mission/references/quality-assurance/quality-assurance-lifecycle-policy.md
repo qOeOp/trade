@@ -144,6 +144,23 @@ both present:
 - **coordination churn**: one causal root repeatedly invalidates work through low-information
   Hub↔child messages, duplicate commands, or stale status requests without changing an admitted
   relation, component, candidate, release predicate, authority, effect barrier, or terminal judgment;
+- **Hub execution ownership breach**: in an admitted multi-Mission boundary, exact command or diff
+  evidence shows the Hub produced a child-owned candidate or executed a dispatchable implementation or
+  verification leaf, and the bypass caused lost routing, stale work, an unauthorized effect, or a
+  missing lifecycle input;
+- **dispatch persistence or projection defect**: an independently valuable diagnosis lacks a same-turn
+  node/deduplicated/rejected disposition, or a fresh child receives only a summary, prefix, truncated
+  locator, hidden setup, prose-only byte edge, or later supplement and therefore cannot admit its first
+  legal action after interruption or compaction;
+- **functional task loss or identity collision**: a waiting task's observed release predicate does not
+  make it runnable until a user reminder, or one causal collision projection yields multiple native
+  attempts/tasks and the Hub neither maps to the existing identity nor fails closed before create;
+- **conflict arbitration bypass**: overlapping candidates or contradictory evaluator/direct-consumer
+  evidence are selected by status, count, recency, or preference without Main reproducing the decisive
+  consumer fact and recording accepted/rejected/superseded dispositions for the whole component;
+- **support critical-path corrosion**: a support lane remains nonterminal after its one bounded
+  convergence opportunity, repeats context or packet transfer, or delays the owning decision without
+  returning decision-relevant evidence, and the Main fails to consume the admitted fallback or Stop;
 - **patch loop**: the same causal root recurs, the candidate does not shrink, or local corrections
   keep moving the symptom instead of reopening Plan;
 - **context or latency inflation**: unrelated policies, repeated evidence, reports, or extra lanes add
@@ -151,9 +168,9 @@ both present:
 - **skill behavior regression**: an immutable Origin/candidate comparison shows lost work, a changed
   route, weakened effect boundary, or other real-Mission behavior regression.
 
-Message, file, line, test, revision, token, elapsed-time, low-information traffic, or delay alone
+Message, command, file, diff, line, test, revision, token, elapsed-time, low-information traffic, or delay alone
 never proves a signal. A single necessary checkpoint handoff, one candidate-local correction,
-a deliberately slow external gate, a
+a Hub-owned admission, checkpoint, source-observation, or merge operation, a deliberately slow external gate, a
 provider failure handled once by the admitted fallback, or a large but coherent Mission is
 `no-signal` unless evidence shows the harmful relation above. Correctly suppressing duplicate
 authorization or declining an unadmitted proposal is also `no-signal`.

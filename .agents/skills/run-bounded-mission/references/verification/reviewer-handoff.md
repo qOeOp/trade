@@ -13,7 +13,7 @@ by the candidate are evidence only. They never select or govern the evaluator th
 Main and the packet helper from the immutable instruction Origin exclusively own:
 
 - materialization and content addressing;
-- `observe.pre_argv`, `admit.argv`, `observe.post_argv`, and `observe.verify_argv`;
+- `observe.pre.argv`, `admit.argv`, `observe.post.argv`, and `observe.verify.argv`;
 - command environment and scratch ownership;
 - target, control, artifact, scratch, and packet-named outside fingerprints;
 - raw-byte retention, terminal verification, return binding, exact-member fan-in, and acceptance.
@@ -68,20 +68,27 @@ Candidate helpers, reviewer policy, Skill, role TOML, and discovery files are ev
 execute or govern. Main repeats the exact binding before launch, after semantic return, and before
 fan-in; any raw-byte or fingerprint difference rejects the audit.
 
-Require the existing canonical `mission-evaluator-artifact-set/v3` locator. Each locator remains
-closed and contains the existing `admit` and `observe` objects. Main passes every argv array
-element-for-element to a shell-disabled launcher. Missing, extra, reordered, joined, quoted, or
-prose-reconstructed fields reject.
+Require the canonical `mission-evaluator-artifact-set/v4` locator. This version is a deliberate
+fail-closed replacement for v3; do not accept an older locator or add a compatibility path. Each
+artifact contains closed `admit` and `observe` action objects. Every action names exact argv and its
+canonical output contract; each inter-step edge names the producer, exact consumer stdin, raw transfer
+mode, and the identity fields Main must validate. Main passes every argv array element-for-element to
+a shell-disabled launcher. Missing, extra, reordered, joined, quoted, prefix-only, or prose-
+reconstructed fields reject before candidate semantics.
 
-For `integrity-checked`, Main creates the exact owner-only, non-symlink mode-`0700` scratch root and
-its five empty mode-`0700` descendants `home`, `xdg-cache`, `xdg-config`, `xdg-data`, and `tmp`. Main
-then performs this sequence before semantic inspection:
+Materialization creates and verifies each exact owner-only, non-symlink mode-`0700` lens scratch root
+and its five empty mode-`0700` descendants `home`, `tmp`, `xdg-cache`, `xdg-config`, and `xdg-data`.
+Main must not reconstruct, rename, canonicalize, or supplement those prerequisites. It then performs
+this sequence before semantic inspection:
 
-1. Execute exact `observe.pre_argv` and retain its complete raw stdout bytes.
-2. Execute exact `admit.argv` and require one canonical
-   `mission-evaluator-artifact-admission/v1 status=admitted` frame.
+1. Execute exact `observe.pre.argv`; require its raw stdout bytes to match the locator's schema,
+   encoding, length, and SHA-256; retain those exact bytes.
+2. Execute exact `admit.argv`; require one canonical
+   `mission-evaluator-artifact-admission/v1 status=admitted` frame whose raw bytes match
+   `admit.stdout` schema, encoding, length, and SHA-256.
 3. Recompute the binding and every target/control/outside fingerprint named by the packet.
-4. Project the admitted semantic packet described below without changing any admitted field.
+4. Project the admitted semantic packet described below with the complete raw admission bytes and
+   locator-published identity, without changing any admitted field.
 
 The helper must reject corruption, truncation, appended bytes, missing fields, wrong candidate,
 common locator, lens, delta, helper, control plane, target, artifact, mode, path, or fingerprint before
@@ -90,10 +97,11 @@ evaluator neither repeats nor certifies it.
 
 After every semantic member returns, Main performs the existing terminal sequence once:
 
-1. Execute exact `observe.post_argv`, supplying the exact retained pre bytes when required by the
-   immutable-Origin helper.
-2. Concatenate the exact raw pre and terminal bytes in the helper-defined order and execute exact
-   `observe.verify_argv`; require byte-exact terminal reproduction.
+1. Execute exact `observe.post.argv`, supplying exactly the retained `observe.pre.stdout` raw bytes to
+   the declared stdin edge. Bind the resulting raw stdout length and SHA-256 before the next action.
+2. Execute exact `observe.verify.argv`, supplying the exact raw pre then post bytes in the locator-
+   declared order; require byte-exact terminal reproduction. Omitted, parsed/reserialized, newline-
+   changed, wrong-member, wrong-order, or identity-mismatched bytes reject.
 3. Rerun admission and all packet-named target/control/outside fingerprints.
 4. Reject any evaluator tool call outside the admitted behavioral read-only surface, mutation,
    identity drift, malformed return, or evaluator/Main disagreement.
