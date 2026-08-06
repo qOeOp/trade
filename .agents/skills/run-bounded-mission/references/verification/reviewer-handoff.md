@@ -147,8 +147,14 @@ boundary rejects launch.
 
 Run `admit` and every later command through a clean environment that sets `HOME`, `XDG_CACHE_HOME`,
 `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `TMPDIR`, `TMP`, and `TEMP` to the assigned scratch descendants.
-Preserve only packet-bound values required to locate executables or read system trust, normally
-`PATH`, `LANG`, and `LC_ALL`; add no credential, token, user config, cache, log, or session variable.
+Preserve only packet-bound values required to locate executables or read system trust. For the
+repository-owned Bun helpers, use `env -i`, preserve only the launcher's exact `PATH`, and set
+`LANG=C`, `LC_ALL=C`, `HOME=<scratch>/home`, `XDG_CACHE_HOME=<scratch>/xdg-cache`,
+`XDG_CONFIG_HOME=<scratch>/xdg-config`, `XDG_DATA_HOME=<scratch>/xdg-data`,
+`TMPDIR=<scratch>/tmp`, `TMP=<scratch>/tmp`, `TEMP=<scratch>/tmp`, and
+`BUN_RUNTIME_TRANSPILER_CACHE_PATH=0`. The last assignment is mandatory before Bun loads the TypeScript
+helper: without it, the runtime can create `xdg-cache/bun/@t@/*.pile` before the scratch observer or
+helper code executes. Add no credential, token, user config, cache, log, or session variable.
 Discard every inherited `PYTHON*` value and set `PYTHONDONTWRITEBYTECODE=1` and
 `PYTHONNOUSERSITE=1`; a Python command that cannot run without user-site or bytecode state is
 unsupported rather than authority to inherit it. Bind these assignments in the packet even when the
@@ -156,6 +162,14 @@ current lens is not expected to invoke Python, because a read or hashing probe m
 Set non-state controls such as `CI=1`, `NO_COLOR=1`, `GIT_CONFIG_NOSYSTEM=1`,
 `GIT_OPTIONAL_LOCKS=0`, and `GIT_TERMINAL_PROMPT=0` when the command consumes them. Use `env -i` or
 the host-equivalent clean launch, not shell exports inherited by later unbounded commands.
+
+Main validates the closed locator representation, exact `role`, canonical `cwd`, every ordered argv
+member, the derived scratch path, and the pristine scratch boundary before dispatch. It must not run
+`admit.argv` or any `observe.*_argv` against the scratch assigned to the real evaluator. Those are one
+evaluator-owned launch sequence, and a main-side pre-admit is neither independent admission nor
+permission to delete or refresh runtime state. A separate disposable receipt-only probe may exercise
+packet correctness with its own artifact directory and scratch, but it is non-authorizing evidence
+and never substitutes for the fresh evaluator's admission or candidate audit.
 
 Treat this as a general command-state rule, not an npm exception. Before running a tool, account for
 every cache, log, config, temp, home, or other writable state root it may use: redirect it beneath the
@@ -316,9 +330,11 @@ not feed the audit question. Start it concurrently, mark it `pending concurrent 
 once. Keep work sequential only when one result is an admitted input to the other. Candidate changes
 invalidate only affected evidence and the whole-candidate locator; never rerun unchanged gates.
 
-After the exact candidate is frozen, materialize and admit one helper-produced artifact set; only then
-launch its complementary locators concurrently. Neither lens receives, waits for, or cites its
-sibling's output. Fan in once, then reject any return whose mode,
+After the exact candidate is frozen, materialize one helper-produced artifact set and validate every
+closed launch representation plus pristine scratch boundary; only then launch its complementary
+locators concurrently. Each evaluator runs its own packet-bound pre observation and admission before
+candidate inspection. Neither lens receives, waits for, or cites its sibling's output. Fan in once,
+then reject any return whose mode,
 content-addressed common packet locator, candidate, complete Frame and Plan prose, or required
 member/lens set no longer matches the current audit set, or whose assigned delta digest does not
 match the core manifest. Classify all audit evidence before routing: a demonstrated implementation
@@ -329,8 +345,11 @@ classifies a return from an older set as `stale_packet` and an observed host-lev
 or capability failure as `terminal_transport_failure` or `capability_failure`.
 
 For `integrity-checked`, run `observe.pre_argv` once after the five required empty directories exist
-and before any evaluator command. It must emit the canonical pre observation for the exact empty
-manifest; retain those exact raw bytes. After the last command, pass that raw pre observation on
+and before any evaluator command, through the exact clean environment above. This invocation belongs
+to the assigned evaluator, not to main or a sibling. It must emit the canonical pre observation for
+the exact empty manifest; retain those exact raw bytes. Next run `admit.argv` through the same clean
+environment, then inspect the candidate only after its canonical admitted receipt. After the last
+command, pass that raw pre observation on
 stdin to `observe.post_argv` once and return its stdout as raw bytes; never copy fields into a
 prose-built manifest. The helper admits the artifact again, derives and validates the only scratch
 path, requires evaluator-user ownership, rejects symlinks, multiply linked files, and group- or
@@ -423,3 +442,11 @@ conflicts by current authority, provenance, and consumer impact, never agent cou
 cannot defeat a current clean result, but acceptance remains fail-closed until every required current
 lens is valid. Do not send builder advocacy, hidden reasoning, unrelated files, secrets, a suggested
 Mission route, or a Finalize decision.
+
+An evaluator terminal is immutable evidence for that dispatch. Main may run only the packet-bound
+current replay and observer verification described above; it must not ask the evaluator to correct,
+complete, reserialize, or resend a malformed, truncated, contradictory, or scope-incomplete terminal.
+Such a follow-up is a prompt loop and cannot restore the original terminal's provenance. Classify the
+return as `packet_admission_defect` or `unsupported_evidence` at its exact failed boundary, retain any
+separately valid sibling result without voting, and apply the ordinary Mission route. It authorizes
+neither resubscription, replacement, fallback, nor a successor packet under the unchanged candidate.
