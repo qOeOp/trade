@@ -111,7 +111,7 @@ same request comment or on the pull request as a clean manual result only when t
 unedited, its body matches the template exactly, its embedded full head equals the current snapshot
 head, and the reaction follows the request within that closure with matching provider, target, and
 causal order.
-A provider `EYES` reaction on the request is progress evidence only: it neither starts a new attempt
+A provider `EYES` reaction on the exact request or pull request is progress evidence only: it neither starts a new attempt
 nor advances the request-bound provider-signal window, and cannot hide a material signal after it.
 A generated clean comment is notification only and cannot itself prove a terminal clean result. Its
 bounded envelope must contain the exact canonical clean assertion, one full exact reviewed-head

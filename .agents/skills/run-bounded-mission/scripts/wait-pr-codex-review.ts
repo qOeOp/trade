@@ -678,7 +678,7 @@ function providerSignalEnvelope(
   if (signal.kind === "reaction") {
     const targetMatches = signal.target === attemptTarget || signal.target === "pull-request"
     if (targetMatches && signal.reaction === "THUMBS_UP") classification = "clean_authority"
-    else if (signal.target === attemptTarget && signal.reaction === "EYES") classification = "progress"
+    else if (targetMatches && signal.reaction === "EYES") classification = "progress"
   } else if (signal.kind === "review") {
     reviewedHead = signal.commitOid ?? null
     if (expectedHead !== null && reviewedHead === expectedHead) {
