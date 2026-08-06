@@ -10,7 +10,7 @@ const DELIVERY_BARRIER_INPUT_SCHEMA = "delivery-barrier-input/v2"
 const DELIVERY_BARRIER_EVIDENCE_SCHEMA = "delivery-barrier-evidence/v2"
 const DELIVERY_BARRIER_RECEIPT_SCHEMA = "delivery-barrier-receipt/v2"
 const CLEAN_COMMENT_HEADING = /^Codex Review: Didn['’]t find any major issues\.(?: (?=[^\r\n]{1,64}$)\S(?:[^\r\n]*\S)?)?$/
-const REVIEWED_COMMIT = /^\*\*Reviewed commit:\*\* `([0-9a-f]{40})`$/
+const REVIEWED_COMMIT = /^\*\*Reviewed commit:\*\* `([0-9a-f]{7,40})`$/
 const USAGE_FAILURE = /(usage limit|rate limit|quota exceeded|try again later)/i
 const REVIEW_REQUEST = /@codex\s+review\b/i
 const EXACT_HEAD_REVIEW_REQUEST = /^@codex review\n\nExact head: `([0-9a-f]{40})`$/
@@ -686,8 +686,12 @@ function providerSignalEnvelope(
       else if (isFindingReviewState(signal.reviewState)) classification = "finding"
     }
   } else if (isProviderApp(signal.performedViaGithubApp)) {
-    reviewedHead = cleanNotificationHead(signal.body ?? "")
-    if (reviewedHead !== null) classification = "notification"
+    const embeddedReviewedHead = cleanNotificationHead(signal.body ?? "")
+    reviewedHead = embeddedReviewedHead
+    if (embeddedReviewedHead !== null && expectedHead?.startsWith(embeddedReviewedHead)) {
+      reviewedHead = expectedHead
+      classification = "notification"
+    }
     else if (USAGE_FAILURE.test(signal.body ?? "")) classification = "capability_unavailable"
   }
   return { classification, reviewed_head: reviewedHead, signal }

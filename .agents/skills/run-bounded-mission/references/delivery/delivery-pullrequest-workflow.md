@@ -114,9 +114,11 @@ causal order.
 A provider `EYES` reaction on the exact request or pull request is progress evidence only: it neither starts a new attempt
 nor advances the request-bound provider-signal window, and cannot hide a material signal after it.
 A generated clean comment is notification only and cannot itself prove a terminal clean result. Its
-bounded envelope must contain the exact canonical clean assertion, one full exact reviewed-head
-binding, and one closed `<details>...</details>` region whose optional structural summary and contents
-have no authority. This is a
+bounded envelope must contain the exact canonical clean assertion, one reviewed-head field that
+normalizes to the selected request's full exact head, and one closed `<details>...</details>` region
+whose optional structural summary and contents have no authority. A bounded Git abbreviation is only
+a provider representation and becomes the full head solely by matching that already selected exact
+request; it never supplies authority itself. This is a
 representation boundary, not a list of generated help-text phrases: changes inside the details region
 do not change classification, while an unknown first line, missing or duplicate head, text outside the
 envelope, malformed boundary, or wrong head fails closed. Only a structured exact-target reaction or
