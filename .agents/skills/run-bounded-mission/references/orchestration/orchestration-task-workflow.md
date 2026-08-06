@@ -83,6 +83,30 @@ release predicate is unknown-impact and fails closed. A packet's `after` list is
 projection of admitted `blocks` and dependency-bearing `revalidate_after` relations; it is not a fourth
 relation or separate authority. Include every projected edge in the cycle and release checks below.
 
+Project one compact Hub graph from the current checkpoint and authoritative observations; never store
+or update it as another state owner. For each node show its exact identity and only the non-empty
+members of `waiting`, `runnable`, `running`, `frozen`, `needs_attention`, and `terminal`. These members
+are independently derived slices rather than one exclusive lifecycle enum, so a child may have
+running work while other named slices remain frozen. Bind every runnable, running, or frozen slice to
+its owner and evidence locator; bind each freeze to its reason and release observation. Preserve a
+native blocked reason and completed reason/result plus their raw locator instead of flattening them
+into a label. `terminal` is exclusive only after the node's frozen endpoint owner reports terminal
+evidence; delivery `merge-ready` remains a child handoff rather than a merged-node terminal.
+
+Classify a slice as `waiting` only while an admitted declared observation is pending without an
+authority gap; as `runnable` after its release predicate is observed and before its owner starts; as
+`running` only from current native owner evidence; and as `frozen` whenever an exact barrier holds it.
+A node may therefore expose several of those members at once. Render one compact line per node in the
+fixed order above, with slice names and locator-bound reasons/results, and omit empty members; this is
+a projection convention, not a schema or state machine.
+
+Derive `needs_attention` only from a structural or user-authority gap, a real exception, or
+unknown-impact evidence that needs Hub arbitration. Ordinary progress, elapsed time, commentary,
+tool activity, a pending provider, or an unchanged wait is not attention. Preserve any unknown native
+status and raw representation, mark the affected slices `frozen` plus `needs_attention`, and close the
+coherence window for authoritative reconciliation. The projection may be printed or carried in the
+replacement checkpoint, but it authorizes no dispatch, release, retry, acceptance, or effect.
+
 Before dispatch, derive causal pressure edges from current evidence that one node invalidates another's
 owner, write surface, contract, premise, candidate, or canonical-ref slice. Group nodes only when that
 closure is stable for the current immutable component snapshot. Fan in each stable component's impact
@@ -278,6 +302,16 @@ native setup ran.
 
 ## Native dispatch
 
+Immediately before a native create attempt, project the exact currently runnable slice as the only
+pre-dispatch routing input: immutable inputs, owner, exact paths, oracle, Stop, critical-path relation,
+and permitted effect. When agent routing plus its execution policy has an activated consumer, consume
+one route receipt containing `lane`, observed or unavailable `model`, `effort`, `topology`, `fallback`,
+and `maturity`. Missing, malformed, stale, or mismatched input or receipt freezes that slice and
+returns the route question to its existing owner. The receipt cannot change Frame, Plan, the DAG,
+write ownership, user-visible Mission model authority, or task consent; it does not define a route
+table. Ordinary route telemetry stays with the child and is fanned into the Hub only in its terminal
+receipt unless it proves a real exception or structural gap.
+
 After consent, revalidate every packet fact and source tip; drift makes it `deferred` or materially
 revised and requires fresh approval. Mark the create attempt issued, call `list_projects`, and inspect
 the selected project's `isGitRepository`. Call `create_thread` once with the approved prompt and the
@@ -322,15 +356,17 @@ Operate on a child when the user asks, or when an admitted multi-Mission checkpo
 at the current monitoring or merge gate:
 
 - status or one-time monitoring: use one `wait_threads` call with `timeoutMs: 0`;
-- ongoing monitoring: use one bounded `wait_threads` event wait for up to eight named children and
-  carry every returned cursor into the next wait;
+- ongoing monitoring: make one bounded `wait_threads` event wait for one to eight exact
+  `threadId`/`hostId` targets, carry each returned target cursor into the next batch, and keep the same
+  released-wave target set until a coherence boundary changes it;
 - feedback or continuation: call `send_message_to_thread` once with `threadId`, optional `hostId`,
   and the feedback in `prompt`, then return immediately;
 - additional history needed for a current decision: use one bounded `read_thread`.
 
-The child proactively reports only material replan, required user authority, endpoint-changing
-publication, terminal handoff/state, or an exception. Ordinary progress stays there; the hub does not
-mirror commentary, lanes, counts, or unchanged timeouts.
+The child proactively reports only a structural gap, required user authority, a real exception, or
+one terminal receipt. Ordinary progress, local findings/corrections, publication steps, lanes, counts,
+commentary, and tool activity stay there. An unchanged timeout produces zero Hub question, message,
+checkpoint replacement, or status narration.
 
 Treat task events as compact wake hints, never arrival-ordered authority. Across cursor-bound waits in
 the current released wave, retain every raw receipt and immutable locator. Normalize every
@@ -343,6 +379,14 @@ coherence window at the first of:
 - an attention, error, conflict, or unknown-impact fact requiring hub authority;
 - a dependency, publication, merge, or other declared effect barrier; or
 - a turn/interruption/Handoff/compaction, source or authority drift, or user request/override.
+
+An absent cursor is valid only for a target's first observation. A missing returned cursor, reset
+cursor, malformed cursor, target/host mismatch, revision regression, or other continuity gap on a
+continued target cannot prove that no event was lost: preserve the raw poll, close the window as
+unknown-impact, and rebuild authority. A wake may return before every target is polled, so omitted
+targets retain their prior facts but cannot be judged unchanged. Commentary and ordinary tool
+progress may change a revision or appear in a timeout snapshot, but neither wakes the event wait nor
+changes graph authority.
 
 At the window, rebuild the current evidence graph, group its stable components, and reconcile exact
 Goal, task, Git, GitHub, dependency, and authority facts once for the whole released wave. Arbitrate
