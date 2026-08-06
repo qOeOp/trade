@@ -1,0 +1,52 @@
+services:
+  postgres:
+    container_name: vibe-database
+    image: public.ecr.aws/docker/library/postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vibe}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pass}
+      POSTGRES_DB: ${POSTGRES_DB:-vibe}
+      PGDATA: /data/postgres
+    volumes:
+      - vibe-database:/data/postgres
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:5432:5432"
+    networks:
+      - vibe-network
+    restart: unless-stopped
+
+  pgadmin:
+    container_name: vibe-pgadmin
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@mail.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
+    volumes:
+      - pgadmin:/root/.pgadmin
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:${PGADMIN_PORT:-5051}:80"
+    networks:
+      - vibe-network
+    restart: unless-stopped
+
+  redis:
+    container_name: vibe-redis
+    image: public.ecr.aws/docker/library/redis
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:6379:6379"
+    restart: unless-stopped
+    networks:
+      - vibe-network
+
+networks:
+  vibe-network:
+
+volumes:
+  vibe-database:
+  pgadmin:

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+project_dir="${1:?Expected project directory}"
+project_dir="$(cd "$project_dir" && pwd -P)"
+temp_root="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+neutral_dir="$(mktemp -d "$temp_root/vibe-python-doctests.XXXXXX")"
+trap 'rm -rf "$neutral_dir"' EXIT
+
+distribution_probe='import importlib.util; assert importlib.util.find_spec("vibe_trader.backtest.engine") is None'
+set -- \
+  vibe_trader.analysis.tearsheet \
+  vibe_trader.analysis.themes
+
+unset PYTHONPATH
+unset VIRTUAL_ENV
+unset MYPYPATH
+cd "$neutral_dir"
+uv run --project "$project_dir" --no-sync python -c "$distribution_probe"
+uv run --project "$project_dir" --no-sync pytest \
+  --rootdir="$project_dir" \
+  --doctest-modules \
+  --pyargs "$@"

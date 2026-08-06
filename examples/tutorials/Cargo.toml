@@ -1,0 +1,55 @@
+[package]
+name = "vibe-tutorials"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Runnable tutorial examples for VibeTrader"
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[features]
+default = []
+examples = [
+  "dep:dotenvy",
+  "dep:vibe-common",
+  "dep:vibe-core",
+  "dep:vibe-databento",
+  "dep:vibe-lighter",
+  "dep:vibe-live",
+  "dep:vibe-model",
+  "dep:vibe-trading",
+  "dep:tokio",
+]
+
+[dependencies]
+vibe-common = { workspace = true, features = ["live"], optional = true }
+vibe-core = { workspace = true, optional = true }
+vibe-databento = { workspace = true, features = [
+  "high-precision",
+  "live",
+], optional = true }
+vibe-lighter = { workspace = true, features = [
+  "examples",
+  "high-precision",
+], optional = true }
+vibe-live = { workspace = true, features = ["node"], optional = true }
+vibe-model = { workspace = true, features = [
+  "high-precision",
+], optional = true }
+vibe-trading = { workspace = true, features = [
+  "examples",
+  "high-precision",
+], optional = true }
+
+dotenvy = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+
+[[bin]]
+name = "lighter-nvda-composite-mm"
+path = "src/bin/lighter_nvda_composite_mm.rs"
+required-features = ["examples"]
+doc = false
+test = false

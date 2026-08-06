@@ -1,0 +1,57 @@
+//! Database and messaging infrastructure for [VibeTrader](https://github.com/qOeOp/trade).
+//!
+//! The `vibe-infrastructure` crate provides backend database implementations and message bus adapters
+//! that enable VibeTrader to scale from development to production deployments. This includes
+//! enterprise-grade data persistence and messaging capabilities:
+//!
+//! - **Redis integration**: Cache database and message bus implementations using Redis.
+//! - **PostgreSQL integration**: SQL-based cache database with full data models.
+//! - **Connection management**: Connection handling with retry logic and health monitoring.
+//! - **Serialization options**: Support for JSON and MessagePack encoding formats.
+//! - **Python bindings**: PyO3 integration for Python interoperability.
+//!
+//! The crate supports multiple database backends through feature flags, allowing users to choose
+//! the appropriate infrastructure components for their specific deployment requirements and scale.
+//!
+//! # VibeTrader
+//!
+//! [VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+//! engine for multi-asset, multi-venue trading systems.
+//!
+//! The system spans research, deterministic simulation, and live execution within a single
+//! event-driven architecture, providing research-to-live semantic parity.
+//!
+//! # Feature Flags
+//!
+//! This crate provides feature flags to control source code inclusion during compilation,
+//! depending on the intended use case, i.e. whether to provide Python bindings
+//! for the `vibe_trader` Python package,
+//! or as part of a Rust only build.
+//!
+//! - `python`: Enables Python bindings from [PyO3](https://pyo3.rs).
+//! - `redis`: Enables the Redis cache database and message bus backing implementations.
+//! - `postgres`: Enables the PostgreSQL SQLx models and cache database backend.
+//! - `extension-module`: Builds the crate as a Python extension module.
+
+#![warn(rustc::all)]
+#![warn(clippy::pedantic)]
+#![deny(unsafe_code)]
+#![deny(unsafe_op_in_unsafe_fn)]
+#![deny(nonstandard_style)]
+#![deny(missing_debug_implementations)]
+#![deny(clippy::missing_errors_doc)]
+#![deny(clippy::missing_panics_doc)]
+#![deny(rustdoc::broken_intra_doc_links)]
+#![allow(
+    clippy::similar_names,
+    reason = "domain terms such as trader_id/trade_id and price_precision/size_precision are intentionally parallel"
+)]
+
+#[cfg(feature = "python")]
+pub mod python;
+
+#[cfg(feature = "redis")]
+pub mod redis;
+
+#[cfg(feature = "postgres")]
+pub mod sql;

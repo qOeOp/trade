@@ -1,0 +1,189 @@
+use std::fmt::Display;
+
+use derive_builder::Builder;
+use serde::{Deserialize, Serialize};
+use vibe_core::{Params, UUID4, UnixNanos};
+use vibe_model::{
+    enums::OrderSide,
+    identifiers::{ClientId, ClientOrderId, InstrumentId, StrategyId, TraderId, VenueOrderId},
+};
+
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, Builder)]
+#[serde(tag = "type")]
+pub struct CancelOrder {
+    pub trader_id: TraderId,
+    pub client_id: Option<ClientId>,
+    pub strategy_id: StrategyId,
+    pub instrument_id: InstrumentId,
+    pub client_order_id: ClientOrderId,
+    pub venue_order_id: Option<VenueOrderId>,
+    pub command_id: UUID4,
+    pub ts_init: UnixNanos,
+    pub params: Option<Params>,
+    #[builder(default)]
+    pub correlation_id: Option<UUID4>,
+    #[builder(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub causation_id: Option<UUID4>,
+}
+
+impl CancelOrder {
+    /// Creates a new [`CancelOrder`] instance.
+    #[expect(clippy::too_many_arguments)]
+    #[must_use]
+    pub fn new(
+        trader_id: TraderId,
+        client_id: Option<ClientId>,
+        strategy_id: StrategyId,
+        instrument_id: InstrumentId,
+        client_order_id: ClientOrderId,
+        venue_order_id: Option<VenueOrderId>,
+        command_id: UUID4,
+        ts_init: UnixNanos,
+        params: Option<Params>,
+        correlation_id: Option<UUID4>,
+    ) -> Self {
+        Self {
+            trader_id,
+            client_id,
+            strategy_id,
+            instrument_id,
+            client_order_id,
+            venue_order_id,
+            command_id,
+            ts_init,
+            params,
+            correlation_id,
+            causation_id: None,
+        }
+    }
+}
+
+impl Display for CancelOrder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "CancelOrder(instrument_id={}, client_order_id={}, venue_order_id={:?})",
+            self.instrument_id, self.client_order_id, self.venue_order_id,
+        )
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, Builder)]
+#[serde(tag = "type")]
+pub struct CancelAllOrders {
+    pub trader_id: TraderId,
+    pub client_id: Option<ClientId>,
+    pub strategy_id: StrategyId,
+    pub instrument_id: InstrumentId,
+    pub order_side: OrderSide,
+    pub command_id: UUID4,
+    pub ts_init: UnixNanos,
+    pub params: Option<Params>,
+    #[builder(default)]
+    pub correlation_id: Option<UUID4>,
+    #[builder(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub causation_id: Option<UUID4>,
+}
+
+impl CancelAllOrders {
+    /// Creates a new [`CancelAllOrders`] instance.
+    #[expect(clippy::too_many_arguments)]
+    #[must_use]
+    pub fn new(
+        trader_id: TraderId,
+        client_id: Option<ClientId>,
+        strategy_id: StrategyId,
+        instrument_id: InstrumentId,
+        order_side: OrderSide,
+        command_id: UUID4,
+        ts_init: UnixNanos,
+        params: Option<Params>,
+        correlation_id: Option<UUID4>,
+    ) -> Self {
+        Self {
+            trader_id,
+            client_id,
+            strategy_id,
+            instrument_id,
+            order_side,
+            command_id,
+            ts_init,
+            params,
+            correlation_id,
+            causation_id: None,
+        }
+    }
+}
+
+impl Display for CancelAllOrders {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "CancelAllOrders(instrument_id={}, order_side={})",
+            self.instrument_id, self.order_side,
+        )
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, Builder)]
+#[serde(tag = "type")]
+pub struct BatchCancelOrders {
+    pub trader_id: TraderId,
+    pub client_id: Option<ClientId>,
+    pub strategy_id: StrategyId,
+    pub instrument_id: InstrumentId,
+    pub cancels: Vec<CancelOrder>,
+    pub command_id: UUID4,
+    pub ts_init: UnixNanos,
+    pub params: Option<Params>,
+    #[builder(default)]
+    pub correlation_id: Option<UUID4>,
+    #[builder(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub causation_id: Option<UUID4>,
+}
+
+impl BatchCancelOrders {
+    /// Creates a new [`BatchCancelOrders`] instance.
+    #[expect(clippy::too_many_arguments)]
+    #[must_use]
+    pub fn new(
+        trader_id: TraderId,
+        client_id: Option<ClientId>,
+        strategy_id: StrategyId,
+        instrument_id: InstrumentId,
+        cancels: Vec<CancelOrder>,
+        command_id: UUID4,
+        ts_init: UnixNanos,
+        params: Option<Params>,
+        correlation_id: Option<UUID4>,
+    ) -> Self {
+        Self {
+            trader_id,
+            client_id,
+            strategy_id,
+            instrument_id,
+            cancels,
+            command_id,
+            ts_init,
+            params,
+            correlation_id,
+            causation_id: None,
+        }
+    }
+}
+
+impl Display for BatchCancelOrders {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "BatchCancelOrders(instrument_id={}, cancels=TBD)",
+            self.instrument_id,
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {}

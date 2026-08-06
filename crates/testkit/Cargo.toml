@@ -1,0 +1,126 @@
+[package]
+name = "vibe-testkit"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Testing utilities for the Vibe trading engine"
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "vibe_testkit"
+crate-type = ["rlib"]
+
+[features]
+default = ["datasets", "testers"]
+datasets = [
+  "dep:ahash",
+  "dep:anyhow",
+  "dep:aws-lc-rs",
+  "dep:itchy",
+  "dep:vibe-model",
+  "dep:vibe-network",
+  "dep:vibe-serialization",
+  "dep:parquet",
+  "dep:rand",
+  "dep:reqwest",
+  "dep:serde_json",
+]
+testers = [
+  "dep:ahash",
+  "dep:anyhow",
+  "dep:async-trait",
+  "dep:bon",
+  "dep:bytes",
+  "dep:jiff",
+  "dep:indexmap",
+  "dep:log",
+  "dep:vibe-model",
+  "dep:vibe-trading",
+  "dep:rust_decimal",
+  "dep:serde",
+  "dep:ustr",
+]
+extension-module = [
+  "vibe-common/extension-module",
+  "vibe-core/extension-module",
+  "vibe-model/extension-module",
+  "vibe-trading/extension-module",
+  "python",
+  "pyo3/extension-module",
+]
+python = [
+  "datasets",
+  "vibe-common/python",
+  "vibe-core/python",
+  "vibe-model/python",
+  "vibe-trading/python",
+  "pyo3",
+  "pyo3-stub-gen",
+  "testers",
+]
+high-precision = [
+  "vibe-model?/high-precision",
+  "vibe-serialization?/high-precision",
+]
+[dependencies]
+vibe-common = { workspace = true }
+vibe-core = { workspace = true }
+vibe-model = { workspace = true, features = ["stubs"], optional = true }
+vibe-network = { workspace = true, optional = true }
+vibe-serialization = { workspace = true, features = [
+  "arrow",
+], optional = true }
+vibe-trading = { workspace = true, optional = true }
+
+ahash = { workspace = true, optional = true }
+anyhow = { workspace = true, optional = true }
+async-trait = { workspace = true, optional = true }
+aws-lc-rs = { workspace = true, optional = true }
+bon = { workspace = true, optional = true }
+bytes = { workspace = true, optional = true }
+indexmap = { workspace = true, optional = true }
+itchy = { workspace = true, optional = true }
+jiff = { workspace = true, optional = true }
+log = { workspace = true, optional = true }
+parquet = { workspace = true, features = ["zstd"], optional = true }
+rand = { workspace = true, optional = true }
+reqwest = { workspace = true, features = ["blocking"], optional = true }
+rust_decimal = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+tokio = { workspace = true }
+ustr = { workspace = true, optional = true }
+
+pyo3 = { workspace = true, optional = true }
+pyo3-stub-gen = { workspace = true, optional = true }
+
+[dev-dependencies]
+vibe-model = { workspace = true, features = ["stubs"] }
+vibe-portfolio = { workspace = true }
+
+arrow = { workspace = true }
+axum = { workspace = true }
+indexmap = { workspace = true }
+rstest = { workspace = true }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+
+[[test]]
+name = "common"
+required-features = ["datasets"]
+
+[[test]]
+name = "large_data"
+required-features = ["datasets"]
+
+[[test]]
+name = "orderbook_integration"
+required-features = ["datasets"]

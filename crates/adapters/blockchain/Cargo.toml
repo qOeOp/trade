@@ -1,0 +1,98 @@
+[package]
+name = "vibe-blockchain"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Blockchain and DeFi integration adapter for the Vibe trading engine"
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "vibe_blockchain"
+crate-type = ["rlib"]
+
+[features]
+default = []
+extension-module = [
+  "vibe-common/extension-module",
+  "vibe-core/extension-module",
+  "vibe-live/extension-module",
+  "vibe-model/extension-module",
+  "vibe-network/extension-module",
+  "python",
+  "pyo3/extension-module",
+]
+hypersync = ["hypersync-client", "vibe-live/node"]
+python = [
+  "dep:vibe-system",
+  "vibe-infrastructure/python",
+  "vibe-live/python",
+  "vibe-live/streaming",
+  "vibe-network/python",
+  "vibe-system/python",
+  "pyo3",
+  "pyo3-stub-gen",
+]
+turmoil = ["dep:turmoil", "vibe-network/turmoil"]
+[dependencies]
+vibe-common = { workspace = true, features = ["defi", "live"] }
+vibe-core = { workspace = true }
+vibe-infrastructure = { workspace = true, features = ["postgres"] }
+vibe-live = { workspace = true, features = ["defi"] }
+vibe-model = { workspace = true, features = ["defi"] }
+vibe-network = { workspace = true }
+vibe-system = { workspace = true, optional = true }
+
+ahash = { workspace = true }
+alloy = { workspace = true }
+anyhow = { workspace = true }
+async-stream = { workspace = true }
+async-trait = { workspace = true }
+bon = { workspace = true }
+bytes = { workspace = true }
+dotenvy = { workspace = true }
+enum_dispatch = { workspace = true }
+futures-util = { workspace = true }
+log = { workspace = true }
+rust_decimal = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+strum = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tokio-util = { workspace = true }
+ustr = { workspace = true }
+
+hypersync-client = { workspace = true, optional = true }
+pyo3 = { workspace = true, optional = true }
+pyo3-stub-gen = { workspace = true, optional = true }
+turmoil = { workspace = true, optional = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+toml = { workspace = true }
+turmoil = { workspace = true }
+
+[[bin]]
+name = "node_wallet"
+path = "bin/node_wallet.rs"
+required-features = ["hypersync"]
+doc = false
+test = false
+
+[[example]]
+name = "blockchain-data-tester"
+path = "examples/node_data_tester.rs"
+required-features = ["hypersync"]
+doc = false
+
+[[test]]
+name = "python"
+path = "tests/python.rs"
+required-features = ["python", "hypersync"]

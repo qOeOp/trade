@@ -1,0 +1,150 @@
+use jiff::civil::Date;
+use serde::{Deserialize, Serialize};
+use ustr::Ustr;
+use vibe_model::identifiers::InstrumentId;
+
+use crate::common::enums::TardisExchange;
+pub use crate::machine::client::TardisMachineClient;
+
+/// Instrument definition information necessary for stream parsing.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "python",
+    pyo3::pyclass(module = "vibe_trader.adapters.tardis", from_py_object)
+)]
+#[cfg_attr(
+    feature = "python",
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.tardis")
+)]
+pub struct TardisInstrumentMiniInfo {
+    /// The instrument ID with optionally Vibe normalized symbol.
+    pub instrument_id: InstrumentId,
+    /// The Tardis symbol.
+    pub raw_symbol: Ustr,
+    /// The Tardis exchange.
+    pub exchange: TardisExchange,
+    /// The price precision for the instrument.
+    pub price_precision: u8,
+    /// The size precision for the instrument.
+    pub size_precision: u8,
+}
+
+impl TardisInstrumentMiniInfo {
+    /// Creates a new [`TardisInstrumentMiniInfo`] instance.
+    ///
+    /// If `raw_instrument_id` is `None` then the `instrument_id` value will be assigned.
+    #[must_use]
+    pub fn new(
+        instrument_id: InstrumentId,
+        raw_symbol: Option<Ustr>,
+        exchange: TardisExchange,
+        price_precision: u8,
+        size_precision: u8,
+    ) -> Self {
+        Self {
+            instrument_id,
+            raw_symbol: raw_symbol.unwrap_or(instrument_id.symbol.inner()),
+            exchange,
+            price_precision,
+            size_precision,
+        }
+    }
+
+    #[must_use]
+    pub const fn as_tardis_instrument_key(&self) -> TardisInstrumentKey {
+        TardisInstrumentKey::new(self.raw_symbol, self.exchange)
+    }
+}
+
+/// Instrument definition information necessary for stream parsing.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "python",
+    pyo3::pyclass(module = "vibe_trader.adapters.tardis", from_py_object)
+)]
+pub struct TardisInstrumentKey {
+    /// The Tardis raw symbol.
+    pub raw_symbol: Ustr,
+    /// The Tardis exchange.
+    pub exchange: TardisExchange,
+}
+
+impl TardisInstrumentKey {
+    /// Creates a new [`TardisInstrumentKey`] instance.
+    #[must_use]
+    pub const fn new(raw_symbol: Ustr, exchange: TardisExchange) -> Self {
+        Self {
+            raw_symbol,
+            exchange,
+        }
+    }
+}
+
+/// The options that can be specified for calling Tardis Machine Server's replay-normalized.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "python",
+    pyo3::pyclass(module = "vibe_trader.adapters.tardis", from_py_object)
+)]
+#[cfg_attr(
+    feature = "python",
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.tardis")
+)]
+pub struct ReplayNormalizedRequestOptions {
+    /// Requested [`TardisExchange`].
+    pub exchange: TardisExchange,
+    /// Optional symbols of requested historical data feed.
+    /// Use /exchanges/:exchange HTTP API to get allowed symbols for requested exchange.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub symbols: Option<Vec<String>>,
+    /// Replay period start date (UTC) in a ISO 8601 format, e.g., 2019-10-01.
+    pub from: Date,
+    /// Replay period start date (UTC) in a ISO 8601 format, e.g., 2019-10-02.
+    pub to: Date,
+    /// Array of normalized [data types](https://docs.tardis.dev/api/tardis-machine#normalized-data-types)
+    /// for which real-time data will be provided.
+    #[serde(alias = "data_types")]
+    pub data_types: Vec<String>,
+    /// When set to true, sends also disconnect messages that mark events when real-time WebSocket
+    /// connection that was used to collect the historical data got disconnected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    #[serde(alias = "with_disconnect_messages")]
+    pub with_disconnect_messages: Option<bool>,
+}
+
+/// The options that can be specified for calling Tardis Machine Server's stream-normalized.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "python",
+    pyo3::pyclass(module = "vibe_trader.adapters.tardis", from_py_object)
+)]
+#[cfg_attr(
+    feature = "python",
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.tardis")
+)]
+pub struct StreamNormalizedRequestOptions {
+    /// Requested [`TardisExchange`].
+    pub exchange: TardisExchange,
+    /// Optional symbols of requested real-time data feed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub symbols: Option<Vec<String>>,
+    /// Array of normalized [data types](https://docs.tardis.dev/api/tardis-machine#normalized-data-types)
+    /// for which real-time data will be provided.
+    #[serde(alias = "data_types")]
+    pub data_types: Vec<String>,
+    /// When set to true, sends disconnect messages anytime underlying exchange real-time WebSocket
+    /// connection(s) gets disconnected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub with_disconnect_messages: Option<bool>,
+    /// Specifies time in milliseconds after which connection to real-time exchanges' WebSocket API
+    /// is restarted if no message has been received.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, rename = "timeoutIntervalMS")]
+    pub timeout_interval_ms: Option<u64>,
+}

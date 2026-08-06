@@ -1,87 +1,54 @@
-# Trade Toolset
+# Vibe Trader
 
-面向 agent 工作区的 Binance USDM 单账户 4H+ swing 交易与策略研发工具集。系统以可审计事实、确定性风险门、受控执行和证据治理推进少量 `live-small` 机会；不是 SaaS、UI 产品、通用回测平台或自动升格策略机器。
+Vibe Trader is a Rust-native trading engine with Python bindings for research,
+deterministic simulation, and live execution. The repository is an internal
+development base: crates and Python artifacts are not configured for public
+publication.
 
-## 文档入口
+## Architecture
 
-[docs/README.md](./docs/README.md) 是 L1 文档合同与 authority 索引。最常用入口：
+The runtime is organized around a shared event-driven kernel:
 
-| 问题 | 文档 |
-| --- | --- |
-| 为什么做、做什么 | [Vision](./docs/product/vision.md) / [PRD](./docs/product/prd.md) |
-| 用户如何使用 | [User Story](./docs/product/user-story.md) |
-| 系统如何分域 | [Design Architecture](./docs/architecture/design-architecture.md) |
-| domain / job / store / rail 机器事实 | [Architecture Manifest](./docs/architecture/architecture-manifest.json) |
-| 在线技术合同 | [Technical Contract](./docs/runtime/tech-spec.md) |
-| R&D 与 Replay 边界 | [RD Architecture](./docs/research/architecture/rd-architecture-migration-plan.md) / [Replay Capability Inventory](./docs/research/reliability/rd-replay-capability-inventory.json) |
-| 质量接口 | [Quality Contract](./docs/engineering/code-quality.md) |
+- `vibe-core`, `vibe-common`, and `vibe-model` own foundational types and contracts.
+- `vibe-data`, `vibe-execution`, `vibe-portfolio`, and `vibe-risk` own the engine planes.
+- `vibe-system`, `vibe-backtest`, and `vibe-live` compose those planes for simulation and live use.
+- `vibe-pyo3` exposes the Rust implementation through `vibe_trader._libvibe`.
+- `crates/adapters/` contains venue and data-provider integrations.
 
-优先级：产品合同 → 架构合同 / manifest → module `CONTRACT.md` / `toolset.json` → schema / tests。`docs/history/` 只保留历史上下文，不能覆盖当前合同。
+The Rust crate names use `vibe-*`, Rust imports use `vibe_*`, and the Python package is
+`vibe_trader`. These are the only supported project identities; compatibility aliases and
+forwarding packages are intentionally absent.
 
-## 系统骨架
+## Repository layout
 
-```text
-single automation entry
-  -> lifecycle / health / lock
-  -> J01 reconcile
-  -> J02 fast guard
-  -> J03 slow watch
-  -> J04 R&D supervisor
-  -> J05 forward tracker
-  -> J06 catalog hygiene
-  -> J07 closed-flow review
-  -> summary / notify / control review
+- [`crates/`](crates/) — Rust workspace and adapters.
+- [`python/vibe_trader/`](python/vibe_trader/) — Python package and type stubs.
+- [`python/tests/`](python/tests/) — Python unit, integration, acceptance, and performance tests.
+- [`docs/`](docs/) — concepts, integration guides, tutorials, and API sources.
+- [`examples/`](examples/) — backtest, sandbox, and live examples.
+- [`schema/`](schema/) — database schemas.
+- [`scripts/`](scripts/) — local build, validation, and development tooling.
+- [`test_data/`](test_data/) — repository test fixtures.
+
+## Development
+
+The pinned toolchain is defined by [`rust-toolchain.toml`](rust-toolchain.toml),
+[`python/pyproject.toml`](python/pyproject.toml), and the repository lockfiles.
+
+Common commands:
+
+```bash
+cargo check --workspace --all-targets
+make build
+make cargo-test
+make pytest
+make format
 ```
 
-顶层有 10 个责任域：orchestration、policy/risk、portfolio state、market data、exchange gateway、live planning、live execution、research、governance、artifact knowledge。当前架构分为 [Authority Map](./docs/architecture/architecture-overview-v2.mmd)、[Communication Map](./docs/architecture/architecture-communication-v2.mmd)、[Runtime Topology](./docs/architecture/architecture-runtime-v2.mmd) 与 [Data & Trust Map](./docs/architecture/architecture-data-trust-v2.mmd)；代码投影见 [architecture-drift-report.md](./docs/architecture/generated/architecture-drift-report.md)。
+Use [`docs/getting_started/installation.md`](docs/getting_started/installation.md) for the
+source-development setup and [`CONTRIBUTING.md`](CONTRIBUTING.md) for repository conventions.
 
-## 两条主链
+## Branding status
 
-在线交易：
-
-```text
-OBSERVE -> PLAN -> PREFLIGHT -> EXECUTE
-  -> CONFIRM / RECONCILE -> REVIEW
-```
-
-策略研发：
-
-```text
-hypothesis -> frozen contract -> Trial -> Replay Result
-  -> research review -> draft -> Forward evidence
-  -> governance decision -> shadow / live-small / paused
-```
-
-Research 不写在线交易事件、不调用 Binance write；Replay / Forward 不拥有 promotion；submit 不等于 fill；交易所事实最终覆盖本地 projection。
-
-## 仓库结构
-
-| 路径 | 用途 |
-| --- | --- |
-| `docs/` | L1 产品、架构、大功能、research、engineering 合同 |
-| `apps/` | domain-owned atomic tools、suite façade、shared contracts |
-| `strategies/` | versioned strategy contracts |
-| `profile/` | 本地 trading config 与兼容输入；凭证不入库 |
-| `data/` | ignored durable runtime DB |
-| `tmp/` | ignored 可删除运行产物 |
-
-工具发现和命令参数从 `toolset.json` 开始；单模块行为从对应 `CONTRACT.md` 开始，不从历史 README 或目录名猜入口。
-
-## 安全边界
-
-- Binance 写动作必须显式授权、经过 preflight 和 execution contract，并可确认 / 对账。
-- facts stale、unknown order、unmatched position、policy missing 或 risk lock 时，新增风险 fail closed。
-- safe / suspended 不阻止明确的 reduce、close、cancel 或 protection 修复，但仍需审计。
-- R&D 的 `no_promote`、budget exhausted 和 data/tool blocked 都是正常完成状态，不得表述成“找到策略”。
-- API key、token 和本机绝对路径不得进入 docs、event、artifact 或日志合同。
-
-## 验证
-
-文档改动最低检查：
-
-```text
-bun run check
-git diff --check
-```
-
-涉及架构当前态时运行受影响 owner 的 package check 和真实 consumer journey。经 PR 交付时，本地直接运行 `bun run check`、受影响 owner 检查与 diff inspection；远端 required `quality` 和四语言 CodeQL 完成全仓 merge closure。
+No official Vibe Trader visual asset is included in this baseline. Artwork inherited from the
+source project must not be renamed or displayed as Vibe Trader branding.

@@ -1,0 +1,95 @@
+use std::fmt::{Debug, Display};
+
+use super::submitted::OrderSubmitted;
+
+/// Represents a batch of [`OrderSubmitted`] events from a single batch-submit
+/// response. Transported as one message across the event loop, then unpacked
+/// into individual [`OrderSubmitted`] events for processing.
+#[derive(Clone, PartialEq, Eq)]
+pub struct OrderSubmittedBatch {
+    pub events: Vec<OrderSubmitted>,
+}
+
+impl OrderSubmittedBatch {
+    /// Creates a new [`OrderSubmittedBatch`] instance.
+    #[must_use]
+    pub fn new(events: Vec<OrderSubmitted>) -> Self {
+        Self { events }
+    }
+
+    /// Returns the number of events in the batch.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.events.len()
+    }
+
+    /// Returns whether the batch is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.events.is_empty()
+    }
+}
+
+impl Debug for OrderSubmittedBatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct(stringify!(OrderSubmittedBatch))
+            .field("len", &self.events.len())
+            .finish()
+    }
+}
+
+impl Display for OrderSubmittedBatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}(len={})",
+            stringify!(OrderSubmittedBatch),
+            self.events.len()
+        )
+    }
+}
+
+impl IntoIterator for OrderSubmittedBatch {
+    type Item = OrderSubmitted;
+    type IntoIter = std::vec::IntoIter<OrderSubmitted>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.events.into_iter()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    fn test_empty_batch() {
+        let batch = OrderSubmittedBatch::new(Vec::new());
+        assert!(batch.is_empty());
+        assert_eq!(batch.len(), 0);
+    }
+
+    #[rstest]
+    fn test_batch_with_events() {
+        let events = vec![OrderSubmitted::default(), OrderSubmitted::default()];
+        let batch = OrderSubmittedBatch::new(events);
+        assert!(!batch.is_empty());
+        assert_eq!(batch.len(), 2);
+    }
+
+    #[rstest]
+    fn test_debug_display() {
+        let batch = OrderSubmittedBatch::new(vec![OrderSubmitted::default()]);
+        assert_eq!(format!("{batch}"), "OrderSubmittedBatch(len=1)");
+        assert_eq!(format!("{batch:?}"), "OrderSubmittedBatch { len: 1 }");
+    }
+
+    #[rstest]
+    fn test_into_iter() {
+        let events = vec![OrderSubmitted::default(), OrderSubmitted::default()];
+        let batch = OrderSubmittedBatch::new(events);
+        assert_eq!(batch.into_iter().count(), 2);
+    }
+}

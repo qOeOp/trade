@@ -1,6 +1,0 @@
-{
-  "name": "operator-http",
-  "private": true,
-  "type": "module",
-  "scripts": { "typecheck": "tsc --noEmit", "test": "bun test ./src/lib/*.test.ts", "check": "bun run typecheck && bun run test" }
-}

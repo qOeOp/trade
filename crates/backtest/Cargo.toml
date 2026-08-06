@@ -1,0 +1,123 @@
+[package]
+name = "vibe-backtest"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Core backtesting machinery for the Vibe trading engine"
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "vibe_backtest"
+crate-type = ["rlib"]
+
+[features]
+default = []
+examples = ["vibe-trading/examples"]
+high-precision = ["vibe-model/high-precision"]
+defi = ["vibe-common/defi", "vibe-data/defi", "vibe-model/defi"]
+plugin = []
+streaming = ["vibe-persistence", "vibe-system/streaming"]
+extension-module = [
+  "vibe-common/extension-module",
+  "vibe-core/extension-module",
+  "vibe-execution/extension-module",
+  "vibe-model/extension-module",
+  "vibe-trading/extension-module",
+  "python",
+  "pyo3/extension-module",
+  "streaming",
+]
+python = [
+  "vibe-common/python",
+  "vibe-core/python",
+  "vibe-data/python",
+  "vibe-execution/python",
+  "vibe-model/python",
+  "vibe-persistence?/python",
+  "vibe-portfolio/python",
+  "vibe-risk/python",
+  "vibe-system/python",
+  "vibe-trading/python",
+  "pyo3",
+  "pyo3-stub-gen",
+  "streaming",
+]
+[dependencies]
+vibe-analysis = { workspace = true }
+vibe-common = { workspace = true }
+vibe-core = { workspace = true }
+vibe-data = { workspace = true }
+vibe-execution = { workspace = true }
+vibe-model = { workspace = true, features = ["stubs"] }
+vibe-persistence = { workspace = true, optional = true }
+vibe-portfolio = { workspace = true }
+vibe-risk = { workspace = true }
+vibe-system = { workspace = true }
+vibe-trading = { workspace = true }
+
+ahash = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+blake3 = { workspace = true }
+bon = { workspace = true }
+indexmap = { workspace = true }
+jiff = { workspace = true }
+log = { workspace = true }
+rust_decimal = { workspace = true }
+serde = { workspace = true }
+ustr = { workspace = true }
+
+pyo3 = { workspace = true, optional = true }
+pyo3-stub-gen = { workspace = true, optional = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+vibe-indicators = { workspace = true }
+vibe-persistence = { workspace = true }
+vibe-testkit = { workspace = true, default-features = false, features = [
+  "datasets",
+  "testers",
+] }
+vibe-trading = { workspace = true, features = ["examples"] }
+
+criterion = { workspace = true }
+rstest = { workspace = true }
+tempfile = { workspace = true }
+
+# Run with `cargo bench -p vibe-backtest --bench engine`
+[[bench]]
+name = "engine"
+path = "benches/engine.rs"
+harness = false
+
+# Run with `cargo run -p vibe-backtest --features examples --example engine-ema-cross`
+[[example]]
+name = "engine-ema-cross"
+path = "examples/engine_ema_cross.rs"
+required-features = ["examples"]
+doc = false
+
+# Run with `cargo run -p vibe-backtest --features examples,streaming --example node-ema-cross`
+[[example]]
+name = "node-ema-cross"
+path = "examples/node_ema_cross.rs"
+required-features = ["examples", "streaming"]
+doc = false
+
+# Run with `VIBE_TARDIS_OPTION_CATALOG=/path/to/catalog cargo run -p vibe-backtest --features examples,streaming --example tardis-option-chain`
+[[example]]
+name = "tardis-option-chain"
+path = "examples/tardis_option_chain.rs"
+required-features = ["examples", "streaming"]
+doc = false
+
+# Run in the normal `--tests` lane; the dev-dependency enables `vibe-trading/examples`
+[[test]]
+name = "backtest-node-workload"
+path = "tests/backtest_node_workload.rs"
+required-features = ["streaming"]

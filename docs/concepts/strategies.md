@@ -1,0 +1,755 @@
+# Strategies
+
+A strategy inherits the `Strategy` class and implements
+the methods its logic requires.
+
+**Capabilities**:
+
+- All `DataActor` capabilities.
+- Order management.
+
+**Relationship with actors**:
+The `Strategy` class inherits from `DataActor`, which means strategies have access to all data actor
+functionality plus order management capabilities.
+
+:::tip
+We recommend reviewing the [Actors](actors.md) guide before diving into strategy development.
+:::
+
+Strategies can be added to Vibe systems in any [environment contexts](architecture.md#environment-contexts) and will start sending commands and receiving
+events based on their logic as soon as the system starts.
+
+With these building blocks of data ingest, event handling, and order management (discussed below),
+you can build any type of strategy including directional, momentum, re-balancing,
+pairs, market making, etc.
+
+See the [`Strategy` API Reference](/docs/python-api-latest/trading.html) for all available methods.
+
+There are two main parts of a Vibe trading strategy:
+
+- The strategy implementation itself, defined by inheriting the `Strategy` class.
+- The *optional* strategy configuration, defined by inheriting the `StrategyConfig` class.
+
+:::tip
+Once a strategy is defined, the same source code can be used for backtesting and live trading.
+:::
+
+The main capabilities of a strategy include:
+
+- Historical data requests.
+- Live data feed subscriptions.
+- Setting time alerts or timers.
+- Cache access.
+- Portfolio access.
+- Creating and managing orders and positions.
+
+:::info Rust implementation
+Rust strategy authors implement the `DataActor` callbacks they need and use
+`vibe_strategy!` to generate the `Strategy` implementation, then call facade
+methods such as `clock()`, `cache()`, `order()`, and `portfolio()` on `self`.
+`DataActorNative` is native-only access to runtime wiring and actor-core state;
+`StrategyNative` exposes borrowed strategy state such as order factory, order
+manager, and portfolio access. Import them only for same-binary performance
+paths or internal runtime wiring.
+:::
+
+## Strategy implementation
+
+A trading strategy inherits from `Strategy`, so you must define a constructor.
+At minimum, initialize the base class:
+
+```python
+from vibe_trader.trading import Strategy
+
+
+class MyStrategy(Strategy):
+    def __init__(self) -> None:
+        super().__init__()  # <-- the superclass must be called to initialize the strategy
+```
+
+From here, you can implement handlers as necessary to perform actions based on state transitions
+and events.
+
+:::warning
+Do not call components such as `clock` and `logger` in the `__init__` constructor (which is prior to registration).
+This is because the systems clock and logging subsystem have not yet been initialized.
+:::
+
+### Handlers
+
+Handlers are methods on the `Strategy` class that perform actions based on events or state changes.
+These methods use the `on_*` prefix. Implement any or all of them as your strategy requires.
+
+Multiple handlers exist for similar event types to give you control over granularity.
+Respond to a specific event with a dedicated handler, or use a generic handler for a range
+of related events (using typical switch statement logic).
+The system calls handlers in sequence from most specific to most general.
+
+#### Stateful actions
+
+Lifecycle state changes trigger these handlers. Recommendations:
+
+- Use the `on_start` method to initialize your strategy (e.g., fetch instruments, subscribe to data).
+- Use the `on_stop` method for cleanup tasks (e.g., cancel open orders, close open positions, unsubscribe from data).
+
+```python
+def on_start(self) -> None:
+def on_stop(self) -> None:
+def on_resume(self) -> None:
+def on_reset(self) -> None:
+def on_dispose(self) -> None:
+def on_degrade(self) -> None:
+def on_fault(self) -> None:
+def on_save(self) -> dict[str, bytes]:  # Returns user-defined dictionary of state to be saved
+def on_load(self, state: dict[str, bytes]) -> None:
+```
+
+#### Data handling
+
+These handlers receive data updates, including built-in market data and custom user-defined data.
+
+```python
+from collections.abc import Sequence
+from typing import Any
+
+from vibe_trader.common import Signal
+from vibe_trader.model import CustomData
+from vibe_trader.model import OrderBook
+from vibe_trader.model import OrderBookDelta
+from vibe_trader.model import Bar
+from vibe_trader.model import FundingRateUpdate
+from vibe_trader.model import QuoteTick
+from vibe_trader.model import TradeTick
+from vibe_trader.model import OrderBookDeltas
+from vibe_trader.model import OrderBookDepth10
+from vibe_trader.model import InstrumentClose
+from vibe_trader.model import InstrumentStatus
+from vibe_trader.model import OptionChainSlice
+from vibe_trader.model import OptionGreeks
+def on_book_deltas(self, deltas: OrderBookDeltas) -> None:
+def on_book(self, order_book: OrderBook) -> None:
+def on_quote(self, tick: QuoteTick) -> None:
+def on_trade(self, tick: TradeTick) -> None:
+def on_bar(self, bar: Bar) -> None:
+def on_instrument(self, instrument: Any) -> None:
+def on_instrument_status(self, data: InstrumentStatus) -> None:
+def on_instrument_close(self, data: InstrumentClose) -> None:
+def on_option_greeks(self, greeks: OptionGreeks) -> None:
+def on_option_chain(self, chain: OptionChainSlice) -> None:
+def on_historical_data(self, data: CustomData | Sequence[CustomData]) -> None:
+def on_historical_book_deltas(self, deltas: Sequence[OrderBookDelta]) -> None:
+def on_historical_book_depth(self, depths: Sequence[OrderBookDepth10]) -> None:
+def on_historical_quotes(self, quotes: Sequence[QuoteTick]) -> None:
+def on_historical_trades(self, trades: Sequence[TradeTick]) -> None:
+def on_historical_funding_rates(self, rates: Sequence[FundingRateUpdate]) -> None:
+def on_historical_bars(self, bars: Sequence[Bar]) -> None:
+def on_data(self, data: CustomData) -> None:
+def on_signal(self, signal: Signal) -> None:
+```
+
+#### Order management
+
+These handlers receive events related to orders.
+`OrderEvent` type messages are passed to handlers in the following sequence:
+
+1. Specific handler (e.g., `on_order_accepted`, `on_order_rejected`, etc.)
+2. `on_order_event(...)`
+
+```python
+from vibe_trader.model.events import OrderAccepted
+from vibe_trader.model.events import OrderCanceled
+from vibe_trader.model.events import OrderCancelRejected
+from vibe_trader.model.events import OrderDenied
+from vibe_trader.model.events import OrderEmulated
+from vibe_trader.model.events import OrderEvent
+from vibe_trader.model.events import OrderExpired
+from vibe_trader.model.events import OrderFilled
+from vibe_trader.model.events import OrderInitialized
+from vibe_trader.model.events import OrderModifyRejected
+from vibe_trader.model.events import OrderPendingCancel
+from vibe_trader.model.events import OrderPendingUpdate
+from vibe_trader.model.events import OrderRejected
+from vibe_trader.model.events import OrderReleased
+from vibe_trader.model.events import OrderSubmitted
+from vibe_trader.model.events import OrderTriggered
+from vibe_trader.model.events import OrderUpdated
+
+def on_order_initialized(self, event: OrderInitialized) -> None:
+def on_order_denied(self, event: OrderDenied) -> None:
+def on_order_emulated(self, event: OrderEmulated) -> None:
+def on_order_released(self, event: OrderReleased) -> None:
+def on_order_submitted(self, event: OrderSubmitted) -> None:
+def on_order_rejected(self, event: OrderRejected) -> None:
+def on_order_accepted(self, event: OrderAccepted) -> None:
+def on_order_canceled(self, event: OrderCanceled) -> None:
+def on_order_expired(self, event: OrderExpired) -> None:
+def on_order_triggered(self, event: OrderTriggered) -> None:
+def on_order_pending_update(self, event: OrderPendingUpdate) -> None:
+def on_order_pending_cancel(self, event: OrderPendingCancel) -> None:
+def on_order_modify_rejected(self, event: OrderModifyRejected) -> None:
+def on_order_cancel_rejected(self, event: OrderCancelRejected) -> None:
+def on_order_updated(self, event: OrderUpdated) -> None:
+def on_order_filled(self, event: OrderFilled) -> None:
+def on_order_event(self, event: OrderEvent) -> None:  # All order event messages are eventually passed to this handler
+```
+
+#### Position management
+
+These handlers receive events related to positions.
+`PositionEvent` type messages are passed to handlers in the following sequence:
+
+1. Specific handler (e.g., `on_position_opened`, `on_position_changed`, etc.)
+2. `on_position_event(...)`
+
+```python
+from vibe_trader.model.events import PositionChanged
+from vibe_trader.model.events import PositionClosed
+from vibe_trader.model.events import PositionEvent
+from vibe_trader.model.events import PositionOpened
+
+def on_position_opened(self, event: PositionOpened) -> None:
+def on_position_changed(self, event: PositionChanged) -> None:
+def on_position_closed(self, event: PositionClosed) -> None:
+def on_position_event(self, event: PositionEvent) -> None:  # All position event messages are eventually passed to this handler
+```
+
+Use `on_time_event()` for timer events, `on_order_event()` for aggregate order events, and
+`on_position_event()` for aggregate position events. The Python API does not expose a generic
+`on_event()` hook.
+
+#### Handler example
+
+The following example shows a typical `on_start` handler method implementation (taken from the example EMA cross strategy).
+Here we can see the following:
+
+- Indicators being registered to receive bar updates.
+- Historical data being requested (to hydrate the indicators).
+- Live data being subscribed to.
+
+The cache check matters in live trading. Direct subscriptions assume the instrument was
+loaded by the instrument provider config or by an earlier instrument request.
+
+```python
+def on_start(self) -> None:
+    """
+    Actions to be performed on strategy start.
+    """
+    self.instrument = self.cache.instrument(self.instrument_id)
+    if self.instrument is None:
+        self.log.error(f"Could not find instrument for {self.instrument_id}")
+        self.stop()  # Transitions strategy to STOPPED state
+        return
+
+    # Register the indicators for updating
+    self.register_indicator_for_bars(self.bar_type, self.fast_ema)
+    self.register_indicator_for_bars(self.bar_type, self.slow_ema)
+
+    # Get historical data and subscribe to live data
+    self.request_bars(self.bar_type)
+    self.subscribe_bars(self.bar_type)
+    self.subscribe_quotes(self.instrument_id)
+```
+
+### Clock and timers
+
+Strategies have access to a `Clock` which provides a number of methods for creating
+different timestamps, as well as setting time alerts or timers to trigger `TimeEvent`s.
+
+See the [`Clock` API Reference](/docs/python-api-latest/common.html) for all available methods.
+
+#### Current timestamps
+
+While there are multiple ways to obtain current timestamps, here are two commonly used methods as examples:
+
+To get the current UTC timestamp as a tz-aware `pd.Timestamp`:
+
+```python
+import pandas as pd
+
+
+now: pd.Timestamp = self.clock.utc_now()
+```
+
+To get the current UTC timestamp as nanoseconds since the UNIX epoch:
+
+```python
+unix_nanos: int = self.clock.timestamp_ns()
+```
+
+#### Time alerts
+
+Time alerts can be set which will result in a `TimeEvent` being dispatched to the `on_time_event` handler at the
+specified alert time. In a live context, this might be slightly delayed by a few microseconds.
+
+This example sets a time alert to trigger one minute from the current time:
+
+```python
+import pandas as pd
+
+# Fire a TimeEvent one minute from now
+self.clock.set_time_alert(
+    name="MyTimeAlert1",
+    alert_time=self.clock.utc_now() + pd.Timedelta(minutes=1),
+)
+```
+
+#### Timers
+
+Continuous timers can be set up which will generate a `TimeEvent` at regular intervals until the timer expires
+or is canceled.
+
+This example sets a timer to fire once per minute, starting immediately:
+
+```python
+import pandas as pd
+
+# Fire a TimeEvent every minute
+self.clock.set_timer(
+    name="MyTimer1",
+    interval=pd.Timedelta(minutes=1),
+)
+```
+
+### Cache access
+
+The trader's central `Cache` stores data and execution objects (orders, positions, etc).
+Many methods are available with filtering. Here are some basic use cases.
+
+#### Fetching data
+
+The following example fetches data from the cache (assuming some instrument ID attribute is assigned).
+These methods return `None` if the requested data is not available.
+
+```python
+last_quote = self.cache.quote(self.instrument_id)
+last_trade = self.cache.trade(self.instrument_id)
+last_bar = self.cache.bar(bar_type)
+```
+
+#### Fetching execution objects
+
+The following example shows how individual order and position objects can be fetched from the cache:
+
+```python
+order = self.cache.order(client_order_id)
+position = self.cache.position(position_id)
+```
+
+See the [`Cache` API Reference](/docs/python-api-latest/cache.html) for all available methods.
+
+### Portfolio access
+
+The trader's central `Portfolio` provides account and positional information.
+The following shows a general outline of available methods.
+
+#### Account and positional information
+
+```python
+import decimal
+
+from vibe_trader.accounting.accounts.base import Account
+from vibe_trader.model import Venue
+from vibe_trader.model import Currency
+from vibe_trader.model import Money
+from vibe_trader.model import InstrumentId
+
+def account(self, venue: Venue) -> Account
+
+def balances_locked(self, venue: Venue) -> dict[Currency, Money]
+def margins_init(self, venue: Venue) -> dict[Currency, Money]
+def margins_maint(self, venue: Venue) -> dict[Currency, Money]
+def unrealized_pnls(self, venue: Venue) -> dict[Currency, Money]
+def realized_pnls(self, venue: Venue) -> dict[Currency, Money]
+def net_exposures(self, venue: Venue) -> dict[Currency, Money]
+
+def unrealized_pnl(self, instrument_id: InstrumentId) -> Money
+def realized_pnl(self, instrument_id: InstrumentId) -> Money
+def net_exposure(self, instrument_id: InstrumentId) -> Money
+def net_position(self, instrument_id: InstrumentId) -> decimal.Decimal
+
+def is_net_long(self, instrument_id: InstrumentId) -> bool
+def is_net_short(self, instrument_id: InstrumentId) -> bool
+def is_flat(self, instrument_id: InstrumentId) -> bool
+def is_completely_flat(self) -> bool
+```
+
+See the [`Portfolio` API Reference](/docs/python-api-latest/portfolio.html) for all available methods.
+
+#### Reports and analysis
+
+Use `Portfolio.statistics()` and `Portfolio.snapshots()` for performance analysis. See the
+[Analysis API Reference](/docs/python-api-latest/analysis.html) and
+[Portfolio statistics](portfolio.md#portfolio-statistics) guide.
+
+### Trading commands
+
+The following trading commands are available for order management.
+See also the [Execution](../concepts/execution.md) guide for the full flow through the system.
+
+#### Submitting orders
+
+An `OrderFactory` is provided on the base class for every `Strategy` as a convenience, reducing
+the amount of boilerplate required to create different `Order` objects (although these objects
+can still be initialized directly with the `Order.__init__(...)` constructor if the trader prefers).
+
+The component a `SubmitOrder` or `SubmitOrderList` command will flow to for execution depends on the following:
+
+- If an `emulation_trigger` is specified, the command will *firstly* be sent to the `OrderEmulator`.
+- If an `exec_algorithm_id` is specified (with no `emulation_trigger`), the command will *firstly* be sent to the relevant `ExecutionAlgorithm`.
+- Otherwise, the command will *firstly* be sent to the `RiskEngine`.
+
+This example submits a `LIMIT` BUY order for emulation (see [Emulated Orders](orders/emulated.md)):
+
+```python
+from vibe_trader.model.enums import OrderSide
+from vibe_trader.model.enums import TriggerType
+from vibe_trader.model.orders import LimitOrder
+
+
+def buy(self) -> None:
+    """
+    Users simple buy method (example).
+    """
+    order: LimitOrder = self.order_factory.limit(
+        instrument_id=self.instrument_id,
+        order_side=OrderSide.BUY,
+        quantity=self.instrument.make_qty(self.trade_size),
+        price=self.instrument.make_price(5000.00),
+        emulation_trigger=TriggerType.LAST_PRICE,
+    )
+
+    self.submit_order(order)
+```
+
+:::info
+You can specify both order emulation and an execution algorithm. In this case, the order is
+first sent to the `OrderEmulator`, and upon release is then routed to the `ExecutionAlgorithm`.
+:::
+
+This example submits a `MARKET` BUY order to a TWAP execution algorithm:
+
+```python
+from vibe_trader.model.enums import OrderSide
+from vibe_trader.model.enums import TimeInForce
+from vibe_trader.model import ExecAlgorithmId
+
+
+def buy(self) -> None:
+    """
+    Users simple buy method (example).
+    """
+    order: MarketOrder = self.order_factory.market(
+        instrument_id=self.instrument_id,
+        order_side=OrderSide.BUY,
+        quantity=self.instrument.make_qty(self.trade_size),
+        time_in_force=TimeInForce.FOK,
+        exec_algorithm_id=ExecAlgorithmId("TWAP"),
+        exec_algorithm_params={"horizon_secs": "20", "interval_secs": "2.5"},
+    )
+
+    self.submit_order(order)
+```
+
+#### Canceling orders
+
+Orders can be canceled individually, as a batch, or all orders for an instrument (with an optional side filter).
+
+If the order is already *closed* or already pending cancel, then a warning will be logged.
+
+If the order is currently *open* then the status will become `PENDING_CANCEL`.
+
+The component a `CancelOrder`, `CancelAllOrders`, or `BatchCancelOrders` command will flow to for execution depends on the following:
+
+- If the order is currently emulated, the command will *firstly* be sent to the `OrderEmulator`.
+- If an `exec_algorithm_id` is specified (with no `emulation_trigger`), and the order is still active within the local system, the command will *firstly* be sent to the relevant `ExecutionAlgorithm`.
+- Otherwise, the order will *firstly* be sent to the `ExecutionEngine`.
+
+:::info
+Any managed GTD timer will also be canceled after the command has left the strategy.
+:::
+
+The following shows how to cancel an individual order:
+
+```python
+self.cancel_order(order.client_order_id)
+```
+
+The following shows how to cancel a batch of orders:
+
+```python
+from vibe_trader.model import ClientOrderId
+
+
+client_order_ids: list[ClientOrderId] = [
+    order1.client_order_id,
+    order2.client_order_id,
+    order3.client_order_id,
+]
+self.cancel_orders(client_order_ids)
+```
+
+The following shows how to cancel all orders:
+
+```python
+self.cancel_all_orders(self.instrument_id)
+```
+
+#### Modifying orders
+
+Orders can be modified individually when emulated, or *open* on a venue (if supported).
+
+If the order is already *closed* or already pending cancel, then a warning will be logged.
+If the order is currently *open* then the status will become `PENDING_UPDATE`.
+
+:::warning
+At least one value must differ from the original order for the command to be valid.
+:::
+
+The component a `ModifyOrder` command will flow to for execution depends on the following:
+
+- If the order is currently emulated, the command will *firstly* be sent to the `OrderEmulator`.
+- Otherwise, the order will *firstly* be sent to the `RiskEngine`.
+
+:::info
+Once an order is under the control of an execution algorithm, it cannot be directly modified by a strategy (only canceled).
+:::
+
+The following shows how to modify the size of `LIMIT` BUY order currently *open* on a venue:
+
+```python
+from vibe_trader.model import Quantity
+
+
+new_quantity: Quantity = Quantity.from_int(5)
+self.modify_order(order.client_order_id, quantity=new_quantity)
+```
+
+:::info
+The price and trigger price can also be modified (when emulated or supported by a venue).
+:::
+
+#### Market exit
+
+The `market_exit()` method provides a graceful way to exit all positions and cancel all orders
+for a strategy. The strategy remains running after the exit completes, allowing you to re-enter
+positions later if desired.
+
+```python
+self.market_exit()
+```
+
+The market exit process:
+
+1. Cancels all open and in-flight orders for the strategy.
+2. Closes all open positions with market orders.
+3. Periodically checks (at `market_exit_interval_ms`) until all orders resolve and positions close.
+4. Calls `post_market_exit()` once flat, or after `market_exit_max_attempts` is reached.
+
+Two hooks are available for custom logic:
+
+- `on_market_exit()` - Called when the exit process begins.
+- `post_market_exit()` - Called when the exit process completes.
+
+```python
+class MyStrategy(Strategy):
+    def on_market_exit(self) -> None:
+        self.log.info("Beginning market exit...")
+
+    def post_market_exit(self) -> None:
+        self.log.info("Market exit complete")
+```
+
+During a market exit, non-reduce-only orders are automatically denied. For order lists,
+if any order in the list is non-reduce-only, the entire list is denied to preserve list
+semantics (e.g., bracket orders with interdependencies).
+
+To check if an exit is in progress (e.g., to skip order submission logic), use `is_exiting()`:
+
+```python
+def on_quote(self, tick: QuoteTick) -> None:
+    if self.is_exiting():
+        return  # Skip order logic during exit
+    # ... normal order logic
+```
+
+To automatically perform a market exit when the strategy is stopped, set `manage_stop=True`:
+
+```python
+config = StrategyConfig(manage_stop=True)
+```
+
+With this option, calling `stop()` will first perform a market exit, then stop the strategy
+once flat.
+
+Configuration options in `StrategyConfig`:
+
+- `manage_stop` (default: False) - If True, `stop()` performs a market exit before stopping.
+- `market_exit_interval_ms` (default: 100) - Interval between exit completion checks.
+- `market_exit_max_attempts` (default: 100) - Maximum checks before completing the exit.
+- `market_exit_time_in_force` (default: None/GTC) - Time in force for closing market orders.
+- `market_exit_reduce_only` (default: True) - If closing market orders should be reduce only.
+
+## Strategy configuration
+
+A separate configuration class gives full flexibility over where and how a strategy
+is instantiated. Configurations serialize over the wire, enabling distributed backtesting
+and remote live trading.
+
+This is opt-in. You can skip configuration and pass parameters directly to your
+strategy constructor. If you want distributed backtests or remote live trading,
+define a configuration.
+
+Here is an example configuration:
+
+```python
+from decimal import Decimal
+from vibe_trader.model import Bar
+from vibe_trader.model import BarType
+from vibe_trader.model import InstrumentId
+from vibe_trader.trading import Strategy
+from vibe_trader.config import StrategyConfig
+
+
+# Configuration definition
+class MyStrategyConfig(StrategyConfig):
+    _CUSTOM_FIELDS = (
+        "instrument_id",
+        "bar_type",
+        "fast_ema_period",
+        "slow_ema_period",
+        "trade_size",
+    )
+
+    def __new__(cls, *args, **kwargs):
+        for field in cls._CUSTOM_FIELDS:
+            kwargs.pop(field, None)
+        return super().__new__(cls, *args, **kwargs)
+
+    def __init__(
+        self,
+        instrument_id: InstrumentId,
+        bar_type: BarType,
+        trade_size: Decimal,
+        fast_ema_period: int = 10,
+        slow_ema_period: int = 20,
+        **_kwargs,
+    ) -> None:
+        super().__init__()
+        self.instrument_id = instrument_id
+        self.bar_type = bar_type
+        self.trade_size = trade_size
+        self.fast_ema_period = fast_ema_period
+        self.slow_ema_period = slow_ema_period
+
+
+# Strategy definition
+class MyStrategy(Strategy):
+    def __init__(self, config: MyStrategyConfig) -> None:
+        # Always initialize the parent Strategy class
+        # After this, configuration is stored and available via `self.config`
+        super().__init__(config)
+
+        # Custom state variables
+        self.time_started = None
+        self.count_of_processed_bars: int = 0
+
+    def on_start(self) -> None:
+        self.time_started = self.clock.utc_now()  # Remember time, when strategy started
+        self.subscribe_bars(
+            self.config.bar_type
+        )  # See how configuration data are exposed via `self.config`
+
+    def on_bar(self, bar: Bar):
+        self.count_of_processed_bars += 1  # Update count of processed bars
+
+
+# Instantiate configuration with specific values. By setting:
+#   - InstrumentId - we parameterize the instrument the strategy will trade.
+#   - BarType - we parameterize bar-data, that strategy will trade.
+config = MyStrategyConfig(
+    instrument_id=InstrumentId.from_str("ETHUSDT-PERP.BINANCE"),
+    bar_type=BarType.from_str("ETHUSDT-PERP.BINANCE-15-MINUTE[LAST]-EXTERNAL"),
+    trade_size=Decimal("1"),
+    order_id_tag="001",
+)
+
+# Pass configuration to our trading strategy.
+strategy = MyStrategy(config=config)
+```
+
+Access configuration values through `self.config`.
+This provides clear separation between:
+
+- Configuration data (accessed via `self.config`):
+  - Contains initial settings, that define how the strategy works.
+  - Example: `self.config.trade_size`, `self.config.instrument_id`
+
+- Strategy state variables (as direct attributes):
+  - Track any custom state of the strategy.
+  - Example: `self.time_started`, `self.count_of_processed_bars`
+
+This separation makes code easier to understand and maintain.
+
+:::note
+Even though it often makes sense to define a strategy which will trade a single
+instrument. The number of instruments a single strategy can work with is only limited by machine resources.
+:::
+
+### Managed GTD expiry
+
+It's possible for the strategy to manage expiry for orders with a time in force of GTD (*Good 'till Date*).
+This may be desirable if the exchange/broker does not support this time in force option, or for any
+reason you prefer the strategy to manage this.
+
+To use this option, pass `manage_gtd_expiry=True` to your `StrategyConfig`. When an order is submitted with
+a time in force of GTD, the strategy will automatically start an internal time alert.
+Once the internal GTD time alert is reached, the order will be canceled (if not already *closed*).
+
+Some venues (such as Binance Futures) support the GTD time in force, so to avoid conflicts when using
+`managed_gtd_expiry` you should set `use_gtd=False` for your execution client config.
+
+### Multiple strategies
+
+If you intend running multiple instances of the same strategy, with different
+configurations (such as trading different instruments), then each instance needs a
+unique strategy ID and order ID tag.
+
+If `strategy_id` is not supplied, the platform builds the strategy ID from the
+strategy class name and an order ID tag. The tag can be supplied with `order_id_tag`;
+otherwise registration assigns the next numeric tag, starting with `000`. For example,
+the above config results in a strategy ID of `MyStrategy-001`.
+
+If `strategy_id` is supplied with `order_id_tag`, Rust appends the tag to the
+runtime strategy ID unless the ID already ends with that tag. For example,
+`strategy_id=MyStrategy-PRIMARY` with `order_id_tag=ABC` becomes
+`MyStrategy-PRIMARY-ABC`.
+If `order_id_tag` is omitted, Rust uses the final hyphen-separated part of
+`strategy_id` as the order ID tag.
+
+:::note
+The platform has built-in safety measures: if two strategies share a duplicated strategy ID,
+a `RuntimeError` is raised during registration indicating the strategy ID is already registered.
+:::
+
+The reason for this is that the system must be able to identify which strategy
+various commands and events belong to. The order ID tag also keeps generated client
+order IDs unique across strategies for the same trader.
+
+:::info Rust implementation
+Rust treats `StrategyConfig` as immutable construction input. The runtime
+`StrategyId` carries the order ID tag, matching Python/Cython behavior. This keeps
+actor registration, client order ID generation, order list ID generation, and
+position ID generation aligned through `strategy_id.get_tag()`.
+
+If `strategy_id` is omitted, `order_id_tag` overrides the generated suffix, for
+example `MyStrategy-ABC`.
+:::
+
+See the [`StrategyId` API Reference](/docs/python-api-latest/model/identifiers.html) for further details.
+
+## Related guides
+
+- [Actors](actors.md) - Base class that strategies extend.
+- [Events](events/) - Event types and handler dispatch.
+- [Orders](orders/) - Order types and management from strategies.
+- [Backtesting](backtesting/) - Test strategies with historical data.

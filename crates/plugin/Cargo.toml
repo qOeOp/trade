@@ -1,0 +1,29 @@
+[package]
+name = "vibe-plugin"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+build = "build.rs"
+description = "Plug-in system for the Vibe trading engine"
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "vibe_plugin"
+crate-type = ["rlib"]
+
+[features]
+default = []
+# Compatibility feature retained for downstream manifests
+host = []
+[dependencies]
+vibe-model = { workspace = true }
+
+log = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }

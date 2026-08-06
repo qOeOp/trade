@@ -1,0 +1,94 @@
+use std::{env, time::Duration};
+
+use tokio::{pin, signal};
+use vibe_hyperliquid::{
+    common::{consts::ws_url, enums::HyperliquidEnvironment},
+    http::HyperliquidHttpClient,
+    websocket::client::HyperliquidWebSocketClient,
+};
+use vibe_model::instruments::{Instrument, InstrumentAny};
+use vibe_network::websocket::TransportBackend;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    vibe_common::logging::ensure_logging_initialized();
+
+    let args: Vec<String> = env::args().collect();
+    let environment = if args.get(1).is_some_and(|s| s == "testnet") {
+        HyperliquidEnvironment::Testnet
+    } else {
+        HyperliquidEnvironment::Mainnet
+    };
+
+    log::info!("Starting Hyperliquid WebSocket data example");
+    log::info!("Environment: {environment:?}");
+
+    // Load instruments first
+    let http_client = HyperliquidHttpClient::new(environment, 60, None)?;
+    let instruments = http_client.request_instruments().await?;
+    log::info!("Loaded {} instruments", instruments.len());
+
+    // Find BTC-USD-PERP instrument (raw_symbol is "BTC" for BTC-USD-PERP)
+    let btc_inst = instruments
+        .iter()
+        .find(|i| i.raw_symbol().as_str() == "BTC")
+        .ok_or("BTC-USD-PERP instrument not found")?;
+    let instrument_id = match btc_inst {
+        InstrumentAny::CryptoPerpetual(inst) => inst.id,
+        _ => return Err("Expected CryptoPerpetual instrument".into()),
+    };
+    log::info!("Using instrument: {instrument_id}");
+
+    let ws_url = ws_url(environment);
+    log::info!("WebSocket URL: {ws_url}");
+
+    let mut client = HyperliquidWebSocketClient::new(
+        Some(ws_url.to_string()),
+        environment,
+        None,
+        TransportBackend::default(),
+        None,
+    );
+
+    // Cache instruments before connecting
+    client.cache_instruments(instruments);
+
+    client.connect().await?;
+    log::info!("Connected to Hyperliquid WebSocket");
+
+    // Wait for connection to be fully established
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    log::info!("Subscribing to trades for {instrument_id}");
+    client.subscribe_trades(instrument_id).await?;
+
+    log::info!("Subscribing to BBO for {instrument_id}");
+    client.subscribe_quotes(instrument_id).await?;
+
+    // Wait briefly to ensure subscriptions are processed
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    // Create a future that completes on CTRL+C
+    let sigint = signal::ctrl_c();
+    pin!(sigint);
+
+    let mut message_count = 0;
+
+    loop {
+        tokio::select! {
+            Some(message) = client.next_event() => {
+                message_count += 1;
+                log::info!("Message #{message_count}: {message:?}");
+            }
+            _ = &mut sigint => {
+                log::info!("Received SIGINT, closing connection...");
+                client.disconnect().await?;
+                break;
+            }
+            else => break,
+        }
+    }
+
+    log::info!("Received {message_count} total messages");
+    Ok(())
+}

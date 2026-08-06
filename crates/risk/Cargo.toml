@@ -1,0 +1,51 @@
+[package]
+name = "vibe-risk"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Core risk management machinery for the Vibe trading engine"
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "vibe_risk"
+crate-type = ["rlib"]
+
+[features]
+default = []
+extension-module = [
+  "vibe-core/extension-module",
+  "vibe-model/extension-module",
+  "pyo3/extension-module",
+]
+python = [
+  "vibe-core/python",
+  "vibe-model/python",
+  "pyo3",
+  "pyo3-stub-gen",
+]
+[dependencies]
+vibe-common = { workspace = true }
+vibe-core = { workspace = true }
+vibe-execution = { workspace = true }
+vibe-model = { workspace = true, features = ["stubs"] }
+vibe-portfolio = { workspace = true }
+
+ahash = { workspace = true }
+bon = { workspace = true }
+indexmap = { workspace = true }
+log = { workspace = true }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+serde = { workspace = true }
+ustr = { workspace = true }
+
+pyo3 = { workspace = true, optional = true }
+pyo3-stub-gen = { workspace = true, optional = true }
+
+[dev-dependencies]
+rstest = { workspace = true }

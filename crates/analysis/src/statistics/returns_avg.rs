@@ -1,0 +1,121 @@
+use std::fmt::Display;
+
+use vibe_model::position::Position;
+
+use crate::{Returns, statistic::PortfolioStatistic};
+
+/// Calculates the arithmetic mean of portfolio returns.
+///
+/// All returns are included, so zero returns count toward the average.
+/// Returns `NaN` for an empty series.
+#[repr(C)]
+#[derive(Debug, Clone)]
+#[cfg_attr(
+    feature = "python",
+    pyo3::pyclass(module = "vibe_trader.analysis", from_py_object)
+)]
+#[cfg_attr(
+    feature = "python",
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.analysis")
+)]
+pub struct ReturnsAverage {}
+
+impl Display for ReturnsAverage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Average (Return)")
+    }
+}
+
+impl PortfolioStatistic for ReturnsAverage {
+    type Item = f64;
+
+    fn name(&self) -> String {
+        self.to_string()
+    }
+
+    fn calculate_from_returns(&self, returns: &Returns) -> Option<Self::Item> {
+        if !self.check_valid_returns(returns) {
+            return Some(f64::NAN);
+        }
+
+        let sum: f64 = returns.values().sum();
+        let count = returns.len() as f64;
+
+        Some(sum / count)
+    }
+    fn calculate_from_realized_pnls(&self, _realized_pnls: &[f64]) -> Option<Self::Item> {
+        None
+    }
+
+    fn calculate_from_positions(&self, _positions: &[Position]) -> Option<Self::Item> {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use rstest::rstest;
+    use vibe_core::{UnixNanos, approx_eq};
+
+    use super::*;
+
+    fn create_returns(values: &[f64]) -> Returns {
+        let mut new_return = BTreeMap::new();
+        for (i, value) in values.iter().enumerate() {
+            new_return.insert(UnixNanos::from(i as u64), *value);
+        }
+        new_return
+    }
+
+    #[rstest]
+    fn test_empty_returns() {
+        let avg = ReturnsAverage {};
+        let returns = create_returns(&[]);
+        let result = avg.calculate_from_returns(&returns);
+        assert!(result.is_some());
+        assert!(result.unwrap().is_nan());
+    }
+
+    #[rstest]
+    fn test_all_zero() {
+        let avg = ReturnsAverage {};
+        let returns = create_returns(&[0.0, 0.0, 0.0]);
+        let result = avg.calculate_from_returns(&returns);
+        assert!(result.is_some());
+        // Average of [0.0, 0.0, 0.0] = 0.0
+        assert!(approx_eq!(f64, result.unwrap(), 0.0, epsilon = 1e-9));
+    }
+
+    #[rstest]
+    fn test_mixed_with_zeros() {
+        let avg = ReturnsAverage {};
+        let returns = create_returns(&[10.0, -20.0, 0.0, 30.0, -40.0]);
+        let result = avg.calculate_from_returns(&returns);
+        assert!(result.is_some());
+        // Average of [10.0, -20.0, 0.0, 30.0, -40.0] = -20 / 5 = -4.0
+        assert!(approx_eq!(f64, result.unwrap(), -4.0, epsilon = 1e-9));
+    }
+
+    #[rstest]
+    fn test_zeros_included_in_average() {
+        let avg = ReturnsAverage {};
+        let returns = create_returns(&[1.0, 0.0, 0.0]);
+        let result = avg.calculate_from_returns(&returns);
+        assert!(result.is_some());
+        // Average of [1.0, 0.0, 0.0] = 1.0 / 3 = 0.333...
+        assert!(approx_eq!(
+            f64,
+            result.unwrap(),
+            0.3333333333333333,
+            epsilon = 1e-9
+        ));
+    }
+
+    #[rstest]
+    fn test_name() {
+        let avg = ReturnsAverage {};
+        assert_eq!(avg.name(), "Average (Return)");
+    }
+}

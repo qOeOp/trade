@@ -1,0 +1,100 @@
+use std::hint::black_box;
+
+use criterion::{Criterion, criterion_group};
+use rust_decimal_macros::dec;
+use vibe_model::types::{Price, price::PriceRaw};
+
+pub fn bench_price_new(c: &mut Criterion) {
+    c.bench_function("Price::new", |b| {
+        b.iter(|| Price::new(black_box(123.45), black_box(2)));
+    });
+}
+
+pub fn bench_price_from_decimal(c: &mut Criterion) {
+    let decimal = dec!(123.45);
+    c.bench_function("Price::from_decimal", |b| {
+        b.iter(|| Price::from_decimal(black_box(decimal)));
+    });
+}
+
+pub fn bench_price_from_decimal_high_scale(c: &mut Criterion) {
+    // Decimal with more scale than target precision (triggers rounding)
+    let decimal = dec!(123.456789);
+    c.bench_function("Price::from_decimal_dp (high scale)", |b| {
+        b.iter(|| Price::from_decimal_dp(black_box(decimal), black_box(2)));
+    });
+}
+
+pub fn bench_price_from_raw(c: &mut Criterion) {
+    let raw: PriceRaw = 123_450_000_000;
+    c.bench_function("Price::from_raw", |b| {
+        b.iter(|| Price::from_raw(black_box(raw), black_box(2)));
+    });
+}
+
+pub fn bench_price_from_mantissa_exponent(c: &mut Criterion) {
+    c.bench_function("Price::from_mantissa_exponent", |b| {
+        b.iter(|| Price::from_mantissa_exponent(black_box(12345), black_box(-2), black_box(2)));
+    });
+}
+
+pub fn bench_price_add(c: &mut Criterion) {
+    let a = Price::new(100.50, 2);
+    let b = Price::new(200.75, 2);
+    c.bench_function("Price + Price", |b_iter| {
+        b_iter.iter(|| black_box(a) + black_box(b));
+    });
+}
+
+pub fn bench_price_sub(c: &mut Criterion) {
+    let a = Price::new(200.75, 2);
+    let b = Price::new(100.50, 2);
+    c.bench_function("Price - Price", |b_iter| {
+        b_iter.iter(|| black_box(a) - black_box(b));
+    });
+}
+
+pub fn bench_price_as_decimal(c: &mut Criterion) {
+    let price = Price::new(123.45, 2);
+    c.bench_function("Price::as_decimal", |b| {
+        b.iter(|| black_box(price).as_decimal());
+    });
+}
+
+pub fn bench_price_as_f64(c: &mut Criterion) {
+    let price = Price::new(123.45, 2);
+    c.bench_function("Price::as_f64", |b| {
+        b.iter(|| black_box(price).as_f64());
+    });
+}
+
+pub fn bench_price_mul_f64(c: &mut Criterion) {
+    let price = Price::new(100.00, 2);
+    c.bench_function("Price * f64", |b| {
+        b.iter(|| black_box(price) * black_box(0.001));
+    });
+}
+
+pub fn bench_price_mul_decimal(c: &mut Criterion) {
+    let price = Price::new(100.00, 2);
+    let factor = dec!(0.001);
+    c.bench_function("Price * Decimal", |b| {
+        b.iter(|| black_box(price) * black_box(factor));
+    });
+}
+
+criterion_group!(
+    benches,
+    bench_price_new,
+    bench_price_from_decimal,
+    bench_price_from_decimal_high_scale,
+    bench_price_from_raw,
+    bench_price_from_mantissa_exponent,
+    bench_price_add,
+    bench_price_sub,
+    bench_price_as_decimal,
+    bench_price_as_f64,
+    bench_price_mul_f64,
+    bench_price_mul_decimal,
+);
+criterion::criterion_main!(benches);

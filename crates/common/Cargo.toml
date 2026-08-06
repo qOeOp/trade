@@ -1,0 +1,167 @@
+[package]
+name = "vibe-common"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Common functionality and machinery for the Vibe trading engine"
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "vibe_common"
+crate-type = ["rlib"]
+
+[features]
+default = []
+extension-module = [
+  "vibe-core/extension-module",
+  "vibe-model/extension-module",
+  "vibe-indicators/extension-module",
+  "python",
+  "pyo3/extension-module",
+]
+indicators = ["vibe-indicators"]
+python = [
+  "vibe-core/python",
+  "vibe-model/python",
+  "pyo3",
+  "pyo3-async-runtimes",
+  "pyo3-stub-gen",
+  "live",
+]
+live = ["tokio"]
+simulation = ["live", "madsim", "vibe-core/simulation"]
+defi = ["vibe-model/defi", "alloy-primitives"]
+high-precision = [
+  "vibe-model/high-precision",
+  "vibe-serialization?/high-precision",
+]
+capnp = [
+  "dep:capnp",
+  "dep:vibe-serialization",
+  "vibe-serialization/capnp",
+]
+sbe = ["dep:vibe-serialization", "vibe-serialization/sbe"]
+tracing-bridge = ["tracing", "tracing-subscriber"]
+[dependencies]
+vibe-core = { workspace = true }
+vibe-indicators = { workspace = true, optional = true }
+vibe-model = { workspace = true, features = ["stubs"] }
+vibe-serialization = { workspace = true, optional = true }
+
+ahash = { workspace = true }
+anyhow = { workspace = true }
+async-stream = { workspace = true }
+async-trait = { workspace = true }
+bon = { workspace = true }
+bytes = { workspace = true }
+derive_builder = { workspace = true }
+futures = { workspace = true }
+indexmap = { workspace = true }
+itoa = { workspace = true }
+jiff = { workspace = true }
+log = { workspace = true }
+regex = { workspace = true }
+rmp-serde = { workspace = true }
+rust_decimal = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+smallvec = { workspace = true }
+strum = { workspace = true }
+sysinfo = { workspace = true }
+thiserror = { workspace = true }
+ustr = { workspace = true }
+
+alloy-primitives = { workspace = true, optional = true }
+capnp = { workspace = true, optional = true }
+madsim = { workspace = true, optional = true }
+pyo3 = { workspace = true, optional = true }
+pyo3-async-runtimes = { workspace = true, optional = true }
+pyo3-stub-gen = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+futures = { workspace = true, features = ["executor"] }
+iai = { workspace = true }
+proptest = { workspace = true }
+rand = { workspace = true }
+regex = { workspace = true }
+rstest = { workspace = true }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+tempfile = { workspace = true }
+toml = { workspace = true }
+
+[[bench]]
+name = "cache_orders"
+path = "benches/cache/orders.rs"
+harness = false
+
+[[bench]]
+name = "cache_query_sets"
+path = "benches/cache/query_sets.rs"
+harness = false
+
+[[bench]]
+name = "cache_xrate"
+path = "benches/cache/xrate.rs"
+harness = false
+
+[[bench]]
+name = "client_order_id"
+path = "benches/client_order_id.rs"
+harness = false
+
+[[bench]]
+name = "order_list_id"
+path = "benches/order_list_id.rs"
+harness = false
+
+[[bench]]
+name = "position_id"
+path = "benches/position_id.rs"
+harness = false
+
+[[bench]]
+name = "matching"
+path = "benches/matching.rs"
+harness = false
+
+[[bench]]
+name = "matching_iai"
+path = "benches/matching_iai.rs"
+harness = false
+
+[[bench]]
+name = "msgbus"
+path = "benches/msgbus.rs"
+harness = false
+
+[[bench]]
+name = "mstr"
+path = "benches/mstr.rs"
+harness = false
+
+[[bench]]
+name = "logging"
+path = "benches/logging.rs"
+harness = false
+
+[[bench]]
+name = "throttler"
+path = "benches/throttler.rs"
+harness = false
+
+# Run with `cargo run -p vibe-common --features live --example greeks_actor_example`
+[[example]]
+name = "greeks_actor_example"
+path = "examples/greeks_actor_example.rs"
+required-features = ["live"]
+doc = false

@@ -1,0 +1,105 @@
+use pyo3::prelude::*;
+use vibe_core::python::to_pyvalue_err;
+use vibe_model::data::{Bar, QuoteTick, TradeTick};
+
+use crate::{
+    average::MovingAverageType, indicator::Indicator, momentum::amat::ArcherMovingAveragesTrends,
+};
+
+#[pymethods]
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
+impl ArcherMovingAveragesTrends {
+    /// Creates a new `ArcherMovingAveragesTrends` instance.
+    #[new]
+    #[pyo3(signature = (fast_period, slow_period, signal_period, ma_type=None))]
+    #[must_use]
+    pub fn py_new(
+        fast_period: usize,
+        slow_period: usize,
+        signal_period: usize,
+        ma_type: Option<MovingAverageType>,
+    ) -> Self {
+        Self::new(fast_period, slow_period, signal_period, ma_type)
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "ArcherMovingAveragesTrends({},{},{},{})",
+            self.fast_period, self.slow_period, self.signal_period, self.ma_type
+        )
+    }
+
+    #[getter]
+    #[pyo3(name = "name")]
+    fn py_name(&self) -> String {
+        self.name()
+    }
+
+    #[getter]
+    #[pyo3(name = "fast_period")]
+    const fn py_fast_period(&self) -> usize {
+        self.fast_period
+    }
+
+    #[getter]
+    #[pyo3(name = "slow_period")]
+    const fn py_slow_period(&self) -> usize {
+        self.slow_period
+    }
+
+    #[getter]
+    #[pyo3(name = "signal_period")]
+    const fn py_signal_period(&self) -> usize {
+        self.signal_period
+    }
+
+    #[getter]
+    #[pyo3(name = "has_inputs")]
+    fn py_has_inputs(&self) -> bool {
+        self.has_inputs()
+    }
+
+    #[getter]
+    #[pyo3(name = "long_run")]
+    const fn py_long_run(&self) -> bool {
+        self.long_run
+    }
+
+    #[getter]
+    #[pyo3(name = "short_run")]
+    const fn py_short_run(&self) -> bool {
+        self.short_run
+    }
+
+    #[getter]
+    #[pyo3(name = "initialized")]
+    const fn py_initialized(&self) -> bool {
+        self.initialized
+    }
+
+    /// Updates the indicator with a new raw price value.
+    #[pyo3(name = "update_raw")]
+    fn py_update_raw(&mut self, close: f64) {
+        self.update_raw(close);
+    }
+
+    #[pyo3(name = "handle_quote_tick")]
+    fn py_handle_quote_tick(&mut self, quote: &QuoteTick) -> PyResult<()> {
+        self.handle_quote(quote).map_err(to_pyvalue_err)
+    }
+
+    #[pyo3(name = "handle_trade_tick")]
+    fn py_handle_trade_tick(&mut self, trade: &TradeTick) {
+        self.handle_trade(trade);
+    }
+
+    #[pyo3(name = "handle_bar")]
+    fn py_handle_bar(&mut self, bar: &Bar) {
+        self.handle_bar(bar);
+    }
+
+    #[pyo3(name = "reset")]
+    fn py_reset(&mut self) {
+        self.reset();
+    }
+}

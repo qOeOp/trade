@@ -1,0 +1,77 @@
+use futures_util::StreamExt;
+use tokio::{pin, signal};
+use vibe_model::identifiers::InstrumentId;
+use vibe_okx::{
+    common::enums::OKXInstrumentType, http::client::OKXHttpClient, websocket::OKXWebSocketClient,
+};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    vibe_common::logging::ensure_logging_initialized();
+
+    let http_client = OKXHttpClient::from_env().unwrap();
+    let (instruments, _inst_id_codes) = http_client
+        .request_instruments(OKXInstrumentType::Swap, None)
+        .await?;
+
+    let mut ws_client = OKXWebSocketClient::from_env().unwrap();
+    ws_client.cache_instruments(&instruments);
+    ws_client.connect().await?;
+
+    let instrument_id = InstrumentId::from("BTC-USD-SWAP.OKX");
+
+    // let mut client_business = OKXWebSocketClient::new(
+    //     Some(OKX_WS_BUSINESS_URL),
+    //     None,     // No API key for public feeds
+    //     None,     // No API secret
+    //     None,     // No API passphrase
+    //     Some(10), // 10 second heartbeat
+    // )
+    // .unwrap();
+
+    // client_business.connect_data(instruments).await?;
+    // let bar_type = BarType::new(
+    //     instrument_id,
+    //     BAR_SPEC_1_MINUTE,
+    //     AggregationSource::External,
+    // );
+    // client_business.subscribe_bars(bar_type).await?;
+
+    ws_client
+        .subscribe_instruments(OKXInstrumentType::Swap)
+        .await?;
+    // client.subscribe_tickers(instrument_id).await?;
+    // client.subscribe_trades(instrument_id, true).await?;
+    ws_client.subscribe_book(instrument_id).await?;
+    // client.subscribe_quotes(instrument_id).await?;
+
+    // tokio::time::sleep(Duration::from_secs(1)).await;
+
+    // client.subscribe_book(instrument_id).await?;
+    // client.subscribe_book_depth5(instrument_id).await?;
+    // client.subscribe_quotes(instrument_id).await?;
+    // client.subscribe_trades(instrument_id).await?;
+
+    // Create a future that completes on CTRL+C
+    let sigint = signal::ctrl_c();
+    pin!(sigint);
+
+    let stream = ws_client.stream();
+    tokio::pin!(stream); // Pin the stream to allow polling in the loop
+
+    loop {
+        tokio::select! {
+            Some(data) = stream.next() => {
+                log::debug!("{data:?}");
+            }
+            _ = &mut sigint => {
+                log::info!("Received SIGINT, closing connection...");
+                ws_client.close().await?;
+                break;
+            }
+            else => break,
+        }
+    }
+
+    Ok(())
+}

@@ -1,7 +1,0 @@
-{
-  "name": "@trade/tech-indicators",
-  "private": true,
-  "scripts": {
-    "check": "unformatted=\"$(find . -name '*.go' -type f -exec gofmt -l {} +)\" && test -z \"$unformatted\" && go test ./... && go vet ./..."
-  }
-}

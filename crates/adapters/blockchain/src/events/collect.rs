@@ -1,0 +1,97 @@
+use alloy::primitives::Address;
+use vibe_core::UnixNanos;
+use vibe_model::{
+    defi::{PoolIdentifier, SharedChain, SharedDex, data::PoolFeeCollect},
+    identifiers::InstrumentId,
+};
+
+/// Represents a collect event that occurs when fees are collected from a position in a liquidity pool.
+#[derive(Debug, Clone)]
+pub struct CollectEvent {
+    /// The decentralized exchange where the event happened.
+    pub dex: SharedDex,
+    /// The unique identifier for the pool.
+    pub pool_identifier: PoolIdentifier,
+    /// The block number when the collect occurred.
+    pub block_number: u64,
+    /// The unique hash identifier of the transaction containing this event.
+    pub transaction_hash: String,
+    /// The position of this transaction within the block.
+    pub transaction_index: u32,
+    /// The position of this event log within the transaction.
+    pub log_index: u32,
+    /// The owner of the position.
+    pub owner: Address,
+    /// The recipient of the collected fees.
+    pub recipient: Address,
+    /// The lower tick boundary of the position.
+    pub tick_lower: i32,
+    /// The upper tick boundary of the position.
+    pub tick_upper: i32,
+    /// The amount of token0 fees collected.
+    pub amount0: u128,
+    /// The amount of token1 fees collected.
+    pub amount1: u128,
+}
+
+impl CollectEvent {
+    /// Creates a new [`CollectEvent`] instance with the specified parameters.
+    #[must_use]
+    #[expect(clippy::too_many_arguments)]
+    pub fn new(
+        dex: SharedDex,
+        pool_identifier: PoolIdentifier,
+        block_number: u64,
+        transaction_hash: String,
+        transaction_index: u32,
+        log_index: u32,
+        owner: Address,
+        recipient: Address,
+        tick_lower: i32,
+        tick_upper: i32,
+        amount0: u128,
+        amount1: u128,
+    ) -> Self {
+        Self {
+            dex,
+            pool_identifier,
+            block_number,
+            transaction_hash,
+            transaction_index,
+            log_index,
+            owner,
+            recipient,
+            tick_lower,
+            tick_upper,
+            amount0,
+            amount1,
+        }
+    }
+
+    /// Converts a collect event into a `PoolFeeCollect`.
+    pub fn to_pool_fee_collect(
+        &self,
+        chain: SharedChain,
+        dex: SharedDex,
+        instrument_id: InstrumentId,
+        timestamp: UnixNanos,
+    ) -> PoolFeeCollect {
+        PoolFeeCollect::new(
+            chain,
+            dex,
+            instrument_id,
+            self.pool_identifier,
+            self.block_number,
+            self.transaction_hash.clone(),
+            self.transaction_index,
+            self.log_index,
+            self.owner,
+            self.amount0,
+            self.amount1,
+            self.tick_lower,
+            self.tick_upper,
+            timestamp, // ts_event
+            timestamp, // ts_init (same block timestamp)
+        )
+    }
+}

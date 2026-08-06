@@ -1,0 +1,86 @@
+//! Python bindings for the Databento data client factory.
+
+use std::path::PathBuf;
+
+use indexmap::IndexMap;
+use pyo3::prelude::*;
+use vibe_core::{python::to_pyruntime_err, time::get_atomic_clock_realtime};
+use vibe_model::identifiers::ClientId;
+
+use crate::{
+    data::DatabentoDataClient,
+    factories::{DatabentoDataClientFactory, DatabentoLiveClientConfig},
+};
+
+#[pymethods]
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
+impl DatabentoLiveClientConfig {
+    /// Configuration for Databento data clients used with `LiveNode`.
+    #[new]
+    #[pyo3(signature = (api_key, publishers_filepath, use_exchange_as_venue=false, bars_timestamp_on_close=true, venue_dataset_map=None))]
+    fn py_new(
+        api_key: String,
+        publishers_filepath: PathBuf,
+        use_exchange_as_venue: bool,
+        bars_timestamp_on_close: bool,
+        venue_dataset_map: Option<IndexMap<String, String>>,
+    ) -> Self {
+        let mut config = Self::new(
+            api_key,
+            publishers_filepath,
+            use_exchange_as_venue,
+            bars_timestamp_on_close,
+        );
+
+        if let Some(venue_dataset_map) = venue_dataset_map {
+            config.venue_dataset_map = venue_dataset_map;
+        }
+
+        config
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{self:?}")
+    }
+}
+
+#[pymethods]
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
+impl DatabentoDataClientFactory {
+    /// Factory for creating Databento data clients.
+    #[new]
+    fn py_new() -> Self {
+        Self
+    }
+
+    #[pyo3(name = "name")]
+    fn py_name(&self) -> &'static str {
+        "DATABENTO"
+    }
+
+    /// Creates a new `DatabentoDataClient` instance.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the client cannot be created or publisher configuration cannot be loaded.
+    #[staticmethod]
+    #[pyo3(name = "create_live_data_client")]
+    #[pyo3(signature = (client_id, api_key, publishers_filepath, use_exchange_as_venue = true, bars_timestamp_on_close = true))]
+    pub fn py_create_live_data_client(
+        client_id: ClientId,
+        api_key: String,
+        publishers_filepath: PathBuf,
+        use_exchange_as_venue: bool,
+        bars_timestamp_on_close: bool,
+    ) -> PyResult<DatabentoDataClient> {
+        Self::create_live_data_client(
+            client_id,
+            api_key,
+            publishers_filepath,
+            use_exchange_as_venue,
+            bars_timestamp_on_close,
+            get_atomic_clock_realtime(),
+        )
+        .map_err(to_pyruntime_err)
+    }
+}

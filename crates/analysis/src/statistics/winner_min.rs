@@ -1,0 +1,122 @@
+use std::fmt::Display;
+
+use vibe_model::position::Position;
+
+use crate::{Returns, statistic::PortfolioStatistic};
+
+/// Calculates the smallest winning trade from realized PnLs.
+///
+/// Only positive PnLs count as winners. Returns `NaN` for an empty series or
+/// when there are no winning trades.
+#[repr(C)]
+#[derive(Debug, Clone)]
+#[cfg_attr(
+    feature = "python",
+    pyo3::pyclass(module = "vibe_trader.analysis", from_py_object)
+)]
+#[cfg_attr(
+    feature = "python",
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.analysis")
+)]
+pub struct MinWinner {}
+
+impl Display for MinWinner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Min Winner")
+    }
+}
+
+impl PortfolioStatistic for MinWinner {
+    type Item = f64;
+
+    fn name(&self) -> String {
+        self.to_string()
+    }
+
+    fn calculate_from_realized_pnls(&self, realized_pnls: &[f64]) -> Option<Self::Item> {
+        if realized_pnls.is_empty() {
+            return Some(f64::NAN);
+        }
+
+        let winners: Vec<f64> = realized_pnls
+            .iter()
+            .filter(|&&pnl| pnl > 0.0)
+            .copied()
+            .collect();
+
+        if winners.is_empty() {
+            return Some(f64::NAN);
+        }
+
+        winners
+            .iter()
+            .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .copied()
+    }
+
+    fn calculate_from_returns(&self, _returns: &Returns) -> Option<Self::Item> {
+        None
+    }
+
+    fn calculate_from_positions(&self, _positions: &[Position]) -> Option<Self::Item> {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vibe_core::approx_eq;
+
+    use super::*;
+
+    #[rstest]
+    fn test_empty_pnls() {
+        let min_winner = MinWinner {};
+        let result = min_winner.calculate_from_realized_pnls(&[]);
+        assert!(result.is_some());
+        assert!(result.unwrap().is_nan());
+    }
+
+    #[rstest]
+    fn test_no_winning_trades() {
+        let min_winner = MinWinner {};
+        let realized_pnls = vec![-100.0, -50.0, -200.0];
+        let result = min_winner.calculate_from_realized_pnls(&realized_pnls);
+        assert!(result.is_some());
+        assert!(result.unwrap().is_nan());
+    }
+
+    #[rstest]
+    fn test_all_winning_trades() {
+        let min_winner = MinWinner {};
+        let realized_pnls = vec![100.0, 50.0, 200.0];
+        let result = min_winner.calculate_from_realized_pnls(&realized_pnls);
+        assert!(result.is_some());
+        assert!(approx_eq!(f64, result.unwrap(), 50.0, epsilon = 1e-9)); // Minimum of 100.0, 50.0, and 200.0 is 50.0
+    }
+
+    #[rstest]
+    fn test_mixed_trades() {
+        let min_winner = MinWinner {};
+        let realized_pnls = vec![100.0, -50.0, 200.0, -100.0];
+        let result = min_winner.calculate_from_realized_pnls(&realized_pnls);
+        assert!(result.is_some());
+        assert!(approx_eq!(f64, result.unwrap(), 100.0, epsilon = 1e-9)); // Minimum of 100.0 and 200.0 is 100.0
+    }
+
+    #[rstest]
+    fn test_single_winning_trade() {
+        let min_winner = MinWinner {};
+        let realized_pnls = vec![50.0];
+        let result = min_winner.calculate_from_realized_pnls(&realized_pnls);
+        assert!(result.is_some());
+        assert!(approx_eq!(f64, result.unwrap(), 50.0, epsilon = 1e-9));
+    }
+
+    #[rstest]
+    fn test_name() {
+        let min_winner = MinWinner {};
+        assert_eq!(min_winner.name(), "Min Winner");
+    }
+}

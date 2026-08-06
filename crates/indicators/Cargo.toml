@@ -1,0 +1,45 @@
+[package]
+name = "vibe-indicators"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Technical indicators for the Vibe trading engine"
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "vibe_indicators"
+crate-type = ["rlib"]
+
+[features]
+default = []
+extension-module = [
+  "vibe-core/extension-module",
+  "vibe-model/extension-module",
+  "python",
+  "pyo3/extension-module",
+]
+python = [
+  "vibe-core/python",
+  "vibe-model/python",
+  "pyo3",
+  "pyo3-stub-gen",
+]
+[dependencies]
+vibe-core = { workspace = true }
+vibe-model = { workspace = true, features = ["stubs"] }
+
+anyhow = { workspace = true }
+arraydeque = { workspace = true }
+strum = { workspace = true }
+
+pyo3 = { workspace = true, optional = true }
+pyo3-stub-gen = { workspace = true, optional = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+rstest = { workspace = true }

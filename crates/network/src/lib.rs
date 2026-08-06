@@ -1,0 +1,96 @@
+//! Network clients and connection policy for [VibeTrader](https://github.com/qOeOp/trade).
+//!
+//! The crate provides asynchronous HTTP, reconnecting WebSocket, and suffix‑framed TCP clients,
+//! together with rate limiting, retry, backoff, proxy, and TLS support.
+//!
+//! # VibeTrader
+//!
+//! [VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+//! engine for multi-asset, multi-venue trading systems.
+//!
+//! The system spans research, deterministic simulation, and live execution within a single
+//! event-driven architecture, providing research-to-live semantic parity.
+//!
+//! # Feature flags
+//!
+//! - `python`: Exposes the `TransportBackend` enum through [PyO3](https://pyo3.rs).
+//! - `extension-module`: Builds the crate as a Python extension module.
+//! - `turmoil`: Enables deterministic network simulation testing with
+//!   [turmoil](https://github.com/tokio-rs/turmoil).
+//! - `transport-sockudo`: Adds the [sockudo-ws](https://crates.io/crates/sockudo-ws)
+//!   WebSocket backend, selectable through `WebSocketConfig.backend`. This feature is enabled by
+//!   default; use `default-features = false` to omit the dependency.
+//!
+//! # Testing
+//!
+//! The crate includes standard integration tests and deterministic failure‑path tests using
+//! `turmoil`.
+//!
+//! To run standard tests:
+//! ```bash
+//! cargo nextest run -p vibe-network
+//! ```
+//!
+//! To run turmoil network simulation tests:
+//! ```bash
+//! cargo nextest run -p vibe-network --features turmoil
+//! ```
+//!
+//! The `turmoil` tests cover reconnections, partitions, and related network failures without
+//! relying on wall‑clock timing.
+
+#![warn(rustc::all)]
+#![warn(clippy::pedantic)]
+#![deny(unsafe_code)]
+#![deny(unsafe_op_in_unsafe_fn)]
+#![deny(nonstandard_style)]
+#![deny(missing_debug_implementations)]
+#![deny(clippy::missing_errors_doc)]
+#![deny(clippy::missing_panics_doc)]
+#![deny(rustdoc::broken_intra_doc_links)]
+#![allow(
+    clippy::inline_always,
+    reason = "hot-path functions use #[inline(always)] intentionally for constant-folding"
+)]
+#![allow(
+    clippy::manual_let_else,
+    reason = "match can be clearer than let-else for some patterns"
+)]
+#![allow(
+    clippy::redundant_closure_for_method_calls,
+    reason = "causes clippy ICE on Rust 1.94; matches the workaround in workspace Cargo.toml"
+)]
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    reason = "rate limiter and backoff arithmetic requires intentional narrowing casts"
+)]
+#![allow(
+    clippy::too_many_lines,
+    reason = "network client functions with connection management are complex by nature"
+)]
+
+pub mod backoff;
+pub mod dst;
+pub mod http;
+pub mod mode;
+pub mod net;
+pub mod retry;
+pub mod socket;
+pub mod transport;
+pub mod websocket;
+
+mod logging;
+mod tls;
+
+#[cfg(feature = "python")]
+pub mod python;
+
+pub mod error;
+pub mod ratelimiter;
+
+pub use transport::{Message, TransportError};
+
+/// Sentinel message indicating that a WebSocket reconnection completed.
+pub const RECONNECTED: &str = "__RECONNECTED__";

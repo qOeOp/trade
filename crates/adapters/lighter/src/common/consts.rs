@@ -1,0 +1,104 @@
+//! Venue identifiers and tuning constants for the Lighter adapter.
+
+use std::{sync::LazyLock, time::Duration};
+
+use ustr::Ustr;
+use vibe_model::identifiers::{ClientId, Venue};
+
+/// Venue name string for Lighter.
+pub const LIGHTER: &str = "LIGHTER";
+
+/// Lighter venue identifier.
+pub static LIGHTER_VENUE: LazyLock<Venue> = LazyLock::new(|| Venue::new(Ustr::from(LIGHTER)));
+
+/// Static client ID instance.
+pub static LIGHTER_CLIENT_ID: LazyLock<ClientId> =
+    LazyLock::new(|| ClientId::new(Ustr::from(LIGHTER)));
+
+/// L2 chain id for Lighter mainnet.
+///
+/// Mirrors the upstream `lighter-go` constant. Used as the first element of
+/// the L2 transaction hash preimage.
+pub const LIGHTER_MAINNET_CHAIN_ID: u32 = 304;
+
+/// L2 chain id for Lighter testnet.
+///
+/// Mirrors `lighter-go`'s testnet chain id and matches the value the oracle
+/// generator emits.
+pub const LIGHTER_TESTNET_CHAIN_ID: u32 = 300;
+
+/// Vibe integrator account index on Lighter.
+pub const LIGHTER_VIBE_INTEGRATOR_ACCOUNT_INDEX: u64 = 723_813;
+
+/// Venue error code for missing integrator approval.
+pub const LIGHTER_ERROR_CODE_INTEGRATOR_NOT_APPROVED: u64 = 21_149;
+
+/// Venue error code for an invalid (non-contiguous) transaction nonce.
+pub const LIGHTER_ERROR_CODE_INVALID_NONCE: i64 = 21_104;
+
+/// Venue error code for an idempotent duplicate WebSocket subscription.
+pub const LIGHTER_ERROR_CODE_ALREADY_SUBSCRIBED: u64 = 30_003;
+
+/// Venue error code for WebSocket request rate limiting.
+pub const LIGHTER_ERROR_CODE_WS_RATE_LIMITED: u64 = 30_009;
+
+/// Venue error code for a failed WebSocket subscription open.
+pub const LIGHTER_ERROR_CODE_WS_SUBSCRIBE_FAILED: u64 = 30_012;
+
+/// Venue error-code range for L2 transaction failures.
+///
+/// Observed codes follow a domain split: `20xxx` request validation, `21xxx`
+/// transaction processing (21104 invalid nonce, 21149 integrator not
+/// approved), `30xxx` WebSocket subscription state (30003 "Already
+/// Subscribed"). Bare error frames are attributed to in-flight `sendTx`
+/// requests only when the code falls in this range.
+pub const LIGHTER_ERROR_CODE_TX_RANGE: std::ops::Range<u64> = 21_000..22_000;
+
+/// Public docs anchor for integrator approval.
+pub const LIGHTER_INTEGRATOR_APPROVAL_DOCS_URL: &str =
+    "https://github.com/qOeOp/trade/blob/main/docs/integrations/lighter.md#integrator-attribution";
+
+/// Maximum batch size for `sendTxBatch` on the WebSocket transport.
+pub const LIGHTER_MAX_BATCH_TX: usize = 15;
+
+/// Maximum auth-token expiry permitted by the venue (8 hours).
+pub const LIGHTER_AUTH_TOKEN_MAX_TTL: Duration = Duration::from_secs(8 * 60 * 60);
+
+/// Default refresh window before an auth token expires.
+///
+/// The adapter rotates the auth token this far ahead of expiry to avoid races
+/// during long-running WebSocket sessions.
+pub const LIGHTER_AUTH_TOKEN_REFRESH_LEAD: Duration = Duration::from_secs(15 * 60);
+
+/// Default WebSocket heartbeat interval.
+///
+/// Lighter requires a frame at least every 2 minutes; we send well below that.
+pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
+
+/// Base reconnect backoff for the WebSocket client.
+pub const RECONNECT_BASE_BACKOFF: Duration = Duration::from_millis(250);
+
+/// Maximum reconnect backoff for the WebSocket client.
+pub const RECONNECT_MAX_BACKOFF: Duration = Duration::from_secs(30);
+
+/// Default HTTP request timeout.
+pub const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Grace period a client waits for its background tasks to finish during
+/// teardown before aborting them.
+pub const DISCONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Maximum subscribe messages awaiting venue acknowledgement at once.
+///
+/// Held below Lighter's 50-per-IP inflight cap; see the WebSocket rate-limit
+/// strategy in [`crate::common::rate_limit`].
+pub const SUBSCRIBE_INFLIGHT_MAX: usize = 35;
+
+/// Maximum venue-level retries for one WebSocket subscription request.
+pub const SUBSCRIBE_RETRY_MAX: u8 = 5;
+
+/// Initial backoff after a venue-level WebSocket subscription rejection.
+pub const SUBSCRIBE_RETRY_BASE_BACKOFF: Duration = Duration::from_millis(250);
+
+/// Outbound command queue depth before backpressure kicks in.
+pub const QUEUE_MAX: usize = 1000;

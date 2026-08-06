@@ -1,0 +1,242 @@
+[package]
+name = "vibe-lighter"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Lighter integration adapter for the Vibe trading engine"
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "vibe_lighter"
+crate-type = ["rlib"]
+
+[features]
+default = ["high-precision"]
+fuzz = ["vibe-live/fuzz"]
+examples = [
+  "dep:reqwest",
+  "vibe-live/node",
+  "vibe-network/transport-sockudo",
+]
+extension-module = [
+  "vibe-common/extension-module",
+  "vibe-core/extension-module",
+  "vibe-live/extension-module",
+  "vibe-model/extension-module",
+  "vibe-network/extension-module",
+  "pyo3/extension-module",
+  "python",
+]
+python = [
+  "dep:vibe-system",
+  "vibe-common/python",
+  "vibe-core/python",
+  "vibe-live/python",
+  "vibe-model/python",
+  "vibe-network/python",
+  "vibe-system/python",
+  "pyo3",
+  "pyo3-async-runtimes",
+  "pyo3-stub-gen",
+]
+high-precision = ["vibe-model/high-precision"]
+
+[package.metadata]
+cargo-fuzz = true
+
+[package.metadata.cargo-machete]
+ignored = [
+  "vibe-system",
+] # Optional dep activated only via the python feature
+[dependencies]
+vibe-common = { workspace = true, features = ["live"] }
+vibe-core = { workspace = true }
+vibe-live = { workspace = true }
+vibe-model = { workspace = true }
+vibe-network = { workspace = true }
+vibe-system = { workspace = true, optional = true }
+
+ahash = { workspace = true }
+anyhow = { workspace = true }
+arc-swap = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+bon = { workspace = true }
+dashmap = { workspace = true }
+derive_builder = { workspace = true }
+futures-util = { workspace = true }
+jiff = { workspace = true }
+log = { workspace = true }
+rand = { workspace = true }
+reqwest = { workspace = true, optional = true }
+rust_decimal = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_repr = { workspace = true }
+strum = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tokio-util = { workspace = true }
+url = { workspace = true }
+ustr = { workspace = true }
+zeroize = { workspace = true }
+
+pyo3 = { workspace = true, optional = true }
+pyo3-async-runtimes = { workspace = true, optional = true }
+pyo3-stub-gen = { workspace = true, optional = true }
+
+[dev-dependencies]
+vibe-testkit = { workspace = true, default-features = false, features = [
+  "testers",
+] }
+vibe-trading = { workspace = true }
+
+axum = { workspace = true }
+criterion = { workspace = true }
+dotenvy = { workspace = true }
+iai = { workspace = true }
+proptest = { workspace = true }
+rstest = { workspace = true }
+
+[[bench]]
+name = "signing_sign_verify"
+path = "benches/signing_sign_verify.rs"
+harness = false
+
+[[bench]]
+name = "signing_poseidon2"
+path = "benches/signing_poseidon2.rs"
+harness = false
+
+[[bench]]
+name = "signing_field"
+path = "benches/signing_field.rs"
+harness = false
+
+[[bench]]
+name = "signing_curve"
+path = "benches/signing_curve.rs"
+harness = false
+
+[[bench]]
+name = "signing_field_iai"
+path = "benches/signing_field_iai.rs"
+harness = false
+
+[[bench]]
+name = "data"
+path = "benches/data.rs"
+harness = false
+
+[[bench]]
+name = "exec"
+path = "benches/exec.rs"
+harness = false
+
+[[bench]]
+name = "micros"
+path = "benches/micros.rs"
+harness = false
+
+# cargo run -p vibe-lighter --bin lighter-flatten
+[[bin]]
+name = "lighter-flatten"
+path = "bin/flatten.rs"
+doc = false
+test = false
+
+# cargo run -p vibe-lighter --bin lighter-integrator-revoke [testnet]
+[[bin]]
+name = "lighter-integrator-revoke"
+path = "bin/integrator_revoke.rs"
+doc = false
+test = false
+
+# cargo run -p vibe-lighter --bin lighter-trades-probe --features examples
+[[bin]]
+name = "lighter-trades-probe"
+path = "bin/trades_probe.rs"
+required-features = ["examples"]
+doc = false
+test = false
+
+[[bin]]
+name = "fuzz_verify"
+path = "fuzz/fuzz_targets/fuzz_verify.rs"
+required-features = ["fuzz"]
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_point_decode"
+path = "fuzz/fuzz_targets/fuzz_point_decode.rs"
+required-features = ["fuzz"]
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_signature_codec"
+path = "fuzz/fuzz_targets/fuzz_signature_codec.rs"
+required-features = ["fuzz"]
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_hash_no_pad"
+path = "fuzz/fuzz_targets/fuzz_hash_no_pad.rs"
+required-features = ["fuzz"]
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_auth_message"
+path = "fuzz/fuzz_targets/fuzz_auth_message.rs"
+required-features = ["fuzz"]
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_compute_tx_hash"
+path = "fuzz/fuzz_targets/fuzz_compute_tx_hash.rs"
+required-features = ["fuzz"]
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_scalar_mul_ct_diff"
+path = "fuzz/fuzz_targets/fuzz_scalar_mul_ct_diff.rs"
+required-features = ["fuzz"]
+test = false
+doc = false
+bench = false
+
+# Run with `cargo run --example lighter-data-tester --package vibe-lighter --features examples`.
+[[example]]
+name = "lighter-data-tester"
+path = "examples/node_data_tester.rs"
+required-features = ["examples"]
+doc = false
+
+# Run with `cargo run --example lighter-exec-tester --package vibe-lighter --features examples`.
+[[example]]
+name = "lighter-exec-tester"
+path = "examples/node_exec_tester.rs"
+required-features = ["examples"]
+doc = false
+
+[[test]]
+name = "python"
+path = "tests/python.rs"
+required-features = ["python"]

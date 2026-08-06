@@ -1,0 +1,136 @@
+[package]
+name = "vibe-live"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Core live trading components and machinery for the Vibe trading engine"
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "vibe_live"
+crate-type = ["rlib"]
+
+[features]
+default = ["node", "plugin"]
+fuzz = ["dep:libfuzzer-sys"]
+node = [
+  "dep:vibe-data",
+  "dep:vibe-portfolio",
+  "dep:vibe-risk",
+  "dep:vibe-system",
+  "dep:vibe-trading",
+]
+plugin = ["node"]
+examples = ["node", "dep:vibe-testkit", "vibe-trading/examples"]
+streaming = ["node", "vibe-persistence", "vibe-system/streaming"]
+extension-module = [
+  "vibe-common/extension-module",
+  "vibe-core/extension-module",
+  "vibe-execution/extension-module",
+  "vibe-model/extension-module",
+  "python",
+  "pyo3/extension-module",
+  "streaming",
+]
+python = [
+  "node",
+  "vibe-common/python",
+  "vibe-core/python",
+  "vibe-execution/python",
+  "vibe-model/python",
+  "vibe-persistence?/python",
+  "vibe-portfolio/python",
+  "vibe-system/python",
+  "vibe-testkit?/python",
+  "vibe-trading/python",
+  "pyo3",
+  "pyo3-stub-gen",
+  "streaming",
+]
+defi = [
+  "dep:vibe-data",
+  "vibe-common/defi",
+  "vibe-data/defi",
+  "vibe-persistence?/defi",
+]
+simulation = [
+  "node",
+  "vibe-common/simulation",
+  "vibe-execution/simulation",
+]
+
+[package.metadata.cargo-machete]
+ignored = [
+  "vibe-persistence",
+] # Optional dep activated only via the streaming feature
+[dependencies]
+vibe-common = { workspace = true, features = ["live"] }
+vibe-core = { workspace = true }
+vibe-execution = { workspace = true }
+vibe-model = { workspace = true, features = ["stubs"] }
+
+vibe-data = { workspace = true, optional = true }
+vibe-persistence = { workspace = true, optional = true }
+vibe-portfolio = { workspace = true, optional = true }
+vibe-risk = { workspace = true, optional = true }
+vibe-system = { workspace = true, features = ["live"], optional = true }
+vibe-testkit = { workspace = true, default-features = false, features = [
+  "testers",
+], optional = true }
+vibe-trading = { workspace = true, optional = true }
+
+ahash = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+bon = { workspace = true }
+indexmap = { workspace = true }
+libfuzzer-sys = { workspace = true, optional = true }
+log = { workspace = true }
+rust_decimal = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tabled = { workspace = true }
+tokio = { workspace = true }
+ustr = { workspace = true }
+
+pyo3 = { workspace = true, optional = true }
+pyo3-stub-gen = { workspace = true, optional = true }
+
+[dev-dependencies]
+vibe-testkit = { workspace = true, default-features = false, features = [
+  "testers",
+] }
+
+bytes = { workspace = true }
+criterion = { workspace = true }
+madsim = { workspace = true }
+rstest = { workspace = true }
+rust_decimal_macros = { workspace = true }
+tokio = { workspace = true, features = ["test-util", "macros", "rt"] }
+toml = { workspace = true }
+ustr = { workspace = true }
+
+# Run with `cargo bench -p vibe-live --bench runner`
+[[bench]]
+name = "runner"
+harness = false
+
+[[test]]
+name = "manager"
+path = "tests/manager.rs"
+required-features = ["node"]
+
+[[test]]
+name = "node"
+path = "tests/node.rs"
+required-features = ["node"]
+
+[[test]]
+name = "stress"
+path = "tests/stress.rs"
+required-features = ["node"]

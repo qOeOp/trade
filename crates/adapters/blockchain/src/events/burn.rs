@@ -1,0 +1,102 @@
+use alloy::primitives::{Address, U256};
+use vibe_core::UnixNanos;
+use vibe_model::{
+    defi::{PoolIdentifier, PoolLiquidityUpdate, PoolLiquidityUpdateType, SharedChain, SharedDex},
+    identifiers::InstrumentId,
+};
+
+/// Represents a burn event that occurs when liquidity is removed from a position in a liquidity pool.
+#[derive(Debug, Clone)]
+pub struct BurnEvent {
+    /// The decentralized exchange where the event happened.
+    pub dex: SharedDex,
+    /// The unique identifier for the pool.
+    pub pool_identifier: PoolIdentifier,
+    /// The block number when the burn occurred.
+    pub block_number: u64,
+    /// The unique hash identifier of the transaction containing this event.
+    pub transaction_hash: String,
+    /// The position of this transaction within the block.
+    pub transaction_index: u32,
+    /// The position of this event log within the transaction.
+    pub log_index: u32,
+    /// The owner of the position.
+    pub owner: Address,
+    /// The lower tick boundary of the position.
+    pub tick_lower: i32,
+    /// The upper tick boundary of the position.
+    pub tick_upper: i32,
+    /// The amount of liquidity burned to the position range.
+    pub amount: u128,
+    /// The amount of token0 withdrawn.
+    pub amount0: U256,
+    /// The amount of token1 withdrawn.
+    pub amount1: U256,
+}
+
+impl BurnEvent {
+    /// Creates a new [`BurnEvent`] instance with the specified parameters.
+    #[must_use]
+    #[expect(clippy::too_many_arguments)]
+    pub fn new(
+        dex: SharedDex,
+        pool_identifier: PoolIdentifier,
+        block_number: u64,
+        transaction_hash: String,
+        transaction_index: u32,
+        log_index: u32,
+        owner: Address,
+        tick_lower: i32,
+        tick_upper: i32,
+        amount: u128,
+        amount0: U256,
+        amount1: U256,
+    ) -> Self {
+        Self {
+            dex,
+            pool_identifier,
+            block_number,
+            transaction_hash,
+            transaction_index,
+            log_index,
+            owner,
+            tick_lower,
+            tick_upper,
+            amount,
+            amount0,
+            amount1,
+        }
+    }
+
+    /// Converts a burn event into a `PoolLiquidityUpdate`.
+    #[must_use]
+    pub fn to_pool_liquidity_update(
+        &self,
+        chain: SharedChain,
+        dex: SharedDex,
+        instrument_id: InstrumentId,
+        pool_identifier: PoolIdentifier,
+        timestamp: UnixNanos,
+    ) -> PoolLiquidityUpdate {
+        PoolLiquidityUpdate::new(
+            chain,
+            dex,
+            instrument_id,
+            pool_identifier,
+            PoolLiquidityUpdateType::Burn,
+            self.block_number,
+            self.transaction_hash.clone(),
+            self.transaction_index,
+            self.log_index,
+            None,
+            self.owner,
+            self.amount,
+            self.amount0,
+            self.amount1,
+            self.tick_lower,
+            self.tick_upper,
+            timestamp, // ts_event
+            timestamp, // ts_init (same block timestamp)
+        )
+    }
+}
