@@ -1607,8 +1607,8 @@ function cleanNotificationHead(body: string): string | null {
     && lines[1] === ""
     && reviewedCommit !== undefined
     && lines[3] === ""
-    && details.length >= 3
-    && details[0] === "<details>"
+    && details.length >= 2
+    && /^<details>(?:[ \t]*<summary>[^<\r\n]*<\/summary>)?$/.test(details[0] ?? "")
     && details.at(-1) === "</details>"
     && !details.slice(1, -1).some((line) =>
       REVIEWED_COMMIT.test(line) || /<\/?details/i.test(line),
