@@ -96,7 +96,7 @@ The packet and admission helpers both belong to the control-plane Origin. This i
 candidate-external route; a target-local helper, copied helper, prose-built packet, or alternate packet
 shape rejects.
 
-- Require exit zero and parse stdout as the single canonical `mission-evaluator-artifact-set/v1`
+- Require exit zero and parse stdout as the single canonical `mission-evaluator-artifact-set/v2`
   locator frame below. The nested binding still derives the complete commits, trees, actual parent set and Origin
   relationship, binary diff, changed paths, required blob hashes, clean tracked and non-ignored
   untracked candidate material, replay argv, and one binding fingerprint. A same-repository binding
@@ -219,9 +219,15 @@ surrogates, unknown or missing fields, duplicate CLI facts, stale candidate/bind
 modes, dirty control planes, and runtime helper/blob drift. It preserves semantic strings exactly.
 
 On success, stdout is one compact canonical artifact-set JSON-LF frame. Each ordered locator contains
-only its canonical absolute artifact path, exact byte size, whole SHA-256, human-readable audit-set
-mode, assigned lens and delta SHA-256, common locator, candidate locator, and admission-helper
-commit/path/blob/SHA-256/size. The artifact
+its canonical absolute artifact path, exact byte size, whole SHA-256, human-readable audit-set mode,
+assigned lens and delta SHA-256, common locator, candidate locator, admission-helper
+commit/path/blob/SHA-256/size, and one `admit` object. `admit.role` is exactly `mission_evaluator`;
+reject any other or missing role before dispatch. `admit.cwd` is the canonical immutable control-plane
+working directory. `admit.argv` is the complete ordered argument vector, beginning with `bun` and the
+Origin helper path, for this exact locator. Treat the v2 locator and `admit` keys as closed: missing,
+unknown, or non-string argv members reject launch. Pass the array element-for-element to a process
+launcher with shell interpretation disabled; never join it into a command string, add quoting, strip
+`sha256:`, or reconstruct any argument from the neighboring human-readable fields. The artifact
 filename is its whole digest plus `.dispatch`; creation is exclusive and mode `0400`. The artifact is
 the existing `mission-evaluator-dispatch/v1` header followed by exact ordered `binding`, `shared_core`,
 and assigned `lens_delta` segments. Do not send artifact bytes or rebuilt fields to the evaluator.
@@ -236,16 +242,20 @@ without a consumer: a single has one dispatch; a pair repeats binding/shared-cor
 for each independently consuming evaluator.
 
 Send one compact locator to its assigned evaluator. Before candidate inspection, the evaluator runs
-the immutable-Origin helper once with `admit` and the locator's exact facts:
+the immutable-Origin helper once by consuming only the locator's exact launch representation:
 
-```text
-bun <Origin-packet-helper> admit --artifact <absolute-path> --size <bytes> --sha256 <whole> \
-  --audit-set <single|complementary_pair> \
-  --assigned-risk-lens <lens> --assigned-lens-delta-sha256 <digest> \
-  --common-packet-locator <digest> --helper-commit <oid> --helper-path <repo-relative-path> \
-  --helper-blob-oid <oid> --helper-blob-sha256 <digest> --helper-size <bytes> \
-  --candidate-locator <commit:oid>
+```ts
+const result = Bun.spawnSync(locator.admit.argv, {
+  cwd: locator.admit.cwd,
+  env: cleanPacketBoundEnvironment,
+  stderr: "pipe",
+  stdout: "pipe",
+})
 ```
+
+Do not repair an absent field, a rejected vector, or a stale locator from prose or sibling locator
+facts. A nonzero exit or any receipt other than the single canonical admitted frame freezes candidate
+inspection.
 
 The helper opens without following symlinks, requires a read-only regular file and stable path/file
 identity, reads exact bytes, and verifies size, content-addressed name, whole digest, canonical header,
