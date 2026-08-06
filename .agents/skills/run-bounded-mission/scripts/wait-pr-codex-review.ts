@@ -134,18 +134,9 @@ export interface ReviewRequestProjection extends ObservedReviewRequestProjection
   effect_authority?: ReviewRequestEffectAuthorityProjection
 }
 
-export interface RequestEffectAuthorityEvent {
-  locator: string
-  at: string
-  head_oid: string
-}
-
 export type RequestEffectAuthorityDisposition =
   | "posting_allowed_first_request"
-  | "posting_allowed_fresh_authority"
-  | "posting_frozen_authority_event_unbound"
-  | "posting_frozen_authority_not_fresh"
-  | "posting_frozen_authority_scope_mismatch"
+  | "posting_frozen_prior_attempt_exists"
   | "posting_frozen_attempt_provenance"
   | "posting_frozen_snapshot_incomplete"
 
@@ -157,7 +148,6 @@ export interface ReviewRequestEffectAuthorityProjection {
   attempt_locators: string[]
   attempts: ObservedReviewRequestProjection[]
   latest_attempt_at: string | null
-  authority_event: RequestEffectAuthorityEvent | null
 }
 
 export interface ReviewRequestExpectation {
@@ -292,17 +282,10 @@ export function validateCodexReviewRequest(body: string, expectedHead: string): 
 export function classifyRequestEffectAuthority(
   snapshot: CodexReviewSnapshot,
   requestAuthor: string,
-  authorityEvent: RequestEffectAuthorityEvent | null,
 ): ReviewRequestEffectAuthorityProjection {
   if (!/^[A-Za-z\d](?:[A-Za-z\d-]{0,37}[A-Za-z\d])?$/.test(requestAuthor)) {
     throw new Error("request author is invalid")
   }
-  if (authorityEvent !== null && (
-    authorityEvent.locator === ""
-    || /[\0\r\n]/.test(authorityEvent.locator)
-    || !isIsoTimestamp(authorityEvent.at)
-    || !/^[0-9a-f]{40}$/.test(authorityEvent.head_oid)
-  )) throw new Error("authority event is invalid")
 
   const rawAttempts = snapshot.signals.filter((signal) =>
     signal.kind === "comment"
@@ -326,15 +309,10 @@ export function classifyRequestEffectAuthority(
   let effectAllowed = false
   if (!snapshot.complete) disposition = "posting_frozen_snapshot_incomplete"
   else if (!attemptProvenanceComplete) disposition = "posting_frozen_attempt_provenance"
-  else if (authorityEvent === null) disposition = "posting_frozen_authority_event_unbound"
-  else if (authorityEvent.head_oid !== snapshot.headRefOid) disposition = "posting_frozen_authority_scope_mismatch"
   else if (attempts.length === 0) {
     disposition = "posting_allowed_first_request"
     effectAllowed = true
-  } else if (latestAttemptAt !== null && timestampValue(authorityEvent.at) > timestampValue(latestAttemptAt)) {
-    disposition = "posting_allowed_fresh_authority"
-    effectAllowed = true
-  } else disposition = "posting_frozen_authority_not_fresh"
+  } else disposition = "posting_frozen_prior_attempt_exists"
 
   return {
     disposition,
@@ -344,7 +322,6 @@ export function classifyRequestEffectAuthority(
     attempt_locators: attemptLocators,
     attempts,
     latest_attempt_at: latestAttemptAt,
-    authority_event: authorityEvent,
   }
 }
 
@@ -353,7 +330,7 @@ export function classifyCodexReview(
   expectation: ReviewRequestExpectation,
 ): CodexReviewDecision {
   const { request, expectedAttempt, nextRequestAt, attempts } = classifyRequest(snapshot, expectation)
-  request.effect_authority = classifyRequestEffectAuthority(snapshot, expectation.author, null)
+  request.effect_authority = classifyRequestEffectAuthority(snapshot, expectation.author)
   const currentAttempt = request.classification === "valid" ? expectedAttempt : null
   const attemptAt = currentAttempt ? timestampValue(currentAttempt.at) : timestampValue(snapshot.createdAt)
   const attemptTarget = currentAttempt?.target ?? "pull-request"
@@ -1717,7 +1694,7 @@ async function main(): Promise<number> {
       "  bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --repo <owner/name> --request-locator <node-id> --request-author <login> <pr-number>",
       "  bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --render-request <head-oid>",
       "  bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --validate-request <head-oid> < request-body",
-      "  bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --request-effect-preflight --repo <owner/name> --request-author <login> --authority-event-locator <locator> --authority-event-at <iso-timestamp> --authority-event-head <head-oid> <pr-number>",
+      "  bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --request-effect-preflight --repo <owner/name> --request-author <login> <pr-number>",
       "  bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --delivery-receipt create < canonical-input.jsonl",
       "  bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --delivery-receipt verify --sha256 <sha256:digest> < receipt.jsonl",
     ].join("\n"))
@@ -1755,7 +1732,7 @@ async function main(): Promise<number> {
       const index = args.indexOf(flag)
       return index >= 0 ? args[index + 1] : undefined
     }
-    const flags = ["--repo", "--request-author", "--authority-event-locator", "--authority-event-at", "--authority-event-head"]
+    const flags = ["--repo", "--request-author"]
     const consumed = new Set([0])
     for (const flag of flags) {
       const index = args.indexOf(flag)
@@ -1768,28 +1745,19 @@ async function main(): Promise<number> {
       : Number.NaN
     let repository: string
     let requestAuthor: string
-    let authorityEvent: RequestEffectAuthorityEvent
     try {
       if (flags.some((flag) => args.filter((value) => value === flag).length !== 1)
         || !Number.isSafeInteger(number)) throw new Error("invalid request effect preflight arguments")
       repository = normalizeRepository(flagValue("--repo") ?? "")
       requestAuthor = flagValue("--request-author") ?? ""
-      authorityEvent = {
-        locator: flagValue("--authority-event-locator") ?? "",
-        at: flagValue("--authority-event-at") ?? "",
-        head_oid: flagValue("--authority-event-head") ?? "",
-      }
-      normalizeRequestExpectation("authority-event", requestAuthor)
-      if (authorityEvent.locator === "" || /[\0\r\n]/.test(authorityEvent.locator)
-        || !isIsoTimestamp(authorityEvent.at)
-        || !/^[0-9a-f]{40}$/.test(authorityEvent.head_oid)) throw new Error("invalid authority event")
+      normalizeRequestExpectation("request-effect-preflight", requestAuthor)
     } catch (error) {
       console.error(`codex-review: failed: ${error instanceof Error ? error.message : "invalid preflight"}`)
       return 2
     }
     try {
       const snapshot = await fetchSnapshot(repository, number)
-      const effectAuthority = classifyRequestEffectAuthority(snapshot, requestAuthor, authorityEvent)
+      const effectAuthority = classifyRequestEffectAuthority(snapshot, requestAuthor)
       process.stdout.write(`${JSON.stringify({
         schema: REQUEST_EFFECT_PREFLIGHT_SCHEMA,
         status: effectAuthority.effect_allowed ? "allowed" : "frozen",

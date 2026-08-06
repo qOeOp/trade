@@ -66,21 +66,30 @@ provider discovery. Do not use GitHub's generic reviewer-request path because th
 cannot correlate it. Immediately before the external effect:
 
 1. validate any created or edited PR title through the repository-owned title preflight above;
-2. bind the exact explicit user/Hub authority event locator and timestamp, then run the existing
-   helper's request-effect preflight against a complete live snapshot:
+2. run the existing helper's request-effect preflight against a complete canonical live snapshot:
 
    ```text
-   bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --request-effect-preflight --repo <owner/name> --request-author <authorized-login> --authority-event-locator <exact-user-or-hub-event-locator> --authority-event-at <iso-timestamp> --authority-event-head <candidate-head> <pr-number>
+   bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --request-effect-preflight --repo <owner/name> --request-author <authorized-login> <pr-number>
    ```
 
    The preflight enumerates every owner-authored request comment, exposes its locator and attempt
-   count, and returns a machine `effect_authority.disposition`. Zero prior attempts may consume the
-   first explicit authority event. With any prior attempt, only a different explicit authority event
-   observed after the latest attempt and explicitly scoped to the current exact head may admit one
-   later request. A candidate/head change, evidence
-   invalidation, provider result, finding, revision count, or earlier authority event never renews
-   effect authority. `posting_frozen_*`, incomplete pagination/provenance, unavailable evidence, or a
-   nonzero exit freezes posting; do not fall back to a browser, connector, or reconstructed count.
+   count, and returns a machine `effect_authority.disposition`. It is only a deterministic
+   no-prior-attempt safety gate; the admitted Mission/delegation remains the external-effect authority.
+   The automated path may pass only when the complete snapshot contains zero prior owner-authored
+   request attempts. Any prior valid, malformed, edited, human-authored, or app-performed attempt
+   freezes automated posting permanently. A candidate/head change, corrected candidate, evidence
+   invalidation, provider result, finding, disposition, revision count, repacket, time, locator, or
+   prose never renews that path. The helper accepts no caller-supplied representation of a later
+   user/Hub authority event and cannot prove one. A human may act outside this automation, but this
+   Skill never infers or manufactures that authority. `posting_frozen_*`, incomplete pagination or
+   provenance, unavailable evidence, or a nonzero exit freezes posting; do not fall back to a
+   browser, connector, reconstructed count, or another request.
+
+   The earlier incident acceptance suggestion for an explicitly authorized later request is
+   superseded by the independent authority-representation finding: this repository has no
+   authoritative later-event producer/readback contract. Corrected heads close through independent
+   evaluator evidence, a non-empty finding disposition/resolved thread when applicable, and CI, never
+   an automated rereview.
 3. render exactly one trigger from the existing helper, preserve its exact bytes, and validate those
    bytes offline against the frozen full lowercase 40-hex head before posting:
 
@@ -161,7 +170,8 @@ orthogonal machine projections:
   observed request history needed to retain an earlier request-to-finding binding; the expected
   readback locator/authorized actor and their binding result are machine fields, and a mismatch is
   `incomplete` rather than a new attempt. `request.effect_authority` exposes the owner-authored
-  attempt count/locators/history and freezes posting when no fresh explicit authority event is bound;
+  attempt count/locators/history; zero attempts is only the first-request safety precondition, while
+  any prior attempt permanently freezes the automated posting path;
 - `discovery.status` is one of `waiting`, `clean`, `finding_unrouted`, or `finding_routed`; its
   reviewed head, provider review, clean/progress signal, structured integrity problems, and finding
   array are only the selected current attempt. Its `provider_signals` are lossless envelopes classified
