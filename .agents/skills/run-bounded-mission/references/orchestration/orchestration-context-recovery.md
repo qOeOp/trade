@@ -25,6 +25,12 @@ waiting/runnable/running/frozen/needs_attention/terminal slices, and at most one
 Preserve blocked/completed reasons and results plus their raw locators. Retain the exact target set and
 latest cursor per observed `threadId`/`hostId`; a continued target with missing/reset/malformed cursor,
 revision regression, host mismatch, or an omitted poll at an early wake is not evidence of no change.
+When the latest bounded wait returned no actionable or terminal event, recover the Hub position as
+`yielded`, not as a still-running monitor. A later Goal continuation or real health anomaly may consume
+the retained target/cursor facts for one compact read, then must either act on an actionable or
+terminal event or yield again. Recovery never immediately resubscribes after a no-event result,
+replays polling history, narrates unchanged state, or creates a scheduler, timer, daemon, or background
+service.
 Fan in each component once, derive the hub position, then emit the complete replacement before any hub-issued
 question/message, effect, dependent release,
 turn/interruption/Handoff/compaction, source or authority drift, or unknown-impact handling. A wave

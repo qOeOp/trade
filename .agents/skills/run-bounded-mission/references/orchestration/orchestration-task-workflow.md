@@ -304,13 +304,18 @@ native setup ran.
 
 Immediately before a native create attempt, project the exact currently runnable slice as the only
 pre-dispatch routing input: immutable inputs, owner, exact paths, oracle, Stop, critical-path relation,
-and permitted effect. When agent routing plus its execution policy has an activated consumer, consume
-one route receipt containing `lane`, observed or unavailable `model`, `effort`, `topology`, `fallback`,
-and `maturity`. Missing, malformed, stale, or mismatched input or receipt freezes that slice and
-returns the route question to its existing owner. The receipt cannot change Frame, Plan, the DAG,
-write ownership, user-visible Mission model authority, or task consent; it does not define a route
-table. Ordinary route telemetry stays with the child and is fanned into the Hub only in its terminal
-receipt unless it proves a real exception or structural gap.
+and permitted effect. When [agent routing](orchestration-agent-routing.md) plus its
+[execution policy](../execution/execution-mission-routing-policy.md) has an activated consumer, invoke
+that owner once and consume its exact five-part `Pre-dispatch routing receipt`: `Input` must bind the
+same runnable slice and quality floor; `Route` supplies lane plus observed or unavailable model and
+effort; `Topology` binds the supplied dependency shape; `Fallback` names its authorized trigger or
+none; and `Evidence` supplies maturity, terminal quality, telemetry availability, and
+coordination/correction limits. Missing, malformed, stale, unknown, or mismatched input, section, or
+owned value freezes that slice and returns the route question to the same routing owner. Task dispatch
+does not flatten, enumerate, or reproduce those domains. The receipt cannot change Frame, Plan, the
+DAG, write ownership, user-visible Mission model authority, or task consent; it does not define a
+route table. Ordinary route telemetry stays with the child and is fanned into the Hub only in its
+terminal receipt unless it proves a real exception or structural gap.
 
 After consent, revalidate every packet fact and source tip; drift makes it `deferred` or materially
 revised and requires fresh approval. Mark the create attempt issued, call `list_projects`, and inspect
@@ -356,17 +361,33 @@ Operate on a child when the user asks, or when an admitted multi-Mission checkpo
 at the current monitoring or merge gate:
 
 - status or one-time monitoring: use one `wait_threads` call with `timeoutMs: 0`;
-- ongoing monitoring: make one bounded `wait_threads` event wait for one to eight exact
-  `threadId`/`hostId` targets, carry each returned target cursor into the next batch, and keep the same
-  released-wave target set until a coherence boundary changes it;
+- ongoing monitoring: within one Hub scheduling slice, make at most one bounded `wait_threads` event
+  wait for one to eight exact `threadId`/`hostId` targets and retain every returned target cursor. An
+  actionable or terminal event closes the current coherence window for reconciliation. A timeout or
+  snapshot with no actionable or terminal event ends and yields the scheduling slice immediately;
+  do not resubscribe in that slice, keep it open as `running`, or narrate the unchanged state;
+- later Goal continuation or a real health anomaly: make one compact cursor-bound read of the same
+  exact targets, then act on an actionable or terminal event or yield again;
 - feedback or continuation: call `send_message_to_thread` once with `threadId`, optional `hostId`,
   and the feedback in `prompt`, then return immediately;
 - additional history needed for a current decision: use one bounded `read_thread`.
 
-The child proactively reports only a structural gap, required user authority, a real exception, or
-one terminal receipt. Ordinary progress, local findings/corrections, publication steps, lanes, counts,
-commentary, and tool activity stay there. An unchanged timeout produces zero Hub question, message,
-checkpoint replacement, or status narration.
+The child proactively reports only a structural authority gap, a real exception, or one terminal
+receipt. Ordinary progress, local findings/corrections, publication steps, lanes, counts, commentary,
+and tool activity stay there. An unchanged timeout produces zero Hub question, message, immediate
+resubscription, or status narration; retain its cursor in conversation evidence without emitting a
+checkpoint replacement solely for that unchanged observation. After yielding, spare capacity may
+route only to another currently runnable DAG node or the already-approved read-only self-QA
+retrospective below. It never holds the critical path open, invents work, or creates a background
+monitor.
+
+Dynamic acceptance uses the observed Hub refutation rather than compact-output size alone. Baseline A
+repeated cursor-bound 60-second `wait_threads` timeouts while PERF and SKR had no actionable event;
+although every call was event-based and compact, immediate resubscription made the sequence polling
+and produced user-visible idle churn. Candidate B permits one coherence-window event wait in the
+current scheduling slice and then yields; a later continuation or anomaly permits one compact cursor
+read and must again act or yield. Any immediate no-event resubscription or unchanged narration fails
+this acceptance condition.
 
 Treat task events as compact wake hints, never arrival-ordered authority. Across cursor-bound waits in
 the current released wave, retain every raw receipt and immutable locator. Normalize every
