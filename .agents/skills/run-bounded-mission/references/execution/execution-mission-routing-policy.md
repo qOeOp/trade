@@ -28,7 +28,8 @@ Project the evidence maturity owned by
 `reachable`, `dynamic`, or `stable`. Use `unavailable` only when the evidence needed to classify the
 route is absent. A configured role, model label, or static call path cannot exceed `reachable`; one
 causally bound successful terminal can reach `dynamic`; `stable` requires representative positive,
-negative, and recovery evidence. Record quality benefit separately and only as `observed` when a
+negative, and recovery scenarios to support the route repeatedly. Record quality benefit separately
+and only as `observed` when a
 quality-floor-passing paired comparison shows the relevant Pareto improvement. Otherwise it is
 `unproved` or `unavailable`.
 

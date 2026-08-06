@@ -192,8 +192,17 @@ discovery, builder context, delegation, lateral communication, external effects,
 packet. Integrity checks prove only the stated repository audit, not sandbox isolation or absence of
 unobservable effects.
 
-Observe the dedicated `mission_evaluator` route before dispatch. Launch each admitted lens exactly
-once from the frozen control plane. Across the whole audit set, use at most one fresh generic agent,
+Before observing or launching the dedicated `mission_evaluator` or its permitted generic fallback,
+load [agent lane routing](../orchestration/orchestration-agent-routing.md) from the same immutable
+instruction Origin and consume its pre-dispatch receipt owner. Supply the reviewer-selected audit set
+and lens plus the helper-produced exact `admit.role`, `admit.cwd`, and `admit.argv` as immutable route
+inputs. A missing, mutable, mismatched, or incomplete receipt freezes before launch. This is only a
+consumer edge: this handoff still selects the evaluator set, the packet helper still owns the exact
+admit facts, and agent routing records but never reselects either decision.
+
+Observe the dedicated `mission_evaluator` route through that receipt before dispatch. Launch each
+admitted lens exactly once from the frozen control plane. Across the whole audit set, use at most one
+fresh generic agent,
 and only after a required dedicated route reaches an explicit terminal transport or capability
 failure without a valid audit return. The generic agent must independently satisfy this entire
 packet. A stale or contradictory Frame or Plan, packet or admission defect, unsupported evidence,
