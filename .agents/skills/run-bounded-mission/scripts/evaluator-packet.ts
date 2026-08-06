@@ -17,7 +17,7 @@ import {
 import { basename, dirname, isAbsolute, resolve } from "node:path"
 
 const INPUT_SCHEMA = "mission-evaluator-packet-input/v1"
-const ARTIFACT_SET_SCHEMA = "mission-evaluator-artifact-set/v1"
+const ARTIFACT_SET_SCHEMA = "mission-evaluator-artifact-set/v2"
 const ADMISSION_SCHEMA = "mission-evaluator-artifact-admission/v1"
 const SHARED_CORE_SCHEMA = "mission-evaluator-shared-core/v2"
 const LENS_DELTA_SCHEMA = "mission-evaluator-lens-delta/v1"
@@ -27,6 +27,7 @@ const SCRIPT_PATH = ".agents/skills/run-bounded-mission/scripts/evaluator-packet
 const BINDING_PATH = ".agents/skills/run-bounded-mission/scripts/evaluator-binding.ts"
 const REVIEWER_CONTRACT = ".agents/skills/run-bounded-mission/references/verification/reviewer-handoff.md"
 const RELOCATED_REVIEWER_CONTRACT = ".agents/skills/run-bounded-mission/references/verification/reviewer-handoff.md"
+const EVALUATOR_ROLE = "mission_evaluator"
 const ENFORCEMENT_MODES = new Set(["sandbox-enforced", "integrity-checked"])
 const LENS_ORDER = ["authority_representation", "consumer_fail_close_closure"] as const
 
@@ -516,6 +517,9 @@ function segmentRecord(name: string, bytes: Uint8Array): Record<string, unknown>
 async function buildDispatches(args: Arguments, inputBytes: Uint8Array) {
   const input = parsePacketInput(inputBytes)
   const cwd = gitText(process.cwd(), ["rev-parse", "--show-toplevel"])
+  if (!isAbsolute(cwd) || resolve(cwd) !== cwd || realpathSync(cwd) !== cwd || /[\0\n\r]/.test(cwd)) {
+    reject("control-plane working directory must be a canonical absolute path without control characters")
+  }
   const binding = bindingLine(cwd, args)
   const origin = record(binding.value.origin, "binding.origin")
   const candidate = record(binding.value.candidate, "binding.candidate")
@@ -614,6 +618,7 @@ async function buildDispatches(args: Arguments, inputBytes: Uint8Array) {
     }
   })
   return {
+    workingDirectory: cwd,
     candidateLocator: `commit:${resolvedCandidate}`,
     commonPacketLocator,
     auditSet: input.audit_set,
@@ -663,29 +668,56 @@ async function materialize(): Promise<Uint8Array> {
   const inputBytes = new Uint8Array(await Bun.stdin.arrayBuffer())
   const built = await buildDispatches(args, inputBytes)
   const helper = record(built.admissionHelper, "admission helper")
+  const helperCommit = oid(String(helper.commit), "admission helper commit")
+  const helperPath = semanticString(helper.path, "admission helper path")
+  const helperBlobOid = oid(String(helper.blob_oid), "admission helper blob OID")
+  const helperBlobSha256 = `sha256:${semanticString(helper.blob_sha256, "admission helper blob SHA-256")}`
+  const helperSize = integer(helper.size, "admission helper size")
   const artifacts = built.dispatches.map((dispatch) => {
     const digestValue = dispatch.sha256.slice("sha256:".length)
     const path = materializeArtifact(args.outputDirectory, dispatch.bytes, digestValue)
+    const headerEnd = dispatch.bytes.indexOf(10)
+    const header = canonicalRecord(dispatch.bytes.slice(0, headerEnd + 1), "dispatch header")
+    const assignedLensDeltaSha256 = semanticString(
+      header.assigned_lens_delta_sha256,
+      "assigned lens delta SHA-256",
+    )
     return {
       assigned_risk_lens: dispatch.assigned_risk_lens,
       path,
       size: dispatch.size,
       sha256: dispatch.sha256,
       audit_set: built.auditSet,
-      assigned_lens_delta_sha256: (() => {
-        const headerEnd = dispatch.bytes.indexOf(10)
-        const header = canonicalRecord(dispatch.bytes.slice(0, headerEnd + 1), "dispatch header")
-        return semanticString(header.assigned_lens_delta_sha256, "assigned lens delta SHA-256")
-      })(),
+      assigned_lens_delta_sha256: assignedLensDeltaSha256,
       common_packet_locator: built.commonPacketLocator,
       helper: {
-        commit: helper.commit,
-        path: helper.path,
-        blob_oid: helper.blob_oid,
-        blob_sha256: `sha256:${semanticString(helper.blob_sha256, "helper blob SHA-256")}`,
-        size: helper.size,
+        commit: helperCommit,
+        path: helperPath,
+        blob_oid: helperBlobOid,
+        blob_sha256: helperBlobSha256,
+        size: helperSize,
       },
       candidate_locator: built.candidateLocator,
+      admit: {
+        role: EVALUATOR_ROLE,
+        cwd: built.workingDirectory,
+        argv: [
+          "bun", helperPath, "admit",
+          "--artifact", path,
+          "--size", String(dispatch.size),
+          "--sha256", dispatch.sha256,
+          "--audit-set", built.auditSet,
+          "--assigned-risk-lens", dispatch.assigned_risk_lens,
+          "--assigned-lens-delta-sha256", assignedLensDeltaSha256,
+          "--common-packet-locator", built.commonPacketLocator,
+          "--helper-commit", helperCommit,
+          "--helper-path", helperPath,
+          "--helper-blob-oid", helperBlobOid,
+          "--helper-blob-sha256", helperBlobSha256,
+          "--helper-size", String(helperSize),
+          "--candidate-locator", built.candidateLocator,
+        ],
+      },
     }
   })
   return canonicalLine({
