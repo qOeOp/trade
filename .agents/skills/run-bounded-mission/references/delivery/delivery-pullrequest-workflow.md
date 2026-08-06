@@ -238,10 +238,62 @@ Keep related Missions on the direct per-PR path owned by task dispatch. Do not c
 heads, or reviews merely to reduce invocations; admit aggregation only when an existing owner proves
 the complete source, merge, review, and exact-head acceptance chain without new coordinator machinery.
 
-Retain one final delivery receipt in the handoff, not a ledger. Embed the waiter receipt without
-manually rejoining request, review, finding, disposition, or thread facts; add only the corrected
-final head and base, complete final-head checks, unresolved-thread count, and auto-merge or queue
-state. The receipt does not prove candidate revalidation, final CI, acceptance, or merge authority.
+Retain one final delivery receipt in the handoff, not a ledger. After the child-controlled evidence
+producers are terminal and their current candidate identity snapshot is captured, but before the Hub's
+final mutable-identity and activity freshness reread, collect only compact locators for
+`real_consumer`, `root`, `audit`, `ci`, `provider`, `conversation`, and `drift`, each with its exact
+candidate head, caller-observed result, and a content SHA-256 or explicit `null` when the native locator
+is the only authority. Do not copy evaluator packets, check logs, provider snapshots, conversations,
+or long command output into this receipt.
+
+Use the existing waiter helper's single delivery-receipt mode. Feed `create` one canonical JSON-LF
+`delivery-barrier-input/v1` record containing repository, PR, candidate head, observed base ref/OID,
+merge-tree OID or `null`, queue state, and the locator array. The helper validates exact fields,
+normalizes repository and locator order, joins every locator to the same head, requires every named
+evidence kind, bounds the compact representation, and emits one canonical
+`delivery-barrier-receipt/v1` JSON-LF envelope with the inner byte count and SHA-256:
+
+```text
+bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts \
+  --delivery-receipt create < delivery-barrier-input.jsonl
+```
+
+Replay the exact returned bytes before handoff or Hub consumption; `verify` requires the separately
+retained digest rather than trusting the embedded value:
+
+```text
+bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts \
+  --delivery-receipt verify --sha256 <sha256:digest> < delivery-barrier-receipt.jsonl
+```
+
+`verify` decodes the raw stdin bytes with fatal UTF-8 handling and requires the inner evidence schema
+and representation to be already normalized and canonical; it never repairs or normalizes receipt
+bytes during replay. Missing or altered bytes, digest, locator, candidate head, evidence kind, field,
+UTF-8 sequence, or canonical LF fails nonzero. The helper only collects, normalizes, joins, hashes,
+and replays caller-supplied facts;
+opaque `result` values remain owned by their real consumer. It cannot choose scope or authority,
+classify a finding, decide acceptance, waive evidence, or authorize merge.
+
+Both `create` and `verify` apply one raw-byte boundary before producing canonical output: stdin must be
+strict valid UTF-8 and byte-for-byte equal to the sole contract-ordered canonical JSON-LF
+serialization of the decoded value. Any prefix, suffix, BOM, alternate newline, reordered key, or
+decode/encode normalization fails before a receipt can be created or replayed.
+
+For a `merged` node, the child sends this verified compact receipt once and stops at `merge-ready`.
+The Hub reconciles its own Goal/DAG/authority effect, replays the receipt, and does not rerun child
+consumer, root, audit, CI, provider, or conversation work. Immediately before guarded merge it
+refetches the mutable Git identities—head, base, merge-tree, and queue/auto-merge state—and rereads
+the current final-head activity for the complete required-check set, provider signals, and review
+conversations. Each activity set must still be terminal, must contain no new or changed signal or
+unresolved conversation, and must match the receipt's corresponding locator, result, and content
+digest. Identity or activity drift stales the handoff and returns the same child through task
+dispatch. This is a freshness reread of authority facts, not a rerun of child evidence production.
+The receipt itself proves neither acceptance nor merge authority.
+
+This ordering is strict: child evidence producers finish, the child creates and verifies one compact
+receipt, and only then may the Hub perform the receipt-bound final freshness reread. Never condition
+receipt creation on completing that final reread; doing so creates a circular barrier with no first
+valid receipt.
 
 ## Merge-ready barrier
 
@@ -257,7 +309,8 @@ Immediately before accepting `merge-ready` or performing a merge, observe one cu
    terminal;
 6. zero unresolved conversations remain;
 7. auto-merge or merge-queue state cannot race the snapshot;
-8. a final refetch shows no head, base, activity, or merge-tree drift.
+8. a final refetch shows no head, base, merge-tree, queue/auto-merge, required-check, provider-signal,
+   or conversation-activity drift from the compact receipt.
 
 Unknown, absent, stale, or pending required final-head data fails the barrier. The completed manual
 review is intentionally discovery rather than final-head acceptance evidence. A material finding or

@@ -1,9 +1,14 @@
 #!/usr/bin/env bun
 
+import { createHash } from "node:crypto"
+
 const PROVIDER_LOGIN = "chatgpt-codex-connector"
 const PROVIDER_APP_ID = 1144995
 const RECEIPT_SCHEMA = "codex-review-receipt/v1"
 const REQUEST_VALIDATION_SCHEMA = "codex-review-request-validation/v1"
+const DELIVERY_BARRIER_INPUT_SCHEMA = "delivery-barrier-input/v1"
+const DELIVERY_BARRIER_EVIDENCE_SCHEMA = "delivery-barrier-evidence/v1"
+const DELIVERY_BARRIER_RECEIPT_SCHEMA = "delivery-barrier-receipt/v1"
 const CLEAN_REVIEW = /^(?:codex review:?\s*)?didn['’]t find any major issues[.!]?$/i
 const CLEAN_COMMENT_HEADING = /^Codex Review: Didn['’]t find any major issues\.(?: (?=[^\r\n]{1,64}$)\S(?:[^\r\n]*\S)?)?$/
 const REVIEWED_COMMIT = /^\*\*Reviewed commit:\*\* `([0-9a-f]{10,64})`$/
@@ -193,6 +198,45 @@ export interface ReviewDiscoveryProjection {
   findings: ReviewFindingProjection[]
   history: ReviewAttemptHistoryProjection[]
   problems: DiscoveryProblem[]
+}
+
+const DELIVERY_EVIDENCE_KINDS = [
+  "real_consumer",
+  "root",
+  "audit",
+  "ci",
+  "provider",
+  "conversation",
+  "drift",
+] as const
+
+type DeliveryEvidenceKind = typeof DELIVERY_EVIDENCE_KINDS[number]
+
+interface DeliveryEvidenceLocator {
+  kind: DeliveryEvidenceKind
+  locator: string
+  head_oid: string
+  result: string
+  content_sha256: string | null
+}
+
+interface DeliveryBarrierEvidence {
+  schema: typeof DELIVERY_BARRIER_EVIDENCE_SCHEMA
+  repository: string
+  pull_request: number
+  head_oid: string
+  base_ref: string
+  base_oid: string
+  merge_tree_oid: string | null
+  queue_state: string
+  evidence: DeliveryEvidenceLocator[]
+}
+
+interface DeliveryBarrierReceipt {
+  schema: typeof DELIVERY_BARRIER_RECEIPT_SCHEMA
+  bytes: number
+  sha256: string
+  receipt: DeliveryBarrierEvidence
 }
 
 export function renderCodexReviewRequest(headOid: string): string {
@@ -1077,6 +1121,205 @@ function normalizeRepository(value: string): string {
   return `${match[1].toLowerCase()}/${match[2].toLowerCase()}`
 }
 
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`
+  if (isRecord(value)) {
+    return `{${Object.keys(value).sort().map((key) =>
+      `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`
+  }
+  const encoded = JSON.stringify(value)
+  if (encoded === undefined) throw new Error("canonical JSON contains an unsupported value")
+  return encoded
+}
+
+function canonicalLine(value: unknown): string {
+  return `${canonicalJson(value)}\n`
+}
+
+function decodeUtf8(bytes: Uint8Array, label: string): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes)
+  } catch {
+    throw new Error(`${label} is not valid UTF-8`)
+  }
+}
+
+function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
+  return left.byteLength === right.byteLength
+    && left.every((byte, index) => byte === right[index])
+}
+
+function parseCanonicalLine(bytes: Uint8Array, label: string): unknown {
+  const decoded = decodeUtf8(bytes, label)
+  if (decoded === "" || !decoded.endsWith("\n") || decoded.slice(0, -1).includes("\n")) {
+    throw new Error(`${label} must be one canonical JSON-LF record`)
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(decoded.slice(0, -1))
+  } catch {
+    throw new Error(`${label} is not valid JSON`)
+  }
+  const canonicalBytes = new TextEncoder().encode(canonicalLine(parsed))
+  if (!equalBytes(canonicalBytes, bytes)) throw new Error(`${label} is not canonical JSON-LF`)
+  return parsed
+}
+
+function hasExactKeys(value: Record<string, unknown>, expected: string[]): boolean {
+  const actual = Object.keys(value).sort()
+  return actual.length === expected.length
+    && actual.every((key, index) => key === [...expected].sort()[index])
+}
+
+function isBoundedAtom(value: unknown, maximum: number): value is string {
+  return typeof value === "string"
+    && value.length > 0
+    && value.length <= maximum
+    && [...value].every((character) => {
+      const codePoint = character.codePointAt(0)!
+      return codePoint > 31
+        && codePoint !== 127
+        && (codePoint < 0xd800 || codePoint > 0xdfff)
+    })
+}
+
+function isSha256(value: unknown): value is string {
+  return typeof value === "string" && /^sha256:[0-9a-f]{64}$/.test(value)
+}
+
+function isBaseRef(value: unknown): value is string {
+  return isBoundedAtom(value, 255)
+    && value !== "@"
+    && !value.startsWith("-")
+    && !value.startsWith("/")
+    && !value.endsWith("/")
+    && !value.endsWith(".")
+    && !value.includes("//")
+    && !value.includes("..")
+    && !value.includes("@{")
+    && !/[ ~^:?*\\[\\]\\\\]/.test(value)
+    && value.split("/").every((component) =>
+      component.length > 0
+        && !component.startsWith(".")
+        && !component.endsWith(".lock"))
+}
+
+function normalizeDeliveryEvidence(value: unknown, expectedHead: string): DeliveryEvidenceLocator[] {
+  if (!Array.isArray(value) || value.length < DELIVERY_EVIDENCE_KINDS.length || value.length > 32) {
+    throw new Error("delivery evidence must contain a bounded locator set")
+  }
+  const kindOrder = new Map(DELIVERY_EVIDENCE_KINDS.map((kind, index) => [kind, index]))
+  const seen = new Set<string>()
+  const normalized = value.map((entry): DeliveryEvidenceLocator => {
+    if (!isRecord(entry) || !hasExactKeys(entry, [
+      "kind", "locator", "head_oid", "result", "content_sha256",
+    ])) throw new Error("delivery evidence locator has unknown or missing fields")
+    if (typeof entry.kind !== "string" || !kindOrder.has(entry.kind as DeliveryEvidenceKind)) {
+      throw new Error("delivery evidence locator kind is unknown")
+    }
+    if (!isBoundedAtom(entry.locator, 2048) || !isBoundedAtom(entry.result, 256)) {
+      throw new Error("delivery evidence locator or result is invalid")
+    }
+    if (entry.head_oid !== expectedHead) throw new Error("delivery evidence head does not match candidate")
+    if (entry.content_sha256 !== null && !isSha256(entry.content_sha256)) {
+      throw new Error("delivery evidence content SHA-256 is invalid")
+    }
+    const key = `${entry.kind}\u0000${entry.locator}`
+    if (seen.has(key)) throw new Error("delivery evidence locator is duplicated")
+    seen.add(key)
+    return {
+      kind: entry.kind as DeliveryEvidenceKind,
+      locator: entry.locator,
+      head_oid: entry.head_oid,
+      result: entry.result,
+      content_sha256: entry.content_sha256,
+    }
+  })
+  for (const kind of DELIVERY_EVIDENCE_KINDS) {
+    if (!normalized.some((entry) => entry.kind === kind)) {
+      throw new Error(`delivery evidence is missing ${kind}`)
+    }
+  }
+  return normalized.sort((left, right) =>
+    kindOrder.get(left.kind)! - kindOrder.get(right.kind)!
+      || (left.locator < right.locator ? -1 : left.locator > right.locator ? 1 : 0))
+}
+
+function normalizeDeliveryBarrier(value: unknown): DeliveryBarrierEvidence {
+  if (!isRecord(value) || !hasExactKeys(value, [
+    "schema", "repository", "pull_request", "head_oid", "base_ref", "base_oid",
+    "merge_tree_oid", "queue_state", "evidence",
+  ]) || value.schema !== DELIVERY_BARRIER_INPUT_SCHEMA) {
+    throw new Error("delivery barrier input has an invalid schema or fields")
+  }
+  if (!isPullRequestNumber(value.pull_request)
+    || !isHeadOid(value.head_oid)
+    || !isBaseRef(value.base_ref)
+    || !isHeadOid(value.base_oid)
+    || (value.merge_tree_oid !== null && !isHeadOid(value.merge_tree_oid))
+    || !isBoundedAtom(value.queue_state, 128)) {
+    throw new Error("delivery barrier identity or mutable snapshot is invalid")
+  }
+  return {
+    schema: DELIVERY_BARRIER_EVIDENCE_SCHEMA,
+    repository: normalizeRepository(typeof value.repository === "string" ? value.repository : ""),
+    pull_request: value.pull_request,
+    head_oid: value.head_oid,
+    base_ref: value.base_ref,
+    base_oid: value.base_oid,
+    merge_tree_oid: value.merge_tree_oid,
+    queue_state: value.queue_state,
+    evidence: normalizeDeliveryEvidence(value.evidence, value.head_oid),
+  }
+}
+
+function createDeliveryBarrierReceipt(bytes: Uint8Array): DeliveryBarrierReceipt {
+  const receipt = normalizeDeliveryBarrier(parseCanonicalLine(bytes, "delivery barrier input"))
+  const receiptBytes = canonicalLine(receipt)
+  return {
+    schema: DELIVERY_BARRIER_RECEIPT_SCHEMA,
+    bytes: Buffer.byteLength(receiptBytes),
+    sha256: `sha256:${createHash("sha256").update(receiptBytes).digest("hex")}`,
+    receipt,
+  }
+}
+
+function verifyDeliveryBarrierReceipt(bytes: Uint8Array, expectedSha256: string): DeliveryBarrierReceipt {
+  if (!isSha256(expectedSha256)) throw new Error("expected delivery receipt SHA-256 is invalid")
+  const value = parseCanonicalLine(bytes, "delivery barrier receipt")
+  if (!isRecord(value) || !hasExactKeys(value, ["schema", "bytes", "sha256", "receipt"])
+    || value.schema !== DELIVERY_BARRIER_RECEIPT_SCHEMA
+    || !Number.isSafeInteger(value.bytes) || (value.bytes as number) <= 0
+    || !isSha256(value.sha256)
+    || value.sha256 !== expectedSha256
+    || !isRecord(value.receipt)) {
+    throw new Error("delivery barrier receipt has an invalid envelope or digest")
+  }
+  if (!hasExactKeys(value.receipt, [
+    "schema", "repository", "pull_request", "head_oid", "base_ref", "base_oid",
+    "merge_tree_oid", "queue_state", "evidence",
+  ]) || value.receipt.schema !== DELIVERY_BARRIER_EVIDENCE_SCHEMA) {
+    throw new Error("delivery barrier receipt has an invalid inner schema or fields")
+  }
+  const input = { ...value.receipt, schema: DELIVERY_BARRIER_INPUT_SCHEMA }
+  const receipt = normalizeDeliveryBarrier(input)
+  const receiptBytes = canonicalLine(receipt)
+  const observedSha256 = `sha256:${createHash("sha256").update(receiptBytes).digest("hex")}`
+  const replayed: DeliveryBarrierReceipt = {
+    schema: DELIVERY_BARRIER_RECEIPT_SCHEMA,
+    bytes: value.bytes as number,
+    sha256: value.sha256,
+    receipt,
+  }
+  if (canonicalLine(value.receipt) !== receiptBytes
+    || value.bytes !== Buffer.byteLength(receiptBytes)
+    || value.sha256 !== observedSha256
+    || !equalBytes(new TextEncoder().encode(canonicalLine(replayed)), bytes)) {
+    throw new Error("delivery barrier receipt bytes or SHA-256 do not replay")
+  }
+  return replayed
+}
+
 function normalizeRequestExpectation(locator: string, author: string): ReviewRequestExpectation {
   if (locator === ""
     || !/^[A-Za-z\d](?:[A-Za-z\d-]{0,37}[A-Za-z\d])?$/.test(author)) {
@@ -1309,6 +1552,8 @@ async function main(): Promise<number> {
       "  bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --repo <owner/name> --request-locator <node-id> --request-author <login> <pr-number>",
       "  bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --render-request <head-oid>",
       "  bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --validate-request <head-oid> < request-body",
+      "  bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --delivery-receipt create < canonical-input.jsonl",
+      "  bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --delivery-receipt verify --sha256 <sha256:digest> < receipt.jsonl",
     ].join("\n"))
     return 0
   }
@@ -1336,6 +1581,27 @@ async function main(): Promise<number> {
       return validation.classification === "valid" ? 0 : 1
     } catch (error) {
       console.error(`codex-review: failed: ${error instanceof Error ? error.message : "invalid head"}`)
+      return 2
+    }
+  }
+  if (args[0] === "--delivery-receipt") {
+    try {
+      if (args.length === 2 && args[1] === "create") {
+        process.stdout.write(canonicalLine(createDeliveryBarrierReceipt(
+          new Uint8Array(await Bun.stdin.arrayBuffer()),
+        )))
+        return 0
+      }
+      if (args.length === 4 && args[1] === "verify" && args[2] === "--sha256") {
+        process.stdout.write(canonicalLine(verifyDeliveryBarrierReceipt(
+          new Uint8Array(await Bun.stdin.arrayBuffer()),
+          args[3]!,
+        )))
+        return 0
+      }
+      throw new Error("expected delivery-receipt create or verify with one SHA-256")
+    } catch (error) {
+      console.error(`codex-review: failed: ${error instanceof Error ? error.message : "invalid delivery receipt"}`)
       return 2
     }
   }
