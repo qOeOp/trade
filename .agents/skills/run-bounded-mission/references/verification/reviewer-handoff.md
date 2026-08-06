@@ -43,10 +43,30 @@ voting and rejects a stale, duplicate, missing, contradictory, or wrong-lens ret
 
 ## Main-owned deterministic envelope
 
-For a committed candidate, Main invokes the repository-owned packet helper from a clean immutable
-Origin control plane. Use the existing `materialize` mode and canonical packet input; do not serialize
-the shared core, lens manifest, hashes, or dispatch frames by hand. When target and control roots are
-different, use the existing external-target route and bind the exact target checkout.
+Main invokes the repository-owned packet helper from a clean immutable Origin control plane. Use the
+existing `materialize` mode and canonical packet input; do not serialize the shared core, lens
+manifest, hashes, or dispatch frames by hand. Select exactly one explicit
+`mission-evaluator-binding/v3` candidate variant:
+
+- `committed` resolves the supplied candidate to one immutable commit and preserves the existing
+  same-repository and external-target routes;
+- `local` supplies the reserved `--candidate :local-worktree:` together with grouped
+  `--control-repository`, `--control-origin`, and `--target-root`. The separate target must have the
+  same repository identity and `HEAD` as the named target Origin. The immutable control worktree is
+  clean and the target contains the non-ignored local candidate material.
+
+The local binding reads without following symlinks and captures staged, unstaged, and combined
+tracked binary diffs; raw status and ordered paths; and every non-ignored untracked file or symlink
+with its raw path, type, mode, size, exact bytes, and digest. It rejects an empty or ignored-only
+candidate, invalid UTF-8 path, duplicate or prefix collision, unsupported filesystem type, hard-link
+alias, dirty control plane, wrong target `HEAD`, and any path or read drift. It emits one
+`candidate.kind=local` plus content-addressed `local:sha256:<64hex>` locator. Neither binding nor packet
+materialization writes the target, index, refs, or Git objects.
+
+The packet and admission helpers for a local candidate are the immutable-control-Origin blobs.
+Candidate helpers, reviewer policy, Skill, role TOML, and discovery files are evidence only and never
+execute or govern. Main repeats the exact binding before launch, after semantic return, and before
+fan-in; any raw-byte or fingerprint difference rejects the audit.
 
 Require the existing canonical `mission-evaluator-artifact-set/v3` locator. Each locator remains
 closed and contains the existing `admit` and `observe` objects. Main passes every argv array

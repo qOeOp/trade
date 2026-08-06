@@ -24,9 +24,10 @@ const TERMINAL_OBSERVATION_SCHEMA = "mission-evaluator-terminal-observation/v1"
 const SHARED_CORE_SCHEMA = "mission-evaluator-shared-core/v2"
 const LENS_DELTA_SCHEMA = "mission-evaluator-lens-delta/v1"
 const DISPATCH_SCHEMA = "mission-evaluator-dispatch/v1"
-const BINDING_SCHEMA = "mission-evaluator-binding/v2"
+const BINDING_SCHEMA = "mission-evaluator-binding/v3"
 const SCRIPT_PATH = ".agents/skills/run-bounded-mission/scripts/evaluator-packet.ts"
 const BINDING_PATH = ".agents/skills/run-bounded-mission/scripts/evaluator-binding.ts"
+const LOCAL_CANDIDATE = ":local-worktree:"
 const REVIEWER_CONTRACT = ".agents/skills/run-bounded-mission/references/verification/reviewer-handoff.md"
 const RELOCATED_REVIEWER_CONTRACT = ".agents/skills/run-bounded-mission/references/verification/reviewer-handoff.md"
 const EVALUATOR_ROLE = "mission_evaluator"
@@ -377,8 +378,9 @@ function parseAdmissionArguments(argv: string[]): AdmissionArguments {
   const helperPath = values.get("--helper-path")!
   if (helperPath !== SCRIPT_PATH) reject(`helper path must be ${SCRIPT_PATH}`)
   const candidateLocator = values.get("--candidate-locator")!
-  if (!/^commit:[0-9a-f]{40}$/.test(candidateLocator)) {
-    reject("candidate locator must be commit:<lowercase-full-SHA-1>")
+  if (!/^commit:[0-9a-f]{40}$/.test(candidateLocator)
+      && !/^local:sha256:[0-9a-f]{64}$/.test(candidateLocator)) {
+    reject("candidate locator must be commit:<lowercase-full-SHA-1> or local:sha256:<lowercase-64-hex>")
   }
   return {
     artifact,
@@ -571,9 +573,24 @@ async function buildDispatches(args: Arguments, inputBytes: Uint8Array) {
   const targetWorktree = record(binding.value.target_worktree, "binding.target_worktree")
   const targetRoot = semanticString(targetWorktree.root, "binding.target_worktree.root")
   const resolvedOrigin = immutableCommit(targetRoot, args.origin, "target Origin")
-  const resolvedCandidate = immutableCommit(targetRoot, args.candidate, "target candidate")
-  if (origin.commit !== resolvedOrigin || candidate.commit !== resolvedCandidate) {
-    reject("stale candidate or binding")
+  const candidateKind = semanticString(candidate.kind, "binding.candidate.kind")
+  const candidateLocator = semanticString(candidate.locator, "binding.candidate.locator")
+  if (origin.commit !== resolvedOrigin) reject("stale Origin or binding")
+  if (candidateKind === "local") {
+    if (args.candidate !== LOCAL_CANDIDATE
+        || candidate.base_commit !== resolvedOrigin
+        || candidateLocator !== candidate.locator
+        || !/^local:sha256:[0-9a-f]{64}$/.test(candidateLocator)
+        || args.targetRoot === undefined) {
+      reject("stale local candidate or binding")
+    }
+  } else if (candidateKind === "committed") {
+    const resolvedCandidate = immutableCommit(targetRoot, args.candidate, "target candidate")
+    if (candidate.commit !== resolvedCandidate || candidateLocator !== `commit:${resolvedCandidate}`) {
+      reject("stale committed candidate or binding")
+    }
+  } else {
+    reject("unsupported binding candidate kind")
   }
 
   const lensRecords = input.lenses.map((lens) => {
@@ -608,7 +625,7 @@ async function buildDispatches(args: Arguments, inputBytes: Uint8Array) {
   )
   const sharedCore = canonicalLine({
     schema: SHARED_CORE_SCHEMA,
-    candidate_locator: `commit:${resolvedCandidate}`,
+    candidate_locator: candidateLocator,
     control_plane: {
       head: controlPlane.head,
       tree: controlPlane.tree,
@@ -663,7 +680,7 @@ async function buildDispatches(args: Arguments, inputBytes: Uint8Array) {
   })
   return {
     workingDirectory: cwd,
-    candidateLocator: `commit:${resolvedCandidate}`,
+    candidateLocator,
     commonPacketLocator,
     auditSet: input.audit_set,
     dispatches,
@@ -879,10 +896,23 @@ function replayBinding(cwd: string, value: Record<string, unknown>, bytes: Uint8
   const targetRepository = semanticString(value.repository, "binding.repository")
   const targetRoot = semanticString(targetWorktree.root, "binding.target_worktree.root")
   const external = controlRepository !== targetRepository || targetRoot !== cwd
+  const candidateKind = semanticString(candidate.kind, "binding.candidate.kind")
+  const candidateLocator = semanticString(candidate.locator, "binding.candidate.locator")
+  const candidateArgument = candidateKind === "local"
+    ? LOCAL_CANDIDATE
+    : candidateKind === "committed"
+      ? semanticString(candidate.commit, "binding.candidate.commit")
+      : reject("unsupported binding candidate kind")
+  if (candidateKind === "local" && !/^local:sha256:[0-9a-f]{64}$/.test(candidateLocator)) {
+    reject("local binding candidate locator is malformed")
+  }
+  if (candidateKind === "committed" && candidateLocator !== `commit:${candidateArgument}`) {
+    reject("committed binding candidate locator mismatch")
+  }
   const replayed = bindingLine(cwd, {
     repository: targetRepository,
     origin: semanticString(origin.commit, "binding.origin.commit"),
-    candidate: semanticString(candidate.commit, "binding.candidate.commit"),
+    candidate: candidateArgument,
     enforcement,
     requiredFiles,
     outputDirectory: "/",
@@ -965,11 +995,18 @@ function validatePacketHelper(
   }
   const materialize = parseMaterializeArguments(invocation.slice(3))
   const expectedRequiredFiles = [...binding.requiredFiles].sort()
+  const candidateKind = semanticString(binding.candidate.kind, "binding.candidate.kind")
+  const candidateMatches = candidateKind === "local"
+    ? materialize.candidate === LOCAL_CANDIDATE
+      && binding.candidate.base_commit === binding.origin.commit
+    : candidateKind === "committed"
+      ? immutableCommit(targetRoot, materialize.candidate, "packet helper invocation target candidate")
+        === binding.candidate.commit
+      : false
   if (materialize.repository !== binding.repository
       || immutableCommit(targetRoot, materialize.origin, "packet helper invocation target Origin")
         !== binding.origin.commit
-      || immutableCommit(targetRoot, materialize.candidate, "packet helper invocation target candidate")
-        !== binding.candidate.commit
+      || !candidateMatches
       || materialize.enforcement !== binding.enforcement
       || materialize.outputDirectory !== dirname(args.artifact)
       || materialize.targetRoot !== (external ? targetRoot : undefined)
@@ -1103,7 +1140,7 @@ function validateSharedCore(
   if (args.helperCommit !== expectedAdmissionHelper || args.helperCommit !== binding.controlPlane.head) {
     reject("admission helper does not belong to binding Origin")
   }
-  if (binding.candidate.commit !== args.candidateLocator.slice("commit:".length)) {
+  if (binding.candidate.locator !== args.candidateLocator) {
     reject("binding candidate does not match compact locator")
   }
   const control = record(value.control_plane, "shared_core.control_plane")
