@@ -1136,6 +1136,14 @@ function canonicalLine(value: unknown): string {
   return `${canonicalJson(value)}\n`
 }
 
+function decodeUtf8(bytes: Uint8Array, label: string): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes)
+  } catch {
+    throw new Error(`${label} is not valid UTF-8`)
+  }
+}
+
 function parseCanonicalLine(bytes: string, label: string): unknown {
   if (bytes === "" || !bytes.endsWith("\n") || bytes.slice(0, -1).includes("\n")) {
     throw new Error(`${label} must be one canonical JSON-LF record`)
@@ -1248,8 +1256,11 @@ function normalizeDeliveryBarrier(value: unknown): DeliveryBarrierEvidence {
   }
 }
 
-function createDeliveryBarrierReceipt(bytes: string): DeliveryBarrierReceipt {
-  const receipt = normalizeDeliveryBarrier(parseCanonicalLine(bytes, "delivery barrier input"))
+function createDeliveryBarrierReceipt(bytes: Uint8Array): DeliveryBarrierReceipt {
+  const receipt = normalizeDeliveryBarrier(parseCanonicalLine(
+    decodeUtf8(bytes, "delivery barrier input"),
+    "delivery barrier input",
+  ))
   const receiptBytes = canonicalLine(receipt)
   return {
     schema: DELIVERY_BARRIER_RECEIPT_SCHEMA,
@@ -1259,9 +1270,10 @@ function createDeliveryBarrierReceipt(bytes: string): DeliveryBarrierReceipt {
   }
 }
 
-function verifyDeliveryBarrierReceipt(bytes: string, expectedSha256: string): DeliveryBarrierReceipt {
+function verifyDeliveryBarrierReceipt(bytes: Uint8Array, expectedSha256: string): DeliveryBarrierReceipt {
   if (!isSha256(expectedSha256)) throw new Error("expected delivery receipt SHA-256 is invalid")
-  const value = parseCanonicalLine(bytes, "delivery barrier receipt")
+  const raw = decodeUtf8(bytes, "delivery barrier receipt")
+  const value = parseCanonicalLine(raw, "delivery barrier receipt")
   if (!isRecord(value) || !hasExactKeys(value, ["schema", "bytes", "sha256", "receipt"])
     || value.schema !== DELIVERY_BARRIER_RECEIPT_SCHEMA
     || !Number.isSafeInteger(value.bytes) || (value.bytes as number) <= 0
@@ -1270,19 +1282,29 @@ function verifyDeliveryBarrierReceipt(bytes: string, expectedSha256: string): De
     || !isRecord(value.receipt)) {
     throw new Error("delivery barrier receipt has an invalid envelope or digest")
   }
+  if (!hasExactKeys(value.receipt, [
+    "schema", "repository", "pull_request", "head_oid", "base_ref", "base_oid",
+    "merge_tree_oid", "queue_state", "evidence",
+  ]) || value.receipt.schema !== DELIVERY_BARRIER_EVIDENCE_SCHEMA) {
+    throw new Error("delivery barrier receipt has an invalid inner schema or fields")
+  }
   const input = { ...value.receipt, schema: DELIVERY_BARRIER_INPUT_SCHEMA }
   const receipt = normalizeDeliveryBarrier(input)
   const receiptBytes = canonicalLine(receipt)
   const observedSha256 = `sha256:${createHash("sha256").update(receiptBytes).digest("hex")}`
-  if (value.bytes !== Buffer.byteLength(receiptBytes) || value.sha256 !== observedSha256) {
-    throw new Error("delivery barrier receipt bytes or SHA-256 do not replay")
-  }
-  return {
+  const replayed: DeliveryBarrierReceipt = {
     schema: DELIVERY_BARRIER_RECEIPT_SCHEMA,
     bytes: value.bytes as number,
     sha256: value.sha256,
     receipt,
   }
+  if (canonicalLine(value.receipt) !== receiptBytes
+    || value.bytes !== Buffer.byteLength(receiptBytes)
+    || value.sha256 !== observedSha256
+    || canonicalLine(replayed) !== raw) {
+    throw new Error("delivery barrier receipt bytes or SHA-256 do not replay")
+  }
+  return replayed
 }
 
 function normalizeRequestExpectation(locator: string, author: string): ReviewRequestExpectation {
@@ -1552,12 +1574,14 @@ async function main(): Promise<number> {
   if (args[0] === "--delivery-receipt") {
     try {
       if (args.length === 2 && args[1] === "create") {
-        process.stdout.write(canonicalLine(createDeliveryBarrierReceipt(await Bun.stdin.text())))
+        process.stdout.write(canonicalLine(createDeliveryBarrierReceipt(
+          new Uint8Array(await Bun.stdin.arrayBuffer()),
+        )))
         return 0
       }
       if (args.length === 4 && args[1] === "verify" && args[2] === "--sha256") {
         process.stdout.write(canonicalLine(verifyDeliveryBarrierReceipt(
-          await Bun.stdin.text(),
+          new Uint8Array(await Bun.stdin.arrayBuffer()),
           args[3]!,
         )))
         return 0

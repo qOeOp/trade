@@ -264,18 +264,24 @@ bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts \
   --delivery-receipt verify --sha256 <sha256:digest> < delivery-barrier-receipt.jsonl
 ```
 
-Missing or altered bytes, digest, locator, candidate head, evidence kind, field, or canonical LF
-fails nonzero. The helper only collects, normalizes, joins, hashes, and replays caller-supplied facts;
+`verify` decodes the raw stdin bytes with fatal UTF-8 handling and requires the inner evidence schema
+and representation to be already normalized and canonical; it never repairs or normalizes receipt
+bytes during replay. Missing or altered bytes, digest, locator, candidate head, evidence kind, field,
+UTF-8 sequence, or canonical LF fails nonzero. The helper only collects, normalizes, joins, hashes,
+and replays caller-supplied facts;
 opaque `result` values remain owned by their real consumer. It cannot choose scope or authority,
 classify a finding, decide acceptance, waive evidence, or authorize merge.
 
 For a `merged` node, the child sends this verified compact receipt once and stops at `merge-ready`.
 The Hub reconciles its own Goal/DAG/authority effect, replays the receipt, and does not rerun child
 consumer, root, audit, CI, provider, or conversation work. Immediately before guarded merge it
-refetches only the mutable delivery facts—head, base, merge-tree, and queue/auto-merge state—and
-requires them to match the receipt and current GitHub authority. Any drift stales the handoff and
-returns the same child through task dispatch. The receipt itself proves neither acceptance nor merge
-authority.
+refetches the mutable Git identities—head, base, merge-tree, and queue/auto-merge state—and rereads
+the current final-head activity for the complete required-check set, provider signals, and review
+conversations. Each activity set must still be terminal, must contain no new or changed signal or
+unresolved conversation, and must match the receipt's corresponding locator, result, and content
+digest. Identity or activity drift stales the handoff and returns the same child through task
+dispatch. This is a freshness reread of authority facts, not a rerun of child evidence production.
+The receipt itself proves neither acceptance nor merge authority.
 
 ## Merge-ready barrier
 
@@ -291,7 +297,8 @@ Immediately before accepting `merge-ready` or performing a merge, observe one cu
    terminal;
 6. zero unresolved conversations remain;
 7. auto-merge or merge-queue state cannot race the snapshot;
-8. a final refetch shows no head, base, merge-tree, or queue/auto-merge drift from the compact receipt.
+8. a final refetch shows no head, base, merge-tree, queue/auto-merge, required-check, provider-signal,
+   or conversation-activity drift from the compact receipt.
 
 Unknown, absent, stale, or pending required final-head data fails the barrier. The completed manual
 review is intentionally discovery rather than final-head acceptance evidence. A material finding or
