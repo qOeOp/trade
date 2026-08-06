@@ -1,9 +1,10 @@
 # Route Mission Execution
 
-Load this reference only after [agent lane routing](../orchestration/orchestration-agent-routing.md)
-admits build work or model/effort comparison, or when an activated assessment compares execution
-routes. It supplies the detailed operational criteria for candidate-local implementation, selective
-TDD, frozen mechanical leaves, and empirical model/effort evidence on those activated paths. The
+Load this reference when [agent lane routing](../orchestration/orchestration-agent-routing.md) prepares
+its required pre-dispatch receipt, admits build work or model/effort comparison, or when an activated
+assessment compares execution routes. It supplies the detailed operational criteria for quality
+floors, route evidence, candidate-local implementation, selective TDD, frozen mechanical leaves, and
+empirical model/effort comparison on those activated paths. The
 kernel remains the execution, coordination-cost, and verification-evidence authority; agent routing
 remains the lane authority; reviewer handoff remains the evaluator authority. This reference cannot
 replace their rules or own Mission lifecycle, user-visible model authority, acceptance, or effects.
@@ -12,6 +13,32 @@ Choose a route from the unresolved work and its consequence, not from task size,
 quota, or a permanent work-class table. Keep the main agent as the one semantic writer and decision
 owner. A builder may return a bounded diff only after Plan freezes owner, exact paths, affected
 boundary, candidate shape, oracle, and Stop.
+
+## Project evidence before dispatch
+
+For every route receipt, freeze the cheapest decisive quality floor before comparing latency, tokens,
+or quota. It includes consumer success, required evidence completeness, the route-specific oracle,
+and every applicable safety, permission, authority, and effect invariant. Reject a route that misses
+any floor. Missing telemetry invalidates only the comparison that consumes it; keep the current
+authorized main or host-default route and required controls, and record the alternative and metric as
+`unavailable` rather than blocking unrelated work.
+
+Project the evidence maturity owned by
+[assessment](../optimization/optimization-mission-assessment.md): `contradicted`, `declared`,
+`reachable`, `dynamic`, or `stable`. Use `unavailable` only when the evidence needed to classify the
+route is absent. A configured role, model label, or static call path cannot exceed `reachable`; one
+causally bound successful terminal can reach `dynamic`; `stable` requires representative positive,
+negative, and recovery scenarios to support the route repeatedly. Record quality benefit separately
+and only as `observed` when a
+quality-floor-passing paired comparison shows the relevant Pareto improvement. Otherwise it is
+`unproved` or `unavailable`.
+
+The pre-dispatch projection records the evidence available for the decision, never the result it
+hopes to obtain. At terminal, replace its evidence line with the actual route, observed model and
+reasoning effort or `unavailable`, elapsed and exposed token telemetry or `unavailable`, coordination,
+correction and recheck work, fallback, quality-floor result, and justified maturity change. Do not
+send partial telemetry as progress or retain the receipt outside the current conversation, task
+terminal, or activated assessment.
 
 ## Keep implementation candidate-local
 
@@ -98,6 +125,28 @@ highest-effort route by label. When comparison evidence, exact model identity, o
 is unavailable, keep the current authorized main route and required risk controls, mark alternatives
 unproved, and do not silently lower effort or quality.
 
+## Compare representative route pairs
+
+Use the next naturally occurring, genuinely qualified instance for each row. Freeze the same Origin,
+input, consumer, prompt and loaded references, permissions, tools, environment, evidence capture, and
+expected output. Do not manufacture a task, typo, no-op, finding, test, or cleanup to fill a cell. A
+missing specimen or host metric remains `unavailable` and does not delay unrelated work.
+
+| Scenario | Paired routes | Quality floor | Terminal evidence |
+| --- | --- | --- | --- |
+| small mechanical build or revise | exact-byte main control vs qualified `fast_builder` | identical bounded diff; one writer; supplied checks; no path growth | actual route/model/effort; elapsed; tokens or `unavailable`; inspection, correction, fallback |
+| bounded code leaf | current authorized main or standard builder vs one authorized alternative | public consumer and owner regressions pass; frozen boundary and effects | consumer result; latency/context; coordination; correction and recheck |
+| decision-changing research | main evidence work vs one `mission_researcher` brief | decisive primary evidence, contradictions, limits, Stop, and exact Plan consequence | route identity; source reopening; elapsed/tokens; synthesis correction or fallback |
+| structural planner dispute | high-reasoning main control vs one `mission_planner` proposal | owner and consumer closure, credible alternative, kill conditions, verification, and no authority transfer | proposal completeness; elapsed/tokens; coordination and main correction |
+| independent evaluator audit | reviewer-selected current route vs one reviewer-authorized alternative only when available | exact candidate and complete packet binding, integrity, valid result schema, and no unowned mutation | selected set; model/effort; terminal validity; transport/fallback; correction |
+| independent multi-lane work | the same fixed lanes serially vs in parallel | identical immutable inputs, lens boundaries, quality results, and one fan-in | critical-path elapsed; copied context; coordination events; conflicts and correction |
+
+A comparison that changes the role protocol, tools, or topology measures the route package, not the
+model alone. Select a model or reasoning effort only from a comparison that holds those controls fixed
+and changes one authorized model/effort variable. The reviewer packet continues to select evaluator
+count and lenses; this matrix records that route and never adds an evaluator. One stochastic result is
+one observation, not a durable ranking or default.
+
 Current OpenAI guidance supports this evidence shape: compare reasoning settings on representative
 workloads, measure task success, completeness, evidence, tokens, latency, and cost, and count fewer
 calls or turns as an improvement only after quality still passes. See [Using GPT-5.6](https://developers.openai.com/api/docs/guides/latest-model.md)
@@ -115,7 +164,8 @@ actual material risk predicates. This route schedules exactly that admitted set,
 evaluators for confidence, votes, or a retry loop. When the root gate and selected audit consume the
 same frozen candidate and neither feeds the other, run them concurrently and fan in once.
 
+The compact pre-dispatch receipt and its terminal update are the default observable route evidence.
 When evidence assessment is activated, reuse its frozen dimensions, scenario coverage, cost surfaces,
-and limits as the performance receipt. Otherwise Finalize reports only the observed route, quality
-floor, decisive cost/latency evidence, reused or invalidated evidence, and unproved route plus fallback.
-Create no ledger, benchmark harness, or durable per-run history for this receipt.
+and limits rather than creating another performance record. Otherwise retain only the terminal receipt's
+observed route, quality floor, decisive cost or latency evidence, reused or invalidated evidence, and
+unproved route plus fallback. Create no ledger, benchmark harness, or durable per-run history.

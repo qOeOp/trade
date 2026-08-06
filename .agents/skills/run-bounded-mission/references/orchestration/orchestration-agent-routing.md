@@ -44,26 +44,61 @@ diff; it cannot widen scope, authorize an effect, or choose a Mission route.
 Classify the work before selecting a route. Model names configure existing roles; they do not define
 the work class or transfer its owner.
 
+## Emit one pre-dispatch routing receipt
+
+Before every internal agent dispatch, and when task dispatch invokes this owner before its one native
+create attempt, consume one current runnable slice and emit one compact receipt. Load
+[execution routing](../execution/execution-mission-routing-policy.md) before projecting its quality
+floor, empirical evidence, maturity, or fallback. The runnable slice supplies task semantics and real
+consumer; material risks and permissions or effects; immutable inputs and dependency slice; owner,
+exact paths, write set, candidate shape and scale, oracle, Stop, and critical-path status; whether
+external research or independent judgment is required; latency target; and current empirical evidence.
+Missing or mutable authority, owner, boundary, oracle, or permission freezes dispatch. Missing model,
+quota, cost, or telemetry evidence instead keeps the current authorized main or host-default route only
+when the receipt names that fallback and marks the dependent comparison unavailable.
+
+```text
+Pre-dispatch routing receipt
+Input: <semantics; risk; permissions/effects; dependency slice; owner/write set; candidate scale; research/independent judgment; latency target; quality floor; empirical evidence locators>
+Route: <lane; observed model or unavailable; observed reasoning effort or unavailable>
+Topology: <single or pair; parallel or serial; dependency basis>
+Fallback: <one authorized fallback and trigger, or none>
+Evidence: <maturity; quality result; elapsed and token telemetry or unavailable; coordination/correction limits>
+```
+
+The receipt is current conversation evidence for one causally bound dispatch attempt, not a task
+field, durable record, scheduler, ledger, registry, or second state machine. A changed input invalidates
+only its dependent fields and requires a replacement before dispatch. Task dispatch retains consent,
+user-visible model, task identity, and create authority; orchestration retains graph and priority;
+reviewer handoff retains evaluator-set selection; main retains every judgment and effect. The receipt
+records those supplied decisions and never reselects them.
+
+After a child or internal lane reaches terminal, update only the compact receipt with the actual
+route, observed model and effort or `unavailable`, elapsed and token telemetry or `unavailable`,
+coordination and correction, fallback, quality-floor result, and resulting maturity. Fan that evidence
+in once at the owning terminal boundary. Ordinary progress, lane chatter, and partial telemetry do not
+return to the Hub or trigger a new routing decision.
+
 ## Route reasoning and build work
 
 For a build-route decision, selective-TDD criteria on that route, model or reasoning-effort
-comparison, or a frozen mechanical leaf, load
+comparison, or a frozen mechanical leaf, use
 [execution routing](../execution/execution-mission-routing-policy.md). It supplies operational
 criteria under the kernel; this reference remains the sole lane admission, protocol, exact-model
 observation, and fallback owner.
 
-| Work | Route | Admission boundary |
-| --- | --- | --- |
-| Frame, Plan admission, cross-owner or safety judgment, finding synthesis, Finalize | high-reasoning main agent | never delegate the decision |
-| evidenced structural Plan challenge | high-reasoning `mission_planner` | proposal only; main agent admits or rejects it |
-| ordinary implementation | main agent or one standard builder | frozen owner, path, boundary, candidate shape, and verification route |
-| low-risk mechanical leaf | custom `fast_builder` on exact `gpt-5.3-codex-spark` | this route admits the lane after every execution-policy Spark gate holds |
-| deterministic repository or environment fact | existing helper or direct read-only command; no agent or model | exact inputs and directly checkable output |
-| bounded repository synthesis | fast explorer | every fast evidence gate holds |
-| bounded current or external evidence | `mission_researcher` | one decision-changing external question |
-| spare-capacity self-QA retrospective | one ordinary read-only support agent | task dispatch proves the idle predicate and supplies one exact task plus terminal/checkpoint/anomaly locators |
-| frozen-candidate advisory lens | ordinary read-only support agent | advisory trigger and packet below |
-| independent candidate audit | one `mission_evaluator`, or the reviewer packet's risk-triggered complementary pair | fresh non-builder context, origin-bound policy, exact candidate, and integrity gates; one set-wide generic fallback only after explicit terminal transport or capability failure |
+| Work | Lane and model/effort projection | Topology | Fallback | Admission boundary |
+| --- | --- | --- | --- | --- |
+| Frame, Plan admission, cross-owner or safety judgment, finding synthesis, Finalize | authorized high-reasoning main; exact identity or `unavailable` | serial decision owner | none | never delegate the decision |
+| evidenced structural Plan challenge | `mission_planner`; observe role-owned model/effort | one proposal | high-reasoning main | main admits or rejects it |
+| ordinary implementation | main or one standard builder; observe exact identity | single writer; parallel only for independent paths | main | frozen owner, path, boundary, candidate shape, and verification route |
+| low-risk mechanical leaf | `fast_builder` on exact `gpt-5.3-codex-spark` / low | one embedded builder | standard main once | every execution-policy Spark gate holds; never create a user-visible task |
+| deterministic repository or environment fact | existing helper or direct command; no model | serial only when inputs depend | `evidence_unavailable` | exact inputs and directly checkable output |
+| bounded repository synthesis | fast explorer; observed identity | one read-only lane | main | every fast evidence gate holds |
+| bounded current or external evidence | `mission_researcher`; observe role-owned model/effort | one question; dependent research serial | main or freeze dependent decision | one decision-changing external question |
+| spare-capacity self-QA retrospective | one ordinary read-only support lane; observed identity | single and noncritical | `no-signal` | task dispatch proves idle capacity and supplies exact terminal/checkpoint/anomaly locators |
+| frozen-candidate advisory lens | ordinary read-only support lane; observed identity | two or more independent lenses may parallelize | main inspection | advisory predicates and immutable candidate hold |
+| independent candidate audit | reviewer-selected `mission_evaluator` route; observe role-owned model/effort | single or complementary pair as supplied | reviewer-owned fail-closed route | fresh non-builder context, immutable candidate, and integrity gates |
 
 The role files own their pinned model and reasoning settings. For an unpinned internal route, treat
 the selected model as host-discretionary and do not promise an exact model without observing it.
