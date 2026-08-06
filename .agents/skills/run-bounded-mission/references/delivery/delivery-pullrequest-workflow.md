@@ -73,7 +73,10 @@ cannot correlate it. Immediately before the external effect:
    ```
 
    The preflight and waiter history share one extractor that enumerates every request-shaped PR issue
-   comment before actor, app, edit, head, or provenance classification. The preflight exposes each
+   comment before actor, app, edit, head, or provenance classification. Request-shaped means the
+   comment body begins at byte zero with the `@codex review` command and its token boundary; quoted,
+   embedded, or explanatory mentions elsewhere in provider or human prose are not request attempts.
+   The preflight exposes each
    attempt's locator and the complete attempt count, and returns a machine
    `effect_authority.disposition`. It is only a deterministic
    no-prior-attempt safety gate; the admitted Mission/delegation remains the external-effect authority.

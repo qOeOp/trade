@@ -13,7 +13,7 @@ const DELIVERY_BARRIER_RECEIPT_SCHEMA = "delivery-barrier-receipt/v2"
 const CLEAN_COMMENT_HEADING = /^Codex Review: Didn['’]t find any major issues\.(?: (?=[^\r\n]{1,64}$)\S(?:[^\r\n]*\S)?)?$/
 const REVIEWED_COMMIT = /^\*\*Reviewed commit:\*\* `([0-9a-f]{7,40})`$/
 const USAGE_FAILURE = /(usage limit|rate limit|quota exceeded|try again later)/i
-const REVIEW_REQUEST = /@codex\s+review\b/i
+const REVIEW_REQUEST = /^@codex[ \t]+review\b/i
 const EXACT_HEAD_REVIEW_REQUEST = /^@codex review\n\nExact head: `([0-9a-f]{40})`$/
 const REQUESTED_HEAD = /^@codex review\n\nExact head:\s*`?([0-9a-f]{40})`?$/
 
