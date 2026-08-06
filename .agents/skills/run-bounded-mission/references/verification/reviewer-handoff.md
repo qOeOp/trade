@@ -145,6 +145,11 @@ artifact path and assigned lens let the evaluator locate its scratch before runn
 missing, reused, noncanonical, writable-by-others, symlinked, or other-than-the-five-empty-directories
 boundary rejects launch.
 
+Create and validate the lens root itself as a non-symlink `0700` directory before creating its five
+children. Do not rely on a recursive child-directory operation to apply the requested mode to an
+intermediate lens root; common `mkdir -p <lens-root>/home` behavior can leave that root as `0755` while
+the child is `0700`. `lstat` the root and every child after creation and before dispatch.
+
 Run `admit` and every later command through a clean environment that sets `HOME`, `XDG_CACHE_HOME`,
 `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `TMPDIR`, `TMP`, and `TEMP` to the assigned scratch descendants.
 Preserve only packet-bound values required to locate executables or read system trust. For the
