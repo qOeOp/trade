@@ -87,9 +87,7 @@ def run_demo() -> dict:
 
     engine.add_strategy_from_config(
         _ISC(
-            strategy_path=(
-                "vibe_trader.examples.strategies.market_buy_on_start:MarketBuyOnStart"
-            ),
+            strategy_path=("vibe_trader.examples.strategies.market_buy_on_start:MarketBuyOnStart"),
             config_path=(
                 "vibe_trader.examples.strategies.market_buy_on_start:MarketBuyOnStartConfig"
             ),

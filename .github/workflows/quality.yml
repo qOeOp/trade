@@ -1,0 +1,91 @@
+name: repository-quality
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: repository-quality-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  project:
+    name: project-quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      CARGO_BUILD_JOBS: 2
+      NEXTEST_PROFILE: ci
+      VIBE_TEST_DATA_BASE_URL: ${{ vars.VIBE_TEST_DATA_BASE_URL }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate pull request title
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: bash .github/scripts/validate-pr-title.sh "$PR_TITLE"
+      - name: Validate changed lines
+        env:
+          QUALITY_DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: git diff --no-renames --check "$QUALITY_DIFF_BASE"...HEAD
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.1"
+          enable-cache: false
+      - name: Set up Rust
+        run: |
+          toolchain="$(bash scripts/rust-toolchain.sh)"
+          rustup toolchain install "$toolchain" --profile minimal --component clippy,rustfmt
+          rustup override set "$toolchain"
+      - name: Install Python quality dependencies
+        run: UV_SYNC_FLAGS="--inexact --locked" make sync
+      - name: Install nextest
+        run: echo "CARGO_NEXTEST_VERSION=$(bash scripts/cargo-tool-version.sh cargo-nextest)" >> "$GITHUB_ENV"
+      - name: Set up nextest
+        uses: taiki-e/install-action@91ddec75689c4c78665b598d188dc821c5a43e5c # v2.85.9
+        with:
+          tool: nextest@${{ env.CARGO_NEXTEST_VERSION }}
+      - name: Check formatting and lint
+        run: |
+          bash .pre-commit-hooks/cargo_fmt_stable.sh --all -- --check
+          env -u VIRTUAL_ENV uv run --project python --no-sync ruff format . --check \
+            --config python/pyproject.toml \
+            --force-exclude
+          make check-code
+      - name: Check metadata and build
+        run: |
+          cargo metadata --locked --no-deps --format-version 1 >/dev/null
+          bash scripts/ci/check-workspace-test-coverage.sh
+          make cargo-check
+      - name: Run tests
+        run: make cargo-test
+      - name: Verify quality checks did not modify tracked files
+        if: ${{ always() }}
+        run: git diff --exit-code
+
+  quality:
+    name: quality
+    if: ${{ always() }}
+    needs: [project]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require project quality
+        env:
+          PROJECT_RESULT: ${{ needs.project.result }}
+        run: test "$PROJECT_RESULT" = success

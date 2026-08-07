@@ -1,6 +1,6 @@
 import pytest
-
 from tests.providers import TestInstrumentProvider
+
 from vibe_trader.model import InstrumentId
 from vibe_trader.model import Price
 from vibe_trader.model import Symbol

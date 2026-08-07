@@ -139,39 +139,33 @@ long_method_with_many_params(
 
 ## Commit messages
 
-Commit messages use a capitalized, imperative subject naming the affected surface, optionally followed by a body
+Pull request titles and commit subjects use a scoped Conventional Commits shape, optionally followed by a body
 explaining the change.
 
 ### Subject line
 
-- Open with a capitalized imperative verb, so the subject describes what the commit does when applied.
-  `Add`, `Fix`, `Improve`, `Refine`, `Update`, `Remove`, `Refactor`, and `Standardize` cover most of the history.
-- Name the affected surface (crate, adapter, subsystem, or type) so the log stays scannable.
-- Keep the subject between 10 and 60 characters for clear GitHub rendering and concise but descriptive text.
-- Do not end the subject with a period.
+- Use `type(scope): description`, with a non-empty scope naming the affected crate, adapter, subsystem, or type.
+- Add `!` after the scope only for a breaking change.
+- Keep the description concise and specific so the log stays scannable.
 
 ```text
-Add Decimal constructors to Instrument trait
-Fix non-atomic order event application
-Refine cross-platform wheel validation
-Remove stale security audit exceptions
+feat(model): add Decimal constructors to Instrument
+fix(execution): make order event application atomic
+refactor(build): simplify cross-platform wheel validation
+chore(security): remove stale audit exceptions
 ```
 
-Avoid these shapes:
+The executable pull request title syntax authority is
+`.github/scripts/validate-pr-title.sh`. Pull request titles follow the same shape because a squash merge turns the
+title into the commit subject.
+
+Avoid unscoped, vague, or non-Conventional shapes:
 
 ```text
-feat(bybit): add due_post_only flag        # Conventional Commits type and scope
-fix: bug                                   # lowercase, unspecific, too short
-Fixed the Bybit post-only rejection flag.  # past tense, trailing period
-Update stuff                               # says nothing about the surface
+fix: bug                                   # missing scope and unspecific
+Update stuff                               # missing type and scope
+feat(model): update stuff                  # vague description
 ```
-
-### Conventional Commits
-
-Do NOT use [Conventional Commits](https://www.conventionalcommits.org/) syntax for commit messages or pull
-request titles. Many editors and AI assistants emit that format by default, but no commit in this
-repository's history uses it, and the type and scope ceremony duplicates what the subject already carries.
-Pull request titles matter here too, because a squash merge turns the PR title into the commit subject.
 
 ### Body
 

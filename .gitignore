@@ -89,6 +89,8 @@ env/
 !**/fuzz/**/grind.sh
 !.docker/entrypoint.sh
 !.pre-commit-hooks/*.sh
+!.github/scripts/validate-pr-title.sh
+!.github/scripts/verify-go-absence.sh
 !scripts/cargo-tool-version.sh
 !scripts/check-outdated.sh
 !scripts/fuzz-adapter.sh

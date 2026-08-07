@@ -2,8 +2,8 @@ import inspect
 from decimal import Decimal
 
 import pytest
-
 from tests.providers import TestInstrumentProvider
+
 from vibe_trader.model import AssetClass
 from vibe_trader.model import BettingInstrument
 from vibe_trader.model import BinaryOption

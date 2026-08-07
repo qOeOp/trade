@@ -1,8 +1,8 @@
 from decimal import Decimal
 
 import pytest
-
 from tests.providers import TestInstrumentProvider
+
 from vibe_trader.core import UUID4
 from vibe_trader.model import AccountBalance
 from vibe_trader.model import AccountId

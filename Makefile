@@ -379,10 +379,10 @@ pre-commit:  #-- Run all pre-commit hooks on all files
 # The check-code target uses CARGO_FEATURES which is controlled by the HYPERSYNC flag.
 # By default, hypersync is excluded to speed up checks. Override with: make check-code HYPERSYNC=true
 .PHONY: check-code
-check-code:  #-- Run clippy on lib/test targets and ruff --fix (use HYPERSYNC=true to include hypersync feature)
+check-code:  #-- Run clippy and Ruff on lib/test targets (use HYPERSYNC=true to include hypersync feature)
 	$(info $(M) Running code quality checks...)
 	@cargo clippy --workspace --lib --tests --features "$(CARGO_FEATURES)" --profile nextest -- -D warnings
-	@VIRTUAL_ENV= uv run --project python --no-sync ruff check . --config python/pyproject.toml --fix --force-exclude
+	@VIRTUAL_ENV= uv run --project python --no-sync ruff check . --config python/pyproject.toml --force-exclude
 	@printf "$(GREEN)Checks passed$(RESET)\n"
 
 .PHONY: check-code-standard-precision

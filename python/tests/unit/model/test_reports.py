@@ -7,6 +7,7 @@ from tests.unit.model.factories import make_order_initialized
 from tests.unit.model.factories import make_order_status_report
 from tests.unit.model.factories import make_position_fill
 from tests.unit.model.factories import make_position_status_report
+
 from vibe_trader.core import UUID4
 from vibe_trader.model import AccountId
 from vibe_trader.model import ClientId

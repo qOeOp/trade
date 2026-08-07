@@ -1,8 +1,8 @@
 from decimal import Decimal
 
 import pytest
-
 from tests.unit.model.factories import make_own_order
+
 from vibe_trader.model import ClientOrderId
 from vibe_trader.model import OrderSide
 from vibe_trader.model import OrderStatus
