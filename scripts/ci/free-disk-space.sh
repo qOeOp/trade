@@ -38,7 +38,7 @@ All categories are opt-in:
   --extra           Remove further SDKs beyond the categories above
                     (swift, powershell, boost, chromium, chrome,
                     microsoft, julia)
-  --max-build       Remove build tools unused by Vibe Trader's Linux jobs
+  --max-build       Remove build tools unused by NautilusTrader's Linux jobs
                     (Miniconda, vcpkg, Linuxbrew, Java, Maven, Gradle,
                     Kotlin, AWS CLI, global Node modules)
 USAGE

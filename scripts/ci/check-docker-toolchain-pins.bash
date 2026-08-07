@@ -51,14 +51,14 @@ check_refs() {
 # version tag is the source of truth: every other Python reference must match it,
 # and it must stay within pyproject's requires-python range.
 check_python_alignment() {
-  local vibe_df=".docker/vibe_trader.dockerfile"
+  local nautilus_df=".docker/vibe_trader.dockerfile"
   local ubuntu_df=".docker/DockerfileUbuntu"
   local pyproject="python/pyproject.toml"
   local base_ref py_version minor digest requires lower upper ref found
 
-  base_ref="$(grep -Eo 'public\.ecr\.aws/docker/library/python:3\.[0-9]+-slim@sha256:[0-9a-f]+' "${REPO_ROOT}/${vibe_df}" | head -n1 || true)"
+  base_ref="$(grep -Eo 'public\.ecr\.aws/docker/library/python:3\.[0-9]+-slim@sha256:[0-9a-f]+' "${REPO_ROOT}/${nautilus_df}" | head -n1 || true)"
   if [[ -z "$base_ref" ]]; then
-    echo "Error: ${vibe_df} has no version-tagged, digest-pinned python base image" >&2
+    echo "Error: ${nautilus_df} has no version-tagged, digest-pinned python base image" >&2
     echo "       Expected: FROM public.ecr.aws/docker/library/python:<major>.<minor>-slim@sha256:<digest>" >&2
     status=1
     return
@@ -68,7 +68,7 @@ check_python_alignment() {
 
   digest="${base_ref##*@sha256:}"
   if [[ ! "$digest" =~ ^[0-9a-f]{64}$ ]]; then
-    echo "Error: ${vibe_df} python base image has an invalid digest: ${base_ref}" >&2
+    echo "Error: ${nautilus_df} python base image has an invalid digest: ${base_ref}" >&2
     status=1
   fi
 
@@ -76,11 +76,11 @@ check_python_alignment() {
   lower="$(printf '%s' "$requires" | grep -Eo '>=[[:space:]]*3\.[0-9]+' | grep -Eo '[0-9]+$' || true)"
   upper="$(printf '%s' "$requires" | grep -Eo '<[[:space:]]*3\.[0-9]+' | grep -Eo '[0-9]+$' || true)"
   if [[ -n "$lower" ]] && ((minor < lower)); then
-    echo "Error: ${vibe_df} Python ${py_version} is below requires-python \"${requires}\" in ${pyproject}" >&2
+    echo "Error: ${nautilus_df} Python ${py_version} is below requires-python \"${requires}\" in ${pyproject}" >&2
     status=1
   fi
   if [[ -n "$upper" ]] && ((minor >= upper)); then
-    echo "Error: ${vibe_df} Python ${py_version} is outside requires-python \"${requires}\" in ${pyproject}" >&2
+    echo "Error: ${nautilus_df} Python ${py_version} is outside requires-python \"${requires}\" in ${pyproject}" >&2
     status=1
   fi
 
@@ -88,12 +88,12 @@ check_python_alignment() {
   while IFS= read -r ref; do
     found=1
     if [[ "$ref" != "python${py_version}" ]]; then
-      echo "Error: ${vibe_df} references ${ref}, expected python${py_version} from the base image" >&2
+      echo "Error: ${nautilus_df} references ${ref}, expected python${py_version} from the base image" >&2
       status=1
     fi
-  done < <(grep -Eo 'python3\.[0-9]+' "${REPO_ROOT}/${vibe_df}" || true)
+  done < <(grep -Eo 'python3\.[0-9]+' "${REPO_ROOT}/${nautilus_df}" || true)
   if [[ "$found" -eq 0 ]]; then
-    echo "Error: ${vibe_df} has no python<version> site-packages paths to verify" >&2
+    echo "Error: ${nautilus_df} has no python<version> site-packages paths to verify" >&2
     status=1
   fi
 
@@ -117,7 +117,8 @@ check_refs \
   "$EXPECTED_UV_PREFIX" \
   'ghcr\.io/astral-sh/uv:[^[:space:]\\]+@sha256:[0-9a-f]+' \
   ".docker/DockerfileUbuntu" \
-  ".docker/vibe_trader.dockerfile"
+  ".docker/vibe_trader.dockerfile" \
+  ".docker/jupyterlab.dockerfile"
 
 check_refs \
   "Rust ${RUST_VERSION}" \
