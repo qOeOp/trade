@@ -1,11 +1,22 @@
 #!/usr/bin/env bun
 
 import { createHash } from "node:crypto"
-import { realpathSync } from "node:fs"
+import {
+  type BigIntStats,
+  closeSync,
+  constants as fsConstants,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+} from "node:fs"
 import { isAbsolute, resolve } from "node:path"
 
-const SCHEMA = "mission-evaluator-binding/v2"
+const SCHEMA = "mission-evaluator-binding/v3"
 const SCRIPT_PATH = ".agents/skills/run-bounded-mission/scripts/evaluator-binding.ts"
+const LOCAL_CANDIDATE = ":local-worktree:"
 const ENFORCEMENT_MODES = new Set(["sandbox-enforced", "integrity-checked"])
 
 interface Inputs {
@@ -181,11 +192,191 @@ function splitNulPaths(bytes: Uint8Array): string[] {
   let start = 0
   for (let index = 0; index < bytes.length; index += 1) {
     if (bytes[index] !== 0) continue
-    if (index > start) paths.push(decoder.decode(bytes.slice(start, index)))
+    if (index > start) {
+      try {
+        paths.push(decoder.decode(bytes.slice(start, index)))
+      } catch {
+        reject("Git path output must be valid UTF-8")
+      }
+    }
     start = index + 1
   }
   if (start !== bytes.length) reject("changed-path output was not NUL terminated")
   return paths.sort(compareUtf8)
+}
+
+function bytesRecord(bytes: Uint8Array) {
+  return {
+    encoding: "base64",
+    size: bytes.length,
+    sha256: sha256(bytes),
+    bytes_base64: Buffer.from(bytes).toString("base64"),
+  }
+}
+
+function sameFile(
+  left: BigIntStats,
+  right: BigIntStats,
+): boolean {
+  return left.dev === right.dev && left.ino === right.ino && left.size === right.size
+    && left.mode === right.mode && left.nlink === right.nlink
+    && left.mtimeNs === right.mtimeNs && left.ctimeNs === right.ctimeNs
+}
+
+function candidatePath(root: string, path: string, allowMissing: boolean): string {
+  const absolute = resolve(root, path)
+  if (absolute === root || !absolute.startsWith(`${root}/`)) reject(`candidate path escapes target root: ${path}`)
+  let current = root
+  for (const segment of path.split("/").slice(0, -1)) {
+    current = resolve(current, segment)
+    try {
+      const stat = lstatSync(current)
+      if (!stat.isDirectory() || stat.isSymbolicLink()) reject(`candidate path parent is not a direct directory: ${path}`)
+    } catch (error) {
+      if (allowMissing && (error as NodeJS.ErrnoException).code === "ENOENT") break
+      throw error
+    }
+  }
+  return absolute
+}
+
+function materialEntry(root: string, path: string, allowMissing: boolean) {
+  const rawPath = Buffer.from(path, "utf8")
+  if (/\0|\n|\r/.test(path) || !Buffer.from(new TextDecoder("utf-8", { fatal: true }).decode(rawPath)).equals(rawPath)) {
+    reject(`candidate path is not canonical UTF-8: ${path}`)
+  }
+  const absolute = candidatePath(root, path, allowMissing)
+  let before: BigIntStats
+  try {
+    before = lstatSync(absolute, { bigint: true })
+  } catch (error) {
+    if (allowMissing && (error as NodeJS.ErrnoException).code === "ENOENT") {
+      return {
+        path,
+        raw_path: bytesRecord(rawPath),
+        type: "missing",
+        mode: "000000",
+        size: 0,
+        sha256: sha256(new Uint8Array()),
+        bytes_base64: "",
+      }
+    }
+    throw error
+  }
+  if (before.nlink !== 1n) reject(`candidate entry must not have hard-link aliases: ${path}`)
+  if (before.isSymbolicLink()) {
+    const target = readlinkSync(absolute, { encoding: "buffer" }) as Buffer
+    const after = lstatSync(absolute, { bigint: true })
+    if (!sameFile(before, after) || !after.isSymbolicLink()) reject(`candidate symlink drifted during read: ${path}`)
+    return {
+      path,
+      raw_path: bytesRecord(rawPath),
+      type: "symlink",
+      mode: "120000",
+      size: target.length,
+      sha256: sha256(target),
+      bytes_base64: target.toString("base64"),
+    }
+  }
+  if (!before.isFile()) reject(`unsupported candidate entry type: ${path}`)
+  const descriptor = openSync(absolute, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW)
+  try {
+    const opened = fstatSync(descriptor, { bigint: true })
+    if (!sameFile(before, opened) || !opened.isFile() || opened.nlink !== 1n) {
+      reject(`candidate file changed or has aliases before read: ${path}`)
+    }
+    const bytes = new Uint8Array(readFileSync(descriptor))
+    const afterRead = fstatSync(descriptor, { bigint: true })
+    const afterPath = lstatSync(absolute, { bigint: true })
+    if (!sameFile(before, afterRead) || !sameFile(afterPath, afterRead)) {
+      reject(`candidate file or path drifted during read: ${path}`)
+    }
+    return {
+      path,
+      raw_path: bytesRecord(rawPath),
+      type: "file",
+      mode: Number(opened.mode & 0o177777n).toString(8).padStart(6, "0"),
+      size: bytes.length,
+      sha256: sha256(bytes),
+      bytes_base64: Buffer.from(bytes).toString("base64"),
+    }
+  } finally {
+    closeSync(descriptor)
+  }
+}
+
+function orderedUniquePaths(bytes: Uint8Array, label: string): string[] {
+  const paths = splitNulPaths(bytes)
+  if (new Set(paths).size !== paths.length) reject(`${label} contains duplicate paths`)
+  return paths
+}
+
+function rejectPathCollisions(paths: string[]): void {
+  const ordered = [...paths].sort(compareUtf8)
+  for (let index = 1; index < ordered.length; index += 1) {
+    const previous = ordered[index - 1]!
+    const current = ordered[index]!
+    if (previous === current) reject(`candidate material contains duplicate path: ${current}`)
+    if (current.startsWith(`${previous}/`)) reject(`candidate material contains a path-prefix collision: ${previous}`)
+  }
+}
+
+function localCapture(root: string) {
+  const status = gitBytes(root, ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored=no"])
+  const staged = gitBytes(root, [
+    "diff", "--cached", "--binary", "--full-index", "--no-color", "--no-ext-diff", "--no-textconv",
+    "--no-renames", "HEAD", "--",
+  ])
+  const unstaged = gitBytes(root, [
+    "diff", "--binary", "--full-index", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "--",
+  ])
+  const combined = gitBytes(root, [
+    "diff", "--binary", "--full-index", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames",
+    "HEAD", "--",
+  ])
+  const stagedPathsRaw = gitBytes(root, ["diff", "--cached", "--name-only", "-z", "--no-renames", "HEAD", "--"])
+  const unstagedPathsRaw = gitBytes(root, ["diff", "--name-only", "-z", "--no-renames", "--"])
+  const combinedPathsRaw = gitBytes(root, ["diff", "--name-only", "-z", "--no-renames", "HEAD", "--"])
+  const untrackedPathsRaw = gitBytes(root, ["ls-files", "--others", "--exclude-standard", "-z"])
+  const trackedPathsRaw = gitBytes(root, ["ls-files", "-z"])
+  const trackedPaths = [
+    ...orderedUniquePaths(stagedPathsRaw, "staged changed paths"),
+    ...orderedUniquePaths(unstagedPathsRaw, "unstaged changed paths"),
+    ...orderedUniquePaths(combinedPathsRaw, "combined changed paths"),
+  ]
+  const untrackedPaths = orderedUniquePaths(untrackedPathsRaw, "untracked paths")
+  const allTrackedPaths = new Set(orderedUniquePaths(trackedPathsRaw, "tracked paths"))
+  for (const path of untrackedPaths) {
+    if (allTrackedPaths.has(path)) reject(`candidate path is both tracked and untracked: ${path}`)
+  }
+  const changedTrackedPaths = [...new Set(trackedPaths)].sort(compareUtf8)
+  const allPaths = [...changedTrackedPaths, ...untrackedPaths]
+  rejectPathCollisions(allPaths)
+  const trackedEntries = changedTrackedPaths.map((path) => materialEntry(root, path, true))
+  const untrackedEntries = untrackedPaths.map((path) => materialEntry(root, path, false))
+  const manifestBytes = Buffer.concat([
+    ...trackedEntries.map((entry) => Buffer.from(`${JSON.stringify({ scope: "tracked", ...entry })}\n`)),
+    ...untrackedEntries.map((entry) => Buffer.from(`${JSON.stringify({ scope: "untracked", ...entry })}\n`)),
+  ])
+  return {
+    status: bytesRecord(status),
+    diff: {
+      kind: "local",
+      staged: bytesRecord(staged),
+      unstaged: bytesRecord(unstaged),
+      combined: bytesRecord(combined),
+      changed_paths: changedTrackedPaths,
+      staged_paths: bytesRecord(stagedPathsRaw),
+      unstaged_paths: bytesRecord(unstagedPathsRaw),
+      combined_paths: bytesRecord(combinedPathsRaw),
+    },
+    untracked: {
+      paths: bytesRecord(untrackedPathsRaw),
+      entries: untrackedEntries,
+    },
+    tracked_entries: trackedEntries,
+    manifest: bytesRecord(manifestBytes),
+  }
 }
 
 function blobFingerprint(cwd: string, commit: string, path: string, required: boolean) {
@@ -224,47 +415,104 @@ if (controlStatus.length !== 0) {
   reject(`control-plane worktree has tracked or untracked material; status_sha256=${sha256(controlStatus)}`)
 }
 
+const local = inputs.candidate === LOCAL_CANDIDATE
+if (local && !external) reject("local candidate binding requires a separate --target-root and grouped control identity")
 const targetRoot = external ? realpathSync(inputs.targetRoot!) : controlRoot
 if (external && targetRoot !== inputs.targetRoot) reject("target root must not contain symlink components")
+if (local && targetRoot === controlRoot) reject("local candidate target must be separate from the immutable control plane")
 const observedTargetRepository = normalizeRemoteRepository(gitText(targetRoot, ["remote", "get-url", "origin"]))
 if (observedTargetRepository !== inputs.repository) {
   reject(`target repository mismatch: expected ${inputs.repository}, observed ${observedTargetRepository ?? "unresolved"}`)
 }
 const origin = resolveCommit(targetRoot, inputs.origin, "target Origin")
-const candidate = resolveCommit(targetRoot, inputs.candidate, "target candidate")
-if (origin === candidate) reject("candidate must differ from Origin")
+const committedCandidate = local ? undefined : resolveCommit(targetRoot, inputs.candidate, "target candidate")
+if (committedCandidate === origin) reject("candidate must differ from Origin")
 const targetStatusArgs = external
   ? ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored=matching"]
   : ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored=no"]
-const targetStatus = gitBytes(targetRoot, targetStatusArgs)
-if (external && targetStatus.length !== 0) {
+const targetStatus = local
+  ? gitBytes(targetRoot, ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored=no"])
+  : gitBytes(targetRoot, targetStatusArgs)
+if (external && !local && targetStatus.length !== 0) {
   reject(`target worktree has tracked, untracked, or ignored material; status_sha256=${sha256(targetStatus)}`)
 }
 const targetHead = resolveCommit(targetRoot, "HEAD", "target HEAD")
-if (external && targetHead !== candidate) {
-  reject(`target HEAD ${targetHead} does not equal candidate ${candidate}`)
+if (local && targetHead !== origin) {
+  reject(`local candidate target HEAD ${targetHead} does not equal Origin ${origin}`)
+}
+if (external && !local && targetHead !== committedCandidate) {
+  reject(`target HEAD ${targetHead} does not equal candidate ${committedCandidate}`)
 }
 
-const ancestry = runGit(targetRoot, ["merge-base", "--is-ancestor", origin, candidate])
-if (ancestry.exitCode === 1) reject("candidate does not descend from Origin")
-if (ancestry.exitCode !== 0) reject("candidate ancestry could not be resolved")
-
 const originTree = gitText(targetRoot, ["rev-parse", "--verify", `${origin}^{tree}`])
-const candidateTree = gitText(targetRoot, ["rev-parse", "--verify", `${candidate}^{tree}`])
 const originParents = commitParents(targetRoot, origin)
-const candidateParents = commitParents(targetRoot, candidate)
-const originDistance = Number(gitText(targetRoot, ["rev-list", "--count", `${origin}..${candidate}`]))
-if (!Number.isSafeInteger(originDistance) || originDistance < 1) reject("candidate ancestry distance is invalid")
-
-const diffArgs = [
-  "diff", "--binary", "--full-index", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames",
-  origin, candidate, "--",
-]
-const diffBytes = gitBytes(targetRoot, diffArgs)
-const changedPaths = splitNulPaths(gitBytes(targetRoot, [
-  "diff", "--name-only", "-z", "--no-renames", origin, candidate, "--",
-]))
-if (changedPaths.length === 0 || diffBytes.length === 0) reject("candidate has no complete committed diff from Origin")
+let candidate: Record<string, unknown>
+let diff: Record<string, unknown>
+if (local) {
+  const first = localCapture(targetRoot)
+  const second = localCapture(targetRoot)
+  if (JSON.stringify(first) !== JSON.stringify(second)) reject("local candidate material drifted during binding")
+  if (first.status.sha256 !== sha256(targetStatus)) reject("local candidate status drifted before binding")
+  if (first.status.size === 0 || (first.diff.changed_paths.length === 0 && first.untracked.entries.length === 0)) {
+    reject("local candidate must contain non-ignored tracked or untracked material")
+  }
+  const locatorBody = {
+    repository: inputs.repository,
+    origin: { commit: origin, tree: originTree },
+    target_root: targetRoot,
+    status: first.status,
+    diff: first.diff,
+    tracked_entries: first.tracked_entries,
+    untracked: first.untracked,
+    manifest: first.manifest,
+  }
+  const locator = `local:sha256:${sha256(JSON.stringify(locatorBody))}`
+  candidate = {
+    kind: "local",
+    locator,
+    base_commit: origin,
+    tree: originTree,
+    material: {
+      status: first.status,
+      tracked_entries: first.tracked_entries,
+      untracked: first.untracked,
+      manifest: first.manifest,
+    },
+  }
+  diff = first.diff
+} else {
+  const committed = committedCandidate!
+  const ancestry = runGit(targetRoot, ["merge-base", "--is-ancestor", origin, committed])
+  if (ancestry.exitCode === 1) reject("candidate does not descend from Origin")
+  if (ancestry.exitCode !== 0) reject("candidate ancestry could not be resolved")
+  const candidateTree = gitText(targetRoot, ["rev-parse", "--verify", `${committed}^{tree}`])
+  const candidateParents = commitParents(targetRoot, committed)
+  const originDistance = Number(gitText(targetRoot, ["rev-list", "--count", `${origin}..${committed}`]))
+  if (!Number.isSafeInteger(originDistance) || originDistance < 1) reject("candidate ancestry distance is invalid")
+  const diffBytes = gitBytes(targetRoot, [
+    "diff", "--binary", "--full-index", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames",
+    origin, committed, "--",
+  ])
+  const changedPaths = splitNulPaths(gitBytes(targetRoot, [
+    "diff", "--name-only", "-z", "--no-renames", origin, committed, "--",
+  ]))
+  if (changedPaths.length === 0 || diffBytes.length === 0) reject("candidate has no complete committed diff from Origin")
+  candidate = {
+    kind: "committed",
+    locator: `commit:${committed}`,
+    commit: committed,
+    tree: candidateTree,
+    parents: candidateParents,
+    origin_is_ancestor: true,
+    origin_is_direct_parent: candidateParents.includes(origin),
+    origin_distance: originDistance,
+  }
+  diff = {
+    kind: "committed",
+    ...bytesRecord(diffBytes),
+    changed_paths: changedPaths,
+  }
+}
 
 const requiredFiles = inputs.requiredFiles.map((path) => ({
   path,
@@ -275,7 +523,7 @@ const replayArgv = [
   "bun", SCRIPT_PATH,
   "--repository", inputs.repository,
   "--origin", origin,
-  "--candidate", candidate,
+  "--candidate", inputs.candidate,
   "--enforcement", inputs.enforcement,
   ...inputs.requiredFiles.flatMap((path) => ["--required-file", path]),
   ...(external ? [
@@ -286,6 +534,7 @@ const replayArgv = [
 ]
 const controlTree = gitText(controlRoot, ["rev-parse", "--verify", `${controlOrigin}^{tree}`])
 const controlParents = commitParents(controlRoot, controlOrigin)
+const candidateLocator = String(candidate.locator)
 const binding = {
   schema: SCHEMA,
   status: "bound",
@@ -307,24 +556,13 @@ const binding = {
     head: targetHead,
     candidate_material_status_sha256: sha256(targetStatus),
     worktree_candidate_material_fingerprint_sha256: sha256(
-      `${inputs.repository}\0${targetHead}\0${candidateTree}\0${sha256(targetStatus)}`,
+      `${inputs.repository}\0${targetRoot}\0${targetHead}\0${String(candidate.tree)}\0${candidateLocator}\0${sha256(targetStatus)}`,
     ),
-    ignored_material_policy: external ? "must_be_absent" : "excluded_non_candidate",
+    ignored_material_policy: local ? "excluded_non_candidate" : external ? "must_be_absent" : "excluded_non_candidate",
   },
   origin: { commit: origin, tree: originTree, parents: originParents },
-  candidate: {
-    commit: candidate,
-    tree: candidateTree,
-    parents: candidateParents,
-    origin_is_ancestor: true,
-    origin_is_direct_parent: candidateParents.includes(origin),
-    origin_distance: originDistance,
-  },
-  diff: {
-    sha256: sha256(diffBytes),
-    size: diffBytes.length,
-    changed_paths: changedPaths,
-  },
+  candidate,
+  diff,
   required_files: requiredFiles,
   replay: { argv: replayArgv },
 }
