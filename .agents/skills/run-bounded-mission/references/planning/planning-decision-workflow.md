@@ -31,6 +31,10 @@ Start from the current Frame, no-change counterfactual, real consumer, and accep
 repository owners and bounded history before treating any existing document, code, schema, test, or
 requested mechanism as correct authority.
 
+Complete the cheapest discoverable repository and consumer probes that can distinguish each material
+frontier before outward research or a user question. A failed probe keeps only its dependent fact
+unknown; it does not make every frontier uncertain.
+
 Separate authority for user intent and acceptance from authority for solution shape and tests. For
 each object, choose one evidence-backed disposition:
 
@@ -51,10 +55,13 @@ invalidate the leading route. Use [Decision evidence](planning-decision-evidence
 history, current premises, and the external interruption lanes. Compare options below only when a
 materially different credible path survives discovery.
 
-Scan with grill-me-level completeness internally, then present a near-complete recommendation. Open
-no user turn for evidence-settled or safely defaulted choices. When confirmation is required, bundle
-only the smallest related frontier, give the recommendation and consequence, and ask no fixed number
-of questions. A confirmation freezes only its dependent decision; continue independent Plan work.
+Scan with grill-me-level completeness internally and challenge the requested mechanism as one
+candidate, then present a near-complete recommendation. Keep internal breadth and near-duplicates out
+of the user conversation; expose only the strongest materially different routes, normally two or
+three and fewer when discovery eliminates them. Open no user turn for evidence-settled or safely
+defaulted choices. When confirmation is required, bundle only the smallest related frontier, give the
+recommendation and consequence, and ask no fixed number of questions. A confirmation freezes only its
+dependent decision; continue independent Plan work.
 
 ## Admit one current Plan
 
@@ -85,6 +92,27 @@ or explicitly freezes only its dependent decision, authority selection precedes 
 the earliest `replan` and `reframe` observations are named. Missing or unknown admission facts do not
 silently widen authority. Do not emit a Spec for Direct work or for a Mission whose current Plan and
 authorities already close the consumer contract.
+
+The Design Loop returns the complete current Plan projection as its sole Execute-admission result.
+Research, discussion, a loaded reference, prose length, counts, or green checks are not that result.
+When a material decision changes, replace the whole Plan projection and replacement checkpoint before
+any Execute release; never append a correction to stale Plan prose.
+
+## Classify a post-admission gap
+
+Route a newly observed gap at its earliest affected boundary:
+
+- `candidate-local omission`: the admitted owner, path, boundary, responsibility shape, and oracle all
+  hold, and the correction only completes that admitted responsibility;
+- `replan`: any of those Plan fields fails, including a solution/test authority locator, selection, or
+  disposition while the Frame holds; an omitted decision changes one; or the same causal root keeps
+  producing a non-shrinking candidate under the unchanged Frame;
+- `reframe`: the observation changes Outcome, consumer, scope, non-goal, the Frame's `Authority /
+  effects` or selected intent/acceptance authority, acceptance, Origin, or Stop.
+
+A missing or green check, prose volume, revision count, or diff size never selects among these routes.
+Bind the observation to the first changed downstream decision, replace the current Plan after `replan`,
+and clear it after `reframe` until a new Plan is admitted.
 
 ## Resolve reuse before building
 
