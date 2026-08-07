@@ -12,6 +12,10 @@ Pn = "Pn" # Part of PnL (Profit and Loss)
 PnL = "PnL" # Profit and Loss
 PnLs = "PnLs" # Plural of PnL
 
+# Historical RBM task prefixes
+VRY = "VRY" # Legacy verify task prefix
+NAM = "NAM" # Legacy naming task prefix
+
 # Variable naming conventions used throughout the codebase
 strat = "strat" # Common shorthand for strategy
 ACN = "ACN" # Domain-specific abbreviation
