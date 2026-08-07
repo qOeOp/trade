@@ -66,7 +66,37 @@ provider discovery. Do not use GitHub's generic reviewer-request path because th
 cannot correlate it. Immediately before the external effect:
 
 1. validate any created or edited PR title through the repository-owned title preflight above;
-2. render exactly one trigger from the existing helper, preserve its exact bytes, and validate those
+2. run the existing helper's request-effect preflight against a complete canonical live snapshot:
+
+   ```text
+   bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --request-effect-preflight --repo <owner/name> --request-author <authorized-login> <pr-number>
+   ```
+
+   The preflight and waiter history share one extractor that enumerates every request-shaped PR issue
+   comment before actor, app, edit, head, or provenance classification. Request-shaped means the
+   comment body begins at byte zero with the `@codex review` command and its token boundary; quoted,
+   embedded, or explanatory mentions elsewhere in provider or human prose are not request attempts.
+   The preflight exposes each
+   attempt's locator and the complete attempt count, and returns a machine
+   `effect_authority.disposition`. It is only a deterministic
+   no-prior-attempt safety gate; the admitted Mission/delegation remains the external-effect authority.
+   The automated path may pass only when the complete snapshot contains genuinely zero prior
+   request-shaped attempts. Any prior valid, malformed, edited, wrong-head, human-authored,
+   connector-app, other-app, or unknown-provenance attempt freezes automated posting permanently.
+   A candidate/head change, corrected candidate, evidence
+   invalidation, provider result, finding, disposition, revision count, repacket, time, locator, or
+   prose never renews that path. The helper accepts no caller-supplied representation of a later
+   user/Hub authority event and cannot prove one. A human may act outside this automation, but this
+   Skill never infers or manufactures that authority. `posting_frozen_*`, incomplete pagination or
+   provenance, unavailable evidence, or a nonzero exit freezes posting; do not fall back to a
+   browser, connector, reconstructed count, or another request.
+
+   The earlier incident acceptance suggestion for an explicitly authorized later request is
+   superseded by the independent authority-representation finding: this repository has no
+   authoritative later-event producer/readback contract. Corrected heads close through independent
+   evaluator evidence, a non-empty finding disposition/resolved thread when applicable, and CI, never
+   an automated rereview.
+3. render exactly one trigger from the existing helper, preserve its exact bytes, and validate those
    bytes offline against the frozen full lowercase 40-hex head before posting:
 
    ```text
@@ -82,12 +112,12 @@ cannot correlate it. Immediately before the external effect:
    Exact head: `<candidate-head>`
    ```
 
-3. re-read the open PR and require its repository, base, Ready state, and head to match the frozen
-   candidate; require the stable-candidate evidence above and no existing request for that authority;
-4. require the active `gh` viewer or UI actor to equal the authorized human actor, then post through
+4. re-read the open PR and require its repository, base, Ready state, and head to match the frozen
+   candidate; require the stable-candidate evidence above and the still-current allowed preflight;
+5. require the active `gh` viewer or UI actor to equal the authorized human actor, then post through
    that user-authenticated issue-comment path with only the frozen repository, PR number, and
    validated body;
-5. read back the exact created comment and require its locator, author, exact body, requested head,
+6. read back the exact created comment and require its locator, author, exact body, requested head,
    unedited timestamps/state, and `performed_via_github_app=null` before waiting. Null is a required
    observed postcondition for this request, not a universal claim about all CLI writes. Missing
    provenance, any GitHub app, or a readback mismatch fails admission; the exact connector app is
@@ -111,24 +141,32 @@ same request comment or on the pull request as a clean manual result only when t
 unedited, its body matches the template exactly, its embedded full head equals the current snapshot
 head, and the reaction follows the request within that closure with matching provider, target, and
 causal order.
-A provider `EYES` reaction on the request is progress evidence only: it neither starts a new attempt
+A provider `EYES` reaction on the exact request or pull request is progress evidence only: it neither starts a new attempt
 nor advances the request-bound provider-signal window, and cannot hide a material signal after it.
 A generated clean comment is notification only and cannot itself prove a terminal clean result. Its
-complete fixed envelope must start with the exact canonical clean assertion and may carry a bounded
-same-line remainder. That remainder has no independent review authority and does not alter the
-canonical assertion's notification semantics. A non-canonical first line,
-multiline or injected envelope, extra body, or otherwise structurally non-clean provider comment
-blocks a later reaction. Only the structured
-reaction or approval after the exact request supplies terminal authority. A bare legacy request,
+bounded envelope must contain the exact canonical clean assertion, one reviewed-head field that
+normalizes to the selected request's full exact head, and one closed `<details>...</details>` region
+whose optional structural summary and contents have no authority. A bounded Git abbreviation is only
+a provider representation and becomes the full head solely by matching that already selected exact
+request; it never supplies authority itself. This is a
+representation boundary, not a list of generated help-text phrases: changes inside the details region
+do not change classification, while an unknown first line, missing or duplicate head, text outside the
+envelope, malformed boundary, or wrong head fails closed. Only a structured exact-target reaction or
+exact-head GitHub review state after the exact request supplies terminal authority. A bare legacy request,
 edited request, stale or wrong head, same-app or other app transport, wrong provider or target,
 ambiguous order, or changed PR head remains invalid or outstanding and fail-closed. Request admission
 never suppresses already observed provider facts in its own selected closure, and provider discovery
+also exhausts provider-authored replies and nested reactions retained in review threads; any such
+representation without structured envelope authority is unknown and blocks clean arbitration.
 never repairs invalid request admission.
 
-Wait through the bounded host loop and run
+The helper owns one snapshot, not a polling loop. The host waits first for a new GitHub activity/event
+observation; when no event surface is available it waits for one bounded coherence-window expiry. Only
+that changed input permits another snapshot. Do not immediately resubscribe, narrate an unchanged
+snapshot, or rerun the same `gh`/GraphQL pair merely because the prior result was pending. Then run
 `bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts --repo <owner/name> --request-locator <readback-node-id> --request-author <authorized-login> <pr-number>`
 as its read-only snapshot owner. Pass the exact opaque, non-empty readback node ID without
-normalization. Each invocation emits one `codex-review-receipt/v1` JSON object. It
+normalization. Each invocation emits one `codex-review-receipt/v2` JSON object. It
 preserves the legacy `repository`, `pull_request`, `head_oid`, `status`, and `reason` fields and adds
 orthogonal machine projections:
 
@@ -137,11 +175,18 @@ orthogonal machine projections:
   timestamps/edit state, body, requested head, performed GitHub app provenance, and the complete
   observed request history needed to retain an earlier request-to-finding binding; the expected
   readback locator/authorized actor and their binding result are machine fields, and a mismatch is
-  `incomplete` rather than a new attempt;
+  `incomplete` rather than a new attempt. `request.effect_authority` exposes the complete shared
+  request-shaped attempt count/locators/history; zero attempts is only the first-request safety
+  precondition, while
+  any prior attempt permanently freezes the automated posting path;
 - `discovery.status` is one of `waiting`, `clean`, `finding_unrouted`, or `finding_routed`; its
   reviewed head, provider review, clean/progress signal, structured integrity problems, and finding
-  array are only the selected current attempt. Its ordered `history` array retains every request
-  attempt with that request's raw provider signals, non-terminal boundary provider signals, and its
+  array are only the selected current attempt. Its `provider_signals` are lossless envelopes classified
+  as `clean_authority`, `progress`, `finding`, `capability_unavailable`, `notification`, or `unknown`.
+  Those classes are derived from GitHub reaction/review state, exact target/head, review/thread join,
+  and issue-comment app provenance; only `clean_authority` is clean, and every `unknown` fails closed.
+  Provider review body wording is not clean/finding authority. Its ordered `history` array retains
+  every request attempt with that request's raw provider signals, non-terminal boundary provider signals, and its
   non-terminal boundary provider threads, plus request-bound finding/thread/resolver/disposition
   projections, so consumers do not manually rejoin lifecycles. An exact connector-authored request is retained and classified as its own self-trigger
 attempt rather than projected as a provider finding in another attempt. Every in-window provider
@@ -213,7 +258,8 @@ another review and do not ask the user for a per-PR confirmation.
 
 This pair replaces only the unavailable manual-discovery result. It does not replace candidate
 verification, affected independent audits, the final root gate, final-head CI, disposition of any
-material finding, zero unresolved conversations, head/base/merge-tree stability, queue policy, or
+material finding, zero unresolved conversations, head/base/synthetic-merge-commit/merge-tree
+stability, queue policy, or
 merge authority. Missing, incomplete, stale, oversized, or unbound snapshot bytes; PR/head drift;
 request or provenance mismatch; semantic findings; later or ambiguous invocations; edit ambiguity;
 provider siblings; pagination gaps; or post-return drift make the fallback unavailable.
@@ -250,11 +296,21 @@ is the only authority. Do not copy evaluator packets, check logs, provider snaps
 or long command output into this receipt.
 
 Use the existing waiter helper's single delivery-receipt mode. Feed `create` one canonical JSON-LF
-`delivery-barrier-input/v1` record containing repository, PR, candidate head, observed base ref/OID,
-merge-tree OID or `null`, queue state, and the locator array. The helper validates exact fields,
+`delivery-barrier-input/v3` record containing repository, PR, candidate head and its Git tree OID,
+observed base ref/OID, the raw GraphQL `potentialMergeCommit { oid tree { oid } }` object or `null`,
+queue state, and the locator array. Do not flatten `potentialMergeCommit.oid` into a tree field: it is
+the synthetic merge commit OID, while only `potentialMergeCommit.tree.oid` is the merge-tree OID.
+The helper structurally extracts and separately retains both identities, rejects a flattened,
+partial, or same-OID representation, and requires the candidate tree and extracted merge-tree OID
+to resolve locally as Git `tree` objects. It also resolves the exact candidate head as a local Git
+`commit` and requires `head_tree_oid` to equal `git rev-parse <head-oid>^{tree}`; a different but valid
+tree object is not accepted. The helper also computes
+`git merge-tree --write-tree <base-oid> <head-oid>` on both create and verify and requires that exact
+Git tree object to equal `potentialMergeCommit.tree.oid`; a missing object, conflict, mismatch,
+unrelated existing tree, or commit-typed OID fails closed. The helper then validates exact fields,
 normalizes repository and locator order, joins every locator to the same head, requires every named
 evidence kind, bounds the compact representation, and emits one canonical
-`delivery-barrier-receipt/v1` JSON-LF envelope with the inner byte count and SHA-256:
+`delivery-barrier-receipt/v3` JSON-LF envelope with the inner byte count and SHA-256:
 
 ```text
 bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts \
@@ -285,7 +341,8 @@ decode/encode normalization fails before a receipt can be created or replayed.
 For a `merged` node, the child sends this verified compact receipt once and stops at `merge-ready`.
 The Hub reconciles its own Goal/DAG/authority effect, replays the receipt, and does not rerun child
 consumer, root, audit, CI, provider, or conversation work. Immediately before guarded merge it
-refetches the mutable Git identities—head, base, merge-tree, and queue/auto-merge state—and rereads
+refetches the mutable Git identities—head, base, synthetic merge commit, merge-tree, and
+queue/auto-merge state—and rereads
 the current final-head activity for the complete required-check set, provider signals, and review
 conversations. Each activity set must still be terminal, must contain no new or changed signal or
 unresolved conversation, and must match the receipt's corresponding locator, result, and content
@@ -312,8 +369,22 @@ Immediately before accepting `merge-ready` or performing a merge, observe one cu
    terminal;
 6. zero unresolved conversations remain;
 7. auto-merge or merge-queue state cannot race the snapshot;
-8. a final refetch shows no head, base, merge-tree, queue/auto-merge, required-check, provider-signal,
-   or conversation-activity drift from the compact receipt.
+8. a final refetch shows no head, base, synthetic merge commit, merge-tree, queue/auto-merge,
+   required-check, provider-signal, or conversation-activity drift from the compact receipt.
+
+Select CI from raw exact-identity data, not a rollup's worst historical conclusion. Resolve the
+complete non-empty required-context authority first. For each required Checks API context, list check
+runs through GitHub's [exact-ref endpoint](https://docs.github.com/en/rest/checks/runs#list-check-runs-for-a-git-reference)
+for the exact candidate or required test-merge SHA with `filter=latest`, retain the returned run
+ID, name, app ID, check-suite ID, `head_sha`, status, conclusion, and timestamps, and require its
+terminal conclusion under the repository rule. A superseded older `CANCELLED` run is history and
+cannot override a newer selected terminal; a selected latest cancelled, stale, pending, missing, or
+wrong-head run fails. Also fetch commit statuses for that exact SHA: when a check run and commit status
+share a required name, both remain required. Pagination, duplicate name/app authority, missing app,
+unknown conclusion, or disagreement between the required-context owner and raw runs fails closed.
+Bind the canonical selected-run/status snapshot and digest to the compact `ci` locator, then repeat the
+same selection during the final freshness read; never substitute `gh pr checks`, a check-suite
+aggregate, or an earlier workflow run as authority.
 
 Unknown, absent, stale, or pending required final-head data fails the barrier. The completed manual
 review is intentionally discovery rather than final-head acceptance evidence. A material finding or
@@ -329,11 +400,12 @@ authority.
 Merge only with separately frozen authority. Prefer an exact-head guarded host operation; with
 `gh pr merge`, use `--match-head-commit` and never infer `--auto` or `--admin` authority.
 
-If the base requires a merge queue, freeze queue authority and the merge-tree acceptance identity;
+If the base requires a merge queue, freeze queue authority plus the synthetic merge commit and
+merge-tree acceptance identities;
 otherwise block. Armed or queued is pending, not merged.
 
 Accept `merged` only after GitHub reports that the verified head merged. Record the repository, PR,
-head, base or merge-tree identity, merge commit, and observation time. A pre-existing or externally
+head, base, synthetic merge commit or merge-tree identity, merged commit, and observation time. A pre-existing or externally
 performed merge is evidence to inspect, not proof that this mission performed an authorized effect.
 
 When behavior is version-sensitive, consult GitHub's current auto-merge documentation and the
@@ -355,6 +427,19 @@ each local Mission tag and each remote Mission tag as separate artifacts; and th
 local-main checkout, local-main OID, remote, canonical full ref, and observed remote-main OID. Keep
 unknown or non-target artifacts out of the inventory. Do not discover a broader cleanup set while
 executing.
+
+Classify the cleanup target set before admitting any row:
+
+| Observation | Admission | Required receipt |
+| --- | --- | --- |
+| exact candidate is reported `MERGED` and every target identity/OID is resolved | Admit only the separately authorized rows whose preconditions still match | Record exact before/after identity and safe post-read for each row |
+| target already equals its row postcondition | Perform no write; classify from the live state as `already_absent` or `already_equal` | Record the same exact identity read that proved idempotence |
+| merge identity, target, owner, authority, policy, presence, OID, worktree binding, or remote state is uncertain | Admit no dependent effect and preserve the target | Record `preserved` with the exact unavailable or mismatched fact; do not broaden discovery or authority |
+
+Branch, tag, managed-worktree, and designated-main rows never inherit authority from one another or
+from merge. Resolve every local/remote full ref and OID separately, and require a row-local safe
+readback after any admitted effect. An unavailable atomic owner remains an evidence-backed preserve,
+not permission to synthesize a helper or weaken the expected-identity contract.
 
 Apply only the rows with separately frozen authority. An exact deletion artifact recorded absent
 succeeds as `already_absent`; non-deletion rows use their row-specific status. A pre-effect OID,
