@@ -7,9 +7,9 @@ const PROVIDER_APP_ID = 1144995
 const RECEIPT_SCHEMA = "codex-review-receipt/v2"
 const REQUEST_VALIDATION_SCHEMA = "codex-review-request-validation/v1"
 const REQUEST_EFFECT_PREFLIGHT_SCHEMA = "codex-review-request-effect-preflight/v1"
-const DELIVERY_BARRIER_INPUT_SCHEMA = "delivery-barrier-input/v2"
-const DELIVERY_BARRIER_EVIDENCE_SCHEMA = "delivery-barrier-evidence/v2"
-const DELIVERY_BARRIER_RECEIPT_SCHEMA = "delivery-barrier-receipt/v2"
+const DELIVERY_BARRIER_INPUT_SCHEMA = "delivery-barrier-input/v3"
+const DELIVERY_BARRIER_EVIDENCE_SCHEMA = "delivery-barrier-evidence/v3"
+const DELIVERY_BARRIER_RECEIPT_SCHEMA = "delivery-barrier-receipt/v3"
 const CLEAN_COMMENT_HEADING = /^Codex Review: Didn['’]t find any major issues\.(?: (?=[^\r\n]{1,64}$)\S(?:[^\r\n]*\S)?)?$/
 const REVIEWED_COMMIT = /^\*\*Reviewed commit:\*\* `([0-9a-f]{7,40})`$/
 const USAGE_FAILURE = /(usage limit|rate limit|quota exceeded|try again later)/i
@@ -241,6 +241,7 @@ interface DeliveryBarrierEvidence {
   head_tree_oid: string
   base_ref: string
   base_oid: string
+  merge_commit_oid: string | null
   merge_tree_oid: string | null
   queue_state: string
   evidence: DeliveryEvidenceLocator[]
@@ -1362,6 +1363,14 @@ function isBaseRef(value: unknown): value is string {
         && !component.endsWith(".lock"))
 }
 
+function isLocalGitTreeObject(value: string): boolean {
+  const result = Bun.spawnSync(["git", "cat-file", "-t", value], {
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  return result.exitCode === 0 && new TextDecoder().decode(result.stdout) === "tree\n"
+}
+
 function normalizeDeliveryEvidence(value: unknown, expectedHead: string): DeliveryEvidenceLocator[] {
   if (!Array.isArray(value) || value.length < DELIVERY_EVIDENCE_KINDS.length || value.length > 32) {
     throw new Error("delivery evidence must contain a bounded locator set")
@@ -1407,21 +1416,36 @@ function normalizeDeliveryEvidence(value: unknown, expectedHead: string): Delive
 function normalizeDeliveryBarrier(value: unknown): DeliveryBarrierEvidence {
   if (!isRecord(value) || !hasExactKeys(value, [
     "schema", "repository", "pull_request", "head_oid", "head_tree_oid", "base_ref", "base_oid",
-    "merge_tree_oid", "queue_state", "evidence",
+    "potential_merge_commit", "queue_state", "evidence",
   ]) || value.schema !== DELIVERY_BARRIER_INPUT_SCHEMA) {
     throw new Error("delivery barrier input has an invalid schema or fields")
   }
+  let mergeCommitOid: string | null
   let mergeTreeOid: string | null
-  if (value.merge_tree_oid === null) mergeTreeOid = null
-  else if (isHeadOid(value.merge_tree_oid)) mergeTreeOid = value.merge_tree_oid
-  else throw new Error("delivery barrier identity or mutable snapshot is invalid")
+  if (value.potential_merge_commit === null) {
+    mergeCommitOid = null
+    mergeTreeOid = null
+  } else if (isRecord(value.potential_merge_commit)
+    && hasExactKeys(value.potential_merge_commit, ["oid", "tree"])
+    && isHeadOid(value.potential_merge_commit.oid)
+    && isRecord(value.potential_merge_commit.tree)
+    && hasExactKeys(value.potential_merge_commit.tree, ["oid"])
+    && isHeadOid(value.potential_merge_commit.tree.oid)
+    && value.potential_merge_commit.oid !== value.potential_merge_commit.tree.oid) {
+    mergeCommitOid = value.potential_merge_commit.oid
+    mergeTreeOid = value.potential_merge_commit.tree.oid
+  } else throw new Error("delivery barrier potential merge commit or tree identity is invalid")
   if (!isPullRequestNumber(value.pull_request)
     || !isHeadOid(value.head_oid)
     || !isHeadOid(value.head_tree_oid)
+    || !isLocalGitTreeObject(value.head_tree_oid)
     || !isBaseRef(value.base_ref)
     || !isHeadOid(value.base_oid)
     || !isBoundedAtom(value.queue_state, 128)) {
     throw new Error("delivery barrier identity or mutable snapshot is invalid")
+  }
+  if (mergeTreeOid !== null && !isLocalGitTreeObject(mergeTreeOid)) {
+    throw new Error("delivery barrier merge tree OID is not a local Git tree object")
   }
   return {
     schema: DELIVERY_BARRIER_EVIDENCE_SCHEMA,
@@ -1431,6 +1455,7 @@ function normalizeDeliveryBarrier(value: unknown): DeliveryBarrierEvidence {
     head_tree_oid: value.head_tree_oid,
     base_ref: value.base_ref,
     base_oid: value.base_oid,
+    merge_commit_oid: mergeCommitOid,
     merge_tree_oid: mergeTreeOid,
     queue_state: value.queue_state,
     evidence: normalizeDeliveryEvidence(value.evidence, value.head_oid),
@@ -1461,11 +1486,27 @@ function verifyDeliveryBarrierReceipt(bytes: Uint8Array, expectedSha256: string)
   }
   if (!hasExactKeys(value.receipt, [
     "schema", "repository", "pull_request", "head_oid", "head_tree_oid", "base_ref", "base_oid",
-    "merge_tree_oid", "queue_state", "evidence",
+    "merge_commit_oid", "merge_tree_oid", "queue_state", "evidence",
   ]) || value.receipt.schema !== DELIVERY_BARRIER_EVIDENCE_SCHEMA) {
     throw new Error("delivery barrier receipt has an invalid inner schema or fields")
   }
-  const input = { ...value.receipt, schema: DELIVERY_BARRIER_INPUT_SCHEMA }
+  const mergeCommitOid = value.receipt.merge_commit_oid
+  const mergeTreeOid = value.receipt.merge_tree_oid
+  if ((mergeCommitOid === null) !== (mergeTreeOid === null)) {
+    throw new Error("delivery barrier merge commit and tree must be jointly present or absent")
+  }
+  const {
+    merge_commit_oid: ignoredMergeCommitOid,
+    merge_tree_oid: ignoredMergeTreeOid,
+    ...receiptInput
+  } = value.receipt
+  const input = {
+    ...receiptInput,
+    schema: DELIVERY_BARRIER_INPUT_SCHEMA,
+    potential_merge_commit: mergeCommitOid === null
+      ? null
+      : { oid: mergeCommitOid, tree: { oid: mergeTreeOid } },
+  }
   const receipt = normalizeDeliveryBarrier(input)
   const receiptBytes = canonicalLine(receipt)
   const observedSha256 = `sha256:${createHash("sha256").update(receiptBytes).digest("hex")}`

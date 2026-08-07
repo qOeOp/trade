@@ -258,7 +258,8 @@ another review and do not ask the user for a per-PR confirmation.
 
 This pair replaces only the unavailable manual-discovery result. It does not replace candidate
 verification, affected independent audits, the final root gate, final-head CI, disposition of any
-material finding, zero unresolved conversations, head/base/merge-tree stability, queue policy, or
+material finding, zero unresolved conversations, head/base/synthetic-merge-commit/merge-tree
+stability, queue policy, or
 merge authority. Missing, incomplete, stale, oversized, or unbound snapshot bytes; PR/head drift;
 request or provenance mismatch; semantic findings; later or ambiguous invocations; edit ambiguity;
 provider siblings; pagination gaps; or post-return drift make the fallback unavailable.
@@ -295,11 +296,18 @@ is the only authority. Do not copy evaluator packets, check logs, provider snaps
 or long command output into this receipt.
 
 Use the existing waiter helper's single delivery-receipt mode. Feed `create` one canonical JSON-LF
-`delivery-barrier-input/v2` record containing repository, PR, candidate head and its Git tree OID,
-observed base ref/OID, merge-tree OID or `null`, queue state, and the locator array. The helper validates exact fields,
+`delivery-barrier-input/v3` record containing repository, PR, candidate head and its Git tree OID,
+observed base ref/OID, the raw GraphQL `potentialMergeCommit { oid tree { oid } }` object or `null`,
+queue state, and the locator array. Do not flatten `potentialMergeCommit.oid` into a tree field: it is
+the synthetic merge commit OID, while only `potentialMergeCommit.tree.oid` is the merge-tree OID.
+The helper structurally extracts and separately retains both identities, rejects a flattened,
+partial, or same-OID representation, and requires the candidate tree and extracted merge-tree OID
+to resolve locally as Git `tree` objects. Before create, require
+`potentialMergeCommit.tree.oid` to equal `git merge-tree --write-tree <base-oid> <head-oid>`; a missing
+object, conflict, mismatch, or commit-typed OID fails closed. The helper then validates exact fields,
 normalizes repository and locator order, joins every locator to the same head, requires every named
 evidence kind, bounds the compact representation, and emits one canonical
-`delivery-barrier-receipt/v2` JSON-LF envelope with the inner byte count and SHA-256:
+`delivery-barrier-receipt/v3` JSON-LF envelope with the inner byte count and SHA-256:
 
 ```text
 bun .agents/skills/run-bounded-mission/scripts/wait-pr-codex-review.ts \
@@ -330,7 +338,8 @@ decode/encode normalization fails before a receipt can be created or replayed.
 For a `merged` node, the child sends this verified compact receipt once and stops at `merge-ready`.
 The Hub reconciles its own Goal/DAG/authority effect, replays the receipt, and does not rerun child
 consumer, root, audit, CI, provider, or conversation work. Immediately before guarded merge it
-refetches the mutable Git identities—head, base, merge-tree, and queue/auto-merge state—and rereads
+refetches the mutable Git identities—head, base, synthetic merge commit, merge-tree, and
+queue/auto-merge state—and rereads
 the current final-head activity for the complete required-check set, provider signals, and review
 conversations. Each activity set must still be terminal, must contain no new or changed signal or
 unresolved conversation, and must match the receipt's corresponding locator, result, and content
@@ -357,8 +366,8 @@ Immediately before accepting `merge-ready` or performing a merge, observe one cu
    terminal;
 6. zero unresolved conversations remain;
 7. auto-merge or merge-queue state cannot race the snapshot;
-8. a final refetch shows no head, base, merge-tree, queue/auto-merge, required-check, provider-signal,
-   or conversation-activity drift from the compact receipt.
+8. a final refetch shows no head, base, synthetic merge commit, merge-tree, queue/auto-merge,
+   required-check, provider-signal, or conversation-activity drift from the compact receipt.
 
 Select CI from raw exact-identity data, not a rollup's worst historical conclusion. Resolve the
 complete non-empty required-context authority first. For each required Checks API context, list check
@@ -388,11 +397,12 @@ authority.
 Merge only with separately frozen authority. Prefer an exact-head guarded host operation; with
 `gh pr merge`, use `--match-head-commit` and never infer `--auto` or `--admin` authority.
 
-If the base requires a merge queue, freeze queue authority and the merge-tree acceptance identity;
+If the base requires a merge queue, freeze queue authority plus the synthetic merge commit and
+merge-tree acceptance identities;
 otherwise block. Armed or queued is pending, not merged.
 
 Accept `merged` only after GitHub reports that the verified head merged. Record the repository, PR,
-head, base or merge-tree identity, merge commit, and observation time. A pre-existing or externally
+head, base, synthetic merge commit or merge-tree identity, merged commit, and observation time. A pre-existing or externally
 performed merge is evidence to inspect, not proof that this mission performed an authorized effect.
 
 When behavior is version-sensitive, consult GitHub's current auto-merge documentation and the
