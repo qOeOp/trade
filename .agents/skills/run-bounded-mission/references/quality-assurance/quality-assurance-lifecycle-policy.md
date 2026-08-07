@@ -110,6 +110,49 @@ repair owner, current repair status, dynamic acceptance, and the supported recur
 observation window. This is an index back to native facts, not a copy of them or a new schema. When
 there is `no-signal`, retain nothing and impose no ordinary-path history scan or context cost.
 
+### Reconstruct one bounded recurrence
+
+An observation window names its included waves and the two endpoint locators that bound them. For an
+observation to enter a causal cluster, retain the source terminal, checkpoint, or anomaly locator; the
+current evidence locator and result; the failed relationship; and the canonical repair owner. These
+locators, rather than a replayed transcript or symptom wording, must reproduce both the causal root
+and its owner route. A missing terminal, checkpoint, or result artifact is a missing artifact, not a
+failed behavior; keep its result `unknown` or `unavailable` according to the required decision.
+
+Represent the evidence on three independent axes. Maturity is only `declared | reachable | dynamic |
+stable` and retains the highest level actually proved. Contradicting or refuting evidence remains in
+separate slices with its exact locator and result; availability separately retains each unavailable
+slice, its reason, and the decision it affects. Mixed evidence therefore preserves the highest proved
+maturity together with every contradiction or refutation and every unavailable slice. Contradiction
+does not erase proved maturity, and unavailable evidence neither lowers that maturity nor becomes a
+contradiction.
+
+For a dynamic claim, an evaluator semantic packet must include the canonical raw receipt bytes or an
+evaluator-readable content-addressed projection containing the bounded native receipt identity and
+exact content. A locator whose content is not readable inside the evaluator discovery boundary is
+insufficient for `dynamic`, recurrence, or owner-route proof; prose reconstruction is insufficient too.
+The projection is conversation-only evidence for that audit, not a transcript archive, schema, or new
+repository authority.
+
+Keep each submitted observation's disposition separate from its QA outcome: `accepted` means only
+that its demonstrated relation belongs to the fingerprint; `rejected` has contradictory relation;
+`pending` lacks a decision; `ignored` is duplicate, out of window, or non-decision-relevant; and
+`unknown` cannot recover the needed provenance or result. None of these dispositions means repair
+acceptance, Mission success, or a finding. In particular, `pending`, `unknown`, and `unavailable`
+cannot supply a recurrence, a successful repair, or a mandatory finding.
+
+Use the fingerprint's failed relationship, causal root, and canonical owner to cluster observations.
+Classify the first supported observation as `incidental`; classify it `systemic` only when a later,
+independent observation in the stated window demonstrates that same fingerprint. Preserve the exact
+supported recurrence count. A new locator alone is not recurrence, and unknown history, elapsed time,
+message, task, token, or delay counts remain unavailable rather than evidence of a system.
+
+Compare a new supported observation with the current cluster before emitting a receipt or loading a
+repair playbook. If its relationship, owner, result, material cost, repair status, dynamic acceptance,
+and supported recurrence are unchanged, it is `no-signal` / `noop`: retain no new QA work, route, or
+playbook. A material delta is limited to one of those decision-relevant facts; it never follows from
+traffic volume, elapsed time, or a new wording alone.
+
 Only when that terminal aggregation actually groups facts by task type, load
 [canonical task types](../orchestration/orchestration-task-types.md) and consume its compact projection.
 Keep missing or unrecognized values in an explicit `unknown` group so the aggregation remains
@@ -129,6 +172,11 @@ context load. Preserve unavailable dimensions instead of estimating them as fact
 reconstruction, clustering, classification, tracking, and acceptance evidence; the hub may deduplicate
 and batch routed residuals, but the routed planner, orchestrator, executor, verifier, delivery, or
 optimizer owns every repair.
+
+Record only the cost that the exact observation exposed, together with its locator and observed or
+unavailable status. Do not calculate a score, duplicate an assessment matrix, or turn cost into a
+repair priority. An assessment may later consume this receipt as a locator-bound trend input under its
+own frozen rubric; it does not recompute or retroactively score this observation.
 
 ## Observe RBM itself
 
@@ -175,8 +223,23 @@ provider failure handled once by the admitted fallback, or a large but coherent 
 `no-signal` unless evidence shows the harmful relation above. Correctly suppressing duplicate
 authorization or declining an unadmitted proposal is also `no-signal`.
 
+For Skill delay, repeated Hub↔child communication, missed owner loading, or PR-preflight complaints,
+use the same bounded observation window. Treat them as a candidate only when the current evidence
+shows the same fingerprint repeatedly changed a decision, omitted a required owner load, invalidated
+admitted work, or added critical-path cost without decision value. Route the demonstrated root to its
+existing owner; a complaint, wait, repeated message, or preflight failure without that relation is
+`no-signal` / `noop` and does not load a repair playbook.
+
 For a candidate that changes this policy or another instruction/judge, bind immutable Origin and
 candidate evidence and require a fresh independent audit. The changed policy cannot certify itself.
+Its fresh consumer probes must exercise one supported observation and its owner route, a
+missing-artifact or unknown case, and a no-material-delta case through the real loading consumer.
+A later independent observation of the same fingerprint is required only to claim systemic recurrence
+or stable maturity; without one, retain `incidental` / `dynamic` and report recurrence and `stable` as unproved.
+Classify each probe's maturity only as `declared`, `reachable`, `dynamic`, or `stable`; retain its
+contradiction or refutation and availability slices separately. Only an immutable-Origin independent
+evaluator can supply the candidate's instruction/judge result. If that evaluator or its required
+evidence is unavailable, stop without claiming the probe passed.
 
 Capture a concrete self-QA signal online at the boundary where it appears, or through task dispatch's
 spare-capacity retrospective lane when that route is independently admitted. Deduplicate both paths
