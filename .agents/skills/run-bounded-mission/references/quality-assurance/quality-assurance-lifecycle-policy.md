@@ -110,6 +110,13 @@ repair owner, current repair status, dynamic acceptance, and the supported recur
 observation window. This is an index back to native facts, not a copy of them or a new schema. When
 there is `no-signal`, retain nothing and impose no ordinary-path history scan or context cost.
 
+Only when that terminal aggregation actually groups facts by task type, load
+[canonical task types](../orchestration/orchestration-task-types.md) and consume its compact projection.
+Keep missing or unrecognized values in an explicit `unknown` group so the aggregation remains
+conservative and count-preserving. Type may index evidence, but it cannot by itself change signal
+outcome, severity, recurrence, priority, route, repair owner, verdict, or acceptance. Ordinary QA
+inspection and routing do not load the taxonomy.
+
 On a later run, read the prior terminal receipt, current checkpoint, and anomaly locators first. Drill
 into native task or Git/GitHub history only for a signal whose classification, cost, recurrence,
 repair status, or acceptance cannot otherwise be reconstructed. Build a fingerprint from the failed
