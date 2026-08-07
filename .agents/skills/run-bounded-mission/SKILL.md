@@ -61,8 +61,17 @@ identity, dependency, title, and endpoint projection.
 
 ### Session mode
 
-At entry, a new turn, compaction recovery, or a resumed hub checkpoint, call `get_goal` before a
-Goal-bound mode or Goal-driven effect:
+At entry, a new turn, compaction recovery, or a resumed hub checkpoint, first compare the latest
+request and observed effect against the complete current Frame. A material change to Outcome or
+consumer, scope or non-goal, expected repository or external effect, authority, acceptance, Origin,
+Stop, or the resulting no/single/multi-Mission classification freezes the next mutation and every
+unissued effect. Explicitly reframe, invalidate the old Plan, and re-run mode selection before any of
+them; a remembered mode or unchanged task identity is not evidence that the Frame stayed material-
+equivalent.
+
+Before a Goal-bound mode or Goal-driven effect, inspect the current callable tool surface. Call
+`get_goal` only when it is exposed; documentation, a prior session, conversation prose, or a
+checkpoint cannot prove current Goal capability:
 
 - zero independent Missions: work directly and leave Goal untouched;
 - one: use the current task unless separate routing was explicitly requested; join a Goal only with
@@ -71,7 +80,11 @@ Goal-bound mode or Goal-driven effect:
   effect.
 
 A missing, completed, paused, blocked, or nonmatching Goal freezes multi-Mission effects until task
-dispatch reconciles it. Never infer Goal create, update, replacement, resume, or completion authority.
+dispatch reconciles it. If `get_goal` is unavailable, an ordinary zero- or single-Mission path may
+continue only as explicitly Goal-unbound current-thread work; multi-Mission dispatch, dependency
+release, publication, and Goal effects fail closed through task dispatch's observable capability
+fallback. Never claim that a Goal or DAG was persisted, or infer Goal create, update, replacement,
+resume, or completion authority.
 
 Before delegation, task control, or a recovered Hub's non-recovery repository read, classify the
 requested mechanism. A user-visible independent Mission loads task dispatch and uses native Codex Task;
@@ -79,6 +92,16 @@ an internal support lane loads agent routing, and a collaboration sub-agent neve
 After `get_goal`, recovered Hub, node, create-attempt/receipt, or child-identity evidence loads task
 dispatch and its recorded next owner before the gated action. Missing or unknown mode, route/slice,
 activated-owner set, or next-owner edge freezes that read, delegation, control, and effect.
+
+Before an action, native-task, support-lane, or evaluator dispatch, its owning route must bind the
+complete consumer-visible packet before launch. The packet carries every activated authority and
+precondition, exact inter-step byte edge, current Frame/Plan and mode, Goal capability and persistence,
+Origin and dependency, exact native title and interaction language when applicable, observed or
+unavailable model/effort, and one next legal action. Bind the canonical payload's UTF-8 bytes, length,
+and SHA-256 outside that payload. The fresh consumer verifies that identity as its first gate; a
+summary, prefix, truncation, later supplement, prose reconstruction, or mismatched member freezes the
+dispatch and cannot be repaired after launch. The route owner defines the concrete packet shape; this
+kernel adds no envelope, helper, registry, or compatibility path.
 
 Before pull-request metadata create or edit, load [GitHub delivery](references/delivery/delivery-pullrequest-workflow.md)
 through a candidate-independent immutable-Origin or neutral-authority locator. Candidate absence cannot
@@ -145,10 +168,10 @@ instead of using this fallback. A tiny Mission with no admitted nontrivial Plan 
 Immediately after every nontrivial Plan admission, load and emit the complete
 [Mission replacement checkpoint](references/orchestration/orchestration-context-recovery.md). It alone owns compatible single-
 Mission and hub recovery state. Replace it as a whole after any decision-changing fact. On a later
-turn or interruption, call `get_goal`, reconcile mode, route/slice mechanisms and next-owner edges, and
-activated owners with immutable locators, then release only through the recovery gate. Multi-Mission
-recovery loads task dispatch through the inbound edge above; candidate deletion cannot erase a
-candidate-independent activation.
+turn or interruption, observe the current Goal-tool surface, reconcile `get_goal` when exposed, and
+reconcile mode, route/slice mechanisms, next-owner edges, and activated owners with immutable locators.
+Release work only through the checkpoint's recovery gate; multi-Mission recovery also follows task
+dispatch's capability fallback, and candidate deletion cannot erase a candidate-independent activation.
 
 Load [lifecycle quality assurance](references/quality-assurance/quality-assurance-lifecycle-policy.md)
 only for a concrete lifecycle mismatch; a user concern that the Skill is behaving incorrectly;

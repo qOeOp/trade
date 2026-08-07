@@ -126,6 +126,21 @@ return, cheapest main-agent validation, one Stop, and escalation conditions. Req
 minimal observations, conflicts and limits, and a stop reason. The main agent reopens decisive
 locators and verifies the result.
 
+Before launch, freeze that complete support packet as one canonical UTF-8 payload and record its byte
+length plus SHA-256 outside the payload. Include the current Frame/Plan slice; route, role and exact
+question; read-only authority and prohibited effects; every source, precondition, dependency and typed
+producer-output edge; interaction language; observed or unavailable model/effort; required return;
+Stop; and one first legal action. The launch bootstrap outside that payload contains only its encoding,
+exact length and SHA-256, complete encoded bytes, and the instruction to decode and verify them; it
+must not invoke the role, expose a partial question or Frame, request a source read, or authorize any
+other action. The lane's sole first substantive action is this admission: use only an observed local
+byte/length/hash verifier, without parsing or reserializing the payload, then return a machine-checkable
+match or mismatch receipt. Only a match activates the role and packet; an unavailable verifier,
+prefix, summary, truncation, wrong-member projection, missing control fingerprint, prose reconstruction,
+newline/length/hash drift, or later supplement fails closed before any source, role, or other tool use.
+Main may use the already-declared fallback once; it never repairs a running lane with addenda or
+repacket churn, and this bootstrap creates no helper, envelope schema, or compatibility path.
+
 For a spare-capacity self-QA retrospective, task dispatch alone owns activation and critical-path
 protection. Give one ordinary support agent one exact task and the current terminal, replacement-
 checkpoint, and exception or anomaly locators. Require checkpoint-first inspection, signal-only

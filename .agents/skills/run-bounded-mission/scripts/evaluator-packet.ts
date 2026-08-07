@@ -8,6 +8,7 @@ import {
   fstatSync,
   fsyncSync,
   lstatSync,
+  mkdirSync,
   openSync,
   readdirSync,
   readFileSync,
@@ -18,7 +19,7 @@ import {
 import { basename, dirname, isAbsolute, resolve } from "node:path"
 
 const INPUT_SCHEMA = "mission-evaluator-packet-input/v1"
-const ARTIFACT_SET_SCHEMA = "mission-evaluator-artifact-set/v3"
+const ARTIFACT_SET_SCHEMA = "mission-evaluator-artifact-set/v4"
 const ADMISSION_SCHEMA = "mission-evaluator-artifact-admission/v1"
 const TERMINAL_OBSERVATION_SCHEMA = "mission-evaluator-terminal-observation/v1"
 const SHARED_CORE_SCHEMA = "mission-evaluator-shared-core/v2"
@@ -560,6 +561,15 @@ function segmentRecord(name: string, bytes: Uint8Array): Record<string, unknown>
   }
 }
 
+function canonicalOutputIdentity(schema: string, bytes: Uint8Array): Record<string, unknown> {
+  return {
+    schema,
+    encoding: "canonical-json-lf",
+    size: bytes.length,
+    sha256: `sha256:${sha256(bytes)}`,
+  }
+}
+
 async function buildDispatches(args: Arguments, inputBytes: Uint8Array) {
   const input = parsePacketInput(inputBytes)
   const cwd = gitText(process.cwd(), ["rev-parse", "--show-toplevel"])
@@ -573,6 +583,7 @@ async function buildDispatches(args: Arguments, inputBytes: Uint8Array) {
   const targetWorktree = record(binding.value.target_worktree, "binding.target_worktree")
   const targetRoot = semanticString(targetWorktree.root, "binding.target_worktree.root")
   const resolvedOrigin = immutableCommit(targetRoot, args.origin, "target Origin")
+  let resolvedCandidate: string | undefined
   const candidateKind = semanticString(candidate.kind, "binding.candidate.kind")
   const candidateLocator = semanticString(candidate.locator, "binding.candidate.locator")
   if (origin.commit !== resolvedOrigin) reject("stale Origin or binding")
@@ -585,7 +596,7 @@ async function buildDispatches(args: Arguments, inputBytes: Uint8Array) {
       reject("stale local candidate or binding")
     }
   } else if (candidateKind === "committed") {
-    const resolvedCandidate = immutableCommit(targetRoot, args.candidate, "target candidate")
+    resolvedCandidate = immutableCommit(targetRoot, args.candidate, "target candidate")
     if (candidate.commit !== resolvedCandidate || candidateLocator !== `commit:${resolvedCandidate}`) {
       reject("stale committed candidate or binding")
     }
@@ -613,7 +624,7 @@ async function buildDispatches(args: Arguments, inputBytes: Uint8Array) {
   const external = args.targetRoot !== undefined
   const packetHelperCommit = external
     ? immutableCommit(cwd, args.controlOrigin!, "control-plane Origin")
-    : resolvedCandidate
+    : resolvedCandidate ?? reject("committed candidate did not resolve")
   const admissionHelperCommit = external ? packetHelperCommit : resolvedOrigin
   const helper = await helperIdentity(cwd, packetHelperCommit, external ? "control-plane Origin" : "candidate", true)
   const admissionHelper = await helperIdentity(cwd, admissionHelperCommit, "admission Origin", false)
@@ -724,6 +735,42 @@ function materializeArtifact(directory: string, bytes: Uint8Array, digestValue: 
   return artifact
 }
 
+function createOwnerOnlyDirectory(path: string, label: string): void {
+  try {
+    mkdirSync(path, { mode: 0o700 })
+  } catch {
+    reject(`${label} must not exist before materialization`)
+  }
+  const observed = lstatSync(path)
+  const owner = process.geteuid?.()
+  if (!observed.isDirectory() || observed.isSymbolicLink() || modeText(observed.mode) !== "0700"
+      || owner === undefined || observed.uid !== owner) {
+    reject(`${label} must be an owner-only non-symlink mode-0700 directory`)
+  }
+}
+
+function materializeScratchRoots(directory: string, lenses: LensName[]): Map<LensName, string> {
+  const canonicalDirectory = realpathSync(directory)
+  if (resolve(directory) !== canonicalDirectory) reject("output directory must be a canonical absolute path")
+  const scratchParent = resolve(canonicalDirectory, "scratch")
+  createOwnerOnlyDirectory(scratchParent, "scratch parent")
+  const roots = new Map<LensName, string>()
+  for (const lens of lenses) {
+    const root = resolve(scratchParent, lens)
+    createOwnerOnlyDirectory(root, `scratch root for ${lens}`)
+    for (const name of SCRATCH_DIRECTORIES) {
+      createOwnerOnlyDirectory(resolve(root, name), `scratch ${lens}/${name}`)
+    }
+    const observed = scanScratch(root)
+    if (observed.manifestSha256 !== emptyScratchManifestSha256()
+        || observed.files !== 0 || observed.bytes !== 0 || observed.rootMode !== "0700") {
+      reject(`scratch root for ${lens} did not materialize as the exact empty boundary`)
+    }
+    roots.set(lens, root)
+  }
+  return roots
+}
+
 function admissionArgv(
   helperPath: string,
   artifact: string,
@@ -776,6 +823,10 @@ async function materialize(): Promise<Uint8Array> {
   const helperBlobOid = oid(String(helper.blob_oid), "admission helper blob OID")
   const helperBlobSha256 = `sha256:${semanticString(helper.blob_sha256, "admission helper blob SHA-256")}`
   const helperSize = integer(helper.size, "admission helper size")
+  const scratchRoots = materializeScratchRoots(
+    args.outputDirectory,
+    built.dispatches.map((dispatch) => dispatch.assigned_risk_lens),
+  )
   const artifacts = built.dispatches.map((dispatch) => {
     const digestValue = dispatch.sha256.slice("sha256:".length)
     const path = materializeArtifact(args.outputDirectory, dispatch.bytes, digestValue)
@@ -800,7 +851,25 @@ async function materialize(): Promise<Uint8Array> {
       helperSize,
       built.candidateLocator,
     )
-    const scratchRoot = resolve(dirname(path), "scratch", dispatch.assigned_risk_lens)
+    const admissionArgs: AdmissionArguments = {
+      artifact: path,
+      size: dispatch.size,
+      sha256: dispatch.sha256,
+      auditSet: built.auditSet,
+      assignedRiskLens: dispatch.assigned_risk_lens,
+      assignedLensDeltaSha256,
+      commonPacketLocator: built.commonPacketLocator,
+      helperCommit,
+      helperPath,
+      helperBlobOid,
+      helperBlobSha256,
+      helperSize,
+      candidateLocator: built.candidateLocator,
+    }
+    const admissionBytes = admittedFrame(admissionArgs)
+    const scratchRoot = scratchRoots.get(dispatch.assigned_risk_lens)
+    if (!scratchRoot) reject(`scratch root is missing for ${dispatch.assigned_risk_lens}`)
+    const preBytes = preObservationFrame(admissionArgs, scratchRoot, admissionBytes)
     return {
       assigned_risk_lens: dispatch.assigned_risk_lens,
       path,
@@ -821,13 +890,39 @@ async function materialize(): Promise<Uint8Array> {
         role: EVALUATOR_ROLE,
         cwd: built.workingDirectory,
         argv: admitArgv,
+        stdout: canonicalOutputIdentity(ADMISSION_SCHEMA, admissionBytes),
       },
       observe: {
         role: EVALUATOR_ROLE,
         cwd: built.workingDirectory,
-        pre_argv: observationArgv(admitArgv, scratchRoot, "pre", "emit"),
-        post_argv: observationArgv(admitArgv, scratchRoot, "post", "emit"),
-        verify_argv: observationArgv(admitArgv, scratchRoot, "post", "verify"),
+        pre: {
+          argv: observationArgv(admitArgv, scratchRoot, "pre", "emit"),
+          stdout: canonicalOutputIdentity(TERMINAL_OBSERVATION_SCHEMA, preBytes),
+        },
+        post: {
+          argv: observationArgv(admitArgv, scratchRoot, "post", "emit"),
+          stdin: {
+            source: "observe.pre.stdout",
+            transfer: "exact-raw-bytes",
+          },
+          stdout: {
+            schema: TERMINAL_OBSERVATION_SCHEMA,
+            encoding: "canonical-json-lf",
+            identity: "bind-runtime-size-and-sha256-before-consumer",
+          },
+        },
+        verify: {
+          argv: observationArgv(admitArgv, scratchRoot, "post", "verify"),
+          stdin: {
+            sources: ["observe.pre.stdout", "observe.post.stdout"],
+            transfer: "exact-raw-concatenation-in-order",
+            identity: "require-each-producer-size-and-sha256",
+          },
+          stdout: {
+            source: "observe.post.stdout",
+            transfer: "byte-exact-reproduction",
+          },
+        },
       },
     }
   })
@@ -1294,6 +1389,32 @@ function admittedFrame(args: AdmissionArguments): Uint8Array {
   })
 }
 
+function preObservationFrame(
+  args: AdmissionArguments,
+  scratchRoot: string,
+  admission: Uint8Array,
+): Uint8Array {
+  const preManifestSha256 = emptyScratchManifestSha256()
+  return canonicalLine({
+    schema: TERMINAL_OBSERVATION_SCHEMA,
+    status: "observed",
+    phase: "pre",
+    candidate_locator: args.candidateLocator,
+    common_packet_locator: args.commonPacketLocator,
+    assigned_risk_lens: args.assignedRiskLens,
+    scratch_root: scratchRoot,
+    root_mode: "0700",
+    pre_manifest_sha256: preManifestSha256,
+    post_manifest_sha256: preManifestSha256,
+    files: 0,
+    bytes: 0,
+    outside_state_procedure: {
+      admission_replay_sha256: `sha256:${sha256(admission)}`,
+      packet_named_fingerprints: OUTSIDE_STATE_PROCEDURE,
+    },
+  })
+}
+
 function admit(): Uint8Array {
   return admittedFrame(parseAdmissionArguments(Bun.argv.slice(3)))
 }
@@ -1444,24 +1565,7 @@ async function observe(): Promise<Uint8Array> {
   const admission = admittedFrame(args.admission)
   const scratch = scanScratch(args.scratchRoot)
   const preManifestSha256 = emptyScratchManifestSha256()
-  const preObservation = canonicalLine({
-    schema: TERMINAL_OBSERVATION_SCHEMA,
-    status: "observed",
-    phase: "pre",
-    candidate_locator: args.admission.candidateLocator,
-    common_packet_locator: args.admission.commonPacketLocator,
-    assigned_risk_lens: args.admission.assignedRiskLens,
-    scratch_root: args.scratchRoot,
-    root_mode: "0700",
-    pre_manifest_sha256: preManifestSha256,
-    post_manifest_sha256: preManifestSha256,
-    files: 0,
-    bytes: 0,
-    outside_state_procedure: {
-      admission_replay_sha256: `sha256:${sha256(admission)}`,
-      packet_named_fingerprints: OUTSIDE_STATE_PROCEDURE,
-    },
-  })
+  const preObservation = preObservationFrame(args.admission, args.scratchRoot, admission)
   if (args.phase === "pre") {
     if (scratch.manifestSha256 !== preManifestSha256 || scratch.files !== 0 || scratch.bytes !== 0) {
       reject("pre observation requires the exact empty scratch manifest")

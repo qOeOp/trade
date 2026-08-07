@@ -28,8 +28,11 @@ Task creation requires the user's explicit request or approval of every exact re
 
 ## Goal boundary
 
-Reconcile `get_goal`, the request, and the complete replacement checkpoint before every Goal-driven
-effect; missing restatement does not remove approved work. In multi-Mission mode:
+Before every Goal-driven effect, observe whether the current host exposes each required Goal tool.
+When `get_goal` is exposed, reconcile its result, the request, and the complete replacement checkpoint;
+missing restatement does not remove approved work. The tool surface is session-local evidence: a
+prior call, checkpoint, static contract, or another session cannot establish current capability. In
+multi-Mission mode:
 
 - no Goal retains the proposal and freezes child, publication, and merge-release effects; only
   explicit overall-Goal authority permits one `create_goal`, followed by a matching observation;
@@ -38,6 +41,14 @@ effect; missing restatement does not remove approved work. In multi-Mission mode
   never use `update_goal` for reopening or replacement;
 - paused or blocked follows the host Goal contract and preserves causal Stop; never overwrite a
   nonmatching unfinished Goal. If persistence is declined, reframe Goal-unbound current-thread work.
+
+When `get_goal` is not exposed, record `Goal capability: unavailable; persistence: none` with the
+observed tool-surface locator in the current Frame/checkpoint. Proposals and their complete prompts may
+remain visible in the existing conversation checkpoint, but child dispatch, dependency release,
+publication, merge-release, and every Goal effect stay frozen. Do not call an absent tool, synthesize a
+Goal or DAG, treat the checkpoint as Goal persistence, or describe informal foreground sequencing as
+Goal-backed orchestration. A zero- or single-Mission foreground path may continue only when it needs no
+Goal effect and is explicitly projected as Goal-unbound.
 
 The Goal holds only overall Outcome, constraints, and completion boundary. Nodes, identities,
 candidates, findings, Stop, and GitHub facts stay in their existing owners. `update_goal` only marks
@@ -59,6 +70,13 @@ and each support slice separately to `internal_support`; never collapse or overw
 Retain activated paths with candidate-independent locators and every approved route's disposition plus
 next owner or terminal locator. Agent routing may serve a support slice without changing its node into a
 sub-agent. Missing, duplicate, conflicting, or unbound bindings freeze the slice and dependents.
+
+For every proposed, attempted, or created node retain one causal collision projection from its exact
+stable label/title, Outcome and consumer, owner/write surface, and endpoint. Bind its canonical UTF-8
+length and SHA-256 in the existing packet/checkpoint; exclude changing Origin, Plan, candidate, status,
+and evidence so ordinary continuation cannot mint another identity. The projection is a pre-create
+comparison key, not task identity, a counter, registry, or stored index. Exact `threadId`/`hostId`
+remains the only created-task identity.
 
 Keep assessment data once at checkpoint level, or bind one immutable locator and hash; never copy it
 into nodes. Native tasks own identity, Git and GitHub own repository facts, and canonical task type is
@@ -106,6 +124,13 @@ authority gap; as `runnable` after its release predicate is observed and before 
 A node may therefore expose several of those members at once. Render one compact line per node in the
 fixed order above, with slice names and locator-bound reasons/results, and omit empty members; this is
 a projection convention, not a schema or state machine.
+
+Before choosing a monitoring target, discussion focus, spare-capacity lane, or other scheduling slice,
+reopen every waiting slice's exact blocker and release-predicate locator once and rebuild the compact
+graph. A changed predicate moves that slice to `runnable` and its recorded next owner/action before the
+Hub follows an unrelated active task. Focus changes, ordinary discussion, an idle child, or a terminal
+local candidate cannot remove, postpone, or hide that edge. Recovery only after a user reminder is a
+functional task-loss signal, not evidence that the original release executed.
 
 Derive `needs_attention` only from a structural or user-authority gap, a real exception, or
 unknown-impact evidence that needs Hub arbitration. Ordinary progress, elapsed time, commentary,
@@ -232,11 +257,15 @@ Later hygiene belongs to a separately approved Mission.
 ## Outcomes discovered during a Mission
 
 When Mission evidence reveals another outcome, preserve it without widening the current Frame or
-repairing an unrelated defect. In a single-Mission session, retain at most one narrow follow-up
-proposal. In an already admitted multi-Mission session, add or revise a node only through the hub's
-Plan and re-evaluate direct dependencies and conflicts; do not silently dispatch it. Refactor,
-test, documentation, performance, security, removal, and other descriptions use the same admission
-contract.
+repairing an unrelated defect. Once a diagnosis satisfies the independent-Mission admission threshold,
+give it one checkpoint disposition before the current turn boundary: add a proposed or approved node
+to the existing hub inventory and re-evaluate direct dependencies and conflicts; bind `deduplicated`
+to one exact existing node and equivalent Outcome; or bind `rejected` to explicit user authority. In a
+single-Mission session, the checkpoint may retain at most one narrow `proposed — Goal persistence
+unavailable` follow-up and must freeze its dispatch and current-Mission Finalize until the user routes,
+deduplicates, or rejects it. A diagnosis in commentary, a future-work promise, or an unlocated note is
+not a disposition and may not disappear at compaction. Do not silently dispatch it. Refactor, test,
+documentation, performance, security, removal, and other descriptions use the same admission contract.
 
 An independent outcome remains proposed while the user edits or withholds approval. Before assigning
 its label, load [task type classification](orchestration-task-types.md) and classify exactly one
@@ -311,6 +340,23 @@ code, commands, schemas, identifiers, and raw evidence keep their original form.
 change replaces it; task creation, a later turn, Handoff, or compaction never re-infers it from prompt
 content, locale, or recent messages.
 
+Before approval and again immediately before creation, freeze one complete canonical UTF-8 payload
+containing the exact title and label; interaction language; current Frame and admitted Plan; raw request
+or immutable locator; Origin, dependency edges and release predicates; authority and prohibited
+effects; preconditions and their executable producer/setup; selected `single | hub` mode; freshly
+observed Goal-tool availability and persistence; observed or honestly unavailable model/effort; exact
+owner inputs and evidence locators; endpoint; Stop; and one next legal action. Record its byte length
+and `sha256:<lowercase-64-hex>` outside the payload. The payload, identity, and approved create branch
+form one packet; changing any member invalidates approval. Native Task title remains packet identity
+metadata and never becomes a Conventional pull-request title.
+
+The create/release transport bootstrap outside that payload contains only its encoding, exact length
+and SHA-256, complete encoded bytes, and the instruction to decode and verify them. It must not itself
+invoke this Skill, assign the Mission or role, expose a partial Frame, request a repository read, or
+authorize any other action: those instructions live only inside the user-approved payload and become
+active after admission. Otherwise a fresh host may load workflow or repository authority before it can
+verify the packet, which is a first-action admission failure even if a later hash check succeeds.
+
 Freeze one approved endpoint per node. A `merged` node derives child `merge-ready`, freezes hub merge
 authority/effect, and follows Critical-path choreography; this projection is no new Goal endpoint.
 Pull-request endpoints load [GitHub delivery](../delivery/delivery-pullrequest-workflow.md), and `open`
@@ -325,6 +371,16 @@ For multiple outcomes, present one stable-labeled packet per node so the user ca
 ready wave. Its one create attempt consumes approval; deferred nodes cannot bypass prerequisites.
 
 ## Generic child preflight
+
+The child's first legal operation after any required atomic title effect is packet admission: obtain
+the complete payload delivered by the selected create/release branch, recompute its exact UTF-8 length
+and SHA-256 without parsing or reserializing it, and compare both with the frozen identity. Only then
+may it interpret the decoded instructions, activate their named workflow/role, or execute the payload's
+next legal action. An absent field, prefix, summary, truncation,
+wrong member, newline drift, reordered or reserialized content, identity mismatch, or later supplement
+is `packet-admission-defect/no-change`; stop before Mission commentary, Goal access, repository reads,
+bootstrap, or other substantive work. The dispatcher cannot repair the same launch by sending another
+message, reconstructing prose, or falling back to remembered Hub context.
 
 Freeze the exact expected title and one observed create-time capability branch into the packet before
 creation. Use atomic creation only when the current host contract explicitly guarantees that passing the
@@ -353,8 +409,10 @@ identity effects as `host-defect/unproved`. If none of the three gates is availa
 Derive preflight from current owner manifests and lockfile. Name exact repository path/HEAD/status,
 executables, and dependency-directory existence/symlink/ignore/status facts. A final-release child
 also receives frozen Origin and reports its exact child-worktree HEAD before substantive work for the
-hub-owned equality gate above. Before substantive work, the child calls and reports `get_goal` and
-never creates or updates the hub Goal.
+hub-owned equality gate above. Before substantive work, the child observes the current Goal-tool
+surface. It calls and reports `get_goal` when exposed; otherwise it reports `Goal capability:
+unavailable; persistence: none` and continues only as its ordinary single Mission. It never creates or
+updates the hub Goal.
 
 If tools are absent, authorize at most one manifest/lock-supported, exact non-interactive bootstrap.
 Exclude credentials, relevant secrets, environment files, lifecycle scripts, and live effects. Record
@@ -382,6 +440,16 @@ DAG, write ownership, user-visible Mission model authority, or task consent; it 
 route table. Ordinary route telemetry stays with the child and is fanned into the Hub only in its
 terminal receipt unless it proves a real exception or structural gap.
 
+Pre-admit the complete packet and every producer-to-consumer edge before issuing the create effect.
+For a prerequisite or setup side effect, either name an ordered executable producer owned by the
+packet or require the deterministic producer to perform it; prose-only filesystem, environment, or
+transport prerequisites reject. For each inter-step dependency, bind the producer's exact raw output
+bytes, length, and SHA-256 to the exact consumer stdin or file and preserve order. A dynamic producer
+may publish its identity at runtime, but the edge and required identity fields must exist before launch.
+Do not start a child and then supply a missing edge, authority member, locator, Frame slice, or control
+fingerprint. A second packet/admission defect after this preflight returns the mechanism to its owner
+and stops candidate delivery; do not churn through replacement packets.
+
 Immediately before each create, close the mode-scoped authoritative dispatch set from the current
 packet/checkpoint and its causally bound attempts and receipts, not from title inventory. For every
 already-bound `threadId`/`hostId` relevant to the proposed node or an owner/write collision, perform one
@@ -398,6 +466,13 @@ host guarantee that only one effecting turn for that dispatcher can issue the no
 creator binding, concurrent effecting turn, or unavailable serialization guarantee returns
 `host-defect/no-change` before create. This is a pre-create gate, not identity mapping, global-history
 scan, host-wide lock, or polling.
+
+Compare the packet's causal collision projection with every current authoritative-set member before
+the create effect. An exact match maps to that member's existing attempt or exact task and permits no
+second create. The same stable label/title with a different projection, or a matching projection with
+multiple attempts/identities, is a collision and fails closed before effect. A bounded list/search
+resemblance cannot prove the match; when the authoritative member or exact identity is unavailable,
+preserve the packet and stop rather than create a sibling duplicate.
 
 Reobserve the approved Task-control contracts. Any schema, targetability, mode-scoped dispatch set, or
 atomic-create/child-current-task/dispatcher-held branch drift materially revises the packet and requires
@@ -513,6 +588,14 @@ after that checkpoint may the hub issue a question/message or release an indepen
 declared effect. A dependent release, endpoint judgment, or other effect may not precede the
 checkpoint. One receipt never resets the wave, starts a dependent, or triggers a global pass.
 
+Multiple tasks or candidates with the same causal collision projection, overlapping Outcome/consumer,
+or contradictory evaluator and direct-consumer evidence belong to one component conflict. Freeze
+acceptance and every dependent release until Main reopens and reproduces the smallest decisive root
+consumer fact, then records each candidate or task as exactly `accepted`, `rejected`, or
+`superseded_by(<exact member>)` with its evidence locator. Evaluator status, `no_finding` count, task
+recency, diff size, or Hub preference cannot select the winner. Preserve conflicting evidence and
+unavailable reproduction honestly; no disposition means the component remains frozen.
+
 Treat coordination as useful only when a new observation changes an admitted relation, component,
 candidate validity, release predicate, authority, effect barrier, or terminal judgment. Low-information
 messages alone are harmless; churn is evidenced when the same causal root repeatedly invalidates work
@@ -568,6 +651,14 @@ terminal. Scores do not reopen a child or extend the graph; only an independentl
 become a new proposal.
 
 ## Capability fallback
+
+If any Goal capability required by the selected mode is unavailable, report the exact unavailable
+tool and affected effects before dispatch. Preserve the packets in the current replacement checkpoint
+as conversation evidence, mark Goal persistence `none`, and freeze every Goal/DAG claim plus child,
+dependency-release, publication, and merge-release effect. A supported Goal-unbound single Mission may
+continue in the foreground; multi-Mission work stays proposal-only until a later session freshly
+observes and reconciles the required Goal capability. This is an observable degradation, not a
+substitute Goal or persisted scheduler.
 
 If the native task host is unavailable or creation fails, preserve the approved packet and report
 the exact missing capability or failure. Offer the complete prompt for manual task creation. The
