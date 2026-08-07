@@ -95,7 +95,8 @@ Advance only on these observations:
 - `Frame → Plan`: every Frame field supports the next decision, consequential ambiguity is resolved
   or isolated, and Stop is finite;
 - `Plan → Execute`: owner, path, boundary, candidate shape, verification, and required action bindings
-  are admitted with no decision-changing premise unresolved;
+  are admitted with no decision-changing premise unresolved, and every activated Design Loop has
+  returned its one complete current Plan;
 - `Execute → Verify`: the admitted candidate and complete mission-owned diff, including untracked
   material, are available;
 - `Verify → Finalize`: decisive passes, failures, findings, and unavailable evidence are recorded for
@@ -183,10 +184,11 @@ Verification: <consumer and owner checks; final gate; unavailable evidence>
 Dependencies / action bindings: <prerequisites; effect owner and authority; capability or gate>
 ```
 
-Before admission, route each consequential unknown through Decision evidence as `default`, `research`,
-or `ask`; ask only when no safe default exists and the answer materially changes candidate or
-acceptance. Preserve only Plan-changing final decisions in `Candidate` as `Decision / basis /
-rejected alternative / unresolved consequence`; add no field or log.
+Before admission, finish every discoverable repository or consumer probe that can dispose a
+consequential unknown, then route what remains through Decision evidence as `default`, `research`, or
+`ask`. Suppress a question unless no safe default exists and its answer materially changes candidate,
+acceptance, or an action binding. Preserve only Plan-changing final decisions in `Candidate` as
+`Decision / basis / rejected alternative / unresolved consequence`; add no field or log.
 
 Admit only when every material decision has a downstream consumer, every research basis has evidence
 status and Stop, and every slice has its earliest `replan` and `reframe` signal. This Plan-local
