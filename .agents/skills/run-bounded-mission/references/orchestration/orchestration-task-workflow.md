@@ -54,6 +54,12 @@ next endpoint effect. Retain each admitted relation with its evidence locator an
 the current component snapshot that groups those nodes. Never omit a superseded, interrupted, blocked,
 or identity-pending node merely because it has no runnable slice.
 
+Set checkpoint mode to `hub`. Bind each user-visible route/slice to `native_task` and its next-owner edge,
+and each support slice separately to `internal_support`; never collapse or overwrite mixed bindings.
+Retain activated paths with candidate-independent locators and every approved route's disposition plus
+next owner or terminal locator. Agent routing may serve a support slice without changing its node into a
+sub-agent. Missing, duplicate, conflicting, or unbound bindings freeze the slice and dependents.
+
 Keep assessment data once at checkpoint level, or bind one immutable locator and hash; never copy it
 into nodes. Native tasks own identity, Git and GitHub own repository facts, and canonical task type is
 non-authorizing metadata from [task type classification](orchestration-task-types.md), not lifecycle,
@@ -240,13 +246,17 @@ from wording or a legacy prefix.
 
 The packet owns one stable label matching `[A-Z]{3}-[0-9]{2}` and one title formed exactly as
 `<label> · <short description>`. Its code must be a current canonical member and its number must be
-`01` through `99`. From the complete current proposed/approved-node inventory, the packet owner assigns
-the lowest unused display serial within that canonical code; different codes each begin at `01`.
+`01` through `99`. Within the current Hub wave, close the numbering scope over the complete current
+proposed/approved Goal/DAG-node inventory, every bound create attempt or receipt, and one bounded live
+native Task observation for the exact current-wave identities. The packet owner assigns the lowest unused
+display serial in that closed scope within the canonical code; different codes each begin at `01`.
 Freeze it across edits, consent, creation, recovery, and continuation of that causally identical
-Mission. A same-code collision, exhausted range, or incomplete same-code inventory defers assignment
-to main; never derive identity, priority, order, dependency, or retry count from the number and never
-add a counter service. Historical titles remain exact immutable facts and reserve no inferred mapping;
-recovery never renames or backfills them.
+Mission. A same-code collision in the current wave, exhausted range, missing node, missing or duplicate
+attempt/receipt, or unresolved relevant live identity defers only the affected assignment or release to
+main. `threadId`/`hostId`, never title or serial, owns native identity. The serial is display metadata:
+never derive identity, priority, order, dependency, or retry count from it and never add a counter
+service. Historical or unrelated titles remain exact immutable facts but neither reserve a serial nor
+prove a mapping; recovery never renames or backfills them.
 
 Write the short description and user-visible packet commentary in the inherited
 `interaction_language`; preserve the ASCII code, identifiers, commands, schemas, and raw evidence in
@@ -273,6 +283,19 @@ Present a short default summary first: canonical task type, stable label and exa
 matters now, Outcome and scope/non-goals, decisive evidence and Origin, Acceptance, and authority or
 external effects.
 
+Before presenting a packet as `ready`, observe and bind the current native Task-control contracts that
+the packet will consume: `list_threads`, `create_thread`, current-task `set_thread_title` with omitted
+`threadId` when that branch is available, and exact-identity setter, readback, and message release for a
+dispatcher-held branch. That branch additionally binds a host-owned uninterrupted serialization contract
+covering setter through release receipt and excluding title/message interleave. An atomic-create branch
+additionally requires an explicit host guarantee that
+the exact title is committed before child execution and a causally bound exact identity/title receipt;
+field exposure is insufficient. Freeze the create-time capability branch, its exact call shapes, one
+exact Hub dispatcher identity, its host-serialized single-effecting-turn guarantee, and the closed
+current-wave inventory predicate into the editable packet. Missing, ambiguous, concurrent, or
+non-targetable controls keep it `deferred` or `host-defect/no-change`; a later contract or branch change
+is a material packet revision and requires the complete packet to be presented and approved again.
+
 Retain the complete editable child prompt in the checkpoint. Quote current Frame and Plan projections
 with raw evidence locators, never the transcript; keep the raw request or child-accessible locator
 canonical. Include label/title, prerequisites/source/revalidation, project/environment, the preflight
@@ -297,13 +320,29 @@ ready wave. Its one create attempt consumes approval; deferred nodes cannot bypa
 
 ## Generic child preflight
 
-Freeze the exact title and observed create-naming branch into the child prompt. If `create_thread`
-exposed `title`, pass it once and record creation as the pre-Frame title effect. Otherwise the prompt's
-first instruction—before commentary, Frame, `get_goal`, reads, Git, or other work—calls current-task
-`set_thread_title` with only that title and requires the returned calling `threadId` plus exact title.
-Missing, contradictory, unavailable, failed, or mismatched branch evidence stops before Mission work.
-The setter may repeat after recovery only when prior success cannot be reconstructed and never maps a
-`clientThreadId` to task identity.
+Freeze the exact expected title and one observed create-time capability branch into the packet before
+creation. Use atomic creation only when the current host contract explicitly guarantees that passing the
+title commits that exact title before child execution and returns a causally bound exact identity/title
+receipt; pass it once and use that receipt as the pre-Frame gate. A `title` input or later readback alone
+does not prove this contract.
+
+Otherwise prefer an observed current-task `set_thread_title` call that permits omitted `threadId`: make
+that the child prompt's first operation, before commentary, Frame, `get_goal`, reads, Git, or other work,
+pass only the frozen title, and require its returned calling `threadId` plus exact title as the pre-Frame
+gate. The child calls it exactly once; failure, mismatch, or later recovery never permits another setter.
+
+When that child control is absent, a dispatcher-held branch requires exact-target parent
+`set_thread_title`, `read_thread`, and `send_message_to_thread`. Create with only a frozen gate-bootstrap
+prompt: its first turn performs no Mission commentary, Frame, `get_goal`, read, Git, or other substantive
+work and terminates or yields with one bootstrap receipt. Auto-generated title is resemblance only.
+After a causally bound exact `threadId`/`hostId` is available, the dispatcher sets the frozen canonical
+title once, reads that exact task back once, then sends the complete approved Mission packet once as the
+causally bound release/new turn, all inside the observed branch-scoped uninterrupted host turn; no other
+title or message effect may interleave before the release receipt. Bind the bootstrap receipt and all
+three parent results in the checkpoint. A `clientThreadId` cannot enter these controls. Missing,
+contradictory, unavailable, failed, or mismatched branch or serialization evidence freezes work and
+identity effects as `host-defect/unproved`. If none of the three gates is available, report
+`host-defect/no-change`; do not add a lock, registry, wrapper, retry, or second lifecycle.
 
 Derive preflight from current owner manifests and lockfile. Name exact repository path/HEAD/status,
 executables, and dependency-directory existence/symlink/ignore/status facts. A final-release child
@@ -337,27 +376,53 @@ DAG, write ownership, user-visible Mission model authority, or task consent; it 
 route table. Ordinary route telemetry stays with the child and is fanned into the Hub only in its
 terminal receipt unless it proves a real exception or structural gap.
 
-After consent, revalidate every packet fact, canonical task type locator, and source tip; drift makes
-it `deferred` or materially revised and requires fresh approval. Mark the create attempt issued, call `list_projects`, and inspect
-the selected project's `isGitRepository`. Call `create_thread` once with the approved prompt and the
-observed project/worktree target for Git, or local only for an observed non-Git project that cannot
-share the foreground candidate. Omit `startingState` and model overrides unless approved. Record only
-the returned exact identity or receipt and emit the host's task link/directive.
+Immediately before each create, call `list_threads` once within the host's bounded limit. Reconcile the
+closed current-wave set: complete proposed/approved Goal/DAG nodes, all attempts/receipts, frozen
+type/title/owner/write facts, and the raw result for every bound `threadId`/`hostId`. This does not require
+globally paginating historical titles. A missing/duplicate wave member, receipt or exact identity,
+overlapping writer, unresolved same-node attempt, or drift revises only the affected packet and requires
+fresh approval. A `clientThreadId` blocks a second create for its node; unrelated or same-title results
+cannot join the wave. Revalidate remaining facts, source tip, the packet's one exact Hub dispatcher, and
+the host guarantee that only one effecting turn for that dispatcher can issue the node's create. Any
+second creator binding, concurrent effecting turn, or unavailable serialization guarantee returns
+`host-defect/no-change` before create. This is a pre-create gate, not identity mapping, global-history
+scan, host-wide lock, or polling.
+
+Reobserve the approved Task-control contracts. Any schema, targetability, current-wave scope, or
+atomic-create/child-current-task/dispatcher-held branch drift materially revises the packet and requires
+fresh approval before an attempt. Complete all read-only preconditions first: call `list_projects`,
+inspect the selected project's `isGitRepository`, and recheck the exact dispatcher/serialized-turn gate.
+Then call `create_thread` once with the complete approved prompt for an atomic-create or
+child-current-task branch, or only the frozen gate-bootstrap prompt for a dispatcher-held branch. Pass
+the frozen title only for an admitted atomic-create contract. Use the observed project/worktree target
+for Git, or local only for an observed non-Git project that cannot share the foreground candidate. Omit
+`startingState` and model overrides unless approved. The raw host create call/result is the attempt
+record; never mark it issued before the call. Record only the returned exact identity or receipt and emit
+the host's task link/directive. Bind that receipt in the checkpoint to the exact title, owner, and write
+surface. It is causal conversation evidence, not a host-wide lock; creation is runnable only because the
+single-dispatcher binding and observed host serialization excluded a second authorized creator first.
 
 Keep the host default model for a user-visible Mission unless its packet explicitly authorizes a
 different full-Mission model. Spark's leaf gates cannot own the child's five stages, so never select
 it for this route or create a user-visible task for an internal build/revision leaf. Route the latter
 through the custom `fast_builder` agent and its standard-main fallback.
 
-The packet remains the naming owner. Follow its frozen branch above, never invent a field or perform a
-routine post-create rename. Once an exact `threadId`/`hostId` is causally known, read only that task
-and require the exact title plus any final-release preflight HEAD report before release; unavailable
-or mismatched readback freezes identity-dependent effects, and list or search cannot repair it.
+The packet remains the naming owner; never invent a field. Execute only its frozen atomic-create,
+child-current-task, or dispatcher-held title gate above. Atomic work starts only from its exact
+pre-execution identity/title receipt. Child-current-task work starts only from its exact setter receipt.
+Dispatcher-held work starts only after the bootstrap receipt, setter result, exact-title readback, and
+one complete-packet message release all bind the same exact task and uninterrupted host serialization
+contract. Require any later exact-title readback and final-release HEAD report before monitoring or
+release. Failure or mismatch freezes those actions; auto-title and list/search resemblance cannot repair
+it, and later recovery permits no second setter or packet release.
 
-A returned `clientThreadId` consumes creation but is only a receipt: record/emit it, never rename or
-pass it to wait/read/send, and freeze identity effects until the host or user causally maps an exact
-`threadId`/`hostId`. List/search resemblance cannot prove that mapping. Then verify the title before
-monitoring/release; pending identity permits no duplicate and is not Mission `blocked`.
+A returned `clientThreadId` consumes creation but is only a dispatcher receipt: record/emit it, never
+rename or pass it to wait/read/send. A dispatcher-held bootstrap remains no-work and receives no Mission
+packet while that mapping is pending. It does not replace the child-current-task gate: that child may
+proceed only after its one setter returns the exact calling `threadId` and title. Dispatcher identity
+effects, monitoring, and release stay frozen until the host, user, or exact child receipt causally maps a
+`threadId`/`hostId`; list/search resemblance cannot prove that mapping. Then run the frozen title gate
+before those effects. Pending dispatcher identity permits no duplicate and is not Mission `blocked`.
 
 Recovery resumes only a recorded exact `threadId`/`hostId`. An unmapped same-title task is resemblance:
 never adopt, rename, or message it. Before an attempt it consumes no approval; after possible success
