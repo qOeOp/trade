@@ -1,6 +1,5 @@
 # vibe-interactive-brokers
 
-
 [VibeTrader](https://github.com/qOeOp/trade) adapter for
 [Interactive Brokers](https://www.interactivebrokers.com).
 

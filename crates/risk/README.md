@@ -1,6 +1,5 @@
 # vibe-risk
 
-
 Risk engine for [VibeTrader](https://github.com/qOeOp/trade).
 
 The `vibe-risk` crate provides risk management capabilities including pre-trade

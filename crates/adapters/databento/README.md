@@ -1,6 +1,5 @@
 # vibe-databento
 
-
 [VibeTrader](https://github.com/qOeOp/trade) adapter for [Databento](https://databento.com).
 
 The `vibe-databento` crate provides a complete integration with the Databento API for

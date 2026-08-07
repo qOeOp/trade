@@ -22,12 +22,7 @@ extension-module = [
   "vibe-model/extension-module",
   "pyo3/extension-module",
 ]
-python = [
-  "vibe-core/python",
-  "vibe-model/python",
-  "pyo3",
-  "pyo3-stub-gen",
-]
+python = ["vibe-core/python", "vibe-model/python", "pyo3", "pyo3-stub-gen"]
 [dependencies]
 vibe-common = { workspace = true }
 vibe-core = { workspace = true }

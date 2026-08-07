@@ -51,9 +51,7 @@ vibe-live = { workspace = true }
 vibe-model = { workspace = true }
 vibe-network = { workspace = true }
 vibe-persistence-macros = { workspace = true }
-vibe-serialization = { workspace = true, features = [
-  "arrow",
-], optional = true }
+vibe-serialization = { workspace = true, features = ["arrow"], optional = true }
 vibe-system = { workspace = true, optional = true }
 
 ahash = { workspace = true }

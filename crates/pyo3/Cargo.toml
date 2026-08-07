@@ -23,11 +23,7 @@ arrow = [
   "vibe-serialization/arrow",
 ]
 betfair = ["dep:vibe-betfair", "vibe-betfair/python"]
-defi = [
-  "dep:vibe-blockchain",
-  "vibe-backtest/defi",
-  "vibe-blockchain/python",
-]
+defi = ["dep:vibe-blockchain", "vibe-backtest/defi", "vibe-blockchain/python"]
 extension-module = [
   "vibe-analysis/extension-module",
   "vibe-architect-ax/extension-module",
@@ -103,16 +99,9 @@ vibe-data = { workspace = true, features = ["python"] }
 vibe-execution = { workspace = true, features = ["python"] }
 vibe-indicators = { workspace = true, features = ["python"] }
 vibe-infrastructure = { workspace = true, features = ["python"] }
-vibe-live = { workspace = true, features = [
-  "python",
-  "examples",
-  "plugin",
-] }
+vibe-live = { workspace = true, features = ["python", "examples", "plugin"] }
 vibe-model = { workspace = true, features = ["python"] }
-vibe-network = { workspace = true, features = [
-  "python",
-  "transport-sockudo",
-] }
+vibe-network = { workspace = true, features = ["python", "transport-sockudo"] }
 vibe-persistence = { workspace = true, features = ["python"] }
 vibe-portfolio = { workspace = true, features = ["python"] }
 vibe-risk = { workspace = true, features = ["python"] }
@@ -128,9 +117,7 @@ vibe-architect-ax = { workspace = true, features = ["python"] }
 vibe-betfair = { workspace = true, optional = true }
 vibe-binance = { workspace = true, features = ["python"] }
 vibe-bitmex = { workspace = true, features = ["python"] }
-vibe-blockchain = { workspace = true, features = [
-  "python",
-], optional = true }
+vibe-blockchain = { workspace = true, features = ["python"], optional = true }
 vibe-bybit = { workspace = true, features = ["python"] }
 vibe-coinbase = { workspace = true, features = ["python"] }
 vibe-databento = { workspace = true, features = ["python", "live"] }

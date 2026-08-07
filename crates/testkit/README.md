@@ -1,6 +1,5 @@
 # vibe-testkit
 
-
 Test utilities and data management for [VibeTrader](https://github.com/qOeOp/trade).
 
 The `vibe-testkit` crate provides testing utilities including test data management,

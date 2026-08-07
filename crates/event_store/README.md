@@ -1,6 +1,5 @@
 # vibe-event-store
 
-
 Embedded event store and authoritative log of state-affecting messages for
 [VibeTrader](https://github.com/qOeOp/trade).
 

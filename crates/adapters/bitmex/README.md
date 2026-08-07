@@ -1,6 +1,5 @@
 # vibe-bitmex
 
-
 [VibeTrader](https://github.com/qOeOp/trade) adapter for the [BitMEX](https://bitmex.com) cryptocurrency exchange.
 
 The `vibe-bitmex` crate provides client bindings (HTTP & WebSocket), data

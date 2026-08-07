@@ -1,6 +1,5 @@
 # vibe-serialization
 
-
 Data serialization and format conversion for [VibeTrader](https://github.com/qOeOp/trade).
 
 The `vibe-serialization` crate provides data serialization capabilities for converting

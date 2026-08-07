@@ -1,6 +1,5 @@
 # vibe-persistence
 
-
 Data persistence and storage for [VibeTrader](https://github.com/qOeOp/trade).
 
 The `vibe-persistence` crate provides data persistence capabilities including reading and writing

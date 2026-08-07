@@ -1,6 +1,5 @@
 # vibe-deribit
 
-
 [VibeTrader](https://github.com/qOeOp/trade) adapter for the [Deribit](https://www.deribit.com/) derivatives exchange.
 
 The `vibe-deribit` crate provides client bindings (HTTP & WebSocket), data

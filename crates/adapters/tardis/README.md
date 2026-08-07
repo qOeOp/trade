@@ -1,6 +1,5 @@
 # vibe-tardis
 
-
 [VibeTrader](https://github.com/qOeOp/trade) adapter for [Tardis](https://tardis.dev).
 
 The `vibe-tardis` crate provides integration with the Tardis API for accessing

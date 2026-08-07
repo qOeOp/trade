@@ -1,6 +1,5 @@
 # vibe-derive
 
-
 [VibeTrader](https://github.com/qOeOp/trade) adapter for the
 [Derive](https://www.derive.xyz) decentralized derivatives exchange.
 

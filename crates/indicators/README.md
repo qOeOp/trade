@@ -1,6 +1,5 @@
 # vibe-indicators
 
-
 Technical analysis indicators for [VibeTrader](https://github.com/qOeOp/trade).
 
 The `vibe-indicators` crate provides a collection of technical analysis indicators

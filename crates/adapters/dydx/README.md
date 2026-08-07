@@ -1,6 +1,5 @@
 # vibe-dydx
 
-
 [VibeTrader](https://github.com/qOeOp/trade) adapter for the [dYdX v4](https://dydx.exchange/) decentralized exchange.
 
 The `vibe-dydx` crate provides client bindings (HTTP, WebSocket & gRPC), data models

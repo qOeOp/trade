@@ -1,6 +1,5 @@
 # vibe-cryptography
 
-
 Cryptographic utilities and security functions for [VibeTrader](https://github.com/qOeOp/trade).
 
 The `vibe-cryptography` crate provides essential cryptographic primitives and security utilities

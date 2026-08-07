@@ -14,7 +14,6 @@ leading and trailing pipes.
 
 import re
 import sys
-import unicodedata
 from pathlib import Path
 
 
@@ -32,20 +31,11 @@ def split_cells(row):
     return PIPE_RE.split(row.rstrip())[1:-1]
 
 
-def display_width(text):
+def utf16_width(text):
     """
-    Return the terminal-column width markdownlint uses to align table pipes.
-
-    East Asian wide/full-width characters occupy two columns, combining marks and
-    non-printing characters occupy none, and all other characters occupy one.
+    Return the width markdownlint sees, which indexes strings by UTF-16 code unit.
     """
-    width = 0
-    for char in text:
-        category = unicodedata.category(char)
-        if category.startswith("M") or category in {"Cc", "Cf", "Cs"}:
-            continue
-        width += 2 if unicodedata.east_asian_width(char) in {"W", "F"} else 1
-    return width
+    return len(text) + sum(1 for char in text if ord(char) > 0xFFFF)
 
 
 def find_tables(lines):
@@ -87,7 +77,7 @@ def cell_alignment(cell):
 
 
 def render_cell(content, width, alignment):
-    padding = width - 2 - display_width(content)
+    padding = width - 2 - utf16_width(content)
     if alignment == "right":
         return f" {' ' * padding}{content} "
     if alignment == "center":
@@ -121,9 +111,7 @@ def normalize_table(rows):
         marker = grid[1][column].strip()
         colons = int(marker.startswith(":")) + int(marker.endswith(":"))
         content = max(
-            display_width(cells[column].strip())
-            for index, cells in enumerate(grid)
-            if index != 1
+            utf16_width(cells[column].strip()) for index, cells in enumerate(grid) if index != 1
         )
         widths.append(max(content, MIN_DASHES + colons) + 2)
 

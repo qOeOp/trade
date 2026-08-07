@@ -40,11 +40,7 @@ high-precision = [
   "vibe-model/high-precision",
   "vibe-serialization?/high-precision",
 ]
-capnp = [
-  "dep:capnp",
-  "dep:vibe-serialization",
-  "vibe-serialization/capnp",
-]
+capnp = ["dep:capnp", "dep:vibe-serialization", "vibe-serialization/capnp"]
 sbe = ["dep:vibe-serialization", "vibe-serialization/sbe"]
 tracing-bridge = ["tracing", "tracing-subscriber"]
 [dependencies]

@@ -1,6 +1,5 @@
 # vibe-analysis
 
-
 Portfolio analysis and performance metrics for [VibeTrader](https://github.com/qOeOp/trade).
 
 The `vibe-analysis` crate provides portfolio analysis tools and performance

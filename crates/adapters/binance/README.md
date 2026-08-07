@@ -1,6 +1,5 @@
 # vibe-binance
 
-
 [VibeTrader](https://github.com/qOeOp/trade) adapter for the
 [Binance](https://www.binance.com/) cryptocurrency exchange.
 

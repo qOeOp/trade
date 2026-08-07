@@ -341,8 +341,8 @@ decode/encode normalization fails before a receipt can be created or replayed.
 For a `merged` node, the child sends this verified compact receipt once and stops at `merge-ready`.
 The Hub reconciles its own Goal/DAG/authority effect, replays the receipt, and does not rerun child
 consumer, root, audit, CI, provider, or conversation work. Immediately before guarded merge it
-refetches the mutable Git identities—head, base, synthetic merge commit, merge-tree, and
-queue/auto-merge state—and rereads
+refetches the mutable Git identities - head, base, synthetic merge commit, merge-tree, and
+queue/auto-merge state - and rereads
 the current final-head activity for the complete required-check set, provider signals, and review
 conversations. Each activity set must still be terminal, must contain no new or changed signal or
 unresolved conversation, and must match the receipt's corresponding locator, result, and content

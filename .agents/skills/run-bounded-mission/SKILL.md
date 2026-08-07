@@ -52,7 +52,7 @@ lines, files, diffs, steps, agents, revisions, time, tokens, or checks are diagn
 makes one the Outcome; none decides admission, routing, Stop, or acceptance. Compression cannot trade
 away consumer behavior, evidence, readability, authority closure, or fail-close boundaries. Judge
 minimality by removing unconsumed owners, duplicate authority or state, branches, adapters,
-exceptions, indirection, and superseded paths—not by net deletion.
+exceptions, indirection, and superseded paths - not by net deletion.
 
 Keep independent outcomes separate from diagnosis, tests, documentation sync, review correction,
 coupled work, and support roles. For a separate outcome, existing child, follow-up, or multi-Mission

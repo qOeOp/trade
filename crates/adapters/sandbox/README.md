@@ -1,6 +1,5 @@
 # vibe-sandbox
 
-
 [VibeTrader](https://github.com/qOeOp/trade) sandbox execution adapter for paper trading.
 
 The `vibe-sandbox` crate provides a simulated execution client that uses the

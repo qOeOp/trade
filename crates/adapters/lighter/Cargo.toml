@@ -18,11 +18,7 @@ crate-type = ["rlib"]
 [features]
 default = ["high-precision"]
 fuzz = ["vibe-live/fuzz"]
-examples = [
-  "dep:reqwest",
-  "vibe-live/node",
-  "vibe-network/transport-sockudo",
-]
+examples = ["dep:reqwest", "vibe-live/node", "vibe-network/transport-sockudo"]
 extension-module = [
   "vibe-common/extension-module",
   "vibe-core/extension-module",
@@ -50,9 +46,7 @@ high-precision = ["vibe-model/high-precision"]
 cargo-fuzz = true
 
 [package.metadata.cargo-machete]
-ignored = [
-  "vibe-system",
-] # Optional dep activated only via the python feature
+ignored = ["vibe-system"] # Optional dep activated only via the python feature
 [dependencies]
 vibe-common = { workspace = true, features = ["live"] }
 vibe-core = { workspace = true }

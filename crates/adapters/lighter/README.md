@@ -1,6 +1,5 @@
 # vibe-lighter
 
-
 [VibeTrader](https://github.com/qOeOp/trade) adapter for the [Lighter](https://lighter.xyz) decentralized spot and perpetuals exchange.
 
 The `vibe-lighter` crate implements the Lighter adapter for VibeTrader, including

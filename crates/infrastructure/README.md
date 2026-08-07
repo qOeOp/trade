@@ -1,6 +1,5 @@
 # vibe-infrastructure
 
-
 Database and messaging infrastructure for [VibeTrader](https://github.com/qOeOp/trade).
 
 The `vibe-infrastructure` crate provides backend database implementations and message bus adapters

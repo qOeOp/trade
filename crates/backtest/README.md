@@ -1,6 +1,5 @@
 # vibe-backtest
 
-
 Backtest engine for [VibeTrader](https://github.com/qOeOp/trade).
 
 The `vibe-backtest` crate provides an event-driven backtesting framework that allows

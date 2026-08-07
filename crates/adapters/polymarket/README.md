@@ -1,6 +1,5 @@
 # vibe-polymarket
 
-
 [VibeTrader](https://github.com/qOeOp/trade) adapter for the [Polymarket](https://polymarket.com) prediction market.
 
 The `vibe-polymarket` crate provides client implementations (HTTP & WebSocket), data

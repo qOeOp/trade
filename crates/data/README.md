@@ -1,6 +1,5 @@
 # vibe-data
 
-
 Data engine and market data processing for [VibeTrader](https://github.com/qOeOp/trade).
 
 The `vibe-data` crate provides a framework for handling market data ingestion,

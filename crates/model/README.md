@@ -1,6 +1,5 @@
 # vibe-model
 
-
 Trading domain model for [VibeTrader](https://github.com/qOeOp/trade).
 
 The `vibe-model` crate provides a type-safe domain model that forms the backbone of the framework

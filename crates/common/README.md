@@ -1,6 +1,5 @@
 # vibe-common
 
-
 Common componentry for [VibeTrader](https://github.com/qOeOp/trade).
 
 The `vibe-common` crate provides shared components and utilities that form the system foundation for

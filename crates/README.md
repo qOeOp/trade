@@ -1,6 +1,5 @@
 # vibe-trader
 
-
 Container crate for [VibeTrader](https://github.com/qOeOp/trade).
 
 This crate re-exports the core, model, and common component crates as a small

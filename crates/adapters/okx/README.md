@@ -1,6 +1,5 @@
 # vibe-okx
 
-
 [VibeTrader](https://github.com/qOeOp/trade) adapter for the [OKX](https://www.okx.com/) cryptocurrency exchange.
 
 The `vibe-okx` crate provides client bindings (HTTP & WebSocket), data

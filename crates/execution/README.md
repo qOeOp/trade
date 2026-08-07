@@ -1,6 +1,5 @@
 # vibe-execution
 
-
 Order execution engine for [VibeTrader](https://github.com/qOeOp/trade).
 
 The `vibe-execution` crate provides an order execution system that handles the complete

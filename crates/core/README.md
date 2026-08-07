@@ -1,6 +1,5 @@
 # vibe-core
 
-
 Core foundational types and utilities for [VibeTrader](https://github.com/qOeOp/trade).
 
 The `vibe-core` crate is designed to be lightweight, efficient, and to provide zero-cost abstractions

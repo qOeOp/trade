@@ -1,6 +1,5 @@
 # vibe-coinbase
 
-
 [VibeTrader](https://github.com/qOeOp/trade) adapter for the [Coinbase Advanced Trade](https://docs.cdp.coinbase.com/coinbase-app/docs/advanced-trade-apis) API.
 
 The `vibe-coinbase` crate provides client bindings (HTTP & WebSocket), data models,

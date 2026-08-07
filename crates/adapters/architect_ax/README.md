@@ -1,6 +1,5 @@
 # vibe-architect-ax
 
-
 [VibeTrader](https://github.com/qOeOp/trade) adapter for [AX Exchange](https://architect.exchange).
 
 ## Overview

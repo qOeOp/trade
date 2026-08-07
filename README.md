@@ -21,14 +21,14 @@ forwarding packages are intentionally absent.
 
 ## Repository layout
 
-- [`crates/`](crates/) — Rust workspace and adapters.
-- [`python/vibe_trader/`](python/vibe_trader/) — Python package and type stubs.
-- [`python/tests/`](python/tests/) — Python unit, integration, acceptance, and performance tests.
-- [`docs/`](docs/) — concepts, integration guides, tutorials, and API sources.
-- [`examples/`](examples/) — backtest, sandbox, and live examples.
-- [`schema/`](schema/) — database schemas.
-- [`scripts/`](scripts/) — local build, validation, and development tooling.
-- [`test_data/`](test_data/) — repository test fixtures.
+- [`crates/`](crates/) - Rust workspace and adapters.
+- [`python/vibe_trader/`](python/vibe_trader/) - Python package and type stubs.
+- [`python/tests/`](python/tests/) - Python unit, integration, acceptance, and performance tests.
+- [`docs/`](docs/) - concepts, integration guides, tutorials, and API sources.
+- [`examples/`](examples/) - backtest, sandbox, and live examples.
+- [`schema/`](schema/) - database schemas.
+- [`scripts/`](scripts/) - local build, validation, and development tooling.
+- [`test_data/`](test_data/) - repository test fixtures.
 
 ## Development
 

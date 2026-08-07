@@ -1,6 +1,5 @@
 # vibe-bybit
 
-
 [VibeTrader](https://github.com/qOeOp/trade) adapter for the [Bybit](https://www.bybit.com/) exchange.
 
 The `vibe-bybit` crate provides client bindings (HTTP & WebSocket), data models,

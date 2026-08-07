@@ -115,8 +115,8 @@ commit, complete preserved diff, or immutable artifact locator for a local/no-PR
 dimensions, weights, anchors, consumers, and evidence standards. For each row report baseline, final
 score, delta, new direct evidence, remaining gap, and maturity change.
 
-Call a delta comparable only when every decision-changing frozen control—task/scenario inputs,
-consumer, model, permissions, tools, environment, and evidence capture—is observed equivalent or
+Call a delta comparable only when every decision-changing frozen control - task/scenario inputs,
+consumer, model, permissions, tools, environment, and evidence capture - is observed equivalent or
 proved irrelevant to that row. When equivalence is unknown or a control changed, score the final
 evidence independently, mark the delta `not comparable`, name the unavailable or changed control as
 a limit, and do not attribute the difference to the skill or Mission graph.

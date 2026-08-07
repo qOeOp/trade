@@ -1,6 +1,5 @@
 # vibe-betfair
 
-
 [VibeTrader](https://github.com/qOeOp/trade) adapter for the [Betfair](https://www.betfair.com/) betting exchange.
 
 The `vibe-betfair` crate provides data and execution clients, streaming

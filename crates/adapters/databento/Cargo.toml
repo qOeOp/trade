@@ -48,9 +48,7 @@ vibe-core = { workspace = true }
 vibe-live = { workspace = true, optional = true }
 vibe-model = { workspace = true }
 vibe-network = { workspace = true }
-vibe-serialization = { workspace = true, features = [
-  "arrow",
-], optional = true }
+vibe-serialization = { workspace = true, features = ["arrow"], optional = true }
 vibe-system = { workspace = true, optional = true }
 
 ahash = { workspace = true }

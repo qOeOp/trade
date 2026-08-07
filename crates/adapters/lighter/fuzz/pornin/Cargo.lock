@@ -1334,225 +1334,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vibe-common"
-version = "0.62.0"
-dependencies = [
- "ahash 0.8.12",
- "anyhow",
- "async-stream",
- "async-trait",
- "bon",
- "bytes",
- "derive_builder",
- "futures",
- "indexmap",
- "itoa",
- "jiff",
- "log",
- "vibe-core",
- "vibe-model",
- "regex",
- "rmp-serde",
- "rust_decimal",
- "serde",
- "serde_json",
- "smallvec",
- "strum",
- "sysinfo",
- "thiserror",
- "tokio",
- "ustr",
-]
-
-[[package]]
-name = "vibe-core"
-version = "0.62.0"
-dependencies = [
- "ahash 0.8.12",
- "anyhow",
- "arc-swap",
- "bytes",
- "indexmap",
- "jiff",
- "log",
- "rand 0.10.2",
- "rmp-serde",
- "rust_decimal",
- "serde",
- "serde_json",
- "thiserror",
- "toml",
- "ustr",
- "uuid",
-]
-
-[[package]]
-name = "vibe-cryptography"
-version = "0.62.0"
-dependencies = [
- "anyhow",
- "aws-lc-rs",
- "base64 0.23.1",
- "ed25519-dalek",
- "log",
- "vibe-core",
- "pem",
- "rustls",
- "webpki-roots 1.0.9",
-]
-
-[[package]]
-name = "vibe-execution"
-version = "0.62.0"
-dependencies = [
- "ahash 0.8.12",
- "anyhow",
- "async-trait",
- "bon",
- "futures",
- "indexmap",
- "jiff",
- "log",
- "vibe-common",
- "vibe-core",
- "vibe-model",
- "rand 0.10.2",
- "rstest",
- "rust_decimal",
- "rust_decimal_macros",
- "serde",
- "smallvec",
- "ustr",
- "uuid",
-]
-
-[[package]]
-name = "vibe-lighter"
-version = "0.62.0"
-dependencies = [
- "ahash 0.8.12",
- "anyhow",
- "arc-swap",
- "async-trait",
- "base64 0.23.1",
- "bon",
- "dashmap",
- "derive_builder",
- "futures-util",
- "jiff",
- "log",
- "vibe-common",
- "vibe-core",
- "vibe-live",
- "vibe-model",
- "vibe-network",
- "rand 0.10.2",
- "rust_decimal",
- "serde",
- "serde_json",
- "serde_repr",
- "strum",
- "thiserror",
- "tokio",
- "tokio-tungstenite",
- "tokio-util",
- "url",
- "ustr",
- "zeroize",
-]
-
-[[package]]
-name = "vibe-lighter-fuzz"
-version = "0.0.0"
-dependencies = [
- "ecgfp5",
- "vibe-lighter",
- "vibe-live",
-]
-
-[[package]]
-name = "vibe-live"
-version = "0.62.0"
-dependencies = [
- "ahash 0.8.12",
- "anyhow",
- "async-trait",
- "bon",
- "indexmap",
- "libfuzzer-sys",
- "log",
- "vibe-common",
- "vibe-core",
- "vibe-execution",
- "vibe-model",
- "rust_decimal",
- "serde",
- "serde_json",
- "tabled",
- "tokio",
- "ustr",
-]
-
-[[package]]
-name = "vibe-model"
-version = "0.62.0"
-dependencies = [
- "ahash 0.8.12",
- "anyhow",
- "bon",
- "dashmap",
- "derive_builder",
- "enum_dispatch",
- "implied-vol",
- "indexmap",
- "jiff",
- "log",
- "vibe-core",
- "rstest",
- "rust_decimal",
- "rust_decimal_macros",
- "serde",
- "serde_json",
- "strum",
- "tabled",
- "thiserror",
- "ustr",
-]
-
-[[package]]
-name = "vibe-network"
-version = "0.62.0"
-dependencies = [
- "ahash 0.8.12",
- "anyhow",
- "base64 0.23.1",
- "bon",
- "bytes",
- "dashmap",
- "futures-util",
- "http",
- "log",
- "vibe-core",
- "vibe-cryptography",
- "rand 0.10.2",
- "reqwest",
- "rustls",
- "rustls-pemfile",
- "serde",
- "serde_urlencoded",
- "sockudo-ws",
- "strum",
- "thiserror",
- "tokio",
- "tokio-rustls",
- "tokio-tungstenite",
- "tokio-util",
- "url",
- "ustr",
- "webpki-roots 1.0.9",
-]
-
-[[package]]
 name = "ntapi"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2927,6 +2708,225 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "vibe-common"
+version = "0.62.0"
+dependencies = [
+ "ahash 0.8.12",
+ "anyhow",
+ "async-stream",
+ "async-trait",
+ "bon",
+ "bytes",
+ "derive_builder",
+ "futures",
+ "indexmap",
+ "itoa",
+ "jiff",
+ "log",
+ "regex",
+ "rmp-serde",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "strum",
+ "sysinfo",
+ "thiserror",
+ "tokio",
+ "ustr",
+ "vibe-core",
+ "vibe-model",
+]
+
+[[package]]
+name = "vibe-core"
+version = "0.62.0"
+dependencies = [
+ "ahash 0.8.12",
+ "anyhow",
+ "arc-swap",
+ "bytes",
+ "indexmap",
+ "jiff",
+ "log",
+ "rand 0.10.2",
+ "rmp-serde",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "toml",
+ "ustr",
+ "uuid",
+]
+
+[[package]]
+name = "vibe-cryptography"
+version = "0.62.0"
+dependencies = [
+ "anyhow",
+ "aws-lc-rs",
+ "base64 0.23.1",
+ "ed25519-dalek",
+ "log",
+ "pem",
+ "rustls",
+ "vibe-core",
+ "webpki-roots 1.0.9",
+]
+
+[[package]]
+name = "vibe-execution"
+version = "0.62.0"
+dependencies = [
+ "ahash 0.8.12",
+ "anyhow",
+ "async-trait",
+ "bon",
+ "futures",
+ "indexmap",
+ "jiff",
+ "log",
+ "rand 0.10.2",
+ "rstest",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "serde",
+ "smallvec",
+ "ustr",
+ "uuid",
+ "vibe-common",
+ "vibe-core",
+ "vibe-model",
+]
+
+[[package]]
+name = "vibe-lighter"
+version = "0.62.0"
+dependencies = [
+ "ahash 0.8.12",
+ "anyhow",
+ "arc-swap",
+ "async-trait",
+ "base64 0.23.1",
+ "bon",
+ "dashmap",
+ "derive_builder",
+ "futures-util",
+ "jiff",
+ "log",
+ "rand 0.10.2",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "strum",
+ "thiserror",
+ "tokio",
+ "tokio-tungstenite",
+ "tokio-util",
+ "url",
+ "ustr",
+ "vibe-common",
+ "vibe-core",
+ "vibe-live",
+ "vibe-model",
+ "vibe-network",
+ "zeroize",
+]
+
+[[package]]
+name = "vibe-lighter-fuzz"
+version = "0.0.0"
+dependencies = [
+ "ecgfp5",
+ "vibe-lighter",
+ "vibe-live",
+]
+
+[[package]]
+name = "vibe-live"
+version = "0.62.0"
+dependencies = [
+ "ahash 0.8.12",
+ "anyhow",
+ "async-trait",
+ "bon",
+ "indexmap",
+ "libfuzzer-sys",
+ "log",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "tabled",
+ "tokio",
+ "ustr",
+ "vibe-common",
+ "vibe-core",
+ "vibe-execution",
+ "vibe-model",
+]
+
+[[package]]
+name = "vibe-model"
+version = "0.62.0"
+dependencies = [
+ "ahash 0.8.12",
+ "anyhow",
+ "bon",
+ "dashmap",
+ "derive_builder",
+ "enum_dispatch",
+ "implied-vol",
+ "indexmap",
+ "jiff",
+ "log",
+ "rstest",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "serde",
+ "serde_json",
+ "strum",
+ "tabled",
+ "thiserror",
+ "ustr",
+ "vibe-core",
+]
+
+[[package]]
+name = "vibe-network"
+version = "0.62.0"
+dependencies = [
+ "ahash 0.8.12",
+ "anyhow",
+ "base64 0.23.1",
+ "bon",
+ "bytes",
+ "dashmap",
+ "futures-util",
+ "http",
+ "log",
+ "rand 0.10.2",
+ "reqwest",
+ "rustls",
+ "rustls-pemfile",
+ "serde",
+ "serde_urlencoded",
+ "sockudo-ws",
+ "strum",
+ "thiserror",
+ "tokio",
+ "tokio-rustls",
+ "tokio-tungstenite",
+ "tokio-util",
+ "url",
+ "ustr",
+ "vibe-core",
+ "vibe-cryptography",
+ "webpki-roots 1.0.9",
+]
 
 [[package]]
 name = "walkdir"

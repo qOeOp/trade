@@ -45,9 +45,7 @@ examples = [
 ]
 
 [package.metadata.cargo-machete]
-ignored = [
-  "vibe-system",
-] # Optional dep activated only via the python feature
+ignored = ["vibe-system"] # Optional dep activated only via the python feature
 [dependencies]
 vibe-common = { workspace = true, features = ["live"] }
 vibe-core = { workspace = true }

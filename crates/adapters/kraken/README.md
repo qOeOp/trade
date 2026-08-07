@@ -1,6 +1,5 @@
 # vibe-kraken
 
-
 [VibeTrader](https://github.com/qOeOp/trade) adapter for the [Kraken](https://www.kraken.com/) exchange.
 
 The `vibe-kraken` crate provides client bindings (HTTP & WebSocket), data models,

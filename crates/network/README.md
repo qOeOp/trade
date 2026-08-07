@@ -1,6 +1,5 @@
 # vibe-network
 
-
 Network functionality for [VibeTrader](https://github.com/qOeOp/trade).
 
 The `vibe-network` crate provides networking components including HTTP, WebSocket, and raw TCP socket

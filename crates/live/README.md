@@ -1,6 +1,5 @@
 # vibe-live
 
-
 Live system node for [VibeTrader](https://github.com/qOeOp/trade).
 
 The `vibe-live` crate provides high-level abstractions and infrastructure for running live trading

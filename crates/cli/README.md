@@ -1,6 +1,5 @@
 # vibe-cli
 
-
 Command-line interface and tools for [VibeTrader](https://github.com/qOeOp/trade).
 
 The `vibe-cli` crate provides a command-line interface for managing and

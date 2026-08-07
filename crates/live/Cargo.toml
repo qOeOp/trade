@@ -58,11 +58,7 @@ defi = [
   "vibe-data/defi",
   "vibe-persistence?/defi",
 ]
-simulation = [
-  "node",
-  "vibe-common/simulation",
-  "vibe-execution/simulation",
-]
+simulation = ["node", "vibe-common/simulation", "vibe-execution/simulation"]
 
 [package.metadata.cargo-machete]
 ignored = [

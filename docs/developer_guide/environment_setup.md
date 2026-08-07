@@ -71,7 +71,7 @@ make build-debug
 ```
 
 Windows users should follow the source installation steps in the
-[installation guide](../getting_started/installation.md#from-source), then use the relevant commands
+[installation guide](../getting_started/installation.md#source-checkout), then use the relevant commands
 from this guide.
 
 ### 1. Install dependencies

@@ -1,6 +1,5 @@
 # vibe-portfolio
 
-
 Portfolio management and risk analysis for [VibeTrader](https://github.com/qOeOp/trade).
 
 The `vibe-portfolio` crate provides portfolio management capabilities including

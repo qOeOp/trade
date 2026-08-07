@@ -1,6 +1,5 @@
 # vibe-plugin
 
-
 Plug-in artifact identity and boundary primitives for
 [VibeTrader](https://github.com/qOeOp/trade).
 

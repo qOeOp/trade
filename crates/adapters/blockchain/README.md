@@ -1,6 +1,5 @@
 # vibe-blockchain
 
-
 [VibeTrader](https://github.com/qOeOp/trade) blockchain adapter for DeFi data ingestion.
 
 The `vibe-blockchain` crate provides a high-performance, universal, extensible adapter for ingesting

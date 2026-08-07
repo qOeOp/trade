@@ -38,12 +38,7 @@ extension-module = [
   "python",
   "pyo3/extension-module",
 ]
-python = [
-  "vibe-core/python",
-  "vibe-model/python",
-  "pyo3",
-  "pyo3-stub-gen",
-]
+python = ["vibe-core/python", "vibe-model/python", "pyo3", "pyo3-stub-gen"]
 high-precision = ["vibe-model/high-precision"]
 
 [package.metadata.cargo-machete]

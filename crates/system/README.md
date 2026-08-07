@@ -1,6 +1,5 @@
 # vibe-system
 
-
 System-level components and orchestration for [VibeTrader](https://github.com/qOeOp/trade).
 
 The `vibe-system` crate provides the core system architecture for orchestrating trading systems,

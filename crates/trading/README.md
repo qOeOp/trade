@@ -1,6 +1,5 @@
 # vibe-trading
 
-
 Trading strategy machinery and orchestration for [VibeTrader](https://github.com/qOeOp/trade).
 
 The `vibe-trading` crate provides core trading capabilities including:

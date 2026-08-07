@@ -72,9 +72,7 @@ vibe-common = { workspace = true }
 vibe-core = { workspace = true }
 vibe-model = { workspace = true, features = ["stubs"], optional = true }
 vibe-network = { workspace = true, optional = true }
-vibe-serialization = { workspace = true, features = [
-  "arrow",
-], optional = true }
+vibe-serialization = { workspace = true, features = ["arrow"], optional = true }
 vibe-trading = { workspace = true, optional = true }
 
 ahash = { workspace = true, optional = true }
