@@ -15,15 +15,14 @@ concurrency:
 jobs:
   project:
     name: project-quality
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 120
     permissions:
       contents: read
     env:
-      CARGO_BUILD_JOBS: 1
-      NEXTEST_PROFILE: ci
+      CARGO_CI_PROFILE: ci-pr
+      CARGO_TARGET_DIR: target/project-quality
       UV_PROJECT_ENVIRONMENT: ${{ github.workspace }}/.venv
-      VIBE_TEST_DATA_BASE_URL: ${{ vars.VIBE_TEST_DATA_BASE_URL }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -39,33 +38,18 @@ jobs:
         env:
           QUALITY_DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: git diff --no-renames --check "$QUALITY_DIFF_BASE"...HEAD
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - name: Common setup
+        uses: ./.github/actions/common-setup
         with:
           python-version: "3.13"
-      - name: Set up uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          version: "0.12.1"
-          enable-cache: false
-      - name: Set up Rust
-        run: |
-          toolchain="$(bash scripts/rust-toolchain.sh)"
-          rustup toolchain install "$toolchain" --profile minimal --component clippy,rustfmt
-          rustup override set "$toolchain"
-      - name: Install system build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends capnproto
-          capnp --version
+          free-disk-space: "true"
+          free-disk-space-max-build: "true"
+          rust-cache-enabled: "false"
+      - name: Limit Cargo build jobs on GitHub-hosted runners
+        if: runner.environment == 'github-hosted'
+        run: echo "CARGO_BUILD_JOBS=2" >> "$GITHUB_ENV"
       - name: Install Python quality dependencies
         run: UV_SYNC_FLAGS="--inexact --locked" make sync
-      - name: Install nextest
-        run: echo "CARGO_NEXTEST_VERSION=$(bash scripts/cargo-tool-version.sh cargo-nextest)" >> "$GITHUB_ENV"
-      - name: Set up nextest
-        uses: taiki-e/install-action@91ddec75689c4c78665b598d188dc821c5a43e5c # v2.85.9
-        with:
-          tool: nextest@${{ env.CARGO_NEXTEST_VERSION }}
       - name: Check formatting and lint
         run: |
           bash .pre-commit-hooks/cargo_fmt_stable.sh --all -- --check
@@ -78,20 +62,63 @@ jobs:
           cargo metadata --locked --no-deps --format-version 1 >/dev/null
           bash scripts/ci/check-workspace-test-coverage.sh
           make cargo-check
-      - name: Run tests
-        run: make cargo-test
       - name: Verify quality checks did not modify tracked files
+        if: ${{ always() }}
+        run: git diff --exit-code
+
+  rust-tests:
+    name: rust tests (ubuntu-22.04)
+    needs: [project]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      CARGO_CI_PROFILE: ci-pr
+      CARGO_TARGET_DIR: target/rust-tests-linux-x86
+      NEXTEST_PROFILE: ci
+      UV_PROJECT_ENVIRONMENT: ${{ github.workspace }}/.venv
+      VIBE_TEST_DATA_BASE_URL: ${{ vars.VIBE_TEST_DATA_BASE_URL }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Common setup
+        uses: ./.github/actions/common-setup
+        with:
+          python-version: "3.13"
+          free-disk-space: "true"
+          free-disk-space-max-build: "true"
+          rust-cache-key: rust-tests-linux-x86
+          rust-cache-workspaces: . -> target/rust-tests-linux-x86
+          rust-cache-on-failure: "false"
+          rust-cache-save-if: ${{ github.event_name == 'push' }}
+      - name: Limit Cargo build jobs on GitHub-hosted runners
+        if: runner.environment == 'github-hosted'
+        run: echo "CARGO_BUILD_JOBS=2" >> "$GITHUB_ENV"
+      - name: Report disk space before Rust tests
+        run: bash scripts/ci/report-disk-space.bash "before Rust tests"
+      - name: Run Rust tests
+        run: make cargo-test NEXTEST_PROFILE=ci
+      - name: Report disk space after Rust tests
+        if: ${{ always() }}
+        run: bash scripts/ci/report-disk-space.bash "after Rust tests"
+      - name: Verify tests did not modify tracked files
         if: ${{ always() }}
         run: git diff --exit-code
 
   quality:
     name: quality
     if: ${{ always() }}
-    needs: [project]
-    runs-on: ubuntu-latest
+    needs: [project, rust-tests]
+    runs-on: ubuntu-22.04
     timeout-minutes: 2
     steps:
       - name: Require project quality
         env:
           PROJECT_RESULT: ${{ needs.project.result }}
-        run: test "$PROJECT_RESULT" = success
+          RUST_TESTS_RESULT: ${{ needs.rust-tests.result }}
+        run: |
+          test "$PROJECT_RESULT" = success
+          test "$RUST_TESTS_RESULT" = success
