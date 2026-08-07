@@ -27,10 +27,13 @@ references, or substitute collaboration support for a native Task.
 
 For every issued or resumable dispatch, retain the complete packet's immutable payload locator, exact
 UTF-8 length and SHA-256, delivery branch and receipt, producer-owned setup, typed inter-step byte
-edges, first admission result, and next legal action. These values index the existing prompt, native
-task, helper artifact, or terminal receipt; do not copy the payload into another ledger or invent a
-resume format. A prefix, summary, later supplement, missing durable locator, or identity that cannot be
-reopened after compaction freezes that dispatch as a packet-persistence mismatch.
+edges, generic startup notice or none, deterministic verifier result and any same-tuple transport
+correction, first admission result, provisional title, exact-title setter/readback/release receipt, and
+next legal action. These values index the existing prompt, native task, helper artifact, or terminal
+receipt; do not copy the payload into another ledger or invent a resume format. A prefix, summary,
+later supplement, missing durable locator, or identity that cannot be reopened after compaction freezes
+that packet as a persistence mismatch. Preserve a failed packet as terminal; a newly authorized complete
+continuation may resume only the same exact task identity and never rewrites that result.
 
 For each native node also retain its causal collision projection and exact attempt/task mapping; every
 waiting blocker, release predicate, next owner and next action; and every component-conflict member's
@@ -77,7 +80,7 @@ Origin / candidate / effects: <origin; exact diff, commit, or none; issued and u
 Evidence / findings: <decisive passes, failures, unavailable evidence, findings, and rejected candidates>
 Position / next legal operation: <current stage or route; one exact next legal operation>
 Mode / delegation / owner loads: <single or hub; exact active route/slice identity -> none, native_task, or internal_support -> next required owner, predicate, and gated action bindings; exact activated owner paths and immutable activation/control locators>
-Dispatch packets: <each complete payload locator, UTF-8 length/SHA-256, delivery receipt, setup and typed byte edges, causal collision projection and attempt/task mapping, first admission result, waiting blocker/release/next-owner edge, component-conflict disposition, next legal action>
+Dispatch packets: <each complete payload locator, UTF-8 length/SHA-256, delivery receipt, setup and typed byte edges, startup notice or none, verifier result and same-tuple transport correction, causal collision projection and attempt/task mapping, first admission result, provisional and exact-title setter/readback/release receipts, waiting blocker/release/next-owner edge, component-conflict disposition, next legal action>
 Authority / Stop / Resume / terminal: <current authority; Stop evidence; valid Resume predicate or none; terminal predicate or none>
 ```
 
@@ -134,7 +137,8 @@ fact or take the main skill's evidenced route. A user override follows the main 
 can release work.
 
 For a recovered hub, also reconcile every approved node and create attempt against its exact native
-identity or unresolved receipt, preserve every historical title byte-for-byte, and reconcile any
+identity or unresolved receipt, preserve every historical title byte-for-byte, distinguish provisional
+transport titles from the canonical post-admission exact-title receipt, and reconcile any
 frozen canonical task type projection against its exact authority locator. Missing, unrecognized,
 ambiguous, or stale type metadata returns only the affected create/dispatch or aggregation question
 to task dispatch's main classification; recovery never guesses from a legacy prefix, renames a task,
@@ -149,6 +153,15 @@ node, adopting a same-title resemblance, issuing a second create for an unresolv
 an old component grouping as current keeps all affected releases frozen. A pressure cycle returns the
 preserved members to hub Plan for one component Mission; recovery never chooses an arbitrary order or
 stores a scheduler state.
+
+Recovery of an exact existing task may consume one newly authorized complete continuation packet only
+after reopening its terminal packet result and exact `threadId`/`hostId`. When the dispatcher sets and
+reads back the exact title before sending that continuation, preserve that value as provisional transport
+metadata only. Canonical identity still binds only after the child admits the new packet and the child or
+dispatcher executes the required post-admission setter plus exact-title readback and causal release. The
+identical pre-send value does not authorize work or consume that canonical setter. A later supplement,
+same-title resemblance, changed packet member, or missing failed-packet receipt freezes continuation;
+recovery never creates a sibling task or reclassifies the earlier launch as successful.
 
 Dynamic recovery requires a fresh trace firing the edge: task dispatch before Hub product reads or task
 actions, and agent routing before support dispatch. Kernel/checkpoint-only load, product-first reads,
