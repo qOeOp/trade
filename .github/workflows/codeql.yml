@@ -22,7 +22,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [javascript-typescript, python, rust]
+        include:
+          - language: javascript-typescript
+            config: |-
+              paths:
+                - .agents/skills/run-bounded-mission/scripts
+          - language: python
+            config: "{}"
+          - language: rust
+            config: "{}"
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -33,6 +41,7 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: none
+          config: ${{ matrix.config }}
       - name: Analyze
         uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:

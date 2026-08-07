@@ -22,6 +22,7 @@ jobs:
     env:
       CARGO_BUILD_JOBS: 2
       NEXTEST_PROFILE: ci
+      UV_PROJECT_ENVIRONMENT: ${{ github.workspace }}/.venv
       VIBE_TEST_DATA_BASE_URL: ${{ vars.VIBE_TEST_DATA_BASE_URL }}
     steps:
       - name: Checkout repository
