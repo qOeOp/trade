@@ -304,9 +304,10 @@ The helper structurally extracts and separately retains both identities, rejects
 partial, or same-OID representation, and requires the candidate tree and extracted merge-tree OID
 to resolve locally as Git `tree` objects. It also resolves the exact candidate head as a local Git
 `commit` and requires `head_tree_oid` to equal `git rev-parse <head-oid>^{tree}`; a different but valid
-tree object is not accepted. Before create, require
-`potentialMergeCommit.tree.oid` to equal `git merge-tree --write-tree <base-oid> <head-oid>`; a missing
-object, conflict, mismatch, or commit-typed OID fails closed. The helper then validates exact fields,
+tree object is not accepted. The helper also computes
+`git merge-tree --write-tree <base-oid> <head-oid>` on both create and verify and requires that exact
+Git tree object to equal `potentialMergeCommit.tree.oid`; a missing object, conflict, mismatch,
+unrelated existing tree, or commit-typed OID fails closed. The helper then validates exact fields,
 normalizes repository and locator order, joins every locator to the same head, requires every named
 evidence kind, bounds the compact representation, and emits one canonical
 `delivery-barrier-receipt/v3` JSON-LF envelope with the inner byte count and SHA-256:

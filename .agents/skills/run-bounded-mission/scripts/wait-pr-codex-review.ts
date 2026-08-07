@@ -1386,6 +1386,16 @@ function localGitCommitTree(value: string): string | null {
   return isHeadOid(oid) ? oid : null
 }
 
+function localGitMergeTree(baseOid: string, headOid: string): string | null {
+  const result = Bun.spawnSync(["git", "merge-tree", "--write-tree", baseOid, headOid], {
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  if (result.exitCode !== 0) return null
+  const oid = new TextDecoder().decode(result.stdout).trim()
+  return isHeadOid(oid) && isLocalGitTreeObject(oid) ? oid : null
+}
+
 function normalizeDeliveryEvidence(value: unknown, expectedHead: string): DeliveryEvidenceLocator[] {
   if (!Array.isArray(value) || value.length < DELIVERY_EVIDENCE_KINDS.length || value.length > 32) {
     throw new Error("delivery evidence must contain a bounded locator set")
@@ -1461,8 +1471,8 @@ function normalizeDeliveryBarrier(value: unknown): DeliveryBarrierEvidence {
   if (localGitCommitTree(value.head_oid) !== value.head_tree_oid) {
     throw new Error("delivery barrier head tree does not match the local head commit")
   }
-  if (mergeTreeOid !== null && !isLocalGitTreeObject(mergeTreeOid)) {
-    throw new Error("delivery barrier merge tree OID is not a local Git tree object")
+  if (mergeTreeOid !== null && localGitMergeTree(value.base_oid, value.head_oid) !== mergeTreeOid) {
+    throw new Error("delivery barrier merge tree does not match the local base and head")
   }
   return {
     schema: DELIVERY_BARRIER_EVIDENCE_SCHEMA,
