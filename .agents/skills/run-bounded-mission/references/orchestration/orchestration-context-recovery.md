@@ -16,12 +16,24 @@ explicit user change replaces it. Recovery never guesses it again from recent me
 locale, or repository content. User-visible commentary and Finalize use the inherited value while
 code, commands, schemas, identifiers, and raw evidence preserve their original form.
 
+Retain `single | hub`; each active route/slice identity bound to one `none | native_task |
+internal_support` mechanism and its next owner, predicate, and gated action; and exact activated owners
+with immutable activation/control locators. These are executable load edges, not completed-load proof.
+A Hub-level value cannot replace mixed native and support slice bindings. Missing, duplicate, conflicting,
+stale, candidate-controlled, or unbound values freeze affected reads, delegation, child control,
+judgments, and effects. Effect/judgment locators must be candidate-independent immutable Origin or neutral
+user/Hub authority; candidate absence cannot deactivate them. Never guess from prose, preload all
+references, or substitute collaboration support for a native Task.
+
 For a multi-Mission hub only, task dispatch may retain one in-turn observation wave before classifying
 its receipts. Preserve every raw receipt and locator, normalize every unrecognized or malformed value
 as unknown-impact, and close the wave at any declared boundary. Reconcile one authoritative snapshot,
 including the complete approved-node inventory, exact create attempts or identities, admitted relation
 locators, stable component grouping, owner arbitration, the derived compact graph with non-empty
 waiting/runnable/running/frozen/needs_attention/terminal slices, and at most one stage/global judgment.
+Retain every user-approved or committed route with its exact current disposition and next owner or
+terminal locator; a new request, ordinary child completion, or checkpoint replacement cannot silently
+drop it. This remains conversation evidence indexed to native task, Git, and GitHub facts, not a ledger.
 Preserve blocked/completed reasons and results plus their raw locators. Retain the exact target set and
 latest cursor per observed `threadId`/`hostId`; a continued target with missing/reset/malformed cursor,
 revision regression, host mismatch, or an omitted poll at an early wake is not evidence of no change.
@@ -45,6 +57,7 @@ Plan: <exact complete current Plan projection, or none — invalidated/pending a
 Origin / candidate / effects: <origin; exact diff, commit, or none; issued and unissued effects>
 Evidence / findings: <decisive passes, failures, unavailable evidence, findings, and rejected candidates>
 Position / next legal operation: <current stage or route; one exact next legal operation>
+Mode / delegation / owner loads: <single or hub; exact active route/slice identity -> none, native_task, or internal_support -> next required owner, predicate, and gated action bindings; exact activated owner paths and immutable activation/control locators>
 Authority / Stop / Resume / terminal: <current authority; Stop evidence; valid Resume predicate or none; terminal predicate or none>
 ```
 
@@ -55,7 +68,8 @@ and set Plan to exactly `Plan: none — invalidated/pending admission`. Never re
 prose. After a new Plan is admitted, replace the whole checkpoint again with its exact complete
 projection before Execute.
 
-For a multi-Mission hub, use the same fields and let task dispatch add only node identity; approved
+For a multi-Mission hub, use the same fields and let task dispatch add only node identity; exact
+route/slice delegation and next-owner bindings; approved
 create attempt or receipt; compact canonical task type projection and its exact authority locator;
 `blocks`, `superseded_by`, and `revalidate_after` evidence locators and
 affected slices; current component snapshot; child, release, Goal, endpoint, and current-wave facts
@@ -79,6 +93,16 @@ request and authority plus current conversation, native task, Git, pull request,
 facts that can change the next operation. Replace the checkpoint with the reconciled live facts before
 continuing; a static contract or fresh-context trace is not runtime proof.
 
+Immediately after `get_goal` and before any other read or action, consume every active route/slice binding
+in `Mode / delegation / owner loads`. Hub or native-task evidence loads task dispatch; an admitted
+internal-support slice loads agent routing through the kernel's mechanism gate; each recorded next owner
+loads before its gated action.
+After each load, reconcile that exact path into the activated set and replace the checkpoint when it
+changes the next legal operation. An owner cannot self-activate merely because another loaded file links
+to it, and a candidate cannot deactivate a recorded owner or control by deleting its local copy. Reopen
+the candidate-independent locator and keep the gated action frozen when the required current owner bytes
+are missing or drifted.
+
 Match the exact Frame and either the admitted Plan prose or the exact cleared Plan representation,
 plus origin, candidate and effects, decisive evidence and findings, current position, next legal
 operation, interaction language, authority, Stop predicates, and any Resume or terminal route. If those facts cannot exclude
@@ -98,6 +122,13 @@ node, adopting a same-title resemblance, issuing a second create for an unresolv
 an old component grouping as current keeps all affected releases frozen. A pressure cycle returns the
 preserved members to hub Plan for one component Mission; recovery never chooses an arbitrary order or
 stores a scheduler state.
+
+Dynamic recovery requires a fresh trace firing the edge: task dispatch before Hub product reads or task
+actions, and agent routing before support dispatch. Kernel/checkpoint-only load, product-first reads,
+sub-agent-as-Task, repeated no-event wait, or unchanged narration refutes it despite static reachability.
+Assessment data without frozen rubric/controls, activated owner, and next-owner edge is only
+declared/reachable. So is a candidate-deleted effect owner/validator whose candidate-independent locator
+was not consumed. Cross-version corpora stay in the governed evaluation repository.
 
 Do not turn ordinary friction into `blocked`. Candidate-local revise, revision-pressure replan,
 reframe, temporary external or capability delay, cancellation, and terminal impossibility retain the

@@ -63,7 +63,8 @@ bun .agents/skills/run-bounded-mission/scripts/test-effectiveness-audit.ts \
   --owner-root <repository-relative-owner> \
   [--owner-root <repository-relative-owner> ...] \
   [--scope <repository-relative-owner>] \
-  [--classification <machine-value>]
+  [--classification <machine-value>] \
+  [--bdd-root <repository-relative-bdd-corpus>]
 ```
 
 Both revision arguments must be complete 40- or 64-character lowercase Git commit hashes; symbolic
@@ -77,6 +78,33 @@ by extension or a conventional `src`/`proto` location do the same with reason
 `unsupported_language`; missing or dynamic evidence stays unresolved, and
 `no_direct_static_candidate_evidence` does not mean no tests exist. The helper does not recommend an
 action or authorize a Test Refactor Mission.
+
+When `--bdd-root` is present, `bdd_step_evidence` is a bounded lexical candidate-tree observation for
+a feature/Step corpus. Its fixture/glue encoding is `valid_utf8` only after fatal decoding; malformed
+source fails the helper closed rather than yielding lossy text. Its `parser_coverage.status=incomplete`
+means every used, unused, undefined,
+ambiguous, overlapping, universal, and parameter-soup value is an explicitly named unverified lead,
+not a complete static classification. Its `pre_sut` fields are deliberately
+separate from `sut_result`: failed fixture creation, support-code loading, runner launch, or effective
+selection is `pre_sut_failed` with `sut_result=not_started`, never a SUT pass or SUT failure. The
+helper does not launch a runner, apply custom parameter types, or infer dynamic loading; its launcher
+and SUT result therefore remain unavailable/not observed until the real consumer provides them.
+
+Use the four evidence locations without collapsing them into a green count:
+
+| Location | Minimum record | It can prove | It cannot prove |
+| --- | --- | --- | --- |
+| fixture | source, version, encoding, intended scenario | declared input | selected, loaded, or executed behavior |
+| launcher | executable argv/configuration and exit | the runner started or failed before SUT | scenario result when selection never completed |
+| selection | effective feature, Step, tag/path and dry-load/usage result | what the runner attempted and matching defects | SUT behavior without a result event |
+| SUT result | scenario/test identity, outcome, oracle and direct consumer | the named behavior result | fixture/launcher health beyond its observation |
+
+Record each as `declared`, `reachable`, `dynamic`, `stable`, or `unavailable` independently. A
+pre-SUT failure is a selection/launcher signal, not a behavior classification; resolve it before
+calling the test red or green. The helper's lexical BDD findings are candidates for the real runner's
+dry-load and usage evidence, never permission to change glue or production code. Localization,
+Scenario Outlines, aliases, dynamic registration, custom parameters, comments, strings, and
+non-JavaScript/TypeScript glue remain Unknown unless the effective runner closes them.
 
 When the evidence instead supports suite-wide redundancy, obsolescence, layering, or deletion
 pressure, route the optimizer to [Test GC](../optimization/optimization-test-gc-playbook.md). A

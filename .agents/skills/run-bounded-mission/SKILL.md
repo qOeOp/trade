@@ -73,6 +73,21 @@ Goal-bound mode or Goal-driven effect:
 A missing, completed, paused, blocked, or nonmatching Goal freezes multi-Mission effects until task
 dispatch reconciles it. Never infer Goal create, update, replacement, resume, or completion authority.
 
+Before delegation, task control, or a recovered Hub's non-recovery repository read, classify the
+requested mechanism. A user-visible independent Mission loads task dispatch and uses native Codex Task;
+an internal support lane loads agent routing, and a collaboration sub-agent never satisfies native Task.
+After `get_goal`, recovered Hub, node, create-attempt/receipt, or child-identity evidence loads task
+dispatch and its recorded next owner before the gated action. Missing or unknown mode, route/slice,
+activated-owner set, or next-owner edge freezes that read, delegation, control, and effect.
+
+Before pull-request metadata create or edit, load [GitHub delivery](references/delivery/delivery-pullrequest-workflow.md)
+through a candidate-independent immutable-Origin or neutral-authority locator. Candidate absence cannot
+deactivate the operation-applicable gate owned there. Metadata create/edit consumes its title authority
+and validator, binds the exact result before the effect, and requires exact remote readback afterward;
+manual review-request effects separately consume that owner's request preflight, renderer, and request
+validator. Missing, nonzero, stale, candidate-controlled, or mismatched evidence freezes only that effect
+rather than inventing another authority or CLI.
+
 ## Transitions and routing
 
 Advance only on these observations:
@@ -80,7 +95,8 @@ Advance only on these observations:
 - `Frame → Plan`: every Frame field supports the next decision, consequential ambiguity is resolved
   or isolated, and Stop is finite;
 - `Plan → Execute`: owner, path, boundary, candidate shape, verification, and required action bindings
-  are admitted with no decision-changing premise unresolved;
+  are admitted with no decision-changing premise unresolved, and every activated Design Loop has
+  returned its one complete current Plan;
 - `Execute → Verify`: the admitted candidate and complete mission-owned diff, including untracked
   material, are available;
 - `Verify → Finalize`: decisive passes, failures, findings, and unavailable evidence are recorded for
@@ -129,8 +145,10 @@ instead of using this fallback. A tiny Mission with no admitted nontrivial Plan 
 Immediately after every nontrivial Plan admission, load and emit the complete
 [Mission replacement checkpoint](references/orchestration/orchestration-context-recovery.md). It alone owns compatible single-
 Mission and hub recovery state. Replace it as a whole after any decision-changing fact. On a later
-turn or interruption, call `get_goal`, reconcile its entire shape, and release work only through its
-recovery gate; multi-Mission recovery also follows task dispatch.
+turn or interruption, call `get_goal`, reconcile mode, route/slice mechanisms and next-owner edges, and
+activated owners with immutable locators, then release only through the recovery gate. Multi-Mission
+recovery loads task dispatch through the inbound edge above; candidate deletion cannot erase a
+candidate-independent activation.
 
 Load [lifecycle quality assurance](references/quality-assurance/quality-assurance-lifecycle-policy.md)
 only for a concrete lifecycle mismatch; a user concern that the Skill is behaving incorrectly;
@@ -166,10 +184,11 @@ Verification: <consumer and owner checks; final gate; unavailable evidence>
 Dependencies / action bindings: <prerequisites; effect owner and authority; capability or gate>
 ```
 
-Before admission, route each consequential unknown through Decision evidence as `default`, `research`,
-or `ask`; ask only when no safe default exists and the answer materially changes candidate or
-acceptance. Preserve only Plan-changing final decisions in `Candidate` as `Decision / basis /
-rejected alternative / unresolved consequence`; add no field or log.
+Before admission, finish every discoverable repository or consumer probe that can dispose a
+consequential unknown, then route what remains through Decision evidence as `default`, `research`, or
+`ask`. Suppress a question unless no safe default exists and its answer materially changes candidate,
+acceptance, or an action binding. Preserve only Plan-changing final decisions in `Candidate` as
+`Decision / basis / rejected alternative / unresolved consequence`; add no field or log.
 
 Admit only when every material decision has a downstream consumer, every research basis has evidence
 status and Stop, and every slice has its earliest `replan` and `reframe` signal. This Plan-local
