@@ -34,11 +34,7 @@ class BarDataWrangler:
 class DataBackendSession:
     def __init__(self, chunk_size: int = 10000) -> None: ...
     def add_file(
-        self,
-        data_type: VibeDataType,
-        table_name: str,
-        file_path: str,
-        sql_query: str | None = None,
+        self, data_type: VibeDataType, table_name: str, file_path: str, sql_query: str | None = None
     ) -> None: ...
     def add_custom_file(
         self, type_name: str, table_name: str, file_path: str, sql_query: str | None = None
