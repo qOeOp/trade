@@ -144,8 +144,10 @@ function decodeUtf8(bytes: Uint8Array, label: string): string {
   }
 }
 
-function semanticString(value: unknown, field: string): string {
-  if (typeof value !== "string" || value.length === 0) reject(`${field} must be a non-empty string`)
+function surrogateSafeString(value: unknown, field: string, allowEmpty: boolean): string {
+  if (typeof value !== "string" || (!allowEmpty && value.length === 0)) {
+    reject(`${field} must be ${allowEmpty ? "a string" : "a non-empty string"}`)
+  }
   for (let index = 0; index < value.length; index += 1) {
     const code = value.charCodeAt(index)
     if (code < 0xd800 || code > 0xdfff) continue
@@ -155,6 +157,14 @@ function semanticString(value: unknown, field: string): string {
     index += 1
   }
   return value
+}
+
+function semanticString(value: unknown, field: string): string {
+  return surrogateSafeString(value, field, false)
+}
+
+function rawUtf8String(value: unknown, field: string): string {
+  return surrogateSafeString(value, field, true)
 }
 
 function record(value: unknown, field: string): Record<string, unknown> {
@@ -218,7 +228,7 @@ function parsePacketInput(bytes: Uint8Array): PacketInput {
       name,
       kind: evidence.kind as MainEvidenceInput["kind"],
       purpose: semanticString(evidence.purpose, `main_evidence[${index}].purpose`),
-      content: semanticString(evidence.content, `main_evidence[${index}].content`),
+      content: rawUtf8String(evidence.content, `main_evidence[${index}].content`),
     }
   })
   const mainEvidenceNames = mainEvidence.map((item) => item.name)
@@ -1369,7 +1379,7 @@ function validateSharedCore(
     if (evidence.producer !== "main_control" || evidence.content_encoding !== "utf-8") {
       reject("shared-core main evidence producer or encoding mismatch")
     }
-    const content = semanticString(evidence.content, `shared_core.main_evidence[${index}].content`)
+    const content = rawUtf8String(evidence.content, `shared_core.main_evidence[${index}].content`)
     const contentBytes = new TextEncoder().encode(content)
     if (evidence.content_utf8_size !== contentBytes.length
         || evidence.content_utf8_sha256 !== `sha256:${sha256(contentBytes)}`) {
