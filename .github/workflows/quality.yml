@@ -53,6 +53,11 @@ jobs:
           toolchain="$(bash scripts/rust-toolchain.sh)"
           rustup toolchain install "$toolchain" --profile minimal --component clippy,rustfmt
           rustup override set "$toolchain"
+      - name: Install system build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends capnproto
+          capnp --version
       - name: Install Python quality dependencies
         run: UV_SYNC_FLAGS="--inexact --locked" make sync
       - name: Install nextest
