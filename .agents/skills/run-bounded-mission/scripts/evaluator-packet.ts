@@ -18,11 +18,11 @@ import {
 } from "node:fs"
 import { basename, dirname, isAbsolute, resolve } from "node:path"
 
-const INPUT_SCHEMA = "mission-evaluator-packet-input/v1"
-const ARTIFACT_SET_SCHEMA = "mission-evaluator-artifact-set/v4"
+const INPUT_SCHEMA = "mission-evaluator-packet-input/v2"
+const ARTIFACT_SET_SCHEMA = "mission-evaluator-artifact-set/v5"
 const ADMISSION_SCHEMA = "mission-evaluator-artifact-admission/v1"
 const TERMINAL_OBSERVATION_SCHEMA = "mission-evaluator-terminal-observation/v1"
-const SHARED_CORE_SCHEMA = "mission-evaluator-shared-core/v2"
+const SHARED_CORE_SCHEMA = "mission-evaluator-shared-core/v3"
 const LENS_DELTA_SCHEMA = "mission-evaluator-lens-delta/v1"
 const DISPATCH_SCHEMA = "mission-evaluator-dispatch/v1"
 const BINDING_SCHEMA = "mission-evaluator-binding/v3"
@@ -34,6 +34,7 @@ const RELOCATED_REVIEWER_CONTRACT = ".agents/skills/run-bounded-mission/referenc
 const EVALUATOR_ROLE = "mission_evaluator"
 const ENFORCEMENT_MODES = new Set(["sandbox-enforced", "integrity-checked"])
 const LENS_ORDER = ["authority_representation", "consumer_fail_close_closure"] as const
+const MAIN_EVIDENCE_KINDS = new Set(["raw_fixture", "execution_receipt"])
 const SCRATCH_DIRECTORIES = ["home", "tmp", "xdg-cache", "xdg-config", "xdg-data"] as const
 const OUTSIDE_STATE_PROCEDURE = "recompute-and-compare-exact-packet-named-fingerprints-before-terminal-and-main-acceptance"
 
@@ -83,6 +84,13 @@ interface LensInput {
   stop: string
 }
 
+interface MainEvidenceInput {
+  name: string
+  kind: "raw_fixture" | "execution_receipt"
+  purpose: string
+  content: string
+}
+
 interface PacketInput {
   schema: typeof INPUT_SCHEMA
   frame: string
@@ -100,6 +108,7 @@ interface PacketInput {
     concurrently_pending: string
     unavailable_evidence: string
   }
+  main_evidence: MainEvidenceInput[]
   lenses: LensInput[]
 }
 
@@ -135,8 +144,10 @@ function decodeUtf8(bytes: Uint8Array, label: string): string {
   }
 }
 
-function semanticString(value: unknown, field: string): string {
-  if (typeof value !== "string" || value.length === 0) reject(`${field} must be a non-empty string`)
+function surrogateSafeString(value: unknown, field: string, allowEmpty: boolean): string {
+  if (typeof value !== "string" || (!allowEmpty && value.length === 0)) {
+    reject(`${field} must be ${allowEmpty ? "a string" : "a non-empty string"}`)
+  }
   for (let index = 0; index < value.length; index += 1) {
     const code = value.charCodeAt(index)
     if (code < 0xd800 || code > 0xdfff) continue
@@ -146,6 +157,14 @@ function semanticString(value: unknown, field: string): string {
     index += 1
   }
   return value
+}
+
+function semanticString(value: unknown, field: string): string {
+  return surrogateSafeString(value, field, false)
+}
+
+function rawUtf8String(value: unknown, field: string): string {
+  return surrogateSafeString(value, field, true)
 }
 
 function record(value: unknown, field: string): Record<string, unknown> {
@@ -172,7 +191,9 @@ function parsePacketInput(bytes: Uint8Array): PacketInput {
     reject("stdin must contain one canonical JSON LF frame")
   }
   const value = record(parsed, "input")
-  exactKeys(value, "input", ["schema", "frame", "plan", "audit_set", "admission", "replay", "lenses"])
+  exactKeys(value, "input", [
+    "schema", "frame", "plan", "audit_set", "admission", "replay", "main_evidence", "lenses",
+  ])
   if (value.schema !== INPUT_SCHEMA) reject(`unsupported input schema: ${String(value.schema)}`)
   if (value.audit_set !== "single" && value.audit_set !== "complementary_pair") {
     reject(`unsupported audit set: ${String(value.audit_set)}`)
@@ -192,6 +213,31 @@ function parsePacketInput(bytes: Uint8Array): PacketInput {
     "concurrently_pending",
     "unavailable_evidence",
   ])
+  if (!Array.isArray(value.main_evidence)) reject("main_evidence must be an ordered array")
+  const mainEvidence = value.main_evidence.map((item, index): MainEvidenceInput => {
+    const evidence = record(item, `main_evidence[${index}]`)
+    exactKeys(evidence, `main_evidence[${index}]`, ["name", "kind", "purpose", "content"])
+    const name = semanticString(evidence.name, `main_evidence[${index}].name`)
+    if (!/^[a-z0-9][a-z0-9._-]*$/.test(name)) {
+      reject(`main_evidence[${index}].name must be a lowercase identifier`)
+    }
+    if (!MAIN_EVIDENCE_KINDS.has(String(evidence.kind))) {
+      reject(`unsupported main evidence kind: ${String(evidence.kind)}`)
+    }
+    return {
+      name,
+      kind: evidence.kind as MainEvidenceInput["kind"],
+      purpose: semanticString(evidence.purpose, `main_evidence[${index}].purpose`),
+      content: rawUtf8String(evidence.content, `main_evidence[${index}].content`),
+    }
+  })
+  const mainEvidenceNames = mainEvidence.map((item) => item.name)
+  if (new Set(mainEvidenceNames).size !== mainEvidenceNames.length) {
+    reject("duplicate main evidence names are not allowed")
+  }
+  if (JSON.stringify(mainEvidenceNames) !== JSON.stringify([...mainEvidenceNames].sort())) {
+    reject("main_evidence must be ordered by name")
+  }
   if (!Array.isArray(value.lenses)) reject("lenses must be an ordered array")
 
   const lenses = value.lenses.map((item, index): LensInput => {
@@ -247,6 +293,7 @@ function parsePacketInput(bytes: Uint8Array): PacketInput {
       concurrently_pending: semanticString(replayValue.concurrently_pending, "replay.concurrently_pending"),
       unavailable_evidence: semanticString(replayValue.unavailable_evidence, "replay.unavailable_evidence"),
     },
+    main_evidence: mainEvidence,
     lenses,
   }
   if (!Buffer.from(canonicalLine(input)).equals(Buffer.from(bytes))) {
@@ -630,6 +677,19 @@ async function buildDispatches(args: Arguments, inputBytes: Uint8Array) {
   const admissionHelper = await helperIdentity(cwd, admissionHelperCommit, "admission Origin", false)
   const frameBytes = new TextEncoder().encode(input.frame)
   const planBytes = new TextEncoder().encode(input.plan)
+  const mainEvidence = input.main_evidence.map((item) => {
+    const contentBytes = new TextEncoder().encode(item.content)
+    return {
+      name: item.name,
+      kind: item.kind,
+      purpose: item.purpose,
+      producer: "main_control",
+      content_encoding: "utf-8",
+      content_utf8_size: contentBytes.length,
+      content_utf8_sha256: `sha256:${sha256(contentBytes)}`,
+      content: item.content,
+    }
+  })
   const bindingFingerprint = semanticString(
     binding.value.binding_fingerprint_sha256,
     "binding.binding_fingerprint_sha256",
@@ -643,7 +703,6 @@ async function buildDispatches(args: Arguments, inputBytes: Uint8Array) {
       worktree_candidate_material_fingerprint_sha256: controlPlane.worktree_candidate_material_fingerprint_sha256,
       enforcement: args.enforcement,
       binding_identity: `${BINDING_SCHEMA}:${bindingFingerprint}`,
-      mutation_observation: "none",
     },
     target_worktree: {
       repository: args.repository,
@@ -665,6 +724,7 @@ async function buildDispatches(args: Arguments, inputBytes: Uint8Array) {
     lens_manifest: manifest,
     admission: input.admission,
     replay: input.replay,
+    main_evidence: mainEvidence,
   })
   const commonPacketLocator = `sha256:${sha256(sharedCore)}`
   const dispatches = lensRecords.map((lens) => {
@@ -1223,7 +1283,7 @@ function validateSharedCore(
   exactKeys(value, "shared_core", [
     "schema", "candidate_locator", "control_plane", "target_worktree", "packet_helper", "frame", "frame_utf8_size",
     "frame_utf8_sha256", "plan", "plan_utf8_size", "plan_utf8_sha256", "audit_set", "required_lenses",
-    "lens_manifest", "admission", "replay",
+    "lens_manifest", "admission", "replay", "main_evidence",
   ])
   if (value.schema !== SHARED_CORE_SCHEMA || value.candidate_locator !== args.candidateLocator) {
     reject("shared core schema or candidate locator mismatch")
@@ -1241,14 +1301,12 @@ function validateSharedCore(
   const control = record(value.control_plane, "shared_core.control_plane")
   exactKeys(control, "shared_core.control_plane", [
     "head", "tree", "worktree_candidate_material_fingerprint_sha256", "enforcement", "binding_identity",
-    "mutation_observation",
   ])
   if (control.head !== binding.controlPlane.head || control.tree !== binding.controlPlane.tree
       || control.worktree_candidate_material_fingerprint_sha256
         !== binding.controlPlane.worktree_candidate_material_fingerprint_sha256
       || control.binding_identity !== `${BINDING_SCHEMA}:${binding.fingerprint}`
-      || control.enforcement !== binding.enforcement
-      || control.mutation_observation !== "none") {
+      || control.enforcement !== binding.enforcement) {
     reject("shared core control-plane or binding identity mismatch")
   }
   const target = record(value.target_worktree, "shared_core.target_worktree")
@@ -1301,6 +1359,39 @@ function validateSharedCore(
   ])
   for (const [field, item] of [...Object.entries(admission), ...Object.entries(replay)]) {
     semanticString(item, `shared_core.${field}`)
+  }
+  if (!Array.isArray(value.main_evidence)) reject("shared_core.main_evidence must be an ordered array")
+  const mainEvidenceNames: string[] = []
+  value.main_evidence.forEach((item, index) => {
+    const evidence = record(item, `shared_core.main_evidence[${index}]`)
+    exactKeys(evidence, `shared_core.main_evidence[${index}]`, [
+      "name", "kind", "purpose", "producer", "content_encoding", "content_utf8_size",
+      "content_utf8_sha256", "content",
+    ])
+    const name = semanticString(evidence.name, `shared_core.main_evidence[${index}].name`)
+    if (!/^[a-z0-9][a-z0-9._-]*$/.test(name)) {
+      reject(`shared_core.main_evidence[${index}].name must be a lowercase identifier`)
+    }
+    if (!MAIN_EVIDENCE_KINDS.has(String(evidence.kind))) {
+      reject(`unsupported shared-core main evidence kind: ${String(evidence.kind)}`)
+    }
+    semanticString(evidence.purpose, `shared_core.main_evidence[${index}].purpose`)
+    if (evidence.producer !== "main_control" || evidence.content_encoding !== "utf-8") {
+      reject("shared-core main evidence producer or encoding mismatch")
+    }
+    const content = rawUtf8String(evidence.content, `shared_core.main_evidence[${index}].content`)
+    const contentBytes = new TextEncoder().encode(content)
+    if (evidence.content_utf8_size !== contentBytes.length
+        || evidence.content_utf8_sha256 !== `sha256:${sha256(contentBytes)}`) {
+      reject("shared-core main evidence content identity mismatch")
+    }
+    mainEvidenceNames.push(name)
+  })
+  if (new Set(mainEvidenceNames).size !== mainEvidenceNames.length) {
+    reject("duplicate shared-core main evidence names are not allowed")
+  }
+  if (JSON.stringify(mainEvidenceNames) !== JSON.stringify([...mainEvidenceNames].sort())) {
+    reject("shared-core main evidence must be ordered by name")
   }
   return reviewerContract
 }
