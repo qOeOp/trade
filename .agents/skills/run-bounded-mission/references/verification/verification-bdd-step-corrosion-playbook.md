@@ -13,6 +13,13 @@ configuration together. Bind every candidate Step to executable scenarios, inten
 load scope, and support consumers. Use runtime discovery for effective matches; mark dynamic
 registration or an unobserved entry `Unknown`.
 
+Keep three observations separate: source fixture/definition identity, effective runner selection and
+load result, and SUT scenario result. If fixture parsing, support-code loading, launcher startup, or
+selection fails, report the exact pre-SUT status and `sut_result=not_started`; never translate that
+failure into a passing or failing business behavior. Lexical corpus inspection is
+`parser_coverage=incomplete` and produces only unverified candidates; effective
+discovery/dry-load/usage supplies `dynamic` matching evidence.
+
 ## Taxonomy
 
 - **duplicate:** identical or semantically equivalent expressions restate one domain behavior;
@@ -24,6 +31,11 @@ registration or an unobserved entry `Unknown`.
 - **low cohesion:** grouping follows files, keywords, pages, or textual reuse instead of domain concept;
 - **implementation leakage:** selectors, endpoints, database operations, calls, or source structure
   replace observable domain behavior.
+
+Report `used`, `unused`, `undefined`, and `ambiguous` from effective runner usage whenever available.
+`overlapping`, `universal`, and `parameter soup` are semantic review leads: lexical output does not
+prove parse completeness or runtime reachability, and an `Unknown` dynamic registration/load path
+rejects deletion.
 
 ## Decision
 
@@ -54,3 +66,7 @@ match, with undefined and ambiguous Steps reported. Execute every affected scena
 path. Review cohesion, domain language, parameter boundaries, and implementation leakage semantically;
 runtime matching alone cannot decide them. Prove removed glue has no dynamic or configured consumer,
 then run affected owner and root checks.
+
+The disposable corpus check must include one each of used, unused, undefined, ambiguous/overlapping,
+universal, and parameter-soup definitions. It proves helper classification only; it neither installs
+Cucumber nor substitutes static matching for the owner's actual runner configuration.

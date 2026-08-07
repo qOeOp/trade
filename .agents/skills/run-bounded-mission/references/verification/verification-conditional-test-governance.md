@@ -47,6 +47,20 @@ different unresolved risk; do not stack the rows as ceremony.
 When no row activates, use the normal consumer check and narrowest owner regression. Counts, coverage,
 method popularity, an available tool, or a request to add tests do not activate a row.
 
+Compare cost before selecting a row: record the minimum context needed to explain the risk, estimated
+or observed runtime, expected correction loop, and resulting test-maintenance surface. A green-test
+count never raises the decision quality. Prefer `none` or native regression when it closes the same
+risk; BDD/TDD/mutation/GC each need an unresolved risk that the cheaper route cannot decide.
+
+| Representative condition | Cheapest decisive selection | Stop |
+| --- | --- | --- |
+| contract and real consumer are clear; ordinary regression directly distinguishes the change | native regression | owner/direct-consumer result closes the behavior |
+| no behavior change or test risk remains | none | do not add a method as ceremony |
+| examples resolve cross-boundary domain intent | BDD outer loop | real executable examples close the ambiguity |
+| an admitted narrow rule may reveal a design/boundary error through test-first feedback | selective TDD | route decision is made; it does not claim an independent oracle |
+| a named fault can survive a passing scenario because its assertion is uncertain | one targeted mutation | same fault is killed or exposes the oracle gap |
+| current cost/redundancy/reachability decision may remove evidence | Test GC proposal | retain evidence until authority, runtime reachability and unique value close |
+
 ## Select the outer and inner evidence conditionally
 
 Use BDD as an outer loop only when collaborative examples clarify or decisively exercise user- or
@@ -72,3 +86,10 @@ After one row activates, load only its linked owner-local playbook. Keep the met
 scope, decisive observation, cost, and remaining risk in the current Plan and evidence. Do not load a
 second row unless it covers a different unresolved consumer risk, and do not add a report schema or
 change diary.
+
+For BDD, retain the source/selection/result separation used by the effective runner: source fixture
+and AST locators, selected executable scenarios and definitions, then individual result events. A
+failed fixture, launcher, support-code load, tag/path selection, undefined Step, or ambiguity ends
+before SUT; record `sut_result=not_started` instead of reporting it as red or green. Static helper
+output is `declared` evidence only. A dry-load/usage run is dynamic selection evidence, while a
+scenario result with its behavior oracle is separately dynamic SUT evidence.
