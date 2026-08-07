@@ -21,6 +21,7 @@ env:
   EGRESS_POLICY: >-
     ${{ github.event.pull_request.head.repo.fork && 'audit'
     || vars.STEP_SECURITY_EGRESS_POLICY
+    || github.repository == 'qOeOp/trade' && 'audit'
     || 'block' }}
 
 on:
