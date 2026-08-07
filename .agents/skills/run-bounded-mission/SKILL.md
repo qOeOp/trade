@@ -95,18 +95,19 @@ activated-owner set, or next-owner edge freezes that read, delegation, control, 
 
 Before an action, native-task, support-lane, or evaluator dispatch, its owning route must bind the
 complete consumer-visible packet before launch. The packet carries every activated authority and
-precondition, exact inter-step byte edge, current Frame/Plan and mode, Goal capability and persistence,
+precondition, exact inter-step edge, current Frame/Plan and mode, Goal capability and persistence,
 Origin and dependency, exact native title and interaction language when applicable, observed or
 unavailable model/effort, and one next legal action. Bind the canonical payload's UTF-8 bytes, length,
-and SHA-256 outside that payload. The fresh consumer's first authority-bearing gate is deterministic
-verification of that identity before it interprets the payload or reads Goal, repository, Skill, or
-role authority. Prefer no startup output; when the host interaction contract requires one, permit at
-most one fixed generic notice that is independent of the payload and grants no authority. A verifier
-transport failure before parsing or another substantive effect may be corrected against the same
-immutable bytes, length, and SHA-256. A summary, prefix, truncation, later supplement, prose
-reconstruction, or mismatched member freezes that packet and cannot be repaired. The route owner
-defines the concrete packet and post-admission identity gates; this kernel adds no envelope, helper,
-registry, or compatibility path.
+and SHA-256 outside that payload as producer and recovery identity only; it is not evidence about bytes
+the model received and grants the consumer no authority. An executable route instead binds one exact
+native target, one complete host-message effect, its observable receipt, and any route-owned identity
+or title gate before semantic work. A fresh native task may first receive one fixed inert bootstrap
+that contains no packet semantics and grants no authority while the host returns its exact identity.
+The consumer never re-hashes or reconstructs raw prompt bytes it cannot observe, and its prose or
+self-report never admits the packet. A missing, malformed, stale, duplicate, supplemental, or changed
+packet freezes before the host-message effect; an unavailable or mismatched target, gate, or receipt
+is `host-defect/no-change`. The route owner defines the concrete packet and admission gates; this
+kernel adds no envelope, helper, registry, or compatibility path.
 
 Before pull-request metadata create or edit, load [GitHub delivery](references/delivery/delivery-pullrequest-workflow.md)
 through a candidate-independent immutable-Origin or neutral-authority locator. Candidate absence cannot

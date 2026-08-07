@@ -130,16 +130,16 @@ Before launch, freeze that complete support packet as one canonical UTF-8 payloa
 length plus SHA-256 outside the payload. Include the current Frame/Plan slice; route, role and exact
 question; read-only authority and prohibited effects; every source, precondition, dependency and typed
 producer-output edge; interaction language; observed or unavailable model/effort; required return;
-Stop; and one first legal action. The launch bootstrap outside that payload contains only its encoding,
-exact length and SHA-256, complete encoded bytes, and the instruction to decode and verify them; it
-must not invoke the role, expose a partial question or Frame, request a source read, or authorize any
-other action. The lane's sole first substantive action is this admission: use only an observed local
-byte/length/hash verifier, without parsing or reserializing the payload, then return a machine-checkable
-match or mismatch receipt. Only a match activates the role and packet; an unavailable verifier,
-prefix, summary, truncation, wrong-member projection, missing control fingerprint, prose reconstruction,
-newline/length/hash drift, or later supplement fails closed before any source, role, or other tool use.
-Main may use the already-declared fallback once; it never repairs a running lane with addenda or
-repacket churn, and this bootstrap creates no helper, envelope schema, or compatibility path.
+Stop; and one first legal action. The length and SHA-256 bind the producer object and recovery evidence;
+they are not a claim about model-visible raw bytes and the lane does not recompute them. Dispatch the
+complete semantic packet once through the selected internal-agent host call. The exact role target,
+single dispatch attempt and host receipt admit the lane; prose or self-report does not. Main rejects a
+missing, malformed, stale, changed, duplicate, partial, or supplemental packet before that effect and
+may select the already-declared fallback once only when pre-dispatch capability observation proves the
+host target or receipt capability unavailable before any dispatch attempt or possible effect. Once a
+host call is attempted, a missing, unavailable, ambiguous, or mismatched receipt freezes the lane as a
+terminal capability failure with no fallback launch. Main never repairs a running or uncertain lane
+with addenda or repacket churn, and this route creates no helper, envelope schema, or compatibility path.
 
 For a spare-capacity self-QA retrospective, task dispatch alone owns activation and critical-path
 protection. Give one ordinary support agent one exact task and the current terminal, replacement-

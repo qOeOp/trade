@@ -317,19 +317,19 @@ matters now, Outcome and scope/non-goals, decisive evidence and Origin, Acceptan
 external effects.
 
 Before presenting a packet as `ready`, observe and bind the current native Task-control contracts that
-the packet will consume: `list_threads`, `create_thread`, an available deterministic verifier transport,
-and exactly one post-admission title branch. The child branch binds current-task `set_thread_title` with
-omitted `threadId` plus dispatcher exact-target readback and message release; the dispatcher branch binds
-exact-target setter, readback, and message release. Do not require the unused alternative branch, a pre-
-model verifier, or a pre-create exact-title capability that the host does not expose. The selected child
-or dispatcher sets the exact title only after the packet admits, exact-identity readback proves it, and a
-causally bound release permits Mission work. Any generated or normalized create-time title is provisional
-transport metadata, not canonical identity.
-Freeze the selected capability branch, exact call shapes, one mode-scoped
+the packet will consume: `list_threads`, `create_thread`, `send_message_to_thread`, exact-target
+`set_thread_title`, and dispatcher exact-identity/title readback. The one executable branch is
+dispatcher-held: a fresh task receives only the fixed inert bootstrap until `create_thread` returns an
+exact `threadId`/`hostId`; a continuation reopens its already recorded exact identity. In either case
+the dispatcher sets and reads back the exact title before it sends the complete packet once to that
+exact target. The native message effect is the authority-bearing release. Do not require a pre-model
+verifier, child access to raw prompt bytes, a child-owned title setter, or another release message.
+Any generated or normalized create-time title is provisional transport metadata.
+Freeze that capability branch, exact call shapes, one mode-scoped
 dispatcher authority, its serialized single-effecting-turn guarantee, and the closed authoritative
 dispatch-set predicate into the editable packet. For `single`, bind the current Mission's causal
 approval and current effecting turn; for `hub`, bind the exact Hub dispatcher and current wave. Missing,
-ambiguous, concurrent, or non-targetable admission or post-admission title controls keep the packet
+ambiguous, concurrent, or non-targetable admission, title, or exact-target message controls keep the packet
 `deferred` or `host-defect/no-change`; a later contract or branch change is a material packet revision
 and requires the complete packet to be presented and approved again.
 
@@ -348,17 +348,19 @@ or immutable locator; Origin, dependency edges and release predicates; authority
 effects; preconditions and their executable producer/setup; selected `single | hub` mode; freshly
 observed Goal-tool availability and persistence; observed or honestly unavailable model/effort; exact
 owner inputs and evidence locators; endpoint; Stop; and one next legal action. Record its byte length
-and `sha256:<lowercase-64-hex>` outside the payload. The payload, identity, and approved create branch
-form one packet; changing any member invalidates approval. Native Task title remains packet identity
-metadata and never becomes a Conventional pull-request title.
+and `sha256:<lowercase-64-hex>` outside the payload. This identity lets the dispatcher revalidate the
+approved producer object and recover the exact packet; it makes no claim about model-visible transport
+bytes. The payload, target branch, and approval form one packet; changing any member invalidates
+approval. Native Task title remains packet identity metadata and never becomes a Conventional pull-
+request title.
 
-The create/release transport bootstrap outside that payload contains only its encoding, exact length
-and SHA-256, complete encoded bytes, and the instruction to decode and verify them with an available
-deterministic verifier. It may permit the generic startup notice defined below but must not invoke this
-Skill, assign the Mission or role, expose a partial Frame, request a repository read, or authorize any
-other action: those instructions live only inside the user-approved payload and become active after
-admission. Otherwise a fresh host may load workflow or repository authority before it can verify the
-packet, which is an admission failure even if a later hash check succeeds.
+The fixed fresh-task bootstrap contains no payload bytes, encoding, length, hash, label, title, role,
+Frame, Plan, source locator, or next action. It only tells the task to perform no semantic, Goal,
+repository, Skill, title, or other substantive action until a later native user message arrives, and
+may request the fixed generic notice below. After exact identity and title readback, the dispatcher
+sends the complete approved payload directly in one `send_message_to_thread` call. A continuation has
+no bootstrap: after exact-identity recovery and the same title gate, its one complete native message is
+the release. A prefix, summary, truncation, reconstruction, or later semantic addendum is not a packet.
 
 Freeze one approved endpoint per node. A `merged` node derives child `merge-ready`, freezes hub merge
 authority/effect, and follows Critical-path choreography; this projection is no new Goal endpoint.
@@ -373,48 +375,36 @@ Until then, edits and rejection stay in the hub and no task exists.
 For multiple outcomes, present one stable-labeled packet per node so the user can approve a subset or
 ready wave. Its one create attempt consumes approval; deferred nodes cannot bypass prerequisites.
 
-## Generic child preflight
+## Native host admission
 
-The child's first authority-bearing operation is packet admission: obtain the complete payload
-delivered by the selected create or continuation branch, recompute its exact UTF-8 length and SHA-256
-without parsing or reserializing it, and compare both with the frozen identity. Prefer zero output
-before that result. When the host interaction contract requires startup output, the child may emit at
-most one generic notice whose bytes are fixed independently of the payload; it cannot name or reveal
-the label, title, role, Frame, Plan, next action, or any payload-derived fact, grant authority, or claim
-admission. It is transport output, not Mission commentary or success evidence.
+The dispatcher, not the child, owns packet admission. Before the authority-bearing message effect it
+revalidates the frozen producer identity, approval, Origin and release predicates, closed dispatch set,
+exact target, and exact-title readback. Missing or changed packet members, stale authority or Origin,
+an unresolved, conflicting, wrong-bound, or already-released attempt for the same causal collision
+projection, or a proposed later supplement rejects before `send_message_to_thread`. The one fresh-create
+receipt causally bound to this packet is its required exact-identity mapping, not a duplicate attempt; it
+can reach the title gate and first semantic send only while the closed dispatch set still records zero
+release effects. The exact host call and its receipt, together with the title readback, are the admission
+evidence. The receipt proves the targeted message effect; it does not prove raw bytes inside model
+context, and no delivery claim may say otherwise.
 
-Run admission through an observable deterministic verifier over the exact delivered byte stream. If
-the verifier command itself fails before parsing, payload-derived output, Goal or authority access,
-repository or source read, title effect, or other substantive effect, correct only its invocation or
-transport and run it again against the same immutable bytes, length, and SHA-256. Convergence is decided
-by a valid measurement or an evidenced unavailable verifier, never an attempt count; do not repeat an
-unchanged failing command. Any measured mismatch, changed bytes or identity, parsing before a match,
-payload-derived output, or substantive read/effect before admission is
-`packet-admission-defect/no-change` and terminal for that packet. A prefix, summary, truncation, wrong
-member, newline drift, reordering, reserialization, prose reconstruction, or later supplement cannot
-repair it.
+A fresh task may emit at most one fixed generic notice in response to the inert bootstrap. Its bytes
+are fixed independently of the payload; it cannot name or reveal the label, title, role, Frame, Plan,
+source, or next action, grant authority, call a tool, or claim admission. Mission commentary, Frame,
+`get_goal`, Skill or role loading, repository reads, Git, and payload work begin only when the complete
+packet arrives as the one native release message after exact identity and title gating. The child does
+not emit an admission receipt and does not run a raw-message verifier. Any semantic action before that
+release is `packet-admission-defect/no-change` for the route.
 
-Only after admission may the child parse the payload and bind its exact title. Mission commentary,
-Frame, `get_goal`, Skill or role loading, repository reads, Git, and payload work remain frozen until
-the exact title and task identity have an exact readback receipt. In the post-admission branch, the
-child calls current-task `set_thread_title` once when that control is available and yields an
-admission/title-gate receipt, or it yields an admission-only receipt for the dispatcher to call the
-exact-target setter once. The dispatcher then reads the exact
-`threadId`/`hostId` back and sends one causally bound release that contains no missing packet semantics.
-Generated or normalized titles remain provisional until that admission plus exact-title receipt binds
-canonical identity. Setter failure or title mismatch freezes Mission work and permits no second setter.
-
-An already-created exact task may receive a newly authorized, complete content-addressed continuation
+An already-created exact task may receive a newly authorized, complete continuation
 packet without becoming a replacement task. Preserve every earlier failed packet as terminal; the new
 packet is neither a supplement nor a repair. When a current host contract requires the dispatcher to
-set and read back the packet's exact title before sending the continuation, that matching value remains
-provisional transport metadata: it neither binds canonical identity nor releases work. The dispatcher
-then sends that complete packet once to the same `threadId`/`hostId`. After admission, the child or
-dispatcher executes the same post-admission setter, exact readback, and causally bound release required
-above before any Mission or repository work; an idempotent repeat of the same exact title is the
-canonical binding effect, not a repair of the failed packet. Missing, contradictory, unavailable,
-failed, or mismatched admission, task identity, title, or release evidence freezes the continuation as
-`host-defect/unproved`. Do not add a lock, registry, wrapper, retry, or second lifecycle.
+sets and reads back the packet's exact title before sending the continuation; that readback is the
+canonical identity gate for this release. The dispatcher then sends the complete packet once to the
+same `threadId`/`hostId`; the call receipt admits it and no post-admission setter or second release is
+permitted. Missing, contradictory, unavailable, failed, or mismatched task identity, title, packet,
+single-dispatcher, or host-message evidence freezes the continuation as `host-defect/no-change`. Do not
+add a lock, registry, verifier helper, wrapper, retry, or second lifecycle.
 
 Derive preflight from current owner manifests and lockfile. Name exact repository path/HEAD/status,
 executables, and dependency-directory existence/symlink/ignore/status facts. A final-release child
@@ -432,6 +422,31 @@ command, stop before substantive read/mutation and report the missing dependency
 A null or absent native environment path proves only that no environment selection was carried. A
 repository environment file, dependency directory, or available executable does not prove that
 native setup ran.
+
+### Long-running gate evidence
+
+Before launching a root, package, evaluator, or other long-running gate, bind its exact candidate and
+inputs, argv, cwd, relevant environment, final repository-state check, and one host transport that can
+yield a resumable process/session identity, retain stdout/stderr through a host receipt or immutable
+output locator, and eventually return its exit status. A launch that discards both output streams is
+not terminal-capable because a failure cannot be audited. If the selected call cannot preserve its
+identity and output continuity through bounded output or time windows, the gate is not runnable on that
+transport. Do not first run it through a lossy call and then start the same command again to recover a
+missing terminal result or failure detail.
+
+Launch the candidate-bound gate once. When it yields, retain its exact session and output cursor and
+resume only that process until it returns exit plus the declared final state. A missing, reset,
+unrecoverable, or mismatched session/cursor or output receipt makes the required terminal evidence
+`unavailable`; it does not authorize a second process, a reconstructed exit, or success inferred from
+process disappearance.
+A rerun is a new gate only after a changed candidate or other declared input invalidates the prior run,
+or after new authority explicitly replaces the unavailable evidence requirement.
+
+User-visible gate narration is transition-bound. Emit nothing for unchanged waits. For one gate run,
+emit at most one informative progress update after an observed state transition and exactly one terminal
+update after exit and final-state observation; the terminal update binds both. Raw command output may
+stream through the host receipt, but repeated waiting, elapsed-time, partial-suite, or unchanged-process
+narration is not progress evidence and cannot consume another commentary update.
 
 ## Native dispatch
 
@@ -456,7 +471,9 @@ packet or require the deterministic producer to perform it; prose-only filesyste
 transport prerequisites reject. For each inter-step dependency, bind the producer's exact raw output
 bytes, length, and SHA-256 to the exact consumer stdin or file and preserve order. A dynamic producer
 may publish its identity at runtime, but the edge and required identity fields must exist before launch.
-Do not start a child and then supply a missing edge, authority member, locator, Frame slice, or control
+The fresh inert bootstrap is the sole exception because it carries no packet member or authority; the
+complete packet still arrives in one later native message after the host returns exact identity. Do not
+start semantic work and then supply a missing edge, authority member, locator, Frame slice, or control
 fingerprint. A packet/admission defect after this preflight returns that packet to its owner and stops
 candidate delivery; do not churn through supplements or replacement tasks. A later continuation on the
 same exact task is legal only with new explicit authority, a complete newly bound packet, and preserved
@@ -490,9 +507,9 @@ Reobserve the approved Task-control contracts. Any schema, targetability, mode-s
 admission/title/continuation branch drift materially revises the packet and requires fresh approval
 before an attempt. Complete all read-only preconditions first: call `list_projects`,
 inspect the selected project's `isGitRepository`, and recheck the mode-scoped dispatcher/serialized-turn gate.
-Then call `create_thread` once with the complete approved transport bootstrap. Pass the frozen title
-only as provisional transport metadata when the host requires a create-time value; it cannot satisfy
-the post-admission canonical title gate. Use the observed project/worktree target
+Then call `create_thread` once with only the fixed inert bootstrap. Pass the frozen title only as
+provisional transport metadata when the host requires a create-time value; it cannot satisfy the
+exact-target title gate. Use the observed project/worktree target
 for Git, or local only for an observed non-Git project that cannot share the foreground candidate. Omit
 `startingState` and model overrides unless approved. The raw host create call/result is the attempt
 record; never mark it issued before the call. Record only the returned exact identity or receipt and emit
@@ -505,21 +522,21 @@ different full-Mission model. Spark's leaf gates cannot own the child's five sta
 it for this route or create a user-visible task for an internal build/revision leaf. Route the latter
 through the custom `fast_builder` agent and its standard-main fallback.
 
-The packet remains the naming owner; never invent a field. Child-current-task or dispatcher-held work
-starts only after the admission receipt, one post-admission setter, exact-title readback, and causally
-bound release all bind the same exact task. An exact-identity continuation starts only after its new
-complete packet admits and that same post-admission setter/readback gate succeeds; any identical
-pre-send title write remains provisional and does not consume the canonical setter. Require any final-
-release HEAD report before monitoring or release. Failure or mismatch freezes those actions;
-provisional titles and list/search resemblance cannot repair them, and later recovery permits no
-additional canonical setter or duplicate packet release.
+The packet remains the naming owner; never invent a field. After a fresh create returns an exact
+identity, the dispatcher performs the exact-target title setter once, reads the title and identity back,
+and sends the complete packet once. An exact-identity continuation performs the same title gate and
+single complete send without another create. The native send receipt is the release; no child receipt,
+post-admission setter, or second message may complete it. Require any final-release HEAD report in the
+packet before monitoring dependent work. Failure or mismatch freezes those actions; provisional titles,
+child prose, and list/search resemblance cannot repair them, and later recovery permits no duplicate
+packet release.
 
 A returned `clientThreadId` consumes creation but is only a dispatcher receipt: record/emit it, never
 rename or pass it to wait/read/send. The bootstrap remains admission-only and Mission work stays frozen
 while that mapping is pending. Dispatcher title, monitoring, and release effects stay frozen until the
 host, user, or exact child receipt causally maps a `threadId`/`hostId`; list/search resemblance cannot
-prove that mapping. Then complete the frozen admission and post-admission title gate. Pending dispatcher
-identity permits no duplicate and is not Mission `blocked`.
+prove that mapping. Then complete the exact-target title gate and single packet send. Pending dispatcher
+identity permits no title gate or packet send, no duplicate, and is not Mission `blocked`.
 
 Recovery resumes only a recorded exact `threadId`/`hostId`. An unmapped same-title task is resemblance:
 never adopt, rename, or message it. Before an attempt it consumes no approval; after possible success
@@ -550,8 +567,13 @@ at the current monitoring or merge gate:
   do not resubscribe in that slice, keep it open as `running`, or narrate the unchanged state;
 - later Goal continuation or a real health anomaly: make one compact cursor-bound read of the same
   exact targets, then act on an actionable or terminal event or yield again;
-- feedback or continuation: call `send_message_to_thread` once with `threadId`, optional `hostId`,
-  and the feedback in `prompt`, then return immediately;
+- explicitly authorized ordinary feedback: call `send_message_to_thread` once with `threadId`, optional
+  `hostId`, and the non-authorizing feedback in `prompt`, then return immediately. Feedback cannot carry
+  a Task packet, change or complete admission, supplement or repair an earlier packet, or release
+  semantic continuation work;
+- newly authorized Task continuation: do not use the feedback control. Route the complete packet only
+  through Native host admission, including exact-identity recovery, exact-target title set/readback,
+  closed dispatch-set revalidation, and its one semantic send;
 - additional history needed for a current decision: use one bounded `read_thread`.
 
 The child proactively reports only a structural authority gap, a real exception, or one terminal
