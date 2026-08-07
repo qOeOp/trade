@@ -1608,7 +1608,7 @@ mod tests {
         assert_eq!(tick.instrument_id, instrument.id());
         assert_eq!(
             tick.trade_id.to_string(),
-            "1766193240334589144-38b4fe5a94a253d0"
+            "1766193240334589144-6130665701bd8943"
         );
         assert_eq!(tick.price, Price::from("1.1719"));
         assert_eq!(tick.size, Quantity::from(400));

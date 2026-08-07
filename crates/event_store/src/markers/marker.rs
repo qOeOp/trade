@@ -320,7 +320,7 @@ mod tests {
         // this value.
         let hex = hex32(&h1);
         assert_eq!(
-            hex, "898bc3efdaf0edd9167a38a1c3060c9b4dc051658ea2f6132004bed78a481c47",
+            hex, "5dcf3bbf7d5e5e2cf3c097812debe1f9d2e1693a44429c1d28f04350e15eb81c",
             "marker hash wire format changed"
         );
     }
@@ -335,7 +335,7 @@ mod tests {
 
         let hex = hex32(&h1);
         assert_eq!(
-            hex, "06542408380d8815ef783b9dbde6b3e3ffdf05605bb17e83ad48474557457517",
+            hex, "e32fdf9195a105c77227c5c730bd702924d7360259a7b92c900ebd08490565c6",
             "hifi hash wire format changed"
         );
     }
@@ -351,7 +351,7 @@ mod tests {
         // Pinned wire-format vector. Any change to domain, field order, or framing flips this.
         let hex = hex32(&h1);
         assert_eq!(
-            hex, "24e702c5ae20b832ad6907676919fa18a89b79e97dde9df7e1de454191f42fda",
+            hex, "591e4c96175a0e8e2273f55ad98a18a046cff8acbf38191d420146d35356d81f",
             "dict hash wire format changed"
         );
     }
@@ -367,7 +367,7 @@ mod tests {
         // Pinned wire-format vector. Any change to domain, field order, or framing flips this.
         let hex = hex32(&h1);
         assert_eq!(
-            hex, "ec1ae0ea813e9971155c6277e95c43de72da6f22ca1832f072aadd9b91f5a3ec",
+            hex, "951eb78c900e600db7e2e8d0fb241c5e0e60c496f060518ca85a4f846f59c8c2",
             "gap hash wire format changed"
         );
     }

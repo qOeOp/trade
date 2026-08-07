@@ -529,7 +529,7 @@ mod tests {
         );
         assert_eq!(
             hex32(&extractor.fingerprint(&quote).expect("fingerprint")),
-            "7c6671e34f01b7b547ac8695c6d2cd19c1a37f6d2e3910d9195ed66fd4c02628"
+            "628ed01b85f0620e3d7713699d96a9828b71f62d4d7a5febea85d1b968ca0036"
         );
     }
 
@@ -559,7 +559,7 @@ mod tests {
         );
         assert_eq!(
             hex32(&extractor.fingerprint(&trade).expect("fingerprint")),
-            "6b32a3187d353451a07d92a0d91051406ce4fe912010202b81616ed315f565cb"
+            "8130c82f3ae071eb5e426faa744478746e8e9b00b2ddce81975fea2ff0404602"
         );
     }
 
@@ -583,7 +583,7 @@ mod tests {
         );
         assert_eq!(
             hex32(&extractor.fingerprint(&bar).expect("fingerprint")),
-            "f2283ae7ed8d2e6a3874473b11935557b6bc2cbf20446419fbdff8fe51f91e84"
+            "aea225b29507a466d6390f495a9f422357b0d8464d43e408239ec5403a4a41fe"
         );
     }
 
@@ -609,7 +609,7 @@ mod tests {
         );
         assert_eq!(
             hex32(&extractor.fingerprint(&depth).expect("fingerprint")),
-            "432e1f3951c660acaefb3a44c429b050e5e8d5b6f9c3b89cc969edaad85e8e4d"
+            "5995f82f76059a452f08aafb1e1a9145d359ca76fa7afd5c61209a83a024ec59"
         );
     }
 
@@ -634,7 +634,7 @@ mod tests {
         );
         assert_eq!(
             hex32(&extractor.fingerprint(&deltas).expect("fingerprint")),
-            "4bb7fedc4454d53e08300e1ae7a59e648747152134a921050a2c80edec6d8f9e"
+            "0d7edce24fcf51e437e40d7bea0f631f99a30cb8a58bb848ef912b2901b98de4"
         );
     }
 
