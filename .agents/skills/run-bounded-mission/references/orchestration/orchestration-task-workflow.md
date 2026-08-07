@@ -318,11 +318,13 @@ external effects.
 
 Before presenting a packet as `ready`, observe and bind the current native Task-control contracts that
 the packet will consume: `list_threads`, `create_thread`, an available deterministic verifier transport,
-current-task `set_thread_title` with omitted `threadId`, and exact-target setter, readback, and message
-release. Do not require a pre-model verifier or pre-create exact-title capability that the host does not
-expose. Bind a post-admission title branch: the child or dispatcher sets the exact title only after the
-packet admits, exact-identity readback proves it, and a causally bound release permits Mission work. Any
-generated or normalized create-time title is provisional transport metadata, not canonical identity.
+and exactly one post-admission title branch. The child branch binds current-task `set_thread_title` with
+omitted `threadId` plus dispatcher exact-target readback and message release; the dispatcher branch binds
+exact-target setter, readback, and message release. Do not require the unused alternative branch, a pre-
+model verifier, or a pre-create exact-title capability that the host does not expose. The selected child
+or dispatcher sets the exact title only after the packet admits, exact-identity readback proves it, and a
+causally bound release permits Mission work. Any generated or normalized create-time title is provisional
+transport metadata, not canonical identity.
 Freeze the selected capability branch, exact call shapes, one mode-scoped
 dispatcher authority, its serialized single-effecting-turn guarantee, and the closed authoritative
 dispatch-set predicate into the editable packet. For `single`, bind the current Mission's causal
