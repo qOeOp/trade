@@ -7,10 +7,10 @@ Python stub file (`*.pyi`) generator for [PyO3] with [maturin] projects.
 [PyO3]: https://github.com/PyO3/pyo3
 [maturin]: https://github.com/PyO3/maturin
 
-| crate name | crates.io | docs.rs | doc (main) |
-| --- | --- | --- | --- |
-| [pyo3-stub-gen] | [![crate](https://img.shields.io/crates/v/pyo3-stub-gen.svg)](https://crates.io/crates/pyo3-stub-gen)  | [![docs.rs](https://docs.rs/pyo3-stub-gen/badge.svg)](https://docs.rs/pyo3-stub-gen) | [![doc (main)](https://img.shields.io/badge/doc-main-blue?logo=github)](https://jij-inc.github.io/pyo3-stub-gen/pyo3_stub_gen/index.html) |
-| [pyo3-stub-gen-derive] | [![crate](https://img.shields.io/crates/v/pyo3-stub-gen-derive.svg)](https://crates.io/crates/pyo3-stub-gen-derive)  | [![docs.rs](https://docs.rs/pyo3-stub-gen-derive/badge.svg)](https://docs.rs/pyo3-stub-gen-derive) | [![doc (main)](https://img.shields.io/badge/doc-main-blue?logo=github)](https://jij-inc.github.io/pyo3-stub-gen/pyo3_stub_gen_derive/index.html) |
+| crate name             | crates.io                                                                                                           | docs.rs                                                                                            | doc (main)                                                                                                                                       |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [pyo3-stub-gen]        | [![crate](https://img.shields.io/crates/v/pyo3-stub-gen.svg)](https://crates.io/crates/pyo3-stub-gen)               | [![docs.rs](https://docs.rs/pyo3-stub-gen/badge.svg)](https://docs.rs/pyo3-stub-gen)               | [![doc (main)](https://img.shields.io/badge/doc-main-blue?logo=github)](https://jij-inc.github.io/pyo3-stub-gen/pyo3_stub_gen/index.html)        |
+| [pyo3-stub-gen-derive] | [![crate](https://img.shields.io/crates/v/pyo3-stub-gen-derive.svg)](https://crates.io/crates/pyo3-stub-gen-derive) | [![docs.rs](https://docs.rs/pyo3-stub-gen-derive/badge.svg)](https://docs.rs/pyo3-stub-gen-derive) | [![doc (main)](https://img.shields.io/badge/doc-main-blue?logo=github)](https://jij-inc.github.io/pyo3-stub-gen/pyo3_stub_gen_derive/index.html) |
 
 [pyo3-stub-gen]: ./pyo3-stub-gen/
 [pyo3-stub-gen-derive]: ./pyo3-stub-gen-derive/
@@ -40,9 +40,9 @@ and [pyo3-stub-gen-derive] crate provides the default translator as proc-macro b
 
 If you are looking for a working example, please see the [examples](./examples/) directory.
 
-| Example          | Description |
-|:-----------------|:------------|
-| [examples/pure]  | Example for [Pure Rust maturin project](https://www.maturin.rs/project_layout#pure-rust-project) |
+| Example          | Description                                                                                                                    |
+| :--------------- | :----------------------------------------------------------------------------------------------------------------------------- |
+| [examples/pure]  | Example for [Pure Rust maturin project](https://www.maturin.rs/project_layout#pure-rust-project)                               |
 | [examples/mixed] | Example for [Mixed Rust/Python maturin project](https://www.maturin.rs/project_layout#mixed-rustpython-project) with submodule |
 
 [examples/pure]: ./examples/pure/
@@ -386,13 +386,13 @@ This is particularly useful for:
 
 ### When to Use Which Method
 
-| Scenario | Recommended Method |
-|----------|-------------------|
-| Complex types (e.g., `Callable`, `Protocol`) | Method 1: `python = "..."` parameter |
-| Override one or two arguments | Method 2: `#[gen_stub(override_type(...))]` |
-| Function overloads (`@overload`) | `python_overload = "..."` parameter |
-| Reference Rust types in Python syntax | Use `RustType["..."]` marker |
-| Complete function signature replacement | Method 1: `python = "..."` parameter |
+| Scenario                                     | Recommended Method                          |
+| -------------------------------------------- | ------------------------------------------- |
+| Complex types (e.g., `Callable`, `Protocol`) | Method 1: `python = "..."` parameter        |
+| Override one or two arguments                | Method 2: `#[gen_stub(override_type(...))]` |
+| Function overloads (`@overload`)             | `python_overload = "..."` parameter         |
+| Reference Rust types in Python syntax        | Use `RustType["..."]` marker                |
+| Complete function signature replacement      | Method 1: `python = "..."` parameter        |
 
 For complete examples, see the [examples/pure](./examples/pure/) directory, particularly:
 - `overriding.rs` - Type override examples
@@ -602,14 +602,14 @@ No changes are needed to `src/bin/stub_gen.rs` — `stub.generate()` automatical
 
 Available options:
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `output-dir` | Path | `"docs/api"` | Output directory for generated files (relative to `pyproject.toml`) |
-| `json-output` | String | `"api_reference.json"` | JSON data filename |
-| `separate-pages` | Boolean | `true` | Generate separate `.rst` page per module |
-| `index-title` | String | `"{package} API Reference"` | Title for `index.rst` |
-| `intro-message` | String | *(default blurb)* | Intro text for `index.rst` (empty string to omit) |
-| `contents-table` | Boolean | `false` | Show module contents summary table |
+| Option           | Type    | Default                     | Description                                                         |
+| ---------------- | ------- | --------------------------- | ------------------------------------------------------------------- |
+| `output-dir`     | Path    | `"docs/api"`                | Output directory for generated files (relative to `pyproject.toml`) |
+| `json-output`    | String  | `"api_reference.json"`      | JSON data filename                                                  |
+| `separate-pages` | Boolean | `true`                      | Generate separate `.rst` page per module                            |
+| `index-title`    | String  | `"{package} API Reference"` | Title for `index.rst`                                               |
+| `intro-message`  | String  | *(default blurb)*           | Intro text for `index.rst` (empty string to omit)                   |
+| `contents-table` | Boolean | `false`                     | Show module contents summary table                                  |
 
 ### Sphinx Setup
 

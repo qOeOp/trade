@@ -127,9 +127,9 @@ The adapter maps `TRADIFI_PERPETUAL` listings to
 `PerpetualContract` and derives their asset class from Binance's `underlyingType`:
 
 | Binance `underlyingType`                        | Vibe asset class |
-| ----------------------------------------------- | -------------------- |
-| `EQUITY`, `KR_EQUITY`, `HK_EQUITY`, `PREMARKET` | Equity               |
-| `COMMODITY`                                     | Commodity            |
+| ----------------------------------------------- | ---------------- |
+| `EQUITY`, `KR_EQUITY`, `HK_EQUITY`, `PREMARKET` | Equity           |
+| `COMMODITY`                                     | Commodity        |
 
 Listings with other or missing values are skipped with a warning.
 
@@ -947,7 +947,7 @@ For the latest rate limits, query `/api/v3/exchangeInfo` (Spot) or `/fapi/v1/exc
 
 | Option                             | Default   | Description                                                             |
 | ---------------------------------- | --------- | ----------------------------------------------------------------------- |
-| `trader_id` / `account_id`         | Required  | Vibe execution identity.                                            |
+| `trader_id` / `account_id`         | Required  | Vibe execution identity.                                                |
 | `product_type`                     | `Spot`    | One of `Spot`, `UsdM`, or `CoinM`.                                      |
 | `environment`                      | `Live`    | One of `Live`, `Testnet`, or `Demo`.                                    |
 | `base_url_http`                    | `None`    | Optional HTTP endpoint override.                                        |

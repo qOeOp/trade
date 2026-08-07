@@ -362,7 +362,7 @@ Below are the order types, execution instructions, and time-in-force options sup
 
 ### Order types
 
-| Vibe order type    | Deribit order type | Supported | Notes                                   |
+| Vibe order type        | Deribit order type | Supported | Notes                                   |
 | ---------------------- | ------------------ | --------- | --------------------------------------- |
 | `MARKET`               | `market`           | ✓         | Immediate execution at market price.    |
 | `LIMIT`                | `limit`            | ✓         | Execution at specified price or better. |
@@ -681,8 +681,8 @@ Repeated violations may result in temporary throttling.
 The adapter uses **separate WebSocket sessions** for data and execution clients, each with its own
 authentication scope:
 
-| Client           | Session Name         | Purpose                                             |
-| ---------------- | -------------------- | --------------------------------------------------- |
+| Client           | Session Name     | Purpose                                             |
+| ---------------- | ---------------- | --------------------------------------------------- |
 | Data client      | `vibe-data`      | Market data subscriptions (raw feeds require auth). |
 | Execution client | `vibe-execution` | Order operations (buy, sell, edit, cancel).         |
 
@@ -841,8 +841,8 @@ HTTP failures are logged and the WebSocket subscribe is skipped.
 
 | Option                   | Default    | Description                                                        |
 | ------------------------ | ---------- | ------------------------------------------------------------------ |
-| `trader_id`              | Required   | Vibe trader ID for generated reports and events.               |
-| `account_id`             | Required   | Vibe account ID for generated reports and events.              |
+| `trader_id`              | Required   | Vibe trader ID for generated reports and events.                   |
+| `account_id`             | Required   | Vibe account ID for generated reports and events.                  |
 | `api_key`                | `None`     | Deribit API key. Loads from environment variables when omitted.    |
 | `api_secret`             | `None`     | Deribit API secret. Loads from environment variables when omitted. |
 | `product_types`          | `[FUTURE]` | Product types to load.                                             |

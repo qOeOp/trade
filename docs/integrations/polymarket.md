@@ -273,12 +273,12 @@ strategy.submit_order(order)
 Polymarket calls the `POST /order` field `orderType`. In VibeTrader, this maps to
 `TimeInForce`. The valid combinations depend on the Vibe order type:
 
-| Vibe TIF | Polymarket `orderType` | Vibe order scope | Notes                                                     |
-| ------------ | ---------------------- | -------------------- | --------------------------------------------------------- |
-| `GTC`        | `GTC`                  | `LIMIT` only         | Good‑Til‑Cancelled; rests on the book.                    |
-| `GTD`        | `GTD`                  | `LIMIT` only         | Good‑Til‑Date; rests until expiration, fill, or cancel.   |
-| `FOK`        | `FOK`                  | `LIMIT` or `MARKET`  | Fill the full size immediately or cancel the whole order. |
-| `IOC`        | `FAK`                  | `LIMIT` or `MARKET`  | Fill available size immediately and cancel the remainder. |
+| Vibe TIF | Polymarket `orderType` | Vibe order scope    | Notes                                                     |
+| -------- | ---------------------- | ------------------- | --------------------------------------------------------- |
+| `GTC`    | `GTC`                  | `LIMIT` only        | Good‑Til‑Cancelled; rests on the book.                    |
+| `GTD`    | `GTD`                  | `LIMIT` only        | Good‑Til‑Date; rests until expiration, fill, or cancel.   |
+| `FOK`    | `FOK`                  | `LIMIT` or `MARKET` | Fill the full size immediately or cancel the whole order. |
+| `IOC`    | `FAK`                  | `LIMIT` or `MARKET` | Fill available size immediately and cancel the remainder. |
 
 :::note
 Polymarket uses `FAK` (Fill-And-Kill) for the semantics VibeTrader calls
@@ -1091,7 +1091,7 @@ Pass `PolymarketInstrumentProviderConfig` as `instrument_config` on the data cli
 | Option               | Default | Description                                             |
 | -------------------- | ------- | ------------------------------------------------------- |
 | `load_all`           | `false` | Load the full venue catalogue at startup.               |
-| `load_ids`           | `None`  | Load exact Vibe instrument IDs.                     |
+| `load_ids`           | `None`  | Load exact Vibe instrument IDs.                         |
 | `filters`            | `None`  | Validated Gamma market keyset filters.                  |
 | `event_slugs`        | `None`  | Resolve all markets for the listed events at bootstrap. |
 | `market_slugs`       | `None`  | Load the listed Gamma market slugs at bootstrap.        |

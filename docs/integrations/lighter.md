@@ -102,7 +102,7 @@ The current adapter scope is deliberately narrower than the venue's full transac
 Lighter identifies markets by numeric `market_index` values. The adapter bootstraps the mapping from
 `GET /api/v1/orderBookDetails`, then converts the raw venue symbol into a Vibe `InstrumentId`.
 
-| Venue product     | Vibe symbol format        | Example                 | Notes                        |
+| Venue product     | Vibe symbol format            | Example                 | Notes                        |
 | ----------------- | ----------------------------- | ----------------------- | ---------------------------- |
 | Perpetual futures | `{BASE}-PERP.LIGHTER`         | `BTC-PERP.LIGHTER`      | Raw venue symbol `BTC`.      |
 | Spot              | `{BASE}/{QUOTE}-SPOT.LIGHTER` | `ETH/USDC-SPOT.LIGHTER` | Raw venue symbol `ETH/USDC`. |
@@ -158,7 +158,7 @@ binding does not prompt: review the active env vars yourself before calling.
 
 ## Data subscriptions
 
-| Data type            | Sub.         | Snapshot | Hist. | Vibe type       | Notes                                                    |
+| Data type            | Sub.         | Snapshot | Hist. | Vibe type           | Notes                                                    |
 | -------------------- | ------------ | -------- | ----- | ------------------- | -------------------------------------------------------- |
 | Instrument metadata  | Cache replay | ✓        | -     | `InstrumentAny`     | Loaded from `orderBookDetails`.                          |
 | Trade ticks          | ✓            | -        | ✓     | `TradeTick`         | WebSocket trades; public `recentTrades` REST history.    |
@@ -245,7 +245,7 @@ queries do not search terminal history, and duplicate active matches fail as amb
 | `MARKET_TO_LIMIT`      | -          | -    | *Not supported*.                                        |
 | `TRAILING_STOP_MARKET` | -          | -    | *Not supported*.                                        |
 | `TRAILING_STOP_LIMIT`  | -          | -    | *Not supported*.                                        |
-| `TWAP`                 | -          | -    | *Not supported*; no Vibe mapping.                   |
+| `TWAP`                 | -          | -    | *Not supported*; no Vibe mapping.                       |
 
 Conditional orders require `trigger_price`. The adapter rejects missing triggers for `STOP_MARKET`
 and `MARKET_IF_TOUCHED`, any trigger that truncates to `0` ticks at the instrument's price
@@ -286,8 +286,8 @@ quote is denied. Override the slippage with `SubmitOrder.params["market_order_sl
 | Param                                      | Perpetuals | Spot | Notes                                               |
 | ------------------------------------------ | ---------- | ---- | --------------------------------------------------- |
 | `market_order_slippage_bps`                | ✓          | ✓    | Overrides the config default for market‑style caps. |
-| `post_only` through `SubmitOrder.params`   | -          | -    | *Not supported*; use the Vibe order flag.       |
-| `reduce_only` through `SubmitOrder.params` | -          | -    | *Not supported*; use the Vibe order flag.       |
+| `post_only` through `SubmitOrder.params`   | -          | -    | *Not supported*; use the Vibe order flag.           |
+| `reduce_only` through `SubmitOrder.params` | -          | -    | *Not supported*; use the Vibe order flag.           |
 
 ### Time in force
 
@@ -334,7 +334,7 @@ them as `INFLIGHT_TIMEOUT` rather than a venue-supplied rejection reason.
 | Iceberg orders     | -          | -    | *Not supported*.                                           |
 | Trailing stops     | -          | -    | *Not supported*.                                           |
 | Pegged orders      | -          | -    | *Not supported*.                                           |
-| TWAP orders        | -          | -    | *Not supported*; no Vibe mapping.                      |
+| TWAP orders        | -          | -    | *Not supported*; no Vibe mapping.                          |
 | Leverage update    | ✓          | -    | Perp only; submits a signed `UpdateLeverage` tx.           |
 | Native cancel‑all  | -          | -    | *Not supported*; adapter scopes cancel‑all per instrument. |
 | Dead man's switch  | -          | -    | *Not supported*.                                           |
@@ -417,7 +417,7 @@ not cause false flat reports.
 | ----------------------- | ---------- | ---- | ------------------------------------------------------------ |
 | Account balances        | ✓          | ✓    | Merged assets + `user_stats`, replayed from cache on query.  |
 | Position snapshots      | ✓          | -    | Perp only; `account_all_positions` stream.                   |
-| Netting positions       | ✓          | -    | One Vibe position per perpetual market.                  |
+| Netting positions       | ✓          | -    | One Vibe position per perpetual market.                      |
 | Cross margin            | ✓          | -    | Passed through `LighterPositionMarginMode::Cross`.           |
 | Isolated margin         | ✓          | -    | Passed through `LighterPositionMarginMode::Isolated`.        |
 | Leverage updates        | ✓          | -    | Signed `UpdateLeverage` transaction.                         |
@@ -617,8 +617,8 @@ endpoints.
 
 | Option                      | Default       | Description                                              |
 | --------------------------- | ------------- | -------------------------------------------------------- |
-| `trader_id`                 | `TRADER-001`  | Vibe trader identifier.                              |
-| `account_id`                | `LIGHTER-001` | Vibe account identifier for the venue.               |
+| `trader_id`                 | `TRADER-001`  | Vibe trader identifier.                                  |
+| `account_id`                | `LIGHTER-001` | Vibe account identifier for the venue.                   |
 | `account_index`             | `None`        | Lighter account index.                                   |
 | `api_key_index`             | `None`        | Lighter API key slot.                                    |
 | `private_key`               | `None`        | Hex private key for auth and L2 transaction signing.     |

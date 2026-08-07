@@ -10,22 +10,22 @@ VibeTrader‑specific choices that are easy to miss during review.
 
 ## Sources of truth
 
-| Concern                    | Source                                             |
-| -------------------------- | -------------------------------------------------- |
-| Formatting and imports.    | `rustfmt.toml`.                                    |
-| Workspace lints.           | `Cargo.toml` and `clippy.toml`.                    |
-| Cargo layout.              | `.pre-commit-hooks/check_cargo_conventions.sh`.    |
-| Rust layout.               | `.pre-commit-hooks/check_formatting_rs.sh`.        |
-| Vibe type conventions. | `.pre-commit-hooks/check_vibe_conventions.sh`. |
-| Async boundaries.          | `.pre-commit-hooks/check_tokio_usage.sh`.          |
-| DST boundaries.            | `.pre-commit-hooks/check_dst_conventions.sh`.      |
-| PyO3 bindings.             | `.pre-commit-hooks/check_pyo3_conventions.sh`.     |
-| Anyhow.                    | `.pre-commit-hooks/check_anyhow_usage.sh`.         |
-| Error names.               | `.pre-commit-hooks/check_error_conventions.sh`.    |
-| Logging.                   | `.pre-commit-hooks/check_logging_conventions.sh`.  |
-| Rustdoc contracts.         | `.pre-commit-hooks/check_docs_conventions.sh`.     |
-| Test style.                | `.pre-commit-hooks/check_testing_conventions.sh`.  |
-| Workspace test selection.  | `scripts/ci/check-workspace-test-coverage.sh`.     |
+| Concern                   | Source                                            |
+| ------------------------- | ------------------------------------------------- |
+| Formatting and imports.   | `rustfmt.toml`.                                   |
+| Workspace lints.          | `Cargo.toml` and `clippy.toml`.                   |
+| Cargo layout.             | `.pre-commit-hooks/check_cargo_conventions.sh`.   |
+| Rust layout.              | `.pre-commit-hooks/check_formatting_rs.sh`.       |
+| Vibe type conventions.    | `.pre-commit-hooks/check_vibe_conventions.sh`.    |
+| Async boundaries.         | `.pre-commit-hooks/check_tokio_usage.sh`.         |
+| DST boundaries.           | `.pre-commit-hooks/check_dst_conventions.sh`.     |
+| PyO3 bindings.            | `.pre-commit-hooks/check_pyo3_conventions.sh`.    |
+| Anyhow.                   | `.pre-commit-hooks/check_anyhow_usage.sh`.        |
+| Error names.              | `.pre-commit-hooks/check_error_conventions.sh`.   |
+| Logging.                  | `.pre-commit-hooks/check_logging_conventions.sh`. |
+| Rustdoc contracts.        | `.pre-commit-hooks/check_docs_conventions.sh`.    |
+| Test style.               | `.pre-commit-hooks/check_testing_conventions.sh`. |
+| Workspace test selection. | `scripts/ci/check-workspace-test-coverage.sh`.    |
 
 Match nearby code when the tools do not settle a choice. Change generator inputs and regenerate
 outputs instead of editing generated files directly.
@@ -165,14 +165,14 @@ the lint does not apply:
 
 ## Type qualification
 
-| Item                          | Convention                                                                  |
-| ----------------------------- | --------------------------------------------------------------------------- |
-| `anyhow`.                     | Import only `anyhow::Context`; fully qualify macros and `Result`.           |
-| Vibe domain types.        | Import the type, then use its short name.                                   |
-| Tokio time, sync, and tasks.  | Fully qualify the path; use `std::time::Duration`.                          |
-| `Debug` and `Display`.        | Import the trait.                                                           |
-| `Formatter` and `fmt::Result` | Use `std::fmt::Formatter` and `std::fmt::Result` at the implementation.     |
-| Vibe macros.              | Import `vibe_actor!` or `vibe_strategy!`, then call it unqualified. |
+| Item                          | Convention                                                              |
+| ----------------------------- | ----------------------------------------------------------------------- |
+| `anyhow`.                     | Import only `anyhow::Context`; fully qualify macros and `Result`.       |
+| Vibe domain types.            | Import the type, then use its short name.                               |
+| Tokio time, sync, and tasks.  | Fully qualify the path; use `std::time::Duration`.                      |
+| `Debug` and `Display`.        | Import the trait.                                                       |
+| `Formatter` and `fmt::Result` | Use `std::fmt::Formatter` and `std::fmt::Result` at the implementation. |
+| Vibe macros.                  | Import `vibe_actor!` or `vibe_strategy!`, then call it unqualified.     |
 
 Use `debug_struct(stringify!(TypeName))` in manual `Debug` implementations.
 
@@ -359,7 +359,7 @@ Use the narrowest mechanism that expresses the contract:
 | Situation                                     | Mechanism                                    |
 | --------------------------------------------- | -------------------------------------------- |
 | Compile‑time state or ownership rule.         | Types, lifetimes, newtypes, and visibility.  |
-| Public input precondition.                    | `check_*` from `vibe_core::correctness`. |
+| Public input precondition.                    | `check_*` from `vibe_core::correctness`.     |
 | Validated value construction.                 | `new_checked()` with a `new()` wrapper.      |
 | Recoverable parse, I/O, or network failure.   | `Result<T, E>`.                              |
 | Internal invariant the compiler cannot prove. | `debug_assert!`, covered by a targeted test. |

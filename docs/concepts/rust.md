@@ -123,8 +123,8 @@ The minimum supported Rust version (MSRV) is **1.97.1**.
 
 ### Feature flags
 
-| Flag             | Crate               | Effect                                                        |
-| ---------------- | ------------------- | ------------------------------------------------------------- |
+| Flag             | Crate           | Effect                                                        |
+| ---------------- | --------------- | ------------------------------------------------------------- |
 | `high-precision` | `vibe-model`    | 16-digit fixed precision (default is 9). Required for crypto. |
 | `stubs`          | `vibe-model`    | Test instrument stubs (`audusd_sim`, etc.).                   |
 | `examples`       | `vibe-trading`  | Example strategies (`EmaCross`, `GridMarketMaker`).           |
@@ -245,8 +245,8 @@ The `OrderApi` (accessed via `self.order()`) builds orders and order lists:
 Rust actors, strategies, and execution algorithms keep their runtime core as a
 struct field. The macros tell the traits where that field lives.
 
-| Macro                                          | Core field               | Generates                      |
-| ---------------------------------------------- | ------------------------ | ------------------------------ |
+| Macro                                      | Core field               | Generates                      |
+| ------------------------------------------ | ------------------------ | ------------------------------ |
 | `vibe_actor!(Type)`                        | `DataActorCore`          | Runtime wiring.                |
 | `vibe_strategy!(Type)`                     | `StrategyCore`           | Runtime wiring and `Strategy`. |
 | `vibe_execution_algorithm!(Type, { ... })` | `ExecutionAlgorithmCore` | Runtime wiring and algorithm.  |

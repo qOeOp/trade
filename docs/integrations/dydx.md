@@ -706,8 +706,8 @@ wallet credentials.
 
 | Option              | Default   | Description                                                                       |
 | ------------------- | --------- | --------------------------------------------------------------------------------- |
-| `trader_id`         | Required  | Vibe trader ID for the client.                                                |
-| `account_id`        | Required  | Vibe account ID for the client.                                               |
+| `trader_id`         | Required  | Vibe trader ID for the client.                                                    |
+| `account_id`        | Required  | Vibe account ID for the client.                                                   |
 | `network`           | `MAINNET` | `DydxNetwork.MAINNET` or `DydxNetwork.TESTNET`.                                   |
 | `private_key`       | `None`    | Hex‑encoded signing key; falls back to the network‑specific environment variable. |
 | `wallet_address`    | `None`    | dYdX wallet address; falls back to the network‑specific environment variable.     |

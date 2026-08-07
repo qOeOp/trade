@@ -41,13 +41,13 @@ Every curated dataset that stores or redistributes a concrete artifact must incl
 These fields match the output of `scripts/curate-dataset.sh`. Additional recommended
 fields for richer provenance:
 
-| Field           | Description                                               |
-| --------------- | --------------------------------------------------------- |
-| `instrument`    | Instrument symbol(s) covered.                             |
-| `date`          | Trading date(s) covered.                                  |
+| Field           | Description                                           |
+| --------------- | ----------------------------------------------------- |
+| `instrument`    | Instrument symbol(s) covered.                         |
+| `date`          | Trading date(s) covered.                              |
 | `format`        | Storage format (e.g., "Vibe OrderBookDelta Parquet"). |
-| `original_file` | Original vendor filename before transformation.           |
-| `parser`        | Parser used for transformation (e.g., "itchy 0.3.4").     |
+| `original_file` | Original vendor filename before transformation.       |
+| `parser`        | Parser used for transformation (e.g., "itchy 0.3.4"). |
 
 User-fetched datasets use the same metadata fields where they apply. They should also include:
 
@@ -186,7 +186,7 @@ Recommended manifest fields:
 | `vendor`            | Vendor or venue name.                                       |
 | `source_type`       | `api`, `portal-download`, `purchased-archive`, etc.         |
 | `source_filters`    | Symbols, event IDs, market IDs, date ranges, or file names. |
-| `target_files`      | Output Vibe Parquet files expected after conversion.    |
+| `target_files`      | Output Vibe Parquet files expected after conversion.        |
 | `cache_dir`         | Local output location relative to `test_data/local/`.       |
 | `fetch_command`     | Suggested command or script entry point.                    |
 | `transform_command` | Suggested local conversion command.                         |

@@ -111,23 +111,23 @@ flowchart TB
 
 ### Order status definitions
 
-| Status             | Description                                                                               |
-| ------------------ | ----------------------------------------------------------------------------------------- |
+| Status             | Description                                                                           |
+| ------------------ | ------------------------------------------------------------------------------------- |
 | `INITIALIZED`      | Order is instantiated within the Vibe system.                                         |
 | `DENIED`           | Order was denied by Vibe for being invalid, unprocessable, or exceeding a risk limit. |
-| `EMULATED`         | Order is being emulated by the `OrderEmulator` component.                                 |
-| `RELEASED`         | Order was released from the `OrderEmulator` component.                                    |
-| `SUBMITTED`        | Order was submitted to the venue (awaiting acknowledgement).                              |
-| `ACCEPTED`         | Order was acknowledged by the venue as received and valid (may now be working).           |
-| `REJECTED`         | Order was rejected by the trading venue.                                                  |
-| `CANCELED`         | Order was canceled (terminal).                                                            |
-| `EXPIRED`          | Order reached its GTD expiration (terminal).                                              |
-| `TRIGGERED`        | Order's STOP price was triggered on the venue.                                            |
-| `PENDING_UPDATE`   | Order is pending a modification request on the venue.                                     |
-| `PENDING_CANCEL`   | Order is pending a cancellation request on the venue.                                     |
-| `PARTIALLY_FILLED` | Order has been partially filled on the venue.                                             |
-| `FILLED`           | Order has been completely filled (terminal).                                              |
-| `VOIDED`           | Order is terminal after an authoritative fill correction.                                 |
+| `EMULATED`         | Order is being emulated by the `OrderEmulator` component.                             |
+| `RELEASED`         | Order was released from the `OrderEmulator` component.                                |
+| `SUBMITTED`        | Order was submitted to the venue (awaiting acknowledgement).                          |
+| `ACCEPTED`         | Order was acknowledged by the venue as received and valid (may now be working).       |
+| `REJECTED`         | Order was rejected by the trading venue.                                              |
+| `CANCELED`         | Order was canceled (terminal).                                                        |
+| `EXPIRED`          | Order reached its GTD expiration (terminal).                                          |
+| `TRIGGERED`        | Order's STOP price was triggered on the venue.                                        |
+| `PENDING_UPDATE`   | Order is pending a modification request on the venue.                                 |
+| `PENDING_CANCEL`   | Order is pending a cancellation request on the venue.                                 |
+| `PARTIALLY_FILLED` | Order has been partially filled on the venue.                                         |
+| `FILLED`           | Order has been completely filled (terminal).                                          |
+| `VOIDED`           | Order is terminal after an authoritative fill correction.                             |
 
 ## Execution instructions
 

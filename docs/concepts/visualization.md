@@ -229,12 +229,12 @@ current equity; otherwise later periods inflate as the running balance grows.
 Themes control the visual styling of charts including colors, fonts, and backgrounds.
 VibeTrader provides four built-in themes:
 
-| Theme Name      | Description                                   | Use Case                       |
-| --------------- | --------------------------------------------- | ------------------------------ |
-| `plotly_white`  | Clean light theme with dark gray headers.     | Default, professional reports. |
-| `plotly_dark`   | Dark background with standard Plotly colors.  | Low‑light environments.        |
-| `vibe`      | Light theme with VibeTrader brand colors. | Official light mode.           |
-| `vibe_dark` | Dark theme with teal/cyan signature colors.   | Official dark mode.            |
+| Theme Name     | Description                                  | Use Case                       |
+| -------------- | -------------------------------------------- | ------------------------------ |
+| `plotly_white` | Clean light theme with dark gray headers.    | Default, professional reports. |
+| `plotly_dark`  | Dark background with standard Plotly colors. | Low‑light environments.        |
+| `vibe`         | Light theme with VibeTrader brand colors.    | Official light mode.           |
+| `vibe_dark`    | Dark theme with teal/cyan signature colors.  | Official dark mode.            |
 
 ### Selecting a theme
 

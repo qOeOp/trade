@@ -176,8 +176,8 @@ The platform allows different OMS configurations for strategies and venues:
 | ------------ | --------- | ---------------------------------------------------------- |
 | `NETTING`    | `NETTING` | Single position per instrument at both strategy and venue. |
 | `HEDGING`    | `HEDGING` | Multiple positions supported at both levels.               |
-| `NETTING`    | `HEDGING` | Venue tracks multiple, Vibe maintains single position. |
-| `HEDGING`    | `NETTING` | Venue tracks single, Vibe maintains virtual positions. |
+| `NETTING`    | `HEDGING` | Venue tracks multiple, Vibe maintains single position.     |
+| `HEDGING`    | `NETTING` | Venue tracks single, Vibe maintains virtual positions.     |
 
 :::tip
 For most trading scenarios, keeping strategy and venue OMS types aligned simplifies

@@ -268,15 +268,15 @@ adapter signs trigger orders with a fixed 31-day expiry; `signature_expiry_secs`
 ordinary `private/order` and `private/replace` writes, and must be greater than the 300s venue
 minimum.
 
-| Vibe order type | Supported | Derive `order_type` | Derive `trigger_type` | Notes                          |
-| ------------------- | --------- | ------------------- | --------------------- | ------------------------------ |
-| `StopMarket`        | ✓         | `market`            | `stoploss`            | Uses trigger price as bound.   |
-| `StopLimit`         | ✓         | `limit`             | `stoploss`            | Sends limit and trigger price. |
-| `MarketIfTouched`   | ✓         | `market`            | `takeprofit`          | Uses trigger price as bound.   |
-| `LimitIfTouched`    | ✓         | `limit`             | `takeprofit`          | Sends limit and trigger price. |
-| `MarketToLimit`     | -         | -                   | -                     | *Not supported by Derive*.     |
-| Trailing stops      | -         | -                   | -                     | *Not supported by Derive*.     |
-| TWAP / algo / RFQ   | -         | -                   | -                     | *Not exposed by this adapter*. |
+| Vibe order type   | Supported | Derive `order_type` | Derive `trigger_type` | Notes                          |
+| ----------------- | --------- | ------------------- | --------------------- | ------------------------------ |
+| `StopMarket`      | ✓         | `market`            | `stoploss`            | Uses trigger price as bound.   |
+| `StopLimit`       | ✓         | `limit`             | `stoploss`            | Sends limit and trigger price. |
+| `MarketIfTouched` | ✓         | `market`            | `takeprofit`          | Uses trigger price as bound.   |
+| `LimitIfTouched`  | ✓         | `limit`             | `takeprofit`          | Sends limit and trigger price. |
+| `MarketToLimit`   | -         | -                   | -                     | *Not supported by Derive*.     |
+| Trailing stops    | -         | -                   | -                     | *Not supported by Derive*.     |
+| TWAP / algo / RFQ | -         | -                   | -                     | *Not exposed by this adapter*. |
 
 The adapter maps Vibe `TriggerType::Default` and `TriggerType::MarkPrice` to Derive
 `trigger_price_type=mark`. Derive's current error-code reference states that index and

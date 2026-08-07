@@ -151,7 +151,7 @@ contract resolution and instrument IDs consistent across both clients.
 | Option                          | Default      | Purpose                                                 |
 | ------------------------------- | ------------ | ------------------------------------------------------- |
 | `symbology_method`              | `SIMPLIFIED` | Select simplified or raw instrument symbols.            |
-| `load_ids`                      | Empty        | Load Vibe instrument IDs at startup.                |
+| `load_ids`                      | Empty        | Load Vibe instrument IDs at startup.                    |
 | `load_contracts`                | Empty        | Load IB contract dictionaries at startup.               |
 | `min_expiry_days`               | `None`       | Set the minimum expiry for chain loading.               |
 | `max_expiry_days`               | `None`       | Set the maximum expiry for chain loading.               |

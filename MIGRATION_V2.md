@@ -23,8 +23,8 @@ See [Installation](docs/getting_started/installation.md) for platform support an
 Core strategy, data, order, risk, portfolio, backtest, and live workflows remain available. Update
 imports and configuration to the new module paths:
 
-| v1 path                                                        | v2 path                                                   |
-| -------------------------------------------------------------- | --------------------------------------------------------- |
+| v1 path                                                    | v2 path                                               |
+| ---------------------------------------------------------- | ----------------------------------------------------- |
 | `vibe_trader.backtest.engine.BacktestEngine`               | `vibe_trader.backtest.BacktestEngine`                 |
 | `vibe_trader.backtest.node.BacktestNode`                   | `vibe_trader.backtest.BacktestNode`                   |
 | `vibe_trader.live.node.TradingNode`                        | `vibe_trader.live.LiveNode`                           |
@@ -80,25 +80,25 @@ V2 uses specific names for component and model identities:
 
 Collection and lifecycle inspection also changes shape:
 
-| v1 member                      | v2 member                                                     |
-| ------------------------------ | ------------------------------------------------------------- |
-| `Order.events`                 | `Order.events()`                                              |
-| `Position.adjustments`         | `Position.adjustments()`                                      |
-| `Position.client_order_ids`    | `Position.client_order_ids()`                                 |
-| `Position.events`              | `Position.events()`                                           |
-| `Position.trade_ids`           | `Position.trade_ids()`                                        |
-| `Position.venue_order_ids`     | `Position.venue_order_ids()`                                  |
-| `OrderList.orders`             | `client_order_ids()`, then resolve each ID through the cache  |
-| `OrderList.first`              | Resolve `first_client_order_id` through the cache             |
-| `Portfolio.initialized`        | `Portfolio.is_initialized()`                                  |
-| `Portfolio.analyzer`           | `statistics()`, `snapshots()`, and `vibe_trader.analysis` |
-| `Actor.state`/`Strategy.state` | `DataActor.state()`/`Strategy.state()`                        |
-| `ExecAlgorithm.state`          | `ExecutionAlgorithm.state` remains a property                 |
-| `Component.is_running`         | `is_running()`                                                |
-| `Component.is_stopped`         | `is_stopped()`                                                |
-| `Component.is_disposed`        | `is_disposed()`                                               |
-| `Component.is_degraded`        | `is_degraded()`                                               |
-| `Component.is_faulted`         | `is_faulted()`                                                |
+| v1 member                      | v2 member                                                    |
+| ------------------------------ | ------------------------------------------------------------ |
+| `Order.events`                 | `Order.events()`                                             |
+| `Position.adjustments`         | `Position.adjustments()`                                     |
+| `Position.client_order_ids`    | `Position.client_order_ids()`                                |
+| `Position.events`              | `Position.events()`                                          |
+| `Position.trade_ids`           | `Position.trade_ids()`                                       |
+| `Position.venue_order_ids`     | `Position.venue_order_ids()`                                 |
+| `OrderList.orders`             | `client_order_ids()`, then resolve each ID through the cache |
+| `OrderList.first`              | Resolve `first_client_order_id` through the cache            |
+| `Portfolio.initialized`        | `Portfolio.is_initialized()`                                 |
+| `Portfolio.analyzer`           | `statistics()`, `snapshots()`, and `vibe_trader.analysis`    |
+| `Actor.state`/`Strategy.state` | `DataActor.state()`/`Strategy.state()`                       |
+| `ExecAlgorithm.state`          | `ExecutionAlgorithm.state` remains a property                |
+| `Component.is_running`         | `is_running()`                                               |
+| `Component.is_stopped`         | `is_stopped()`                                               |
+| `Component.is_disposed`        | `is_disposed()`                                              |
+| `Component.is_degraded`        | `is_degraded()`                                              |
+| `Component.is_faulted`         | `is_faulted()`                                               |
 
 V1 `is_initialized` means that a component has advanced beyond `PRE_INITIALIZED`. V2 `is_ready()`
 means exactly `READY`, so it is not an equivalent replacement while a component is running,

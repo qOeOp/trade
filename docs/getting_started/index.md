@@ -61,9 +61,9 @@ API level.
 The online documentation shows a subset of examples. For the full set, see the
 repository on GitHub:
 
-| Directory                                                                            | Contains                                                    |
-| :----------------------------------------------------------------------------------- | :---------------------------------------------------------- |
+| Directory                                                      | Contains                                                    |
+| :------------------------------------------------------------- | :---------------------------------------------------------- |
 | [examples/](https://github.com/qOeOp/trade/tree/main/examples) | Runnable Python examples organized by environment           |
-| [docs/tutorials/](../tutorials/)                                                     | Tutorials demonstrating common workflows                    |
-| [docs/concepts/](../concepts/)                                                       | Concept guides with code snippets illustrating key features |
-| [python/tests/unit/](../../python/tests/unit/)                                       | Unit tests covering core functionality and edge cases       |
+| [docs/tutorials/](../tutorials/)                               | Tutorials demonstrating common workflows                    |
+| [docs/concepts/](../concepts/)                                 | Concept guides with code snippets illustrating key features |
+| [python/tests/unit/](../../python/tests/unit/)                 | Unit tests covering core functionality and edge cases       |

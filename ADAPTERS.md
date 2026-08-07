@@ -6,27 +6,27 @@ authentication, venue-specific parsing, and client wiring.
 
 ## Current adapters
 
-| Adapter | Capability |
-| --- | --- |
-| Architect (AX) | Data and execution |
-| Betfair | Data and execution |
-| Binance | Data and execution |
-| Blockchain | Data |
-| BitMEX | Data and execution |
-| Bybit | Data and execution |
-| Coinbase | Data and execution |
-| Databento | Data |
-| Deribit | Data and execution |
-| Derive | Data and execution |
-| dYdX | Data and execution |
-| Hyperliquid | Data and execution |
+| Adapter             | Capability         |
+| ------------------- | ------------------ |
+| Architect (AX)      | Data and execution |
+| Betfair             | Data and execution |
+| Binance             | Data and execution |
+| Blockchain          | Data               |
+| BitMEX              | Data and execution |
+| Bybit               | Data and execution |
+| Coinbase            | Data and execution |
+| Databento           | Data               |
+| Deribit             | Data and execution |
+| Derive              | Data and execution |
+| dYdX                | Data and execution |
+| Hyperliquid         | Data and execution |
 | Interactive Brokers | Data and execution |
-| Kraken | Data and execution |
-| Lighter | Data and execution |
-| OKX | Data and execution |
-| Polymarket | Data and execution |
-| Sandbox | Execution |
-| Tardis | Data |
+| Kraken              | Data and execution |
+| Lighter             | Data and execution |
+| OKX                 | Data and execution |
+| Polymarket          | Data and execution |
+| Sandbox             | Execution          |
+| Tardis              | Data               |
 
 ## Adapter requirements
 

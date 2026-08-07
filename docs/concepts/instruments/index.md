@@ -76,30 +76,30 @@ flowchart TD
 Most concrete instruments share the same core shape. Individual type pages list the
 complete constructor and struct fields for that type.
 
-| Field             | Meaning                                                             |
-| ----------------- | ------------------------------------------------------------------- |
-| `id`              | Vibe `InstrumentId`, formed from a symbol and venue.            |
-| `raw_symbol`      | Native venue symbol before Vibe normalization.                  |
-| `price_precision` | Number of decimal places allowed for prices.                        |
-| `size_precision`  | Number of decimal places allowed for quantities.                    |
-| `price_increment` | Smallest valid price step.                                          |
-| `size_increment`  | Smallest valid quantity step.                                       |
-| `multiplier`      | Contract multiplier used in notional and PnL calculations.          |
-| `lot_size`        | Rounded lot or board size when the venue publishes one.             |
-| `margin_init`     | Initial margin rate as a decimal fraction of notional value.        |
-| `margin_maint`    | Maintenance margin rate as a decimal fraction of notional value.    |
-| `maker_fee`       | Maker fee rate. Negative values represent rebates.                  |
-| `taker_fee`       | Taker fee rate. Negative values represent rebates.                  |
-| `max_quantity`    | Maximum order quantity when known.                                  |
-| `min_quantity`    | Minimum order quantity when known.                                  |
-| `max_notional`    | Maximum order notional value when known.                            |
-| `min_notional`    | Minimum order notional value when known.                            |
-| `max_price`       | Maximum valid quote or order price when known.                      |
-| `min_price`       | Minimum valid quote or order price when known.                      |
-| `info`            | Adapter metadata preserved from the venue or data source.           |
-| `ts_event`        | UNIX nanosecond timestamp for when the definition event occurred.   |
-| `ts_init`         | UNIX nanosecond timestamp for when Vibe initialized the object. |
-| `tick_scheme`     | Registered variable tick scheme name where the type supports one.   |
+| Field             | Meaning                                                           |
+| ----------------- | ----------------------------------------------------------------- |
+| `id`              | Vibe `InstrumentId`, formed from a symbol and venue.              |
+| `raw_symbol`      | Native venue symbol before Vibe normalization.                    |
+| `price_precision` | Number of decimal places allowed for prices.                      |
+| `size_precision`  | Number of decimal places allowed for quantities.                  |
+| `price_increment` | Smallest valid price step.                                        |
+| `size_increment`  | Smallest valid quantity step.                                     |
+| `multiplier`      | Contract multiplier used in notional and PnL calculations.        |
+| `lot_size`        | Rounded lot or board size when the venue publishes one.           |
+| `margin_init`     | Initial margin rate as a decimal fraction of notional value.      |
+| `margin_maint`    | Maintenance margin rate as a decimal fraction of notional value.  |
+| `maker_fee`       | Maker fee rate. Negative values represent rebates.                |
+| `taker_fee`       | Taker fee rate. Negative values represent rebates.                |
+| `max_quantity`    | Maximum order quantity when known.                                |
+| `min_quantity`    | Minimum order quantity when known.                                |
+| `max_notional`    | Maximum order notional value when known.                          |
+| `min_notional`    | Minimum order notional value when known.                          |
+| `max_price`       | Maximum valid quote or order price when known.                    |
+| `min_price`       | Minimum valid quote or order price when known.                    |
+| `info`            | Adapter metadata preserved from the venue or data source.         |
+| `ts_event`        | UNIX nanosecond timestamp for when the definition event occurred. |
+| `ts_init`         | UNIX nanosecond timestamp for when Vibe initialized the object.   |
+| `tick_scheme`     | Registered variable tick scheme name where the type supports one. |
 
 ## Symbology
 

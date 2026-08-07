@@ -80,7 +80,7 @@ The adapter decodes DBN data to Vibe objects. The same Rust decoder handles:
 
 The following Databento schemas are supported by VibeTrader:
 
-| Databento schema                                                             | Vibe data type               | Description                     |
+| Databento schema                                                             | Vibe data type                   | Description                     |
 | :--------------------------------------------------------------------------- | :------------------------------- | :------------------------------ |
 | [MBO](https://databento.com/docs/schemas-and-data-formats/mbo)               | `OrderBookDelta`                 | Market by order (L3).           |
 | [MBP_1](https://databento.com/docs/schemas-and-data-formats/mbp-1)           | `(QuoteTick, TradeTick \| None)` | Market by price (L1).           |
@@ -220,13 +220,13 @@ already carries the data needed by the strategy.
 
 Vibe subscription methods map to Databento schemas as follows:
 
-| Vibe subscription method | Default schema | Available Databento schemas                                                  | Vibe data type |
-| :--------------------------- | :------------- | :--------------------------------------------------------------------------- | :----------------- |
-| `subscribe_quotes()`         | `mbp-1`        | `mbp-1`, `bbo-1s`, `bbo-1m`, `cmbp-1`, `cbbo-1s`, `cbbo-1m`, `tbbo`, `tcbbo` | `QuoteTick`        |
-| `subscribe_trades()`         | `trades`       | `trades`, `tbbo`, `tcbbo`, `mbp-1`, `cmbp-1`                                 | `TradeTick`        |
-| `subscribe_book_depth10()`   | `mbp-10`       | `mbp-10`                                                                     | `OrderBookDepth10` |
-| `subscribe_book_deltas()`    | `mbo`          | `mbo`                                                                        | `OrderBookDeltas`  |
-| `subscribe_bars()`           | varies         | `ohlcv-1s`, `ohlcv-1m`, `ohlcv-1h`, `ohlcv-1d`                               | `Bar`              |
+| Vibe subscription method   | Default schema | Available Databento schemas                                                  | Vibe data type     |
+| :------------------------- | :------------- | :--------------------------------------------------------------------------- | :----------------- |
+| `subscribe_quotes()`       | `mbp-1`        | `mbp-1`, `bbo-1s`, `bbo-1m`, `cmbp-1`, `cbbo-1s`, `cbbo-1m`, `tbbo`, `tcbbo` | `QuoteTick`        |
+| `subscribe_trades()`       | `trades`       | `trades`, `tbbo`, `tcbbo`, `mbp-1`, `cmbp-1`                                 | `TradeTick`        |
+| `subscribe_book_depth10()` | `mbp-10`       | `mbp-10`                                                                     | `OrderBookDepth10` |
+| `subscribe_book_deltas()`  | `mbo`          | `mbo`                                                                        | `OrderBookDeltas`  |
+| `subscribe_bars()`         | varies         | `ohlcv-1s`, `ohlcv-1m`, `ohlcv-1h`, `ohlcv-1d`                               | `Bar`              |
 
 :::warning
 The "Available Databento schemas" column lists adapter-supported choices for
@@ -481,17 +481,17 @@ Databento uses a single schema for all instrument classes. The decoder maps each
 to the appropriate Vibe `Instrument` type.
 
 | Databento instrument class | Code | Vibe instrument type |
-| -------------------------- | ---- | ------------------------ |
-| Stock                      | `K`  | `Equity`                 |
-| Future                     | `F`  | `FuturesContract`        |
-| Call                       | `C`  | `OptionContract`         |
-| Put                        | `P`  | `OptionContract`         |
-| Future spread              | `S`  | `FuturesSpread`          |
-| Option spread              | `T`  | `OptionSpread`           |
-| Mixed spread               | `M`  | `OptionSpread`           |
-| FX spot                    | `X`  | `CurrencyPair`           |
-| Index                      | `I`  | Not yet available        |
-| Bond                       | `B`  | Not yet available        |
+| -------------------------- | ---- | -------------------- |
+| Stock                      | `K`  | `Equity`             |
+| Future                     | `F`  | `FuturesContract`    |
+| Call                       | `C`  | `OptionContract`     |
+| Put                        | `P`  | `OptionContract`     |
+| Future spread              | `S`  | `FuturesSpread`      |
+| Option spread              | `T`  | `OptionSpread`       |
+| Mixed spread               | `M`  | `OptionSpread`       |
+| FX spot                    | `X`  | `CurrencyPair`       |
+| Index                      | `I`  | Not yet available    |
+| Bond                       | `B`  | Not yet available    |
 
 ### Option expiration correction
 

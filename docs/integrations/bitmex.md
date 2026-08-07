@@ -225,10 +225,10 @@ BitMEX supports multiple reference prices to evaluate stop/conditional order tri
 Choose the trigger type that matches your strategy and/or risk preferences.
 
 | Reference price | Vibe `TriggerType` | BitMEX value | Notes                                                                           |
-| --------------- | ---------------------- | ------------ | ------------------------------------------------------------------------------- |
-| Last trade      | `LAST_PRICE`           | `LastPrice`  | BitMEX default; triggers on the last traded price.                              |
-| Mark price      | `MARK_PRICE`           | `MarkPrice`  | Recommended for many stop‑loss use cases to reduce stop‑outs from price spikes. |
-| Index price     | `INDEX_PRICE`          | `IndexPrice` | Tracks the external index; useful for some contracts.                           |
+| --------------- | ------------------ | ------------ | ------------------------------------------------------------------------------- |
+| Last trade      | `LAST_PRICE`       | `LastPrice`  | BitMEX default; triggers on the last traded price.                              |
+| Mark price      | `MARK_PRICE`       | `MarkPrice`  | Recommended for many stop‑loss use cases to reduce stop‑outs from price spikes. |
+| Index price     | `INDEX_PRICE`      | `IndexPrice` | Tracks the external index; useful for some contracts.                           |
 
 - If no `trigger_type` is provided, BitMEX uses its venue default (`LastPrice`).
 - These trigger references are exchange-evaluated; the order remains resting at the venue until triggered.

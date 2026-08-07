@@ -331,12 +331,12 @@ Separate venue symbols from Vibe `InstrumentId` values. A symbol module commonly
 
 Choose the mapping from the venue's identity scheme:
 
-| Venue identity                                      | Vibe representation                         | Example                                             |
-| --------------------------------------------------- | ----------------------------------------------- | --------------------------------------------------- |
-| Native symbol distinguishes the product             | Preserve the symbol and add the venue.          | `BTC-USDT-SWAP` -> `BTC-USDT-SWAP.OKX`.             |
-| Raw symbol is reused across product families        | Add and validate a stable product suffix.       | Bybit linear `BTCUSDT` -> `BTCUSDT-LINEAR.BYBIT`.   |
-| Vibe and the venue use different contract marks | Implement both directions at one boundary.      | Binance USD‑M `BTCUSDT` -> `BTCUSDT-PERP.BINANCE`.  |
-| Transport casing differs from canonical identity    | Convert only when building the transport value. | Binance stream `BTCUSDT-PERP.BINANCE` -> `btcusdt`. |
+| Venue identity                                   | Vibe representation                             | Example                                             |
+| ------------------------------------------------ | ----------------------------------------------- | --------------------------------------------------- |
+| Native symbol distinguishes the product          | Preserve the symbol and add the venue.          | `BTC-USDT-SWAP` -> `BTC-USDT-SWAP.OKX`.             |
+| Raw symbol is reused across product families     | Add and validate a stable product suffix.       | Bybit linear `BTCUSDT` -> `BTCUSDT-LINEAR.BYBIT`.   |
+| Vibe and the venue use different contract marks  | Implement both directions at one boundary.      | Binance USD‑M `BTCUSDT` -> `BTCUSDT-PERP.BINANCE`.  |
+| Transport casing differs from canonical identity | Convert only when building the transport value. | Binance stream `BTCUSDT-PERP.BINANCE` -> `btcusdt`. |
 
 The [`BybitSymbol`](../../crates/adapters/bybit/src/common/symbol.rs) wrapper and
 [Binance symbol conversions](../../crates/adapters/binance/src/common/symbol.rs) show the suffix
@@ -608,9 +608,9 @@ Keep this policy independent of the HTTP or WebSocket path used to send a comman
 
 A common design has two layers:
 
-| Layer         | Accepts                            | Returns                                       | Owns                                                               |
-| ------------- | ---------------------------------- | --------------------------------------------- | ------------------------------------------------------------------ |
-| Raw client    | Venue request and query types.     | Venue response models.                        | Transport, authentication, rate limits, and exact wire encoding.   |
+| Layer         | Accepts                        | Returns                                       | Owns                                                               |
+| ------------- | ------------------------------ | --------------------------------------------- | ------------------------------------------------------------------ |
+| Raw client    | Venue request and query types. | Venue response models.                        | Transport, authentication, rate limits, and exact wire encoding.   |
 | Domain client | Vibe identifiers and commands. | Domain objects, reports, or acknowledgements. | Operation semantics, parsing context, caching, and domain mapping. |
 
 Use one layer when the protocol is small and the split would only add forwarding methods. Split by
@@ -1079,7 +1079,7 @@ important. The Lighter and Derive suites provide the reference structure:
 
 | Suite               | Canonical boundary                                                                                                   | Reference                                                                                                                            |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `benches/data.rs`   | Raw venue frame or payload through decoding, parsing, cache lookup where required, and Vibe domain construction. | [Lighter data](../../crates/adapters/lighter/benches/data.rs), [Derive data](../../crates/adapters/derive/benches/data.rs)           |
+| `benches/data.rs`   | Raw venue frame or payload through decoding, parsing, cache lookup where required, and Vibe domain construction.     | [Lighter data](../../crates/adapters/lighter/benches/data.rs), [Derive data](../../crates/adapters/derive/benches/data.rs)           |
 | `benches/exec.rs`   | Order command through serialization and signing; where applicable, inbound execution payload through event dispatch. | [Lighter execution](../../crates/adapters/lighter/benches/exec.rs), [Derive execution](../../crates/adapters/derive/benches/exec.rs) |
 | `benches/micros.rs` | Decode‑only, parse‑only, and focused component costs that localize a regression found at a pipeline boundary.        | [Lighter micros](../../crates/adapters/lighter/benches/micros.rs), [Derive micros](../../crates/adapters/derive/benches/micros.rs)   |
 
@@ -1135,7 +1135,7 @@ Canonical adapter wiring is:
 
 | Surface                                                    | Required wiring                                                                    | Enforcement or use                                                            |
 | ---------------------------------------------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Adapter `[features]`                                       | `fuzz = ["vibe-live/fuzz"]`                                                    | Enables the shared fuzz support without changing normal builds.               |
+| Adapter `[features]`                                       | `fuzz = ["vibe-live/fuzz"]`                                                        | Enables the shared fuzz support without changing normal builds.               |
 | Adapter `[package.metadata]`                               | `cargo-fuzz = true`                                                                | Lets `cargo fuzz` treat the adapter manifest as a fuzz package.               |
 | Adapter `[[bin]]`                                          | One entry per target with the `fuzz` feature and `test`, `doc`, and `bench` false. | Registers discoverable binaries without adding them to ordinary test runs.    |
 | `fuzz/fuzz_targets/`                                       | Focused targets below live network and runtime layers.                             | Keeps arbitrary input at the parser, codec, normalization, or model boundary. |

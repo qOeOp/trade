@@ -44,14 +44,14 @@ VibeTrader integration guide.
 The production catalog currently contains perpetual contracts across these venue categories:
 
 | Venue category   | Examples                     | Vibe asset class |
-| ---------------- | ---------------------------- | -------------------- |
-| Foreign exchange | `EURUSD-PERP`, `JPYUSD-PERP` | FX                   |
-| Equities         | `AAPL-PERP`, `NVDA-PERP`     | Equity               |
-| Energy ETFs      | `USO-PERP`, `UNG-PERP`       | Equity               |
-| Metals           | `XAU-PERP`, `XAG-PERP`       | Commodity            |
-| Energy           | `WTI-PERP`                   | Commodity            |
-| Treasuries       | `UST10Y-PERP`                | Debt                 |
-| Compute          | `OCPI-H100-PERP`             | Alternative          |
+| ---------------- | ---------------------------- | ---------------- |
+| Foreign exchange | `EURUSD-PERP`, `JPYUSD-PERP` | FX               |
+| Equities         | `AAPL-PERP`, `NVDA-PERP`     | Equity           |
+| Energy ETFs      | `USO-PERP`, `UNG-PERP`       | Equity           |
+| Metals           | `XAU-PERP`, `XAG-PERP`       | Commodity        |
+| Energy           | `WTI-PERP`                   | Commodity        |
+| Treasuries       | `UST10Y-PERP`                | Debt             |
+| Compute          | `OCPI-H100-PERP`             | Alternative      |
 
 The sandbox also lists dated gold contracts such as `XAU-2026-SEP` and `XAU-2026-DEC`.
 
@@ -82,10 +82,10 @@ The adapter preserves each AX symbol and appends the Vibe venue identifier `.AX`
 symbols use the `-PERP` suffix. Dated symbols include their year and contract month.
 
 | Contract     | AX Symbol      | Vibe InstrumentId |
-| ------------ | -------------- | --------------------- |
-| EUR/USD perp | `EURUSD-PERP`  | `EURUSD-PERP.AX`      |
-| Gold perp    | `XAU-PERP`     | `XAU-PERP.AX`         |
-| Dated gold   | `XAU-2026-SEP` | `XAU-2026-SEP.AX`     |
+| ------------ | -------------- | ----------------- |
+| EUR/USD perp | `EURUSD-PERP`  | `EURUSD-PERP.AX`  |
+| Gold perp    | `XAU-PERP`     | `XAU-PERP.AX`     |
+| Dated gold   | `XAU-2026-SEP` | `XAU-2026-SEP.AX` |
 
 The venue identifier is `AX`. To construct a Vibe `InstrumentId`:
 
@@ -155,7 +155,7 @@ for historical data backfill.
 
 ### Data types
 
-| AX Data           | Vibe Data Type  | Notes                                                             |
+| AX Data           | Vibe Data Type      | Notes                                                             |
 | ----------------- | ------------------- | ----------------------------------------------------------------- |
 | Order book (L1)   | `QuoteTick`         | Best bid/ask top‑of‑book from L1 book subscription.               |
 | Order book (L2)   | `OrderBookDelta`    | Aggregated price levels.                                          |

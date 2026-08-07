@@ -588,7 +588,7 @@ instrument_provider = InstrumentProviderConfig(
 The adapter supports the following data subscriptions. All perpetual data types
 (mark prices, index prices, funding rates) apply to both standard and HIP-3 perps.
 
-| Data type         | Sub. | Snapshot | Hist. | Vibe type                 | Notes                                            |
+| Data type         | Sub. | Snapshot | Hist. | Vibe type                     | Notes                                            |
 | ----------------- | ---- | -------- | ----- | ----------------------------- | ------------------------------------------------ |
 | Trade ticks       | ✓    | -        | ✓     | `TradeTick`                   | WebSocket trades; `recentTrades`.                |
 | Public trades     | ✓    | -        | ✓     | `HyperliquidPublicTrade`      | Opt‑in custom data with counterparties and hash. |
@@ -685,7 +685,7 @@ in `metadata["instrument_id"]`:
 
 | Field           | Type           | Description                                                                |
 | --------------- | -------------- | -------------------------------------------------------------------------- |
-| `instrument_id` | `InstrumentId` | Canonical Vibe instrument ID.                                          |
+| `instrument_id` | `InstrumentId` | Canonical Vibe instrument ID.                                              |
 | `open_interest` | `Decimal`      | Open interest parsed for direct arithmetic use.                            |
 | `ts_event`      | `int`          | UNIX timestamp in nanoseconds when the update occurred. Mirrors `ts_init`. |
 | `ts_init`       | `int`          | UNIX timestamp in nanoseconds when the object was built.                   |
@@ -756,7 +756,7 @@ entries they need:
 | Field             | Type                              | Description                                                                |
 | ----------------- | --------------------------------- | -------------------------------------------------------------------------- |
 | `dex`             | `str`                             | Perp dex identifier from Hyperliquid `perpDexs`. `""` is the default dex.  |
-| `instrument_id`   | `InstrumentId`                    | Canonical Vibe instrument ID for the entry.                            |
+| `instrument_id`   | `InstrumentId`                    | Canonical Vibe instrument ID for the entry.                                |
 | `mark_price`      | `Price`                           | Current mark price.                                                        |
 | `oracle_price`    | `Price`                           | Current oracle / index reference price.                                    |
 | `prev_day_price`  | `Price`                           | Previous day reference price from the venue payload.                       |
@@ -1270,7 +1270,7 @@ match the venue limit.
 | `http_timeout_secs`            | `60`      | Timeout (seconds) applied to REST calls.                                                                                                         |
 | `ws_post_timeout_secs`         | `10`      | Timeout (seconds) applied to WebSocket post trading requests.                                                                                    |
 | `normalize_prices`             | `True`    | Normalize order prices to 5 significant figures before submission.                                                                               |
-| `include_builder_attribution`  | `True`    | Include zero‑fee Vibe builder attribution on eligible mainnet orders.                                                                        |
+| `include_builder_attribution`  | `True`    | Include zero‑fee Vibe builder attribution on eligible mainnet orders.                                                                            |
 | `market_order_slippage_bps`    | `50`      | Slippage buffer (bps) applied to MARKET and stop trigger derivations. Overridable per‑order via `SubmitOrder.params`.                            |
 | `outcome_settlement_poll_secs` | `0`       | HIP‑4 `outcomeMeta` settlement poll interval (seconds). Rust‑only; venue `Settlement` fills cover settlement, so polling is disabled by default. |
 | `proxy_url`                    | `None`    | Optional proxy URL for HTTP and WebSocket transports.                                                                                            |

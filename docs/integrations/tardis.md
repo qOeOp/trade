@@ -48,7 +48,7 @@ VibeTrader does not support exchange-native Tardis market data formats in this a
 The following normalized Tardis Machine formats are supported by VibeTrader. See the official
 [Tardis data type reference](https://docs.tardis.dev/tardis-machine/data-types) for field schemas.
 
-| Tardis format       | Vibe data type                                                |
+| Tardis format       | Vibe data type                                                    |
 | :------------------ | :---------------------------------------------------------------- |
 | `book_change`       | `OrderBookDelta`                                                  |
 | `book_snapshot_*`   | `OrderBookDepth10` or `OrderBookDeltas`                           |
@@ -82,12 +82,12 @@ The adapter converts Tardis trade bar intervals and suffixes to Vibe `BarType`s.
 This includes the following:
 
 | Tardis suffix | Meaning         | Vibe bar aggregation |
-| :------------ | :-------------- | :----------------------- |
-| `ms`          | Milliseconds    | `MILLISECOND`            |
-| `s`           | Seconds         | `SECOND`                 |
-| `m`           | Minutes         | `MINUTE`                 |
-| `ticks`       | Number of ticks | `TICK`                   |
-| `vol`         | Volume size     | `VOLUME`                 |
+| :------------ | :-------------- | :------------------- |
+| `ms`          | Milliseconds    | `MILLISECOND`        |
+| `s`           | Seconds         | `SECOND`             |
+| `m`           | Minutes         | `MINUTE`             |
+| `ticks`       | Number of ticks | `TICK`               |
+| `vol`         | Volume size     | `VOLUME`             |
 
 ## Symbology and normalization
 
@@ -121,7 +121,7 @@ For detailed symbology documentation per exchange:
 Some exchanges on Tardis are partitioned into multiple venues.
 The table below outlines the mappings between Vibe venues and corresponding Tardis exchanges:
 
-| Vibe venue     | Tardis exchange(s)                                                  |
+| Vibe venue         | Tardis exchange(s)                                                  |
 | :----------------- | :------------------------------------------------------------------ |
 | `ASCENDEX`         | `ascendex`                                                          |
 | `BINANCE`          | `binance`, `binance-dex`, `binance-futures`, `binance-options`      |
@@ -281,7 +281,7 @@ An example configuration file is available at `crates/adapters/tardis/bin/exampl
 The `book_snapshot_output` configuration option controls how Tardis `book_snapshot_*` messages are
 converted and stored.
 
-| Value     | Vibe type      | Output directory     | Description                           |
+| Value     | Vibe type          | Output directory     | Description                           |
 | :-------- | :----------------- | :------------------- | :------------------------------------ |
 | `deltas`  | `OrderBookDeltas`  | `order_book_deltas/` | Price level updates.                  |
 | `depth10` | `OrderBookDepth10` | `order_book_depths/` | Snapshots with up to 10 price levels. |

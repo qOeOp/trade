@@ -25,7 +25,7 @@ a static library and linked automatically during the build.
 | Futures         | `public/instruments`         | Yes  | Yes  | Dated futures contracts.                  |
 | Options         | `public/instruments`         | Yes  | Yes  | Limit‑style order execution.              |
 | Spreads         | `sprd/spreads`               | Yes  | Yes  | Snapshots, quotes, trades on business WS. |
-| Event contracts | `event-contract/*` endpoints | Yes  | Yes  | Parsed as Vibe `BinaryOption`.        |
+| Event contracts | `event-contract/*` endpoints | Yes  | Yes  | Parsed as Vibe `BinaryOption`.            |
 
 Relevant OKX docs:
 
@@ -271,7 +271,7 @@ Pass RPI controls through the `submit_order`, `submit_order_list`, or `modify_or
 
 | Parameter          | Type   | Operations                    | Behavior                                                        |
 | ------------------ | ------ | ----------------------------- | --------------------------------------------------------------- |
-| `rpi`              | `bool` | Place and batch place         | Sends `ordType: rpi`; the Vibe order must be `LIMIT`.       |
+| `rpi`              | `bool` | Place and batch place         | Sends `ordType: rpi`; the Vibe order must be `LIMIT`.           |
 | `rpi_taker_access` | `bool` | Place and amend, single/batch | Lets a standard order take RPI liquidity.                       |
 | `rpi_px_round`     | `bool` | Place and amend, single/batch | Lets OKX round an RPI maker price outward to an eligible level. |
 
@@ -1081,8 +1081,8 @@ The OKX execution client provides the following configuration options:
 | ------------------------ | --------------------------- | ------------------------------------------- |
 | `instrument_types`       | `(OKXInstrumentType.SPOT,)` | Tradable OKX instrument types.              |
 | `load_spreads`           | `False`                     | Loads live spread instruments.              |
-| `trader_id`              | Required                    | Vibe trader ID for the client.          |
-| `account_id`             | Required                    | Vibe account ID for the client.         |
+| `trader_id`              | Required                    | Vibe trader ID for the client.              |
+| `account_id`             | Required                    | Vibe account ID for the client.             |
 | `base_url_http`          | `None`                      | Override for the OKX trading REST endpoint. |
 | `base_url_ws_private`    | `None`                      | Override for the private WebSocket URL.     |
 | `base_url_ws_business`   | `None`                      | Override for the business WebSocket URL.    |
