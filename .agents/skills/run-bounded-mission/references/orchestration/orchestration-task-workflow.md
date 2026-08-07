@@ -246,12 +246,16 @@ from wording or a legacy prefix.
 
 The packet owns one stable label matching `[A-Z]{3}-[0-9]{2}` and one title formed exactly as
 `<label> · <short description>`. Its code must be a current canonical member and its number must be
-`01` through `99`. Within the current Hub wave, close the numbering scope over the complete current
-proposed/approved Goal/DAG-node inventory, every bound create attempt or receipt, and one bounded live
-native Task observation for the exact current-wave identities. The packet owner assigns the lowest unused
-display serial in that closed scope within the canonical code; different codes each begin at `01`.
+`01` through `99`. Close the numbering scope over the current mode's authoritative dispatch set. In
+`single`, that set is the one follow-up packet retained by the current foreground Mission plus its
+causally bound approval, create attempt, receipt, and exact live identity facts; that Mission's current
+effecting turn is the sole dispatcher, with no Goal, DAG, Hub checkpoint, or Hub-wave binding. In `hub`,
+the set is the complete current proposed/approved Goal/DAG-node inventory plus every bound attempt,
+receipt, and exact live identity fact in the Hub checkpoint; the packet binds the one exact Hub
+dispatcher. Unknown or mixed mode freezes creation. The packet owner assigns the lowest unused display
+serial in that closed scope within the canonical code; different codes each begin at `01`.
 Freeze it across edits, consent, creation, recovery, and continuation of that causally identical
-Mission. A same-code collision in the current wave, exhausted range, missing node, missing or duplicate
+Mission. A same-code collision in the current dispatch set, exhausted range, missing node, missing or duplicate
 attempt/receipt, or unresolved relevant live identity defers only the affected assignment or release to
 main. `threadId`/`hostId`, never title or serial, owns native identity. The serial is display metadata:
 never derive identity, priority, order, dependency, or retry count from it and never add a counter
@@ -291,8 +295,10 @@ covering setter through release receipt and excluding title/message interleave. 
 additionally requires an explicit host guarantee that
 the exact title is committed before child execution and a causally bound exact identity/title receipt;
 field exposure is insufficient. Freeze the create-time capability branch, its exact call shapes, one
-exact Hub dispatcher identity, its host-serialized single-effecting-turn guarantee, and the closed
-current-wave inventory predicate into the editable packet. Missing, ambiguous, concurrent, or
+mode-scoped dispatcher authority, its host-serialized single-effecting-turn guarantee, and the closed
+authoritative dispatch-set predicate into the editable packet. For `single`, bind the current Mission's
+causal approval and current effecting turn; for `hub`, bind the exact Hub dispatcher and current wave.
+Missing, ambiguous, concurrent, or
 non-targetable controls keep it `deferred` or `host-defect/no-change`; a later contract or branch change
 is a material packet revision and requires the complete packet to be presented and approved again.
 
@@ -376,22 +382,27 @@ DAG, write ownership, user-visible Mission model authority, or task consent; it 
 route table. Ordinary route telemetry stays with the child and is fanned into the Hub only in its
 terminal receipt unless it proves a real exception or structural gap.
 
-Immediately before each create, call `list_threads` once within the host's bounded limit. Reconcile the
-closed current-wave set: complete proposed/approved Goal/DAG nodes, all attempts/receipts, frozen
-type/title/owner/write facts, and the raw result for every bound `threadId`/`hostId`. This does not require
-globally paginating historical titles. A missing/duplicate wave member, receipt or exact identity,
+Immediately before each create, close the mode-scoped authoritative dispatch set from the current
+packet/checkpoint and its causally bound attempts and receipts, not from title inventory. For every
+already-bound `threadId`/`hostId` relevant to the proposed node or an owner/write collision, perform one
+exact-identity readback; an unavailable or mismatched read freezes only the affected create. Then call
+`list_threads` once within the host's bounded limit as a collision observation. Its result may add an
+observed relevant live fact, but absence from that bounded result proves neither absence nor completeness
+and is never a missing-member error; do not paginate, repeat, or wait for a larger inventory. Explicit
+truncation, saturation, or another completeness gap freezes only a decision that actually depends on an
+unobserved result. A missing/duplicate authoritative member, attempt, receipt or exact identity,
 overlapping writer, unresolved same-node attempt, or drift revises only the affected packet and requires
 fresh approval. A `clientThreadId` blocks a second create for its node; unrelated or same-title results
-cannot join the wave. Revalidate remaining facts, source tip, the packet's one exact Hub dispatcher, and
-the host guarantee that only one effecting turn for that dispatcher can issue the node's create. Any
-second creator binding, concurrent effecting turn, or unavailable serialization guarantee returns
+cannot join the dispatch set. Revalidate remaining facts, source tip, the mode-scoped dispatcher, and the
+host guarantee that only one effecting turn for that dispatcher can issue the node's create. Any second
+creator binding, concurrent effecting turn, or unavailable serialization guarantee returns
 `host-defect/no-change` before create. This is a pre-create gate, not identity mapping, global-history
 scan, host-wide lock, or polling.
 
-Reobserve the approved Task-control contracts. Any schema, targetability, current-wave scope, or
+Reobserve the approved Task-control contracts. Any schema, targetability, mode-scoped dispatch set, or
 atomic-create/child-current-task/dispatcher-held branch drift materially revises the packet and requires
 fresh approval before an attempt. Complete all read-only preconditions first: call `list_projects`,
-inspect the selected project's `isGitRepository`, and recheck the exact dispatcher/serialized-turn gate.
+inspect the selected project's `isGitRepository`, and recheck the mode-scoped dispatcher/serialized-turn gate.
 Then call `create_thread` once with the complete approved prompt for an atomic-create or
 child-current-task branch, or only the frozen gate-bootstrap prompt for a dispatcher-held branch. Pass
 the frozen title only for an admitted atomic-create contract. Use the observed project/worktree target
