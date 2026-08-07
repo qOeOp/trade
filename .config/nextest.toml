@@ -14,6 +14,12 @@ test-threads = 2
 # Tests with a per-test slow-timeout override keep their own settings.
 slow-timeout = { period = "120s", terminate-after = 5 }
 
+# Required CI is fail-closed: a first failure must not become green on retry.
+# This profile-specific override takes precedence over the local default override below.
+[[profile.ci.overrides]]
+filter = 'binary(websocket) | binary(data_client)'
+retries = 0
+
 [[profile.default.overrides]]
 filter = 'test(serial_tests)'
 test-group = 'serial-tests'
