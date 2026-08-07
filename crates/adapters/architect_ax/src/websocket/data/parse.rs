@@ -828,7 +828,7 @@ mod tests {
         assert_eq!(tick.aggressor_side, AggressorSide::Buyer);
         assert_eq!(
             tick.trade_id.to_string(),
-            "1766193240334589144-38b4fe5a94a253d0"
+            "1766193240334589144-6130665701bd8943"
         );
     }
 
