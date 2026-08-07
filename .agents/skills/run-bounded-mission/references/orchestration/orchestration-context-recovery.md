@@ -156,8 +156,10 @@ stores a scheduler state.
 
 Recovery of an exact existing task may consume one newly authorized complete continuation packet only
 after reopening its terminal packet result and exact `threadId`/`hostId`. When the dispatcher sets and
-reads back the exact title before sending that continuation, canonical identity still binds only after
-the child admits the new packet and performs its post-admission exact-title readback. A later supplement,
+reads back the exact title before sending that continuation, preserve that value as provisional transport
+metadata only. Canonical identity still binds only after the child admits the new packet and the child or
+dispatcher executes the required post-admission setter plus exact-title readback and causal release. The
+identical pre-send value does not authorize work or consume that canonical setter. A later supplement,
 same-title resemblance, changed packet member, or missing failed-packet receipt freezes continuation;
 recovery never creates a sibling task or reclassifies the earlier launch as successful.
 

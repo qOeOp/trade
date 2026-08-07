@@ -404,12 +404,15 @@ canonical identity. Setter failure or title mismatch freezes Mission work and pe
 
 An already-created exact task may receive a newly authorized, complete content-addressed continuation
 packet without becoming a replacement task. Preserve every earlier failed packet as terminal; the new
-packet is neither a supplement nor a repair. When the dispatcher has already set and read back the
-packet's exact title, it sends that complete packet once to the same `threadId`/`hostId`; after admission
-the child performs one exact-identity title readback before any Mission or repository work. Missing,
-contradictory, unavailable, failed, or mismatched admission, task identity, title, or release evidence
-freezes the continuation as `host-defect/unproved`. Do not add a lock, registry, wrapper, retry, or
-second lifecycle.
+packet is neither a supplement nor a repair. When a current host contract requires the dispatcher to
+set and read back the packet's exact title before sending the continuation, that matching value remains
+provisional transport metadata: it neither binds canonical identity nor releases work. The dispatcher
+then sends that complete packet once to the same `threadId`/`hostId`. After admission, the child or
+dispatcher executes the same post-admission setter, exact readback, and causally bound release required
+above before any Mission or repository work; an idempotent repeat of the same exact title is the
+canonical binding effect, not a repair of the failed packet. Missing, contradictory, unavailable,
+failed, or mismatched admission, task identity, title, or release evidence freezes the continuation as
+`host-defect/unproved`. Do not add a lock, registry, wrapper, retry, or second lifecycle.
 
 Derive preflight from current owner manifests and lockfile. Name exact repository path/HEAD/status,
 executables, and dependency-directory existence/symlink/ignore/status facts. A final-release child
@@ -503,10 +506,11 @@ through the custom `fast_builder` agent and its standard-main fallback.
 The packet remains the naming owner; never invent a field. Child-current-task or dispatcher-held work
 starts only after the admission receipt, one post-admission setter, exact-title readback, and causally
 bound release all bind the same exact task. An exact-identity continuation starts only after its new
-complete packet admits and the child reads back the already-set exact title. Require any final-release
-HEAD report before monitoring or release. Failure or mismatch freezes those actions; provisional titles
-and list/search resemblance cannot repair them, and later recovery permits no second setter or duplicate
-packet release.
+complete packet admits and that same post-admission setter/readback gate succeeds; any identical
+pre-send title write remains provisional and does not consume the canonical setter. Require any final-
+release HEAD report before monitoring or release. Failure or mismatch freezes those actions;
+provisional titles and list/search resemblance cannot repair them, and later recovery permits no
+additional canonical setter or duplicate packet release.
 
 A returned `clientThreadId` consumes creation but is only a dispatcher receipt: record/emit it, never
 rename or pass it to wait/read/send. The bootstrap remains admission-only and Mission work stays frozen
