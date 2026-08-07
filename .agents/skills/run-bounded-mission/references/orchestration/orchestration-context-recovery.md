@@ -25,6 +25,25 @@ judgments, and effects. Effect/judgment locators must be candidate-independent i
 user/Hub authority; candidate absence cannot deactivate them. Never guess from prose, preload all
 references, or substitute collaboration support for a native Task.
 
+For every issued or resumable dispatch, retain the complete packet's immutable payload locator, exact
+UTF-8 length and SHA-256, delivery branch and receipt, producer-owned setup, typed inter-step byte
+edges, first admission result, and next legal action. These values index the existing prompt, native
+task, helper artifact, or terminal receipt; do not copy the payload into another ledger or invent a
+resume format. A prefix, summary, later supplement, missing durable locator, or identity that cannot be
+reopened after compaction freezes that dispatch as a packet-persistence mismatch.
+
+For each native node also retain its causal collision projection and exact attempt/task mapping; every
+waiting blocker, release predicate, next owner and next action; and every component-conflict member's
+`accepted | rejected | superseded_by` disposition or explicit unresolved state. Recovery reopens these
+locators before selecting focus. A duplicate projection, orphaned waiting edge, user-reminder-only
+release, or conflict without Main reproduction and disposition returns the Hub to Plan before another
+create, dependent release, acceptance, or merge effect.
+
+When Goal behavior is selected, retain the last observed availability of `get_goal`, `create_goal`,
+and `update_goal`, its locator, and the explicit persistence projection inside the existing Authority
+field. This is recovery evidence, not durable capability: re-observe the current callable surface at
+every entry or recovery before invoking a Goal tool or releasing a Goal/DAG effect.
+
 For a multi-Mission hub only, task dispatch may retain one in-turn observation wave before classifying
 its receipts. Preserve every raw receipt and locator, normalize every unrecognized or malformed value
 as unknown-impact, and close the wave at any declared boundary. Reconcile one authoritative snapshot,
@@ -58,6 +77,7 @@ Origin / candidate / effects: <origin; exact diff, commit, or none; issued and u
 Evidence / findings: <decisive passes, failures, unavailable evidence, findings, and rejected candidates>
 Position / next legal operation: <current stage or route; one exact next legal operation>
 Mode / delegation / owner loads: <single or hub; exact active route/slice identity -> none, native_task, or internal_support -> next required owner, predicate, and gated action bindings; exact activated owner paths and immutable activation/control locators>
+Dispatch packets: <each complete payload locator, UTF-8 length/SHA-256, delivery receipt, setup and typed byte edges, causal collision projection and attempt/task mapping, first admission result, waiting blocker/release/next-owner edge, component-conflict disposition, next legal action>
 Authority / Stop / Resume / terminal: <current authority; Stop evidence; valid Resume predicate or none; terminal predicate or none>
 ```
 
@@ -88,10 +108,13 @@ copy that receipt into a durable hub ledger or treat the checkpoint itself as cr
 ## Interruption and recovery gate
 
 A later turn, user interruption, compaction, Codex chat Handoff, or source drift freezes the next
-mutation and every unissued effect. Call `get_goal`, then reconcile the whole checkpoint with the raw
-request and authority plus current conversation, native task, Git, pull request, and external-effect
-facts that can change the next operation. Replace the checkpoint with the reconciled live facts before
-continuing; a static contract or fresh-context trace is not runtime proof.
+mutation and every unissued effect. Observe the current Goal-tool surface and call `get_goal` only when
+it is exposed, then reconcile the whole checkpoint with the raw request and authority plus current
+conversation, native task, Git, pull request, and external-effect facts that can change the next
+operation. If `get_goal` is unavailable, record persistence `none` and take task dispatch's mode-
+specific fallback; a previously recorded active Goal cannot be reconciled and every affected Goal/DAG
+effect remains frozen. Replace the checkpoint with the reconciled live facts before continuing; a
+static contract or fresh-context trace is not runtime proof.
 
 Immediately after `get_goal` and before any other read or action, consume every active route/slice binding
 in `Mode / delegation / owner loads`. Hub or native-task evidence loads task dispatch; an admitted
@@ -115,7 +138,11 @@ identity or unresolved receipt, preserve every historical title byte-for-byte, a
 frozen canonical task type projection against its exact authority locator. Missing, unrecognized,
 ambiguous, or stale type metadata returns only the affected create/dispatch or aggregation question
 to task dispatch's main classification; recovery never guesses from a legacy prefix, renames a task,
-or loads the full taxonomy for an otherwise ordinary single-Mission recovery. Reopen every relation locator and affected slice, rebuild the current
+or loads the full taxonomy for an otherwise ordinary single-Mission recovery. If prior conversation,
+terminal, or anomaly evidence contains a diagnosis that meets independent-Mission admission but the
+current inventory contains neither its node nor an exact `deduplicated` or user-authorized `rejected`
+disposition, classify a dispatch-persistence mismatch and return the hub to Plan before another effect
+or Finalize. Reopen every relation locator and affected slice, rebuild the current
 component snapshot and compact graph, verify every continued target's cursor continuity, and test the
 projected release graph for acyclicity. Missing a previously approved
 node, adopting a same-title resemblance, issuing a second create for an unresolved attempt, or treating
