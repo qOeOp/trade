@@ -39,6 +39,14 @@ test or candidate decision. Use an existing compatible tool; otherwise use one e
 manual fault and restore the candidate immediately. A killed mutant supports only the named fault; a
 survivor requires an oracle, scenario, or selection repair.
 
+For an assertion-strength question, use the same reversible fault against two otherwise identical
+representative assertions: a survivor is evidence that the weak oracle did not distinguish that
+fault; a kill after strengthening is evidence only for that named fault. Preserve baseline result,
+fault bytes, selection identity, elapsed cost, and exact restoration. Compile errors, timeouts,
+no-coverage, changed fixture/launcher selection, and runner startup failures are neither kills nor
+SUT results; retain them as unavailable/pre-SUT evidence and use ordinary regression for environment
+or integration behavior.
+
 ## Anti-pattern
 
 Do not conclude “one bug, one test,” change correct production behavior for a lower-authority test,

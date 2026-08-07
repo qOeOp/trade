@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { posix } from "node:path"
 
-const schemaVersion = "bounded-mission.test-effectiveness-evidence.v1"
+const schemaVersion = "bounded-mission.test-effectiveness-evidence.v2"
 const sourceExtensions = [
   ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs",
   ".py", ".rs", ".go", ".sh", ".bash", ".zsh",
@@ -31,6 +31,7 @@ interface Arguments {
   ownerRoots: string[]
   scope?: string
   classification?: Classification
+  bddRoot?: string
 }
 
 interface Revision {
@@ -116,7 +117,7 @@ try {
     }
   }
   const changes = readChanges(origin.commit, candidate.commit, args.scope)
-  const candidatePaths = changes.length > 0 ? readTreePaths(candidate.commit) : []
+  const candidatePaths = changes.length > 0 || args.bddRoot != null ? readTreePaths(candidate.commit) : []
   const candidatePathSet = new Set(candidatePaths)
   const ownerRoots = args.ownerRoots
     .slice()
@@ -206,6 +207,9 @@ try {
     && changes.length > 0
     && allAffectedTests.length === 0
     && deletedTestPaths.length === 0
+  const bddStepEvidence = args.bddRoot == null
+    ? { status: "not_requested" as const }
+    : inspectBddStepEvidence(candidate.commit, candidatePaths, args.bddRoot)
 
   const evidence = {
     schema_version: schemaVersion,
@@ -251,6 +255,7 @@ try {
       deleted_test_files: deletedTestPaths.length,
       no_direct_static_candidate_evidence: noDirectStaticCandidateEvidence,
     },
+    bdd_step_evidence: bddStepEvidence,
     affected_owners: affectedOwners,
     unowned_changes: changes
       .filter((change) => ownershipPaths(change).some((path) => !ownerForPath(path, ownerRoots)))
@@ -282,6 +287,7 @@ try {
       "A provided failure classification is context only and never selects a test action.",
       "Non-JavaScript/TypeScript reverse imports remain unresolved; non-literal module routing is reported as incomplete.",
       "Owner mapping is limited to the repository-relative roots supplied by the caller.",
+      "BDD Step evidence is a static candidate-tree observation. Fixture, launcher, and selection evidence stay separate from an unobserved SUT result.",
     ],
   }
 
@@ -300,7 +306,7 @@ function parseArguments(values: string[]): Arguments {
     process.stdout.write([
       "Usage: test-effectiveness-audit.ts --origin <commit> --candidate <commit>",
       "  --owner-root <repository-relative-path> [--owner-root <repository-relative-path> ...]",
-      "  [--scope <repository-relative-owner>]",
+      "  [--scope <repository-relative-owner>] [--bdd-root <repository-relative-path>]",
       `  [--classification <${classifications.join("|")}>]`,
       "",
     ].join("\n"))
@@ -325,7 +331,7 @@ function parseArguments(values: string[]): Arguments {
     parsed.set(key, value)
   }
   for (const key of parsed.keys()) {
-    if (!["--origin", "--candidate", "--scope", "--classification"].includes(key)) {
+    if (!["--origin", "--candidate", "--scope", "--classification", "--bdd-root"].includes(key)) {
       throw new Error(`unsupported argument: ${key}`)
     }
   }
@@ -345,12 +351,17 @@ function parseArguments(values: string[]): Arguments {
   if (classification != null && !classifications.includes(classification as Classification)) {
     throw new Error(`unsupported classification: ${classification}`)
   }
+  const bddRoot = parsed.get("--bdd-root")
+  if (bddRoot != null && !isRepositoryRelative(bddRoot)) {
+    throw new Error("--bdd-root must be a normalized repository-relative path")
+  }
   return {
     origin,
     candidate,
     ownerRoots,
     scope: scope === "." ? undefined : scope,
     classification: classification as Classification | undefined,
+    bddRoot,
   }
 }
 
@@ -707,7 +718,11 @@ function readRevisionFiles(paths: string[], objects: Map<string, string>): Map<s
     if (result.stdout[contentEnd] !== 10) {
       throw new Error(`git cat-file returned incomplete content for ${path}`)
     }
-    files.set(path, result.stdout.toString("utf8", contentStart, contentEnd))
+    try {
+      files.set(path, new TextDecoder("utf-8", { fatal: true }).decode(result.stdout.subarray(contentStart, contentEnd)))
+    } catch {
+      throw new Error(`git blob is not valid UTF-8: ${path}`)
+    }
     offset = contentEnd + 1
   }
   if (offset !== result.stdout.length) {
@@ -842,6 +857,151 @@ function isTestPath(path: string): boolean {
     || /\.(?:test|spec)\.[^.]+$/.test(path)
     || /(?:^|\/)test_[^/]+\.py$/.test(path)
     || /(?:^|\/)[^/]+_test\.go$/.test(path)
+}
+
+interface BddDefinition {
+  path: string
+  line: number
+  expression: string
+  matcher: RegExp | null
+  captures: number
+  universal_candidate: boolean
+  parameter_soup_candidate: boolean
+}
+
+function inspectBddStepEvidence(candidate: string, candidatePaths: string[], root: string) {
+  const rootPaths = candidatePaths.filter((path) => isWithin(path, root))
+  if (rootPaths.length === 0) throw new Error(`--bdd-root does not exist at candidate: ${root}`)
+  const featurePaths = rootPaths.filter((path) => path.endsWith(".feature")).sort()
+  const sourcePaths = rootPaths.filter(isImportSourcePath).sort()
+  const entries = readTree(candidate, [...featurePaths, ...sourcePaths])
+  const contents = readRevisionFiles([...featurePaths, ...sourcePaths], new Map(entries.map((entry) => [entry.path, entry.object])))
+  const phrases = featurePaths.flatMap((path) => readFeaturePhrases(path, contents.get(path)!))
+  const definitions = sourcePaths.flatMap((path) => readStepDefinitions(path, contents.get(path)!))
+  const matches = phrases.map((phrase) => ({
+    ...phrase,
+    matching_definitions: definitions
+      .filter((definition) => definition.matcher?.test(phrase.text))
+      .map((definition) => ({ path: definition.path, line: definition.line, expression: definition.expression })),
+  }))
+  const used = new Set(matches.flatMap((match) => match.matching_definitions.map((definition) => `${definition.path}:${definition.line}`)))
+  const ambiguous = matches.filter((match) => match.matching_definitions.length > 1)
+  return {
+    status: "lexical_unverified" as const,
+    root,
+    parser_coverage: {
+      status: "incomplete" as const,
+      uncertainty: "The helper uses a bounded lexical scan, not Gherkin or language AST parsing. Localization, Scenario Outlines, aliases, dynamic registration, custom parameters, comments, and strings can require the effective runner.",
+    },
+    pre_sut: {
+      fixture_sources: {
+        status: "declared" as const,
+        encoding: { status: "valid_utf8" as const },
+        feature_paths: featurePaths,
+      },
+      glue_sources: {
+        status: "unverified" as const,
+        encoding: { status: "valid_utf8" as const },
+        definition_paths: [...new Set(definitions.map((definition) => definition.path))].sort(),
+      },
+      selection: {
+        status: "unverified" as const,
+        selected_root: root,
+        uncertainty: "This is lexical candidate-tree path selection, not effective runner selection or complete Step registration discovery.",
+      },
+      launcher: {
+        status: "unavailable" as const,
+        uncertainty: "The helper does not load support code or invoke a BDD runner.",
+      },
+    },
+    sut_result: {
+      status: "not_observed" as const,
+      value: null,
+      uncertainty: "A fixture, selection, or launcher observation cannot be reported as a SUT pass or failure.",
+    },
+    phrases: matches,
+    definitions: definitions.map(({ matcher: _matcher, ...definition }) => ({
+      ...definition,
+      static_usage_candidate: used.has(`${definition.path}:${definition.line}`) ? "used" : "unused",
+    })),
+    undefined_phrase_candidates: matches.filter((match) => match.matching_definitions.length === 0),
+    ambiguous_phrase_candidates: ambiguous,
+    overlapping_definition_candidates: [...new Map(ambiguous.flatMap((match) => match.matching_definitions)
+      .map((definition) => [`${definition.path}:${definition.line}`, definition])).values()],
+    universal_step_candidates: definitions
+      .filter((definition) => definition.universal_candidate)
+      .map((definition) => ({ path: definition.path, line: definition.line, expression: definition.expression })),
+    parameter_soup_candidates: definitions
+      .filter((definition) => definition.parameter_soup_candidate)
+      .map((definition) => ({ path: definition.path, line: definition.line, expression: definition.expression, captures: definition.captures })),
+    caveat: "Every lexical match, usage, overlap, universal, and parameter-soup value is an unverified lead. Effective runtime loading, custom parameter types, source parsing, and SUT results remain unresolved until the real runner observes them.",
+  }
+}
+
+function readFeaturePhrases(path: string, content: string): Array<{ path: string; line: number; keyword: string; text: string }> {
+  const phrases: Array<{ path: string; line: number; keyword: string; text: string }> = []
+  for (const [index, line] of content.split("\n").entries()) {
+    const match = /^\s*(Given|When|Then|And|But)\s+(.+?)\s*$/.exec(line)
+    if (match) phrases.push({ path, line: index + 1, keyword: match[1], text: match[2] })
+  }
+  return phrases
+}
+
+function readStepDefinitions(path: string, content: string): BddDefinition[] {
+  const definitions: BddDefinition[] = []
+  const pattern = /\b(?:Given|When|Then|defineStep)\s*\(\s*(?:(["'`])((?:\\.|(?!\1)[\s\S])*)\1|\/((?:\\.|[^/])*)\/([a-z]*))/g
+  for (const match of content.matchAll(pattern)) {
+    const expression = match[2] == null ? `/${match[3]}/${match[4] ?? ""}` : match[2]
+    const regex = match[2] == null
+      ? compileRegexExpression(match[3] ?? "", match[4] ?? "")
+      : compileCucumberExpression(match[2])
+    const captures = match[2] == null
+      ? countCaptures(match[3] ?? "")
+      : [...match[2].matchAll(/\{(?:string|int|float|word)\}/g)].length
+    const line = content.slice(0, match.index ?? 0).split("\n").length
+    definitions.push({
+      path,
+      line,
+      expression,
+      matcher: regex,
+      captures,
+      universal_candidate: match[2] == null ? /(?:^|[^\\])\.\*/.test(match[3] ?? "") : /^\{(?:string|word)\}$/.test(match[2]),
+      parameter_soup_candidate: captures >= 3 || (match[2] == null && /\?\)|\|/.test(match[3] ?? "")),
+    })
+  }
+  return definitions
+}
+
+function compileRegexExpression(source: string, flags: string): RegExp | null {
+  try {
+    return new RegExp(source, flags.replace(/[gy]/g, ""))
+  } catch {
+    return null
+  }
+}
+
+function compileCucumberExpression(expression: string): RegExp | null {
+  const parts = expression.split(/(\{(?:string|int|float|word)\})/g)
+  const source = parts.map((part) => {
+    if (part === "{string}") return '"([^"\\n]+)"'
+    if (part === "{int}") return "(-?\\d+)"
+    if (part === "{float}") return "(-?(?:\\d+\\.?\\d*|\\.\\d+))"
+    if (part === "{word}") return "([^\\s]+)"
+    return escapeRegex(part)
+  }).join("")
+  try {
+    return new RegExp(`^${source}$`)
+  } catch {
+    return null
+  }
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+function countCaptures(source: string): number {
+  return [...source.matchAll(/(^|[^\\])\((?!\?)/g)].length
 }
 
 function testLabels(content: string): string[] {
