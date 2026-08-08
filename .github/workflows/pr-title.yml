@@ -79,7 +79,8 @@ jobs:
               --arg context "$context" \
               --arg sha "$sha" \
               --arg state "$state" \
-              '.context == $context and .sha == $sha and .state == $state' \
+              '.context == $context and .state == $state and
+               (.url | endswith("/statuses/" + $sha))' \
               <<< "$status_response" > /dev/null
           }
 
