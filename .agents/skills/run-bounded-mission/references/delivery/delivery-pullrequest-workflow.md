@@ -195,7 +195,7 @@ discovery and cannot be hidden by a clean signal.
 - `provider_snapshot` is present only when the broad classifier reports `usage-failure`. It is the
   lossless normalized snapshot already fetched by the waiter, including PR state/head/completeness,
   every top-level signal with issue-comment app provenance, every review thread comment, and reactions
-  on every fetched surface. It is evaluator input only and grants no terminal status or acceptance
+  on every fetched surface. It is reviewer input only and grants no terminal status or acceptance
   authority.
 
 The helper joins those facts inside the same snapshot invocation. Reason text is explanatory only;
@@ -211,7 +211,7 @@ override this classifier:
   incomplete evidence, mismatch, ambiguous signal, provider failure, and unrouted finding;
 - exit `2` is reserved for CLI argument or invocation usage errors.
 
-### Provider-unavailability evaluator fallback
+### Provider-unavailability independent-review fallback
 
 The waiter's broad `usage-failure` classification is non-authorizing. Use this route only when the
 same receipt includes the lossless `provider_snapshot` fetched by the waiter. Main freezes and
@@ -223,19 +223,18 @@ ambiguous boundary, equal-time or later invocation, contradiction, or discovery 
 `usage-failure`; and unchanged raw bytes. Reason text, joined findings, a usage signal, or main's
 deterministic replay grants no acceptance.
 
-Before launching fallback evaluators, main checks whether a complementary candidate audit completed
-before the manual request and still binds the exact current candidate, complete Frame and Plan,
-immutable control plane, member manifest, and common locator. Both members must be independently
-admitted, `completed`, `[no_finding]`, and `mutation_observation=not_applicable` as a non-authorizing
-semantic declaration; reject a missing or different member value as an attempted override. Main must
-then project the authoritative `mutation_observation=none` only after exact post-return replay of
-target, control, artifact, outside-state, and scratch-manifest fingerprints with no drift. When that
-qualifying pair exists, its independent semantic result combines with the valid raw-provider
-replay to substitute for the unavailable manual-discovery terminal. Neither component substitutes
-alone, and an audit that started after the request cannot qualify for reuse.
+Before launching fallback reviewers, Main checks whether a complementary candidate audit completed
+before the manual request and still binds the exact frozen candidate identity, complete Frame and
+Plan, neutral control locator, and the two assigned lenses. Both fresh non-builders must report
+`review_status=completed`, `findings=no_finding`, and `mutation_observation=none`; Main must re-resolve
+the commit/tree/diff, reproduce the consumer conclusions, and confirm that the repository status and
+observed in-scope state did not change. When that qualifying pair exists, its independent semantic
+result combines with the valid raw-provider replay to substitute for the unavailable manual-discovery
+terminal. Neither component substitutes alone, and an audit that started after the request cannot
+qualify for reuse.
 
 Only when no qualifying exact-candidate audit exists may main bind the frozen receipt, snapshot, and
-exact candidate into one new `complementary_pair`. A false positive may spend evaluator work but
+exact frozen candidate identity into one new complementary pair. A false positive may spend reviewer work but
 cannot accept the review terminal.
 
 Load the reviewer handoff. Assign `authority_representation` to verify the request locator, actor,
@@ -247,14 +246,12 @@ invocation or material finding; and verify that the snapshot still concerns the 
 candidate head. Neither lens may consume the waiter's classification, reason text, or joined
 findings as its conclusion.
 
-On the evaluator route, only valid fan-in of both exact artifacts with `review_status=completed`,
-`[no_finding]`, matching candidate and common locator, and the literal non-authorizing member
-`mutation_observation=not_applicable`, followed by Main's authoritative `mutation_observation=none`
-after successful post-return fingerprint checks, may
-substitute for the unavailable manual-discovery terminal. The reviewer handoff's ordinary set-wide
-generic fallback remains the only evaluator-route fallback. A stale, partial, unsupported,
-mismatched, unavailable, finding-bearing, or non-`none` Main projection supplies no acceptance. Do not request
-another review and do not ask the user for a per-PR confirmation.
+On this route, only valid fan-in of both exact-candidate returns with `review_status=completed`,
+`findings=no_finding`, matching candidate/tree/control/lenses, and Main's successful reproduction plus
+unchanged-status observation may substitute for the unavailable manual-discovery terminal. The
+reviewer handoff's fresh generic route is the only dedicated-reviewer fallback. A stale, unsupported,
+mismatched, unavailable, finding-bearing, mutated, or unverified result supplies no acceptance. Do
+not request another review and do not ask the user for a per-PR confirmation.
 
 This pair replaces only the unavailable manual-discovery result. It does not replace candidate
 verification, affected independent audits, the final root gate, final-head CI, disposition of any

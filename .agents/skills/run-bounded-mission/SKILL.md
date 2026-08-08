@@ -93,21 +93,24 @@ After `get_goal`, recovered Hub, node, create-attempt/receipt, or child-identity
 dispatch and its recorded next owner before the gated action. Missing or unknown mode, route/slice,
 activated-owner set, or next-owner edge freezes that read, delegation, control, and effect.
 
-Before an action, native-task, support-lane, or evaluator dispatch, its owning route must bind the
-complete consumer-visible packet before launch. The packet carries every activated authority and
-precondition, exact inter-step edge, current Frame/Plan and mode, Goal capability and persistence,
-Origin and dependency, exact native title and interaction language when applicable, observed or
-unavailable model/effort, and one next legal action. Bind the canonical payload's UTF-8 bytes, length,
-and SHA-256 outside that payload as producer and recovery identity only; it is not evidence about bytes
-the model received and grants the consumer no authority. An executable route instead binds one exact
-native target, one complete host-message effect, its observable receipt, and any route-owned identity
-or title gate before semantic work. A fresh native task may first receive one fixed inert bootstrap
-that contains no packet semantics and grants no authority while the host returns its exact identity.
-The consumer never re-hashes or reconstructs raw prompt bytes it cannot observe, and its prose or
-self-report never admits the packet. A missing, malformed, stale, duplicate, supplemental, or changed
-packet freezes before the host-message effect; an unavailable or mismatched target, gate, or receipt
-is `host-defect/no-change`. The route owner defines the concrete packet and admission gates; this
-kernel adds no envelope, helper, registry, or compatibility path.
+Before an action, native-task, or support-lane dispatch, its owning route must bind the complete
+consumer-visible input before launch. Task dispatch and agent routing own their concrete transport and
+admission gates; this kernel adds no envelope, helper, registry, or compatibility path.
+
+For a native Task route, the canonical payload's UTF-8 bytes, length, and SHA-256 are producer and
+recovery identity only; they do not prove bytes received by the model and grant the child no authority.
+Before semantic work, bind one exact native target, one complete host-message effect and observable
+receipt, plus every route-owned identity or title gate. A fresh task may first receive one fixed inert
+bootstrap solely so the host returns its exact identity; it carries no packet semantics and grants no
+authority. The child never re-hashes or reconstructs raw prompt bytes it cannot observe, and prose or
+self-report never admits the input. Missing, malformed, stale, duplicate, supplemental, or changed input
+freezes before the host-message effect; an unavailable or mismatched target, gate, or receipt is
+`host-defect/no-change`.
+
+Independent candidate review is deliberately separate: load the reviewer handoff and give a fresh reviewer
+only its exact frozen candidate identity, complete Frame and Plan, one risk lens, required evidence, and
+neutral control locator. Do not wrap that semantic review in the task/support packet bootstrap or let the
+candidate's historical Origin govern the reviewer.
 
 Before pull-request metadata create or edit, load [GitHub delivery](references/delivery/delivery-pullrequest-workflow.md)
 through a candidate-independent immutable-Origin or neutral-authority locator. Candidate absence cannot
@@ -248,8 +251,8 @@ Load conditional Plan owners only when their exact predicate holds:
   integrity predicates.
 
 Projection values remain ordinary prose. Downstream packets quote or navigate only their relevant
-current fields and raw evidence locators; only the reviewer packet receives the exact complete Frame,
-Plan, and candidate bindings it defines.
+current fields and raw evidence locators; only the independent-review input receives the exact
+complete Frame, Plan, and frozen candidate identities it defines.
 
 ## Execute
 
@@ -294,12 +297,13 @@ Load [architecture sensor evidence](references/optimization/optimization-archite
 change, cross-owner effects, or persistent patch pressure. For two or more independent advisory risk
 questions, use agent lane routing; advisory returns are untrusted leads, never acceptance or votes.
 
-Instruction and judge changes require an independent audit. A deterministic helper does too when a
-reviewer-packet risk is material. Load [the Verify reviewer packet](references/verification/reviewer-handoff.md);
-it owns audit-set selection, immutable-Origin policy, exact complete candidate and Frame/Plan binding,
-fresh non-builder context, integrity fallback, result classification, and fail-close gates. Main
-reproduces and arbitrates every return. No valid current audit means no independent-audit or remote-
-delivery claim.
+Instruction and judge changes require an independent audit. A deterministic helper does too when its
+decision or evidence boundary is material. Load [the minimum review contract](references/verification/reviewer-handoff.md);
+it owns the smallest audit set, exact frozen candidate and complete Frame/Plan input, neutral
+candidate-independent control, fresh non-builder context, read-only observation, result
+classification, and fail-close gates. Main reproduces and arbitrates every return. The candidate's
+reviewer changes cannot certify themselves, and no valid current audit means no independent-audit or
+remote-delivery claim.
 
 ## Finalize
 

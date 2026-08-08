@@ -6,7 +6,7 @@ assessment compares execution routes. It supplies the detailed operational crite
 floors, route evidence, candidate-local implementation, selective TDD, frozen mechanical leaves, and
 empirical model/effort comparison on those activated paths. The
 kernel remains the execution, coordination-cost, and verification-evidence authority; agent routing
-remains the lane authority; reviewer handoff remains the evaluator authority. This reference cannot
+remains the lane authority; reviewer handoff remains the independent-review authority. This reference cannot
 replace their rules or own Mission lifecycle, user-visible model authority, acceptance, or effects.
 
 Choose a route from the unresolved work and its consequence, not from task size, model availability,
@@ -132,19 +132,19 @@ input, consumer, prompt and loaded references, permissions, tools, environment, 
 expected output. Do not manufacture a task, typo, no-op, finding, test, or cleanup to fill a cell. A
 missing specimen or host metric remains `unavailable` and does not delay unrelated work.
 
-| Scenario                         | Paired routes                                                                              | Quality floor                                                                                              | Terminal evidence                                                                             |
-| -------------------------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| small mechanical build or revise | exact-byte main control vs qualified `fast_builder`                                        | identical bounded diff; one writer; supplied checks; no path growth                                        | actual route/model/effort; elapsed; tokens or `unavailable`; inspection, correction, fallback |
-| bounded code leaf                | current authorized main or standard builder vs one authorized alternative                  | public consumer and owner regressions pass; frozen boundary and effects                                    | consumer result; latency/context; coordination; correction and recheck                        |
-| decision-changing research       | main evidence work vs one `mission_researcher` brief                                       | decisive primary evidence, contradictions, limits, Stop, and exact Plan consequence                        | route identity; source reopening; elapsed/tokens; synthesis correction or fallback            |
-| structural planner dispute       | high-reasoning main control vs one `mission_planner` proposal                              | owner and consumer closure, credible alternative, kill conditions, verification, and no authority transfer | proposal completeness; elapsed/tokens; coordination and main correction                       |
-| independent evaluator audit      | reviewer-selected current route vs one reviewer-authorized alternative only when available | exact candidate and complete packet binding, integrity, valid result schema, and no unowned mutation       | selected set; model/effort; terminal validity; transport/fallback; correction                 |
-| independent multi-lane work      | the same fixed lanes serially vs in parallel                                               | identical immutable inputs, lens boundaries, quality results, and one fan-in                               | critical-path elapsed; copied context; coordination events; conflicts and correction          |
+| Scenario                         | Paired routes                                                                  | Quality floor                                                                                                          | Terminal evidence                                                                             |
+| -------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| small mechanical build or revise | exact-byte main control vs qualified `fast_builder`                            | identical bounded diff; one writer; supplied checks; no path growth                                                    | actual route/model/effort; elapsed; tokens or `unavailable`; inspection, correction, fallback |
+| bounded code leaf                | current authorized main or standard builder vs one authorized alternative      | public consumer and owner regressions pass; frozen boundary and effects                                                | consumer result; latency/context; coordination; correction and recheck                        |
+| decision-changing research       | main evidence work vs one `mission_researcher` brief                           | decisive primary evidence, contradictions, limits, Stop, and exact Plan consequence                                    | route identity; source reopening; elapsed/tokens; synthesis correction or fallback            |
+| structural planner dispute       | high-reasoning main control vs one `mission_planner` proposal                  | owner and consumer closure, credible alternative, kill conditions, verification, and no authority transfer             | proposal completeness; elapsed/tokens; coordination and main correction                       |
+| independent candidate audit      | reviewer-selected dedicated route vs one fresh generic alternative when needed | exact frozen candidate identity, neutral control, complete risk question, read-only observation, and Main reproduction | selected set; model/effort; terminal validity; fallback; correction                           |
+| independent multi-lane work      | the same fixed lanes serially vs in parallel                                   | identical immutable inputs, lens boundaries, quality results, and one fan-in                                           | critical-path elapsed; copied context; coordination events; conflicts and correction          |
 
 A comparison that changes the role protocol, tools, or topology measures the route package, not the
 model alone. Select a model or reasoning effort only from a comparison that holds those controls fixed
-and changes one authorized model/effort variable. The reviewer packet continues to select evaluator
-count and lenses; this matrix records that route and never adds an evaluator. One stochastic result is
+and changes one authorized model/effort variable. The reviewer handoff continues to select reviewer
+count and lenses; this matrix records that route and never adds a reviewer. One stochastic result is
 one observation, not a durable ranking or default.
 
 Current OpenAI guidance supports this evidence shape: compare reasoning settings on representative
@@ -159,9 +159,9 @@ dependency closure, configuration, toolchain, environment, route, and decision-s
 justify reusing unchanged discovery or focused checks. Rerun the final root gate only after an
 affected change or corrected failure.
 
-Reviewer handoff alone selects zero, one, or a complementary pair of independent auditors from the
+Reviewer handoff alone selects zero, one, or a complementary pair of independent reviewers from the
 actual material risk predicates. This route schedules exactly that admitted set, never extra
-evaluators for confidence, votes, or a retry loop. When the root gate and selected audit consume the
+reviewers for confidence, votes, or a retry loop. When the root gate and selected audit consume the
 same frozen candidate and neither feeds the other, run them concurrently and fan in once.
 
 The compact pre-dispatch receipt and its terminal update are the default observable route evidence.

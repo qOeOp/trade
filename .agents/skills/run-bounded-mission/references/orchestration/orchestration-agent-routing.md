@@ -3,8 +3,9 @@
 Load this reference only when the main agent has one concrete evidence question, one frozen
 non-overlapping build leaf, or at least two independent frozen-candidate risk questions. It is the
 single common-protocol owner for researcher, planner, builder, and advisory lanes; their role TOMLs
-contain startup deltas only. The independent evaluator instead loads its complete protocol from
-`../verification/reviewer-handoff.md` after packet admission.
+contain startup deltas only. Independent candidate review is not a generic support lane: it consumes
+the frozen candidate and neutral contract defined by `../verification/reviewer-handoff.md` without
+the support-packet bootstrap.
 
 Every researcher, planner, builder, or advisory packet names an immutable Origin and this exact path.
 The selected role loads these bytes from that Origin before acting and rejects missing, mutable,
@@ -70,7 +71,7 @@ The receipt is current conversation evidence for one causally bound dispatch att
 field, durable record, scheduler, ledger, registry, or second state machine. A changed input invalidates
 only its dependent fields and requires a replacement before dispatch. Task dispatch retains consent,
 user-visible model, task identity, and create authority; orchestration retains graph and priority;
-reviewer handoff retains evaluator-set selection; main retains every judgment and effect. The receipt
+reviewer handoff retains independent-review set selection; main retains every judgment and effect. The receipt
 records those supplied decisions and never reselects them.
 
 After a child or internal lane reaches terminal, update only the compact receipt with the actual
@@ -87,18 +88,18 @@ comparison, or a frozen mechanical leaf, use
 criteria under the kernel; this reference remains the sole lane admission, protocol, exact-model
 observation, and fallback owner.
 
-| Work                                                                               | Lane and model/effort projection                                             | Topology                                           | Fallback                          | Admission boundary                                                                         |
-| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------ |
-| Frame, Plan admission, cross-owner or safety judgment, finding synthesis, Finalize | authorized high-reasoning main; exact identity or `unavailable`              | serial decision owner                              | none                              | never delegate the decision                                                                |
-| evidenced structural Plan challenge                                                | `mission_planner`; observe role-owned model/effort                           | one proposal                                       | high-reasoning main               | main admits or rejects it                                                                  |
-| ordinary implementation                                                            | main or one standard builder; observe exact identity                         | single writer; parallel only for independent paths | main                              | frozen owner, path, boundary, candidate shape, and verification route                      |
-| low-risk mechanical leaf                                                           | `fast_builder` on exact `gpt-5.3-codex-spark` / low                          | one embedded builder                               | standard main once                | every execution-policy Spark gate holds; never create a user-visible task                  |
-| deterministic repository or environment fact                                       | existing helper or direct command; no model                                  | serial only when inputs depend                     | `evidence_unavailable`            | exact inputs and directly checkable output                                                 |
-| bounded repository synthesis                                                       | fast explorer; observed identity                                             | one read-only lane                                 | main                              | every fast evidence gate holds                                                             |
-| bounded current or external evidence                                               | `mission_researcher`; observe role-owned model/effort                        | one question; dependent research serial            | main or freeze dependent decision | one decision-changing external question                                                    |
-| spare-capacity self-QA retrospective                                               | one ordinary read-only support lane; observed identity                       | single and noncritical                             | `no-signal`                       | task dispatch proves idle capacity and supplies exact terminal/checkpoint/anomaly locators |
-| frozen-candidate advisory lens                                                     | ordinary read-only support lane; observed identity                           | two or more independent lenses may parallelize     | main inspection                   | advisory predicates and immutable candidate hold                                           |
-| independent candidate audit                                                        | reviewer-selected `mission_evaluator` route; observe role-owned model/effort | single or complementary pair as supplied           | reviewer-owned fail-closed route  | fresh non-builder context, immutable candidate, and integrity gates                        |
+| Work                                                                               | Lane and model/effort projection                                       | Topology                                           | Fallback                          | Admission boundary                                                                                 |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Frame, Plan admission, cross-owner or safety judgment, finding synthesis, Finalize | authorized high-reasoning main; exact identity or `unavailable`        | serial decision owner                              | none                              | never delegate the decision                                                                        |
+| evidenced structural Plan challenge                                                | `mission_planner`; observe role-owned model/effort                     | one proposal                                       | high-reasoning main               | main admits or rejects it                                                                          |
+| ordinary implementation                                                            | main or one standard builder; observe exact identity                   | single writer; parallel only for independent paths | main                              | frozen owner, path, boundary, candidate shape, and verification route                              |
+| low-risk mechanical leaf                                                           | `fast_builder` on exact `gpt-5.3-codex-spark` / low                    | one embedded builder                               | standard main once                | every execution-policy Spark gate holds; never create a user-visible task                          |
+| deterministic repository or environment fact                                       | existing helper or direct command; no model                            | serial only when inputs depend                     | `evidence_unavailable`            | exact inputs and directly checkable output                                                         |
+| bounded repository synthesis                                                       | fast explorer; observed identity                                       | one read-only lane                                 | main                              | every fast evidence gate holds                                                                     |
+| bounded current or external evidence                                               | `mission_researcher`; observe role-owned model/effort                  | one question; dependent research serial            | main or freeze dependent decision | one decision-changing external question                                                            |
+| spare-capacity self-QA retrospective                                               | one ordinary read-only support lane; observed identity                 | single and noncritical                             | `no-signal`                       | task dispatch proves idle capacity and supplies exact terminal/checkpoint/anomaly locators         |
+| frozen-candidate advisory lens                                                     | ordinary read-only support lane; observed identity                     | two or more independent lenses may parallelize     | main inspection                   | advisory predicates and immutable candidate hold                                                   |
+| independent candidate audit                                                        | dedicated reviewer or one fresh generic reviewer under neutral control | single or complementary pair as supplied           | reviewer-owned fail-closed route  | fresh non-builder context, frozen candidate identity, read-only observation, and Main reproduction |
 
 The role files own their pinned model and reasoning settings. For an unpinned internal route, treat
 the selected model as host-discretionary and do not promise an exact model without observing it.
@@ -182,12 +183,12 @@ and exact missing evidence. No executable path that preserves every Frame field 
 requested mechanism while a narrower path preserves the Frame returns `mechanism_rejected` with the
 refused mechanism, decisive evidence, preserved outcome, smallest substitute, and its admission packet.
 
-When the main packet supplies an independent-audit predicate, a planner may return only a non-
+When the current Plan supplies an independent-audit predicate, a planner may return only a non-
 dispatchable template that names the main-selected single or complementary-pair mode, Frame locator,
-one lens per evaluator, planned fresh launch context, immutable instruction origin, discovery boundary,
-integrity evidence, and failure branch. After Plan admission and candidate freeze, main alone inserts
-the exact complete Plan, freezes lens bytes, invokes the reviewer packet helper, and dispatches. An
-unavailable required evaluator is `evidence_unavailable`, not permission to weaken delivery.
+one lens per reviewer, planned fresh launch context, neutral control locator, read-only observation,
+and failure branch. After Plan admission and candidate commit, main alone supplies the complete Plan
+and exact Git identities and dispatches. An unavailable required fresh reviewer is
+`evidence_unavailable`, not permission to weaken delivery.
 
 An incomplete, ambiguous, conflicting, or source-blocked fast result may return once for standard
 classification. Preserve Frame, Origin, Authority, and consumed Stop; do not retry fast, surround the
@@ -196,12 +197,13 @@ mutually independent questions whose inputs and outputs do not overlap or consum
 
 ## Run independent audit lenses
 
-Use [the reviewer handoff](../verification/reviewer-handoff.md) for every independent audit. It alone selects the
-single or risk-triggered complementary-pair route and owns complete Frame and Plan rebinding, result
-classification, fallback, and integrity gates. When it selects a pair, dispatch both one-lens
-`mission_evaluator` instances concurrently from the same frozen binding and immutable,
-content-addressed common packet core whose ordered manifest binds every exact lens delta;
-neither may consume sibling output. Fan in once for main-agent reproduction and arbitration.
+Use [the reviewer handoff](../verification/reviewer-handoff.md) for every independent audit. It alone
+selects the single or risk-triggered complementary pair and owns the frozen candidate, complete
+Frame and Plan, neutral control, fresh-context fallback, result classification, and fail-close gates.
+Prefer `mission_evaluator`; when that dedicated route is unavailable, use one fresh generic reviewer
+for the same lens. For a pair, dispatch both one-lens reviewers concurrently from the same candidate
+identity and common evidence, and let neither consume sibling output. Fan in once for Main
+reproduction and arbitration.
 
 ## Run advisory candidate lenses
 
@@ -240,8 +242,8 @@ causal roots, and resolves conflicts by provenance and consumer impact rather th
 `partial`, `unsupported`, `mismatched`, and `unverified` never mean pass. Only the main agent maps a
 verified finding to the highest Mission boundary and chooses the route.
 
-Measure coordination before fan-out from the actual serialized common packet, each lens delta,
-expected return bound, and the dispatch, return, candidate-recheck, validation, and synthesis events.
+Measure coordination before fan-out from the common candidate input, each lens question, expected
+return bound, and the dispatch, return, candidate-recheck, validation, and synthesis events.
 Compare their observed characters, available tokenizer count, and event count with the same evidence
 work in the main context. Use fewer lenses whenever expected elapsed-time or context saving does not
 exceed that copied context and coordination cost. These measurements route support only; they never
@@ -249,6 +251,6 @@ decide acceptance, Stop, revision, or an agent-count budget.
 
 ## Keep independent audit evidence fail-closed
 
-An advisory lane never substitutes for the reviewer handoff, and no evaluator becomes a vote. Apply
+An advisory lane never substitutes for the reviewer handoff, and no reviewer becomes a vote. Apply
 that owner's endpoint restriction when any required current lens is invalid or unavailable. Generic
-fallback evidence is integrity-checked, not sandbox-enforced.
+fallback evidence is behaviorally read-only with Main observation; it is not sandbox-enforced.
