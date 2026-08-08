@@ -949,7 +949,7 @@ function readFeaturePhrases(path: string, content: string): Array<{ path: string
 
 function readStepDefinitions(path: string, content: string): BddDefinition[] {
   const definitions: BddDefinition[] = []
-  const pattern = /\b(?:Given|When|Then|defineStep)\s*\(\s*(?:(["'`])((?:\\.|(?!\1|\\)[\s\S])*)\1|\/((?:\\.|[^/])*)\/([a-z]*))/g
+  const pattern = /\b(?:Given|When|Then|defineStep)\s*\(\s*(?:(["'`])((?:\\[\s\S]|(?!\1|\\)[\s\S])*)\1|\/((?:\\[\s\S]|[^/\\])*)\/([a-z]*))/g
   for (const match of content.matchAll(pattern)) {
     const expression = match[2] == null ? `/${match[3]}/${match[4] ?? ""}` : match[2]
     const regex = match[2] == null
