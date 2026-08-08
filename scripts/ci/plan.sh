@@ -1,109 +1,121 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Determine which CI jobs should run based on changed files.
+# Classify changed paths for build.yml. The plan is the single owner of CI
+# impact routing: workflow jobs only consume these outputs.
 #
 # Outputs (to $GITHUB_OUTPUT):
-#   run_tests       - true if any non-docs code changed
-#   run_rust_tests  - true if Rust code changed
+#   run_tests              - build and test the Python wheel matrix
+#   run_rust_tests         - run Rust doctests and tests
+#   run_generated_drift    - regenerate and check Python stubs/docstrings
+#   run_full_pre_commit    - use prek --all-files rather than the PR diff
+#   run_capnp_check        - run make check-capnp-schemas in pre-commit
+#   pre_commit_base        - PR merge-base for prek --from-ref
 #
-# Required env vars:
-#   EVENT_NAME   - github.event_name (push or pull_request)
-#   BASE_REF     - github.event.pull_request.base.ref (PRs only, e.g. "develop")
-#   BEFORE_SHA   - github.event.before (push only, previous HEAD)
-#
-# Out-of-scope paths (treated as no-ops):
-#   - docs/                                 documentation only
-#   - Makefile                              tooling: CI invokes named targets
-#                                           explicitly, so a broken target
-#                                           fails its caller rather than
-#                                           silently skewing the build
-#   - .github/workflows/<not build*>.yml    scheduled or independent workflows
-#                                           that build.yml never triggers
-#                                           (nightly-*, dst, performance, ...)
-#   - root all-caps *.md                    README, RELEASES, CONTRIBUTING,
-#                                           SECURITY, etc.: documentation only
-#   - crates/.../README.md                  per-crate README (any depth):
-#                                           shipped by cargo publish but content
-#                                           does not affect compilation
-#   - LICENSE                               legal text only
-#   - .gitignore, .gitattributes,           VCS and editor metadata: no effect
-#     .editorconfig                         on build or test outcomes
-#
-# The four rules above only skip when the file is still present on disk so a
-# deletion (e.g. removing README.md, which pyproject.toml and Cargo.toml
-# declare as package metadata) cannot bypass the build that would catch it.
+# Unknown paths, deletions, renames, missing history, and CI authority changes
+# are deliberately full routes. Pushes and non-PR events are also full routes:
+# path reduction is a pull-request feedback optimization, never a release gate.
+
+emit() {
+  local tests="$1" rust="$2" generated="$3" full_prek="$4" capnp="$5" reason="$6"
+  {
+    echo "run_tests=${tests}"
+    echo "run_rust_tests=${rust}"
+    echo "run_generated_drift=${generated}"
+    echo "run_full_pre_commit=${full_prek}"
+    echo "run_capnp_check=${capnp}"
+    echo "pre_commit_base=${merge_base:-}"
+  } >> "$GITHUB_OUTPUT"
+  echo "$reason"
+}
 
 run_all() {
-  echo "run_tests=true" >> "$GITHUB_OUTPUT"
-  echo "run_rust_tests=true" >> "$GITHUB_OUTPUT"
-  echo "$1"
+  emit true true true true true "$1"
   exit 0
 }
 
-# Determine changed files
-if [[ "$EVENT_NAME" == "push" ]]; then
-  # All-zero BEFORE_SHA means new branch; run everything
-  if [[ "$BEFORE_SHA" == "0000000000000000000000000000000000000000" ]]; then
-    run_all "New branch push: running all jobs"
-  fi
-  if [[ -z "${BEFORE_SHA:-}" ]] || ! git cat-file -e "${BEFORE_SHA}^{commit}" 2> /dev/null; then
-    run_all "Push base SHA not found: running all jobs"
-  fi
-  changed_files="$(git diff --name-only "$BEFORE_SHA" HEAD)"
-else
-  # The PR event payload freezes base.sha at PR creation time, so intervening
-  # commits on the base branch would otherwise appear as PR changes. Re-resolve
-  # the merge-base against the current base branch head so the diff reflects
-  # only what this PR actually changes relative to where it will land.
-  if [[ -z "${BASE_REF:-}" ]]; then
-    echo "::error::BASE_REF is required for pull_request events" >&2
-    exit 1
-  fi
-  if ! merge_base="$(git merge-base "origin/${BASE_REF}" HEAD 2> /dev/null)"; then
-    run_all "Failed to compute merge-base against origin/${BASE_REF}: running all jobs"
-  fi
-  if [[ -z "$merge_base" ]]; then
-    run_all "Empty merge-base against origin/${BASE_REF}: running all jobs"
-  fi
-  changed_files="$(git diff --name-only "$merge_base" HEAD)"
+if [[ "${EVENT_NAME:-}" != "pull_request" ]]; then
+  run_all "${EVENT_NAME:-unknown} event: running full validation"
 fi
 
-code_changed=0
-rust_changed=0
+if [[ -z "${BASE_REF:-}" ]]; then
+  run_all "PR base ref missing: running full validation"
+fi
+if ! merge_base="$(git merge-base "origin/${BASE_REF}" HEAD 2>/dev/null)"; then
+  run_all "Failed to compute PR merge-base: running full validation"
+fi
+if [[ -z "$merge_base" ]]; then
+  run_all "Empty PR merge-base: running full validation"
+fi
+
+# Deletions and renames can remove or move a consumer outside a narrow route;
+# there is no safe path-only proof that a reduced gate covers them.
+while IFS=$'\t' read -r status _; do
+  [[ -z "$status" ]] && continue
+  if [[ "$status" != A && "$status" != M ]]; then
+    run_all "${status} change detected: running full validation"
+  fi
+done < <(git diff --name-status "$merge_base" HEAD)
+
+wheel=false
+rust=false
+generated=false
+capnp=false
+unknown=false
+
 while IFS= read -r file; do
   [[ -z "$file" ]] && continue
-  # Out-of-scope paths (see header for rationale)
-  [[ "$file" =~ ^docs/ ]] && continue
-  [[ "$file" == "Makefile" ]] && continue
-  [[ "$file" =~ ^\.github/workflows/ && ! "$file" =~ ^\.github/workflows/build ]] && continue
-  [[ "$file" =~ ^[A-Z][A-Z0-9_]*\.md$ && -f "$file" ]] && continue
-  [[ "$file" =~ ^crates/.+/README\.md$ && -f "$file" ]] && continue
-  [[ "$file" == "LICENSE" && -f "$file" ]] && continue
-  if [[ "$file" == ".gitignore" || "$file" == ".gitattributes" || "$file" == ".editorconfig" ]] && [[ -f "$file" ]]; then
+
+  # Documentation, Codex workflow material, and PR metadata have no package
+  # consumer. They still run changed-file pre-commit hooks below.
+  if [[ "$file" =~ ^(docs|\.agents|\.codex)/ ]]; then
     continue
   fi
-  code_changed=1
-  # Rust, Cargo config, or build infrastructure means full Rust tests
-  [[ "$file" =~ \.rs$ ]] && rust_changed=1
-  [[ "$file" =~ Cargo\.(toml|lock)$ ]] && rust_changed=1
-  [[ "$file" == "rust-toolchain.toml" ]] && rust_changed=1
-  [[ "$file" =~ ^\.cargo/ ]] && rust_changed=1
-  [[ "$file" =~ ^crates/ ]] && rust_changed=1
-  [[ "$file" =~ ^schema/ ]] && rust_changed=1
-  [[ "$file" =~ ^\.github/ ]] && rust_changed=1
-done <<< "$changed_files"
+  if [[ "$file" =~ ^[A-Z][A-Z0-9_]*\.md$ || "$file" == LICENSE ]]; then
+    continue
+  fi
+  if [[ "$file" == .gitignore || "$file" == .gitattributes || "$file" == .editorconfig ]]; then
+    continue
+  fi
+  if [[ "$file" =~ ^crates/.+/README\.md$ ]]; then
+    continue
+  fi
+  if [[ "$file" == .github/CODEOWNERS || "$file" == .github/OVERVIEW.md ||
+    "$file" == .github/pull_request_template.md || "$file" == .github/scripts/validate-pr-title.sh ]]; then
+    continue
+  fi
+  if [[ "$file" =~ ^\.github/workflows/ ]]; then
+    if [[ "$file" == .github/workflows/build.yml ]]; then
+      run_all "Build workflow changed: running full validation"
+    fi
+    # Independent workflow changes do not alter build.yml's build graph.
+    continue
+  fi
 
-if [[ $code_changed -eq 0 ]]; then
-  echo "run_tests=false" >> "$GITHUB_OUTPUT"
-  echo "run_rust_tests=false" >> "$GITHUB_OUTPUT"
-  echo "Docs-only changes: skipping build and test jobs"
-elif [[ $rust_changed -eq 1 ]]; then
-  echo "run_tests=true" >> "$GITHUB_OUTPUT"
-  echo "run_rust_tests=true" >> "$GITHUB_OUTPUT"
-  echo "Rust changes detected: running all jobs"
-else
-  echo "run_tests=true" >> "$GITHUB_OUTPUT"
-  echo "run_rust_tests=false" >> "$GITHUB_OUTPUT"
-  echo "Python-only changes: skipping Rust tests"
+  # CI authority and package/toolchain boundaries are full routes.
+  if [[ "$file" == Makefile || "$file" == .pre-commit-config.yaml ||
+    "$file" =~ ^(scripts/ci|\.github/actions|\.cargo|schema|crates)/ ||
+    "$file" == Cargo.toml || "$file" == Cargo.lock || "$file" == rust-toolchain.toml ||
+    "$file" == tools.toml ]]; then
+    run_all "CI, Rust, schema, or toolchain authority changed: running full validation"
+  fi
+
+  if [[ "$file" =~ ^python/ ]]; then
+    wheel=true
+    if [[ "$file" == python/generate_stubs.py || "$file" == python/generate_docstrings.py ||
+      "$file" =~ ^python/vibe_trader/.*\.pyi$ ]]; then
+      generated=true
+    fi
+    continue
+  fi
+
+  # Everything else has no enumerated consumer, so it must not reduce gates.
+  unknown=true
+done < <(git diff --name-only "$merge_base" HEAD)
+
+if [[ "$unknown" == true ]]; then
+  run_all "Unknown changed path: running full validation"
 fi
+
+emit "$wheel" "$rust" "$generated" false "$capnp" \
+  "PR path plan: wheel=${wheel}, rust=${rust}, generated-drift=${generated}, changed-file pre-commit"
