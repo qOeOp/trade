@@ -160,8 +160,11 @@ chore(security): remove stale audit exceptions
 ```
 
 The sole executable pull request title syntax authority is
-`.github/scripts/validate-pr-title.sh`. Local preflight, the base-controlled `pr-title` workflow, and
-guarded merge validation all consume that script rather than copying its rule.
+`.github/scripts/validate-pr-title.sh`. Before creating a pull request, contributors may invoke that
+script manually with the exact proposed title. Once present on the base branch, the base-controlled
+`pr-title` workflow is the repository workflow consumer. The final merge owner must independently
+re-read the current title, head, and base, then run the validator from that current base rather than
+copying its rule.
 
 Avoid unscoped, vague, or non-Conventional shapes:
 

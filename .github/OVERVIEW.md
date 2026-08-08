@@ -30,7 +30,8 @@ CI/CD, testing, publishing, and automation within the NautilusTrader repository.
   publishes Cargo crates, verifies the registries and release assets, then publishes the GitHub
   release. A dedicated Linux x86 job runs the Rust suite once in parallel with the required Python
   wheel jobs after `pre-commit`; every publication path requires it to pass. Pull requests targeting
-  `main` run on opened, synchronize, and reopened events. Metadata edits do not publish `quality`.
+  `main` run on opened, synchronize, and reopened events. Retargeting a pull request's base runs the
+  normal graph; other metadata edits neither cancel that graph nor publish `quality`.
 - **build-docs.yml**: builds the Python API documentation on `master` and `nightly`, then dispatches
   the downstream documentation build after the local gate succeeds.
 - **cli-binaries.yml**: builds CLI archives for Linux x86, Linux ARM64, macOS ARM64, and Windows
@@ -41,8 +42,11 @@ CI/CD, testing, publishing, and automation within the NautilusTrader repository.
   has no tracked Go source or workspace manifest.
 - **pr-title.yml**: validates the current pull request title with the exact base revision's canonical
   validator and publishes the distinct `pr-title` status to the API-read current head. It never
-  checks out or executes pull request head content. A guarded merge must still re-read the current
-  title, head, and base because a same-head title edit can race an earlier status.
+  checks out or executes pull request head content. This workflow establishes the status producer;
+  the final merge owner must independently re-read the current title, head, and base, then validate
+  with the current base authority because a same-head title edit can race an earlier status. The
+  status must not become required unless repository settings can bind the exact base workflow rather
+  than only the shared GitHub Actions integration identity.
 - **docker.yml**: builds and pushes multi‑platform `nautilus_trader` and `jupyterlab` images with
   Buildx and native ARM runners, then signs them with cosign and verifies their SPDX SBOM
   attestations.
@@ -63,8 +67,8 @@ CI/CD, testing, publishing, and automation within the NautilusTrader repository.
 
 ### Source and review controls
 
-- **CODEOWNERS**: Critical infrastructure files (workflows, dependencies, build configs, scripts)
-  require Core team review before merge.
+- **CODEOWNERS**: Ownership entries route review requests to repository-recognized owners. Whether
+  their approval is required is controlled by the live branch ruleset, not this file.
 - **Branch and tag rulesets**: `main` requires a pull request, resolved review threads, strict named
   CI checks, and CodeQL scanning. It has no bypass actor. Other branch and tag policies remain
   repository settings rather than workflow-owned authority.
@@ -132,9 +136,10 @@ CI/CD, testing, publishing, and automation within the NautilusTrader repository.
   trusted pushes. Other wheel-matrix Rust caches save only on pushes. Prek hook environments use a
   separate cache. The active large Parquet fixtures save after the Rust tests on a cache miss.
 - **Concurrency**: Normal PR CI events share a per-PR group and cancel older active or pending runs.
-  Metadata edits do not trigger `build.yml`; `pr-title.yml` handles title edits in its own per-PR
-  group. Pushes use commit-specific groups, so a newer commit does not cancel or replace an earlier
-  push.
+  `pull_request.edited` triggers `build.yml`, but ordinary title and body edits use an isolated,
+  non-cancelling group and do not run or publish a new full `quality` terminal. Only a base-retarget
+  edit runs the full graph. The independent `pr-title.yml` producer owns title edits. Pushes use
+  commit-specific groups, so a newer commit does not cancel or replace an earlier push.
 - **Runners**: Trusted Linux x86 jobs in `build.yml`, including `test-ci`, use the self‑hosted
   `build` pool. Untrusted PRs use GitHub‑hosted runners under the policy below. Linux ARM and Windows
   wheel matrices use Depot 8‑core runners, while macOS wheels and all CLI platforms use GitHub
