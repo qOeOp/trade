@@ -53,7 +53,9 @@ Goal effect and is explicitly projected as Goal-unbound.
 The Goal holds only overall Outcome, constraints, and completion boundary. Nodes, identities,
 candidates, findings, Stop, and GitHub facts stay in their existing owners. `update_goal` only marks
 the matching overall Goal terminal when permitted; Goal use adds no wrapper, retry, ledger, CLI,
-lifecycle, or hidden execution.
+lifecycle, or hidden execution. Goal contents, state, and automatic continuation never select Hub
+tasks, dependencies, or cadence. They may keep the overall Mission alive while the Hub executes an
+already-checkpointed observation action; they authorize no leaf work or effect by themselves.
 
 ## Hub replacement checkpoint
 
@@ -125,12 +127,12 @@ A node may therefore expose several of those members at once. Render one compact
 fixed order above, with slice names and locator-bound reasons/results, and omit empty members; this is
 a projection convention, not a schema or state machine.
 
-Before choosing a monitoring target, discussion focus, spare-capacity lane, or other scheduling slice,
-reopen every waiting slice's exact blocker and release-predicate locator once and rebuild the compact
-graph. A changed predicate moves that slice to `runnable` and its recorded next owner/action before the
-Hub follows an unrelated active task. Focus changes, ordinary discussion, an idle child, or a terminal
-local candidate cannot remove, postpone, or hide that edge. Recovery only after a user reminder is a
-functional task-loss signal, not evidence that the original release executed.
+After an admitted receipt or explicit user request and before choosing discussion focus, spare capacity,
+or another scheduling slice, reopen every waiting slice's exact blocker and release-predicate locator
+once and rebuild the compact graph. A changed predicate moves that slice to `runnable` and its recorded
+next owner/action before the Hub follows an unrelated active task. Focus changes, ordinary discussion,
+an idle child, or a terminal local candidate cannot remove, postpone, or hide that edge. Recovery only
+after a user reminder is a functional task-loss signal, not evidence that the original release executed.
 
 Derive `needs_attention` only from a structural or user-authority gap, a real exception, or
 unknown-impact evidence that needs Hub arbitration. Ordinary progress, elapsed time, commentary,
@@ -148,6 +150,24 @@ one component Mission with one Outcome, owner, write set,
 Acceptance, Origin, and endpoint. Preserve every prior node and identity as source evidence; do not
 sequence the cycle as `A → B → C → A`, transfer a candidate, or create the component without ordinary
 proposal and consent. Recompute the release DAG after component admission and require it to be acyclic.
+
+### Optional task-event acceleration
+
+The Hub owns active-task observation even when no callback exists. A Hub packet may additionally bind
+the exact parent `hub_thread_id` and `hub_host_id` plus the callable
+`send_message_to_thread(threadId, hostId, prompt)` contract as a supplementary fast path. Its callback
+body starts with `RBM_TASK_EVENT_V1` and carries exact `task_thread_id`, title,
+`event_kind=needs_attention | terminal`, state, Origin and base, candidate head and tree when any, pull
+request and branch when any, verification summary, dependency predicates, next legal Hub action, and
+whether repository, GitHub, or Goal mutation occurred. Prefer immutable locators and hashes over long
+evidence. This section is the only callback-schema owner.
+
+A valid callback closes the current wait window early and may supply one unseen actionable receipt.
+Absence, loss, or unavailability of the callback never changes the registered active set, suppresses a
+later Hub observation, or freezes otherwise valid child release. Ordinary progress, waiting, unchanged
+CI, polling, and repeated callback state remain silent. The Hub admits only a schema-valid callback
+from the exact child to the exact runtime-bound parent; an unrecognized, malformed, wrong-source, or
+wrong-parent event is unknown-impact and fails closed for that event, not for task ownership.
 
 ## Dependency and interruption gates
 
@@ -194,9 +214,9 @@ reconciliation. That continuation creates no Mission or lifecycle `Resume`; a pr
 a separate request or approved node.
 
 One child hosts one Outcome, managed worktree, eventual branch, and at most one pull request. It owns
-its candidate and verification; the hub owns admission, checkpoint, monitoring, source observation,
-and merge effects. Neither mirrors the other's stages or lanes. Messages and root turns create no
-Mission.
+its candidate and verification; the hub owns admission, checkpoint, inbound-receipt reconciliation,
+source observation, and merge effects. Neither mirrors the other's stages or lanes. Messages and root
+turns create no Mission.
 
 ## Critical-path choreography
 
@@ -347,8 +367,8 @@ containing the exact title and label; interaction language; current Frame and ad
 or immutable locator; Origin, dependency edges and release predicates; authority and prohibited
 effects; preconditions and their executable producer/setup; selected `single | hub` mode; freshly
 observed Goal-tool availability and persistence; observed or honestly unavailable model/effort; exact
-owner inputs and evidence locators; endpoint; Stop; and one next legal action. Record its byte length
-and `sha256:<lowercase-64-hex>` outside the payload. The payload, identity, and approved create branch
+owner inputs and evidence locators; endpoint; Stop; and one next legal action. Record its byte length and
+`sha256:<lowercase-64-hex>` outside the payload. The payload, identity, and approved create branch
 form one packet; changing any member invalidates approval. Native Task title remains packet identity
 metadata and never becomes a Conventional pull-request title.
 
@@ -396,11 +416,11 @@ repair it.
 
 Only after admission may the child parse the payload and bind its exact title. Mission commentary,
 Frame, `get_goal`, Skill or role loading, repository reads, Git, and payload work remain frozen until
-the exact title and task identity have an exact readback receipt. In the post-admission branch, the
-child calls current-task `set_thread_title` once when that control is available and yields an
-admission/title-gate receipt, or it yields an admission-only receipt for the dispatcher to call the
-exact-target setter once. The dispatcher then reads the exact
-`threadId`/`hostId` back and sends one causally bound release that contains no missing packet semantics.
+the exact title and task identity have exact receipts. In the post-admission branch, the child calls
+current-task `set_thread_title` once when that control is available and yields an admission/title-gate receipt,
+or it yields an admission-only receipt for the dispatcher to call the exact-target setter once. The
+dispatcher then reads the exact `threadId`/`hostId` back and sends one causally bound release that
+contains no missing packet semantics.
 Generated or normalized titles remain provisional until that admission plus exact-title receipt binds
 canonical identity. Setter failure or title mismatch freezes Mission work and permits no second setter.
 
@@ -529,50 +549,48 @@ An explicit no-effect create failure preserves the prompt but retry needs fresh 
 revalidation; possible success forbids retry. A later identity resumes only through causal mapping to
 that attempt. A separate manual task is not that mapping and needs Plan and authority to own the node.
 
-Creation is non-blocking. Outside an admitted multi-Mission orchestration session, return after
-creation without babysitting setup or child commentary. Inside that mode, the hub may use bounded
-native monitoring only for the current ready wave or next merge gate. It must use exact `threadId`
-and `hostId` facts and must not poll a queued `clientThreadId`.
+Creation is non-blocking for Mission work. A queued `clientThreadId` keeps work frozen and returns
+pending its causal mapping. After release, add the exact child to the checkpointed active set and enter
+the Hub-owned observation cadence; never poll the queued dispatcher receipt itself.
 
-The child owns its five stages through the delivery endpoint and never changes the hub Goal. A
-`merged` node uses the derived `merge-ready` handoff; hub Finalize follows Critical-path choreography.
+The child owns its five stages, implementation, verification, CI, review, waiting, and terminal through
+the delivery endpoint and never changes the hub Goal. The Hub executes none of those leaf operations.
+A `merged` node uses the derived `merge-ready` handoff; hub Finalize follows Critical-path choreography.
 
-## Coherence windows and child controls
+## Hub ingress and child controls
 
-Operate on a child when the user asks, or when an admitted multi-Mission checkpoint names that child
-at the current monitoring or merge gate:
+The Hub owns one checkpointed registered active-task set, its dependency DAG, exact cursors, consumed
+actionable locators, current coherence window, and next observation cadence. A callback or explicit
+user request may close a window early, but neither replaces the next observation required while tasks
+remain active. Goal continuation executes only an already-recorded next observation and never selects
+the set or cadence.
 
-- status or one-time monitoring: use one `wait_threads` call with `timeoutMs: 0`;
-- ongoing monitoring: within one Hub scheduling slice, make at most one bounded `wait_threads` event
-  wait for one to eight exact `threadId`/`hostId` targets and retain every returned target cursor. An
-  actionable or terminal event closes the current coherence window for reconciliation. A timeout or
-  snapshot with no actionable or terminal event ends and yields the scheduling slice immediately;
-  do not resubscribe in that slice, keep it open as `running`, or narrate the unchanged state;
-- later Goal continuation or a real health anomaly: make one compact cursor-bound read of the same
-  exact targets, then act on an actionable or terminal event or yield again;
-- feedback or continuation: call `send_message_to_thread` once with `threadId`, optional `hostId`,
-  and the feedback in `prompt`, then return immediately;
-- additional history needed for a current decision: use one bounded `read_thread`.
+In one Hub scheduling slice, issue at most one cursor-bound bounded `wait_threads` call over the exact
+active set; choose its nonzero timeout from the current task state or a known external deadline so the
+call itself enforces the admitted cadence. The set must fit the current native call or return to Hub
+Plan; never partial-scan it. Use one bounded `list_threads` observation only when membership, causal
+identity, or custody needs reconciliation, never as a second status pass. An unseen terminal or
+attention delta closes the window for one fan-in. An unchanged, duplicate, timed-out, malformed, or
+non-actionable observation produces zero narration, repository/GitHub/Goal mutation, history read,
+message, or immediate resubscription and yields. A later scheduling slice may run only its newly
+checkpointed cadence action. Do not add Automation, a daemon, hook, queue, background scheduler,
+second ledger, or polling loop.
 
-The child proactively reports only a structural authority gap, a real exception, or one terminal
-receipt. Ordinary progress, local findings/corrections, publication steps, lanes, counts, commentary,
-and tool activity stay there. An unchanged timeout produces zero Hub question, message, immediate
-resubscription, or status narration; retain its cursor in conversation evidence without emitting a
-checkpoint replacement solely for that unchanged observation. After yielding, spare capacity may
-route only to another currently runnable DAG node or the already-approved read-only self-QA
-retrospective below. It never holds the critical path open, invents work, or creates a background
-monitor.
+For an explicit status request, use one cursor-bound `wait_threads` call with `timeoutMs: 0`, report
+that snapshot, and yield unless it contains a terminal or attention receipt. For admitted feedback, use one
+`send_message_to_thread` call and return. Use one bounded `read_thread` only when an admitted receipt or
+user question requires history for the current decision. None of these calls installs monitoring or
+authorizes another call after yield.
 
-Dynamic acceptance uses the observed Hub refutation rather than compact-output size alone. Baseline A
-repeated cursor-bound 60-second `wait_threads` timeouts while PERF and SKR had no actionable event;
-although every call was event-based and compact, immediate resubscription made the sequence polling
-and produced user-visible idle churn. Candidate B permits one coherence-window event wait in the
-current scheduling slice and then yields; a later continuation or anomaly permits one compact cursor
-read and must again act or yield. Any immediate no-event resubscription or unchanged narration fails
-this acceptance condition.
+Through the optional callback, the child may proactively report a structural authority gap, a real
+exception, a changed dependency receipt, or one terminal receipt. Ordinary progress, local
+findings/corrections, publication steps, lanes, counts, commentary, and tool activity stay there. After yielding, spare capacity may route only to another currently
+runnable DAG node or the already-approved read-only self-QA retrospective below. It never holds the
+critical path open, invents work, or creates a background monitor.
 
-Treat task events as compact wake hints, never arrival-ordered authority. Across cursor-bound waits in
-the current released wave, retain every raw receipt and immutable locator. Normalize every
+Treat task callbacks and observed status deltas as compact wake hints, never arrival-ordered authority. Retain
+the admitted raw receipt and immutable locator once; callback and snapshot observations of the same
+actionable state do not create a second receipt. Normalize every
 unrecognized, unclassifiable, malformed, or newly introduced receipt or status as unknown-impact;
 preserve its raw representation and locator, close the window immediately, and freeze affected
 questions, releases, judgments, and effects until authoritative reconciliation. Close that in-turn
@@ -583,21 +601,15 @@ coherence window at the first of:
 - a dependency, publication, merge, or other declared effect barrier; or
 - a turn/interruption/Handoff/compaction, source or authority drift, or user request/override.
 
-An absent cursor is valid only for a target's first observation. A missing returned cursor, reset
-cursor, malformed cursor, target/host mismatch, revision regression, or other continuity gap on a
-continued target cannot prove that no event was lost: preserve the raw poll, close the window as
-unknown-impact, and rebuild authority. A wake may return before every target is polled, so omitted
-targets retain their prior facts but cannot be judged unchanged. Commentary and ordinary tool
-progress may change a revision or appear in a timeout snapshot, but neither wakes the event wait nor
-changes graph authority.
-
 At the window, rebuild the current evidence graph, group its stable components, and reconcile exact
 Goal, task, Git, GitHub, dependency, and authority facts once for the whole released wave. Arbitrate
 terminal conflicts by those owners, fan in each component impact once, perform at most one stage-wide
 global judgment, derive one hub position and next operation, and emit one complete checkpoint. Only
 after that checkpoint may the hub issue a question/message or release an independent next stage or
 declared effect. A dependent release, endpoint judgment, or other effect may not precede the
-checkpoint. One receipt never resets the wave, starts a dependent, or triggers a global pass.
+checkpoint. When that fan-in satisfies a direct successor's declared release predicate, invoke its
+recorded next owner in the same turn before unrelated work or yield. One receipt never resets the wave
+or triggers a second global pass.
 
 Multiple tasks or candidates with the same causal collision projection, overlapping Outcome/consumer,
 or contradictory evaluator and direct-consumer evidence belong to one component conflict. Freeze

@@ -28,8 +28,8 @@ references, or substitute collaboration support for a native Task.
 For every issued or resumable dispatch, retain the complete packet's immutable payload locator, exact
 UTF-8 length and SHA-256, delivery branch and receipt, producer-owned setup, typed inter-step byte
 edges, generic startup notice or none, deterministic verifier result and any same-tuple transport
-correction, first admission result, provisional title, exact-title setter/readback/release receipt, and
-next legal action. These values index the existing prompt, native task, helper artifact, or terminal
+correction, first admission result, provisional title, optional callback binding and receipt,
+exact-title setter/readback/release receipt, and next legal action. These values index the existing prompt, native task, helper artifact, or terminal
 receipt; do not copy the payload into another ledger or invent a resume format. A prefix, summary,
 later supplement, missing durable locator, or identity that cannot be reopened after compaction freezes
 that packet as a persistence mismatch. Preserve a failed packet as terminal; a newly authorized complete
@@ -56,15 +56,12 @@ waiting/runnable/running/frozen/needs_attention/terminal slices, and at most one
 Retain every user-approved or committed route with its exact current disposition and next owner or
 terminal locator; a new request, ordinary child completion, or checkpoint replacement cannot silently
 drop it. This remains conversation evidence indexed to native task, Git, and GitHub facts, not a ledger.
-Preserve blocked/completed reasons and results plus their raw locators. Retain the exact target set and
-latest cursor per observed `threadId`/`hostId`; a continued target with missing/reset/malformed cursor,
-revision regression, host mismatch, or an omitted poll at an early wake is not evidence of no change.
-When the latest bounded wait returned no actionable or terminal event, recover the Hub position as
-`yielded`, not as a still-running monitor. A later Goal continuation or real health anomaly may consume
-the retained target/cursor facts for one compact read, then must either act on an actionable or
-terminal event or yield again. Recovery never immediately resubscribes after a no-event result,
-replays polling history, narrates unchanged state, or creates a scheduler, timer, daemon, or background
-service.
+Preserve blocked/completed reasons and results plus their raw locators, the task-dispatch-admitted
+terminal or attention receipt or explicit user request, any optional callback binding and receipt, and
+the recorded next owner/action for every runnable slice. Retain the exact registered active-task set,
+its latest per-target cursors, consumed actionable locators, current coherence window, and next
+observation timeout or external deadline. Goal continuation may execute only that recorded Hub-owned
+action; timeout, elapsed time, compaction alone, and remembered waiting add no other recovery work.
 Fan in each component once, derive the hub position, then emit the complete replacement before any hub-issued
 question/message, effect, dependent release,
 turn/interruption/Handoff/compaction, source or authority drift, or unknown-impact handling. A wave
@@ -80,8 +77,8 @@ Origin / candidate / effects: <origin; exact diff, commit, or none; issued and u
 Evidence / findings: <decisive passes, failures, unavailable evidence, findings, and rejected candidates>
 Position / next legal operation: <current stage or route; one exact next legal operation>
 Mode / delegation / owner loads: <single or hub; exact active route/slice identity -> none, native_task, or internal_support -> next required owner, predicate, and gated action bindings; exact activated owner paths and immutable activation/control locators>
-Dispatch packets: <each complete payload locator, UTF-8 length/SHA-256, delivery receipt, setup and typed byte edges, startup notice or none, verifier result and same-tuple transport correction, causal collision projection and attempt/task mapping, first admission result, provisional and exact-title setter/readback/release receipts, waiting blocker/release/next-owner edge, component-conflict disposition, next legal action>
-Authority / Stop / Resume / terminal: <current authority; Stop evidence; valid Resume predicate or none; terminal predicate or none>
+Dispatch packets: <each complete payload locator, UTF-8 length/SHA-256, delivery receipt, setup and typed byte edges, startup notice or none, verifier result and same-tuple transport correction, causal collision projection and attempt/task mapping, first admission result, optional callback binding/receipt, active-set/cursor/coherence-window/cadence facts, provisional and exact-title setter/readback/release receipts, waiting blocker/release/next-owner edge, component-conflict disposition, next legal action>
+Authority / Stop / Resume / terminal: <current authority and task-observation capability; Stop evidence; valid Resume predicate or none; terminal predicate or none>
 ```
 
 A reframe or Plan invalidation makes the prior Plan stale. Before another operation, re-emit the
@@ -96,8 +93,8 @@ route/slice delegation and next-owner bindings; approved
 create attempt or receipt; compact canonical task type projection and its exact authority locator;
 `blocks`, `superseded_by`, and `revalidate_after` evidence locators and
 affected slices; current component snapshot; child, release, Goal, endpoint, and current-wave facts
-that have no single-Mission equivalent; and the compact graph plus cursor-bound target facts needed to
-resume the current wait without replaying history. Keep assessment data once at checkpoint level. Native tasks
+that have no single-Mission equivalent; and the compact graph plus admitted ingress, capability, and
+next-runnable-action facts needed to resume without replaying history. Keep assessment data once at checkpoint level. Native tasks
 own identity, Git and GitHub own repository facts, and the raw request and current Frame remain
 authority; the checkpoint authorizes no effect. A node stays in the inventory when superseded,
 interrupted, blocked, cancelled, terminal, or pending identity until its authoritative disposition is
@@ -111,13 +108,18 @@ copy that receipt into a durable hub ledger or treat the checkpoint itself as cr
 ## Interruption and recovery gate
 
 A later turn, user interruption, compaction, Codex chat Handoff, or source drift freezes the next
-mutation and every unissued effect. Observe the current Goal-tool surface and call `get_goal` only when
-it is exposed, then reconcile the whole checkpoint with the raw request and authority plus current
-conversation, native task, Git, pull request, and external-effect facts that can change the next
-operation. If `get_goal` is unavailable, record persistence `none` and take task dispatch's mode-
-specific fallback; a previously recorded active Goal cannot be reconciled and every affected Goal/DAG
-effect remains frozen. Replace the checkpoint with the reconciled live facts before continuing; a
-static contract or fresh-context trace is not runtime proof.
+mutation and every unissued effect. Before any tool or recovery read, require the exact native terminal
+or attention receipt attached to this turn, an explicit user request, the same admitted ingress
+preserved across an in-turn compaction, or one checkpoint-complete Hub observation action. That action
+calls only its bounded observation and enters recovery only for an unseen actionable delta; an unchanged
+or duplicate result and a compaction-only turn call no further tool and yield. A checkpointed runnable
+action is not waiting: execute its recorded next owner now or fail closed on its unmet gate. After that ingress gate, observe the current Goal-tool
+surface and call `get_goal` only when it is exposed, then reconcile the whole checkpoint with the raw
+request and authority plus current conversation, native task, Git, pull request, and external-effect
+facts that can change the next operation. If `get_goal` is unavailable, record persistence `none` and
+take task dispatch's mode-specific fallback; a previously recorded active Goal cannot be reconciled and
+every affected Goal/DAG effect remains frozen. Replace the checkpoint with the reconciled live facts
+before continuing; a static contract or fresh-context trace is not runtime proof.
 
 Immediately after `get_goal` and before any other read or action, consume every active route/slice binding
 in `Mode / delegation / owner loads`. Hub or native-task evidence loads task dispatch; an admitted
@@ -147,8 +149,9 @@ terminal, or anomaly evidence contains a diagnosis that meets independent-Missio
 current inventory contains neither its node nor an exact `deduplicated` or user-authorized `rejected`
 disposition, classify a dispatch-persistence mismatch and return the hub to Plan before another effect
 or Finalize. Reopen every relation locator and affected slice, rebuild the current
-component snapshot and compact graph, verify every continued target's cursor continuity, and test the
-projected release graph for acyclicity. Missing a previously approved
+component snapshot and compact graph, revalidate the active set, cursors, coherence window, and cadence,
+and test the projected release graph for acyclicity. Missing a
+previously approved
 node, adopting a same-title resemblance, issuing a second create for an unresolved attempt, or treating
 an old component grouping as current keeps all affected releases frozen. A pressure cycle returns the
 preserved members to hub Plan for one component Mission; recovery never chooses an arbitrary order or
@@ -163,9 +166,11 @@ identical pre-send value does not authorize work or consume that canonical sette
 same-title resemblance, changed packet member, or missing failed-packet receipt freezes continuation;
 recovery never creates a sibling task or reclassifies the earlier launch as successful.
 
-Dynamic recovery requires a fresh trace firing the edge: task dispatch before Hub product reads or task
-actions, and agent routing before support dispatch. Kernel/checkpoint-only load, product-first reads,
-sub-agent-as-Task, repeated no-event wait, or unchanged narration refutes it despite static reachability.
+Dynamic recovery requires a fresh trace firing the edge: one checkpointed bounded observation or an
+optional callback before any other Hub tool, task dispatch before Hub product reads or task actions,
+and agent routing before support dispatch. Kernel/checkpoint-only load, product-first reads,
+sub-agent-as-Task, immediate resubscription, or any non-observation tool on a receipt-free Goal
+continuation refutes it despite static reachability.
 Assessment data without frozen rubric/controls, activated owner, and next-owner edge is only
 declared/reachable. So is a candidate-deleted effect owner/validator whose candidate-independent locator
 was not consumed. Cross-version corpora stay in the governed evaluation repository.

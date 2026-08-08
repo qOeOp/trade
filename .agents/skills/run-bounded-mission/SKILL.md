@@ -62,7 +62,19 @@ identity, dependency, title, and endpoint projection.
 ### Session mode
 
 At entry, a new turn, compaction recovery, or a resumed hub checkpoint, first compare the latest
-request and observed effect against the complete current Frame. A material change to Outcome or
+request and observed effect against the complete current Frame. Before any Hub tool or recovery read,
+classify the turn's inbound cause. One task-dispatch-admitted native terminal or attention receipt,
+one explicit user request, or one checkpointed Hub observation action admits one reconciliation or
+observation window. Goal continuation may execute that already-owned observation action but never
+creates it, selects its targets or cadence, or authorizes leaf work. Missing or stale active-set,
+cursor, cadence, owner, or dedup facts call zero tools and yield. A bounded observation with no unseen
+actionable delta emits no commentary, performs no other tool or mutation, and yields without immediate
+resubscription. Elapsed time, an active Goal, compaction alone, and remembered waiting grant nothing
+else. Compaction may inherit only the exact admitted cause or next observation bound in the current
+checkpoint. A currently approved runnable packet or released slice instead runs its recorded next
+action now, or fails closed on its unmet precondition; it never sleeps.
+
+A material change to Outcome or
 consumer, scope or non-goal, expected repository or external effect, authority, acceptance, Origin,
 Stop, or the resulting no/single/multi-Mission classification freezes the next mutation and every
 unissued effect. Explicitly reframe, invalidate the old Plan, and re-run mode selection before any of
@@ -89,9 +101,10 @@ resume, or completion authority.
 Before delegation, task control, or a recovered Hub's non-recovery repository read, classify the
 requested mechanism. A user-visible independent Mission loads task dispatch and uses native Codex Task;
 an internal support lane loads agent routing, and a collaboration sub-agent never satisfies native Task.
-After `get_goal`, recovered Hub, node, create-attempt/receipt, or child-identity evidence loads task
-dispatch and its recorded next owner before the gated action. Missing or unknown mode, route/slice,
-activated-owner set, or next-owner edge freezes that read, delegation, control, and effect.
+After an admitted Hub ingress, `get_goal`, recovered Hub, node, create-attempt/receipt, or child-identity
+evidence loads task dispatch and its recorded next owner before the gated action. Missing or unknown
+mode, route/slice, activated-owner set, or next-owner edge freezes that read, delegation, control, and
+effect.
 
 Before an action, native-task, support-lane, or evaluator dispatch, its owning route must bind the
 complete consumer-visible packet before launch. The packet carries every activated authority and
@@ -173,8 +186,9 @@ instead of using this fallback. A tiny Mission with no admitted nontrivial Plan 
 Immediately after every nontrivial Plan admission, load and emit the complete
 [Mission replacement checkpoint](references/orchestration/orchestration-context-recovery.md). It alone owns compatible single-
 Mission and hub recovery state. Replace it as a whole after any decision-changing fact. On a later
-turn or interruption, observe the current Goal-tool surface, reconcile `get_goal` when exposed, and
-reconcile mode, route/slice mechanisms, next-owner edges, and activated owners with immutable locators.
+turn or interruption, first apply the inbound-cause gate above. Only an admitted recovery observes the
+current Goal-tool surface, reconciles `get_goal` when exposed, and
+reconciles mode, route/slice mechanisms, next-owner edges, and activated owners with immutable locators.
 Release work only through the checkpoint's recovery gate; multi-Mission recovery also follows task
 dispatch's capability fallback, and candidate deletion cannot erase a candidate-independent activation.
 
