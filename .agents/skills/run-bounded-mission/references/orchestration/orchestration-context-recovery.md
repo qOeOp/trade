@@ -25,15 +25,35 @@ judgments, and effects. Effect/judgment locators must be candidate-independent i
 user/Hub authority; candidate absence cannot deactivate them. Never guess from prose, preload all
 references, or substitute collaboration support for a native Task.
 
-For every issued or resumable dispatch, retain the complete packet's immutable payload locator, exact
-UTF-8 length and SHA-256, delivery branch and receipt, producer-owned setup, typed inter-step byte
-edges, generic startup notice or none, deterministic verifier result and any same-tuple transport
-correction, first admission result, provisional title, exact-title setter/readback/release receipt, and
-next legal action. These values index the existing prompt, native task, helper artifact, or terminal
-receipt; do not copy the payload into another ledger or invent a resume format. A prefix, summary,
-later supplement, missing durable locator, or identity that cannot be reopened after compaction freezes
-that packet as a persistence mismatch. Preserve a failed packet as terminal; a newly authorized complete
-continuation may resume only the same exact task identity and never rewrites that result.
+For every issued or resumable dispatch, retain the complete packet's immutable producer locator, exact
+UTF-8 length and SHA-256, selected native target branch, fixed inert bootstrap or none, exact task-control
+call and receipt, provisional title, exact-target title setter/readback, single complete host-message
+receipt, first admission result, and next legal action. The length and hash bind approval and recovery
+to the producer object; they do not attest model-visible bytes or authorize a consumer. These values
+index the existing prompt, native task, or terminal receipt; do not copy the payload into another ledger
+or invent a resume format. A prefix, summary, later supplement, missing durable locator, or identity
+that cannot be reopened after compaction freezes that packet as a persistence mismatch. Preserve a
+failed packet as terminal; a newly authorized complete continuation may resume only the same exact task
+identity and never rewrites that result.
+
+For every launched command/process-backed long-running gate, retain its exact candidate/input binding,
+argv, cwd, relevant environment, declared final-state check, host process/session identity, output
+cursor, latest observed state, stdout/stderr host receipt or immutable output locator, whether its one
+informative progress update was emitted, and its exit/final-state terminal receipt or exact unavailable
+reason. Recovery resumes only that same process/session.
+
+For an internal semantic evaluator, retain the reviewer-handoff input locators, exact host evaluator
+identity, ordinary launch receipt, its minimum structured terminal return or unavailable reason,
+Main-owned before/after candidate observation, validation and reproduction position, and the same
+communication position. Retain a host cursor and cursor-bound structured progress receipt/state only
+when the host actually returns them. Recovery after a yield resumes only that same evaluator identity
+and returned cursor; an ordinary one-shot structured return requires no cursor. Its structured terminal
+status replaces an OS exit but never replaces Main's reproduction. A missing or discontinuous required
+identity, returned cursor, output receipt, structured return, or reproduction preserves either
+transport as `terminal evidence unavailable` and forbids a replacement launch under unchanged inputs.
+Process or evaluator disappearance, a reconstructed exit or return, or a later same-command/evaluator
+pass cannot repair it. Preserve the per-run communication position so recovery emits no unchanged
+narration and no more than the remaining one progress or one terminal update.
 
 For each native node also retain its causal collision projection and exact attempt/task mapping; every
 waiting blocker, release predicate, next owner and next action; and every component-conflict member's
@@ -77,10 +97,10 @@ Mission checkpoint
 Frame: <exact complete current Frame projection>
 Plan: <exact complete current Plan projection, or none - invalidated/pending admission>
 Origin / candidate / effects: <origin; exact diff, commit, or none; issued and unissued effects>
-Evidence / findings: <decisive passes, failures, unavailable evidence, findings, and rejected candidates>
+Evidence / findings: <decisive passes, failures, unavailable evidence, findings, rejected candidates, and each active long-running gate's route-specific evidence: command/process candidate/input, session/output cursor, state, communication position, exit/final-state receipt; or semantic-review candidate/Frame/Plan/lens/control, evaluator identity, returned cursor if any, state, communication position, minimum structured return, Main validation/reproduction; or exact unavailable reason>
 Position / next legal operation: <current stage or route; one exact next legal operation>
 Mode / delegation / owner loads: <single or hub; exact active route/slice identity -> none, native_task, or internal_support -> next required owner, predicate, and gated action bindings; exact activated owner paths and immutable activation/control locators>
-Dispatch packets: <each complete payload locator, UTF-8 length/SHA-256, delivery receipt, setup and typed byte edges, startup notice or none, verifier result and same-tuple transport correction, causal collision projection and attempt/task mapping, first admission result, provisional and exact-title setter/readback/release receipts, waiting blocker/release/next-owner edge, component-conflict disposition, next legal action>
+Dispatch packets: <each complete producer payload locator and UTF-8 length/SHA-256, selected native target branch, inert bootstrap or none, task-control receipt, causal collision projection and attempt/task mapping, provisional title, exact-target title setter/readback, single complete host-message receipt and first admission result, waiting blocker/release/next-owner edge, component-conflict disposition, next legal action>
 Authority / Stop / Resume / terminal: <current authority; Stop evidence; valid Resume predicate or none; terminal predicate or none>
 ```
 
@@ -138,7 +158,7 @@ can release work.
 
 For a recovered hub, also reconcile every approved node and create attempt against its exact native
 identity or unresolved receipt, preserve every historical title byte-for-byte, distinguish provisional
-transport titles from the canonical post-admission exact-title receipt, and reconcile any
+create-time titles from the canonical exact-target pre-release title receipt, and reconcile any
 frozen canonical task type projection against its exact authority locator. Missing, unrecognized,
 ambiguous, or stale type metadata returns only the affected create/dispatch or aggregation question
 to task dispatch's main classification; recovery never guesses from a legacy prefix, renames a task,
@@ -156,12 +176,12 @@ stores a scheduler state.
 
 Recovery of an exact existing task may consume one newly authorized complete continuation packet only
 after reopening its terminal packet result and exact `threadId`/`hostId`. When the dispatcher sets and
-reads back the exact title before sending that continuation, preserve that value as provisional transport
-metadata only. Canonical identity still binds only after the child admits the new packet and the child or
-dispatcher executes the required post-admission setter plus exact-title readback and causal release. The
-identical pre-send value does not authorize work or consume that canonical setter. A later supplement,
-same-title resemblance, changed packet member, or missing failed-packet receipt freezes continuation;
-recovery never creates a sibling task or reclassifies the earlier launch as successful.
+reads back the exact title before sending that continuation, preserve it as the canonical identity gate
+for that release. The dispatcher then sends the complete packet once; the exact-target native call and
+receipt admit it, and no child receipt, post-admission setter, or second release may repair or complete
+the packet. A later supplement, same-title resemblance, changed packet member, duplicate host-message
+effect, or missing failed-packet receipt freezes continuation; recovery never creates a sibling task or
+reclassifies the earlier launch as successful.
 
 Dynamic recovery requires a fresh trace firing the edge: task dispatch before Hub product reads or task
 actions, and agent routing before support dispatch. Kernel/checkpoint-only load, product-first reads,

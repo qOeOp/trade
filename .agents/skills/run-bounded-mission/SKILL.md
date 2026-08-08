@@ -95,10 +95,21 @@ activated-owner set, or next-owner edge freezes that read, delegation, control, 
 
 Before an action, native-task, or support-lane dispatch, its owning route must bind the complete
 consumer-visible input before launch. Task dispatch and agent routing own their concrete transport and
-admission gates; this kernel adds no envelope, helper, registry, or compatibility path. Independent
-candidate review is deliberately separate: load the reviewer handoff and give a fresh reviewer only
-its exact frozen candidate identity, complete Frame and Plan, one risk lens, required evidence, and neutral
-control locator. Do not wrap that semantic review in the task/support packet bootstrap or let the
+admission gates; this kernel adds no envelope, helper, registry, or compatibility path.
+
+For a native Task route, the canonical payload's UTF-8 bytes, length, and SHA-256 are producer and
+recovery identity only; they do not prove bytes received by the model and grant the child no authority.
+Before semantic work, bind one exact native target, one complete host-message effect and observable
+receipt, plus every route-owned identity or title gate. A fresh task may first receive one fixed inert
+bootstrap solely so the host returns its exact identity; it carries no packet semantics and grants no
+authority. The child never re-hashes or reconstructs raw prompt bytes it cannot observe, and prose or
+self-report never admits the input. Missing, malformed, stale, duplicate, supplemental, or changed input
+freezes before the host-message effect; an unavailable or mismatched target, gate, or receipt is
+`host-defect/no-change`.
+
+Independent candidate review is deliberately separate: load the reviewer handoff and give a fresh reviewer
+only its exact frozen candidate identity, complete Frame and Plan, one risk lens, required evidence, and
+neutral control locator. Do not wrap that semantic review in the task/support packet bootstrap or let the
 candidate's historical Origin govern the reviewer.
 
 Before pull-request metadata create or edit, load [GitHub delivery](references/delivery/delivery-pullrequest-workflow.md)
