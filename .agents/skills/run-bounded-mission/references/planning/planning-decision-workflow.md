@@ -35,6 +35,12 @@ Complete the cheapest discoverable repository and consumer probes that can disti
 frontier before outward research or a user question. A failed probe keeps only its dependent fact
 unknown; it does not make every frontier uncertain.
 
+Before opening a probe, bind the active frontier in conversation to the exact decision it can change,
+the cheapest distinguishing observation, and that probe's finite Stop. Close the frontier as soon as
+the observation settles it; do not inspect unrelated history, representations, owners, or consumers
+for completeness. Completeness means that every material frontier is closed, user-owned, or explicitly
+unproved at its Stop. It never means a repository-wide scan, a fixed question count, or elapsed effort.
+
 Separate authority for user intent and acceptance from authority for solution shape and tests. For
 each object, choose one evidence-backed disposition:
 
@@ -63,6 +69,13 @@ defaulted choices. When confirmation is required, bundle only the smallest relat
 recommendation and consequence, and ask no fixed number of questions. A confirmation freezes only its
 dependent decision; continue independent Plan work.
 
+For non-Direct work, keep the user-facing decision package compact: the leading recommendation,
+evidence-settled automatic decisions, only the remaining user-owned confirmation gaps, a current Plan
+preview, and residual unproved risk. Group gaps that share an authority boundary and can be answered
+together; preserve dependency order across groups. When no material user-owned gap remains, ask no
+question and proceed to admission. Do not expose the internal frontier set, rejected near-duplicates,
+or a question-and-answer transcript as a durable artifact.
+
 ## Admit one current Plan
 
 Freeze the selected intent/acceptance authority before deciding whether solution/test authority or a
@@ -71,10 +84,28 @@ the selected current authorities cannot express without ambiguity. Reuse or repa
 before creating one; never mirror the Plan, intent, tests, or implementation into a parallel Spec
 system.
 
+Keep the authority boundary singular:
+
+- the current user intent, Frame, and selected product contract own requirements and acceptance;
+- the admitted current Plan owns solution choice, owners, dependencies, action bindings, and evidence
+  strategy for this execution;
+- lifecycle QA may observe, falsify, classify, deduplicate, and route a planning omission, but it does
+  not choose the solution, rewrite or admit the Plan, or become a second planner;
+- a Spec owns durable behavior or test semantics only for its named stable consumer; it does not own
+  Mission progress, discussion history, or the execution graph;
+- tests and implementation provide evidence and behavior under those authorities; neither silently
+  replaces requirements, Plan, or Spec authority.
+
 Preserve only Plan-changing final decisions in the existing Plan projection as concise
 `Decision / basis / rejected alternative / unresolved consequence / evidence locator`. Record no
 deliberation order or rejected-option diary. Promote only the final current authority and bind deletion
 of superseded exploration, Plan, or Spec artifacts to the same slice that replaces them.
+
+After admission, remove conversation-derived exploration material from the candidate. Retain only the
+final current Plan and any Spec or evidence object with an independently named downstream consumer;
+delete superseded proposals, clarification logs, alternative designs, task archives, and duplicate
+Plan/Spec representations in the same slice that installs their replacement. When no stable consumer
+requires repository authority, keep the decision Mission-only instead of preserving an artifact.
 
 Put the following downstream admission facts in the existing `Candidate` and
 `Dependencies / action bindings` fields, not in a new packet, schema, or log:

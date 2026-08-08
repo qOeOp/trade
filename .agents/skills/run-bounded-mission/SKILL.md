@@ -212,11 +212,17 @@ Verification: <consumer and owner checks; final gate; unavailable evidence>
 Dependencies / action bindings: <prerequisites; effect owner and authority; capability or gate>
 ```
 
-Before admission, finish every discoverable repository or consumer probe that can dispose a
-consequential unknown, then route what remains through Decision evidence as `default`, `research`, or
-`ask`. Suppress a question unless no safe default exists and its answer materially changes candidate,
-acceptance, or an action binding. Preserve only Plan-changing final decisions in `Candidate` as
-`Decision / basis / rejected alternative / unresolved consequence`; add no field or log.
+Before each probe, bind one consequential unknown to the exact Plan decision it can change, the
+cheapest distinguishing observation, and a finite Stop. Close it as soon as that observation settles
+it; do not inspect unrelated history, representations, owners, consumers, or later-stage effect
+contracts for completeness. A Direct Plan stops after its targeted current-owner and consumer probes.
+Completeness means every material decision frontier is closed, user-owned, or explicitly unproved at
+its Stop, not that the repository was broadly scanned.
+
+Route what remains through Decision evidence as `default`, `research`, or `ask`. Suppress a question
+unless no safe default exists and its answer materially changes candidate, acceptance, or an action
+binding. Preserve only Plan-changing final decisions in `Candidate` as `Decision / basis / rejected
+alternative / unresolved consequence`; add no field or log.
 
 Admit only when every material decision has a downstream consumer, every research basis has evidence
 status and Stop, and every slice has its earliest `replan` and `reframe` signal. This Plan-local
