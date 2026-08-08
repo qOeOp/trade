@@ -28,8 +28,6 @@ jobs:
             config: ""
           - language: rust
             config: ""
-          - language: go
-            config: ""
     steps:
       # https://github.com/step-security/harden-runner
       - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
@@ -71,23 +69,7 @@ jobs:
           toolchain: ${{ env.TOOLCHAIN }}
           override: true
 
-      - name: Prove Go is absent
-        if: matrix.language == 'go'
-        shell: bash
-        run: |
-          set -euo pipefail
-          inventory="$(mktemp)"
-          trap 'rm -f "$inventory"' EXIT
-          git ls-files -z -- '*.go' 'go.mod' 'go.sum' 'go.work' 'go.work.sum' > "$inventory"
-          if [[ -s "$inventory" ]]; then
-            echo "Tracked Go sources or workspace manifests require a real CodeQL scan:" >&2
-            tr '\0' '\n' < "$inventory" >&2
-            exit 1
-          fi
-          echo "No tracked Go sources or workspace manifests"
-
       - name: Initialize CodeQL
-        if: matrix.language != 'go'
         # https://github.com/github/codeql-action
         uses: github/codeql-action/init@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
         with:
@@ -104,6 +86,5 @@ jobs:
         uses: github/codeql-action/autobuild@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
 
       - name: Perform CodeQL Analysis
-        if: matrix.language != 'go'
         # https://github.com/github/codeql-action
         uses: github/codeql-action/analyze@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1

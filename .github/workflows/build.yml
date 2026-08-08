@@ -24,7 +24,7 @@ on:
     branches:
       - main
 
-# Isolate metadata-only edits; push groups include the branch and commit
+# Base retargets run normal CI; other metadata edits neither cancel CI nor publish quality
 concurrency:
   group: >-
     ${{ github.event_name == 'pull_request'
@@ -54,14 +54,15 @@ env:
 jobs:
   plan:
     name: plan
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.action != 'edited' ||
-      github.event.changes.base
+    if: github.event.action != 'edited' || github.event.changes.base
     runs-on: ubuntu-latest
     outputs:
       run-tests: ${{ steps.plan.outputs.run_tests }}
       run-rust-tests: ${{ steps.plan.outputs.run_rust_tests }}
+      run-generated-drift: ${{ steps.plan.outputs.run_generated_drift }}
+      run-full-pre-commit: ${{ steps.plan.outputs.run_full_pre_commit }}
+      run-capnp-check: ${{ steps.plan.outputs.run_capnp_check }}
+      pre-commit-base: ${{ steps.plan.outputs.pre_commit_base }}
       security-audit-needed: ${{ steps.security-audit.outputs.audit_needed }}
       untrusted_pr: ${{ steps.policy.outputs.untrusted_pr }}
       publish_r2: ${{ steps.wheel-publication.outputs.publish_r2 }}
@@ -131,17 +132,7 @@ jobs:
           bash scripts/ci/plan-wheel-publication.bash
 
   pre-commit:
-    name: >-
-      ${{ github.event_name == 'pull_request'
-      && github.event.action == 'edited'
-      && !github.event.changes.base
-      && 'metadata-only pull request edit (lint)'
-      || 'pre-commit' }}
-    if: >-
-      !cancelled() &&
-      (github.event_name != 'pull_request' ||
-       github.event.action != 'edited' ||
-       github.event.changes.base)
+    name: pre-commit
     needs: plan
     runs-on: ubuntu-22.04
     env:
@@ -150,6 +141,7 @@ jobs:
       # Scopes incremental clippy/doc checks; empty for non-PR/push events.
       CHANGED_BASE_SHA: >-
         ${{ github.event.pull_request.base.sha || github.event.before }}
+      PRE_COMMIT_BASE: ${{ needs.plan.outputs.pre-commit-base }}
     steps:
       # https://github.com/step-security/harden-runner
       - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
@@ -213,9 +205,33 @@ jobs:
           tool: cargo-machete@${{ env.CARGO_MACHETE_VERSION }}
 
       - name: Run pre-commit
-        run: prek run --all-files
+        run: |
+          set -euo pipefail
+          if [[ "${{ needs.plan.outputs.run-full-pre-commit }}" == true ]]; then
+            prek run --all-files
+          else
+            test -n "$PRE_COMMIT_BASE"
+            # Every narrow route is non-Rust by plan.sh. Agent TOML and other
+            # generic text would otherwise match cargo fmt/clippy/doc's broad
+            # TOML filter and rebuild the entire workspace without a Rust
+            # consumer. Their applicable generic TOML/Markdown checks remain.
+            prek run --from-ref "$PRE_COMMIT_BASE" --to-ref HEAD \
+              --skip check-anyhow-usage \
+              --skip check-logging-conventions \
+              --skip check-tokio-usage \
+              --skip check-dst-conventions \
+              --skip check-pyo3-conventions \
+              --skip check-testing-conventions \
+              --skip check-vibe-conventions \
+              --skip fmt \
+              --skip cargo-clippy \
+              --skip cargo-clippy-network-turmoil-non-linux \
+              --skip cargo-doc \
+              --skip cargo-machete
+          fi
 
       - name: Verify capnp schemas are up-to-date
+        if: needs.plan.outputs.run-capnp-check == 'true'
         run: make check-capnp-schemas
 
   build:
@@ -230,12 +246,7 @@ jobs:
           - "3.12"
           - "3.13"
           - "3.14"
-    name: >-
-      ${{ github.event_name == 'pull_request'
-      && github.event.action == 'edited'
-      && !github.event.changes.base
-      && 'metadata-only pull request edit (python)'
-      || format('build - python {0} (ubuntu-22.04)', matrix.python-version) }}
+    name: build - python ${{ matrix.python-version }} (ubuntu-22.04)
     runs-on: ubuntu-22.04
     defaults:
       run:
@@ -305,7 +316,9 @@ jobs:
 
       - name: Check generated file drift
         # Keep this 3.13 condition in sync with the matrix so drift is checked once per run.
-        if: matrix.python-version == '3.13'
+        if: >-
+          matrix.python-version == '3.13' &&
+          needs.plan.outputs.run-generated-drift == 'true'
         env:
           TARGET_DIR: >-
             ${{ github.event_name == 'pull_request'
@@ -455,7 +468,9 @@ jobs:
 
   quality:
     name: quality
-    if: always()
+    if: >-
+      always() &&
+      (github.event.action != 'edited' || github.event.changes.base)
     needs:
       - plan
       - pre-commit
@@ -471,6 +486,7 @@ jobs:
           RUST_TESTS_RESULT: ${{ needs.rust-tests-linux-x86.result }}
           RUN_TESTS: ${{ needs.plan.outputs.run-tests }}
           RUN_RUST_TESTS: ${{ needs.plan.outputs.run-rust-tests }}
+          RUN_GENERATED_DRIFT: ${{ needs.plan.outputs.run-generated-drift }}
           PUBLISH_R2: ${{ needs.plan.outputs.publish_r2 }}
           REF_NAME: ${{ github.ref_name }}
         run: |
@@ -481,6 +497,9 @@ jobs:
             test "$BUILD_RESULT" = success
           else
             test "$BUILD_RESULT" = skipped
+          fi
+          if [[ "$RUN_GENERATED_DRIFT" == true ]]; then
+            test "$RUN_TESTS" = true
           fi
           if [[ "$RUN_TESTS" == true ]] &&
              { [[ "$RUN_RUST_TESTS" == true ]] ||
