@@ -224,7 +224,7 @@ ambiguous boundary, equal-time or later invocation, contradiction, or discovery 
 deterministic replay grants no acceptance.
 
 Before launching fallback reviewers, Main checks whether a complementary candidate audit completed
-before the manual request and still binds the exact committed candidate and tree, complete Frame and
+before the manual request and still binds the exact frozen candidate identity, complete Frame and
 Plan, neutral control locator, and the two assigned lenses. Both fresh non-builders must report
 `review_status=completed`, `findings=no_finding`, and `mutation_observation=none`; Main must re-resolve
 the commit/tree/diff, reproduce the consumer conclusions, and confirm that the repository status and
@@ -234,7 +234,7 @@ terminal. Neither component substitutes alone, and an audit that started after t
 qualify for reuse.
 
 Only when no qualifying exact-candidate audit exists may main bind the frozen receipt, snapshot, and
-exact committed candidate into one new complementary pair. A false positive may spend reviewer work but
+exact frozen candidate identity into one new complementary pair. A false positive may spend reviewer work but
 cannot accept the review terminal.
 
 Load the reviewer handoff. Assign `authority_representation` to verify the request locator, actor,

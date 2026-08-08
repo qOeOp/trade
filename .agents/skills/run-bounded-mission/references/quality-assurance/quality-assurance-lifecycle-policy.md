@@ -127,11 +127,15 @@ maturity together with every contradiction or refutation and every unavailable s
 does not erase proved maturity, and unavailable evidence neither lowers that maturity nor becomes a
 contradiction.
 
-For a dynamic claim, the independent reviewer input must include the canonical raw receipt bytes or a
-directly readable immutable locator containing the bounded native receipt identity and exact content.
-A locator whose content the reviewer cannot open is insufficient for `dynamic`, recurrence, or
-owner-route proof; prose reconstruction is insufficient too. This is conversation evidence for that
-audit, not a transcript archive, schema, or new repository authority.
+For a dynamic claim, the independent reviewer input contains only a directly readable immutable
+locator for the bounded native receipt identity and exact content, or an explicit `unavailable` fact
+naming the affected decision. Main must open the locator with its native reader before dispatch and
+verify that the reviewer can read the same exact object. Inline receipt bytes, shell text, quoted or
+prose `argv`, combined invocations, HTML-escaped operators, Main summaries, and inaccessible locators
+are illegal representations: reject them before reviewer launch, keep the claim unavailable, and do
+not repackage or retry it. A locator the reviewer cannot open is insufficient for `dynamic`,
+recurrence, or owner-route proof. This is conversation evidence for that audit, not a transcript
+archive, schema, or new repository authority.
 
 Keep each submitted observation's disposition separate from its QA outcome: `accepted` means only
 that its demonstrated relation belongs to the fingerprint; `rejected` has contradictory relation;

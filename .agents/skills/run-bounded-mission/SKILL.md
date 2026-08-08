@@ -97,7 +97,7 @@ Before an action, native-task, or support-lane dispatch, its owning route must b
 consumer-visible input before launch. Task dispatch and agent routing own their concrete transport and
 admission gates; this kernel adds no envelope, helper, registry, or compatibility path. Independent
 candidate review is deliberately separate: load the reviewer handoff and give a fresh reviewer only
-its exact committed candidate, complete Frame and Plan, one risk lens, required evidence, and neutral
+its exact frozen candidate identity, complete Frame and Plan, one risk lens, required evidence, and neutral
 control locator. Do not wrap that semantic review in the task/support packet bootstrap or let the
 candidate's historical Origin govern the reviewer.
 
@@ -241,7 +241,7 @@ Load conditional Plan owners only when their exact predicate holds:
 
 Projection values remain ordinary prose. Downstream packets quote or navigate only their relevant
 current fields and raw evidence locators; only the independent-review input receives the exact
-complete Frame, Plan, and committed candidate identities it defines.
+complete Frame, Plan, and frozen candidate identities it defines.
 
 ## Execute
 
@@ -288,7 +288,7 @@ questions, use agent lane routing; advisory returns are untrusted leads, never a
 
 Instruction and judge changes require an independent audit. A deterministic helper does too when its
 decision or evidence boundary is material. Load [the minimum review contract](references/verification/reviewer-handoff.md);
-it owns the smallest audit set, exact committed candidate and complete Frame/Plan input, neutral
+it owns the smallest audit set, exact frozen candidate and complete Frame/Plan input, neutral
 candidate-independent control, fresh non-builder context, read-only observation, result
 classification, and fail-close gates. Main reproduces and arbitrates every return. The candidate's
 reviewer changes cannot certify themselves, and no valid current audit means no independent-audit or

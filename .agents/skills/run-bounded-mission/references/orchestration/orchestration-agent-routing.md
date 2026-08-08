@@ -4,7 +4,7 @@ Load this reference only when the main agent has one concrete evidence question,
 non-overlapping build leaf, or at least two independent frozen-candidate risk questions. It is the
 single common-protocol owner for researcher, planner, builder, and advisory lanes; their role TOMLs
 contain startup deltas only. Independent candidate review is not a generic support lane: it consumes
-the committed candidate and neutral contract defined by `../verification/reviewer-handoff.md` without
+the frozen candidate and neutral contract defined by `../verification/reviewer-handoff.md` without
 the support-packet bootstrap.
 
 Every researcher, planner, builder, or advisory packet names an immutable Origin and this exact path.
@@ -88,18 +88,18 @@ comparison, or a frozen mechanical leaf, use
 criteria under the kernel; this reference remains the sole lane admission, protocol, exact-model
 observation, and fallback owner.
 
-| Work                                                                               | Lane and model/effort projection                                       | Topology                                           | Fallback                          | Admission boundary                                                                           |
-| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------- |
-| Frame, Plan admission, cross-owner or safety judgment, finding synthesis, Finalize | authorized high-reasoning main; exact identity or `unavailable`        | serial decision owner                              | none                              | never delegate the decision                                                                  |
-| evidenced structural Plan challenge                                                | `mission_planner`; observe role-owned model/effort                     | one proposal                                       | high-reasoning main               | main admits or rejects it                                                                    |
-| ordinary implementation                                                            | main or one standard builder; observe exact identity                   | single writer; parallel only for independent paths | main                              | frozen owner, path, boundary, candidate shape, and verification route                        |
-| low-risk mechanical leaf                                                           | `fast_builder` on exact `gpt-5.3-codex-spark` / low                    | one embedded builder                               | standard main once                | every execution-policy Spark gate holds; never create a user-visible task                    |
-| deterministic repository or environment fact                                       | existing helper or direct command; no model                            | serial only when inputs depend                     | `evidence_unavailable`            | exact inputs and directly checkable output                                                   |
-| bounded repository synthesis                                                       | fast explorer; observed identity                                       | one read-only lane                                 | main                              | every fast evidence gate holds                                                               |
-| bounded current or external evidence                                               | `mission_researcher`; observe role-owned model/effort                  | one question; dependent research serial            | main or freeze dependent decision | one decision-changing external question                                                      |
-| spare-capacity self-QA retrospective                                               | one ordinary read-only support lane; observed identity                 | single and noncritical                             | `no-signal`                       | task dispatch proves idle capacity and supplies exact terminal/checkpoint/anomaly locators   |
-| frozen-candidate advisory lens                                                     | ordinary read-only support lane; observed identity                     | two or more independent lenses may parallelize     | main inspection                   | advisory predicates and immutable candidate hold                                             |
-| independent candidate audit                                                        | dedicated reviewer or one fresh generic reviewer under neutral control | single or complementary pair as supplied           | reviewer-owned fail-closed route  | fresh non-builder context, committed candidate, read-only observation, and Main reproduction |
+| Work                                                                               | Lane and model/effort projection                                       | Topology                                           | Fallback                          | Admission boundary                                                                                 |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Frame, Plan admission, cross-owner or safety judgment, finding synthesis, Finalize | authorized high-reasoning main; exact identity or `unavailable`        | serial decision owner                              | none                              | never delegate the decision                                                                        |
+| evidenced structural Plan challenge                                                | `mission_planner`; observe role-owned model/effort                     | one proposal                                       | high-reasoning main               | main admits or rejects it                                                                          |
+| ordinary implementation                                                            | main or one standard builder; observe exact identity                   | single writer; parallel only for independent paths | main                              | frozen owner, path, boundary, candidate shape, and verification route                              |
+| low-risk mechanical leaf                                                           | `fast_builder` on exact `gpt-5.3-codex-spark` / low                    | one embedded builder                               | standard main once                | every execution-policy Spark gate holds; never create a user-visible task                          |
+| deterministic repository or environment fact                                       | existing helper or direct command; no model                            | serial only when inputs depend                     | `evidence_unavailable`            | exact inputs and directly checkable output                                                         |
+| bounded repository synthesis                                                       | fast explorer; observed identity                                       | one read-only lane                                 | main                              | every fast evidence gate holds                                                                     |
+| bounded current or external evidence                                               | `mission_researcher`; observe role-owned model/effort                  | one question; dependent research serial            | main or freeze dependent decision | one decision-changing external question                                                            |
+| spare-capacity self-QA retrospective                                               | one ordinary read-only support lane; observed identity                 | single and noncritical                             | `no-signal`                       | task dispatch proves idle capacity and supplies exact terminal/checkpoint/anomaly locators         |
+| frozen-candidate advisory lens                                                     | ordinary read-only support lane; observed identity                     | two or more independent lenses may parallelize     | main inspection                   | advisory predicates and immutable candidate hold                                                   |
+| independent candidate audit                                                        | dedicated reviewer or one fresh generic reviewer under neutral control | single or complementary pair as supplied           | reviewer-owned fail-closed route  | fresh non-builder context, frozen candidate identity, read-only observation, and Main reproduction |
 
 The role files own their pinned model and reasoning settings. For an unpinned internal route, treat
 the selected model as host-discretionary and do not promise an exact model without observing it.
@@ -198,11 +198,11 @@ mutually independent questions whose inputs and outputs do not overlap or consum
 ## Run independent audit lenses
 
 Use [the reviewer handoff](../verification/reviewer-handoff.md) for every independent audit. It alone
-selects the single or risk-triggered complementary pair and owns the committed candidate, complete
+selects the single or risk-triggered complementary pair and owns the frozen candidate, complete
 Frame and Plan, neutral control, fresh-context fallback, result classification, and fail-close gates.
 Prefer `mission_evaluator`; when that dedicated route is unavailable, use one fresh generic reviewer
-for the same lens. For a pair, dispatch both one-lens reviewers concurrently from the same Git
-identities and common evidence, and let neither consume sibling output. Fan in once for Main
+for the same lens. For a pair, dispatch both one-lens reviewers concurrently from the same candidate
+identity and common evidence, and let neither consume sibling output. Fan in once for Main
 reproduction and arbitration.
 
 ## Run advisory candidate lenses
