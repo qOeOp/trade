@@ -139,14 +139,18 @@ long_method_with_many_params(
 
 ## Commit messages
 
-Pull request titles and commit subjects use a scoped Conventional Commits shape, optionally followed by a body
-explaining the change.
+Pull request titles and commit subjects use a scoped Conventional Commits shape. Commit messages may
+optionally include a body explaining the change.
 
 ### Subject line
 
-- Use `type(scope): description`, with a non-empty scope naming the affected crate, adapter, subsystem, or type.
+- Use lowercase `type(scope): description`, where `type` starts with a letter and may contain lowercase
+  letters, digits, or hyphens.
+- Start `scope` with a lowercase letter or digit; the remaining scope may also contain `.`, `_`, `/`,
+  or `-`.
 - Add `!` after the scope only for a breaking change.
-- Keep the description concise and specific so the log stays scannable.
+- Keep the description concise and specific, with no leading or trailing whitespace or control
+  characters. The validator checks syntax, not writing quality.
 
 ```text
 feat(model): add Decimal constructors to Instrument
@@ -155,9 +159,12 @@ refactor(build): simplify cross-platform wheel validation
 chore(security): remove stale audit exceptions
 ```
 
-The executable pull request title syntax authority is
-`.github/scripts/validate-pr-title.sh`. Pull request titles follow the same shape because a squash merge turns the
-title into the commit subject.
+The sole executable pull request title syntax authority is
+`.github/scripts/validate-pr-title.sh`. Before creating a pull request, contributors may invoke that
+script manually with the exact proposed title. Once present on the base branch, the base-controlled
+`pr-title` workflow is the repository workflow consumer. The final merge owner must independently
+re-read the current title, head, and base, then run the validator from that current base rather than
+copying its rule.
 
 Avoid unscoped, vague, or non-Conventional shapes:
 
@@ -183,5 +190,5 @@ restate the diff.
 - Reference issues from the body, typically on a final line: `Resolves #4534` when the commit closes the
   issue, or `Related to #4547` when it is partial work.
 - GitHub appends the pull request number to the subject on squash merge, producing subjects such as
-  `Fix TWAP child-order sizing and interval validation (#4544)`. Do not add that suffix by hand.
+  `fix(execution): validate TWAP child orders (#4544)`. Do not add that suffix by hand.
 - The appended suffix can make the resulting squash‑merged subject exceed the 60‑character limit.

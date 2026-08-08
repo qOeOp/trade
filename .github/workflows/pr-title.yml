@@ -1,0 +1,138 @@
+name: pr-title
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+concurrency:
+  group: pr-title-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: pr-title
+    runs-on: ubuntu-22.04
+    steps:
+      # https://github.com/step-security/harden-runner
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: >-
+            ${{ github.repository == 'qOeOp/trade'
+            && 'audit'
+            || vars.STEP_SECURITY_EGRESS_POLICY
+            || 'block' }}
+          allowed-endpoints: ${{ vars.COMMON_ALLOWED_ENDPOINTS }}
+
+      - name: Checkout exact base revision
+        # https://github.com/actions/checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Validate current title and publish exact-head status
+        shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+          STATUS_TARGET_URL: >-
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |-
+          set -euo pipefail
+
+          test "$(git rev-parse HEAD)" = "$EVENT_BASE_SHA"
+
+          read_current_pr() {
+            local snapshot
+            snapshot="$(gh api --method GET "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+            current_state="$(jq -er '.state' <<< "$snapshot")"
+            current_base_ref="$(jq -er '.base.ref' <<< "$snapshot")"
+            current_base_sha="$(jq -er '.base.sha | select(test("^[0-9a-f]{40}$"))' <<< "$snapshot")"
+            current_head="$(jq -er '.head.sha | select(test("^[0-9a-f]{40}$"))' <<< "$snapshot")"
+            IFS= read -r -d '' current_title < <(jq -j '.title' <<< "$snapshot"; printf '\0')
+            test "$current_state" = open
+            test "$current_base_ref" = main
+          }
+
+          publish_status() {
+            local context=pr-title
+            local description=$3
+            local sha=$1
+            local state=$2
+            local status_response
+            status_response="$(gh api --method POST \
+              "repos/${REPOSITORY}/statuses/${sha}" \
+              -f state="$state" \
+              -f context="$context" \
+              -f description="$description" \
+              -f target_url="$STATUS_TARGET_URL")"
+            jq -e \
+              --arg context "$context" \
+              --arg sha "$sha" \
+              --arg state "$state" \
+              '.context == $context and .sha == $sha and .state == $state' \
+              <<< "$status_response" > /dev/null
+          }
+
+          pending_published=false
+          restore_pending() {
+            local exit_code=$?
+            trap - EXIT
+            if [[ "$exit_code" -ne 0 && "$pending_published" == true ]]; then
+              publish_status \
+                "$validated_head" \
+                pending \
+                'Pull request title validation is pending' || true
+            fi
+            exit "$exit_code"
+          }
+          trap restore_pending EXIT
+
+          read_current_pr
+          test "$current_base_sha" = "$EVENT_BASE_SHA"
+          validated_base_sha="$current_base_sha"
+          validated_head="$current_head"
+          validated_title="$current_title"
+
+          publish_status \
+            "$validated_head" \
+            pending \
+            'Pull request title validation is pending'
+          pending_published=true
+
+          set +e
+          bash .github/scripts/validate-pr-title.sh "$validated_title"
+          validator_result=$?
+          set -e
+          case "$validator_result" in
+            0)
+              status_state=success
+              status_description='Pull request title is valid'
+              ;;
+            1)
+              status_state=failure
+              status_description='Pull request title is invalid'
+              ;;
+            *)
+              exit "$validator_result"
+              ;;
+          esac
+
+          read_current_pr
+          test "$current_base_sha" = "$validated_base_sha"
+          test "$current_head" = "$validated_head"
+          test "$current_title" = "$validated_title"
+
+          publish_status "$current_head" "$status_state" "$status_description"
+          pending_published=false
+
+          test "$status_state" = success

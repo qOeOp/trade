@@ -23,22 +23,30 @@ CI/CD, testing, publishing, and automation within the NautilusTrader repository.
 ## Workflows (`.github/workflows`)
 
 - **build.yml**: main CI and release pipeline for planning, `pre-commit`, workspace Rust tests,
-  Python tests, wheel builds, provenance, and publication. `develop` publishes Linux x86
-  development wheels to R2, and `nightly` publishes every supported wheel platform to R2 after its
-  security gate. A release commit on `master` also runs Cargo and docs/features preflights, creates
+  Python tests, wheel builds, provenance, and publication. `nightly` publishes every supported wheel
+  platform to R2 after its security gate. A release commit on `master` also runs Cargo and
+  docs/features preflights, creates
   a tag and draft GitHub release, publishes wheels to R2 and PyPI, publishes the sdist to PyPI,
   publishes Cargo crates, verifies the registries and release assets, then publishes the GitHub
   release. A dedicated Linux x86 job runs the Rust suite once in parallel with the required Python
-  wheel jobs after `pre-commit`; every publication path requires it to pass. Pull request head
-  updates and base retargets to `develop` run normal CI. Title‑only and body‑only edits execute no
-  jobs.
+  wheel jobs after `pre-commit`; every publication path requires it to pass. Pull requests targeting
+  `main` run on opened, synchronize, and reopened events. Retargeting a pull request's base runs the
+  normal graph; other metadata edits neither cancel that graph nor publish `quality`.
 - **build-docs.yml**: builds the Python API documentation on `master` and `nightly`, then dispatches
   the downstream documentation build after the local gate succeeds.
 - **cli-binaries.yml**: builds CLI archives for Linux x86, Linux ARM64, macOS ARM64, and Windows
   x86_64 on nightly pushes and manual dispatch. Nightly pushes publish versioned and latest
   artifacts to R2.
-- **codeql-analysis.yml**: CodeQL security scans for Python and Rust on PRs to `master`, pushes to
-  `nightly`, and manual dispatch.
+- **codeql-analysis.yml**: CodeQL scans the tracked JavaScript/TypeScript, Python, and Rust sources on
+  pull requests and pushes to `main`, and on manual dispatch. Go is omitted because the repository
+  has no tracked Go source or workspace manifest.
+- **pr-title.yml**: validates the current pull request title with the exact base revision's canonical
+  validator and publishes the distinct `pr-title` status to the API-read current head. It never
+  checks out or executes pull request head content. This workflow establishes the status producer;
+  the final merge owner must independently re-read the current title, head, and base, then validate
+  with the current base authority because a same-head title edit can race an earlier status. The
+  status must not become required unless repository settings can bind the exact base workflow rather
+  than only the shared GitHub Actions integration identity.
 - **docker.yml**: builds and pushes multi‑platform `nautilus_trader` and `jupyterlab` images with
   Buildx and native ARM runners, then signs them with cosign and verifies their SPDX SBOM
   attestations.
@@ -59,12 +67,11 @@ CI/CD, testing, publishing, and automation within the NautilusTrader repository.
 
 ### Source and review controls
 
-- **CODEOWNERS**: Critical infrastructure files (workflows, dependencies, build configs, scripts)
-  require Core team review before merge.
-- **Branch and tag rulesets**: `develop` and `master` require signed commits, an approving review,
-  code‑owner approval where applicable, resolved review threads, and named CI checks. `nightly`
-  requires signed commits and blocks deletion and non‑fast‑forward updates. Test branches require
-  signed commits, and release tags matching `v*` are immutable after creation.
+- **CODEOWNERS**: Ownership entries route review requests to repository-recognized owners. Whether
+  their approval is required is controlled by the live branch ruleset, not this file.
+- **Branch and tag rulesets**: `main` requires a pull request, resolved review threads, strict named
+  CI checks, and CodeQL scanning. It has no bypass actor. Other branch and tag policies remain
+  repository settings rather than workflow-owned authority.
 - **Least-privilege tokens**: Workflows default `GITHUB_TOKEN` to `contents: read, actions: read`
   and selectively elevate scopes only for jobs that need them.
 - **Secret management**: No secrets or credentials are stored in the repo. Credentials are provided
@@ -84,9 +91,9 @@ CI/CD, testing, publishing, and automation within the NautilusTrader repository.
 
 - **cargo-deny**: Rust dependency auditing for security advisories (RUSTSEC/GHSA), license
   compliance, banned crates, and supply chain integrity. Configuration in `deny.toml`.
-- **Code scanning**: CodeQL analyzes Python and Rust code on PRs to `master`, pushes to `nightly`,
-  and manual dispatch. Zizmor runs in `security-audit.yml` and uploads SARIF when token
-  permissions allow it.
+- **Code scanning**: CodeQL analyzes tracked JavaScript/TypeScript, Python, and Rust code on pull
+  requests and pushes to `main`, and on manual dispatch. Zizmor runs in `security-audit.yml` and
+  uploads SARIF when token permissions allow it.
 - **OpenSSF Scorecard**: `openssf-scorecard.yml` publishes repository posture results for the public
   badge/API and uploads SARIF to code scanning.
 
@@ -124,14 +131,15 @@ CI/CD, testing, publishing, and automation within the NautilusTrader repository.
   integrity files. `publish-github-release` verifies the complete draft asset set, publishes the
   release, and verifies GitHub's release attestation.
 - **Caching**: The dedicated Linux x86 Rust job restores its action cache for untrusted PRs and
-  produces it from trusted `develop` and `test-ci` pushes. Its other self-hosted runs use a
+  produces it from trusted `main` and `test-ci` pushes. Its other self-hosted runs use a
   persistent target. Linux x86 wheel jobs disable action caching and use persistent targets for
   trusted pushes. Other wheel-matrix Rust caches save only on pushes. Prek hook environments use a
   separate cache. The active large Parquet fixtures save after the Rust tests on a cache miss.
-- **Concurrency**: Normal PR CI events share a per‑PR group and cancel older active or pending runs.
-  Metadata‑only edits use unique non‑cancelling groups and different skipped check names, so they
-  cannot replace required checks. Pushes use commit‑specific groups, so a newer commit does not
-  cancel or replace an earlier push.
+- **Concurrency**: Normal PR CI events share a per-PR group and cancel older active or pending runs.
+  `pull_request.edited` triggers `build.yml`, but ordinary title and body edits use an isolated,
+  non-cancelling group and do not run or publish a new full `quality` terminal. Only a base-retarget
+  edit runs the full graph. The independent `pr-title.yml` producer owns title edits. Pushes use
+  commit-specific groups, so a newer commit does not cancel or replace an earlier push.
 - **Runners**: Trusted Linux x86 jobs in `build.yml`, including `test-ci`, use the self‑hosted
   `build` pool. Untrusted PRs use GitHub‑hosted runners under the policy below. Linux ARM and Windows
   wheel matrices use Depot 8‑core runners, while macOS wheels and all CLI platforms use GitHub

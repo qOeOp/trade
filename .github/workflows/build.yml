@@ -24,7 +24,7 @@ on:
     branches:
       - main
 
-# Isolate metadata-only edits; push groups include the branch and commit
+# Base retargets run normal CI; other metadata edits neither cancel CI nor publish quality
 concurrency:
   group: >-
     ${{ github.event_name == 'pull_request'
@@ -54,10 +54,7 @@ env:
 jobs:
   plan:
     name: plan
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.action != 'edited' ||
-      github.event.changes.base
+    if: github.event.action != 'edited' || github.event.changes.base
     runs-on: ubuntu-latest
     outputs:
       run-tests: ${{ steps.plan.outputs.run_tests }}
@@ -131,17 +128,7 @@ jobs:
           bash scripts/ci/plan-wheel-publication.bash
 
   pre-commit:
-    name: >-
-      ${{ github.event_name == 'pull_request'
-      && github.event.action == 'edited'
-      && !github.event.changes.base
-      && 'metadata-only pull request edit (lint)'
-      || 'pre-commit' }}
-    if: >-
-      !cancelled() &&
-      (github.event_name != 'pull_request' ||
-       github.event.action != 'edited' ||
-       github.event.changes.base)
+    name: pre-commit
     needs: plan
     runs-on: ubuntu-22.04
     env:
@@ -230,12 +217,7 @@ jobs:
           - "3.12"
           - "3.13"
           - "3.14"
-    name: >-
-      ${{ github.event_name == 'pull_request'
-      && github.event.action == 'edited'
-      && !github.event.changes.base
-      && 'metadata-only pull request edit (python)'
-      || format('build - python {0} (ubuntu-22.04)', matrix.python-version) }}
+    name: build - python ${{ matrix.python-version }} (ubuntu-22.04)
     runs-on: ubuntu-22.04
     defaults:
       run:
@@ -455,7 +437,9 @@ jobs:
 
   quality:
     name: quality
-    if: always()
+    if: >-
+      always() &&
+      (github.event.action != 'edited' || github.event.changes.base)
     needs:
       - plan
       - pre-commit
