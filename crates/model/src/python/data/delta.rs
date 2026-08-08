@@ -1,0 +1,435 @@
+use std::{
+    collections::{HashMap, hash_map::DefaultHasher},
+    hash::{Hash, Hasher},
+    str::FromStr,
+};
+
+use pyo3::{IntoPyObjectExt, basic::CompareOp, prelude::*, types::PyDict};
+use vibe_core::{
+    python::{
+        IntoPyObjectVibeExt,
+        serialization::{from_dict_pyo3, to_dict_pyo3},
+        to_pyvalue_err,
+    },
+    serialization::{
+        Serializable,
+        msgpack::{FromMsgPack, ToMsgPack},
+    },
+};
+
+use crate::{
+    data::{BookOrder, NULL_ORDER, OrderBookDelta, order::OrderId},
+    enums::{BookAction, FromU8, OrderSide},
+    identifiers::InstrumentId,
+    python::common::PY_MODULE_MODEL,
+    types::{
+        price::{Price, PriceRaw},
+        quantity::{Quantity, QuantityRaw},
+    },
+};
+
+impl OrderBookDelta {
+    /// Creates a new [`OrderBookDelta`] from a Python object.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `PyErr` if extracting any attribute or converting types fails.
+    pub fn from_pyobject(obj: &Bound<'_, PyAny>) -> PyResult<Self> {
+        // Fast path: avoid property getters that trigger enum type deadlocks
+        if let Ok(delta) = obj.cast::<Self>() {
+            return Ok(*delta.borrow());
+        }
+
+        let instrument_id_obj: Bound<'_, PyAny> = obj.getattr("instrument_id")?.extract()?;
+        let instrument_id_str: String = instrument_id_obj.getattr("value")?.extract()?;
+        let instrument_id =
+            InstrumentId::from_str(instrument_id_str.as_str()).map_err(to_pyvalue_err)?;
+
+        let action_obj: Bound<'_, PyAny> = obj.getattr("action")?.extract()?;
+        let action_u8 = action_obj.getattr("value")?.extract()?;
+        let action = BookAction::from_u8(action_u8)
+            .ok_or_else(|| to_pyvalue_err(format!("Invalid action value: {action_u8}")))?;
+
+        let flags: u8 = obj.getattr("flags")?.extract()?;
+        let sequence: u64 = obj.getattr("sequence")?.extract()?;
+        let ts_event: u64 = obj.getattr("ts_event")?.extract()?;
+        let ts_init: u64 = obj.getattr("ts_init")?.extract()?;
+
+        let order_pyobject = obj.getattr("order")?;
+        let order: BookOrder = if order_pyobject.is_none() {
+            NULL_ORDER
+        } else {
+            let side_obj: Bound<'_, PyAny> = order_pyobject.getattr("side")?.extract()?;
+            let side_u8 = side_obj.getattr("value")?.extract()?;
+            let side = OrderSide::from_u8(side_u8)
+                .ok_or_else(|| to_pyvalue_err(format!("Invalid order side value: {side_u8}")))?;
+
+            let price_py: Bound<'_, PyAny> = order_pyobject.getattr("price")?;
+            let price_raw: PriceRaw = price_py.getattr("raw")?.extract()?;
+            let price_prec: u8 = price_py.getattr("precision")?.extract()?;
+            let price = Price::from_raw(price_raw, price_prec);
+
+            let size_py: Bound<'_, PyAny> = order_pyobject.getattr("size")?;
+            let size_raw: QuantityRaw = size_py.getattr("raw")?.extract()?;
+            let size_prec: u8 = size_py.getattr("precision")?.extract()?;
+            let size = Quantity::from_raw(size_raw, size_prec);
+
+            let order_id: OrderId = order_pyobject.getattr("order_id")?.extract()?;
+            BookOrder {
+                side,
+                price,
+                size,
+                order_id,
+            }
+        };
+
+        Ok(Self::new(
+            instrument_id,
+            action,
+            order,
+            flags,
+            sequence,
+            ts_event.into(),
+            ts_init.into(),
+        ))
+    }
+}
+
+#[pymethods]
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
+impl OrderBookDelta {
+    /// Represents a single change/delta in an order book.
+    #[new]
+    fn py_new(
+        instrument_id: InstrumentId,
+        action: BookAction,
+        order: BookOrder,
+        flags: u8,
+        sequence: u64,
+        ts_event: u64,
+        ts_init: u64,
+    ) -> PyResult<Self> {
+        Self::new_checked(
+            instrument_id,
+            action,
+            order,
+            flags,
+            sequence,
+            ts_event.into(),
+            ts_init.into(),
+        )
+        .map_err(to_pyvalue_err)
+    }
+
+    fn __richcmp__(&self, other: &Self, op: CompareOp, py: Python<'_>) -> Py<PyAny> {
+        match op {
+            CompareOp::Eq => self.eq(other).into_py_any_unwrap(py),
+            CompareOp::Ne => self.ne(other).into_py_any_unwrap(py),
+            _ => py.NotImplemented(),
+        }
+    }
+
+    fn __hash__(&self) -> isize {
+        let mut h = DefaultHasher::new();
+        self.hash(&mut h);
+        h.finish() as isize
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{self:?}")
+    }
+
+    fn __str__(&self) -> String {
+        self.to_string()
+    }
+
+    #[getter]
+    #[pyo3(name = "instrument_id")]
+    fn py_instrument_id(&self) -> InstrumentId {
+        self.instrument_id
+    }
+
+    #[getter]
+    #[pyo3(name = "action")]
+    fn py_action(&self) -> BookAction {
+        self.action
+    }
+
+    #[getter]
+    #[pyo3(name = "order")]
+    fn py_order(&self) -> BookOrder {
+        self.order
+    }
+
+    #[getter]
+    #[pyo3(name = "flags")]
+    fn py_flags(&self) -> u8 {
+        self.flags
+    }
+
+    #[getter]
+    #[pyo3(name = "sequence")]
+    fn py_sequence(&self) -> u64 {
+        self.sequence
+    }
+
+    #[getter]
+    #[pyo3(name = "ts_event")]
+    fn py_ts_event(&self) -> u64 {
+        self.ts_event.as_u64()
+    }
+
+    #[getter]
+    #[pyo3(name = "ts_init")]
+    fn py_ts_init(&self) -> u64 {
+        self.ts_init.as_u64()
+    }
+
+    #[staticmethod]
+    #[pyo3(name = "fully_qualified_name")]
+    fn py_fully_qualified_name() -> String {
+        format!("{}:{}", PY_MODULE_MODEL, stringify!(OrderBookDelta))
+    }
+
+    /// Returns the metadata for the type, for use with serialization formats.
+    #[staticmethod]
+    #[pyo3(name = "get_metadata")]
+    fn py_get_metadata(
+        instrument_id: &InstrumentId,
+        price_precision: u8,
+        size_precision: u8,
+    ) -> HashMap<String, String> {
+        Self::get_metadata(instrument_id, price_precision, size_precision)
+    }
+
+    /// Returns the field map for the type, for use with Arrow schemas.
+    #[staticmethod]
+    #[pyo3(name = "get_fields")]
+    fn py_get_fields(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
+        let py_dict = PyDict::new(py);
+        for (k, v) in Self::get_fields() {
+            py_dict.set_item(k, v)?;
+        }
+
+        Ok(py_dict)
+    }
+
+    /// Returns a new object from the given dictionary representation.
+    #[staticmethod]
+    #[pyo3(name = "from_dict")]
+    fn py_from_dict(py: Python<'_>, values: Py<PyDict>) -> PyResult<Self> {
+        from_dict_pyo3(py, values)
+    }
+
+    /// Return a dictionary representation of the object.
+    #[pyo3(name = "to_dict")]
+    fn py_to_dict(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        to_dict_pyo3(py, self)
+    }
+
+    /// Return JSON encoded bytes representation of the object.
+    #[pyo3(name = "to_json_bytes")]
+    fn py_to_json_bytes(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        self.to_json_bytes()
+            .map_err(to_pyvalue_err)?
+            .into_py_any(py)
+    }
+
+    /// Return `MsgPack` encoded bytes representation of the object.
+    #[pyo3(name = "to_msgpack_bytes")]
+    fn py_to_msgpack_bytes(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        self.to_msgpack_bytes()
+            .map_err(to_pyvalue_err)?
+            .into_py_any(py)
+    }
+
+    fn __reduce__(&self, py: Python) -> PyResult<Py<PyAny>> {
+        let from_dict = py.get_type::<Self>().getattr("from_dict")?;
+        let dict = self.py_to_dict(py)?;
+        (from_dict, (dict,)).into_py_any(py)
+    }
+}
+
+#[pymethods]
+impl OrderBookDelta {
+    #[staticmethod]
+    #[pyo3(name = "from_json")]
+    fn py_from_json(data: &[u8]) -> PyResult<Self> {
+        Self::from_json_bytes(data).map_err(to_pyvalue_err)
+    }
+
+    #[staticmethod]
+    #[pyo3(name = "from_msgpack")]
+    fn py_from_msgpack(data: &[u8]) -> PyResult<Self> {
+        Self::from_msgpack_bytes(data).map_err(to_pyvalue_err)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pyo3::{
+        IntoPyObjectExt,
+        types::{PyAnyMethods, PyDict, PyDictMethods},
+    };
+    use rstest::rstest;
+
+    use super::*;
+    use crate::data::stubs::*;
+
+    #[rstest]
+    fn test_order_book_delta_py_new_with_zero_size_returns_error() {
+        Python::initialize();
+        Python::attach(|_py| {
+            let instrument_id = InstrumentId::from("AAPL.XNAS");
+            let action = BookAction::Add;
+            let zero_size = Quantity::from(0);
+            let price = Price::from("100.00");
+            let side = OrderSide::Buy;
+            let order_id = 123_456;
+            let flags = 0;
+            let sequence = 1;
+            let ts_event = 1;
+            let ts_init = 2;
+
+            let order = BookOrder::new(side, price, zero_size, order_id);
+
+            let result = OrderBookDelta::py_new(
+                instrument_id,
+                action,
+                order,
+                flags,
+                sequence,
+                ts_event,
+                ts_init,
+            );
+            assert!(result.is_err());
+        });
+    }
+
+    #[rstest]
+    fn test_to_dict(stub_delta: OrderBookDelta) {
+        let delta = stub_delta;
+
+        Python::initialize();
+        Python::attach(|py| {
+            let dict_string = delta.py_to_dict(py).unwrap().to_string();
+            let expected_string = "{'type': 'OrderBookDelta', 'instrument_id': 'AAPL.XNAS', 'action': 'ADD', 'order': {'side': 'BUY', 'price': '100.00', 'size': '10', 'order_id': 123456}, 'flags': 0, 'sequence': 1, 'ts_event': 1, 'ts_init': 2}";
+            assert_eq!(dict_string, expected_string);
+        });
+    }
+
+    #[rstest]
+    fn test_from_dict(stub_delta: OrderBookDelta) {
+        let delta = stub_delta;
+
+        Python::initialize();
+        Python::attach(|py| {
+            let dict = delta.py_to_dict(py).unwrap();
+            let parsed = OrderBookDelta::py_from_dict(py, dict).unwrap();
+            assert_eq!(parsed, delta);
+        });
+    }
+
+    #[rstest]
+    fn test_from_pyobject(stub_delta: OrderBookDelta) {
+        let delta = stub_delta;
+
+        Python::initialize();
+        Python::attach(|py| {
+            let delta_pyobject = delta.into_py_any(py).unwrap();
+            let parsed_delta = OrderBookDelta::from_pyobject(delta_pyobject.bind(py)).unwrap();
+            assert_eq!(parsed_delta, delta);
+        });
+    }
+
+    #[rstest]
+    fn test_from_pyobject_rejects_invalid_action() {
+        Python::initialize();
+        Python::attach(|py| {
+            let namespace = py
+                .import("types")
+                .unwrap()
+                .getattr("SimpleNamespace")
+                .unwrap();
+
+            let instrument_id_kwargs = PyDict::new(py);
+            instrument_id_kwargs.set_item("value", "AAPL.XNAS").unwrap();
+            let instrument_id = namespace.call((), Some(&instrument_id_kwargs)).unwrap();
+
+            let action_kwargs = PyDict::new(py);
+            action_kwargs.set_item("value", 99_u8).unwrap();
+            let action = namespace.call((), Some(&action_kwargs)).unwrap();
+
+            let delta_kwargs = PyDict::new(py);
+            delta_kwargs
+                .set_item("instrument_id", instrument_id)
+                .unwrap();
+            delta_kwargs.set_item("action", action).unwrap();
+            delta_kwargs.set_item("flags", 0_u8).unwrap();
+            delta_kwargs.set_item("sequence", 1_u64).unwrap();
+            delta_kwargs.set_item("ts_event", 1_u64).unwrap();
+            delta_kwargs.set_item("ts_init", 2_u64).unwrap();
+            delta_kwargs.set_item("order", py.None()).unwrap();
+            let delta = namespace.call((), Some(&delta_kwargs)).unwrap();
+
+            let err = OrderBookDelta::from_pyobject(&delta).unwrap_err();
+            assert!(err.to_string().contains("Invalid action value: 99"));
+        });
+    }
+
+    #[rstest]
+    fn test_from_pyobject_rejects_invalid_order_side() {
+        Python::initialize();
+        Python::attach(|py| {
+            let namespace = py
+                .import("types")
+                .unwrap()
+                .getattr("SimpleNamespace")
+                .unwrap();
+
+            let instrument_id_kwargs = PyDict::new(py);
+            instrument_id_kwargs.set_item("value", "AAPL.XNAS").unwrap();
+            let instrument_id = namespace.call((), Some(&instrument_id_kwargs)).unwrap();
+
+            let action_kwargs = PyDict::new(py);
+            action_kwargs.set_item("value", 1_u8).unwrap();
+            let action = namespace.call((), Some(&action_kwargs)).unwrap();
+
+            let side_kwargs = PyDict::new(py);
+            side_kwargs.set_item("value", 99_u8).unwrap();
+            let side = namespace.call((), Some(&side_kwargs)).unwrap();
+
+            let price_kwargs = PyDict::new(py);
+            price_kwargs.set_item("raw", 10_000_i64).unwrap();
+            price_kwargs.set_item("precision", 2_u8).unwrap();
+            let price = namespace.call((), Some(&price_kwargs)).unwrap();
+
+            let size_kwargs = PyDict::new(py);
+            size_kwargs.set_item("raw", 10_i64).unwrap();
+            size_kwargs.set_item("precision", 0_u8).unwrap();
+            let size = namespace.call((), Some(&size_kwargs)).unwrap();
+
+            let order_kwargs = PyDict::new(py);
+            order_kwargs.set_item("side", side).unwrap();
+            order_kwargs.set_item("price", price).unwrap();
+            order_kwargs.set_item("size", size).unwrap();
+            order_kwargs.set_item("order_id", 123_456_u64).unwrap();
+            let order = namespace.call((), Some(&order_kwargs)).unwrap();
+
+            let delta_kwargs = PyDict::new(py);
+            delta_kwargs
+                .set_item("instrument_id", instrument_id)
+                .unwrap();
+            delta_kwargs.set_item("action", action).unwrap();
+            delta_kwargs.set_item("flags", 0_u8).unwrap();
+            delta_kwargs.set_item("sequence", 1_u64).unwrap();
+            delta_kwargs.set_item("ts_event", 1_u64).unwrap();
+            delta_kwargs.set_item("ts_init", 2_u64).unwrap();
+            delta_kwargs.set_item("order", order).unwrap();
+            let delta = namespace.call((), Some(&delta_kwargs)).unwrap();
+
+            let err = OrderBookDelta::from_pyobject(&delta).unwrap_err();
+            assert!(err.to_string().contains("Invalid order side value: 99"));
+        });
+    }
+}

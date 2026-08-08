@@ -25,17 +25,17 @@ Plan; do not make the code green by weakening required behavior.
 Choose exactly one class when evidence supports it; otherwise record the classification as unresolved
 and investigate:
 
-| Machine value | Meaning | Default route |
-| --- | --- | --- |
-| `real_behavior_regression` | required consumer behavior regressed | fix production behavior and retain a behavior-level oracle |
-| `outdated_contract_or_assertion` | test encodes a superseded contract or assertion | replace or delete the obsolete evidence |
-| `implementation_coupled_change_detector` | test mirrors call shape, order, private structure, or code transformation without proving behavior | replace with a public behavior oracle or delete if it has no unique value |
-| `scenario_gap` | the relevant state, boundary, or sequence was never exercised | strengthen the narrowest authoritative layer |
-| `oracle_assertion_gap` | the scenario ran but assertions could not distinguish correct from faulty behavior | strengthen or replace the oracle |
-| `selection_or_routing_gap` | the test or gate did not select the affected owner, consumer, or path | repair selection at the existing routing owner |
-| `mock_or_fake_isolation_distortion` | a double diverged from the real boundary or hid integration behavior | replace with contract/integration evidence or a faithful fake |
-| `environment_concurrency_or_time_gap` | environment, ordering, concurrency, clock, or timing behavior was absent | exercise the missing boundary without weakening deterministic lower tests |
-| `flake_or_infrastructure` | the signal is nondeterministic or the harness/infrastructure failed | isolate and repair the signal; never reinterpret it as a product regression without evidence |
+| Machine value                            | Meaning                                                                                            | Default route                                                                                |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `real_behavior_regression`               | required consumer behavior regressed                                                               | fix production behavior and retain a behavior-level oracle                                   |
+| `outdated_contract_or_assertion`         | test encodes a superseded contract or assertion                                                    | replace or delete the obsolete evidence                                                      |
+| `implementation_coupled_change_detector` | test mirrors call shape, order, private structure, or code transformation without proving behavior | replace with a public behavior oracle or delete if it has no unique value                    |
+| `scenario_gap`                           | the relevant state, boundary, or sequence was never exercised                                      | strengthen the narrowest authoritative layer                                                 |
+| `oracle_assertion_gap`                   | the scenario ran but assertions could not distinguish correct from faulty behavior                 | strengthen or replace the oracle                                                             |
+| `selection_or_routing_gap`               | the test or gate did not select the affected owner, consumer, or path                              | repair selection at the existing routing owner                                               |
+| `mock_or_fake_isolation_distortion`      | a double diverged from the real boundary or hid integration behavior                               | replace with contract/integration evidence or a faithful fake                                |
+| `environment_concurrency_or_time_gap`    | environment, ordering, concurrency, clock, or timing behavior was absent                           | exercise the missing boundary without weakening deterministic lower tests                    |
+| `flake_or_infrastructure`                | the signal is nondeterministic or the harness/infrastructure failed                                | isolate and repair the signal; never reinterpret it as a product regression without evidence |
 
 ## Route the repair decision
 
@@ -92,12 +92,12 @@ and SUT result therefore remain unavailable/not observed until the real consumer
 
 Use the four evidence locations without collapsing them into a green count:
 
-| Location | Minimum record | It can prove | It cannot prove |
-| --- | --- | --- | --- |
-| fixture | source, version, encoding, intended scenario | declared input | selected, loaded, or executed behavior |
-| launcher | executable argv/configuration and exit | the runner started or failed before SUT | scenario result when selection never completed |
-| selection | effective feature, Step, tag/path and dry-load/usage result | what the runner attempted and matching defects | SUT behavior without a result event |
-| SUT result | scenario/test identity, outcome, oracle and direct consumer | the named behavior result | fixture/launcher health beyond its observation |
+| Location   | Minimum record                                              | It can prove                                   | It cannot prove                                |
+| ---------- | ----------------------------------------------------------- | ---------------------------------------------- | ---------------------------------------------- |
+| fixture    | source, version, encoding, intended scenario                | declared input                                 | selected, loaded, or executed behavior         |
+| launcher   | executable argv/configuration and exit                      | the runner started or failed before SUT        | scenario result when selection never completed |
+| selection  | effective feature, Step, tag/path and dry-load/usage result | what the runner attempted and matching defects | SUT behavior without a result event            |
+| SUT result | scenario/test identity, outcome, oracle and direct consumer | the named behavior result                      | fixture/launcher health beyond its observation |
 
 Record each as `declared`, `reachable`, `dynamic`, `stable`, or `unavailable` independently. A
 pre-SUT failure is a selection/launcher signal, not a behavior classification; resolve it before

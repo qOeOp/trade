@@ -1,0 +1,73 @@
+[package]
+name = "vibe-system"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "System orchestration for the Vibe trading engine"
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "vibe_system"
+crate-type = ["rlib"]
+
+[features]
+default = []
+defi = ["vibe-common/defi", "vibe-data/defi", "vibe-model/defi"]
+extension-module = ["python", "pyo3/extension-module", "streaming"]
+live = ["vibe-common/live"]
+python = [
+  "vibe-common/python",
+  "vibe-core/python",
+  "vibe-persistence/python",
+  "vibe-trading/python",
+  "pyo3",
+  "pyo3-stub-gen",
+  "streaming",
+]
+streaming = ["vibe-persistence"]
+tracing-bridge = ["vibe-common/tracing-bridge"]
+
+[package.metadata.cargo-machete]
+ignored = [
+  "vibe-persistence",
+] # Optional dep activated only via the streaming feature
+[dependencies]
+vibe-common = { workspace = true }
+vibe-core = { workspace = true }
+vibe-data = { workspace = true }
+vibe-execution = { workspace = true }
+vibe-model = { workspace = true, features = ["stubs"] }
+vibe-portfolio = { workspace = true }
+vibe-risk = { workspace = true }
+vibe-trading = { workspace = true }
+
+vibe-persistence = { workspace = true, optional = true }
+
+ahash = { workspace = true }
+anyhow = { workspace = true }
+bon = { workspace = true }
+futures = { workspace = true }
+indexmap = { workspace = true }
+log = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sysinfo = { workspace = true }
+ustr = { workspace = true }
+
+pyo3 = { workspace = true, optional = true }
+pyo3-stub-gen = { workspace = true, optional = true }
+
+[dev-dependencies]
+vibe-testkit = { workspace = true, default-features = false, features = [
+  "testers",
+] }
+
+async-trait = { workspace = true }
+bytes = { workspace = true }
+rstest = { workspace = true }
+toml = { workspace = true }

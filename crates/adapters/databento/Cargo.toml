@@ -1,0 +1,117 @@
+[package]
+name = "vibe-databento"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Databento integration adapter for the Vibe trading engine"
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "vibe_databento"
+crate-type = ["rlib"]
+
+[features]
+default = ["live", "high-precision"]
+arrow = ["dep:arrow", "vibe-serialization"]
+extension-module = [
+  "vibe-core/extension-module",
+  "vibe-live?/extension-module",
+  "vibe-model/extension-module",
+  "python",
+  "pyo3/extension-module",
+]
+live = ["vibe-live", "vibe-live/node", "vibe-system", "dotenvy"]
+python = [
+  "arrow",
+  "live",
+  "vibe-core/python",
+  "vibe-live/python",
+  "vibe-model/python",
+  "vibe-serialization/python",
+  "vibe-system/python",
+  "pyo3",
+  "pyo3-async-runtimes",
+  "pyo3-stub-gen",
+]
+high-precision = [
+  "vibe-model/high-precision",
+  "vibe-serialization?/high-precision",
+]
+[dependencies]
+vibe-common = { workspace = true, features = ["live"] }
+vibe-core = { workspace = true }
+vibe-live = { workspace = true, optional = true }
+vibe-model = { workspace = true }
+vibe-network = { workspace = true }
+vibe-serialization = { workspace = true, features = ["arrow"], optional = true }
+vibe-system = { workspace = true, optional = true }
+
+ahash = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+databento = { workspace = true }
+fallible-streaming-iterator = { workspace = true }
+indexmap = { workspace = true }
+itoa = { workspace = true }
+jiff = { workspace = true }
+log = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+strum = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+ustr = { workspace = true }
+zeroize = { workspace = true }
+
+arrow = { workspace = true, optional = true }
+dotenvy = { workspace = true, optional = true }
+pyo3 = { workspace = true, optional = true }
+pyo3-async-runtimes = { workspace = true, optional = true }
+pyo3-stub-gen = { workspace = true, optional = true }
+
+[dev-dependencies]
+vibe-testkit = { workspace = true, default-features = false, features = [
+  "testers",
+] }
+
+criterion = { workspace = true }
+proptest = { workspace = true }
+rstest = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+
+# Canonical data-path benches; see crates/adapters/databento/benches/BENCHMARKS.md for context
+[[bench]]
+name = "data"
+harness = false
+
+[[bench]]
+name = "micros"
+harness = false
+
+[[bench]]
+name = "clients"
+harness = false
+required-features = ["live"]
+
+# Run with `cargo run --example databento-data-tester --package vibe-databento`.
+[[example]]
+name = "databento-data-tester"
+path = "examples/node_data_tester.rs"
+required-features = ["live"]
+doc = false
+
+[[test]]
+name = "feed_handler"
+path = "tests/feed_handler.rs"
+required-features = ["live"]
+
+[[test]]
+name = "python"
+path = "tests/python.rs"
+required-features = ["python"]

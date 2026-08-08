@@ -1,0 +1,154 @@
+use std::ops::{Deref, DerefMut};
+
+use vibe_core::ffi::cvec::CVec;
+
+use crate::{
+    data::order::BookOrder,
+    enums::OrderSide,
+    orderbook::{BookLevel, BookPrice},
+    types::{Price, quantity::QuantityRaw},
+};
+
+/// C compatible Foreign Function Interface (FFI) for an underlying order book[`BookLevel`].
+///
+/// This struct wraps `Level` in a way that makes it compatible with C function
+/// calls, enabling interaction with `Level` in a C environment.
+///
+/// It implements the `Deref` trait, allowing instances of `Level_API` to be
+/// dereferenced to `Level`, providing access to `Level`'s methods without
+/// having to manually acce wss the underlying `Level` instance.
+#[repr(C)]
+#[derive(Clone, Debug)]
+#[allow(non_camel_case_types)]
+pub struct BookLevel_API(Box<BookLevel>);
+
+impl BookLevel_API {
+    /// Creates a new [`BookLevel_API`] instance.
+    #[must_use]
+    pub fn new(level: BookLevel) -> Self {
+        Self(Box::new(level))
+    }
+}
+
+impl Deref for BookLevel_API {
+    type Target = BookLevel;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for BookLevel_API {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+#[unsafe(no_mangle)]
+#[cfg_attr(feature = "high-precision", allow(improper_ctypes_definitions))]
+/// # Safety
+///
+/// `orders` must uniquely own a valid `Vec<BookOrder>` allocation transferred from Rust.
+pub unsafe extern "C" fn level_new(
+    order_side: OrderSide,
+    price: Price,
+    orders: CVec,
+) -> BookLevel_API {
+    let orders = unsafe { orders.into_vec::<BookOrder>() };
+    let price = BookPrice {
+        value: price,
+        side: order_side.as_specified(),
+    };
+    let mut level = BookLevel::new(price);
+    level.add_bulk(&orders);
+    BookLevel_API::new(level)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn level_drop(level: BookLevel_API) {
+    drop(level); // Memory freed here
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn level_clone(level: &BookLevel_API) -> BookLevel_API {
+    level.clone()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn level_side(level: &BookLevel_API) -> OrderSide {
+    level.price.side.as_order_side()
+}
+
+#[unsafe(no_mangle)]
+#[cfg_attr(feature = "high-precision", allow(improper_ctypes_definitions))]
+pub extern "C" fn level_price(level: &BookLevel_API) -> Price {
+    level.price.value
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn level_orders(level: &BookLevel_API) -> CVec {
+    let orders_vec: Vec<BookOrder> = level.orders.values().copied().collect();
+    orders_vec.into()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn level_size(level: &BookLevel_API) -> f64 {
+    level.size()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn level_size_raw(level: &BookLevel_API) -> QuantityRaw {
+    level.size_raw()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn level_exposure(level: &BookLevel_API) -> f64 {
+    level.exposure()
+}
+
+/// Drops a `CVec` of `BookLevel_API` values.
+///
+/// # Safety
+///
+/// `v` must uniquely own a valid `Vec<BookLevel_API>` allocation transferred from Rust.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vec_drop_book_levels(v: CVec) {
+    let data = unsafe { v.into_vec::<BookLevel_API>() };
+    drop(data); // Memory freed here
+}
+
+/// Drops a `CVec` of `BookOrder` values.
+///
+/// # Safety
+///
+/// `v` must uniquely own a valid `Vec<BookOrder>` allocation transferred from Rust.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vec_drop_book_orders(v: CVec) {
+    let orders = unsafe { v.into_vec::<BookOrder>() };
+    drop(orders); // Memory freed here
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+    use crate::data::stubs::stub_book_order;
+
+    #[rstest]
+    fn test_empty_typed_drops_return_without_panic() {
+        unsafe { vec_drop_book_levels(CVec::empty()) };
+        unsafe { vec_drop_book_orders(CVec::empty()) };
+    }
+
+    #[rstest]
+    fn test_level_new_preserves_valid_behavior() {
+        let order = stub_book_order();
+        let price = order.price;
+        let level = unsafe { level_new(order.side, price, vec![order].into()) };
+
+        assert_eq!(level.price.value, price);
+        assert_eq!(level.len(), 1);
+        assert_eq!(level.first(), Some(&order));
+    }
+}

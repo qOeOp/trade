@@ -1,0 +1,223 @@
+use std::{
+    ffi::c_char,
+    ops::{Deref, DerefMut},
+};
+
+use vibe_core::{
+    UnixNanos,
+    ffi::{
+        cvec::CVec,
+        parsing::{bytes_to_string_vec, string_vec_to_bytes},
+        string::{cstr_as_str, str_to_cstr},
+    },
+};
+
+use crate::{
+    identifiers::{InstrumentId, Symbol},
+    instruments::synthetic::SyntheticInstrument,
+    types::{ERROR_PRICE, Price},
+};
+
+/// C compatible Foreign Function Interface (FFI) for an underlying
+/// [`SyntheticInstrument`].
+///
+/// This struct wraps `SyntheticInstrument` in a way that makes it compatible with C function
+/// calls, enabling interaction with `SyntheticInstrument` in a C environment.
+///
+/// It implements the `Deref` trait, allowing instances of `SyntheticInstrument_API` to be
+/// dereferenced to `SyntheticInstrument`, providing access to `SyntheticInstruments`'s methods without
+/// having to manually access the underlying instance.
+#[repr(C)]
+#[derive(Debug)]
+#[allow(non_camel_case_types)]
+pub struct SyntheticInstrument_API(Box<SyntheticInstrument>);
+
+impl Deref for SyntheticInstrument_API {
+    type Target = SyntheticInstrument;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for SyntheticInstrument_API {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+/// Changes the formula of the synthetic instrument.
+///
+/// # Panics
+///
+/// Panics if the formula update operation fails (`unwrap`).
+///
+/// # Safety
+///
+/// This function assumes:
+/// - `components_ptr` is a valid C string pointer of a JSON format list of strings.
+/// - `formula_ptr` is a valid C string pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn synthetic_instrument_new(
+    symbol: Symbol,
+    price_precision: u8,
+    components_ptr: *const c_char,
+    formula_ptr: *const c_char,
+    ts_event: u64,
+    ts_init: u64,
+) -> SyntheticInstrument_API {
+    // TODO: There is absolutely no error handling here yet
+    let components = unsafe { bytes_to_string_vec(components_ptr) }
+        .into_iter()
+        .map(InstrumentId::from)
+        .collect::<Vec<InstrumentId>>();
+    let formula = unsafe { cstr_as_str(formula_ptr) };
+    let synth = SyntheticInstrument::new(
+        symbol,
+        price_precision,
+        components,
+        formula,
+        ts_event.into(),
+        ts_init.into(),
+    );
+
+    SyntheticInstrument_API(Box::new(synth))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn synthetic_instrument_drop(synth: SyntheticInstrument_API) {
+    drop(synth); // Memory freed here
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn synthetic_instrument_id(synth: &SyntheticInstrument_API) -> InstrumentId {
+    synth.id
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn synthetic_instrument_price_precision(synth: &SyntheticInstrument_API) -> u8 {
+    synth.price_precision
+}
+
+#[unsafe(no_mangle)]
+#[cfg_attr(feature = "high-precision", allow(improper_ctypes_definitions))]
+pub extern "C" fn synthetic_instrument_price_increment(synth: &SyntheticInstrument_API) -> Price {
+    synth.price_increment
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn synthetic_instrument_formula_to_cstr(
+    synth: &SyntheticInstrument_API,
+) -> *const c_char {
+    str_to_cstr(&synth.formula)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn synthetic_instrument_components_to_cstr(
+    synth: &SyntheticInstrument_API,
+) -> *const c_char {
+    let components_vec = synth
+        .components
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<String>>();
+
+    string_vec_to_bytes(&components_vec)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn synthetic_instrument_components_count(synth: &SyntheticInstrument_API) -> usize {
+    synth.components.len()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn synthetic_instrument_ts_event(synth: &SyntheticInstrument_API) -> UnixNanos {
+    synth.ts_event
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn synthetic_instrument_ts_init(synth: &SyntheticInstrument_API) -> UnixNanos {
+    synth.ts_init
+}
+
+/// # Safety
+///
+/// Assumes `formula_ptr` is a valid C string pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn synthetic_instrument_is_valid_formula(
+    formula_ptr: *const c_char,
+    components_ptr: *const c_char,
+) -> u8 {
+    if formula_ptr.is_null() || components_ptr.is_null() {
+        return 0;
+    }
+
+    let components = unsafe { bytes_to_string_vec(components_ptr) }
+        .into_iter()
+        .map(InstrumentId::from)
+        .collect::<Vec<InstrumentId>>();
+
+    let formula = unsafe { cstr_as_str(formula_ptr) };
+
+    u8::from(SyntheticInstrument::is_valid_formula_for_components(
+        formula,
+        &components,
+    ))
+}
+
+/// # Safety
+///
+/// Assumes `formula_ptr` is a valid C string pointer.
+///
+/// # Panics
+///
+/// Panics if changing the formula fails (i.e., `unwrap()` in `change_formula`).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn synthetic_instrument_change_formula(
+    synth: &mut SyntheticInstrument_API,
+    formula_ptr: *const c_char,
+) {
+    let formula = unsafe { cstr_as_str(formula_ptr) };
+    synth.change_formula(formula).unwrap();
+}
+
+#[unsafe(no_mangle)]
+#[cfg_attr(feature = "high-precision", allow(improper_ctypes_definitions))]
+/// # Safety
+///
+/// `inputs_ptr` must describe initialized `f64` values that remain valid and immutable for the
+/// duration of this call.
+pub unsafe extern "C" fn synthetic_instrument_calculate(
+    synth: &mut SyntheticInstrument_API,
+    inputs_ptr: &CVec,
+) -> Price {
+    let inputs = unsafe { inputs_ptr.as_slice::<f64>() };
+
+    match synth.calculate(inputs) {
+        Ok(price) => price,
+        Err(_) => ERROR_PRICE,
+    }
+}
+
+#[cfg(test)]
+mod cvec_tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    fn test_synthetic_calculate_borrows_inputs() {
+        let mut synth = SyntheticInstrument_API(Box::default());
+        let mut inputs = vec![100.0, 200.0];
+        let cvec = CVec {
+            ptr: inputs.as_mut_ptr().cast(),
+            len: inputs.len(),
+            cap: inputs.capacity(),
+        };
+
+        let price = unsafe { synthetic_instrument_calculate(&mut synth, &cvec) };
+
+        assert_eq!(price, Price::from("150.0"));
+        assert_eq!(inputs, [100.0, 200.0]);
+    }
+}

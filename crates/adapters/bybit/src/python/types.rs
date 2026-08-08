@@ -1,0 +1,199 @@
+//! Python bindings for Bybit margin data types.
+
+use pyo3::prelude::*;
+
+use crate::common::types::{
+    BybitMarginBorrowResult, BybitMarginRepayResult, BybitMarginStatusResult,
+};
+
+#[pymethods]
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
+impl BybitMarginBorrowResult {
+    /// Result from a Bybit borrow operation for strategy consumption.
+    #[new]
+    #[must_use]
+    pub fn py_new(
+        coin: String,
+        amount: String,
+        success: bool,
+        message: String,
+        ts_event: u64,
+        ts_init: u64,
+    ) -> Self {
+        Self {
+            coin,
+            amount,
+            success,
+            message,
+            ts_event,
+            ts_init,
+        }
+    }
+
+    #[getter]
+    #[must_use]
+    pub fn coin(&self) -> &str {
+        &self.coin
+    }
+
+    #[getter]
+    #[must_use]
+    pub fn amount(&self) -> &str {
+        &self.amount
+    }
+
+    #[getter]
+    #[must_use]
+    pub fn success(&self) -> bool {
+        self.success
+    }
+
+    #[getter]
+    #[must_use]
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    #[getter]
+    #[must_use]
+    pub fn ts_event(&self) -> u64 {
+        self.ts_event
+    }
+
+    #[getter]
+    #[must_use]
+    pub fn ts_init(&self) -> u64 {
+        self.ts_init
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "BybitMarginBorrowResult(coin='{}', amount='{}', success={}, message='{}')",
+            self.coin, self.amount, self.success, self.message
+        )
+    }
+}
+
+#[pymethods]
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
+impl BybitMarginRepayResult {
+    /// Result from a Bybit repay operation for strategy consumption.
+    #[new]
+    #[pyo3(signature = (coin, amount, success, result_status, message, ts_event, ts_init))]
+    #[must_use]
+    pub fn py_new(
+        coin: String,
+        amount: Option<String>,
+        success: bool,
+        result_status: String,
+        message: String,
+        ts_event: u64,
+        ts_init: u64,
+    ) -> Self {
+        Self {
+            coin,
+            amount,
+            success,
+            result_status,
+            message,
+            ts_event,
+            ts_init,
+        }
+    }
+
+    #[getter]
+    #[must_use]
+    pub fn coin(&self) -> &str {
+        &self.coin
+    }
+
+    #[getter]
+    #[must_use]
+    pub fn amount(&self) -> Option<&str> {
+        self.amount.as_deref()
+    }
+
+    #[getter]
+    #[must_use]
+    pub fn success(&self) -> bool {
+        self.success
+    }
+
+    #[getter]
+    #[must_use]
+    pub fn result_status(&self) -> &str {
+        &self.result_status
+    }
+
+    #[getter]
+    #[must_use]
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    #[getter]
+    #[must_use]
+    pub fn ts_event(&self) -> u64 {
+        self.ts_event
+    }
+
+    #[getter]
+    #[must_use]
+    pub fn ts_init(&self) -> u64 {
+        self.ts_init
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "BybitMarginRepayResult(coin='{}', success={}, result_status='{}')",
+            self.coin, self.success, self.result_status
+        )
+    }
+}
+
+#[pymethods]
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
+impl BybitMarginStatusResult {
+    /// Result with current borrowed amount on Bybit.
+    #[new]
+    #[must_use]
+    pub fn py_new(coin: String, borrow_amount: String, ts_event: u64, ts_init: u64) -> Self {
+        Self {
+            coin,
+            borrow_amount,
+            ts_event,
+            ts_init,
+        }
+    }
+
+    #[getter]
+    #[must_use]
+    pub fn coin(&self) -> &str {
+        &self.coin
+    }
+
+    #[getter]
+    #[must_use]
+    pub fn borrow_amount(&self) -> &str {
+        &self.borrow_amount
+    }
+
+    #[getter]
+    #[must_use]
+    pub fn ts_event(&self) -> u64 {
+        self.ts_event
+    }
+
+    #[getter]
+    #[must_use]
+    pub fn ts_init(&self) -> u64 {
+        self.ts_init
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "BybitMarginStatusResult(coin='{}', borrow_amount='{}')",
+            self.coin, self.borrow_amount
+        )
+    }
+}

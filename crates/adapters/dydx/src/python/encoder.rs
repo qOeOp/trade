@@ -1,0 +1,125 @@
+//! Python bindings for dYdX ClientOrderId encoder.
+
+use std::sync::Arc;
+
+use pyo3::prelude::*;
+use vibe_core::python::to_pyruntime_err;
+use vibe_model::identifiers::ClientOrderId;
+
+use crate::execution::encoder::ClientOrderIdEncoder;
+
+/// Python wrapper for the ClientOrderIdEncoder.
+///
+/// Provides bidirectional encoding of Vibe ClientOrderId strings to
+/// dYdX's (client_id, client_metadata) u32 pair.
+#[pyclass(name = "DydxClientOrderIdEncoder")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.dydx")]
+#[derive(Debug)]
+pub struct PyDydxClientOrderIdEncoder {
+    inner: Arc<ClientOrderIdEncoder>,
+}
+
+impl PyDydxClientOrderIdEncoder {
+    /// Creates a Python encoder wrapping an existing shared `Arc<ClientOrderIdEncoder>`.
+    pub fn from_arc(inner: Arc<ClientOrderIdEncoder>) -> Self {
+        Self { inner }
+    }
+}
+
+#[pymethods]
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
+impl PyDydxClientOrderIdEncoder {
+    /// Create a new ClientOrderIdEncoder.
+    #[new]
+    fn py_new() -> Self {
+        Self {
+            inner: Arc::new(ClientOrderIdEncoder::new()),
+        }
+    }
+
+    /// Encode a ClientOrderId string to (client_id, client_metadata) tuple.
+    ///
+    /// # Encoding Rules
+    ///
+    /// 1. Numeric IDs (e.g., "12345"): Returns `(12345, 4)` for backward compatibility
+    /// 2. O-format IDs (e.g., "O-20260131-174827-001-001-1"): Deterministically encoded
+    /// 3. Other formats: Sequential allocation with in-memory mapping
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the encoder's sequential counter overflows.
+    #[pyo3(name = "encode")]
+    fn py_encode(&self, client_order_id: &str) -> PyResult<(u32, u32)> {
+        let id = ClientOrderId::from(client_order_id);
+        let encoded = self.inner.encode(id).map_err(to_pyruntime_err)?;
+        Ok((encoded.client_id, encoded.client_metadata))
+    }
+
+    /// Decode (client_id, client_metadata) back to the original ClientOrderId string.
+    ///
+    /// # Decoding Rules
+    ///
+    /// 1. If `client_metadata == 4`: Returns numeric string (legacy format)
+    /// 2. If sequential allocation marker: Looks up in reverse mapping
+    /// 3. Otherwise: Decodes as O-format using timestamp + identity bits
+    ///
+    /// Returns `None` if decoding fails (e.g., sequential ID not in cache after restart).
+    #[pyo3(name = "decode")]
+    fn py_decode(&self, client_id: u32, client_metadata: u32) -> Option<String> {
+        self.inner
+            .decode(client_id, client_metadata)
+            .map(|id| id.to_string())
+    }
+
+    /// Get the encoded pair for a ClientOrderId without allocating a new mapping.
+    ///
+    /// Returns `None` if the ID is not in the cache and is not a deterministic format
+    /// (numeric or O-format).
+    #[pyo3(name = "get")]
+    fn py_get(&self, client_order_id: &str) -> Option<(u32, u32)> {
+        let id = ClientOrderId::from(client_order_id);
+        self.inner
+            .get(&id)
+            .map(|encoded| (encoded.client_id, encoded.client_metadata))
+    }
+
+    /// Remove the mapping for a given encoded pair.
+    ///
+    /// Returns the original ClientOrderId string if it was mapped.
+    /// For deterministic formats, this returns the decoded value but doesn't
+    /// actually remove anything (since they don't use in-memory mappings).
+    #[pyo3(name = "remove")]
+    fn py_remove(&self, client_id: u32, client_metadata: u32) -> Option<String> {
+        self.inner
+            .remove(client_id, client_metadata)
+            .map(|id| id.to_string())
+    }
+
+    /// Update the mapping for a ClientOrderId after order modification.
+    ///
+    /// Returns the current sequential counter value (for debugging/monitoring).
+    #[pyo3(name = "current_counter")]
+    fn py_current_counter(&self) -> u32 {
+        self.inner.current_counter()
+    }
+
+    /// Returns the number of non-deterministic mappings currently stored.
+    #[pyo3(name = "len")]
+    fn py_len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Returns true if no non-deterministic mappings are stored.
+    #[pyo3(name = "is_empty")]
+    fn py_is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "DydxClientOrderIdEncoder(counter={}, mappings={})",
+            self.inner.current_counter(),
+            self.inner.len()
+        )
+    }
+}

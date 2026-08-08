@@ -86,7 +86,7 @@ direct successor's identity-bound final slice.
 ```text
 Mission checkpoint
 Frame: <exact complete current Frame projection>
-Plan: <exact complete current Plan projection, or none — invalidated/pending admission>
+Plan: <exact complete current Plan projection, or none - invalidated/pending admission>
 Origin / candidate / effects: <origin; exact diff, commit, or none; issued and unissued effects>
 Evidence / findings: <decisive passes, failures, unavailable evidence, findings, rejected candidates, and each active long-running gate's candidate/input binding, session/cursor, latest state, communication position, and exit/final-state terminal or unavailable receipt>
 Position / next legal operation: <current stage or route; one exact next legal operation>
@@ -98,7 +98,7 @@ Authority / Stop / Resume / terminal: <current authority; Stop evidence; valid R
 A reframe or Plan invalidation makes the prior Plan stale. Before another operation, re-emit the
 complete checkpoint: use the changed current Frame after reframe, reconcile every other field whose
 live value changed (including `Position / next legal operation`), preserve only unaffected fields,
-and set Plan to exactly `Plan: none — invalidated/pending admission`. Never retain residual Plan
+and set Plan to exactly `Plan: none - invalidated/pending admission`. Never retain residual Plan
 prose. After a new Plan is admitted, replace the whole checkpoint again with its exact complete
 projection before Execute.
 

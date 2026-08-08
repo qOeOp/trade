@@ -1,0 +1,254 @@
+import base64
+
+import pytest
+from unit.adapters.example_modules import capture_data_tester_main
+from unit.adapters.example_modules import capture_exec_tester_main
+from unit.adapters.example_modules import load_example_module
+
+from vibe_trader.adapters.polymarket import PolymarketDataClientConfig
+from vibe_trader.adapters.polymarket import PolymarketDataClientFactory
+from vibe_trader.adapters.polymarket import PolymarketExecClientConfig
+from vibe_trader.adapters.polymarket import PolymarketExecutionClientFactory
+from vibe_trader.adapters.polymarket import PolymarketInstrumentProviderConfig
+from vibe_trader.adapters.polymarket import SignatureType
+from vibe_trader.common import Environment
+from vibe_trader.live import LiveNode
+from vibe_trader.live import LiveRiskEngineConfig
+from vibe_trader.model import InstrumentId
+from vibe_trader.model import TimeInForce
+from vibe_trader.model import TraderId
+
+
+POLYMARKET = "POLYMARKET"
+SMOKE_PRIVATE_KEY = "0x" + "0" * 63 + "1"
+SMOKE_API_KEY = "test_api_key"
+SMOKE_API_SECRET = base64.urlsafe_b64encode(b"test_secret").decode()
+SMOKE_PASSPHRASE = "test_passphrase"
+SMOKE_FUNDER = "0x0000000000000000000000000000000000000000"
+UPDOWN_FIXTURE_INSTRUMENT = (
+    "0x78443f961b9a65869dcb39359de9960165c7e5cbad0904eac7f29cd77872a63b-"
+    "104239898038807136052399800151408521467737075933964991162589336683346093173875."
+    f"{POLYMARKET}"
+)
+polymarket_data_tester = load_example_module("polymarket", "data_tester")
+polymarket_exec_tester = load_example_module("polymarket", "exec_tester")
+polymarket_updown_smoke_tester = load_example_module("polymarket", "updown_smoke_tester")
+
+
+def test_polymarket_factories_expose_python_names() -> None:
+    assert PolymarketDataClientFactory().name() == POLYMARKET
+    assert PolymarketExecutionClientFactory().name() == POLYMARKET
+
+
+def test_polymarket_signature_type_exposes_poly_1271() -> None:
+    assert int(SignatureType.Poly1271) == 3
+
+
+def test_live_node_builder_accepts_polymarket_data_factory() -> None:
+    trader_id = TraderId.from_str("TESTER-001")
+
+    node = (
+        LiveNode.builder("POLYMARKET-DATA-PYTEST-001", trader_id, Environment.LIVE)
+        .add_data_client(
+            None,
+            PolymarketDataClientFactory(),
+            PolymarketDataClientConfig(
+                instrument_config=PolymarketInstrumentProviderConfig(
+                    event_slugs=["gta-vi-released-before-june-2026"],
+                ),
+            ),
+        )
+        .build()
+    )
+
+    assert node.trader_id == trader_id
+    assert node.environment == Environment.LIVE
+
+
+def test_live_node_builder_accepts_polymarket_exec_factory() -> None:
+    trader_id = TraderId.from_str("TESTER-001")
+
+    node = (
+        LiveNode.builder("POLYMARKET-EXEC-PYTEST-001", trader_id, Environment.LIVE)
+        .with_risk_engine_config(LiveRiskEngineConfig(bypass=True))
+        .add_data_client(
+            None,
+            PolymarketDataClientFactory(),
+            PolymarketDataClientConfig(
+                instrument_config=PolymarketInstrumentProviderConfig(
+                    event_slugs=["gta-vi-released-before-june-2026"],
+                ),
+            ),
+        )
+        .add_exec_client(
+            None,
+            PolymarketExecutionClientFactory(),
+            PolymarketExecClientConfig(
+                trader_id="TESTER-001",
+                account_id="POLYMARKET-001",
+                private_key=SMOKE_PRIVATE_KEY,
+                api_key=SMOKE_API_KEY,
+                api_secret=SMOKE_API_SECRET,
+                passphrase=SMOKE_PASSPHRASE,
+                funder=SMOKE_FUNDER,
+                signature_type=SignatureType.PolyGnosisSafe,
+            ),
+        )
+        .build()
+    )
+
+    assert node.trader_id == trader_id
+    assert node.environment == Environment.LIVE
+
+
+def test_polymarket_data_tester_builds_offline(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured = capture_data_tester_main(monkeypatch, polymarket_data_tester, [])
+    kwargs = captured["data_tester_kwargs"]
+    data_client_config = captured["data_client_args"][2]
+
+    assert isinstance(kwargs, dict)
+    assert kwargs["instrument_ids"] == [
+        InstrumentId.from_str(polymarket_data_tester.DEFAULT_INSTRUMENT),
+    ]
+    assert kwargs["subscribe_trades"] is True
+    assert 'event_slugs: Some(["fed-decision-in-september-762"])' in repr(data_client_config)
+    assert "run_called" not in captured
+
+
+@pytest.mark.parametrize(
+    (
+        "extra_args",
+        "expected_dry_run",
+        "expected_limit_buys",
+        "expected_quote_quantity",
+    ),
+    [
+        ([], True, False, False),
+        (["--live-orders"], False, False, True),
+        (["--limit-orders"], False, True, False),
+    ],
+)
+def test_polymarket_exec_tester_selects_one_live_order_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    extra_args: list[str],
+    expected_dry_run: bool,
+    expected_limit_buys: bool,
+    expected_quote_quantity: bool,
+) -> None:
+    captured = capture_exec_tester_main(monkeypatch, polymarket_exec_tester, extra_args)
+    kwargs = captured["exec_tester_kwargs"]
+    exec_engine_config = captured["exec_engine_config"]
+    exec_engine_repr = repr(exec_engine_config)
+
+    assert isinstance(kwargs, dict)
+    assert (
+        f'reconciliation_instrument_ids: Some(["{polymarket_exec_tester.DEFAULT_INSTRUMENT}"])'
+        in exec_engine_repr
+    )
+    assert "open_check_interval_secs: Some(10.0)" in exec_engine_repr
+    assert "position_check_interval_secs: Some(30.0)" in exec_engine_repr
+    assert captured["timeout_disconnection_secs"] == 30
+    assert captured["delay_post_stop_secs"] == 30
+    assert kwargs["use_uuid_client_order_ids"] is True
+    assert kwargs["dry_run"] is expected_dry_run
+    assert kwargs["enable_limit_buys"] is expected_limit_buys
+    assert kwargs["enable_limit_sells"] is False
+    assert kwargs["use_post_only"] is expected_limit_buys
+    assert kwargs["use_quote_quantity"] is expected_quote_quantity
+    assert kwargs["cancel_orders_on_stop"] is not expected_dry_run
+    assert kwargs["close_positions_on_stop"] is expected_quote_quantity
+    assert kwargs["close_positions_qty_precision"] == 2
+    assert kwargs["close_positions_time_in_force"] == TimeInForce.IOC
+    assert kwargs["enable_stop_buys"] is False
+    assert kwargs["enable_stop_sells"] is False
+    assert "run_called" not in captured
+
+
+def test_polymarket_updown_smoke_tester_uses_event_slug_builder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = capture_exec_tester_main(
+        monkeypatch,
+        polymarket_updown_smoke_tester,
+        ["--instrument", UPDOWN_FIXTURE_INSTRUMENT],
+    )
+    data_client_config = captured["data_client_args"][2]
+    exec_kwargs = captured["exec_tester_kwargs"]
+
+    assert "event_slug_builder: Some" in repr(data_client_config)
+    assert 'assets: ["btc"]' in repr(data_client_config)
+    assert exec_kwargs["dry_run"] is True
+    assert exec_kwargs["enable_limit_buys"] is False
+    assert exec_kwargs["enable_limit_sells"] is False
+    assert exec_kwargs["open_position_on_start_qty"] is None
+    assert exec_kwargs["open_position_on_first_quote"] is False
+    assert "run_called" not in captured
+
+
+def test_polymarket_updown_smoke_tester_live_orders_are_opt_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = capture_exec_tester_main(
+        monkeypatch,
+        polymarket_updown_smoke_tester,
+        [
+            "--instrument",
+            UPDOWN_FIXTURE_INSTRUMENT,
+            "--live-orders",
+            "--limit-sells",
+        ],
+    )
+    exec_kwargs = captured["exec_tester_kwargs"]
+
+    assert exec_kwargs["dry_run"] is False
+    assert exec_kwargs["enable_limit_buys"] is True
+    assert exec_kwargs["enable_limit_sells"] is True
+    assert exec_kwargs["open_position_on_start_qty"] is not None
+    assert exec_kwargs["open_position_on_first_quote"] is True
+    assert exec_kwargs["cancel_orders_on_stop"] is True
+    assert exec_kwargs["close_positions_on_stop"] is True
+    assert exec_kwargs["close_positions_qty_precision"] == 2
+    assert exec_kwargs["close_positions_time_in_force"] == TimeInForce.IOC
+    assert "run_called" not in captured
+
+
+def test_polymarket_updown_smoke_tester_builds_aligned_slugs() -> None:
+    slugs = polymarket_updown_smoke_tester.build_updown_event_slugs(
+        assets=["BTC", " eth ", "btc"],
+        interval_mins=5,
+        periods=2,
+        start_offset_periods=0,
+        unix_secs=1_700_000_000,
+    )
+
+    assert slugs == [
+        "btc-updown-5m-1699999800",
+        "eth-updown-5m-1699999800",
+        "btc-updown-5m-1700000100",
+        "eth-updown-5m-1700000100",
+    ]
+
+
+def test_polymarket_updown_smoke_tester_finds_outcome_token() -> None:
+    events = [
+        {
+            "markets": [
+                {
+                    "conditionId": "0x78443f961b9a65869dcb39359de9960165c7e5cbad0904eac7f29cd77872a63b",
+                    "active": True,
+                    "closed": False,
+                    "acceptingOrders": True,
+                    "enableOrderBook": True,
+                    "outcomes": '["Up", "Down"]',
+                    "clobTokenIds": '["111", "222"]',
+                },
+            ],
+        },
+    ]
+
+    instrument_id = polymarket_updown_smoke_tester.find_updown_instrument_id(events, "down")
+
+    assert (
+        str(instrument_id)
+        == "0x78443f961b9a65869dcb39359de9960165c7e5cbad0904eac7f29cd77872a63b-222.POLYMARKET"
+    )

@@ -14,27 +14,27 @@ smallest assurance check at the boundary where a credible signal appears.
 Inspect only the row implicated by current evidence. Verification proves candidate behavior; QA asks
 whether the requirement, Plan, candidate, evidence, and claim still support one another.
 
-| Boundary | Assurance question | Decisive mismatch |
-| --- | --- | --- |
-| Requirement / Frame | Is the outcome rational for a real consumer, authorized, internally consistent, and falsifiable? | The requested mechanism cannot produce the outcome, contradicts authority, or lacks a consumer or decidable acceptance. |
-| Plan | Does the admitted owner, scope, candidate shape, and verification close every material Frame obligation? | An obligation is omitted, invented, assigned to the wrong owner, or supported only by an unresolved premise. |
-| Execute | Does the complete candidate cover the admitted Plan without hidden scope or unrelated effects? | Required behavior has no candidate locus, or the diff adds unapproved behavior, authority, state, or effects. |
-| Verify | Is evidence current, independent where required, integrity-bound, consumer-relevant, and able to distinguish failure? | Evidence targets the wrong candidate, omits an affected consumer, echoes candidate claims, or uses an inadequate oracle. |
-| Finalize | Are every stated result, limitation, effect, head, check, review, and terminal status true now? | A claim exceeds observed evidence, unavailable evidence is presented as passing, or an effect/terminal is attributed to the wrong owner. |
-| Post-merge / system | Does the integrated result preserve the consumer outcome, authority graph, load routes, and maintenance boundary? | Merge integration creates conflicting authority, dead or duplicate loading, a regression, or systemic cost hidden by local success. |
-| RBM self-QA | Did the framework choose and execute its own stages, routes, communication, and effects correctly? | The Mission lifecycle itself loses work, loops, misroutes, over-blocks, or regresses behavior. |
+| Boundary            | Assurance question                                                                                                    | Decisive mismatch                                                                                                                        |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Requirement / Frame | Is the outcome rational for a real consumer, authorized, internally consistent, and falsifiable?                      | The requested mechanism cannot produce the outcome, contradicts authority, or lacks a consumer or decidable acceptance.                  |
+| Plan                | Does the admitted owner, scope, candidate shape, and verification close every material Frame obligation?              | An obligation is omitted, invented, assigned to the wrong owner, or supported only by an unresolved premise.                             |
+| Execute             | Does the complete candidate cover the admitted Plan without hidden scope or unrelated effects?                        | Required behavior has no candidate locus, or the diff adds unapproved behavior, authority, state, or effects.                            |
+| Verify              | Is evidence current, independent where required, integrity-bound, consumer-relevant, and able to distinguish failure? | Evidence targets the wrong candidate, omits an affected consumer, echoes candidate claims, or uses an inadequate oracle.                 |
+| Finalize            | Are every stated result, limitation, effect, head, check, review, and terminal status true now?                       | A claim exceeds observed evidence, unavailable evidence is presented as passing, or an effect/terminal is attributed to the wrong owner. |
+| Post-merge / system | Does the integrated result preserve the consumer outcome, authority graph, load routes, and maintenance boundary?     | Merge integration creates conflicting authority, dead or duplicate loading, a regression, or systemic cost hidden by local success.      |
+| RBM self-QA         | Did the framework choose and execute its own stages, routes, communication, and effects correctly?                    | The Mission lifecycle itself loses work, loops, misroutes, over-blocks, or regresses behavior.                                           |
 
 ## Classify one minimal signal
 
 Choose exactly one outcome for the observed mismatch. Do not average signals or let a lower-severity
 fact overwrite a higher boundary already selected by coherent evidence.
 
-| Outcome | Evidence threshold | Required action |
-| --- | --- | --- |
-| `block` | A mandatory condition for the current transition or effect is false, or evidence required to prove it is unavailable. | Freeze that transition or effect and return the finding to its root-cause owner. |
-| `route` | A mandatory defect is real, but it does not invalidate the current transition; correction belongs to another existing owner or a later system boundary. | Preserve the exact impact and locator, send it to that owner, and continue only unaffected work. |
-| `advisory` | Current research supports a bounded improvement opportunity, but present authority and acceptance remain satisfied. | Offer a proposal with benefit, cost, risk, and falsifier; do not alter the current Frame or Plan. |
-| `no-signal` | Evidence supports current alignment, is insufficient for a non-required concern, or the observation is a controlled false positive. | Add no QA work, artifact, or communication and continue the existing lifecycle route. |
+| Outcome     | Evidence threshold                                                                                                                                      | Required action                                                                                   |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `block`     | A mandatory condition for the current transition or effect is false, or evidence required to prove it is unavailable.                                   | Freeze that transition or effect and return the finding to its root-cause owner.                  |
+| `route`     | A mandatory defect is real, but it does not invalidate the current transition; correction belongs to another existing owner or a later system boundary. | Preserve the exact impact and locator, send it to that owner, and continue only unaffected work.  |
+| `advisory`  | Current research supports a bounded improvement opportunity, but present authority and acceptance remain satisfied.                                     | Offer a proposal with benefit, cost, risk, and falsifier; do not alter the current Frame or Plan. |
+| `no-signal` | Evidence supports current alignment, is insufficient for a non-required concern, or the observation is a controlled false positive.                     | Add no QA work, artifact, or communication and continue the existing lifecycle route.             |
 
 Unknown evidence is not automatically a defect. Use `block` only when that evidence is required for
 the current transition or effect; otherwise use `no-signal` and make no claim that the unknown passed.
@@ -55,14 +55,14 @@ work only through a newly admitted Frame or Plan; it never silently expands the 
 
 Route by the defective authority or behavior, not by where the symptom was noticed.
 
-| Owner | Route here when the root cause is |
-| --- | --- |
-| planner | Requirement rationality, authority selection, scope, acceptance, Plan alignment, or repeated causal pressure requiring replan. |
-| orchestrator | Task identity, dependency release, Hub↔child monitoring or communication, recovery, or coherence-window behavior. |
-| executor | Candidate implementation or admitted candidate-to-Plan coverage. |
-| verifier | Evidence selection, test integrity, oracle strength, independence, provenance, or affected-consumer coverage. |
-| delivery | Finalize truth, exact-head state, CI/review/conversation evidence, publication, merge readiness, or another external-effect barrier. |
-| optimizer | Post-merge/system coherence, repeated cross-Mission degradation, duplicate authority, context or latency inflation, or an RBM behavior regression. |
+| Owner        | Route here when the root cause is                                                                                                                  |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| planner      | Requirement rationality, authority selection, scope, acceptance, Plan alignment, or repeated causal pressure requiring replan.                     |
+| orchestrator | Task identity, dependency release, Hub↔child monitoring or communication, recovery, or coherence-window behavior.                                  |
+| executor     | Candidate implementation or admitted candidate-to-Plan coverage.                                                                                   |
+| verifier     | Evidence selection, test integrity, oracle strength, independence, provenance, or affected-consumer coverage.                                      |
+| delivery     | Finalize truth, exact-head state, CI/review/conversation evidence, publication, merge readiness, or another external-effect barrier.               |
+| optimizer    | Post-merge/system coherence, repeated cross-Mission degradation, duplicate authority, context or latency inflation, or an RBM behavior regression. |
 
 Load the routed owner's existing policy only after classification. In particular, use
 [revision pressure](../planning/planning-revision-workflow.md) for recurring causal pressure,
@@ -74,15 +74,15 @@ When the signal is corrosion, select only the exact owner-local playbook whose a
 the raw evidence satisfies. The link is a route, not repair authority: QA does not copy, summarize,
 or execute the playbook. Load no playbook for `no-signal`, and do not preload the table.
 
-| Signal root | Repair owner | On-demand playbook |
-| --- | --- | --- |
-| repository structure, authority, or dependency corrosion | optimizer | [architecture corrosion](../optimization/optimization-architecture-corrosion-playbook.md) |
-| current-state documentation drift or superseded exploration | optimizer | [documentation corrosion](../optimization/optimization-documentation-corrosion-playbook.md) |
-| test-suite redundancy, obsolescence, or deletion pressure | optimizer | [Test GC](../optimization/optimization-test-gc-playbook.md) |
-| RBM trigger, authority, load-route, or instruction corrosion | optimizer | [Skill corrosion](../optimization/optimization-skill-corrosion-playbook.md) |
-| weak test selection, scenario, boundary, or oracle | verifier | [test corrosion](../verification/verification-test-corrosion-playbook.md) |
-| duplicate, ambiguous, dead, universal, or parameter-heavy Step glue | verifier | [BDD Step corrosion](../verification/verification-bdd-step-corrosion-playbook.md) |
-| CI selection, trigger, final-head, or required-check corrosion | delivery | [CI corrosion](../delivery/delivery-ci-corrosion-playbook.md) |
+| Signal root                                                         | Repair owner | On-demand playbook                                                                          |
+| ------------------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------- |
+| repository structure, authority, or dependency corrosion            | optimizer    | [architecture corrosion](../optimization/optimization-architecture-corrosion-playbook.md)   |
+| current-state documentation drift or superseded exploration         | optimizer    | [documentation corrosion](../optimization/optimization-documentation-corrosion-playbook.md) |
+| test-suite redundancy, obsolescence, or deletion pressure           | optimizer    | [Test GC](../optimization/optimization-test-gc-playbook.md)                                 |
+| RBM trigger, authority, load-route, or instruction corrosion        | optimizer    | [Skill corrosion](../optimization/optimization-skill-corrosion-playbook.md)                 |
+| weak test selection, scenario, boundary, or oracle                  | verifier     | [test corrosion](../verification/verification-test-corrosion-playbook.md)                   |
+| duplicate, ambiguous, dead, universal, or parameter-heavy Step glue | verifier     | [BDD Step corrosion](../verification/verification-bdd-step-corrosion-playbook.md)           |
+| CI selection, trigger, final-head, or required-check corrosion      | delivery     | [CI corrosion](../delivery/delivery-ci-corrosion-playbook.md)                               |
 
 Load a minimal set only when the same raw evidence independently activates more than one repair
 boundary. If the boundaries or owners are not independent, route the combined cause to Plan instead

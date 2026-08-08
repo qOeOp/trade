@@ -1,0 +1,95 @@
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+};
+
+use pyo3::{
+    IntoPyObjectExt,
+    prelude::*,
+    pyclass::CompareOp,
+    types::{PyString, PyTuple},
+};
+use vibe_core::python::{IntoPyObjectVibeExt, to_pyvalue_err};
+
+use crate::identifiers::TradeId;
+
+#[pymethods]
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
+impl TradeId {
+    /// Represents a valid trade match ID (assigned by a trading venue).
+    ///
+    /// The unique ID assigned to the trade entity once it is received or matched by
+    /// the venue or central counterparty.
+    ///
+    /// Can correspond to the `TradeID <1003> field` of the FIX protocol.
+    ///
+    /// Maximum length is 36 characters.
+    #[new]
+    fn py_new(value: &str) -> PyResult<Self> {
+        Self::new_checked(value).map_err(to_pyvalue_err)
+    }
+
+    fn __setstate__(&mut self, state: &Bound<'_, PyAny>) -> PyResult<()> {
+        let py_tuple: &Bound<'_, PyTuple> = state.cast::<PyTuple>()?;
+        let binding = py_tuple.get_item(0)?;
+        let value_str = binding.cast::<PyString>()?.extract::<&str>()?;
+        *self = Self::new(value_str);
+        Ok(())
+    }
+
+    fn __getstate__(&self, py: Python) -> PyResult<Py<PyAny>> {
+        (self.to_string(),).into_py_any(py)
+    }
+
+    fn __reduce__(&self, py: Python) -> PyResult<Py<PyAny>> {
+        let safe_constructor = py.get_type::<Self>().getattr("_safe_constructor")?;
+        let state = self.__getstate__(py)?;
+        (safe_constructor, PyTuple::empty(py), state).into_py_any(py)
+    }
+
+    #[staticmethod]
+    fn _safe_constructor() -> Self {
+        Self::from("NULL")
+    }
+
+    #[expect(clippy::needless_pass_by_value)]
+    fn __richcmp__(&self, other: Py<PyAny>, op: CompareOp, py: Python<'_>) -> Py<PyAny> {
+        if let Ok(other) = other.extract::<Self>(py) {
+            match op {
+                CompareOp::Eq => self.eq(&other).into_py_any_unwrap(py),
+                CompareOp::Ne => self.ne(&other).into_py_any_unwrap(py),
+                CompareOp::Ge => self.ge(&other).into_py_any_unwrap(py),
+                CompareOp::Gt => self.gt(&other).into_py_any_unwrap(py),
+                CompareOp::Le => self.le(&other).into_py_any_unwrap(py),
+                CompareOp::Lt => self.lt(&other).into_py_any_unwrap(py),
+            }
+        } else {
+            py.NotImplemented()
+        }
+    }
+
+    fn __hash__(&self) -> isize {
+        let mut h = DefaultHasher::new();
+        self.hash(&mut h);
+        h.finish() as isize
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{}('{}')", stringify!(TradeId), self)
+    }
+
+    fn __str__(&self) -> String {
+        self.to_string()
+    }
+
+    #[getter]
+    fn value(&self) -> &str {
+        self.as_str()
+    }
+
+    #[staticmethod]
+    #[pyo3(name = "from_str")]
+    fn py_from_str(value: &str) -> PyResult<Self> {
+        Self::new_checked(value).map_err(to_pyvalue_err)
+    }
+}

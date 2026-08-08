@@ -1,0 +1,189 @@
+[package]
+name = "vibe-derive"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Derive integration adapter for the Vibe trading engine"
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "vibe_derive"
+crate-type = ["rlib"]
+
+[features]
+default = ["high-precision"]
+fuzz = ["vibe-live/fuzz"]
+examples = [
+  "vibe-live/node",
+  "vibe-network/transport-sockudo",
+  "vibe-trading/examples",
+]
+extension-module = [
+  "vibe-common/extension-module",
+  "vibe-core/extension-module",
+  "vibe-model/extension-module",
+  "vibe-network/extension-module",
+  "pyo3/extension-module",
+  "python",
+]
+python = [
+  "dep:vibe-system",
+  "vibe-common/python",
+  "vibe-core/python",
+  "vibe-model/python",
+  "vibe-network/python",
+  "vibe-system/python",
+  "pyo3",
+  "pyo3-stub-gen",
+]
+high-precision = ["vibe-model/high-precision"]
+
+[package.metadata]
+cargo-fuzz = true
+[dependencies]
+vibe-common = { workspace = true, features = ["live"] }
+vibe-core = { workspace = true }
+vibe-live = { workspace = true }
+vibe-model = { workspace = true }
+vibe-network = { workspace = true }
+vibe-system = { workspace = true, optional = true }
+
+ahash = { workspace = true }
+alloy = { workspace = true }
+alloy-primitives = { workspace = true }
+anyhow = { workspace = true }
+arc-swap = { workspace = true }
+async-trait = { workspace = true }
+bon = { workspace = true }
+dashmap = { workspace = true }
+futures-util = { workspace = true }
+jiff = { workspace = true }
+log = { workspace = true }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+strum = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tokio-util = { workspace = true }
+ustr = { workspace = true }
+zeroize = { workspace = true }
+
+pyo3 = { workspace = true, optional = true }
+pyo3-stub-gen = { workspace = true, optional = true }
+
+[dev-dependencies]
+vibe-testkit = { workspace = true, default-features = false, features = [
+  "testers",
+] }
+vibe-trading = { workspace = true }
+
+axum = { workspace = true }
+bytes = { workspace = true }
+criterion = { workspace = true }
+dotenvy = { workspace = true }
+rstest = { workspace = true }
+
+[[bench]]
+name = "signing"
+harness = false
+
+[[bench]]
+name = "data"
+harness = false
+
+[[bench]]
+name = "exec"
+harness = false
+
+[[bench]]
+name = "micros"
+harness = false
+
+# Run with `cargo run --bin derive-flatten -p vibe-derive`.
+[[bin]]
+name = "derive-flatten"
+path = "bin/flatten.rs"
+doc = false
+test = false
+
+# Phase 0 venue research probe. Submits and cancels a far-from-spread spot
+# limit order on testnet. Run with `cargo run -p vibe-derive --bin derive-spot-research`.
+[[bin]]
+name = "derive-spot-research"
+path = "bin/spot_research.rs"
+doc = false
+test = false
+
+[[bin]]
+name = "fuzz_ws_decode"
+path = "fuzz/fuzz_targets/fuzz_ws_decode.rs"
+required-features = ["fuzz"]
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_decimal_decode"
+path = "fuzz/fuzz_targets/fuzz_decimal_decode.rs"
+required-features = ["fuzz"]
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_trade_module_encode"
+path = "fuzz/fuzz_targets/fuzz_trade_module_encode.rs"
+required-features = ["fuzz"]
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_action_hash"
+path = "fuzz/fuzz_targets/fuzz_action_hash.rs"
+required-features = ["fuzz"]
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_nonce_sequence"
+path = "fuzz/fuzz_targets/fuzz_nonce_sequence.rs"
+required-features = ["fuzz"]
+test = false
+doc = false
+bench = false
+
+# Run with `cargo run --example derive-data-tester --package vibe-derive --features examples`.
+[[example]]
+name = "derive-data-tester"
+path = "examples/node_data_tester.rs"
+required-features = ["examples"]
+doc = false
+
+# Run with `cargo run --example derive-exec-tester --package vibe-derive --features examples`.
+[[example]]
+name = "derive-exec-tester"
+path = "examples/node_exec_tester.rs"
+required-features = ["examples"]
+doc = false
+
+# Run with `cargo run --example derive-delta-neutral --package vibe-derive --features examples`.
+[[example]]
+name = "derive-delta-neutral"
+path = "examples/node_delta_neutral.rs"
+required-features = ["examples"]
+doc = false
+
+[[test]]
+name = "python"
+path = "tests/python.rs"
+required-features = ["python"]

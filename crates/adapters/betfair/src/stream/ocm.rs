@@ -1,0 +1,206 @@
+//! Shared OCM stream handler state.
+
+use std::collections::VecDeque;
+
+use ahash::{AHashMap, AHashSet};
+use rust_decimal::Decimal;
+use vibe_model::identifiers::{ClientOrderId, StrategyId};
+
+use crate::{
+    common::{
+        parse::{make_customer_order_ref, make_customer_order_ref_legacy},
+        types::OrderSyncEntry,
+    },
+    stream::parse::FillTracker,
+};
+
+/// Shared mutable state for the OCM stream handler.
+///
+/// Accessed by both the TCP reader closure and the execution client methods
+/// (submit, modify, connect/disconnect). All access goes through `Arc<Mutex<>>`.
+#[derive(Debug, Default)]
+pub struct OcmState {
+    pub fill_tracker: FillTracker,
+    /// Maps customer_order_ref (rfo) to ClientOrderId for stream resolution.
+    pub customer_order_refs: AHashMap<String, ClientOrderId>,
+    /// Maps client_order_id to submitting strategy. Captured at submit so the stream task
+    /// builds direct events for tracked orders without cache access.
+    pub order_strategies: AHashMap<ClientOrderId, StrategyId>,
+    /// Client order IDs that already had an `OrderAccepted` emitted (via the HTTP
+    /// place response or stream synthesis), so acceptance is applied exactly once.
+    pub accepted_orders: AHashSet<ClientOrderId>,
+    /// Client order IDs that already received an OCM order status update.
+    pub stream_reported_client_orders: AHashSet<ClientOrderId>,
+    /// Bet IDs that have received a terminal event (cancel, lapse, fill-complete).
+    pub terminal_orders: AHashSet<String>,
+    terminal_order_queue: VecDeque<String>,
+    /// Old bet IDs from replace operations, to suppress late stream updates.
+    pub replaced_venue_order_ids: AHashSet<String>,
+    /// (client_order_id, old_bet_id) pairs for in-flight replace operations.
+    pub pending_update_keys: AHashSet<(ClientOrderId, String)>,
+}
+
+impl OcmState {
+    /// Bounds dedup memory while retaining recent delayed stream and REST overlap.
+    const TERMINAL_ORDER_RETENTION: usize = 10_000;
+
+    /// Registers a customer_order_ref mapping for a new order.
+    pub fn register_customer_order_ref(&mut self, client_order_id: ClientOrderId) {
+        let rfo = make_customer_order_ref(client_order_id.as_str());
+        self.customer_order_refs.insert(rfo, client_order_id);
+    }
+
+    /// Registers both current and legacy customer_order_ref truncations.
+    ///
+    /// Used during reconnect sync for pre-existing orders that may
+    /// have been placed with either truncation format.
+    pub fn register_customer_order_ref_with_legacy(&mut self, client_order_id: ClientOrderId) {
+        let rfo = make_customer_order_ref(client_order_id.as_str());
+        let rfo_legacy = make_customer_order_ref_legacy(client_order_id.as_str());
+        self.customer_order_refs.insert(rfo, client_order_id);
+
+        if rfo_legacy != client_order_id.as_str() {
+            self.customer_order_refs.insert(rfo_legacy, client_order_id);
+        }
+    }
+
+    /// Records the submitting strategy for a tracked order.
+    pub fn register_order_identity(
+        &mut self,
+        client_order_id: ClientOrderId,
+        strategy_id: StrategyId,
+    ) {
+        self.order_strategies.insert(client_order_id, strategy_id);
+    }
+
+    /// Returns the submitting strategy for a tracked order, if known.
+    pub fn order_strategy_id(&self, client_order_id: &ClientOrderId) -> Option<StrategyId> {
+        self.order_strategies.get(client_order_id).copied()
+    }
+
+    /// Records that acceptance has been emitted for a tracked order.
+    ///
+    /// Returns `true` when this call newly marks the order accepted (the caller
+    /// should emit `OrderAccepted`), or `false` when acceptance was already emitted.
+    pub fn mark_accepted(&mut self, client_order_id: ClientOrderId) -> bool {
+        self.accepted_orders.insert(client_order_id)
+    }
+
+    /// Removes customer_order_ref mappings for a client_order_id.
+    pub fn remove_customer_order_refs(&mut self, client_order_id: &ClientOrderId) {
+        let rfo = make_customer_order_ref(client_order_id.as_str());
+        let rfo_legacy = make_customer_order_ref_legacy(client_order_id.as_str());
+        self.customer_order_refs.remove(&rfo);
+        self.customer_order_refs.remove(&rfo_legacy);
+        self.order_strategies.remove(client_order_id);
+        self.accepted_orders.remove(client_order_id);
+    }
+
+    /// Resolves a client_order_id from the unmatched order's rfo field.
+    pub fn resolve_client_order_id(&self, rfo: Option<&str>) -> Option<ClientOrderId> {
+        rfo.and_then(|r| self.customer_order_refs.get(r).copied())
+    }
+
+    /// Returns `true` if a cancel/lapse for this bet should be suppressed
+    /// because a replace operation is pending or the bet was already replaced.
+    pub fn should_suppress_cancel(&self, client_order_id: &ClientOrderId, bet_id: &str) -> bool {
+        if self.replaced_venue_order_ids.contains(bet_id) {
+            return true;
+        }
+
+        self.pending_update_keys
+            .contains(&(*client_order_id, bet_id.to_string()))
+    }
+
+    /// Cleans up customer_order_ref mappings for a terminal order,
+    /// unless a pending replace exists for this client_order_id.
+    pub fn cleanup_terminal_order(&mut self, client_order_id: &ClientOrderId) {
+        let has_pending = self
+            .pending_update_keys
+            .iter()
+            .any(|(cid, _)| cid == client_order_id);
+
+        if !has_pending {
+            self.remove_customer_order_refs(client_order_id);
+        }
+    }
+
+    /// Records a terminal bet and bounds the stream and REST dedup state.
+    pub fn mark_terminal_order(&mut self, bet_id: String) {
+        if !self.terminal_orders.insert(bet_id.clone()) {
+            return;
+        }
+
+        self.terminal_order_queue.push_back(bet_id);
+        if self.terminal_order_queue.len() > Self::TERMINAL_ORDER_RETENTION
+            && let Some(expired_bet_id) = self.terminal_order_queue.pop_front()
+        {
+            self.terminal_orders.remove(&expired_bet_id);
+            self.fill_tracker.prune(&expired_bet_id);
+        }
+    }
+
+    /// Anchors the fill tracker against cached orders so the post-reconnect
+    /// image neither treats cumulative size as a new fill nor re-emits a
+    /// fill that was published via another channel.
+    pub fn sync_from_orders(&mut self, orders: &[OrderSyncEntry]) {
+        for entry in orders {
+            if entry.is_closed {
+                self.mark_terminal_order(entry.bet_id.clone());
+            } else {
+                self.register_customer_order_ref_with_legacy(entry.client_order_id);
+            }
+
+            if entry.filled_qty > Decimal::ZERO {
+                self.fill_tracker
+                    .sync_order(&entry.bet_id, entry.filled_qty, entry.avg_px);
+            }
+
+            if !entry.trade_ids.is_empty() {
+                self.fill_tracker
+                    .seed_published_trade_ids(entry.trade_ids.iter().cloned());
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    fn terminal_order_retention_evicts_fill_tracker_state() {
+        let mut state = OcmState::default();
+        let first_bet_id = "bet-0";
+        let size_matched = Decimal::new(10, 0);
+        let average_price = Decimal::new(20, 1);
+
+        assert!(
+            state
+                .fill_tracker
+                .advance_cumulative_fill(
+                    first_bet_id,
+                    size_matched,
+                    Some(average_price),
+                    average_price,
+                )
+                .is_some(),
+        );
+        state.mark_terminal_order(first_bet_id.to_string());
+        for index in 1..=OcmState::TERMINAL_ORDER_RETENTION {
+            state.mark_terminal_order(format!("bet-{index}"));
+        }
+
+        let replay_after_eviction = state.fill_tracker.advance_cumulative_fill(
+            first_bet_id,
+            size_matched,
+            Some(average_price),
+            average_price,
+        );
+
+        assert!(!state.terminal_orders.contains(first_bet_id));
+        assert!(replay_after_eviction.is_some());
+    }
+}

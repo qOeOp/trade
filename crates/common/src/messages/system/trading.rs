@@ -1,0 +1,71 @@
+use std::{
+    any::Any,
+    fmt::{Debug, Display},
+};
+
+use indexmap::IndexMap;
+use serde::{Deserialize, Serialize};
+use vibe_core::{UUID4, UnixNanos};
+use vibe_model::{enums::TradingState, identifiers::TraderId};
+
+/// Represents an event where trading state has changed at the `RiskEngine`.
+#[repr(C)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+#[cfg_attr(
+    feature = "python",
+    pyo3::pyclass(module = "vibe_trader.model", from_py_object)
+)]
+pub struct TradingStateChanged {
+    /// The trader ID associated with the event.
+    pub trader_id: TraderId,
+    /// The trading state.
+    pub state: TradingState,
+    /// The risk engine configuration.
+    pub config: IndexMap<String, String>,
+    /// The event ID.
+    pub event_id: UUID4,
+    /// UNIX timestamp (nanoseconds) when the event occurred.
+    pub ts_event: UnixNanos,
+    /// UNIX timestamp (nanoseconds) when the instance was initialized.
+    pub ts_init: UnixNanos,
+}
+
+impl TradingStateChanged {
+    /// Creates a new [`TradingStateChanged`] instance.
+    #[must_use]
+    pub fn new(
+        trader_id: TraderId,
+        state: TradingState,
+        config: IndexMap<String, String>,
+        event_id: UUID4,
+        ts_event: UnixNanos,
+        ts_init: UnixNanos,
+    ) -> Self {
+        Self {
+            trader_id,
+            state,
+            config,
+            event_id,
+            ts_event,
+            ts_init,
+        }
+    }
+
+    pub fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+impl Display for TradingStateChanged {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}(trader_id={}, state={}, event_id={})",
+            stringify!(TradingStateChanged),
+            self.trader_id,
+            self.state,
+            self.event_id,
+        )
+    }
+}

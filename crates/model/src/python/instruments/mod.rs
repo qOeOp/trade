@@ -1,0 +1,654 @@
+//! Instrument definitions the trading domain model.
+
+use pyo3::{
+    IntoPyObjectExt, Py, PyAny, PyResult, Python,
+    types::{PyAnyMethods, PyDict, PyDictMethods},
+};
+use rust_decimal::Decimal;
+use serde::de::DeserializeOwned;
+use vibe_core::python::{serialization::from_dict_pyo3, to_pyvalue_err};
+
+use crate::{
+    enums::{AssetClass, InstrumentClass},
+    instruments::{
+        BettingInstrument, BinaryOption, Cfd, Commodity, CryptoFuture, CryptoFuturesSpread,
+        CryptoOptionSpread, CryptoPerpetual, CurrencyPair, Equity, FuturesContract, FuturesSpread,
+        IndexInstrument, Instrument, InstrumentAny, OptionContract, OptionSpread,
+        PerpetualContract, TokenizedAsset, crypto_option::CryptoOption,
+    },
+    types::{Currency, Money, Price, Quantity},
+};
+
+/// Pre-registers crypto currency codes from a dict prior to strict deserialization.
+///
+/// Crypto instrument roundtrips (e.g. `CryptoPerpetual.from_dict(...)`) can carry
+/// newly listed assets not present in the built-in currency map. Looking up each
+/// named field with [`Currency::get_or_create_crypto`] registers any unknown code
+/// as a crypto currency (precision 8), mirroring the non-strict Cython path.
+///
+/// Callers must only pass fields that are guaranteed to hold crypto assets (the
+/// underlying of a derivative); `quote_currency` and `settlement_currency` can
+/// legitimately be fiat (e.g. inverse perps on BitMEX quoted in USD) and must
+/// stay on the strict deserialization path.
+///
+/// Codes are trimmed before lookup; empty or whitespace-only values are skipped
+/// so downstream serde deserialization raises a normal `PyErr` instead of
+/// panicking in `Currency::new`.
+pub(crate) fn register_crypto_currencies_from_dict(
+    py: Python<'_>,
+    values: &Py<PyDict>,
+    fields: &[&str],
+) {
+    let dict = values.bind(py);
+    for field in fields {
+        if let Ok(Some(value)) = dict.get_item(field)
+            && let Ok(code) = value.extract::<String>()
+        {
+            let trimmed = code.trim();
+            if !trimmed.is_empty() {
+                let _ = Currency::get_or_create_crypto(trimmed);
+            }
+        }
+    }
+}
+
+pub(crate) fn tick_scheme_to_py(instrument: &impl Instrument) -> Option<String> {
+    instrument.tick_scheme().map(|name| name.to_string())
+}
+
+pub(crate) fn from_dict_instrument_pyo3<T>(py: Python<'_>, values: Py<PyDict>) -> PyResult<T>
+where
+    T: DeserializeOwned,
+{
+    let values = instrument_dict_with_tick_scheme_alias(py, values)?;
+    from_dict_pyo3(py, values)
+}
+
+fn instrument_dict_with_tick_scheme_alias(
+    py: Python<'_>,
+    values: Py<PyDict>,
+) -> PyResult<Py<PyDict>> {
+    let dict = values.bind(py);
+    if dict.contains("tick_scheme")? || !dict.contains("tick_scheme_name")? {
+        return Ok(values);
+    }
+
+    let dict = dict.copy()?;
+    if let Some(value) = dict.get_item("tick_scheme_name")? {
+        dict.set_item("tick_scheme", value)?;
+    }
+    Ok(dict.unbind())
+}
+
+macro_rules! impl_instrument_common_pymethods {
+    ($type:ty) => {
+        #[pyo3_stub_gen::derive::gen_stub_pymethods]
+        #[pyo3::pymethods]
+        impl $type {
+            fn __repr__(&self) -> String {
+                format!(
+                    "{}(id={}, price_precision={}, size_precision={})",
+                    stringify!($type),
+                    self.id(),
+                    self.price_precision(),
+                    self.size_precision(),
+                )
+            }
+
+            #[getter]
+            #[pyo3(name = "tick_scheme")]
+            fn py_tick_scheme(&self) -> Option<String> {
+                self.tick_scheme().map(|name| name.to_string())
+            }
+
+            /// Returns the price `num_ticks` bid ticks away from value.
+            #[pyo3(name = "next_bid_price")]
+            #[pyo3(signature = (value, num_ticks=0))]
+            fn py_next_bid_price(&self, value: f64, num_ticks: i32) -> Option<Price> {
+                self.next_bid_price(value, num_ticks)
+            }
+
+            /// Returns the price `num_ticks` ask ticks away from value.
+            #[pyo3(name = "next_ask_price")]
+            #[pyo3(signature = (value, num_ticks=0))]
+            fn py_next_ask_price(&self, value: f64, num_ticks: i32) -> Option<Price> {
+                self.next_ask_price(value, num_ticks)
+            }
+
+            /// Returns prices up to `num_ticks` bid ticks away from value.
+            #[pyo3(name = "next_bid_prices")]
+            #[pyo3(signature = (value, num_ticks=100))]
+            fn py_next_bid_prices(
+                &self,
+                value: f64,
+                num_ticks: usize,
+            ) -> Vec<rust_decimal::Decimal> {
+                self.next_bid_prices(value, num_ticks)
+                    .into_iter()
+                    .map(|price| price.as_decimal())
+                    .collect()
+            }
+
+            /// Returns prices up to `num_ticks` ask ticks away from value.
+            #[pyo3(name = "next_ask_prices")]
+            #[pyo3(signature = (value, num_ticks=100))]
+            fn py_next_ask_prices(
+                &self,
+                value: f64,
+                num_ticks: usize,
+            ) -> Vec<rust_decimal::Decimal> {
+                self.next_ask_prices(value, num_ticks)
+                    .into_iter()
+                    .map(|price| price.as_decimal())
+                    .collect()
+            }
+
+            /// Returns a price rounded to the instruments price precision.
+            #[pyo3(name = "make_price")]
+            fn py_make_price(&self, value: f64) -> PyResult<Price> {
+                self.try_make_price(value)
+                    .map_err(vibe_core::python::to_pyvalue_err)
+            }
+
+            /// Returns a quantity rounded to the instruments size precision.
+            #[pyo3(name = "make_qty")]
+            #[pyo3(signature = (value, round_down=false))]
+            fn py_make_qty(&self, value: f64, round_down: bool) -> PyResult<Quantity> {
+                self.try_make_qty(value, Some(round_down))
+                    .map_err(vibe_core::python::to_pyvalue_err)
+            }
+
+            /// Calculates the notional value from the given quantity and price.
+            #[pyo3(name = "notional_value")]
+            #[pyo3(signature = (quantity, price, use_quote_for_inverse=false))]
+            fn py_notional_value(
+                &self,
+                quantity: Quantity,
+                price: Price,
+                use_quote_for_inverse: bool,
+            ) -> PyResult<Money> {
+                self.try_calculate_notional_value(quantity, price, Some(use_quote_for_inverse))
+                    .map_err(vibe_core::python::to_pyvalue_err)
+            }
+        }
+    };
+}
+
+macro_rules! impl_instrument_getter {
+    ($name:literal, $getter:ident, $return_type:ty, $method:ident, $($type:ty),+ $(,)?) => {
+        $(
+            #[pyo3_stub_gen::derive::gen_stub_pymethods]
+            #[pyo3::pymethods]
+            impl $type {
+                #[getter]
+                #[pyo3(name = $name)]
+                fn $getter(&self) -> $return_type {
+                    Instrument::$method(self)
+                }
+            }
+        )+
+    };
+}
+
+macro_rules! impl_instrument_isin_getter {
+    ($($type:ty),+ $(,)?) => {
+        $(
+            #[pyo3_stub_gen::derive::gen_stub_pymethods]
+            #[pyo3::pymethods]
+            impl $type {
+                #[getter]
+                #[pyo3(name = "isin")]
+                fn py_isin(&self) -> Option<String> {
+                    Instrument::isin(self).map(|value| value.to_string())
+                }
+            }
+        )+
+    };
+}
+
+impl_instrument_common_pymethods!(BettingInstrument);
+impl_instrument_common_pymethods!(BinaryOption);
+impl_instrument_common_pymethods!(Cfd);
+impl_instrument_common_pymethods!(Commodity);
+impl_instrument_common_pymethods!(CryptoFuture);
+impl_instrument_common_pymethods!(CryptoFuturesSpread);
+impl_instrument_common_pymethods!(CryptoOption);
+impl_instrument_common_pymethods!(CryptoOptionSpread);
+impl_instrument_common_pymethods!(CryptoPerpetual);
+impl_instrument_common_pymethods!(CurrencyPair);
+impl_instrument_common_pymethods!(Equity);
+impl_instrument_common_pymethods!(FuturesContract);
+impl_instrument_common_pymethods!(FuturesSpread);
+impl_instrument_common_pymethods!(IndexInstrument);
+impl_instrument_common_pymethods!(OptionContract);
+impl_instrument_common_pymethods!(OptionSpread);
+impl_instrument_common_pymethods!(PerpetualContract);
+impl_instrument_common_pymethods!(TokenizedAsset);
+
+impl_instrument_getter!(
+    "asset_class",
+    py_asset_class,
+    AssetClass,
+    asset_class,
+    CryptoFuture,
+    CryptoFuturesSpread,
+    CryptoOption,
+    CryptoOptionSpread,
+    CryptoPerpetual,
+    CurrencyPair,
+    Equity,
+    IndexInstrument,
+);
+impl_instrument_getter!(
+    "instrument_class",
+    py_instrument_class,
+    InstrumentClass,
+    instrument_class,
+    BinaryOption,
+    Cfd,
+    Commodity,
+    CryptoFuture,
+    CryptoFuturesSpread,
+    CryptoOption,
+    CryptoOptionSpread,
+    CryptoPerpetual,
+    CurrencyPair,
+    Equity,
+    FuturesContract,
+    FuturesSpread,
+    IndexInstrument,
+    OptionContract,
+    OptionSpread,
+    PerpetualContract,
+    TokenizedAsset,
+);
+impl_instrument_getter!(
+    "is_inverse",
+    py_is_inverse,
+    bool,
+    is_inverse,
+    BettingInstrument,
+    BinaryOption,
+    Cfd,
+    Commodity,
+    CurrencyPair,
+    Equity,
+    FuturesContract,
+    FuturesSpread,
+    IndexInstrument,
+    OptionContract,
+    OptionSpread,
+    TokenizedAsset,
+);
+impl_instrument_getter!(
+    "is_quanto",
+    py_is_quanto,
+    bool,
+    is_quanto,
+    BettingInstrument,
+    BinaryOption,
+    Cfd,
+    Commodity,
+    CryptoFuture,
+    CryptoFuturesSpread,
+    CryptoOption,
+    CryptoOptionSpread,
+    CryptoPerpetual,
+    CurrencyPair,
+    Equity,
+    FuturesContract,
+    FuturesSpread,
+    IndexInstrument,
+    OptionContract,
+    OptionSpread,
+    PerpetualContract,
+    TokenizedAsset,
+);
+impl_instrument_isin_getter!(
+    BettingInstrument,
+    BinaryOption,
+    Cfd,
+    Commodity,
+    CryptoFuture,
+    CryptoFuturesSpread,
+    CryptoOption,
+    CryptoOptionSpread,
+    CryptoPerpetual,
+    CurrencyPair,
+    FuturesContract,
+    FuturesSpread,
+    IndexInstrument,
+    OptionContract,
+    OptionSpread,
+    PerpetualContract,
+);
+impl_instrument_getter!(
+    "lot_size",
+    py_lot_size,
+    Option<Quantity>,
+    lot_size,
+    BettingInstrument,
+    BinaryOption,
+    IndexInstrument,
+);
+impl_instrument_getter!(
+    "maker_fee",
+    py_maker_fee,
+    Decimal,
+    maker_fee,
+    IndexInstrument
+);
+impl_instrument_getter!(
+    "margin_init",
+    py_margin_init,
+    Decimal,
+    margin_init,
+    BettingInstrument,
+    IndexInstrument,
+);
+impl_instrument_getter!(
+    "margin_maint",
+    py_margin_maint,
+    Decimal,
+    margin_maint,
+    BettingInstrument,
+    IndexInstrument,
+);
+impl_instrument_getter!(
+    "max_notional",
+    py_max_notional,
+    Option<Money>,
+    max_notional,
+    Equity,
+    FuturesContract,
+    FuturesSpread,
+    IndexInstrument,
+    OptionContract,
+    OptionSpread,
+);
+impl_instrument_getter!(
+    "max_price",
+    py_max_price,
+    Option<Price>,
+    max_price,
+    IndexInstrument
+);
+impl_instrument_getter!(
+    "max_quantity",
+    py_max_quantity,
+    Option<Quantity>,
+    max_quantity,
+    IndexInstrument,
+);
+impl_instrument_getter!(
+    "min_notional",
+    py_min_notional,
+    Option<Money>,
+    min_notional,
+    Equity,
+    FuturesContract,
+    FuturesSpread,
+    IndexInstrument,
+    OptionContract,
+    OptionSpread,
+);
+impl_instrument_getter!(
+    "min_price",
+    py_min_price,
+    Option<Price>,
+    min_price,
+    IndexInstrument
+);
+impl_instrument_getter!(
+    "min_quantity",
+    py_min_quantity,
+    Option<Quantity>,
+    min_quantity,
+    IndexInstrument,
+);
+impl_instrument_getter!(
+    "multiplier",
+    py_multiplier,
+    Quantity,
+    multiplier,
+    BettingInstrument,
+    BinaryOption,
+    Cfd,
+    Commodity,
+    Equity,
+    IndexInstrument,
+);
+impl_instrument_getter!(
+    "quote_currency",
+    py_quote_currency,
+    Currency,
+    quote_currency,
+    BettingInstrument,
+    BinaryOption,
+    FuturesContract,
+    FuturesSpread,
+    OptionContract,
+    OptionSpread,
+);
+impl_instrument_getter!(
+    "taker_fee",
+    py_taker_fee,
+    Decimal,
+    taker_fee,
+    IndexInstrument
+);
+
+pub mod betting;
+pub mod binary_option;
+pub mod cfd;
+pub mod commodity;
+pub mod crypto_future;
+pub mod crypto_futures_spread;
+pub mod crypto_option;
+pub mod crypto_option_spread;
+pub mod crypto_perpetual;
+pub mod currency_pair;
+pub mod equity;
+pub mod futures_contract;
+pub mod futures_spread;
+pub mod index_instrument;
+pub mod option_contract;
+pub mod option_spread;
+pub mod perpetual_contract;
+pub mod synthetic;
+pub mod tokenized_asset;
+
+/// Converts an [`InstrumentAny`] into a Python object.
+///
+/// # Errors
+///
+/// Returns a `PyErr` if conversion to a Python object fails.
+pub fn instrument_any_to_pyobject(py: Python, instrument: InstrumentAny) -> PyResult<Py<PyAny>> {
+    match instrument {
+        InstrumentAny::Betting(inst) => inst.into_py_any(py),
+        InstrumentAny::BinaryOption(inst) => inst.into_py_any(py),
+        InstrumentAny::Cfd(inst) => inst.into_py_any(py),
+        InstrumentAny::Commodity(inst) => inst.into_py_any(py),
+        InstrumentAny::CryptoFuture(inst) => inst.into_py_any(py),
+        InstrumentAny::CryptoFuturesSpread(inst) => inst.into_py_any(py),
+        InstrumentAny::CryptoOption(inst) => inst.into_py_any(py),
+        InstrumentAny::CryptoOptionSpread(inst) => inst.into_py_any(py),
+        InstrumentAny::CryptoPerpetual(inst) => inst.into_py_any(py),
+        InstrumentAny::CurrencyPair(inst) => inst.into_py_any(py),
+        InstrumentAny::Equity(inst) => inst.into_py_any(py),
+        InstrumentAny::FuturesContract(inst) => inst.into_py_any(py),
+        InstrumentAny::FuturesSpread(inst) => inst.into_py_any(py),
+        InstrumentAny::IndexInstrument(inst) => inst.into_py_any(py),
+        InstrumentAny::OptionContract(inst) => inst.into_py_any(py),
+        InstrumentAny::OptionSpread(inst) => inst.into_py_any(py),
+        InstrumentAny::PerpetualContract(inst) => inst.into_py_any(py),
+        InstrumentAny::TokenizedAsset(inst) => inst.into_py_any(py),
+    }
+}
+
+/// Converts a Python object into an [`InstrumentAny`] enum.
+///
+/// # Errors
+///
+/// Returns a `PyErr` if extraction fails or the instrument type is unsupported.
+#[expect(clippy::needless_pass_by_value)]
+pub fn pyobject_to_instrument_any(py: Python, instrument: Py<PyAny>) -> PyResult<InstrumentAny> {
+    match instrument.getattr(py, "type_name")?.extract::<&str>(py)? {
+        stringify!(BettingInstrument) => Ok(InstrumentAny::Betting(
+            instrument.extract::<BettingInstrument>(py)?,
+        )),
+        stringify!(BinaryOption) => Ok(InstrumentAny::BinaryOption(
+            instrument.extract::<BinaryOption>(py)?,
+        )),
+        stringify!(Cfd) => Ok(InstrumentAny::Cfd(instrument.extract::<Cfd>(py)?)),
+        stringify!(Commodity) => Ok(InstrumentAny::Commodity(
+            instrument.extract::<Commodity>(py)?,
+        )),
+        stringify!(CryptoFuture) => Ok(InstrumentAny::CryptoFuture(
+            instrument.extract::<CryptoFuture>(py)?,
+        )),
+        stringify!(CryptoFuturesSpread) => Ok(InstrumentAny::CryptoFuturesSpread(
+            instrument.extract::<CryptoFuturesSpread>(py)?,
+        )),
+        stringify!(CryptoOption) => Ok(InstrumentAny::CryptoOption(
+            instrument.extract::<CryptoOption>(py)?,
+        )),
+        stringify!(CryptoOptionSpread) => Ok(InstrumentAny::CryptoOptionSpread(
+            instrument.extract::<CryptoOptionSpread>(py)?,
+        )),
+        stringify!(CryptoPerpetual) => Ok(InstrumentAny::CryptoPerpetual(
+            instrument.extract::<CryptoPerpetual>(py)?,
+        )),
+        stringify!(CurrencyPair) => Ok(InstrumentAny::CurrencyPair(
+            instrument.extract::<CurrencyPair>(py)?,
+        )),
+        stringify!(Equity) => Ok(InstrumentAny::Equity(instrument.extract::<Equity>(py)?)),
+        stringify!(FuturesContract) => Ok(InstrumentAny::FuturesContract(
+            instrument.extract::<FuturesContract>(py)?,
+        )),
+        stringify!(FuturesSpread) => Ok(InstrumentAny::FuturesSpread(
+            instrument.extract::<FuturesSpread>(py)?,
+        )),
+        stringify!(IndexInstrument) => Ok(InstrumentAny::IndexInstrument(
+            instrument.extract::<IndexInstrument>(py)?,
+        )),
+        stringify!(OptionContract) => Ok(InstrumentAny::OptionContract(
+            instrument.extract::<OptionContract>(py)?,
+        )),
+        stringify!(OptionSpread) => Ok(InstrumentAny::OptionSpread(
+            instrument.extract::<OptionSpread>(py)?,
+        )),
+        stringify!(PerpetualContract) => Ok(InstrumentAny::PerpetualContract(
+            instrument.extract::<PerpetualContract>(py)?,
+        )),
+        stringify!(TokenizedAsset) => Ok(InstrumentAny::TokenizedAsset(
+            instrument.extract::<TokenizedAsset>(py)?,
+        )),
+        _ => Err(to_pyvalue_err(
+            "Error in conversion from `Py<PyAny>` to `InstrumentAny`",
+        )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pyo3::{prelude::*, types::PyDict};
+    use rstest::rstest;
+
+    use super::register_crypto_currencies_from_dict;
+    use crate::{enums::CurrencyType, types::Currency};
+
+    #[rstest]
+    fn test_register_crypto_currencies_from_dict_unknown_code() {
+        Python::initialize();
+        Python::attach(|py| {
+            let dict = PyDict::new(py);
+            dict.set_item("base_currency", "NEWHLP1").unwrap();
+            let values: Py<PyDict> = dict.unbind();
+
+            register_crypto_currencies_from_dict(py, &values, &["base_currency"]);
+
+            let created = Currency::try_from_str("NEWHLP1").unwrap();
+            assert_eq!(created.precision, 8);
+            assert_eq!(created.currency_type, CurrencyType::Crypto);
+        });
+    }
+
+    #[rstest]
+    fn test_register_crypto_currencies_from_dict_known_code_not_overwritten() {
+        Python::initialize();
+        Python::attach(|py| {
+            let dict = PyDict::new(py);
+            dict.set_item("quote_currency", "USD").unwrap();
+            let values: Py<PyDict> = dict.unbind();
+
+            register_crypto_currencies_from_dict(py, &values, &["quote_currency"]);
+
+            let usd = Currency::try_from_str("USD").unwrap();
+            assert_eq!(usd.precision, 2);
+            assert_eq!(usd.currency_type, CurrencyType::Fiat);
+        });
+    }
+
+    #[rstest]
+    fn test_register_crypto_currencies_from_dict_missing_key() {
+        Python::initialize();
+        Python::attach(|py| {
+            let dict = PyDict::new(py);
+            let values: Py<PyDict> = dict.unbind();
+
+            register_crypto_currencies_from_dict(py, &values, &["base_currency"]);
+
+            assert!(Currency::try_from_str("base_currency").is_none());
+        });
+    }
+
+    #[rstest]
+    fn test_register_crypto_currencies_from_dict_non_string_value() {
+        Python::initialize();
+        Python::attach(|py| {
+            let dict = PyDict::new(py);
+            dict.set_item("base_currency", 42).unwrap();
+            let values: Py<PyDict> = dict.unbind();
+
+            register_crypto_currencies_from_dict(py, &values, &["base_currency"]);
+
+            assert!(Currency::try_from_str("42").is_none());
+        });
+    }
+
+    #[rstest]
+    fn test_register_crypto_currencies_from_dict_trims_padding() {
+        // Whitespace-padded codes must be trimmed before registration so the
+        // global map doesn't accumulate `" BTC "`-style garbage entries.
+        Python::initialize();
+        Python::attach(|py| {
+            let dict = PyDict::new(py);
+            dict.set_item("base_currency", "  NEWHLP2  ").unwrap();
+            let values: Py<PyDict> = dict.unbind();
+
+            register_crypto_currencies_from_dict(py, &values, &["base_currency"]);
+
+            assert!(Currency::try_from_str("NEWHLP2").is_some());
+            assert!(Currency::try_from_str("  NEWHLP2  ").is_none());
+        });
+    }
+
+    #[rstest]
+    fn test_register_crypto_currencies_from_dict_blank_code_skipped() {
+        // Blank or whitespace-only codes must be skipped so strict deserialize produces
+        // a normal PyErr, not a panic from `Currency::new` via get_or_create_crypto.
+        Python::initialize();
+        Python::attach(|py| {
+            let dict = PyDict::new(py);
+            dict.set_item("base_currency", "").unwrap();
+            dict.set_item("quote_currency", "   ").unwrap();
+            let values: Py<PyDict> = dict.unbind();
+
+            register_crypto_currencies_from_dict(py, &values, &["base_currency", "quote_currency"]);
+
+            assert!(Currency::try_from_str("").is_none());
+            assert!(Currency::try_from_str("   ").is_none());
+        });
+    }
+}

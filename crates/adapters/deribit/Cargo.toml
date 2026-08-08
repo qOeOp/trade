@@ -1,0 +1,155 @@
+[package]
+name = "vibe-deribit"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Deribit exchange integration adapter for the Vibe trading engine"
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "vibe_deribit"
+crate-type = ["rlib"]
+
+[features]
+default = ["high-precision"]
+arrow = ["dep:arrow", "vibe-serialization"]
+examples = ["vibe-live/node", "vibe-network/transport-sockudo"]
+extension-module = [
+  "vibe-common/extension-module",
+  "vibe-core/extension-module",
+  "vibe-live/extension-module",
+  "vibe-model/extension-module",
+  "vibe-network/extension-module",
+  "pyo3/extension-module",
+  "python",
+]
+python = [
+  "dep:vibe-system",
+  "vibe-common/python",
+  "vibe-core/python",
+  "vibe-live/python",
+  "vibe-model/python",
+  "vibe-network/python",
+  "vibe-system/python",
+  "pyo3",
+  "pyo3-async-runtimes",
+  "pyo3-stub-gen",
+]
+high-precision = [
+  "vibe-model/high-precision",
+  "vibe-serialization?/high-precision",
+]
+[dependencies]
+vibe-common = { workspace = true, features = ["live"] }
+vibe-core = { workspace = true }
+vibe-live = { workspace = true }
+vibe-model = { workspace = true }
+vibe-network = { workspace = true }
+vibe-persistence-macros = { workspace = true }
+vibe-serialization = { workspace = true, features = ["arrow"], optional = true }
+vibe-system = { workspace = true, optional = true }
+
+ahash = { workspace = true }
+anyhow = { workspace = true }
+arc-swap = { workspace = true }
+async-stream = { workspace = true }
+async-trait = { workspace = true }
+aws-lc-rs = { workspace = true }
+bon = { workspace = true }
+derive_builder = { workspace = true }
+dotenvy = { workspace = true }
+futures-util = { workspace = true }
+jiff = { workspace = true }
+log = { workspace = true }
+rust_decimal = { workspace = true, features = ["serde-with-float"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+strum = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tokio-util = { workspace = true }
+ustr = { workspace = true }
+zeroize = { workspace = true }
+
+arrow = { workspace = true, optional = true }
+pyo3 = { workspace = true, optional = true }
+pyo3-async-runtimes = { workspace = true, optional = true }
+pyo3-stub-gen = { workspace = true, optional = true }
+
+[dev-dependencies]
+vibe-testkit = { workspace = true, default-features = false, features = [
+  "testers",
+] }
+vibe-trading = { workspace = true }
+
+axum = { workspace = true }
+criterion = { workspace = true }
+dashmap = { workspace = true }
+rstest = { workspace = true }
+rust_decimal_macros = { workspace = true }
+toml = { workspace = true }
+
+# Run with `cargo bench -p vibe-deribit --bench websocket`
+[[bench]]
+name = "websocket"
+harness = false
+
+# Run with `cargo run -p vibe-deribit --bin deribit-http-public`
+[[bin]]
+name = "deribit-http-public"
+path = "bin/http_public.rs"
+doc = false
+test = false
+
+# Run with `cargo run -p vibe-deribit --bin deribit-http-private`
+[[bin]]
+name = "deribit-http-private"
+path = "bin/http_private.rs"
+doc = false
+test = false
+
+# Run with `cargo run -p vibe-deribit --bin deribit-ws-data`
+[[bin]]
+name = "deribit-ws-data"
+path = "bin/ws_data.rs"
+doc = false
+test = false
+
+# Run with `cargo run -p vibe-deribit --example deribit-data-tester --features examples`
+[[example]]
+name = "deribit-data-tester"
+path = "examples/node_data_tester.rs"
+required-features = ["examples"]
+doc = false
+
+# Run with `cargo run -p vibe-deribit --example deribit-exec-tester --features examples`
+[[example]]
+name = "deribit-exec-tester"
+path = "examples/node_exec_tester.rs"
+required-features = ["examples"]
+doc = false
+
+# Run with `cargo run -p vibe-deribit --example deribit-greeks-tester --features examples`
+[[example]]
+name = "deribit-greeks-tester"
+path = "examples/node_greeks.rs"
+required-features = ["examples"]
+doc = false
+
+# Run with `cargo run -p vibe-deribit --example deribit-option-chain-tester --features examples`
+[[example]]
+name = "deribit-option-chain"
+path = "examples/node_option_chain.rs"
+required-features = ["examples"]
+doc = false
+
+[[test]]
+name = "python"
+path = "tests/python.rs"
+required-features = ["python"]

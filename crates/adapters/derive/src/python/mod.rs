@@ -1,0 +1,127 @@
+//! Python bindings from `pyo3`.
+
+pub mod config;
+pub mod enums;
+pub mod factories;
+
+use pyo3::prelude::*;
+use vibe_common::factories::{ClientConfig, DataClientFactory, ExecutionClientFactory};
+use vibe_core::python::{to_pyruntime_err, to_pyvalue_err};
+use vibe_system::get_global_pyo3_registry;
+
+use crate::{
+    common::{
+        consts::{DERIVE, DERIVE_CLIENT_ID, DERIVE_VENUE},
+        enums::DeriveEnvironment,
+    },
+    config::{DeriveDataClientConfig, DeriveExecClientConfig},
+    factories::{DeriveDataClientFactory, DeriveExecFactoryConfig, DeriveExecutionClientFactory},
+};
+
+#[expect(clippy::needless_pass_by_value)]
+fn extract_derive_data_factory(
+    py: Python<'_>,
+    factory: Py<PyAny>,
+) -> PyResult<Box<dyn DataClientFactory>> {
+    match factory.extract::<DeriveDataClientFactory>(py) {
+        Ok(f) => Ok(Box::new(f)),
+        Err(e) => Err(to_pyvalue_err(format!(
+            "Failed to extract DeriveDataClientFactory: {e}"
+        ))),
+    }
+}
+
+#[expect(clippy::needless_pass_by_value)]
+fn extract_derive_exec_factory(
+    py: Python<'_>,
+    factory: Py<PyAny>,
+) -> PyResult<Box<dyn ExecutionClientFactory>> {
+    match factory.extract::<DeriveExecutionClientFactory>(py) {
+        Ok(f) => Ok(Box::new(f)),
+        Err(e) => Err(to_pyvalue_err(format!(
+            "Failed to extract DeriveExecutionClientFactory: {e}"
+        ))),
+    }
+}
+
+#[expect(clippy::needless_pass_by_value)]
+fn extract_derive_data_config(
+    py: Python<'_>,
+    config: Py<PyAny>,
+) -> PyResult<Box<dyn ClientConfig>> {
+    match config.extract::<DeriveDataClientConfig>(py) {
+        Ok(c) => Ok(Box::new(c)),
+        Err(e) => Err(to_pyvalue_err(format!(
+            "Failed to extract DeriveDataClientConfig: {e}"
+        ))),
+    }
+}
+
+#[expect(clippy::needless_pass_by_value)]
+fn extract_derive_exec_config(
+    py: Python<'_>,
+    config: Py<PyAny>,
+) -> PyResult<Box<dyn ClientConfig>> {
+    match config.extract::<DeriveExecFactoryConfig>(py) {
+        Ok(c) => Ok(Box::new(c)),
+        Err(e) => Err(to_pyvalue_err(format!(
+            "Failed to extract DeriveExecFactoryConfig: {e}"
+        ))),
+    }
+}
+
+/// Exposed through `vibe_trader.adapters.derive`.
+///
+/// # Errors
+///
+/// Returns an error if any bindings fail to register with the Python module.
+#[pymodule]
+pub fn derive(_: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add(stringify!(DERIVE), DERIVE)?;
+    m.add(stringify!(DERIVE_CLIENT_ID), *DERIVE_CLIENT_ID)?;
+    m.add(stringify!(DERIVE_VENUE), *DERIVE_VENUE)?;
+    m.add_class::<DeriveEnvironment>()?;
+    m.add_class::<DeriveDataClientConfig>()?;
+    m.add_class::<DeriveExecClientConfig>()?;
+    m.add_class::<DeriveDataClientFactory>()?;
+    m.add_class::<DeriveExecFactoryConfig>()?;
+    m.add_class::<DeriveExecutionClientFactory>()?;
+
+    let registry = get_global_pyo3_registry();
+
+    if let Err(e) =
+        registry.register_factory_extractor(DERIVE.to_string(), extract_derive_data_factory)
+    {
+        return Err(to_pyruntime_err(format!(
+            "Failed to register Derive data factory extractor: {e}"
+        )));
+    }
+
+    if let Err(e) =
+        registry.register_exec_factory_extractor(DERIVE.to_string(), extract_derive_exec_factory)
+    {
+        return Err(to_pyruntime_err(format!(
+            "Failed to register Derive exec factory extractor: {e}"
+        )));
+    }
+
+    if let Err(e) = registry.register_config_extractor(
+        "DeriveDataClientConfig".to_string(),
+        extract_derive_data_config,
+    ) {
+        return Err(to_pyruntime_err(format!(
+            "Failed to register Derive data config extractor: {e}"
+        )));
+    }
+
+    if let Err(e) = registry.register_config_extractor(
+        "DeriveExecFactoryConfig".to_string(),
+        extract_derive_exec_config,
+    ) {
+        return Err(to_pyruntime_err(format!(
+            "Failed to register Derive exec config extractor: {e}"
+        )));
+    }
+
+    Ok(())
+}

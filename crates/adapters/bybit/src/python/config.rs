@@ -1,0 +1,186 @@
+//! Python bindings for Bybit configuration.
+
+use pyo3::pymethods;
+use vibe_model::identifiers::AccountId;
+use vibe_network::websocket::TransportBackend;
+
+use crate::{
+    common::enums::{BybitEnvironment, BybitMarginMode, BybitProductType},
+    config::{BybitDataClientConfig, BybitExecClientConfig},
+};
+
+#[pymethods]
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
+impl BybitDataClientConfig {
+    /// Configuration for the Bybit live data client.
+    #[new]
+    #[pyo3(signature = (
+        product_types = None,
+        environment = None,
+        api_key = None,
+        api_secret = None,
+        base_url_http = None,
+        base_url_ws_public = None,
+        base_url_ws_private = None,
+        proxy_url = None,
+        http_timeout_secs = None,
+        max_retries = None,
+        retry_delay_initial_ms = None,
+        retry_delay_max_ms = None,
+        heartbeat_interval_secs = None,
+        recv_window_ms = None,
+        update_instruments_interval_mins = None,
+        instrument_status_poll_secs = None,
+        transport_backend = None,
+    ))]
+    #[expect(clippy::too_many_arguments)]
+    fn py_new(
+        product_types: Option<Vec<BybitProductType>>,
+        environment: Option<BybitEnvironment>,
+        api_key: Option<String>,
+        api_secret: Option<String>,
+        base_url_http: Option<String>,
+        base_url_ws_public: Option<String>,
+        base_url_ws_private: Option<String>,
+        proxy_url: Option<String>,
+        http_timeout_secs: Option<u64>,
+        max_retries: Option<u32>,
+        retry_delay_initial_ms: Option<u64>,
+        retry_delay_max_ms: Option<u64>,
+        heartbeat_interval_secs: Option<u64>,
+        recv_window_ms: Option<u64>,
+        update_instruments_interval_mins: Option<u64>,
+        instrument_status_poll_secs: Option<u64>,
+        transport_backend: Option<TransportBackend>,
+    ) -> Self {
+        let defaults = Self::default();
+        Self {
+            api_key,
+            api_secret,
+            product_types: product_types.unwrap_or(defaults.product_types),
+            environment: environment.unwrap_or(defaults.environment),
+            base_url_http,
+            base_url_ws_public,
+            base_url_ws_private,
+            proxy_url,
+            http_timeout_secs: http_timeout_secs.unwrap_or(defaults.http_timeout_secs),
+            max_retries: max_retries.unwrap_or(defaults.max_retries),
+            retry_delay_initial_ms: retry_delay_initial_ms
+                .unwrap_or(defaults.retry_delay_initial_ms),
+            retry_delay_max_ms: retry_delay_max_ms.unwrap_or(defaults.retry_delay_max_ms),
+            heartbeat_interval_secs: heartbeat_interval_secs
+                .unwrap_or(defaults.heartbeat_interval_secs),
+            recv_window_ms: recv_window_ms.unwrap_or(defaults.recv_window_ms),
+            update_instruments_interval_mins: update_instruments_interval_mins
+                .or(defaults.update_instruments_interval_mins),
+            instrument_poll_interval_secs: instrument_status_poll_secs
+                .or(defaults.instrument_poll_interval_secs),
+            transport_backend: transport_backend.unwrap_or(defaults.transport_backend),
+        }
+    }
+
+    #[getter]
+    const fn instrument_status_poll_secs(&self) -> Option<u64> {
+        self.instrument_poll_interval_secs
+    }
+
+    #[getter]
+    const fn has_proxy_url(&self) -> bool {
+        self.proxy_url.is_some()
+    }
+
+    fn __repr__(&self) -> String {
+        stringify!(BybitDataClientConfig).to_string()
+    }
+}
+
+#[pymethods]
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
+impl BybitExecClientConfig {
+    /// Configuration for the Bybit live execution client.
+    #[new]
+    #[pyo3(signature = (
+        product_types = None,
+        environment = None,
+        api_key = None,
+        api_secret = None,
+        base_url_http = None,
+        base_url_ws_private = None,
+        base_url_ws_trade = None,
+        proxy_url = None,
+        http_timeout_secs = None,
+        max_retries = None,
+        retry_delay_initial_ms = None,
+        retry_delay_max_ms = None,
+        heartbeat_interval_secs = None,
+        auth_timeout_secs = None,
+        recv_window_ms = None,
+        account_id = None,
+        use_spot_position_reports = None,
+        auto_repay_spot_borrows = None,
+        margin_mode = None,
+        transport_backend = None,
+    ))]
+    #[expect(clippy::too_many_arguments)]
+    fn py_new(
+        product_types: Option<Vec<BybitProductType>>,
+        environment: Option<BybitEnvironment>,
+        api_key: Option<String>,
+        api_secret: Option<String>,
+        base_url_http: Option<String>,
+        base_url_ws_private: Option<String>,
+        base_url_ws_trade: Option<String>,
+        proxy_url: Option<String>,
+        http_timeout_secs: Option<u64>,
+        max_retries: Option<u32>,
+        retry_delay_initial_ms: Option<u64>,
+        retry_delay_max_ms: Option<u64>,
+        heartbeat_interval_secs: Option<u64>,
+        auth_timeout_secs: Option<u64>,
+        recv_window_ms: Option<u64>,
+        account_id: Option<AccountId>,
+        use_spot_position_reports: Option<bool>,
+        auto_repay_spot_borrows: Option<bool>,
+        margin_mode: Option<BybitMarginMode>,
+        transport_backend: Option<TransportBackend>,
+    ) -> Self {
+        let defaults = Self::default();
+        Self {
+            api_key,
+            api_secret,
+            product_types: product_types.unwrap_or(defaults.product_types),
+            environment: environment.unwrap_or(defaults.environment),
+            base_url_http,
+            base_url_ws_private,
+            base_url_ws_trade,
+            proxy_url,
+            http_timeout_secs: http_timeout_secs.unwrap_or(defaults.http_timeout_secs),
+            max_retries: max_retries.unwrap_or(defaults.max_retries),
+            retry_delay_initial_ms: retry_delay_initial_ms
+                .unwrap_or(defaults.retry_delay_initial_ms),
+            retry_delay_max_ms: retry_delay_max_ms.unwrap_or(defaults.retry_delay_max_ms),
+            heartbeat_interval_secs: heartbeat_interval_secs
+                .unwrap_or(defaults.heartbeat_interval_secs),
+            auth_timeout_secs,
+            recv_window_ms: recv_window_ms.unwrap_or(defaults.recv_window_ms),
+            account_id,
+            use_spot_position_reports: use_spot_position_reports
+                .unwrap_or(defaults.use_spot_position_reports),
+            auto_repay_spot_borrows: auto_repay_spot_borrows
+                .unwrap_or(defaults.auto_repay_spot_borrows),
+            futures_leverages: None,
+            position_mode: None,
+            margin_mode,
+            transport_backend: transport_backend.unwrap_or(defaults.transport_backend),
+        }
+    }
+
+    #[getter]
+    const fn has_proxy_url(&self) -> bool {
+        self.proxy_url.is_some()
+    }
+
+    fn __repr__(&self) -> String {
+        stringify!(BybitExecClientConfig).to_string()
+    }
+}

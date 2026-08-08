@@ -1,0 +1,76 @@
+//! Example demonstrating live data testing with the Hyperliquid adapter.
+//!
+//! Edit the constants below to change the environment, target instrument, and subscriptions.
+//!
+//! Run with: `cargo run --example hyperliquid-data-tester --package vibe-hyperliquid --features examples`
+//!
+//! Credentials are read from the environment when set:
+//! - `HYPERLIQUID_PK` (or `HYPERLIQUID_TESTNET_PK` for testnet).
+
+use log::LevelFilter;
+use vibe_common::{enums::Environment, logging::logger::LoggerConfig};
+use vibe_hyperliquid::{
+    HyperliquidDataClientConfig, HyperliquidDataClientFactory,
+    common::{consts::HYPERLIQUID_CLIENT_ID, enums::HyperliquidEnvironment},
+};
+use vibe_live::node::LiveNode;
+use vibe_model::identifiers::{InstrumentId, TraderId};
+use vibe_testkit::testers::{DataTester, DataTesterConfig};
+
+const HYPERLIQUID_ENVIRONMENT: HyperliquidEnvironment = HyperliquidEnvironment::Mainnet;
+const TRADER_ID: &str = "TESTER-001";
+const NODE_NAME: &str = "HYPERLIQUID-DATA-TESTER-001";
+const INSTRUMENT_ID: &str = "BTC-USD-PERP.HYPERLIQUID";
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    dotenvy::dotenv().ok();
+
+    let nt_environment = Environment::Live;
+    let hl_environment = HYPERLIQUID_ENVIRONMENT;
+    let trader_id = TraderId::from(TRADER_ID);
+    let node_name = NODE_NAME.to_string();
+    let instrument_ids = vec![
+        InstrumentId::from(INSTRUMENT_ID),
+        // InstrumentId::from("ETH-USD-PERP.HYPERLIQUID"),
+    ];
+
+    let hyperliquid_config = HyperliquidDataClientConfig {
+        environment: hl_environment,
+        ..Default::default()
+    };
+
+    let client_factory = HyperliquidDataClientFactory::new();
+    let client_id = *HYPERLIQUID_CLIENT_ID;
+
+    let log_config = LoggerConfig {
+        stdout_level: LevelFilter::Info,
+        ..Default::default()
+    };
+
+    let mut node = LiveNode::builder(trader_id, nt_environment)?
+        .with_name(node_name)
+        .with_logging(log_config)
+        .with_delay_post_stop_secs(2)
+        .add_data_client(None, Box::new(client_factory), Box::new(hyperliquid_config))?
+        .build()?;
+
+    let tester_config = DataTesterConfig::builder()
+        .client_id(client_id)
+        .instrument_ids(instrument_ids)
+        .subscribe_quotes(true)
+        .subscribe_trades(true)
+        .subscribe_mark_prices(true)
+        .subscribe_index_prices(true)
+        .subscribe_funding_rates(true)
+        // .subscribe_book_at_interval(true)
+        .book_interval_ms(10)
+        .manage_book(true)
+        .build()?;
+    let tester = DataTester::new(tester_config);
+
+    node.add_actor(tester)?;
+    node.run().await?;
+
+    Ok(())
+}
