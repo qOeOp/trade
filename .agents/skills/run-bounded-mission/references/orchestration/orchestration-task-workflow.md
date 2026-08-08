@@ -561,10 +561,14 @@ An explicit no-effect create failure preserves the prompt but retry needs fresh 
 revalidation; possible success forbids retry. A later identity resumes only through causal mapping to
 that attempt. A separate manual task is not that mapping and needs Plan and authority to own the node.
 
-Creation is non-blocking. Outside an admitted multi-Mission orchestration session, return after
-creation without babysitting setup or child commentary. Inside that mode, the hub may use bounded
-native monitoring only for the current ready wave or next merge gate. It must use exact `threadId`
-and `hostId` facts and must not poll a queued `clientThreadId`.
+Creation and semantic release are non-blocking. Outside an admitted multi-Mission orchestration
+session, when create returns an exact identity, complete the exact-target title gate and single packet
+send, then return immediately after the native send receipt without babysitting setup or child
+commentary. When create returns only `clientThreadId`, record/emit that pending mapping and return with
+Mission work frozen; recovery may complete the same exact attempt only after causal identity mapping.
+Inside hub mode, bounded native monitoring may begin only after semantic release and only for the
+current ready wave or next merge gate. It must use exact `threadId` and `hostId` facts and must not poll
+a queued `clientThreadId`.
 
 The child owns its five stages through the delivery endpoint and never changes the hub Goal. A
 `merged` node uses the derived `merge-ready` handoff; hub Finalize follows Critical-path choreography.
