@@ -43,8 +43,11 @@ bun .agents/skills/run-bounded-mission/scripts/delivery-receipt.ts verify \
   --sha256 <sha256:digest> < delivery-barrier-receipt.jsonl
 ```
 
-`create` rejects missing or unknown fields/kinds, wrong or stale Git identities, invalid merge
-representations, and duplicated evidence, then owns deterministic normalization and serialization.
+`create` rejects duplicate JSON members before semantic parsing; missing/unknown fields or kinds;
+wrong/stale Git identities; invalid merge representations; and duplicated evidence. Every required
+kind accepts only `pass`; `audit` also accepts `not_required` when its locator starts with
+`predicate:` and a content digest binds that predicate. The helper owns deterministic normalization
+and serialization.
 `verify` requires canonical JSON-LF byte identity, the supplied digest, exact schema, and a fresh local
 Git replay. A failed create or verify is a delivery Stop, not permission to hand-edit a receipt.
 

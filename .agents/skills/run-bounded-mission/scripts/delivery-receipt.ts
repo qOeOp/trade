@@ -144,6 +144,89 @@ function parseCanonicalLine(bytes: Uint8Array, label: string): unknown {
   return parsed
 }
 
+function rejectDuplicateMembers(source: string): void {
+  let offset = 0
+  const whitespace = /[\t\n\r ]/
+  const skipWhitespace = (): void => {
+    while (whitespace.test(source[offset] ?? "")) offset += 1
+  }
+  const readString = (): string => {
+    const start = offset
+    if (source[offset] !== '"') throw new Error("delivery input is not valid JSON")
+    offset += 1
+    while (offset < source.length) {
+      if (source[offset] === "\\") {
+        offset += 2
+      } else if (source[offset] === '"') {
+        offset += 1
+        return JSON.parse(source.slice(start, offset)) as string
+      } else {
+        offset += 1
+      }
+    }
+    throw new Error("delivery input is not valid JSON")
+  }
+  const readValue = (): void => {
+    skipWhitespace()
+    if (source[offset] === "{") {
+      offset += 1
+      const keys = new Set<string>()
+      skipWhitespace()
+      if (source[offset] === "}") {
+        offset += 1
+        return
+      }
+      while (offset < source.length) {
+        skipWhitespace()
+        const key = readString()
+        if (keys.has(key)) throw new Error(`delivery input has duplicate member ${JSON.stringify(key)}`)
+        keys.add(key)
+        skipWhitespace()
+        if (source[offset] !== ":") throw new Error("delivery input is not valid JSON")
+        offset += 1
+        readValue()
+        skipWhitespace()
+        if (source[offset] === "}") {
+          offset += 1
+          return
+        }
+        if (source[offset] !== ",") throw new Error("delivery input is not valid JSON")
+        offset += 1
+      }
+      throw new Error("delivery input is not valid JSON")
+    }
+    if (source[offset] === "[") {
+      offset += 1
+      skipWhitespace()
+      if (source[offset] === "]") {
+        offset += 1
+        return
+      }
+      while (offset < source.length) {
+        readValue()
+        skipWhitespace()
+        if (source[offset] === "]") {
+          offset += 1
+          return
+        }
+        if (source[offset] !== ",") throw new Error("delivery input is not valid JSON")
+        offset += 1
+      }
+      throw new Error("delivery input is not valid JSON")
+    }
+    if (source[offset] === '"') {
+      readString()
+      return
+    }
+    const start = offset
+    while (offset < source.length && !/[\t\n\r ,\]}]/.test(source[offset]!)) offset += 1
+    if (offset === start) throw new Error("delivery input is not valid JSON")
+  }
+  readValue()
+  skipWhitespace()
+  if (offset !== source.length) throw new Error("delivery input is not valid JSON")
+}
+
 function parseInput(bytes: Uint8Array): unknown {
   let decoded: string
   try {
@@ -152,6 +235,7 @@ function parseInput(bytes: Uint8Array): unknown {
     throw new Error("delivery input is not valid UTF-8")
   }
   if (decoded.trim() === "") throw new Error("delivery input is empty")
+  rejectDuplicateMembers(decoded)
   try {
     return JSON.parse(decoded)
   } catch {
@@ -194,6 +278,13 @@ function normalizeEvidence(value: unknown, headOid: string): EvidenceLocator[] {
     if (entry.head_oid !== headOid) throw new Error("evidence head does not match candidate")
     if (entry.content_sha256 !== null && !isSha256(entry.content_sha256)) {
       throw new Error("evidence digest is invalid")
+    }
+    if (entry.result !== "pass" && !(entry.kind === "audit" && entry.result === "not_required")) {
+      throw new Error(`evidence ${entry.kind} result is not accepted`)
+    }
+    if (entry.result === "not_required"
+      && (!entry.locator.startsWith("predicate:") || entry.content_sha256 === null)) {
+      throw new Error("audit not_required must bind a predicate locator and digest")
     }
     const key = `${entry.kind}\u0000${entry.locator}`
     if (seen.has(key)) throw new Error("evidence locator is duplicated")
