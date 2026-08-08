@@ -435,20 +435,23 @@ not runnable on that transport. Do not first run it through a lossy call and the
 command again to recover a missing terminal result or failure detail.
 
 An internal semantic evaluator is not a command/process-backed gate. The reviewer handoff instead
-binds its admitted packet, exact host evaluator identity and cursor, one launch receipt, any
-cursor-bound structured progress receipt, and the structured `review_status`/`result_classes` terminal
-return; Main's post, verify, admission, and fingerprint replay then close terminal integrity. Preserve
-and resume only that same evaluator identity. Do not require process argv, cwd, stdout/stderr, or an OS
-exit from this route, and do not weaken its one-launch, no-repacket, no-replacement, or narration limits
-merely because its progress and terminal transport are structured.
+binds its exact frozen candidate, complete Frame and Plan, one risk lens, required evidence, neutral
+control, exact host evaluator identity, and ordinary launch receipt. Retain a host cursor and its
+structured progress receipt only when that host actually returns them. The handoff's minimum structured
+return plus Main's before/after candidate observation, validation, and reproduction close terminal
+integrity. Preserve and resume only that same evaluator identity. Do not require a packet identity,
+`result_classes`, process argv, cwd, stdout/stderr, or an OS exit from this route, and do not weaken its
+one-launch, no-repacket, no-replacement, or narration limits merely because its progress and terminal
+transport are structured.
 
 Launch the candidate-bound gate once. When a command/process-backed gate yields, retain its exact
 session and output cursor and resume only that process until it returns exit plus the declared final
-state. For an internal semantic evaluator, retain its exact host identity and cursor until its
-structured terminal return and Main-owned terminal replay complete. A missing, reset, unrecoverable,
-or mismatched identity, session, cursor, output receipt, structured return, or replay makes the
-required terminal evidence `unavailable`; it does not authorize a second process or evaluator, a
-reconstructed exit, or success inferred from disappearance.
+state. When an internal semantic evaluator yields with a host cursor, retain that cursor and resume only
+the same evaluator identity; an ordinary one-shot structured return requires no cursor. A missing,
+reset, unrecoverable, or mismatched required identity, session, returned cursor, output receipt,
+structured return, or Main reproduction makes the required terminal evidence `unavailable`; it does
+not authorize a second process or evaluator, a reconstructed exit, or success inferred from
+disappearance.
 A rerun is a new gate only after a changed candidate or other declared input invalidates the prior run,
 or after new authority explicitly replaces the unavailable evidence requirement.
 

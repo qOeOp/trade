@@ -42,16 +42,18 @@ cursor, latest observed state, stdout/stderr host receipt or immutable output lo
 informative progress update was emitted, and its exit/final-state terminal receipt or exact unavailable
 reason. Recovery resumes only that same process/session.
 
-For an internal semantic evaluator, retain the reviewer-handoff admission and packet identity, exact
-host evaluator identity and cursor, latest cursor-bound structured progress receipt/state, one launch
-receipt, structured `review_status`/`result_classes` terminal return or unavailable reason, Main-owned
-post/verify/admission and fingerprint replay position, and the same communication position. Recovery
-resumes only that same evaluator identity; its structured terminal status replaces an OS exit but never replaces Main's
-terminal replay. A missing or discontinuous identity, cursor, output receipt, structured return, or
-replay preserves either transport as `terminal evidence unavailable` and forbids a replacement launch
-under unchanged inputs. Process or evaluator disappearance, a reconstructed exit or return, or a later
-same-command/evaluator pass cannot repair it. Preserve the per-run communication position so recovery
-emits no unchanged narration and no more than the remaining one progress or one terminal update.
+For an internal semantic evaluator, retain the reviewer-handoff input locators, exact host evaluator
+identity, ordinary launch receipt, its minimum structured terminal return or unavailable reason,
+Main-owned before/after candidate observation, validation and reproduction position, and the same
+communication position. Retain a host cursor and cursor-bound structured progress receipt/state only
+when the host actually returns them. Recovery after a yield resumes only that same evaluator identity
+and returned cursor; an ordinary one-shot structured return requires no cursor. Its structured terminal
+status replaces an OS exit but never replaces Main's reproduction. A missing or discontinuous required
+identity, returned cursor, output receipt, structured return, or reproduction preserves either
+transport as `terminal evidence unavailable` and forbids a replacement launch under unchanged inputs.
+Process or evaluator disappearance, a reconstructed exit or return, or a later same-command/evaluator
+pass cannot repair it. Preserve the per-run communication position so recovery emits no unchanged
+narration and no more than the remaining one progress or one terminal update.
 
 For each native node also retain its causal collision projection and exact attempt/task mapping; every
 waiting blocker, release predicate, next owner and next action; and every component-conflict member's
