@@ -950,9 +950,11 @@ function readFeaturePhrases(path: string, content: string): Array<{ path: string
 function readStepDefinitions(path: string, content: string): BddDefinition[] {
   const definitions: BddDefinition[] = []
   const callPattern = /\b(?:Given|When|Then|defineStep)\s*\(\s*/g
-  for (const match of content.matchAll(callPattern)) {
-    const parsed = readStaticStepExpression(content, (match.index ?? 0) + match[0].length)
+  let match: RegExpExecArray | null
+  while ((match = callPattern.exec(content)) != null) {
+    const parsed = readStaticStepExpression(content, match.index + match[0].length)
     if (parsed == null) continue
+    callPattern.lastIndex = parsed.end
     const expression = parsed.kind === "regex" ? `/${parsed.source}/${parsed.flags}` : parsed.source
     const regex = parsed.kind === "regex"
       ? compileRegexExpression(parsed.source, parsed.flags)
@@ -974,7 +976,7 @@ function readStepDefinitions(path: string, content: string): BddDefinition[] {
   return definitions
 }
 
-function readStaticStepExpression(content: string, start: number): { kind: "string" | "regex"; source: string; flags: string } | null {
+function readStaticStepExpression(content: string, start: number): { kind: "string" | "regex"; source: string; flags: string; end: number } | null {
   const opening = content[start]
   if (opening !== '"' && opening !== "'" && opening !== "`" && opening !== "/") return null
   for (let index = start + 1; index < content.length; index += 1) {
@@ -985,10 +987,10 @@ function readStaticStepExpression(content: string, start: number): { kind: "stri
     }
     if (character !== opening) continue
     const source = content.slice(start + 1, index)
-    if (opening !== "/") return { kind: "string", source, flags: "" }
+    if (opening !== "/") return { kind: "string", source, flags: "", end: index + 1 }
     let end = index + 1
     while (/[a-z]/.test(content[end] ?? "")) end += 1
-    return { kind: "regex", source, flags: content.slice(index + 1, end) }
+    return { kind: "regex", source, flags: content.slice(index + 1, end), end }
   }
   return null
 }
