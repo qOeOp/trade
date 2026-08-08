@@ -949,15 +949,17 @@ function readFeaturePhrases(path: string, content: string): Array<{ path: string
 
 function readStepDefinitions(path: string, content: string): BddDefinition[] {
   const definitions: BddDefinition[] = []
-  const pattern = /\b(?:Given|When|Then|defineStep)\s*\(\s*(?:(["'`])((?:\\[\s\S]|(?!\1|\\)[\s\S])*)\1|\/((?:\\[\s\S]|[^/\\])*)\/([a-z]*))/g
-  for (const match of content.matchAll(pattern)) {
-    const expression = match[2] == null ? `/${match[3]}/${match[4] ?? ""}` : match[2]
-    const regex = match[2] == null
-      ? compileRegexExpression(match[3] ?? "", match[4] ?? "")
-      : compileCucumberExpression(match[2])
-    const captures = match[2] == null
-      ? countCaptures(match[3] ?? "")
-      : [...match[2].matchAll(/\{(?:string|int|float|word)\}/g)].length
+  const callPattern = /\b(?:Given|When|Then|defineStep)\s*\(\s*/g
+  for (const match of content.matchAll(callPattern)) {
+    const parsed = readStaticStepExpression(content, (match.index ?? 0) + match[0].length)
+    if (parsed == null) continue
+    const expression = parsed.kind === "regex" ? `/${parsed.source}/${parsed.flags}` : parsed.source
+    const regex = parsed.kind === "regex"
+      ? compileRegexExpression(parsed.source, parsed.flags)
+      : compileCucumberExpression(parsed.source)
+    const captures = parsed.kind === "regex"
+      ? countCaptures(parsed.source)
+      : [...parsed.source.matchAll(/\{(?:string|int|float|word)\}/g)].length
     const line = content.slice(0, match.index ?? 0).split("\n").length
     definitions.push({
       path,
@@ -965,11 +967,30 @@ function readStepDefinitions(path: string, content: string): BddDefinition[] {
       expression,
       matcher: regex,
       captures,
-      universal_candidate: match[2] == null ? /(?:^|[^\\])\.\*/.test(match[3] ?? "") : /^\{(?:string|word)\}$/.test(match[2]),
-      parameter_soup_candidate: captures >= 3 || (match[2] == null && /\?\)|\|/.test(match[3] ?? "")),
+      universal_candidate: parsed.kind === "regex" ? /(?:^|[^\\])\.\*/.test(parsed.source) : /^\{(?:string|word)\}$/.test(parsed.source),
+      parameter_soup_candidate: captures >= 3 || (parsed.kind === "regex" && /\?\)|\|/.test(parsed.source)),
     })
   }
   return definitions
+}
+
+function readStaticStepExpression(content: string, start: number): { kind: "string" | "regex"; source: string; flags: string } | null {
+  const opening = content[start]
+  if (opening !== '"' && opening !== "'" && opening !== "`" && opening !== "/") return null
+  for (let index = start + 1; index < content.length; index += 1) {
+    const character = content[index]
+    if (character === "\\") {
+      index += 1
+      continue
+    }
+    if (character !== opening) continue
+    const source = content.slice(start + 1, index)
+    if (opening !== "/") return { kind: "string", source, flags: "" }
+    let end = index + 1
+    while (/[a-z]/.test(content[end] ?? "")) end += 1
+    return { kind: "regex", source, flags: content.slice(index + 1, end) }
+  }
+  return null
 }
 
 function compileRegexExpression(source: string, flags: string): RegExp | null {
