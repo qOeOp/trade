@@ -12,9 +12,10 @@ set -euo pipefail
 #   run_capnp_check        - run make check-capnp-schemas in pre-commit
 #   pre_commit_base        - PR merge-base for prek --from-ref
 #
-# Unknown paths, deletions, renames, missing history, and CI authority changes
-# are deliberately full routes. Pushes and non-PR events are also full routes:
-# path reduction is a pull-request feedback optimization, never a release gate.
+# Unknown paths, unsafe deletions or renames, missing history, and CI authority
+# changes are deliberately full routes. Pushes and non-PR events are also full
+# routes: path reduction is a pull-request feedback optimization, never a
+# release gate.
 
 emit() {
   local tests="$1" rust="$2" generated="$3" full_prek="$4" capnp="$5" reason="$6"
@@ -48,14 +49,58 @@ if [[ -z "$merge_base" ]]; then
   run_all "Empty PR merge-base: running full validation"
 fi
 
-# Deletions and renames can remove or move a consumer outside a narrow route;
-# there is no safe path-only proof that a reduced gate covers them.
-while IFS=$'\t' read -r status _; do
-  [[ -z "$status" ]] && continue
-  if [[ "$status" != A && "$status" != M ]]; then
-    run_all "${status} change detected: running full validation"
+# These paths have no product, runtime, package, or build-graph consumer. Keep
+# this allowlist narrower than the A/M path router below: README and license
+# files, crate metadata, executable CI policy, and independent workflows can be
+# harmless to edit while still being unsafe to remove or rename.
+is_safe_destructive_path() {
+  local file="$1"
+
+  if [[ "$file" =~ ^(docs|\.agents|\.codex)/ ]]; then
+    return 0
   fi
-done < <(git diff --name-status "$merge_base" HEAD)
+  case "$file" in
+    .gitignore | .gitattributes | .editorconfig | \
+      ADAPTERS.md | BENCHMARKING.md | CONTRIBUTING.md | MIGRATION_V2.md | ROADMAP.md | \
+      .github/CODEOWNERS | .github/OVERVIEW.md | .github/pull_request_template.md)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+safe_destructive_change=false
+outside_safe_destructive_domain=false
+
+while IFS=$'\t' read -r status first_path second_path; do
+  [[ -z "$status" ]] && continue
+  case "$status" in
+    A | M)
+      if ! is_safe_destructive_path "$first_path"; then
+        outside_safe_destructive_domain=true
+      fi
+      ;;
+    D)
+      if ! is_safe_destructive_path "$first_path"; then
+        run_all "Unsafe deletion detected: running full validation"
+      fi
+      safe_destructive_change=true
+      ;;
+    *)
+      if [[ "$status" =~ ^R[0-9]+$ ]] &&
+        is_safe_destructive_path "$first_path" &&
+        is_safe_destructive_path "$second_path"; then
+        safe_destructive_change=true
+      else
+        run_all "${status} change detected: running full validation"
+      fi
+      ;;
+  esac
+done < <(git diff --name-status --find-renames "$merge_base" HEAD)
+
+if [[ "$safe_destructive_change" == true && "$outside_safe_destructive_domain" == true ]]; then
+  run_all "Safe deletion or rename mixed with another impact domain: running full validation"
+fi
 
 wheel=false
 rust=false
@@ -113,7 +158,7 @@ while IFS= read -r file; do
 
   # Everything else has no enumerated consumer, so it must not reduce gates.
   unknown=true
-done < <(git diff --name-only "$merge_base" HEAD)
+done < <(git diff --name-only --find-renames "$merge_base" HEAD)
 
 if [[ "$unknown" == true ]]; then
   run_all "Unknown changed path: running full validation"
