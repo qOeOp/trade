@@ -457,9 +457,11 @@ or after new authority explicitly replaces the unavailable evidence requirement.
 
 User-visible gate narration is transition-bound. Emit nothing for unchanged waits. For one gate run,
 emit at most one informative progress update after an observed state transition and exactly one terminal
-update after exit and final-state observation; the terminal update binds both. Raw command output may
-stream through the host receipt, but repeated waiting, elapsed-time, partial-suite, or unchanged-process
-narration is not progress evidence and cannot consume another commentary update.
+update. A command/process terminal binds its exit and declared final state; a semantic evaluator
+terminal binds its minimum structured return plus Main validation and reproduction, with no exit or
+cursor invented. Raw command output may stream through the host receipt, but repeated waiting,
+elapsed-time, partial-suite, or unchanged-process narration is not progress evidence and cannot consume
+another commentary update.
 
 ## Native dispatch
 

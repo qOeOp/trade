@@ -133,13 +133,15 @@ question; read-only authority and prohibited effects; every source, precondition
 producer-output edge; interaction language; observed or unavailable model/effort; required return;
 Stop; and one first legal action. The length and SHA-256 bind the producer object and recovery evidence;
 they are not a claim about model-visible raw bytes and the lane does not recompute them. Dispatch the
-complete semantic packet once through the selected internal-agent host call. The exact role target,
-single dispatch attempt and host receipt admit the lane; prose or self-report does not. Main rejects a
-missing, malformed, stale, changed, duplicate, partial, or supplemental packet before that effect and
-may select the already-declared fallback once only when pre-dispatch capability observation proves the
-host target or receipt capability unavailable before any dispatch attempt or possible effect. Once a
-host call is attempted, a missing, unavailable, ambiguous, or mismatched receipt freezes the lane as a
-terminal capability failure with no fallback launch. Main never repairs a running or uncertain lane
+complete semantic packet once through the selected internal-agent host call with `fork_turns=none`, so
+the role instructions plus this packet are the whole consumer-visible input and no conversation history
+is inherited. The exact role target, isolated branch, single dispatch attempt and host receipt admit the
+lane; prose or self-report does not. An unavailable isolation field or a missing, malformed, stale,
+changed, duplicate, partial, supplemental, or inherited input freezes before that effect. Main may
+select the already-declared fallback once only when pre-dispatch capability observation proves the host
+target, isolation, or receipt capability unavailable before any dispatch attempt or possible effect.
+Once a host call is attempted, a missing, unavailable, ambiguous, or mismatched receipt freezes the lane
+as a terminal capability failure with no fallback launch. Main never repairs a running or uncertain lane
 with addenda or repacket churn, and this route creates no helper, envelope schema, or compatibility path.
 
 For a spare-capacity self-QA retrospective, task dispatch alone owns activation and critical-path
