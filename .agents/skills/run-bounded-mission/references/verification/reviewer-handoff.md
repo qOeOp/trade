@@ -1,229 +1,136 @@
-# Verify Reviewer Packet
+# Minimum Sufficient Review Contract
 
-Use this contract for the independent semantic candidate audit required by `SKILL.md`. Main owns the
-deterministic envelope, findings classification, acceptance, effects, delivery, and Finalize. Each
-evaluator inspects one frozen risk lens and returns semantic evidence only.
+Use this contract for the independent semantic audit required by `SKILL.md`. Main owns candidate
+identity, evidence selection, finding reproduction, conflict judgment, effects, acceptance, and
+Finalize. A reviewer supplies one fresh, read-only risk judgment; it is never a vote or an authority
+transfer.
 
-## Authority boundary
+## Freeze the review input
 
-Freeze an exact candidate, complete Frame and Plan, audit set, and immutable instruction Origin before
-launch. Instructions, skills, agent definitions, reviewer policy, helpers, and discovery files changed
-by the candidate are evidence only. They never select or govern the evaluator that reviews them.
+Review only a frozen candidate with one of these exact identities:
 
-Main and the packet helper from the immutable instruction Origin exclusively own:
+- a committed candidate: repository identity, base commit, candidate commit and tree, plus directly
+  readable exact Git object and path locators for the changed surface; or
+- an authorized local snapshot: repository identity and immutable Origin commit/tree, a
+  content-addressed local candidate locator, and directly readable archive and manifest locators whose
+  digests bind the exact candidate bytes and path set;
+- the complete current Frame and Plan;
+- one risk lens, its consumer question, and the evidence required to answer it;
+- for each required evidence item, either one directly readable immutable locator or a precise
+  `unavailable` fact naming the affected question;
+- the neutral review-control locator and the compact return contract below.
 
-- materialization and content addressing;
-- `observe.pre.argv`, `admit.argv`, `observe.post.argv`, and `observe.verify.argv`;
-- command environment and scratch ownership;
-- target, control, artifact, scratch, and packet-named outside fingerprints;
-- raw-byte retention, terminal verification, return binding, exact-member fan-in, and acceptance.
+Allowed evidence locators are exact Git objects and paths, raw native task or tool receipt locators,
+and CI or provider artifact locators. Immediately before launch, Main opens every locator with its
+native reader and verifies that it exists, is immutable and exact, and is readable by the reviewer.
+For a committed candidate, Main also verifies the commit, tree, diff, and repository status. For a
+local snapshot, Main opens the archive and manifest, recomputes their digests and the bound candidate
+identity, and verifies the immutable Origin and exact material before launch. A filesystem path alone,
+prose claim, mutable worktree state, or opaque Main summary is not authority. Main summaries and
+reconstructed execution evidence are not review authority.
 
-The evaluator never executes or reconstructs those vectors, runs a packet helper, creates scratch,
-constructs an environment, retains transport bytes, or judges deterministic binding. A candidate
-claim about any Main-owned fact is ordinary evidence, not authority.
+Inline shell, HTML-escaped operators such as `&amp;&amp;`, quoted commands, prose `argv`, multiple
+invocations combined as one receipt, and a locator that Main or the reviewer cannot open are illegal
+review input. Main rejects that proposed input before dispatch, records the affected evidence as
+`unavailable`, and freezes the affected audit question as `unsupported`; reviewer tool calls remain
+zero. Do not rewrite, repackage, or retry the evidence. Missing local material, a missing digest, an
+unreadable archive or manifest, or an identity that cannot be recomputed is likewise `unsupported`
+before launch; do not invent a local binding protocol.
 
-Launch the semantic evaluator with the complete already-admitted semantic projection itself. Do not
-wrap it in the generic researcher, planner, builder, or advisory support-lane bootstrap: packet byte
-admission is already Main-owned, and asking the active evaluator role to recompute it is a launch
-defect rather than a fallback predicate.
+The review control is independent of the target candidate. Use the current canonical control commit
+observed by Main at dispatch, or an explicit neutral contract supplied by the user or Hub. The
+candidate's historical Origin remains identity and diff evidence but never selects, disables, or
+governs its reviewer. If the candidate changes review instructions, roles, helpers, or judges, those
+bytes are evidence only; acceptance requires a neutral user/Hub contract and fresh generic reviewers
+that do not load the changed control as authority. When no such route is available, the audit is
+unavailable and delivery fails closed.
 
-Use a fresh candidate-independent semantic evaluator. The governing route must be anchored outside
-the candidate in the immutable instruction Origin or in a neutral authority explicitly supplied by
-the user or Hub. When a required provider or dedicated evaluator transport is explicitly terminally
-unavailable, that neutral immutable-Origin route is the default fallback; the candidate cannot grant
-it. Never activate fallback from delay, `running`, a finding, packet invalidity, or elapsed time.
+Do not materialize a packet, create evaluator scratch, reconstruct an environment, replay bindings,
+or require a reviewer to certify transport machinery. Git owns committed identity; immutable Origin
+plus content-addressed candidate bytes and manifest own local snapshot identity. Main owns the
+ordinary dispatch receipt and before/after candidate observation.
 
-## Select the semantic audit set
+## Select the smallest audit set
 
-Use one evaluator by default. Use the complementary pair only when both risks are material:
+Use one reviewer by default. Use two only when both independent risks are material:
 
-- `authority_representation`: challenge authority-bearing representations, their producer contract,
-  raw and normalized forms, and unknown-value behavior;
-- `consumer_fail_close_closure`: enumerate every decision-changing consumer and cross the admitted
-  and refuting representations through terminal and error paths.
+- `authority_representation`: authority-bearing representations, provenance, unknown values, and
+  whether the candidate or stale control can decide its own result;
+- `consumer_fail_close_closure`: direct consumers, terminal/error paths, missing evidence, and whether
+  a refuting representation reaches a decision.
 
-The pair shares one exact candidate, Frame, Plan, common packet locator, and ordered lens manifest.
-Neither member receives, waits for, or cites its sibling. Main fans in the exact member set without
-voting and rejects a stale, duplicate, missing, contradictory, or wrong-lens return.
+Each reviewer gets one lens and no sibling result. Both consume the same exact candidate, Frame, Plan,
+and control locator. Extra reviewers for confidence, voting, or retry are prohibited.
 
-## Main-owned deterministic envelope
+## Use a fresh read-only reviewer
 
-Main invokes the repository-owned packet helper from a clean immutable Origin control plane. Use the
-existing `materialize` mode and canonical packet input; do not serialize the shared core, lens
-manifest, hashes, or dispatch frames by hand. Select exactly one explicit
-`mission-evaluator-binding/v3` candidate variant:
+The reviewer must be fresh to the candidate and must not have built it. Prefer the dedicated reviewer
+role when it is available under the neutral control. If that role or provider is unavailable, one
+fresh generic reviewer may execute the same lens; dedicated transport is not part of the product
+contract. Delay, a finding, or an invalid return never activates another reviewer.
 
-- `committed` resolves the supplied candidate to one immutable commit and preserves the existing
-  same-repository and external-target routes;
-- `local` supplies the reserved `--candidate :local-worktree:` together with grouped
-  `--control-repository`, `--control-origin`, and `--target-root`. The separate target must have the
-  same repository identity and `HEAD` as the named target Origin. The immutable control worktree is
-  clean and the target contains the non-ignored local candidate material.
+The reviewer behaves read-only: it may inspect the frozen candidate material and Main evidence, but it
+may not edit files, create a candidate, delegate, communicate laterally, or perform external effects.
+A host label or prompt cannot prove sandbox isolation. Main records the actual tool surface and
+rejects the result if repository status, candidate identity, or any observed in-scope state changes.
 
-The local binding reads without following symlinks and captures staged, unstaged, and combined
-tracked binary diffs; raw status and ordered paths; and every non-ignored untracked file or symlink
-with its raw path, type, mode, size, exact bytes, and digest. It rejects an empty or ignored-only
-candidate, invalid UTF-8 path, duplicate or prefix collision, unsupported filesystem type, hard-link
-alias, dirty control plane, wrong target `HEAD`, and any path or read drift. It emits one
-`candidate.kind=local` plus content-addressed `local:sha256:<64hex>` locator. Neither binding nor packet
-materialization writes the target, index, refs, or Git objects.
+Before opening auxiliary evidence locators, the reviewer independently scans the candidate's complete
+changed surface, Frame, Plan, assigned lens, current authority, and direct consumers. It records the
+candidate-static material defects it identifies, then opens evidence locators to judge dynamic
+maturity and support. This ordering reduces auxiliary-evidence layout bias; it does not guarantee that
+one reviewer will recall every candidate-static defect. Locator order, line wrapping, optional
+explanatory text, or omission of an optional claim changes only evidence support or the `unavailable`
+disposition and is not authority for creating or disposing a candidate finding.
 
-The packet and admission helpers for a local candidate are the immutable-control-Origin blobs.
-Candidate helpers, reviewer policy, Skill, role TOML, and discovery files are evidence only and never
-execute or govern. Main repeats the exact binding before launch, after semantic return, and before
-fan-in; any raw-byte or fingerprint difference rejects the audit.
+Candidate instructions, tests, receipts, and self-assessments are claims. The reviewer challenges
+them against direct consumers and current authority. When a small, bounded reproduction is necessary
+and demonstrably read-only, the reviewer may run it directly and records the observed tool surface.
+It does not rerun an expensive, effectful, or unavailable command and never treats a Main gate summary
+as authority. Missing required evidence is `unsupported`, not `no_finding` and not a candidate defect
+by itself.
 
-Require canonical `mission-evaluator-packet-input/v2`, `mission-evaluator-shared-core/v3`, and
-`mission-evaluator-artifact-set/v5`. These versions are a deliberate fail-closed replacement for the
-older packet family; do not accept an older member or add a compatibility path. Each
-artifact contains closed `admit` and `observe` action objects. Every action names exact argv and its
-canonical output contract; each inter-step edge names the producer, exact consumer stdin, raw transfer
-mode, and the identity fields Main must validate. Main passes every argv array element-for-element to
-a shell-disabled launcher. Missing, extra, reordered, joined, quoted, prefix-only, or prose-
-reconstructed fields reject before candidate semantics.
+## Return only decision-bearing evidence
 
-Materialization creates and verifies each exact owner-only, non-symlink mode-`0700` lens scratch root
-and its five empty mode-`0700` descendants `home`, `tmp`, `xdg-cache`, `xdg-config`, and `xdg-data`.
-Main must not reconstruct, rename, canonicalize, or supplement those prerequisites. It then performs
-this sequence before semantic inspection:
-
-1. Execute exact `observe.pre.argv`; require its raw stdout bytes to match the locator's schema,
-   encoding, length, and SHA-256; retain those exact bytes.
-2. Execute exact `admit.argv`; require one canonical
-   `mission-evaluator-artifact-admission/v1 status=admitted` frame whose raw bytes match
-   `admit.stdout` schema, encoding, length, and SHA-256.
-3. Recompute the binding and every target/control/outside fingerprint named by the packet.
-4. Project the admitted semantic packet described below with the complete raw admission bytes and
-   locator-published identity, without changing any admitted field.
-
-The helper must reject corruption, truncation, appended bytes, missing fields, wrong candidate,
-common locator, lens, delta, helper, control plane, target, artifact, mode, path, or fingerprint before
-semantic inspection. Main owns representative negative evidence for those boundaries. The semantic
-evaluator neither repeats nor certifies it.
-
-After every semantic member returns, Main performs the existing terminal sequence once:
-
-1. Execute exact `observe.post.argv`, supplying exactly the retained `observe.pre.stdout` raw bytes to
-   the declared stdin edge. Bind the resulting raw stdout length and SHA-256 before the next action.
-2. Execute exact `observe.verify.argv`, supplying the exact raw pre then post bytes in the locator-
-   declared order; require byte-exact terminal reproduction. Omitted, parsed/reserialized, newline-
-   changed, wrong-member, wrong-order, or identity-mismatched bytes reject.
-3. Rerun admission and all packet-named target/control/outside fingerprints.
-4. Reject any evaluator tool call outside the admitted behavioral read-only surface, mutation,
-   identity drift, malformed return, or evaluator/Main disagreement.
-
-Main projects the authoritative `mutation_observation` as `none | scratch-only | external | unverified`
-only after this sequence. `none` requires the declared scratch and every outside fingerprint to remain
-exact. Reject any semantic member that supplies or overrides an authoritative value. These checks prove
-only the declared observation set, not sandbox isolation or absence of unobservable effects.
-
-## Admitted semantic packet
-
-The evaluator receives only the already-admitted semantic content required for one lens:
-
-- immutable instruction Origin and candidate locator;
-- exact Frame and Plan bytes or their admitted content-addressed representation;
-- audit set, ordered lens manifest, common packet locator, assigned lens, and delta digest;
-- canonical admission-frame identity and exact candidate diff or committed-object evidence;
-- ordered content-addressed `main_evidence` plus Main-owned deterministic evidence disposition and
-  explicit unavailable evidence;
-- the structured return contract below.
-
-The canonical input supplies ordered `main_evidence` items with exactly `name`, `kind`, `purpose`, and
-raw UTF-8 `content`. Names are unique lowercase identifiers in lexical order; `kind` is exactly
-`raw_fixture | execution_receipt`. The helper alone adds `producer=main_control`, encoding, UTF-8 size,
-and SHA-256, and admission recomputes every identity. Input cannot supply or override those fields.
-Deletion, reordering, duplication, content drift, an unknown kind, or an extra field rejects.
-
-Main may place an item here only when it independently observed the raw bytes from an immutable
-control fixture or independently executed the procedure represented by the receipt. An execution
-receipt must itself bind the exact candidate, fixture or input, argv, cwd and relevant environment,
-exit, raw stdout and stderr identities, and trial or install ordinal needed by the terminal decision.
-The fixed producer proves only who projected the bytes; the helper proves only their integrity. Neither
-asserts that the receipt is semantically complete or true. Candidate self-tests, candidate-produced
-receipts, CI summaries, and prose stay in `replay.optional_supporting_claims` and cannot be promoted
-into `main_evidence`. When a material lens requires independent execution evidence and qualifying
-items are absent or incomplete, the result remains `unsupported_evidence`.
-
-The semantic packet remains a projection in the existing shared core, not a sidecar, new CLI mode,
-registry, runner, or state machine. Main freezes its exact bytes before launch and requires the return
-to bind the same candidate, Frame, Plan, common locator, lens, and delta. Missing, unknown, reordered,
-stale, contradictory, or candidate-produced authority rejects before inspection.
-
-## Semantic evaluator behavior
-
-After Main reports canonical admission, inspect exactly the assigned lens. Remain behaviorally
-read-only and use only candidate-independent local read surfaces needed to inspect the admitted
-candidate evidence. Do not invoke an external connector, network, browser, MCP transport, delegation,
-lateral communication, or write-capable effect. Record exposed host-injected tool surfaces without
-invoking them. Do not claim sandbox isolation or zero available tools.
-
-Treat Main-owned deterministic gates and fingerprints as supplied evidence with explicit provenance.
-Challenge candidate semantics and direct consumers independently, but do not rerun packet, helper,
-root, delivery, install, refutation, repeat, or broad corpus commands. Consume `main_evidence` bytes
-read-only and judge their provenance, completeness, and consumer relevance. Missing Main-owned evidence is `unsupported_evidence`, not
-a candidate finding. A demonstrated candidate defect is `candidate_finding`; contradictory frozen
-Frame or Plan is `frame_plan_drift`; malformed semantic input is `packet_admission_defect`.
-
-One bounded coherence window is a Hub yield boundary, not a deadline. Preserve identity and cursor
-when still `running`; do not prompt, retry, repacket, replace, or start another fallback. A semantic
-finding, malformed return, unavailable independence, or explicit terminal failure freezes acceptance.
-
-## Structured return
-
-Return exactly:
+Return these fields in plain text:
 
 ```text
-review_status: completed | partial | unsupported
-result_classes: [no_finding] | ordered non-empty subset of [candidate_finding, frame_plan_drift,
-  packet_admission_defect, capability_failure, unsupported_evidence]
-frame_locator:
-plan_locator:
-audit_set:
-common_packet_locator:
-activation_predicate:
-assigned_risk_lens:
-assigned_lens_delta_sha256:
-candidate_locator:
-observed_launch_context:
-instruction_origin:
-discovery_boundary:
-observed_available_tool_surface:
-independence_status: supported | compromised | unverified
-enforcement_status: sandbox-enforced | integrity-checked
-receipt_status: admitted | unsupported | unavailable
-mutation_observation: not_applicable
-pre_observation: not_applicable
-terminal_observation: not_applicable
-outside_state_evidence: Main-owned exact fingerprint receipt or unsupported
-audit_results: one ordered entry per admitted consumer verdict/status field:
-  <exact field name>=<exact admitted literal>, pass | fail | unverified, direct evidence
-findings: severity (blocking | important | nit), failure_class (candidate_local | plan_failure |
-  frame_failure), bounded causal claim, location, validation evidence, next action
+review_status: completed | unsupported
+candidate_identity: committed commit/tree | local:sha256:<digest>
+candidate_origin:
+candidate_material: exact Git locators | local archive and manifest locators with digests
+control_origin:
+risk_lens:
+findings: no_finding | ordered findings with severity, causal claim, location, direct evidence, and next action
 inspected_scope:
+unavailable_evidence:
+observed_tool_surface:
+mutation_observation: none | detected | unverified
 limits:
 ```
 
-`completed` requires the complete changed surface and assigned consumer closure to be resolved. It
-means the semantic audit ran, not that the candidate passed. `[no_finding]` is valid only when no
-material finding or unsupported required evidence exists. The evaluator sets deterministic transport
-observations and `mutation_observation` to the literal `not_applicable`; these fields are non-authorizing
-behavioral declarations. A missing value or `none`, `scratch-only`, `external`, `unverified`, or any
-other evaluator mutation value is a malformed return. The evaluator cannot claim the dedicated
-transport passed or failed. Main discards the non-authorizing mutation declaration and creates the
-authoritative mutation projection only after exact post, verify, and fingerprint replay.
+`completed` requires the changed surface and assigned consumer question to be resolved. `no_finding`
+is valid only when required evidence is present and no material finding remains. A missing field,
+wrong candidate, wrong lens, mutation, unsupported required evidence, or candidate-controlled review
+authority invalidates the result.
 
-The frozen Frame, Plan, assigned lens `required_terminal_evidence`, and current consumer contract are
-the only authority for the required verdict/status field set and each field's literal domain. Emit one
-explicit entry for every required field, including when its exact literal is `unavailable`.
-`unavailable` is a value, not omission, absence, a range summary, or an aggregate such as "all
-unavailable". A missing member, set summary, value inferred from the full evidence, or member present
-only in the full projection leaves that consumer closure incomplete: return `review_status=partial`
-with `unsupported_evidence`. Main's compact or handoff projection must preserve the same required
-field-name/value set as the admitted full result; it may compact only explanation and evidence
-locators, never verdict/status members.
+## Main reproduces and decides
 
-After return, Main reopens decisive evidence, reproduces material findings, verifies exact semantic
-input/return bindings, executes post/verify and fingerprint replay, and fans in the required member
-set. Resolve conflicts by current authority, provenance, and consumer impact, never by agent count.
-Hub alone authorizes merge.
+After every return, Main re-resolves the committed candidate and exact diff or reopens the local
+archive and manifest and recomputes the candidate material digests. It compares that result and every
+observed in-scope state with the pre-launch observation. Any local drift or mutation invalidates the
+return as `unsupported`, not a candidate finding.
+
+For the fixed audit set, Main takes the ordered union of member findings and exact-deduplicates only.
+One member's omission cannot erase another member's reproduced finding; unsupported evidence remains
+separate from candidate findings. Main reopens decisive locations and reproduces every material
+finding through the smallest real consumer. Reviewer prose alone never changes the candidate or
+authorizes an effect.
+
+For a pair, Main requires the exact two assigned lenses and fans them in once. Resolve disagreement by
+current authority, provenance, and reproduced consumer impact, never by reviewer count. A material
+conflict that Main cannot reproduce or dispose leaves the audit unsupported and delivery frozen.
+
+Main records only the accepted or rejected findings, the decisive evidence locators, unavailable
+evidence, observed elapsed/context cost, and the final audit disposition. No packet, scratch tree,
+schema family, compatibility branch, or persistent review record is required. Hub alone authorizes
+merge.

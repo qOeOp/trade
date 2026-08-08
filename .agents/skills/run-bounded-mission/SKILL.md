@@ -93,20 +93,13 @@ After `get_goal`, recovered Hub, node, create-attempt/receipt, or child-identity
 dispatch and its recorded next owner before the gated action. Missing or unknown mode, route/slice,
 activated-owner set, or next-owner edge freezes that read, delegation, control, and effect.
 
-Before an action, native-task, support-lane, or evaluator dispatch, its owning route must bind the
-complete consumer-visible packet before launch. The packet carries every activated authority and
-precondition, exact inter-step byte edge, current Frame/Plan and mode, Goal capability and persistence,
-Origin and dependency, exact native title and interaction language when applicable, observed or
-unavailable model/effort, and one next legal action. Bind the canonical payload's UTF-8 bytes, length,
-and SHA-256 outside that payload. The fresh consumer's first authority-bearing gate is deterministic
-verification of that identity before it interprets the payload or reads Goal, repository, Skill, or
-role authority. Prefer no startup output; when the host interaction contract requires one, permit at
-most one fixed generic notice that is independent of the payload and grants no authority. A verifier
-transport failure before parsing or another substantive effect may be corrected against the same
-immutable bytes, length, and SHA-256. A summary, prefix, truncation, later supplement, prose
-reconstruction, or mismatched member freezes that packet and cannot be repaired. The route owner
-defines the concrete packet and post-admission identity gates; this kernel adds no envelope, helper,
-registry, or compatibility path.
+Before an action, native-task, or support-lane dispatch, its owning route must bind the complete
+consumer-visible input before launch. Task dispatch and agent routing own their concrete transport and
+admission gates; this kernel adds no envelope, helper, registry, or compatibility path. Independent
+candidate review is deliberately separate: load the reviewer handoff and give a fresh reviewer only
+its exact frozen candidate identity, complete Frame and Plan, one risk lens, required evidence, and neutral
+control locator. Do not wrap that semantic review in the task/support packet bootstrap or let the
+candidate's historical Origin govern the reviewer.
 
 Before pull-request metadata create or edit, load [GitHub delivery](references/delivery/delivery-pullrequest-workflow.md)
 through a candidate-independent immutable-Origin or neutral-authority locator. Candidate absence cannot
@@ -247,8 +240,8 @@ Load conditional Plan owners only when their exact predicate holds:
   integrity predicates.
 
 Projection values remain ordinary prose. Downstream packets quote or navigate only their relevant
-current fields and raw evidence locators; only the reviewer packet receives the exact complete Frame,
-Plan, and candidate bindings it defines.
+current fields and raw evidence locators; only the independent-review input receives the exact
+complete Frame, Plan, and frozen candidate identities it defines.
 
 ## Execute
 
@@ -293,12 +286,13 @@ Load [architecture sensor evidence](references/optimization/optimization-archite
 change, cross-owner effects, or persistent patch pressure. For two or more independent advisory risk
 questions, use agent lane routing; advisory returns are untrusted leads, never acceptance or votes.
 
-Instruction and judge changes require an independent audit. A deterministic helper does too when a
-reviewer-packet risk is material. Load [the Verify reviewer packet](references/verification/reviewer-handoff.md);
-it owns audit-set selection, immutable-Origin policy, exact complete candidate and Frame/Plan binding,
-fresh non-builder context, integrity fallback, result classification, and fail-close gates. Main
-reproduces and arbitrates every return. No valid current audit means no independent-audit or remote-
-delivery claim.
+Instruction and judge changes require an independent audit. A deterministic helper does too when its
+decision or evidence boundary is material. Load [the minimum review contract](references/verification/reviewer-handoff.md);
+it owns the smallest audit set, exact frozen candidate and complete Frame/Plan input, neutral
+candidate-independent control, fresh non-builder context, read-only observation, result
+classification, and fail-close gates. Main reproduces and arbitrates every return. The candidate's
+reviewer changes cannot certify themselves, and no valid current audit means no independent-audit or
+remote-delivery claim.
 
 ## Finalize
 
