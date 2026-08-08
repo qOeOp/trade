@@ -41,7 +41,7 @@ fi
 if [[ -z "${BASE_REF:-}" ]]; then
   run_all "PR base ref missing: running full validation"
 fi
-if ! merge_base="$(git merge-base "origin/${BASE_REF}" HEAD 2>/dev/null)"; then
+if ! merge_base="$(git merge-base "origin/${BASE_REF}" HEAD 2> /dev/null)"; then
   run_all "Failed to compute PR merge-base: running full validation"
 fi
 if [[ -z "$merge_base" ]]; then
