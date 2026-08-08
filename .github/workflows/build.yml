@@ -54,10 +54,6 @@ env:
 jobs:
   plan:
     name: plan
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.action != 'edited' ||
-      github.event.changes.base
     runs-on: ubuntu-latest
     outputs:
       run-tests: ${{ steps.plan.outputs.run_tests }}
@@ -91,6 +87,13 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Validate pull request title
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        shell: bash
+        run: bash .github/scripts/validate-pr-title.sh "$PR_TITLE"
 
       - name: Plan
         id: plan
@@ -473,9 +476,19 @@ jobs:
           RUN_RUST_TESTS: ${{ needs.plan.outputs.run-rust-tests }}
           PUBLISH_R2: ${{ needs.plan.outputs.publish_r2 }}
           REF_NAME: ${{ github.ref_name }}
+          METADATA_ONLY: >-
+            ${{ github.event_name == 'pull_request'
+            && github.event.action == 'edited'
+            && !github.event.changes.base }}
         run: |
           set -euo pipefail
           test "$PLAN_RESULT" = success
+          if [[ "$METADATA_ONLY" == true ]]; then
+            test "$PRE_COMMIT_RESULT" = skipped
+            test "$BUILD_RESULT" = skipped
+            test "$RUST_TESTS_RESULT" = skipped
+            exit 0
+          fi
           test "$PRE_COMMIT_RESULT" = success
           if [[ "$RUN_TESTS" == true ]]; then
             test "$BUILD_RESULT" = success
