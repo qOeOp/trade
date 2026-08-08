@@ -103,6 +103,8 @@ while IFS= read -r file; do
   if [[ "$file" =~ ^python/ ]]; then
     wheel=true
     if [[ "$file" == python/generate_stubs.py || "$file" == python/generate_docstrings.py ||
+      "$file" == python/vibe_trader/config/__init__.py ||
+      "$file" =~ ^python/vibe_trader/adapters/[^/]+/__init__\.py$ ||
       "$file" =~ ^python/vibe_trader/.*\.pyi$ ]]; then
       generated=true
     fi
