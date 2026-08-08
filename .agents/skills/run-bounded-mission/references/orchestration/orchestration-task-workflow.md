@@ -425,20 +425,30 @@ native setup ran.
 
 ### Long-running gate evidence
 
-Before launching a root, package, evaluator, or other long-running gate, bind its exact candidate and
-inputs, argv, cwd, relevant environment, final repository-state check, and one host transport that can
-yield a resumable process/session identity, retain stdout/stderr through a host receipt or immutable
-output locator, and eventually return its exit status. A launch that discards both output streams is
-not terminal-capable because a failure cannot be audited. If the selected call cannot preserve its
-identity and output continuity through bounded output or time windows, the gate is not runnable on that
-transport. Do not first run it through a lossy call and then start the same command again to recover a
-missing terminal result or failure detail.
+Before launching a command/process-backed root, package, or other long-running gate, bind its exact
+candidate and inputs, argv, cwd, relevant environment, final repository-state check, and one host
+transport that can yield a resumable process/session identity, retain stdout/stderr through a host
+receipt or immutable output locator, and eventually return its exit status. A launch that discards
+both output streams is not terminal-capable because a failure cannot be audited. If the selected call
+cannot preserve its identity and output continuity through bounded output or time windows, the gate is
+not runnable on that transport. Do not first run it through a lossy call and then start the same
+command again to recover a missing terminal result or failure detail.
 
-Launch the candidate-bound gate once. When it yields, retain its exact session and output cursor and
-resume only that process until it returns exit plus the declared final state. A missing, reset,
-unrecoverable, or mismatched session/cursor or output receipt makes the required terminal evidence
-`unavailable`; it does not authorize a second process, a reconstructed exit, or success inferred from
-process disappearance.
+An internal semantic evaluator is not a command/process-backed gate. The reviewer handoff instead
+binds its admitted packet, exact host evaluator identity and cursor, one launch receipt, any
+cursor-bound structured progress receipt, and the structured `review_status`/`result_classes` terminal
+return; Main's post, verify, admission, and fingerprint replay then close terminal integrity. Preserve
+and resume only that same evaluator identity. Do not require process argv, cwd, stdout/stderr, or an OS
+exit from this route, and do not weaken its one-launch, no-repacket, no-replacement, or narration limits
+merely because its progress and terminal transport are structured.
+
+Launch the candidate-bound gate once. When a command/process-backed gate yields, retain its exact
+session and output cursor and resume only that process until it returns exit plus the declared final
+state. For an internal semantic evaluator, retain its exact host identity and cursor until its
+structured terminal return and Main-owned terminal replay complete. A missing, reset, unrecoverable,
+or mismatched identity, session, cursor, output receipt, structured return, or replay makes the
+required terminal evidence `unavailable`; it does not authorize a second process or evaluator, a
+reconstructed exit, or success inferred from disappearance.
 A rerun is a new gate only after a changed candidate or other declared input invalidates the prior run,
 or after new authority explicitly replaces the unavailable evidence requirement.
 

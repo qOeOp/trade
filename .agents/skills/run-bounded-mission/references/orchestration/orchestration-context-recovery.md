@@ -36,15 +36,22 @@ that cannot be reopened after compaction freezes that packet as a persistence mi
 failed packet as terminal; a newly authorized complete continuation may resume only the same exact task
 identity and never rewrites that result.
 
-For every launched long-running gate, retain its exact candidate/input binding, argv, cwd, relevant
-environment, declared final-state check, host process/session identity, output cursor, latest observed
-state, stdout/stderr host receipt or immutable output locator, whether its one informative progress update
-was emitted, and its exit/final-state terminal receipt or exact unavailable reason. Recovery resumes only
-that same process/session. A missing or discontinuous identity/cursor/output receipt preserves the gate
-as `terminal evidence unavailable` and forbids a replacement launch
-under unchanged inputs; process disappearance, a reconstructed exit, or a later same-command pass cannot
-repair it. Preserve the per-run communication position so recovery emits no unchanged narration and no
-more than the remaining one progress or one terminal update.
+For every launched command/process-backed long-running gate, retain its exact candidate/input binding,
+argv, cwd, relevant environment, declared final-state check, host process/session identity, output
+cursor, latest observed state, stdout/stderr host receipt or immutable output locator, whether its one
+informative progress update was emitted, and its exit/final-state terminal receipt or exact unavailable
+reason. Recovery resumes only that same process/session.
+
+For an internal semantic evaluator, retain the reviewer-handoff admission and packet identity, exact
+host evaluator identity and cursor, latest cursor-bound structured progress receipt/state, one launch
+receipt, structured `review_status`/`result_classes` terminal return or unavailable reason, Main-owned
+post/verify/admission and fingerprint replay position, and the same communication position. Recovery
+resumes only that same evaluator identity; its structured terminal status replaces an OS exit but never replaces Main's
+terminal replay. A missing or discontinuous identity, cursor, output receipt, structured return, or
+replay preserves either transport as `terminal evidence unavailable` and forbids a replacement launch
+under unchanged inputs. Process or evaluator disappearance, a reconstructed exit or return, or a later
+same-command/evaluator pass cannot repair it. Preserve the per-run communication position so recovery
+emits no unchanged narration and no more than the remaining one progress or one terminal update.
 
 For each native node also retain its causal collision projection and exact attempt/task mapping; every
 waiting blocker, release predicate, next owner and next action; and every component-conflict member's
