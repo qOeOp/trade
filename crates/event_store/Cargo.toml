@@ -1,0 +1,62 @@
+[package]
+name = "vibe-event-store"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Event store and authoritative log of state-affecting messages for the Vibe trading engine"
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "vibe_event_store"
+crate-type = ["rlib"]
+
+[features]
+default = []
+defi = ["vibe-common/defi", "vibe-model/defi", "vibe-system/defi"]
+live = ["vibe-common/live"]
+persistence = ["dep:vibe-persistence"]
+[dependencies]
+vibe-common = { workspace = true }
+vibe-core = { workspace = true }
+vibe-execution = { workspace = true }
+vibe-model = { workspace = true }
+vibe-system = { workspace = true }
+
+vibe-persistence = { workspace = true, optional = true }
+
+ahash = { workspace = true }
+anyhow = { workspace = true }
+blake3 = { workspace = true }
+bytes = { workspace = true }
+indexmap = { workspace = true }
+log = { workspace = true }
+redb = { workspace = true }
+rmp-serde = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+ustr = { workspace = true }
+
+[dev-dependencies]
+vibe-model = { workspace = true, features = ["stubs"] }
+
+async-trait = { workspace = true }
+criterion = { workspace = true }
+proptest = { workspace = true }
+redb = { workspace = true }
+rstest = { workspace = true }
+tempfile = { workspace = true }
+
+[[bench]]
+name = "hash"
+path = "benches/hash.rs"
+harness = false
+
+[[bench]]
+name = "codec"
+path = "benches/codec.rs"
+harness = false

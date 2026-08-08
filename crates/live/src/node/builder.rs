@@ -1,0 +1,766 @@
+//! Builder for constructing [`LiveNode`] instances.
+
+use std::{cell::RefCell, collections::HashMap, fmt::Debug, rc::Rc, time::Duration};
+
+use vibe_common::{
+    cache::CacheConfig,
+    clients::ExecutionClient,
+    clock::Clock,
+    enums::Environment,
+    factories::{
+        ClientConfig, DataClientFactory, ExecutionClientFactory, SimulatedExecutionClientFactory,
+    },
+    logging::logger::LoggerConfig,
+    msgbus::{
+        BusMessage, MessageBusBackingFactory, MessageBusConfig, MessageBusExternalEgress,
+        MessageBusExternalIngress, external_egress_from_backing, external_io_from_backing,
+    },
+};
+use vibe_core::UUID4;
+use vibe_data::client::DataClientAdapter;
+use vibe_execution::engine::ExecutionEngine;
+use vibe_model::identifiers::{TraderId, Venue};
+use vibe_portfolio::config::PortfolioConfig;
+#[cfg(feature = "python")]
+use vibe_system::trader::Trader;
+use vibe_system::{
+    clock_factory::ClockFactory,
+    config::StreamingConfig,
+    event_store::{EventStoreFactory, KernelEventStore},
+    kernel::{VibeKernel, VibeKernelDependencies},
+};
+use vibe_trading::ImportableControllerConfig;
+
+use super::{
+    LiveNode,
+    config::{
+        LiveDataEngineConfig, LiveExecEngineConfig, LiveNodeConfig, LiveRiskEngineConfig,
+        RoutingConfig, validate_live_environment,
+    },
+};
+use crate::{
+    execution::{
+        client::LiveExecutionClient,
+        manager::{ExecutionManager, ExecutionManagerConfig},
+    },
+    runner::AsyncRunner,
+};
+
+#[derive(Debug)]
+enum ExecutionClientFactoryEntry {
+    Adapter(Box<dyn ExecutionClientFactory>),
+    Simulated(Box<dyn SimulatedExecutionClientFactory>),
+}
+
+pub(crate) struct ExternalMessageBusIngress(Box<dyn MessageBusExternalIngress>);
+
+impl Debug for ExternalMessageBusIngress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct(stringify!(ExternalMessageBusIngress))
+            .finish_non_exhaustive()
+    }
+}
+
+/// Builder for constructing a [`LiveNode`] with a fluent API.
+///
+/// Provides configuration options specific to live nodes, including client factory
+/// registration, timeout settings, and optional event-store injection for run-lifecycle
+/// audit and replay (see [`Self::with_event_store`]).
+#[cfg_attr(
+    feature = "python",
+    pyo3::pyclass(module = "vibe_trader.live", unsendable)
+)]
+pub struct LiveNodeBuilder {
+    name: String,
+    config: LiveNodeConfig,
+    data_client_factories: HashMap<String, Box<dyn DataClientFactory>>,
+    exec_client_factories: HashMap<String, ExecutionClientFactoryEntry>,
+    data_client_configs: HashMap<String, Box<dyn ClientConfig>>,
+    exec_client_configs: HashMap<String, Box<dyn ClientConfig>>,
+    data_client_routing: HashMap<String, RoutingConfig>,
+    exec_client_routing: HashMap<String, RoutingConfig>,
+    event_store_factory: Option<EventStoreFactory>,
+    clock_factory: Option<ClockFactory>,
+    external_msgbus_factory: Option<Box<dyn MessageBusBackingFactory>>,
+    external_msgbus_egress: Option<Box<dyn MessageBusExternalEgress>>,
+    external_msgbus_ingress: Option<ExternalMessageBusIngress>,
+}
+
+impl Debug for LiveNodeBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct(stringify!(LiveNodeBuilder))
+            .field("name", &self.name)
+            .field("config", &self.config)
+            .field("data_client_factories", &self.data_client_factories.keys())
+            .field("exec_client_factories", &self.exec_client_factories.keys())
+            .field("data_client_configs", &self.data_client_configs.keys())
+            .field("exec_client_configs", &self.exec_client_configs.keys())
+            .field("event_store_factory", &self.event_store_factory.is_some())
+            .field("clock_factory", &self.clock_factory.is_some())
+            .field(
+                "external_msgbus_factory",
+                &self.external_msgbus_factory.is_some(),
+            )
+            .field(
+                "external_msgbus_egress",
+                &self.external_msgbus_egress.is_some(),
+            )
+            .field(
+                "external_msgbus_ingress",
+                &self.external_msgbus_ingress.is_some(),
+            )
+            .finish_non_exhaustive()
+    }
+}
+
+impl LiveNodeBuilder {
+    /// Creates a new [`LiveNodeBuilder`] with required parameters.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `environment` is invalid (BACKTEST).
+    pub fn new(trader_id: TraderId, environment: Environment) -> anyhow::Result<Self> {
+        validate_live_environment(environment)?;
+
+        let config = LiveNodeConfig {
+            environment,
+            trader_id,
+            ..Default::default()
+        };
+
+        Ok(Self {
+            name: "LiveNode".to_string(),
+            config,
+            data_client_factories: HashMap::new(),
+            exec_client_factories: HashMap::new(),
+            data_client_configs: HashMap::new(),
+            exec_client_configs: HashMap::new(),
+            data_client_routing: HashMap::new(),
+            exec_client_routing: HashMap::new(),
+            event_store_factory: None,
+            clock_factory: None,
+            external_msgbus_factory: None,
+            external_msgbus_egress: None,
+            external_msgbus_ingress: None,
+        })
+    }
+
+    /// Creates a new [`LiveNodeBuilder`] from an existing [`LiveNodeConfig`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the config's environment is invalid (BACKTEST).
+    pub fn from_config(config: LiveNodeConfig) -> anyhow::Result<Self> {
+        validate_live_environment(config.environment)?;
+
+        Ok(Self {
+            name: "LiveNode".to_string(),
+            config,
+            data_client_factories: HashMap::new(),
+            exec_client_factories: HashMap::new(),
+            data_client_configs: HashMap::new(),
+            exec_client_configs: HashMap::new(),
+            data_client_routing: HashMap::new(),
+            exec_client_routing: HashMap::new(),
+            event_store_factory: None,
+            clock_factory: None,
+            external_msgbus_factory: None,
+            external_msgbus_egress: None,
+            external_msgbus_ingress: None,
+        })
+    }
+
+    /// Returns the name for the node.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Set the name for the node.
+    #[must_use]
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.name = name.into();
+        self
+    }
+
+    /// Set the instance ID for the node.
+    #[must_use]
+    pub const fn with_instance_id(mut self, instance_id: UUID4) -> Self {
+        self.config.instance_id = Some(instance_id);
+        self
+    }
+
+    /// Configure whether to load state on startup.
+    #[must_use]
+    pub const fn with_load_state(mut self, load_state: bool) -> Self {
+        self.config.load_state = load_state;
+        self
+    }
+
+    /// Configure whether to save state on shutdown.
+    #[must_use]
+    pub const fn with_save_state(mut self, save_state: bool) -> Self {
+        self.config.save_state = save_state;
+        self
+    }
+
+    /// Set the importable controller configuration for the node.
+    ///
+    /// The controller is instantiated and registered with the trader during
+    /// [`LiveNodeBuilder::build`], enabling runtime strategy/actor management
+    /// (create, start, stop, remove) without restarting the node. This mirrors
+    /// the `controller` field on [`LiveNodeConfig`] used by the config-based
+    /// [`LiveNode::build`] path, so a builder that also registers client
+    /// factories can host a controller in a single node.
+    #[must_use]
+    pub fn with_controller(mut self, controller: ImportableControllerConfig) -> Self {
+        self.config.controller = Some(controller);
+        self
+    }
+
+    /// Set the connection timeout in seconds.
+    #[must_use]
+    pub const fn with_timeout_connection(mut self, timeout_secs: u64) -> Self {
+        self.config.timeout_connection = Duration::from_secs(timeout_secs);
+        self
+    }
+
+    /// Set the reconciliation timeout in seconds.
+    #[must_use]
+    pub const fn with_timeout_reconciliation(mut self, timeout_secs: u64) -> Self {
+        self.config.timeout_reconciliation = Duration::from_secs(timeout_secs);
+        self
+    }
+
+    /// Configure whether to run startup reconciliation.
+    #[must_use]
+    pub fn with_reconciliation(mut self, reconciliation: bool) -> Self {
+        self.config.exec_engine.reconciliation = reconciliation;
+        self
+    }
+
+    /// Set the reconciliation lookback in minutes.
+    #[must_use]
+    pub fn with_reconciliation_lookback_mins(mut self, mins: u32) -> Self {
+        self.config.exec_engine.reconciliation_lookback_mins = Some(mins);
+        self
+    }
+
+    /// Set the portfolio initialization timeout in seconds.
+    #[must_use]
+    pub const fn with_timeout_portfolio(mut self, timeout_secs: u64) -> Self {
+        self.config.timeout_portfolio = Duration::from_secs(timeout_secs);
+        self
+    }
+
+    /// Set the disconnection timeout in seconds.
+    #[must_use]
+    pub const fn with_timeout_disconnection_secs(mut self, timeout_secs: u64) -> Self {
+        self.config.timeout_disconnection = Duration::from_secs(timeout_secs);
+        self
+    }
+
+    /// Set the post-stop delay in seconds.
+    #[must_use]
+    pub const fn with_delay_post_stop_secs(mut self, delay_secs: u64) -> Self {
+        self.config.delay_post_stop = Duration::from_secs(delay_secs);
+        self
+    }
+
+    /// Set the shutdown timeout in seconds.
+    #[must_use]
+    pub const fn with_delay_shutdown_secs(mut self, delay_secs: u64) -> Self {
+        self.config.timeout_shutdown = Duration::from_secs(delay_secs);
+        self
+    }
+
+    /// Inject a caller-supplied clock factory for the kernel and component clocks.
+    #[must_use]
+    pub fn with_clock_factory<F>(mut self, factory: F) -> Self
+    where
+        F: Fn() -> Rc<RefCell<dyn Clock>> + 'static,
+    {
+        self.clock_factory = Some(ClockFactory::new(factory));
+        self
+    }
+
+    /// Set the cache configuration.
+    #[must_use]
+    pub fn with_cache_config(mut self, config: CacheConfig) -> Self {
+        self.config.cache = Some(config);
+        self
+    }
+
+    /// Set the message bus configuration.
+    ///
+    /// External streams are consumed when an ingress implementation is injected with
+    /// [`Self::with_external_ingress`] or built from [`Self::with_external_msgbus_factory`].
+    #[must_use]
+    pub fn with_msgbus_config(mut self, config: MessageBusConfig) -> Self {
+        self.config.msgbus = Some(config);
+        self
+    }
+
+    /// Set the portfolio configuration.
+    #[must_use]
+    pub fn with_portfolio_config(mut self, config: PortfolioConfig) -> Self {
+        self.config.portfolio = Some(config);
+        self
+    }
+
+    /// Set the streaming configuration.
+    ///
+    /// The Rust live runtime does not support this setting yet.
+    /// `build()` returns an error when it is set.
+    #[must_use]
+    pub fn with_streaming_config(mut self, config: StreamingConfig) -> Self {
+        self.config.streaming = Some(config);
+        self
+    }
+
+    /// Set the data engine configuration.
+    ///
+    /// The Rust live runtime currently supports only the default `qsize`.
+    /// `build()` returns an error for other values.
+    #[must_use]
+    pub fn with_data_engine_config(mut self, config: LiveDataEngineConfig) -> Self {
+        self.config.data_engine = config;
+        self
+    }
+
+    /// Set the risk engine configuration.
+    ///
+    /// The Rust live runtime currently supports only the default `qsize`.
+    /// `build()` returns an error for other values.
+    #[must_use]
+    pub fn with_risk_engine_config(mut self, config: LiveRiskEngineConfig) -> Self {
+        self.config.risk_engine = config;
+        self
+    }
+
+    /// Set the execution engine configuration.
+    ///
+    /// The Rust live runtime currently supports only the default `qsize`.
+    /// `build()` returns an error for other values.
+    #[must_use]
+    pub fn with_exec_engine_config(mut self, config: LiveExecEngineConfig) -> Self {
+        self.config.exec_engine = config;
+        self
+    }
+
+    /// Inject an event-store implementation to drive run-lifecycle capture.
+    ///
+    /// The factory receives the kernel's instance id and clock so the returned
+    /// `KernelEventStore` shares the same time source the kernel uses to stamp run
+    /// lifecycle entries. The concrete implementation lives outside this crate;
+    /// callers typically build it from
+    /// [`LiveNodeConfig::event_store`](crate::config::LiveNodeConfig::event_store)
+    /// inside the closure.
+    #[must_use]
+    pub fn with_event_store<F>(mut self, factory: F) -> Self
+    where
+        F: FnOnce(UUID4, Rc<RefCell<dyn Clock>>) -> anyhow::Result<Box<dyn KernelEventStore>>
+            + 'static,
+    {
+        self.event_store_factory = Some(Box::new(factory));
+        self
+    }
+
+    /// Inject external message bus egress for serialized message bus publications.
+    #[must_use]
+    pub fn with_external_msgbus_egress(
+        mut self,
+        external_egress: Box<dyn MessageBusExternalEgress>,
+    ) -> Self {
+        self.external_msgbus_egress = Some(external_egress);
+        self
+    }
+
+    /// Build and inject external message bus egress and configured ingress from a factory.
+    #[must_use]
+    pub fn with_external_msgbus_factory(
+        mut self,
+        factory: Box<dyn MessageBusBackingFactory>,
+    ) -> Self {
+        self.external_msgbus_factory = Some(factory);
+        self
+    }
+
+    /// Inject external message bus ingress for serialized inbound publications.
+    #[must_use]
+    pub fn with_external_ingress(
+        mut self,
+        external_ingress: Box<dyn MessageBusExternalIngress>,
+    ) -> Self {
+        self.external_msgbus_ingress = Some(ExternalMessageBusIngress(external_ingress));
+        self
+    }
+
+    /// Set the logging configuration.
+    #[must_use]
+    pub fn with_logging(mut self, logging: LoggerConfig) -> Self {
+        self.config.logging = logging;
+        self
+    }
+
+    /// Adds a data client factory with configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a client with the same name is already registered.
+    pub fn add_data_client(
+        self,
+        name: Option<String>,
+        factory: Box<dyn DataClientFactory>,
+        config: Box<dyn ClientConfig>,
+    ) -> anyhow::Result<Self> {
+        self.add_data_client_with_routing(name, factory, config, RoutingConfig::default())
+    }
+
+    /// Adds a data client factory with configuration and explicit routing.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a client with the same name is already registered.
+    pub fn add_data_client_with_routing(
+        mut self,
+        name: Option<String>,
+        factory: Box<dyn DataClientFactory>,
+        config: Box<dyn ClientConfig>,
+        routing: RoutingConfig,
+    ) -> anyhow::Result<Self> {
+        let name = name.unwrap_or_else(|| factory.name().to_string());
+
+        if self.data_client_factories.contains_key(&name) {
+            anyhow::bail!("Data client '{name}' is already registered");
+        }
+
+        self.data_client_factories.insert(name.clone(), factory);
+        self.data_client_configs.insert(name.clone(), config);
+        self.data_client_routing.insert(name, routing);
+        Ok(self)
+    }
+
+    /// Adds an execution client factory with configuration.
+    ///
+    /// Equivalent to [`Self::add_exec_client_with_routing`] with default (empty)
+    /// routing.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a client with the same name is already registered.
+    pub fn add_exec_client(
+        self,
+        name: Option<String>,
+        factory: Box<dyn ExecutionClientFactory>,
+        config: Box<dyn ClientConfig>,
+    ) -> anyhow::Result<Self> {
+        self.add_exec_client_with_routing(name, factory, config, RoutingConfig::default())
+    }
+
+    /// Adds an execution client factory with configuration and explicit routing.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a client with the same name is already registered.
+    pub fn add_exec_client_with_routing(
+        mut self,
+        name: Option<String>,
+        factory: Box<dyn ExecutionClientFactory>,
+        config: Box<dyn ClientConfig>,
+        routing: RoutingConfig,
+    ) -> anyhow::Result<Self> {
+        let name = name.unwrap_or_else(|| factory.name().to_string());
+
+        if self.exec_client_factories.contains_key(&name) {
+            anyhow::bail!("Execution client '{name}' is already registered");
+        }
+
+        self.exec_client_factories
+            .insert(name.clone(), ExecutionClientFactoryEntry::Adapter(factory));
+        self.exec_client_configs.insert(name.clone(), config);
+        self.exec_client_routing.insert(name, routing);
+        Ok(self)
+    }
+
+    /// Add a simulated execution client factory.
+    ///
+    /// This path is for sync-core clients such as the sandbox matching engine, which owns cache
+    /// mutation. Live venue adapters should use [`Self::add_exec_client`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a client with the same name is already registered.
+    pub fn add_simulated_exec_client(
+        mut self,
+        name: Option<String>,
+        factory: Box<dyn SimulatedExecutionClientFactory>,
+        config: Box<dyn ClientConfig>,
+    ) -> anyhow::Result<Self> {
+        let name = name.unwrap_or_else(|| factory.name().to_string());
+
+        if self.exec_client_factories.contains_key(&name) {
+            anyhow::bail!("Execution client '{name}' is already registered");
+        }
+
+        self.exec_client_factories.insert(
+            name.clone(),
+            ExecutionClientFactoryEntry::Simulated(factory),
+        );
+        self.exec_client_configs.insert(name, config);
+        Ok(self)
+    }
+
+    /// Build the [`LiveNode`] with the configured settings.
+    ///
+    /// This will:
+    /// 1. Build the underlying kernel.
+    /// 2. Create clients using factories.
+    /// 3. Register clients with engines.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if node construction fails.
+    pub fn build(mut self) -> anyhow::Result<LiveNode> {
+        log::info!(
+            "Building LiveNode with {} data clients and {} execution clients",
+            self.data_client_factories.len(),
+            self.exec_client_factories.len()
+        );
+
+        self.config.validate_runtime_support()?;
+
+        if self.config.event_store.is_some() && self.event_store_factory.is_none() {
+            anyhow::bail!(
+                "LiveNodeConfig.event_store is set but no factory was registered; \
+                 call LiveNodeBuilder::with_event_store(...) to install one"
+            );
+        }
+
+        if self.external_msgbus_factory.is_some()
+            && (self.external_msgbus_egress.is_some() || self.external_msgbus_ingress.is_some())
+        {
+            anyhow::bail!(
+                "external message bus factory cannot be combined with injected egress or ingress"
+            );
+        }
+
+        let runner = AsyncRunner::new();
+        runner.bind_senders();
+
+        let kernel = VibeKernel::new_with_dependencies(
+            self.name.clone(),
+            self.config.clone(),
+            VibeKernelDependencies::default()
+                .with_clock_factory(self.clock_factory.take())
+                .with_event_store_factory(self.event_store_factory.take()),
+        )?;
+        #[cfg(feature = "python")]
+        if let Some(controller) = self.config.controller.as_ref() {
+            Trader::add_controller_from_importable_config(&kernel.trader, controller)?;
+        }
+        #[cfg(not(feature = "python"))]
+        if let Some(controller) = self.config.controller.as_ref() {
+            anyhow::bail!(
+                "LiveNodeConfig.controller for importable controller '{}' requires the python feature",
+                controller.controller_path
+            );
+        }
+
+        self.install_external_msgbus_factory(&kernel)?;
+
+        if let Some(external_egress) = self.external_msgbus_egress.take() {
+            let config = self.config.msgbus.clone().unwrap_or_default();
+            vibe_common::msgbus::get_message_bus()
+                .borrow_mut()
+                .set_external_egress_config(external_egress, &config)?;
+        }
+
+        for (name, factory) in self.data_client_factories {
+            if let Some(config) = self.data_client_configs.remove(&name) {
+                log::debug!("Creating data client {name}");
+
+                let client = factory.create(
+                    &name,
+                    config.as_ref(),
+                    kernel.cache().into(),
+                    kernel.clock(),
+                )?;
+                let client_id = client.client_id();
+                let venue = client.venue();
+
+                let adapter = DataClientAdapter::new(
+                    client_id, venue, true, // handles_order_book_deltas
+                    true, // handles_order_book_snapshots
+                    client,
+                );
+
+                let routing = self.data_client_routing.remove(&name).unwrap_or_default();
+
+                {
+                    let mut data_engine = kernel.data_engine.borrow_mut();
+                    data_engine.register_client(adapter, venue);
+
+                    if routing.default {
+                        data_engine.set_default_client(client_id)?;
+                    }
+
+                    if let Some(venues) = &routing.venues {
+                        for venue_str in venues {
+                            data_engine.register_venue_routing(
+                                client_id,
+                                Venue::new(venue_str.as_str()),
+                            )?;
+                        }
+                    }
+                }
+
+                log::info!("Registered DataClient-{client_id}");
+            } else {
+                log::warn!("No config found for data client factory {name}");
+            }
+        }
+
+        let mut exec_clients = Vec::new();
+
+        for (name, factory) in self.exec_client_factories {
+            if let Some(config) = self.exec_client_configs.remove(&name) {
+                log::debug!("Creating execution client {name}");
+
+                let client = match factory {
+                    ExecutionClientFactoryEntry::Adapter(factory) => {
+                        factory.create(&name, config.as_ref(), kernel.cache().into())?
+                    }
+                    ExecutionClientFactoryEntry::Simulated(factory) => {
+                        factory.create(&name, config.as_ref(), kernel.cache())?
+                    }
+                };
+                let client = LiveExecutionClient::new(client);
+                let client_id = client.client_id();
+                let venue = client.venue();
+
+                let routing = self.exec_client_routing.remove(&name).unwrap_or_default();
+
+                {
+                    let mut exec_engine = kernel.exec_engine.borrow_mut();
+                    exec_engine.register_client(Box::new(client.clone()))?;
+
+                    if routing.default {
+                        exec_engine.set_default_client(client_id)?;
+                    }
+
+                    if let Some(venues) = &routing.venues {
+                        for venue_str in venues {
+                            exec_engine.register_venue_routing(
+                                client_id,
+                                Venue::new(venue_str.as_str()),
+                            )?;
+                        }
+                    }
+                }
+                ExecutionEngine::subscribe_venue_instruments(&kernel.exec_engine, venue);
+                exec_clients.push(client);
+
+                log::info!("Registered ExecutionClient-{client_id}");
+            } else {
+                log::warn!("No config found for execution client factory {name}");
+            }
+        }
+
+        let exec_manager_config = ExecutionManagerConfig::from(&self.config.exec_engine)
+            .with_trader_id(self.config.trader_id);
+        let mut exec_manager = ExecutionManager::new(
+            kernel.clock.clone(),
+            kernel.cache.clone(),
+            exec_manager_config,
+        );
+
+        for client in &exec_clients {
+            exec_manager.set_position_reconciliation_tolerance(
+                client.account_id(),
+                client.position_reconciliation_tolerance(),
+            );
+        }
+
+        let node = LiveNode::new_from_builder(
+            kernel,
+            runner,
+            self.config,
+            exec_manager,
+            exec_clients,
+            self.external_msgbus_ingress,
+        );
+        node.load_configured_plugins()?;
+
+        log::info!("Built successfully");
+
+        Ok(node)
+    }
+
+    fn install_external_msgbus_factory(&mut self, kernel: &VibeKernel) -> anyhow::Result<()> {
+        let Some(factory) = self.external_msgbus_factory.take() else {
+            return Ok(());
+        };
+
+        let config = self.config.msgbus.clone().unwrap_or_default();
+        let has_external_streams = config
+            .external_streams
+            .as_ref()
+            .is_some_and(|streams| !streams.is_empty());
+        config.validate()?;
+        let backing = factory.create(self.config.trader_id, kernel.instance_id, config)?;
+
+        if has_external_streams {
+            let (external_egress, external_ingress) = external_io_from_backing(backing);
+            self.external_msgbus_egress = Some(external_egress);
+            self.external_msgbus_ingress = Some(ExternalMessageBusIngress(external_ingress));
+        } else {
+            self.external_msgbus_egress = Some(external_egress_from_backing(backing));
+        }
+
+        Ok(())
+    }
+}
+
+impl ExternalMessageBusIngress {
+    pub(crate) fn is_closed(&self) -> bool {
+        self.0.is_closed()
+    }
+
+    pub(crate) fn take_receiver(
+        &mut self,
+    ) -> anyhow::Result<tokio::sync::mpsc::Receiver<BusMessage>> {
+        self.0.take_receiver()
+    }
+
+    pub(crate) fn close(&mut self) {
+        self.0.close();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use rstest::rstest;
+    use vibe_common::enums::Environment;
+    use vibe_model::identifiers::TraderId;
+    use vibe_trading::ImportableControllerConfig;
+
+    use super::LiveNodeBuilder;
+
+    #[rstest]
+    fn test_with_controller_sets_config_controller() {
+        let controller = ImportableControllerConfig {
+            controller_path: "module:Controller".to_string(),
+            config_path: "module:ControllerConfig".to_string(),
+            config: HashMap::new(),
+        };
+
+        let builder = LiveNodeBuilder::new(TraderId::from("TRADER-001"), Environment::Live)
+            .unwrap()
+            .with_controller(controller);
+
+        assert!(builder.config.controller.is_some());
+    }
+}

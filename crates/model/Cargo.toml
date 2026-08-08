@@ -1,0 +1,133 @@
+[package]
+name = "vibe-model"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Domain model for the Vibe trading engine"
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "vibe_model"
+crate-type = ["rlib", "staticlib"]
+
+[features]
+default = []
+arrow = ["dep:arrow"]
+extension-module = [
+  "vibe-core/extension-module",
+  "python",
+  "pyo3/extension-module",
+]
+ffi = ["cbindgen", "vibe-core/ffi"]
+python = ["vibe-core/python", "pyo3", "pyo3-stub-gen"]
+python-arrow = ["python", "arrow"]
+stubs = ["rstest"]
+high-precision = []
+# DeFi domain model requires 18-decimal wei precision, implying `high-precision`
+defi = ["alloy-primitives", "high-precision"]
+
+[package.metadata.cargo-machete]
+ignored = [
+  "cbindgen", # Used by build.rs when the `ffi` feature is enabled
+]
+[dependencies]
+vibe-core = { workspace = true }
+
+ahash = { workspace = true }
+anyhow = { workspace = true }
+arrow = { workspace = true, optional = true }
+derive_builder = { workspace = true }
+enum_dispatch = { workspace = true }
+implied-vol = { workspace = true }
+indexmap = { workspace = true }
+jiff = { workspace = true }
+log = { workspace = true }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+strum = { workspace = true }
+tabled = { workspace = true }
+thiserror = { workspace = true }
+ustr = { workspace = true }
+
+alloy-primitives = { workspace = true, optional = true }
+bon = { workspace = true }
+dashmap.workspace = true
+pyo3 = { workspace = true, optional = true }
+pyo3-stub-gen = { workspace = true, optional = true }
+rstest = { workspace = true, optional = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+iai = { workspace = true }
+proptest = { workspace = true }
+rstest = { workspace = true }
+
+[build-dependencies]
+cbindgen = { workspace = true, optional = true }
+
+[[bench]]
+name = "greeks_criterion"
+path = "benches/greeks_criterion.rs"
+harness = false
+
+[[bench]]
+name = "black_scholes_criterion"
+path = "benches/black_scholes_criterion.rs"
+harness = false
+
+[[bench]]
+name = "book_iai"
+path = "benches/book_iai.rs"
+harness = false
+
+[[bench]]
+name = "fixed_precision_criterion"
+path = "benches/fixed_precision_criterion.rs"
+harness = false
+
+[[bench]]
+name = "fixed_precision_iai"
+path = "benches/fixed_precision_iai.rs"
+harness = false
+
+[[bench]]
+name = "f64_vs_decimal_to_price_quantity"
+path = "benches/f64_vs_decimal_to_price_quantity.rs"
+harness = false
+
+[[bench]]
+name = "money_criterion"
+path = "benches/money_criterion.rs"
+harness = false
+
+[[bench]]
+name = "price_criterion"
+path = "benches/price_criterion.rs"
+harness = false
+
+[[bench]]
+name = "quantity_criterion"
+path = "benches/quantity_criterion.rs"
+harness = false
+
+[[bench]]
+name = "expressions_criterion"
+path = "benches/expressions_criterion.rs"
+harness = false
+
+[[bench]]
+name = "order_fills_criterion"
+path = "benches/order_fills_criterion.rs"
+harness = false
+
+[[bench]]
+name = "position_replay_criterion"
+path = "benches/position_replay_criterion.rs"
+harness = false

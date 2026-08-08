@@ -1,0 +1,19 @@
+[package]
+name = "vibe-trader"
+readme = "README.md"
+rust-version.workspace = true
+publish = false
+version.workspace = true
+edition.workspace = true
+description = "Container crate for core VibeTrader APIs"
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+path = "lib.rs"
+[dependencies]
+vibe-common = { workspace = true }
+vibe-core = { workspace = true }
+vibe-model = { workspace = true, features = ["stubs"] }

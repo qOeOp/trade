@@ -1,0 +1,138 @@
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    str::FromStr,
+};
+
+use pyo3::{
+    IntoPyObjectExt,
+    prelude::*,
+    pyclass::CompareOp,
+    types::{PyString, PyTuple},
+};
+use vibe_core::python::{IntoPyObjectVibeExt, correctness_error_to_pyvalue_err};
+
+use crate::{
+    enums::InstrumentClass,
+    identifiers::{InstrumentId, Symbol, Venue},
+    python::instrument_id_error_to_pyvalue_err,
+};
+
+#[pymethods]
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
+impl InstrumentId {
+    /// Represents a valid instrument ID.
+    ///
+    /// The symbol and venue combination should uniquely identify the instrument.
+    #[new]
+    fn py_new(symbol: Symbol, venue: Venue) -> Self {
+        Self::new(symbol, venue)
+    }
+
+    fn __setstate__(&mut self, state: &Bound<'_, PyAny>) -> PyResult<()> {
+        let py_tuple: &Bound<'_, PyTuple> = state.cast::<PyTuple>()?;
+        self.symbol = Symbol::new_checked(
+            py_tuple
+                .get_item(0)?
+                .cast::<PyString>()?
+                .extract::<&str>()?,
+        )
+        .map_err(correctness_error_to_pyvalue_err)?;
+        self.venue = Venue::new_checked(
+            py_tuple
+                .get_item(1)?
+                .cast::<PyString>()?
+                .extract::<&str>()?,
+        )
+        .map_err(correctness_error_to_pyvalue_err)?;
+        Ok(())
+    }
+
+    fn __getstate__(&self, py: Python) -> PyResult<Py<PyAny>> {
+        (self.symbol.to_string(), self.venue.to_string()).into_py_any(py)
+    }
+
+    fn __reduce__(&self, py: Python) -> PyResult<Py<PyAny>> {
+        let safe_constructor = py.get_type::<Self>().getattr("_safe_constructor")?;
+        let state = self.__getstate__(py)?;
+        (safe_constructor, PyTuple::empty(py), state).into_py_any(py)
+    }
+
+    #[staticmethod]
+    fn _safe_constructor() -> Self {
+        Self::from_str("NULL.NULL").unwrap() // Safe default
+    }
+
+    #[expect(clippy::needless_pass_by_value)]
+    fn __richcmp__(&self, other: Py<PyAny>, op: CompareOp, py: Python<'_>) -> Py<PyAny> {
+        if let Ok(other) = other.extract::<Self>(py) {
+            match op {
+                CompareOp::Eq => self.eq(&other).into_py_any_unwrap(py),
+                CompareOp::Ne => self.ne(&other).into_py_any_unwrap(py),
+                CompareOp::Ge => self.ge(&other).into_py_any_unwrap(py),
+                CompareOp::Gt => self.gt(&other).into_py_any_unwrap(py),
+                CompareOp::Le => self.le(&other).into_py_any_unwrap(py),
+                CompareOp::Lt => self.lt(&other).into_py_any_unwrap(py),
+            }
+        } else {
+            py.NotImplemented()
+        }
+    }
+
+    fn __hash__(&self) -> isize {
+        let mut h = DefaultHasher::new();
+        self.hash(&mut h);
+        h.finish() as isize
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{}('{}')", stringify!(InstrumentId), self)
+    }
+
+    fn __str__(&self) -> String {
+        self.to_string()
+    }
+
+    #[getter]
+    #[pyo3(name = "symbol")]
+    fn py_symbol(&self) -> Symbol {
+        self.symbol
+    }
+
+    #[getter]
+    #[pyo3(name = "venue")]
+    fn py_venue(&self) -> Venue {
+        self.venue
+    }
+
+    #[getter]
+    fn value(&self) -> String {
+        self.to_string()
+    }
+
+    #[staticmethod]
+    #[pyo3(name = "from_str")]
+    fn py_from_str(value: &str) -> PyResult<Self> {
+        Self::from_str(value).map_err(instrument_id_error_to_pyvalue_err)
+    }
+
+    #[pyo3(name = "is_synthetic")]
+    fn py_is_synthetic(&self) -> bool {
+        self.is_synthetic()
+    }
+
+    /// Returns the parent-symbol components `(root, class)` if this id has
+    /// a recognised parent shape `<root>.<class>` in its symbol component.
+    ///
+    /// Returns `None` when the symbol has zero or more than one `.`, or when
+    /// the suffix is not a recognised `InstrumentClass` parent suffix
+    /// (see `InstrumentClass.try_from_parent_suffix`).
+    ///
+    /// Used to gate parent-style subscription fan-out: a `None` return means
+    /// the id does not refer to a parent group and must not be expanded.
+    #[pyo3(name = "parse_parent_components")]
+    fn py_parse_parent_components(&self) -> Option<(String, InstrumentClass)> {
+        self.parse_parent_components()
+            .map(|(root, class)| (root.to_string(), class))
+    }
+}

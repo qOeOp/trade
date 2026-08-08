@@ -1,0 +1,49 @@
+FROM public.ecr.aws/docker/library/rust:1.97.1-slim-bookworm@sha256:99e09cb2284e2ddbb73a995deee3e91783fd04d177602ccf6eab326d778ee777 AS rust-toolchain
+
+# Keep the Python version tag aligned with python/pyproject.toml and the
+# site-packages paths checked by scripts/ci/check-docker-toolchain-pins.bash.
+FROM public.ecr.aws/docker/library/python:3.13-slim@sha256:a0779d7c12fc20be6ec6b4ddc901a4fd7657b8a6bc9def9d3fde89ed5efe0a3d AS base
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=off \
+    PIP_DISABLE_PIP_VERSION_CHECK=on \
+    PIP_DEFAULT_TIMEOUT=100 \
+    PYO3_PYTHON="/usr/local/bin/python3" \
+    PYSETUP_PATH="/opt/pysetup" \
+    CARGO_HOME="/usr/local/cargo" \
+    RUSTUP_HOME="/usr/local/rustup" \
+    CC="clang"
+ENV PATH="/root/.local/bin:/usr/local/cargo/bin:$PATH"
+WORKDIR $PYSETUP_PATH
+
+FROM base AS builder
+
+RUN apt-get update && \
+    apt-get install -y curl clang lld git make pkg-config capnproto libcapnp-dev patchelf && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=rust-toolchain /usr/local/cargo /usr/local/cargo
+COPY --from=rust-toolchain /usr/local/rustup /usr/local/rustup
+COPY --from=ghcr.io/astral-sh/uv:0.12.1@sha256:cf4eedcaa81655197f625739489effcbe71b61ceb1506f332c3facae5deceded \
+  /uv /uvx /root/.local/bin/
+
+COPY Cargo.toml ./
+COPY Cargo.lock ./
+COPY crates ./crates
+COPY patches ./patches
+COPY examples/tutorials ./examples/tutorials
+COPY README.md ./
+COPY python/pyproject.toml python/uv.lock ./python/
+RUN cd python && uv sync --frozen --no-install-package vibe-trader
+
+COPY python/vibe_trader ./python/vibe_trader
+ARG CARGO_BUILD_JOBS=2
+RUN cd python && uv run --no-sync maturin build --release --out ../dist
+RUN uv pip install --system dist/*.whl
+RUN find /usr/local/lib/python3.13/site-packages -name "*.pyc" -exec rm -f {} \;
+
+FROM base AS application
+
+COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
+COPY --from=builder /usr/local/bin/ /usr/local/bin/

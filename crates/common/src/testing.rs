@@ -1,0 +1,109 @@
+//! Common test related helper functions.
+
+#[cfg(feature = "live")]
+use std::future::Future;
+use std::{
+    thread,
+    time::{Duration, Instant},
+};
+
+use vibe_core::UUID4;
+use vibe_model::{identifiers::TraderId, stubs::TestDefault};
+
+use crate::logging::{
+    init_logging,
+    logger::{LogGuard, LoggerConfig},
+    writer::FileWriterConfig,
+};
+
+/// # Errors
+///
+/// Returns an error if initializing the logger fails.
+pub fn init_logger_for_testing(stdout_level: Option<log::LevelFilter>) -> anyhow::Result<LogGuard> {
+    let config = LoggerConfig {
+        stdout_level: stdout_level.unwrap_or(log::LevelFilter::Trace),
+        ..Default::default()
+    };
+    init_logging(
+        TraderId::test_default(),
+        UUID4::new(),
+        config,
+        FileWriterConfig::default(),
+    )
+}
+
+/// Repeatedly evaluates a condition with a delay until it becomes true or a timeout occurs.
+///
+/// # Panics
+///
+/// This function panics if the timeout duration is exceeded without the condition being met.
+///
+/// # Examples
+///
+/// ```
+/// use std::time::Duration;
+/// use std::thread;
+/// use vibe_common::testing::wait_until;
+///
+/// let start_time = std::time::Instant::now();
+/// let timeout = Duration::from_secs(5);
+///
+/// wait_until(|| {
+///     if start_time.elapsed().as_secs() > 2 {
+///         true
+///     } else {
+///         false
+///     }
+/// }, timeout);
+/// ```
+///
+/// In the above example, the `wait_until` function will block for at least 2 seconds, as that's how long
+/// it takes for the condition to be met. If the condition was not met within 5 seconds, it would panic.
+pub fn wait_until<F>(mut condition: F, timeout: Duration)
+where
+    F: FnMut() -> bool,
+{
+    let start_time = Instant::now(); // dst-ok: test helper timer; uses real time by design
+
+    loop {
+        if condition() {
+            break;
+        }
+
+        assert!(
+            start_time.elapsed() <= timeout,
+            "Timeout waiting for condition after {:.1}s (limit {:.1}s)",
+            start_time.elapsed().as_secs_f64(),
+            timeout.as_secs_f64(),
+        );
+
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// # Panics
+///
+/// Panics if the timeout duration is exceeded without the condition being met.
+#[cfg(feature = "live")]
+pub async fn wait_until_async<F, Fut>(mut condition: F, timeout: Duration)
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = bool>,
+{
+    let start_time = Instant::now(); // dst-ok: test helper timer; uses real time by design
+
+    loop {
+        if condition().await {
+            break;
+        }
+
+        assert!(
+            start_time.elapsed() <= timeout,
+            "Timeout waiting for condition after {:.1}s (limit {:.1}s)",
+            start_time.elapsed().as_secs_f64(),
+            timeout.as_secs_f64(),
+        );
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}

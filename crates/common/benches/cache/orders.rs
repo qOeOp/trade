@@ -1,0 +1,78 @@
+use std::{hint::black_box, time::Duration};
+
+use criterion::{Criterion, criterion_group, criterion_main};
+use vibe_common::cache::Cache;
+use vibe_model::{
+    identifiers::{InstrumentId, Venue},
+    orders::{OrderAny, stubs::create_order_list_sample},
+};
+
+fn cache_order_querying_venue_instrument(
+    cache: &Cache,
+    venue: &Venue,
+    instrument: Option<&InstrumentId>,
+) {
+    let _ = cache.orders(Some(venue), instrument, None, None, None);
+}
+
+fn cache_orders_processing(orders: &[OrderAny]) {
+    let mut cache = Cache::default();
+    for order in orders {
+        cache.add_order(order.clone(), None, None, false).unwrap();
+    }
+}
+
+fn bench_order_indexing(c: &mut Criterion) {
+    // Create 100k orders list and add it to the cache
+    let all_orders = create_order_list_sample(5, 100, 200);
+    let mut cache = Cache::default();
+    for order in all_orders {
+        cache.add_order(order, None, None, false).unwrap();
+    }
+
+    let venue = Venue::from("VENUE-1");
+    let instrument = InstrumentId::from("SYMBOL-1.1");
+
+    c.bench_function("Cache query by venue", |b| {
+        b.iter(|| {
+            cache_order_querying_venue_instrument(
+                black_box(&cache),
+                black_box(&venue),
+                black_box(None),
+            );
+        });
+    });
+
+    c.bench_function("Cache query by venue + instrument", |b| {
+        b.iter(|| {
+            cache_order_querying_venue_instrument(
+                black_box(&cache),
+                black_box(&venue),
+                black_box(Some(&instrument)),
+            );
+        });
+    });
+}
+
+fn bench_order_processing(c: &mut Criterion) {
+    // Generate list with 100k orders which we slice per test (5 * 100 * 200 = 100k)
+    let all_orders = create_order_list_sample(5, 100, 200);
+
+    c.bench_function("Cache order processing one order", |b| {
+        b.iter(|| cache_orders_processing(black_box(&all_orders[..1])));
+    });
+
+    c.bench_function("Cache order processing 10k orders", |b| {
+        b.iter(|| cache_orders_processing(black_box(&all_orders[..10000])));
+    });
+
+    let mut large = c.benchmark_group("Cache order processing large");
+    large.measurement_time(Duration::from_secs(10));
+    large.bench_function("100k orders", |b| {
+        b.iter(|| cache_orders_processing(black_box(&all_orders)));
+    });
+    large.finish();
+}
+
+criterion_group!(benches, bench_order_indexing, bench_order_processing);
+criterion_main!(benches);

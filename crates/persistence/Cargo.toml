@@ -1,0 +1,104 @@
+[package]
+name = "vibe-persistence"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Data persistence and storage for the Vibe trading engine"
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "vibe_persistence"
+crate-type = ["rlib"]
+
+[features]
+default = []
+defi = ["vibe-model/defi"]
+cloud = [
+  "object_store/aws",
+  "object_store/azure",
+  "object_store/gcp",
+  "object_store/http",
+]
+extension-module = [
+  "vibe-core/extension-module",
+  "vibe-model/extension-module",
+  "vibe-serialization/extension-module",
+  "python",
+  "pyo3/extension-module",
+]
+python = [
+  "vibe-common/python",
+  "vibe-core/python",
+  "vibe-model/python",
+  "vibe-serialization/python",
+  "pyo3",
+  "pyo3-stub-gen",
+  "cloud",
+]
+high-precision = [
+  "vibe-model/high-precision",
+  "vibe-testkit/high-precision",
+  "vibe-serialization/high-precision",
+]
+[dependencies]
+vibe-common = { workspace = true, features = ["live"] }
+vibe-core = { workspace = true }
+vibe-model = { workspace = true, features = ["stubs"] }
+vibe-persistence-macros = { workspace = true }
+vibe-serialization = { workspace = true, features = ["arrow"] }
+
+ahash = { workspace = true }
+anyhow = { workspace = true }
+arrow = { workspace = true }
+arrow-row = { workspace = true }
+datafusion = { workspace = true }
+futures = { workspace = true }
+indexmap = { workspace = true }
+jiff = { workspace = true }
+log = { workspace = true }
+object_store = { workspace = true }
+parquet = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+unbounded-interval-tree = { workspace = true }
+url = { workspace = true }
+
+pyo3 = { workspace = true, optional = true }
+pyo3-stub-gen = { workspace = true, optional = true }
+
+[dev-dependencies]
+vibe-testkit = { workspace = true, default-features = false, features = [
+  "datasets",
+] }
+
+criterion = { workspace = true }
+pretty_assertions = { workspace = true }
+proptest = { workspace = true }
+rstest = { workspace = true }
+rust_decimal = { workspace = true }
+tempfile = { workspace = true }
+
+[[bench]]
+name = "persistence"
+path = "benches/persistence.rs"
+harness = false
+
+[[bin]]
+name = "to_json"
+path = "bin/to_json.rs"
+required-features = ["python"]
+doc = false
+test = false
+
+[[bin]]
+name = "to_parquet"
+path = "bin/to_parquet.rs"
+required-features = ["python"]
+doc = false
+test = false

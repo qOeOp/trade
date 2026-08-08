@@ -1,0 +1,74 @@
+[package]
+name = "vibe-infrastructure"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Infrastructure components for the Vibe trading engine"
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "vibe_infrastructure"
+crate-type = ["rlib"]
+
+[features]
+default = ["redis"] # redis needed by `vibe_trader` by default for now
+extension-module = [
+  "vibe-common/extension-module",
+  "vibe-core/extension-module",
+  "vibe-model/extension-module",
+  "python",
+  "pyo3/extension-module",
+]
+python = [
+  "vibe-common/python",
+  "vibe-core/python",
+  "vibe-model/python",
+  "pyo3",
+  "pyo3-async-runtimes",
+  "pyo3-stub-gen",
+]
+redis = ["dep:redis"]
+postgres = ["dep:sqlx"]
+[dependencies]
+vibe-common = { workspace = true, features = ["live"] }
+vibe-core = { workspace = true }
+vibe-cryptography = { workspace = true }
+vibe-model = { workspace = true, features = ["stubs"] }
+
+ahash = { workspace = true }
+anyhow = { workspace = true }
+async-stream = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+derive_builder = { workspace = true }
+futures = { workspace = true }
+indexmap = { workspace = true }
+jiff = { workspace = true }
+log = { workspace = true }
+regex = { workspace = true }
+rmp-serde = { workspace = true }
+rust_decimal = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+ustr = { workspace = true }
+
+pyo3 = { workspace = true, optional = true }
+pyo3-async-runtimes = { workspace = true, optional = true }
+pyo3-stub-gen = { workspace = true, optional = true }
+redis = { workspace = true, optional = true }
+sqlx = { workspace = true, optional = true }
+
+[dev-dependencies]
+vibe-live = { workspace = true, features = ["node"] }
+vibe-persistence = { workspace = true }
+vibe-serialization = { workspace = true }
+
+rstest = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }

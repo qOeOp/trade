@@ -1,0 +1,75 @@
+[package]
+name = "vibe-execution"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Core execution machinery for the Vibe trading engine"
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "vibe_execution"
+crate-type = ["rlib"]
+
+[features]
+default = []
+extension-module = [
+  "vibe-common/extension-module",
+  "vibe-core/extension-module",
+  "vibe-model/extension-module",
+  "python",
+  "pyo3/extension-module",
+]
+python = [
+  "vibe-common/python",
+  "vibe-core/python",
+  "vibe-model/python",
+  "pyo3",
+  "pyo3-stub-gen",
+]
+simulation = ["dep:madsim", "vibe-core/simulation"]
+high-precision = ["vibe-model/high-precision"]
+[dependencies]
+vibe-common = { workspace = true }
+vibe-core = { workspace = true }
+vibe-model = { workspace = true, features = ["stubs"] }
+
+ahash = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+bon = { workspace = true }
+futures = { workspace = true }
+indexmap = { workspace = true }
+jiff = { workspace = true }
+log = { workspace = true }
+rand = { workspace = true }
+rstest = { workspace = true }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+serde = { workspace = true }
+smallvec = { workspace = true }
+ustr = { workspace = true }
+uuid = { workspace = true }
+
+madsim = { workspace = true, optional = true }
+pyo3 = { workspace = true, optional = true }
+pyo3-stub-gen = { workspace = true, optional = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+serde_json = { workspace = true }
+
+[[bench]]
+name = "matching_core"
+path = "benches/matching_core.rs"
+harness = false
+
+[[bench]]
+name = "matching_engine"
+path = "benches/matching_engine.rs"
+harness = false

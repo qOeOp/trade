@@ -36,13 +36,13 @@ Start with no special method. Select one only when its observation can change th
 acceptance more cheaply than the strongest alternative. Add another method only when it covers a
 different unresolved risk; do not stack the rows as ceremony.
 
-| Method | Activate only when | Decisive evidence and Stop |
-| --- | --- | --- |
-| BDD outer loop | shared intent or acceptance remains ambiguous, or cross-boundary user/domain behavior needs executable examples as acceptance | agreed rules and examples fail before implementation and pass through the real behavior boundary; stop when examples close the disputed behavior |
-| Selective TDD inner loop | the current evidence decision asks whether test-first feedback would expose a design or boundary error in an already-admitted narrow implementation rule | select or reject that evidence route, then pass an admitted route through [agent lane routing](../orchestration/orchestration-agent-routing.md), which loads [Mission execution](../execution/execution-mission-routing-policy.md) without requiring an agent lane |
-| [Targeted mutation](verification-test-corrosion-playbook.md) | tests pass but a named plausible fault could survive because assertion strength is uncertain | the bounded fault is killed or exposes a scenario/oracle gap; stop after the named risk is resolved or the method ceases to be decisive |
-| [Step governance](verification-bdd-step-corrosion-playbook.md) | Gherkin and Step definitions exist or are proposed for the current behavior | the effective runner configuration gives every executable Step one intended match and no unconsumed glue; stop after semantic and runtime matching close |
-| [Test GC](../optimization/optimization-test-gc-playbook.md) | test or glue cost, redundancy, obsolescence, or reachability is a current decision | authority, reachability, unique value, replacement, and runtime evidence support an owner-reviewed action; stop at a proposal when deletion safety is not closed |
+| Method                                                         | Activate only when                                                                                                                                       | Decisive evidence and Stop                                                                                                                                                                                                                                         |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| BDD outer loop                                                 | shared intent or acceptance remains ambiguous, or cross-boundary user/domain behavior needs executable examples as acceptance                            | agreed rules and examples fail before implementation and pass through the real behavior boundary; stop when examples close the disputed behavior                                                                                                                   |
+| Selective TDD inner loop                                       | the current evidence decision asks whether test-first feedback would expose a design or boundary error in an already-admitted narrow implementation rule | select or reject that evidence route, then pass an admitted route through [agent lane routing](../orchestration/orchestration-agent-routing.md), which loads [Mission execution](../execution/execution-mission-routing-policy.md) without requiring an agent lane |
+| [Targeted mutation](verification-test-corrosion-playbook.md)   | tests pass but a named plausible fault could survive because assertion strength is uncertain                                                             | the bounded fault is killed or exposes a scenario/oracle gap; stop after the named risk is resolved or the method ceases to be decisive                                                                                                                            |
+| [Step governance](verification-bdd-step-corrosion-playbook.md) | Gherkin and Step definitions exist or are proposed for the current behavior                                                                              | the effective runner configuration gives every executable Step one intended match and no unconsumed glue; stop after semantic and runtime matching close                                                                                                           |
+| [Test GC](../optimization/optimization-test-gc-playbook.md)    | test or glue cost, redundancy, obsolescence, or reachability is a current decision                                                                       | authority, reachability, unique value, replacement, and runtime evidence support an owner-reviewed action; stop at a proposal when deletion safety is not closed                                                                                                   |
 
 When no row activates, use the normal consumer check and narrowest owner regression. Counts, coverage,
 method popularity, an available tool, or a request to add tests do not activate a row.
@@ -52,14 +52,14 @@ or observed runtime, expected correction loop, and resulting test-maintenance su
 count never raises the decision quality. Prefer `none` or native regression when it closes the same
 risk; BDD/TDD/mutation/GC each need an unresolved risk that the cheaper route cannot decide.
 
-| Representative condition | Cheapest decisive selection | Stop |
-| --- | --- | --- |
-| contract and real consumer are clear; ordinary regression directly distinguishes the change | native regression | owner/direct-consumer result closes the behavior |
-| no behavior change or test risk remains | none | do not add a method as ceremony |
-| examples resolve cross-boundary domain intent | BDD outer loop | real executable examples close the ambiguity |
-| an admitted narrow rule may reveal a design/boundary error through test-first feedback | selective TDD | route decision is made; it does not claim an independent oracle |
-| a named fault can survive a passing scenario because its assertion is uncertain | one targeted mutation | same fault is killed or exposes the oracle gap |
-| current cost/redundancy/reachability decision may remove evidence | Test GC proposal | retain evidence until authority, runtime reachability and unique value close |
+| Representative condition                                                                    | Cheapest decisive selection | Stop                                                                         |
+| ------------------------------------------------------------------------------------------- | --------------------------- | ---------------------------------------------------------------------------- |
+| contract and real consumer are clear; ordinary regression directly distinguishes the change | native regression           | owner/direct-consumer result closes the behavior                             |
+| no behavior change or test risk remains                                                     | none                        | do not add a method as ceremony                                              |
+| examples resolve cross-boundary domain intent                                               | BDD outer loop              | real executable examples close the ambiguity                                 |
+| an admitted narrow rule may reveal a design/boundary error through test-first feedback      | selective TDD               | route decision is made; it does not claim an independent oracle              |
+| a named fault can survive a passing scenario because its assertion is uncertain             | one targeted mutation       | same fault is killed or exposes the oracle gap                               |
+| current cost/redundancy/reachability decision may remove evidence                           | Test GC proposal            | retain evidence until authority, runtime reachability and unique value close |
 
 ## Select the outer and inner evidence conditionally
 

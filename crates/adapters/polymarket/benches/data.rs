@@ -1,0 +1,278 @@
+//! Canonical inbound pipeline benches: raw WS / REST frame bytes -> Vibe
+//! domain type. Covers JSON decode + parse + cache lookup + Vibe type
+//! construction. No I/O, no async runtime, no channel.
+//!
+//! Each bench measures one message kind end-to-end. Rows are ordered from the
+//! most fundamental market-data stream (book deltas / trades) through the
+//! quote derivations down to the private user-channel reports.
+
+mod common;
+
+use std::hint::black_box;
+
+use common::{fixtures, instrument_cache, instrument_precisions, yes_instrument};
+use criterion::{Criterion, Throughput, criterion_group, criterion_main};
+use rust_decimal_macros::dec;
+use vibe_core::UnixNanos;
+use vibe_model::{enums::LiquiditySide, instruments::Instrument, types::Currency};
+use vibe_polymarket::{
+    execution::parse::{build_maker_fill_report, parse_fill_report, parse_order_status_report},
+    http::models::{PolymarketOpenOrder, PolymarketTradeReport},
+    websocket::{
+        messages::MarketWsMessage,
+        parse::{
+            parse_book_deltas, parse_book_snapshot, parse_quote_from_price_change,
+            parse_quote_from_snapshot, parse_timestamp_ms, parse_trade_tick,
+        },
+    },
+};
+
+fn bench_book_deltas(c: &mut Criterion) {
+    let instruments = instrument_cache();
+    let (px_prec, sz_prec) = instrument_precisions();
+    let ts_init = UnixNanos::default();
+
+    let mut group = c.benchmark_group("inbound_pipeline");
+    group.throughput(Throughput::Elements(1));
+    group.bench_function("book_deltas", |b| {
+        b.iter(|| {
+            let msg = MarketWsMessage::parse(black_box(fixtures::MARKET_PRICE_CHANGE)).unwrap();
+            let MarketWsMessage::PriceChange(quotes) = msg else {
+                unreachable!()
+            };
+            let asset_id = quotes.price_changes[0].asset_id;
+            let instrument = instruments.get(&asset_id).unwrap();
+            let deltas =
+                parse_book_deltas(&quotes, instrument.id(), px_prec, sz_prec, ts_init).unwrap();
+            black_box(deltas);
+        });
+    });
+    group.finish();
+}
+
+fn bench_book_snapshot(c: &mut Criterion) {
+    let instruments = instrument_cache();
+    let (px_prec, sz_prec) = instrument_precisions();
+    let ts_init = UnixNanos::default();
+
+    let mut group = c.benchmark_group("inbound_pipeline");
+    group.throughput(Throughput::Elements(1));
+    group.bench_function("book_snapshot", |b| {
+        b.iter(|| {
+            let msg = MarketWsMessage::parse(black_box(fixtures::MARKET_BOOK)).unwrap();
+            let MarketWsMessage::Book(snap) = msg else {
+                unreachable!()
+            };
+            let instrument = instruments.get(&snap.asset_id).unwrap();
+            let deltas =
+                parse_book_snapshot(&snap, instrument.id(), px_prec, sz_prec, ts_init).unwrap();
+            black_box(deltas);
+        });
+    });
+    group.finish();
+}
+
+fn bench_quote_from_snapshot(c: &mut Criterion) {
+    let instruments = instrument_cache();
+    let (px_prec, sz_prec) = instrument_precisions();
+    let ts_init = UnixNanos::default();
+
+    let mut group = c.benchmark_group("inbound_pipeline");
+    group.throughput(Throughput::Elements(1));
+    group.bench_function("quote_from_snapshot", |b| {
+        b.iter(|| {
+            let msg = MarketWsMessage::parse(black_box(fixtures::MARKET_BOOK)).unwrap();
+            let MarketWsMessage::Book(snap) = msg else {
+                unreachable!()
+            };
+            let instrument = instruments.get(&snap.asset_id).unwrap();
+            let quote = parse_quote_from_snapshot(
+                &snap,
+                instrument.id(),
+                px_prec,
+                sz_prec,
+                instrument.price_increment(),
+                true,
+                ts_init,
+            )
+            .unwrap();
+            black_box(quote);
+        });
+    });
+    group.finish();
+}
+
+fn bench_quote_from_price_change(c: &mut Criterion) {
+    let instruments = instrument_cache();
+    let (px_prec, sz_prec) = instrument_precisions();
+    let ts_init = UnixNanos::default();
+
+    let mut group = c.benchmark_group("inbound_pipeline");
+    group.throughput(Throughput::Elements(1));
+    group.bench_function("quote_from_price_change", |b| {
+        b.iter(|| {
+            let msg = MarketWsMessage::parse(black_box(fixtures::MARKET_PRICE_CHANGE)).unwrap();
+            let MarketWsMessage::PriceChange(quotes) = msg else {
+                unreachable!()
+            };
+            let change = &quotes.price_changes[0];
+            let instrument = instruments.get(&change.asset_id).unwrap();
+            let ts_event = parse_timestamp_ms(&quotes.timestamp).unwrap();
+            let quote = parse_quote_from_price_change(
+                change,
+                instrument.id(),
+                px_prec,
+                sz_prec,
+                instrument.price_increment(),
+                true,
+                None,
+                ts_event,
+                ts_init,
+            )
+            .unwrap();
+            black_box(quote);
+        });
+    });
+    group.finish();
+}
+
+fn bench_trades(c: &mut Criterion) {
+    let instruments = instrument_cache();
+    let (px_prec, sz_prec) = instrument_precisions();
+    let ts_init = UnixNanos::default();
+
+    let mut group = c.benchmark_group("inbound_pipeline");
+    group.throughput(Throughput::Elements(1));
+    group.bench_function("trades", |b| {
+        b.iter(|| {
+            let msg = MarketWsMessage::parse(black_box(fixtures::MARKET_LAST_TRADE)).unwrap();
+            let MarketWsMessage::LastTradePrice(trade) = msg else {
+                unreachable!()
+            };
+            let instrument = instruments.get(&trade.asset_id).unwrap();
+            let tick =
+                parse_trade_tick(&trade, instrument.id(), px_prec, sz_prec, ts_init).unwrap();
+            black_box(tick);
+        });
+    });
+    group.finish();
+}
+
+fn bench_order_event(c: &mut Criterion) {
+    // Polymarket has no public WS user -> OrderStatusReport entry point
+    // (the conversion is private to dispatch). The REST `GET /orders` parse
+    // is the canonical equivalent and exercises the same string-decimal +
+    // status-resolution work that the WS path does internally.
+    let instrument = yes_instrument();
+    let (px_prec, sz_prec) = instrument_precisions();
+    let account_id = common::account_id();
+    let ts_init = UnixNanos::default();
+
+    let mut group = c.benchmark_group("inbound_pipeline");
+    group.throughput(Throughput::Elements(1));
+    group.bench_function("order_event", |b| {
+        b.iter(|| {
+            let order: PolymarketOpenOrder =
+                serde_json::from_str(black_box(fixtures::HTTP_OPEN_ORDER)).unwrap();
+            let report = parse_order_status_report(
+                &order,
+                instrument.id(),
+                account_id,
+                None,
+                px_prec,
+                sz_prec,
+                ts_init,
+            );
+            black_box(report);
+        });
+    });
+    group.finish();
+}
+
+fn bench_order_fill(c: &mut Criterion) {
+    // Same rationale as `order_event`: REST `GET /trades` parse stands in for
+    // the (private) WS user-trade -> FillReport conversion.
+    let instrument = yes_instrument();
+    let (px_prec, sz_prec) = instrument_precisions();
+    let account_id = common::account_id();
+    let currency = Currency::pUSD();
+    let taker_fee = dec!(0.03);
+    let fee_exponent = 2.0;
+    let ts_init = UnixNanos::default();
+
+    let mut group = c.benchmark_group("inbound_pipeline");
+    group.throughput(Throughput::Elements(1));
+    group.bench_function("order_fill", |b| {
+        b.iter(|| {
+            let trade: PolymarketTradeReport =
+                serde_json::from_str(black_box(fixtures::HTTP_TRADE_REPORT)).unwrap();
+            let report = parse_fill_report(
+                &trade,
+                instrument.id(),
+                account_id,
+                None,
+                px_prec,
+                sz_prec,
+                currency,
+                taker_fee,
+                fee_exponent,
+                ts_init,
+            );
+            black_box(report);
+        });
+    });
+    group.finish();
+}
+
+fn bench_order_fill_maker(c: &mut Criterion) {
+    let instrument = yes_instrument();
+    let (px_prec, sz_prec) = instrument_precisions();
+    let account_id = common::account_id();
+    let currency = Currency::pUSD();
+    let ts_init = UnixNanos::default();
+
+    let mut group = c.benchmark_group("inbound_pipeline");
+    group.throughput(Throughput::Elements(1));
+    group.bench_function("order_fill_maker", |b| {
+        b.iter(|| {
+            let trade: PolymarketTradeReport =
+                serde_json::from_str(black_box(fixtures::HTTP_TRADE_REPORT)).unwrap();
+            let reports: Vec<_> = trade
+                .maker_orders
+                .iter()
+                .map(|order| {
+                    build_maker_fill_report(
+                        order,
+                        &trade.id,
+                        trade.trader_side,
+                        trade.side,
+                        trade.asset_id.as_str(),
+                        account_id,
+                        instrument.id(),
+                        px_prec,
+                        sz_prec,
+                        currency,
+                        LiquiditySide::Maker,
+                        ts_init,
+                        ts_init,
+                    )
+                })
+                .collect();
+            black_box(reports);
+        });
+    });
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    bench_book_deltas,
+    bench_book_snapshot,
+    bench_quote_from_snapshot,
+    bench_quote_from_price_change,
+    bench_trades,
+    bench_order_event,
+    bench_order_fill,
+    bench_order_fill_maker,
+);
+criterion_main!(benches);

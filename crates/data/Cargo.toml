@@ -1,0 +1,82 @@
+[package]
+name = "vibe-data"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Core data handling machinery for the Vibe trading engine"
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "vibe_data"
+crate-type = ["rlib"]
+
+[features]
+default = []
+streaming = ["vibe-persistence"]
+high-precision = [
+  "vibe-model/high-precision",
+  "vibe-serialization/high-precision",
+]
+extension-module = [
+  "vibe-core/extension-module",
+  "vibe-model/extension-module",
+  "pyo3/extension-module",
+]
+python = [
+  "vibe-core/python",
+  "vibe-model/python",
+  "vibe-persistence?/python",
+  "pyo3",
+  "pyo3-stub-gen",
+]
+defi = [
+  "vibe-common/defi",
+  "vibe-model/defi",
+  "vibe-persistence?/defi",
+  "alloy-primitives",
+]
+[dependencies]
+vibe-common = { workspace = true }
+vibe-core = { workspace = true }
+vibe-model = { workspace = true, features = ["stubs"] }
+vibe-persistence = { workspace = true, optional = true }
+
+ahash = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+bon = { workspace = true }
+futures = { workspace = true }
+indexmap = { workspace = true }
+jiff = { workspace = true }
+log = { workspace = true }
+rust_decimal = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+ustr = { workspace = true }
+
+alloy-primitives = { workspace = true, optional = true }
+pyo3 = { workspace = true, optional = true }
+pyo3-stub-gen = { workspace = true, optional = true }
+
+[dev-dependencies]
+vibe-serialization = { workspace = true, features = ["arrow"] }
+
+criterion = { workspace = true }
+proptest = { workspace = true }
+rstest = { workspace = true }
+tokio = { workspace = true, features = ["test-util", "macros", "rt"] }
+
+# Run with `cargo bench -p vibe-data --bench engine`
+[[bench]]
+name = "engine"
+harness = false
+
+# Run with `cargo bench -p vibe-data --bench aggregation`
+[[bench]]
+name = "aggregation"
+harness = false

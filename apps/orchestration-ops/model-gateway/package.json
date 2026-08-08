@@ -1,6 +1,0 @@
-{
-  "name": "model-gateway",
-  "private": true,
-  "type": "module",
-  "scripts": { "typecheck": "tsc --noEmit", "test": "bun test ./src/lib/*.test.ts ./src/scripts/*.test.ts", "provider:smoke": "bun src/scripts/provider-smoke.ts", "check": "bun run typecheck && bun run test" }
-}

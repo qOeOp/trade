@@ -1,0 +1,134 @@
+#!/usr/bin/env python3
+"""
+Example script demonstrating how to fetch and use historical Polymarket data for
+backtesting.
+
+This example uses an active Polymarket market for demonstration.
+You can find active markets at: https://polymarket.com
+
+Data sources:
+- Markets API: https://gamma-api.polymarket.com/markets
+- Trades: https://data-api.polymarket.com/trades
+
+"""
+
+import asyncio
+from decimal import Decimal
+
+import pandas as pd
+
+from vibe_trader.adapters.polymarket import POLYMARKET_VENUE
+from vibe_trader.adapters.polymarket import PolymarketDataLoader
+from vibe_trader.backtest.engine import BacktestEngine
+from vibe_trader.config import BacktestEngineConfig
+from vibe_trader.examples.strategies.ema_cross_long_only import EMACrossLongOnly
+from vibe_trader.examples.strategies.ema_cross_long_only import EMACrossLongOnlyConfig
+from vibe_trader.model.currencies import USDC_POS
+from vibe_trader.model.data import BarType
+from vibe_trader.model.enums import AccountType
+from vibe_trader.model.enums import OmsType
+from vibe_trader.model.identifiers import TraderId
+from vibe_trader.model.objects import Money
+
+
+# Market slug to fetch data for
+# To find active markets, run:
+#   python vibe_trader/adapters/polymarket/scripts/active_markets.py
+# To find BTC/ETH UpDown markets specifically, run:
+#   python vibe_trader/adapters/polymarket/scripts/list_updown_markets.py
+MARKET_SLUG = "gta-vi-released-before-june-2026"
+
+
+async def run_backtest(
+    market_slug: str,
+) -> None:
+    """
+    Run a backtest using historical Polymarket data.
+
+    Parameters
+    ----------
+    market_slug : str
+        The Polymarket market slug.
+
+    """
+    # Create loader by market slug (automatically fetches and parses instrument)
+    loader = await PolymarketDataLoader.from_market_slug(market_slug)
+    instrument = loader.instrument
+
+    print(f"\nMarket loaded: {instrument.description or market_slug}")
+    print(f"Instrument ID: {instrument.id}")
+    print(f"Outcome: {instrument.outcome}\n")
+
+    # Load historical trades from the Polymarket Data API
+    print("Loading trade ticks...")
+    trades = await loader.load_trades()
+    print(f"Loaded {len(trades)} TradeTicks")
+
+    if not trades:
+        raise ValueError("No historical data available for the specified market")
+
+    # Configure backtest engine
+    config = BacktestEngineConfig(trader_id=TraderId("BACKTESTER-001"))
+    engine = BacktestEngine(config=config)
+
+    # Add venue
+    engine.add_venue(
+        venue=POLYMARKET_VENUE,
+        oms_type=OmsType.NETTING,
+        account_type=AccountType.CASH,
+        base_currency=USDC_POS,
+        starting_balances=[Money(10_000, USDC_POS)],
+    )
+
+    # Add instrument and data
+    engine.add_instrument(instrument)
+    engine.add_data(trades)
+
+    # Configure strategy (tick bars aggregated from trade ticks)
+    bar_type = BarType.from_str(f"{instrument.id}-100-TICK-LAST-INTERNAL")
+    strategy_config = EMACrossLongOnlyConfig(
+        instrument_id=instrument.id,
+        bar_type=bar_type,
+        trade_size=Decimal(20),
+        fast_ema_period=10,
+        slow_ema_period=20,
+    )
+
+    strategy = EMACrossLongOnly(config=strategy_config)
+    engine.add_strategy(strategy=strategy)
+
+    print("\nStarting backtest...")
+    await asyncio.sleep(0.1)
+
+    # Run backtest
+    engine.run()
+
+    with pd.option_context(
+        "display.max_rows",
+        100,
+        "display.max_columns",
+        None,
+        "display.width",
+        300,
+    ):
+        print(engine.trader.generate_account_report(POLYMARKET_VENUE))
+        print("\n")
+        print(engine.trader.generate_order_fills_report())
+        print("\n")
+        print(engine.trader.generate_positions_report())
+
+    # Cleanup
+    engine.reset()
+    engine.dispose()
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(
+            run_backtest(
+                market_slug=MARKET_SLUG,
+            ),
+        )
+    except Exception as e:
+        print(f"Error running backtest: {e}")
+        raise

@@ -1,0 +1,320 @@
+import math
+
+import pytest
+
+import vibe_trader.analysis as analysis_module
+from tests.providers import TestInstrumentProvider
+from tests.unit.model.factories import make_position_fill
+from vibe_trader.analysis import CAGR
+from vibe_trader.analysis import Alpha
+from vibe_trader.analysis import AvgLoser
+from vibe_trader.analysis import AvgWinner
+from vibe_trader.analysis import BetaRatio
+from vibe_trader.analysis import CalmarRatio
+from vibe_trader.analysis import DownCaptureRatio
+from vibe_trader.analysis import Expectancy
+from vibe_trader.analysis import ExpectedShortfall
+from vibe_trader.analysis import InformationRatio
+from vibe_trader.analysis import LongRatio
+from vibe_trader.analysis import MaxDrawdown
+from vibe_trader.analysis import MaxLoser
+from vibe_trader.analysis import MaxWinner
+from vibe_trader.analysis import MinLoser
+from vibe_trader.analysis import MinWinner
+from vibe_trader.analysis import OmegaRatio
+from vibe_trader.analysis import PortfolioAnalyzer
+from vibe_trader.analysis import ProfitFactor
+from vibe_trader.analysis import ReturnsAverage
+from vibe_trader.analysis import ReturnsAverageLoss
+from vibe_trader.analysis import ReturnsAverageWin
+from vibe_trader.analysis import ReturnsKurtosis
+from vibe_trader.analysis import ReturnsSkewness
+from vibe_trader.analysis import ReturnsVolatility
+from vibe_trader.analysis import RiskReturnRatio
+from vibe_trader.analysis import SharpeRatio
+from vibe_trader.analysis import SortinoRatio
+from vibe_trader.analysis import TailRatio
+from vibe_trader.analysis import TrackingError
+from vibe_trader.analysis import TreynorRatio
+from vibe_trader.analysis import UlcerIndex
+from vibe_trader.analysis import UpCaptureRatio
+from vibe_trader.analysis import ValueAtRisk
+from vibe_trader.analysis import WinRate
+from vibe_trader.model import Currency
+from vibe_trader.model import Money
+from vibe_trader.model import Position
+from vibe_trader.model import PositionId
+
+
+NO_ARG_STATISTICS = [
+    (AvgLoser, "Avg Loser"),
+    (AvgWinner, "Avg Winner"),
+    (Expectancy, "Expectancy"),
+    (LongRatio, "Long Ratio"),
+    (MaxDrawdown, "Max Drawdown"),
+    (MaxLoser, "Max Loser"),
+    (MaxWinner, "Max Winner"),
+    (MinLoser, "Min Loser"),
+    (MinWinner, "Min Winner"),
+    (ProfitFactor, "Profit Factor"),
+    (ReturnsAverage, "Average (Return"),
+    (ReturnsAverageLoss, "Average Loss (Return"),
+    (ReturnsAverageWin, "Average Win (Return"),
+    (ReturnsKurtosis, "Returns Kurtosis"),
+    (ReturnsSkewness, "Returns Skewness"),
+    (RiskReturnRatio, "Risk Return Ratio"),
+    (TailRatio, "Tail Ratio"),
+    (UlcerIndex, "Ulcer Index"),
+    (WinRate, "Win Rate"),
+]
+
+PERIOD_STATISTICS = [
+    (CAGR, "CAGR"),
+    (CalmarRatio, "Calmar Ratio"),
+    (ReturnsVolatility, "Returns Volatility"),
+    (SharpeRatio, "Sharpe Ratio"),
+    (SortinoRatio, "Sortino Ratio"),
+]
+
+# Statistics carrying a single float parameter (threshold / confidence).
+THRESHOLD_STATISTICS = [
+    (OmegaRatio, "Omega Ratio"),
+    (ValueAtRisk, "Value at Risk"),
+    (ExpectedShortfall, "Expected Shortfall"),
+]
+
+BENCHMARK_STATISTICS = [
+    (Alpha, "Alpha"),
+    (BetaRatio, "Beta"),
+    (DownCaptureRatio, "Down Capture Ratio"),
+    (InformationRatio, "Information Ratio"),
+    (TrackingError, "Tracking Error"),
+    (TreynorRatio, "Treynor Ratio"),
+    (UpCaptureRatio, "Up Capture Ratio"),
+]
+
+ALL_STATISTICS = NO_ARG_STATISTICS + PERIOD_STATISTICS + THRESHOLD_STATISTICS + BENCHMARK_STATISTICS
+STATISTIC_METHODS = (
+    "calculate_from_positions",
+    "calculate_from_realized_pnls",
+    "calculate_from_returns",
+)
+EXPOSED_STATISTICS = sorted(
+    (
+        value
+        for value in vars(analysis_module).values()
+        if isinstance(value, type) and all(hasattr(value, method) for method in STATISTIC_METHODS)
+    ),
+    key=lambda cls: cls.__name__,
+)
+
+
+@pytest.mark.parametrize(("cls", "expected_prefix"), NO_ARG_STATISTICS)
+def test_statistic_construction_and_name(cls, expected_prefix):
+    stat = cls()
+
+    assert stat.name.startswith(expected_prefix)
+
+
+@pytest.mark.parametrize(("cls", "expected_prefix"), PERIOD_STATISTICS)
+def test_period_statistic_default_construction_and_name(cls, expected_prefix):
+    stat = cls()
+
+    assert stat.name.startswith(expected_prefix)
+
+
+@pytest.mark.parametrize(("cls", "expected_prefix"), PERIOD_STATISTICS)
+def test_period_statistic_custom_period(cls, expected_prefix):
+    stat = cls(period=30)
+
+    assert "30" in stat.name
+
+
+@pytest.mark.parametrize(("cls", "expected_prefix"), THRESHOLD_STATISTICS)
+def test_threshold_statistic_default_construction_and_name(cls, expected_prefix):
+    stat = cls()
+
+    assert stat.name.startswith(expected_prefix)
+
+
+@pytest.mark.parametrize("cls", [ValueAtRisk, ExpectedShortfall])
+@pytest.mark.parametrize("confidence", [0.0, 1.0, 1.5, -0.5, float("nan"), float("inf")])
+def test_confidence_statistic_rejects_invalid_confidence(cls, confidence):
+    # `confidence` must be finite and in the open interval (0, 1); otherwise the
+    # historical percentile index would be out of range.
+    with pytest.raises(ValueError, match="confidence must be finite"):
+        cls(confidence=confidence)
+
+
+@pytest.mark.parametrize("threshold", [float("nan"), float("inf"), float("-inf")])
+def test_omega_ratio_rejects_non_finite_threshold(threshold):
+    # `threshold` has no natural range but must be finite; a non-finite value
+    # would silently poison the gain/loss split.
+    with pytest.raises(ValueError, match="threshold must be finite"):
+        OmegaRatio(threshold=threshold)
+
+
+@pytest.mark.parametrize(
+    ("cls", "_expected_prefix"),
+    ALL_STATISTICS,
+)
+def test_pyo3_statistic_exposes_full_calculate_surface(cls, _expected_prefix):
+    stat = cls()
+
+    # Every pyo3 statistic must expose all three calculate_from_* methods so the
+    # Python PortfolioAnalyzer can iterate registered stats without AttributeError.
+    # Methods return None for inputs that do not apply to the underlying calculation.
+    assert callable(stat.calculate_from_returns)
+    assert callable(stat.calculate_from_realized_pnls)
+    assert callable(stat.calculate_from_positions)
+
+
+def test_long_ratio_custom_precision():
+    stat = LongRatio(precision=4)
+
+    assert stat.name.startswith("Long Ratio")
+
+
+def test_portfolio_analyzer_construction():
+    analyzer = PortfolioAnalyzer()
+
+    assert analyzer.currencies() == []
+    assert analyzer.returns() == {}
+    assert analyzer.position_returns() == {}
+    assert analyzer.portfolio_returns() == {}
+
+
+def test_exposed_statistic_inventory_matches_constructor_matrix():
+    expected = {cls for cls, _expected_prefix in ALL_STATISTICS}
+
+    assert EXPOSED_STATISTICS
+    assert set(EXPOSED_STATISTICS) == expected
+
+
+@pytest.mark.parametrize("cls", EXPOSED_STATISTICS)
+def test_portfolio_analyzer_register_and_deregister_statistic(cls):
+    analyzer = PortfolioAnalyzer()
+    stat = cls()
+
+    analyzer.register_statistic(stat)
+
+    assert analyzer.statistic(stat.name) is not None
+
+    analyzer.deregister_statistic(stat)
+
+    assert analyzer.statistic(stat.name) is None
+
+
+def test_portfolio_analyzer_adds_native_position():
+    analyzer = PortfolioAnalyzer()
+    instrument = TestInstrumentProvider.audusd_sim()
+    position = Position(instrument=instrument, fill=make_position_fill(instrument))
+    analyzer.register_statistic(LongRatio())
+
+    analyzer.add_positions([position])
+
+    assert analyzer.get_performance_stats_general() == {"Long Ratio": 1.0}
+
+
+def test_undefined_cagr_and_calmar_ratio_return_nan():
+    nanos_per_day = 86_400_000_000_000
+    returns = {
+        day * nanos_per_day: value for day, value in enumerate([-1.5, 0.0, 0.0, 0.0, 0.0], start=1)
+    }
+
+    cagr = CAGR().calculate_from_returns(returns)
+    calmar_ratio = CalmarRatio().calculate_from_returns(returns)
+
+    assert math.isnan(cagr)
+    assert math.isnan(calmar_ratio)
+
+
+def test_portfolio_analyzer_deregister_all_statistics():
+    analyzer = PortfolioAnalyzer()
+    analyzer.register_statistic(SharpeRatio())
+    analyzer.register_statistic(WinRate())
+
+    analyzer.deregister_statistics()
+
+    assert analyzer.get_performance_stats_returns() == {}
+
+
+def test_portfolio_analyzer_add_return_and_stats():
+    analyzer = PortfolioAnalyzer()
+    analyzer.register_statistic(ReturnsAverage())
+
+    analyzer.add_return(1_000_000_000, 0.01)
+    analyzer.add_return(2_000_000_000, -0.005)
+
+    stats = analyzer.get_performance_stats_returns()
+
+    assert len(stats) > 0
+
+
+def test_portfolio_analyzer_add_position_return():
+    analyzer = PortfolioAnalyzer()
+
+    analyzer.add_position_return(1_000_000_000, 0.02)
+
+    assert analyzer.position_returns() != {}
+
+
+def test_portfolio_analyzer_reset():
+    analyzer = PortfolioAnalyzer()
+    analyzer.add_return(1_000_000_000, 0.01)
+
+    analyzer.reset()
+
+    assert analyzer.returns() == {}
+    assert analyzer.position_returns() == {}
+
+
+def test_portfolio_analyzer_formatted_stats_empty():
+    analyzer = PortfolioAnalyzer()
+
+    assert analyzer.get_stats_returns_formatted() == []
+    assert analyzer.get_stats_position_returns_formatted() == []
+    assert analyzer.get_stats_portfolio_returns_formatted() == []
+    assert analyzer.get_stats_general_formatted() == []
+
+
+def test_portfolio_analyzer_realized_pnls_drops_recorded_snapshot_alias():
+    analyzer = PortfolioAnalyzer()
+    usd = Currency.from_str("USD")
+    position_id = PositionId("P-1")
+    snapshot_id = PositionId(f"{position_id.value}-00000000-0000-4000-8000-000000000001")
+
+    analyzer.add_trade(snapshot_id, 1, Money(10.0, usd))
+    analyzer.record_trade(position_id, 1, Money(10.0, usd))
+
+    pnls = analyzer.realized_pnls(usd)
+
+    assert pnls == [(position_id.value, 1, 10.0)]
+
+
+def test_portfolio_analyzer_realized_pnls_drops_recorded_snapshot_alias_without_timestamp():
+    analyzer = PortfolioAnalyzer()
+    usd = Currency.from_str("USD")
+    position_id = PositionId("P-1")
+    snapshot_id = PositionId(f"{position_id.value}-00000000-0000-4000-8000-000000000001")
+
+    analyzer.add_trade(snapshot_id, 0, Money(10.0, usd))
+    analyzer.record_trade(position_id, 0, Money(10.0, usd))
+
+    pnls = analyzer.realized_pnls(usd)
+
+    assert pnls == [(position_id.value, 0, 10.0)]
+
+
+def test_portfolio_analyzer_realized_pnls_keeps_unrecorded_snapshot_cycle():
+    analyzer = PortfolioAnalyzer()
+    usd = Currency.from_str("USD")
+    position_id = PositionId("P-1")
+    snapshot_id = PositionId(f"{position_id.value}-00000000-0000-4000-8000-000000000001")
+
+    analyzer.add_trade(snapshot_id, 1, Money(10.0, usd))
+    analyzer.record_trade(position_id, 2, Money(25.0, usd))
+
+    pnls = analyzer.realized_pnls(usd)
+
+    assert pnls == [(snapshot_id.value, 1, 10.0), (position_id.value, 2, 25.0)]

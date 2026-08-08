@@ -1,0 +1,414 @@
+from decimal import Decimal
+
+import pytest
+
+from tests.providers import TestInstrumentProvider
+from vibe_trader.core import UUID4
+from vibe_trader.execution import BestPriceFillModel
+from vibe_trader.execution import CappedOptionFeeModel
+from vibe_trader.execution import CompetitionAwareFillModel
+from vibe_trader.execution import DefaultFillModel
+from vibe_trader.execution import FeeModel
+from vibe_trader.execution import FixedFeeModel
+from vibe_trader.execution import LimitOrderPartialFillModel
+from vibe_trader.execution import MakerTakerFeeModel
+from vibe_trader.execution import MarketHoursFillModel
+from vibe_trader.execution import OneTickSlippageFillModel
+from vibe_trader.execution import PerContractFeeModel
+from vibe_trader.execution import ProbabilisticFillModel
+from vibe_trader.execution import ProbabilityPriceFeeModel
+from vibe_trader.execution import SizeAwareFillModel
+from vibe_trader.execution import StaticLatencyModel
+from vibe_trader.execution import ThreeTierFillModel
+from vibe_trader.execution import TieredNotionalOptionFeeModel
+from vibe_trader.execution import TwoTierFillModel
+from vibe_trader.execution import VolumeSensitiveFillModel
+from vibe_trader.execution import calculate_reconciliation_price
+from vibe_trader.model import ClientOrderId
+from vibe_trader.model import ContingencyType
+from vibe_trader.model import MarketOrder
+from vibe_trader.model import Money
+from vibe_trader.model import OrderSide
+from vibe_trader.model import Price
+from vibe_trader.model import Quantity
+from vibe_trader.model import StrategyId
+from vibe_trader.model import TimeInForce
+from vibe_trader.model import TraderId
+
+
+def test_default_fill_model():
+    model = DefaultFillModel(prob_fill_on_limit=0.8, prob_slippage=0.1)
+
+    assert model is not None
+
+
+def test_default_fill_model_with_seed():
+    model = DefaultFillModel(prob_fill_on_limit=0.8, prob_slippage=0.1, random_seed=42)
+
+    assert model is not None
+
+
+def test_best_price_fill_model():
+    model = BestPriceFillModel(prob_fill_on_limit=0.9, prob_slippage=0.05)
+
+    assert model is not None
+
+
+def test_best_price_fill_model_with_seed():
+    model = BestPriceFillModel(prob_fill_on_limit=0.9, prob_slippage=0.05, random_seed=42)
+
+    assert model is not None
+
+
+def test_competition_aware_fill_model():
+    model = CompetitionAwareFillModel()
+
+    assert model is not None
+
+
+def test_competition_aware_fill_model_with_params():
+    model = CompetitionAwareFillModel(
+        prob_fill_on_limit=0.9,
+        prob_slippage=0.1,
+        random_seed=42,
+        liquidity_factor=0.5,
+    )
+
+    assert model is not None
+
+
+def test_limit_order_partial_fill_model():
+    model = LimitOrderPartialFillModel(prob_fill_on_limit=0.7, prob_slippage=0.2)
+
+    assert model is not None
+
+
+def test_market_hours_fill_model():
+    model = MarketHoursFillModel(prob_fill_on_limit=0.8, prob_slippage=0.1)
+
+    assert model is not None
+
+
+def test_one_tick_slippage_fill_model():
+    model = OneTickSlippageFillModel(prob_fill_on_limit=0.8, prob_slippage=0.1)
+
+    assert model is not None
+
+
+def test_probabilistic_fill_model():
+    model = ProbabilisticFillModel(prob_fill_on_limit=0.8, prob_slippage=0.1)
+
+    assert model is not None
+
+
+def test_size_aware_fill_model():
+    model = SizeAwareFillModel(prob_fill_on_limit=0.8, prob_slippage=0.1)
+
+    assert model is not None
+
+
+def test_three_tier_fill_model():
+    model = ThreeTierFillModel(prob_fill_on_limit=0.8, prob_slippage=0.1)
+
+    assert model is not None
+
+
+def test_two_tier_fill_model():
+    model = TwoTierFillModel(prob_fill_on_limit=0.8, prob_slippage=0.1)
+
+    assert model is not None
+
+
+def test_volume_sensitive_fill_model():
+    model = VolumeSensitiveFillModel(prob_fill_on_limit=0.8, prob_slippage=0.1)
+
+    assert model is not None
+
+
+def test_fixed_fee_model():
+    model = FixedFeeModel(commission=Money.from_str("5.00 USD"))
+
+    assert model is not None
+
+
+@pytest.mark.parametrize(
+    "keyword",
+    [
+        "charge_commission_once",
+        "change_commission_once",
+    ],
+)
+def test_fixed_fee_model_charge_once_keyword_routes_false(keyword):
+    model = FixedFeeModel(commission=Money.from_str("5.00 USD"), **{keyword: False})
+
+    assert "charge_commission_once: false" in repr(model)
+
+
+def test_fixed_fee_model_rejects_both_charge_once_keywords():
+    with pytest.raises(TypeError, match="Provide only one"):
+        FixedFeeModel(
+            commission=Money.from_str("5.00 USD"),
+            charge_commission_once=True,
+            change_commission_once=True,
+        )
+
+
+def test_maker_taker_fee_model():
+    model = MakerTakerFeeModel()
+
+    assert model is not None
+
+
+def test_per_contract_fee_model():
+    model = PerContractFeeModel(commission=Money.from_str("1.25 USD"))
+
+    assert model is not None
+
+
+def test_probability_price_fee_model():
+    model = ProbabilityPriceFeeModel()
+
+    assert model is not None
+
+
+def test_capped_option_fee_model():
+    model = CappedOptionFeeModel(
+        maker_rate=Decimal("0.0003"),
+        taker_rate=Decimal("0.0003"),
+    )
+
+    assert model is not None
+    expected = (
+        "CappedOptionFeeModel { maker_rate: Some(0.0003), "
+        "taker_rate: Some(0.0003), cap_rate: 0.125 }"
+    )
+    assert repr(model) == expected
+
+
+def test_tiered_notional_option_fee_model():
+    model = TieredNotionalOptionFeeModel(
+        maker_rate=Decimal("0.0002"),
+        taker_rate=Decimal("0.0005"),
+    )
+
+    assert model is not None
+    expected = "TieredNotionalOptionFeeModel { maker_rate: Some(0.0002), taker_rate: Some(0.0005) }"
+    assert repr(model) == expected
+
+
+def test_fee_model_is_instantiable():
+    assert isinstance(FeeModel(), FeeModel)
+
+
+def test_concrete_fee_models_inherit_fee_model():
+    fixed = FixedFeeModel(commission=Money.from_str("5.00 USD"))
+    maker_taker = MakerTakerFeeModel()
+    per_contract = PerContractFeeModel(commission=Money.from_str("1.25 USD"))
+    probability = ProbabilityPriceFeeModel()
+    capped = CappedOptionFeeModel(maker_rate=Decimal("0.0003"), taker_rate=Decimal("0.0003"))
+    tiered = TieredNotionalOptionFeeModel(
+        maker_rate=Decimal("0.0002"),
+        taker_rate=Decimal("0.0005"),
+    )
+
+    assert isinstance(fixed, FeeModel)
+    assert isinstance(maker_taker, FeeModel)
+    assert isinstance(per_contract, FeeModel)
+    assert isinstance(probability, FeeModel)
+    assert isinstance(capped, FeeModel)
+    assert isinstance(tiered, FeeModel)
+
+
+def test_fee_model_subclass_with_init_args():
+    class PercentFee(FeeModel):
+        def __init__(self, rate):
+            self.rate = rate
+
+    assert PercentFee(Decimal("0.0005")).rate == Decimal("0.0005")
+
+
+def test_fee_model_subclass_get_commission_dispatches_to_override():
+    class FixedOverride(FeeModel):
+        def __init__(self, commission):
+            self.commission = commission
+
+        def get_commission(self, order, fill_quantity, fill_px, instrument):
+            return self.commission
+
+    model = FixedOverride(Money.from_str("5.00 USD"))
+
+    assert isinstance(model, FeeModel)
+    assert model.get_commission(None, None, None, None) == Money.from_str("5.00 USD")
+
+
+def test_fee_model_base_get_commission_raises_not_implemented():
+    with pytest.raises(NotImplementedError):
+        FeeModel().get_commission(None, Quantity.from_str("1"), Price.from_str("1.0"), None)
+
+
+def test_fee_model_get_commission_with_context_rejects_non_instrument():
+    model = MakerTakerFeeModel()
+
+    with pytest.raises(TypeError, match="instrument"):
+        model.get_commission_with_context(
+            None,
+            Quantity.from_str("1"),
+            Price.from_str("1.0"),
+            "not-an-instrument",
+        )
+
+
+def test_fixed_fee_model_get_commission_direct_call():
+    commission = Money.from_str("5.00 USD")
+    model = FixedFeeModel(commission=commission, charge_commission_once=False)
+    instrument = TestInstrumentProvider.audusd_sim()
+    order = MarketOrder(
+        trader_id=TraderId("TRADER-001"),
+        strategy_id=StrategyId("S-001"),
+        instrument_id=instrument.id,
+        client_order_id=ClientOrderId("O-001"),
+        order_side=OrderSide.BUY,
+        quantity=Quantity.from_int(100_000),
+        init_id=UUID4(),
+        ts_init=0,
+        time_in_force=TimeInForce.GTC,
+        reduce_only=False,
+        quote_quantity=False,
+        contingency_type=ContingencyType.NO_CONTINGENCY,
+    )
+
+    result = model.get_commission(
+        order,
+        Quantity.from_int(100_000),
+        Price.from_str("1.00000"),
+        instrument,
+    )
+
+    assert result == commission
+
+
+def _make_market_order(instrument):
+    return MarketOrder(
+        trader_id=TraderId("TRADER-001"),
+        strategy_id=StrategyId("S-001"),
+        instrument_id=instrument.id,
+        client_order_id=ClientOrderId("O-001"),
+        order_side=OrderSide.BUY,
+        quantity=Quantity.from_int(100_000),
+        init_id=UUID4(),
+        ts_init=0,
+        time_in_force=TimeInForce.GTC,
+        reduce_only=False,
+        quote_quantity=False,
+        contingency_type=ContingencyType.NO_CONTINGENCY,
+    )
+
+
+def test_per_contract_fee_model_get_commission_direct_call():
+    commission = Money.from_str("1.25 USD")
+    model = PerContractFeeModel(commission=commission)
+    instrument = TestInstrumentProvider.audusd_sim()
+    order = _make_market_order(instrument)
+
+    result = model.get_commission(
+        order,
+        Quantity.from_int(2),
+        Price.from_str("1.00000"),
+        instrument,
+    )
+
+    assert result == Money.from_str("2.50 USD")
+
+
+def test_maker_taker_fee_model_get_commission_direct_call():
+    model = MakerTakerFeeModel()
+    instrument = TestInstrumentProvider.audusd_sim()
+    order = _make_market_order(instrument)
+
+    with pytest.raises(RuntimeError, match="Liquidity side"):
+        model.get_commission(
+            order,
+            Quantity.from_int(100_000),
+            Price.from_str("1.00000"),
+            instrument,
+        )
+
+
+def test_probability_price_fee_model_get_commission_direct_call():
+    model = ProbabilityPriceFeeModel()
+    instrument = TestInstrumentProvider.audusd_sim()
+    order = _make_market_order(instrument)
+
+    with pytest.raises(RuntimeError, match="binary option instrument"):
+        model.get_commission(order, Quantity.from_int(100), Price.from_str("0.50"), instrument)
+
+
+def test_capped_option_fee_model_get_commission_direct_call():
+    model = CappedOptionFeeModel()
+    instrument = TestInstrumentProvider.audusd_sim()
+    order = _make_market_order(instrument)
+
+    with pytest.raises(RuntimeError, match="CappedOptionFeeModel requires an option instrument"):
+        model.get_commission(order, Quantity.from_int(2), Price.from_str("100.00"), instrument)
+
+
+def test_tiered_notional_option_fee_model_get_commission_direct_call():
+    model = TieredNotionalOptionFeeModel()
+    instrument = TestInstrumentProvider.audusd_sim()
+    order = _make_market_order(instrument)
+
+    with pytest.raises(
+        RuntimeError,
+        match="TieredNotionalOptionFeeModel requires an option instrument",
+    ):
+        model.get_commission(order, Quantity.from_int(2), Price.from_str("100.00"), instrument)
+
+
+def test_static_latency_model_defaults():
+    model = StaticLatencyModel()
+
+    assert model is not None
+
+
+def test_static_latency_model_with_params():
+    model = StaticLatencyModel(
+        base_latency_nanos=1_000_000,
+        insert_latency_nanos=2_000_000,
+        update_latency_nanos=1_500_000,
+        cancel_latency_nanos=500_000,
+    )
+
+    assert model is not None
+
+
+def test_calculate_reconciliation_price_open_position():
+    result = calculate_reconciliation_price(
+        current_position_qty=Decimal(10),
+        current_position_avg_px=Decimal("100.50"),
+        target_position_qty=Decimal(15),
+        target_position_avg_px=Decimal("105.00"),
+    )
+
+    assert isinstance(result, Decimal)
+
+
+def test_calculate_reconciliation_price_flat_to_open():
+    result = calculate_reconciliation_price(
+        current_position_qty=Decimal(0),
+        current_position_avg_px=None,
+        target_position_qty=Decimal(10),
+        target_position_avg_px=Decimal("100.00"),
+    )
+
+    assert isinstance(result, Decimal)
+
+
+def test_calculate_reconciliation_price_close_position():
+    result = calculate_reconciliation_price(
+        current_position_qty=Decimal(10),
+        current_position_avg_px=Decimal("100.00"),
+        target_position_qty=Decimal(0),
+        target_position_avg_px=Decimal(0),
+    )
+
+    assert result is None or isinstance(result, Decimal)

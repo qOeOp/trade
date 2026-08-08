@@ -261,7 +261,7 @@ repairing an unrelated defect. Once a diagnosis satisfies the independent-Missio
 give it one checkpoint disposition before the current turn boundary: add a proposed or approved node
 to the existing hub inventory and re-evaluate direct dependencies and conflicts; bind `deduplicated`
 to one exact existing node and equivalent Outcome; or bind `rejected` to explicit user authority. In a
-single-Mission session, the checkpoint may retain at most one narrow `proposed — Goal persistence
+single-Mission session, the checkpoint may retain at most one narrow `proposed - Goal persistence
 unavailable` follow-up and must freeze its dispatch and current-Mission Finalize until the user routes,
 deduplicates, or rejects it. A diagnosis in commentary, a future-work promise, or an unlocated note is
 not a disposition and may not disappear at compaction. Do not silently dispatch it. Refactor, test,
@@ -365,7 +365,7 @@ authority/effect, and follows Critical-path choreography; this projection is no 
 Pull-request endpoints load [GitHub delivery](../delivery/delivery-pullrequest-workflow.md), and `open`
 or `merge-ready` never grants merge. A no-PR endpoint keeps its falsifiable terminal evidence.
 
-End `ready` with **Create this task?** and `deferred` with **Create this task? — unavailable until
+End `ready` with **Create this task?** and `deferred` with **Create this task? - unavailable until
 `<exact prerequisite>`**. A reply to the latter is no authority. The user may edit, reject, or approve
 named ready proposals; unambiguous approval after the ready question is the host-required request.
 Until then, edits and rejection stay in the hub and no task exists.
@@ -617,8 +617,8 @@ authority.
 ## Spare-capacity self-QA retrospective
 
 This is a conditional read-only evidence lane, not standing work. Admit it only when the current hub
-has no runnable critical-path slice—including task creation, dependency release, or dependency-
-consuming work—no publication, merge, or other effect barrier needing attention, and an otherwise
+has no runnable critical-path slice - including task creation, dependency release, or dependency-
+consuming work - no publication, merge, or other effect barrier needing attention, and an otherwise
 unused support-agent slot. A pending wait alone does not prove spare capacity. Do not reserve a slot,
 delay task creation or release, or wait for retrospective fan-in after critical-path work becomes
 runnable.

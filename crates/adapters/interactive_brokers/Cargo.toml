@@ -1,0 +1,116 @@
+[package]
+name = "vibe-interactive-brokers"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Interactive Brokers integration adapter for the Vibe trading engine"
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "vibe_interactive_brokers"
+crate-type = ["rlib"]
+
+[features]
+default = ["execution"]
+execution = ["dep:vibe-execution", "dep:vibe-network"]
+examples = ["vibe-live/node", "vibe-trading/examples"]
+extension-module = [
+  "gateway",
+  "vibe-common/extension-module",
+  "vibe-core/extension-module",
+  "vibe-execution/extension-module",
+  "vibe-live/extension-module",
+  "vibe-model/extension-module",
+  "vibe-network/extension-module",
+  "pyo3/extension-module",
+  "python",
+]
+python = [
+  "execution",
+  "dep:vibe-system",
+  "vibe-common/python",
+  "vibe-core/python",
+  "vibe-execution/python",
+  "vibe-live/python",
+  "vibe-model/python",
+  "vibe-network/python",
+  "vibe-system/python",
+  "pyo3",
+  "pyo3-async-runtimes",
+  "pyo3-stub-gen",
+]
+gateway = ["bollard"]
+
+[package.metadata.cargo-machete]
+ignored = [
+  "vibe-execution", # Activated by the `execution` feature for downstream feature chaining
+  "vibe-network", # Activated by the `execution` feature for downstream feature chaining
+]
+[dependencies]
+vibe-common = { workspace = true }
+vibe-core = { workspace = true }
+vibe-live = { workspace = true }
+vibe-model = { workspace = true }
+
+vibe-execution = { workspace = true, optional = true }
+vibe-network = { workspace = true, optional = true }
+vibe-system = { workspace = true, optional = true }
+
+ahash = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+bon = { workspace = true }
+dashmap = { workspace = true }
+futures-util = { workspace = true }
+ibapi = { workspace = true }
+jiff = { workspace = true }
+log = { workspace = true }
+rust_decimal = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+ustr = { workspace = true }
+
+bollard = { workspace = true, optional = true }
+pyo3 = { workspace = true, optional = true }
+pyo3-async-runtimes = { workspace = true, optional = true }
+pyo3-stub-gen = { workspace = true, optional = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+rust_decimal_macros = { workspace = true }
+tempfile = { workspace = true }
+vibe-testkit = { workspace = true, default-features = false, features = [
+  "testers",
+] }
+vibe-trading = { workspace = true }
+
+# Run live smoke with `cargo run --example ib-data-tester --package vibe-interactive-brokers --features examples`.
+# Run embedded config unit tests with `cargo test --example ib-data-tester --package vibe-interactive-brokers --features examples`.
+[[example]]
+name = "ib-data-tester"
+path = "examples/node_data_tester.rs"
+required-features = ["examples"]
+doc = false
+
+# Run live smoke with `cargo run --example ib-exec-tester --package vibe-interactive-brokers --features examples`.
+# Run embedded config unit tests with `cargo test --example ib-exec-tester --package vibe-interactive-brokers --features examples`.
+[[example]]
+name = "ib-exec-tester"
+path = "examples/node_exec_tester.rs"
+required-features = ["examples"]
+doc = false
+
+[[test]]
+name = "python"
+path = "tests/python.rs"
+required-features = ["python"]

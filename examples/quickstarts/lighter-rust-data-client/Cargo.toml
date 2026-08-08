@@ -1,0 +1,38 @@
+[package]
+name = "lighter-rust-data-client"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97.1"
+publish = false
+
+[workspace]
+
+[dependencies]
+dotenvy = "0.15"
+log = "0.4"
+tokio = { version = "1", features = ["full"] }
+
+[dependencies.vibe-common]
+git = "https://github.com/qOeOp/trade.git"
+branch = "main"
+features = ["live"]
+
+[dependencies.vibe-lighter]
+git = "https://github.com/qOeOp/trade.git"
+branch = "main"
+features = ["high-precision"]
+
+[dependencies.vibe-live]
+git = "https://github.com/qOeOp/trade.git"
+branch = "main"
+features = ["node"]
+
+[dependencies.vibe-model]
+git = "https://github.com/qOeOp/trade.git"
+branch = "main"
+features = ["high-precision"]
+
+[dependencies.vibe-testkit]
+git = "https://github.com/qOeOp/trade.git"
+branch = "main"
+features = ["high-precision"]

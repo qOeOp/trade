@@ -1,0 +1,482 @@
+use std::num::NonZeroUsize;
+
+use jiff::Timestamp;
+use serde::{Deserialize, Serialize};
+use ustr::Ustr;
+use vibe_core::{Params, UUID4, UnixNanos};
+use vibe_model::{
+    data::{BarType, DataType},
+    identifiers::{ClientId, InstrumentId, Venue},
+};
+
+use super::check_client_id_or_venue;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RequestCustomData {
+    pub client_id: ClientId,
+    pub data_type: DataType,
+    pub start: Option<Timestamp>,
+    pub end: Option<Timestamp>,
+    pub limit: Option<NonZeroUsize>,
+    pub request_id: UUID4,
+    pub ts_init: UnixNanos,
+    pub params: Option<Params>,
+}
+
+impl RequestCustomData {
+    /// Creates a new [`RequestCustomData`] instance.
+    #[expect(clippy::too_many_arguments)]
+    pub fn new(
+        client_id: ClientId,
+        data_type: DataType,
+        start: Option<Timestamp>,
+        end: Option<Timestamp>,
+        limit: Option<NonZeroUsize>,
+        request_id: UUID4,
+        ts_init: UnixNanos,
+        params: Option<Params>,
+    ) -> Self {
+        Self {
+            client_id,
+            data_type,
+            start,
+            end,
+            limit,
+            request_id,
+            ts_init,
+            params,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RequestInstrument {
+    pub instrument_id: InstrumentId,
+    pub start: Option<Timestamp>,
+    pub end: Option<Timestamp>,
+    pub client_id: Option<ClientId>,
+    pub request_id: UUID4,
+    pub ts_init: UnixNanos,
+    pub params: Option<Params>,
+}
+
+impl RequestInstrument {
+    /// Creates a new [`RequestInstrument`] instance.
+    pub fn new(
+        instrument_id: InstrumentId,
+        start: Option<Timestamp>,
+        end: Option<Timestamp>,
+        client_id: Option<ClientId>,
+        request_id: UUID4,
+        ts_init: UnixNanos,
+        params: Option<Params>,
+    ) -> Self {
+        Self {
+            instrument_id,
+            start,
+            end,
+            client_id,
+            request_id,
+            ts_init,
+            params,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RequestInstruments {
+    pub start: Option<Timestamp>,
+    pub end: Option<Timestamp>,
+    pub client_id: Option<ClientId>,
+    pub venue: Option<Venue>,
+    pub request_id: UUID4,
+    pub ts_init: UnixNanos,
+    pub params: Option<Params>,
+}
+
+impl RequestInstruments {
+    /// Creates a new [`RequestInstruments`] instance.
+    pub fn new(
+        start: Option<Timestamp>,
+        end: Option<Timestamp>,
+        client_id: Option<ClientId>,
+        venue: Option<Venue>,
+        request_id: UUID4,
+        ts_init: UnixNanos,
+        params: Option<Params>,
+    ) -> Self {
+        check_client_id_or_venue(&client_id, &venue);
+        Self {
+            start,
+            end,
+            client_id,
+            venue,
+            request_id,
+            ts_init,
+            params,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RequestBookSnapshot {
+    pub instrument_id: InstrumentId,
+    pub depth: Option<NonZeroUsize>,
+    pub client_id: Option<ClientId>,
+    pub request_id: UUID4,
+    pub ts_init: UnixNanos,
+    pub params: Option<Params>,
+}
+
+impl RequestBookSnapshot {
+    /// Creates a new [`RequestBookSnapshot`] instance.
+    pub fn new(
+        instrument_id: InstrumentId,
+        depth: Option<NonZeroUsize>,
+        client_id: Option<ClientId>,
+        request_id: UUID4,
+        ts_init: UnixNanos,
+        params: Option<Params>,
+    ) -> Self {
+        Self {
+            instrument_id,
+            depth,
+            client_id,
+            request_id,
+            ts_init,
+            params,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RequestQuotes {
+    pub instrument_id: InstrumentId,
+    pub start: Option<Timestamp>,
+    pub end: Option<Timestamp>,
+    pub limit: Option<NonZeroUsize>,
+    pub client_id: Option<ClientId>,
+    pub request_id: UUID4,
+    pub ts_init: UnixNanos,
+    pub params: Option<Params>,
+}
+
+impl RequestQuotes {
+    /// Creates a new [`RequestQuotes`] instance.
+    #[expect(clippy::too_many_arguments)]
+    pub fn new(
+        instrument_id: InstrumentId,
+        start: Option<Timestamp>,
+        end: Option<Timestamp>,
+        limit: Option<NonZeroUsize>,
+        client_id: Option<ClientId>,
+        request_id: UUID4,
+        ts_init: UnixNanos,
+        params: Option<Params>,
+    ) -> Self {
+        Self {
+            instrument_id,
+            start,
+            end,
+            limit,
+            client_id,
+            request_id,
+            ts_init,
+            params,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RequestTrades {
+    pub instrument_id: InstrumentId,
+    pub start: Option<Timestamp>,
+    pub end: Option<Timestamp>,
+    pub limit: Option<NonZeroUsize>,
+    pub client_id: Option<ClientId>,
+    pub request_id: UUID4,
+    pub ts_init: UnixNanos,
+    pub params: Option<Params>,
+}
+
+impl RequestTrades {
+    /// Creates a new [`RequestTrades`] instance.
+    #[expect(clippy::too_many_arguments)]
+    pub fn new(
+        instrument_id: InstrumentId,
+        start: Option<Timestamp>,
+        end: Option<Timestamp>,
+        limit: Option<NonZeroUsize>,
+        client_id: Option<ClientId>,
+        request_id: UUID4,
+        ts_init: UnixNanos,
+        params: Option<Params>,
+    ) -> Self {
+        Self {
+            instrument_id,
+            start,
+            end,
+            limit,
+            client_id,
+            request_id,
+            ts_init,
+            params,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RequestFundingRates {
+    pub instrument_id: InstrumentId,
+    pub start: Option<Timestamp>,
+    pub end: Option<Timestamp>,
+    pub limit: Option<NonZeroUsize>,
+    pub client_id: Option<ClientId>,
+    pub request_id: UUID4,
+    pub ts_init: UnixNanos,
+    pub params: Option<Params>,
+}
+
+impl RequestFundingRates {
+    /// Creates a new [`RequestFundingRates`] instance.
+    #[expect(clippy::too_many_arguments)]
+    pub fn new(
+        instrument_id: InstrumentId,
+        start: Option<Timestamp>,
+        end: Option<Timestamp>,
+        limit: Option<NonZeroUsize>,
+        client_id: Option<ClientId>,
+        request_id: UUID4,
+        ts_init: UnixNanos,
+        params: Option<Params>,
+    ) -> Self {
+        Self {
+            instrument_id,
+            start,
+            end,
+            limit,
+            client_id,
+            request_id,
+            ts_init,
+            params,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RequestForwardPrices {
+    pub venue: Venue,
+    pub underlying: Ustr,
+    pub instrument_id: Option<InstrumentId>,
+    pub client_id: Option<ClientId>,
+    pub request_id: UUID4,
+    pub ts_init: UnixNanos,
+    pub params: Option<Params>,
+}
+
+impl RequestForwardPrices {
+    /// Creates a new [`RequestForwardPrices`] instance.
+    pub fn new(
+        venue: Venue,
+        underlying: Ustr,
+        instrument_id: Option<InstrumentId>,
+        client_id: Option<ClientId>,
+        request_id: UUID4,
+        ts_init: UnixNanos,
+        params: Option<Params>,
+    ) -> Self {
+        Self {
+            venue,
+            underlying,
+            instrument_id,
+            client_id,
+            request_id,
+            ts_init,
+            params,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RequestBookDepth {
+    pub instrument_id: InstrumentId,
+    pub start: Option<Timestamp>,
+    pub end: Option<Timestamp>,
+    pub limit: Option<NonZeroUsize>,
+    pub depth: Option<NonZeroUsize>,
+    pub client_id: Option<ClientId>,
+    pub request_id: UUID4,
+    pub ts_init: UnixNanos,
+    pub params: Option<Params>,
+}
+
+impl RequestBookDepth {
+    /// Creates a new [`RequestBookDepth`] instance.
+    #[expect(clippy::too_many_arguments)]
+    pub fn new(
+        instrument_id: InstrumentId,
+        start: Option<Timestamp>,
+        end: Option<Timestamp>,
+        limit: Option<NonZeroUsize>,
+        depth: Option<NonZeroUsize>,
+        client_id: Option<ClientId>,
+        request_id: UUID4,
+        ts_init: UnixNanos,
+        params: Option<Params>,
+    ) -> Self {
+        Self {
+            instrument_id,
+            start,
+            end,
+            limit,
+            depth,
+            client_id,
+            request_id,
+            ts_init,
+            params,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RequestBookDeltas {
+    pub instrument_id: InstrumentId,
+    pub start: Option<Timestamp>,
+    pub end: Option<Timestamp>,
+    pub limit: Option<NonZeroUsize>,
+    pub client_id: Option<ClientId>,
+    pub request_id: UUID4,
+    pub ts_init: UnixNanos,
+    pub params: Option<Params>,
+}
+
+impl RequestBookDeltas {
+    /// Creates a new [`RequestBookDeltas`] instance.
+    #[expect(clippy::too_many_arguments)]
+    pub fn new(
+        instrument_id: InstrumentId,
+        start: Option<Timestamp>,
+        end: Option<Timestamp>,
+        limit: Option<NonZeroUsize>,
+        client_id: Option<ClientId>,
+        request_id: UUID4,
+        ts_init: UnixNanos,
+        params: Option<Params>,
+    ) -> Self {
+        Self {
+            instrument_id,
+            start,
+            end,
+            limit,
+            client_id,
+            request_id,
+            ts_init,
+            params,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RequestBars {
+    pub bar_type: BarType,
+    pub start: Option<Timestamp>,
+    pub end: Option<Timestamp>,
+    pub limit: Option<NonZeroUsize>,
+    pub client_id: Option<ClientId>,
+    pub request_id: UUID4,
+    pub ts_init: UnixNanos,
+    pub params: Option<Params>,
+}
+
+impl RequestBars {
+    /// Creates a new [`RequestBars`] instance.
+    #[expect(clippy::too_many_arguments)]
+    pub fn new(
+        bar_type: BarType,
+        start: Option<Timestamp>,
+        end: Option<Timestamp>,
+        limit: Option<NonZeroUsize>,
+        client_id: Option<ClientId>,
+        request_id: UUID4,
+        ts_init: UnixNanos,
+        params: Option<Params>,
+    ) -> Self {
+        Self {
+            bar_type,
+            start,
+            end,
+            limit,
+            client_id,
+            request_id,
+            ts_init,
+            params,
+        }
+    }
+}
+
+/// A request to join multiple in-flight data requests under a single parent response.
+///
+/// The engine first issues a combined date-range request to bound the join window,
+/// then fans out the leg responses through the request-pipeline machinery so the
+/// caller receives one consolidated `DataResponse` keyed by the join `request_id`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RequestJoin {
+    pub request_ids: Vec<UUID4>,
+    pub start: Option<Timestamp>,
+    pub end: Option<Timestamp>,
+    pub request_id: UUID4,
+    pub ts_init: UnixNanos,
+    pub params: Option<Params>,
+    pub correlation_id: Option<UUID4>,
+}
+
+impl RequestJoin {
+    /// Creates a new [`RequestJoin`] instance.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `request_ids` is empty.
+    pub fn new(
+        request_ids: Vec<UUID4>,
+        start: Option<Timestamp>,
+        end: Option<Timestamp>,
+        request_id: UUID4,
+        ts_init: UnixNanos,
+        params: Option<Params>,
+        correlation_id: Option<UUID4>,
+    ) -> Self {
+        assert!(!request_ids.is_empty(), "request_ids must not be empty");
+        Self {
+            request_ids,
+            start,
+            end,
+            request_id,
+            ts_init,
+            params,
+            correlation_id,
+        }
+    }
+
+    /// Returns a fresh [`RequestJoin`] for the combined date-range bootstrap leg.
+    ///
+    /// The returned request inherits `request_ids` and `params`, carries the
+    /// supplied dates, and sets `correlation_id` to the original request id so
+    /// the response can be matched back to the parent join.
+    #[must_use]
+    pub fn with_dates(
+        &self,
+        start: Option<Timestamp>,
+        end: Option<Timestamp>,
+        ts_init: UnixNanos,
+    ) -> Self {
+        Self {
+            request_ids: self.request_ids.clone(),
+            start,
+            end,
+            request_id: UUID4::new(),
+            ts_init,
+            params: self.params.clone(),
+            correlation_id: Some(self.request_id),
+        }
+    }
+}

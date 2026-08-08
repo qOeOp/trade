@@ -49,7 +49,7 @@ or integration behavior.
 
 ## Anti-pattern
 
-Do not conclude “one bug, one test,” change correct production behavior for a lower-authority test,
+Do not conclude "one bug, one test," change correct production behavior for a lower-authority test,
 assert private structure instead of behavior, or preserve a distorted double. Do not mutate the whole
 repository, chase a global score, retain temporary faults, or count timeout, compile failure, runtime
 error, or equivalent mutants as kills. Never delete from helper, coverage, count, or mutation output.

@@ -1,0 +1,676 @@
+import asyncio
+from datetime import UTC
+from datetime import datetime
+from datetime import timedelta
+
+import pytest
+from strategies.acceptance import DualTimer
+from strategies.acceptance import DualTimerConfig
+
+from tests.unit.common.actor import ControllerRegistrationProbe
+from tests.unit.common.actor import LifecycleProbeStrategy
+from vibe_trader.common import Cache
+from vibe_trader.common import CacheConfig
+from vibe_trader.common import ComponentState
+from vibe_trader.common import DataActor
+from vibe_trader.common import DataActorConfig
+from vibe_trader.common import Environment
+from vibe_trader.common import ImportableActorConfig
+from vibe_trader.common import MessageBusConfig
+from vibe_trader.live import LiveDataEngineConfig
+from vibe_trader.live import LiveExecEngineConfig
+from vibe_trader.live import LiveNode
+from vibe_trader.live import LiveNodeConfig
+from vibe_trader.live import LiveRiskEngineConfig
+from vibe_trader.live import PortfolioConfig
+from vibe_trader.model import ExecAlgorithmId
+from vibe_trader.model import OrderSide
+from vibe_trader.model import OrderStatus
+from vibe_trader.model import TraderId
+from vibe_trader.portfolio import Portfolio
+from vibe_trader.trading import ExecutionAlgorithm
+from vibe_trader.trading import ExecutionAlgorithmConfig
+from vibe_trader.trading import ImportableControllerConfig
+from vibe_trader.trading import ImportableExecAlgorithmConfig
+from vibe_trader.trading import ImportableStrategyConfig
+
+
+@pytest.fixture(scope="module")
+def live_node():
+    trader_id = TraderId("TESTER-001")
+    return LiveNode.builder("TEST", trader_id, Environment.SANDBOX).build()
+
+
+class RequiredConfigLiveActorConfig(DataActorConfig):
+    def __init__(
+        self,
+        required_label: str,
+        actor_id=None,
+        log_events: bool = True,
+        log_commands: bool = True,
+    ):
+        self.actor_id = actor_id
+        self.log_events = log_events
+        self.log_commands = log_commands
+        self.required_label = required_label
+
+
+class RequiredConfigLiveActor(DataActor):
+    received_actor_id: str | None = None
+    received_label: str | None = None
+
+    def __init__(self, config: RequiredConfigLiveActorConfig):
+        super().__init__()
+        type(self).received_actor_id = str(config.actor_id)
+        type(self).received_label = config.required_label
+
+
+class LifecycleExecutionAlgorithm(ExecutionAlgorithm):
+    start_observations = []
+
+    def on_start(self):
+        type(self).start_observations.append((self.state, self.is_running()))
+
+
+class FirstDefaultLiveExecutionAlgorithm(ExecutionAlgorithm):
+    pass
+
+
+class SecondDefaultLiveExecutionAlgorithm(ExecutionAlgorithm):
+    pass
+
+
+def test_importable_actor_config_construction():
+    config = ImportableActorConfig(
+        actor_path="tests.unit.common.actor:TestActor",
+        config_path="tests.unit.common.actor:TestActorConfig",
+        config={"actor_id": "TEST-001"},
+    )
+
+    assert config.actor_path == "tests.unit.common.actor:TestActor"
+    assert config.config_path == "tests.unit.common.actor:TestActorConfig"
+    assert config.config == {"actor_id": "TEST-001"}
+
+
+def test_importable_actor_config_empty():
+    config = ImportableActorConfig(
+        actor_path="module:Class",
+        config_path="module:Config",
+        config={},
+    )
+
+    assert config.actor_path == "module:Class"
+    assert config.config == {}
+
+
+def test_importable_strategy_config_construction():
+    config = ImportableStrategyConfig(
+        strategy_path="tests.unit.common.actor:TestStrategy",
+        config_path="vibe_trader.trading:StrategyConfig",
+        config={"strategy_id": "S-001"},
+    )
+
+    assert config.strategy_path == "tests.unit.common.actor:TestStrategy"
+    assert config.config_path == "vibe_trader.trading:StrategyConfig"
+    assert config.config == {"strategy_id": "S-001"}
+
+
+def test_importable_controller_config_construction():
+    config = ImportableControllerConfig(
+        controller_path="tests.unit.common.actor:StrategyCreatingController",
+        config_path="tests.unit.common.actor:TestControllerConfig",
+        config={"actor_id": "Controller-001"},
+    )
+
+    assert config.controller_path == "tests.unit.common.actor:StrategyCreatingController"
+    assert config.config_path == "tests.unit.common.actor:TestControllerConfig"
+    assert config.config == {"actor_id": "Controller-001"}
+
+
+def test_live_node_config_registers_importable_controller():
+    ControllerRegistrationProbe.reset()
+    trader_id = TraderId("TESTER-003")
+    node = LiveNode.build(
+        "TEST",
+        LiveNodeConfig(
+            trader_id=trader_id,
+            environment=Environment.SANDBOX,
+            exec_engine=LiveExecEngineConfig(reconciliation=False),
+            controller=ImportableControllerConfig(
+                controller_path="tests.unit.common.actor:ControllerRegistrationProbe",
+                config_path="tests.unit.common.actor:ControllerRegistrationProbeConfig",
+                config={"actor_id": "Controller-001"},
+            ),
+        ),
+    )
+
+    assert node.trader_id == trader_id
+    assert ControllerRegistrationProbe.constructed == 1
+    assert ControllerRegistrationProbe.received_actor_id == "Controller-001"
+
+
+def test_live_node_exposes_cache_and_portfolio_inspection():
+    node = LiveNode.build(
+        "TEST",
+        LiveNodeConfig(
+            trader_id=TraderId("TESTER-010"),
+            environment=Environment.SANDBOX,
+            exec_engine=LiveExecEngineConfig(reconciliation=False),
+        ),
+    )
+
+    try:
+        assert isinstance(node.cache, Cache)
+        assert node.cache.instrument_ids() == []
+        assert node.cache.orders() == []
+        assert node.cache.positions() == []
+        assert isinstance(node.portfolio, Portfolio)
+        assert node.portfolio.is_initialized() is False
+    finally:
+        node.dispose()
+
+
+def test_live_node_poll_requires_running_node_and_returns_processed_count():
+    node = LiveNode.build(
+        "TEST",
+        LiveNodeConfig(
+            trader_id=TraderId("TESTER-011"),
+            environment=Environment.SANDBOX,
+            exec_engine=LiveExecEngineConfig(reconciliation=False),
+            timeout_connection_secs=0,
+            timeout_reconciliation_secs=0,
+            timeout_portfolio_secs=0,
+            timeout_disconnection_secs=0,
+            delay_post_stop_secs=0,
+            timeout_shutdown_secs=0,
+        ),
+    )
+
+    try:
+        with pytest.raises(RuntimeError, match="LiveNode is not running"):
+            node.poll()
+
+        node.start()
+        assert node.poll() == 0
+    finally:
+        node.dispose()
+
+
+@pytest.mark.asyncio
+async def test_live_node_poll_services_migrated_strategy_from_async_host_loop():
+    node = LiveNode.build(
+        "TEST",
+        LiveNodeConfig(
+            trader_id=TraderId("TESTER-012"),
+            environment=Environment.SANDBOX,
+            exec_engine=LiveExecEngineConfig(reconciliation=False),
+            timeout_connection_secs=0,
+            timeout_reconciliation_secs=0,
+            timeout_portfolio_secs=0,
+            timeout_disconnection_secs=0,
+            delay_post_stop_secs=0,
+            timeout_shutdown_secs=0,
+        ),
+    )
+    strategy = DualTimer(
+        DualTimerConfig(
+            instrument_id="AUD/USD.SIM",
+            trade_size="100000",
+            alert_iso=(datetime.now(UTC) + timedelta(seconds=1)).isoformat(),
+        ),
+    )
+    node.add_strategy(strategy)
+    processed_counts = []
+
+    try:
+        assert strategy.is_ready() is True
+
+        node.start()
+
+        assert node.is_running is True
+        assert strategy.is_running() is True
+
+        async with asyncio.timeout(5):
+            while not (strategy.fired_a and strategy.fired_b):
+                processed_counts.append(node.poll())
+                await asyncio.sleep(0.01)
+
+        processed_counts.append(node.poll())
+        orders = node.cache.orders(strategy_id=strategy.strategy_id)
+
+        assert len(processed_counts) > 1
+        assert sum(processed_counts) == 5
+        assert strategy.fired_a is True
+        assert strategy.fired_b is True
+        assert len(orders) == 2
+        assert {order.side for order in orders} == {OrderSide.BUY, OrderSide.SELL}
+        assert {order.status for order in orders} == {OrderStatus.DENIED}
+
+        node.stop()
+
+        assert node.is_running is False
+        assert strategy.is_stopped() is True
+    finally:
+        node.dispose()
+
+
+@pytest.mark.parametrize(
+    ("trader_id", "stop_before_dispose"),
+    [
+        ("TESTER-004", True),
+        ("TESTER-005", False),
+    ],
+)
+def test_live_node_start_stop_dispose_local(trader_id, stop_before_dispose):
+    LifecycleProbeStrategy.reset()
+    node = LiveNode.build(
+        "TEST",
+        LiveNodeConfig(
+            trader_id=TraderId(trader_id),
+            environment=Environment.SANDBOX,
+            exec_engine=LiveExecEngineConfig(reconciliation=False),
+            msgbus=MessageBusConfig(external_streams=["signals"]),
+            timeout_connection_secs=0,
+            timeout_reconciliation_secs=0,
+            timeout_portfolio_secs=0,
+            timeout_disconnection_secs=0,
+            delay_post_stop_secs=0,
+            timeout_shutdown_secs=0,
+        ),
+    )
+    node.add_strategy_from_config(
+        ImportableStrategyConfig(
+            strategy_path="tests.unit.common.actor:LifecycleProbeStrategy",
+            config_path="vibe_trader.trading:StrategyConfig",
+            config={},
+        ),
+    )
+
+    try:
+        assert node.is_running is False
+
+        node.start()
+        assert node.is_running is True
+
+        if stop_before_dispose:
+            node.stop()
+        else:
+            node.dispose()
+
+        assert node.is_running is False
+    finally:
+        node.dispose()
+        node.dispose()
+
+    assert node.is_running is False
+    assert LifecycleProbeStrategy.started == 1
+    assert LifecycleProbeStrategy.stopped == 1
+    assert LifecycleProbeStrategy.disposed == 1
+
+
+def test_live_node_dispose_before_start_twice_does_not_raise():
+    node = LiveNode.build(
+        "TEST",
+        LiveNodeConfig(
+            trader_id=TraderId("TESTER-006"),
+            environment=Environment.SANDBOX,
+            exec_engine=LiveExecEngineConfig(reconciliation=False),
+        ),
+    )
+
+    node.dispose()
+    node.dispose()
+
+
+def test_live_node_stop_before_start_raises():
+    node = LiveNode.build(
+        "TEST",
+        LiveNodeConfig(
+            trader_id=TraderId("TESTER-008"),
+            environment=Environment.SANDBOX,
+            exec_engine=LiveExecEngineConfig(reconciliation=False),
+        ),
+    )
+
+    try:
+        with pytest.raises(RuntimeError, match="LiveNode is not running"):
+            node.stop()
+    finally:
+        node.dispose()
+
+
+def test_live_node_start_after_dispose_raises():
+    node = LiveNode.build(
+        "TEST",
+        LiveNodeConfig(
+            trader_id=TraderId("TESTER-009"),
+            environment=Environment.SANDBOX,
+            exec_engine=LiveExecEngineConfig(reconciliation=False),
+            timeout_connection_secs=0,
+            timeout_reconciliation_secs=0,
+            timeout_portfolio_secs=0,
+            timeout_disconnection_secs=0,
+            delay_post_stop_secs=0,
+            timeout_shutdown_secs=0,
+        ),
+    )
+    node.dispose()
+
+    try:
+        with pytest.raises(RuntimeError, match="Invalid state trigger DISPOSED -> START"):
+            node.start()
+    finally:
+        node.dispose()
+
+
+def test_live_node_strategy_start_failure_disposes_resources():
+    node = LiveNode.build(
+        "TEST",
+        LiveNodeConfig(
+            trader_id=TraderId("TESTER-007"),
+            environment=Environment.SANDBOX,
+            exec_engine=LiveExecEngineConfig(reconciliation=False),
+            timeout_connection_secs=1,
+            timeout_disconnection_secs=0,
+            delay_post_stop_secs=0,
+        ),
+    )
+    node.add_strategy_from_config(
+        ImportableStrategyConfig(
+            strategy_path="tests.unit.common.actor:FailingStartStrategy",
+            config_path="vibe_trader.trading:StrategyConfig",
+            config={},
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="simulated live node strategy start failure"):
+        node.start()
+
+    assert node.is_running is False
+
+    node.dispose()
+    node.dispose()
+
+
+def test_importable_exec_algorithm_config_construction():
+    config = ImportableExecAlgorithmConfig(
+        exec_algorithm_path="tests.unit.common.actor:TestExecAlgorithm",
+        config_path="tests.unit.common.actor:TestExecAlgorithmConfig",
+        config={"actor_id": "ALGO-001"},
+    )
+
+    assert config.exec_algorithm_path == "tests.unit.common.actor:TestExecAlgorithm"
+    assert config.config_path == "tests.unit.common.actor:TestExecAlgorithmConfig"
+    assert config.config == {"actor_id": "ALGO-001"}
+
+
+def test_importable_exec_algorithm_config_empty():
+    config = ImportableExecAlgorithmConfig(
+        exec_algorithm_path="module:Class",
+        config_path="module:Config",
+        config={},
+    )
+
+    assert config.exec_algorithm_path == "module:Class"
+    assert config.config == {}
+
+
+def test_builder_accepts_supported_runtime_configs():
+    trader_id = TraderId("TESTER-002")
+    cache_config = CacheConfig(
+        None,
+        False,
+        None,
+        None,
+        True,
+        False,
+        False,
+        True,
+        10000,
+        10000,
+        True,
+        True,
+    )
+
+    node = (
+        LiveNode.builder("TEST", trader_id, Environment.SANDBOX)
+        .with_cache_config(cache_config)
+        .with_portfolio_config(PortfolioConfig())
+        .with_data_engine_config(LiveDataEngineConfig(time_bars_build_with_no_updates=False))
+        .with_risk_engine_config(LiveRiskEngineConfig(bypass=True))
+        .with_exec_engine_config(LiveExecEngineConfig(reconciliation=False))
+        .build()
+    )
+
+    assert node.trader_id == trader_id
+    assert node.environment == Environment.SANDBOX
+
+
+def test_add_actor_from_config_registers(live_node):
+    config = ImportableActorConfig(
+        actor_path="tests.unit.common.actor:TestActor",
+        config_path="tests.unit.common.actor:TestActorConfig",
+        config={},
+    )
+
+    live_node.add_actor_from_config(config)
+
+
+def test_add_actor_from_config_accepts_required_subclass_kwargs(live_node):
+    RequiredConfigLiveActor.received_actor_id = None
+    RequiredConfigLiveActor.received_label = None
+    config = ImportableActorConfig(
+        actor_path="tests.unit.test_live_node:RequiredConfigLiveActor",
+        config_path="tests.unit.test_live_node:RequiredConfigLiveActorConfig",
+        config={
+            "actor_id": "LIVE-CONFIG-ACTOR-001",
+            "required_label": "configured",
+        },
+    )
+
+    live_node.add_actor_from_config(config)
+
+    assert RequiredConfigLiveActor.received_actor_id == "LIVE-CONFIG-ACTOR-001"
+    assert RequiredConfigLiveActor.received_label == "configured"
+
+
+def test_add_actor_from_config_rejects_invalid_path(live_node):
+    config = ImportableActorConfig(
+        actor_path="no_colon_here",
+        config_path="module:Config",
+        config={},
+    )
+
+    with pytest.raises(ValueError, match="actor_path must be in format"):
+        live_node.add_actor_from_config(config)
+
+
+def test_add_actor_from_config_rejects_nonexistent_module(live_node):
+    config = ImportableActorConfig(
+        actor_path="nonexistent.module:SomeClass",
+        config_path="nonexistent.module:SomeConfig",
+        config={},
+    )
+
+    with pytest.raises(RuntimeError, match="Failed to import module"):
+        live_node.add_actor_from_config(config)
+
+
+def test_add_strategy_from_config_registers(live_node):
+    config = ImportableStrategyConfig(
+        strategy_path="tests.unit.common.actor:TestStrategy",
+        config_path="vibe_trader.trading:StrategyConfig",
+        config={},
+    )
+
+    live_node.add_strategy_from_config(config)
+
+
+def test_add_strategy_from_config_rejects_invalid_path(live_node):
+    config = ImportableStrategyConfig(
+        strategy_path="no_colon_here",
+        config_path="module:Config",
+        config={},
+    )
+
+    with pytest.raises(ValueError, match="strategy_path must be in format"):
+        live_node.add_strategy_from_config(config)
+
+
+def test_add_strategy_from_config_rejects_nonexistent_module(live_node):
+    config = ImportableStrategyConfig(
+        strategy_path="nonexistent.module:SomeClass",
+        config_path="nonexistent.module:SomeConfig",
+        config={},
+    )
+
+    with pytest.raises(RuntimeError, match="Failed to import module"):
+        live_node.add_strategy_from_config(config)
+
+
+def test_add_exec_algorithm_from_config_registers(live_node):
+    config = ImportableExecAlgorithmConfig(
+        exec_algorithm_path="tests.unit.common.actor:TestExecAlgorithm",
+        config_path="tests.unit.common.actor:TestExecAlgorithmConfig",
+        config={},
+    )
+
+    live_node.add_exec_algorithm_from_config(config)
+
+
+def test_add_exec_algorithm_from_config_registers_v2_instance(live_node):
+    config = ImportableExecAlgorithmConfig(
+        exec_algorithm_path="tests.unit.test_live_node:LifecycleExecutionAlgorithm",
+        config_path="vibe_trader.trading:ExecutionAlgorithmConfig",
+        config={"exec_algorithm_id": "PY-LIVE-CONFIG"},
+    )
+
+    live_node.add_exec_algorithm_from_config(config)
+
+    with pytest.raises(RuntimeError, match="'PY-LIVE-CONFIG' is already registered"):
+        live_node.add_exec_algorithm_from_config(config)
+
+
+def test_add_exec_algorithm_registers_constructed_instance(live_node):
+    exec_algorithm_id = ExecAlgorithmId("PY-LIVE-CONSTRUCTED")
+    LifecycleExecutionAlgorithm.start_observations = []
+    exec_algorithm = LifecycleExecutionAlgorithm(
+        ExecutionAlgorithmConfig(
+            exec_algorithm_id=exec_algorithm_id,
+            log_events=False,
+            log_commands=False,
+        ),
+    )
+
+    live_node.add_exec_algorithm(exec_algorithm)
+
+    assert exec_algorithm.exec_algorithm_id == exec_algorithm_id
+    assert exec_algorithm.is_registered() is True
+    assert exec_algorithm.is_ready() is True
+    assert exec_algorithm.portfolio.is_initialized() is False
+
+    exec_algorithm.start()
+    assert exec_algorithm.is_running() is True
+    assert LifecycleExecutionAlgorithm.start_observations == [(ComponentState.STARTING, False)]
+
+    exec_algorithm.stop()
+    assert exec_algorithm.is_stopped() is True
+
+    exec_algorithm.resume()
+    assert exec_algorithm.is_running() is True
+
+    exec_algorithm.degrade()
+    assert exec_algorithm.is_degraded() is True
+
+    exec_algorithm.resume()
+    assert exec_algorithm.is_running() is True
+
+    exec_algorithm.stop()
+    assert exec_algorithm.is_stopped() is True
+
+    exec_algorithm.reset()
+    assert exec_algorithm.is_ready() is True
+
+    duplicate = ExecutionAlgorithm(
+        ExecutionAlgorithmConfig(exec_algorithm_id=exec_algorithm_id),
+    )
+
+    with pytest.raises(RuntimeError, match="'PY-LIVE-CONSTRUCTED' is already registered"):
+        live_node.add_exec_algorithm(duplicate)
+
+
+def test_add_exec_algorithms_registers_distinct_class_derived_ids(live_node):
+    first = FirstDefaultLiveExecutionAlgorithm()
+    second = SecondDefaultLiveExecutionAlgorithm()
+
+    live_node.add_exec_algorithm(first)
+    live_node.add_exec_algorithm(second)
+
+    assert first.exec_algorithm_id == ExecAlgorithmId("FirstDefaultLiveExecutionAlgorithm")
+    assert first.is_registered() is True
+    assert second.exec_algorithm_id == ExecAlgorithmId("SecondDefaultLiveExecutionAlgorithm")
+    assert second.is_registered() is True
+
+
+def test_add_exec_algorithm_rejects_running_node():
+    node = LiveNode.build(
+        "TEST",
+        LiveNodeConfig(
+            trader_id=TraderId("TESTER-008"),
+            environment=Environment.SANDBOX,
+            exec_engine=LiveExecEngineConfig(reconciliation=False),
+            timeout_connection_secs=0,
+            timeout_reconciliation_secs=0,
+            timeout_portfolio_secs=0,
+            timeout_disconnection_secs=0,
+            delay_post_stop_secs=0,
+            timeout_shutdown_secs=0,
+        ),
+    )
+    exec_algorithm = ExecutionAlgorithm(
+        ExecutionAlgorithmConfig(exec_algorithm_id=ExecAlgorithmId("PY-LIVE-RUNNING")),
+    )
+
+    try:
+        node.start()
+        with pytest.raises(RuntimeError) as exc_info:
+            node.add_exec_algorithm(exec_algorithm)
+    finally:
+        node.dispose()
+
+    assert str(exc_info.value) == (
+        "Cannot add exec algorithm while node is running, "
+        "add exec algorithms before calling start()"
+    )
+    assert exec_algorithm.is_registered() is False
+    assert node.is_running is False
+
+
+def test_add_exec_algorithm_rejects_data_actor_instance(live_node):
+    with pytest.raises(
+        RuntimeError,
+        match="requires a Python v2 ExecutionAlgorithm instance",
+    ):
+        live_node.add_exec_algorithm(DataActor())
+
+
+def test_add_exec_algorithm_from_config_rejects_invalid_path(live_node):
+    config = ImportableExecAlgorithmConfig(
+        exec_algorithm_path="invalid_path_no_colon",
+        config_path="module:Config",
+        config={},
+    )
+
+    with pytest.raises(ValueError, match="exec_algorithm_path must be in format"):
+        live_node.add_exec_algorithm_from_config(config)
+
+
+def test_add_exec_algorithm_from_config_rejects_nonexistent_module(live_node):
+    config = ImportableExecAlgorithmConfig(
+        exec_algorithm_path="nonexistent.module:SomeClass",
+        config_path="nonexistent.module:SomeConfig",
+        config={},
+    )
+
+    with pytest.raises(RuntimeError, match="Failed to import module"):
+        live_node.add_exec_algorithm_from_config(config)

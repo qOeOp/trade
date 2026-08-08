@@ -1,0 +1,172 @@
+import pytest
+
+from tests.stubs import TestDataProviderPyo3
+from vibe_trader.indicators import AroonOscillator
+from vibe_trader.model import Bar
+from vibe_trader.model import BarAggregation
+from vibe_trader.model import BarSpecification
+from vibe_trader.model import BarType
+from vibe_trader.model import InstrumentId
+from vibe_trader.model import Price
+from vibe_trader.model import PriceType
+from vibe_trader.model import Quantity
+
+
+@pytest.fixture
+def aroon() -> AroonOscillator:
+    return AroonOscillator(10)
+
+
+def test_name_returns_expected_string(aroon: AroonOscillator) -> None:
+    assert aroon.name == "AroonOscillator"
+
+
+def test_period(aroon: AroonOscillator) -> None:
+    # Arrange, Act, Assert
+    assert aroon.period == 10
+
+
+def test_initialized_without_inputs_returns_false(aroon: AroonOscillator) -> None:
+    # Arrange, Act, Assert
+    assert not aroon.initialized
+
+
+def test_initialized_with_required_inputs_returns_true(aroon: AroonOscillator) -> None:
+    # Arrange, Act
+    for _i in range(20):
+        aroon.update_raw(110.08, 109.61)
+
+    # Assert
+    assert aroon.initialized
+
+
+def test_handle_bar_updates_indicator(aroon: AroonOscillator) -> None:
+    # Arrange
+    indicator = AroonOscillator(1)
+    bar = TestDataProviderPyo3.bar_5decimal()
+
+    # Act
+    indicator.handle_bar(bar)
+
+    # Assert
+    assert indicator.has_inputs
+    assert indicator.count == 1
+
+
+def test_handle_bar_uses_bar_high_and_low() -> None:
+    # Arrange
+    indicator = AroonOscillator(1)
+
+    # Act
+    indicator.handle_bar(_bar(high=10.0, low=1.0, close=5.0))
+    indicator.handle_bar(_bar(high=8.0, low=3.0, close=7.0))
+
+    # Assert
+    assert indicator.initialized
+    assert indicator.aroon_up == 0.0
+    assert indicator.aroon_down == 100.0
+    assert indicator.value == -100.0
+
+
+def test_handle_quote_tick_updates_indicator() -> None:
+    # Arrange
+    indicator = AroonOscillator(1)
+
+    # Act
+    indicator.handle_quote_tick(TestDataProviderPyo3.quote_tick(bid_price=100.0, ask_price=100.0))
+    indicator.handle_quote_tick(TestDataProviderPyo3.quote_tick(bid_price=101.0, ask_price=101.0))
+
+    # Assert
+    assert indicator.has_inputs
+    assert indicator.initialized
+    assert indicator.count == 2
+
+
+def test_handle_trade_tick_updates_indicator() -> None:
+    # Arrange
+    indicator = AroonOscillator(1)
+
+    # Act
+    indicator.handle_trade_tick(TestDataProviderPyo3.trade_tick(price=100.0))
+    indicator.handle_trade_tick(TestDataProviderPyo3.trade_tick(price=101.0))
+
+    # Assert
+    assert indicator.has_inputs
+    assert indicator.initialized
+    assert indicator.count == 2
+
+
+def test_value_with_two_inputs() -> None:
+    # Arrange
+    aroon = AroonOscillator(1)
+
+    # Act
+    aroon.update_raw(110.08, 109.61)
+    aroon.update_raw(110.10, 109.70)
+
+    # Assert
+    assert aroon.initialized
+    assert aroon.aroon_up == 100.0
+    assert aroon.aroon_down == 100.0
+    assert aroon.value == 0
+
+
+def test_value_with_twenty_inputs(aroon: AroonOscillator) -> None:
+    # Arrange, Act
+    aroon.update_raw(110.08, 109.61)
+    aroon.update_raw(110.15, 109.91)
+    aroon.update_raw(110.1, 109.73)
+    aroon.update_raw(110.06, 109.77)
+    aroon.update_raw(110.29, 109.88)
+    aroon.update_raw(110.53, 110.29)
+    aroon.update_raw(110.61, 110.26)
+    aroon.update_raw(110.28, 110.17)
+    aroon.update_raw(110.3, 110.0)
+    aroon.update_raw(110.25, 110.01)
+    aroon.update_raw(110.25, 109.81)
+    aroon.update_raw(109.92, 109.71)
+    aroon.update_raw(110.21, 109.84)
+    aroon.update_raw(110.08, 109.95)
+    aroon.update_raw(110.2, 109.96)
+    aroon.update_raw(110.16, 109.95)
+    aroon.update_raw(109.99, 109.75)
+    aroon.update_raw(110.2, 109.73)
+    aroon.update_raw(110.1, 109.81)
+    aroon.update_raw(110.04, 109.96)
+
+    # Assert
+    assert aroon.aroon_up == 0.0
+    assert aroon.aroon_down == 20.0
+    assert aroon.value == -20.0
+
+
+def test_reset_successfully_returns_indicator_to_fresh_state(aroon: AroonOscillator) -> None:
+    # Arrange
+    for _i in range(1000):
+        aroon.update_raw(110.08, 109.61)
+
+    # Act
+    aroon.reset()
+
+    # Assert
+    assert not aroon.initialized
+    assert aroon.aroon_up == 0
+    assert aroon.aroon_down == 0
+    assert aroon.value == 0
+
+
+def _bar(high: float, low: float, close: float) -> Bar:
+    bar_type = BarType(
+        InstrumentId.from_str("ETHUSDT.BINANCE"),
+        BarSpecification(1, BarAggregation.MINUTE, PriceType.BID),
+    )
+    return Bar(
+        bar_type=bar_type,
+        open=Price.from_str(str(close)),
+        high=Price.from_str(str(high)),
+        low=Price.from_str(str(low)),
+        close=Price.from_str(str(close)),
+        volume=Quantity.from_int(1_000_000),
+        ts_event=0,
+        ts_init=0,
+    )

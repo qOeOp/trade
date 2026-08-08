@@ -1,0 +1,103 @@
+use pyo3::prelude::*;
+use vibe_core::python::to_pyvalue_err;
+use vibe_model::{
+    data::{Bar, QuoteTick, TradeTick},
+    enums::PriceType,
+};
+
+use crate::{
+    average::MovingAverageType,
+    indicator::{Indicator, MovingAverage},
+    momentum::macd::MovingAverageConvergenceDivergence,
+};
+
+#[pymethods]
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
+impl MovingAverageConvergenceDivergence {
+    /// Creates a new `MovingAverageConvergenceDivergence` instance.
+    #[new]
+    #[pyo3(signature = (fast_period, slow_period, ma_type=None, price_type=None))]
+    #[must_use]
+    pub fn py_new(
+        fast_period: usize,
+        slow_period: usize,
+        ma_type: Option<MovingAverageType>,
+        price_type: Option<PriceType>,
+    ) -> Self {
+        Self::new(fast_period, slow_period, ma_type, price_type)
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "MovingAverageConvergenceDivergence({},{},{:?})",
+            self.fast_period, self.slow_period, self.price_type
+        )
+    }
+
+    #[getter]
+    #[pyo3(name = "name")]
+    fn py_name(&self) -> String {
+        self.name()
+    }
+
+    #[getter]
+    #[pyo3(name = "fast_period")]
+    const fn py_fast_period(&self) -> usize {
+        self.fast_period
+    }
+
+    #[getter]
+    #[pyo3(name = "slow_period")]
+    const fn py_slow_period(&self) -> usize {
+        self.slow_period
+    }
+
+    #[getter]
+    #[pyo3(name = "count")]
+    fn py_count(&self) -> usize {
+        self.count()
+    }
+
+    #[getter]
+    #[pyo3(name = "has_inputs")]
+    fn py_has_inputs(&self) -> bool {
+        self.has_inputs()
+    }
+
+    #[getter]
+    #[pyo3(name = "initialized")]
+    const fn py_initialized(&self) -> bool {
+        self.initialized
+    }
+
+    #[getter]
+    #[pyo3(name = "value")]
+    const fn py_value(&self) -> f64 {
+        self.value
+    }
+
+    #[pyo3(name = "handle_quote_tick")]
+    fn py_handle_quote_tick(&mut self, quote: &QuoteTick) -> PyResult<()> {
+        self.handle_quote(quote).map_err(to_pyvalue_err)
+    }
+
+    #[pyo3(name = "handle_trade_tick")]
+    fn py_handle_trade_tick(&mut self, trade: &TradeTick) {
+        self.handle_trade(trade);
+    }
+
+    #[pyo3(name = "handle_bar")]
+    fn py_handle_bar(&mut self, bar: &Bar) {
+        self.handle_bar(bar);
+    }
+
+    #[pyo3(name = "reset")]
+    fn py_reset(&mut self) {
+        self.reset();
+    }
+
+    #[pyo3(name = "update_raw")]
+    fn py_update_raw(&mut self, close: f64) {
+        self.update_raw(close);
+    }
+}

@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+from decimal import Decimal
+
+from vibe_trader.adapters.binance import BINANCE
+from vibe_trader.adapters.binance import BinanceAccountType
+from vibe_trader.adapters.binance import BinanceDataClientConfig
+from vibe_trader.adapters.binance import BinanceExecClientConfig
+from vibe_trader.adapters.binance import BinanceLiveDataClientFactory
+from vibe_trader.adapters.binance import BinanceLiveExecClientFactory
+from vibe_trader.adapters.binance.common.enums import BinanceEnvironment
+from vibe_trader.config import InstrumentProviderConfig
+from vibe_trader.config import LiveExecEngineConfig
+from vibe_trader.config import LoggingConfig
+from vibe_trader.config import TradingNodeConfig
+from vibe_trader.examples.algorithms.twap import TWAPExecAlgorithm
+from vibe_trader.examples.strategies.ema_cross_bracket_algo import EMACrossBracketAlgo
+from vibe_trader.examples.strategies.ema_cross_bracket_algo import EMACrossBracketAlgoConfig
+from vibe_trader.live.node import TradingNode
+from vibe_trader.model.identifiers import ExecAlgorithmId
+from vibe_trader.model.identifiers import TraderId
+
+
+# *** THIS IS A TEST STRATEGY WITH NO ALPHA ADVANTAGE WHATSOEVER. ***
+# *** IT IS NOT INTENDED TO BE USED TO TRADE LIVE WITH REAL MONEY. ***
+
+
+# Configure the trading node
+config_node = TradingNodeConfig(
+    trader_id=TraderId("TESTER-001"),
+    logging=LoggingConfig(
+        log_level="INFO",
+        log_level_file="INFO",
+    ),
+    exec_engine=LiveExecEngineConfig(
+        reconciliation=False,
+        reconciliation_lookback_mins=1440,
+    ),
+    data_clients={
+        BINANCE: BinanceDataClientConfig(
+            environment=BinanceEnvironment.LIVE,
+            account_type=BinanceAccountType.SPOT,
+            instrument_provider=InstrumentProviderConfig(load_all=True),
+        ),
+    },
+    exec_clients={
+        BINANCE: BinanceExecClientConfig(
+            environment=BinanceEnvironment.LIVE,
+            account_type=BinanceAccountType.SPOT,
+            instrument_provider=InstrumentProviderConfig(load_all=True),
+            max_retries=3,
+        ),
+    },
+    timeout_connection=30.0,
+    timeout_reconciliation=10.0,
+    timeout_portfolio=10.0,
+    timeout_disconnection=10.0,
+    timeout_post_stop=5.0,
+)
+
+# Instantiate the node with a configuration
+node = TradingNode(config=config_node)
+
+# Configure your strategy
+symbol = "ETHUSDT"
+strat_config = EMACrossBracketAlgoConfig(
+    order_id_tag="001",
+    instrument_id=f"{symbol}.BINANCE",
+    external_order_claims=[f"{symbol}.BINANCE"],
+    bar_type=f"{symbol}.BINANCE-1-MINUTE-LAST-EXTERNAL",
+    fast_ema_period=10,
+    slow_ema_period=20,
+    bracket_distance_atr=1.0,
+    trade_size=Decimal("0.05"),
+    emulation_trigger="BID_ASK",
+    entry_exec_algorithm_id=ExecAlgorithmId("TWAP"),
+    entry_exec_algorithm_params={
+        "horizon_secs": 10.0,
+        "interval_secs": 2.5,
+    },
+)
+# Instantiate your strategy and execution algorithm
+strategy = EMACrossBracketAlgo(config=strat_config)
+exec_algorithm = TWAPExecAlgorithm()
+
+# Add your strategies and modules
+node.trader.add_strategy(strategy)
+node.trader.add_exec_algorithm(exec_algorithm)
+
+# Register your client factories with the node (can take user-defined factories)
+node.add_data_client_factory(BINANCE, BinanceLiveDataClientFactory)
+node.add_exec_client_factory(BINANCE, BinanceLiveExecClientFactory)
+node.build()
+
+
+# Stop and dispose of the node with SIGINT/CTRL+C
+if __name__ == "__main__":
+    try:
+        node.run()
+    finally:
+        node.dispose()

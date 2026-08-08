@@ -10,7 +10,7 @@ const REQUEST_EFFECT_PREFLIGHT_SCHEMA = "codex-review-request-effect-preflight/v
 const DELIVERY_BARRIER_INPUT_SCHEMA = "delivery-barrier-input/v3"
 const DELIVERY_BARRIER_EVIDENCE_SCHEMA = "delivery-barrier-evidence/v3"
 const DELIVERY_BARRIER_RECEIPT_SCHEMA = "delivery-barrier-receipt/v3"
-const CLEAN_COMMENT_HEADING = /^Codex Review: Didn['’]t find any major issues\.(?: (?=[^\r\n]{1,64}$)\S(?:[^\r\n]*\S)?)?$/
+const CLEAN_COMMENT_HEADING = /^Codex Review: Didn['’]t find any major issues\.(?: (?=[^\r\n]{1,64}$)\S(?:[^\r\n]*\S)?)?$/ // unicode-typography: allow
 const REVIEWED_COMMIT = /^\*\*Reviewed commit:\*\* `([0-9a-f]{7,40})`$/
 const USAGE_FAILURE = /(usage limit|rate limit|quota exceeded|try again later)/i
 const REVIEW_REQUEST = /^@codex[ \t]+review\b/i

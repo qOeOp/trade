@@ -1,0 +1,67 @@
+[package]
+name = "vibe-trading"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Strategy machinery and controllers for the Vibe trading engine"
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "vibe_trading"
+crate-type = ["rlib"]
+
+[features]
+default = []
+defi = ["vibe-model/defi"]
+examples = ["vibe-indicators"]
+high-precision = ["vibe-model/high-precision"]
+extension-module = [
+  "vibe-common/extension-module",
+  "vibe-core/extension-module",
+  "vibe-execution/extension-module",
+  "vibe-model/extension-module",
+  "python",
+  "pyo3/extension-module",
+]
+python = [
+  "vibe-common/python",
+  "vibe-core/python",
+  "vibe-execution/python",
+  "vibe-model/python",
+  "vibe-portfolio/python",
+  "pyo3",
+  "pyo3-stub-gen",
+]
+[dependencies]
+vibe-analysis = { workspace = true }
+vibe-common = { workspace = true }
+vibe-core = { workspace = true }
+vibe-execution = { workspace = true }
+vibe-model = { workspace = true, features = ["stubs"] }
+vibe-portfolio = { workspace = true }
+
+ahash = { workspace = true }
+anyhow = { workspace = true }
+bon = { workspace = true }
+indexmap = { workspace = true }
+jiff = { workspace = true }
+log = { workspace = true }
+rust_decimal = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+strum = { workspace = true }
+ustr = { workspace = true }
+
+pyo3 = { workspace = true, optional = true }
+pyo3-stub-gen = { workspace = true, optional = true }
+vibe-indicators = { workspace = true, optional = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+rust_decimal_macros = { workspace = true }
+serde_json = { workspace = true }

@@ -1,7 +1,0 @@
-{
-  "name": "@trade/liquidation-zones",
-  "private": true,
-  "scripts": {
-    "check": "python3 -B -m py_compile src/scripts/main.py src/scripts/test_main.py && python3 -B -W error src/scripts/test_main.py"
-  }
-}

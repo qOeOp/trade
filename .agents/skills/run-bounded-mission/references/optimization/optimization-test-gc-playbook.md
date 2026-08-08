@@ -3,7 +3,7 @@
 ## Activation
 
 Load only when a current decision concerns test or glue redundancy, obsolescence, reachability,
-mis-layering, replacement, or deletion, and the affected behavior can remain frozen. A low count,
+incorrect layering, replacement, or deletion, and the affected behavior can remain frozen. A low count,
 coverage percentage, old file, slow test, helper signal, or desire for cleanup does not activate it.
 
 ## Evidence
@@ -20,7 +20,7 @@ and unobserved configurations as unresolved.
 - **redundant:** another maintained oracle proves the same failure with no lost boundary value;
 - **obsolete:** the test asserts a superseded contract or removed consumer;
 - **implementation-coupled:** private calls, ordering, snapshots, or transforms replace behavior proof;
-- **mis-layered:** a deterministic rule is tested above its narrowest stable owner;
+- **incorrectly layered:** a deterministic rule is tested above its narrowest stable owner;
 - **distorted:** a mock, fake, environment, time, or concurrency model hides the real boundary;
 - **expensive without unique value:** runtime or maintenance cost is observed but no distinct failure
   remains after replacement.

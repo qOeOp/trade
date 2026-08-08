@@ -1,0 +1,165 @@
+[package]
+name = "vibe-binance"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Binance exchange integration adapter for the Vibe trading engine"
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "vibe_binance"
+crate-type = ["rlib"]
+
+[features]
+default = ["high-precision"]
+examples = ["vibe-live/node", "vibe-network/transport-sockudo"]
+high-precision = [
+  "vibe-model/high-precision",
+  "vibe-serialization/high-precision",
+]
+extension-module = [
+  "vibe-common/extension-module",
+  "vibe-core/extension-module",
+  "vibe-live/extension-module",
+  "vibe-model/extension-module",
+  "vibe-network/extension-module",
+  "pyo3/extension-module",
+  "python",
+]
+python = [
+  "dep:vibe-system",
+  "vibe-common/python",
+  "vibe-core/python",
+  "vibe-live/python",
+  "vibe-model/python",
+  "vibe-network/python",
+  "vibe-serialization/python",
+  "vibe-system/python",
+  "pyo3",
+  "pyo3-stub-gen",
+]
+[dependencies]
+vibe-common = { workspace = true, features = ["live"] }
+vibe-core = { workspace = true }
+vibe-live = { workspace = true }
+vibe-model = { workspace = true }
+vibe-network = { workspace = true }
+vibe-serialization = { workspace = true, features = ["sbe", "arrow"] }
+vibe-system = { workspace = true, optional = true }
+
+ahash = { workspace = true }
+anyhow = { workspace = true }
+arc-swap = { workspace = true }
+arrow = { workspace = true }
+async-stream = { workspace = true }
+async-trait = { workspace = true }
+aws-lc-rs = { workspace = true }
+base64 = { workspace = true }
+bon = { workspace = true }
+csv = { workspace = true }
+dashmap = { workspace = true }
+derive_builder = { workspace = true }
+ed25519-dalek = { workspace = true }
+futures-util = { workspace = true }
+jiff = { workspace = true }
+log = { workspace = true }
+rust_decimal = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_urlencoded = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tokio-util = { workspace = true }
+ustr = { workspace = true }
+zeroize = { workspace = true }
+
+pyo3 = { workspace = true, optional = true }
+pyo3-stub-gen = { workspace = true, optional = true }
+
+[dev-dependencies]
+vibe-testkit = { workspace = true, default-features = false, features = [
+  "testers",
+] }
+vibe-trading = { workspace = true }
+
+axum = { workspace = true }
+criterion = { workspace = true }
+dotenvy = { workspace = true }
+rstest = { workspace = true }
+rust_decimal_macros = { workspace = true }
+toml = { workspace = true }
+
+# Run with `cargo bench -p vibe-binance --bench encoder`
+[[bench]]
+name = "encoder"
+harness = false
+
+[[bin]]
+name = "binance-spot-http-public"
+path = "bin/http_public.rs"
+doc = false
+test = false
+
+[[bin]]
+name = "binance-spot-ws-data"
+path = "bin/ws_spot_data.rs"
+doc = false
+test = false
+
+[[bin]]
+name = "binance-spot-http-capture-fixtures"
+path = "bin/capture_spot_http_fixtures.rs"
+doc = false
+test = false
+
+[[bin]]
+name = "binance-spot-ws-user-data-capture"
+path = "bin/capture_spot_ws_user_data.rs"
+doc = false
+test = false
+
+# Run with `cargo run --example binance-spot-data-tester --package vibe-binance --features examples`
+[[example]]
+name = "binance-spot-data-tester"
+path = "examples/spot/node_data_tester.rs"
+required-features = ["examples"]
+doc = false
+
+# Run with `cargo run --example binance-spot-exec-tester --package vibe-binance --features examples`
+[[example]]
+name = "binance-spot-exec-tester"
+path = "examples/spot/node_exec_tester.rs"
+required-features = ["examples"]
+doc = false
+
+# Run with `cargo run --example binance-futures-data-tester --package vibe-binance --features examples`
+[[example]]
+name = "binance-futures-data-tester"
+path = "examples/futures/node_data_tester.rs"
+required-features = ["examples"]
+doc = false
+
+# Run with `cargo run --example binance-futures-exec-tester --package vibe-binance --features examples`
+[[example]]
+name = "binance-futures-exec-tester"
+path = "examples/futures/node_exec_tester.rs"
+required-features = ["examples"]
+doc = false
+
+# Run with `cargo run --example binance-futures-exec-trailing-stop-tester --package vibe-binance --features examples`
+[[example]]
+name = "binance-futures-exec-trailing-stop-tester"
+path = "examples/futures/node_exec_trailing_stop_tester.rs"
+required-features = ["examples"]
+doc = false
+
+[[test]]
+name = "python"
+path = "tests/python.rs"
+required-features = ["python"]

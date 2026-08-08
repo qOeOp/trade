@@ -1,0 +1,113 @@
+use std::str::FromStr;
+
+use sqlx::{Error, FromRow, Row, postgres::PgRow};
+use vibe_core::UnixNanos;
+use vibe_model::{
+    data::{Bar, BarSpecification, BarType, QuoteTick, TradeTick},
+    identifiers::{InstrumentId, TradeId},
+    types::{Price, Quantity},
+};
+
+use crate::sql::models::{
+    enums::{AggregationSourceModel, AggressorSideModel, BarAggregationModel, PriceTypeModel},
+    read_usize,
+};
+
+#[derive(Debug)]
+pub struct QuoteTickModel(pub QuoteTick);
+
+#[derive(Debug)]
+pub struct TradeTickModel(pub TradeTick);
+
+#[derive(Debug)]
+pub struct BarModel(pub Bar);
+
+impl<'r> FromRow<'r, PgRow> for QuoteTickModel {
+    fn from_row(row: &'r PgRow) -> Result<Self, Error> {
+        let instrument_id = row
+            .try_get::<&str, _>("instrument_id")
+            .map(InstrumentId::from)?;
+        let bid_price = row.try_get::<&str, _>("bid_price").map(Price::from)?;
+        let ask_price = row.try_get::<&str, _>("ask_price").map(Price::from)?;
+        let bid_size = row.try_get::<&str, _>("bid_size").map(Quantity::from)?;
+        let ask_size = row.try_get::<&str, _>("ask_size").map(Quantity::from)?;
+        let ts_event = row.try_get::<&str, _>("ts_event").map(UnixNanos::from)?;
+        let ts_init = row.try_get::<&str, _>("ts_init").map(UnixNanos::from)?;
+        let quote = QuoteTick::new(
+            instrument_id,
+            bid_price,
+            ask_price,
+            bid_size,
+            ask_size,
+            ts_event,
+            ts_init,
+        );
+        Ok(Self(quote))
+    }
+}
+
+impl<'r> FromRow<'r, PgRow> for TradeTickModel {
+    fn from_row(row: &'r PgRow) -> Result<Self, Error> {
+        let instrument_id = row
+            .try_get::<&str, _>("instrument_id")
+            .map(InstrumentId::from)?;
+        let price = row.try_get::<&str, _>("price").map(Price::from)?;
+        let size = row.try_get::<&str, _>("quantity").map(Quantity::from)?;
+        let aggressor_side = row
+            .try_get::<AggressorSideModel, _>("aggressor_side")
+            .map(|x| x.0)?;
+        let trade_id = row
+            .try_get::<&str, _>("venue_trade_id")
+            .map(TradeId::from)?;
+        let ts_event = row.try_get::<&str, _>("ts_event").map(UnixNanos::from)?;
+        let ts_init = row.try_get::<&str, _>("ts_init").map(UnixNanos::from)?;
+        let trade = TradeTick::new(
+            instrument_id,
+            price,
+            size,
+            aggressor_side,
+            trade_id,
+            ts_event,
+            ts_init,
+        );
+        Ok(Self(trade))
+    }
+}
+
+impl<'r> FromRow<'r, PgRow> for BarModel {
+    fn from_row(row: &'r PgRow) -> Result<Self, Error> {
+        fn decode<T: FromStr>(row: &PgRow, column: &str) -> Result<T, Error>
+        where
+            T::Err: std::fmt::Display,
+        {
+            row.try_get::<&str, _>(column)?.parse::<T>().map_err(|e| {
+                Error::Decode(format!("Invalid `{column}` value in bar row: {e}").into())
+            })
+        }
+
+        let instrument_id: InstrumentId = decode(row, "instrument_id")?;
+        let step = read_usize(row, "step")?;
+        let price_type = row
+            .try_get::<PriceTypeModel, _>("price_type")
+            .map(|x| x.0)?;
+        let bar_aggregation = row
+            .try_get::<BarAggregationModel, _>("bar_aggregation")
+            .map(|x| x.0)?;
+        let aggregation_source = row
+            .try_get::<AggregationSourceModel, _>("aggregation_source")
+            .map(|x| x.0)?;
+        let spec = BarSpecification::new_checked(step, bar_aggregation, price_type)
+            .map_err(|e| Error::Decode(format!("Invalid bar specification in row: {e}").into()))?;
+        let bar_type = BarType::new(instrument_id, spec, aggregation_source);
+        let open: Price = decode(row, "open")?;
+        let high: Price = decode(row, "high")?;
+        let low: Price = decode(row, "low")?;
+        let close: Price = decode(row, "close")?;
+        let volume: Quantity = decode(row, "volume")?;
+        let ts_event: UnixNanos = decode(row, "ts_event")?;
+        let ts_init: UnixNanos = decode(row, "ts_init")?;
+        let bar = Bar::new_checked(bar_type, open, high, low, close, volume, ts_event, ts_init)
+            .map_err(|e| Error::Decode(format!("Invalid bar in row: {e}").into()))?;
+        Ok(Self(bar))
+    }
+}

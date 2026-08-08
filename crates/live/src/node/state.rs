@@ -1,0 +1,168 @@
+use std::sync::{
+    Arc,
+    atomic::{AtomicU8, Ordering},
+};
+
+use super::metrics::{RunnerMetrics, RunnerMetricsSnapshot};
+
+const STOP_REQUESTED: u8 = 1 << 7;
+const STATE_MASK: u8 = !STOP_REQUESTED;
+
+/// Lifecycle state of the `LiveNode` runner.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum NodeState {
+    #[default]
+    Idle = 0,
+    Starting = 1,
+    Running = 2,
+    ShuttingDown = 3,
+    Stopped = 4,
+}
+
+impl NodeState {
+    /// Creates a `NodeState` from its `u8` representation.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the value is not a valid `NodeState` discriminant (0-4).
+    #[must_use]
+    pub const fn from_u8(value: u8) -> Self {
+        match value {
+            0 => Self::Idle,
+            1 => Self::Starting,
+            2 => Self::Running,
+            3 => Self::ShuttingDown,
+            4 => Self::Stopped,
+            _ => panic!("Invalid NodeState value"),
+        }
+    }
+
+    /// Returns the `u8` representation of this state.
+    #[must_use]
+    pub const fn as_u8(self) -> u8 {
+        self as u8
+    }
+
+    /// Returns whether the state is `Running`.
+    #[must_use]
+    pub const fn is_running(&self) -> bool {
+        matches!(self, Self::Running)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RunningTransition {
+    Entered,
+    StopRequested,
+    Invalid(u8),
+}
+
+/// A thread-safe handle to control a `LiveNode` from other threads.
+///
+/// This allows stopping and querying the node's state without requiring the
+/// node itself to be Send + Sync.
+#[derive(Clone, Debug)]
+pub struct LiveNodeHandle {
+    control: Arc<AtomicU8>,
+    pub(crate) metrics: Arc<RunnerMetrics>,
+}
+
+impl Default for LiveNodeHandle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LiveNodeHandle {
+    /// Creates a new handle with default (`Idle`) state.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            control: Arc::new(AtomicU8::new(NodeState::Idle.as_u8())),
+            metrics: Arc::new(RunnerMetrics::default()),
+        }
+    }
+
+    pub(crate) fn set_starting(&self) {
+        self.set_state(NodeState::Starting);
+    }
+
+    pub(crate) fn set_shutting_down(&self) {
+        self.set_state(NodeState::ShuttingDown);
+    }
+
+    pub(crate) fn set_stopped(&self) {
+        self.set_state(NodeState::Stopped);
+    }
+
+    pub(super) fn try_set_running(&self) -> RunningTransition {
+        match self.control.compare_exchange(
+            NodeState::Starting.as_u8(),
+            NodeState::Running.as_u8(),
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => RunningTransition::Entered,
+            Err(control) if control == (NodeState::Starting.as_u8() | STOP_REQUESTED) => {
+                RunningTransition::StopRequested
+            }
+            Err(control) => RunningTransition::Invalid(control),
+        }
+    }
+
+    fn set_state(&self, state: NodeState) {
+        let _ = self
+            .control
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |control| {
+                Some((control & STOP_REQUESTED) | state.as_u8())
+            });
+    }
+
+    /// Returns the current node state.
+    #[must_use]
+    pub fn state(&self) -> NodeState {
+        NodeState::from_u8(self.control.load(Ordering::Acquire) & STATE_MASK)
+    }
+
+    /// Returns whether the node should stop.
+    #[must_use]
+    pub fn should_stop(&self) -> bool {
+        self.control.load(Ordering::Acquire) & STOP_REQUESTED != 0
+    }
+
+    /// Returns whether the node is currently running.
+    #[must_use]
+    pub fn is_running(&self) -> bool {
+        self.state().is_running()
+    }
+
+    /// Returns a by-value snapshot of `LiveNode::run` dispatch metrics after startup.
+    #[must_use]
+    pub fn metrics_snapshot(&self) -> RunnerMetricsSnapshot {
+        self.metrics.snapshot()
+    }
+
+    /// Signals the node to stop.
+    pub fn stop(&self) {
+        self.control.fetch_or(STOP_REQUESTED, Ordering::AcqRel);
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum EngineConnectionStatus {
+    Connected,
+    TimedOut,
+    StopRequested,
+    ShutdownRequested,
+}
+
+impl EngineConnectionStatus {
+    pub(super) const fn abort_reason(self) -> Option<&'static str> {
+        match self {
+            Self::Connected | Self::TimedOut => None,
+            Self::StopRequested => Some("Stop signal received during startup"),
+            Self::ShutdownRequested => Some("Shutdown signal received during startup"),
+        }
+    }
+}
