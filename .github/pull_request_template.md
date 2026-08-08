@@ -5,8 +5,8 @@
 > External contributions must not modify files under `.github/workflows` or `.github/actions`;
 > workflow changes are maintainer‑only.
 
-<!-- PR title: follow the executable rule in .github/scripts/validate-pr-title.sh and the
-     commit-message guidance in docs/developer_guide/coding_standards.md. -->
+<!-- PR title: .github/scripts/validate-pr-title.sh is the sole executable syntax authority.
+     The matching contributor guidance is in docs/developer_guide/coding_standards.md. -->
 
 - [ ] I have reviewed [CONTRIBUTING.md](https://github.com/nautechsystems/nautilus_trader/blob/develop/CONTRIBUTING.md) and followed the established practices
 - [ ] I have not modified `RELEASES.md` (maintainers keep it current to avoid merge conflicts)

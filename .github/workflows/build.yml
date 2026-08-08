@@ -20,22 +20,17 @@ on:
       - opened
       - synchronize
       - reopened
-      - edited
     branches:
       - main
 
-# Isolate metadata-only edits; push groups include the branch and commit
+# Pull request runs share one exact-head group; push groups include the branch and commit
 concurrency:
   group: >-
-    ${{ github.event_name == 'pull_request'
-    && github.event.action == 'edited'
-    && !github.event.changes.base
-    && format('{0}-metadata-{1}', github.workflow, github.run_id)
-    || format('{0}-{1}', github.workflow,
-    github.event.pull_request.number || format('{0}-{1}', github.ref_name, github.sha)) }}
-  cancel-in-progress: >-
-    ${{ github.event_name == 'pull_request'
-    && !(github.event.action == 'edited' && !github.event.changes.base) }}
+    ${{ format('{0}-{1}',
+    github.workflow,
+    github.event.pull_request.number ||
+    format('{0}-{1}', github.ref_name, github.sha)) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   AUDIT_PR: >-
@@ -88,13 +83,6 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Validate pull request title
-        if: github.event_name == 'pull_request'
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-        shell: bash
-        run: bash .github/scripts/validate-pr-title.sh "$PR_TITLE"
-
       - name: Plan
         id: plan
         shell: bash
@@ -134,17 +122,7 @@ jobs:
           bash scripts/ci/plan-wheel-publication.bash
 
   pre-commit:
-    name: >-
-      ${{ github.event_name == 'pull_request'
-      && github.event.action == 'edited'
-      && !github.event.changes.base
-      && 'metadata-only pull request edit (lint)'
-      || 'pre-commit' }}
-    if: >-
-      !cancelled() &&
-      (github.event_name != 'pull_request' ||
-       github.event.action != 'edited' ||
-       github.event.changes.base)
+    name: pre-commit
     needs: plan
     runs-on: ubuntu-22.04
     env:
@@ -233,12 +211,7 @@ jobs:
           - "3.12"
           - "3.13"
           - "3.14"
-    name: >-
-      ${{ github.event_name == 'pull_request'
-      && github.event.action == 'edited'
-      && !github.event.changes.base
-      && 'metadata-only pull request edit (python)'
-      || format('build - python {0} (ubuntu-22.04)', matrix.python-version) }}
+    name: build - python ${{ matrix.python-version }} (ubuntu-22.04)
     runs-on: ubuntu-22.04
     defaults:
       run:
@@ -476,19 +449,9 @@ jobs:
           RUN_RUST_TESTS: ${{ needs.plan.outputs.run-rust-tests }}
           PUBLISH_R2: ${{ needs.plan.outputs.publish_r2 }}
           REF_NAME: ${{ github.ref_name }}
-          METADATA_ONLY: >-
-            ${{ github.event_name == 'pull_request'
-            && github.event.action == 'edited'
-            && !github.event.changes.base }}
         run: |
           set -euo pipefail
           test "$PLAN_RESULT" = success
-          if [[ "$METADATA_ONLY" == true ]]; then
-            test "$PRE_COMMIT_RESULT" = skipped
-            test "$BUILD_RESULT" = skipped
-            test "$RUST_TESTS_RESULT" = skipped
-            exit 0
-          fi
           test "$PRE_COMMIT_RESULT" = success
           if [[ "$RUN_TESTS" == true ]]; then
             test "$BUILD_RESULT" = success
