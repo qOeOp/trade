@@ -127,12 +127,11 @@ maturity together with every contradiction or refutation and every unavailable s
 does not erase proved maturity, and unavailable evidence neither lowers that maturity nor becomes a
 contradiction.
 
-For a dynamic claim, an evaluator semantic packet must include the canonical raw receipt bytes or an
-evaluator-readable content-addressed projection containing the bounded native receipt identity and
-exact content. A locator whose content is not readable inside the evaluator discovery boundary is
-insufficient for `dynamic`, recurrence, or owner-route proof; prose reconstruction is insufficient too.
-The projection is conversation-only evidence for that audit, not a transcript archive, schema, or new
-repository authority.
+For a dynamic claim, the independent reviewer input must include the canonical raw receipt bytes or a
+directly readable immutable locator containing the bounded native receipt identity and exact content.
+A locator whose content the reviewer cannot open is insufficient for `dynamic`, recurrence, or
+owner-route proof; prose reconstruction is insufficient too. This is conversation evidence for that
+audit, not a transcript archive, schema, or new repository authority.
 
 Keep each submitted observation's disposition separate from its QA outcome: `accepted` means only
 that its demonstrated relation belongs to the fingerprint; `rejected` has contradictory relation;
@@ -237,9 +236,9 @@ missing-artifact or unknown case, and a no-material-delta case through the real 
 A later independent observation of the same fingerprint is required only to claim systemic recurrence
 or stable maturity; without one, retain `incidental` / `dynamic` and report recurrence and `stable` as unproved.
 Classify each probe's maturity only as `declared`, `reachable`, `dynamic`, or `stable`; retain its
-contradiction or refutation and availability slices separately. Only an immutable-Origin independent
-evaluator can supply the candidate's instruction/judge result. If that evaluator or its required
-evidence is unavailable, stop without claiming the probe passed.
+contradiction or refutation and availability slices separately. Only a fresh independent reviewer
+under candidate-independent neutral control can supply the candidate's instruction/judge result. If
+that reviewer or its required evidence is unavailable, stop without claiming the probe passed.
 
 Capture a concrete self-QA signal online at the boundary where it appears, or through task dispatch's
 spare-capacity retrospective lane when that route is independently admitted. Deduplicate both paths
