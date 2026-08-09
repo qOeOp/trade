@@ -147,5 +147,12 @@ merge-readiness, merge, or cleanup. It owns title validation, exact-head CI, con
 mergeability, freshness, guarded merge, and conditional cleanup. A child ending at a merged endpoint
 hands off merge-ready evidence; Hub alone owns merge and node closure.
 
+A Mission that created a task, branch, worktree, PR, cache, or continuing source checkout is not
+terminal until each task-owned artifact has a current terminal disposition. At every terminal or
+authorized-cancellation endpoint, reconcile
+[artifact custody](references/delivery/delivery-postmerge-cleanup.md); inventory and freshness readback
+are mandatory, while deletion, archive, or cache removal still requires authority for the exact target.
+Unknown or unmatched state returns `needs_attention`, never silent completion.
+
 Load [refactor proposals](references/optimization/optimization-refactor-workflow.md) only after related
 Missions are integrated and terminal; proposals require new user approval.

@@ -65,4 +65,7 @@ merge and node closure. The child returns the exact PR/head/tree/receipt locator
 After the effect, read back the terminal PR state and merge commit/tree. A non-terminal or mismatched
 readback is `partial` or `unknown`, never success.
 
-Load [post-merge cleanup](delivery-postmerge-cleanup.md) only when cleanup was separately authorized.
+After every exact merged readback, load [artifact custody](delivery-postmerge-cleanup.md) in the same
+Finalize slice. Its reconciliation and source-freshness readback require no destructive effect; each
+delete, archive, or cache-removal target still requires exact authority. Do not close the task or Hub
+node while a task-owned artifact is `unknown`, unmatched, or lacks a named preserved owner.
