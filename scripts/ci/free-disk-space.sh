@@ -9,7 +9,7 @@
 # Usage: free-disk-space.sh [--android] [--dotnet] [--haskell]
 #                           [--large-packages] [--docker-images]
 #                           [--tool-cache] [--swap-storage] [--extra]
-#                           [--max-build]
+#                           [--max-build] [--minimum-free-gb <GiB>]
 
 set -euo pipefail
 
@@ -22,6 +22,7 @@ tool_cache=0
 swap_storage=0
 extra=0
 max_build=0
+minimum_free_gb=0
 
 usage() {
   cat << 'USAGE'
@@ -41,10 +42,13 @@ All categories are opt-in:
   --max-build       Remove build tools unused by NautilusTrader's Linux jobs
                     (Miniconda, vcpkg, Linuxbrew, Java, Maven, Gradle,
                     Kotlin, AWS CLI, global Node modules)
+  --minimum-free-gb Skip cleanup when at least this many GiB are available;
+                    fail after cleanup if the threshold is still unmet
 USAGE
 }
 
-for arg in "$@"; do
+while (($#)); do
+  arg="$1"
   case "$arg" in
     --android) android=1 ;;
     --dotnet) dotnet=1 ;;
@@ -55,6 +59,14 @@ for arg in "$@"; do
     --swap-storage) swap_storage=1 ;;
     --extra) extra=1 ;;
     --max-build) max_build=1 ;;
+    --minimum-free-gb)
+      shift
+      if (($# == 0)) || ! [[ "$1" =~ ^[0-9]+$ ]] || [[ "$1" == 0 ]]; then
+        echo "::error::--minimum-free-gb requires a positive integer" >&2
+        exit 1
+      fi
+      minimum_free_gb="$1"
+      ;;
     -h | --help)
       usage
       exit 0
@@ -65,6 +77,7 @@ for arg in "$@"; do
       exit 1
       ;;
   esac
+  shift
 done
 
 report_disk() {
@@ -73,6 +86,14 @@ report_disk() {
 
 available_kb() {
   df -Pk / | awk 'NR == 2 {print $4}'
+}
+
+read_available_kb() {
+  local value
+  value="$(available_kb 2> /dev/null || true)"
+  if [[ "$value" =~ ^[0-9]+$ ]]; then
+    printf '%s\n' "$value"
+  fi
 }
 
 report_saved() {
@@ -99,6 +120,17 @@ remove_paths() {
 
 echo "Disk usage before cleanup:"
 report_disk
+
+minimum_free_kb=$((minimum_free_gb * 1024 * 1024))
+before_cleanup_kb="$(read_available_kb)"
+if [[ -n "$before_cleanup_kb" ]] && ((minimum_free_kb > 0)) &&
+  ((before_cleanup_kb >= minimum_free_kb)); then
+  echo "Skipping cleanup: ${before_cleanup_kb} KiB available (threshold ${minimum_free_kb} KiB)"
+  exit 0
+fi
+if ((minimum_free_kb > 0)) && [[ -z "$before_cleanup_kb" ]]; then
+  echo "::warning::Unable to measure available disk; running cleanup fail-closed"
+fi
 
 if [ "$android" -eq 1 ]; then
   remove_paths "Android SDK" /usr/local/lib/android
@@ -185,3 +217,11 @@ fi
 
 echo "Disk usage after cleanup:"
 report_disk
+
+if ((minimum_free_kb > 0)); then
+  after_cleanup_kb="$(read_available_kb)"
+  if [[ -z "$after_cleanup_kb" ]] || ((after_cleanup_kb < minimum_free_kb)); then
+    echo "::error::Available disk remains below ${minimum_free_gb} GiB after cleanup" >&2
+    exit 1
+  fi
+fi

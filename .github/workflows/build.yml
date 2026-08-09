@@ -275,7 +275,6 @@ jobs:
     if: github.ref != 'refs/heads/test-pre-commit' && needs.plan.outputs.run-tests == 'true'
     needs:
       - plan
-      - pre-commit
     strategy:
       fail-fast: false
       matrix:
@@ -319,10 +318,18 @@ jobs:
         uses: ./.github/actions/common-setup
         with:
           python-version: ${{ matrix.python-version }}
-          # free-disk-space auto-skips on the nautilus-ci-runner-* pool.
           free-disk-space: "true"
           free-disk-space-max-build: ${{ runner.environment == 'github-hosted' && 'true' || 'false' }}
-          rust-cache-enabled: "false"
+          rust-cache-enabled: ${{ runner.environment == 'github-hosted' && 'true' || 'false' }}
+          rust-cache-key: >-
+            python-wheel-py${{ matrix.python-version }}-${{ env.MATURIN_PROFILE }}-
+            ${{ hashFiles('.github/workflows/build.yml',
+            '.github/actions/common-setup/action.yml', 'Cargo.lock',
+            'rust-toolchain.toml', 'python/pyproject.toml') }}
+          rust-cache-workspaces: . -> target/py${{ matrix.python-version }}
+          rust-cache-on-failure: "false"
+          rust-cache-save-if: ${{ github.event_name == 'push' }}
+          rust-cache-workspace-crates: "true"
 
       - name: Limit Cargo build jobs on GitHub-hosted runners
         if: runner.environment == 'github-hosted'
@@ -351,6 +358,24 @@ jobs:
         working-directory: ${{ env.PACKAGE_DIR }}
         run: bash ../scripts/ci/test-wheel.bash
 
+      - name: Restore generated stubs Rust cache
+        if: >-
+          matrix.python-version == '3.13' &&
+          needs.plan.outputs.run-generated-drift == 'true' &&
+          runner.environment == 'github-hosted'
+        # https://github.com/Swatinem/rust-cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: . -> target/py-stubs
+          cache-on-failure: "false"
+          cache-workspace-crates: "true"
+          key: >-
+            generated-stubs-dev-py${{ matrix.python-version }}-
+            ${{ hashFiles('.github/workflows/build.yml', 'Cargo.lock',
+            'rust-toolchain.toml', 'Makefile', 'python/generate_stubs.py',
+            'python/pyproject.toml') }}
+          save-if: ${{ github.event_name == 'push' }}
+
       - name: Check generated file drift
         # Keep this 3.13 condition in sync with the matrix so drift is checked once per run.
         if: >-
@@ -358,8 +383,9 @@ jobs:
           needs.plan.outputs.run-generated-drift == 'true'
         env:
           TARGET_DIR: >-
-            ${{ github.event_name == 'pull_request'
-            && needs.plan.outputs.untrusted_pr != 'false'
+            ${{ (runner.environment == 'github-hosted'
+            || github.event_name == 'pull_request'
+            && needs.plan.outputs.untrusted_pr != 'false')
             && format('{0}/target/py-stubs', github.workspace)
             || '/home/runner/.cache/cargo-target/py-stubs' }}
         run: |
@@ -370,6 +396,79 @@ jobs:
         uses: ./.github/actions/upload-artifact-wheel
         with:
           retention-days: ${{ github.ref_name == 'master' && '7' || '1' }}
+
+  rust-doctests-linux-x86:
+    if: >
+      github.ref != 'refs/heads/test-pre-commit' &&
+      needs.plan.outputs.run-tests == 'true' &&
+      (needs.plan.outputs.run-rust-tests == 'true' ||
+       needs.plan.outputs.publish_r2 == 'true' ||
+       github.ref == 'refs/heads/master')
+    name: rust doctests (ubuntu-22.04)
+    runs-on: ubuntu-22.04
+    needs:
+      - plan
+    env:
+      CARGO_CI_PROFILE: >-
+        ${{ github.event_name == 'pull_request'
+        && needs.plan.outputs.untrusted_pr != 'false'
+        && 'ci-pr'
+        || github.event_name == 'push'
+        && (github.ref_name == 'main' || github.ref_name == 'test-ci')
+        && 'ci-pr'
+        || 'nextest' }}
+      CARGO_TARGET_DIR: target/rust-doctests-linux-x86
+      RUST_BACKTRACE: 1
+    steps:
+      # https://github.com/step-security/harden-runner
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: >-
+            ${{ env.AUDIT_PR == 'true' && 'audit'
+            || vars.STEP_SECURITY_EGRESS_POLICY
+            || 'block' }}
+          allowed-endpoints: >-
+            ${{ vars.COMMON_ALLOWED_ENDPOINTS }}
+            ${{ vars.CI_ALLOWED_ENDPOINTS }}
+
+      - name: Checkout repository
+        # https://github.com/actions/checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Verify immutable CI inputs (post-checkout)
+        run: bash scripts/ci/verify-ci-inputs.sh post-checkout
+
+      - name: Common setup
+        uses: ./.github/actions/common-setup
+        with:
+          python-version: "3.13"
+          free-disk-space: "true"
+          free-disk-space-max-build: ${{ runner.environment == 'github-hosted' && 'true' || 'false' }}
+          rust-cache-enabled: ${{ runner.environment == 'github-hosted' && 'true' || 'false' }}
+          rust-cache-key: >-
+            rust-doctests-linux-x86-${{ env.CARGO_CI_PROFILE }}-
+            ${{ hashFiles('.github/workflows/build.yml',
+            '.github/actions/common-setup/action.yml', 'Cargo.lock',
+            'rust-toolchain.toml', 'Makefile') }}
+          rust-cache-workspaces: . -> target/rust-doctests-linux-x86
+          rust-cache-on-failure: "false"
+          rust-cache-save-if: ${{ github.event_name == 'push' }}
+          rust-cache-workspace-crates: "true"
+
+      - name: Limit Cargo build jobs on GitHub-hosted runners
+        if: runner.environment == 'github-hosted'
+        run: echo "CARGO_BUILD_JOBS=2" >> "$GITHUB_ENV"
+
+      - name: Run Rust doctests
+        run: >-
+          make cargo-test-doc
+          EXTRA_FEATURES="capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres"
+
+      - name: Report disk space after Rust doctests
+        if: always()
+        run: bash scripts/ci/report-disk-space.bash "after Rust doctests"
 
   rust-tests-linux-x86:
     if: >
@@ -382,7 +481,6 @@ jobs:
     runs-on: ubuntu-22.04
     needs:
       - plan
-      - pre-commit
     env:
       CARGO_CI_PROFILE: >-
         ${{ github.event_name == 'pull_request'
@@ -449,6 +547,7 @@ jobs:
         uses: ./.github/actions/common-setup
         with:
           python-version: "3.13"
+          build-type: "test"
           free-disk-space: "true"
           free-disk-space-max-build: ${{ runner.environment == 'github-hosted' && 'true' || 'false' }}
           rust-cache-enabled: >-
@@ -456,10 +555,15 @@ jobs:
             || github.event_name == 'push'
             && (github.ref_name == 'main' || github.ref_name == 'test-ci'))
             && 'true' || 'false' }}
-          rust-cache-key: rust-tests-linux-x86
+          rust-cache-key: >-
+            rust-tests-linux-x86-${{ env.CARGO_CI_PROFILE }}-
+            ${{ hashFiles('.github/workflows/build.yml',
+            '.github/actions/common-setup/action.yml', 'Cargo.lock',
+            'rust-toolchain.toml', '.config/nextest.toml', 'Makefile') }}
           rust-cache-workspaces: . -> target/rust-tests-linux-x86
           rust-cache-on-failure: "false"
           rust-cache-save-if: ${{ github.event_name == 'push' }}
+          rust-cache-workspace-crates: "true"
 
       - name: Limit Cargo build jobs on GitHub-hosted runners
         if: runner.environment == 'github-hosted'
@@ -485,15 +589,6 @@ jobs:
       - name: Report disk space before Rust tests
         run: bash scripts/ci/report-disk-space.bash "before Rust tests"
 
-      - name: Run Rust doctests
-        run: >-
-          make cargo-test-doc
-          EXTRA_FEATURES="capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres"
-
-      - name: Report disk space after Rust doctests
-        if: always()
-        run: bash scripts/ci/report-disk-space.bash "after Rust doctests"
-
       - name: Run Rust tests
         run: >-
           make cargo-test NEXTEST_PROFILE=ci
@@ -511,6 +606,7 @@ jobs:
       - plan
       - pre-commit
       - build
+      - rust-doctests-linux-x86
       - rust-tests-linux-x86
     runs-on: ubuntu-22.04
     steps:
@@ -521,6 +617,7 @@ jobs:
           PLAN_RESULT: ${{ needs.plan.result }}
           PRE_COMMIT_RESULT: ${{ needs.pre-commit.result }}
           BUILD_RESULT: ${{ needs.build.result }}
+          RUST_DOCTESTS_RESULT: ${{ needs.rust-doctests-linux-x86.result }}
           RUST_TESTS_RESULT: ${{ needs.rust-tests-linux-x86.result }}
           RUN_TESTS: ${{ needs.plan.outputs.run-tests }}
           RUN_RUST_TESTS: ${{ needs.plan.outputs.run-rust-tests }}
@@ -549,8 +646,10 @@ jobs:
                [[ "$PUBLISH_R2" == true ]] ||
                [[ "$REF_NAME" == master ]]; }; then
             test "$RUST_TESTS_RESULT" = success
+            test "$RUST_DOCTESTS_RESULT" = success
           else
             test "$RUST_TESTS_RESULT" = skipped
+            test "$RUST_DOCTESTS_RESULT" = skipped
           fi
 
   # Linux ARM64, macOS ARM64, and Windows x86_64 wheels build only on nightly and master
@@ -834,6 +933,7 @@ jobs:
       - build-linux-arm
       - build-macos
       - build-windows
+      - rust-doctests-linux-x86
       - rust-tests-linux-x86
       - security-gate-nightly
     runs-on: ubuntu-latest
@@ -848,6 +948,7 @@ jobs:
       needs.build-linux-arm.result != 'failure' &&
       needs.build-macos.result != 'failure' &&
       needs.build-windows.result != 'failure' &&
+      needs.rust-doctests-linux-x86.result == 'success' &&
       needs.rust-tests-linux-x86.result == 'success' &&
       github.event_name == 'push' &&
       needs.plan.outputs.publish_r2 == 'true' &&
@@ -1035,7 +1136,6 @@ jobs:
         uses: ./.github/actions/common-setup
         with:
           python-version: "3.13"
-          build-type: "test"
           free-disk-space: "true"
           uv-cache-enabled: "false"
           prek-cache-enabled: "false"
@@ -1109,6 +1209,7 @@ jobs:
       - cargo-vet
       - release-cargo-publish-preflight
       - release-docs-features-preflight
+      - rust-doctests-linux-x86
       - rust-tests-linux-x86
     permissions:
       contents: write # Required for pushing tags and creating the draft release

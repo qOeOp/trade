@@ -55,9 +55,11 @@ is_lightweight_prose() {
   local changed_file="$1" filename="${1##*/}"
   case "$changed_file" in
     .github/workflows/* | .github/actions/* | .github/scripts/* | \
-      scripts/* | .pre-commit-hooks/* | schema/* | schemas/* | \
+      scripts/* | .pre-commit-hooks/* | .cargo/* | .config/* | \
+      config/* | configs/* | schema/* | schemas/* | \
       generated/* | tests/* | fixtures/* | resources/* | data/* | \
-      test_data/* | snapshots/* | */schema/* | */schemas/* | \
+      test_data/* | snapshots/* | */.cargo/* | */.config/* | \
+      */config/* | */configs/* | */schema/* | */schemas/* | \
       */generated/* | */tests/* | */fixtures/* | */resources/* | \
       */data/* | */test_data/* | */snapshots/*)
       return 1
@@ -76,6 +78,58 @@ is_lightweight_prose() {
   return 1
 }
 
+is_lightweight_prose_deletion() {
+  local deleted_file="$1" deleted_dir manifest old_entry old_mode old_type old_blob
+
+  if ! is_lightweight_prose "$deleted_file" || ! command -v python3 > /dev/null; then
+    return 1
+  fi
+  # Root prose and prose beside a package manifest can be packaging metadata
+  # (for example README.md). Treat those deletions as build-impacting without
+  # maintaining a directory allowlist.
+  if [[ "$deleted_file" != */* ]]; then
+    return 1
+  fi
+  deleted_dir="${deleted_file%/*}"
+  for manifest in Cargo.toml pyproject.toml package.json; do
+    if git cat-file -e "${merge_base}:${deleted_dir}/${manifest}" 2> /dev/null; then
+      return 1
+    fi
+  done
+  : > "$entry_file"
+  if ! git ls-tree -z --format='%(objectmode) %(objecttype) %(objectname)' \
+    "$merge_base" -- ":(literal)$deleted_file" > "$entry_file"; then
+    return 1
+  fi
+  exec 4< "$entry_file"
+  if ! IFS= read -r -d '' old_entry <&4; then
+    exec 4<&-
+    return 1
+  fi
+  if IFS= read -r -d '' _ <&4; then
+    exec 4<&-
+    return 1
+  fi
+  exec 4<&-
+  read -r old_mode old_type old_blob <<< "$old_entry"
+  if [[ "$old_mode" != 100644 || "$old_type" != blob ||
+    ! "$old_blob" =~ ^[0-9a-f]{40,64}$ ]]; then
+    return 1
+  fi
+
+  git cat-file blob "$old_blob" | python3 -c '
+import sys
+
+data = sys.stdin.buffer.read()
+if b"\0" in data:
+    raise SystemExit(1)
+try:
+    data.decode("utf-8", errors="strict")
+except UnicodeDecodeError:
+    raise SystemExit(1)
+'
+}
+
 tests=false
 rust_tests=false
 generated=false
@@ -87,7 +141,8 @@ codeql_rust=false
 changed=false
 
 status_file="$(mktemp "${TMPDIR:-/tmp}/trade-ci-plan.XXXXXX")"
-trap 'rm -f "$status_file"' EXIT
+entry_file="$(mktemp "${TMPDIR:-/tmp}/trade-ci-plan-entry.XXXXXX")"
+trap 'rm -f "$status_file" "$entry_file"' EXIT
 if ! git diff --name-status --find-renames -z "$merge_base" HEAD > "$status_file"; then
   run_all "Changed paths unavailable: running full validation"
 fi
@@ -101,7 +156,16 @@ while IFS= read -r -d '' status <&3; do
         run_all "Malformed changed path: running full validation"
       fi
       ;;
-    D | R* | C*)
+    D)
+      if ! IFS= read -r -d '' changed_file <&3; then
+        run_all "Malformed deleted path: running full validation"
+      fi
+      if is_lightweight_prose_deletion "$changed_file"; then
+        continue
+      fi
+      run_all "Unsafe deletion detected: running full validation"
+      ;;
+    R* | C*)
       run_all "${status} change detected: running full validation"
       ;;
     *)
