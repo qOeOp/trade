@@ -125,21 +125,11 @@ jobs:
         env:
           RUN_FULL: ${{ needs.ready-gate.outputs.run-full }}
           PLAN_RESULT: ${{ needs.plan.result }}
-          LANGUAGE: ${{ matrix.language }}
-          JAVASCRIPT_IMPACTED: ${{ needs.plan.outputs.javascript-impacted }}
-          PYTHON_IMPACTED: ${{ needs.plan.outputs.python-impacted }}
-          RUST_IMPACTED: ${{ needs.plan.outputs.rust-impacted }}
         run: |
           set -euo pipefail
-          case "$LANGUAGE" in
-            javascript-typescript) impacted="$JAVASCRIPT_IMPACTED" ;;
-            python) impacted="$PYTHON_IMPACTED" ;;
-            rust) impacted="$RUST_IMPACTED" ;;
-            *) impacted=true ;;
-          esac
           if [[ "$RUN_FULL" != true ]]; then
             echo 'run-analysis=false' >> "$GITHUB_OUTPUT"
-          elif [[ "$PLAN_RESULT" != success || "$impacted" != false ]]; then
+          elif [[ "$PLAN_RESULT" == success ]]; then
             echo 'run-analysis=true' >> "$GITHUB_OUTPUT"
           else
             echo 'run-analysis=false' >> "$GITHUB_OUTPUT"
