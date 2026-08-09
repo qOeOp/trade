@@ -1,10 +1,10 @@
 {
   "schema_version": 2,
   "repository": "https://github.com/qOeOp/skills.git",
-  "commit": "ce3390817f553d12ad1b0ebfaa44638b22996271",
-  "tree": "95efc5d1c9d0296573c2f7b6c8c048641de0bfe2",
+  "commit": "6f3ba24f05303447be65cff3d00ed9ff346154af",
+  "tree": "95e4b28b50b41955b6c404d40d7801c3268286cc",
   "skill_tree": "163356f6ad0a8914d505343ff1257c338e379de5",
   "codex_agents_tree": "a82878074f004f3353c480858487596a3a95035f",
-  "codex_session_hook_blob": "a12d091fbf1b9f93ecf9245e0719c4bd688c5ef3",
+  "codex_session_hook_blob": "04d3e90a7714432f94a4572d5a4450d9622d0865",
   "installer_blob": "b6d8d89f84e29d170c847f8f0000c743f3cf4a0e"
 }
