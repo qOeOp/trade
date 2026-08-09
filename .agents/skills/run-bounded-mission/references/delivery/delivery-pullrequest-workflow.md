@@ -37,9 +37,13 @@ or an unbound head stops. CI success for another head never transfers.
 Use the sole receipt owner to turn typed JSON facts into canonical bytes; callers do not sort keys:
 
 ```sh
-bun .agents/skills/run-bounded-mission/scripts/delivery-receipt.ts create \
+receipt_bin="$(mktemp "${TMPDIR:-/tmp}/rbm-delivery-receipt.XXXXXX")"
+trap 'rm -f "$receipt_bin"' EXIT
+go build -o "$receipt_bin" \
+  .agents/skills/run-bounded-mission/scripts/delivery-receipt.go
+"$receipt_bin" create \
   < delivery-barrier-input.json > delivery-barrier-receipt.jsonl
-bun .agents/skills/run-bounded-mission/scripts/delivery-receipt.ts verify \
+"$receipt_bin" verify \
   --sha256 <sha256:digest> < delivery-barrier-receipt.jsonl
 ```
 

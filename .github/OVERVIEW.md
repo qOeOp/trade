@@ -37,9 +37,8 @@ CI/CD, testing, publishing, and automation within the NautilusTrader repository.
 - **cli-binaries.yml**: builds CLI archives for Linux x86, Linux ARM64, macOS ARM64, and Windows
   x86_64 on nightly pushes and manual dispatch. Nightly pushes publish versioned and latest
   artifacts to R2.
-- **codeql-analysis.yml**: CodeQL scans the tracked JavaScript/TypeScript, Python, and Rust sources on
-  pull requests and pushes to `main`, and on manual dispatch. Go is omitted because the repository
-  has no tracked Go source or workspace manifest.
+- **codeql-analysis.yml**: CodeQL scans the tracked Go, Python, and Rust sources on pull requests and
+  pushes to `main`, and on manual dispatch.
 - **pr-title.yml**: validates the current pull request title with the exact base revision's canonical
   validator and publishes the distinct `pr-title` status to the API-read current head. It never
   checks out or executes pull request head content. This workflow establishes the status producer;
@@ -91,7 +90,7 @@ CI/CD, testing, publishing, and automation within the NautilusTrader repository.
 
 - **cargo-deny**: Rust dependency auditing for security advisories (RUSTSEC/GHSA), license
   compliance, banned crates, and supply chain integrity. Configuration in `deny.toml`.
-- **Code scanning**: CodeQL analyzes tracked JavaScript/TypeScript, Python, and Rust code on pull
+- **Code scanning**: CodeQL analyzes tracked Go, Python, and Rust code on pull
   requests and pushes to `main`, and on manual dispatch. Zizmor runs in `security-audit.yml` and
   uploads SARIF when token permissions allow it.
 - **OpenSSF Scorecard**: `openssf-scorecard.yml` publishes repository posture results for the public
