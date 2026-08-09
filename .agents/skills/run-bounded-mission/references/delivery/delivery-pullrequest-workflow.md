@@ -34,13 +34,17 @@ Potential merge commit and tree must be structured non-null GitHub data and must
 the observed base and head. Queue state, mergeability unknown/conflict, branch protection uncertainty,
 or an unbound head stops. CI success for another head never transfers.
 
-Use the sole receipt owner to turn typed JSON facts into canonical bytes; callers do not sort keys:
+Use the sole receipt owner to turn typed JSON facts into canonical bytes; callers do not sort keys.
+Set `skill_root` to the directory containing the exact `SKILL.md` loaded for this run. Use the
+loader-supplied absolute path; never infer it from the repository cwd or an installation convention.
+If that path or the receipt source is unavailable, stop Delivery.
 
 ```sh
+receipt_source="$skill_root/scripts/delivery-receipt.go"
+test -f "$receipt_source"
 receipt_bin="$(mktemp "${TMPDIR:-/tmp}/rbm-delivery-receipt.XXXXXX")"
 trap 'rm -f "$receipt_bin"' EXIT
-go build -o "$receipt_bin" \
-  .agents/skills/run-bounded-mission/scripts/delivery-receipt.go
+go build -o "$receipt_bin" "$receipt_source"
 "$receipt_bin" create \
   < delivery-barrier-input.json > delivery-barrier-receipt.jsonl
 "$receipt_bin" verify \
