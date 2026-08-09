@@ -72,6 +72,15 @@ needs-attention receipt, or one checkpointed next observation action. Callback t
 optional early wake: it may report a structural authority gap, changed dependency receipt, or terminal
 state, but it does not replace Hub custody or make arrival order authoritative.
 
+A child's terminal or needs-attention final is itself a short decision-first handoff. Use the exact
+native-task identity carried by transport; repeat it inline only when unavailable or ambiguous. Lead
+with outcome or state, any current blocker or dependency, next legal Hub action, and effects. Inline
+candidate, head, PR, or verification only when it changes that action; otherwise use its existing
+native-task, Git, GitHub, or artifact locator. Do not repeat Frame, Plan, history, or full CI/check
+lists. If any handoff-relevant evidence lacks a usable locator or is malformed, unknown, or
+unavailable, say so inline and fail closed for the affected action. Locators may compress only
+available, well-formed evidence.
+
 For ordinary custody, issue at most one cursor-bound bounded wait over the complete exact active set in
 one scheduling slice. Choose a nonzero bound from current task state or a known external deadline. An
 explicit status request uses one timeoutMs: 0 snapshot. Use one bounded thread read only when an
