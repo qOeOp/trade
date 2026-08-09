@@ -13,6 +13,10 @@ inputs:
     description: Remove additional tools unused by large Linux build jobs
     required: false
     default: "false"
+  minimum-free-space-gb:
+    description: Skip Linux cleanup when this much disk is already available
+    required: false
+    default: "60"
   build-type:
     description: Type of build (pre-commit, test, release)
     required: false
@@ -29,6 +33,10 @@ inputs:
     description: Whether to save the Rust cache when the job fails
     required: false
     default: "true"
+  rust-cache-workspace-crates:
+    description: Whether to retain compiled workspace crates in the Rust cache
+    required: false
+    default: "false"
   rust-cache-save-if:
     description: Whether to save the Rust cache (set to false for read-only cache on PR builds)
     required: false
@@ -62,20 +70,18 @@ runs:
   steps:
     # > --------------------------------------------------
     # > OS
-    # Auto-skip on the nautilus-ci-runner-* self-hosted pool: those machines
-    # have ample disk and the tool-cache/docker-images cleanup actively erases
-    # the pre-installed Python toolcache and cached Docker layers we want to
-    # keep across runs. Depot runners and GitHub-hosted runners still need the
-    # cleanup, so they remain unaffected.
+    # Cleanup is based on available capacity rather than runner identity. This
+    # preserves pre-installed toolchains and caches whenever the job already
+    # has enough room, while low-disk runners still take the original cleanup.
     - name: Free disk space (Linux)
       if: >-
         inputs.free-disk-space == 'true'
         && runner.os == 'Linux'
-        && !startsWith(runner.name, 'nautilus-ci-runner-')
       shell: bash
       env:
         BUILD_TYPE: ${{ inputs.build-type }}
         MAX_BUILD: ${{ inputs.free-disk-space-max-build }}
+        MINIMUM_FREE_SPACE_GB: ${{ inputs.minimum-free-space-gb }}
         RUNNER_ENV: ${{ runner.environment }}
       run: |
         args="--android --dotnet --docker-images --swap-storage"
@@ -88,7 +94,8 @@ runs:
         if [ "$MAX_BUILD" = "true" ]; then
           args="$args --max-build"
         fi
-        bash scripts/ci/free-disk-space.sh $args
+        bash scripts/ci/free-disk-space.sh \
+          --minimum-free-gb "$MINIMUM_FREE_SPACE_GB" $args
 
     - name: Free disk space (macOS)
       if: inputs.free-disk-space == 'true' && runner.os == 'macOS'
@@ -176,11 +183,12 @@ runs:
       with:
         workspaces: ${{ inputs.rust-cache-workspaces || '. -> target' }}
         cache-on-failure: ${{ inputs.rust-cache-on-failure }}
+        cache-workspace-crates: ${{ inputs.rust-cache-workspace-crates }}
         key: ${{ inputs.rust-cache-key }}
         save-if: ${{ inputs.rust-cache-save-if }}
 
     - name: Get cargo-nextest version
-      if: inputs.build-type != 'pre-commit'
+      if: inputs.build-type == 'test'
       shell: bash
       run: |
         version="$(bash scripts/cargo-tool-version.sh cargo-nextest)"
@@ -191,14 +199,14 @@ runs:
         echo "CARGO_NEXTEST_VERSION=$version" >> "$GITHUB_ENV"
 
     - name: Install cargo-nextest
-      if: inputs.build-type != 'pre-commit' && runner.os != 'macOS'
+      if: inputs.build-type == 'test' && runner.os != 'macOS'
       # https://github.com/taiki-e/install-action
       uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
       with:
         tool: cargo-nextest@${{ env.CARGO_NEXTEST_VERSION }}
 
     - name: Install cargo-nextest (macOS)
-      if: inputs.build-type != 'pre-commit' && runner.os == 'macOS'
+      if: inputs.build-type == 'test' && runner.os == 'macOS'
       shell: bash
       run: bash scripts/ci/install-cargo-nextest.sh "${CARGO_NEXTEST_VERSION}"
 

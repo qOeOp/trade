@@ -79,6 +79,7 @@ jobs:
         uses: ./.github/actions/common-setup
         with:
           python-version: "3.13"
+          build-type: "test"
           # free-disk-space auto-skips on the nautilus-ci-runner-* pool.
           free-disk-space: "true"
           # Persistent CARGO_TARGET_DIR replaces Swatinem/rust-cache here.
@@ -126,7 +127,6 @@ jobs:
         uses: ./.github/actions/common-setup
         with:
           python-version: "3.13"
-          build-type: "test"
           free-disk-space: "true"
           uv-cache-enabled: "false"
           prek-cache-enabled: "false"
