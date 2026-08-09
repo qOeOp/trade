@@ -11,8 +11,8 @@ non-trivial implementation or delivery, and after switching branch or worktree:
 
 1. fetch `origin/main` and read `codex-skills.lock.json` from that exact ref;
 2. materialize its exact `qOeOp/skills` commit in an immutable user cache outside this repository;
-3. run that checkout's `node scripts/install-codex.mjs --lock <origin-main-lock>`, then the same command
-   with `--check`;
+3. run that checkout's `node scripts/install-codex.mjs --lock <origin-main-lock> --install-trade-session-hook`,
+   then the same command with `--check`;
 4. freeze implementation and delivery if the pin, install, or check is unavailable or mismatched.
 
 Normal branches use the latest `origin/main` pin, not their historical copy. A dedicated pin-update PR
