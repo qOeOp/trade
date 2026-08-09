@@ -168,6 +168,18 @@ jobs:
       - name: Exercise CI plan fixtures
         run: bash scripts/ci/test-plan.sh
 
+      - name: Test delivery receipt helper
+        run: |
+          test -z "$(gofmt -l \
+            .agents/skills/run-bounded-mission/scripts/delivery-receipt.go \
+            .agents/skills/run-bounded-mission/scripts/delivery-receipt_test.go)"
+          go test \
+            .agents/skills/run-bounded-mission/scripts/delivery-receipt.go \
+            .agents/skills/run-bounded-mission/scripts/delivery-receipt_test.go
+          go vet \
+            .agents/skills/run-bounded-mission/scripts/delivery-receipt.go \
+            .agents/skills/run-bounded-mission/scripts/delivery-receipt_test.go
+
   pre-commit:
     name: pre-commit
     needs: plan

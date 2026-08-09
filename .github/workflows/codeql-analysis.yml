@@ -47,7 +47,7 @@ jobs:
     if: needs.ready-gate.outputs.run-full == 'true'
     runs-on: ubuntu-latest
     outputs:
-      javascript-impacted: ${{ steps.plan.outputs.codeql_javascript_impacted }}
+      go-impacted: ${{ steps.plan.outputs.codeql_go_impacted }}
       python-impacted: ${{ steps.plan.outputs.codeql_python_impacted }}
       rust-impacted: ${{ steps.plan.outputs.codeql_rust_impacted }}
     steps:
@@ -88,7 +88,8 @@ jobs:
           fi
 
   analyze:
-    # Keep these three names stable: repository rules require every context.
+    # Keep these three names stable after the delivery-time JavaScript-to-Go
+    # ruleset migration: repository rules require every context.
     name: codeql-${{ matrix.language }}
     needs:
       - ready-gate
@@ -99,10 +100,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - language: javascript-typescript
-            config: |
-              paths:
-                - .agents/skills/run-bounded-mission/scripts
+          - language: go
+            config: ""
           - language: python
             config: ""
           - language: rust
@@ -139,6 +138,7 @@ jobs:
         if: steps.route.outputs.run-analysis == 'true'
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          fetch-depth: 2
           persist-credentials: false
 
       - name: Install Rust linker (lld)
@@ -161,13 +161,29 @@ jobs:
           toolchain: ${{ env.TOOLCHAIN }}
           override: true
 
-      - name: Initialize CodeQL
-        if: steps.route.outputs.run-analysis == 'true'
+      - name: Initialize CodeQL (Go)
+        if: steps.route.outputs.run-analysis == 'true' && matrix.language == 'go'
         # https://github.com/github/codeql-action
         uses: github/codeql-action/init@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
         with:
           languages: ${{ matrix.language }}
           config: ${{ matrix.config }}
+          build-mode: manual
+
+      - name: Initialize CodeQL
+        if: steps.route.outputs.run-analysis == 'true' && matrix.language != 'go'
+        # https://github.com/github/codeql-action
+        uses: github/codeql-action/init@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
+        with:
+          languages: ${{ matrix.language }}
+          config: ${{ matrix.config }}
+
+      - name: Build Go delivery receipt helper
+        if: steps.route.outputs.run-analysis == 'true' && matrix.language == 'go'
+        run: |
+          go test \
+            .agents/skills/run-bounded-mission/scripts/delivery-receipt.go \
+            .agents/skills/run-bounded-mission/scripts/delivery-receipt_test.go
 
       - name: Autobuild
         if: steps.route.outputs.run-analysis == 'true' && matrix.language == 'rust'
