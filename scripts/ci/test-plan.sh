@@ -256,9 +256,27 @@ for workflow in \
   grep -Fq "if: needs.ready-gate.outputs.run-full == 'true'" "$workflow"
   grep -Fq 'needs-full-ready: move the PR to Draft, then mark it Ready' "$workflow"
 done
+codeql_workflow="$repo_root/.github/workflows/codeql-analysis.yml"
+for output in go python rust; do
+  case "$output" in
+    go) env_name=GO_IMPACTED ;;
+    python) env_name=PYTHON_IMPACTED ;;
+    rust) env_name=RUST_IMPACTED ;;
+  esac
+  grep -Fq "${env_name}: \${{ needs.plan.outputs.${output}-impacted }}" \
+    "$codeql_workflow"
+done
+# Match literal shell expressions embedded in the workflow.
+# shellcheck disable=SC2016
+grep -Fq 'invalid CodeQL impact output: ${impact:-<missing>}' "$codeql_workflow"
+# shellcheck disable=SC2016
+grep -Fq '"$RUN_FULL" == true && "$PLAN_RESULT" == success && "$impacted" == true' \
+  "$codeql_workflow"
+# shellcheck disable=SC2016
+grep -Fq 'false) test "$RUN_ANALYSIS" = false' "$codeql_workflow"
 grep -Fq 'types: [opened, reopened, synchronize, ready_for_review]' \
   "$repo_root/.github/workflows/pr-fast.yml"
-echo "ok: workflow Ready-entry and stable-failure invariants"
+echo "ok: workflow Ready-entry, impacted CodeQL, and stable-failure invariants"
 
 build_workflow="$repo_root/.github/workflows/build.yml"
 common_setup="$repo_root/.github/actions/common-setup/action.yml"

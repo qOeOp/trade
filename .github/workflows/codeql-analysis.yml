@@ -88,8 +88,8 @@ jobs:
           fi
 
   analyze:
-    # Keep these three names stable after the delivery-time JavaScript-to-Go
-    # ruleset migration: repository rules require every context.
+    # Keep the required context names stable. The base-owned plan decides which
+    # language analyses apply; unimpacted lanes remain explicit successful jobs.
     name: codeql-${{ matrix.language }}
     needs:
       - ready-gate
@@ -124,11 +124,26 @@ jobs:
         env:
           RUN_FULL: ${{ needs.ready-gate.outputs.run-full }}
           PLAN_RESULT: ${{ needs.plan.result }}
+          LANGUAGE: ${{ matrix.language }}
+          GO_IMPACTED: ${{ needs.plan.outputs.go-impacted }}
+          PYTHON_IMPACTED: ${{ needs.plan.outputs.python-impacted }}
+          RUST_IMPACTED: ${{ needs.plan.outputs.rust-impacted }}
         run: |
           set -euo pipefail
-          if [[ "$RUN_FULL" != true ]]; then
-            echo 'run-analysis=false' >> "$GITHUB_OUTPUT"
-          elif [[ "$PLAN_RESULT" == success ]]; then
+          for impact in "$GO_IMPACTED" "$PYTHON_IMPACTED" "$RUST_IMPACTED"; do
+            case "$impact" in
+              true | false) ;;
+              *) echo "::error::invalid CodeQL impact output: ${impact:-<missing>}"; exit 1 ;;
+            esac
+          done
+          case "$LANGUAGE" in
+            go) impacted="$GO_IMPACTED" ;;
+            python) impacted="$PYTHON_IMPACTED" ;;
+            rust) impacted="$RUST_IMPACTED" ;;
+            *) echo "::error::unknown CodeQL language: $LANGUAGE"; exit 1 ;;
+          esac
+          echo "impacted=$impacted" >> "$GITHUB_OUTPUT"
+          if [[ "$RUN_FULL" == true && "$PLAN_RESULT" == success && "$impacted" == true ]]; then
             echo 'run-analysis=true' >> "$GITHUB_OUTPUT"
           else
             echo 'run-analysis=false' >> "$GITHUB_OUTPUT"
@@ -200,6 +215,8 @@ jobs:
         env:
           RUN_FULL: ${{ needs.ready-gate.outputs.run-full }}
           PLAN_RESULT: ${{ needs.plan.result }}
+          IMPACTED: ${{ steps.route.outputs.impacted }}
+          RUN_ANALYSIS: ${{ steps.route.outputs.run-analysis }}
         run: |
           set -euo pipefail
           if [[ "$RUN_FULL" != true ]]; then
@@ -207,6 +224,11 @@ jobs:
             exit 1
           fi
           test "$PLAN_RESULT" = success
+          case "$IMPACTED" in
+            true) test "$RUN_ANALYSIS" = true ;;
+            false) test "$RUN_ANALYSIS" = false ;;
+            *) echo "::error::invalid CodeQL impact route: $IMPACTED"; exit 1 ;;
+          esac
 
   security:
     name: codeql-security
