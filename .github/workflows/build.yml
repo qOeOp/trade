@@ -18,24 +18,17 @@ on:
   pull_request:
     types:
       - opened
-      - synchronize
       - reopened
-      - edited
+      - synchronize
+      - ready_for_review
     branches:
       - main
 
-# Base retargets run normal CI; other metadata edits neither cancel CI nor publish quality
 concurrency:
   group: >-
-    ${{ github.event_name == 'pull_request'
-    && github.event.action == 'edited'
-    && !github.event.changes.base
-    && format('{0}-metadata-{1}', github.workflow, github.run_id)
-    || format('{0}-{1}', github.workflow,
+    ${{ format('{0}-{1}', github.workflow,
     github.event.pull_request.number || format('{0}-{1}', github.ref_name, github.sha)) }}
-  cancel-in-progress: >-
-    ${{ github.event_name == 'pull_request'
-    && !(github.event.action == 'edited' && !github.event.changes.base) }}
+  cancel-in-progress: true
 
 env:
   AUDIT_PR: >-
@@ -52,9 +45,37 @@ env:
   PACKAGE_DIR: python
 
 jobs:
+  ready-gate:
+    name: build-ready-gate
+    runs-on: ubuntu-latest
+    outputs:
+      run-full: ${{ steps.route.outputs.run-full }}
+    steps:
+      - name: Classify Ready entry
+        id: route
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+        run: |
+          set -euo pipefail
+          run_full=false
+          if [[ "$EVENT_NAME" != pull_request ]]; then
+            run_full=true
+          else
+            case "${ACTION}:${DRAFT}" in
+              ready_for_review:* | opened:false | reopened:false) run_full=true ;;
+            esac
+          fi
+          echo "run-full=${run_full}" >> "$GITHUB_OUTPUT"
+          if [[ "$run_full" != true ]]; then
+            echo '::notice::needs-full-ready: move the PR to Draft, then mark it Ready'
+          fi
+
   plan:
     name: plan
-    if: github.event.action != 'edited' || github.event.changes.base
+    needs: ready-gate
+    if: needs.ready-gate.outputs.run-full == 'true'
     runs-on: ubuntu-latest
     outputs:
       run-tests: ${{ steps.plan.outputs.run_tests }}
@@ -99,8 +120,19 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BEFORE_SHA: ${{ github.event.before }}
-        run: bash scripts/ci/plan.sh
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+            test "$BASE_SHA" = "$(git rev-parse --verify "refs/remotes/origin/${BASE_REF}^{commit}")"
+            trusted_plan="${RUNNER_TEMP}/ci-plan.sh"
+            git show "${BASE_SHA}:scripts/ci/plan.sh" > "$trusted_plan"
+            bash "$trusted_plan"
+          else
+            bash scripts/ci/plan.sh
+          fi
 
       - name: Plan security audit
         id: security-audit
@@ -130,6 +162,11 @@ jobs:
             exit 0
           fi
           bash scripts/ci/plan-wheel-publication.bash
+
+      # Candidate-owned fixtures run only after every authority-bearing output
+      # above is frozen, so they can fail the job but cannot influence routing.
+      - name: Exercise CI plan fixtures
+        run: bash scripts/ci/test-plan.sh
 
   pre-commit:
     name: pre-commit
@@ -468,10 +505,9 @@ jobs:
 
   quality:
     name: quality
-    if: >-
-      always() &&
-      (github.event.action != 'edited' || github.event.changes.base)
+    if: always()
     needs:
+      - ready-gate
       - plan
       - pre-commit
       - build
@@ -480,6 +516,8 @@ jobs:
     steps:
       - name: Verify required build graph
         env:
+          READY_GATE_RESULT: ${{ needs.ready-gate.result }}
+          RUN_FULL: ${{ needs.ready-gate.outputs.run-full }}
           PLAN_RESULT: ${{ needs.plan.result }}
           PRE_COMMIT_RESULT: ${{ needs.pre-commit.result }}
           BUILD_RESULT: ${{ needs.build.result }}
@@ -491,6 +529,11 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          test "$READY_GATE_RESULT" = success
+          if [[ "$RUN_FULL" != true ]]; then
+            echo '::error::needs-full-ready: move the PR to Draft, then mark it Ready'
+            exit 1
+          fi
           test "$PLAN_RESULT" = success
           test "$PRE_COMMIT_RESULT" = success
           if [[ "$RUN_TESTS" == true ]]; then
