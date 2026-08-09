@@ -7,9 +7,6 @@ permissions: # Principle of least privilege
 
 on:
   workflow_dispatch:
-  pull_request:
-    types: [opened, reopened, synchronize, ready_for_review]
-    branches: [main]
   push:
     branches: [main]
 

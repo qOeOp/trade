@@ -220,45 +220,29 @@ rm -f "$invalid_base_output"
 rm -rf "$invalid_base_checkout"
 echo "ok: invalid base history fails closed"
 
-ready_entry() {
-  local event_name="$1" action="$2" draft="$3"
-  if [[ "$event_name" != pull_request ]]; then
-    printf 'true\n'
-    return
-  fi
-  case "${action}:${draft}" in
-    ready_for_review:* | opened:false | reopened:false) printf 'true\n' ;;
-    *) printf 'false\n' ;;
-  esac
-}
-
-assert_ready_entry() {
-  local case_name="$1" event_name="$2" action="$3" draft="$4" expected="$5" actual
-  actual="$(ready_entry "$event_name" "$action" "$draft")"
-  if [[ "$actual" != "$expected" ]]; then
-    echo "Expected ${case_name} ready-entry=${expected}, got ${actual}" >&2
-    exit 1
-  fi
-  echo "ok: ${case_name} ready-entry=${actual}"
-}
-
-assert_ready_entry draft_open pull_request opened true false
-assert_ready_entry ready_open pull_request opened false true
-assert_ready_entry ready_reopen pull_request reopened false true
-assert_ready_entry ready_synchronize pull_request synchronize false false
-assert_ready_entry draft_to_ready pull_request ready_for_review false true
-
 for workflow in \
   "$repo_root/.github/workflows/build.yml" \
-  "$repo_root/.github/workflows/codeql-analysis.yml"; do
-  grep -Fq 'synchronize' "$workflow"
-  grep -Fq 'ready_for_review:* | opened:false | reopened:false' "$workflow"
-  grep -Fq "if: needs.ready-gate.outputs.run-full == 'true'" "$workflow"
-  grep -Fq 'needs-full-ready: move the PR to Draft, then mark it Ready' "$workflow"
+  "$repo_root/.github/workflows/codeql-analysis.yml" \
+  "$repo_root/.github/workflows/security-audit.yml"; do
+  if grep -Eq '^[[:space:]]+pull_request:' "$workflow"; then
+    echo "PR CI must remain paused in $workflow" >&2
+    exit 1
+  fi
 done
-grep -Fq 'types: [opened, reopened, synchronize, ready_for_review]' \
-  "$repo_root/.github/workflows/pr-fast.yml"
-echo "ok: workflow Ready-entry and stable-failure invariants"
+test ! -e "$repo_root/.github/workflows/pr-fast.yml"
+build_triggers="$(sed -n '/^on:/,/^concurrency:/p' "$repo_root/.github/workflows/build.yml")"
+for branch in test-ci test-pre-commit main nightly master; do
+  [[ "$build_triggers" == *"- $branch"* ]]
+done
+codeql_triggers="$(sed -n '/^on:/,/^jobs:/p' "$repo_root/.github/workflows/codeql-analysis.yml")"
+[[ "$codeql_triggers" == *'workflow_dispatch:'* ]]
+[[ "$codeql_triggers" == *'branches: [main]'* ]]
+security_triggers="$(sed -n '/^on:/,/^jobs:/p' "$repo_root/.github/workflows/security-audit.yml")"
+[[ "$security_triggers" == *'branches: [main, develop, master, test-ci, test-security]'* ]]
+[[ "$security_triggers" == *'schedule:'* ]]
+[[ "$security_triggers" == *'workflow_dispatch:'* ]]
+grep -Fq 'pull_request_target:' "$repo_root/.github/workflows/pr-title.yml"
+echo "ok: heavy PR CI paused; main and title validation retained"
 
 build_workflow="$repo_root/.github/workflows/build.yml"
 common_setup="$repo_root/.github/actions/common-setup/action.yml"
