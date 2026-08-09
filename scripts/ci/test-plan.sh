@@ -10,10 +10,6 @@ git init -q --initial-branch=main "$source_repo"
 git -C "$source_repo" config user.email ci-plan@example.invalid
 git -C "$source_repo" config user.name ci-plan-test
 mkdir -p \
-  "$source_repo/.agents/skills/example/assets" \
-  "$source_repo/.agents/skills/example/references/optimization" \
-  "$source_repo/.agents/skills/example/references/verification" \
-  "$source_repo/.agents/skills/example/scripts" \
   "$source_repo/.github/workflows" \
   "$source_repo/config" \
   "$source_repo/crates/example/src/python" \
@@ -26,10 +22,6 @@ mkdir -p \
 cp "$repo_root/scripts/ci/plan.sh" "$source_repo/scripts/ci/plan.sh"
 printf 'name: build\n' > "$source_repo/.github/workflows/build.yml"
 printf 'repos: []\n' > "$source_repo/.pre-commit-config.yaml"
-printf 'package main\n\nfunc main() {}\n' > "$source_repo/.agents/skills/example/scripts/helper.go"
-printf '# Advisory\n' > "$source_repo/.agents/skills/example/assets/advisory.md"
-printf '# Architecture\n' > "$source_repo/.agents/skills/example/references/optimization/architecture.md"
-printf '# Handoff\n' > "$source_repo/.agents/skills/example/references/verification/handoff.md"
 printf 'pub fn example() {}\n' > "$source_repo/crates/example/src/lib.rs"
 printf 'use pyo3::prelude::*;\n' > "$source_repo/crates/example/src/python/mod.rs"
 printf '[package]\nname = "nested"\nversion = "0.0.0"\n' > "$source_repo/crates/example/Cargo.toml"
@@ -89,14 +81,12 @@ run_case() {
 light=(
   run_tests=false run_rust_tests=false run_generated_drift=false
   run_full_pre_commit=false run_capnp_check=false
-  codeql_go_impacted=false codeql_python_impacted=false
-  codeql_rust_impacted=false
+  codeql_python_impacted=false codeql_rust_impacted=false
 )
 fail_closed=(
   run_tests=true run_rust_tests=true run_generated_drift=true
   run_full_pre_commit=true run_capnp_check=true
-  codeql_go_impacted=true codeql_python_impacted=true
-  codeql_rust_impacted=true
+  codeql_python_impacted=true codeql_rust_impacted=true
 )
 
 run_case arbitrary_markdown \
@@ -116,9 +106,6 @@ run_case symlink_prose \
   "rm notes/design.md; ln -s ../misc/notes.txt notes/design.md" "${fail_closed[@]}"
 run_case prose_deleted \
   "rm notes/design.md" "${light[@]}"
-run_case skill_prose_deletion \
-  "rm .agents/skills/example/assets/advisory.md .agents/skills/example/references/optimization/architecture.md; printf 'more\n' >> .agents/skills/example/references/verification/handoff.md" \
-  "${light[@]}"
 run_case binary_prose_deleted \
   "rm notes/binary.md" "${fail_closed[@]}"
 run_case executable_prose_deleted \
@@ -142,60 +129,41 @@ run_case cross_extension_renamed \
 run_case unknown_added \
   "printf 'unknown\\n' > misc/added.bin" "${fail_closed[@]}"
 
-run_case go_only \
-  "printf 'func changed() {}\\n' >> .agents/skills/example/scripts/helper.go" \
-  run_tests=false run_rust_tests=false run_generated_drift=false \
-  run_full_pre_commit=false run_capnp_check=false \
-  codeql_go_impacted=true codeql_python_impacted=false \
-  codeql_rust_impacted=false
 run_case python_only \
   "printf 'print(\"changed\")\\n' >> python/example.py" \
   run_tests=true run_rust_tests=false run_generated_drift=false \
   run_full_pre_commit=false run_capnp_check=false \
-  codeql_go_impacted=false codeql_python_impacted=true \
-  codeql_rust_impacted=false
+  codeql_python_impacted=true codeql_rust_impacted=false
 run_case python_manifest \
   "printf 'version = \"0.0.1\"\\n' >> python/pyproject.toml" \
   run_tests=true run_rust_tests=false run_generated_drift=false \
   run_full_pre_commit=false run_capnp_check=false \
-  codeql_go_impacted=false codeql_python_impacted=true \
-  codeql_rust_impacted=false
+  codeql_python_impacted=true codeql_rust_impacted=false
 run_case python_generator \
   "printf 'print(\"generate\")\\n' > python/generate_stubs.py" \
   run_tests=true run_rust_tests=false run_generated_drift=true \
   run_full_pre_commit=false run_capnp_check=false \
-  codeql_go_impacted=false codeql_python_impacted=true \
-  codeql_rust_impacted=false
+  codeql_python_impacted=true codeql_rust_impacted=false
 run_case rust_only \
   "printf 'pub fn changed() {}\\n' >> crates/example/src/lib.rs" \
   run_tests=true run_rust_tests=true run_generated_drift=false \
   run_full_pre_commit=true run_capnp_check=false \
-  codeql_go_impacted=false codeql_python_impacted=false \
-  codeql_rust_impacted=true
+  codeql_python_impacted=false codeql_rust_impacted=true
 run_case rust_manifest \
   "printf '[workspace]\\n' >> Cargo.toml" \
   run_tests=true run_rust_tests=true run_generated_drift=false \
   run_full_pre_commit=true run_capnp_check=false \
-  codeql_go_impacted=false codeql_python_impacted=false \
-  codeql_rust_impacted=true
-run_case mixed_go_python \
-  "printf 'func changed() {}\\n' >> .agents/skills/example/scripts/helper.go; printf 'print(\"changed\")\\n' >> python/example.py" \
-  run_tests=true run_rust_tests=false run_generated_drift=false \
-  run_full_pre_commit=false run_capnp_check=false \
-  codeql_go_impacted=true codeql_python_impacted=true \
-  codeql_rust_impacted=false
+  codeql_python_impacted=false codeql_rust_impacted=true
 run_case shared_schema \
   "printf '# changed\\n' >> schema/example.capnp" \
   run_tests=true run_rust_tests=true run_generated_drift=true \
   run_full_pre_commit=true run_capnp_check=true \
-  codeql_go_impacted=false codeql_python_impacted=true \
-  codeql_rust_impacted=true
+  codeql_python_impacted=true codeql_rust_impacted=true
 run_case cross_language_binding \
   "printf 'pub fn changed() {}\\n' >> crates/example/src/python/mod.rs" \
   run_tests=true run_rust_tests=true run_generated_drift=true \
   run_full_pre_commit=true run_capnp_check=true \
-  codeql_go_impacted=false codeql_python_impacted=true \
-  codeql_rust_impacted=true
+  codeql_python_impacted=true codeql_rust_impacted=true
 
 run_case workflow_self_change \
   "printf '# changed\\n' >> .github/workflows/build.yml" "${fail_closed[@]}"
