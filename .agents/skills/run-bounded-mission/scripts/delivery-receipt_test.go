@@ -166,7 +166,11 @@ func TestVerifyRejectsNonCanonicalBytes(t *testing.T) {
 }
 
 func TestCLIRejectsWithExitTwo(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "delivery-receipt")
+	binaryName := "delivery-receipt"
+	if runtime.GOOS == "windows" {
+		binaryName += ".exe"
+	}
+	binary := filepath.Join(t.TempDir(), binaryName)
 	_, testFile, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("test source path is unavailable")
