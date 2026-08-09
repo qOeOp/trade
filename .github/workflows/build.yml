@@ -562,6 +562,7 @@ jobs:
           build-type: "test"
           free-disk-space: "true"
           free-disk-space-max-build: ${{ runner.environment == 'github-hosted' && 'true' || 'false' }}
+          minimum-free-space-gb: "110"
           rust-cache-enabled: >-
             ${{ (runner.environment == 'github-hosted'
             || github.event_name == 'push'
