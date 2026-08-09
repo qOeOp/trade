@@ -3,18 +3,97 @@ name: codeql-analysis
 permissions: # Principle of least privilege
   contents: read
   actions: read
-  security-events: write # Required for CodeQL to upload SARIF
+  security-events: write # Required for impacted-language CodeQL uploads
 
 on:
   workflow_dispatch:
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
     branches: [main]
   push:
     branches: [main]
 
 jobs:
+  ready-gate:
+    name: codeql-ready-gate
+    runs-on: ubuntu-latest
+    outputs:
+      run-full: ${{ steps.route.outputs.run-full }}
+    steps:
+      - name: Classify Ready entry
+        id: route
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+        run: |
+          set -euo pipefail
+          run_full=false
+          if [[ "$EVENT_NAME" != pull_request ]]; then
+            run_full=true
+          else
+            case "${ACTION}:${DRAFT}" in
+              ready_for_review:* | opened:false | reopened:false) run_full=true ;;
+            esac
+          fi
+          echo "run-full=${run_full}" >> "$GITHUB_OUTPUT"
+          if [[ "$run_full" != true ]]; then
+            echo '::notice::needs-full-ready: move the PR to Draft, then mark it Ready'
+          fi
+
+  plan:
+    name: codeql-plan
+    needs: ready-gate
+    if: needs.ready-gate.outputs.run-full == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      javascript-impacted: ${{ steps.plan.outputs.codeql_javascript_impacted }}
+      python-impacted: ${{ steps.plan.outputs.codeql_python_impacted }}
+      rust-impacted: ${{ steps.plan.outputs.codeql_rust_impacted }}
+    steps:
+      # https://github.com/step-security/harden-runner
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: >-
+            ${{ github.repository == 'qOeOp/trade'
+            && 'audit'
+            || vars.STEP_SECURITY_EGRESS_POLICY
+            || 'block' }}
+          allowed-endpoints: >-
+            ${{ vars.COMMON_ALLOWED_ENDPOINTS }}
+            ${{ vars.CI_ALLOWED_ENDPOINTS }}
+
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Plan impacted languages
+        id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+            test "$BASE_SHA" = "$(git rev-parse --verify "refs/remotes/origin/${BASE_REF}^{commit}")"
+            trusted_plan="${RUNNER_TEMP}/ci-plan.sh"
+            git show "${BASE_SHA}:scripts/ci/plan.sh" > "$trusted_plan"
+            bash "$trusted_plan"
+          else
+            bash scripts/ci/plan.sh
+          fi
+
   analyze:
+    # Keep these three names stable: repository rules require every context.
     name: codeql-${{ matrix.language }}
+    needs:
+      - ready-gate
+      - plan
+    if: always()
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -41,28 +120,51 @@ jobs:
             ${{ vars.COMMON_ALLOWED_ENDPOINTS }}
             ${{ vars.CI_ALLOWED_ENDPOINTS }}
 
+      - name: Resolve language route
+        id: route
+        env:
+          RUN_FULL: ${{ needs.ready-gate.outputs.run-full }}
+          PLAN_RESULT: ${{ needs.plan.result }}
+          LANGUAGE: ${{ matrix.language }}
+          JAVASCRIPT_IMPACTED: ${{ needs.plan.outputs.javascript-impacted }}
+          PYTHON_IMPACTED: ${{ needs.plan.outputs.python-impacted }}
+          RUST_IMPACTED: ${{ needs.plan.outputs.rust-impacted }}
+        run: |
+          set -euo pipefail
+          case "$LANGUAGE" in
+            javascript-typescript) impacted="$JAVASCRIPT_IMPACTED" ;;
+            python) impacted="$PYTHON_IMPACTED" ;;
+            rust) impacted="$RUST_IMPACTED" ;;
+            *) impacted=true ;;
+          esac
+          if [[ "$RUN_FULL" != true ]]; then
+            echo 'run-analysis=false' >> "$GITHUB_OUTPUT"
+          elif [[ "$PLAN_RESULT" != success || "$impacted" != false ]]; then
+            echo 'run-analysis=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'run-analysis=false' >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout repository
-        # https://github.com/actions/checkout
+        if: steps.route.outputs.run-analysis == 'true'
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-          fetch-depth: 1
 
       - name: Install Rust linker (lld)
-        if: matrix.language == 'rust'
+        if: steps.route.outputs.run-analysis == 'true' && matrix.language == 'rust'
         run: |
           sudo apt-get update -o Acquire::Retries=5
           sudo apt-get install -y lld -o Acquire::Retries=5
 
       - name: Get Rust toolchain version
-        if: matrix.language == 'rust'
-        id: rust-toolchain
+        if: steps.route.outputs.run-analysis == 'true' && matrix.language == 'rust'
         run: |
           TOOLCHAIN="$(bash scripts/rust-toolchain.sh)"
           echo "TOOLCHAIN=$TOOLCHAIN" >> "$GITHUB_ENV"
 
       - name: Set up Rust toolchain
-        if: matrix.language == 'rust'
+        if: steps.route.outputs.run-analysis == 'true' && matrix.language == 'rust'
         # https://github.com/actions-rust-lang/setup-rust-toolchain
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
@@ -70,21 +172,57 @@ jobs:
           override: true
 
       - name: Initialize CodeQL
+        if: steps.route.outputs.run-analysis == 'true'
         # https://github.com/github/codeql-action
         uses: github/codeql-action/init@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
         with:
           languages: ${{ matrix.language }}
           config: ${{ matrix.config }}
-          # If you wish to specify custom queries, you can do so here or in a config file.
-          # By default, queries listed here will override any specified in a config file.
-          # Prefix the list here with "+" to use these queries and those in the config file.
-          # queries: ./path/to/local/query, your-org/your-repo/queries@main
 
       - name: Autobuild
-        if: matrix.language == 'rust'
+        if: steps.route.outputs.run-analysis == 'true' && matrix.language == 'rust'
         # https://github.com/github/codeql-action
         uses: github/codeql-action/autobuild@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
 
       - name: Perform CodeQL Analysis
+        if: steps.route.outputs.run-analysis == 'true'
         # https://github.com/github/codeql-action
         uses: github/codeql-action/analyze@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
+
+      - name: Verify Ready CodeQL route
+        if: always()
+        env:
+          RUN_FULL: ${{ needs.ready-gate.outputs.run-full }}
+          PLAN_RESULT: ${{ needs.plan.result }}
+        run: |
+          set -euo pipefail
+          if [[ "$RUN_FULL" != true ]]; then
+            echo '::error::needs-full-ready: move the PR to Draft, then mark it Ready'
+            exit 1
+          fi
+          test "$PLAN_RESULT" = success
+
+  security:
+    name: codeql-security
+    if: always()
+    needs:
+      - ready-gate
+      - plan
+      - analyze
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify CodeQL graph
+        env:
+          READY_GATE_RESULT: ${{ needs.ready-gate.result }}
+          RUN_FULL: ${{ needs.ready-gate.outputs.run-full }}
+          PLAN_RESULT: ${{ needs.plan.result }}
+          ANALYZE_RESULT: ${{ needs.analyze.result }}
+        run: |-
+          set -euo pipefail
+          test "$READY_GATE_RESULT" = success
+          if [[ "$RUN_FULL" != true ]]; then
+            echo '::error::needs-full-ready: move the PR to Draft, then mark it Ready'
+            exit 1
+          fi
+          test "$PLAN_RESULT" = success
+          test "$ANALYZE_RESULT" = success
