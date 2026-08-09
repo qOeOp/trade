@@ -1,7 +1,8 @@
 # Minimum Sufficient Review Contract
 
-Main owns candidate identity, evidence, findings, effects, acceptance, and Finalize. A fresh read-only
-reviewer answers one material risk question; it is neither a vote nor authority transfer.
+Main owns candidate identity, evidence, findings, repository/GitHub/Goal/delivery effects, acceptance,
+and Finalize. A fresh read-only reviewer returns one material risk conclusion; it has none of those
+authorities and is neither a vote nor authority transfer.
 
 ## Admission
 
@@ -11,9 +12,10 @@ manifest, and verified digests. Supply the complete Frame and Plan, one risk len
 evidence locators or explicit `unavailable`, and a neutral review-control locator independent of the
 candidate.
 
-Main opens every locator before launch and observes repository status and candidate identity. Mutable
-worktree paths, prose summaries, reconstructed commands, inaccessible evidence, and candidate-owned
-control are unsupported. Do not rebuild, repackage, retry, or materialize a packet to make them pass.
+Main opens every locator before launch and records exact candidate/control identities, repository
+status, and affected-file and tree fingerprints for comparison after return. Mutable worktree paths,
+prose summaries, reconstructed commands, inaccessible evidence, and candidate-owned control are
+unsupported. Do not rebuild, repackage, retry, or materialize a packet to make them pass.
 
 The review input is the sole frozen evaluator packet. Its binding is candidate commit/tree (or local
 snapshot digest), base/Origin, neutral control, one lens, and exact evidence locators; Main dispatches
@@ -63,7 +65,9 @@ missing fields, mutation, unavailable required evidence, or candidate-controlled
 
 ## Main fan-in
 
-Main re-resolves candidate/tree/diff and repository status after each return, reproduces every
-material finding through the smallest real consumer, and exact-deduplicates the ordered union. It
-resolves disagreement by current authority and reproduced impact, never reviewer count. Unsupported
-evidence remains explicit and cannot authorize delivery. Hub alone authorizes merge.
+After each return, Main re-resolves and compares candidate/control identities, repository status, and
+affected-file and tree fingerprints. Any reviewer-visible mutation or drift invalidates that member.
+Every finding is only a lead until Main independently reproduces it through the smallest real consumer;
+Main exact-deduplicates the ordered union and resolves disagreement by current authority and reproduced
+impact, never reviewer count. Unsupported evidence remains explicit and cannot authorize delivery.
+Hub alone authorizes merge.
