@@ -13,7 +13,9 @@ non-trivial implementation or delivery, and after switching branch or worktree:
 2. materialize its exact `qOeOp/skills` commit in an immutable user cache outside this repository;
 3. run that checkout's `node scripts/install-codex.mjs --lock <origin-main-lock> --install-trade-session-hook`,
    then the same command with `--check`;
-4. freeze implementation and delivery if the pin, install, or check is unavailable or mismatched.
+4. after hook content changes, review the exact user `SessionStart` command in `/hooks` and trust only
+   that installed command;
+5. freeze implementation and delivery if the pin, install, hook trust, or check is unavailable or mismatched.
 
 Normal branches use the latest `origin/main` pin, not their historical copy. A dedicated pin-update PR
 may use its candidate lock only after the referenced commit is merged to `qOeOp/skills/main`. A branch
