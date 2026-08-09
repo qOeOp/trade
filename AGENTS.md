@@ -2,7 +2,8 @@
 
 Prioritize clean architecture and the smallest implementation that closes the requested outcome.
 Preserve unrelated work. Real trading or another production write requires explicit user authority.
-Use `docs/README.md` for documentation ownership and `docs/engineering/check-contract.md` for checks.
+Use the repository's current Makefile, pre-commit configuration, and CI workflows as check authority;
+do not reconstruct a missing historical entrypoint.
 
 ## Codex bootstrap
 
