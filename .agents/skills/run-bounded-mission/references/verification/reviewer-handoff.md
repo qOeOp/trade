@@ -18,9 +18,10 @@ prose summaries, reconstructed commands, inaccessible evidence, and candidate-ow
 unsupported. Do not rebuild, repackage, retry, or materialize a packet to make them pass.
 
 The review input is the sole frozen evaluator packet. Its binding is candidate commit/tree (or local
-snapshot digest), base/Origin, neutral control, one lens, and exact evidence locators; Main dispatches
-that binding once to the native `mission_evaluator` role. No second schema, helper, compatibility
-packet, or persistent record sits between this owner and that consumer.
+snapshot digest), base/Origin, neutral control, one lens, and exact evidence locators. From a
+Main-observed execution boundary, select exactly one initial consumer: native `mission_evaluator` when
+available, otherwise one fresh generic reviewer. No second schema, helper, compatibility packet, or
+persistent record sits between this owner and that consumer.
 
 ## Smallest audit set
 
@@ -37,9 +38,8 @@ timeout, unsupported transport, invalid output, or a finding never creates a ret
 
 ## Reviewer boundary and return
 
-Prefer `mission_evaluator`; if that route is unavailable before dispatch, one fresh generic reviewer
-may execute the same admitted lens. The reviewer does not edit, delegate, communicate laterally, or
-perform an external effect. It scans the complete changed surface and direct consumers before using
+The selected reviewer does not edit, delegate, communicate laterally, or perform an external effect.
+It scans the complete changed surface and direct consumers before using
 auxiliary evidence. Missing required evidence is `unsupported`, not `no_finding` or a candidate defect.
 
 Return only:
