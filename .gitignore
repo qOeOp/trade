@@ -90,7 +90,6 @@ env/
 !.docker/entrypoint.sh
 !.pre-commit-hooks/*.sh
 !.github/scripts/validate-pr-title.sh
-!.github/scripts/verify-go-absence.sh
 !scripts/cargo-tool-version.sh
 !scripts/check-outdated.sh
 !scripts/fuzz-adapter.sh
@@ -118,6 +117,7 @@ PERF.JSON
 output.json
 
 # AI assistants and tools
+.agents/
 .codex
 .cursorignore
 .mcp.json
@@ -162,6 +162,7 @@ tests/unit_tests/persistence/catalog/
 
 
 # Exceptions
+!AGENTS.md
 !/test_data/large/checksums.json
 !/test_data/large/*.metadata.json
 !/test_data/vibe/*/**.parquet

@@ -6,14 +6,13 @@ set -euo pipefail
 
 emit() {
   local tests="$1" rust_tests="$2" generated="$3" full_prek="$4" capnp="$5"
-  local go="$6" python="$7" rust="$8" reason="$9"
+  local python="$6" rust="$7" reason="$8"
   {
     echo "run_tests=${tests}"
     echo "run_rust_tests=${rust_tests}"
     echo "run_generated_drift=${generated}"
     echo "run_full_pre_commit=${full_prek}"
     echo "run_capnp_check=${capnp}"
-    echo "codeql_go_impacted=${go}"
     echo "codeql_python_impacted=${python}"
     echo "codeql_rust_impacted=${rust}"
     echo "pre_commit_base=${merge_base:-}"
@@ -22,7 +21,7 @@ emit() {
 }
 
 run_all() {
-  emit true true true true true true true true "$1"
+  emit true true true true true true true "$1"
   exit 0
 }
 
@@ -135,7 +134,6 @@ rust_tests=false
 generated=false
 full_prek=false
 capnp=false
-codeql_go=false
 codeql_python=false
 codeql_rust=false
 changed=false
@@ -207,9 +205,6 @@ while IFS= read -r -d '' status <&3; do
   esac
 
   case "$changed_file" in
-    *.go)
-      codeql_go=true
-      ;;
     *.py | *.pyi | *.pyx | *.pxd | \
       python/pyproject.toml | python/uv.lock | setup.cfg | tox.ini | \
       requirements*.txt | constraints*.txt)
@@ -251,5 +246,5 @@ if [[ "$changed" != true ]]; then
 fi
 
 emit "$tests" "$rust_tests" "$generated" "$full_prek" "$capnp" \
-  "$codeql_go" "$codeql_python" "$codeql_rust" \
+  "$codeql_python" "$codeql_rust" \
   "PR impact plan: tests=${tests}, rust=${rust_tests}, generated=${generated}, changed-file pre-commit"
