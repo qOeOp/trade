@@ -1,10 +1,10 @@
 {
   "schema_version": 2,
-  "repository": "https://github.com/qOeOp/skills.git",
-  "commit": "6f3ba24f05303447be65cff3d00ed9ff346154af",
-  "tree": "95e4b28b50b41955b6c404d40d7801c3268286cc",
-  "skill_tree": "163356f6ad0a8914d505343ff1257c338e379de5",
+  "repository": "https://github.com/qOeOp/pareto.git",
+  "commit": "290aa9d2679e81030857d1d57071aa63233117a1",
+  "tree": "2fc83130e8012abcb7dc17a77e81d873f5f06c92",
+  "skill_tree": "399a6a5a93be01f1609071ad2bed31d303b6255b",
   "codex_agents_tree": "a82878074f004f3353c480858487596a3a95035f",
-  "codex_session_hook_blob": "04d3e90a7714432f94a4572d5a4450d9622d0865",
+  "codex_session_hook_blob": "993c377b4ca622e3f7c1c9813842913a091c804a",
   "installer_blob": "b6d8d89f84e29d170c847f8f0000c743f3cf4a0e"
 }
