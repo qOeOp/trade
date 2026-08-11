@@ -59,6 +59,11 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Install Pandoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes pandoc
+
       - name: Install site dependencies
         run: npm ci --prefix docs-site
 
