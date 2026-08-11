@@ -105,6 +105,7 @@ repos:
         language: system
         types: [text]
         files: "\\.(rs|py|md|toml|yaml|yml)$"
+        exclude: ^docs/.*\.zh\.md$
       - id: check-toml-codegen
         name: check toml-codegen
         description: Ensures TOML files don't contain the 'codegen-backend' keyword

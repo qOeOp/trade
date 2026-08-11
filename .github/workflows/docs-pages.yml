@@ -7,12 +7,14 @@ on:
       - .github/workflows/docs-pages.yml
       - docs/**
       - docs-site/**
+      - icon.svg
   pull_request:
     branches: [main]
     paths:
       - .github/workflows/docs-pages.yml
       - docs/**
       - docs-site/**
+      - icon.svg
   workflow_dispatch:
 
 permissions:
@@ -40,6 +42,7 @@ jobs:
         # https://github.com/actions/checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Node.js
@@ -59,8 +62,29 @@ jobs:
       - name: Install site dependencies
         run: npm ci --prefix docs-site
 
+      - name: Check documentation localization
+        env:
+          DOCS_I18N_BASE_SHA: >-
+            ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          npm run check:i18n:changed-pairs-test --prefix docs-site
+          npm run check:i18n --prefix docs-site
+
+      - name: Check localization structure
+        run: |
+          npm run check:i18n:structure-test --prefix docs-site
+          npm run check:i18n:structure --prefix docs-site
+
       - name: Build static site
         run: npm run build --prefix docs-site
+
+      - name: Check Mermaid diagrams
+        run: npm run check:mermaid --prefix docs-site
+
+      - name: Check exported routes
+        run: |
+          npm run check:routes:unit --prefix docs-site
+          npm run check:routes --prefix docs-site
 
       - name: Upload Pages artifact
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'

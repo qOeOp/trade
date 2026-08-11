@@ -65,6 +65,11 @@ async function addFrontmatter(path) {
   await writeFile(path, `---\ntitle: ${JSON.stringify(title)}\n---\n\n${body}\n`);
 }
 
+async function writeJson(path, value) {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
 await rm(targetRoot, { recursive: true, force: true });
 await mkdir(dirname(targetRoot), { recursive: true });
 await cp(sourceRoot, targetRoot, {
@@ -96,24 +101,52 @@ for (const sourcePath of pages) {
 const markdownPages = await findMarkdownPages(targetRoot);
 for (const page of markdownPages) await addFrontmatter(page);
 
-await writeFile(
-  join(targetRoot, 'meta.json'),
-  `${JSON.stringify(
-    {
-      title: 'Vibe Trader Documentation',
-      pages: [
-        'getting_started',
-        'concepts',
-        'how_to',
-        'tutorials',
-        'integrations',
-        'developer_guide',
-      ],
-    },
-    null,
-    2,
-  )}\n`,
-);
+await writeJson(join(targetRoot, 'meta.json'), {
+  title: 'Vibe Trader Documentation',
+  pages: [
+    'getting_started',
+    'concepts',
+    'how_to',
+    'tutorials',
+    'integrations',
+    'developer_guide',
+  ],
+});
+await writeJson(join(targetRoot, 'meta.zh.json'), {
+  title: 'Vibe Trader 文档',
+  pages: [
+    'getting_started',
+    'concepts',
+    'how_to',
+    'tutorials',
+    'integrations',
+    'developer_guide',
+  ],
+});
+await writeJson(join(targetRoot, 'getting_started', 'meta.zh.json'), {
+  title: '入门',
+  pages: ['...'],
+});
+await writeJson(join(targetRoot, 'concepts', 'meta.zh.json'), {
+  title: '核心概念',
+  pages: ['...'],
+});
+await writeJson(join(targetRoot, 'how_to', 'meta.zh.json'), {
+  title: '操作指南',
+  pages: ['...'],
+});
+await writeJson(join(targetRoot, 'tutorials', 'meta.zh.json'), {
+  title: '教程',
+  pages: ['...'],
+});
+await writeJson(join(targetRoot, 'integrations', 'meta.zh.json'), {
+  title: '集成',
+  pages: ['...'],
+});
+await writeJson(join(targetRoot, 'developer_guide', 'meta.zh.json'), {
+  title: '开发者指南',
+  pages: ['...'],
+});
 
 console.log(
   `Prepared ${markdownPages.length} docs pages, including ${pages.length} Jupytext pages.`,

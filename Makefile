@@ -1156,8 +1156,15 @@ docs-site:  #-- Build the static documentation site
 docs-site-check:  #-- Type-check and build the static documentation site
 	$(info $(M) Checking static documentation site...)
 	$Q npm ci --prefix docs-site
+	$Q npm run check:i18n:changed-pairs-test --prefix docs-site
+	$Q npm run check:i18n --prefix docs-site
+	$Q npm run check:i18n:structure-test --prefix docs-site
+	$Q npm run check:i18n:structure --prefix docs-site
 	$Q npm run types:check --prefix docs-site
 	$Q npm run build --prefix docs-site
+	$Q npm run check:mermaid --prefix docs-site
+	$Q npm run check:routes:unit --prefix docs-site
+	$Q npm run check:routes --prefix docs-site
 
 #== CLI Tools
 

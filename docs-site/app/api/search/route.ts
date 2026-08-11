@@ -3,6 +3,4 @@ import { createFromSource } from 'fumadocs-core/search/server';
 
 export const revalidate = false;
 
-export const { staticGET: GET } = createFromSource(source, {
-  language: 'english',
-});
+export const { staticGET: GET } = createFromSource(source);
