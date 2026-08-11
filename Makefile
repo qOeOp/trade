@@ -1144,6 +1144,28 @@ mypy: build-debug  #-- Type-check supported Python examples
 	$(info $(M) Type-checking supported Python examples...)
 	$Q bash scripts/ci/test-python-types.bash python examples
 
+#== Documentation Site
+
+.PHONY: docs-site
+docs-site:  #-- Build the static documentation site
+	$(info $(M) Building static documentation site...)
+	$Q npm ci --prefix docs-site
+	$Q npm run build --prefix docs-site
+
+.PHONY: docs-site-check
+docs-site-check:  #-- Type-check and build the static documentation site
+	$(info $(M) Checking static documentation site...)
+	$Q npm ci --prefix docs-site
+	$Q npm run check:i18n:changed-pairs-test --prefix docs-site
+	$Q npm run check:i18n --prefix docs-site
+	$Q npm run check:i18n:structure-test --prefix docs-site
+	$Q npm run check:i18n:structure --prefix docs-site
+	$Q npm run types:check --prefix docs-site
+	$Q npm run build --prefix docs-site
+	$Q npm run check:mermaid --prefix docs-site
+	$Q npm run check:routes:unit --prefix docs-site
+	$Q npm run check:routes --prefix docs-site
+
 #== CLI Tools
 
 .PHONY: install-cli

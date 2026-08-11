@@ -1,0 +1,49 @@
+{
+  "name": "vibe-trader-docs-site",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "prepare:content": "node scripts/prepare-content.mjs",
+    "check:i18n": "node scripts/check-i18n.mjs",
+    "check:i18n:changed-pairs-test": "node --test scripts/check-i18n-sync.test.mjs",
+    "check:i18n:structure-test": "node --test scripts/check-markdown-skeleton.test.mjs scripts/check-mermaid-skeleton.test.mjs",
+    "check:mermaid": "node scripts/check-mermaid.mjs",
+    "check:routes:unit": "node --test scripts/check-static-navigation.test.mjs",
+    "check:i18n:structure": "npm run prepare:content && node scripts/check-i18n-structure.mjs",
+    "check:routes": "node scripts/check-static-routes.mjs",
+    "dev": "npm run prepare:content && next dev",
+    "types:check": "npm run prepare:content && next typegen && tsc --noEmit",
+    "build": "npm run prepare:content && next build"
+  },
+  "dependencies": {
+    "@fumadocs/language": "0.2.2",
+    "cnfast": "0.1.0",
+    "fumadocs-core": "16.14.3",
+    "fumadocs-mdx": "15.2.3",
+    "fumadocs-ui": "npm:@fumadocs/base-ui@16.14.3",
+    "lucide-react": "1.28.0",
+    "mermaid": "11.16.1",
+    "next": "16.3.0",
+    "next-themes": "0.4.6",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "remark-directive": "4.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/mdx": "2.0.14",
+    "@types/node": "26.1.2",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "parse5": "7.3.0",
+    "postcss": "8.5.25",
+    "remark-gfm": "4.0.1",
+    "remark-parse": "11.0.0",
+    "tailwindcss": "4.3.3",
+    "typescript": "6.0.3",
+    "unified": "11.0.5"
+  }
+}

@@ -1,0 +1,125 @@
+name: docs-pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/docs-pages.yml
+      - docs/**
+      - docs-site/**
+      - icon.svg
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/docs-pages.yml
+      - docs/**
+      - docs-site/**
+      - icon.svg
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build documentation site
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden runner
+        # https://github.com/step-security/harden-runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: ${{ vars.STEP_SECURITY_EGRESS_POLICY || 'audit' }}
+          allowed-endpoints: >-
+            ${{ vars.COMMON_ALLOWED_ENDPOINTS }}
+            ${{ vars.CI_ALLOWED_ENDPOINTS }}
+
+      - name: Checkout repository
+        # https://github.com/actions/checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        # https://github.com/actions/setup-node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: docs-site/package-lock.json
+
+      - name: Set up uv
+        # https://github.com/astral-sh/setup-uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: true
+
+      - name: Install Pandoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes pandoc
+
+      - name: Install site dependencies
+        run: npm ci --prefix docs-site
+
+      - name: Check documentation localization
+        env:
+          DOCS_I18N_BASE_SHA: >-
+            ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          npm run check:i18n:changed-pairs-test --prefix docs-site
+          npm run check:i18n --prefix docs-site
+
+      - name: Check localization structure
+        run: |
+          npm run check:i18n:structure-test --prefix docs-site
+          npm run check:i18n:structure --prefix docs-site
+
+      - name: Build static site
+        run: npm run build --prefix docs-site
+
+      - name: Check Mermaid diagrams
+        run: npm run check:mermaid --prefix docs-site
+
+      - name: Check exported routes
+        run: |
+          npm run check:routes:unit --prefix docs-site
+          npm run check:routes --prefix docs-site
+
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        # https://github.com/actions/upload-pages-artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: docs-site/out
+
+  deploy:
+    name: Deploy documentation site
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Harden runner
+        # https://github.com/step-security/harden-runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: ${{ vars.STEP_SECURITY_EGRESS_POLICY || 'audit' }}
+          allowed-endpoints: >-
+            ${{ vars.COMMON_ALLOWED_ENDPOINTS }}
+            ${{ vars.CI_ALLOWED_ENDPOINTS }}
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        # https://github.com/actions/deploy-pages
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

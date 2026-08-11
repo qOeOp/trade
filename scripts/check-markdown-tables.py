@@ -14,6 +14,7 @@ leading and trailing pipes.
 
 import re
 import sys
+import unicodedata
 from pathlib import Path
 
 
@@ -31,11 +32,23 @@ def split_cells(row):
     return PIPE_RE.split(row.rstrip())[1:-1]
 
 
-def utf16_width(text):
+def display_width(text):
     """
-    Return the width markdownlint sees, which indexes strings by UTF-16 code unit.
+    Return the terminal display width used by markdownlint's string-width helper.
+
+    Combining and formatting code points do not advance the cursor. East Asian wide and
+    full-width code points occupy two columns; all other printable code points occupy
+    one. This covers the CJK tables this formatter is responsible for without adding a
+    runtime dependency.
+
     """
-    return len(text) + sum(1 for char in text if ord(char) > 0xFFFF)
+    width = 0
+    for char in text:
+        category = unicodedata.category(char)
+        if category.startswith(("C", "M")):
+            continue
+        width += 2 if unicodedata.east_asian_width(char) in ("W", "F") else 1
+    return width
 
 
 def find_tables(lines):
@@ -77,7 +90,7 @@ def cell_alignment(cell):
 
 
 def render_cell(content, width, alignment):
-    padding = width - 2 - utf16_width(content)
+    padding = width - 2 - display_width(content)
     if alignment == "right":
         return f" {' ' * padding}{content} "
     if alignment == "center":
@@ -111,7 +124,7 @@ def normalize_table(rows):
         marker = grid[1][column].strip()
         colons = int(marker.startswith(":")) + int(marker.endswith(":"))
         content = max(
-            utf16_width(cells[column].strip()) for index, cells in enumerate(grid) if index != 1
+            display_width(cells[column].strip()) for index, cells in enumerate(grid) if index != 1
         )
         widths.append(max(content, MIN_DASHES + colons) + 2)
 
