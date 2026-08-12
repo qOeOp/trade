@@ -1,0 +1,36 @@
+[package]
+name = "vibe-strategy-factory"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Owner-local Strategy Factory product boundary"
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+blake3 = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+vibe-backtest = { workspace = true }
+vibe-binance = { workspace = true }
+vibe-common = { workspace = true }
+vibe-core = { workspace = true }
+vibe-indicators = { workspace = true }
+vibe-model = { workspace = true }
+vibe-trading = { workspace = true }
+wasmi = { workspace = true }
+wasmparser = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+
+[[bin]]
+name = "strategy-factory-pilot"
+path = "src/bin/strategy_factory_pilot.rs"
+doc = false
+test = false

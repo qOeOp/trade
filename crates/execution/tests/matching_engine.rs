@@ -5457,6 +5457,545 @@ fn test_process_mark_bar_skipped_without_panic(instrument_eth_usdt: InstrumentAn
     );
 }
 
+fn external_last_bar(
+    instrument_id: InstrumentId,
+    open: &str,
+    high: &str,
+    low: &str,
+    close: &str,
+    volume: &str,
+    ts_init: u64,
+) -> Bar {
+    Bar {
+        bar_type: BarType::from(format!("{instrument_id}-1-MINUTE-LAST-EXTERNAL")),
+        open: Price::from(open),
+        high: Price::from(high),
+        low: Price::from(low),
+        close: Price::from(close),
+        volume: Quantity::from(volume),
+        ts_event: UnixNanos::from(ts_init),
+        ts_init: UnixNanos::from(ts_init),
+    }
+}
+
+#[rstest]
+fn test_trade_on_close_default_fills_plain_market_order_at_current_bar_close(
+    instrument_eth_usdt: InstrumentAny,
+    account_id: AccountId,
+) {
+    let cache = Rc::new(RefCell::new(Cache::default()));
+    let order_event_handler = order_event_handler_with_cache(cache.clone());
+    let mut engine = get_order_matching_engine(
+        instrument_eth_usdt.clone(),
+        None,
+        Some(cache),
+        None,
+        Some(OrderMatchingEngineConfig::default()),
+    );
+    engine.process_bar(&external_last_bar(
+        instrument_eth_usdt.id(),
+        "1000.00",
+        "1010.00",
+        "990.00",
+        "1005.00",
+        "100.000",
+        1_000_000_000,
+    ));
+    clear_order_event_handler_messages(&order_event_handler);
+
+    let mut market_order = market_order_buy(instrument_eth_usdt);
+    engine.process_order(&mut market_order, account_id);
+
+    let fills: Vec<_> = get_order_event_handler_messages(&order_event_handler)
+        .into_iter()
+        .filter_map(|event| match event {
+            OrderEventAny::Filled(fill) => Some(fill),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(fills.len(), 1);
+    assert_eq!(fills[0].last_px, Price::from("1005.00"));
+}
+
+#[rstest]
+fn test_trade_on_close_false_defers_until_next_executable_external_bar_open(
+    instrument_eth_usdt: InstrumentAny,
+    account_id: AccountId,
+    test_clock: Rc<RefCell<TestClock>>,
+) {
+    let cache = Rc::new(RefCell::new(Cache::default()));
+    let order_event_handler = order_event_handler_with_cache(cache.clone());
+    let config = OrderMatchingEngineConfig::builder()
+        .trade_on_close(false)
+        .build();
+    let mut engine = get_order_matching_engine(
+        instrument_eth_usdt.clone(),
+        Some(test_clock.clone()),
+        Some(cache),
+        None,
+        Some(config),
+    );
+    let signal_bar = external_last_bar(
+        instrument_eth_usdt.id(),
+        "1000.00",
+        "1010.00",
+        "990.00",
+        "1005.00",
+        "100.000",
+        1_000_000_000,
+    );
+    test_clock.borrow_mut().set_time(signal_bar.ts_init);
+    engine.process_bar(&signal_bar);
+    clear_order_event_handler_messages(&order_event_handler);
+
+    let mut first_order = market_order_buy(instrument_eth_usdt.clone());
+    let second_id = ClientOrderId::from("O-19700101-000000-001-001-2");
+    let mut second_order = OrderTestBuilder::new(OrderType::Market)
+        .instrument_id(instrument_eth_usdt.id())
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from("1.000"))
+        .client_order_id(second_id)
+        .submit(true)
+        .build();
+    engine.process_order(&mut first_order, account_id);
+    engine.process_order(&mut second_order, account_id);
+    assert!(get_order_event_handler_messages(&order_event_handler).is_empty());
+
+    let zero_volume_bar = external_last_bar(
+        instrument_eth_usdt.id(),
+        "1500.00",
+        "1510.00",
+        "1490.00",
+        "1505.00",
+        "0.000",
+        2_000_000_000,
+    );
+    test_clock.borrow_mut().set_time(zero_volume_bar.ts_init);
+    engine.process_bar(&zero_volume_bar);
+    assert!(get_order_event_handler_messages(&order_event_handler).is_empty());
+
+    let trade = TradeTick::new(
+        instrument_eth_usdt.id(),
+        Price::from("1700.00"),
+        Quantity::from("1.000"),
+        AggressorSide::Buyer,
+        TradeId::from("1"),
+        UnixNanos::from(3_000_000_000),
+        UnixNanos::from(3_000_000_000),
+    );
+    test_clock.borrow_mut().set_time(trade.ts_init);
+    engine.process_trade_tick(&trade);
+    assert!(get_order_event_handler_messages(&order_event_handler).is_empty());
+
+    let next_bar = external_last_bar(
+        instrument_eth_usdt.id(),
+        "1700.00",
+        "1710.00",
+        "1690.00",
+        "1705.00",
+        "1.000",
+        4_000_000_000,
+    );
+    test_clock.borrow_mut().set_time(next_bar.ts_init);
+    engine.process_bar(&next_bar);
+
+    let fills: Vec<_> = get_order_event_handler_messages(&order_event_handler)
+        .into_iter()
+        .filter_map(|event| match event {
+            OrderEventAny::Filled(fill) => Some(fill),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(fills.len(), 2);
+    assert_eq!(fills[0].client_order_id, first_order.client_order_id());
+    assert_eq!(fills[1].client_order_id, second_id);
+    assert!(fills.iter().all(|fill| {
+        fill.last_px == Price::from("1700.00") && fill.ts_event == next_bar.ts_init
+    }));
+}
+
+#[rstest]
+fn test_deferred_market_order_can_be_canceled_and_reset_never_flushes_it(
+    instrument_eth_usdt: InstrumentAny,
+    account_id: AccountId,
+) {
+    let cache = Rc::new(RefCell::new(Cache::default()));
+    let order_event_handler = order_event_handler_with_cache(cache.clone());
+    let config = OrderMatchingEngineConfig::builder()
+        .trade_on_close(false)
+        .build();
+    let mut engine = get_order_matching_engine(
+        instrument_eth_usdt.clone(),
+        None,
+        Some(cache),
+        None,
+        Some(config),
+    );
+    engine.process_bar(&external_last_bar(
+        instrument_eth_usdt.id(),
+        "1000.00",
+        "1010.00",
+        "990.00",
+        "1005.00",
+        "100.000",
+        1_000_000_000,
+    ));
+    clear_order_event_handler_messages(&order_event_handler);
+
+    let mut canceled_order = market_order_buy(instrument_eth_usdt.clone());
+    engine.process_order(&mut canceled_order, account_id);
+    let cancel = CancelOrder::new(
+        canceled_order.trader_id(),
+        Some(ClientId::from("CLIENT-001")),
+        canceled_order.strategy_id(),
+        canceled_order.instrument_id(),
+        canceled_order.client_order_id(),
+        None,
+        UUID4::new(),
+        UnixNanos::from(1_500_000_000),
+        None,
+        None,
+    );
+    engine.process_cancel(&cancel, account_id);
+    assert!(matches!(
+        get_order_event_handler_messages(&order_event_handler).as_slice(),
+        [OrderEventAny::Canceled(_)]
+    ));
+
+    let mut reset_order = OrderTestBuilder::new(OrderType::Market)
+        .instrument_id(instrument_eth_usdt.id())
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from("1.000"))
+        .client_order_id(ClientOrderId::from("O-19700101-000000-001-001-2"))
+        .submit(true)
+        .build();
+    engine.process_order(&mut reset_order, account_id);
+    engine.reset();
+    clear_order_event_handler_messages(&order_event_handler);
+    engine.process_bar(&external_last_bar(
+        instrument_eth_usdt.id(),
+        "2000.00",
+        "2010.00",
+        "1990.00",
+        "2005.00",
+        "100.000",
+        2_000_000_000,
+    ));
+    assert!(get_order_event_handler_messages(&order_event_handler).is_empty());
+}
+
+#[rstest]
+fn test_deferred_market_order_does_not_change_stop_order_bar_events(
+    instrument_eth_usdt: InstrumentAny,
+    account_id: AccountId,
+) {
+    fn stop_events(
+        instrument: &InstrumentAny,
+        account_id: AccountId,
+        include_deferred_market: bool,
+    ) -> Vec<OrderEventType> {
+        let cache = Rc::new(RefCell::new(Cache::default()));
+        let order_event_handler = order_event_handler_with_cache(cache.clone());
+        let config = OrderMatchingEngineConfig::builder()
+            .trade_on_close(false)
+            .reject_stop_orders(false)
+            .build();
+        let mut engine =
+            get_order_matching_engine(instrument.clone(), None, Some(cache), None, Some(config));
+        engine.process_bar(&external_last_bar(
+            instrument.id(),
+            "1000.00",
+            "1010.00",
+            "990.00",
+            "1005.00",
+            "100.000",
+            1_000_000_000,
+        ));
+
+        let stop_id = ClientOrderId::from("O-19700101-000000-001-001-9");
+        let mut stop_order = OrderTestBuilder::new(OrderType::StopMarket)
+            .instrument_id(instrument.id())
+            .side(OrderSide::Buy)
+            .trigger_price(Price::from("1010.00"))
+            .quantity(Quantity::from("1.000"))
+            .client_order_id(stop_id)
+            .submit(true)
+            .build();
+        engine.process_order(&mut stop_order, account_id);
+        clear_order_event_handler_messages(&order_event_handler);
+
+        if include_deferred_market {
+            let mut market_order = market_order_buy(instrument.clone());
+            engine.process_order(&mut market_order, account_id);
+            clear_order_event_handler_messages(&order_event_handler);
+        }
+
+        // A single size increment gives the normal bar model no open tick.
+        // Presence of a deferred market order must not manufacture one for the
+        // pending stop order or otherwise change that order's event sequence.
+        engine.process_bar(&external_last_bar(
+            instrument.id(),
+            "1015.00",
+            "1015.00",
+            "1015.00",
+            "1015.00",
+            "0.001",
+            2_000_000_000,
+        ));
+
+        get_order_event_handler_messages(&order_event_handler)
+            .into_iter()
+            .filter(|event| event.client_order_id() == stop_id)
+            .map(|event| event.event_type())
+            .collect()
+    }
+
+    let without_deferred = stop_events(&instrument_eth_usdt, account_id, false);
+    let with_deferred = stop_events(&instrument_eth_usdt, account_id, true);
+    assert_eq!(with_deferred, without_deferred);
+    assert!(with_deferred.is_empty());
+}
+
+#[rstest]
+fn test_deferred_market_orders_consume_next_open_volume_fifo_without_hlc_leak(
+    instrument_eth_usdt: InstrumentAny,
+    account_id: AccountId,
+) {
+    let cache = Rc::new(RefCell::new(Cache::default()));
+    let order_event_handler = order_event_handler_with_cache(cache.clone());
+    let config = OrderMatchingEngineConfig::builder()
+        .trade_on_close(false)
+        .liquidity_consumption(true)
+        .build();
+    let mut engine = get_order_matching_engine(
+        instrument_eth_usdt.clone(),
+        None,
+        Some(cache),
+        None,
+        Some(config),
+    );
+    engine.process_bar(&external_last_bar(
+        instrument_eth_usdt.id(),
+        "1000.00",
+        "1010.00",
+        "990.00",
+        "1005.00",
+        "100.000",
+        1_000_000_000,
+    ));
+    clear_order_event_handler_messages(&order_event_handler);
+
+    let first_id = ClientOrderId::from("O-19700101-000000-001-001-1");
+    let second_id = ClientOrderId::from("O-19700101-000000-001-001-2");
+    let mut first = OrderTestBuilder::new(OrderType::Market)
+        .instrument_id(instrument_eth_usdt.id())
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from("0.004"))
+        .client_order_id(first_id)
+        .submit(true)
+        .build();
+    let mut second = OrderTestBuilder::new(OrderType::Market)
+        .instrument_id(instrument_eth_usdt.id())
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from("0.004"))
+        .client_order_id(second_id)
+        .submit(true)
+        .build();
+    engine.process_order(&mut first, account_id);
+    engine.process_order(&mut second, account_id);
+
+    engine.process_bar(&external_last_bar(
+        instrument_eth_usdt.id(),
+        "1700.00",
+        "1800.00",
+        "1600.00",
+        "1750.00",
+        "0.020",
+        2_000_000_000,
+    ));
+
+    let first_bar_fills: Vec<_> = get_order_event_handler_messages(&order_event_handler)
+        .into_iter()
+        .filter_map(|event| match event {
+            OrderEventAny::Filled(fill) => Some(fill),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(first_bar_fills.len(), 2);
+    assert_eq!(first_bar_fills[0].client_order_id, first_id);
+    assert_eq!(first_bar_fills[0].last_qty, Quantity::from("0.004"));
+    assert_eq!(first_bar_fills[1].client_order_id, second_id);
+    assert_eq!(first_bar_fills[1].last_qty, Quantity::from("0.001"));
+    assert!(
+        first_bar_fills
+            .iter()
+            .all(|fill| fill.last_px == Price::from("1700.00")),
+        "deferred quantity must not leak into this bar's H/L/C path",
+    );
+
+    clear_order_event_handler_messages(&order_event_handler);
+    engine.process_bar(&external_last_bar(
+        instrument_eth_usdt.id(),
+        "1900.00",
+        "1910.00",
+        "1890.00",
+        "1905.00",
+        "0.012",
+        3_000_000_000,
+    ));
+
+    let second_bar_fills: Vec<_> = get_order_event_handler_messages(&order_event_handler)
+        .into_iter()
+        .filter_map(|event| match event {
+            OrderEventAny::Filled(fill) => Some(fill),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(second_bar_fills.len(), 1);
+    assert_eq!(second_bar_fills[0].client_order_id, second_id);
+    assert_eq!(second_bar_fills[0].last_qty, Quantity::from("0.003"));
+    assert_eq!(second_bar_fills[0].last_px, Price::from("1900.00"));
+}
+
+#[rstest]
+fn test_deferred_and_hlc_orders_share_one_bar_volume_authority(
+    instrument_eth_usdt: InstrumentAny,
+    account_id: AccountId,
+) {
+    let cache = Rc::new(RefCell::new(Cache::default()));
+    let order_event_handler = order_event_handler_with_cache(cache.clone());
+    let config = OrderMatchingEngineConfig::builder()
+        .trade_on_close(false)
+        .liquidity_consumption(true)
+        .build();
+    let mut engine = get_order_matching_engine(
+        instrument_eth_usdt.clone(),
+        None,
+        Some(cache),
+        None,
+        Some(config),
+    );
+    engine.process_bar(&external_last_bar(
+        instrument_eth_usdt.id(),
+        "1000.00",
+        "1010.00",
+        "990.00",
+        "1005.00",
+        "100.000",
+        1_000_000_000,
+    ));
+
+    let first_market_id = ClientOrderId::from("O-19700101-000000-001-001-1");
+    let second_market_id = ClientOrderId::from("O-19700101-000000-001-001-2");
+    let limit_id = ClientOrderId::from("O-19700101-000000-001-001-3");
+    let mut first_market = OrderTestBuilder::new(OrderType::Market)
+        .instrument_id(instrument_eth_usdt.id())
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from("0.004"))
+        .client_order_id(first_market_id)
+        .submit(true)
+        .build();
+    let mut second_market = OrderTestBuilder::new(OrderType::Market)
+        .instrument_id(instrument_eth_usdt.id())
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from("0.004"))
+        .client_order_id(second_market_id)
+        .submit(true)
+        .build();
+    let mut high_limit = OrderTestBuilder::new(OrderType::Limit)
+        .instrument_id(instrument_eth_usdt.id())
+        .side(OrderSide::Sell)
+        .price(Price::from("1750.00"))
+        .quantity(Quantity::from("0.002"))
+        .client_order_id(limit_id)
+        .submit(true)
+        .build();
+    engine.process_order(&mut first_market, account_id);
+    engine.process_order(&mut second_market, account_id);
+    engine.process_order(&mut high_limit, account_id);
+    clear_order_event_handler_messages(&order_event_handler);
+
+    let shared_bar = external_last_bar(
+        instrument_eth_usdt.id(),
+        "1700.00",
+        "1800.00",
+        "1600.00",
+        "1750.00",
+        "0.008",
+        2_000_000_000,
+    );
+    engine.process_bar(&shared_bar);
+
+    let shared_bar_fills: Vec<_> = get_order_event_handler_messages(&order_event_handler)
+        .into_iter()
+        .filter_map(|event| match event {
+            OrderEventAny::Filled(fill) => Some(fill),
+            _ => None,
+        })
+        .collect();
+    let total_applied = shared_bar_fills.iter().fold(
+        Quantity::zero(shared_bar.volume.precision),
+        |total, fill| total + fill.last_qty,
+    );
+    assert!(
+        total_applied <= shared_bar.volume,
+        "deferred and H/L/C fills must share the Bar's single volume authority",
+    );
+    assert_eq!(shared_bar_fills.len(), 2);
+    assert_eq!(shared_bar_fills[0].client_order_id, first_market_id);
+    assert_eq!(shared_bar_fills[0].last_qty, Quantity::from("0.002"));
+    assert_eq!(shared_bar_fills[0].last_px, Price::from("1700.00"));
+    assert_eq!(shared_bar_fills[1].client_order_id, limit_id);
+    assert_eq!(shared_bar_fills[1].last_qty, Quantity::from("0.002"));
+    assert_eq!(shared_bar_fills[1].last_px, Price::from("1750.00"));
+
+    clear_order_event_handler_messages(&order_event_handler);
+    engine.process_bar(&external_last_bar(
+        instrument_eth_usdt.id(),
+        "1900.00",
+        "1910.00",
+        "1890.00",
+        "1905.00",
+        "0.008",
+        3_000_000_000,
+    ));
+
+    let next_open_fills: Vec<_> = get_order_event_handler_messages(&order_event_handler)
+        .into_iter()
+        .filter_map(|event| match event {
+            OrderEventAny::Filled(fill) => Some(fill),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(next_open_fills.len(), 1);
+    assert_eq!(next_open_fills[0].client_order_id, first_market_id);
+    assert_eq!(next_open_fills[0].last_qty, Quantity::from("0.002"));
+    assert_eq!(next_open_fills[0].last_px, Price::from("1900.00"));
+
+    clear_order_event_handler_messages(&order_event_handler);
+    engine.process_bar(&external_last_bar(
+        instrument_eth_usdt.id(),
+        "2100.00",
+        "2110.00",
+        "2090.00",
+        "2105.00",
+        "0.016",
+        4_000_000_000,
+    ));
+
+    let following_open_fills: Vec<_> = get_order_event_handler_messages(&order_event_handler)
+        .into_iter()
+        .filter_map(|event| match event {
+            OrderEventAny::Filled(fill) => Some(fill),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(following_open_fills.len(), 1);
+    assert_eq!(following_open_fills[0].client_order_id, second_market_id);
+    assert_eq!(following_open_fills[0].last_qty, Quantity::from("0.004"));
+    assert_eq!(following_open_fills[0].last_px, Price::from("2100.00"));
+}
+
 #[rstest]
 fn test_process_mark_bar_does_not_replace_selected_execution_bar(
     instrument_eth_usdt: InstrumentAny,

@@ -42,6 +42,7 @@ members = [
   "crates/pyo3",
   "crates/risk",
   "crates/serialization",
+  "crates/strategy_factory",
   "crates/system",
   "crates/testkit",
   "crates/trading",
@@ -302,6 +303,16 @@ unbounded-interval-tree = { version = "1.1.2", default-features = false }
 url = { version = "2.5.8", default-features = false }
 ustr = { version = "1.1.0", features = ["serde"] }
 uuid = { version = "1.24.0", features = ["v4", "serde"] }
+wasmi = { version = "1.1.0", default-features = false, features = [
+  "std",
+  "prefer-btree-collections",
+] }
+wasmparser = { version = "0.239.0", default-features = false, features = [
+  "std",
+  "validate",
+  "features",
+  "prefer-btree-collections",
+] }
 webpki-roots = "1.0.9"
 
 # -----------------------------------------------------------------------------
@@ -343,6 +354,9 @@ tonic = { version = "0.13.1", default-features = false, features = [
   "tls-webpki-roots",
 ] }
 zeroize = { version = "1.9.0", features = ["alloc", "zeroize_derive"] }
+zip = { version = "8.6.0", default-features = false, features = [
+  "deflate-flate2-zlib-rs",
+] }
 
 # -----------------------------------------------------------------------------
 # Dev dependencies

@@ -11,6 +11,7 @@ pub mod execution;
 pub mod fees;
 pub mod instruments;
 pub mod models;
+pub mod offline;
 pub mod parse;
 pub mod status;
 pub mod symbol;
