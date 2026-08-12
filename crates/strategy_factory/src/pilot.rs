@@ -2,7 +2,6 @@ use thiserror::Error;
 
 use crate::{
     artifact::{ArtifactError, StrategyArtifact},
-    data::{DataAdmissionError, ProjectedBacktestInputs, frozen_frontier_projection},
     decision::{DecisionAction, DecisionContract, DecisionError, DecisionInput},
     intent::{IntentError, ResearchIntent},
     runtime::{PreparedDecisionRuntime, RuntimeError, RuntimeProjection, prepare_decision_runtime},
@@ -15,7 +14,6 @@ pub struct PreparedPilot {
     artifact: StrategyArtifact,
     runtime: RuntimeProjection,
     decision_runtime: PreparedDecisionRuntime,
-    inputs: ProjectedBacktestInputs,
 }
 
 impl PreparedPilot {
@@ -38,10 +36,6 @@ impl PreparedPilot {
     pub fn decide(&mut self, input: DecisionInput) -> Result<DecisionAction, RuntimeError> {
         self.decision_runtime.decide(input)
     }
-
-    pub const fn inputs(&self) -> &ProjectedBacktestInputs {
-        &self.inputs
-    }
 }
 
 #[derive(Debug, Error)]
@@ -54,8 +48,6 @@ pub enum PreparationError {
     Artifact(#[from] ArtifactError),
     #[error(transparent)]
     Runtime(#[from] RuntimeError),
-    #[error(transparent)]
-    Data(#[from] DataAdmissionError),
 }
 
 pub fn prepare_frozen_pilot() -> Result<PreparedPilot, PreparationError> {
@@ -63,13 +55,11 @@ pub fn prepare_frozen_pilot() -> Result<PreparedPilot, PreparationError> {
     let decision = DecisionContract::for_intent(&intent)?;
     let artifact = StrategyArtifact::issue(&intent, &decision)?;
     let (decision_runtime, runtime) = prepare_decision_runtime(&artifact, &intent, &decision)?;
-    let inputs = frozen_frontier_projection()?;
     Ok(PreparedPilot {
         intent,
         decision,
         artifact,
         runtime,
         decision_runtime,
-        inputs,
     })
 }

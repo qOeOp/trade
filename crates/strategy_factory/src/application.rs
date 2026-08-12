@@ -31,8 +31,9 @@ use vibe_trading::{
 };
 
 use crate::{
+    data::project_authenticated_zero_volume_observation,
     decision::{DecisionAction, DecisionInput, DecisionPhase, DecisionPosition},
-    intent::{MISSING_OPEN_NS, ZERO_VOLUME_CLOSE_NS, ZERO_VOLUME_OPEN_NS},
+    intent::{MISSING_OPEN_NS, ZERO_VOLUME_OPEN_NS},
     pilot::{PreparedPilot, prepare_frozen_pilot},
 };
 
@@ -57,6 +58,7 @@ const STRATEGY_ID: &str = "STRATEGY-FACTORY-PILOT-001";
 #[derive(Debug)]
 pub struct PilotRun {
     canonical_result: CanonicalBacktestResult,
+    source_manifest_digest: String,
     source_event_count: usize,
     executable_bar_count: usize,
 }
@@ -68,6 +70,10 @@ impl PilotRun {
 
     pub const fn source_event_count(&self) -> usize {
         self.source_event_count
+    }
+
+    pub fn source_manifest_digest(&self) -> &str {
+        &self.source_manifest_digest
     }
 
     pub const fn executable_bar_count(&self) -> usize {
@@ -113,13 +119,7 @@ pub fn run_frozen_pilot(cache_root: &Path) -> anyhow::Result<PilotRun> {
     let prepared = prepare_frozen_pilot()?;
     let instrument = InstrumentAny::CurrencyPair(currency_pair_btcusdt());
     let bar_type = BarType::from_str(BAR_TYPE)?;
-    let zero_volume_clock = prepared
-        .inputs()
-        .data()
-        .first()
-        .context("frozen zero-volume clock projection is missing")?
-        .clone();
-    let loaded = load_pilot_data(cache_root, &instrument, bar_type, zero_volume_clock)?;
+    let loaded = load_pilot_data(cache_root, &instrument, bar_type)?;
 
     execute_loaded_pilot(prepared, &instrument, bar_type, loaded)
 }
@@ -184,6 +184,7 @@ fn execute_loaded_pilot_with_strategy(
 
     Ok(PilotRun {
         canonical_result,
+        source_manifest_digest: format!("blake3:{}", blake3::hash(MANIFEST_BYTES).to_hex()),
         source_event_count: loaded.source_event_count,
         executable_bar_count: loaded.executable_bar_count,
     })
@@ -331,7 +332,6 @@ fn load_pilot_data(
     cache_root: &Path,
     instrument: &InstrumentAny,
     bar_type: BarType,
-    zero_volume_clock: Data,
 ) -> anyhow::Result<LoadedPilotData> {
     let manifest: ArchiveManifest = serde_json::from_slice(MANIFEST_BYTES)?;
     ensure!(
@@ -356,6 +356,7 @@ fn load_pilot_data(
     let mut execution_clock = Vec::with_capacity(EXPECTED_EXECUTABLE_BARS);
     let mut source_open_times = Vec::with_capacity(EXPECTED_ACTUAL_EVENTS);
     let mut zero_observations = 0usize;
+    let mut zero_volume_clock = None;
     let mut prior_name: Option<&str> = None;
 
     for entry in &manifest.archives {
@@ -387,25 +388,16 @@ fn load_pilot_data(
         let authenticated = authenticate_spot_monthly_klines(&binding, &archive, &sidecar)
             .with_context(|| format!("failed to authenticate {}", entry.name))?;
 
-        for observation in authenticated.zero_volume_observations() {
-            let open_ns = micros_to_nanos(observation.open_time_micros())?;
-            let close_ns = micros_to_nanos(observation.close_time_micros())?;
-            ensure!(
-                open_ns == ZERO_VOLUME_OPEN_NS && close_ns == ZERO_VOLUME_CLOSE_NS,
-                "unexpected zero-volume source observation"
-            );
-            ensure!(
-                observation.ohlc()
-                    == (
-                        "28080.00000000",
-                        "28080.00000000",
-                        "28080.00000000",
-                        "28080.00000000"
-                    ),
-                "zero-volume OHLC mismatch"
-            );
+        if let Some((open_ns, event)) =
+            project_authenticated_zero_volume_observation(&authenticated)?
+        {
             source_open_times.push(open_ns);
             zero_observations += 1;
+            ensure!(
+                zero_volume_clock.is_none(),
+                "multiple zero-volume source observations"
+            );
+            zero_volume_clock = Some(event);
         }
 
         for mut bar in authenticated.parse_bars(bar_type, instrument, 0u64.into())? {
@@ -461,11 +453,7 @@ fn load_pilot_data(
         "zero-volume source clock missing"
     );
 
-    ensure!(
-        matches!(&zero_volume_clock, Data::Custom(_)),
-        "frozen zero-volume clock must remain CustomData"
-    );
-    data.push(zero_volume_clock);
+    data.push(zero_volume_clock.context("authenticated zero-volume source clock is missing")?);
     ensure!(
         data.len() == EXPECTED_ACTUAL_EVENTS,
         "projected replay count mismatch"
@@ -499,13 +487,6 @@ fn read_regular_file(path: &Path, limit: u64, label: &str) -> anyhow::Result<Vec
         path.display()
     );
     fs::read(path).with_context(|| format!("failed to read {label} {}", path.display()))
-}
-
-fn micros_to_nanos(value: i64) -> anyhow::Result<u64> {
-    u64::try_from(value)
-        .ok()
-        .and_then(|value| value.checked_mul(1_000))
-        .context("source timestamp is negative or overflows nanoseconds")
 }
 
 struct FrozenPilotStrategy {
@@ -839,9 +820,7 @@ mod tests {
         let missing = PathBuf::from("/definitely/not/a/strategy-factory-cache");
         let instrument = InstrumentAny::CurrencyPair(currency_pair_btcusdt());
         let bar_type = BarType::from_str(BAR_TYPE).unwrap();
-        let zero_volume_clock = prepare_frozen_pilot().unwrap().inputs().data()[0].clone();
-        let error =
-            load_pilot_data(&missing, &instrument, bar_type, zero_volume_clock).unwrap_err();
+        let error = load_pilot_data(&missing, &instrument, bar_type).unwrap_err();
         assert!(error.to_string().contains("cache root is not a directory"));
     }
 

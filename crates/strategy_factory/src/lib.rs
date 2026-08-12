@@ -5,11 +5,13 @@
 
 pub mod application;
 pub mod artifact;
-pub mod data;
+mod data;
 pub mod decision;
 pub mod intent;
 pub mod pilot;
+pub mod receipt;
 pub mod runtime;
 
 pub use application::{PilotRun, run_frozen_pilot};
 pub use pilot::{PreparedPilot, prepare_frozen_pilot};
+pub use receipt::{EconomicDisposition, TrialReceipt};
