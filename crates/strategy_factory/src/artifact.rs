@@ -94,6 +94,7 @@ impl StrategyArtifact {
             return Err(ArtifactError::Binding);
         }
         contract.validate_abi(DECISION_ABI_VERSION, DECISION_EXPORT, &DECISION_SIGNATURE)?;
+
         if RESTRICTED_WASM.len() > MAX_ARTIFACT_WASM_BYTES {
             return Err(ArtifactError::TooLarge);
         }
@@ -119,7 +120,7 @@ impl StrategyArtifact {
                 decision_export: contract.export(),
                 decision_signature: &decision_signature,
             };
-            serde_json::to_vec(&seed).map_err(|error| ArtifactError::Identity(error.to_string()))?
+            serde_json::to_vec(&seed).map_err(|e| ArtifactError::Identity(e.to_string()))?
         };
         let identity = StrategyArtifactIdentity {
             schema_version: 3,
@@ -191,9 +192,11 @@ fn digest(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
 
-    #[test]
+    #[rstest]
     fn exact_repeated_guest_builds_and_artifact_issuance_are_deterministic() {
         assert_eq!(RESTRICTED_WASM, REPEATED_BUILD_WASM);
         let intent = ResearchIntent::frozen().expect("frozen intent");
@@ -204,7 +207,7 @@ mod tests {
         assert_eq!(first.wasm().len(), RESTRICTED_WASM.len());
     }
 
-    #[test]
+    #[rstest]
     fn public_tampered_intent_cannot_bypass_artifact_binding() {
         let mut intent = ResearchIntent::frozen().expect("frozen intent");
         intent.payload.pilot_id = "tampered".to_string();
@@ -216,7 +219,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn artifact_identity_binds_content_provenance_toolchain_target_and_abi() {
         let intent = ResearchIntent::frozen().expect("frozen intent");
         let contract = DecisionContract::for_intent(&intent).expect("decision contract");
@@ -248,6 +251,7 @@ mod tests {
             },
             |identity: &mut StrategyArtifactIdentity| identity.artifact_digest.push_str("_extra"),
         ];
+
         for mutate in mutations {
             let mut tampered = artifact.clone();
             mutate(&mut tampered.identity);
@@ -258,7 +262,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn artifact_digest_seed_changes_with_source_or_build_recipe_provenance() {
         let intent = ResearchIntent::frozen().expect("frozen intent");
         let contract = DecisionContract::for_intent(&intent).expect("decision contract");

@@ -16,7 +16,7 @@ fn main() {
     let rustc = env::var_os("RUSTC").unwrap_or_else(|| panic!("RUSTC is required"));
     let identity = command_output(Command::new(&rustc).args(["-Vv"]), "query rustc identity");
     let identity = String::from_utf8(identity.stdout)
-        .unwrap_or_else(|error| panic!("rustc identity is not UTF-8: {error}"));
+        .unwrap_or_else(|e| panic!("rustc identity is not UTF-8: {e}"));
     require_identity(&identity);
 
     let target_libdir = command_output(
@@ -24,7 +24,7 @@ fn main() {
         "query wasm32v1-none target",
     );
     let target_libdir = String::from_utf8(target_libdir.stdout)
-        .unwrap_or_else(|error| panic!("target libdir is not UTF-8: {error}"));
+        .unwrap_or_else(|e| panic!("target libdir is not UTF-8: {e}"));
     let target_libdir = PathBuf::from(target_libdir.trim());
     assert!(
         target_libdir.is_dir(),
@@ -45,10 +45,10 @@ fn main() {
     compile_guest(&rustc, &source, &first);
     compile_guest(&rustc, &source, &second);
 
-    let first_bytes = fs::read(&first)
-        .unwrap_or_else(|error| panic!("read first frozen guest build failed: {error}"));
-    let second_bytes = fs::read(&second)
-        .unwrap_or_else(|error| panic!("read second frozen guest build failed: {error}"));
+    let first_bytes =
+        fs::read(&first).unwrap_or_else(|e| panic!("read first frozen guest build failed: {e}"));
+    let second_bytes =
+        fs::read(&second).unwrap_or_else(|e| panic!("read second frozen guest build failed: {e}"));
     assert_eq!(
         first_bytes, second_bytes,
         "frozen guest is not byte-identical across exact repeated builds"
@@ -111,7 +111,7 @@ fn compile_guest(rustc: &std::ffi::OsStr, source: &Path, output: &Path) {
 fn command_output(command: &mut Command, operation: &str) -> Output {
     let output = command
         .output()
-        .unwrap_or_else(|error| panic!("{operation} failed to start: {error}"));
+        .unwrap_or_else(|e| panic!("{operation} failed to start: {e}"));
     assert!(
         output.status.success(),
         "{operation} failed with {}:\n{}",

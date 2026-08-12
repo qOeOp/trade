@@ -363,9 +363,11 @@ impl DecisionContract {
         if version != self.version {
             return Err(DecisionError::AbiMismatch("version"));
         }
+
         if export != self.export {
             return Err(DecisionError::AbiMismatch("export"));
         }
+
         if signature != &self.signature {
             return Err(DecisionError::AbiMismatch("signature"));
         }
@@ -391,9 +393,11 @@ pub enum DecisionError {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
 
-    #[test]
+    #[rstest]
     fn discriminants_fail_closed_without_hold_fallback() {
         assert_eq!(
             DecisionPhase::try_from(2),
@@ -410,23 +414,23 @@ mod tests {
         assert_ne!(DecisionAction::try_from(3), Ok(DecisionAction::Hold));
     }
 
-    #[test]
+    #[rstest]
     fn every_non_finite_numeric_input_fails_closed() {
         let invalid = [f64::NAN, f64::INFINITY, f64::NEG_INFINITY];
         for index in 0..5 {
             for value in invalid {
                 let mut values = [1.0, 2.0, 3.0, 4.0, 5.0];
                 values[index] = value;
-                let error = DecisionInput::from_abi(
+                let e = DecisionInput::from_abi(
                     0, 0, values[0], values[1], values[2], values[3], values[4],
                 )
                 .unwrap_err();
-                assert!(matches!(error, DecisionError::NonFiniteInput(_)));
+                assert!(matches!(e, DecisionError::NonFiniteInput(_)));
             }
         }
     }
 
-    #[test]
+    #[rstest]
     fn abi_identity_mismatches_fail_closed() {
         let intent = ResearchIntent::frozen().expect("frozen intent");
         let contract = DecisionContract::for_intent(&intent).expect("decision contract");

@@ -73,13 +73,13 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_urlencoded = { workspace = true }
 thiserror = { workspace = true }
+time = { workspace = true }
 tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }
 tokio-util = { workspace = true }
-time = { workspace = true }
 ustr = { workspace = true }
-zip = { workspace = true }
 zeroize = { workspace = true }
+zip = { workspace = true }
 
 pyo3 = { workspace = true, optional = true }
 pyo3-stub-gen = { workspace = true, optional = true }

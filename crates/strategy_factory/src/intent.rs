@@ -143,8 +143,8 @@ impl ResearchIntent {
     }
 
     fn parse_and_validate(bytes: &[u8]) -> Result<Self, IntentError> {
-        let intent: Self = serde_json::from_slice(bytes)
-            .map_err(|error| IntentError::Malformed(error.to_string()))?;
+        let intent: Self =
+            serde_json::from_slice(bytes).map_err(|e| IntentError::Malformed(e.to_string()))?;
         intent.validate_frozen_binding()?;
         Ok(intent)
     }
@@ -156,6 +156,7 @@ impl ResearchIntent {
     pub(crate) fn validate_frozen_binding(&self) -> Result<(), IntentError> {
         let event = &self.payload.data.event_semantics;
         let zero = &event.zero_volume_truncated_event;
+
         if self.identity != FROZEN_INTENT_ID
             || self.kind != "ResearchIntent"
             || self.revision != "2"
@@ -163,6 +164,7 @@ impl ResearchIntent {
         {
             return Err(IntentError::Binding("identity/revision/schema"));
         }
+
         if self.payload.costs.execution != REQUIRED_EXECUTION
             || self.payload.costs.fee_authority != "native_instrument_fee_model"
             || self.payload.costs.initial_balance != "1000000 USDT"
@@ -171,11 +173,13 @@ impl ResearchIntent {
         {
             return Err(IntentError::Binding("costs"));
         }
+
         if self.payload.mechanism.entry_execution != "next_actual_source_event_open"
             || self.payload.mechanism.exit_execution != "next_actual_source_event_open"
         {
             return Err(IntentError::Binding("next actual source event execution"));
         }
+
         if self.payload.data.snapshot_semantics != "retrospective_current"
             || self.payload.data.source != "Binance Spot public historical market data"
             || self.payload.data.warmup_open_time.start_ns != "1672531200000000000"
@@ -185,6 +189,7 @@ impl ResearchIntent {
         {
             return Err(IntentError::Binding("data source/windows"));
         }
+
         if self.payload.disposition.economic_falsifier
             != "validation_net_pnl_after_native_commissions_lte_zero"
             || self.payload.disposition.rejected != "REJECTED"
@@ -192,6 +197,7 @@ impl ResearchIntent {
         {
             return Err(IntentError::Binding("disposition"));
         }
+
         if self.payload.mechanism.direction != "long_only"
             || self.payload.mechanism.entry
                 != "fast_ema_above_slow_ema_and_close_above_prior_72_bar_high"
@@ -210,9 +216,11 @@ impl ResearchIntent {
         {
             return Err(IntentError::Binding("mechanism parameters"));
         }
+
         if self.payload.pilot_id != "btc-usdt-1h-dual-timescale-breakout-v1" {
             return Err(IntentError::Binding("pilot id"));
         }
+
         if self.payload.predecessor.disposition_sha256
             != "sha256:a00e4123d16072914a7abe8f702fc62a33b81827bc0ee88dd521535a373a8612"
             || self.payload.predecessor.economic_disposition != "NOT_EVALUATED"
@@ -220,6 +228,7 @@ impl ResearchIntent {
         {
             return Err(IntentError::Binding("predecessor"));
         }
+
         if !matches_exact(
             &self.payload.non_claims,
             &[
@@ -233,6 +242,7 @@ impl ResearchIntent {
         ) {
             return Err(IntentError::Binding("non-claims"));
         }
+
         if !matches_exact(
             &self.payload.software_acceptance,
             &[
@@ -248,12 +258,14 @@ impl ResearchIntent {
         ) {
             return Err(IntentError::Binding("software acceptance"));
         }
+
         if self.payload.family.artifact_attempts != 1
             || self.payload.family.parameter_tuples != 1
             || self.payload.family.successors != 0
         {
             return Err(IntentError::Binding("bounded family"));
         }
+
         if self.payload.data.bar_type != "BTCUSDT.BINANCE-1-HOUR-LAST-EXTERNAL"
             || self.payload.data.universe != ["BTCUSDT.BINANCE"]
             || event.clock != "source_native_event_time"
@@ -264,6 +276,7 @@ impl ResearchIntent {
         {
             return Err(IntentError::Binding("source event contract"));
         }
+
         if zero.open_time_ns != ZERO_VOLUME_OPEN_NS.to_string()
             || zero.close_time_ns != ZERO_VOLUME_CLOSE_NS.to_string()
             || !zero.source_gap
@@ -295,6 +308,8 @@ fn frozen_intent_bytes() -> &'static [u8] {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
 
     fn tampered(from: &str, to: &str) -> IntentError {
@@ -304,7 +319,7 @@ mod tests {
             .expect_err("tampered intent must fail closed")
     }
 
-    #[test]
+    #[rstest]
     fn formerly_unbound_sections_are_semantically_bound() {
         let cases = [
             (
@@ -359,7 +374,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn unknown_fields_fail_at_every_object_boundary_sampled() {
         let cases = [
             ("{\"identity\"", "{\"extra\":true,\"identity\""),
@@ -385,7 +400,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn missing_and_wrong_typed_fields_fail_deserialization() {
         let IntentError::Malformed(missing) = tampered(
             "\"pilot_id\":\"btc-usdt-1h-dual-timescale-breakout-v1\",",

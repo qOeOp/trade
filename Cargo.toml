@@ -301,6 +301,8 @@ tracing-subscriber = { version = "0.3.23", default-features = false, features = 
 ] }
 unbounded-interval-tree = { version = "1.1.2", default-features = false }
 url = { version = "2.5.8", default-features = false }
+ustr = { version = "1.1.0", features = ["serde"] }
+uuid = { version = "1.24.0", features = ["v4", "serde"] }
 wasmi = { version = "1.1.0", default-features = false, features = [
   "std",
   "prefer-btree-collections",
@@ -311,8 +313,6 @@ wasmparser = { version = "0.239.0", default-features = false, features = [
   "features",
   "prefer-btree-collections",
 ] }
-ustr = { version = "1.1.0", features = ["serde"] }
-uuid = { version = "1.24.0", features = ["v4", "serde"] }
 webpki-roots = "1.0.9"
 
 # -----------------------------------------------------------------------------
@@ -353,8 +353,10 @@ tonic = { version = "0.13.1", default-features = false, features = [
   "tls-aws-lc",
   "tls-webpki-roots",
 ] }
-zip = { version = "8.6.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 zeroize = { version = "1.9.0", features = ["alloc", "zeroize_derive"] }
+zip = { version = "8.6.0", default-features = false, features = [
+  "deflate-flate2-zlib-rs",
+] }
 
 # -----------------------------------------------------------------------------
 # Dev dependencies

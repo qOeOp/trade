@@ -3597,6 +3597,7 @@ impl OrderMatchingEngine {
                 client_order_id,
                 Some(vec![(open, fill_qty)]),
             );
+
             if self.config.liquidity_consumption {
                 self.trade_consumption = self.trade_consumption.saturating_add(applied);
             }

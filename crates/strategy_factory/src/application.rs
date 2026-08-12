@@ -1,6 +1,6 @@
 use std::{cell::RefCell, collections::VecDeque, fmt::Debug, fs, path::Path, rc::Rc, str::FromStr};
 
-use anyhow::{Context, ensure};
+use anyhow::Context;
 use serde::Deserialize;
 use vibe_backtest::{
     config::{BacktestEngineConfig, SimulatedVenueConfig},
@@ -19,7 +19,7 @@ use vibe_indicators::{
     indicator::{Indicator, MovingAverage},
 };
 use vibe_model::{
-    data::{Bar, BarType, Data},
+    data::{Bar, BarType, Data, HasTsInit},
     enums::{AccountType, BookType, OmsType, OrderSide, PriceType, TimeInForce},
     identifiers::{InstrumentId, StrategyId, Venue},
     instruments::{Instrument, InstrumentAny, stubs::currency_pair_btcusdt},
@@ -195,7 +195,7 @@ fn validate_terminal_result(
     execution_clock: &[ExecutionBar],
 ) -> anyhow::Result<()> {
     let document = result.as_value();
-    ensure!(
+    anyhow::ensure!(
         document
             .pointer("/run/outcome")
             .and_then(serde_json::Value::as_str)
@@ -206,8 +206,9 @@ fn validate_terminal_result(
         .get("summary")
         .and_then(serde_json::Value::as_object)
         .context("canonical result summary is missing")?;
+
     for key in ["orders.open", "orders.inflight", "positions.open"] {
-        ensure!(
+        anyhow::ensure!(
             summary.get(key).and_then(serde_json::Value::as_str) == Some("0"),
             "frozen pilot terminal invariant failed: {key}"
         );
@@ -216,11 +217,11 @@ fn validate_terminal_result(
         .get("orders")
         .and_then(serde_json::Value::as_array)
         .context("canonical result orders are missing")?;
-    ensure!(
+    anyhow::ensure!(
         !orders.is_empty() && orders.len().is_multiple_of(2),
         "frozen pilot must complete one or more round trips"
     );
-    ensure!(
+    anyhow::ensure!(
         document
             .get("fills")
             .and_then(serde_json::Value::as_array)
@@ -232,14 +233,15 @@ fn validate_terminal_result(
         .map(|order| validate_filled_order(order, execution_clock))
         .collect::<anyhow::Result<Vec<_>>>()?;
     validated.sort_by_key(|order| order.signal_ts);
-    ensure!(
+    anyhow::ensure!(
         validated
             .windows(2)
             .all(|pair| pair[0].signal_ts < pair[1].signal_ts),
         "frozen pilot order signals are duplicated or unordered"
     );
+
     for (index, pair) in validated.chunks_exact(2).enumerate() {
-        ensure!(
+        anyhow::ensure!(
             pair[0].side == "BUY" && pair[1].side == "SELL",
             "round trip {index} does not alternate BUY/SELL"
         );
@@ -260,7 +262,7 @@ fn validate_filled_order(
         .get("Market")
         .and_then(|market| market.get("core"))
         .context("frozen pilot order is not a canonical Market order")?;
-    ensure!(
+    anyhow::ensure!(
         core.get("status").and_then(serde_json::Value::as_str) == Some("FILLED"),
         "frozen pilot order is not FILLED"
     );
@@ -282,11 +284,11 @@ fn validate_filled_order(
     let next = execution_clock
         .get(signal_index + 1)
         .context("filled order has no next executable source Bar")?;
-    ensure!(
+    anyhow::ensure!(
         fill_ts == next.ts_event,
         "order did not fill at the next executable source Bar"
     );
-    ensure!(
+    anyhow::ensure!(
         filled.get("last_px").and_then(serde_json::Value::as_str) == Some(next.open.as_str()),
         "order did not fill at the next executable source Bar open"
     );
@@ -294,7 +296,7 @@ fn validate_filled_order(
         .get("commission")
         .and_then(serde_json::Value::as_str)
         .context("filled order has no native commission")?;
-    ensure!(
+    anyhow::ensure!(
         Money::from_str(commission).map_err(anyhow::Error::msg)?.raw > 0,
         "filled order native commission is not positive"
     );
@@ -312,7 +314,7 @@ fn exactly_one_variant<'a>(
         .iter()
         .filter_map(|event| event.get(variant))
         .collect::<Vec<_>>();
-    ensure!(
+    anyhow::ensure!(
         matching.len() == 1,
         "order must contain exactly one {variant} event"
     );
@@ -334,19 +336,19 @@ fn load_pilot_data(
     bar_type: BarType,
 ) -> anyhow::Result<LoadedPilotData> {
     let manifest: ArchiveManifest = serde_json::from_slice(MANIFEST_BYTES)?;
-    ensure!(
+    anyhow::ensure!(
         manifest.identity == MANIFEST_ID,
         "archive manifest identity mismatch"
     );
-    ensure!(
+    anyhow::ensure!(
         manifest.schema_version == 1,
         "archive manifest schema mismatch"
     );
-    ensure!(
+    anyhow::ensure!(
         manifest.archives.len() == ARCHIVE_COUNT,
         "archive manifest must bind 24 months"
     );
-    ensure!(
+    anyhow::ensure!(
         cache_root.is_dir(),
         "cache root is not a directory: {}",
         cache_root.display()
@@ -361,7 +363,7 @@ fn load_pilot_data(
 
     for entry in &manifest.archives {
         if let Some(prior) = prior_name {
-            ensure!(
+            anyhow::ensure!(
                 prior < entry.name.as_str(),
                 "archive manifest is not strictly ordered"
             );
@@ -393,7 +395,7 @@ fn load_pilot_data(
         {
             source_open_times.push(open_ns);
             zero_observations += 1;
-            ensure!(
+            anyhow::ensure!(
                 zero_volume_clock.is_none(),
                 "multiple zero-volume source observations"
             );
@@ -416,25 +418,25 @@ fn load_pilot_data(
         }
     }
 
-    ensure!(
+    anyhow::ensure!(
         zero_observations == 1,
         "expected exactly one zero-volume observation"
     );
-    ensure!(
+    anyhow::ensure!(
         data.len() == EXPECTED_EXECUTABLE_BARS,
         "unexpected executable Bar count"
     );
     source_open_times.sort_unstable();
     source_open_times.dedup();
-    ensure!(
+    anyhow::ensure!(
         source_open_times.len() == EXPECTED_ACTUAL_EVENTS,
         "source timestamps are duplicated or incomplete"
     );
-    ensure!(
+    anyhow::ensure!(
         source_open_times.first() == Some(&WARMUP_START_NS),
         "unexpected first source open"
     );
-    ensure!(
+    anyhow::ensure!(
         source_open_times.last() == Some(&VALIDATION_END_NS),
         "unexpected final source open"
     );
@@ -442,11 +444,11 @@ fn load_pilot_data(
     let absent = expected_source_opens()
         .filter(|open| source_open_times.binary_search(open).is_err())
         .collect::<Vec<_>>();
-    ensure!(
+    anyhow::ensure!(
         absent == [MISSING_OPEN_NS],
         "source gap contract mismatch: {absent:?}"
     );
-    ensure!(
+    anyhow::ensure!(
         source_open_times
             .binary_search(&ZERO_VOLUME_OPEN_NS)
             .is_ok(),
@@ -454,11 +456,11 @@ fn load_pilot_data(
     );
 
     data.push(zero_volume_clock.context("authenticated zero-volume source clock is missing")?);
-    ensure!(
+    anyhow::ensure!(
         data.len() == EXPECTED_ACTUAL_EVENTS,
         "projected replay count mismatch"
     );
-    data.sort_by_key(vibe_model::data::HasTsInit::ts_init);
+    data.sort_by_key(HasTsInit::ts_init);
     execution_clock.sort_by_key(|bar| bar.ts_event);
 
     Ok(LoadedPilotData {
@@ -476,12 +478,12 @@ fn expected_source_opens() -> impl Iterator<Item = u64> {
 fn read_regular_file(path: &Path, limit: u64, label: &str) -> anyhow::Result<Vec<u8>> {
     let metadata = fs::symlink_metadata(path)
         .with_context(|| format!("missing {label} {}", path.display()))?;
-    ensure!(
+    anyhow::ensure!(
         metadata.file_type().is_file(),
         "{label} is not a regular file: {}",
         path.display()
     );
-    ensure!(
+    anyhow::ensure!(
         metadata.len() <= limit,
         "{label} exceeds {limit} bytes: {}",
         path.display()
@@ -515,7 +517,7 @@ impl FrozenPilotStrategy {
         callback_failure: Rc<RefCell<Option<String>>>,
     ) -> anyhow::Result<Self> {
         let parameters = prepared.intent().payload.mechanism.parameters.clone();
-        ensure!(
+        anyhow::ensure!(
             bar_type.instrument_id() == instrument_id,
             "strategy BarType instrument mismatch"
         );
@@ -612,6 +614,7 @@ impl FrozenPilotStrategy {
             .iter()
             .map(|position| (position.id, position.quantity))
             .collect::<Vec<_>>();
+
         for (position_id, quantity) in positions {
             let order = self.order().market(
                 self.instrument_id,
@@ -655,7 +658,7 @@ vibe_strategy!(FrozenPilotStrategy);
 impl Debug for FrozenPilotStrategy {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
-            .debug_struct("FrozenPilotStrategy")
+            .debug_struct(stringify!(FrozenPilotStrategy))
             .field("instrument_id", &self.instrument_id)
             .field("bar_type", &self.bar_type)
             .finish_non_exhaustive()
@@ -675,10 +678,10 @@ impl DataActor for FrozenPilotStrategy {
 
     fn on_bar(&mut self, bar: &Bar) -> anyhow::Result<()> {
         let result = self.on_bar_checked(bar);
-        if let Err(error) = &result {
+        if let Err(e) = &result {
             let mut failure = self.callback_failure.borrow_mut();
             if failure.is_none() {
-                *failure = Some(format!("{error:#}"));
+                *failure = Some(format!("{e:#}"));
             }
         }
         result
@@ -687,7 +690,7 @@ impl DataActor for FrozenPilotStrategy {
 
 impl FrozenPilotStrategy {
     fn on_bar_checked(&mut self, bar: &Bar) -> anyhow::Result<()> {
-        ensure!(
+        anyhow::ensure!(
             bar.bar_type == self.bar_type,
             "unexpected BarType delivered to frozen pilot"
         );
@@ -696,13 +699,13 @@ impl FrozenPilotStrategy {
             .as_u64()
             .checked_sub(CLOSED_HOUR_OFFSET_NS)
             .context("bar timestamp precedes one-hour open")?;
-        ensure!(
+        anyhow::ensure!(
             (WARMUP_START_NS..=VALIDATION_END_NS).contains(&open_ns),
             "bar falls outside frozen pilot windows"
         );
 
         #[cfg(test)]
-        ensure!(
+        anyhow::ensure!(
             self.forced_failure_open_ns != Some(open_ns),
             "forced penultimate strategy callback failure"
         );
@@ -714,7 +717,7 @@ impl FrozenPilotStrategy {
 
         if (VALIDATION_START_NS..VALIDATION_END_NS).contains(&open_ns) {
             let parameters = &self.prepared.intent().payload.mechanism.parameters;
-            ensure!(
+            anyhow::ensure!(
                 self.prior_highs.len() == parameters.entry_lookback as usize
                     && self.prior_lows.len() == parameters.exit_lookback as usize
                     && self.fast_ema.initialized()
@@ -740,6 +743,7 @@ impl FrozenPilotStrategy {
                 prior_high.context("prior 72-bar high unavailable")?,
                 prior_low.context("prior 24-bar low unavailable")?,
             )?;
+
             if !self.has_pending_order() {
                 #[cfg(test)]
                 let action = self
@@ -770,11 +774,13 @@ fn push_bounded(values: &mut VecDeque<f64>, capacity: usize, value: f64) {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
     use std::path::PathBuf;
     use vibe_model::types::Price;
 
-    #[test]
+    #[rstest]
     fn manifest_is_exact_and_month_ordered() {
         let manifest: ArchiveManifest = serde_json::from_slice(MANIFEST_BYTES).unwrap();
         assert_eq!(manifest.identity, MANIFEST_ID);
@@ -796,7 +802,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn expected_clock_has_one_bound_absence() {
         let opens = expected_source_opens().collect::<Vec<_>>();
         assert_eq!(opens.len(), EXPECTED_WALL_SLOTS);
@@ -806,7 +812,7 @@ mod tests {
         assert!(opens.binary_search(&ZERO_VOLUME_OPEN_NS).is_ok());
     }
 
-    #[test]
+    #[rstest]
     fn bounded_window_excludes_current_observation() {
         let mut values = VecDeque::new();
         for value in 1..=4 {
@@ -815,16 +821,16 @@ mod tests {
         assert_eq!(values, VecDeque::from([2.0, 3.0, 4.0]));
     }
 
-    #[test]
+    #[rstest]
     fn loader_rejects_missing_cache_root_without_network() {
         let missing = PathBuf::from("/definitely/not/a/strategy-factory-cache");
         let instrument = InstrumentAny::CurrencyPair(currency_pair_btcusdt());
         let bar_type = BarType::from_str(BAR_TYPE).unwrap();
-        let error = load_pilot_data(&missing, &instrument, bar_type).unwrap_err();
-        assert!(error.to_string().contains("cache root is not a directory"));
+        let e = load_pilot_data(&missing, &instrument, bar_type).unwrap_err();
+        assert!(e.to_string().contains("cache root is not a directory"));
     }
 
-    #[test]
+    #[rstest]
     fn swallowed_penultimate_callback_failure_fails_the_application() {
         let prepared = prepare_frozen_pilot().unwrap();
         let instrument = InstrumentAny::CurrencyPair(currency_pair_btcusdt());
@@ -852,17 +858,16 @@ mod tests {
             data,
         };
 
-        let error =
+        let e =
             execute_loaded_pilot_with_strategy(&instrument, loaded, strategy, &callback_failure)
                 .unwrap_err();
         assert!(
-            error
-                .to_string()
+            e.to_string()
                 .contains("forced penultimate strategy callback failure")
         );
     }
 
-    #[test]
+    #[rstest]
     fn unfilled_market_order_cannot_satisfy_software_acceptance() {
         let prepared = prepare_frozen_pilot().unwrap();
         let instrument = InstrumentAny::CurrencyPair(currency_pair_btcusdt());
@@ -890,14 +895,13 @@ mod tests {
             data,
         };
 
-        let error =
+        let e =
             execute_loaded_pilot_with_strategy(&instrument, loaded, strategy, &callback_failure)
                 .unwrap_err();
         assert!(
-            error
-                .to_string()
+            e.to_string()
                 .contains("terminal invariant failed: orders.inflight"),
-            "unexpected application error: {error:#}"
+            "unexpected application error: {e:#}"
         );
     }
 

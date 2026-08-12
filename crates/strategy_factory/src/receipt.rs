@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use anyhow::{Context, ensure};
+use anyhow::Context;
 use serde::Serialize;
 use vibe_model::types::Money;
 
@@ -74,11 +74,11 @@ impl TrialReceipt {
         let starting = Money::from_str(starting_balance).map_err(anyhow::Error::msg)?;
         let final_value = Money::from_str(final_balance).map_err(anyhow::Error::msg)?;
         let commissions = Money::from_str(native_commissions).map_err(anyhow::Error::msg)?;
-        ensure!(
+        anyhow::ensure!(
             starting.currency == final_value.currency && starting.currency == commissions.currency,
             "trial receipt monetary currencies do not match"
         );
-        ensure!(
+        anyhow::ensure!(
             commissions.raw > 0,
             "trial receipt requires nonzero native commission"
         );
@@ -88,14 +88,14 @@ impl TrialReceipt {
             .and_then(serde_json::Value::as_str)
             .context("canonical total positions are missing")?
             .parse::<usize>()?;
-        ensure!(
+        anyhow::ensure!(
             completed_round_trips > 0,
             "trial receipt requires completed round trips"
         );
         let terminal_flat = ["orders.open", "orders.inflight", "positions.open"]
             .iter()
             .all(|key| summary.get(*key).and_then(serde_json::Value::as_str) == Some("0"));
-        ensure!(
+        anyhow::ensure!(
             terminal_flat,
             "trial receipt requires a terminal-flat result"
         );
@@ -155,7 +155,7 @@ fn digest(bytes: &[u8]) -> String {
 }
 
 fn validate_canonical_bytes(bytes: &[u8], expected: &TrialReceipt) -> anyhow::Result<()> {
-    ensure!(
+    anyhow::ensure!(
         expected.to_bytes()? == bytes,
         "trial receipt does not match the pilot run"
     );
@@ -172,6 +172,8 @@ const fn economic_disposition(net_pnl: Money) -> EconomicDisposition {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
 
     fn sample_receipt() -> TrialReceipt {
@@ -204,7 +206,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn frozen_economic_falsifier_rejects_nonpositive_net_pnl_only() {
         assert_eq!(
             economic_disposition(Money::from("-0.00000001 USDT")),
@@ -220,7 +222,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn receipt_parser_requires_exact_run_derived_bytes() {
         let receipt = sample_receipt();
         let bytes = receipt.to_bytes().unwrap();

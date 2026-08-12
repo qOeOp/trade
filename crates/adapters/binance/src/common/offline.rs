@@ -1,7 +1,7 @@
 //! Authenticated offline adapters for official Binance Vision archives.
 
 use std::{
-    fmt::{Display, Formatter},
+    fmt::Display,
     io::{Cursor, Read},
     path::Path,
 };
@@ -69,7 +69,7 @@ impl Sha256Digest {
 }
 
 impl Display for Sha256Digest {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&hex::encode(self.0))
     }
 }
@@ -314,6 +314,7 @@ impl AuthenticatedBinanceVisionKlines {
             Symbol::from(self.metadata.binding.symbol.as_str()),
             *BINANCE_VENUE,
         );
+
         if !matches!(instrument, InstrumentAny::CurrencyPair(_))
             || instrument.venue() != *BINANCE_VENUE
         {
@@ -321,11 +322,13 @@ impl AuthenticatedBinanceVisionKlines {
                 "instrument must be a Binance Spot currency pair".to_string(),
             ));
         }
+
         if !bar_type.is_standard() || !bar_type.is_externally_aggregated() {
             return Err(BinanceVisionArchiveError::InvalidBarConsumer(
                 "BarType must be standard and externally aggregated".to_string(),
             ));
         }
+
         if instrument.id() != expected_instrument_id
             || bar_type.instrument_id() != expected_instrument_id
         {
@@ -334,6 +337,7 @@ impl AuthenticatedBinanceVisionKlines {
                     .to_string(),
             ));
         }
+
         if instrument.raw_symbol().as_str() != self.metadata.binding.symbol {
             return Err(BinanceVisionArchiveError::InvalidBarConsumer(format!(
                 "instrument raw symbol {:?} does not match authenticated symbol {:?}",
@@ -341,11 +345,13 @@ impl AuthenticatedBinanceVisionKlines {
                 self.metadata.binding.symbol
             )));
         }
+
         if bar_type.spec().price_type != PriceType::Last {
             return Err(BinanceVisionArchiveError::InvalidBarConsumer(
                 "Binance Vision klines require PriceType::Last".to_string(),
             ));
         }
+
         if self.klines.klines.iter().any(|kline| {
             [
                 kline.open_price,
@@ -371,7 +377,7 @@ impl AuthenticatedBinanceVisionKlines {
             ));
         }
         let interval = bar_spec_to_binance_interval(bar_type.spec())
-            .map_err(|error| BinanceVisionArchiveError::InvalidBarConsumer(error.to_string()))?;
+            .map_err(|e| BinanceVisionArchiveError::InvalidBarConsumer(e.to_string()))?;
         if interval != self.metadata.binding.interval {
             return Err(BinanceVisionArchiveError::InvalidBarConsumer(format!(
                 "BarType interval {} does not match authenticated interval {}",
@@ -380,7 +386,7 @@ impl AuthenticatedBinanceVisionKlines {
             )));
         }
         parse_klines_to_bars(&self.klines, bar_type, instrument, ts_init)
-            .map_err(|error| BinanceVisionArchiveError::BarConversion(error.to_string()))
+            .map_err(|e| BinanceVisionArchiveError::BarConversion(e.to_string()))
     }
 }
 
@@ -559,6 +565,7 @@ fn validate_binding_names(
             interval.as_str()
         )));
     }
+
     if symbol.is_empty()
         || !symbol
             .bytes()
@@ -568,6 +575,7 @@ fn validate_binding_names(
             "invalid canonical Binance symbol {symbol:?}"
         )));
     }
+
     if !is_single_component(archive_name) || !is_single_component(member_name) {
         return Err(BinanceVisionArchiveError::InvalidBinding(
             "archive and member names must be single path components".to_string(),
@@ -576,6 +584,7 @@ fn validate_binding_names(
     let stem = archive_name.strip_suffix(".zip").ok_or_else(|| {
         BinanceVisionArchiveError::InvalidBinding("archive name must end in .zip".to_string())
     })?;
+
     if member_name != format!("{stem}.csv") {
         return Err(BinanceVisionArchiveError::InvalidBinding(
             "member name must equal the archive stem plus .csv".to_string(),
@@ -594,11 +603,13 @@ fn validate_binding_names(
         && month.as_bytes()[4] == b'-'
         && month.as_bytes()[5..7].iter().all(u8::is_ascii_digit)
         && numeric_month.is_some_and(|value| (1..=12).contains(&value));
+
     if !valid_month {
         return Err(BinanceVisionArchiveError::InvalidBinding(
             "archive name must contain a canonical YYYY-MM month".to_string(),
         ));
     }
+
     if numeric_year.is_none_or(|year| year >= 2025) {
         return Err(BinanceVisionArchiveError::InvalidBinding(
             "millisecond archive binding is limited to pre-2025 months".to_string(),
@@ -611,7 +622,7 @@ fn validate_binding_names(
         BinanceVisionArchiveError::InvalidBinding("archive month is invalid".to_string())
     })?;
     let start = Date::from_calendar_date(year, month, 1)
-        .map_err(|error| BinanceVisionArchiveError::InvalidBinding(error.to_string()))?;
+        .map_err(|e| BinanceVisionArchiveError::InvalidBinding(e.to_string()))?;
     let (next_year, next_month) = if month == Month::December {
         (
             year.checked_add(1).ok_or_else(|| {
@@ -626,7 +637,7 @@ fn validate_binding_names(
         )
     };
     let next = Date::from_calendar_date(next_year, next_month, 1)
-        .map_err(|error| BinanceVisionArchiveError::InvalidBinding(error.to_string()))?;
+        .map_err(|e| BinanceVisionArchiveError::InvalidBinding(e.to_string()))?;
     let start_millis = i64::try_from(
         start.midnight().assume_utc().unix_timestamp_nanos() / 1_000_000,
     )
@@ -675,6 +686,7 @@ fn parse_sidecar(
             "entry must use '<sha256><two spaces><archive name>'".to_string(),
         )
     })?;
+
     if name != archive_name || name.contains("  ") {
         return Err(BinanceVisionArchiveError::InvalidSidecar(format!(
             "entry names {name:?}, expected {archive_name:?}"
@@ -690,7 +702,7 @@ fn read_single_csv_member(
     archive_bytes: &[u8],
 ) -> Result<Vec<u8>, BinanceVisionArchiveError> {
     let mut archive = ZipArchive::new(Cursor::new(archive_bytes))
-        .map_err(|error| BinanceVisionArchiveError::InvalidZip(error.to_string()))?;
+        .map_err(|e| BinanceVisionArchiveError::InvalidZip(e.to_string()))?;
     if archive.len() != 1 {
         return Err(BinanceVisionArchiveError::UnsupportedZipTopology(format!(
             "expected exactly one member, found {}",
@@ -701,7 +713,7 @@ fn read_single_csv_member(
     {
         let member = archive
             .by_index_raw(0)
-            .map_err(|error| BinanceVisionArchiveError::InvalidZip(error.to_string()))?;
+            .map_err(|e| BinanceVisionArchiveError::InvalidZip(e.to_string()))?;
         if member.name() != binding.member_name
             || member.enclosed_name().as_deref() != Some(Path::new(&binding.member_name))
         {
@@ -710,11 +722,13 @@ fn read_single_csv_member(
                 member.name()
             )));
         }
+
         if !member.is_file() || member.is_symlink() || member.encrypted() {
             return Err(BinanceVisionArchiveError::UnsupportedZipTopology(
                 "member must be a regular, unencrypted file".to_string(),
             ));
         }
+
         if !matches!(
             member.compression(),
             CompressionMethod::Deflated | CompressionMethod::Stored
@@ -724,6 +738,7 @@ fn read_single_csv_member(
                 member.compression()
             )));
         }
+
         if member.size() > MAX_MEMBER_BYTES {
             return Err(BinanceVisionArchiveError::MemberTooLarge {
                 actual: member.size(),
@@ -734,13 +749,13 @@ fn read_single_csv_member(
 
     let mut member = archive
         .by_index(0)
-        .map_err(|error| BinanceVisionArchiveError::InvalidZip(error.to_string()))?;
+        .map_err(|e| BinanceVisionArchiveError::InvalidZip(e.to_string()))?;
     let mut bytes = Vec::with_capacity(usize::try_from(member.size()).unwrap_or_default());
     member
         .by_ref()
         .take(MAX_MEMBER_BYTES + 1)
         .read_to_end(&mut bytes)
-        .map_err(|error| BinanceVisionArchiveError::InvalidZip(error.to_string()))?;
+        .map_err(|e| BinanceVisionArchiveError::InvalidZip(e.to_string()))?;
     if bytes.len() as u64 > MAX_MEMBER_BYTES {
         return Err(BinanceVisionArchiveError::MemberTooLarge {
             actual: bytes.len() as u64,
@@ -769,9 +784,9 @@ fn parse_authenticated_csv(
 
     for (index, record) in reader.records().enumerate() {
         let row = index + 1;
-        let record = record.map_err(|error| BinanceVisionArchiveError::InvalidCsv {
+        let record = record.map_err(|e| BinanceVisionArchiveError::InvalidCsv {
             row,
-            message: error.to_string(),
+            message: e.to_string(),
         })?;
         total_rows += 1;
         if total_rows > MAX_MONTHLY_ROWS {
@@ -780,6 +795,7 @@ fn parse_authenticated_csv(
                 message: format!("monthly row count exceeds {MAX_MONTHLY_ROWS}"),
             });
         }
+
         if record.len() != 12 {
             return Err(BinanceVisionArchiveError::InvalidCsv {
                 row,
@@ -803,12 +819,14 @@ fn parse_authenticated_csv(
             };
             return Err(BinanceVisionArchiveError::InvalidNumeric { row, field, value });
         }
+
         if open_millis % HOUR_MILLIS != 0 {
             return Err(BinanceVisionArchiveError::InvalidTemporalSemantics {
                 row,
                 message: "open time is not aligned to a UTC hour".to_string(),
             });
         }
+
         if open_millis < binding.month_start_millis
             || open_millis >= binding.next_month_start_millis
             || close_millis < binding.month_start_millis
@@ -819,6 +837,7 @@ fn parse_authenticated_csv(
                 message: "source row lies outside the bound archive month".to_string(),
             });
         }
+
         if let Some(previous) = previous_open_millis {
             let delta = open_millis.checked_sub(previous).ok_or_else(|| {
                 BinanceVisionArchiveError::InvalidTemporalSemantics {
@@ -826,24 +845,27 @@ fn parse_authenticated_csv(
                     message: "open times are not strictly increasing".to_string(),
                 }
             })?;
+
             if delta <= 0 {
                 return Err(BinanceVisionArchiveError::InvalidTemporalSemantics {
                     row,
                     message: "open times are duplicate or out of order".to_string(),
                 });
             }
+
             if delta % HOUR_MILLIS != 0 {
                 return Err(BinanceVisionArchiveError::InvalidTemporalSemantics {
                     row,
                     message: "open-time delta is not a whole number of hours".to_string(),
                 });
             }
+
             if delta > HOUR_MILLIS {
                 gaps.push(BinanceVisionKlineGap {
                     after_open_time_micros: millis_to_micros(previous)
-                        .map_err(|error| normalization_error(error.to_string()))?,
+                        .map_err(|e| normalization_error(e.to_string()))?,
                     next_open_time_micros: millis_to_micros(open_millis)
-                        .map_err(|error| normalization_error(error.to_string()))?,
+                        .map_err(|e| normalization_error(e.to_string()))?,
                     missing_intervals: u64::try_from(delta / HOUR_MILLIS - 1).map_err(|_| {
                         BinanceVisionArchiveError::InvalidTemporalSemantics {
                             row,
@@ -861,6 +883,7 @@ fn parse_authenticated_csv(
                 message: "hour close time overflowed".to_string(),
             }
         })?;
+
         if close_millis < open_millis || close_millis > full_close {
             return Err(BinanceVisionArchiveError::InvalidTemporalSemantics {
                 row,
@@ -878,6 +901,7 @@ fn parse_authenticated_csv(
             parse_nonnegative_decimal(&record, row, 9, "taker_buy_base_volume")?;
         let taker_buy_quote_volume =
             parse_nonnegative_decimal(&record, row, 10, "taker_buy_quote_volume")?;
+
         if open.is_sign_negative()
             || high.is_sign_negative()
             || low.is_sign_negative()
@@ -889,6 +913,7 @@ fn parse_authenticated_csv(
                 value: "negative price".to_string(),
             });
         }
+
         if high < open || high < close || high < low || low > open || low > close {
             return Err(BinanceVisionArchiveError::InvalidOhlc { row });
         }
@@ -922,6 +947,7 @@ fn parse_authenticated_csv(
             });
             continue;
         }
+
         if taker_buy_base_volume > volume || taker_buy_quote_volume > quote_volume {
             return Err(BinanceVisionArchiveError::InvalidNumeric {
                 row,
@@ -929,12 +955,14 @@ fn parse_authenticated_csv(
                 value: "taker-buy volume exceeds total volume".to_string(),
             });
         }
+
         if close_millis != full_close {
             return Err(BinanceVisionArchiveError::InvalidTemporalSemantics {
                 row,
                 message: "ordinary kline is not a fully closed one-hour row".to_string(),
             });
         }
+
         if num_trades == 0 {
             return Err(BinanceVisionArchiveError::InvalidNumeric {
                 row,
@@ -965,11 +993,12 @@ fn parse_authenticated_csv(
     let last_open_time_micros = last_open_micros.expect("nonempty rows set last open time");
     let normalized_rows = ordinary_rows.len();
     let zero_volume_rows = zero_volume_observations.len();
+
     if ordinary_rows.is_empty() {
         return Err(BinanceVisionArchiveError::NoExecutableKlines);
     }
-    let klines = normalize_spot_kline_rows(ordinary_rows)
-        .map_err(|error| normalization_error(error.to_string()))?;
+    let klines =
+        normalize_spot_kline_rows(ordinary_rows).map_err(|e| normalization_error(e.to_string()))?;
 
     Ok(AuthenticatedBinanceVisionKlines {
         metadata: BinanceVisionArchiveMetadata {
@@ -1038,10 +1067,10 @@ fn convert_timestamp(
     row: usize,
 ) -> Result<i64, BinanceVisionArchiveError> {
     match unit {
-        BinanceVisionTimestampUnit::Milliseconds => millis_to_micros(value).map_err(|error| {
+        BinanceVisionTimestampUnit::Milliseconds => millis_to_micros(value).map_err(|e| {
             BinanceVisionArchiveError::InvalidTemporalSemantics {
                 row,
-                message: error.to_string(),
+                message: e.to_string(),
             }
         }),
     }
@@ -1053,6 +1082,8 @@ fn normalization_error(message: String) -> BinanceVisionArchiveError {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use std::io::{Cursor, Write};
 
     use vibe_model::{
@@ -1148,7 +1179,7 @@ mod tests {
         bar_type_with_price_type(instrument, aggregation, PriceType::Last)
     }
 
-    #[test]
+    #[rstest]
     fn authenticates_normalizes_and_separates_zero_volume_without_gap_fill() {
         let (binding, archive, sidecar) = bound_fixture(&fixture_csv());
         let result = authenticate_spot_monthly_klines(&binding, &archive, &sidecar).unwrap();
@@ -1174,7 +1205,7 @@ mod tests {
         assert_eq!(result.metadata().gaps()[0].missing_intervals, 1);
     }
 
-    #[test]
+    #[rstest]
     fn bar_conversion_rejects_unbound_instrument_and_interval() {
         let (binding, archive, sidecar) = bound_fixture(&fixture_csv());
         let result = authenticate_spot_monthly_klines(&binding, &archive, &sidecar).unwrap();
@@ -1193,7 +1224,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn bar_conversion_rejects_non_spot_non_binance_and_non_last_consumers() {
         let (binding, archive, sidecar) = bound_fixture(&fixture_csv());
         let result = authenticate_spot_monthly_klines(&binding, &archive, &sidecar).unwrap();
@@ -1227,7 +1258,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn bar_conversion_rejects_consumer_precision_that_would_round_source_values() {
         for csv in [
             fixture_csv().replacen("100.00000000", "100.00100000", 1),
@@ -1248,18 +1279,18 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn rejects_archive_hash_mismatch_before_zip() {
         let (binding, mut archive, sidecar) = bound_fixture(&fixture_csv());
         archive[0] ^= 1;
-        let error = authenticate_spot_monthly_klines(&binding, &archive, &sidecar).unwrap_err();
+        let e = authenticate_spot_monthly_klines(&binding, &archive, &sidecar).unwrap_err();
         assert!(matches!(
-            error,
+            e,
             BinanceVisionArchiveError::ArchiveDigestMismatch { .. }
         ));
     }
 
-    #[test]
+    #[rstest]
     fn rejects_extra_zip_member() {
         let csv = fixture_csv();
         let archive = zip_members(&[(MEMBER_NAME, &csv), ("extra.csv", &csv)]);
@@ -1275,30 +1306,30 @@ mod tests {
             BinanceVisionTimestampUnit::Milliseconds,
         )
         .unwrap();
-        let error = authenticate_spot_monthly_klines(&binding, &archive, &sidecar).unwrap_err();
+        let e = authenticate_spot_monthly_klines(&binding, &archive, &sidecar).unwrap_err();
         assert!(matches!(
-            error,
+            e,
             BinanceVisionArchiveError::UnsupportedZipTopology(_)
         ));
     }
 
-    #[test]
+    #[rstest]
     fn rejects_malformed_schema() {
         let (binding, archive, sidecar) = bound_fixture("1,2,3");
-        let error = authenticate_spot_monthly_klines(&binding, &archive, &sidecar).unwrap_err();
+        let e = authenticate_spot_monthly_klines(&binding, &archive, &sidecar).unwrap_err();
         assert!(matches!(
-            error,
+            e,
             BinanceVisionArchiveError::InvalidCsv { row: 1, .. }
         ));
     }
 
-    #[test]
+    #[rstest]
     fn rejects_header_row_as_malformed_numeric_data() {
         let csv = "open_time,open,high,low,close,volume,close_time,quote_volume,num_trades,taker_buy_base_volume,taker_buy_quote_volume,ignore";
         let (binding, archive, sidecar) = bound_fixture(csv);
-        let error = authenticate_spot_monthly_klines(&binding, &archive, &sidecar).unwrap_err();
+        let e = authenticate_spot_monthly_klines(&binding, &archive, &sidecar).unwrap_err();
         assert!(matches!(
-            error,
+            e,
             BinanceVisionArchiveError::InvalidNumeric {
                 row: 1,
                 field: "open_time",
@@ -1307,7 +1338,7 @@ mod tests {
         ));
     }
 
-    #[test]
+    #[rstest]
     fn rejects_wrong_sidecar_member_and_multiple_entries() {
         let (_binding, archive, sidecar) = bound_fixture(&fixture_csv());
         let digest = std::str::from_utf8(&sidecar)
@@ -1315,6 +1346,7 @@ mod tests {
             .split_once("  ")
             .unwrap()
             .0;
+
         for invalid in [
             format!("{digest}  OTHER.zip"),
             format!("{digest}  {ARCHIVE_NAME}\n{digest}  {ARCHIVE_NAME}"),
@@ -1340,7 +1372,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn rejects_duplicate_and_out_of_order_timestamps() {
         for second_open in [T0, T0 - HOUR_MILLIS] {
             let csv = [
@@ -1349,26 +1381,26 @@ mod tests {
             ]
             .join("\n");
             let (binding, archive, sidecar) = bound_fixture(&csv);
-            let error = authenticate_spot_monthly_klines(&binding, &archive, &sidecar).unwrap_err();
+            let e = authenticate_spot_monthly_klines(&binding, &archive, &sidecar).unwrap_err();
             assert!(matches!(
-                error,
+                e,
                 BinanceVisionArchiveError::InvalidTemporalSemantics { row: 2, .. }
             ));
         }
     }
 
-    #[test]
+    #[rstest]
     fn rejects_invalid_ohlc() {
         let csv = format!(
             "{T0},100.0,99.0,98.0,101.0,1.0,{},100.0,1,0.5,50.0,0",
             T0 + CLOSED_HOUR_MILLIS
         );
         let (binding, archive, sidecar) = bound_fixture(&csv);
-        let error = authenticate_spot_monthly_klines(&binding, &archive, &sidecar).unwrap_err();
-        assert_eq!(error, BinanceVisionArchiveError::InvalidOhlc { row: 1 });
+        let e = authenticate_spot_monthly_klines(&binding, &archive, &sidecar).unwrap_err();
+        assert_eq!(e, BinanceVisionArchiveError::InvalidOhlc { row: 1 });
     }
 
-    #[test]
+    #[rstest]
     fn rejects_all_zero_out_of_month_and_excess_taker_volume() {
         let all_zero = zero_row(T0, T0 + 2_381_646);
         let (binding, archive, sidecar) = bound_fixture(&all_zero);
@@ -1403,21 +1435,21 @@ mod tests {
         ));
     }
 
-    #[test]
+    #[rstest]
     fn rejects_ambiguous_zero_volume_row() {
         let csv = format!(
             "{T0},100.0,101.0,100.0,101.0,0.0,{},0.0,0,0.0,0.0,0",
             T0 + CLOSED_HOUR_MILLIS
         );
         let (binding, archive, sidecar) = bound_fixture(&csv);
-        let error = authenticate_spot_monthly_klines(&binding, &archive, &sidecar).unwrap_err();
+        let e = authenticate_spot_monthly_klines(&binding, &archive, &sidecar).unwrap_err();
         assert!(matches!(
-            error,
+            e,
             BinanceVisionArchiveError::ZeroVolumeAmbiguity { row: 1, .. }
         ));
     }
 
-    #[test]
+    #[rstest]
     fn sidecar_failure_has_no_state_and_original_recovers() {
         let (binding, archive, sidecar) = bound_fixture(&fixture_csv());
         let mut wrong_sidecar = sidecar.clone();
@@ -1429,7 +1461,7 @@ mod tests {
         assert!(authenticate_spot_monthly_klines(&binding, &archive, &sidecar).is_ok());
     }
 
-    #[test]
+    #[rstest]
     #[ignore = "requires the separately downloaded official Binance Vision archive"]
     fn accepts_official_btcusdt_march_2023_archive() {
         let archive_path = std::env::var("BINANCE_VISION_ARCHIVE_PATH").unwrap();

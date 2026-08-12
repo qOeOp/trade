@@ -225,7 +225,7 @@ CORE_CRATES := vibe-analysis vibe-backtest vibe-common vibe-core \
     vibe-indicators vibe-infrastructure vibe-live vibe-model \
     vibe-network vibe-persistence vibe-persistence-macros \
     vibe-plugin vibe-portfolio vibe-risk vibe-serialization \
-    vibe-system vibe-testkit vibe-trading
+    vibe-strategy-factory vibe-system vibe-testkit vibe-trading
 
 # Crates tested in the workspace-compiled adapter lane
 ADAPTER_CRATES := vibe-architect-ax vibe-betfair vibe-binance \

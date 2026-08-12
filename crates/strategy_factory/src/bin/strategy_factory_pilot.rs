@@ -6,6 +6,7 @@ fn main() {
         eprintln!("usage: strategy-factory-pilot <binance-vision-cache-root>");
         std::process::exit(2);
     };
+
     if args.next().is_some() {
         eprintln!("strategy-factory-pilot accepts exactly one cache-root argument");
         std::process::exit(2);
@@ -16,8 +17,8 @@ fn main() {
         .and_then(|receipt| receipt.to_bytes())
     {
         Ok(bytes) => println!("{}", String::from_utf8_lossy(&bytes)),
-        Err(error) => {
-            eprintln!("{error:#}");
+        Err(e) => {
+            eprintln!("{e:#}");
             std::process::exit(2);
         }
     }

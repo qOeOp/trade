@@ -53,9 +53,7 @@ impl PreparedDecisionRuntime {
         input: DecisionInput,
         fuel: u64,
     ) -> Result<DecisionAction, RuntimeError> {
-        self.store
-            .set_fuel(fuel)
-            .map_err(|error| execution_error(&error))?;
+        self.store.set_fuel(fuel).map_err(|e| execution_error(&e))?;
         let raw_action = self
             .function
             .call(
@@ -70,7 +68,7 @@ impl PreparedDecisionRuntime {
                     input.prior_24_low().into(),
                 ),
             )
-            .map_err(|error| execution_error(&error))?;
+            .map_err(|e| execution_error(&e))?;
         decode_action(raw_action)
     }
 }
@@ -124,16 +122,15 @@ fn instantiate_decision_runtime(
     export: &str,
 ) -> Result<PreparedDecisionRuntime, RuntimeError> {
     let engine = restricted_engine();
-    let module =
-        Module::new(&engine, bytes).map_err(|error| RuntimeError::Execution(error.to_string()))?;
+    let module = Module::new(&engine, bytes).map_err(|e| RuntimeError::Execution(e.to_string()))?;
     let mut store = Store::new(&engine, ());
     let linker = Linker::new(&engine);
     let instance = linker
         .instantiate_and_start(&mut store, &module)
-        .map_err(|error| execution_error(&error))?;
+        .map_err(|e| execution_error(&e))?;
     let function = instance
         .get_typed_func::<(i32, i32, F64, F64, F64, F64, F64), i32>(&store, export)
-        .map_err(|error| execution_error(&error))?;
+        .map_err(|e| execution_error(&e))?;
     Ok(PreparedDecisionRuntime { store, function })
 }
 
@@ -143,11 +140,12 @@ pub fn validate_restricted_module(bytes: &[u8]) -> Result<(), RuntimeError> {
     }
     Validator::new_with_features(WasmFeatures::WASM1)
         .validate_all(bytes)
-        .map_err(|error| RuntimeError::Invalid(error.to_string()))?;
+        .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
 
     let mut facts = ModuleFacts::default();
+
     for payload in Parser::new(0).parse_all(bytes) {
-        match payload.map_err(|error| RuntimeError::Invalid(error.to_string()))? {
+        match payload.map_err(|e| RuntimeError::Invalid(e.to_string()))? {
             Payload::Version { num, encoding, .. } => {
                 if num != 1 || encoding != Encoding::Module {
                     return Err(RuntimeError::Envelope("module version"));
@@ -162,12 +160,13 @@ pub fn validate_restricted_module(bytes: &[u8]) -> Result<(), RuntimeError> {
                     .into_iter_err_on_gc_types()
                     .next()
                     .ok_or(RuntimeError::Envelope("function type"))?
-                    .map_err(|error| RuntimeError::Invalid(error.to_string()))?;
+                    .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
                 let expected_parameters = DECISION_SIGNATURE
                     .parameters()
                     .iter()
                     .map(parser_value_type)
                     .collect::<Vec<_>>();
+
                 if function_type.params() != expected_parameters
                     || function_type.results() != [ValType::I32]
                 {
@@ -179,7 +178,7 @@ pub fn validate_restricted_module(bytes: &[u8]) -> Result<(), RuntimeError> {
                 let entries = functions
                     .into_iter()
                     .collect::<Result<Vec<_>, _>>()
-                    .map_err(|error| RuntimeError::Invalid(error.to_string()))?;
+                    .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
                 if entries != [0] {
                     return Err(RuntimeError::Envelope("function section"));
                 }
@@ -189,10 +188,11 @@ pub fn validate_restricted_module(bytes: &[u8]) -> Result<(), RuntimeError> {
                 let entries = memories
                     .into_iter()
                     .collect::<Result<Vec<_>, _>>()
-                    .map_err(|error| RuntimeError::Invalid(error.to_string()))?;
+                    .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
                 let [memory] = entries.as_slice() else {
                     return Err(RuntimeError::Envelope("memory count"));
                 };
+
                 if memory.memory64
                     || memory.shared
                     || memory.initial != 1
@@ -207,10 +207,11 @@ pub fn validate_restricted_module(bytes: &[u8]) -> Result<(), RuntimeError> {
                 let entries = globals
                     .into_iter()
                     .collect::<Result<Vec<_>, _>>()
-                    .map_err(|error| RuntimeError::Invalid(error.to_string()))?;
+                    .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
                 let [global] = entries.as_slice() else {
                     return Err(RuntimeError::Envelope("global count"));
                 };
+
                 if global.ty.content_type != ValType::I32 || !global.ty.mutable || global.ty.shared
                 {
                     return Err(RuntimeError::Envelope("compiler global type"));
@@ -218,18 +219,20 @@ pub fn validate_restricted_module(bytes: &[u8]) -> Result<(), RuntimeError> {
                 let mut operators = global.init_expr.get_operators_reader();
                 match operators
                     .read()
-                    .map_err(|error| RuntimeError::Invalid(error.to_string()))?
+                    .map_err(|e| RuntimeError::Invalid(e.to_string()))?
                 {
                     Operator::I32Const { value: 0 } => {}
                     _ => return Err(RuntimeError::Envelope("compiler global initializer")),
                 }
+
                 match operators
                     .read()
-                    .map_err(|error| RuntimeError::Invalid(error.to_string()))?
+                    .map_err(|e| RuntimeError::Invalid(e.to_string()))?
                 {
                     Operator::End => {}
                     _ => return Err(RuntimeError::Envelope("compiler global initializer")),
                 }
+
                 if !operators.eof() {
                     return Err(RuntimeError::Envelope("compiler global initializer"));
                 }
@@ -239,7 +242,7 @@ pub fn validate_restricted_module(bytes: &[u8]) -> Result<(), RuntimeError> {
                 let entries = exports
                     .into_iter()
                     .collect::<Result<Vec<_>, _>>()
-                    .map_err(|error| RuntimeError::Invalid(error.to_string()))?;
+                    .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
                 if entries.len() != 2 {
                     return Err(RuntimeError::Export);
                 }
@@ -253,21 +256,24 @@ pub fn validate_restricted_module(bytes: &[u8]) -> Result<(), RuntimeError> {
                         && export.kind == ExternalKind::Memory
                         && export.index == 0
                 });
+
                 if !behavior || !compiler_memory {
                     return Err(RuntimeError::Export);
                 }
             }
             Payload::CodeSectionStart { count, .. } => {
                 facts.code_sections += 1;
+
                 if count != 1 {
                     return Err(RuntimeError::Envelope("code count"));
                 }
             }
             Payload::CodeSectionEntry(body) => {
                 facts.code_entries += 1;
+
                 if body
                     .get_locals_reader()
-                    .map_err(|error| RuntimeError::Invalid(error.to_string()))?
+                    .map_err(|e| RuntimeError::Invalid(e.to_string()))?
                     .get_count()
                     != 0
                 {
@@ -275,11 +281,12 @@ pub fn validate_restricted_module(bytes: &[u8]) -> Result<(), RuntimeError> {
                 }
                 let mut operators = body
                     .get_operators_reader()
-                    .map_err(|error| RuntimeError::Invalid(error.to_string()))?;
+                    .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
+
                 while !operators.eof() {
                     let operator = operators
                         .read()
-                        .map_err(|error| RuntimeError::Invalid(error.to_string()))?;
+                        .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
                     validate_operator(&operator)?;
                 }
             }
@@ -425,10 +432,12 @@ impl ModuleFacts {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
     use crate::{artifact::StrategyArtifact, decision::DecisionContract};
 
-    #[test]
+    #[rstest]
     fn generated_module_has_the_exact_restricted_envelope() {
         let (intent, contract, artifact) = frozen_artifact();
         artifact
@@ -438,7 +447,7 @@ mod tests {
         assert!(artifact.wasm().len() <= MAX_ARTIFACT_WASM_BYTES);
     }
 
-    #[test]
+    #[rstest]
     fn structural_and_capability_drift_is_rejected() {
         let (_, _, artifact) = frozen_artifact();
         let wasm = artifact.wasm();
@@ -508,7 +517,7 @@ mod tests {
         ));
     }
 
-    #[test]
+    #[rstest]
     fn fuel_unknown_action_and_trap_fail_without_hold_fallback() {
         let (intent, contract, artifact) = frozen_artifact();
         let (mut runtime, _) =
@@ -554,6 +563,7 @@ mod tests {
     fn replace_section(bytes: &[u8], wanted_id: u8, replacement: &[u8]) -> Vec<u8> {
         let mut output = bytes[..8].to_vec();
         let mut replaced = false;
+
         for (id, payload) in sections(bytes) {
             output.push(id);
             let payload = if id == wanted_id {
@@ -615,6 +625,7 @@ mod tests {
     fn decode_u32(bytes: &[u8], cursor: &mut usize) -> u32 {
         let mut value = 0_u32;
         let mut shift = 0;
+
         loop {
             let byte = bytes[*cursor];
             *cursor += 1;
@@ -634,6 +645,7 @@ mod tests {
                 byte |= 0x80;
             }
             output.push(byte);
+
             if value == 0 {
                 return;
             }

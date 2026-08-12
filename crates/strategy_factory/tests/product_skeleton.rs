@@ -1,3 +1,5 @@
+use rstest::rstest;
+
 use vibe_strategy_factory::{
     artifact::{BUILD_RECIPE_LOCATOR, GUEST_SOURCE_LOCATOR},
     decision::{
@@ -11,7 +13,7 @@ use vibe_strategy_factory::{
     runtime::{RuntimeError, validate_restricted_module},
 };
 
-#[test]
+#[rstest]
 fn restricted_wasm_accepts_only_the_exact_inert_compiler_memory_envelope() {
     let prepared = prepare_frozen_pilot().expect("frozen product skeleton prepares");
     validate_restricted_module(prepared.artifact().wasm()).expect("exact compiler envelope");
@@ -24,7 +26,7 @@ fn restricted_wasm_accepts_only_the_exact_inert_compiler_memory_envelope() {
     );
 }
 
-#[test]
+#[rstest]
 fn intent_artifact_and_runtime_projection_are_deterministic() {
     let first = prepare_frozen_pilot().expect("first preparation");
     let second = prepare_frozen_pilot().expect("second preparation");
@@ -55,7 +57,7 @@ fn intent_artifact_and_runtime_projection_are_deterministic() {
     );
 }
 
-#[test]
+#[rstest]
 fn application_preparation_carries_the_exact_dormant_decision_contract() {
     let prepared = prepare_frozen_pilot().expect("frozen product skeleton prepares");
     let contract = prepared.decision_contract();
@@ -130,7 +132,7 @@ fn application_preparation_carries_the_exact_dormant_decision_contract() {
     );
 }
 
-#[test]
+#[rstest]
 fn application_preparation_executes_the_frozen_guest_truth_table() {
     let mut prepared = prepare_frozen_pilot().expect("frozen product skeleton prepares");
     let cases = [

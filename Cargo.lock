@@ -10701,6 +10701,7 @@ version = "0.62.0"
 dependencies = [
  "anyhow",
  "blake3",
+ "rstest",
  "serde",
  "serde_json",
  "thiserror 2.0.19",
