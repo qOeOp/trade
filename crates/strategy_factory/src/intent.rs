@@ -3,7 +3,7 @@ use thiserror::Error;
 
 const FROZEN_INTENT_FILE_BYTES: &[u8] = include_bytes!("../assets/pilot_intent_v2.jcs");
 pub const FROZEN_INTENT_ID: &str = "researchintent-strategy-factory-pilot-v2";
-pub const REQUIRED_EXECUTION: &str = "market_at_next_actual_source_event_open";
+pub const REQUIRED_EXECUTION: &str = "market_at_next_executable_external_bar_open";
 pub const MISSING_OPEN_NS: u64 = 1_679_662_800_000_000_000;
 pub const ZERO_VOLUME_OPEN_NS: u64 = 1_679_659_200_000_000_000;
 pub const ZERO_VOLUME_CLOSE_NS: u64 = 1_679_661_581_646_000_000;
@@ -174,10 +174,12 @@ impl ResearchIntent {
             return Err(IntentError::Binding("costs"));
         }
 
-        if self.payload.mechanism.entry_execution != "next_actual_source_event_open"
-            || self.payload.mechanism.exit_execution != "next_actual_source_event_open"
+        if self.payload.mechanism.entry_execution != "next_executable_external_bar_open"
+            || self.payload.mechanism.exit_execution != "next_executable_external_bar_open"
         {
-            return Err(IntentError::Binding("next actual source event execution"));
+            return Err(IntentError::Binding(
+                "next executable external Bar execution",
+            ));
         }
 
         if self.payload.data.snapshot_semantics != "retrospective_current"
