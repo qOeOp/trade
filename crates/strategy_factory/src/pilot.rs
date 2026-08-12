@@ -1,16 +1,12 @@
-use std::convert::Infallible;
-
 use thiserror::Error;
 
 use crate::{
     artifact::{ArtifactError, StrategyArtifact},
     data::{DataAdmissionError, ProjectedBacktestInputs, frozen_frontier_projection},
     decision::{DecisionAction, DecisionContract, DecisionError, DecisionInput},
-    intent::{IntentError, REQUIRED_EXECUTION, ResearchIntent},
+    intent::{IntentError, ResearchIntent},
     runtime::{PreparedDecisionRuntime, RuntimeError, RuntimeProjection, prepare_decision_runtime},
 };
-
-pub const NEXT_OPEN_NOT_ADMITTED_CODE: &str = "NEXT_ACTUAL_SOURCE_EVENT_OPEN_UNAVAILABLE";
 
 #[derive(Debug)]
 pub struct PreparedPilot {
@@ -46,19 +42,6 @@ impl PreparedPilot {
     pub const fn inputs(&self) -> &ProjectedBacktestInputs {
         &self.inputs
     }
-
-    pub fn stop_before_backtest(self) -> Result<Infallible, PilotNotAdmitted> {
-        let _ = self;
-        Err(PilotNotAdmitted::NextActualSourceEventOpenUnavailable)
-    }
-}
-
-#[derive(Debug, Error, PartialEq, Eq)]
-pub enum PilotNotAdmitted {
-    #[error(
-        "NOT_ADMITTED[{NEXT_OPEN_NOT_ADMITTED_CODE}]: frozen ResearchIntent requires {REQUIRED_EXECUTION}, but current mature Backtest has no admitted execution seam"
-    )]
-    NextActualSourceEventOpenUnavailable,
 }
 
 #[derive(Debug, Error)]
@@ -89,8 +72,4 @@ pub fn prepare_frozen_pilot() -> Result<PreparedPilot, PreparationError> {
         decision_runtime,
         inputs,
     })
-}
-
-pub fn run_frozen_pilot() -> Result<Infallible, anyhow::Error> {
-    Ok(prepare_frozen_pilot()?.stop_before_backtest()?)
 }

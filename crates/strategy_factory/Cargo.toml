@@ -21,10 +21,13 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 vibe-core = { workspace = true }
+vibe-backtest = { workspace = true }
+vibe-binance = { workspace = true }
+vibe-common = { workspace = true }
+vibe-indicators = { workspace = true }
 vibe-model = { workspace = true }
+vibe-trading = { workspace = true }
 wasmi = { workspace = true }
 wasmparser = { workspace = true }
 
 [dev-dependencies]
-vibe-backtest = { workspace = true }
-vibe-common = { workspace = true }

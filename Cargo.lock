@@ -10705,9 +10705,12 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.19",
  "vibe-backtest",
+ "vibe-binance",
  "vibe-common",
  "vibe-core",
+ "vibe-indicators",
  "vibe-model",
+ "vibe-trading",
  "wasmi",
  "wasmparser",
 ]

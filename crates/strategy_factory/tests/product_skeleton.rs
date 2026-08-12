@@ -10,7 +10,6 @@ use vibe_model::{
     identifiers::ActorId,
 };
 use vibe_strategy_factory::{
-    NEXT_OPEN_NOT_ADMITTED_CODE, PilotNotAdmitted,
     artifact::{BUILD_RECIPE_LOCATOR, GUEST_SOURCE_LOCATOR},
     data::{
         BinanceArchiveProvenance, BinanceKlineRecord, DataAdmissionError, MISSING_OPEN_NS,
@@ -204,20 +203,10 @@ fn copied_archive_digest_cannot_authorize_a_caller_forged_executable_bar() {
 }
 
 #[test]
-fn missing_interval_remains_absent_at_not_admitted_frontier() {
+fn missing_interval_remains_absent_from_the_admitted_source_projection() {
     let prepared = prepare_frozen_pilot().expect("frozen product skeleton prepares");
     assert!(!prepared.inputs().contains_source_open_time(MISSING_OPEN_NS));
-    let error = prepared.stop_before_backtest().unwrap_err();
-    assert_eq!(
-        error,
-        PilotNotAdmitted::NextActualSourceEventOpenUnavailable
-    );
-    assert_eq!(
-        error.to_string(),
-        format!(
-            "NOT_ADMITTED[{NEXT_OPEN_NOT_ADMITTED_CODE}]: frozen ResearchIntent requires market_at_next_actual_source_event_open, but current mature Backtest has no admitted execution seam"
-        )
-    );
+    assert_eq!(prepared.inputs().data().len(), 1);
 }
 
 #[test]
