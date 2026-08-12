@@ -76,7 +76,9 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }
 tokio-util = { workspace = true }
+time = { workspace = true }
 ustr = { workspace = true }
+zip = { workspace = true }
 zeroize = { workspace = true }
 
 pyo3 = { workspace = true, optional = true }

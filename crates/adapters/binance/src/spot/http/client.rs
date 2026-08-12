@@ -52,9 +52,9 @@ use super::{
         AvgPrice, BatchCancelResult, BatchOrderResult, BinanceAccountCommission,
         BinanceAccountInfo, BinanceAccountRatesJson, BinanceAccountTrade, BinanceAggTrade,
         BinanceAggTrades, BinanceBalance, BinanceCancelOrderResponse, BinanceDepth,
-        BinanceExchangeInfoJson, BinanceKline, BinanceKlines, BinanceNewOrderResponse,
-        BinanceOrderFill, BinanceOrderResponse, BinancePriceLevel, BinanceTrade, BinanceTrades,
-        BookTicker, ListenKeyResponse, NewOcoOrderListResponse, Ticker24hr, TickerPrice, TradeFee,
+        BinanceExchangeInfoJson, BinanceKlines, BinanceNewOrderResponse, BinanceOrderFill,
+        BinanceOrderResponse, BinancePriceLevel, BinanceTrade, BinanceTrades, BookTicker,
+        ListenKeyResponse, NewOcoOrderListResponse, Ticker24hr, TickerPrice, TradeFee,
     },
     parse,
     query::{
@@ -81,10 +81,11 @@ use crate::{
         instruments::BinanceInstrumentSelector,
         models::BinanceErrorResponse,
         parse::{
-            get_currency, parse_fill_report_sbe, parse_klines_to_binance_bars,
-            parse_new_order_response_sbe, parse_order_status_report_sbe,
-            parse_spot_instrument_json_with_fees, parse_spot_instrument_sbe_with_fees,
-            parse_spot_trades_sbe,
+            SpotKlineRow, decimal_common_scale, decimal_exponent, decimal_mantissa, get_currency,
+            millis_to_micros, normalize_spot_kline_rows, parse_fill_report_sbe,
+            parse_klines_to_binance_bars, parse_new_order_response_sbe,
+            parse_order_status_report_sbe, parse_spot_instrument_json_with_fees,
+            parse_spot_instrument_sbe_with_fees, parse_spot_trades_sbe,
         },
         urls::get_http_base_url,
     },
@@ -1960,56 +1961,25 @@ fn spot_agg_trades_from_json(
 }
 
 fn spot_klines_from_json(response: Vec<SpotKlineJson>) -> BinanceSpotHttpResult<BinanceKlines> {
-    let price_scale = decimal_common_scale(response.iter().flat_map(|kline| {
-        [
-            kline.1.as_str(),
-            kline.2.as_str(),
-            kline.3.as_str(),
-            kline.4.as_str(),
-            kline.7.as_str(),
-            kline.10.as_str(),
-        ]
-    }))?;
-    let qty_scale = decimal_common_scale(
-        response
-            .iter()
-            .flat_map(|kline| [kline.5.as_str(), kline.9.as_str()]),
-    )?;
-    let klines = response
+    let rows = response
         .into_iter()
         .map(|kline| {
-            let volume = decimal_i128_bytes(&kline.5, qty_scale)?;
-            let quote_volume = decimal_i128_bytes(&kline.7, price_scale)?;
-            let taker_buy_base_volume = decimal_i128_bytes(&kline.9, qty_scale)?;
-            let taker_buy_quote_volume = decimal_i128_bytes(&kline.10, price_scale)?;
-            Ok(BinanceKline {
-                open_time: millis_to_micros(kline.0)?,
-                open_price: decimal_mantissa(&kline.1, price_scale)?,
-                high_price: decimal_mantissa(&kline.2, price_scale)?,
-                low_price: decimal_mantissa(&kline.3, price_scale)?,
-                close_price: decimal_mantissa(&kline.4, price_scale)?,
-                volume,
-                close_time: millis_to_micros(kline.6)?,
-                quote_volume,
+            Ok(SpotKlineRow {
+                open_time_micros: millis_to_micros(kline.0)?,
+                open: kline.1,
+                high: kline.2,
+                low: kline.3,
+                close: kline.4,
+                volume: kline.5,
+                close_time_micros: millis_to_micros(kline.6)?,
+                quote_volume: kline.7,
                 num_trades: kline.8,
-                taker_buy_base_volume,
-                taker_buy_quote_volume,
+                taker_buy_base_volume: kline.9,
+                taker_buy_quote_volume: kline.10,
             })
         })
         .collect::<BinanceSpotHttpResult<Vec<_>>>()?;
-
-    Ok(BinanceKlines {
-        price_exponent: decimal_exponent(price_scale)?,
-        qty_exponent: decimal_exponent(qty_scale)?,
-        klines,
-    })
-}
-
-fn decimal_i128_bytes(value: &str, scale: u32) -> BinanceSpotHttpResult<[u8; 16]> {
-    let mut decimal = Decimal::from_str_exact(value)
-        .map_err(|e| BinanceSpotHttpError::ResponseParseError(e.to_string()))?;
-    decimal.rescale(scale);
-    Ok(decimal.mantissa().to_le_bytes())
+    normalize_spot_kline_rows(rows)
 }
 
 fn spot_account_from_json(response: SpotAccountJson) -> BinanceSpotHttpResult<BinanceAccountInfo> {
@@ -2210,50 +2180,9 @@ fn spot_order_scales(response: &SpotOrderJson) -> BinanceSpotHttpResult<(u32, u3
     Ok((price_scale, qty_scale))
 }
 
-fn decimal_common_scale<'a>(
-    values: impl IntoIterator<Item = &'a str>,
-) -> BinanceSpotHttpResult<u32> {
-    values
-        .into_iter()
-        .filter(|value| !value.is_empty())
-        .try_fold(0, |scale, value| {
-            let decimal = Decimal::from_str_exact(value)
-                .map_err(|e| BinanceSpotHttpError::ResponseParseError(e.to_string()))?;
-            Ok(scale.max(decimal.scale()))
-        })
-}
-
-fn decimal_mantissa(value: &str, scale: u32) -> BinanceSpotHttpResult<i64> {
-    if value.is_empty() {
-        return Ok(0);
-    }
-    let mut decimal = Decimal::from_str_exact(value)
-        .map_err(|e| BinanceSpotHttpError::ResponseParseError(e.to_string()))?;
-    decimal.rescale(scale);
-    i64::try_from(decimal.mantissa()).map_err(|_| {
-        BinanceSpotHttpError::ResponseParseError(format!(
-            "decimal mantissa is outside i64 range: {value}"
-        ))
-    })
-}
-
 fn decimal_optional_mantissa(value: &str, scale: u32) -> BinanceSpotHttpResult<Option<i64>> {
     let mantissa = decimal_mantissa(value, scale)?;
     Ok((mantissa != 0).then_some(mantissa))
-}
-
-fn decimal_exponent(scale: u32) -> BinanceSpotHttpResult<i8> {
-    i8::try_from(scale)
-        .map(|scale| -scale)
-        .map_err(|_| BinanceSpotHttpError::ResponseParseError("decimal scale exceeds i8".into()))
-}
-
-fn millis_to_micros(timestamp: i64) -> BinanceSpotHttpResult<i64> {
-    timestamp.checked_mul(1_000).ok_or_else(|| {
-        BinanceSpotHttpError::ResponseParseError(format!(
-            "timestamp overflows microseconds: {timestamp}"
-        ))
-    })
 }
 
 fn valid_order_list_id(order_list_id: Option<i64>) -> Option<i64> {

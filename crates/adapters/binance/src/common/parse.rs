@@ -39,10 +39,13 @@ use crate::{
     },
     futures::http::models::{BinanceFuturesCoinSymbol, BinanceFuturesUsdSymbol},
     spot::{
-        http::models::{
-            BinanceAccountTrade, BinanceKlines, BinanceLotSizeFilterSbe, BinanceNewOrderResponse,
-            BinanceOrderResponse, BinancePriceFilterSbe, BinanceSymbolJson, BinanceSymbolSbe,
-            BinanceTrades,
+        http::{
+            error::{BinanceSpotHttpError, BinanceSpotHttpResult},
+            models::{
+                BinanceAccountTrade, BinanceKline, BinanceKlines, BinanceLotSizeFilterSbe,
+                BinanceNewOrderResponse, BinanceOrderResponse, BinancePriceFilterSbe,
+                BinanceSymbolJson, BinanceSymbolSbe, BinanceTrades,
+            },
         },
         sbe::spot::{
             order_side::OrderSide as SbeOrderSide, order_status::OrderStatus as SbeOrderStatus,
@@ -56,6 +59,115 @@ const CONTRACT_TYPE_CURRENT_MONTH: &str = "CURRENT_MONTH";
 const CONTRACT_TYPE_NEXT_MONTH: &str = "NEXT_MONTH";
 const CONTRACT_TYPE_CURRENT_QUARTER: &str = "CURRENT_QUARTER";
 const CONTRACT_TYPE_NEXT_QUARTER: &str = "NEXT_QUARTER";
+
+#[derive(Debug)]
+pub(crate) struct SpotKlineRow {
+    pub open_time_micros: i64,
+    pub open: String,
+    pub high: String,
+    pub low: String,
+    pub close: String,
+    pub volume: String,
+    pub close_time_micros: i64,
+    pub quote_volume: String,
+    pub num_trades: i64,
+    pub taker_buy_base_volume: String,
+    pub taker_buy_quote_volume: String,
+}
+
+pub(crate) fn normalize_spot_kline_rows(
+    rows: Vec<SpotKlineRow>,
+) -> BinanceSpotHttpResult<BinanceKlines> {
+    let price_scale = decimal_common_scale(rows.iter().flat_map(|row| {
+        [
+            row.open.as_str(),
+            row.high.as_str(),
+            row.low.as_str(),
+            row.close.as_str(),
+            row.quote_volume.as_str(),
+            row.taker_buy_quote_volume.as_str(),
+        ]
+    }))?;
+    let qty_scale = decimal_common_scale(
+        rows.iter()
+            .flat_map(|row| [row.volume.as_str(), row.taker_buy_base_volume.as_str()]),
+    )?;
+    let klines = rows
+        .into_iter()
+        .map(|row| {
+            Ok(BinanceKline {
+                open_time: row.open_time_micros,
+                open_price: decimal_mantissa(&row.open, price_scale)?,
+                high_price: decimal_mantissa(&row.high, price_scale)?,
+                low_price: decimal_mantissa(&row.low, price_scale)?,
+                close_price: decimal_mantissa(&row.close, price_scale)?,
+                volume: decimal_i128_bytes(&row.volume, qty_scale)?,
+                close_time: row.close_time_micros,
+                quote_volume: decimal_i128_bytes(&row.quote_volume, price_scale)?,
+                num_trades: row.num_trades,
+                taker_buy_base_volume: decimal_i128_bytes(&row.taker_buy_base_volume, qty_scale)?,
+                taker_buy_quote_volume: decimal_i128_bytes(
+                    &row.taker_buy_quote_volume,
+                    price_scale,
+                )?,
+            })
+        })
+        .collect::<BinanceSpotHttpResult<Vec<_>>>()?;
+
+    Ok(BinanceKlines {
+        price_exponent: decimal_exponent(price_scale)?,
+        qty_exponent: decimal_exponent(qty_scale)?,
+        klines,
+    })
+}
+
+pub(crate) fn decimal_common_scale<'a>(
+    values: impl IntoIterator<Item = &'a str>,
+) -> BinanceSpotHttpResult<u32> {
+    values
+        .into_iter()
+        .filter(|value| !value.is_empty())
+        .try_fold(0, |scale, value| {
+            let decimal = Decimal::from_str_exact(value)
+                .map_err(|e| BinanceSpotHttpError::ResponseParseError(e.to_string()))?;
+            Ok(scale.max(decimal.scale()))
+        })
+}
+
+pub(crate) fn decimal_mantissa(value: &str, scale: u32) -> BinanceSpotHttpResult<i64> {
+    if value.is_empty() {
+        return Ok(0);
+    }
+    let mut decimal = Decimal::from_str_exact(value)
+        .map_err(|e| BinanceSpotHttpError::ResponseParseError(e.to_string()))?;
+    decimal.rescale(scale);
+    i64::try_from(decimal.mantissa()).map_err(|_| {
+        BinanceSpotHttpError::ResponseParseError(format!(
+            "decimal mantissa is outside i64 range: {value}"
+        ))
+    })
+}
+
+pub(crate) fn decimal_i128_bytes(value: &str, scale: u32) -> BinanceSpotHttpResult<[u8; 16]> {
+    let mut decimal = Decimal::from_str_exact(value)
+        .map_err(|e| BinanceSpotHttpError::ResponseParseError(e.to_string()))?;
+    decimal.rescale(scale);
+    Ok(decimal.mantissa().to_le_bytes())
+}
+
+pub(crate) fn decimal_exponent(scale: u32) -> BinanceSpotHttpResult<i8> {
+    i8::try_from(scale)
+        .map(|scale| -scale)
+        .map_err(|_| BinanceSpotHttpError::ResponseParseError("decimal scale exceeds i8".into()))
+}
+
+pub(crate) fn millis_to_micros(timestamp: i64) -> BinanceSpotHttpResult<i64> {
+    timestamp.checked_mul(1_000).ok_or_else(|| {
+        BinanceSpotHttpError::ResponseParseError(format!(
+            "timestamp overflows microseconds: {timestamp}"
+        ))
+    })
+}
 
 pub(crate) fn parse_millis(value: i64, field: &str) -> anyhow::Result<UnixNanos> {
     parse_timestamp(value, UnixNanos::from_millis_checked(value), field)
