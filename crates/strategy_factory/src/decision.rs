@@ -168,7 +168,7 @@ pub enum ExitRule {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutionTiming {
-    NextActualSourceEventOpen,
+    NextExecutableExternalBarOpen,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -309,7 +309,7 @@ impl DecisionContract {
                 direction: DecisionDirection::LongOnly,
                 entry: EntryRule::CurrentFastEmaAboveSlowAndCloseAbovePrior72High,
                 exit: ExitRule::CloseBelowPrior24LowOrCurrentFastEmaNotAboveSlow,
-                execution: ExecutionTiming::NextActualSourceEventOpen,
+                execution: ExecutionTiming::NextExecutableExternalBarOpen,
                 terminal: TerminalRule::PenultimateSignalFinalOpenExecution,
                 entry_lookback: parameters.entry_lookback,
                 exit_lookback: parameters.exit_lookback,

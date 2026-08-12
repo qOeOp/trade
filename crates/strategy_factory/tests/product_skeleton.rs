@@ -98,7 +98,7 @@ fn application_preparation_carries_the_exact_dormant_decision_contract() {
     );
     assert_eq!(
         mechanism.execution(),
-        ExecutionTiming::NextActualSourceEventOpen
+        ExecutionTiming::NextExecutableExternalBarOpen
     );
     assert_eq!(
         mechanism.terminal(),
