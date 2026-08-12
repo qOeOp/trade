@@ -1,6 +1,7 @@
 use std::{
     cell::RefCell,
     cmp::min,
+    collections::VecDeque,
     fmt::Debug,
     ops::{Add, Sub},
     rc::Rc,
@@ -97,6 +98,7 @@ pub struct OrderMatchingEngine {
     account_ids: IndexMap<TraderId, AccountId>,
     cached_filled_qty: IndexMap<ClientOrderId, Quantity>,
     post_match_order_ids: IndexSet<ClientOrderId>,
+    deferred_market_order_ids: VecDeque<ClientOrderId>,
     ids_generator: IdsGenerator,
     last_trade_size: Option<Quantity>,
     trade_consumption: QuantityRaw,
@@ -183,6 +185,7 @@ impl OrderMatchingEngine {
             account_ids: IndexMap::new(),
             cached_filled_qty: IndexMap::new(),
             post_match_order_ids: IndexSet::new(),
+            deferred_market_order_ids: VecDeque::new(),
             ids_generator,
             last_trade_size: None,
             trade_consumption: 0,
@@ -238,6 +241,7 @@ impl OrderMatchingEngine {
         self.account_ids.clear();
         self.cached_filled_qty.clear();
         self.post_match_order_ids.clear();
+        self.deferred_market_order_ids.clear();
         self.core.reset();
         self.target_bid = None;
         self.target_ask = None;
@@ -1068,6 +1072,7 @@ impl OrderMatchingEngine {
     /// Returns true if an order with the given client order ID exists in the matching engine.
     pub fn order_exists(&self, client_order_id: ClientOrderId) -> bool {
         self.core.order_exists(client_order_id)
+            || self.deferred_market_order_ids.contains(&client_order_id)
     }
 
     #[must_use]
@@ -1657,7 +1662,23 @@ impl OrderMatchingEngine {
     }
 
     fn process_trade_ticks_from_bar(&mut self, bar: &Bar) {
-        let sizes = BarTickSizes::from_volume(bar.volume, self.instrument.size_increment());
+        let release_deferred_markets = !self.config.trade_on_close
+            && !bar.volume.is_zero()
+            && !self.deferred_market_order_ids.is_empty();
+        let mut sizes = BarTickSizes::from_volume(bar.volume, self.instrument.size_increment());
+
+        if release_deferred_markets {
+            let open_liquidity = if self.config.liquidity_consumption {
+                sizes.open
+            } else {
+                // Preserve reusable-liquidity behavior when consumption tracking is disabled.
+                bar.volume
+            };
+            let consumed = self.fill_deferred_market_orders(bar.open, open_liquidity);
+            if self.config.liquidity_consumption {
+                sizes.consume_open(consumed);
+            }
+        }
 
         let aggressor_side = if self.core.last.is_none_or(|last| bar.open > last) {
             AggressorSide::Buyer
@@ -3364,7 +3385,7 @@ impl OrderMatchingEngine {
 
     /// Processes an order cancel command.
     pub fn process_cancel(&mut self, command: &CancelOrder, account_id: AccountId) {
-        if !self.core.order_exists(command.client_order_id) {
+        if !self.order_exists(command.client_order_id) {
             self.generate_order_cancel_rejected(
                 command.trader_id,
                 command.strategy_id,
@@ -3534,7 +3555,89 @@ impl OrderMatchingEngine {
             log::debug!("Order already in cache: {e}");
         }
 
-        self.fill_market_order(order.client_order_id());
+        if self.config.trade_on_close {
+            self.fill_market_order(order.client_order_id());
+        } else if !self
+            .deferred_market_order_ids
+            .contains(&order.client_order_id())
+        {
+            self.deferred_market_order_ids
+                .push_back(order.client_order_id());
+        }
+    }
+
+    fn fill_deferred_market_orders(
+        &mut self,
+        open: Price,
+        open_liquidity: Quantity,
+    ) -> QuantityRaw {
+        let mut deferred = std::mem::take(&mut self.deferred_market_order_ids);
+        self.trade_consumption = 0;
+
+        while let Some(client_order_id) = deferred.pop_front() {
+            let Some(leaves_qty) = self.effective_order_leaves(client_order_id) else {
+                continue;
+            };
+
+            let fill_qty = if self.config.liquidity_consumption {
+                let remaining = open_liquidity.raw.saturating_sub(self.trade_consumption);
+                if remaining == 0 {
+                    self.deferred_market_order_ids.push_back(client_order_id);
+                    self.deferred_market_order_ids.append(&mut deferred);
+                    break;
+                }
+                Quantity::from_raw(min(leaves_qty.raw, remaining), leaves_qty.precision)
+            } else {
+                // Preserve the matching engine's reusable-liquidity behavior when
+                // global consumption tracking is disabled.
+                leaves_qty
+            };
+
+            let applied = self.fill_market_order_with_explicit_fills(
+                client_order_id,
+                Some(vec![(open, fill_qty)]),
+            );
+            if self.config.liquidity_consumption {
+                self.trade_consumption = self.trade_consumption.saturating_add(applied);
+            }
+
+            if self.effective_order_leaves(client_order_id).is_some() {
+                self.deferred_market_order_ids.push_back(client_order_id);
+                self.deferred_market_order_ids.append(&mut deferred);
+                break;
+            }
+        }
+
+        let consumed = self.trade_consumption;
+        self.trade_consumption = 0;
+        consumed
+    }
+
+    fn effective_order_leaves(&self, client_order_id: ClientOrderId) -> Option<Quantity> {
+        let cache = self.cache.borrow();
+        let order = cache.order(&client_order_id)?;
+        if order.is_closed() {
+            return None;
+        }
+        let filled_qty = self
+            .cached_filled_qty
+            .get(&client_order_id)
+            .copied()
+            .unwrap_or_else(|| order.filled_qty());
+        Some(order.quantity().saturating_sub(filled_qty))
+    }
+
+    fn observed_order_filled_raw(&self, client_order_id: ClientOrderId) -> QuantityRaw {
+        self.cached_filled_qty
+            .get(&client_order_id)
+            .copied()
+            .or_else(|| {
+                self.cache
+                    .borrow()
+                    .order(&client_order_id)
+                    .map(|order| order.filled_qty())
+            })
+            .map_or(0, |filled| filled.raw)
     }
 
     fn process_limit_order(&mut self, order: &mut OrderAny) {
@@ -4479,6 +4582,15 @@ impl OrderMatchingEngine {
     /// The order is filled as a taker against available liquidity.
     /// Reduce-only orders are canceled if no position exists.
     pub fn fill_market_order(&mut self, client_order_id: ClientOrderId) {
+        self.fill_market_order_with_explicit_fills(client_order_id, None);
+    }
+
+    fn fill_market_order_with_explicit_fills(
+        &mut self,
+        client_order_id: ClientOrderId,
+        explicit_fills: Option<Vec<(Price, Quantity)>>,
+    ) -> QuantityRaw {
+        let filled_before = self.observed_order_filled_raw(client_order_id);
         let mut order = match self
             .cache
             .borrow()
@@ -4488,13 +4600,13 @@ impl OrderMatchingEngine {
             Some(order) => order,
             None => {
                 log::error!("Cannot fill market order: order {client_order_id} not found in cache");
-                return;
+                return 0;
             }
         };
 
         if order.is_closed() {
             self.purge_stale_core_entry(client_order_id);
-            return;
+            return 0;
         }
 
         // Convert quote-denominated quantity at fill time for trigger-style market
@@ -4504,7 +4616,7 @@ impl OrderMatchingEngine {
             && !self.instrument.is_inverse()
             && !self.convert_quote_to_base_quantity(&mut order)
         {
-            return;
+            return 0;
         }
 
         if let Some(filled_qty) = self.cached_filled_qty.get(&order.client_order_id())
@@ -4517,7 +4629,7 @@ impl OrderMatchingEngine {
                 order.filled_qty(),
                 order.quantity()
             );
-            return;
+            return 0;
         }
 
         let (venue_position_id, position) = self.fill_position_for_order(&order, Some(true));
@@ -4528,11 +4640,18 @@ impl OrderMatchingEngine {
                 order.order_type()
             );
             self.cancel_order(&order, None);
-            return;
+            return 0;
         }
 
         order.set_liquidity_side(LiquiditySide::Taker);
-        let (mut fills, from_synthetic) =
+        let has_explicit_fills = explicit_fills.is_some();
+        let (mut fills, from_synthetic) = if let Some(fills) = explicit_fills {
+            // An external bar open is an explicit, bounded execution input for
+            // deferred plain market orders. It deliberately bypasses book
+            // iteration so unrelated stop/limit orders cannot observe a tick
+            // that exists only because a deferred market order is present.
+            (fills, true)
+        } else {
             match self.determine_market_fill_model_price_and_volume(&order) {
                 Ok(result) => result,
                 Err(e) => {
@@ -4540,9 +4659,10 @@ impl OrderMatchingEngine {
                         "Cannot fill market order {}: fill model failed: {e}",
                         order.client_order_id()
                     );
-                    return;
+                    return 0;
                 }
-            };
+            }
+        };
 
         // Apply protection price filtering at fill time (trigger-time semantics for stops)
         let protection_price: Option<Price> = if let Some(protection_points) =
@@ -4586,20 +4706,41 @@ impl OrderMatchingEngine {
             );
         }
 
-        if let Err(e) = self.apply_fills(
-            &order,
-            &fills,
-            LiquiditySide::Taker,
-            if self.config.use_reduce_only && order.is_reduce_only() {
-                venue_position_id
-            } else {
-                None
-            },
-            position.as_ref(),
-            protection_price,
-        ) {
+        let apply_result = if has_explicit_fills {
+            self.apply_fills_inner(
+                &order,
+                &fills,
+                LiquiditySide::Taker,
+                if self.config.use_reduce_only && order.is_reduce_only() {
+                    venue_position_id
+                } else {
+                    None
+                },
+                position.as_ref(),
+                protection_price,
+                false,
+            )
+        } else {
+            self.apply_fills(
+                &order,
+                &fills,
+                LiquiditySide::Taker,
+                if self.config.use_reduce_only && order.is_reduce_only() {
+                    venue_position_id
+                } else {
+                    None
+                },
+                position.as_ref(),
+                protection_price,
+            )
+        };
+
+        if let Err(e) = apply_result {
             log::error!("Cannot fill market order {}: {e}", order.client_order_id());
         }
+
+        self.observed_order_filled_raw(client_order_id)
+            .saturating_sub(filled_before)
     }
 
     fn filter_fills_by_protection(
@@ -4883,6 +5024,28 @@ impl OrderMatchingEngine {
         position: Option<&Position>,
         protection_price: Option<Price>,
     ) -> anyhow::Result<()> {
+        self.apply_fills_inner(
+            order,
+            fills,
+            liquidity_side,
+            venue_position_id,
+            position,
+            protection_price,
+            true,
+        )
+    }
+
+    #[expect(clippy::too_many_arguments)]
+    fn apply_fills_inner(
+        &mut self,
+        order: &OrderAny,
+        fills: &[(Price, Quantity)],
+        liquidity_side: LiquiditySide,
+        venue_position_id: Option<PositionId>,
+        position: Option<&Position>,
+        protection_price: Option<Price>,
+        allow_l1_slip_remainder: bool,
+    ) -> anyhow::Result<()> {
         if order.time_in_force() == TimeInForce::Fok {
             let mut total_size = Quantity::zero(order.quantity().precision);
 
@@ -5054,7 +5217,8 @@ impl OrderMatchingEngine {
 
         // `filled_in_loop` covers the just-partially-filled case where the
         // local clone's status has not seen the fill events yet.
-        if leaves_remaining
+        if allow_l1_slip_remainder
+            && leaves_remaining
             && (order.is_open() || filled_in_loop)
             && self.book_type == BookType::L1_MBP
             && matches!(
@@ -5863,6 +6027,8 @@ impl OrderMatchingEngine {
             self.delete_core_order(order.client_order_id());
         }
         self.cached_filled_qty.swap_remove(&order.client_order_id());
+        self.deferred_market_order_ids
+            .retain(|id| *id != order.client_order_id());
 
         let venue_order_id = self.ids_generator.get_venue_order_id(order).unwrap();
         self.generate_order_canceled(order, venue_order_id);
@@ -6677,6 +6843,10 @@ impl BarTickSizes {
                 }
             }
         }
+    }
+
+    fn consume_open(&mut self, consumed: QuantityRaw) {
+        self.open = Quantity::from_raw(self.open.raw.saturating_sub(consumed), self.open.precision);
     }
 }
 

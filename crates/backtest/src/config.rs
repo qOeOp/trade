@@ -305,6 +305,12 @@ pub struct SimulatedVenueConfig {
     pub use_market_order_acks: bool,
     #[builder(default = true)]
     pub bar_execution: bool,
+    /// If plain market orders submitted after a bar should fill on that bar's close.
+    ///
+    /// Disable for bar-only simulations where they should wait for the next
+    /// executable external Last or Mid bar open.
+    #[builder(default = true)]
+    pub trade_on_close: bool,
     #[builder(default = false)]
     pub bar_adaptive_high_low_ordering: bool,
     #[builder(default = true)]

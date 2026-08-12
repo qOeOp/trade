@@ -6,6 +6,12 @@ use serde::{Deserialize, Serialize};
 pub struct OrderMatchingEngineConfig {
     #[builder(default = true)]
     pub bar_execution: bool,
+    /// If plain market orders submitted after a bar should fill on that bar's close.
+    ///
+    /// When disabled, such orders wait for the next executable external Last or Mid
+    /// bar and fill from its open market state. Non-bar data cannot release them.
+    #[builder(default = true)]
+    pub trade_on_close: bool,
     #[builder(default)]
     pub bar_adaptive_high_low_ordering: bool,
     #[builder(default = true)]
@@ -49,6 +55,7 @@ mod tests {
     fn test_default() {
         let config = OrderMatchingEngineConfig::default();
         assert!(config.bar_execution);
+        assert!(config.trade_on_close);
         assert!(!config.bar_adaptive_high_low_ordering);
         assert!(config.trade_execution);
         assert!(!config.liquidity_consumption);

@@ -4159,6 +4159,276 @@ impl DataActor for BarSubscriberStrategy {
     }
 }
 
+struct SubmitMarketOnFirstBar {
+    core: StrategyCore,
+    instrument_id: InstrumentId,
+    bar_type: BarType,
+    submitted: bool,
+    fills: Rc<RefCell<Vec<(Price, UnixNanos)>>>,
+}
+
+impl SubmitMarketOnFirstBar {
+    fn new(
+        instrument_id: InstrumentId,
+        bar_type: BarType,
+        fills: Rc<RefCell<Vec<(Price, UnixNanos)>>>,
+    ) -> Self {
+        let config = StrategyConfig {
+            strategy_id: Some(StrategyId::from("BAR-MARKET-TIMING-001")),
+            order_id_tag: Some("001".to_string()),
+            ..Default::default()
+        };
+        Self {
+            core: StrategyCore::new(config),
+            instrument_id,
+            bar_type,
+            submitted: false,
+            fills,
+        }
+    }
+}
+
+vibe_strategy!(SubmitMarketOnFirstBar, {
+    fn on_order_filled(&mut self, event: &OrderFilled) {
+        self.fills
+            .borrow_mut()
+            .push((event.last_px, event.ts_event));
+    }
+});
+
+impl Debug for SubmitMarketOnFirstBar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct(stringify!(SubmitMarketOnFirstBar)).finish()
+    }
+}
+
+impl DataActor for SubmitMarketOnFirstBar {
+    fn on_start(&mut self) -> anyhow::Result<()> {
+        self.subscribe_bars(self.bar_type, None, None);
+        Ok(())
+    }
+
+    fn on_bar(&mut self, _bar: &Bar) -> anyhow::Result<()> {
+        if self.submitted {
+            return Ok(());
+        }
+        self.submitted = true;
+        let order = self.order().market(
+            self.instrument_id,
+            OrderSide::Buy,
+            Quantity::from("1.000"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        self.submit_order(order, None, None, None)
+    }
+}
+
+fn external_last_bar_data(
+    bar_type: BarType,
+    open: &str,
+    high: &str,
+    low: &str,
+    close: &str,
+    ts_init: u64,
+) -> Data {
+    Data::Bar(Bar::new(
+        bar_type,
+        Price::from(open),
+        Price::from(high),
+        Price::from(low),
+        Price::from(close),
+        Quantity::from("100.000"),
+        ts_init.into(),
+        ts_init.into(),
+    ))
+}
+
+fn bar_market_timing_engine(
+    instrument: &InstrumentAny,
+    trade_on_close: bool,
+    fills: Rc<RefCell<Vec<(Price, UnixNanos)>>>,
+) -> BacktestEngine {
+    let instrument_id = instrument.id();
+    let bar_type = BarType::new(
+        instrument_id,
+        BarSpecification::new(1, BarAggregation::Hour, PriceType::Last),
+        AggregationSource::External,
+    );
+    let config = BacktestEngineConfig {
+        bypass_logging: true,
+        run_analysis: false,
+        ..Default::default()
+    };
+    let mut engine = BacktestEngine::new(config).unwrap();
+    let venue_config = SimulatedVenueConfig::builder()
+        .venue(instrument_id.venue)
+        .oms_type(OmsType::Netting)
+        .account_type(AccountType::Margin)
+        .book_type(BookType::L1_MBP)
+        .starting_balances(vec![Money::from("1_000_000 USDT")])
+        .trade_on_close(trade_on_close)
+        .build()
+        .unwrap();
+    engine.add_venue(venue_config).unwrap();
+    engine.add_instrument(instrument).unwrap();
+    engine
+        .add_strategy(SubmitMarketOnFirstBar::new(instrument_id, bar_type, fills))
+        .unwrap();
+    engine
+}
+
+#[rstest]
+fn test_bar_market_order_default_fills_on_signal_bar_close(
+    crypto_perpetual_ethusdt: CryptoPerpetual,
+) {
+    let instrument = InstrumentAny::CryptoPerpetual(crypto_perpetual_ethusdt);
+    let instrument_id = instrument.id();
+    let bar_type = BarType::new(
+        instrument_id,
+        BarSpecification::new(1, BarAggregation::Hour, PriceType::Last),
+        AggregationSource::External,
+    );
+    let fills = Rc::new(RefCell::new(Vec::new()));
+    let mut engine = bar_market_timing_engine(&instrument, true, Rc::clone(&fills));
+    engine
+        .add_data(
+            vec![external_last_bar_data(
+                bar_type,
+                "1000.00",
+                "1010.00",
+                "990.00",
+                "1005.00",
+                1_000_000_000,
+            )],
+            None,
+            true,
+            true,
+        )
+        .unwrap();
+
+    engine.run(None, None, None, false).unwrap();
+
+    assert_eq!(
+        fills.borrow().as_slice(),
+        &[(Price::from("1005.00"), UnixNanos::from(1_000_000_000))]
+    );
+}
+
+#[rstest]
+fn test_bar_market_order_waits_through_custom_data_and_gap_for_next_bar_open(
+    crypto_perpetual_ethusdt: CryptoPerpetual,
+) {
+    let instrument = InstrumentAny::CryptoPerpetual(crypto_perpetual_ethusdt);
+    let instrument_id = instrument.id();
+    let bar_type = BarType::new(
+        instrument_id,
+        BarSpecification::new(1, BarAggregation::Hour, PriceType::Last),
+        AggregationSource::External,
+    );
+    let fills = Rc::new(RefCell::new(Vec::new()));
+    let mut engine = bar_market_timing_engine(&instrument, false, Rc::clone(&fills));
+    engine
+        .add_data(
+            vec![external_last_bar_data(
+                bar_type,
+                "1000.00",
+                "1010.00",
+                "990.00",
+                "1005.00",
+                1_000_000_000,
+            )],
+            None,
+            true,
+            true,
+        )
+        .unwrap();
+    engine.run(None, None, None, true).unwrap();
+    assert!(fills.borrow().is_empty(), "signal bar must not fill");
+
+    engine.clear_data();
+    engine
+        .add_data(
+            vec![Data::Custom(stub_custom_data(2_000_000_000, 7, None, None))],
+            None,
+            true,
+            true,
+        )
+        .unwrap();
+    engine.run(None, None, None, true).unwrap();
+    assert!(fills.borrow().is_empty(), "CustomData must not fill");
+
+    engine.clear_data();
+    engine
+        .add_data(
+            vec![external_last_bar_data(
+                bar_type,
+                "1100.00",
+                "1110.00",
+                "1090.00",
+                "1105.00",
+                4_000_000_000,
+            )],
+            None,
+            true,
+            true,
+        )
+        .unwrap();
+    engine.run(None, None, None, false).unwrap();
+
+    assert_eq!(
+        fills.borrow().as_slice(),
+        &[(Price::from("1100.00"), UnixNanos::from(4_000_000_000))]
+    );
+    assert_eq!(
+        engine.get_result().iterations,
+        3,
+        "the absent 3-second slot must not become a synthetic data event",
+    );
+}
+
+#[rstest]
+fn test_bar_market_order_next_open_mode_has_no_end_of_data_fill(
+    crypto_perpetual_ethusdt: CryptoPerpetual,
+) {
+    let instrument = InstrumentAny::CryptoPerpetual(crypto_perpetual_ethusdt);
+    let instrument_id = instrument.id();
+    let bar_type = BarType::new(
+        instrument_id,
+        BarSpecification::new(1, BarAggregation::Hour, PriceType::Last),
+        AggregationSource::External,
+    );
+    let fills = Rc::new(RefCell::new(Vec::new()));
+    let mut engine = bar_market_timing_engine(&instrument, false, Rc::clone(&fills));
+    engine
+        .add_data(
+            vec![external_last_bar_data(
+                bar_type,
+                "1000.00",
+                "1010.00",
+                "990.00",
+                "1005.00",
+                1_000_000_000,
+            )],
+            None,
+            true,
+            true,
+        )
+        .unwrap();
+
+    engine.run(None, None, None, false).unwrap();
+
+    assert!(
+        fills.borrow().is_empty(),
+        "end-of-data must not synthesize a next-bar fill",
+    );
+}
+
 #[rstest]
 fn test_streaming_no_dummy_bars_past_batch_data(crypto_perpetual_ethusdt: CryptoPerpetual) {
     let mut engine = create_engine();

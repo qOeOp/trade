@@ -137,6 +137,7 @@ pub struct SimulatedExchange {
     inflight_queue: BinaryHeap<InflightCommand>,
     inflight_counter: AHashMap<UnixNanos, u32>,
     bar_execution: bool,
+    trade_on_close: bool,
     bar_adaptive_high_low_ordering: bool,
     trade_execution: bool,
     liquidity_consumption: bool,
@@ -223,6 +224,7 @@ impl SimulatedExchange {
             inflight_queue: BinaryHeap::new(),
             inflight_counter: AHashMap::new(),
             bar_execution: config.bar_execution,
+            trade_on_close: config.trade_on_close,
             bar_adaptive_high_low_ordering: config.bar_adaptive_high_low_ordering,
             trade_execution: config.trade_execution,
             liquidity_consumption: config.liquidity_consumption,
@@ -387,6 +389,7 @@ impl SimulatedExchange {
 
         let matching_engine_config = OrderMatchingEngineConfig::builder()
             .bar_execution(self.bar_execution)
+            .trade_on_close(self.trade_on_close)
             .bar_adaptive_high_low_ordering(self.bar_adaptive_high_low_ordering)
             .trade_execution(self.trade_execution)
             .liquidity_consumption(self.liquidity_consumption)
