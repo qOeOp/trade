@@ -1,12 +1,13 @@
 use rstest::rstest;
+use vibe_model::types::Money;
 
 use vibe_strategy_factory::{
     artifact::{BUILD_RECIPE_LOCATOR, GUEST_SOURCE_LOCATOR},
     decision::{
         ChannelProjection, CoreWasmValueType, DECISION_ABI_VERSION, DECISION_EXPORT,
-        DECISION_SIGNATURE, DecisionAction, DecisionDirection, DecisionInput, EntryRule,
-        ExecutionTiming, ExitRule, FinalBarInvocation, TerminalRule, ValidationInvocation,
-        WarmupInvocation, ZeroVolumeInvocation,
+        DECISION_SIGNATURE, DecisionAction, DecisionDirection, DecisionInput, EconomicDisposition,
+        EntryRule, ExecutionTiming, ExitRule, FinalBarInvocation, TerminalRule,
+        ValidationInvocation, WarmupInvocation, ZeroVolumeInvocation,
     },
     intent::FROZEN_INTENT_ID,
     prepare_frozen_pilot,
@@ -58,7 +59,7 @@ fn intent_artifact_and_runtime_projection_are_deterministic() {
 }
 
 #[rstest]
-fn application_preparation_carries_the_exact_dormant_decision_contract() {
+fn application_preparation_carries_the_exact_runtime_decision_contract() {
     let prepared = prepare_frozen_pilot().expect("frozen product skeleton prepares");
     let contract = prepared.decision_contract();
 
@@ -108,6 +109,22 @@ fn application_preparation_carries_the_exact_dormant_decision_contract() {
     assert_eq!(mechanism.exit_lookback(), 24);
     assert_eq!(mechanism.fast_ema(), 24);
     assert_eq!(mechanism.slow_ema(), 120);
+    assert_eq!(contract.trade_quantity().to_string(), "0.000010");
+    assert_eq!(
+        contract.starting_balance().to_string(),
+        "1000000.00000000 USDT"
+    );
+    assert!(!mechanism.execution().trade_on_close());
+    assert_eq!(
+        contract.economic_rule().falsifier(),
+        "validation_net_pnl_after_native_commissions_lte_zero"
+    );
+    assert_eq!(
+        contract
+            .economic_rule()
+            .disposition(Money::from("0.00000001 USDT")),
+        EconomicDisposition::SurvivedNotAdmitted
+    );
 
     let invocation = contract.invocation();
     assert_eq!(

@@ -1,20 +1,12 @@
-use std::str::FromStr;
+use std::{io::Write, str::FromStr};
 
 use anyhow::Context;
 use serde::Serialize;
 use vibe_model::types::Money;
 
-use crate::{PilotRun, prepare_frozen_pilot};
+use crate::{PilotRun, decision::EconomicDisposition, prepare_frozen_pilot};
 
 const RECEIPT_KIND: &str = "strategy-factory-trial-receipt";
-const ECONOMIC_FALSIFIER: &str = "validation_net_pnl_after_native_commissions_lte_zero";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum EconomicDisposition {
-    Rejected,
-    SurvivedNotAdmitted,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -54,6 +46,7 @@ impl TrialReceipt {
     pub fn issue(run: &PilotRun) -> anyhow::Result<Self> {
         let prepared = prepare_frozen_pilot()?;
         let intent = prepared.intent();
+        let economic_rule = prepared.decision_contract().economic_rule();
         let document = run.canonical_result().as_value();
         let summary = document
             .get("summary")
@@ -77,6 +70,10 @@ impl TrialReceipt {
         anyhow::ensure!(
             starting.currency == final_value.currency && starting.currency == commissions.currency,
             "trial receipt monetary currencies do not match"
+        );
+        anyhow::ensure!(
+            starting == prepared.decision_contract().starting_balance(),
+            "canonical starting balance does not match the frozen decision contract"
         );
         anyhow::ensure!(
             commissions.raw > 0,
@@ -120,8 +117,8 @@ impl TrialReceipt {
             native_commissions: commissions.to_string(),
             terminal_flat,
             software_disposition: "ACCEPTED".to_string(),
-            economic_falsifier: ECONOMIC_FALSIFIER.to_string(),
-            economic_disposition: economic_disposition(net_pnl),
+            economic_falsifier: economic_rule.falsifier().to_string(),
+            economic_disposition: economic_rule.disposition(net_pnl),
             non_claims: intent.payload.non_claims.clone(),
         };
         Ok(Self {
@@ -138,7 +135,14 @@ impl TrialReceipt {
     }
 
     pub fn to_bytes(&self) -> anyhow::Result<Vec<u8>> {
-        Ok(serde_json::to_vec(self)?)
+        let mut bytes = serde_json::to_vec(self)?;
+        bytes.push(b'\n');
+        Ok(bytes)
+    }
+
+    pub fn write_to(&self, mut writer: impl Write) -> anyhow::Result<()> {
+        writer.write_all(&self.to_bytes()?)?;
+        Ok(())
     }
 
     pub const fn economic_disposition(&self) -> EconomicDisposition {
@@ -162,19 +166,12 @@ fn validate_canonical_bytes(bytes: &[u8], expected: &TrialReceipt) -> anyhow::Re
     Ok(())
 }
 
-const fn economic_disposition(net_pnl: Money) -> EconomicDisposition {
-    if net_pnl.raw <= 0 {
-        EconomicDisposition::Rejected
-    } else {
-        EconomicDisposition::SurvivedNotAdmitted
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
 
     use super::*;
+    use crate::decision::EconomicRule;
 
     fn sample_receipt() -> TrialReceipt {
         let body = TrialReceiptBody {
@@ -196,7 +193,9 @@ mod tests {
             native_commissions: "0.00000001 USDT".to_string(),
             terminal_flat: true,
             software_disposition: "ACCEPTED".to_string(),
-            economic_falsifier: ECONOMIC_FALSIFIER.to_string(),
+            economic_falsifier: EconomicRule::RejectNonPositiveNetPnlOtherwiseSurvivedNotAdmitted
+                .falsifier()
+                .to_string(),
             economic_disposition: EconomicDisposition::SurvivedNotAdmitted,
             non_claims: vec!["alpha".to_string()],
         };
@@ -209,15 +208,18 @@ mod tests {
     #[rstest]
     fn frozen_economic_falsifier_rejects_nonpositive_net_pnl_only() {
         assert_eq!(
-            economic_disposition(Money::from("-0.00000001 USDT")),
+            EconomicRule::RejectNonPositiveNetPnlOtherwiseSurvivedNotAdmitted
+                .disposition(Money::from("-0.00000001 USDT")),
             EconomicDisposition::Rejected
         );
         assert_eq!(
-            economic_disposition(Money::from("0.00000000 USDT")),
+            EconomicRule::RejectNonPositiveNetPnlOtherwiseSurvivedNotAdmitted
+                .disposition(Money::from("0.00000000 USDT")),
             EconomicDisposition::Rejected
         );
         assert_eq!(
-            economic_disposition(Money::from("0.00000001 USDT")),
+            EconomicRule::RejectNonPositiveNetPnlOtherwiseSurvivedNotAdmitted
+                .disposition(Money::from("0.00000001 USDT")),
             EconomicDisposition::SurvivedNotAdmitted
         );
     }
@@ -226,7 +228,11 @@ mod tests {
     fn receipt_parser_requires_exact_run_derived_bytes() {
         let receipt = sample_receipt();
         let bytes = receipt.to_bytes().unwrap();
+        assert!(bytes.ends_with(b"\n"));
         assert!(validate_canonical_bytes(&bytes, &receipt).is_ok());
+        let mut emitted = Vec::new();
+        receipt.write_to(&mut emitted).unwrap();
+        assert_eq!(emitted, bytes);
 
         let mut tampered: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         tampered["body"]["final_balance"] = "999999.00000000 USDT".into();

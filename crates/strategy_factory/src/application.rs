@@ -51,8 +51,6 @@ const EXPECTED_WALL_SLOTS: usize = 17_544;
 const EXPECTED_ACTUAL_EVENTS: usize = 17_543;
 const EXPECTED_EXECUTABLE_BARS: usize = 17_542;
 const BAR_TYPE: &str = "BTCUSDT.BINANCE-1-HOUR-LAST-EXTERNAL";
-const TRADE_SIZE: &str = "0.000010";
-const STARTING_BALANCE: &str = "1000000 USDT";
 const STRATEGY_ID: &str = "STRATEGY-FACTORY-PILOT-001";
 
 #[derive(Debug)]
@@ -131,20 +129,36 @@ fn execute_loaded_pilot(
     loaded: LoadedPilotData,
 ) -> anyhow::Result<PilotRun> {
     let callback_failure = Rc::new(RefCell::new(None));
+    let trade_quantity = prepared.decision_contract().trade_quantity();
+    let starting_balance = prepared.decision_contract().starting_balance();
+    let trade_on_close = prepared
+        .decision_contract()
+        .mechanism()
+        .execution()
+        .trade_on_close();
     let strategy = FrozenPilotStrategy::new(
         prepared,
         instrument.id(),
         bar_type,
-        Quantity::from(TRADE_SIZE),
+        trade_quantity,
         Rc::clone(&callback_failure),
     )?;
-    execute_loaded_pilot_with_strategy(instrument, loaded, strategy, &callback_failure)
+    execute_loaded_pilot_with_strategy(
+        instrument,
+        loaded,
+        strategy,
+        starting_balance,
+        trade_on_close,
+        &callback_failure,
+    )
 }
 
 fn execute_loaded_pilot_with_strategy(
     instrument: &InstrumentAny,
     loaded: LoadedPilotData,
     strategy: FrozenPilotStrategy,
+    starting_balance: Money,
+    trade_on_close: bool,
     callback_failure: &Rc<RefCell<Option<String>>>,
 ) -> anyhow::Result<PilotRun> {
     let mut engine = BacktestEngine::new(BacktestEngineConfig {
@@ -162,8 +176,8 @@ fn execute_loaded_pilot_with_strategy(
             .oms_type(OmsType::Netting)
             .account_type(AccountType::Cash)
             .book_type(BookType::L1_MBP)
-            .starting_balances(vec![Money::from(STARTING_BALANCE)])
-            .trade_on_close(false)
+            .starting_balances(vec![starting_balance])
+            .trade_on_close(trade_on_close)
             .build()?,
     )?;
     engine.add_instrument(instrument)?;
@@ -833,6 +847,13 @@ mod tests {
     #[rstest]
     fn swallowed_penultimate_callback_failure_fails_the_application() {
         let prepared = prepare_frozen_pilot().unwrap();
+        let trade_quantity = prepared.decision_contract().trade_quantity();
+        let starting_balance = prepared.decision_contract().starting_balance();
+        let trade_on_close = prepared
+            .decision_contract()
+            .mechanism()
+            .execution()
+            .trade_on_close();
         let instrument = InstrumentAny::CurrencyPair(currency_pair_btcusdt());
         let bar_type = BarType::from_str(BAR_TYPE).unwrap();
         let callback_failure = Rc::new(RefCell::new(None));
@@ -840,7 +861,7 @@ mod tests {
             prepared,
             instrument.id(),
             bar_type,
-            Quantity::from(TRADE_SIZE),
+            trade_quantity,
             Rc::clone(&callback_failure),
         )
         .unwrap();
@@ -858,9 +879,15 @@ mod tests {
             data,
         };
 
-        let e =
-            execute_loaded_pilot_with_strategy(&instrument, loaded, strategy, &callback_failure)
-                .unwrap_err();
+        let e = execute_loaded_pilot_with_strategy(
+            &instrument,
+            loaded,
+            strategy,
+            starting_balance,
+            trade_on_close,
+            &callback_failure,
+        )
+        .unwrap_err();
         assert!(
             e.to_string()
                 .contains("forced penultimate strategy callback failure")
@@ -870,6 +897,12 @@ mod tests {
     #[rstest]
     fn unfilled_market_order_cannot_satisfy_software_acceptance() {
         let prepared = prepare_frozen_pilot().unwrap();
+        let starting_balance = prepared.decision_contract().starting_balance();
+        let trade_on_close = prepared
+            .decision_contract()
+            .mechanism()
+            .execution()
+            .trade_on_close();
         let instrument = InstrumentAny::CurrencyPair(currency_pair_btcusdt());
         let bar_type = BarType::from_str(BAR_TYPE).unwrap();
         let callback_failure = Rc::new(RefCell::new(None));
@@ -895,9 +928,15 @@ mod tests {
             data,
         };
 
-        let e =
-            execute_loaded_pilot_with_strategy(&instrument, loaded, strategy, &callback_failure)
-                .unwrap_err();
+        let e = execute_loaded_pilot_with_strategy(
+            &instrument,
+            loaded,
+            strategy,
+            starting_balance,
+            trade_on_close,
+            &callback_failure,
+        )
+        .unwrap_err();
         assert!(
             e.to_string()
                 .contains("terminal invariant failed: orders.inflight"),

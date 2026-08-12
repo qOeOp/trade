@@ -1,6 +1,8 @@
-use std::convert::TryFrom;
+use std::{convert::TryFrom, str::FromStr};
 
+use serde::Serialize;
 use thiserror::Error;
+use vibe_model::types::{Money, Quantity};
 
 use crate::intent::{IntentError, ResearchIntent};
 
@@ -171,6 +173,47 @@ pub enum ExecutionTiming {
     NextExecutableExternalBarOpen,
 }
 
+impl ExecutionTiming {
+    pub const fn trade_on_close(self) -> bool {
+        match self {
+            Self::NextExecutableExternalBarOpen => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum EconomicDisposition {
+    Rejected,
+    SurvivedNotAdmitted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EconomicRule {
+    RejectNonPositiveNetPnlOtherwiseSurvivedNotAdmitted,
+}
+
+impl EconomicRule {
+    pub const fn falsifier(self) -> &'static str {
+        match self {
+            Self::RejectNonPositiveNetPnlOtherwiseSurvivedNotAdmitted => {
+                "validation_net_pnl_after_native_commissions_lte_zero"
+            }
+        }
+    }
+
+    pub const fn disposition(self, net_pnl: Money) -> EconomicDisposition {
+        match self {
+            Self::RejectNonPositiveNetPnlOtherwiseSurvivedNotAdmitted if net_pnl.raw <= 0 => {
+                EconomicDisposition::Rejected
+            }
+            Self::RejectNonPositiveNetPnlOtherwiseSurvivedNotAdmitted => {
+                EconomicDisposition::SurvivedNotAdmitted
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerminalRule {
     PenultimateSignalFinalOpenExecution,
@@ -290,6 +333,9 @@ pub struct DecisionContract {
     signature: CoreWasmSignature,
     intent_identity: String,
     pilot_id: String,
+    trade_quantity: Quantity,
+    starting_balance: Money,
+    economic_rule: EconomicRule,
     mechanism: MechanismContract,
     invocation: InvocationContract,
 }
@@ -298,6 +344,12 @@ impl DecisionContract {
     pub fn for_intent(intent: &ResearchIntent) -> Result<Self, DecisionError> {
         intent.validate_frozen_binding()?;
         let parameters = &intent.payload.mechanism.parameters;
+        let quantity = intent
+            .payload
+            .costs
+            .quantity
+            .strip_suffix(" BTC")
+            .ok_or(DecisionError::IntentProjection("quantity currency"))?;
 
         Ok(Self {
             version: DECISION_ABI_VERSION,
@@ -305,6 +357,11 @@ impl DecisionContract {
             signature: DECISION_SIGNATURE,
             intent_identity: intent.identity.clone(),
             pilot_id: intent.payload.pilot_id.clone(),
+            trade_quantity: Quantity::from_str(quantity)
+                .map_err(|_| DecisionError::IntentProjection("quantity"))?,
+            starting_balance: Money::from_str(&intent.payload.costs.initial_balance)
+                .map_err(|_| DecisionError::IntentProjection("starting balance"))?,
+            economic_rule: EconomicRule::RejectNonPositiveNetPnlOtherwiseSurvivedNotAdmitted,
             mechanism: MechanismContract {
                 direction: DecisionDirection::LongOnly,
                 entry: EntryRule::CurrentFastEmaAboveSlowAndCloseAbovePrior72High,
@@ -346,6 +403,18 @@ impl DecisionContract {
         &self.pilot_id
     }
 
+    pub const fn trade_quantity(&self) -> Quantity {
+        self.trade_quantity
+    }
+
+    pub const fn starting_balance(&self) -> Money {
+        self.starting_balance
+    }
+
+    pub const fn economic_rule(&self) -> EconomicRule {
+        self.economic_rule
+    }
+
     pub const fn mechanism(&self) -> &MechanismContract {
         &self.mechanism
     }
@@ -379,6 +448,8 @@ impl DecisionContract {
 pub enum DecisionError {
     #[error(transparent)]
     Intent(#[from] IntentError),
+    #[error("frozen ResearchIntent cannot project {0}")]
+    IntentProjection(&'static str),
     #[error("unknown decision phase discriminant: {0}")]
     UnknownPhase(i32),
     #[error("unknown decision position discriminant: {0}")]

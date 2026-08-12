@@ -13,5 +13,6 @@ pub mod receipt;
 pub mod runtime;
 
 pub use application::{PilotRun, run_frozen_pilot};
+pub use decision::EconomicDisposition;
 pub use pilot::{PreparedPilot, prepare_frozen_pilot};
-pub use receipt::{EconomicDisposition, TrialReceipt};
+pub use receipt::TrialReceipt;

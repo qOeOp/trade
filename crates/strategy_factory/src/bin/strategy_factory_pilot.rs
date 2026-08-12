@@ -14,9 +14,13 @@ fn main() {
 
     match vibe_strategy_factory::run_frozen_pilot(&data_root)
         .and_then(|run| vibe_strategy_factory::TrialReceipt::issue(&run))
-        .and_then(|receipt| receipt.to_bytes())
     {
-        Ok(bytes) => println!("{}", String::from_utf8_lossy(&bytes)),
+        Ok(receipt) => {
+            if let Err(e) = receipt.write_to(std::io::stdout()) {
+                eprintln!("{e:#}");
+                std::process::exit(2);
+            }
+        }
         Err(e) => {
             eprintln!("{e:#}");
             std::process::exit(2);
