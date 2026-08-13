@@ -2,7 +2,9 @@
 set -euo pipefail
 
 # Single CI impact authority. Pull requests are classified from the exact base
-# to HEAD name-status diff; push and ambiguous inputs fail closed to every gate.
+# to HEAD name-status diff. An exact main-branch push that modifies only the
+# external Skill lock uses the same narrow non-language route; every other push
+# and ambiguous input fails closed to every gate.
 
 emit() {
   local tests="$1" rust_tests="$2" generated="$3" full_prek="$4" capnp="$5"
@@ -25,28 +27,65 @@ run_all() {
   exit 0
 }
 
-if [[ "${EVENT_NAME:-}" != pull_request ]]; then
-  run_all "${EVENT_NAME:-unknown} event: running full validation"
-fi
-if [[ -z "${BASE_REF:-}" ]]; then
-  run_all "PR base ref missing: running full validation"
-fi
+case "${EVENT_NAME:-}" in
+  push)
+    if [[ "${REF_NAME:-}" != main ]]; then
+      run_all "non-main push: running full validation"
+    fi
+    before_commit="${BEFORE_SHA:-}"
+    after_commit="${AFTER_SHA:-}"
+    if [[ ! "$before_commit" =~ ^[0-9a-f]{40}$ ]] ||
+      [[ "$before_commit" == 0000000000000000000000000000000000000000 ]] ||
+      ! git cat-file -e "${before_commit}^{commit}" 2> /dev/null; then
+      run_all "main push base commit invalid: running full validation"
+    fi
+    if [[ ! "$after_commit" =~ ^[0-9a-f]{40}$ ]] ||
+      ! git cat-file -e "${after_commit}^{commit}" 2> /dev/null ||
+      [[ "$after_commit" != "$(git rev-parse HEAD)" ]]; then
+      run_all "main push candidate commit invalid: running full validation"
+    fi
+    if ! merge_base="$(git merge-base "$before_commit" "$after_commit" 2> /dev/null)" ||
+      [[ "$merge_base" != "$before_commit" ]]; then
+      run_all "main push is not an exact fast-forward: running full validation"
+    fi
+    push_diff="$(git diff --name-status --find-renames "$before_commit" "$after_commit")"
+    before_pin_entry="$(git ls-tree --format='%(objectmode) %(objecttype)' \
+      "$before_commit" -- codex-skills.lock.json)"
+    after_pin_entry="$(git ls-tree --format='%(objectmode) %(objecttype)' \
+      "$after_commit" -- codex-skills.lock.json)"
+    if [[ "$push_diff" != $'M\tcodex-skills.lock.json' ||
+      "$before_pin_entry" != '100644 blob' || "$after_pin_entry" != '100644 blob' ]]; then
+      run_all "main push is not an exact Skill pin update: running full validation"
+    fi
+    emit false false false false false false false \
+      "exact main Skill pin update: running narrow non-language validation"
+    exit 0
+    ;;
+  pull_request)
+    if [[ -z "${BASE_REF:-}" ]]; then
+      run_all "PR base ref missing: running full validation"
+    fi
 
-base_commit="${BASE_SHA:-}"
-if [[ -n "$base_commit" ]]; then
-  if [[ ! "$base_commit" =~ ^[0-9a-f]{40}$ ]] ||
-    ! git cat-file -e "${base_commit}^{commit}" 2> /dev/null; then
-    run_all "PR base commit invalid: running full validation"
-  fi
-else
-  if ! base_commit="$(git rev-parse --verify "refs/remotes/origin/${BASE_REF}^{commit}" 2> /dev/null)"; then
-    run_all "PR base commit unavailable: running full validation"
-  fi
-fi
-if ! merge_base="$(git merge-base "$base_commit" HEAD 2> /dev/null)" ||
-  [[ -z "$merge_base" ]]; then
-  run_all "PR merge-base unavailable: running full validation"
-fi
+    base_commit="${BASE_SHA:-}"
+    if [[ -n "$base_commit" ]]; then
+      if [[ ! "$base_commit" =~ ^[0-9a-f]{40}$ ]] ||
+        ! git cat-file -e "${base_commit}^{commit}" 2> /dev/null; then
+        run_all "PR base commit invalid: running full validation"
+      fi
+    else
+      if ! base_commit="$(git rev-parse --verify "refs/remotes/origin/${BASE_REF}^{commit}" 2> /dev/null)"; then
+        run_all "PR base commit unavailable: running full validation"
+      fi
+    fi
+    if ! merge_base="$(git merge-base "$base_commit" HEAD 2> /dev/null)" ||
+      [[ -z "$merge_base" ]]; then
+      run_all "PR merge-base unavailable: running full validation"
+    fi
+    ;;
+  *)
+    run_all "${EVENT_NAME:-unknown} event: running full validation"
+    ;;
+esac
 
 # Regular A/M prose has no build or language-analysis consumer unless it lives
 # inside an authority, generated, schema, test-fixture, or data owner.

@@ -27,6 +27,7 @@ printf 'use pyo3::prelude::*;\n' > "$source_repo/crates/example/src/python/mod.r
 printf '[package]\nname = "nested"\nversion = "0.0.0"\n' > "$source_repo/crates/example/Cargo.toml"
 printf '# Package\n' > "$source_repo/crates/example/README.md"
 printf '[package]\nname = "example"\nversion = "0.0.0"\n' > "$source_repo/Cargo.toml"
+printf '{"schema_version":2}\n' > "$source_repo/codex-skills.lock.json"
 printf '# Repository\n' > "$source_repo/README.md"
 printf '# Design\n' > "$source_repo/notes/design.md"
 printf 'binary\0payload\n' > "$source_repo/notes/binary.md"
@@ -76,6 +77,82 @@ run_case() {
   )
   rm -rf "$checkout"
   echo "ok: $case_name"
+}
+
+run_push_case() {
+  local case_name="$1" mutation="$2" ref_name="$3" before_kind="$4" after_kind="$5"
+  local checkout output_file base_sha before_sha after_sha
+  shift 5
+  checkout="$fixture_root/case-${case_name}"
+  git clone -q "$source_repo" "$checkout"
+  git -C "$checkout" config user.email ci-plan@example.invalid
+  git -C "$checkout" config user.name ci-plan-test
+  (
+    cd "$checkout"
+    eval "$mutation"
+    git add -A
+    git commit -qm "$case_name" --allow-empty
+    output_file="$(mktemp "${TMPDIR:-/tmp}/trade-ci-plan-output.XXXXXX")"
+    base_sha="$(git rev-parse refs/remotes/origin/main)"
+    before_sha="$base_sha"
+    after_sha="$(git rev-parse HEAD)"
+    case "$before_kind" in
+      exact) ;;
+      zero) before_sha=0000000000000000000000000000000000000000 ;;
+      missing) before_sha= ;;
+      *)
+        echo "Unknown before kind: $before_kind" >&2
+        exit 1
+        ;;
+    esac
+    case "$after_kind" in
+      exact) ;;
+      base) after_sha="$base_sha" ;;
+      missing) after_sha= ;;
+      *)
+        echo "Unknown after kind: $after_kind" >&2
+        exit 1
+        ;;
+    esac
+    EVENT_NAME=push REF_NAME="$ref_name" BEFORE_SHA="$before_sha" AFTER_SHA="$after_sha" \
+      GITHUB_OUTPUT="$output_file" bash scripts/ci/plan.sh > /dev/null
+    while (($#)); do
+      assert_output "$output_file" "${1%%=*}" "${1#*=}"
+      shift
+    done
+    rm -f "$output_file"
+  )
+  rm -rf "$checkout"
+  echo "ok: $case_name"
+}
+
+run_inverse_mode_push_case() {
+  local checkout output_file before_sha after_sha
+  checkout="$fixture_root/case-pin-inverse-mode-main-push"
+  git clone -q "$source_repo" "$checkout"
+  git -C "$checkout" config user.email ci-plan@example.invalid
+  git -C "$checkout" config user.name ci-plan-test
+  (
+    cd "$checkout"
+    chmod +x codex-skills.lock.json
+    git add codex-skills.lock.json
+    git commit -qm pin-inverse-mode-before
+    before_sha="$(git rev-parse HEAD)"
+    chmod -x codex-skills.lock.json
+    printf '{"schema_version":2,"commit":"changed"}\n' > codex-skills.lock.json
+    git add codex-skills.lock.json
+    git commit -qm pin-inverse-mode-after
+    after_sha="$(git rev-parse HEAD)"
+    output_file="$(mktemp "${TMPDIR:-/tmp}/trade-ci-plan-output.XXXXXX")"
+    EVENT_NAME=push REF_NAME=main BEFORE_SHA="$before_sha" AFTER_SHA="$after_sha" \
+      GITHUB_OUTPUT="$output_file" bash scripts/ci/plan.sh > /dev/null
+    for assertion in "${fail_closed[@]}"; do
+      assert_output "$output_file" "${assertion%%=*}" "${assertion#*=}"
+    done
+    rm -f "$output_file"
+  )
+  rm -rf "$checkout"
+  echo "ok: pin_inverse_mode_main_push"
 }
 
 light=(
@@ -173,6 +250,30 @@ run_case security_config_change \
   "printf '# changed\\n' >> .pre-commit-config.yaml" "${fail_closed[@]}"
 run_case empty_change ":" "${fail_closed[@]}"
 
+run_push_case pin_only_main_push \
+  "printf '{\"schema_version\":2,\"commit\":\"changed\"}\\n' > codex-skills.lock.json" \
+  main exact exact "${light[@]}"
+run_push_case pin_plus_python_main_push \
+  "printf '{\"schema_version\":2,\"commit\":\"changed\"}\\n' > codex-skills.lock.json; printf 'print(\"changed\")\\n' >> python/example.py" \
+  main exact exact "${fail_closed[@]}"
+run_push_case pin_deleted_main_push \
+  "rm codex-skills.lock.json" main exact exact "${fail_closed[@]}"
+run_push_case pin_renamed_main_push \
+  "git mv codex-skills.lock.json misc/codex-skills.lock.json" \
+  main exact exact "${fail_closed[@]}"
+run_push_case executable_pin_main_push \
+  "chmod +x codex-skills.lock.json" main exact exact "${fail_closed[@]}"
+run_inverse_mode_push_case
+run_push_case pin_only_non_main_push \
+  "printf '{\"schema_version\":2,\"commit\":\"changed\"}\\n' > codex-skills.lock.json" \
+  nightly exact exact "${fail_closed[@]}"
+run_push_case pin_only_zero_base_push \
+  "printf '{\"schema_version\":2,\"commit\":\"changed\"}\\n' > codex-skills.lock.json" \
+  main zero exact "${fail_closed[@]}"
+run_push_case pin_only_mismatched_head_push \
+  "printf '{\"schema_version\":2,\"commit\":\"changed\"}\\n' > codex-skills.lock.json" \
+  main exact base "${fail_closed[@]}"
+
 invalid_base_checkout="$fixture_root/case-invalid-base"
 git clone -q "$source_repo" "$invalid_base_checkout"
 invalid_base_output="$(mktemp "${TMPDIR:-/tmp}/trade-ci-plan-output.XXXXXX")"
@@ -205,6 +306,20 @@ done
 codeql_triggers="$(sed -n '/^on:/,/^jobs:/p' "$repo_root/.github/workflows/codeql-analysis.yml")"
 [[ "$codeql_triggers" == *'workflow_dispatch:'* ]]
 [[ "$codeql_triggers" == *'branches: [main]'* ]]
+# Match literal GitHub expressions and shell source.
+# shellcheck disable=SC2016
+grep -Fq 'AFTER_SHA: ${{ github.event.after }}' "$repo_root/.github/workflows/build.yml"
+# shellcheck disable=SC2016
+grep -Fq 'AFTER_SHA: ${{ github.event.after }}' "$repo_root/.github/workflows/codeql-analysis.yml"
+# shellcheck disable=SC2016
+grep -Fq 'PYTHON_IMPACTED: ${{ needs.plan.outputs.python-impacted }}' \
+  "$repo_root/.github/workflows/codeql-analysis.yml"
+# shellcheck disable=SC2016
+grep -Fq 'RUST_IMPACTED: ${{ needs.plan.outputs.rust-impacted }}' \
+  "$repo_root/.github/workflows/codeql-analysis.yml"
+# shellcheck disable=SC2016
+grep -Fq 'test "$RUN_ANALYSIS" = "$expected"' \
+  "$repo_root/.github/workflows/codeql-analysis.yml"
 security_triggers="$(sed -n '/^on:/,/^jobs:/p' "$repo_root/.github/workflows/security-audit.yml")"
 [[ "$security_triggers" == *'branches: [main, develop, master, test-ci, test-security]'* ]]
 [[ "$security_triggers" == *'schedule:'* ]]

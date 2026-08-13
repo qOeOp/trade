@@ -114,6 +114,8 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.event.after }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == pull_request ]]; then

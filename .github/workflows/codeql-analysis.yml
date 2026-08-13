@@ -71,6 +71,9 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.event.after }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == pull_request ]]; then
@@ -116,12 +119,24 @@ jobs:
         env:
           RUN_FULL: ${{ needs.ready-gate.outputs.run-full }}
           PLAN_RESULT: ${{ needs.plan.result }}
+          PYTHON_IMPACTED: ${{ needs.plan.outputs.python-impacted }}
+          RUST_IMPACTED: ${{ needs.plan.outputs.rust-impacted }}
+          LANGUAGE: ${{ matrix.language }}
         run: |
           set -euo pipefail
           if [[ "$RUN_FULL" != true ]]; then
             echo 'run-analysis=false' >> "$GITHUB_OUTPUT"
           elif [[ "$PLAN_RESULT" == success ]]; then
-            echo 'run-analysis=true' >> "$GITHUB_OUTPUT"
+            case "$LANGUAGE" in
+              python) impacted="$PYTHON_IMPACTED" ;;
+              rust) impacted="$RUST_IMPACTED" ;;
+              *) echo "Unsupported CodeQL language: $LANGUAGE" >&2; exit 1 ;;
+            esac
+            if [[ "$impacted" == true ]]; then
+              echo 'run-analysis=true' >> "$GITHUB_OUTPUT"
+            else
+              echo 'run-analysis=false' >> "$GITHUB_OUTPUT"
+            fi
           else
             echo 'run-analysis=false' >> "$GITHUB_OUTPUT"
           fi
@@ -179,6 +194,10 @@ jobs:
         env:
           RUN_FULL: ${{ needs.ready-gate.outputs.run-full }}
           PLAN_RESULT: ${{ needs.plan.result }}
+          RUN_ANALYSIS: ${{ steps.route.outputs.run-analysis }}
+          PYTHON_IMPACTED: ${{ needs.plan.outputs.python-impacted }}
+          RUST_IMPACTED: ${{ needs.plan.outputs.rust-impacted }}
+          LANGUAGE: ${{ matrix.language }}
         run: |
           set -euo pipefail
           if [[ "$RUN_FULL" != true ]]; then
@@ -186,6 +205,12 @@ jobs:
             exit 1
           fi
           test "$PLAN_RESULT" = success
+          case "$LANGUAGE" in
+            python) expected="$PYTHON_IMPACTED" ;;
+            rust) expected="$RUST_IMPACTED" ;;
+            *) exit 1 ;;
+          esac
+          test "$RUN_ANALYSIS" = "$expected"
 
   security:
     name: codeql-security
