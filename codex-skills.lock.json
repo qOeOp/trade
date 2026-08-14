@@ -1,10 +1,10 @@
 {
   "schema_version": 2,
   "repository": "https://github.com/qOeOp/pareto.git",
-  "commit": "7776daec6a22e7823572bb35ea27f6438d50fb2f",
-  "tree": "7b729d26a88a744d8d089c7701dc8345fdefbfb9",
+  "commit": "611ad1660442e7806f2add4902e341ae0fa14a5c",
+  "tree": "3e43f3b970ec7fd4b6a7e5721284aede2bf9f158",
   "skill_tree": "ed1198040fafe881cbe2a6460cf728fee425f944",
   "codex_agents_tree": "a82878074f004f3353c480858487596a3a95035f",
-  "codex_session_hook_blob": "ee35b2c1f3463d07b4f174a15c625e7c4634095f",
-  "installer_blob": "5d6ed04724c0f191e2d2f2c0631046c1cc49cb66"
+  "codex_session_hook_blob": "5793e95e3a5298626028d91183257aa96b4d2894",
+  "installer_blob": "d344e3c52512c8a890bb6d29c951c2430299b42f"
 }
