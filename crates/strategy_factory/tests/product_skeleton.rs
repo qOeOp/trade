@@ -1,183 +1,253 @@
-use rstest::rstest;
-use vibe_model::types::Money;
+use std::collections::BTreeSet;
 
-use vibe_strategy_factory::{
-    artifact::{BUILD_RECIPE_LOCATOR, GUEST_SOURCE_LOCATOR},
-    decision::{
-        ChannelProjection, CoreWasmValueType, DECISION_ABI_VERSION, DECISION_EXPORT,
-        DECISION_SIGNATURE, DecisionAction, DecisionDirection, DecisionInput, EconomicDisposition,
-        EntryRule, ExecutionTiming, ExitRule, FinalBarInvocation, TerminalRule,
-        ValidationInvocation, WarmupInvocation, ZeroVolumeInvocation,
-    },
-    intent::FROZEN_INTENT_ID,
-    prepare_frozen_pilot,
-    runtime::{RuntimeError, validate_restricted_module},
+use rstest::rstest;
+use vibe_core::UnixNanos;
+use vibe_model::{
+    data::{Bar, BarType},
+    types::{Price, Quantity},
 };
 
-#[rstest]
-fn restricted_wasm_accepts_only_the_exact_inert_compiler_memory_envelope() {
-    let prepared = prepare_frozen_pilot().expect("frozen product skeleton prepares");
-    validate_restricted_module(prepared.artifact().wasm()).expect("exact compiler envelope");
-    let module_with_memory = [
-        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x05, 0x03, 0x01, 0x00, 0x01,
-    ];
-    assert_eq!(
-        validate_restricted_module(&module_with_memory).unwrap_err(),
-        RuntimeError::Envelope("fixed compiler memory")
-    );
+use vibe_strategy_factory::{
+    FormationFamilyDisposition, FrozenStrategyFamily, NativeProducerVerificationRequest,
+    ObservationFrameDisposition, ObservationFrameGate, ObservationFrameIneligibility,
+    ObservationStamp, RepresentativeResearchIntent, StrategyFamilyError,
+    artifact::StrategyArtifact, run_frozen_complex_formation,
+};
+
+fn research_bar(owner_key: &str, observed_ns: u64, available_ns: u64) -> Bar {
+    Bar::new(
+        BarType::from(owner_key),
+        Price::from("100.00"),
+        Price::from("101.00"),
+        Price::from("99.00"),
+        Price::from("100.50"),
+        Quantity::from("1.000"),
+        UnixNanos::from(observed_ns),
+        UnixNanos::from(available_ns),
+    )
 }
 
 #[rstest]
-fn intent_artifact_and_runtime_projection_are_deterministic() {
-    let first = prepare_frozen_pilot().expect("first preparation");
-    let second = prepare_frozen_pilot().expect("second preparation");
-    assert_eq!(first.intent(), second.intent());
-    assert_eq!(first.artifact(), second.artifact());
-    assert_eq!(first.runtime(), second.runtime());
-    let identity = first.artifact().identity();
-    assert_eq!(identity.schema_version, 3);
-    assert_eq!(identity.guest_source_locator, GUEST_SOURCE_LOCATOR);
-    assert_eq!(identity.build_recipe_locator, BUILD_RECIPE_LOCATOR);
+fn public_research_consumer_fails_closed_until_typed_context_owners_are_bound() {
+    let intent =
+        RepresentativeResearchIntent::frozen_representative().expect("representative intent");
     assert_eq!(
-        identity.guest_source_digest,
-        format!(
-            "blake3:{}",
-            blake3::hash(include_bytes!("../guest/pilot.rs")).to_hex()
-        )
+        intent.runtime_admission(),
+        "DESIGN_FROZEN_EXECUTION_NOT_ADMITTED"
     );
-    assert_eq!(
-        identity.build_recipe_digest,
-        format!(
-            "blake3:{}",
-            blake3::hash(include_bytes!("../build.rs")).to_hex()
-        )
-    );
-    assert_eq!(
-        first.artifact().identity().artifact_digest,
-        first.runtime().artifact_digest
-    );
-}
+    assert!(intent.is_tradable_candidate("BTCUSDT-PERP.BINANCE"));
 
-#[rstest]
-fn application_preparation_carries_the_exact_runtime_decision_contract() {
-    let prepared = prepare_frozen_pilot().expect("frozen product skeleton prepares");
-    let contract = prepared.decision_contract();
-
-    assert_eq!(contract.version(), DECISION_ABI_VERSION);
-    assert_eq!(contract.export(), DECISION_EXPORT);
-    assert_eq!(
-        contract.signature().parameters(),
-        &[
-            CoreWasmValueType::I32,
-            CoreWasmValueType::I32,
-            CoreWasmValueType::F64,
-            CoreWasmValueType::F64,
-            CoreWasmValueType::F64,
-            CoreWasmValueType::F64,
-            CoreWasmValueType::F64,
-        ]
-    );
-    assert_eq!(contract.signature().result(), CoreWasmValueType::I32);
-    contract
-        .validate_abi(DECISION_ABI_VERSION, DECISION_EXPORT, &DECISION_SIGNATURE)
-        .expect("exact ABI identity");
-    assert_eq!(contract.intent_identity(), FROZEN_INTENT_ID);
-    assert_eq!(
-        contract.pilot_id(),
-        "btc-usdt-1h-dual-timescale-breakout-v1"
-    );
-
-    let mechanism = contract.mechanism();
-    assert_eq!(mechanism.direction(), DecisionDirection::LongOnly);
-    assert_eq!(
-        mechanism.entry(),
-        EntryRule::CurrentFastEmaAboveSlowAndCloseAbovePrior72High
-    );
-    assert_eq!(
-        mechanism.exit(),
-        ExitRule::CloseBelowPrior24LowOrCurrentFastEmaNotAboveSlow
-    );
-    assert_eq!(
-        mechanism.execution(),
-        ExecutionTiming::NextExecutableExternalBarOpen
-    );
-    assert_eq!(
-        mechanism.terminal(),
-        TerminalRule::PenultimateSignalFinalOpenExecution
-    );
-    assert_eq!(mechanism.entry_lookback(), 72);
-    assert_eq!(mechanism.exit_lookback(), 24);
-    assert_eq!(mechanism.fast_ema(), 24);
-    assert_eq!(mechanism.slow_ema(), 120);
-    assert_eq!(contract.trade_quantity().to_string(), "0.000010");
-    assert_eq!(
-        contract.starting_balance().to_string(),
-        "1000000.00000000 USDT"
-    );
-    assert!(!mechanism.execution().trade_on_close());
-    assert_eq!(
-        contract.economic_rule().falsifier(),
-        "validation_net_pnl_after_native_commissions_lte_zero"
-    );
-    assert_eq!(
-        contract
-            .economic_rule()
-            .disposition(Money::from("0.00000001 USDT")),
-        EconomicDisposition::SurvivedNotAdmitted
-    );
-
-    let invocation = contract.invocation();
-    assert_eq!(
-        invocation.warmup(),
-        WarmupInvocation::UpdateNativeIndicatorsWithoutGuest
-    );
-    assert_eq!(
-        invocation.zero_volume(),
-        ZeroVolumeInvocation::NoIndicatorGuestOrOrder
-    );
-    assert_eq!(
-        invocation.validation(),
-        ValidationInvocation::CurrentEmaAndPreviousCallbackChannels
-    );
-    assert_eq!(
-        invocation.channels(),
-        ChannelProjection::PreviousCallbackPrior72HighAndPrior24Low
-    );
-    assert_eq!(
-        invocation.final_bar(),
-        FinalBarInvocation::ReleasePenultimateExitAtOpenWithoutCloseDecision
-    );
-}
-
-#[rstest]
-fn application_preparation_executes_the_frozen_guest_truth_table() {
-    let mut prepared = prepare_frozen_pilot().expect("frozen product skeleton prepares");
-    let cases = [
-        (
-            (0, 0, 110.0, 2.0, 1.0, 100.0, 80.0),
-            DecisionAction::EnterLong,
-        ),
-        ((0, 0, 100.0, 2.0, 1.0, 100.0, 80.0), DecisionAction::Hold),
-        (
-            (0, 1, 79.0, 2.0, 1.0, 100.0, 80.0),
-            DecisionAction::ExitLong,
-        ),
-        (
-            (0, 1, 90.0, 1.0, 1.0, 100.0, 80.0),
-            DecisionAction::ExitLong,
-        ),
-        ((0, 1, 90.0, 2.0, 1.0, 100.0, 80.0), DecisionAction::Hold),
-        (
-            (1, 1, 90.0, 2.0, 1.0, 100.0, 80.0),
-            DecisionAction::ExitLong,
-        ),
-        ((1, 0, 110.0, 2.0, 1.0, 100.0, 80.0), DecisionAction::Hold),
-    ];
-
-    for ((phase, position, close, fast, slow, prior_high, prior_low), expected) in cases {
-        let input =
-            DecisionInput::from_abi(phase, position, close, fast, slow, prior_high, prior_low)
-                .expect("closed finite decision input");
-        assert_eq!(prepared.decide(input).expect("guest decision"), expected);
+    for context in [
+        "FED:DTWEXBGS",
+        "FED:DEXJPUS",
+        "EIA:DCOILWTICO",
+        "FRED:DGS2",
+        "FRED:DGS10",
+        "PAXGUSDT.BINANCE",
+        "ICE:DXY",
+        "GOLD",
+    ] {
+        assert!(!intent.is_tradable_candidate(context));
     }
+
+    let decision_ns = 2_000_000_000_000_000_000;
+    let observations = [
+        ("btc_d1", "BTCUSDT-PERP.BINANCE-1-DAY-LAST-EXTERNAL"),
+        ("btc_h1", "BTCUSDT-PERP.BINANCE-1-HOUR-LAST-EXTERNAL"),
+        ("btc_h4", "BTCUSDT-PERP.BINANCE-4-HOUR-LAST-EXTERNAL"),
+        ("btc_m15", "BTCUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"),
+        ("eth_d1", "ETHUSDT-PERP.BINANCE-1-DAY-LAST-EXTERNAL"),
+        ("eth_h1", "ETHUSDT-PERP.BINANCE-1-HOUR-LAST-EXTERNAL"),
+        ("eth_h4", "ETHUSDT-PERP.BINANCE-4-HOUR-LAST-EXTERNAL"),
+        ("eth_m15", "ETHUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"),
+    ]
+    .into_iter()
+    .map(|(channel, owner_key)| {
+        let observed_ns = if channel == "btc_h1" {
+            decision_ns - 3_600_000_000_001
+        } else {
+            decision_ns
+        };
+        ObservationStamp::from_untrusted_bar(
+            channel,
+            &research_bar(owner_key, observed_ns, decision_ns),
+        )
+        .expect("untrusted native Bar temporal projection")
+    })
+    .collect::<Vec<_>>();
+    let frames = ObservationFrameGate::replay(&intent, observations).expect("PIT replay");
+    assert_eq!(frames.len(), 1);
+    assert_eq!(
+        frames[0].disposition(),
+        ObservationFrameDisposition::Incomplete
+    );
+    assert_eq!(frames[0].observations().len(), 8);
+    assert_eq!(frames[0].ineligibility().len(), 7);
+    assert!(
+        frames[0]
+            .ineligibility()
+            .contains(&ObservationFrameIneligibility::Stale {
+                age_ns: 3_600_000_000_001,
+                channel_id: "btc_h1".to_string(),
+                max_staleness_ns: 3_600_000_000_000,
+            })
+    );
+
+    for context_channel in [
+        "broad_usd_d1",
+        "paxg_d1",
+        "us10y_d1",
+        "us2y_d1",
+        "usdjpy_d1",
+        "wti_d1",
+    ] {
+        assert!(
+            frames[0]
+                .ineligibility()
+                .contains(&ObservationFrameIneligibility::Missing {
+                    channel_id: context_channel.to_string(),
+                })
+        );
+    }
+    assert_eq!(frames[0].intent_digest(), intent.digest());
+    assert!(!frames[0].source_provenance_verified());
+}
+
+fn assert_common_family_consumer(
+    family: &FrozenStrategyFamily,
+    expected_trials: usize,
+) -> Vec<StrategyArtifact> {
+    let mut artifact_digests = BTreeSet::new();
+    let mut trial_ids = BTreeSet::new();
+    let mut wasm_digests = BTreeSet::new();
+
+    let artifacts = family.materialize_all().expect("bounded family artifacts");
+    assert_eq!(artifacts.len(), expected_trials);
+    for (trial, first) in family.trials().iter().zip(&artifacts) {
+        let recovered = family
+            .materialize(trial)
+            .expect("exact artifact recovery through the same port");
+        assert_eq!(first, &recovered);
+        let identity = first.identity();
+        assert_eq!(identity.intent_digest, family.intent().content_digest());
+        assert_eq!(identity.trial_id.as_deref(), Some(trial.trial_id()));
+        assert_eq!(
+            identity.parameters_digest.as_deref(),
+            Some(trial.parameters_digest())
+        );
+        assert_eq!(
+            identity.strategy_spec_digest.as_deref(),
+            family.strategy_spec_digest()
+        );
+        artifact_digests.insert(identity.artifact_digest.clone());
+        trial_ids.insert(identity.trial_id.clone().expect("trial id"));
+        wasm_digests.insert(identity.wasm_digest.clone());
+    }
+
+    assert_eq!(artifact_digests.len(), expected_trials);
+    assert_eq!(trial_ids.len(), expected_trials);
+    assert_eq!(wasm_digests.len(), 1);
+    artifacts
+}
+
+#[rstest]
+fn public_artifact_consumer_is_strategy_shape_independent_and_rejects_foreign_trials() {
+    let simple = FrozenStrategyFamily::frozen_pilot().expect("simple frozen family");
+    let complex = FrozenStrategyFamily::frozen_price_only().expect("complex frozen family");
+
+    let simple_artifacts = assert_common_family_consumer(&simple, 1);
+    let complex_artifacts = assert_common_family_consumer(&complex, 20);
+    assert_ne!(simple.family_digest(), complex.family_digest());
+    assert!(
+        simple
+            .trials()
+            .iter()
+            .any(|trial| trial.variant_id() == "full")
+    );
+    assert!(
+        simple
+            .trials()
+            .iter()
+            .all(|trial| trial.variant_id() == "full")
+    );
+    assert!(
+        complex
+            .trials()
+            .iter()
+            .any(|trial| trial.variant_id() == "full")
+    );
+    assert!(
+        complex
+            .trials()
+            .iter()
+            .any(|trial| trial.variant_id() == "without-dynamic-exit")
+    );
+    assert!(simple.strategy_spec_digest().is_some());
+    assert!(complex.strategy_spec_digest().is_some());
+    assert_eq!(simple_artifacts[0].identity().schema_version, 9);
+    assert_eq!(complex_artifacts[0].identity().schema_version, 10);
+    assert_eq!(
+        simple_artifacts[0]
+            .identity()
+            .program_profile
+            .schema_version,
+        1
+    );
+    assert_eq!(
+        complex_artifacts[0]
+            .identity()
+            .program_profile
+            .schema_version,
+        1
+    );
+
+    assert_eq!(
+        complex.materialize(&simple.trials()[0]),
+        Err(StrategyFamilyError::ForeignTrial)
+    );
+    assert_eq!(
+        simple.materialize(&complex.trials()[0]),
+        Err(StrategyFamilyError::ForeignTrial)
+    );
+}
+
+#[rstest]
+fn public_complex_formation_consumer_receives_only_the_authoritative_receipt() {
+    let receipt = run_frozen_complex_formation(
+        std::path::Path::new("/definitely/not/a/strategy-factory-formation-cache"),
+        NativeProducerVerificationRequest::from_bundle(
+            "/definitely/not/a/strategy-factory-attestation-bundle",
+        ),
+    )
+    .expect("producer rejection remains an authoritative software receipt");
+    assert_eq!(
+        receipt.disposition(),
+        FormationFamilyDisposition::SoftwareRejected
+    );
+    assert_eq!(receipt.economically_selected_parameter_id(), None);
+    assert_eq!(receipt.selected_parameter_id(), None);
+    assert_eq!(receipt.formation_robustness_passed(), None);
+    assert_eq!(receipt.formation_robustness_diagnostics(), None);
+}
+
+#[rstest]
+fn pilot_family_artifact_is_deterministic_and_bound() {
+    let family = FrozenStrategyFamily::frozen_pilot().expect("pilot family");
+    let trial = &family.trials()[0];
+    let first = family.materialize(trial).expect("first artifact");
+    let second = family.materialize(trial).expect("second artifact");
+    assert_eq!(first, second);
+    let identity = first.identity();
+    assert_eq!(identity.schema_version, 9);
+    assert_eq!(identity.trial_id.as_deref(), Some(trial.trial_id()));
+    assert_eq!(
+        identity.parameters_digest.as_deref(),
+        Some(trial.parameters_digest())
+    );
+    assert_eq!(
+        identity.guest_source_locator,
+        "program-source-capsule-v1.tar"
+    );
+    assert_eq!(identity.build_recipe_locator, "program-build-recipe-v1.jcs");
+    assert_eq!(identity.program_profile.schema_version, 1);
 }

@@ -755,6 +755,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
+name = "approx"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cab112f0a86d568ea0e627cc1d6be74a1e9cd55214684db5561995f6dad897c6"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "arbitrary"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8201,6 +8210,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
+name = "statrs"
+version = "0.19.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1837f9a1bd13dabbdbb04489c39451482d3cdd35a6e1a0d0f3570dea2b8c8be"
+dependencies = [
+ "approx",
+ "num-traits",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "strategy-factory-program-sdk"
+version = "0.1.0"
+dependencies = [
+ "rstest",
+]
+
+[[package]]
 name = "string-interner"
 version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9432,6 +9459,7 @@ dependencies = [
  "aws-lc-rs",
  "axum",
  "base64 0.23.1",
+ "blake3",
  "bon",
  "criterion",
  "csv",
@@ -9459,6 +9487,7 @@ dependencies = [
  "ustr",
  "vibe-common",
  "vibe-core",
+ "vibe-data",
  "vibe-live",
  "vibe-model",
  "vibe-network",
@@ -9739,9 +9768,11 @@ dependencies = [
  "rstest",
  "rust_decimal",
  "rust_decimal_macros",
+ "rustix",
  "serde",
  "serde_json",
  "strum 0.28.0",
+ "tempfile",
  "thiserror 2.0.19",
  "toml 1.1.4+spec-1.1.0",
  "ustr",
@@ -10096,7 +10127,16 @@ dependencies = [
  "rstest",
  "strum 0.28.0",
  "vibe-core",
+ "vibe-indicators-kernel",
  "vibe-model",
+]
+
+[[package]]
+name = "vibe-indicators-kernel"
+version = "0.62.0"
+dependencies = [
+ "libm",
+ "rstest",
 ]
 
 [[package]]
@@ -10701,16 +10741,24 @@ version = "0.62.0"
 dependencies = [
  "anyhow",
  "blake3",
+ "libc",
  "rstest",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "statrs",
+ "strategy-factory-program-sdk",
+ "tempfile",
  "thiserror 2.0.19",
+ "vibe-analysis",
  "vibe-backtest",
  "vibe-binance",
  "vibe-common",
  "vibe-core",
- "vibe-indicators",
+ "vibe-data",
  "vibe-model",
+ "vibe-persistence",
+ "vibe-portfolio",
  "vibe-trading",
  "wasmi",
  "wasmparser",

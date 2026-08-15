@@ -92,7 +92,7 @@ pub struct BinanceFuturesAggTrade {
 }
 
 /// Kline/candlestick data from `GET /fapi/v1/klines`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BinanceFuturesKline {
     /// Open time in milliseconds.
     pub open_time: i64,

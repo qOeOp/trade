@@ -35,8 +35,19 @@ CI/CD, testing, publishing, and automation within the NautilusTrader repository.
 - **build-docs.yml**: builds the Python API documentation on `master` and `nightly`, then dispatches
   the downstream documentation build after the local gate succeeds.
 - **cli-binaries.yml**: builds CLI archives for Linux x86, Linux ARM64, macOS ARM64, and Windows
-  x86_64 on nightly pushes and manual dispatch. Nightly pushes publish versioned and latest
-  artifacts to R2.
+  x86_64 on nightly pushes and manual dispatch. An isolated manual-only Linux x86 job in
+  `qOeOp/trade` builds and attests the Strategy Factory formation binary, then uploads only that raw
+  binary and its exact bundle in a commit-named Actions artifact. The job does not publish it to R2
+  and deliberately does not package a trusted root; the formation consumer requires an independently
+  operator-custodied root. Nightly pushes publish only the existing CLI artifacts to R2.
+
+  The formation consumer is Linux-only and fixes the verifier at `/usr/bin/gh` and the offline trust
+  anchor at `/etc/qoeop/strategy-factory/trusted_root.jsonl`. Both files and every parent directory
+  must be root-owned and not group/world-writable. An operator obtains the trust anchor independently
+  with `gh attestation trusted-root`, reviews it, and installs it at that path; it must never be copied
+  from the Actions artifact. If the 30-day artifact expires, recovery requires a separately authorized
+  manual dispatch of the same exact source commit, not an automatic retry or a substitute artifact.
+
 - **codeql-analysis.yml**: CodeQL scans the tracked Go, Python, and Rust sources on pull requests and
   pushes to `main`, and on manual dispatch.
 - **pr-title.yml**: validates the current pull request title with the exact base revision's canonical

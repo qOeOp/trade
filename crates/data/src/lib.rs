@@ -108,6 +108,7 @@
 
 pub mod aggregation;
 pub mod client;
+pub mod dataset;
 pub mod engine;
 pub mod option_chains;
 

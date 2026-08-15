@@ -3,7 +3,7 @@
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/ci/release-verification-retry.bash
+# shellcheck source=scripts/ci/release-verification-retry.bash disable=SC1091
 source "${script_dir}/release-verification-retry.bash"
 
 attempts="${GH_ATTESTATION_VERIFY_ATTEMPTS:-7}"
@@ -14,6 +14,10 @@ github_server_url="${GITHUB_SERVER_URL:-https://github.com}"
 attestation_identity="${ATTESTATION_IDENTITY:-}"
 attestation_issuer="${ATTESTATION_ISSUER:-https://token.actions.githubusercontent.com}"
 predicate_type="${ATTESTATION_PREDICATE_TYPE:-}"
+source_digest="${ATTESTATION_SOURCE_DIGEST:-}"
+source_ref="${ATTESTATION_SOURCE_REF:-}"
+signer_digest="${ATTESTATION_SIGNER_DIGEST:-}"
+deny_self_hosted_runners="${ATTESTATION_DENY_SELF_HOSTED_RUNNERS:-false}"
 
 validate_positive_integer() {
   local name=$1
@@ -30,6 +34,22 @@ validate_positive_integer GH_ATTESTATION_VERIFY_RETRY_DELAY_SECONDS "$retry_dela
 validate_positive_integer GH_ATTESTATION_VERIFY_MAX_RETRY_DELAY_SECONDS "$max_retry_delay_seconds"
 if ! [[ "$command_timeout_seconds" =~ ^[0-9]+$ ]]; then
   echo "::error::GH_ATTESTATION_VERIFY_COMMAND_TIMEOUT_SECONDS must be a non-negative integer."
+  exit 1
+fi
+for digest_name in source_digest signer_digest; do
+  digest_value="${!digest_name}"
+  if [[ -n "$digest_value" ]] &&
+    ! [[ "$digest_value" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]; then
+    echo "::error::${digest_name} must be a lowercase 40- or 64-character hexadecimal digest."
+    exit 1
+  fi
+done
+if [[ -n "$source_ref" && "$source_ref" != refs/* ]]; then
+  echo "::error::ATTESTATION_SOURCE_REF must be a full refs/* ref."
+  exit 1
+fi
+if [[ "$deny_self_hosted_runners" != "true" && "$deny_self_hosted_runners" != "false" ]]; then
+  echo "::error::ATTESTATION_DENY_SELF_HOSTED_RUNNERS must be true or false."
   exit 1
 fi
 
@@ -94,6 +114,18 @@ verify_subject() {
 
   if [[ -n "$predicate_type" ]]; then
     command+=(--predicate-type "$predicate_type")
+  fi
+  if [[ -n "$source_digest" ]]; then
+    command+=(--source-digest "$source_digest")
+  fi
+  if [[ -n "$source_ref" ]]; then
+    command+=(--source-ref "$source_ref")
+  fi
+  if [[ -n "$signer_digest" ]]; then
+    command+=(--signer-digest "$signer_digest")
+  fi
+  if [[ "$deny_self_hosted_runners" == "true" ]]; then
+    command+=(--deny-self-hosted-runners)
   fi
 
   run_release_verification_with_retry \

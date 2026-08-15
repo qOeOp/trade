@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Display};
 
+use vibe_indicators_kernel::relative_strength_index;
 use vibe_model::{
     data::{Bar, QuoteTick, TradeTick},
     enums::PriceType,
@@ -117,14 +118,8 @@ impl RelativeStrengthIndex {
             self.initialized = true;
         }
 
-        if self.average_loss.value() == 0.0 {
-            self.value = self.rsi_max;
-            self.last_value = value;
-            return;
-        }
-
-        let rs = self.average_gain.value() / self.average_loss.value();
-        self.value = self.rsi_max - (self.rsi_max / (1.0 + rs));
+        self.value = self.rsi_max
+            * relative_strength_index(self.average_gain.value(), self.average_loss.value());
         self.last_value = value;
 
         if !self.initialized && self.count >= self.period {

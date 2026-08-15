@@ -222,10 +222,10 @@ endif
 # Core crates (excludes adapters/* and workspace members without tests)
 CORE_CRATES := vibe-analysis vibe-backtest vibe-common vibe-core \
     vibe-cryptography vibe-data vibe-event-store vibe-execution \
-    vibe-indicators vibe-infrastructure vibe-live vibe-model \
+    vibe-indicators vibe-indicators-kernel vibe-infrastructure vibe-live vibe-model \
     vibe-network vibe-persistence vibe-persistence-macros \
     vibe-plugin vibe-portfolio vibe-risk vibe-serialization \
-    vibe-strategy-factory vibe-system vibe-testkit vibe-trading
+    strategy-factory-program-sdk vibe-strategy-factory vibe-system vibe-testkit vibe-trading
 
 # Crates tested in the workspace-compiled adapter lane
 ADAPTER_CRATES := vibe-architect-ax vibe-betfair vibe-binance \
@@ -236,8 +236,8 @@ ADAPTER_CRATES := vibe-architect-ax vibe-betfair vibe-binance \
     vibe-sandbox vibe-tardis
 
 # Workspace members without Rust test functions:
-# vibe-trader is the container library, vibe-pyo3 owns generated bindings,
-# and vibe-tutorials has a binary target with test = false.
+# vibe-trader is the container library, vibe-pyo3 owns generated bindings, and vibe-tutorials has a
+# binary target with test = false.
 NO_TEST_CRATES := vibe-trader vibe-pyo3 vibe-tutorials
 
 # > Colors

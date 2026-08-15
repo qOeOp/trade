@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 const FROZEN_INTENT_FILE_BYTES: &[u8] = include_bytes!("../assets/pilot_intent_v2.jcs");
@@ -10,7 +10,7 @@ pub const ZERO_VOLUME_CLOSE_NS: u64 = 1_679_661_581_646_000_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ResearchIntent {
+pub struct PilotResearchIntent {
     pub identity: String,
     pub kind: String,
     pub revision: String,
@@ -112,7 +112,7 @@ pub struct IntentMechanism {
     pub zero_volume_source_event: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct IntentParameters {
     pub entry_lookback: u32,
@@ -137,7 +137,7 @@ pub enum IntentError {
     Binding(&'static str),
 }
 
-impl ResearchIntent {
+impl PilotResearchIntent {
     pub fn frozen() -> Result<Self, IntentError> {
         Self::parse_and_validate(frozen_intent_bytes())
     }
@@ -317,7 +317,7 @@ mod tests {
     fn tampered(from: &str, to: &str) -> IntentError {
         let frozen = std::str::from_utf8(frozen_intent_bytes()).expect("frozen JCS is UTF-8");
         assert!(frozen.contains(from), "tamper source must exist: {from}");
-        ResearchIntent::parse_and_validate(frozen.replacen(from, to, 1).as_bytes())
+        PilotResearchIntent::parse_and_validate(frozen.replacen(from, to, 1).as_bytes())
             .expect_err("tampered intent must fail closed")
     }
 
