@@ -5,6 +5,20 @@ Preserve unrelated work. Real trading or another production write requires expli
 Use the repository's current Makefile, pre-commit configuration, and CI workflows as check authority;
 do not reconstruct a missing historical entrypoint.
 
+## Local API keys
+
+Codex may use the following API keys from the local environment when an admitted repository task
+requires them:
+
+- `DEEPSEEK_API_KEY`
+- `FIRECRAWL_API_KEY`
+- `SILICONFLOW_API_KEY`
+- `DATABENTO_API_KEY`
+
+Treat their values as local secrets: never commit, print, log, or copy them into repository artifacts.
+Availability authorizes credential use only within the admitted task's scope; it does not authorize
+real trading or another production write.
+
 ## Codex bootstrap
 
 `qOeOp/pareto` is the sole source for `run-bounded-mission` and its Codex agent profiles. Before any
