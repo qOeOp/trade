@@ -1,10 +1,51 @@
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { access, readFile } from 'node:fs/promises';
+import { extname, join } from 'node:path';
 import { publishedPages, siteRoot } from './lib/docs-pages.mjs';
 import { protectedMarkdownSkeleton } from './lib/markdown-skeleton.mjs';
 import { mermaidSkeleton } from './lib/mermaid-skeleton.mjs';
 
 const contentRoot = join(siteRoot, 'content', 'docs');
+
+async function existingGeneratedPageCandidates(path, locale = 'en') {
+  const stem = path.replace(/\.md$/, '');
+  const localizedStem = locale === 'zh' ? `${stem}.zh` : stem;
+  const candidates = [`${localizedStem}.md`, `${localizedStem}.mdx`];
+  const existing = [];
+  for (const candidate of candidates) {
+    try {
+      await access(join(contentRoot, candidate));
+      existing.push(candidate);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+  }
+  return { candidates, existing };
+}
+
+async function resolveGeneratedPair(path) {
+  const [englishResult, chineseResult] = await Promise.all([
+    existingGeneratedPageCandidates(path),
+    existingGeneratedPageCandidates(path, 'zh'),
+  ]);
+  if (englishResult.existing.length !== 1) {
+    throw new Error(
+      `${path}: expected exactly one generated English page (${englishResult.candidates.join(' or ')}), found ${englishResult.existing.length}`,
+    );
+  }
+  if (chineseResult.existing.length !== 1) {
+    throw new Error(
+      `${path}: expected exactly one generated Chinese page (${chineseResult.candidates.join(' or ')}), found ${chineseResult.existing.length}`,
+    );
+  }
+  const englishPath = englishResult.existing[0];
+  const chinesePath = chineseResult.existing[0];
+  if (extname(englishPath) !== extname(chinesePath)) {
+    throw new Error(
+      `${path}: generated English/Chinese extensions differ (${englishPath} versus ${chinesePath})`,
+    );
+  }
+  return { englishPath, chinesePath };
+}
 
 function matches(source, expression, map = (match) => match[0]) {
   return [...source.matchAll(expression)].map(map);
@@ -110,10 +151,10 @@ if (requestedPath && checkedPaths.length === 0) {
   throw new Error(`Chinese translation is missing for: ${requestedPath}`);
 }
 for (const path of checkedPaths) {
-  const translation = path.replace(/\.md$/, '.zh.md');
+  const { englishPath, chinesePath } = await resolveGeneratedPair(path);
   const [englishSource, chineseSource] = await Promise.all([
-    readFile(join(contentRoot, path), 'utf8'),
-    readFile(join(contentRoot, translation), 'utf8'),
+    readFile(join(contentRoot, englishPath), 'utf8'),
+    readFile(join(contentRoot, chinesePath), 'utf8'),
   ]);
 
   const leakedPlaceholders = matches(chineseSource, /\bXQZTK\d+ZQX\b/g);

@@ -8,6 +8,7 @@ const config = {
   basePath: '/trade',
   trailingSlash: true,
   reactStrictMode: true,
+  allowedDevOrigins: ['127.0.0.1'],
   images: {
     unoptimized: true,
   },

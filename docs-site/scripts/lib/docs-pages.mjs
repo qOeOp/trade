@@ -1,12 +1,13 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PUBLISHED_DOC_ROOTS } from './publication-contract.mjs';
 
 export const siteRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 export const repositoryRoot = resolve(siteRoot, '..');
 export const docsRoot = join(repositoryRoot, 'docs');
 
-const excludedRoots = new Set(['api_reference', 'dev_templates']);
+const publishedRoots = new Set(PUBLISHED_DOC_ROOTS);
 const toPosix = (path) => path.split(sep).join('/');
 
 async function findFiles(directory) {
@@ -15,7 +16,7 @@ async function findFiles(directory) {
     const path = join(directory, entry.name);
     const relativePath = toPosix(relative(docsRoot, path));
     if (entry.isDirectory()) {
-      if (!excludedRoots.has(relativePath.split('/')[0])) files.push(...(await findFiles(path)));
+      if (publishedRoots.has(relativePath.split('/')[0])) files.push(...(await findFiles(path)));
     } else {
       files.push(relativePath);
     }

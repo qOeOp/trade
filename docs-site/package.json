@@ -7,11 +7,12 @@
   },
   "scripts": {
     "prepare:content": "node scripts/prepare-content.mjs",
+    "validate:development-chunk": "node scripts/validate-development-chunk.mjs",
     "check:i18n": "node scripts/check-i18n.mjs",
     "check:i18n:changed-pairs-test": "node --test scripts/check-i18n-sync.test.mjs",
     "check:i18n:structure-test": "node --test scripts/check-markdown-skeleton.test.mjs scripts/check-mermaid-skeleton.test.mjs",
     "check:mermaid": "node scripts/check-mermaid.mjs",
-    "check:routes:unit": "node --test scripts/check-static-navigation.test.mjs",
+    "check:routes:unit": "node --test scripts/check-static-navigation.test.mjs scripts/check-home-architecture.test.mjs scripts/check-architecture-docs-contract.test.mjs scripts/development-chunk-invariant-binding.test.mjs",
     "check:i18n:structure": "npm run prepare:content && node scripts/check-i18n-structure.mjs",
     "check:routes": "node scripts/check-static-routes.mjs",
     "dev": "npm run prepare:content && next dev",
@@ -20,6 +21,7 @@
   },
   "dependencies": {
     "@fumadocs/language": "0.2.2",
+    "@xyflow/react": "12.11.3",
     "cnfast": "0.1.0",
     "fumadocs-core": "16.14.3",
     "fumadocs-mdx": "15.2.3",

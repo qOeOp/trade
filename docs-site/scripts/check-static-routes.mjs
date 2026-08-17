@@ -5,7 +5,7 @@ import { dirname, extname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { publishedPages } from './lib/docs-pages.mjs';
 import { basePath, docsRoute, parentNavigationRoute } from './lib/docs-routes.mjs';
-import { containsNavigationHref, navigationMarkup } from './lib/static-navigation.mjs';
+import { containsNavigationHref, internalDocumentRoutes, navigationMarkup } from './lib/static-navigation.mjs';
 
 const siteRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const outputRoot = join(siteRoot, 'out');
@@ -149,11 +149,22 @@ try {
         body: parentBody,
         parentRoute,
         localeHomeRoute: `${basePath}/${locale}/`,
+        childRoute,
       });
       if (!markup) {
         failures.push(`${childRoute}: navigation container missing from ${parentRoute}`);
-      } else if (!containsNavigationHref(markup, childRoute)) {
+      } else if (!containsNavigationHref(markup, childRoute, parentRoute)) {
         failures.push(`${childRoute}: not linked from navigation container in ${parentRoute}`);
+      }
+    }
+  }
+
+  for (const [route, body] of responseBodies) {
+    if (!route.endsWith('/') || !/<html[\s>]/i.test(body)) continue;
+    for (const hrefRoute of internalDocumentRoutes(body, route, basePath)) {
+      const target = hrefRoute.endsWith('/') ? hrefRoute : `${hrefRoute}/`;
+      if (!routeSet.has(hrefRoute) && !routeSet.has(target)) {
+        failures.push(`${route}: internal link does not resolve to an exported route (${hrefRoute})`);
       }
     }
   }
