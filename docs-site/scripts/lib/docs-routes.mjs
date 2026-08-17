@@ -10,6 +10,10 @@ export function docsRoute(locale, page) {
 export function parentNavigationRoute(locale, page) {
   const segments = page.replace(/\.md$/, '').split('/');
   const isIndex = segments.at(-1) === 'index';
+  const topLevelSection = isIndex && segments.length === 2 ? segments[0] : null;
+  if (topLevelSection && topLevelSection !== 'guide') {
+    return `${basePath}/${locale}/docs/guide/`;
+  }
   segments.pop();
   if (isIndex) segments.pop();
   if (segments.length === 0) return `${basePath}/${locale}/`;

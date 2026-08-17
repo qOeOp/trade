@@ -10,12 +10,54 @@ import { parse } from 'parse5';
 import { publishedPages } from './lib/docs-pages.mjs';
 import { basePath, docsRoute, parentNavigationRoute } from './lib/docs-routes.mjs';
 import { mermaidCharts } from './lib/mermaid-skeleton.mjs';
+import { navigationContainerSelector } from './lib/static-navigation.mjs';
 
 const execFileAsync = promisify(execFile);
 const siteRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const contentRoot = join(siteRoot, 'content', 'docs');
 const outputRoot = join(siteRoot, 'out');
 const browserTestPath = `${basePath}/__docs-browser-test/`;
+
+async function existingGeneratedPageCandidates(page, locale = 'en') {
+  const stem = page.replace(/\.md$/, '');
+  const localizedStem = locale === 'zh' ? `${stem}.zh` : stem;
+  const candidates = [`${localizedStem}.md`, `${localizedStem}.mdx`];
+  const existing = [];
+  for (const candidate of candidates) {
+    try {
+      await access(join(contentRoot, candidate));
+      existing.push(candidate);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+  }
+  return { candidates, existing };
+}
+
+async function resolveGeneratedPair(page) {
+  const [englishResult, chineseResult] = await Promise.all([
+    existingGeneratedPageCandidates(page),
+    existingGeneratedPageCandidates(page, 'zh'),
+  ]);
+  if (englishResult.existing.length !== 1) {
+    throw new Error(
+      `${page}: expected exactly one generated English page (${englishResult.candidates.join(' or ')}), found ${englishResult.existing.length}`,
+    );
+  }
+  if (chineseResult.existing.length !== 1) {
+    throw new Error(
+      `${page}: expected exactly one generated Chinese page (${chineseResult.candidates.join(' or ')}), found ${chineseResult.existing.length}`,
+    );
+  }
+  const englishPath = englishResult.existing[0];
+  const chinesePath = chineseResult.existing[0];
+  if (extname(englishPath) !== extname(chinesePath)) {
+    throw new Error(
+      `${page}: generated English/Chinese extensions differ (${englishPath} versus ${chinesePath})`,
+    );
+  }
+  return { englishPath, chinesePath };
+}
 
 function outputFile(locale, page) {
   let slug = page.replace(/\.md$/, '');
@@ -221,20 +263,21 @@ function inspect(task, document) {
   }
 
   if (task.navigation.length > 0) {
-    const container = document.querySelector(task.navigationContainer);
-    if (!container) waiting = true;
-    else {
-      const anchors = [...container.querySelectorAll('a[href]')];
-      for (const route of task.navigation) {
-        const found = anchors.some((anchor) => {
-          try {
-            return new URL(anchor.href, document.location.href).pathname === route && visible(anchor);
-          } catch {
-            return false;
-          }
-        });
-        if (!found) problems.push('no visible navigation anchor for ' + route);
+    for (const requirement of task.navigation) {
+      const container = document.querySelector(requirement.container);
+      if (!container) {
+        waiting = true;
+        continue;
       }
+      const anchors = [...container.querySelectorAll('a[href]')];
+      const found = anchors.some((anchor) => {
+        try {
+          return new URL(anchor.href, document.location.href).pathname === requirement.route && visible(anchor);
+        } catch {
+          return false;
+        }
+      });
+      if (!found) problems.push('no visible navigation anchor for ' + requirement.route);
     }
   }
   return { problems, waiting };
@@ -353,7 +396,7 @@ async function browserConsumerMarkup(tasks) {
 
 function browserTask(tasks, route) {
   if (!tasks.has(route)) {
-    tasks.set(route, { route, mermaidCount: 0, navigation: [], navigationContainer: '' });
+    tasks.set(route, { route, mermaidCount: 0, navigation: [] });
   }
   return tasks.get(route);
 }
@@ -363,6 +406,8 @@ const failures = [];
 const browserTasks = new Map();
 let chartCount = 0;
 let mermaidPageCount = 0;
+const generatedPairs = new Map();
+for (const page of english) generatedPairs.set(page, await resolveGeneratedPair(page));
 
 for (const [locale, pages] of [
   ['en', english],
@@ -373,13 +418,17 @@ for (const [locale, pages] of [
     const childRoute = docsRoute(locale, page);
     const parentRoute = parentNavigationRoute(locale, page);
     const parentTask = browserTask(browserTasks, parentRoute);
-    parentTask.navigation.push(childRoute);
-    parentTask.navigationContainer = parentRoute === localeHomeRoute ? 'main' : '#nd-sidebar';
+    parentTask.navigation.push({
+      route: childRoute,
+      container: navigationContainerSelector({ parentRoute, localeHomeRoute, childRoute }),
+    });
 
-    const sourcePath = join(
-      contentRoot,
-      locale === 'zh' ? page.replace(/\.md$/, '.zh.md') : page,
-    );
+    const generatedPair = generatedPairs.get(page);
+    if (!generatedPair) {
+      failures.push(`${locale}/${page}: no generated bilingual pair was resolved`);
+      continue;
+    }
+    const sourcePath = join(contentRoot, locale === 'zh' ? generatedPair.chinesePath : generatedPair.englishPath);
     const charts = mermaidCharts(await readFile(sourcePath, 'utf8'));
     if (charts.length === 0) continue;
     mermaidPageCount += 1;

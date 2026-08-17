@@ -1,4 +1,4 @@
-import { HomePageContent, homeContent } from '@/components/home-page';
+import { HomePageContent, homeDescription } from '@/components/home-page';
 import { isLocale, type Locale } from '@/lib/i18n';
 import { absoluteSiteUrl } from '@/lib/metadata';
 import type { Metadata } from 'next';
@@ -16,7 +16,7 @@ export async function generateMetadata({ params }: PageProps<'/[lang]'>): Promis
   if (!isLocale(lang)) notFound();
 
   return {
-    description: homeContent[lang].description,
+    description: homeDescription[lang],
     alternates: {
       canonical: absoluteSiteUrl(`/${lang}`),
       languages: {

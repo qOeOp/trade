@@ -16,10 +16,764 @@ body {
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+aside [class~="bg-fd-secondary/50"][class~="empty:hidden"] {
+  width: max-content;
+  align-self: flex-end;
+  gap: 0.375rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.docs-site-controls {
+  margin-inline-start: 0;
+}
+
+.docs-home-container {
+  display: flex;
+  flex: 1;
+  height: calc(100dvh - 4rem);
+  min-width: 0;
+  min-height: 0;
+  padding-top: 0.5rem;
+  padding-bottom: 0.65rem;
+}
+
 .docs-hero {
   background-image:
     linear-gradient(to right, color-mix(in oklab, var(--color-fd-border) 45%, transparent) 1px, transparent 1px),
     linear-gradient(to bottom, color-mix(in oklab, var(--color-fd-border) 45%, transparent) 1px, transparent 1px);
   background-size: 48px 48px;
   mask-image: linear-gradient(to bottom, black 0%, transparent 82%);
+}
+
+.docs-architecture-shell {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.docs-architecture {
+  --map-canvas: var(--color-fd-background);
+  --map-node: #fff;
+  --map-node-active: #fff;
+  --map-node-soft: #f5f5f5;
+  --map-node-text: #59616b;
+  --map-node-muted: #64748b;
+  --map-owner-fill: rgb(15 23 42 / 2%);
+  --map-factory-fill: rgb(139 92 246 / 2.5%);
+  --map-owner-label: #475569;
+  --map-title-plate: #fff;
+  --map-edge: #1d4ed8;
+  --map-stage-edge: #8b5cf6;
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  margin-top: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--map-node-text);
+  box-shadow: none;
+}
+
+.dark .docs-architecture {
+  --map-canvas: var(--color-fd-background);
+  --map-node: #1c1d1f;
+  --map-node-active: #1c1d1f;
+  --map-node-soft: #151719;
+  --map-node-text: #b3bac2;
+  --map-node-muted: #75808a;
+  --map-owner-fill: rgb(255 255 255 / 1.8%);
+  --map-factory-fill: rgb(167 139 250 / 3.5%);
+  --map-owner-label: #a3aaae;
+  --map-title-plate: #111214;
+  --map-edge: #3b82f6;
+  --map-stage-edge: #a78bfa;
+}
+
+.dark .docs-map-authority {
+  color: #2dd4bf;
+  border-color: rgb(45 212 191 / 34%);
+}
+
+.docs-scenario-tabs {
+  position: relative;
+  z-index: 6;
+  display: flex;
+  width: max-content;
+  gap: 0.125rem;
+  max-width: calc(100% - 7rem);
+  overflow-x: auto;
+  flex: 0 0 auto;
+  margin: 0.65rem auto 0.75rem;
+  padding: 0.25rem;
+  border: 1px solid rgb(255 255 255 / 40%);
+  border-radius: 9999px;
+  background: oklch(1 0 0 / 60%);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 6%);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  scrollbar-width: none;
+}
+
+.dark .docs-scenario-tabs {
+  border-color: rgb(255 255 255 / 12%);
+  background: oklch(0.18 0.01 250 / 62%);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+}
+
+.docs-scenario-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.docs-scenario-tabs button {
+  flex: 0 0 auto;
+  min-width: 3.8rem;
+  padding: 0.4rem 0.9rem;
+  border: 0;
+  border-radius: 9999px;
+  color: #5a5a5a;
+  font-size: 0.6rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.docs-scenario-tabs button:hover {
+  color: #1a1a1a;
+  background: rgb(255 255 255 / 50%);
+}
+
+.docs-scenario-tabs button.is-active {
+  background: #2d2d2d;
+  color: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+}
+
+.dark .docs-scenario-tabs button {
+  color: #a7adb3;
+}
+
+.dark .docs-scenario-tabs button:hover {
+  color: #eef2f5;
+  background: rgb(255 255 255 / 8%);
+}
+
+.dark .docs-scenario-tabs button.is-active {
+  background: #f3f4f6;
+  color: #171717;
+}
+
+.docs-architecture-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.docs-flow-canvas {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: transparent;
+}
+
+.docs-flow-canvas .react-flow {
+  --xy-background-color: transparent;
+  opacity: 0;
+  pointer-events: none;
+  background: transparent;
+}
+
+.docs-flow-canvas.is-ready .react-flow {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.docs-flow-canvas .react-flow__viewport {
+  transition: none !important;
+}
+
+.docs-flow-canvas .react-flow__pane {
+  cursor: default;
+}
+
+.docs-flow-canvas.is-zoomed .react-flow__pane {
+  cursor: grab;
+}
+
+.docs-flow-canvas.is-zoomed .react-flow__pane:active {
+  cursor: grabbing;
+}
+
+.docs-flow-canvas .react-flow__node {
+  transition: opacity 160ms ease;
+}
+
+.docs-flow-canvas .react-flow__node-ownerGroup {
+  pointer-events: auto;
+}
+
+.docs-flow-canvas .react-flow__node-boundaryGroup {
+  pointer-events: auto;
+}
+
+.docs-owner-group {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  cursor: zoom-in;
+  pointer-events: auto;
+  border: 1.5px dashed rgb(148 163 184 / 38%);
+  border-radius: 0.75rem;
+  background: var(--map-owner-fill);
+  box-shadow: none;
+}
+
+.docs-owner-group * {
+  pointer-events: none;
+}
+
+.docs-owner-group:hover,
+.docs-owner-group:focus-visible,
+.docs-owner-group.is-selected {
+  border-color: rgb(37 99 235 / 62%);
+  outline: none;
+}
+
+.docs-owner-group header {
+  position: absolute;
+  top: -0.58rem;
+  left: 0.8rem;
+  display: flex;
+  align-items: center;
+  height: 1.16rem;
+  padding: 0 0.42rem;
+  border-radius: 999px;
+  background: var(--map-title-plate);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 8%);
+  color: var(--map-owner-label);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.76rem;
+  font-weight: 620;
+  letter-spacing: 0.075em;
+  line-height: 1;
+  text-transform: uppercase;
+  z-index: 3;
+}
+
+.docs-owner-group header small {
+  margin-left: 0.34rem;
+  color: color-mix(in srgb, var(--map-owner-label) 72%, transparent);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.7rem;
+  font-weight: 560;
+  letter-spacing: 0.025em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.docs-owner-badge {
+  position: static;
+  flex: 0 0 auto;
+  margin-left: 0.34rem;
+  padding: 0.12rem 0.32rem;
+  border: 0;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #fff;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.5rem;
+  font-style: normal;
+  font-weight: 720;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  text-transform: uppercase;
+  z-index: 4;
+}
+
+.docs-owner-badge[data-owner-badge="SKILL"] { background: #0f766e; }
+.docs-owner-badge[data-owner-badge="MCP"] { background: #2563eb; }
+.docs-owner-badge[data-owner-badge="EXE"] { background: #b45309; }
+
+.docs-owner-group.owner-cyan { border-color: rgb(45 212 191 / 34%); }
+.docs-owner-group.owner-violet { border-color: rgb(167 139 250 / 32%); }
+.docs-owner-group.owner-amber { border-color: rgb(251 146 60 / 34%); }
+
+.docs-owner-group[data-owner-role="shell"],
+.docs-owner-group[data-owner-role="channel"] {
+  border-width: 1px;
+  border-style: dotted;
+  border-color: rgb(148 163 184 / 24%);
+  background: transparent;
+}
+
+.docs-owner-group[data-owner-role="shell"] header,
+.docs-owner-group[data-owner-role="channel"] header {
+  color: #78838a;
+  font-weight: 620;
+}
+
+.docs-owner-group[data-owner-role="factory"] {
+  border-width: 1px;
+  border-style: dotted;
+  border-color: rgb(139 92 246 / 24%);
+  border-radius: 1rem;
+  background: var(--map-factory-fill);
+}
+
+.docs-owner-group[data-owner-role="factory"] header {
+  color: color-mix(in srgb, #7c3aed 76%, var(--map-owner-label));
+  box-shadow: 0 1px 2px rgb(15 23 42 / 8%);
+}
+
+.docs-rd-lanes {
+  position: absolute;
+  inset: 2.09375rem 0.53125rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4.25rem;
+}
+
+.docs-rd-lanes > span {
+  position: relative;
+  border: 1px dotted rgb(167 139 250 / 32%);
+  border-radius: 0.65rem;
+  background: color-mix(in srgb, var(--map-owner-fill) 44%, transparent);
+}
+
+.docs-rd-lanes > span::before {
+  content: attr(data-lane-label);
+  position: absolute;
+  top: -0.48rem;
+  left: 0.75rem;
+  padding: 0.13rem 0.38rem;
+  border: 1px solid rgb(167 139 250 / 18%);
+  border-radius: 999px;
+  background: var(--map-title-plate);
+  color: color-mix(in srgb, var(--map-owner-label) 72%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.64rem;
+  font-weight: 620;
+  letter-spacing: 0.07em;
+  line-height: 1;
+}
+
+.docs-owner-group[data-owner-role="stage"] {
+  border-width: 1px;
+  border-style: dotted;
+  border-color: rgb(167 139 250 / 25%);
+  background: color-mix(in srgb, var(--map-owner-fill) 62%, transparent);
+}
+
+.docs-owner-group[data-owner-role="stage"] header {
+  color: #7c718e;
+  font-weight: 650;
+}
+
+.docs-owner-group .react-flow__handle {
+  width: 0.42rem;
+  height: 0.42rem;
+  border: 1px solid var(--map-canvas);
+  background: #7f8b90;
+  box-shadow: 0 0 0.5rem rgb(148 163 184 / 35%);
+  opacity: 0;
+}
+
+.docs-owner-group .react-flow__handle.is-connected {
+  background: var(--map-edge);
+  box-shadow: 0 0 0.8rem var(--map-edge);
+  opacity: 0.95;
+}
+
+.docs-map-node {
+  --node-kind-accent: #94a3b8;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 0 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--node-kind-accent) 34%, transparent);
+  border-radius: 0.7rem;
+  background: var(--map-node);
+  box-shadow: 0 8px 20px rgb(15 23 42 / 10%);
+  color: var(--map-node-text);
+  text-align: center;
+  transition: border-color 150ms ease, box-shadow 150ms ease, background 150ms ease;
+}
+
+.docs-map-node:hover,
+.docs-map-node:focus-visible {
+  border-color: rgb(45 212 191 / 45%);
+  outline: none;
+}
+
+.docs-map-node.is-selected {
+  border-color: rgb(45 212 191 / 58%);
+  box-shadow: 0 0 0 1px rgb(45 212 191 / 18%), 0 0 22px rgb(45 212 191 / 10%);
+}
+
+.docs-map-authority { --node-kind-accent: #14b8a6; }
+.docs-map-adapter { --node-kind-accent: #94a3b8; }
+.docs-map-protected { --node-kind-accent: #a78bfa; }
+.docs-map-safety { --node-kind-accent: #f59e0b; }
+
+.docs-map-node-copy {
+  min-width: 0;
+  text-align: center;
+}
+
+.docs-map-node-copy strong {
+  display: block;
+  overflow: visible;
+  line-height: 1.24;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.docs-map-node-copy strong {
+  color: var(--map-node-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1rem;
+  font-weight: 520;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+}
+
+.docs-map-client,
+.docs-map-strategy,
+.docs-map-engine,
+.docs-map-store {
+  background: var(--map-node);
+  color: var(--map-node-text);
+}
+
+.docs-flow-canvas .react-flow__node.is-scenario-active .docs-map-node:not(.docs-map-bus) {
+  background: var(--map-node-active);
+  border-color: color-mix(in srgb, var(--node-kind-accent) 46%, transparent);
+}
+
+.docs-flow-canvas .react-flow__node.is-scenario-active .docs-map-node-copy strong {
+  color: var(--map-node-text);
+}
+
+.docs-map-node[data-label-size="medium"] .docs-map-node-copy strong {
+  font-size: 1rem;
+  letter-spacing: 0.01em;
+}
+
+.docs-map-node[data-label-size="compact"] .docs-map-node-copy strong {
+  font-size: 1rem;
+  letter-spacing: 0.01em;
+}
+
+.docs-map-node[data-label-size="tight"] .docs-map-node-copy strong {
+  font-size: 1rem;
+  letter-spacing: 0.01em;
+  line-height: 1.24;
+}
+
+.docs-execution-mode-cue {
+  position: absolute;
+  z-index: 7;
+  top: 0.35rem;
+  right: 0.75rem;
+  padding: 0.28rem 0.5rem;
+  border: 1px solid rgb(148 163 184 / 24%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--map-canvas) 88%, transparent);
+  color: color-mix(in srgb, var(--map-node-text) 82%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.55rem;
+  font-weight: 620;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  pointer-events: none;
+  backdrop-filter: blur(6px);
+}
+
+.docs-map-bus {
+  grid-template-columns: 0.6rem minmax(0, 1fr);
+  padding-inline: 1.5rem;
+  border-color: rgb(45 212 191 / 42%);
+  background: color-mix(in srgb, var(--map-node) 86%, #2dd4bf);
+  color: #2dd4bf;
+  box-shadow: 0 10px 24px rgb(15 23 42 / 12%), inset 0 1px rgb(94 234 212 / 8%);
+}
+
+.docs-map-bus .docs-map-node-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+  text-align: center;
+}
+
+.docs-map-node-role {
+  display: block;
+  color: color-mix(in srgb, var(--map-node-text) 76%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  font-weight: 560;
+  letter-spacing: 0.07em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.docs-map-bus .docs-map-node-copy strong {
+  color: #39e2cf;
+  font-size: 1rem;
+  letter-spacing: 0.01em;
+}
+
+.docs-map-bus-events {
+  display: grid;
+  gap: 0.16rem;
+  color: color-mix(in srgb, var(--map-node-text) 72%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  font-weight: 540;
+  letter-spacing: 0.035em;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+
+.docs-map-bus-events > span {
+  display: block;
+  white-space: nowrap;
+}
+
+.docs-flow-canvas .react-flow__edge-path {
+  stroke-dasharray: 7 10;
+  animation: docs-edge-flow 3.4s linear infinite;
+}
+
+.docs-flow-canvas .docs-edge-hit-area {
+  cursor: pointer;
+}
+
+.docs-flow-canvas .react-flow__edge-path.docs-stage-edge {
+  stroke-dasharray: none;
+  animation: none;
+}
+
+.docs-scenario-brief {
+  position: absolute;
+  z-index: 5;
+  bottom: 0.25rem;
+  left: 50%;
+  display: grid;
+  justify-items: center;
+  gap: 0.12rem;
+  width: fit-content;
+  max-width: min(100ch, calc(100% - 2rem));
+  padding: 0.3rem 0.7rem;
+  border: 1px solid rgb(148 163 184 / 16%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--map-canvas) 82%, transparent);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 5%);
+  color: #6b7680;
+  font-size: 0.55rem;
+  line-height: 1.25;
+  white-space: normal;
+  transform: translateX(-50%);
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+}
+
+.docs-scenario-brief b {
+  display: -webkit-box;
+  overflow: hidden;
+  max-width: 100ch;
+  color: var(--map-node-text);
+  font-weight: 650;
+  line-height: 1.3;
+  text-align: center;
+  text-overflow: clip;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.docs-scenario-brief[data-detail="true"] {
+  width: fit-content;
+  max-width: min(100ch, calc(100% - 2rem));
+  padding-inline: 0.75rem;
+  pointer-events: auto;
+}
+
+.docs-scenario-brief[data-overview-cue="true"] {
+  bottom: 0.05rem;
+  width: fit-content;
+  max-width: min(100ch, calc(100% - 2rem));
+  padding-block: 0.2rem;
+  border-radius: 1rem;
+  line-height: 1.2;
+}
+
+.docs-overview-cues {
+  display: block;
+  max-width: 100ch;
+  color: color-mix(in srgb, var(--map-node-text) 78%, transparent);
+  font-size: 0.55rem;
+  font-weight: 560;
+  line-height: 1.25;
+  text-align: center;
+  white-space: normal;
+}
+
+.docs-scenario-brief[data-detail="true"] b {
+  overflow: hidden;
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: center;
+  white-space: normal;
+}
+
+.docs-edge-detail,
+.docs-selected-detail {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+  max-width: 100ch;
+  text-align: center;
+}
+
+.docs-detail-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.45rem;
+  min-width: 0;
+  max-width: 100ch;
+}
+
+.docs-edge-detail code,
+.docs-selected-detail code {
+  color: #6b7680;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  overflow: hidden;
+  font-size: 0.48rem;
+  font-weight: 550;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docs-edge-detail a,
+.docs-selected-detail a {
+  color: #2563eb;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  flex: 0 0 auto;
+  font-size: 0.48rem;
+  font-weight: 650;
+  text-underline-offset: 0.16rem;
+}
+
+@keyframes docs-edge-flow {
+  to { stroke-dashoffset: -34; }
+}
+
+.docs-map-core {
+  grid-template-columns: 0.55rem minmax(0, 1fr);
+  padding-inline: 1.05rem;
+  border-color: rgb(45 212 191 / 32%);
+  background: linear-gradient(145deg, rgb(31 52 50 / 98%), rgb(27 36 36 / 99%));
+  box-shadow: 0 13px 30px rgb(0 0 0 / 26%), inset 0 1px rgb(94 234 212 / 7%);
+}
+
+.docs-map-core .docs-map-node-copy strong {
+  color: #cfd5d5;
+  font-size: 1rem;
+  letter-spacing: 0.01em;
+}
+
+.docs-map-standard .docs-map-node-copy strong {
+  font-size: 1rem;
+  letter-spacing: 0.01em;
+}
+
+.docs-map-support {
+  border-radius: 0.58rem;
+  background: linear-gradient(145deg, rgb(32 33 35 / 96%), rgb(26 27 29 / 98%));
+  box-shadow: 0 7px 17px rgb(0 0 0 / 18%);
+}
+
+.docs-map-support .docs-map-node-copy strong {
+  color: #aeb4b7;
+  font-size: 1rem;
+  letter-spacing: 0.01em;
+}
+
+.docs-map-node .react-flow__handle {
+  width: 0.36rem;
+  height: 0.36rem;
+  border: 0;
+  background: currentColor;
+  background: var(--map-edge);
+  box-shadow: 0 0 0.75rem var(--map-edge);
+  opacity: 0;
+}
+
+.docs-map-node .react-flow__handle.is-connected {
+  opacity: 0.95;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .docs-flow-canvas .react-flow__edge-path { animation: none; }
+  .docs-flow-canvas .react-flow__node,
+  .docs-map-node { animation: none; transition: none; }
+}
+
+@media (max-width: 780px) {
+  .docs-architecture-body {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+  }
+
+  .docs-flow-canvas {
+    height: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  .docs-home-container {
+    width: 100%;
+    max-width: 100vw;
+    overflow: hidden;
+  }
+
+  .docs-architecture {
+    width: calc(100vw - 2rem);
+    max-width: calc(100vw - 2rem);
+    margin-top: 0;
+  }
+
+  .docs-scenario-tabs {
+    max-width: calc(100% - 1rem);
+  }
+
+  .docs-scenario-tabs button {
+    min-width: 3.35rem;
+    padding-inline: 0.35rem;
+  }
+
+  .docs-architecture-body {
+    height: auto;
+    min-height: 0;
+  }
+
 }

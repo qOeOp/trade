@@ -1,9 +1,9 @@
-import { HomePageContent, homeContent } from '@/components/home-page';
+import { HomePageContent, homeDescription } from '@/components/home-page';
 import { absoluteSiteUrl } from '@/lib/metadata';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  description: homeContent.en.description,
+  description: homeDescription.en,
   alternates: {
     canonical: absoluteSiteUrl('/en'),
     languages: {
