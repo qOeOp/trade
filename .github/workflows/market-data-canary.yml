@@ -1,0 +1,32 @@
+name: market-data-canary
+
+# Read-only reachability and schema checks. This workflow never persists or
+# admits market data; Market Data remains the sole ingestion authority.
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    - cron: "17 3 * * *" # Daily, deliberately away from the top of the hour.
+  workflow_dispatch:
+
+concurrency:
+  group: market-data-canary
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    name: probe-public-market-sources
+    if: github.repository == 'qOeOp/trade'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository without credentials
+        # https://github.com/actions/checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Probe public market sources
+        run: python3 scripts/ci/source_canary.py market-data --summary "$GITHUB_STEP_SUMMARY"
