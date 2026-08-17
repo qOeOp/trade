@@ -10,6 +10,7 @@ import http.client
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -24,6 +25,7 @@ from typing import Any
 class Status(StrEnum):
     HEALTHY = "HEALTHY"
     FAILED = "FAILED"
+    RATE_LIMITED = "RATE_LIMITED"
     SKIPPED = "SKIPPED"
 
 
@@ -39,6 +41,7 @@ class Probe:
     name: str
     request: RequestFactory
     validate: Validator
+    rate_limit_backoff: tuple[float, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -81,6 +84,22 @@ def _optional_bearer_request(url: str, secret_name: str) -> RequestFactory:
             url,
             headers={"Authorization": f"Bearer {secret}"},
         ), "authenticated endpoint"
+
+    return factory
+
+
+def _optional_query_secret_request(
+    url: str,
+    secret_name: str,
+    parameter_name: str,
+    parameters: Mapping[str, str | int],
+) -> RequestFactory:
+    def factory(env: Mapping[str, str]) -> tuple[urllib.request.Request | None, str]:
+        secret = env.get(secret_name, "").strip()
+        if not secret:
+            return None, f"{secret_name} is not configured"
+        query = urllib.parse.urlencode({**parameters, parameter_name: secret})
+        return _request(f"{url}?{query}"), "authenticated endpoint"
 
     return factory
 
@@ -185,6 +204,43 @@ def _validate_fred(body: bytes) -> str:
     return "series schema present"
 
 
+def _validate_openalex(body: bytes) -> str:
+    payload = _json(body)
+    results = payload.get("results") if isinstance(payload, dict) else None
+    meta = payload.get("meta") if isinstance(payload, dict) else None
+    if (
+        not isinstance(results, list)
+        or not results
+        or not isinstance(results[0], dict)
+        or not isinstance(results[0].get("id"), str)
+        or not isinstance(meta, dict)
+    ):
+        raise ValueError("missing work search fields")
+    return "work search schema present"
+
+
+def _validate_kaggle(body: bytes) -> str:
+    payload = _json(body)
+    if (
+        not isinstance(payload, list)
+        or not payload
+        or not isinstance(payload[0], dict)
+        or not isinstance(payload[0].get("ref"), str)
+        or not isinstance(payload[0].get("title"), str)
+    ):
+        raise ValueError("missing dataset search fields")
+    return "dataset search schema present"
+
+
+def _validate_stackexchange(body: bytes) -> str:
+    payload = _json(body)
+    items = payload.get("items") if isinstance(payload, dict) else None
+    quota_remaining = payload.get("quota_remaining") if isinstance(payload, dict) else None
+    if not isinstance(items, list) or not isinstance(quota_remaining, int):
+        raise ValueError("missing question search fields")
+    return "question search schema present"
+
+
 MARKET_PROBES = (
     Probe(
         "Binance public instruments",
@@ -220,16 +276,54 @@ RESEARCH_PROBES = (
         "Semantic Scholar search",
         _semantic_scholar_request,
         _validate_semantic_scholar,
+        rate_limit_backoff=(1.0, 2.0),
     ),
     Probe(
         "CORE work search",
         _optional_bearer_request(
-            "https://api.core.ac.uk/v3/search/works?q=algorithmic%20trading&limit=1",
+            "https://api.core.ac.uk/v3/search/works/?q=algorithmic%20trading&limit=1",
             "CORE_API_KEY",
         ),
         _validate_core,
     ),
     Probe("FRED series", _fred_request, _validate_fred),
+    Probe(
+        "OpenAlex work search",
+        _optional_query_secret_request(
+            "https://api.openalex.org/works",
+            "OPENALEX_API_KEY",
+            "api_key",
+            {
+                "search": "algorithmic trading",
+                "per_page": 1,
+                "select": "id,display_name",
+            },
+        ),
+        _validate_openalex,
+    ),
+    Probe(
+        "Kaggle dataset search",
+        _optional_bearer_request(
+            "https://www.kaggle.com/api/v1/datasets/list?search=algorithmic%20trading&page=1",
+            "KAGGLE_API_TOKEN",
+        ),
+        _validate_kaggle,
+    ),
+    Probe(
+        "Stack Exchange questions",
+        _optional_query_secret_request(
+            "https://api.stackexchange.com/2.3/questions",
+            "STACKEXCHANGE_KEY",
+            "key",
+            {
+                "site": "quant.stackexchange.com",
+                "pagesize": 1,
+                "order": "desc",
+                "sort": "activity",
+            },
+        ),
+        _validate_stackexchange,
+    ),
 )
 
 
@@ -239,36 +333,48 @@ def run_probe(
     *,
     timeout: float,
     opener: Callable[..., Any] = urllib.request.urlopen,
+    sleeper: Callable[[float], None] = time.sleep,
 ) -> Receipt:
     request, request_detail = probe.request(env)
     if request is None:
         return Receipt(probe.name, Status.SKIPPED, request_detail)
 
-    try:
-        with opener(request, timeout=timeout) as response:
-            body = response.read()
-        validation_detail = probe.validate(body)
-        return Receipt(
-            probe.name,
-            Status.HEALTHY,
-            f"{request_detail}; {validation_detail}",
-        )
-    except urllib.error.HTTPError as e:
-        return Receipt(probe.name, Status.FAILED, f"HTTP {e.code}")
-    except urllib.error.URLError as e:
-        return Receipt(probe.name, Status.FAILED, f"network error: {e.reason}")
-    except (http.client.HTTPException, TimeoutError) as e:
-        return Receipt(
-            probe.name,
-            Status.FAILED,
-            f"network error: {type(e).__name__}",
-        )
-    except (
-        UnicodeDecodeError,
-        json.JSONDecodeError,
-        ValueError,
-    ) as e:
-        return Receipt(probe.name, Status.FAILED, f"schema error: {e}")
+    for attempt in range(len(probe.rate_limit_backoff) + 1):
+        try:
+            with opener(request, timeout=timeout) as response:
+                body = response.read()
+            validation_detail = probe.validate(body)
+            return Receipt(
+                probe.name,
+                Status.HEALTHY,
+                f"{request_detail}; {validation_detail}",
+            )
+        except urllib.error.HTTPError as e:
+            if e.code != 429:
+                return Receipt(probe.name, Status.FAILED, f"HTTP {e.code}")
+            if attempt == len(probe.rate_limit_backoff):
+                return Receipt(
+                    probe.name,
+                    Status.RATE_LIMITED,
+                    f"HTTP 429 after {attempt + 1} attempts",
+                )
+            sleeper(probe.rate_limit_backoff[attempt])
+        except urllib.error.URLError as e:
+            return Receipt(probe.name, Status.FAILED, f"network error: {e.reason}")
+        except (http.client.HTTPException, TimeoutError) as e:
+            return Receipt(
+                probe.name,
+                Status.FAILED,
+                f"network error: {type(e).__name__}",
+            )
+        except (
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            ValueError,
+        ) as e:
+            return Receipt(probe.name, Status.FAILED, f"schema error: {e}")
+
+    raise AssertionError("unreachable")
 
 
 def _markdown(domain: str, receipts: list[Receipt]) -> str:

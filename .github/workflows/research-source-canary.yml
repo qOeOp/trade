@@ -24,7 +24,10 @@ jobs:
     env:
       CORE_API_KEY: ${{ secrets.CORE_API_KEY }}
       FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      OPENALEX_API_KEY: ${{ secrets.OPENALEX_API_KEY }}
       SEMANTIC_SCHOLAR_API_KEY: ${{ secrets.SEMANTIC_SCHOLAR_API_KEY }}
+      STACKEXCHANGE_KEY: ${{ secrets.STACKEXCHANGE_KEY }}
     steps:
       - name: Checkout repository without credentials
         # https://github.com/actions/checkout
