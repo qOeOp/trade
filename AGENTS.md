@@ -5,6 +5,14 @@ Preserve unrelated work. Real trading or another production write requires expli
 Use the repository's current Makefile, pre-commit configuration, and CI workflows as check authority;
 do not reconstruct a missing historical entrypoint.
 
+## Architecture authority
+
+The documentation is the highest-level architecture authority for this project. Every implementation
+must strictly conform to the architecture and design described in the documentation. If a documented
+design cannot be implemented as written, or implementation reveals that the documented top-level
+design must change, stop the task and request explicit user authorization before changing the
+documentation or continuing the implementation.
+
 ## Local API keys
 
 Codex may use the following API keys from the local environment when an admitted repository task
