@@ -1,0 +1,39 @@
+name: research-source-canary
+
+# Read-only reachability, credential and schema checks. This workflow never
+# creates a Source Candidate or Research Intent.
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    - cron: "41 5 * * 2" # Weekly on Tuesday, away from the top of the hour.
+  workflow_dispatch:
+
+concurrency:
+  group: research-source-canary
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    name: probe-research-sources
+    if: github.repository == 'qOeOp/trade'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CORE_API_KEY: ${{ secrets.CORE_API_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      OPENALEX_API_KEY: ${{ secrets.OPENALEX_API_KEY }}
+      SEMANTIC_SCHOLAR_API_KEY: ${{ secrets.SEMANTIC_SCHOLAR_API_KEY }}
+      STACKEXCHANGE_KEY: ${{ secrets.STACKEXCHANGE_KEY }}
+    steps:
+      - name: Checkout repository without credentials
+        # https://github.com/actions/checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Probe research sources
+        run: python3 scripts/ci/source_canary.py research-source --summary "$GITHUB_STEP_SUMMARY"
