@@ -26,9 +26,10 @@ to infer a hidden contract from test names.
 
 ## Product Edge request authority
 
-Each deployment has exactly one `ACTIVE` Agent Shell binding selecting OpenClaw or Codex in steady state. A
-shell-only change preserves the same effective principal, scope policy, approved Skill/MCP capability policy,
-and audit policy. During cutover, zero `ACTIVE` bindings is allowed only as a fail-closed interval. The exact
+Each target deployment has exactly one `ACTIVE` Agent Shell binding selecting the canonical
+`WINDMILL_PRODUCT_EDGE` admission gateway in steady state. Windmill App and Windmill MCP are channels behind that
+gateway, not separate writers. A client- or transport-only change preserves the same effective principal, scope
+policy, approved Skill/MCP capability policy, and audit policy. During cutover, zero `ACTIVE` bindings is allowed only as a fail-closed interval. The exact
 predecessor commits `SUPERSEDED` before the policy-equivalent successor commits `ACTIVE`; multiple, stale, or
 policy-mismatched bindings admit no mutating Owner request. In-flight work retains its original request and
 binding identities across that transition.

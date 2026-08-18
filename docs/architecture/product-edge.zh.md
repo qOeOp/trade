@@ -2,14 +2,35 @@
 
 ## 职责
 
-Product Edge 把自然语言转成受限请求，并返回只读产品视图。LobeHub 负责对话界面。OpenClaw/Codex 是一个可配置的 Agent Shell 槽位：每次部署只启用其中一个，由它解释意图并选择已批准的 Skill 或 MCP 操作。
+Product Edge 是应用与对话边界，把有人值守 UI 或自然语言意图转成受限请求，并返回只读产品视图。
+选定的目标产品表面是 Windmill R&D Workbench；Windmill MCP endpoint 把同一组已准入操作暴露给可选
+外部对话客户端。
+
+## 目标产品表面与安装包
+
+目标发行物是一套 VibeTrader Docker Compose 安装包，而不是一个单体镜像。它组合 Trade Runtime 与
+Owner API、Windmill server 与 worker、所需持久化和本地入口。Windmill Web 应用是唯一默认产品入口，
+其原生 MCP endpoint 是唯一目标对话出口，因此 LobeHub、OpenClaw、WorkBuddy 或其他兼容客户端无需
+项目自有 adapter 或第二个 `trade-rd` MCP 服务即可接入。这些外部客户端只是可选 consumer，不随产品
+打包，不拥有业务权威，也不作为实现验收依赖。
+
+Windmill App 与 MCP endpoint 调用同一组经过挑选、带版本的 script 与 flow，并且只能通过有类型 Owner
+port 工作。它们不能执行任意 Owner SQL、产生业务事实或保存影子 workflow truth。定时研究、scanner、
+replay、报告与维护任务可以作为 Windmill job 运行并留下持久进度、日志、重试和工件引用。真实策略
+循环、行情会话、订单状态机与恢复效果仍由 Trade Runtime、Risk、Execution 与 Recovery 拥有；Windmill
+只能监督和展示，永远不是交易运行内核。
+
+该选择仍是 `TARGET/ABSENT_TARGET_ONLY`。本地安装 Windmill、MCP 握手成功或 mock dashboard 都不能
+让 Workbench 成为 `CURRENT`；验收必须覆盖下文定义的有界用户旅程、共同操作、Owner 回执、未解析
+状态以及直接浏览器证据。
 
 ## Agent Shell 部署绑定
 
-Product Edge 为每个部署拥有一个非业务 Agent Shell Deployment Binding。它绑定选择 generation、
-唯一选中的 Shell（`OPENCLAW` 或 `CODEX`）、有效 principal、scope policy 版本、已批准 Skill/MCP
-能力集版本、审计政策版本和 cutover epoch。两个 Shell 可以使用不同凭证，但有效 principal 与政策
-必须完全相同；切换 Shell 只改变归因，不改变权限。
+Product Edge 为每个部署拥有一个非业务 Agent Shell Deployment Binding。目标 binding 指向规范
+`WINDMILL_PRODUCT_EDGE` 准入网关；Windmill App 与 MCP 调用是同一网关后的 channel，不是竞争 Shell
+writer。binding 记录选择 generation、有效 principal、scope policy 版本、已批准 Skill/MCP 能力集版本、
+审计政策版本和 cutover epoch。不同 channel 可以使用不同凭证，但有效 principal 与政策必须完全相同；
+切换外部对话客户端或 transport 只改变归因，不改变权限。
 
 每次 binding 提交还必须绑定提交前后的权威 deployment history head。只有部署从未存在 binding
 历史时才允许 genesis，且必须是 generation 一并且没有 predecessor。历史一旦存在，后继必须以
@@ -145,28 +166,32 @@ Product Edge 可以请求 Research 工作、独立 Qualification 评估，或准
 
 ## 禁止事项
 
-它不得让 OpenClaw 和 Codex 成为竞争写入者，不接受自我声明 operator identity，不得用任意 SQL 或
+它不得让 Windmill App、MCP client 或 workflow 成为竞争业务写入者，不接受自我声明 operator identity，不得用任意 SQL 或
 命令绕过 Owner 存储，不调用 admitted manifest 之外的 operation，不暴露 credential，不绕过 Risk
 创建订单 批准资格 解引用保护证据，也不得用 Agent 记忆宣告恢复成功。
 
 ## 决策契约
 
-- **输入** — 自然语言意图 唯一 active Agent Shell Deployment Binding trusted principal 与 scope
+- **输入** - 自然语言意图 唯一 active Agent Shell Deployment Binding trusted principal 与 scope
   Operator Authorization admitted Agent Operation Manifest 和有界 Owner 只读模型请求。
-- **诊断与决定** — 解析唯一规范 Owner operation 与 semantic payload，再以准确 Authorization Lineage
+- **诊断与决定** - 解析唯一规范 Owner operation 与 semantic payload，再以准确 Authorization Lineage
   提交一个类型化请求，或在任何业务写入前拒绝。
-- **冲突解析** — 权威 deployment-history head 和政策等价 active binding 优先；意图歧义 双 Shell 写入
+- **冲突解析** - 权威 deployment-history head 和政策等价 active binding 优先；意图歧义 双 Shell 写入
   过期切换 含义改变的重放或 scope 冲突都失败关闭。
-- **输出与终态负例** — 请求关联 Owner 回执或有界视图；本地 Shell 成功仍为 `SUBMITTED_OR_UNKNOWN`，
+- **输出与终态负例** - 请求关联 Owner 回执或有界视图；本地 Shell 成功仍为 `SUBMITTED_OR_UNKNOWN`，
   授权拒绝或 Owner 回执未解析都不能变成业务成功。
-- **反馈与经济意义** — 把自然语言转成可归因 可安全重放的产品工作，同时不让 Agent credential 通知
+- **反馈与经济意义** - 把自然语言转成可归因 可安全重放的产品工作，同时不让 Agent credential 通知
   或 UI cache 成为交易权威。
-- **禁止事项** — 不执行无 schema 命令或 SQL 不自签身份 不扩大能力 不写业务状态 不披露保护证据
+- **禁止事项** - 不执行无 schema 命令或 SQL 不自签身份 不扩大能力 不写业务状态 不披露保护证据
   不创建订单 不分配资金 不绕过 Risk 也不宣称 Recovery。
 
 ## 实现验收
 
-切换 Agent Shell 配置时必须保持相同的有效主体、权限范围、能力与审计政策和 Owner 权威规则。测试必须证明只选择一个实现、允许失败关闭的零活动切换窗口、前驱先 `SUPERSEDED` 后继再 `ACTIVE`、取代不可逆、双写或政策漂移被拒、每个请求按准确权威 head 准入，以及所有已准入在途请求身份被保留。每个写操作都有类型 可归因 可安全重放且绑定接收 Owner 回执。Qualification review 复用 Candidate Intake Receipt 作为关联请求终态回执，并独立于有界状态视图返回它。仅含义相同不能加入 Candidate 尝试 状态 结果或身份不同的回执。Research 与生命周期接受回执绑定准确结果事实，拒绝回执证明没有写入。Runtime 在证明 `APPLIED` 或 `REJECTED_NO_INSTANCE` 前必须显式保持 `APPLICATION_UNKNOWN`。自然语言存在歧义时必须在业务写入前失败关闭。
+切换外部对话客户端或 Product Edge transport 时必须保持相同的有效主体、权限范围、能力与审计政策
+和 Owner 权威规则。测试必须证明只选择一个准入网关、允许失败关闭的零活动切换窗口、前驱先
+`SUPERSEDED` 后继再 `ACTIVE`、取代不可逆、双写或政策漂移被拒、每个请求按准确权威 head 准入，
+以及所有已准入在途请求身份被保留。Windmill App 与 MCP 测试还必须证明相同语义请求到达相同带
+版本 operation 与 Owner 回执，不兼容客户端在业务写入前失败关闭。每个写操作都有类型 可归因 可安全重放且绑定接收 Owner 回执。Qualification review 复用 Candidate Intake Receipt 作为关联请求终态回执，并独立于有界状态视图返回它。仅含义相同不能加入 Candidate 尝试 状态 结果或身份不同的回执。Research 与生命周期接受回执绑定准确结果事实，拒绝回执证明没有写入。Runtime 在证明 `APPLIED` 或 `REJECTED_NO_INSTANCE` 前必须显式保持 `APPLICATION_UNKNOWN`。自然语言存在歧义时必须在业务写入前失败关闭。
 
 只读模型测试必须证明每个视图保留稳定请求 principal scope 授权政策截面 来源 Owner 来源截面
 observed/projection time 新鲜度 valid-through 和明确可用状态；拒绝混合截面 过期政策 冲突重放和未授权

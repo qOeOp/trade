@@ -5,9 +5,9 @@
 
 ## Entry / 入口
 
-用户通过 Product Edge 提交带来源且可证伪的市场想法。LobeHub 和一个配置选中的 Agent Shell
-解释请求，Shell 只能是 OpenClaw 或 Codex 并使用同一套受限 Owner 接口。每次只启用一个 Shell，
-任何 Shell 都不保存业务事实也不直接交易。
+用户通过目标 Windmill Product Edge 提交带来源且可证伪的市场想法。默认 Windmill App 与通过
+Windmill MCP 接入的可选外部对话客户端，在同一 `WINDMILL_PRODUCT_EDGE` 准入网关后调用相同带
+版本的受限 Owner operation。UI、MCP transport 与 workflow 都不保存业务事实，也不直接交易。
 
 ## Value path / 价值路径
 
@@ -41,10 +41,10 @@ Authorization operation manifest 和 Autonomous Policy Authorization 一直贯�
 
 ## Development outcome / 开发结果
 
-- **受益者** — 需要从想法到自动交易保持一条可追踪路径的量化研究员 策略运营者和资金负责人。
-- **可观测结果** — 每个已接受转换都有唯一 Owner 事实，每个自动效果都关联治理 generation 许可 执行记录 账户投影和反馈闭环。
-- **未改变伤害** — 团队会建立竞争权威，把漂亮但未合格的结果推向交易，并失去解释资金与外部效果的能力。
-- **终态负例** — 任何不完整交接都停在所属 Owner 的明确负面或未解析状态；Recovery Case 未闭合 回执缺失或效果未知都不能推断成功。
+- **受益者** - 需要从想法到自动交易保持一条可追踪路径的量化研究员 策略运营者和资金负责人。
+- **可观测结果** - 每个已接受转换都有唯一 Owner 事实，每个自动效果都关联治理 generation 许可 执行记录 账户投影和反馈闭环。
+- **未改变伤害** - 团队会建立竞争权威，把漂亮但未合格的结果推向交易，并失去解释资金与外部效果的能力。
+- **终态负例** - 任何不完整交接都停在所属 Owner 的明确负面或未解析状态；Recovery Case 未闭合 回执缺失或效果未知都不能推断成功。
 
 ## Fail closed and forbidden transitions / 失败关闭与禁止转换
 

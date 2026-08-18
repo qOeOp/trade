@@ -24,8 +24,9 @@ accepted rejected unknown replay 含义都从 `architecture-contract.json` 发�
 
 ## Product Edge 请求权威
 
-稳定状态下每个部署只能有一个 `ACTIVE` Agent Shell binding，在 OpenClaw 与 Codex 中选择一个。
-只切换 Shell 时，必须保持相同的有效 principal、scope policy、已批准 Skill/MCP 能力政策与审计政策。
+目标部署在稳定状态下只能有一个 `ACTIVE` Agent Shell binding，并选择规范
+`WINDMILL_PRODUCT_EDGE` 准入网关。Windmill App 与 Windmill MCP 是该网关后的 channel，不是独立
+writer。只切换客户端或 transport 时，必须保持相同的有效 principal、scope policy、已批准 Skill/MCP 能力政策与审计政策。
 切换期间允许短暂零个 `ACTIVE`，但必须失败关闭。准确前驱先提交 `SUPERSEDED`，政策等价后继才能
 提交 `ACTIVE`；多个 过期或政策不匹配的 binding 都不能接纳 Owner 写请求。在途请求始终保留原
 request 与 binding 身份。

@@ -2,15 +2,38 @@
 
 ## Responsibility
 
-Product Edge turns natural language into bounded requests and returns read-only product views. LobeHub owns the conversation surface. OpenClaw/Codex is one configurable Agent Shell slot: exactly one shell interprets intent and selects approved Skill or MCP operations for a deployment.
+Product Edge is the application and conversation boundary. It turns attended UI or natural-language intent into
+bounded requests and returns read-only product views. The selected target surface is a Windmill R&D Workbench;
+Windmill's MCP endpoint exposes the same admitted operations to optional external conversation clients.
+
+## Target product surface and package
+
+The target distribution is one VibeTrader Docker Compose package, not one monolithic image. It composes the Trade
+Runtime and Owner APIs, a Windmill server and workers, their required persistence and local ingress. The Windmill
+web application is the sole default product entry. Its native MCP endpoint is the sole target conversation outlet,
+so LobeHub, OpenClaw, WorkBuddy, or another compatible client may connect without a project-owned adapter or a
+second `trade-rd` MCP service. Those external clients are optional consumers: they are not bundled product shells,
+business authorities, or implementation-acceptance dependencies.
+
+The Windmill App and MCP endpoint invoke one curated set of versioned scripts and flows over typed Owner ports.
+They may not call arbitrary Owner SQL, mint business facts, or keep a shadow workflow truth. Scheduled research,
+scanner, replay, report, and maintenance work may run as Windmill jobs with durable progress, logs, retries, and
+artifact references. A live strategy loop, market session, order state machine, and recovery effect remain owned by
+Trade Runtime, Risk, Execution, and Recovery; Windmill may supervise and display them but is never the trading
+runtime.
+
+This selection remains `TARGET/ABSENT_TARGET_ONLY`. A local Windmill installation, an MCP handshake, or a mock
+dashboard does not make the workbench `CURRENT`; acceptance requires the bounded user journeys, common operations,
+Owner receipts, unresolved states, and direct browser evidence defined below.
 
 ## Agent Shell deployment binding
 
-Product Edge owns one non-business Agent Shell Deployment Binding for each deployment. It binds the selection
-generation, exactly one selected shell (`OPENCLAW` or `CODEX`), effective principal, scope-policy version,
-approved Skill/MCP capability-set version, audit-policy version, and cutover epoch. The two shells may use
-different credentials, but the effective principal and policies are identical; changing shells changes
-attribution, never authority.
+Product Edge owns one non-business Agent Shell Deployment Binding for each deployment. The target binding names the
+canonical `WINDMILL_PRODUCT_EDGE` admission gateway; Windmill App and MCP calls are channels behind that same
+gateway, not competing shell writers. The binding records the selection generation, effective principal, scope-policy version,
+approved Skill/MCP capability-set version, audit-policy version, and cutover epoch. The channels may use
+different credentials, but the effective principal and policies are identical; changing the external
+conversation client or transport changes attribution, never authority.
 
 Every binding commit also binds the authoritative deployment-history head before and after the commit. Genesis
 is valid only when that deployment has no binding history, uses generation one, and names no predecessor. Once
@@ -166,29 +189,35 @@ Product Edge can request Research work, independent Qualification review, or exa
 
 ## Prohibitions
 
-It must not run OpenClaw and Codex as competing writers, accept self-asserted operator identity, execute arbitrary
+It must not let the Windmill App, an MCP client, or a workflow become competing business writers, accept self-asserted operator identity, execute arbitrary
 SQL or commands against Owner storage, invoke an operation absent from the admitted manifest, expose credentials,
 bypass Risk, create orders, approve eligibility, dereference protected evidence, or report recovery success from
 agent memory.
 
 ## Decision contract
 
-- **Inputs** — natural-language intent, the unique active Agent Shell Deployment Binding, trusted principal and
+- **Inputs** - natural-language intent, the unique active Agent Shell Deployment Binding, trusted principal and
   scope, Operator Authorization, admitted Agent Operation Manifest, and bounded Owner read-model requests.
-- **Diagnosis and decision** — resolve one canonical Owner operation and semantic payload, then either submit one
+- **Diagnosis and decision** - resolve one canonical Owner operation and semantic payload, then either submit one
   typed request under the exact Authorization Lineage or reject it before any business write.
-- **Conflict resolution** — the authoritative deployment-history head and policy-equivalent active binding win;
+- **Conflict resolution** - the authoritative deployment-history head and policy-equivalent active binding win;
   ambiguous intent, dual shell writers, stale cutover, changed replay meaning, or conflicting scope fails closed.
-- **Outputs and terminal negatives** — request-correlated Owner receipt or bounded view; local shell success stays
+- **Outputs and terminal negatives** - request-correlated Owner receipt or bounded view; local shell success stays
   `SUBMITTED_OR_UNKNOWN`, while rejected authorization or unresolved Owner receipt never becomes business success.
-- **Feedback and economic meaning** — natural language becomes attributable replay-safe product work without
+- **Feedback and economic meaning** - natural language becomes attributable replay-safe product work without
   turning an Agent, credential, notification, or UI cache into trading authority.
-- **Prohibitions** — no unschematized command or SQL, self-issued identity, capability widening, business-state
+- **Prohibitions** - no unschematized command or SQL, self-issued identity, capability widening, business-state
   write, protected-evidence disclosure, order, allocation, Risk bypass, or Recovery claim.
 
 ## Implementation acceptance
 
-Changing the configured shell preserves the same effective principal, scope, capability and audit policies, and Owner authority rules. Tests prove exactly one selected implementation, an allowed zero-active cutover interval, predecessor `SUPERSEDED` before successor `ACTIVE`, irreversible supersession, rejection of dual writers or policy drift, per-request admission against the exact authoritative head, and preservation of every already admitted in-flight request identity. Every mutating operation is typed, attributable, replay-safe, and bound to a receiving-Owner receipt. Qualification review reuses the Candidate Intake Receipt as that request-correlated terminal receipt and returns it independently of the bounded status view. Same meaning alone never joins a receipt whose Candidate, attempt, state, result, or identity differs. Accepted Research and lifecycle receipts bind the exact resulting fact; rejected receipts prove no write. Runtime application remains visibly `APPLICATION_UNKNOWN` until Runtime proves `APPLIED` or `REJECTED_NO_INSTANCE`. Natural-language ambiguity fails closed before any business write.
+Changing the external conversation client or Product Edge transport preserves the same effective principal, scope,
+capability and audit policies, and Owner authority rules. Tests prove exactly one selected admission gateway, an
+allowed zero-active cutover interval, predecessor `SUPERSEDED` before successor `ACTIVE`, irreversible
+supersession, rejection of dual writers or policy drift, per-request admission against the exact authoritative
+head, and preservation of every already admitted in-flight request identity. Windmill App and MCP tests must prove
+that the same semantic request reaches the same versioned operation and Owner receipt, while incompatible clients
+fail before a business write. Every mutating operation is typed, attributable, replay-safe, and bound to a receiving-Owner receipt. Qualification review reuses the Candidate Intake Receipt as that request-correlated terminal receipt and returns it independently of the bounded status view. Same meaning alone never joins a receipt whose Candidate, attempt, state, result, or identity differs. Accepted Research and lifecycle receipts bind the exact resulting fact; rejected receipts prove no write. Runtime application remains visibly `APPLICATION_UNKNOWN` until Runtime proves `APPLIED` or `REJECTED_NO_INSTANCE`. Natural-language ambiguity fails closed before any business write.
 
 Read-model tests prove every view preserves stable request, principal, scope, authorization-policy cut, source
 Owner, source cut, observed/projection time, freshness, valid-through time, and explicit availability status;

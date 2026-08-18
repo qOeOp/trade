@@ -11,11 +11,15 @@
 
 - `CURRENT/PARTIAL` - `crates/strategy_factory` 提供从窄范围冻结 `ResearchIntent` 到 `StrategyArtifact`、
   native replay 和 `TrialReceipt` 的 pilot。它是 `SURVIVED_NOT_ADMITTED`，不是完整 R&D 产品。
-- `TARGET/ABSENT_TARGET_ONLY` - R&D Workbench 展示 Source 与 Hypothesis、冻结 Intent、Artifact 与 Build
+- `TARGET/ABSENT_TARGET_ONLY` - 选定的 Windmill R&D Workbench 展示 Source 与 Hypothesis、冻结 Intent、Artifact 与 Build
   Receipt、探索 Run Detail 与 Compare、Diagnosis、Iteration Decision，以及准确的停止、修复、后继或
-  Qualification 交接动作。
-- `NOT_ADMITTED` - 架构页面、目标 read model、Dashboard 或可访问底层 API 都不能让 Workbench 成为
-  `CURRENT`。
+  Qualification 交接动作。Windmill App 与 Windmill MCP 调用同一组带版本 operation。
+- `NOT_ADMITTED` - 架构页面、本地 Windmill 安装、MCP 握手、目标 read model、Dashboard 或可访问底层
+  API 都不能让 Workbench 成为 `CURRENT`。
+
+目标以一套 Docker Compose 产品包交付，只提供一个默认 Windmill Web 入口与一个 Windmill MCP 对话
+出口。外部对话客户端可选接入，但不随产品打包，也不逐一维护 adapter。Windmill 调度长时间运行的
+研究与 scanner job；真实策略循环、行情会话、Risk、订单与恢复效果的权威和进程边界仍属于 Trade Runtime。
 
 [Observability](../../architecture/observability/) 可以解释进度与失败，但不能闭合旅程、选择下一动作，
 或用 telemetry 替代原生 Owner 回执。
