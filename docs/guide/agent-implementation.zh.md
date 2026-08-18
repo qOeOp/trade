@@ -13,8 +13,8 @@
 
 ## Agent 必须遵循的工作流
 
-1. 选择并验证一个[开发切片契约](../development-chunk-contract/)。
-2. 在[能力采用](../../architecture/capability-adoption/)中解析相关源能力和目标 Owner。
+1. 选择并验证一个[开发切片契约](./development-chunk-contract/)。
+2. 在[能力采用](../architecture/capability-adoption/)中解析相关源能力和目标 Owner。
 3. 在同一个精确候选版本检查当前源码、`Makefile`、pre-commit 配置和 CI workflow。
 4. 只打开与该有界切片相关的实现参考，并对照同一版本验证其中每个路径、symbol、命令和前置条件。
 5. 对该切片验证通过的页面标为 `CURRENT_IMPLEMENTATION_REFERENCE`。不匹配或已被替代的页面标为
@@ -31,7 +31,7 @@
 - `LEGACY_REFERENCE` 必须使用 `MISMATCHED_OR_SUPERSEDED`，保留同样的 typed immutable receipt，
   revision 与 receipt 严格相等，并采用终态处置 `DO_NOT_USE_AND_REPLAN`。
 
-“checked”这类自由文字不是证据。Typed receipt 重复已解析 candidate revision，把准确规范化仓库相对
+"checked"这类自由文字不是证据。Typed receipt 重复已解析 candidate revision，把准确规范化仓库相对
 locator 绑定到 Git blob 与 SHA-256 内容身份，并且对 `PATHS`、`SYMBOLS`、`COMMANDS`、
 `PREREQUISITES` 各包含恰好一个结果。Locator identity 的严格格式为
 `tree-path:<locator>@git-blob:<40 lowercase hex>@content-sha256:<64 lowercase hex>`；
@@ -46,7 +46,7 @@ Record 不能自证。Main 必须另行提供 immutable 40-hex Git tree 与逐 l
 每项检查只能是 `PASS`（具体 evidence、null basis）或 `NOT_APPLICABLE_WITH_BASIS`（null evidence、
 具体 basis）。检查 kind 缺失、重复、未知、乱序或增加时失败关闭。CURRENT 与 LEGACY 都保留完整 receipt；
 两者都必须经过同一 immutable Git 解析并匹配 Main 在 record 外提供的 context digest。LEGACY 没有
-“无法解析但仍有效”的例外：locator 不可用或已删除时 record 无效并返回 Main；LEGACY 表示已解析内容
+"无法解析但仍有效"的例外：locator 不可用或已删除时 record 无效并返回 Main；LEGACY 表示已解析内容
 仍绝对不得使用。
 
 未知分类、空列表、重复 locator、部分字段、identity 或 digest 格式错误、revision/content/locator 被修改

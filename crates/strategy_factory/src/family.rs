@@ -378,6 +378,7 @@ impl FrozenStrategyFamily {
     pub fn program_project(&self) -> Result<FrozenProgramProject<'_>, StrategyFamilyError> {
         self.ensure_definition_authority()?;
         let mut build = None;
+
         for trial in &self.trials {
             let issuance = self
                 .definition

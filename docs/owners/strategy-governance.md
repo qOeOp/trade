@@ -46,11 +46,11 @@ Own the deployable strategy registry, lifecycle decision, and permitted capital 
 
 ## Modules
 
-- **Strategy Registry** — store the current governed deployment decision, deployable ArtifactRef, and immutable generation Execution Scope without owning artifact content.
-- **Lifecycle Manager** — compute `INACTIVE`, `ACTIVE_GENERATION`, `DE_RISK_PENDING`, `REDUCED`, `PAUSED`, or
+- **Strategy Registry** - store the current governed deployment decision, deployable ArtifactRef, and immutable generation Execution Scope without owning artifact content.
+- **Lifecycle Manager** - compute `INACTIVE`, `ACTIVE_GENERATION`, `DE_RISK_PENDING`, `REDUCED`, `PAUSED`, or
   `RETIRED` from eligibility, performance, exposure, degradation, policy, incidents, drift, and closure facts.
   Renew `ACTIVE_GENERATION` only from fresh required evidence. Risk's Aggregate Commitment Frontier state is outside this lifecycle state machine.
-- **Capital Policy** — version the `POOL_ROOT` plus `STRATEGY_GENERATION` Capital Envelope chain consumed by Risk without creating committed capacity, a trade command, or final trade size.
+- **Capital Policy** - version the `POOL_ROOT` plus `STRATEGY_GENERATION` Capital Envelope chain consumed by Risk without creating committed capacity, a trade command, or final trade size.
   A `POOL_ROOT` binds Capacity Scope, account namespace, gross limits, policy provenance, and effective interval but
   forbids strategy, generation, Execution Scope, parent, Eligibility, or allocation fields. A `STRATEGY_GENERATION` envelope binds
   exactly one generation, Execution Scope, parent pool root, Eligibility, gross limits, and effective interval but
@@ -58,38 +58,38 @@ Own the deployable strategy registry, lifecycle decision, and permitted capital 
 
 ## Input handoffs
 
-- [Qualification](../qualification/) supplies committed Eligibility State and Revocation facts with exact Candidate, fact, economic-condition, evaluated cost/capacity-model, and qualified-capacity versions.
-- [Scanner](../scanner/) supplies one terminal Scanner Receipt per scan; condition-dependent activation must bind an exact matched proposal member with the same strategy entry, ArtifactRef, and condition version as the decision target.
-- [Portfolio](../portfolio/) supplies one Portfolio Lifecycle Evidence Receipt. `INITIAL_ACTIVATION` binds a fresh
+- [Qualification](./qualification/) supplies committed Eligibility State and Revocation facts with exact Candidate, fact, economic-condition, evaluated cost/capacity-model, and qualified-capacity versions.
+- [Scanner](./scanner/) supplies one terminal Scanner Receipt per scan; condition-dependent activation must bind an exact matched proposal member with the same strategy entry, ArtifactRef, and condition version as the decision target.
+- [Portfolio](./portfolio/) supplies one Portfolio Lifecycle Evidence Receipt. `INITIAL_ACTIVATION` binds a fresh
   candidate-neutral gross Capacity View for the pre-existing Capacity Scope; `PROMOTION` additionally binds exact
   fresh Performance and Exposure Receipts under its own `PROMOTION` transition-evidence key. Generation-specific
   economic conditions come from Qualification and Capital Policy, not from the pool ceiling.
-- Before creating an Execution Scope, [Portfolio](../portfolio/) supplies one current `BOUND` Capacity Scope and
-  [Execution](../execution/) supplies one current `ADMITTED` Execution Adapter Binding. Account, mode, effect
+- Before creating an Execution Scope, [Portfolio](./portfolio/) supplies one current `BOUND` Capacity Scope and
+  [Execution](./execution/) supplies one current `ADMITTED` Execution Adapter Binding. Account, mode, effect
   namespace, endpoint, capabilities, valid-through, and shared-constraint partition must match exactly; unknown
   or conflicting prebinding creates no lifecycle authorization.
-- [Portfolio](../portfolio/) supplies a Portfolio Interaction Receipt for set-wide decisions, including
+- [Portfolio](./portfolio/) supplies a Portfolio Interaction Receipt for set-wide decisions, including
   concentration, correlation, directional and factor overlap, tail contribution, diversification contribution,
   and marginal portfolio value on one coherent contender and valuation cut. Missing interaction evidence makes
   the allocation decision unavailable rather than independent per-strategy approvals.
   Every contender must carry the exact Portfolio-owned interaction class from that receipt; Governance never
   recomputes or substitutes the classification.
-- [Runtime](../runtime/) supplies the Generation Application Receipt and directly readable Runtime Incident Facts.
-- [Execution](../execution/) supplies immutable `RecoveryCase.KNOWN_CLOSED` before a new generation may start.
-- [Execution](../execution/) supplies directly readable committed Reconciliation Drift Facts, including explicit unknown-effect state and authoritative readback cut.
+- [Runtime](./runtime/) supplies the Generation Application Receipt and directly readable Runtime Incident Facts.
+- [Execution](./execution/) supplies immutable `RecoveryCase.KNOWN_CLOSED` before a new generation may start.
+- [Execution](./execution/) supplies directly readable committed Reconciliation Drift Facts, including explicit unknown-effect state and authoritative readback cut.
 - Product Edge supplies explicit lifecycle requests but cannot mutate governed state directly. Each request carries
   request identity, principal, scope, admitted active-shell binding and history head, Operator Authorization, and
   operation manifest. Governance closes each stable request identity with its own terminal receipt; absent receipt remains unknown.
 
 ## Output handoffs
 
-- To [Scanner](../scanner/): exact ArtifactRef, Eligibility, ActivationConditionVersion, CapitalEnvelopeVersion, data needs, and effective interval.
-- To [Runtime](../runtime/): authorize `INITIAL_ACTIVATION` or `PROMOTION`, or a decrease-only `REDUCTION`,
+- To [Scanner](./scanner/): exact ArtifactRef, Eligibility, ActivationConditionVersion, CapitalEnvelopeVersion, data needs, and effective interval.
+- To [Runtime](./runtime/): authorize `INITIAL_ACTIVATION` or `PROMOTION`, or a decrease-only `REDUCTION`,
   `PAUSE`, or `RETIREMENT` transition for one strategy generation. Every add-risk transition repeats the complete
   request Authorization Lineage and binds explicit Autonomous Policy Authorization. Runtime separately proves application;
   Governance never claims the instance is running.
-- To [Risk](../risk/): a policy carrying the applicable `POOL_ROOT` and exact `STRATEGY_GENERATION` Capital Envelopes, current Eligibility Fact, compatible Capacity View rules, validity interval, and economic-capacity contract. An intent is constrained only by its own applicability chain; sibling generation envelopes are not folded into a global minimum. Risk still admits their aggregate commitments against the common pool ceiling on its same-scope Aggregate Commitment Frontier. It is never an order command.
-- To [Risk](../risk/): each generation envelope repeats the governing Capital Allocation Disposition and contender
+- To [Risk](./risk/): a policy carrying the applicable `POOL_ROOT` and exact `STRATEGY_GENERATION` Capital Envelopes, current Eligibility Fact, compatible Capacity View rules, validity interval, and economic-capacity contract. An intent is constrained only by its own applicability chain; sibling generation envelopes are not folded into a global minimum. Risk still admits their aggregate commitments against the common pool ceiling on its same-scope Aggregate Commitment Frontier. It is never an order command.
+- To [Risk](./risk/): each generation envelope repeats the governing Capital Allocation Disposition and contender
   set. Risk rejects a generation that exceeds its envelope or the pool, but cannot pick winners, redistribute
   unused shares, or let concurrent arrival order change the allocation.
 - To Product Edge: the terminal Lifecycle Request Receipt plus read-only lifecycle and deployment decision views containing state, policy bounds, effective interval, bounded rationale category, and non-dereferenceable committed fact references only.
@@ -168,20 +168,20 @@ recomputes, those envelopes.
 
 ## Decision contract
 
-- **Inputs** — current Eligibility, complete Scanner evidence when condition-dependent, full contender set,
+- **Inputs** - current Eligibility, complete Scanner evidence when condition-dependent, full contender set,
   Portfolio lifecycle, interaction and degradation receipts, Runtime application or incident facts, Execution
   drift and closure facts, and authorized lifecycle requests.
-- **Diagnosis and decision** — determine eligibility and retention, then lifecycle state and one deterministic
+- **Diagnosis and decision** - determine eligibility and retention, then lifecycle state and one deterministic
   Capital Allocation Disposition; Governance decides deployment and capital share, never a trade.
-- **Conflict resolution** — complete-set allocation is replay-stable and order-independent; lifecycle conflicts
+- **Conflict resolution** - complete-set allocation is replay-stable and order-independent; lifecycle conflicts
   resolve once by `RECOVERY > RETIREMENT > PAUSE > DE_RISK > REDUCTION > PROMOTION > INITIAL_ACTIVATION`;
   `PROMOTION` always participates at this declared rank and must carry the `PROMOTION` evidence key. Adverse
   evidence action selection remains a separate versioned three-outcome policy.
-- **Outputs and terminal negatives** — lifecycle decision, envelope, allocation disposition, or explicit no-write;
+- **Outputs and terminal negatives** - lifecycle decision, envelope, allocation disposition, or explicit no-write;
   missing, stale, mixed-cut, tied without policy, or unknown evidence creates no add-risk transition.
-- **Feedback and economic meaning** — performance, exposure, interaction, degradation, incidents and drift govern
+- **Feedback and economic meaning** - performance, exposure, interaction, degradation, incidents and drift govern
   whether scarce capital is started, renewed, reduced, paused, or retired.
-- **Prohibitions** — no Artifact authorship, protected detail, Trade Intent, risk permit, order, venue effect,
+- **Prohibitions** - no Artifact authorship, protected detail, Trade Intent, risk permit, order, venue effect,
   account projection, or proof that Runtime applied a decision.
 
 ## Subsequent implementation acceptance

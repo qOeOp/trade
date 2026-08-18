@@ -186,6 +186,7 @@ impl RecordRef<'_> {
 
     pub fn order_event(self) -> Result<(u64, u8, u8, f64, f64), ProgramFault> {
         self.require(ORDER_EVENT_RECORD, 32)?;
+
         if self.payload[10..16] != [0; 6] {
             return Err(ProgramFault::MalformedFrame);
         }
@@ -256,6 +257,7 @@ impl<'a> Frame<'a> {
             parameters: &bytes[FRAME_HEADER_LEN..parameter_end],
             records: &bytes[parameter_end..],
         };
+
         if kind == FrameKind::Start && !frame.records.is_empty() {
             return Err(ProgramFault::MalformedFrame);
         }
@@ -313,6 +315,7 @@ impl<'a> Iterator for Records<'a> {
                 ts_event: read_u64(header, 16)?,
                 available_at: read_u64(header, 24)?,
             };
+
             if meta.type_id == 0 || meta.codec_version == 0 {
                 return Err(ProgramFault::MalformedFrame);
             }
@@ -321,6 +324,7 @@ impl<'a> Iterator for Records<'a> {
                 payload: &record[RECORD_HEADER_LEN..],
             })
         })();
+
         if result.is_err() {
             self.remaining = &[];
         }
@@ -361,6 +365,7 @@ pub enum Action {
 impl Action {
     fn encode(self, output: &mut [u8]) -> Result<(), ProgramFault> {
         output.fill(0);
+
         match self {
             Self::Submit {
                 kind,
@@ -392,6 +397,7 @@ impl Action {
             } => {
                 output[0] = 2;
                 write_u64(output, 16, handle);
+
                 for (flag, offset, value) in
                     [(1, 24, quantity), (2, 32, price), (4, 40, trigger_price)]
                 {
@@ -545,6 +551,7 @@ pub fn dispatch<P: StrategyProgram>(
         }
         Ok::<usize, ProgramFault>(actions.finish())
     })();
+
     match result {
         Ok(length) => i32::try_from(length).unwrap_or(ProgramFault::ActionOverflow as i32),
         Err(fault) => fault as i32,

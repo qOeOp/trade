@@ -93,6 +93,7 @@ impl ComplexDecisionCoverage {
 
     pub(crate) fn from_tags(tags: &[u32]) -> anyhow::Result<Self> {
         let mut coverage = Self::default();
+
         for tag in tags {
             match tag {
                 1 => coverage.enter_trend += 1,
@@ -868,6 +869,7 @@ mod tests {
                 "orders.open": "0", "orders.inflight": "0", "positions.open": "0"
             }
         });
+
         if ledger == FormationAccountLedger::Cash {
             let account = document["accounts"][0].as_object_mut().unwrap();
             let margin = account.remove("Margin").unwrap();

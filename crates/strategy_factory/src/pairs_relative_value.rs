@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
+    fmt::Display,
     str::FromStr,
     sync::OnceLock,
 };
@@ -418,7 +419,7 @@ fn rejected(trial_dispositions: Vec<FormationTrialDisposition>) -> FormationProj
 fn robustness_rejected(
     trial_dispositions: Vec<FormationTrialDisposition>,
     economically_selected: Option<FormationTrialSelection>,
-    error: impl std::fmt::Display,
+    error: impl Display,
 ) -> FormationProjectionV9 {
     FormationProjectionV9 {
         family_disposition: FormationFamilyDisposition::FormationRobustnessRejected,
@@ -581,9 +582,11 @@ pub(crate) fn recover_pairs_relative_value_receipt(
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
 
-    #[test]
+    #[rstest]
     fn exact_family_and_abi_are_stable() {
         let first = FrozenStrategyFamily::frozen_pairs_relative_value().unwrap();
         let second = FrozenStrategyFamily::frozen_pairs_relative_value().unwrap();
@@ -599,7 +602,7 @@ mod tests {
         assert_eq!(first.materialize_all().unwrap().len(), 20);
     }
 
-    #[test]
+    #[rstest]
     fn intent_product_and_coordinate_surface_fail_closed() {
         assert!(parse_intent().is_ok());
         assert_eq!(
@@ -614,7 +617,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn coverage_and_recursive_instrument_domain_are_closed() {
         let coverage = pairs_coverage(&[101, 101, 204, 301, 303]).unwrap();
         assert_eq!(coverage["entry_long_spread"], 2);
@@ -641,7 +644,7 @@ mod tests {
         assert!(validate_activity_domain(false, true, &pair_set()).is_err());
     }
 
-    #[test]
+    #[rstest]
     fn fixed_primary_deletions_and_repair_batches_are_fail_closed() {
         let selection = primary_selection();
         assert_eq!(

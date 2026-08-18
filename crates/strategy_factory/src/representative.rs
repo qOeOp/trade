@@ -216,6 +216,7 @@ pub(crate) fn representative_program_inputs(
     for channel in 1_u32..=SESSION_CHANNEL {
         bytes.extend_from_slice(&channel.to_le_bytes());
     }
+
     for value in [
         tuple.atr_period,
         tuple.band_period,
@@ -249,6 +250,7 @@ pub(crate) fn representative_program_inputs(
         .map_err(StrategyFamilyError::Definition)?;
     bytes.extend_from_slice(&balance.as_f64().to_le_bytes());
     bytes.push(0b111);
+
     for channel_id in BAR_CHANNEL_IDS.into_iter().chain(MACRO_CHANNEL_IDS) {
         let staleness = representative_intent
             .max_staleness_ns(channel_id)
@@ -304,6 +306,7 @@ fn schedule_plan() -> anyhow::Result<ScheduledEventPlan> {
 fn selected_schedule_data(values: &[CustomData]) -> anyhow::Result<Vec<CustomData>> {
     let mut counts = [0; 3];
     let mut selected = Vec::new();
+
     for value in values {
         let event = value
             .data
@@ -316,6 +319,7 @@ fn selected_schedule_data(values: &[CustomData]) -> anyhow::Result<Vec<CustomDat
             "FOMC_STATEMENT" => Some(2),
             _ => None,
         };
+
         if let Some(slot) = slot {
             counts[slot] += 1;
             selected.push(value.clone());
@@ -347,6 +351,7 @@ pub(crate) fn session_observations(start_ns: u64, end_ns: u64) -> anyhow::Result
                 mask | u8::from(fx_prev_start(*session, instant) > fx_prev_end(*session, instant))
                     << index
             });
+
         if previous != Some(mask) {
             let available_at = timestamp.saturating_sub(1).into();
             output.push(CustomData::new(
@@ -420,7 +425,7 @@ pub(crate) fn prepare_representative_program_data(
         market_start_ns,
         source_end_ns + 900_000_000_000,
     )
-    .map_err(|error| anyhow::anyhow!("invalid representative run scope: {error:?}"))?;
+    .map_err(|e| anyhow::anyhow!("invalid representative run scope: {e:?}"))?;
     let source_binding = format!(
         "{}:{}",
         macro_data.manifest_digest(),
@@ -441,6 +446,7 @@ pub(crate) fn prepare_representative_program_data(
         ("schedule.events".into(), selected_schedule.len()),
         ("session.transitions".into(), session_count),
     ]);
+
     for series in MACRO_SERIES {
         let counts = macro_data
             .series_counts(series)

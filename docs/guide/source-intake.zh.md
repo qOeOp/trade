@@ -12,7 +12,7 @@ Source Intake 接纳论文 文章 笔记 媒体 社区讨论 工具输出和其�
 不能创建 Strategy Artifact 请求重放 评定或部署策略 分配资金或交易。只有 Research 冻结 Research
 Intent 后，解释后的来源才能进入正式研究循环。来源可以启发假设，不能证明 Alpha 资格或可部署性。
 
-与 [Market Data](../../owners/market-data/) 的边界按语义划分：
+与 [Market Data](../owners/market-data/) 的边界按语义划分：
 
 - 论文 API 文档 字段定义 方法与研究说明属于 Source Intake；
 - 研究 重放或扫描实际消费的价格观测 宏观 vintage 财报事实 事件日历和标的状态属于 Market Data；

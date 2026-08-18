@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { basePath, docsRoute, parentNavigationRoute } from './lib/docs-routes.mjs';
 import { PUBLISHED_DOC_ROOTS } from './lib/publication-contract.mjs';
+import { routeRelativeMarkdownLinks } from './prepare-content.mjs';
 import {
   containsNavigationHref,
   internalDocumentRoutes,
@@ -26,6 +27,61 @@ async function sourceFiles(directory) {
 
 const homeRoute = '/trade/zh/';
 const childRoute = '/trade/zh/docs/owners/risk/';
+
+test('rewrites leaf-page links without treating a mixed fence marker as a close', () => {
+  const source = [
+    '```text',
+    '~~~',
+    '[fenced](../owners/risk/)',
+    '```',
+    '[body](../owners/risk/)',
+  ].join('\n');
+  const expected = [
+    '```text',
+    '~~~',
+    '[fenced](../owners/risk/)',
+    '```',
+    '[body](../../owners/risk/)',
+  ].join('\n');
+
+  assert.equal(routeRelativeMarkdownLinks(source, 'guide/install'), expected);
+});
+
+test('preserves index-page links and links inside a matching tilde fence', () => {
+  const source = ['~~~~', '[fenced](./risk/)', '```', '~~~~', '[body](./risk/)'].join('\n');
+  assert.equal(routeRelativeMarkdownLinks(source, 'owners/index'), source);
+  assert.equal(
+    routeRelativeMarkdownLinks(source, 'owners/runtime'),
+    ['~~~~', '[fenced](./risk/)', '```', '~~~~', '[body](../risk/)'].join('\n'),
+  );
+});
+
+test('preserves links in blockquote and list fences while rewriting body links', () => {
+  const source = [
+    '> ```md',
+    '> [quoted](../owners/risk/)',
+    '> ```',
+    '',
+    '- ```md',
+    '  [listed](../owners/risk/)',
+    '  ```',
+    '',
+    '[body](../owners/risk/)',
+  ].join('\n');
+  const expected = [
+    '> ```md',
+    '> [quoted](../owners/risk/)',
+    '> ```',
+    '',
+    '- ```md',
+    '  [listed](../owners/risk/)',
+    '  ```',
+    '',
+    '[body](../../owners/risk/)',
+  ].join('\n');
+
+  assert.equal(routeRelativeMarkdownLinks(source, 'guide/install'), expected);
+});
 
 test('rejects a docs link that exists only outside the Fumadocs sidebar', () => {
   const body = `<aside id="nd-sidebar"><a href="/other/">Other</a></aside><script>${childRoute}</script>`;

@@ -11,7 +11,7 @@
 
 use std::{collections::BTreeSet, path::Path, sync::Arc};
 
-use anyhow::{Context, ensure};
+use anyhow::Context;
 use jiff::{
     Timestamp,
     civil::{Date, DateTime},
@@ -78,12 +78,12 @@ impl ScheduleSource {
             cdx_digest: cdx_digest.into(),
             raw_sha256: raw_sha256.into(),
         };
-        ensure!(
+        anyhow::ensure!(
             Path::new(&source.filename).components().count() == 1
                 && !source.filename.starts_with('.'),
             "source filename must be a safe leaf"
         );
-        ensure!(
+        anyhow::ensure!(
             source.source_url.starts_with("https://")
                 && !source.cdx_digest.is_empty()
                 && source.raw_sha256.len() == 64
@@ -103,13 +103,13 @@ impl ScheduledEventPlan {
     /// # Errors
     /// Rejects an unsupported year, duplicate filenames, or missing/duplicate source roles.
     pub fn new(year: i16, mut sources: [ScheduleSource; 3]) -> anyhow::Result<Self> {
-        ensure!(
+        anyhow::ensure!(
             (2000..=2100).contains(&year),
             "schedule year is unsupported"
         );
         sources.sort_by_key(|source| source.kind);
         let roles = std::array::from_fn(|index| sources[index].kind);
-        ensure!(
+        anyhow::ensure!(
             roles
                 == [
                     ScheduleSourceKind::BlsReleaseCalendar,
@@ -122,7 +122,7 @@ impl ScheduledEventPlan {
             .iter()
             .map(|source| source.filename.as_str())
             .collect::<BTreeSet<_>>();
-        ensure!(
+        anyhow::ensure!(
             filenames.len() == sources.len(),
             "schedule source filenames collide"
         );
@@ -218,9 +218,10 @@ pub fn open_custodied(
 ) -> anyhow::Result<ScheduledEventDataset> {
     let custody = open_custodied_directory(root)?;
     let mut raw = Vec::with_capacity(3);
+
     for evidence in &plan.sources {
         let bytes = read_bounded_regular_at(&custody, Path::new(&evidence.filename), MAX_HTML)?;
-        ensure!(
+        anyhow::ensure!(
             sha256(&bytes) == evidence.raw_sha256,
             "custodied HTML digest mismatch"
         );
@@ -260,11 +261,12 @@ fn parse_bls(bytes: &[u8], observed_at: UnixNanos) -> anyhow::Result<Vec<ParsedE
     let time_cell = selector("td.time-cell")?;
     let description = selector("td.desc-cell strong")?;
     let body_text = normalized_text(document.root_element());
-    ensure!(
+    anyhow::ensure!(
         body_text.contains("NOTE: All times on calendar are Eastern Time."),
         "BLS timezone declaration missing"
     );
     let mut events = Vec::new();
+
     for row in document.select(&row) {
         let Some(label) = row.select(&description).next().map(normalized_text) else {
             continue;
@@ -283,7 +285,7 @@ fn parse_bls(bytes: &[u8], observed_at: UnixNanos) -> anyhow::Result<Vec<ParsedE
         let scheduled_for = eastern(local)?;
         events.push(parsed(label, scheduled_for, observed_at));
     }
-    ensure!(!events.is_empty(), "BLS schedule has no release rows");
+    anyhow::ensure!(!events.is_empty(), "BLS schedule has no release rows");
     Ok(events)
 }
 
@@ -304,10 +306,11 @@ fn parse_fomc(bytes: &[u8], observed_at: UnixNanos, year: i16) -> anyhow::Result
         })
         .with_context(|| format!("{year} FOMC panel missing"))?;
     let mut events = Vec::new();
+
     for item in panel.select(&meeting) {
         let month = required_text(item.select(&month).next(), "FOMC month")?;
         let days = required_text(item.select(&date).next(), "FOMC date")?;
-        ensure!(!days.contains('('), "non-scheduled FOMC entry rejected");
+        anyhow::ensure!(!days.contains('('), "non-scheduled FOMC entry rejected");
         let end_month = month.rsplit('/').next().context("FOMC month missing")?;
         let end_day = days
             .trim_end_matches('*')
@@ -320,13 +323,13 @@ fn parse_fomc(bytes: &[u8], observed_at: UnixNanos, year: i16) -> anyhow::Result
         let scheduled_for = eastern(date.at(14, 0, 0, 0))?;
         events.push(parsed("FOMC_STATEMENT".into(), scheduled_for, observed_at));
     }
-    ensure!(!events.is_empty(), "FOMC schedule has no regular meetings");
+    anyhow::ensure!(!events.is_empty(), "FOMC schedule has no regular meetings");
     Ok(events)
 }
 
 fn ensure_statement_rule(bytes: &[u8]) -> anyhow::Result<()> {
     let document = Html::parse_document(std::str::from_utf8(bytes)?);
-    ensure!(
+    anyhow::ensure!(
         normalized_text(document.root_element()).contains(STATEMENT_RULE),
         "exact FOMC release-time rule missing"
     );
@@ -343,18 +346,19 @@ fn parsed(event_id: String, scheduled_for: UnixNanos, observed_at: UnixNanos) ->
 
 fn validate_and_sort(events: &mut [ParsedEvent], year: i16) -> anyhow::Result<()> {
     let mut dates = BTreeSet::new();
+
     for event in events.iter() {
-        ensure!(
+        anyhow::ensure!(
             event.scheduled_for > event.observed_at,
             "schedule was not observed before event"
         );
         let local = Timestamp::from_nanosecond(i128::from(event.scheduled_for.as_u64()))?
             .to_zoned(get_timezone(TIMEZONE)?);
-        ensure!(
+        anyhow::ensure!(
             local.year() == year,
             "scheduled event outside declared year"
         );
-        ensure!(
+        anyhow::ensure!(
             dates.insert((event.event_id.as_str(), local.date())),
             "duplicate or conflicting scheduled event"
         );
@@ -405,7 +409,7 @@ fn month_number(value: &str) -> anyhow::Result<i8> {
 }
 
 fn selector(value: &str) -> anyhow::Result<Selector> {
-    Selector::parse(value).map_err(|error| anyhow::anyhow!("invalid built-in selector: {error:?}"))
+    Selector::parse(value).map_err(|e| anyhow::anyhow!("invalid built-in selector: {e:?}"))
 }
 
 fn required_text(element: Option<ElementRef<'_>>, name: &str) -> anyhow::Result<String> {

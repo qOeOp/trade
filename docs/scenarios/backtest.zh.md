@@ -70,10 +70,10 @@ holdout 且不生成 assessment 或 Eligibility Fact。`VALID_ECONOMIC_FAILURE` 
 
 ## Development outcome / 开发结果
 
-- **受益者** — 判断冻结候选是否可部署的独立评估者 治理运营者和资金负责人。
-- **可观测结果** — 每个请求闭合为 intake 拒绝 保护尝试处置或资格，并带准确 holdout 成本 容量和消费输入血缘。
-- **未改变伤害** — 过拟合候选 模拟器不匹配 隐藏试验族或重复使用 holdout 可能被提升为经济有效证据。
-- **终态负例** — 未选择或 intake 不完整为 `NOT_ADMITTED`；回放拒绝或无效不生成 Eligibility Fact；有效失败为 `INELIGIBLE`，均不能作为合格事实进入 Governance。
+- **受益者** - 判断冻结候选是否可部署的独立评估者 治理运营者和资金负责人。
+- **可观测结果** - 每个请求闭合为 intake 拒绝 保护尝试处置或资格，并带准确 holdout 成本 容量和消费输入血缘。
+- **未改变伤害** - 过拟合候选 模拟器不匹配 隐藏试验族或重复使用 holdout 可能被提升为经济有效证据。
+- **终态负例** - 未选择或 intake 不完整为 `NOT_ADMITTED`；回放拒绝或无效不生成 Eligibility Fact；有效失败为 `INELIGIBLE`，均不能作为合格事实进入 Governance。
 
 ## Fail closed and forbidden transitions / 失败关闭与禁止转换
 

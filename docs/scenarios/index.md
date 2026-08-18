@@ -23,8 +23,8 @@ simultaneous admitted branches join one case without merging their facts.
 | ----------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------- |
 | [Overview](./overview/) | Falsifiable idea                                                          | Committed owner facts across the closed product loop      |
 | [Research](./research/) | Sourced hypothesis                                                        | Frozen Research Intent and Strategy Artifact              |
-| [Backtest](./backtest/) | Frozen artifact and evidence pack                                         | Intake receipt plus branch-specific proof                 |
-| [Scan](./scan/)         | Scheduled tick                                                            | Auditable proposal or recorded no-proposal reason         |
+| [Backtest](./backtest/) | Frozen artifact and evidence pack                                         | Intake receipt plus branch‑specific proof                 |
+| [Scan](./scan/)         | Scheduled tick                                                            | Auditable proposal or recorded no‑proposal reason         |
 | [Paper](./paper/)       | Governed active strategy in paper mode                                    | Reconciled simulated effects and settled reservation      |
 | [Live](./live/)         | Governed active strategy in live mode                                     | Authoritative venue readback and reconciled account state |
 | [Recovery](./recovery/) | Readiness loss, Runtime incident, reconciliation drift, or Risk hard stop | `RecoveryCase.KNOWN_CLOSED`                               |

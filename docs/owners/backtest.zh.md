@@ -34,33 +34,33 @@
 
 ## 模块
 
-- **Native Replay** — 使用确定性时间重放历史事件，并在适用处复用原生 Runtime Risk 和订单语义。
-- **Sim Exchange** — 模拟场所接纳 延迟 成交 手续费和账户效果，不产生外部写入。
-- **Run Result** — 把实际消费的数据 工件 配置 订单 成交 成本和终态结果绑定为规范回执。
+- **Native Replay** - 使用确定性时间重放历史事件，并在适用处复用原生 Runtime Risk 和订单语义。
+- **Sim Exchange** - 模拟场所接纳 延迟 成交 手续费和账户效果，不产生外部写入。
+- **Run Result** - 把实际消费的数据 工件 配置 订单 成交 成本和终态结果绑定为规范回执。
 
 ## 输入交接
 
-- [R&D](../rd/) 提交一个冻结 Exploratory Replay Request，绑定准确不可变工件 请求 PIT 数据
+- [R&D](./rd/) 提交一个冻结 Exploratory Replay Request，绑定准确不可变工件 请求 PIT 数据
   范围 重放配置，以及其 Research Intent 冻结的同一成本 滑点与容量模型版本。
 - 已接纳 `D1_EXECUTABLE_REPAIR` 时，R&D 提交独立 `REPAIR_VALIDATION` request，绑定 D-only repair
   admission、前驱与后继 Artifact、defect oracle、完整 non-defect regression corpus、冻结语义相等证明
   和确定 event/signal/intent/order trace comparison。它既不是探索请求也不是保护请求。
-- [Qualification](../qualification/) 发送只在 `ADMITTED` intake 和 holdout 预留后创建的保护请求，冻结
+- [Qualification](./qualification/) 发送只在 `ADMITTED` intake 和 holdout 预留后创建的保护请求，冻结
   全部执行身份及准确 Candidate/Intake 保护政策 pair。每个请求处理一个已声明 Protected Robustness
   Plan 单元或准确冻结有界矩阵，Backtest 不能在观察结果后挑选单元；接入拒绝仍必须提交绑定同一请求的 `RUN_REJECTED` 结果。
-- [Market Data](../market-data/) 提供冻结 PIT 数据和标的条款。
-- [R&D](../rd/) 还可提交一个冻结的 `SIMULATOR` 或 `BACKTEST_OPERATIONAL` `native-repair-request`。
+- [Market Data](./market-data/) 提供冻结 PIT 数据和标的条款。
+- [R&D](./rd/) 还可提交一个冻结的 `SIMULATOR` 或 `BACKTEST_OPERATIONAL` `native-repair-request`。
   `SIMULATOR` 只能指向 Backtest 的 Sim Exchange 表面 `sim-exchange`；`BACKTEST_OPERATIONAL` 只能指向
   Native Replay 的 `BACKTEST_RUNNER_SERVICE`。目标 类别 前驱 proof 旧 identity source cut policy 时间错误或含义变化都不创建 Backtest repair
   attempt 或 result。
 
 ## 输出交接
 
-- 向 [R&D](../rd/) 返回带完整有限 `diagnosticCategorySet` 及各成员决定性证据截面的探索 Run
+- 向 [R&D](./rd/) 返回带完整有限 `diagnosticCategorySet` 及各成员决定性证据截面的探索 Run
   Result。任一执行缺陷成员都优先于经济解释；Research 保留全部支持成员，再按冻结优先级选择唯一修复。
   只有不含缺陷的集合才能用 `NO_EXECUTION_DEFECT` 或 `VALID_ECONOMIC_FAILURE` 做经济解释；
   `UNRESOLVED_FAILURE` 不允许产生决定。
-- 对 [R&D](../rd/) 的 `REPAIR_INPUTS_SIMULATOR` 或 `REPAIR_INPUTS_BACKTEST_OPERATIONAL`，只有 Backtest
+- 对 [R&D](./rd/) 的 `REPAIR_INPUTS_SIMULATOR` 或 `REPAIR_INPUTS_BACKTEST_OPERATIONAL`，只有 Backtest
   能返回准确 request-correlated `REPAIRED` `UNAVAILABLE` 或 `OUTCOME_UNKNOWN`。`REPAIRED` 命名新
   simulator 或 operational-profile identity，且只允许一个新请求相等 Replay Request，绑定准确前驱
   `REPAIR_INPUTS` 决定、类别、native repair request 与 result identity、原始 proof digest、稳定
@@ -73,7 +73,7 @@
 - 向 R&D 的有人值守修复路径只返回请求相等的 `REPAIR_VALIDATION` 事实；只有通过结果可支持
   `D1_VALIDATED`。失败 被拒 无效 未知或不相等结果不支持 Candidate，也不能重标为 Research 证据；
   只有 R&D 能提交 D-only Repair Disposition。
-- 向 [Qualification](../qualification/) 只返回逐项重复实际消费执行身份以供完全相等校验的密封 Protected Run Result 和完整消费输入证据。
+- 向 [Qualification](./qualification/) 只返回逐项重复实际消费执行身份以供完全相等校验的密封 Protected Run Result 和完整消费输入证据。
 - 只向 Product Edge 提供只读探索 Run Result 视图；保护请求 测量 结果和 holdout 细节永不投影。
 
 ## 拒绝和禁止事项
@@ -103,16 +103,16 @@ service，绝不声称 Runtime kernel 或 Simulator 修复。保护路径中 Qua
 
 ## 决策契约
 
-- **输入** — 一个冻结探索或保护 Replay Request，以及准确已接纳 PIT snapshot artifact runtime
+- **输入** - 一个冻结探索或保护 Replay Request，以及准确已接纳 PIT snapshot artifact runtime
   simulator cost slippage capacity identity。
-- **诊断与决定** — 接纳或拒绝准确 request，确认 runner/service operational readiness，确定重放并
+- **诊断与决定** - 接纳或拒绝准确 request，确认 runner/service operational readiness，确定重放并
   提交实际消费 operational diagnosis 与终态 result，不解释可部署性。
-- **冲突解析** — request identity 与 namespace 决定 run；含义变化时拒绝，重放加入同一结果而不替换默认值。
-- **输出与终态负例** — Run Result 或 `RUN_REJECTED` `INVALID_REPLAY_EVIDENCE`
+- **冲突解析** - request identity 与 namespace 决定 run；含义变化时拒绝，重放加入同一结果而不替换默认值。
+- **输出与终态负例** - Run Result 或 `RUN_REJECTED` `INVALID_REPLAY_EVIDENCE`
   `IN_PROGRESS_OR_UNKNOWN`；所有分支都只是事实证据。
-- **反馈与经济意义** — 展示扣成本行为与可复现性，让 Research 学习且 Qualification 独立检验，但不
+- **反馈与经济意义** - 展示扣成本行为与可复现性，让 Research 学习且 Qualification 独立检验，但不
   授予资格或资金。
-- **禁止** — 不拥有 Candidate selection 保护结果反馈 Research Eligibility 生命周期 实盘订单 账户真相或部署权威。
+- **禁止** - 不拥有 Candidate selection 保护结果反馈 Research Eligibility 生命周期 实盘订单 账户真相或部署权威。
 
 ## 后续实现验收
 

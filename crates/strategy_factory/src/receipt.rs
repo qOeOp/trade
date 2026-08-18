@@ -1250,6 +1250,7 @@ mod tests {
             document["qualification_policy"],
             "one_content_addressed_logical_run_after_selection_deterministic_recovery_may_reread"
         );
+
         for removed_authority_field in [
             "qualification_terminal_evidence",
             "qualification_state_reason",

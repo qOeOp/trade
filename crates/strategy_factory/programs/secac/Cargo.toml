@@ -19,6 +19,9 @@ path = "src/lib.rs"
 strategy-factory-program-sdk = { path = "../sdk" }
 vibe-indicators-kernel = { path = "../../../indicators/kernel" }
 
+[dev-dependencies]
+rstest = "0.26.1"
+
 [workspace]
 
 [profile.release]

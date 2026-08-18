@@ -1,5 +1,6 @@
 use std::{
     collections::BTreeSet,
+    fmt::Debug,
     fs,
     io::{Cursor, Read},
     path::{Component, Path, PathBuf},
@@ -124,7 +125,7 @@ pub struct ResearchIntentProposal {
     document: ResearchIntentProposalDocument,
 }
 
-impl std::fmt::Debug for ResearchIntentProposal {
+impl Debug for ResearchIntentProposal {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct(stringify!(ResearchIntentProposal))
@@ -203,11 +204,13 @@ fn validate_proposal_document(document: &ResearchIntentProposalDocument) -> anyh
         "research intent proposal evidence count is invalid"
     );
     let mut prior = None;
+
     for evidence in &document.evidence {
         anyhow::ensure!(
             valid_identifier(&evidence.id),
             "research intent proposal evidence id is invalid"
         );
+
         if let Some(prior) = prior {
             anyhow::ensure!(
                 prior < evidence.id.as_str(),
@@ -226,6 +229,7 @@ fn validate_proposal_document(document: &ResearchIntentProposalDocument) -> anyh
         (1..=32).contains(&document.falsifiers.len()),
         "research intent proposal falsifier count is invalid"
     );
+
     for falsifier in &document.falsifiers {
         validate_text(falsifier, 4_096, "falsifier")?;
         anyhow::ensure!(
@@ -280,6 +284,7 @@ fn validate_statements(
         (min..=max).contains(&statements.len()),
         "research intent proposal {label} count is invalid"
     );
+
     for statement in statements {
         anyhow::ensure!(
             valid_identifier(&statement.id),
@@ -310,7 +315,7 @@ pub struct StrategyProjectProposal {
     build: VerifiedCargoBuild,
     intent: ResearchIntentProposal,
 }
-impl std::fmt::Debug for StrategyProjectProposal {
+impl Debug for StrategyProjectProposal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct(stringify!(StrategyProjectProposal))
             .field("artifact_identity", self.artifact.identity())
@@ -509,11 +514,12 @@ fn materialize_build_with(
             initialize_git_root(staging.path())?;
             Ok(manifest)
         })();
+
         match result {
             Ok(manifest) => Ok(staging.keep().join(manifest)),
-            Err(error) => {
+            Err(e) => {
                 staging.close().context("clean partial program project")?;
-                Err(error)
+                Err(e)
             }
         }
     }
@@ -616,6 +622,7 @@ fn proposal_intent_from_build(
 fn read_capsule_file(bytes: &[u8], expected: &Path, limit: usize) -> anyhow::Result<Vec<u8>> {
     let mut archive = tar::Archive::new(Cursor::new(bytes));
     let mut content = None;
+
     for entry in archive.entries()? {
         let mut entry = entry?;
         let directory = entry.header().entry_type().is_dir();
@@ -648,6 +655,7 @@ fn inspect_capsule(bytes: &[u8]) -> anyhow::Result<PathBuf> {
     let mut manifests = Vec::new();
     let mut content_bytes = 0u64;
     let mut entry_count = 0usize;
+
     for entry in archive.entries()? {
         let entry = entry?;
         entry_count += 1;
@@ -666,10 +674,12 @@ fn inspect_capsule(bytes: &[u8]) -> anyhow::Result<PathBuf> {
             continue;
         }
         anyhow::ensure!(paths.insert(path.clone()), "duplicate source capsule path");
+
         if !directory {
             let size = entry.size();
             anyhow::ensure!(size <= MAX_CAPSULE_FILE_BYTES, "source entry is too large");
             content_bytes = content_bytes.saturating_add(size);
+
             if path
                 .file_name()
                 .is_some_and(|name| name == PROJECT_MANIFEST)
@@ -691,6 +701,7 @@ fn inspect_capsule(bytes: &[u8]) -> anyhow::Result<PathBuf> {
 
 fn safe_capsule_path(path: &Path, directory: bool) -> anyhow::Result<PathBuf> {
     let mut normalized = PathBuf::new();
+
     for component in path.components() {
         match component {
             Component::CurDir => {}

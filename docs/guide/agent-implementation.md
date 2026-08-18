@@ -16,8 +16,8 @@ authority and are not automatically current merely because the files exist.
 
 ## Required Agent workflow
 
-1. Select and validate one [Development Chunk Contract](../development-chunk-contract/).
-2. Resolve the relevant source capability and destination Owner in [Capability Adoption](../../architecture/capability-adoption/).
+1. Select and validate one [Development Chunk Contract](./development-chunk-contract/).
+2. Resolve the relevant source capability and destination Owner in [Capability Adoption](../architecture/capability-adoption/).
 3. Inspect the current source, `Makefile`, pre-commit configuration, and CI workflow at the exact candidate revision.
 4. Open only the implementation references relevant to that bounded chunk and verify every named path, symbol,
    command, and prerequisite against the same revision.
@@ -66,12 +66,12 @@ Paper or Live effects, or replace the chunk's accepted, rejected, unknown, and r
 | Development need                 | Repository implementation references                                                                                         | Required interpretation                                                                              |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | Environment and toolchain        | `docs/developer_guide/environment_setup.md`                                                                                  | Verify commands against the current project pin, `Makefile`, and CI before use.                      |
-| Rust, Python, and FFI boundaries | `docs/developer_guide/rust.md`, `docs/developer_guide/python.md`, `docs/developer_guide/ffi.md`                              | Reuse language and memory-safety guidance without moving Owner authority across bindings.            |
+| Rust, Python, and FFI boundaries | `docs/developer_guide/rust.md`, `docs/developer_guide/python.md`, `docs/developer_guide/ffi.md`                              | Reuse language and memory‑safety guidance without moving Owner authority across bindings.            |
 | Adapter implementation           | `docs/developer_guide/adapters.md`, `docs/developer_guide/spec_data_testing.md`, `docs/developer_guide/spec_exec_testing.md` | Split Market Data and Execution ports; a provider crate never gains product authority.               |
 | Testing and datasets             | `docs/developer_guide/testing.md`, `docs/developer_guide/test_datasets.md`                                                   | Use current harnesses and fixtures as evidence, never as production capability or economic proof.    |
 | Performance work                 | `docs/developer_guide/benchmarking.md`                                                                                       | Preserve the selected contract while measuring a bounded implementation seam.                        |
 | Extensions and plugins           | `docs/developer_guide/plugins.md`                                                                                            | Treat reachability as infrastructure; every business effect still passes through its Owner contract. |
-| Documentation work               | `docs/developer_guide/docs.md`, `docs/developer_guide/markdown_style.md`                                                     | Follow current repository gates while keeping the canonical projection single-sourced.               |
+| Documentation work               | `docs/developer_guide/docs.md`, `docs/developer_guide/markdown_style.md`                                                     | Follow current repository gates while keeping the canonical projection single‑sourced.               |
 | Engine semantics                 | `docs/concepts/` and crate `README.md` files                                                                                 | Use as explanations of current mechanics, then confirm the exact source symbols and behavior.        |
 | Task examples                    | `docs/how_to/`, `docs/getting_started/`, and `examples/`                                                                     | Treat examples as reference inputs, not architecture, production admission, or Live authority.       |
 

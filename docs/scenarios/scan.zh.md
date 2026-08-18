@@ -47,10 +47,10 @@ failure。总优先级为独立 batch `FAILED`、完整 `PROPOSED`、完整 `COM
 
 ## Development outcome / 开发结果
 
-- **受益者** — 需要定期发现机会又不能让定时器直接部署或交易的策略运营者。
-- **可观测结果** — 每次定时触发覆盖完整受治理注册表，并返回准确匹配 负面处置 缺失成员和唯一终态回执。
-- **未改变伤害** — 过期或数据不足策略可能被静默提升，有效匹配可能被其他失败隐藏，Scanner 也可能变成隐蔽部署权威。
-- **终态负例** — `NO_MATCH` `INSUFFICIENT_DATA` `COMPLETED_NO_PROPOSAL` 或 `FAILED` 不产生部署；Governance 只能考虑完整 `PROPOSED` 回执中的准确成员。
+- **受益者** - 需要定期发现机会又不能让定时器直接部署或交易的策略运营者。
+- **可观测结果** - 每次定时触发覆盖完整受治理注册表，并返回准确匹配 负面处置 缺失成员和唯一终态回执。
+- **未改变伤害** - 过期或数据不足策略可能被静默提升，有效匹配可能被其他失败隐藏，Scanner 也可能变成隐蔽部署权威。
+- **终态负例** - `NO_MATCH` `INSUFFICIENT_DATA` `COMPLETED_NO_PROPOSAL` 或 `FAILED` 不产生部署；Governance 只能考虑完整 `PROPOSED` 回执中的准确成员。
 
 ## Fail closed and forbidden transitions / 失败关闭与禁止转换
 

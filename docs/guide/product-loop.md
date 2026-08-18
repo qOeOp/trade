@@ -6,7 +6,7 @@ runtime authority, external effects, or the factual projection used by the next 
 ## User-facing closure and implementation boundary
 
 The Owner control loop below is the target authority flow; it does not by itself prove a usable application.
-User-facing closure exists only when [Product Edge](../../architecture/product-edge/) lets a user carry one bounded
+User-facing closure exists only when [Product Edge](../architecture/product-edge/) lets a user carry one bounded
 goal from entry to an authoritative result and its next legal action without manually joining Owner databases,
 receipts, logs, or terminal output.
 
@@ -23,7 +23,7 @@ conversation outlet. Optional external conversation clients are not bundled or i
 schedules long-running research and scanner jobs; Trade Runtime remains the authority and process boundary for
 live strategy loops, market sessions, risk, orders, and recovery effects.
 
-[Observability](../../architecture/observability/) may explain progress and failure, but it cannot close the journey,
+[Observability](../architecture/observability/) may explain progress and failure, but it cannot close the journey,
 choose the next action, or substitute telemetry for a native Owner receipt.
 
 ## Agent-native R&D experience
@@ -58,7 +58,7 @@ The target Windmill R&D Workbench closes the journey through these application a
 | Backtests        | Exploratory charts, risk metrics, Run Detail, and version comparison                                                                              | Backtest owns Run Results; comparison does not create Selection                                                                 |
 | Qualification    | Bounded public status and exact admitted handoff action                                                                                           | Protected details remain opaque; Qualification owns intake and eligibility                                                      |
 | Scanner          | Schedule, terminal Scanner Receipt, heartbeat, and unresolved state                                                                               | Windmill schedules work; Scanner owns proposal truth and never starts Runtime                                                   |
-| Runtime          | Applied generations, strategy-loop status, checkpoints, incidents, and permitted lifecycle actions                                                | Runtime, Governance, Risk, and Execution facts remain separate authorities                                                      |
+| Runtime          | Applied generations, strategy‑loop status, checkpoints, incidents, and permitted lifecycle actions                                                | Runtime, Governance, Risk, and Execution facts remain separate authorities                                                      |
 | Operations       | Windmill jobs, workers, progress, logs, retries, and incidents                                                                                    | Operational success never means research, Qualification, deployment, or trading success                                         |
 
 The first Artifact Review surface intentionally omits raw source. Full read-only source inspection, source diff,

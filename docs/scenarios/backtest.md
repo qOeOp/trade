@@ -3,7 +3,7 @@
 This scenario evaluates a frozen candidate independently. Qualification keeps the write-once Intake Receipt in
 immutable history and projects the current branch: `EVALUATING`, terminal attempt disposition, or Eligibility.
 
-## Entry / 入口
+## Entry
 
 Product Edge requests an independent review of an existing R&D-owned Candidate. Research has already
 frozen TrialFamily, its immutable exhaustive Census Frontier, Artifact, PIT rule, purge or embargo, costs,
@@ -21,7 +21,7 @@ After `ADMITTED`, Qualification freezes the exact Strategy Artifact, requested P
 Snapshot identity, Universe Selection Record identity and digest, snapshot/correction rule, replay-configuration digest, Runtime kernel, simulator, cost, slippage, and capacity model versions, and that exact protected policy pair in
 one Protected Replay Request.
 
-## Value path / 价值路径
+## Value path
 
 Qualification sends the frozen candidate to an isolated protected replay. Market Data supplies the exact
 point-in-time replay inputs. Native Replay uses the deterministic trading kernel, Sim Exchange creates
@@ -62,7 +62,7 @@ Qualification returns the write-once Intake Receipt directly to Product Edge as 
 outcome; its separate status summary never substitutes for that receipt. A `QUALIFIED` Eligibility Fact binds the
 economic-condition and evaluated cost/capacity-model versions plus the capacity ceiling Governance and Risk must enforce.
 
-## Owner handoffs / Owner 交接
+## Owner handoffs
 
 Product Edge → Qualification is the stable request-correlated review, including origin-to-current bounded
 protected-feedback frontiers. R&D → Qualification is the frozen Candidate, exact Research Selection
@@ -73,7 +73,7 @@ Eligibility State fact, including revocation, only when one exists. Qualificatio
 to Product Edge; the bounded status view remains a read model. Protected Attempt Disposition remains Qualification-owned
 and is exposed only as a bounded categorical Product status.
 
-## Proof / 证明
+## Proof
 
 Proof always includes the frozen Candidate, its exact `SELECTED_FOR_QUALIFICATION` Research Selection
 Disposition and Intent falsifier, TrialFamily, immutable exhaustive Census Frontier, complete
@@ -98,14 +98,14 @@ Candidate and summary phase identity and fabricates no current authoritative pha
 The Eligibility Fact also repeats the exact protected decision-policy identity and version from Candidate Intake
 and the Protected Replay Request.
 
-## Development outcome / 开发结果
+## Development outcome
 
-- **Beneficiary** — independent evaluators, governance operators, and capital owners deciding whether a frozen candidate is deployable.
-- **Observable outcome** — one request closes as intake rejection, protected attempt disposition, or eligibility with exact holdout, cost, capacity, and consumed-input lineage.
-- **Harm if unchanged** — overfit candidates, mismatched simulators, hidden trial families, or reused holdout could be promoted as economically valid evidence.
-- **Terminal negative** — non-selection or incomplete intake is `NOT_ADMITTED`; rejected or invalid replay has no Eligibility Fact; valid failure is `INELIGIBLE`, and none may reach Governance as qualified.
+- **Beneficiary** - independent evaluators, governance operators, and capital owners deciding whether a frozen candidate is deployable.
+- **Observable outcome** - one request closes as intake rejection, protected attempt disposition, or eligibility with exact holdout, cost, capacity, and consumed-input lineage.
+- **Harm if unchanged** - overfit candidates, mismatched simulators, hidden trial families, or reused holdout could be promoted as economically valid evidence.
+- **Terminal negative** - non-selection or incomplete intake is `NOT_ADMITTED`; rejected or invalid replay has no Eligibility Fact; valid failure is `INELIGIBLE`, and none may reach Governance as qualified.
 
-## Fail closed and forbidden transitions / 失败关闭与禁止转换
+## Fail closed and forbidden transitions
 
 - Incomplete preregistration, a missing mutable non-exhaustive or late-divergent Census Frontier, or unavailable PIT data blocks protected evaluation.
 - Unresolved ancestry, a late independence basis, stale feedback frontier, or a new request identity for the same intake is `NOT_ADMITTED` and creates no holdout attempt.

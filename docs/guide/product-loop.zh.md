@@ -6,7 +6,7 @@
 ## 面向用户的闭环与实现边界
 
 下方 Owner 控制闭环是目标权威 Flow，本身不能证明已有可用应用。只有用户能通过
-[Product Edge](../../architecture/product-edge/) 把一个有界目标从入口推进到权威结果及其下一个合法动作，
+[Product Edge](../architecture/product-edge/) 把一个有界目标从入口推进到权威结果及其下一个合法动作，
 而不需要手工拼接 Owner 数据库、回执、日志或终端输出时，面向用户的产品闭环才成立。
 
 - `CURRENT/PARTIAL` - `crates/strategy_factory` 提供从窄范围冻结 `ResearchIntent` 到 `StrategyArtifact`、
@@ -21,7 +21,7 @@
 出口。外部对话客户端可选接入，但不随产品打包，也不逐一维护 adapter。Windmill 调度长时间运行的
 研究与 scanner job；真实策略循环、行情会话、Risk、订单与恢复效果的权威和进程边界仍属于 Trade Runtime。
 
-[Observability](../../architecture/observability/) 可以解释进度与失败，但不能闭合旅程、选择下一动作，
+[Observability](../architecture/observability/) 可以解释进度与失败，但不能闭合旅程、选择下一动作，
 或用 telemetry 替代原生 Owner 回执。
 
 ## Agent-native R&D 体验

@@ -69,6 +69,7 @@ impl ChannelControl {
         ) {
             return Err(ProgramFault::ProgramRejected);
         }
+
         match (self.phase, handle, code) {
             (1, ENTRY, order_event::FILLED)
                 if side == OrderSide::Buy as u8
@@ -209,6 +210,7 @@ impl StrategyProgram for ChannelControl {
                 .try_into()
                 .map_err(|_| ProgramFault::MalformedFrame)?,
         ));
+
         if parameters.len() == 48 {
             self.freshness_mask = u64::from_le_bytes(
                 parameters[32..40]

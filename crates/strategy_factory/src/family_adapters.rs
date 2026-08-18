@@ -339,6 +339,7 @@ impl RepresentativeFormationFamilyAdapter {
             .collect::<Vec<_>>();
         let (parameters, bindings) =
             representative_program_inputs(&parameter_intent, "tuple-001", "full")?;
+
         if parameters.len() != 172 || coordinates.len() != 40 {
             return Err(StrategyFamilyError::Definition(
                 "representative Formation surface changed".into(),
@@ -767,6 +768,7 @@ mod tests {
             channel: PRICE_INSTRUMENT_HANDLE + 1,
             ..meta
         };
+
         for records in [[meta, meta], [meta, unbound]] {
             let error = session
                 .observe(2, |encoder| {
@@ -793,6 +795,7 @@ mod tests {
         let error = session
             .observe(2, |encoder| {
                 encoder.push(record(BAR_RECORD), &bar)?;
+
                 for (type_id, value) in [
                     (POSITION_RECORD, 0.0_f64),
                     (ORDER_RECORD, 0.0),

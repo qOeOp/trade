@@ -36,13 +36,13 @@
 
 ## 模块
 
-- **Source Intake** — 把论文 观察 笔记 媒体和工具输出作为带来源与内容身份的不可信数据接纳。来源
+- **Source Intake** - 把论文 观察 笔记 媒体和工具输出作为带来源与内容身份的不可信数据接纳。来源
   内容永远不是指令 能力授权或调用其他 Owner 的权威。provider-neutral 实现基线见
-  [研究来源接入指南](../../guide/source-intake/)。
-- **Research Intent** — 在观察结果前冻结可证伪机制和实验契约。
-- **Strategy Artifact** — 保存不可变内容 依赖来源 市场语义 runtime capability sandbox policy 和
+  [研究来源接入指南](../guide/source-intake/)。
+- **Research Intent** - 在观察结果前冻结可证伪机制和实验契约。
+- **Strategy Artifact** - 保存不可变内容 依赖来源 市场语义 runtime capability sandbox policy 和
   Artifact Security Admission，供重放 资格与治理应用原样消费。
-- **Development Sandbox** — 只通过显式输入输出 mount 构建并诊断策略代码，没有环境 filesystem network
+- **Development Sandbox** - 只通过显式输入输出 mount 构建并诊断策略代码，没有环境 filesystem network
   subprocess 或 process-tree escape inherited capability secret 账户 部署或 effect-port 权威。
 
 ## 有人值守的 D-only 修复
@@ -88,7 +88,7 @@ Source Intake 不能从来源直接跳到代码。Intent 冻结前，Research �
 | 经济可行性 | 按冻结模型版本归因换手 费用 spread 滑点 冲击 流动性和容量。                                                                                               | 经济不可能时停止，或在稳健性检验前只修改一个经济假设。                                                        |
 | 稳健性     | 在不消费保护证据时检验时间 市场状态 标的 扰动和合理参数邻域敏感性。                                                                                       | 区分稳定机制支持与狭窄参数偶然。                                                                              |
 | 失败归因   | 把失败分类为数据 工件 runtime simulator 机制 经济 稳健性或未解析不确定性。                                                                                | 把修复路由到所属边界，防止无效运行成为负 Alpha 证据。                                                         |
-| 信息价值   | 每个预注册下一实验都绑定决定不确定性 区分性观察或证伪 结果到动作映射 有界获取成本 剩余 family 预算影响 竞争替代项，以及同一证据截面的可重放序数比较理由。 | 以确定 tie-break 选择排名最高的可接纳实验；无解释序数不可接纳，只有完整且非空的全员低于阈值 census 才能停止。 |
+| 信息价值   | 每个预注册下一实验都绑定决定不确定性 区分性观察或证伪 结果到动作映射 有界获取成本 剩余 family 预算影响 竞争替代项，以及同一证据截面的可重放序数比较理由。 | 以确定 tie‑break 选择排名最高的可接纳实验；无解释序数不可接纳，只有完整且非空的全员低于阈值 census 才能停止。 |
 
 Backtest 为每个终态探索结果提供完整有限 `diagnosticCategorySet`；Research 必须保留全部支持成员，
 并先按以下准确映射再解释经济表现：
@@ -174,32 +174,32 @@ purge 与 embargo 派生规则、TrialFamily-aware multiplicity policy、attempt
 ## 输入交接
 
 - Product Edge 提供带来源研究请求而不是无来源交易指令，请求提交已经投影给该 principal 的有界保护反馈前沿。Research 用自己的终态回执解析稳定请求身份，并保留语义前驱而不读取保护类别或细节；回执缺失时保持未知。
-- [Market Data](../market-data/) 提供 PIT 事实 数据版本 标的语义，以及对已提交 Market Data Repair
+- [Market Data](./market-data/) 提供 PIT 事实 数据版本 标的语义，以及对已提交 Market Data Repair
   Request 的关联 `AVAILABLE` 或 `UNAVAILABLE` 终态。
-- 探索性 [Backtest](../backtest/) 结果可以支持创建新的意图和工件版本。
+- 探索性 [Backtest](./backtest/) 结果可以支持创建新的意图和工件版本。
 - 已提交且绑定 generation 的 Performance Runtime Incident Execution 账户 订单 成交 quality observation
   Effect Journal 回读与 Reconciliation Drift 事实，只能作为新
   Research Source Provenance Record 进入后继血缘。它们不能改写已部署或已选择的 Intent Artifact
   Candidate，也不能越过保护证据边界。
-- [Runtime](../runtime/) 直接提供已提交且按 generation 划分的 Incident 事实，只允许作为后继来源接纳。
-  [Execution](../execution/) 直接提供已提交账户 订单 成交 quality observation Effect Journal 回读和
+- [Runtime](./runtime/) 直接提供已提交且按 generation 划分的 Incident 事实，只允许作为后继来源接纳。
+  [Execution](./execution/) 直接提供已提交账户 订单 成交 quality observation Effect Journal 回读和
   Reconciliation Drift 事实，用途相同。两种交接都不能调节运行中 generation 或暴露保护
   Qualification 证据。每条 Research Source Provenance Record 都绑定准确已提交事实身份与来源截面；
   Effect Closure View 或 Event Rail wake 不能替代这些事实。
 
 ## 输出交接
 
-- 向 [Market Data](../market-data/) 只在已提交 `REPAIR_INPUTS` Iteration Decision 后发出 Market Data
+- 向 [Market Data](./market-data/) 只在已提交 `REPAIR_INPUTS` Iteration Decision 后发出 Market Data
   Repair Request。请求要求原生 Owner 修复证据，不指定 adapter 不改写旧 snapshot 也不宣称数据可用。
-- 向 [Backtest](../backtest/) 交付一个由 R&D 拥有的冻结 Exploratory Replay Request，绑定准确意图
+- 向 [Backtest](./backtest/) 交付一个由 R&D 拥有的冻结 Exploratory Replay Request，绑定准确意图
   工件 数据范围 重放配置以及成本 滑点与容量模型身份。
   `REPAIR_INPUTS_SIMULATOR` 或 `REPAIR_INPUTS_BACKTEST_OPERATIONAL` 决定还可创建一个关联
   `native-repair-request`；只有 Backtest 能针对该准确类别专属 attempt 返回 `REPAIRED` `UNAVAILABLE`
   或 `OUTCOME_UNKNOWN`。
-- 向 [Runtime](../runtime/) 只在已提交 `REPAIR_INPUTS_RUNTIME_KERNEL` 决定后创建一个关联
+- 向 [Runtime](./runtime/) 只在已提交 `REPAIR_INPUTS_RUNTIME_KERNEL` 决定后创建一个关联
   `native-repair-request`；只有 Runtime 能针对该准确 kernel attempt 返回 `REPAIRED` `UNAVAILABLE`
   或 `OUTCOME_UNKNOWN`。
-- 探索结束后只向 [Qualification](../qualification/) 交付拥有终态 `SELECTED_FOR_QUALIFICATION`
+- 探索结束后只向 [Qualification](./qualification/) 交付拥有终态 `SELECTED_FOR_QUALIFICATION`
   Research Selection Disposition 的冻结 Candidate。交接交叉绑定准确 Intent 证伪条件与停止规则 完整预注册
   不可变穷尽 TrialFamily Census Frontier 探索请求结果前沿 完整跨 TrialFamily 语义前驱前沿 来源反馈前沿
   和预提交独立性依据。Candidate 与 Selection 重复 Intent 和探索请求结果前沿冻结的准确成本 滑点与
@@ -252,16 +252,16 @@ attempt 闭合为 `D1_BUILD_FAILED`。生产恢复不会重开冻结研究身份
 
 ## 决策契约
 
-- **输入** — 已接纳来源 provenance PIT 事实 冻结 Intent 与实验政策 穷尽 TrialFamily Census 和请求
+- **输入** - 已接纳来源 provenance PIT 事实 冻结 Intent 与实验政策 穷尽 TrialFamily Census 和请求
   相等探索结果。
-- **诊断与决定** — 解释六类诊断维度，再按 typed experiment 规则只提交修复 后继 ready 或停止之一。
-- **冲突解析** — 证据有效性和冻结 falsifier 高于漂亮表现；其他可接纳下一实验按序数信息价值和已
+- **诊断与决定** - 解释六类诊断维度，再按 typed experiment 规则只提交修复 后继 ready 或停止之一。
+- **冲突解析** - 证据有效性和冻结 falsifier 高于漂亮表现；其他可接纳下一实验按序数信息价值和已
   声明 tie-break 选择。
-- **输出与终态负例** — 后继 Intent `READY_FOR_SELECTION` 带类型 `REPAIR_INPUTS` 或命名停止；关联
+- **输出与终态负例** - 后继 Intent `READY_FOR_SELECTION` 带类型 `REPAIR_INPUTS` 或命名停止；关联
   Market Data 修复不可用时产生 `STOP_INPUT_UNAVAILABLE`，未知证据不产生决定。
-- **反馈与经济意义** — 探索和已提交 Owner 事实只能改善后继血缘；成本 滑点 容量 family 预算和预期
+- **反馈与经济意义** - 探索和已提交 Owner 事实只能改善后继血缘；成本 滑点 容量 family 预算和预期
   决定价值共同阻止无经济意义的无限搜索。
-- **禁止** — 不反馈保护细节 不原地修改 不隐藏同族试验，也不拥有部署 资金 风险 订单 账户或外部效果权威。
+- **禁止** - 不反馈保护细节 不原地修改 不隐藏同族试验，也不拥有部署 资金 风险 订单 账户或外部效果权威。
 
 ## 后续实现验收
 

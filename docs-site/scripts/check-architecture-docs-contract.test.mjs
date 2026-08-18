@@ -1016,12 +1016,12 @@ test('Research diagnoses one exact run and chooses one highest-value successor c
   ];
   const chineseLabels = ['证据完整性', '机制有效性', '经济可行性', '稳健性', '失败归因', '信息价值'];
   const englishPatterns = [
-    [/provenance, PIT time.*deterministic request-result equality/, /Repair or reject evidence/],
+    [/provenance, PIT time.*deterministic request‑result equality/, /Repair or reject evidence/],
     [/observed sign.*frozen causal mechanism, falsifier, and stop rule/, /Stop a falsified mechanism.*successor mechanism hypothesis/],
     [/turnover, fees.*capacity under the frozen model versions/, /Stop economic impossibility.*economic assumption/],
     [/sensitivity across time.*parameter neighborhoods.*protected evidence/, /stable mechanism support.*parameter accident/],
     [/data, artifact, runtime, simulator.*unresolved uncertainty/, /Route repair.*prevent invalid runs/],
-    [/preregistered next experiment.*ordinal comparison rationale at one evidence cut/, /highest-ranked admissible experiment.*complete non-empty below-threshold census/],
+    [/preregistered next experiment.*ordinal comparison rationale at one evidence cut/, /highest‑ranked admissible experiment.*complete non‑empty below‑threshold census/],
   ];
   const chinesePatterns = [
     [/来源 PIT 时间.*确定性请求结果相等/, /解释策略表现前先修复或拒绝证据/],
@@ -6600,8 +6600,8 @@ test('Agent implementation guidance preserves useful legacy references without r
     assert.match(source, /Makefile/);
     assert.match(source, /Development Chunk Contract|开发切片契约/);
   }
-  assert.match(chunkEnglish, /\.\.\/agent-implementation\//);
-  assert.match(chunkChinese, /\.\.\/agent-implementation\//);
+  assert.match(chunkEnglish, /\.\/agent-implementation\//);
+  assert.match(chunkChinese, /\.\/agent-implementation\//);
   assert.ok(!PUBLISHED_DOC_ROOTS.includes('developer_guide'), 'legacy developer prose must not become a normative root');
 });
 

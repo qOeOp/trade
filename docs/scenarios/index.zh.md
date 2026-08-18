@@ -13,7 +13,7 @@
 但任一分支都不能制造或要求只属于另一分支的证据。
 Recovery 中，`runtime-risk-incident-fence` 把 `runtime-incident-fact` 提交给 Risk，
 `execution-risk-drift-fence` 把 `reconciliation-drift-fact` 提交给 Risk。Risk 是 Recovery Fence 唯一
-writer；任一 source-only 分支在自身准入后都能创建或加入同一种 Recovery Case，两者同时准入时加入
+writer；任一 source‑only 分支在自身准入后都能创建或加入同一种 Recovery Case，两者同时准入时加入
 同一 case 且不合并来源事实。
 
 | 场景                | 入口                                        | 必须取得的证明                              |

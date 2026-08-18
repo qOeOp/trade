@@ -635,9 +635,9 @@ impl MultisourceTrialContext<'_> {
                 FormationAccountLedger::Margin,
             ))
         })();
-        attempt.unwrap_or_else(|error| {
+        attempt.unwrap_or_else(|e| {
             OwnedFormationTrialEvidence::bound(family_trial, artifact_identity)
-                .failed(format!("{error:#}"))
+                .failed(format!("{e:#}"))
         })
     }
 }
@@ -689,6 +689,7 @@ fn execute_frozen_pairs_relative_value_formation_with_evidence(
 ) -> anyhow::Result<OwnedFormationRun> {
     let family = FrozenStrategyFamily::frozen_pairs_relative_value()?;
     let artifacts = family.materialize_all()?;
+
     if !producer_evidence.allows_test_or_attested_execution() {
         let error = producer_evidence.rejection_error();
         return Ok(software_rejected_family(
@@ -767,6 +768,7 @@ fn execute_frozen_dual_tsmom_formation_with_evidence(
 ) -> anyhow::Result<OwnedFormationRun> {
     let family = FrozenStrategyFamily::frozen_dual_tsmom()?;
     let artifacts = family.materialize_all()?;
+
     if !producer_evidence.allows_test_or_attested_execution() {
         let error = producer_evidence.rejection_error();
         return Ok(software_rejected_family(
@@ -835,6 +837,7 @@ fn execute_frozen_secac_formation_with_evidence(
 ) -> anyhow::Result<OwnedFormationRun> {
     let family = FrozenStrategyFamily::frozen_secac_successor()?;
     let artifacts = family.materialize_all()?;
+
     if !producer_evidence.allows_test_or_attested_execution() {
         let error = producer_evidence.rejection_error();
         return Ok(software_rejected_family(
@@ -857,6 +860,7 @@ fn execute_frozen_secac_formation_with_evidence(
         strategy_prefix: "SECAC-FORMATION",
         run_prefix: "secac-formation",
     };
+
     for (trial, artifact) in family.trials().iter().zip(artifacts) {
         trials.push(context.execute(
             trial,
@@ -1318,6 +1322,7 @@ fn load_market_data(
             observations.len() == projected.len(),
             "zero-volume source projection count mismatch"
         );
+
         for (observation, event) in observations.iter().zip(projected) {
             let open_ns = source_micros_to_nanos(observation.open_time_micros())?;
             if !(window.start_open_ns..=window.end_open_ns).contains(&open_ns) {
@@ -1930,6 +1935,7 @@ mod tests {
         }));
         let receipt = issue_secac_formation_receipt(&first_run).unwrap();
         let bytes = receipt.to_bytes().unwrap();
+
         if let Some(output) = std::env::var_os("VIBE_SECAC_FORMATION_RECEIPT_OUTPUT") {
             let mut file = std::fs::OpenOptions::new()
                 .write(true)

@@ -282,11 +282,13 @@ impl Secac {
         if target <= available_at {
             return Err(ProgramFault::ProgramRejected);
         }
+
         match kind {
             1 => return Ok(()),
             2 | 3 => {}
             _ => return Err(ProgramFault::ProgramRejected),
         }
+
         for index in 0..self.event_count {
             if self.event_targets[index] == target {
                 return (self.event_kinds[index] == kind)
@@ -294,6 +296,7 @@ impl Secac {
                     .ok_or(ProgramFault::ProgramRejected);
             }
         }
+
         if self.event_count == MAX_EVENTS {
             return Err(ProgramFault::ProgramRejected);
         }
@@ -311,12 +314,14 @@ impl Secac {
             .iter()
             .position(|bound| *bound == channel)
             .ok_or(ProgramFault::MalformedFrame)?;
+
         match slot {
             0 | 1 => {
                 let m15_slot = usize::from(slot == 1);
                 if bar.ts_event <= self.m15[m15_slot].ts_event {
                     return Err(ProgramFault::ProgramRejected);
                 }
+
                 if slot == 0 {
                     let (range, close) = true_range(
                         bar.values[1],
@@ -367,6 +372,7 @@ impl Secac {
             closes[1] - self.previous_pair_closes[1],
         ];
         self.previous_pair_closes = closes;
+
         if self.position_side != 0
             && self.atr.initialized
             && direction(changes[0]) == -self.position_side
@@ -390,10 +396,12 @@ impl Secac {
             self.waited = 0;
             self.shock_side = 0;
         }
+
         if self.active_event == 0 {
             return Ok(());
         }
         let parameters = self.parameters()?;
+
         if self.shock_side == 0 {
             self.waited += 1;
             if self.waited < parameters.shock_wait {
@@ -429,6 +437,7 @@ impl Secac {
         if btc == 0 {
             return 0;
         }
+
         if self
             .parameters
             .is_some_and(|parameters| parameters.enabled(ETH_CONFIRM))
@@ -471,6 +480,7 @@ impl Secac {
         if self.position_side != 0 && side != 0 && side != self.position_side {
             return Err(ProgramFault::ProgramRejected);
         }
+
         if self.position_side == 0 && side != 0 {
             let Some(bar) = executable_bar else {
                 return Ok(false);
@@ -486,6 +496,7 @@ impl Secac {
             self.entry_submitted = false;
             return Ok(true);
         }
+
         if self.position_side != 0 && side == 0 {
             self.position_side = 0;
             self.exit_submitted = false;
@@ -496,9 +507,11 @@ impl Secac {
 
     fn exit_tag(&mut self, bar: Bar, newly_opened: bool) -> Option<u32> {
         let parameters = self.parameters?;
+
         if self.position_side == 0 || self.exit_submitted || !self.atr.initialized {
             return None;
         }
+
         if !newly_opened {
             self.held_bars = self.held_bars.saturating_add(1);
         }
@@ -507,9 +520,11 @@ impl Secac {
         if adverse <= -parameters.stop_atr * self.atr.value {
             return Some(STOP_TAG);
         }
+
         if self.held_bars >= parameters.max_hold {
             return Some(MAX_HOLD_TAG);
         }
+
         if parameters.enabled(DYNAMIC_PROTECTION) {
             self.trailing_extreme = if self.position_side > 0 {
                 self.trailing_extreme.max(bar.values[1])
@@ -518,6 +533,7 @@ impl Secac {
             };
             let protected = self.position_side as f64 * (close - self.trailing_extreme)
                 <= -parameters.trail_atr * self.atr.value;
+
             if protected {
                 return Some(TRAIL_TAG);
             }
@@ -594,6 +610,7 @@ impl StrategyProgram for Secac {
         if first.meta.codec_version != 1 {
             return Err(ProgramFault::MalformedFrame);
         }
+
         if first.meta.type_id == ORDER_EVENT_RECORD {
             if records.next().is_some() || first.meta.channel != parameters.channels[0] {
                 return Err(ProgramFault::MalformedFrame);
@@ -606,11 +623,13 @@ impl StrategyProgram for Secac {
             .then_some(())
             .ok_or(ProgramFault::ProgramRejected);
         }
+
         if first.meta.type_id >= SCALAR_RECORD {
             if records.next().is_some() {
                 return Err(ProgramFault::MalformedFrame);
             }
             let channel = first.meta.channel;
+
             if let Some(slot) = parameters.channels[9..14]
                 .iter()
                 .position(|bound| *bound == channel)
@@ -622,9 +641,11 @@ impl StrategyProgram for Secac {
                 let meta = first.meta;
                 return self.series[slot + 1].update(value, meta.ts_event, meta.available_at);
             }
+
             if channel == parameters.channels[14] && first.meta.type_id == EVENT_RECORD {
                 return self.event(first.payload, first.meta.available_at);
             }
+
             if channel == parameters.channels[15]
                 && first.meta.type_id == SESSION_RECORD
                 && first.payload.len() == 8
@@ -637,6 +658,7 @@ impl StrategyProgram for Secac {
             }
             return Err(ProgramFault::MalformedFrame);
         }
+
         if first.meta.type_id != BAR_RECORD {
             return Err(ProgramFault::MalformedFrame);
         }
@@ -673,6 +695,7 @@ impl StrategyProgram for Secac {
             }
             return Ok(());
         }
+
         if self.position_side != 0
             && bar.available_at.checked_add(M15_NS) == Some(self.run_end)
             && !self.exit_submitted
@@ -681,9 +704,11 @@ impl StrategyProgram for Secac {
             self.exit_submitted = true;
             return Ok(());
         }
+
         if let Some(tag) = pair_exit.or_else(|| self.exit_tag(bar, newly_opened)) {
             return self.exit(tag, actions);
         }
+
         if self.position_side == 0
             && pending == 0.0
             && !self.entry_submitted
@@ -755,6 +780,8 @@ fn panic(_info: &PanicInfo<'_>) -> ! {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
     use strategy_factory_program_sdk::{CODEC_V1, FrameEncoder, RecordMeta, dispatch};
 
@@ -764,13 +791,16 @@ mod tests {
         bytes[4] = 1;
         bytes[5] = shock_wait;
         bytes[6..8].copy_from_slice(&features.to_le_bytes());
+
         for channel in 1_u32..=16 {
             let offset = 8 + (channel - 1) as usize * 4;
             bytes[offset..offset + 4].copy_from_slice(&channel.to_le_bytes());
         }
+
         for (offset, value) in [(72, 2_u16), (74, 3), (76, 2), (78, 4)] {
             bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
         }
+
         for (offset, value) in [80, 88, 96, 104, 112, 120]
             .into_iter()
             .zip([0.01_f64, 0.5, 2.0, 1.0, 0.2, 0.5])
@@ -836,7 +866,7 @@ mod tests {
         dispatch(program, &bytes[..len], &mut [0; 192])
     }
 
-    #[test]
+    #[rstest]
     fn canonical_parameters_have_exact_closed_shape() {
         let parsed = Parameters::parse(&parameters(ALL_FEATURES, 2)).unwrap();
         assert_eq!(parsed.shock_wait, 2);
@@ -847,7 +877,7 @@ mod tests {
         assert!(Parameters::parse(&parameters(0, 1)).is_err());
     }
 
-    #[test]
+    #[rstest]
     fn series_orders_same_release_by_event_time() {
         let mut series = Series::empty();
         assert!(series.update(1.0, 1, 10).is_ok());
@@ -856,7 +886,7 @@ mod tests {
         assert!(series.update(3.0, 1, 10).is_err());
     }
 
-    #[test]
+    #[rstest]
     fn no_scheduled_event_means_no_signal() {
         let mut program = seeded(ALL_FEATURES, 1);
         program.advance_event(20, [2.0, 2.0]).unwrap();
@@ -864,13 +894,13 @@ mod tests {
         assert_eq!(program.pending_signal, 0);
     }
 
-    #[test]
+    #[rstest]
     fn context_bar_requires_exact_host_snapshots() {
         assert_eq!(context_frame(3), 0);
         assert_eq!(context_frame(2), ProgramFault::MalformedFrame as i32);
     }
 
-    #[test]
+    #[rstest]
     fn scheduled_event_codec_accepts_irrelevant_cpi_but_rejects_unknown_or_stale() {
         let mut program = seeded(ALL_FEATURES & !MTF_ALIGNMENT, 1);
         assert_eq!(event_frame(&mut program, 1, 10, 1), 0);
@@ -886,7 +916,7 @@ mod tests {
         assert_eq!(event_frame(&mut program, 3, 10, 1), -5);
     }
 
-    #[test]
+    #[rstest]
     fn deleting_eth_confirmation_changes_only_that_gate() {
         let full = seeded(ALL_FEATURES, 1);
         let deleted = seeded(ALL_FEATURES & !ETH_CONFIRM, 1);
@@ -894,7 +924,7 @@ mod tests {
         assert_eq!(deleted.same_side([2.0, -1.0]), 1);
     }
 
-    #[test]
+    #[rstest]
     fn shock_then_confirmation_creates_one_next_bar_signal() {
         let mut program = seeded(ALL_FEATURES & !MTF_ALIGNMENT, 1);
         for series in &mut program.series {
@@ -915,7 +945,7 @@ mod tests {
         assert_eq!(program.consumed_event, 3 * DAY_NS);
     }
 
-    #[test]
+    #[rstest]
     fn terminal_max_hold_exit_is_fail_closed() {
         let mut program = seeded(ALL_FEATURES, 1);
         program.position_side = 1;

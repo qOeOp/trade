@@ -19,7 +19,7 @@ use vibe_core::{
 };
 use vibe_data::dataset::CanonicalDatasetManifest;
 use vibe_model::{
-    data::{Bar, BarType},
+    data::{Bar, BarType, CustomData, CustomDataTrait, DataType, HasTsInit},
     enums::PriceType,
     identifiers::{InstrumentId, Symbol},
     instruments::{Instrument, InstrumentAny},
@@ -204,13 +204,13 @@ struct BinanceVisionNonExecutableKlineV1 {
     execution_authority: &'static str,
 }
 
-impl vibe_model::data::HasTsInit for BinanceVisionNonExecutableKlineV1 {
+impl HasTsInit for BinanceVisionNonExecutableKlineV1 {
     fn ts_init(&self) -> UnixNanos {
         UnixNanos::from(self.source_close_time_ns)
     }
 }
 
-impl vibe_model::data::CustomDataTrait for BinanceVisionNonExecutableKlineV1 {
+impl CustomDataTrait for BinanceVisionNonExecutableKlineV1 {
     fn type_name(&self) -> &'static str {
         BINANCE_VISION_NON_EXECUTABLE_KLINE_TYPE_NAME
     }
@@ -227,11 +227,11 @@ impl vibe_model::data::CustomDataTrait for BinanceVisionNonExecutableKlineV1 {
         Ok(serde_json::to_string(self)?)
     }
 
-    fn clone_arc(&self) -> Arc<dyn vibe_model::data::CustomDataTrait> {
+    fn clone_arc(&self) -> Arc<dyn CustomDataTrait> {
         Arc::new(self.clone())
     }
 
-    fn eq_arc(&self, other: &dyn vibe_model::data::CustomDataTrait) -> bool {
+    fn eq_arc(&self, other: &dyn CustomDataTrait) -> bool {
         other.as_any().downcast_ref::<Self>() == Some(self)
     }
 }
@@ -515,9 +515,7 @@ impl AuthenticatedBinanceVisionKlines {
     /// Projects authenticated zero-volume observations into non-executable custom data.
     /// # Errors
     /// Returns an error when timestamp conversion or payload serialization fails.
-    pub fn non_executable_kline_custom_data(
-        &self,
-    ) -> anyhow::Result<Vec<vibe_model::data::CustomData>> {
+    pub fn non_executable_kline_custom_data(&self) -> anyhow::Result<Vec<CustomData>> {
         self.zero_volume_observations
             .iter()
             .map(|observation| {
@@ -564,7 +562,7 @@ impl AuthenticatedBinanceVisionKlines {
                     "interval".to_string(),
                     serde_json::Value::String(binding.interval().as_str().to_string()),
                 );
-                let data_type = vibe_model::data::DataType::new(
+                let data_type = DataType::new(
                     BINANCE_VISION_NON_EXECUTABLE_KLINE_TYPE_NAME,
                     Some(metadata),
                     Some(format!(
@@ -574,10 +572,7 @@ impl AuthenticatedBinanceVisionKlines {
                         binding.interval().as_str()
                     )),
                 );
-                Ok(vibe_model::data::CustomData::new(
-                    Arc::new(event),
-                    data_type,
-                ))
+                Ok(CustomData::new(Arc::new(event), data_type))
             })
             .collect()
     }

@@ -138,8 +138,8 @@ pub fn read_optional_bounded_regular_at(
 ) -> anyhow::Result<Option<Vec<u8>>> {
     match read_bounded_regular_at(root, path, limit) {
         Ok(bytes) => Ok(Some(bytes)),
-        Err(error) if is_missing_custody_object(&error) => Ok(None),
-        Err(error) => Err(error),
+        Err(e) if is_missing_custody_object(&e) => Ok(None),
+        Err(e) => Err(e),
     }
 }
 

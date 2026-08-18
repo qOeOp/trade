@@ -10294,6 +10294,7 @@ version = "0.62.0"
 dependencies = [
  "anyhow",
  "csv",
+ "rstest",
  "rust_decimal",
  "serde",
  "serde_json",
@@ -10957,6 +10958,7 @@ version = "0.62.0"
 dependencies = [
  "anyhow",
  "jiff",
+ "rstest",
  "scraper",
  "serde",
  "serde_json",

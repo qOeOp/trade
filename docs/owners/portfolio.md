@@ -41,9 +41,9 @@ Capacity Scope, account, valuation, source-frontier, and Time Evidence common cu
 | Cause                               | Required source authority and decisive evidence                                                                                                                                                                                           |
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `STRATEGY_MECHANISM_DEGRADATION`    | R&D Research Intent plus Portfolio Performance Receipt: frozen prediction and falsifier versus performance deviation after separately supported regime, data, execution, capacity, interaction, and valuation alternatives are preserved. |
-| `MARKET_REGIME_CHANGE`              | Market Data PIT Snapshot and Valuation Facts plus Portfolio Performance Receipt: versioned regime-boundary membership and matched response, not a later correction or execution-only symptom.                                             |
-| `EXECUTION_QUALITY_DEGRADATION`     | Execution Account Fact plus Portfolio Performance Receipt: the complete non-`NONE_OBSERVED` category set, per-category decisive evidence, and performance impact at one effect frontier.                                                  |
-| `DATA_QUALITY_DEGRADATION`          | Market Data PIT Snapshot plus Portfolio Performance Receipt: an Owner-owned gap, correction, rights, or PIT semantic defect and bounded affected performance lineage.                                                                     |
+| `MARKET_REGIME_CHANGE`              | Market Data PIT Snapshot and Valuation Facts plus Portfolio Performance Receipt: versioned regime‑boundary membership and matched response, not a later correction or execution‑only symptom.                                             |
+| `EXECUTION_QUALITY_DEGRADATION`     | Execution Account Fact plus Portfolio Performance Receipt: the complete non-`NONE_OBSERVED` category set, per‑category decisive evidence, and performance impact at one effect frontier.                                                  |
+| `DATA_QUALITY_DEGRADATION`          | Market Data PIT Snapshot plus Portfolio Performance Receipt: an Owner‑owned gap, correction, rights, or PIT semantic defect and bounded affected performance lineage.                                                                     |
 | `CAPACITY_OR_LIQUIDITY_COMPRESSION` | Portfolio Capacity View, Market Data Valuation Facts, Performance Receipt, and Exposure Receipt under one methodology, policy, and threshold version.                                                                                     |
 | `PORTFOLIO_INTERACTION_DEGRADATION` | Current Portfolio Interaction, Performance, and Exposure Receipts for the complete contender set and its marginal impact.                                                                                                                 |
 | `VALUATION_UNCERTAINTY`             | Market Data Valuation Facts plus Portfolio Performance and Exposure Receipts: explicit uncertainty state, methodology, source frontier, and bounded impact.                                                                               |
@@ -65,33 +65,33 @@ non-isolating evidence set; it cannot coexist with a named cause.
 
 ## Modules
 
-- **Account State** — combine committed account and fill facts with current valuation inputs into positions, balances, margin, PnL, and equity.
-- **Exposure** — project asset, strategy, directional, and currency exposure using current contract and valuation facts.
-- **Performance** — derive a versioned Performance Receipt with strategy return, drawdown, stability, actual capital at risk, methodology, input cut, and freshness.
-- **Capacity View** — project a candidate-neutral gross economic ceiling for the Capacity Scope. A separate
+- **Account State** - combine committed account and fill facts with current valuation inputs into positions, balances, margin, PnL, and equity.
+- **Exposure** - project asset, strategy, directional, and currency exposure using current contract and valuation facts.
+- **Performance** - derive a versioned Performance Receipt with strategy return, drawdown, stability, actual capital at risk, methodology, input cut, and freshness.
+- **Capacity View** - project a candidate-neutral gross economic ceiling for the Capacity Scope. A separate
   Portfolio Risk Evidence Bundle carries one coherent source cut to Risk. Portfolio never subtracts Risk Reservation liability, computes remaining headroom, allocates
   capital, or authorizes deployment.
 
 ## Input handoffs
 
-- [Execution](../execution/) supplies order, fill, fee, account, and reconciled venue readback facts.
-- [Market Data](../market-data/) supplies prices, FX rates, contract specifications, valuation facts, and identified liquidity source cuts.
+- [Execution](./execution/) supplies order, fill, fee, account, and reconciled venue readback facts.
+- [Market Data](./market-data/) supplies prices, FX rates, contract specifications, valuation facts, and identified liquidity source cuts.
 
 ## Output handoffs
 
-- To [Strategy Governance](../strategy-governance/) before any Paper or Live Execution Scope exists: one immutable
+- To [Strategy Governance](./strategy-governance/) before any Paper or Live Execution Scope exists: one immutable
   `BOUND` Capacity Scope with exact account namespace, mode, economic pool, and disjoint shared-constraint proof.
   Missing, stale, overlapping, cross-mode, or unknown membership creates no Execution Scope or Capital Envelope.
-- To [Risk](../risk/): one current gross-ceiling Capacity View plus one Portfolio Risk Evidence Bundle for the
+- To [Risk](./risk/): one current gross-ceiling Capacity View plus one Portfolio Risk Evidence Bundle for the
   same Capacity Scope. The bundle carries coherent projected exposure, open orders, account/valuation cut, and
   incorporated Execution settlement lineages. Portfolio never reads Risk state or subtracts Reservation
   commitments; Risk alone combines the bundle with its liabilities and computes remaining headroom.
-- To [Strategy Governance](../strategy-governance/): one Portfolio Lifecycle Evidence Receipt binding a compatible Capacity View and, for `PROMOTION`, exact fresh Performance and Exposure feedback under the `PROMOTION` transition-evidence key.
-- To [Strategy Governance](../strategy-governance/): one Portfolio Interaction Receipt for every set-wide Capital
+- To [Strategy Governance](./strategy-governance/): one Portfolio Lifecycle Evidence Receipt binding a compatible Capacity View and, for `PROMOTION`, exact fresh Performance and Exposure feedback under the `PROMOTION` transition-evidence key.
+- To [Strategy Governance](./strategy-governance/): one Portfolio Interaction Receipt for every set-wide Capital
   Allocation Disposition and the same Portfolio Lifecycle Evidence Receipt for lifecycle attribution. Governance
   owns contender ranking and lifecycle action; Portfolio supplies only coherent source facts and attribution.
-- To [Scanner](../scanner/): a bounded Capacity View used only as a proposal hint.
-- To [Execution](../execution/) during recovery: the reconciled account closure projection for the Recovery Case.
+- To [Scanner](./scanner/): a bounded Capacity View used only as a proposal hint.
+- To [Execution](./execution/) during recovery: the reconciled account closure projection for the Recovery Case.
 - To Product Edge: one bounded Portfolio View keyed by stable request, trusted principal, authorized account and Execution Scope, authorization-policy cut, and Portfolio
   snapshot cut plus projection and valid-through times. It reports `AVAILABLE`, `INCOMPLETE_FAIL_CLOSED`, `STALE`, or `UNAVAILABLE` account, exposure, performance, and
   capacity projections with source-fact references and freshness. It never reports Risk Reservation state,
@@ -120,17 +120,17 @@ Missing or stale valuation inputs make affected measures explicitly unavailable 
 
 ## Decision contract
 
-- **Inputs** — committed Execution account, order, fill, fee, settlement and readback facts plus current Market
+- **Inputs** - committed Execution account, order, fill, fee, settlement and readback facts plus current Market
   Data valuation, FX, contract and liquidity facts on one coherent cut.
-- **Diagnosis and decision** — project account, exposure, performance, capacity, interaction and degradation facts;
+- **Diagnosis and decision** - project account, exposure, performance, capacity, interaction and degradation facts;
   Portfolio decides factual availability and attribution status, not capital or trading permission.
-- **Conflict resolution** — source Owner facts and newest coherent cut outrank local projection; mixed cuts,
+- **Conflict resolution** - source Owner facts and newest coherent cut outrank local projection; mixed cuts,
   unresolved overlap, and conflicting valuation stay unavailable.
-- **Outputs and terminal negatives** — versioned receipts or `PARTIAL`, `STALE`, `UNAVAILABLE`,
+- **Outputs and terminal negatives** - versioned receipts or `PARTIAL`, `STALE`, `UNAVAILABLE`,
   `INCOMPLETE_FAIL_CLOSED`, and unresolved attribution with exact missing causes.
-- **Feedback and economic meaning** — reveal real PnL, exposure, marginal portfolio value, capacity compression and
+- **Feedback and economic meaning** - reveal real PnL, exposure, marginal portfolio value, capacity compression and
   degradation so Governance can allocate and retire capital from economic facts.
-- **Prohibitions** — no venue effect, allocation, remaining Risk headroom, permit, lifecycle transition, order, or
+- **Prohibitions** - no venue effect, allocation, remaining Risk headroom, permit, lifecycle transition, order, or
   Recovery closure.
 
 ## Subsequent implementation acceptance

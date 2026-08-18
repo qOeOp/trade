@@ -106,6 +106,7 @@ impl ProgramSession {
             .map_err(ProgramSessionError::Codec)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(ProgramSessionError::Codec)?;
+
         if !actions.is_empty()
             && (kind == FrameKind::Start
                 || !(self.run_scope.decision_start_ns..self.run_scope.end_ns)

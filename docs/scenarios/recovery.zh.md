@@ -124,11 +124,11 @@ Autonomous Policy Authorization。Recovery Command 只从 Execution-owned case �
 
 ## Development outcome / 开发结果
 
-- **受益者** — 必须确认不确定外部效果已被完整约束和对账的运营者与资金负责人
-- **可观测结果** — 每个 Runtime incident 或 reconciliation drift 先产生一个来源准确的权威 admission disposition；只有已接纳原因进入一个
+- **受益者** - 必须确认不确定外部效果已被完整约束和对账的运营者与资金负责人
+- **可观测结果** - 每个 Runtime incident 或 reconciliation drift 先产生一个来源准确的权威 admission disposition；只有已接纳原因进入一个
   Execution 案例，把全部原因和效果联结到场所回读 Risk 闭合 Portfolio 闭合和不可变 `KNOWN_CLOSED`
-- **未改变伤害** — 分裂权威会造成裸重试 孤儿仓位 未解析 liability 或过早复用资金
-- **终态负例** — 任一效果未知 Reservation 未解析 对账未闭合 原因缺失 就绪过期或证据截面混合都保持围栏
+- **未改变伤害** - 分裂权威会造成裸重试 孤儿仓位 未解析 liability 或过早复用资金
+- **终态负例** - 任一效果未知 Reservation 未解析 对账未闭合 原因缺失 就绪过期或证据截面混合都保持围栏
 
 ## Fail closed and forbidden transitions / 失败关闭与禁止转换
 

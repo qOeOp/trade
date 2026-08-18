@@ -3,7 +3,7 @@
 R&D converts a sourced market hypothesis into a frozen, reproducible strategy artifact while keeping
 exploration separate from protected qualification.
 
-## Entry / 入口
+## Entry
 
 Product Edge submits a source-linked hypothesis. The request states the intended mechanism and the question
 to falsify and commits the bounded Qualification phase-fact frontier already projected to that principal. It is
@@ -23,14 +23,14 @@ Candidate to Qualification. Each action creates a new typed request and remains 
 native receipt arrives. Run Detail and Compare may join bounded projections for explanation, but neither UI state
 nor Observability telemetry can create an Iteration Decision, Selection, or Qualification intake.
 
-## Value path / 价值路径
+## Value path
 
 Source Intake records provenance and treats source or tool content as untrusted data, never instructions. Before
 freezing an Intent, R&D's Research capability records plausible alternative interpretations, a discriminating prediction, and a
 falsifier. R&D freezes an initial PIT Market Snapshot Request before submission; Market Data correlates the
 snapshot disposition to its exact identity, digest, scope, decision cut, provenance, license, correction, and Time
 Evidence. Submission or silence is not a market fact.
-The [Source Intake Playbook](../../guide/source-intake/) defines the provider-neutral acquisition baseline without
+The [Source Intake Playbook](../guide/source-intake/) defines the provider-neutral acquisition baseline without
 adding a Flow node or business authority.
 Research Intent freezes the mechanism, data scope, exact cost, slippage, and capacity-model versions, capacity assumptions, permanent TrialFamily, complete semantic predecessor frontier, precommitted independence basis, budget,
 falsifier, and stop rule. Develop Sandbox builds in isolation. Strategy Artifact binds the frozen intent,
@@ -82,7 +82,7 @@ a separate sourced-hypothesis request, and `OUTCOME_UNKNOWN` closes the attempt 
 frontier without success or naked retry. Same request, admission, attempt, and meaning replay the same write-once
 disposition; another attempt requires a new explicit user request, successor admission, and successor attempt.
 
-## Owner handoffs / Owner 交接
+## Owner handoffs
 
 Product Edge → R&D carries the sourced request. R&D → Product Edge returns one write-once R&D Request
 Request Receipt: `ACCEPTED` binds the resulting Research Intent, while `REJECTED_NO_WRITE` proves no Research
@@ -109,7 +109,7 @@ missing-cell policies. Qualification and protected Backtest consume it unchanged
 Committed Live Performance, Runtime Incident, and Reconciliation Drift facts can enter only a successor source
 lineage and never mutate an already selected or deployed Intent.
 
-## Proof / 证明
+## Proof
 
 The scenario begins only after an `ACCEPTED` Research Request Receipt bound to the exact `FROZEN` Research Intent.
 It ends with that intent, permanent TrialFamily identity, content-addressed Strategy
@@ -120,17 +120,17 @@ frontiers used for selection. A terminal stop is proved by Iteration Decision al
 Candidate. Intent, Request, Result, Diagnosis, Iteration Decision, and any Selection and Candidate repeat the same
 exact cost, slippage, and capacity-model identities.
 
-## Development outcome / 开发结果
+## Development outcome
 
-- **Beneficiary** — researchers and strategy developers who need fast iteration without spending protected evidence or hiding failed trials.
-- **Observable outcome** — a sourced hypothesis becomes a reproducible artifact and one explicit Iteration
+- **Beneficiary** - researchers and strategy developers who need fast iteration without spending protected evidence or hiding failed trials.
+- **Observable outcome** - a sourced hypothesis becomes a reproducible artifact and one explicit Iteration
   Decision; only `READY_FOR_SELECTION` adds a falsifier-bound Selection before Qualification can begin.
-- **Harm if unchanged** — exploratory winners could erase losing siblings, drift from the frozen falsifier, or consume holdout on candidates Research never selected.
-- **Terminal negative** — falsifier rejection, stop rule, exhausted budget, or a correlated unavailable-input
+- **Harm if unchanged** - exploratory winners could erase losing siblings, drift from the frozen falsifier, or consume holdout on candidates Research never selected.
+- **Terminal negative** - falsifier rejection, stop rule, exhausted budget, or a correlated unavailable-input
   repair ends in an explicit Iteration Decision stop with no Selection and no protected replay. An incomplete,
   mismatched, unknown, or nonterminal attempt stays unresolved or becomes typed repair evidence; it is not a stop.
 
-## Fail closed and forbidden transitions / 失败关闭与禁止转换
+## Fail closed and forbidden transitions
 
 - Missing provenance, PIT time, instrument identity, costs, budget, or falsifier blocks artifact admission.
 - Generated code cannot access account or execution authority from Develop Sandbox.

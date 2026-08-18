@@ -41,13 +41,13 @@ Unify Research and Develop under one business-fact Owner. The Research capabilit
 
 ## Modules
 
-- **Source Intake** — admit papers, observations, notes, media, and tool output as untrusted data with origin and
+- **Source Intake** - admit papers, observations, notes, media, and tool output as untrusted data with origin and
   content identity. Source content is never an instruction, capability grant, or authority to call another Owner.
-  The provider-neutral implementation baseline is the [Source Intake Playbook](../../guide/source-intake/).
-- **Research Intent** — freeze the falsifiable mechanism and experimental contract before result observation.
-- **Strategy Artifact** — preserve immutable content, dependency provenance, market semantics, runtime capability,
+  The provider-neutral implementation baseline is the [Source Intake Playbook](../guide/source-intake/).
+- **Research Intent** - freeze the falsifiable mechanism and experimental contract before result observation.
+- **Strategy Artifact** - preserve immutable content, dependency provenance, market semantics, runtime capability,
   sandbox policy, and Artifact Security Admission consumed unchanged by replay, qualification, and governed application.
-- **Development Sandbox** — build and diagnose generated strategy code with explicit input and output mounts and no
+- **Development Sandbox** - build and diagnose generated strategy code with explicit input and output mounts and no
   ambient filesystem, network, subprocess or process-tree escape, inherited capability, secret, account,
   deployment, or effect-port authority.
 
@@ -90,12 +90,12 @@ admitted but creates no handoffable Intent.
 
 | Diagnosis dimension | Required diagnosis                                                                                                                                                                                                                                                                                | Decision use                                                                                                                                                                                    |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Evidence integrity  | Verify provenance, PIT time, universe and correction identity, Artifact, configuration, runtime, simulator, and deterministic request-result equality.                                                                                                                                            | Repair or reject evidence before interpreting strategy performance.                                                                                                                             |
+| Evidence integrity  | Verify provenance, PIT time, universe and correction identity, Artifact, configuration, runtime, simulator, and deterministic request‑result equality.                                                                                                                                            | Repair or reject evidence before interpreting strategy performance.                                                                                                                             |
 | Mechanism validity  | Compare the observed sign, path, regime behavior, and failure mode with the frozen causal mechanism, falsifier, and stop rule.                                                                                                                                                                    | Stop a falsified mechanism or create one successor mechanism hypothesis.                                                                                                                        |
 | Economic viability  | Attribute turnover, fees, spread, slippage, market impact, liquidity, and capacity under the frozen model versions.                                                                                                                                                                               | Stop economic impossibility or revise one economic assumption before robustness work.                                                                                                           |
 | Robustness          | Test sensitivity across time, regime, instruments, perturbations, and reasonable parameter neighborhoods without consuming protected evidence.                                                                                                                                                    | Distinguish stable mechanism support from a narrow parameter accident.                                                                                                                          |
 | Failure attribution | Classify failure as data, artifact, runtime, simulator, mechanism, economics, robustness, or unresolved uncertainty.                                                                                                                                                                              | Route repair to the owning boundary and prevent invalid runs from becoming negative Alpha evidence.                                                                                             |
-| Information value   | For each preregistered next experiment, bind the decision uncertainty, distinguishing observation or falsifier, possible result-to-action map, bounded acquisition cost, remaining family-budget effect, competing alternatives, and replayable ordinal comparison rationale at one evidence cut. | Choose the highest-ranked admissible experiment with a deterministic tie-break; an unexplained ordinal is inadmissible, and stop is legal only for a complete non-empty below-threshold census. |
+| Information value   | For each preregistered next experiment, bind the decision uncertainty, distinguishing observation or falsifier, possible result‑to‑action map, bounded acquisition cost, remaining family‑budget effect, competing alternatives, and replayable ordinal comparison rationale at one evidence cut. | Choose the highest‑ranked admissible experiment with a deterministic tie‑break; an unexplained ordinal is inadmissible, and stop is legal only for a complete non‑empty below‑threshold census. |
 
 Backtest supplies one complete finite `diagnosticCategorySet` for each terminal exploratory result; Research
 preserves every supported member and applies this exact mapping before interpreting economics:
@@ -144,7 +144,7 @@ The exact development flow is **Run Result → Diagnosis → Iteration Decision 
    with the same decision-policy version, TrialFamily Census, and evidence cut; a stop state and selection cannot
    coexist.
 
-`REPAIR_INPUTS` routes by category and never means “retry anything.” It is an immutable terminal disposition for
+`REPAIR_INPUTS` routes by category and never means "retry anything." It is an immutable terminal disposition for
 the consumed result and by itself creates no Selection, successor Intent, Artifact, Replay Request, or repair
 effect. `MARKET_DATA` targets Market Data and is the only category that may emit a correlated Market Data Repair
 Request after the decision commits. `ARTIFACT` targets Research through Develop and requires a new Artifact
@@ -192,33 +192,33 @@ Decision, Selection, and Candidate. Changing one creates a successor lineage rat
 ## Input handoffs
 
 - Product Edge supplies a sourced research request rather than an unsourced instruction to trade. The request commits the bounded protected-feedback frontier already projected to that principal. Research resolves the stable request identity with its own terminal receipt and preserves semantic predecessors without reading protected category or detail; absent receipt remains unknown.
-- [Market Data](../market-data/) supplies point-in-time facts, catalog versions, instrument semantics, and the
+- [Market Data](./market-data/) supplies point-in-time facts, catalog versions, instrument semantics, and the
   correlated `AVAILABLE` or `UNAVAILABLE` terminal for a committed Market Data Repair Request.
-- Exploratory [Backtest](../backtest/) results may inform a new intent and artifact generation.
+- Exploratory [Backtest](./backtest/) results may inform a new intent and artifact generation.
 - Committed generation-scoped Performance, Runtime Incident, Execution account/order/fill/quality-observation,
   Effect Journal, readback, and Reconciliation Drift facts may be admitted only
   as a new Research Source Provenance Record for a successor lineage. They can never mutate the deployed or
   previously selected Intent, Artifact, Candidate, or protected evidence boundary.
-- [Runtime](../runtime/) supplies committed generation-scoped Incident facts directly for successor-only source
-  admission. [Execution](../execution/) supplies committed account, order, fill, quality-observation, Effect Journal, readback, and
+- [Runtime](./runtime/) supplies committed generation-scoped Incident facts directly for successor-only source
+  admission. [Execution](./execution/) supplies committed account, order, fill, quality-observation, Effect Journal, readback, and
   Reconciliation Drift facts directly for the same purpose. Neither handoff can tune the running generation or
   reveal protected Qualification evidence. Each Research Source Provenance Record binds the exact committed fact
   identity and source cut; Effect Closure View and Event Rail wake are not admissible substitutes.
 
 ## Output handoffs
 
-- To [Market Data](../market-data/): only a committed `REPAIR_INPUTS` Iteration Decision may produce a Market Data
+- To [Market Data](./market-data/): only a committed `REPAIR_INPUTS` Iteration Decision may produce a Market Data
   Repair Request. The request asks its native Owner to repair evidence; it does not prescribe an adapter, rewrite
   the old snapshot, or claim availability.
-- To [Backtest](../backtest/): one R&D-owned frozen Exploratory Replay Request bound to the exact intent,
+- To [Backtest](./backtest/): one R&D-owned frozen Exploratory Replay Request bound to the exact intent,
   artifact, data scope, replay configuration, and cost, slippage, and capacity-model identities.
   A `REPAIR_INPUTS_SIMULATOR` or `REPAIR_INPUTS_BACKTEST_OPERATIONAL` decision may additionally create one
   correlated `native-repair-request`; Backtest alone returns `REPAIRED`, `UNAVAILABLE`, or `OUTCOME_UNKNOWN` for
   that exact category-specific attempt.
-- To [Runtime](../runtime/): only a committed `REPAIR_INPUTS_RUNTIME_KERNEL` decision may create one correlated
+- To [Runtime](./runtime/): only a committed `REPAIR_INPUTS_RUNTIME_KERNEL` decision may create one correlated
   `native-repair-request`; Runtime alone returns `REPAIRED`, `UNAVAILABLE`, or `OUTCOME_UNKNOWN` for that exact
   kernel attempt.
-- To [Qualification](../qualification/): only a R&D-owned frozen Candidate with a terminal
+- To [Qualification](./qualification/): only a R&D-owned frozen Candidate with a terminal
   `SELECTED_FOR_QUALIFICATION` Research Selection Disposition. The handoff cross-binds the exact Intent falsifier
   and stop rule, complete preregistration, immutable exhaustive TrialFamily Census Frontier, exploratory
   request/result frontier, complete cross-family semantic predecessor frontier, origin feedback frontier, and
@@ -280,18 +280,18 @@ become a new sourced hypothesis only after its committed facts are available.
 
 ## Decision contract
 
-- **Inputs** — admitted source provenance, PIT facts, frozen Intent and experiment policy, exhaustive TrialFamily
+- **Inputs** - admitted source provenance, PIT facts, frozen Intent and experiment policy, exhaustive TrialFamily
   Census, and request-equal exploratory results.
-- **Diagnosis and decision** — interpret the six diagnosis dimensions, then commit exactly one repair, successor,
+- **Diagnosis and decision** - interpret the six diagnosis dimensions, then commit exactly one repair, successor,
   ready-for-selection, or stop outcome under the typed experiment rules.
-- **Conflict resolution** — evidence validity and frozen falsifier outrank performance appeal; ordinal information
+- **Conflict resolution** - evidence validity and frozen falsifier outrank performance appeal; ordinal information
   value plus the declared tie-break chooses among otherwise admissible next experiments.
-- **Outputs and terminal negatives** — successor Intent, `READY_FOR_SELECTION`, a typed `REPAIR_INPUTS`, or a named
+- **Outputs and terminal negatives** - successor Intent, `READY_FOR_SELECTION`, a typed `REPAIR_INPUTS`, or a named
   stop; correlated unavailable Market Data repair yields `STOP_INPUT_UNAVAILABLE`, while unknown evidence yields no
   decision.
-- **Feedback and economic meaning** — exploratory and committed owner facts can improve a successor lineage while
+- **Feedback and economic meaning** - exploratory and committed owner facts can improve a successor lineage while
   costs, slippage, capacity, trial budget, and expected decision value prevent uneconomic endless search.
-- **Prohibitions** — no protected-detail feedback, in-place mutation, hidden sibling trial, deployment, capital,
+- **Prohibitions** - no protected-detail feedback, in-place mutation, hidden sibling trial, deployment, capital,
   risk, order, account, or external-effect authority.
 
 ## Subsequent implementation acceptance

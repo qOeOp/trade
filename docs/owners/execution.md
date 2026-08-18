@@ -44,45 +44,45 @@ Runtime, Risk, Portfolio, and Governance.
 
 ## Modules
 
-- **Order Engine** — validate permits or recovery fences and exclusively manage order creation, change, cancellation, and terminal state.
-- **Execution Adapters** — admit exactly the adapter binding fixed by Execution Scope, then translate requests,
+- **Order Engine** - validate permits or recovery fences and exclusively manage order creation, change, cancellation, and terminal state.
+- **Execution Adapters** - admit exactly the adapter binding fixed by Execution Scope, then translate requests,
   replies, fills, errors, and readbacks without changing endpoint, account, capability, or trust policy on restart.
-- **Effect Journal** — persist one stable `PREPARED` attempt before requesting admission, then persist `INVOCATION_STARTED` only after the matching immutable `ADMITTED_ONCE` result and join all later external-effect facts to that identity.
-- **Reconciler** — own Recovery Case state and bounded Recovery Commands, compare effects with authoritative
+- **Effect Journal** - persist one stable `PREPARED` attempt before requesting admission, then persist `INVOCATION_STARTED` only after the matching immutable `ADMITTED_ONCE` result and join all later external-effect facts to that identity.
+- **Reconciler** - own Recovery Case state and bounded Recovery Commands, compare effects with authoritative
   readback, join closure evidence, and alone write immutable `KNOWN_CLOSED` without resuming trading.
 
 ## Input handoffs
 
-- [Runtime](../runtime/) sends an Authorized Order Command. An add-risk command binds the same Risk Decision and
+- [Runtime](./runtime/) sends an Authorized Order Command. An add-risk command binds the same Risk Decision and
   Reservation; an exact decrease-only command instead binds `PERMIT_DECREASE_ONLY` and explicitly carries no
   Reservation or claim. Both bind authorization mode and complete request Authorization Lineage.
   `UNATTENDED_REQUEST_WITH_POLICY` additionally binds the current Autonomous Policy Authorization.
-- [Risk](../risk/) first returns the sole immutable Reservation Claim Result. Only `CONSUMED` permits a prepared attempt; Risk then returns the sole immutable Adapter Admission Result, and only matching `ADMITTED_ONCE` permits `INVOCATION_STARTED` and normal adapter invocation.
+- [Risk](./risk/) first returns the sole immutable Reservation Claim Result. Only `CONSUMED` permits a prepared attempt; Risk then returns the sole immutable Adapter Admission Result, and only matching `ADMITTED_ONCE` permits `INVOCATION_STARTED` and normal adapter invocation.
 - During Recovery, Runtime supplies instance, checkpoint, readiness, and incident facts only. A `NOT_READY`
   Readiness Fact directly opens or joins the one Execution-owned case for the same generation, scope, cause, and
   source frontier. An Incident Fact or Execution Drift Fact first receives one Execution-owned Recovery Admission
   Disposition; only `RECOVERY_ADMITTED` with a matching `ACTIVE` fence permits a case. Reconciler creates
   case- and fence-bound cancel, reduce, flatten, or readback commands from authoritative Execution exposure cuts.
-- [Risk](../risk/) supplies the complete active fence set proven at one Aggregate Commitment Frontier, including
+- [Risk](./risk/) supplies the complete active fence set proven at one Aggregate Commitment Frontier, including
   every source-specific member identity, epoch, policy, action set, and cut, plus terminal Reservation membership
   and residual-exposure closure facts. A fence with the exact `RISK_HARD_STOP` source branch also directly opens or joins the case while Runtime
   may remain `READY`; Execution preserves the hard-stop cause and policy references but never owns them.
-- [Portfolio](../portfolio/) supplies the matching account closure projection.
+- [Portfolio](./portfolio/) supplies the matching account closure projection.
 - Venues and simulated adapters provide authoritative replies, fills, account readbacks, and errors.
 
 ## Output handoffs
 
-- To [Strategy Governance](../strategy-governance/) before it creates a Paper or Live Execution Scope: one current
+- To [Strategy Governance](./strategy-governance/) before it creates a Paper or Live Execution Scope: one current
   immutable `ADMITTED` Execution Adapter Binding with exact mode, account, effect namespace, endpoint,
   capabilities, trust policy, and valid-through. Missing, revoked, cross-mode, aliased, or unknown binding creates
   no Execution Scope or authorization.
-- To [Risk](../risk/) in Paper or Live: one stable Reservation Claim Request, then after `CONSUMED` one `ADAPTER_ADMISSION_REQUEST` bound to the durable `PREPARED` attempt and command, then post-admission unknown-effect, settlement, or exactly one no-effect proof. `PRE_ADAPTER_SUPPRESSION` binds a `SUPPRESSED_BY_FENCE` result and durable no-invocation record; `VENUE_READBACK` binds one `ADMITTED_ONCE` and `INVOCATION_STARTED` attempt to authoritative readback. The proof shapes are mutually exclusive.
+- To [Risk](./risk/) in Paper or Live: one stable Reservation Claim Request, then after `CONSUMED` one `ADAPTER_ADMISSION_REQUEST` bound to the durable `PREPARED` attempt and command, then post-admission unknown-effect, settlement, or exactly one no-effect proof. `PRE_ADAPTER_SUPPRESSION` binds a `SUPPRESSED_BY_FENCE` result and durable no-invocation record; `VENUE_READBACK` binds one `ADMITTED_ONCE` and `INVOCATION_STARTED` attempt to authoritative readback. The proof shapes are mutually exclusive.
 - An exact `PERMIT_DECREASE_ONLY` command bypasses the add-risk Reservation graph: Execution creates no
   Reservation Claim Request or claim result and admits no add-risk shape. It still writes one stable `PREPARED`
   attempt and sends `ADAPTER_ADMISSION_REQUEST`; Risk orders that request against same-scope fence activation.
   Only `ADMITTED_ONCE` permits `INVOCATION_STARTED` and the bounded decrease action. Recovery remains a separate
   active-fence path.
-- To [Risk](../risk/) before Recovery admission: `execution-risk-drift-fence` carries the committed exact
+- To [Risk](./risk/) before Recovery admission: `execution-risk-drift-fence` carries the committed exact
   `reconciliation-drift-fact` for `RECONCILIATION_DRIFT`; Execution never writes the resulting Recovery Fence.
   During Recovery, every later fact binds case, generation, scope, complete active fence-set identity/digest,
   Recovery Command, and effect chain. A committed drift `UNKNOWN_EFFECT` binds effect journal, uncertain-effect
@@ -90,16 +90,16 @@ Runtime, Risk, Portfolio, and Governance.
   it needs no fabricated terminal readback. Only `NO_EFFECT` and `SETTLED` bind authoritative terminal readback
   and reconciliation cuts. No recovery fact is an `ADAPTER_ADMISSION_REQUEST`, and Execution neither reads nor
   asserts Risk-owned Reservation membership.
-- To [Runtime](../runtime/): order, fill, command rejection, terminal venue readback, and reconciliation results.
-- To [R&D](../rd/): committed generation-scoped account, order, fill, complete Execution Quality
+- To [Runtime](./runtime/): order, fill, command rejection, terminal venue readback, and reconciliation results.
+- To [R&D](./rd/): committed generation-scoped account, order, fill, complete Execution Quality
   Observation, Effect Journal, authoritative readback, and Reconciliation Drift facts as successor-only source
   evidence. The Research provenance binds those exact committed fact identities and source cuts, never Effect
   Closure View. This local feedback cannot mutate a running or selected lineage and contains no protected
   Qualification detail.
-- To [Portfolio](../portfolio/): account, order, fill, fee, authoritative venue facts, stable settlement/readback
+- To [Portfolio](./portfolio/): account, order, fill, fee, authoritative venue facts, stable settlement/readback
   lineage, and the exact finite Execution Quality Observation used by Portfolio projection and attribution.
-- To [Strategy Governance](../strategy-governance/): directly readable committed Reconciliation Drift Facts; Event Rail is only a wake hint.
-- To [Strategy Governance](../strategy-governance/): immutable `RecoveryCase.KNOWN_CLOSED` before any fresh generation decision.
+- To [Strategy Governance](./strategy-governance/): directly readable committed Reconciliation Drift Facts; Event Rail is only a wake hint.
+- To [Strategy Governance](./strategy-governance/): immutable `RecoveryCase.KNOWN_CLOSED` before any fresh generation decision.
 - To Event Rail: committed order, fill, and reconciliation events as wake-up hints.
 
 ## Rejections and prohibitions
@@ -177,17 +177,17 @@ frontier. Closure never lifts the fence or resumes trading.
 
 ## Decision contract
 
-- **Inputs** — normal Authorized Order Command plus Risk claim/admission results, or Execution-owned Recovery Case
+- **Inputs** - normal Authorized Order Command plus Risk claim/admission results, or Execution-owned Recovery Case
   plus the exact current active Risk Fence; adapter, venue, Risk and Portfolio facts close the loop.
-- **Diagnosis and decision** — validate normal effect authority or select one bounded Recovery action, journal the
+- **Diagnosis and decision** - validate normal effect authority or select one bounded Recovery action, journal the
   attempt cuts, perform authoritative readback, reconcile, and decide effect/case closure.
-- **Conflict resolution** — stable normal attempt identity prevents duplicate invocation; Recovery action order is
+- **Conflict resolution** - stable normal attempt identity prevents duplicate invocation; Recovery action order is
   readback, cancel, reduce, flatten with stable identity tie-breaks and no mutation on unresolved membership.
-- **Outputs and terminal negatives** — order and effect facts, drift, readback, Effect Closure View, Recovery Effect
+- **Outputs and terminal negatives** - order and effect facts, drift, readback, Effect Closure View, Recovery Effect
   Attempt and `KNOWN_CLOSED`; rejected, no-effect and unknown remain distinct durable outcomes.
-- **Feedback and economic meaning** — make every external effect, fee, fill, drift and closure attributable so
+- **Feedback and economic meaning** - make every external effect, fee, fill, drift and closure attributable so
   Portfolio can measure economics and Governance can change lifecycle safely.
-- **Prohibitions** — no Trade Intent, allocation, Risk state, account projection, lifecycle state, blind retry,
+- **Prohibitions** - no Trade Intent, allocation, Risk state, account projection, lifecycle state, blind retry,
   invented fill, notification proof, or fence activation.
 
 ## Subsequent implementation acceptance

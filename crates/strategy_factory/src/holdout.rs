@@ -5,7 +5,7 @@
 
 use std::{collections::BTreeMap, io::Write, path::Path};
 
-use anyhow::{Context, ensure};
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -160,7 +160,7 @@ pub fn verify_representative_holdout_sources(
     let expected_price_manifest_digest = format!("sha256:{PRICE_MANIFEST_SHA256}");
     let expected_context_manifest_digest = format!("sha256:{CONTEXT_MANIFEST_SHA256}");
     let expected_session_digest = format!("sha256:{SESSION_IMPLEMENTATION_SHA256}");
-    ensure!(
+    anyhow::ensure!(
         request
             .pointer("/payload/admission/outcome_access")
             .and_then(Value::as_str)
@@ -175,7 +175,7 @@ pub fn verify_representative_holdout_sources(
                 == Some(expected_request_digest.as_str()),
         "holdout request/source admission binding drift"
     );
-    ensure!(
+    anyhow::ensure!(
         sources
             .pointer("/payload/market/price_manifest/sha256")
             .and_then(Value::as_str)
@@ -186,7 +186,7 @@ pub fn verify_representative_holdout_sources(
                 == Some(expected_context_manifest_digest.as_str()),
         "holdout market manifest binding drift"
     );
-    ensure!(
+    anyhow::ensure!(
         sha256(SESSION_IMPLEMENTATION_BYTES) == SESSION_IMPLEMENTATION_SHA256
             && sources
                 .pointer("/payload/session/implementation_sha256")
@@ -226,7 +226,7 @@ pub fn verify_representative_holdout_sources(
         MAX_SCHEDULE_HTML,
         &mut objects,
     )?;
-    ensure!(
+    anyhow::ensure!(
         objects.len() == RAW_OBJECT_COUNT,
         "holdout raw object topology drift"
     );
@@ -248,7 +248,7 @@ fn recover_reservation(
         binding.predecessor_candidate_sha256,
         binding.predecessor_intent_sha256,
     ] {
-        ensure!(
+        anyhow::ensure!(
             digest
                 .strip_prefix("sha256:")
                 .is_some_and(|hex| hex.len() == 64
@@ -258,7 +258,7 @@ fn recover_reservation(
             "holdout reservation digest is not exact SHA-256"
         );
     }
-    ensure!(
+    anyhow::ensure!(
         !binding.partition.is_empty()
             && binding.partition.len() <= 256
             && binding.partition.trim() == binding.partition
@@ -267,7 +267,7 @@ fn recover_reservation(
     );
 
     let root = open_custodied_directory(root)?;
-    ensure!(
+    anyhow::ensure!(
         read_optional_bounded_regular_at(&root, Path::new(CLAIM_FILE), CONTROL_LIMIT)?.is_none()
             && read_optional_bounded_regular_at(&root, Path::new(TERMINAL_FILE), CONTROL_LIMIT)?
                 .is_none(),
@@ -289,7 +289,7 @@ fn recover_reservation(
         source_manifest_sha256: binding.source_manifest_sha256,
     })?;
     expected.push(b'\n');
-    ensure!(bytes == expected, "holdout reservation binding conflicts");
+    anyhow::ensure!(bytes == expected, "holdout reservation binding conflicts");
     Ok(format!("sha256:{}", sha256(&bytes)))
 }
 
@@ -349,11 +349,12 @@ fn scan_market(
 ) -> anyhow::Result<()> {
     let manifest = canonical_asset(bytes, expected_digest, "market manifest")?;
     let declarations = array(&manifest, "/objects")?;
-    ensure!(
+    anyhow::ensure!(
         declarations.len() == expected_count,
         "market manifest object count drift"
     );
     let custody = open_custodied_directory(root)?;
+
     for object in declarations {
         let name = string(object, "name")?;
         let expected_archive = string(object, "sha256")?;
@@ -361,11 +362,11 @@ fn scan_market(
         let archive = read_bounded_regular_at(&custody, Path::new(name), MAX_MARKET_ARCHIVE)?;
         let sidecar_name = format!("{name}.CHECKSUM");
         let sidecar = read_bounded_regular_at(&custody, Path::new(&sidecar_name), MAX_SIDECAR)?;
-        ensure!(
+        anyhow::ensure!(
             sha256(&archive) == expected_archive,
             "market archive digest mismatch"
         );
-        ensure!(
+        anyhow::ensure!(
             sha256(&sidecar) == expected_sidecar,
             "market sidecar digest mismatch"
         );
@@ -388,12 +389,13 @@ fn scan_declared(
     objects: &mut BTreeMap<String, String>,
 ) -> anyhow::Result<()> {
     let custody = open_custodied_directory(root)?;
+
     for declaration in declarations {
         let name = string(declaration, "name")?;
         let expected =
             string(declaration, "sha256").or_else(|_| string(declaration, "raw_sha256"))?;
         let bytes = read_bounded_regular_at(&custody, Path::new(name), limit)?;
-        ensure!(
+        anyhow::ensure!(
             sha256(&bytes) == expected,
             "declared source digest mismatch"
         );
@@ -410,8 +412,8 @@ fn verify_sidecar(name: &str, expected: &str, bytes: &[u8]) -> anyhow::Result<()
         .next()
         .context("sidecar archive name missing")?
         .trim_start_matches('*');
-    ensure!(fields.next().is_none(), "sidecar has trailing fields");
-    ensure!(
+    anyhow::ensure!(fields.next().is_none(), "sidecar has trailing fields");
+    anyhow::ensure!(
         digest == expected
             && Path::new(name).file_name().and_then(|value| value.to_str()) == Some(leaf),
         "sidecar payload mismatch"
@@ -420,11 +422,11 @@ fn verify_sidecar(name: &str, expected: &str, bytes: &[u8]) -> anyhow::Result<()
 }
 
 fn canonical_asset(bytes: &[u8], expected: &str, label: &str) -> anyhow::Result<Value> {
-    ensure!(sha256(bytes) == expected, "{label} digest drift");
+    anyhow::ensure!(sha256(bytes) == expected, "{label} digest drift");
     let value: Value = serde_json::from_slice(bytes)?;
     let mut canonical = serde_json::to_vec(&value)?;
     canonical.push(b'\n');
-    ensure!(canonical == bytes, "{label} is not canonical JSON+LF");
+    anyhow::ensure!(canonical == bytes, "{label} is not canonical JSON+LF");
     Ok(value)
 }
 
@@ -448,7 +450,7 @@ fn insert(
     name: String,
     digest: &str,
 ) -> anyhow::Result<()> {
-    ensure!(
+    anyhow::ensure!(
         objects.insert(name, digest.to_string()).is_none(),
         "holdout source identity collision"
     );
@@ -461,6 +463,8 @@ fn sha256(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
 
     fn reservation_binding() -> HoldoutReservationBinding<'static> {
@@ -474,7 +478,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn frozen_assets_are_canonical_and_bound() {
         canonical_asset(REQUEST_BYTES, REQUEST_SHA256, "holdout request").unwrap();
         canonical_asset(SOURCE_BYTES, SOURCE_SHA256, "holdout source manifest").unwrap();
@@ -496,7 +500,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn sidecar_parser_fails_closed() {
         verify_sidecar("BTCUSDT.zip", "abc", b"abc *BTCUSDT.zip\n").unwrap();
         assert!(verify_sidecar("BTCUSDT.zip", "abc", b"abc *OTHER.zip\n").is_err());
@@ -504,7 +508,7 @@ mod tests {
         assert!(verify_sidecar("BTCUSDT.zip", "abc", b"not utf8 \xff").is_err());
     }
 
-    #[test]
+    #[rstest]
     fn reservation_recovery_is_exact_and_remains_read_only() {
         let directory = tempfile::tempdir().unwrap();
         let root = std::fs::canonicalize(directory.path()).unwrap();
@@ -537,7 +541,7 @@ mod tests {
         assert!(recover_reservation(&root, &binding).is_err());
     }
 
-    #[test]
+    #[rstest]
     #[ignore = "requires the separately custodied official 2024 source bundle"]
     fn official_holdout_integrity_probe_is_deterministic() {
         let root = std::env::var_os("VIBE_REPRESENTATIVE_HOLDOUT_2024_ROOT")

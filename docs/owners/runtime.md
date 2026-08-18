@@ -27,10 +27,10 @@ an approved Risk permit into an order command but owns no order, fill, account e
 
 ## Modules
 
-- **Strategy Instance** — run the governed artifact, consume market facts, emit Trade Intent, and bind an approved
+- **Strategy Instance** - run the governed artifact, consume market facts, emit Trade Intent, and bind an approved
   Risk decision into an Authorized Order Command. Paper and Live use the same instance semantics; only the
   Execution adapter, account namespace, and effect namespace differ.
-- **Readiness Gate** — stop local intent and command production before committing `NOT_READY`, then publish the
+- **Readiness Gate** - stop local intent and command production before committing `NOT_READY`, then publish the
   exact generation, checkpoint, affected scope, and time frontier to Risk and Execution.
 
 Checkpoint and readiness persistence are internal Runtime concerns rather than a second visible capability or
@@ -39,30 +39,30 @@ above.
 
 ## Input handoffs
 
-- [Strategy Governance](../strategy-governance/) supplies a generation-specific `INITIAL_ACTIVATION`, `PROMOTION`,
+- [Strategy Governance](./strategy-governance/) supplies a generation-specific `INITIAL_ACTIVATION`, `PROMOTION`,
   `REDUCTION`, `PAUSE`, `RETIREMENT`, `DE_RISK`, or `RECOVERY` decision, its Execution Scope, complete request Authorization Lineage, and when automated
   intent is allowed, an explicit Autonomous Policy Authorization and retention validity.
-- [Market Data](../market-data/) supplies current market and instrument facts.
-- [Risk](../risk/) returns a terminal Risk Decision, one-use Reservation, decrease-only permit, or terminal
+- [Market Data](./market-data/) supplies current market and instrument facts.
+- [Risk](./risk/) returns a terminal Risk Decision, one-use Reservation, decrease-only permit, or terminal
   pre-consumption withdrawal.
-- [Execution](../execution/) returns order, fill, rejection, terminal readback, and reconciliation facts needed
+- [Execution](./execution/) returns order, fill, rejection, terminal readback, and reconciliation facts needed
   to update instance state or declare readiness loss.
-- [R&D](../rd/) supplies only a frozen `RUNTIME_KERNEL` `native-repair-request` with exact predecessor decision,
+- [R&D](./rd/) supplies only a frozen `RUNTIME_KERNEL` `native-repair-request` with exact predecessor decision,
   correlation, proof digest, old kernel identity and source cut, policy, and fresh Time Evidence. Wrong category,
   target, predecessor, proof, identity, cut, policy, time, or changed meaning creates no attempt or result.
 
 ## Output handoffs
 
-- To [Risk](../risk/): normal Trade Intent, decrease-only lifecycle intent, immutable Runtime Readiness Facts, and
+- To [Risk](./risk/): normal Trade Intent, decrease-only lifecycle intent, immutable Runtime Readiness Facts, and
   committed `runtime-incident-fact`. For `RUNTIME_INCIDENT`, the `runtime-risk-incident-fence` relation carries
   that source fact to Risk; Runtime never writes the resulting Recovery Fence.
-- To [Execution](../execution/): an Authorized Order Command during normal trading; during Recovery only instance,
+- To [Execution](./execution/): an Authorized Order Command during normal trading; during Recovery only instance,
   checkpoint, readiness, and incident facts, never a Recovery Command.
-- To [Strategy Governance](../strategy-governance/): Generation Application Receipts and directly readable Runtime
+- To [Strategy Governance](./strategy-governance/): Generation Application Receipts and directly readable Runtime
   Incident Facts. Execution supplies `RecoveryCase.KNOWN_CLOSED` separately.
-- To [R&D](../rd/): committed generation-scoped Incident facts as successor-only source evidence. The
+- To [R&D](./rd/): committed generation-scoped Incident facts as successor-only source evidence. The
   handoff cannot tune the running generation, reopen its Intent, or expose protected Qualification detail.
-- To [R&D](../rd/): the exact request-correlated Runtime Kernel Repair Result. `REPAIRED` names a new kernel
+- To [R&D](./rd/): the exact request-correlated Runtime Kernel Repair Result. `REPAIRED` names a new kernel
   version and permits only a new request-equal Replay Request bound to the exact native repair request and
   result identities, exact predecessor `REPAIR_INPUTS` decision, `RUNTIME_KERNEL` category, stable correlation,
   original proof digest, predecessor and successor kernel identities and source cuts, and unchanged predecessor
@@ -111,17 +111,17 @@ fence, close a case, or resume the old generation; Governance must issue a fresh
 
 ## Decision contract
 
-- **Inputs** — one Governance generation decision and artifact, current Market Data, terminal Risk decisions, and
+- **Inputs** - one Governance generation decision and artifact, current Market Data, terminal Risk decisions, and
   Execution order/fill/readback facts.
-- **Diagnosis and decision** — apply or reject one generation, evaluate strategy conditions, emit normal Trade
+- **Diagnosis and decision** - apply or reject one generation, evaluate strategy conditions, emit normal Trade
   Intent, bind authorized commands, and commit readiness or incident facts.
-- **Conflict resolution** — generation, checkpoint and readiness identities are monotonic; newer fence or
+- **Conflict resolution** - generation, checkpoint and readiness identities are monotonic; newer fence or
   lifecycle state suppresses older writes, and duplicate application joins once.
-- **Outputs and terminal negatives** — Application Receipt, Trade Intent, Authorized Order Command, readiness and
+- **Outputs and terminal negatives** - Application Receipt, Trade Intent, Authorized Order Command, readiness and
   incident facts; rejection, unknown application and `NOT_READY` never imply running or success.
-- **Feedback and economic meaning** — run the same governed strategy semantics in Paper and Live while returning
+- **Feedback and economic meaning** - run the same governed strategy semantics in Paper and Live while returning
   operational facts that explain behavior without claiming orders or PnL.
-- **Prohibitions** — no adapter selection authority beyond the bound scope, fill, account effect, order lifecycle,
+- **Prohibitions** - no adapter selection authority beyond the bound scope, fill, account effect, order lifecycle,
   Reservation state, Recovery action, case, closure, or persistence-as-separate-authority.
 
 ## Subsequent implementation acceptance
