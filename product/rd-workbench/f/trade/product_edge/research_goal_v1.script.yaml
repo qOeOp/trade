@@ -1,0 +1,32 @@
+summary: Submit or resolve one sourced R&D research goal
+description: Routes one typed request to the native R&D Owner and returns only its receipt and bounded Research View.
+lock: "!inline f/trade/product_edge/research_goal_v1.script.lock"
+kind: script
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - action
+    - request_identity
+    - channel
+    - goal
+  properties:
+    action:
+      type: string
+      enum:
+        - SUBMIT
+        - RESOLVE
+    channel:
+      type: string
+      enum:
+        - APP
+        - MCP
+    goal:
+      type: object
+    request_identity:
+      type: string
+  required:
+    - action
+    - request_identity
+    - channel
+tag: rd-product-edge

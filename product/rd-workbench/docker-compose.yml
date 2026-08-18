@@ -1,0 +1,94 @@
+services:
+  postgres:
+    image: postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD
+      - POSTGRES_DB=windmill
+      - RD_OWNER_DB_PASSWORD
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres-init/00-create-rd-owner.sh:/docker-entrypoint-initdb.d/00-create-rd-owner.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d windmill"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+
+  rd-owner-api:
+    build:
+      context: ../..
+      dockerfile: product/rd-workbench/Dockerfile.owner
+    restart: unless-stopped
+    environment:
+      RD_OWNER_DATABASE_URL: ${RD_OWNER_DATABASE_URL:?set RD_OWNER_DATABASE_URL}
+      RD_OWNER_API_TOKEN: ${RD_OWNER_API_TOKEN:?set RD_OWNER_API_TOKEN}
+      RD_OWNER_EFFECTIVE_PRINCIPAL: ${RD_OWNER_EFFECTIVE_PRINCIPAL:-admin}
+      RD_OWNER_PERMISSIONED_AS: ${RD_OWNER_PERMISSIONED_AS:-u/admin}
+      RD_OWNER_ENABLE_ACCEPTANCE_FAULTS: ${RD_OWNER_ENABLE_ACCEPTANCE_FAULTS:-0}
+      RUST_LOG: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - 8080
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+
+  windmill-server:
+    # yamllint disable rule:line-length
+    image: ghcr.io/windmill-labs/windmill:1.791.0@sha256:1e9ec20f5a99235ccce18e4a4879a8c14ff1738af37fd23c18d87594dcee5916
+    # yamllint enable rule:line-length
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${WINDMILL_DATABASE_URL:?set WINDMILL_DATABASE_URL}
+      MODE: server
+      BASE_URL: http://127.0.0.1:${RD_WORKBENCH_PORT:-18000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - 127.0.0.1:${RD_WORKBENCH_PORT:-18000}:8000
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:8000/api/version >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    security_opt:
+      - no-new-privileges:true
+
+  windmill-worker:
+    # yamllint disable rule:line-length
+    image: ghcr.io/windmill-labs/windmill:1.791.0@sha256:1e9ec20f5a99235ccce18e4a4879a8c14ff1738af37fd23c18d87594dcee5916
+    # yamllint enable rule:line-length
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${WINDMILL_DATABASE_URL:?set WINDMILL_DATABASE_URL}
+      MODE: worker
+      WORKER_GROUP: rd-product-edge
+      WORKER_TAGS: rd-product-edge,dependency
+      RD_OWNER_API_TOKEN: ${RD_OWNER_API_TOKEN:?set RD_OWNER_API_TOKEN}
+      WHITELIST_ENVS: RD_OWNER_API_TOKEN
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rd-owner-api:
+        condition: service_healthy
+    volumes:
+      - worker-cache:/tmp/windmill/cache
+      - worker-logs:/tmp/windmill/logs
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  postgres-data:
+  worker-cache:
+  worker-logs:

@@ -1,0 +1,6 @@
+summary: R&D Product Edge
+display_name: Trade R&D
+owners:
+  - u/admin
+extra_perms:
+  u/admin: true
