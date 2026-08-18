@@ -3186,7 +3186,7 @@ fn parse_futures_agg_trade_tick(
     )
 }
 
-fn parse_futures_kline_binance_bar(
+pub(crate) fn parse_futures_kline_binance_bar(
     kline: &BinanceFuturesKline,
     bar_type: BarType,
     price_precision: u8,

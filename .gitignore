@@ -94,6 +94,7 @@ env/
 !scripts/check-outdated.sh
 !scripts/fuzz-adapter.sh
 !scripts/check-no-build-packages.sh
+!crates/strategy_factory/tools/seal-program.sh
 !scripts/ci/check-workspace-test-coverage.sh
 !scripts/ci/docker-pull-retry.sh
 !scripts/clippy-changed.sh

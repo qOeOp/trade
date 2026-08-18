@@ -16,7 +16,7 @@ use vibe_model::{
     },
     enums::{
         AggressorSide, AssetClass, BarAggregation, BookAction, LiquiditySide, OrderSide,
-        OrderStatus, OrderType, RecordFlag, TimeInForce, TriggerType,
+        OrderStatus, OrderType, PriceType, RecordFlag, TimeInForce, TriggerType,
     },
     identifiers::{AccountId, InstrumentId, OrderListId, Symbol, TradeId, Venue, VenueOrderId},
     instruments::{
@@ -1569,6 +1569,61 @@ pub fn bar_spec_to_binance_interval(
     Ok(interval)
 }
 
+/// Converts a Binance kline interval to its standard last-price bar specification.
+#[must_use]
+pub fn binance_interval_to_bar_spec(interval: BinanceKlineInterval) -> BarSpecification {
+    match interval {
+        BinanceKlineInterval::Second1 => {
+            BarSpecification::new(1, BarAggregation::Second, PriceType::Last)
+        }
+        BinanceKlineInterval::Minute1 => {
+            BarSpecification::new(1, BarAggregation::Minute, PriceType::Last)
+        }
+        BinanceKlineInterval::Minute3 => {
+            BarSpecification::new(3, BarAggregation::Minute, PriceType::Last)
+        }
+        BinanceKlineInterval::Minute5 => {
+            BarSpecification::new(5, BarAggregation::Minute, PriceType::Last)
+        }
+        BinanceKlineInterval::Minute15 => {
+            BarSpecification::new(15, BarAggregation::Minute, PriceType::Last)
+        }
+        BinanceKlineInterval::Minute30 => {
+            BarSpecification::new(30, BarAggregation::Minute, PriceType::Last)
+        }
+        BinanceKlineInterval::Hour1 => {
+            BarSpecification::new(1, BarAggregation::Hour, PriceType::Last)
+        }
+        BinanceKlineInterval::Hour2 => {
+            BarSpecification::new(2, BarAggregation::Hour, PriceType::Last)
+        }
+        BinanceKlineInterval::Hour4 => {
+            BarSpecification::new(4, BarAggregation::Hour, PriceType::Last)
+        }
+        BinanceKlineInterval::Hour6 => {
+            BarSpecification::new(6, BarAggregation::Hour, PriceType::Last)
+        }
+        BinanceKlineInterval::Hour8 => {
+            BarSpecification::new(8, BarAggregation::Hour, PriceType::Last)
+        }
+        BinanceKlineInterval::Hour12 => {
+            BarSpecification::new(12, BarAggregation::Hour, PriceType::Last)
+        }
+        BinanceKlineInterval::Day1 => {
+            BarSpecification::new(1, BarAggregation::Day, PriceType::Last)
+        }
+        BinanceKlineInterval::Day3 => {
+            BarSpecification::new(3, BarAggregation::Day, PriceType::Last)
+        }
+        BinanceKlineInterval::Week1 => {
+            BarSpecification::new(1, BarAggregation::Week, PriceType::Last)
+        }
+        BinanceKlineInterval::Month1 => {
+            BarSpecification::new(1, BarAggregation::Month, PriceType::Last)
+        }
+    }
+}
+
 pub(crate) fn quote_to_l1_deltas(quote: QuoteTick, sequence: u64) -> OrderBookDeltas {
     let bid_action = if quote.bid_size.is_zero() {
         BookAction::Delete
@@ -2539,6 +2594,7 @@ mod tests {
             let bar_spec = make_bar_spec(step, aggregation);
             let result = bar_spec_to_binance_interval(bar_spec).unwrap();
             assert_eq!(result, expected);
+            assert_eq!(binance_interval_to_bar_spec(expected), bar_spec);
         }
 
         #[rstest]

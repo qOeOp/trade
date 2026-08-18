@@ -44,6 +44,23 @@ is_cargo_fuzz_crate() {
   grep -qE '^[[:space:]]*cargo-fuzz[[:space:]]*=[[:space:]]*true' "$1" 2> /dev/null
 }
 
+# Portable no_std package manifests are copied without the repository workspace manifest, so their
+# package metadata must stay literal. Keep this exception owned by the exact portable owners;
+# package metadata cannot grant an arbitrary crate an exemption from workspace conventions.
+is_portable_no_std_crate() {
+  case "$1" in
+    crates/indicators/kernel/Cargo.toml | \
+      crates/strategy_factory/programs/channel_control/Cargo.toml | \
+      crates/strategy_factory/programs/complex/Cargo.toml | \
+      crates/strategy_factory/programs/dual_tsmom/Cargo.toml | \
+      crates/strategy_factory/programs/pairs_relative_value/Cargo.toml | \
+      crates/strategy_factory/programs/pilot/Cargo.toml | \
+      crates/strategy_factory/programs/sdk/Cargo.toml | \
+      crates/strategy_factory/programs/secac/Cargo.toml) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Check 1: Dependency ordering within groups
 # shellcheck disable=SC2016
 dep_violations=$(rg --files -g "Cargo.toml" --glob "!target/*" 2> /dev/null | sort | xargs awk '
@@ -151,6 +168,7 @@ lints_violations=$(rg --files -g "Cargo.toml" --glob "!target/*" crates/ 2> /dev
   # Skip the placeholder manifest
   [[ "$file" == "crates/Cargo.toml" ]] && continue
   is_cargo_fuzz_crate "$file" && continue
+  is_portable_no_std_crate "$file" && continue
 
   has_lib_or_bin=$(grep -E '^\[lib\]|\[\[bin\]\]' "$file" 2> /dev/null || true)
   if [[ -z "$has_lib_or_bin" ]]; then
@@ -235,6 +253,7 @@ package_violations=$(rg --files -g "Cargo.toml" --glob "!target/*" crates/ 2> /d
   # Skip placeholder manifest
   [[ "$file" == "crates/Cargo.toml" ]] && continue
   is_cargo_fuzz_crate "$file" && continue
+  is_portable_no_std_crate "$file" && continue
 
   awk '
   BEGIN {
@@ -301,6 +320,67 @@ if [[ -n "$package_violations" ]]; then
   echo "$package_violations"
   echo
   VIOLATIONS=$((VIOLATIONS + $(echo "$package_violations" | wc -l)))
+fi
+
+# Portable no_std manifests cannot inherit package fields from the repository workspace.
+# Require the equivalent literal fields and reject any workspace inheritance at this boundary.
+portable_violations=$(rg --files -g "Cargo.toml" --glob "!target/*" crates/ 2> /dev/null | while read -r file; do
+  if ! is_portable_no_std_crate "$file"; then
+    if grep -q '^\[package\.metadata\.portable-no-std\]$' "$file"; then
+      echo "  $file: portable-no-std metadata is reserved for exact portable owners"
+    fi
+    continue
+  fi
+  source_file="${file%/*}/src/lib.rs"
+  if ! grep -q '^#!\[no_std\]$' "$source_file" 2> /dev/null; then
+    echo "  $file: portable package must own a no_std library entrypoint"
+  fi
+  if ! awk '
+    /^\[package\.metadata\.portable-no-std\]$/ { in_portable_owner = 1; next }
+    /^\[/ { in_portable_owner = 0 }
+    in_portable_owner && /^portable[[:space:]]*=[[:space:]]*true/ { found = 1 }
+    END { exit found ? 0 : 1 }
+  ' "$file"; then
+    echo "  $file: exact portable owner is missing its portable no_std marker"
+  fi
+  awk '
+    BEGIN {
+      required["name"] = 1
+      required["version"] = 1
+      required["edition"] = 1
+      required["rust-version"] = 1
+      required["publish"] = 1
+      required["description"] = 1
+      required["repository"] = 1
+    }
+    /^\[package\]$/ { in_package = 1; next }
+    in_package && /^\[/ { in_package = 0 }
+    in_package && /^[a-zA-Z]/ {
+      match($0, /^[a-zA-Z0-9._-]+/)
+      field = substr($0, RSTART, RLENGTH)
+      found[field] = 1
+      if ($0 ~ /\.workspace[[:space:]]*=[[:space:]]*true/) {
+        printf "  %s:%d portable package field cannot inherit from workspace\n", FILENAME, NR
+      }
+      if (field == "publish" && $0 !~ /=[[:space:]]*false([[:space:]]*#.*)?$/) {
+        printf "  %s:%d portable package publish must be false\n", FILENAME, NR
+      }
+    }
+    END {
+      for (field in required) {
+        if (!(field in found)) {
+          printf "  %s: portable package missing literal field: %s\n", FILENAME, field
+        }
+      }
+    }
+  ' "$file"
+done) || true
+
+if [[ -n "$portable_violations" ]]; then
+  echo -e "${RED}Portable no_std violations:${NC}"
+  echo "$portable_violations"
+  echo
+  VIOLATIONS=$((VIOLATIONS + $(echo "$portable_violations" | wc -l)))
 fi
 
 # Check 6: [lib] crate-type ordering (rlib, staticlib, cdylib)

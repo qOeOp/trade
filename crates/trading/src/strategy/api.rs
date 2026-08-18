@@ -54,6 +54,39 @@ impl<'a> OrderApi<'a> {
 
     /// Creates a new market order.
     ///
+    /// # Errors
+    ///
+    /// Returns an error if the order parameters fail validation.
+    #[expect(clippy::too_many_arguments)]
+    pub fn try_market(
+        &self,
+        instrument_id: InstrumentId,
+        order_side: OrderSide,
+        quantity: Quantity,
+        time_in_force: Option<TimeInForce>,
+        reduce_only: Option<bool>,
+        quote_quantity: Option<bool>,
+        exec_algorithm_id: Option<ExecAlgorithmId>,
+        exec_algorithm_params: Option<IndexMap<Ustr, Ustr>>,
+        tags: Option<Vec<Ustr>>,
+        client_order_id: Option<ClientOrderId>,
+    ) -> anyhow::Result<OrderAny> {
+        self.order_factory.borrow_mut().try_market(
+            instrument_id,
+            order_side,
+            quantity,
+            time_in_force,
+            reduce_only,
+            quote_quantity,
+            exec_algorithm_id,
+            exec_algorithm_params,
+            tags,
+            client_order_id,
+        )
+    }
+
+    /// Creates a new market order.
+    ///
     /// # Panics
     ///
     /// Panics if the order parameters fail validation or the order factory is already mutably
@@ -73,13 +106,59 @@ impl<'a> OrderApi<'a> {
         tags: Option<Vec<Ustr>>,
         client_order_id: Option<ClientOrderId>,
     ) -> OrderAny {
-        self.order_factory.borrow_mut().market(
+        self.try_market(
             instrument_id,
             order_side,
             quantity,
             time_in_force,
             reduce_only,
             quote_quantity,
+            exec_algorithm_id,
+            exec_algorithm_params,
+            tags,
+            client_order_id,
+        )
+        .unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// Creates a new limit order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the order parameters fail validation.
+    #[expect(clippy::too_many_arguments)]
+    pub fn try_limit(
+        &self,
+        instrument_id: InstrumentId,
+        order_side: OrderSide,
+        quantity: Quantity,
+        price: Price,
+        time_in_force: Option<TimeInForce>,
+        expire_time: Option<UnixNanos>,
+        post_only: Option<bool>,
+        reduce_only: Option<bool>,
+        quote_quantity: Option<bool>,
+        display_qty: Option<Quantity>,
+        emulation_trigger: Option<TriggerType>,
+        trigger_instrument_id: Option<InstrumentId>,
+        exec_algorithm_id: Option<ExecAlgorithmId>,
+        exec_algorithm_params: Option<IndexMap<Ustr, Ustr>>,
+        tags: Option<Vec<Ustr>>,
+        client_order_id: Option<ClientOrderId>,
+    ) -> anyhow::Result<OrderAny> {
+        self.order_factory.borrow_mut().try_limit(
+            instrument_id,
+            order_side,
+            quantity,
+            price,
+            time_in_force,
+            expire_time,
+            post_only,
+            reduce_only,
+            quote_quantity,
+            display_qty,
+            emulation_trigger,
+            trigger_instrument_id,
             exec_algorithm_id,
             exec_algorithm_params,
             tags,
@@ -114,7 +193,7 @@ impl<'a> OrderApi<'a> {
         tags: Option<Vec<Ustr>>,
         client_order_id: Option<ClientOrderId>,
     ) -> OrderAny {
-        self.order_factory.borrow_mut().limit(
+        self.try_limit(
             instrument_id,
             order_side,
             quantity,
@@ -122,6 +201,52 @@ impl<'a> OrderApi<'a> {
             time_in_force,
             expire_time,
             post_only,
+            reduce_only,
+            quote_quantity,
+            display_qty,
+            emulation_trigger,
+            trigger_instrument_id,
+            exec_algorithm_id,
+            exec_algorithm_params,
+            tags,
+            client_order_id,
+        )
+        .unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// Creates a new stop-market order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the order parameters fail validation.
+    #[expect(clippy::too_many_arguments)]
+    pub fn try_stop_market(
+        &self,
+        instrument_id: InstrumentId,
+        order_side: OrderSide,
+        quantity: Quantity,
+        trigger_price: Price,
+        trigger_type: Option<TriggerType>,
+        time_in_force: Option<TimeInForce>,
+        expire_time: Option<UnixNanos>,
+        reduce_only: Option<bool>,
+        quote_quantity: Option<bool>,
+        display_qty: Option<Quantity>,
+        emulation_trigger: Option<TriggerType>,
+        trigger_instrument_id: Option<InstrumentId>,
+        exec_algorithm_id: Option<ExecAlgorithmId>,
+        exec_algorithm_params: Option<IndexMap<Ustr, Ustr>>,
+        tags: Option<Vec<Ustr>>,
+        client_order_id: Option<ClientOrderId>,
+    ) -> anyhow::Result<OrderAny> {
+        self.order_factory.borrow_mut().try_stop_market(
+            instrument_id,
+            order_side,
+            quantity,
+            trigger_price,
+            trigger_type,
+            time_in_force,
+            expire_time,
             reduce_only,
             quote_quantity,
             display_qty,
@@ -161,7 +286,7 @@ impl<'a> OrderApi<'a> {
         tags: Option<Vec<Ustr>>,
         client_order_id: Option<ClientOrderId>,
     ) -> OrderAny {
-        self.order_factory.borrow_mut().stop_market(
+        self.try_stop_market(
             instrument_id,
             order_side,
             quantity,
@@ -179,6 +304,7 @@ impl<'a> OrderApi<'a> {
             tags,
             client_order_id,
         )
+        .unwrap_or_else(|e| panic!("{e}"))
     }
 
     /// Creates a new stop-limit order.
@@ -976,6 +1102,81 @@ mod tests {
         assert_eq!(order.quantity(), Quantity::from("100000"));
         assert_eq!(order.trader_id(), trader_id);
         assert_eq!(order.strategy_id(), strategy_id);
+    }
+
+    #[rstest]
+    fn test_order_api_checked_creation_returns_validation_errors() {
+        let clock = Rc::new(RefCell::new(TestClock::new()));
+        let order_factory = RefCell::new(OrderFactory::new(
+            TraderId::from("TRADER-001"),
+            StrategyId::from("S-001"),
+            None,
+            None,
+            clock,
+            false,
+            true,
+        ));
+        let api = OrderApi::new(&order_factory);
+        let instrument_id = InstrumentId::from("AUD/USD.SIM");
+        let zero = Quantity::from("0");
+
+        assert!(
+            api.try_market(
+                instrument_id,
+                OrderSide::Buy,
+                zero,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .is_err()
+        );
+        assert!(
+            api.try_limit(
+                instrument_id,
+                OrderSide::Buy,
+                zero,
+                Price::from("1.0"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .is_err()
+        );
+        assert!(
+            api.try_stop_market(
+                instrument_id,
+                OrderSide::Buy,
+                zero,
+                Price::from("1.0"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .is_err()
+        );
     }
 
     #[rstest]

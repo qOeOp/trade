@@ -56,10 +56,14 @@ iai = { workspace = true }
 proptest = { workspace = true }
 rstest = { workspace = true }
 rust_decimal_macros = { workspace = true }
+tempfile = { workspace = true }
 
 [build-dependencies]
 cbindgen = { workspace = true, optional = true }
 toml = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true }
 
 [[bench]]
 name = "correctness"

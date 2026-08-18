@@ -1,5 +1,7 @@
 //! Utility functions for resolving project and workspace directory paths.
 
+pub mod custody;
+
 use std::path::PathBuf;
 
 /// Returns the workspace root directory path.
