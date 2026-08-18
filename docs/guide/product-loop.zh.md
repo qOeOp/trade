@@ -24,6 +24,43 @@
 [Observability](../../architecture/observability/) 可以解释进度与失败，但不能闭合旅程、选择下一动作，
 或用 telemetry 替代原生 Owner 回执。
 
+## Agent-native R&D 体验
+
+面向用户的创作闭环由对话驱动：
+
+自然语言研究请求 → Research Request Receipt → 冻结 Research Intent → Agent 活动与 R&D 迭代 →
+不可变 Strategy Artifact 与 Build Receipt → 探索 Run Detail 或 Compare → Iteration Decision → 准确的
+后继、停止、修复或 Qualification 交接。
+
+Conversation Agent 的职责止于提交类型化请求和查询有界状态。服务端 R&D Execution Agent 拥有长时间
+运行的执行 session，并在对话客户端关闭后继续受 Windmill 监督。MCP 不会把客户端模型或 credential
+借给该 job。两个角色可以共用显式配置的模型 provider 或计费 gateway，但不能共用 session 权威、
+能力 scope、预算或审计 identity。
+
+用户通过可见动作发起研究、请求解释、要求修改、停止工作，或提交准确的已选 Candidate。每个会改变
+状态的动作都创建新的类型化请求。修改要么产生新的不可变 Artifact，要么产生明确的原生终态
+disposition；绝不编辑或覆盖既有 Artifact。Windmill Job 进度只能解释执行过程；业务阶段和允许的
+下一步动作由接收 Owner 的回执与投影决定。
+
+目标 Windmill R&D Workbench 通过以下应用区域闭合旅程：
+
+| 区域             | 首期必需产品视图                                                                       | 权威边界                                                                                     |
+| ---------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Overview         | 活动研究、等待处理的决定、最近结果、Scanner 与 Runtime 健康状态                        | 只做摘要；每个状态都链接到原生 Owner 投影                                                    |
+| Sources / Intake | 已提交论文、笔记、媒体、工具输出、获取状态、provenance、解释、triage 与 Research Queue | R&D Source Intake 拥有准入和 provenance；外部内容保持不可信且绝不直接创建 Intent 或 Artifact |
+| Research         | Run、冻结目标、时间线、Agent 活动、迭代状态、进度、日志和允许动作                      | R&D 回执与 Research View 决定状态；日志不能                                                  |
+| Hypotheses       | 待验证、已支持、已证伪、已停止或未解析的研究假设                                       | R&D 拥有来源、血缘与 Iteration Decision                                                      |
+| Artifacts        | Identity、Intent 与迭代血缘、结构化逻辑、参数、依赖、构建状态、语义变更解释和允许动作  | Artifact 与 Build Receipt 保持权威；解释不能替代它们                                         |
+| Backtests        | 探索图表、风险指标、Run Detail 与版本比较                                              | Backtest 拥有 Run Result；比较不能创建 Selection                                             |
+| Qualification    | 有界公共状态与准确的已接纳交接动作                                                     | 保护细节保持不透明；Qualification 拥有 intake 与 eligibility                                 |
+| Scanner          | 调度、终态 Scanner Receipt、心跳和未解析状态                                           | Windmill 调度工作；Scanner 拥有提案事实且永不启动 Runtime                                    |
+| Runtime          | 已应用 generation、策略循环状态、checkpoint、incident 与允许的生命周期动作             | Runtime、Governance、Risk 与 Execution 事实保持独立权威                                      |
+| Operations       | Windmill job、worker、进度、日志、重试与 incident                                      | 运维成功不等于研究、Qualification、部署或交易成功                                            |
+
+首个 Artifact Review 表面有意不展示原始源码。完整源码只读查看、源码 diff、受控下载和源码关联诊断
+属于延后的高级审计能力。Notebook-first 创作、内嵌代码 IDE、原地编辑 Artifact 和覆盖版本都不是
+已接纳的产品能力。用户通过 Agent 请求修改，并审阅其产生的后继 Artifact。
+
 ## 1. 发现并定义问题
 
 Product Edge 接受自然语言意图，但不拥有交易业务事实。Market Data 提供可追踪的 PIT 事实。

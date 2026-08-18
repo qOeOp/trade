@@ -24,6 +24,43 @@ replay、报告与维护任务可以作为 Windmill job 运行并留下持久进
 让 Workbench 成为 `CURRENT`；验收必须覆盖下文定义的有界用户旅程、共同操作、Owner 回执、未解析
 状态以及直接浏览器证据。
 
+## Agent-native R&D 创作
+
+目标产品只接纳一条面向用户的策略创作路径：用户用自然语言表达带来源的研究目标、问题、解释请求
+或修改请求，由 Agent 调用已接纳的 R&D 类型化 operation。Windmill App 可以直接提供 attended 对话
+表面，可选外部对话客户端也可以通过 Windmill MCP 调用同一组 operation。两个 channel 都不能创作
+业务事实或编辑 Artifact。
+
+该路径区分两个 Agent 角色。**Conversation Agent** 运行在有人值守的 Windmill 体验或 WorkBuddy 等
+外部客户端中，负责组织意图、提交或查询类型化 operation，并解释返回视图。服务端
+**R&D Execution Agent** 在 Windmill 监督的 job 和已准入 Development Sandbox 中运行；对话断开后仍
+继续执行，完成有界研究与生成，再通过 R&D Owner port 提交候选输出。两个 Agent 都不拥有 Research
+事实，Conversation Agent 也绝不逐步维持 Execution Agent 的运行生命周期。
+
+MCP 只传递 operation 请求与有界结果，不传递 LLM session、隐藏推理、模型 entitlement 或 credential。
+在部署政策明确配置时，两个 Agent 角色可以使用同一个 provider、gateway、计费账户，甚至同一底层
+credential；但这是显式后台配置，不是 credential 穿透。每个角色都保留独立 invocation identity、
+scope、能力政策、预算和审计轨迹。Secret 值绝不能进入 MCP payload、Owner 事实、Artifact metadata
+或日志。
+
+已接受的修改请求会启动一个新的受治理 R&D attempt。它要么产生新的不可变、内容寻址 Strategy
+Artifact 及其自身构建和探索证据，要么以原生无 Artifact、失败、拒绝或未知 disposition 闭合。它绝不
+在既有 Artifact identity 下修改字节。策略语义变化必须经过适用的后继假设与 Research Intent 路径；
+attended D-only repair 仍受独立 repair 契约约束。可见的 **让 Agent 修改** 动作只提交该类型化请求，
+在 R&D-owned 回执到达前始终为 `SUBMITTED_OR_UNKNOWN`。
+
+首个已接纳 Artifact Review 表面不要求访问原始源码。它展示 Artifact identity、Research Intent 与
+迭代血缘、结构化策略逻辑摘要、参数和依赖 identity、构建状态、Agent 变更解释、探索结果引用、
+有界 Qualification 状态与允许的下一步动作。每一项都绑定原生 Owner 事实，或被明确标记为非权威
+解释；Agent 摘要不能替代 Artifact 字节、Build Receipt、Run Result、Iteration Decision 或
+Qualification 事实。语义变更摘要只能使用 R&D-owned 血缘和允许的探索证据，绝不能使用受保护的
+Qualification 细节。
+
+完整源码查看、源码级 diff、受控源码下载和源码关联诊断属于 `DEFERRED_TARGET` 高级审计能力。
+即使以后引入也只能只读，且不作为首期 Workbench 验收条件。产品内代码编辑器、Notebook-first
+创作、原地修改 Artifact 和覆盖 Artifact 版本属于 `NOT_ADMITTED`。外部 IDE 或 notebook 可以继续
+作为工程工具存在，但不属于产品契约，也不能建立 Product Edge 请求、Owner 事实或验收证据。
+
 ## Agent Shell 部署绑定
 
 Product Edge 为每个部署拥有一个非业务 Agent Shell Deployment Binding。目标 binding 指向规范
