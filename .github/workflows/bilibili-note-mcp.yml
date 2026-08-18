@@ -55,6 +55,11 @@ jobs:
           enable-cache: true
           cache-dependency-glob: services/bilibili-note-mcp/uv.lock
 
+      - name: Install media tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg
+
       - name: Sync locked environment
         run: uv sync --locked --all-groups
 
