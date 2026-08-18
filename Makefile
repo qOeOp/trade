@@ -1166,6 +1166,12 @@ docs-site-check:  #-- Type-check and build the static documentation site
 	$Q npm run check:routes:unit --prefix docs-site
 	$Q npm run check:routes --prefix docs-site
 
+#== R&D Workbench
+
+.PHONY: rd-workbench-check
+rd-workbench-check:  #-- Validate the pinned non-live Windmill R&D Workbench package
+	$Q bash product/rd-workbench/scripts/check.sh
+
 #== CLI Tools
 
 .PHONY: install-cli

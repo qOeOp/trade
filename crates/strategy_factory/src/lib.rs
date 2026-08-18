@@ -20,6 +20,8 @@ pub mod intent;
 mod pairs_relative_value;
 pub mod pilot;
 mod producer;
+pub mod product_edge;
+pub mod product_edge_postgres;
 #[allow(dead_code)]
 mod program_host;
 mod program_project;

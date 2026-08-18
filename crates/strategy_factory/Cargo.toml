@@ -12,17 +12,23 @@ workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
+async-trait = { workspace = true }
+axum = { workspace = true }
 blake3 = { workspace = true }
 jiff = { workspace = true }
 rust_decimal = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
+sqlx = { workspace = true }
 statrs = { workspace = true }
 strategy-factory-program-sdk = { path = "programs/sdk" }
 tar = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 vibe-analysis = { workspace = true }
 vibe-backtest = { workspace = true, features = ["streaming"] }
 vibe-binance = { workspace = true }
@@ -47,5 +53,11 @@ vibe-portfolio = { workspace = true }
 [[bin]]
 name = "strategy-factory-formation"
 path = "src/bin/strategy_factory_formation.rs"
+doc = false
+test = false
+
+[[bin]]
+name = "strategy-factory-rd-owner-api"
+path = "src/bin/strategy_factory_rd_owner_api.rs"
 doc = false
 test = false
