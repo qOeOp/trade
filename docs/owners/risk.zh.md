@@ -38,25 +38,25 @@
 
 ## 模块
 
-- **Risk Reservation** — 在同 scope frontier 上持久序列化一个 Execution claim 或撤回未消费额度，再
+- **Risk Reservation** - 在同 scope frontier 上持久序列化一个 Execution claim 或撤回未消费额度，再
   保持 替换或释放 liability。已消费 liability 只根据 Execution settlement 事实和匹配 Portfolio Risk
   Evidence Bundle 闭合；仅有 `SETTLED` 不能释放。
-- **Risk Engine** — 对每个正常意图返回决定与预留，或明确终态拒绝。
-- **Kill Switch** — 阻止新增风险并围栏受影响 generation，定义有界撤销 减仓 清仓恢复范围。
+- **Risk Engine** - 对每个正常意图返回决定与预留，或明确终态拒绝。
+- **Kill Switch** - 阻止新增风险并围栏受影响 generation，定义有界撤销 减仓 清仓恢复范围。
 
 ## 输入交接
 
-- [Runtime](../runtime/) 提交 Trade Intent、不可变 Readiness Fact，并为 `RUNTIME_INCIDENT` 通过
+- [Runtime](./runtime/) 提交 Trade Intent、不可变 Readiness Fact，并为 `RUNTIME_INCIDENT` 通过
   `runtime-risk-incident-fence` 提交已提交 `runtime-incident-fact`。Risk 把来源事实当作自己独立提交
   fence 的证据，不把它们当成请求或确认。
-- [Strategy Governance](../strategy-governance/) 提供适用 `POOL_ROOT` 与准确 `STRATEGY_GENERATION`
+- [Strategy Governance](./strategy-governance/) 提供适用 `POOL_ROOT` 与准确 `STRATEGY_GENERATION`
   Capital Envelope 链，以及当前 Eligibility 每个 envelope 的生效区间和完整共享 Time Evidence、
   authorization mode 和完整请求 Authorization Lineage。`UNATTENDED_REQUEST_WITH_POLICY` 还携带当前
   Autonomous Policy Authorization。一个 intent 只使用自身链，兄弟 envelope 不参与 global minimum。
-- [Portfolio](../portfolio/) 提供不可变 Capacity Scope、候选无关 gross Capacity View，以及包含 exposure
+- [Portfolio](./portfolio/) 提供不可变 Capacity Scope、候选无关 gross Capacity View，以及包含 exposure
   open order 账户估值截面和已纳入 Execution lineage 的一致 Portfolio Risk Evidence Bundle。它不提供
   Risk commitment state 或 net headroom。
-- [Execution](../execution/) 对新增风险先提交稳定 Reservation Claim Request。匹配 `CONSUMED` 后持久化
+- [Execution](./execution/) 对新增风险先提交稳定 Reservation Claim Request。匹配 `CONSUMED` 后持久化
   `PREPARED` attempt，再提交稳定 `ADAPTER_ADMISSION_REQUEST`。准确 decrease-only 不提交 claim，
   持久化带明确空 Reservation/claim lineage 的 `PREPARED` 后直接提交 admission request。之后回报未知
   效果 结算或唯一无效果证明：不含调用与回读身份的持久预调用抑制，或绑定一个已准入 attempt 的权威适配器回读。
@@ -69,8 +69,8 @@
 
 ## 输出交接
 
-- 向 [Runtime](../runtime/) 返回明确终态拒绝，或批准的 Risk Decision 与一次性 Reservation，以及任何消费前终态 `WITHDRAWN` 结果。
-- 向 [Execution](../execution/) 为每个稳定新增风险 claim 返回唯一 Reservation Claim Result，再为每个
+- 向 [Runtime](./runtime/) 返回明确终态拒绝，或批准的 Risk Decision 与一次性 Reservation，以及任何消费前终态 `WITHDRAWN` 结果。
+- 向 [Execution](./execution/) 为每个稳定新增风险 claim 返回唯一 Reservation Claim Result，再为每个
   prepared 新增风险或 decrease-only attempt 返回唯一 Adapter Admission Result。Risk 在同一次 Aggregate Commitment Frontier mutation
   中把 admission 与 fence activation 排序并提交 `ADMITTED_ONCE` `SUPPRESSED_BY_FENCE` 或 `REJECTED`，
   同时向 Reconciler 提供完整活动 fence set 终态 Reservation 成员和剩余暴露闭合事实。
@@ -153,18 +153,18 @@ case 和有界 Recovery Command。Risk 独占 Reservation 成员的非空 显式
 
 ## 决策契约
 
-- **输入** — 一个 Runtime intent 与 readiness 截面、Governance envelope 和授权 lineage、一致 Portfolio
+- **输入** - 一个 Runtime intent 与 readiness 截面、Governance envelope 和授权 lineage、一致 Portfolio
   risk bundle，以及后续 Execution claim admission settlement 事实。
-- **诊断与决定** — 检查授权 身份 证据 limit commitment frontier 与 fence，提交唯一终态拒绝或一次性
+- **诊断与决定** - 检查授权 身份 证据 limit commitment frontier 与 fence，提交唯一终态拒绝或一次性
   decision 和 Reservation。
-- **冲突解析** — 同 scope mutation 按已声明执行顺序序列化；Governance 分配保持不变，重复身份只加入
+- **冲突解析** - 同 scope mutation 按已声明执行顺序序列化；Governance 分配保持不变，重复身份只加入
   一次，业务优先级未解析时拒绝。
-- **输出与终态负例** — decision Reservation claim/admission result fence，或带完整 supported set、确定
+- **输出与终态负例** - decision Reservation claim/admission result fence，或带完整 supported set、确定
   primary、决定性事实与未创建 Reservation 证明的类型化 `REJECT`；证据缺失或 mixed-cut 支持
   `EVIDENCE_UNAVAILABLE_OR_MIXED_CUT`，不能成为隐式允许。
-- **反馈与经济意义** — 约束未闭合 liability 的最坏占用，阻止过期 重复或超限暴露，但不决定哪个
+- **反馈与经济意义** - 约束未闭合 liability 的最坏占用，阻止过期 重复或超限暴露，但不决定哪个
   策略应获得资金。
-- **禁止** — 不拥有 contender 分配 订单命令 adapter 调用 场所事实 Portfolio 投影 生命周期决定
+- **禁止** - 不拥有 contender 分配 订单命令 adapter 调用 场所事实 Portfolio 投影 生命周期决定
   Recovery Case 或闭合。
 
 ## 后续实现验收

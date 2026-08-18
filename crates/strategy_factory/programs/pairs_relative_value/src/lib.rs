@@ -547,8 +547,8 @@ impl PairsRelativeValue {
             Phase::Repairing if self.repair_sent => (
                 REPAIR_HANDLES,
                 [
-                    if self.positions[BTC] > 0.0 { -1 } else { 1 },
-                    if self.positions[ETH] > 0.0 { -1 } else { 1 },
+                    1 - 2 * i8::from(self.positions[BTC] > 0.0),
+                    1 - 2 * i8::from(self.positions[ETH] > 0.0),
                 ],
             ),
             Phase::Repairing if self.repair_from == REPAIR_FROM_OPENING => {
@@ -767,6 +767,7 @@ mod tests {
     extern crate std;
 
     use super::*;
+    use rstest::rstest;
     use std::vec::Vec;
     use strategy_factory_program_sdk::{
         CODEC_V1, FrameEncoder, RecordMeta, decode_actions, dispatch,
@@ -923,7 +924,7 @@ mod tests {
         dispatch(program, &bytes[..len], &mut [0; 192])
     }
 
-    #[test]
+    #[rstest]
     fn exact_parameter_abi_accepts_only_frozen_coordinates_and_deletions() {
         for variant in 0..4 {
             assert!(Parameters::parse(&parameters(variant, ALL_FEATURES)).is_ok());
@@ -947,7 +948,7 @@ mod tests {
         assert!(Parameters::parse(&unknown_variant).is_err());
     }
 
-    #[test]
+    #[rstest]
     fn same_timestamp_m15_and_h1_permutations_are_identical() {
         let run = |reverse| {
             let mut program = seeded(ALL_FEATURES);
@@ -978,7 +979,7 @@ mod tests {
         assert!(result.4);
     }
 
-    #[test]
+    #[rstest]
     fn duplicate_or_nonmonotonic_channel_rejects() {
         let mut program = seeded(ALL_FEATURES);
         program.observe_bar(1, bar(100.0, 10)).unwrap();
@@ -992,7 +993,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn bar_frame_requires_seven_records_and_one_shared_balance() {
         let mut equal = seeded(ALL_FEATURES);
         assert_eq!(
@@ -1006,7 +1007,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn terminal_pair_consumes_the_prior_decision_pair_in_either_callback_order() {
         for channels in [[1, 2], [2, 1]] {
             let mut program = seeded(ALL_FEATURES & !ETH_LEG);
@@ -1026,7 +1027,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn happy_open_fill_snapshot_close_and_flat_halts() {
         let mut program = seeded(ALL_FEATURES);
         prime_signal(&mut program, false);
@@ -1051,7 +1052,7 @@ mod tests {
         assert!(actions(|actions| program.decide(44, actions)).is_empty());
     }
 
-    #[test]
+    #[rstest]
     fn one_leg_fill_and_other_rejection_repairs_both_spread_directions() {
         for spread in [-1, 1] {
             for reject_first in [false, true] {
@@ -1109,7 +1110,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn partial_both_legs_use_one_two_action_repair() {
         let mut program = seeded(ALL_FEATURES);
         actions(|actions| program.enter([bar(100.0, 10), bar(50.0, 10)], -1, 20, actions));
@@ -1155,7 +1156,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn repair_rejection_repeat_and_terminal_unresolved_reject() {
         let mut program = seeded(ALL_FEATURES);
         program.phase = Phase::Repairing;
@@ -1208,7 +1209,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn unknown_out_of_state_events_and_context_actions_are_impossible() {
         let mut program = seeded(ALL_FEATURES);
         assert_eq!(

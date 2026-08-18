@@ -23,23 +23,23 @@ Run a scheduled slow-track match between governed strategies and current market 
 
 ## Modules
 
-- **Strategy Loader** — load deployable ArtifactRefs, activation conditions, data needs, versions, and lifecycle limits from the governed registry.
-- **Market Snapshot** — derive each strategy's supplied universe-selection rule, required instruments and windows,
+- **Strategy Loader** - load deployable ArtifactRefs, activation conditions, data needs, versions, and lifecycle limits from the governed registry.
+- **Market Snapshot** - derive each strategy's supplied universe-selection rule, required instruments and windows,
   then bind PIT market, calendar, session/time-zone, corporate-action, historical-membership, and semantics inputs
   or an explicit negative disposition.
-- **Strategy Matcher** — evaluate each activation condition against its bound inputs; one strategy's missing data or condition failure cannot suppress complete matches for others.
-- **Proposal Builder** — package matched strategies, evidence, optional Capacity View identity, and stop conditions into an auditable proposal.
+- **Strategy Matcher** - evaluate each activation condition against its bound inputs; one strategy's missing data or condition failure cannot suppress complete matches for others.
+- **Proposal Builder** - package matched strategies, evidence, optional Capacity View identity, and stop conditions into an auditable proposal.
 
 ## Input handoffs
 
 - Scheduler supplies the fixed periodic trigger; it has no deployment authority.
-- [Strategy Governance](../strategy-governance/) supplies governed ArtifactRefs, activation conditions, and lifecycle constraints.
-- [Market Data](../market-data/) supplies the timestamped market and instrument facts required by those conditions.
-- [Portfolio](../portfolio/) may supply a bounded Capacity View for proposal sizing hints. It is optional unless the published activation condition explicitly requires it.
+- [Strategy Governance](./strategy-governance/) supplies governed ArtifactRefs, activation conditions, and lifecycle constraints.
+- [Market Data](./market-data/) supplies the timestamped market and instrument facts required by those conditions.
+- [Portfolio](./portfolio/) may supply a bounded Capacity View for proposal sizing hints. It is optional unless the published activation condition explicitly requires it.
 
 ## Output handoffs
 
-- To [Strategy Governance](../strategy-governance/): exactly one terminal Scanner Receipt for every scheduled ScanId.
+- To [Strategy Governance](./strategy-governance/): exactly one terminal Scanner Receipt for every scheduled ScanId.
 - To Product Edge: direct read access to the Scanner-owned terminal receipt for every ScheduledScanId. Product
   Edge reads its exact completion state, mutually exclusive expected-set branch, terminal reason, and proposal
   members only when `PROPOSED`; it stores no competing Scanner-owned projection.
@@ -76,19 +76,19 @@ cannot invent a new slot or put a new clock epoch into the stable identity.
 
 ## Decision contract
 
-- **Inputs** — one due slot, complete governed registry frontier, strategy activation conditions, required PIT
+- **Inputs** - one due slot, complete governed registry frontier, strategy activation conditions, required PIT
   snapshots and optional condition-required Capacity View.
-- **Diagnosis and decision** — evaluate each strategy independently, account for the complete expected set, and
+- **Diagnosis and decision** - evaluate each strategy independently, account for the complete expected set, and
   commit one per-strategy disposition plus one terminal batch receipt.
-- **Conflict resolution** — due-slot identity joins duplicates; total precedence is independently proven batch
+- **Conflict resolution** - due-slot identity joins duplicates; total precedence is independently proven batch
   `FAILED`, complete `PROPOSED`, complete `COMPLETED_NO_PROPOSAL` for local `CONDITION_FAILED`,
   `INSUFFICIENT_DATA`, then `NO_MATCH`. Incomplete membership is `INCOMPLETE_FAILED`; an independent typed batch
   operational failure is `BATCH_OPERATIONAL_FAILED`.
-- **Outputs and terminal negatives** — evidence-only proposal or exact no-match, insufficiency, failure, and unknown
+- **Outputs and terminal negatives** - evidence-only proposal or exact no-match, insufficiency, failure, and unknown
   membership evidence; none is deployment authority.
-- **Feedback and economic meaning** — periodically surface strategies whose frozen activation evidence currently
+- **Feedback and economic meaning** - periodically surface strategies whose frozen activation evidence currently
   matches while avoiding wasteful always-on instances and false matches from insufficient data.
-- **Prohibitions** — no lifecycle, allocation, Runtime application, Trade Intent, risk, order, account, or effect.
+- **Prohibitions** - no lifecycle, allocation, Runtime application, Trade Intent, risk, order, account, or effect.
 
 ## Subsequent implementation acceptance
 

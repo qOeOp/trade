@@ -30,28 +30,28 @@ Independently decide whether a frozen candidate satisfies preregistered evidence
 
 ## Modules
 
-- **Candidate Intake** — write one receipt for the immutable Candidate and evidence pack; `NOT_ADMITTED` creates no protected attempt and consumes no holdout.
-- **Protected Evaluation** — request and assess isolated protected replay; only a matching `TERMINAL_RESULT`
+- **Candidate Intake** - write one receipt for the immutable Candidate and evidence pack; `NOT_ADMITTED` creates no protected attempt and consumes no holdout.
+- **Protected Evaluation** - request and assess isolated protected replay; only a matching `TERMINAL_RESULT`
   evaluated under the bound protected decision-policy version can commit an Eligibility Fact. Rejected, invalid,
   nonterminal, or mismatched evidence commits no Eligibility.
-- **Eligibility State** — publish current ineligible, qualified, expired, or revoked deployability facts, their
+- **Eligibility State** - publish current ineligible, qualified, expired, or revoked deployability facts, their
   conditions, revocation history, and the bounded economic-capacity contract Governance and Risk must enforce.
   It owns revocation as an Eligibility transition without taking over Runtime recovery.
 
 ## Input handoffs
 
-- [R&D](../rd/) submits the frozen Candidate only with a terminal `SELECTED_FOR_QUALIFICATION`
+- [R&D](./rd/) submits the frozen Candidate only with a terminal `SELECTED_FOR_QUALIFICATION`
   Research Selection Disposition. Candidate, disposition, and intake cross-bind the exact frozen Intent falsifier
   and stop rule, exploratory request/result frontier, costs, capacity assumptions, and immutable exhaustive
   TrialFamily Census Frontier with consumed budget through the Candidate cut, plus one exact preregistered
   protected decision-policy identity and version and one frozen Protected Robustness Plan.
 - Product Edge submits one stable review request binding the originating Research request, Candidate, canonical typed meaning, and origin-to-current protected-feedback observation frontiers.
-- [Backtest](../backtest/) returns the requested protected Run Result and consumed-input receipt; every consumed execution-defining field must exactly equal its request counterpart.
+- [Backtest](./backtest/) returns the requested protected Run Result and consumed-input receipt; every consumed execution-defining field must exactly equal its request counterpart.
 - Committed evidence changes may trigger re-evaluation; wake-up channels never replace owner fact reads.
 
 ## Output handoffs
 
-- To [Strategy Governance](../strategy-governance/): categorical Eligibility State facts, including revocation,
+- To [Strategy Governance](./strategy-governance/): categorical Eligibility State facts, including revocation,
   with exact Candidate and fact versions, economic-condition version, evaluated cost/capacity-model version,
   qualified capacity ceiling, effective time, and non-dereferenceable committed evidence references only.
   Expiry, revocation, missing-current, and unknown-current are explicit downstream states; none permits Governance
@@ -102,7 +102,7 @@ adjudication and protected-decision policy versions. The assessment repeats the 
 and accounts for every plan-required cell exactly once; an axis may contain multiple cells. An explicit
 pre-result non-applicability basis becomes `NOT_APPLICABLE_ACCEPTED` only when that policy accepts it; missing,
 stale, rejected, or policy-mismatched basis is `NOT_APPLICABLE_REJECTED`. Any missing, duplicate, unknown,
-request/result-mismatched, or policy-mismatched cell—or an all-not-applicable census—is `INCOMPLETE_INVALID` and
+request/result-mismatched, or policy-mismatched cell-or an all-not-applicable census-is `INCOMPLETE_INVALID` and
 commits `ASSESSMENT_INVALID` with preregistered holdout closure and no Eligibility Fact. A complete census is
 `COMPLETE_PASS` only when the plan was admitted as `PLAN_ADEQUATE`, the diagnostic set is singleton `NO_EXECUTION_DEFECT`, at least one cell is applicable, every
 applicable cell passes, and every non-applicable cell is accepted; any applicable failure or rejected
@@ -127,18 +127,18 @@ evaluation, and decision frontier, while duplicates inside that frontier join an
 
 ## Decision contract
 
-- **Inputs** — one selected Candidate with exact `READY_FOR_SELECTION` lineage, exhaustive TrialFamily Census,
+- **Inputs** - one selected Candidate with exact `READY_FOR_SELECTION` lineage, exhaustive TrialFamily Census,
   preregistered protected policy, holdout ancestry, frozen Replay Request, and sealed Run Result.
-- **Diagnosis and decision** — admit or reject intake, isolate protected evaluation, verify exact request-result
+- **Diagnosis and decision** - admit or reject intake, isolate protected evaluation, verify exact request-result
   equality, apply the frozen policy, and commit attempt disposition or Eligibility State transition.
-- **Conflict resolution** — protected policy and cumulative holdout frontier are immutable; duplicate request joins
+- **Conflict resolution** - protected policy and cumulative holdout frontier are immutable; duplicate request joins
   once, changed meaning is rejected, and no later policy reinterprets an earlier result.
-- **Outputs and terminal negatives** — Intake Receipt, Protected Attempt Disposition, or Eligibility State;
+- **Outputs and terminal negatives** - Intake Receipt, Protected Attempt Disposition, or Eligibility State;
   `NOT_ADMITTED`, replay rejected/invalid, `DIAGNOSTIC_INVALID`, `DIAGNOSTIC_UNRESOLVED`, `ASSESSMENT_INVALID`, `IN_PROGRESS_OR_UNKNOWN`, and `INELIGIBLE` stay distinct.
-- **Feedback and economic meaning** — independently reject overfit or uneconomic candidates while exposing only
+- **Feedback and economic meaning** - independently reject overfit or uneconomic candidates while exposing only
   the public terminal outcome, non-dereferenceable reference, and source-frontier freshness, preserving the value
   of scarce protected evidence.
-- **Prohibitions** — no R&D tuning feedback, artifact mutation, lifecycle, capital widening, Runtime
+- **Prohibitions** - no R&D tuning feedback, artifact mutation, lifecycle, capital widening, Runtime
   activation, order, account effect, or protected-detail Product view.
 
 ## Subsequent implementation acceptance

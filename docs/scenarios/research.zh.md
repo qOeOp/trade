@@ -27,7 +27,7 @@ Source Intake 记录来源，并把来源或工具内容视为不可信数据而
 替代解释 能区分机制的预测和证伪条件。R&D 在提交前冻结初始 PIT Market Snapshot Request；Market
 Data 只把 snapshot disposition 关联到准确身份 摘要 scope 决定截面 provenance license correction 和
 Time Evidence。提交或静默不是市场事实。Research Intent 冻结机制、数据范围、
-provider-neutral 获取基线见[研究来源接入指南](../../guide/source-intake/)，它不增加 Flow 节点或业务权威。
+provider-neutral 获取基线见[研究来源接入指南](../guide/source-intake/)，它不增加 Flow 节点或业务权威。
 准确成本 滑点与容量模型版本 容量假设 永久 TrialFamily 完整语义前驱前沿 预提交独立性依据 预算 证伪条件和停止规则。Develop Sandbox 在隔离环境构建。
 Strategy Artifact 绑定冻结意图、代码、依赖和运行环境身份。探索性 Native Replay 只有在结果逐项重复
 且等于请求的 Artifact PIT 范围与 snapshot universe selection 与修订规则 重放配置 Runtime 内核
@@ -108,11 +108,11 @@ Decision 证明，不存在 Selection 或 Candidate。Intent Request Result Diag
 
 ## Development outcome / 开发结果
 
-- **受益者** — 需要快速迭代又不能消耗保护证据或隐藏失败试验的研究员与策略开发者。
-- **可观测结果** — 带来源假设成为可复现工件和明确 Iteration Decision；只有
+- **受益者** - 需要快速迭代又不能消耗保护证据或隐藏失败试验的研究员与策略开发者。
+- **可观测结果** - 带来源假设成为可复现工件和明确 Iteration Decision；只有
   `READY_FOR_SELECTION` 才在 Qualification 前增加绑定证伪条件的 Selection。
-- **未改变伤害** — 探索赢家可能擦除失败同族试验 偏离冻结证伪条件，或让 Research 未选择的候选消耗 holdout。
-- **终态负例** — 证伪拒绝 停止规则 预算耗尽或关联输入修复不可用进入明确 Iteration Decision 停止，
+- **未改变伤害** - 探索赢家可能擦除失败同族试验 偏离冻结证伪条件，或让 Research 未选择的候选消耗 holdout。
+- **终态负例** - 证伪拒绝 停止规则 预算耗尽或关联输入修复不可用进入明确 Iteration Decision 停止，
   不产生 Selection 或保护回放。身份不完整 不匹配 未知或非终态尝试保持未决或成为类型化修复证据，
   不能当作停止。
 

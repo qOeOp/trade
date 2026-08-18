@@ -4,7 +4,7 @@ Recovery classifies Runtime readiness loss, an incident, reconciliation drift, o
 owned no-case disposition or a provably closed external-effect state. It is the architecture's largest safety
 boundary and never reuses the normal add-risk path.
 
-## Entry / 入口
+## Entry
 
 Each committed initiating cause is classified into exactly one applicable trigger branch. Distinct simultaneous
 causes keep separate branch membership and join the same append-only Recovery Case causal frontier; no branch
@@ -39,7 +39,7 @@ or Execution case acknowledgement to activate an applicable fence. Duplicate cau
 generation and affected scope cannot have parallel nonterminal cases. The case stores immutable cause references;
 source Incident, Readiness, and Drift facts never acquire a case back-reference or change bytes.
 
-## Value path / 价值路径
+## Value path
 
 Only `RECOVERY_ADMITTED` may enter this path for a `RUNTIME_INCIDENT` or `RECONCILIATION_DRIFT` source. For a case with an independently
 applicable `ACTIVE` fence, Risk totally orders fence activation with every in-flight normal `ADAPTER_ADMISSION_REQUEST`. If the fence wins,
@@ -50,7 +50,7 @@ identity, content digest, and every source-specific member identity, epoch, poli
 the `OPEN` case before advancing it to `FENCED_OPEN`. Runtime emits no normal intent on the `RUNTIME_NOT_READY`
 branch; on a hard-stop branch Risk blocks new risk even if Runtime remains `READY`. Only Execution Reconciler may
 create a Recovery Command. The effective allowed actions are the deterministic intersection of every member
-fence action set—never their union—and an empty intersection permits no command.
+fence action set, never their union; an empty intersection permits no command.
 
 Case fence membership is append-only at each causal frontier. Every plan, command, effect attempt, Execution fact,
 Portfolio/Risk closure fact, Product Edge closure view, and Runtime recovery fact binds the same immutable complete
@@ -84,7 +84,7 @@ proven orphan external effect. Portfolio alone updates the account and exposure 
 those independent facts and writes `KNOWN_CLOSED` only when every cause and affected effect is covered at one
 common evidence frontier.
 
-## Owner handoffs / Owner 交接
+## Owner handoffs
 
 - Runtime → Risk: immutable readiness state for `RUNTIME_NOT_READY`; for `RUNTIME_INCIDENT`,
   `runtime-risk-incident-fence` carries the exact committed `runtime-incident-fact`. Both are source evidence;
@@ -108,7 +108,7 @@ common evidence frontier.
 Event Rail may wake Governance and Observability to read committed Owner facts. It is not a recovery participant or
 terminal authority.
 
-## Proof / 证明
+## Proof
 
 Each `RUNTIME_INCIDENT` or `RECONCILIATION_DRIFT` source first proves its own Execution-owned Recovery Admission
 Disposition bound only to the exact `runtime-incident-fact` or `reconciliation-drift-fact`. Exact replay by
@@ -131,16 +131,16 @@ Autonomous Policy Authorization through the Effect Journal and readback. The Rec
 only from the Execution-owned case plus the complete active Risk fence set; it is not a new
 normal-trading authorization.
 
-## Development outcome / 开发结果
+## Development outcome
 
-- **Beneficiary** — operators and capital owners who must know when uncertain external effects are fully bounded and reconciled.
-- **Observable outcome** — each Runtime incident or reconciliation drift produces one source-exact owned admission disposition; only an admitted cause
+- **Beneficiary** - operators and capital owners who must know when uncertain external effects are fully bounded and reconciled.
+- **Observable outcome** - each Runtime incident or reconciliation drift produces one source-exact owned admission disposition; only an admitted cause
   enters an Execution-owned case that joins every cause and effect to venue readback, Risk closure, Portfolio
   closure, and immutable `KNOWN_CLOSED`.
-- **Harm if unchanged** — split authority can permit naked retries, orphan positions, unresolved liability, or premature reuse of capital.
-- **Terminal negative** — any unknown effect, unresolved Reservation membership, open reconciliation, missing cause, stale readiness, or mixed evidence cut keeps the case fenced open.
+- **Harm if unchanged** - split authority can permit naked retries, orphan positions, unresolved liability, or premature reuse of capital.
+- **Terminal negative** - any unknown effect, unresolved Reservation membership, open reconciliation, missing cause, stale readiness, or mixed evidence cut keeps the case fenced open.
 
-## Fail closed and forbidden transitions / 失败关闭与禁止转换
+## Fail closed and forbidden transitions
 
 - Runtime never opens, commands, advances, or closes a Recovery Case; it supplies only instance, checkpoint,
   readiness, and incident facts.

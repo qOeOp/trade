@@ -8,9 +8,9 @@ topology, or internal types.
 
 Select one canonical relation or one authority-local invariant with one observable consumer. Authority-local
 includes a business Owner or an explicitly modeled non-business boundary custodian. A chunk is never
-“implement an Owner,” “migrate a crate,” or “complete a scenario.” Current code paths are discovered and bound
+"implement an Owner," "migrate a crate," or "complete a scenario." Current code paths are discovered and bound
 during planning; this target documentation does not claim current implementation parity.
-Use the [Agent Implementation Guide](../agent-implementation/) to verify current engine APIs, toolchain guidance,
+Use the [Agent Implementation Guide](./agent-implementation/) to verify current engine APIs, toolchain guidance,
 and legacy developer references only after the canonical chunk is selected.
 
 ## Copyable planning envelope

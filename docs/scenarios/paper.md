@@ -3,7 +3,7 @@
 Paper trading exercises the same automated control contracts as live trading while replacing the external
 venue boundary with a simulated Execution adapter.
 
-## Entry / 入口
+## Entry
 
 Strategy Governance has authorized an eligible Strategy Artifact for a paper generation and assigned its
 capital policy; it has not started Runtime. The decision binds a `PAPER` Execution Scope with isolated account
@@ -21,7 +21,7 @@ Authorization. Simulation changes the adapter, not the requirement for explicit 
 evidence under its own transition-evidence key. An `ATTENDED_REQUEST` is non-running and decrease-only; it
 cannot enter Paper unless a future separately specified attended-effect contract exists.
 
-## Value path / 价值路径
+## Value path
 
 Market Data streams facts to Strategy Instance and valuation facts to Portfolio. Strategy Instance is the
 only normal Trade Intent writer. Risk returns a terminal decision and one-use Reservation. Strategy Instance
@@ -42,7 +42,7 @@ Risk `PERMIT_DECREASE_ONLY` → a command with explicit-none Reservation/claim �
 `ADMITTED_ONCE` permits `INVOCATION_STARTED` and the simulated adapter. No Reservation Claim Result or
 `CONSUMED` exists on this path, but preparation and same-frontier fence arbitration remain mandatory.
 
-## Owner handoffs / Owner 交接
+## Owner handoffs
 
 Governance → Runtime authorizes the paper generation; Runtime → Governance and Product Edge returns the
 Generation Application Receipt that alone proves whether it was applied. Governance → Risk supplies policy and capital ceilings.
@@ -63,7 +63,7 @@ creates or joins a case; simultaneous admitted branches join that same case;
 `NO_RECOVERY_REQUIRED` or `UNRESOLVED_NO_CASE` creates no case or command. Neither the simulated adapter nor a
 local acknowledgement may fabricate or clear these facts.
 
-## Proof / 证明
+## Proof
 
 Proof begins with an `APPLIED` Generation Application Receipt for one Strategy Instance, then includes the canonical `PAPER` mode and namespace identities, every intent and risk terminal, the add-risk-only Risk-owned Reservation Claim Result, every Adapter Admission Result, `PREPARED` and when admitted `INVOCATION_STARTED` records, permit-bound order commands,
 simulated order and fill facts, Effect Journal, settled reservations, completed reconciliation, and a Portfolio
@@ -74,14 +74,14 @@ Disposition bound to its exact source fact, never the other branch's source. If 
 `RECOVERY_ADMITTED`, proof also requires the same-scope Recovery Case and `RecoveryCase.KNOWN_CLOSED`; a
 no-case disposition cannot be replaced by a local acknowledgement.
 
-## Development outcome / 开发结果
+## Development outcome
 
-- **Beneficiary** — strategy developers and operators validating runtime, risk, execution, accounting, and recovery contracts without venue capital.
-- **Observable outcome** — one Paper generation produces permit-bound simulated effects, reconciled Portfolio facts, settled Risk liability, and the same operational receipts required by Live.
-- **Harm if unchanged** — a friendly simulator could hide risk bypass, invented fills, duplicate effects, or recovery gaps and create false confidence before Live deployment.
-- **Terminal negative** — rejected risk creates no effect; unknown application or effect remains blocked or fenced, and no Paper result or closure authorizes Live.
+- **Beneficiary** - strategy developers and operators validating runtime, risk, execution, accounting, and recovery contracts without venue capital.
+- **Observable outcome** - one Paper generation produces permit-bound simulated effects, reconciled Portfolio facts, settled Risk liability, and the same operational receipts required by Live.
+- **Harm if unchanged** - a friendly simulator could hide risk bypass, invented fills, duplicate effects, or recovery gaps and create false confidence before Live deployment.
+- **Terminal negative** - rejected risk creates no effect; unknown application or effect remains blocked or fenced, and no Paper result or closure authorizes Live.
 
-## Fail closed and forbidden transitions / 失败关闭与禁止转换
+## Fail closed and forbidden transitions
 
 - Paper cannot skip Risk because the adapter is simulated.
 - Runtime and Execution reject a missing, `LIVE`, or mismatched Governance scope and cannot reinterpret it as `PAPER`.

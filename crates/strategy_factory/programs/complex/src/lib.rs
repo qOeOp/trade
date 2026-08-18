@@ -458,6 +458,7 @@ impl ComplexProgram {
             if !value.is_finite() {
                 return Err(ProgramFault::ProgramRejected);
             }
+
             if self.scalars[slot].is_some_and(|(previous_event, previous_available)| {
                 available_at < previous_available
                     || (available_at == previous_available && ts_event <= previous_event)
@@ -477,6 +478,7 @@ impl ComplexProgram {
             if scheduled <= available_at {
                 return Err(ProgramFault::ProgramRejected);
             }
+
             for index in 0..self.event_count {
                 if self.event_times[index] == scheduled {
                     return if self.event_kinds[index] == payload[0] {
@@ -486,6 +488,7 @@ impl ComplexProgram {
                     };
                 }
             }
+
             if self.event_count == MAX_EVENTS {
                 return Err(ProgramFault::ProgramRejected);
             }
@@ -534,6 +537,7 @@ impl StrategyProgram for ComplexProgram {
         _actions: &mut ActionEncoder<'_>,
     ) -> Result<(), ProgramFault> {
         let bytes = frame.parameters();
+
         if self.scope.is_some() {
             return Err(ProgramFault::MalformedFrame);
         }
@@ -586,6 +590,7 @@ impl StrategyProgram for ComplexProgram {
                     .checked_mul(HOUR_NS)
                     .ok_or(ProgramFault::ProgramRejected)?;
             }
+
             for (slot, max_staleness) in self.scalar_max_staleness.iter_mut().enumerate() {
                 *max_staleness = u64::from(read_u16(bytes, 157 + slot * 2)?)
                     .checked_mul(HOUR_NS)
@@ -647,6 +652,7 @@ impl StrategyProgram for ComplexProgram {
         self.highs.configure(breakout)?;
         self.lows.configure(exit)?;
         self.rsi.configure(rsi)?;
+
         if self.representative {
             for context in &mut self.contexts {
                 context.configure(fast, slow)?;
@@ -673,6 +679,7 @@ impl StrategyProgram for ComplexProgram {
         for record in frame.records() {
             let record = record?;
             record_count += 1;
+
             match record.meta.type_id {
                 BAR_RECORD
                     if record.meta.channel == self.channel
@@ -717,6 +724,7 @@ impl StrategyProgram for ComplexProgram {
                 _ => return Err(ProgramFault::MalformedFrame),
             }
         }
+
         if order_event {
             if record_count != 1
                 || bar.is_some()
@@ -729,6 +737,7 @@ impl StrategyProgram for ComplexProgram {
             }
             return Ok(());
         }
+
         if let Some(record) = custom {
             if record_count != 1
                 || bar.is_some()
@@ -763,6 +772,7 @@ impl StrategyProgram for ComplexProgram {
         {
             return Err(ProgramFault::ProgramRejected);
         }
+
         if self.representative {
             if !bar.iter().all(|value| value.is_finite()) {
                 return Err(ProgramFault::ProgramRejected);

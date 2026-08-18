@@ -5,7 +5,7 @@ approval for every order. Pre-approved lifecycle policy, independent pre-trade r
 ownership, readback, reconciliation, and recovery govern exposure and make effects accountable; they do not
 guarantee a maximum realized loss.
 
-## Entry / 入口
+## Entry
 
 Strategy Governance authorizes an eligible strategy generation for live mode with an effective capital policy;
 it does not start Runtime.
@@ -22,7 +22,7 @@ Governance decision does not.
 require `UNATTENDED_REQUEST_WITH_POLICY`. An `ATTENDED_REQUEST` is non-running and decrease-only; it cannot enter
 Live unless a future separately specified attended-effect contract exists.
 
-## Value path / 价值路径
+## Value path
 
 Strategy Instance consumes live Market Data and emits Trade Intents automatically when strategy conditions
 hold. Risk evaluates every intent and returns either a terminal rejection or a decision plus one-use reservation.
@@ -43,7 +43,7 @@ Normal decrease-only Live work uses a separate exact path: Governance decision �
 `ADMITTED_ONCE` permits `INVOCATION_STARTED` and the venue adapter. No Reservation Claim Result or `CONSUMED`
 exists on this path, but preparation and same-frontier fence arbitration remain mandatory.
 
-## Owner handoffs / Owner 交接
+## Owner handoffs
 
 Governance authorizes activation and controls Risk policy; Portfolio supplies the required capacity and lifecycle
 evidence to Governance. Runtime returns the Generation Application Receipt
@@ -58,20 +58,20 @@ readback, and reconciliation facts. Execution →
 Portfolio reports account, order, fill, fee, and venue facts. Risk closes Reservation state; Portfolio updates
 its projection and → Governance closes feedback.
 
-## Proof / 证明
+## Proof
 
 Proof begins with an `APPLIED` Generation Application Receipt for one Strategy Instance, then includes the venue readback linked to the authorized command, add-risk-only Risk-owned Reservation Claim Result, every Adapter Admission Result, `PREPARED` and when admitted `INVOCATION_STARTED` records, Effect Journal, terminal order and reservation
 states, completed reconciliation, consistent Portfolio account projection, and lifecycle feedback attributable
 to the same strategy generation and exact `LIVE` account and effect namespaces.
 
-## Development outcome / 开发结果
+## Development outcome
 
-- **Beneficiary** — capital owners and operators who need unattended trading with bounded exposure, a governed risk budget, attributable effects, and auditable feedback.
-- **Observable outcome** — each live signal either ends in a terminal Risk rejection or one permit-bound venue attempt whose readback, account projection, liability settlement, and lifecycle feedback share exact identities.
-- **Harm if unchanged** — duplicate or unpermitted venue effects, stale capacity, unexplained PnL, and unsafe lifecycle promotion could accumulate without a single accountable writer.
-- **Terminal negative** — missing or stale facts, Risk rejection, suppressed admission, unknown application, or unknown effect creates no new-risk success and remains blocked or enters Recovery.
+- **Beneficiary** - capital owners and operators who need unattended trading with bounded exposure, a governed risk budget, attributable effects, and auditable feedback.
+- **Observable outcome** - each live signal either ends in a terminal Risk rejection or one permit-bound venue attempt whose readback, account projection, liability settlement, and lifecycle feedback share exact identities.
+- **Harm if unchanged** - duplicate or unpermitted venue effects, stale capacity, unexplained PnL, and unsafe lifecycle promotion could accumulate without a single accountable writer.
+- **Terminal negative** - missing or stale facts, Risk rejection, suppressed admission, unknown application, or unknown effect creates no new-risk success and remains blocked or enters Recovery.
 
-## Fail closed and forbidden transitions / 失败关闭与禁止转换
+## Fail closed and forbidden transitions
 
 - Missing or stale market, account, eligibility, policy, Capacity View, or permit facts block the dependent order. A scope, economic-condition, methodology, assumption, liquidity, or validity mismatch returns terminal Risk `REJECT` and creates no Reservation.
 - A missing or stale Aggregate Commitment Frontier, stale serialization attempt, or capacity exhausted after worst-case `UNKNOWN_EFFECT` liabilities returns terminal Risk `REJECT` and creates no Reservation.

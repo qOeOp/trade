@@ -21,22 +21,22 @@
 
 ## 模块
 
-- **Strategy Loader** — 从治理注册表加载可部署 ArtifactRef 激活条件 数据需求 版本和生命周期限制。
-- **Market Snapshot** — 按策略推导外部提供的 universe-selection rule 所需标的与窗口，绑定 PIT 行情
+- **Strategy Loader** - 从治理注册表加载可部署 ArtifactRef 激活条件 数据需求 版本和生命周期限制。
+- **Market Snapshot** - 按策略推导外部提供的 universe-selection rule 所需标的与窗口，绑定 PIT 行情
   calendar session/time-zone corporate-action 历史 membership 与 semantics 输入或明确负面 disposition。
-- **Strategy Matcher** — 按各自绑定输入评估激活条件，一个策略缺数据或执行失败不得压制其他完整匹配。
-- **Proposal Builder** — 把匹配策略 证据 可选 Capacity View 身份和停止条件封装为可审计提案。
+- **Strategy Matcher** - 按各自绑定输入评估激活条件，一个策略缺数据或执行失败不得压制其他完整匹配。
+- **Proposal Builder** - 把匹配策略 证据 可选 Capacity View 身份和停止条件封装为可审计提案。
 
 ## 输入交接
 
 - 调度器提供固定周期触发，但没有部署权威。
-- [Strategy Governance](../strategy-governance/) 提供受治理 ArtifactRef 激活条件和生命周期约束。
-- [Market Data](../market-data/) 提供这些条件所需的同一时点市场和标的事实。
-- [Portfolio](../portfolio/) 可以提供有界 Capacity View 作为提案规模提示；只有已发布激活条件明确要求时才是必需输入。
+- [Strategy Governance](./strategy-governance/) 提供受治理 ArtifactRef 激活条件和生命周期约束。
+- [Market Data](./market-data/) 提供这些条件所需的同一时点市场和标的事实。
+- [Portfolio](./portfolio/) 可以提供有界 Capacity View 作为提案规模提示；只有已发布激活条件明确要求时才是必需输入。
 
 ## 输出交接
 
-- 每个定时 ScanId 向 [Strategy Governance](../strategy-governance/) 提交且只提交一个终态 Scanner Receipt。
+- 每个定时 ScanId 向 [Strategy Governance](./strategy-governance/) 提交且只提交一个终态 Scanner Receipt。
 - 向 Product Edge 提供每个 ScheduledScanId 的 Scanner-owned 终态回执直接读取。Product Edge 读取准确
   完成状态 互斥 expected-set 分支 终态原因，且只在 `PROPOSED` 时读取 proposal members；不创建第二
   Scanner-owned 投影。
@@ -69,17 +69,17 @@ batch `FAILED`、完整 `PROPOSED`、完整 `COMPLETED_NO_PROPOSAL`、`INSUFFICI
 
 ## 决策契约
 
-- **输入** — 一个 due slot、完整受治理 registry frontier、策略激活条件、所需 PIT snapshot 和仅在条件
+- **输入** - 一个 due slot、完整受治理 registry frontier、策略激活条件、所需 PIT snapshot 和仅在条件
   要求时使用的 Capacity View。
-- **诊断与决定** — 独立评估每个策略，覆盖完整 expected set，再为每个策略提交 disposition 并为 batch
+- **诊断与决定** - 独立评估每个策略，覆盖完整 expected set，再为每个策略提交 disposition 并为 batch
   提交唯一终态回执。
-- **冲突解析** — due-slot identity 汇合重复；总优先级为独立证明的 batch `FAILED`、完整 `PROPOSED`、
+- **冲突解析** - due-slot identity 汇合重复；总优先级为独立证明的 batch `FAILED`、完整 `PROPOSED`、
   本地 `CONDITION_FAILED` 对应的完整 `COMPLETED_NO_PROPOSAL`、`INSUFFICIENT_DATA`、`NO_MATCH`。
   membership 不完整为 `INCOMPLETE_FAILED`；独立类型化 batch operational failure 为
   `BATCH_OPERATIONAL_FAILED`。
-- **输出与终态负例** — 证据提案或准确 no-match insufficiency failure unknown membership 证据；都不是部署权威。
-- **反馈与经济意义** — 定期发现冻结激活证据当前匹配的策略，避免无价值常驻实例和数据不足造成假匹配。
-- **禁止** — 不拥有 lifecycle 分配 Runtime application Trade Intent 风险 订单 账户或效果。
+- **输出与终态负例** - 证据提案或准确 no-match insufficiency failure unknown membership 证据；都不是部署权威。
+- **反馈与经济意义** - 定期发现冻结激活证据当前匹配的策略，避免无价值常驻实例和数据不足造成假匹配。
+- **禁止** - 不拥有 lifecycle 分配 Runtime application Trade Intent 风险 订单 账户或效果。
 
 ## 后续实现验收
 

@@ -36,20 +36,20 @@ Provide canonical, time-correct market, reference, and instrument facts to every
 
 ## Modules
 
-- **Data Clients** — connect official vendors and venues and retrieve raw trades, quotes, bars, and reference files without defining their business identity.
-- **Data Engine** — normalize records and time semantics, serve subscriptions and queries, and materialize reproducible snapshots.
-- **PIT Catalog** — record when data, calendars, sessions, actions, membership, and corrections became observable;
+- **Data Clients** - connect official vendors and venues and retrieve raw trades, quotes, bars, and reference files without defining their business identity.
+- **Data Engine** - normalize records and time semantics, serve subscriptions and queries, and materialize reproducible snapshots.
+- **PIT Catalog** - record when data, calendars, sessions, actions, membership, and corrections became observable;
   evaluate supplied universe-selection rules without admitting future information.
-- **Instrument Master** — own effective-dated instrument identities, venue mappings, contract terms, sessions,
+- **Instrument Master** - own effective-dated instrument identities, venue mappings, contract terms, sessions,
   time zones, lifecycle and corporate-action facts; it does not choose a run universe.
 
 ## Input handoffs
 
 - Data vendors and trading venues provide raw market and reference records through Data Clients.
-- [R&D](../rd/) submits an initial frozen PIT Market Snapshot Request before exploratory consumption.
+- [R&D](./rd/) submits an initial frozen PIT Market Snapshot Request before exploratory consumption.
   It binds the Research Request, Intent, TrialFamily, instrument or universe scope, four-time decision cut,
   required provenance, license and correction frontier, stable correlation, and Time Evidence.
-- [R&D](../rd/) may submit one Market Data Repair Request only from a committed `REPAIR_INPUTS`
+- [R&D](./rd/) may submit one Market Data Repair Request only from a committed `REPAIR_INPUTS`
   Iteration Decision. It repeats the original PIT request identity and proof digest, instrument scope, decision cut,
   bounded reason, stable correlation, required provenance/license/correction fields, and shared Time Evidence.
 - Operations supply the Market Data Source Binding, opaque credential handles, license scope, and correction feeds without
@@ -57,15 +57,15 @@ Provide canonical, time-correct market, reference, and instrument facts to every
 
 ## Output handoffs
 
-- To [R&D](../rd/): one identified PIT Market Snapshot disposition correlated to the exact initial
+- To [R&D](./rd/): one identified PIT Market Snapshot disposition correlated to the exact initial
   request identity, content digest, scope, cut, provenance, license, correction, and stable correlation, plus the
   exact Universe Selection Record identity and digest for hypothesis testing. A repair request resolves separately to the same correlated request identity
   as `AVAILABLE` with the repaired snapshot, or terminal `UNAVAILABLE` with a bounded decisive source category.
-- To [Backtest](../backtest/): the exact PIT Market Snapshot and Universe Selection Record for the request-bound PIT scope and snapshot/correction rule; actual consumption must repeat both identities and every frozen execution identity in Run Result.
-- To [Scanner](../scanner/): the exact PIT Market Snapshot requested by published activation conditions.
-- To [Runtime](../runtime/): live market streams and instrument updates carrying the same Market Semantics
+- To [Backtest](./backtest/): the exact PIT Market Snapshot and Universe Selection Record for the request-bound PIT scope and snapshot/correction rule; actual consumption must repeat both identities and every frozen execution identity in Run Result.
+- To [Scanner](./scanner/): the exact PIT Market Snapshot requested by published activation conditions.
+- To [Runtime](./runtime/): live market streams and instrument updates carrying the same Market Semantics
   Compatibility identity consumed by the generation's Strategy Artifact and historical evidence.
-- To [Portfolio](../portfolio/): prices, FX rates, contract specifications, valuation facts, and an identified liquidity input cut for Capacity View.
+- To [Portfolio](./portfolio/): prices, FX rates, contract specifications, valuation facts, and an identified liquidity input cut for Capacity View.
 
 ## Rejections and prohibitions
 
@@ -101,17 +101,17 @@ fact, and retrieval after the cut never backfills an earlier decision.
 
 ## Decision contract
 
-- **Inputs** — admitted source binding, raw market and reference records, correction feeds, license scope, and a
+- **Inputs** - admitted source binding, raw market and reference records, correction feeds, license scope, and a
   requester-owned universe rule or PIT scope.
-- **Diagnosis and decision** — normalize meaning, establish four-time availability, resolve instrument identity,
+- **Diagnosis and decision** - normalize meaning, establish four-time availability, resolve instrument identity,
   coverage, correction and license, then materialize one versioned fact or snapshot disposition.
-- **Conflict resolution** — source lineage and decision-time availability outrank later corrections; conflicting
+- **Conflict resolution** - source lineage and decision-time availability outrank later corrections; conflicting
   identity, clocks or versions remain ambiguous and corrections create successors.
-- **Outputs and terminal negatives** — streams, instrument facts, selection records and PIT snapshots, or explicit
+- **Outputs and terminal negatives** - streams, instrument facts, selection records and PIT snapshots, or explicit
   `INSUFFICIENT`, `STALE`, `UNLICENSED`, `AMBIGUOUS`, and unavailable results.
-- **Feedback and economic meaning** — common historical/live semantics prevent phantom Alpha, valuation drift and
+- **Feedback and economic meaning** - common historical/live semantics prevent phantom Alpha, valuation drift and
   unsafe sizing caused by look-ahead, wrong contract terms or unlicensed incomplete data.
-- **Prohibitions** — no research objective, strategy universe choice, lifecycle, order, account projection,
+- **Prohibitions** - no research objective, strategy universe choice, lifecycle, order, account projection,
   credential disclosure, forward fill or rewritten availability history.
 
 ## Subsequent implementation acceptance

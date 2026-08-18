@@ -41,11 +41,11 @@
 
 ## 模块
 
-- **Strategy Registry** — 保存当前治理部署决定、可部署 ArtifactRef 和不可变 generation Execution Scope，但不拥有工件内容。
-- **Lifecycle Manager** — 根据资格 表现 暴露 degradation 政策 事故 漂移和恢复闭合事实计算 `INACTIVE`
+- **Strategy Registry** - 保存当前治理部署决定、可部署 ArtifactRef 和不可变 generation Execution Scope，但不拥有工件内容。
+- **Lifecycle Manager** - 根据资格 表现 暴露 degradation 政策 事故 漂移和恢复闭合事实计算 `INACTIVE`
   `ACTIVE_GENERATION` `DE_RISK_PENDING` `REDUCED` `PAUSED` 或 `RETIRED`。只有必需证据新鲜时才续期
   `ACTIVE_GENERATION`。Risk 的 Aggregate Commitment Frontier 状态不属于该生命周期状态机。
-- **Capital Policy** — 版本化供 Risk 消费的 `POOL_ROOT` 加 `STRATEGY_GENERATION` Capital Envelope 链，不创建已承诺容量 交易命令或最终交易数量。
+- **Capital Policy** - 版本化供 Risk 消费的 `POOL_ROOT` 加 `STRATEGY_GENERATION` Capital Envelope 链，不创建已承诺容量 交易命令或最终交易数量。
   `POOL_ROOT` 绑定 Capacity Scope 账户命名空间 gross limit policy provenance 和有效区间，但禁止策略
   generation Execution Scope parent Eligibility 或分配字段。`STRATEGY_GENERATION` envelope 绑定唯一 generation
   Execution Scope parent pool root Eligibility gross limit 和有效区间，但禁止 sibling parent Portfolio
@@ -53,36 +53,36 @@
 
 ## 输入交接
 
-- [Qualification](../qualification/) 提供绑定准确 Candidate 事实 经济条件 已评估成本容量模型和资格容量版本的已提交 Eligibility State 与 Revocation 事实。
-- [Scanner](../scanner/) 每轮提交一个终态 Scanner Receipt；条件激活必须绑定与决定目标拥有相同策略条目 ArtifactRef 和条件版本的准确 matched proposal member。
-- [Portfolio](../portfolio/) 提供 Portfolio Lifecycle Evidence Receipt。`INITIAL_ACTIVATION` 绑定预先存在
+- [Qualification](./qualification/) 提供绑定准确 Candidate 事实 经济条件 已评估成本容量模型和资格容量版本的已提交 Eligibility State 与 Revocation 事实。
+- [Scanner](./scanner/) 每轮提交一个终态 Scanner Receipt；条件激活必须绑定与决定目标拥有相同策略条目 ArtifactRef 和条件版本的准确 matched proposal member。
+- [Portfolio](./portfolio/) 提供 Portfolio Lifecycle Evidence Receipt。`INITIAL_ACTIVATION` 绑定预先存在
   Capacity Scope 的新鲜候选无关 gross Capacity View；`PROMOTION` 还必须按自身 `PROMOTION`
   transition-evidence key 绑定准确且新鲜的 Performance 与 Exposure 回执。generation 特定经济条件来自
   Qualification 和 Capital Policy，不属于 pool ceiling。
-- 建立 Execution Scope 前，[Portfolio](../portfolio/) 提供当前 `BOUND` Capacity Scope，
-  [Execution](../execution/) 提供当前 `ADMITTED` Execution Adapter Binding。账户 mode 效果命名空间
+- 建立 Execution Scope 前，[Portfolio](./portfolio/) 提供当前 `BOUND` Capacity Scope，
+  [Execution](./execution/) 提供当前 `ADMITTED` Execution Adapter Binding。账户 mode 效果命名空间
   endpoint capability valid-through 与共享约束分区必须准确一致；预绑定未知或冲突时不产生生命周期授权。
-- [Portfolio](../portfolio/) 为集合资金决定提供 Portfolio Interaction Receipt，在一个一致 contender
+- [Portfolio](./portfolio/) 为集合资金决定提供 Portfolio Interaction Receipt，在一个一致 contender
   与估值截面上包含集中度 相关性 方向与因子重叠 尾部贡献 分散贡献和边际组合价值。缺少交互证据时
   整个分配决定不可用，不能把各策略独立批准后再拼接。
   每个 contender 必须携带该 receipt 中 Portfolio 拥有的准确 interaction class；Governance 不重新计算
   或替换该分类。
-- [Runtime](../runtime/) 提供 Generation Application Receipt 和可直接读取的 Runtime Incident Fact。
-- [Execution](../execution/) 在新 generation 启动前提供不可变 `RecoveryCase.KNOWN_CLOSED`。
-- [Execution](../execution/) 提供可直接读取的已提交 Reconciliation Drift Fact，包括明确效果未知状态和权威回读切面。
+- [Runtime](./runtime/) 提供 Generation Application Receipt 和可直接读取的 Runtime Incident Fact。
+- [Execution](./execution/) 在新 generation 启动前提供不可变 `RecoveryCase.KNOWN_CLOSED`。
+- [Execution](./execution/) 提供可直接读取的已提交 Reconciliation Drift Fact，包括明确效果未知状态和权威回读切面。
 - Product Edge 提供明确生命周期请求，但不能直接修改治理状态。每个请求携带 request identity
   principal scope 已准入 active-shell binding 与 history head Operator Authorization 和 operation
   manifest。Governance 用自己的终态回执闭合稳定请求身份；回执缺失时保持未知。
 
 ## 输出交接
 
-- 向 [Scanner](../scanner/) 提供准确 ArtifactRef Eligibility ActivationConditionVersion CapitalEnvelopeVersion 数据需求和生效区间。
-- 向 [Runtime](../runtime/) 授权一个 generation 的 `INITIAL_ACTIVATION` 或 `PROMOTION`，或只减不增的
+- 向 [Scanner](./scanner/) 提供准确 ArtifactRef Eligibility ActivationConditionVersion CapitalEnvelopeVersion 数据需求和生效区间。
+- 向 [Runtime](./runtime/) 授权一个 generation 的 `INITIAL_ACTIVATION` 或 `PROMOTION`，或只减不增的
   `REDUCTION` `PAUSE` `RETIREMENT` 转换。每次新增风险转换都重复完整请求 Authorization Lineage 并
   绑定显式 Autonomous Policy Authorization。Runtime
   单独证明应用结果，Governance 不宣称实例已经运行。
-- 向 [Risk](../risk/) 提供适用 `POOL_ROOT` 与准确 `STRATEGY_GENERATION` Capital Envelope、当前 Eligibility Fact、兼容 Capacity View 规则、生效区间和经济容量契约。一个 intent 只受自身 applicability chain 约束，兄弟 generation envelope 不参与 global minimum；所有 generation 的聚合承诺仍受共同 pool ceiling 限制并由 Risk 在同 scope Aggregate Commitment Frontier 准入。它不是订单命令。
-- 向 [Risk](../risk/) 提供的每个 generation envelope 都重复对应 Capital Allocation Disposition 与 contender
+- 向 [Risk](./risk/) 提供适用 `POOL_ROOT` 与准确 `STRATEGY_GENERATION` Capital Envelope、当前 Eligibility Fact、兼容 Capacity View 规则、生效区间和经济容量契约。一个 intent 只受自身 applicability chain 约束，兄弟 generation envelope 不参与 global minimum；所有 generation 的聚合承诺仍受共同 pool ceiling 限制并由 Risk 在同 scope Aggregate Commitment Frontier 准入。它不是订单命令。
+- 向 [Risk](./risk/) 提供的每个 generation envelope 都重复对应 Capital Allocation Disposition 与 contender
   set。Risk 拒绝超出 generation envelope 或 pool 的请求，但不能选择赢家 重新分配闲置比例或让并发
   到达顺序改变分配。
 - 向 Product Edge 提供终态 Lifecycle Request Receipt，以及只读生命周期和部署决定视图；视图只含状态 政策边界 生效区间 有界理由类别和不可解引用已提交事实引用。
@@ -150,18 +150,18 @@ requested capital fraction 和唯一规范 generation bytes 作字典序排序�
 
 ## 决策契约
 
-- **输入** — 当前 Eligibility、条件激活所需完整 Scanner 证据、完整 contender set、Portfolio lifecycle
+- **输入** - 当前 Eligibility、条件激活所需完整 Scanner 证据、完整 contender set、Portfolio lifecycle
   interaction degradation 回执、Runtime application 或 incident、Execution drift closure 和授权生命周期请求。
-- **诊断与决定** — 判断资格与保留，再决定生命周期状态和唯一确定 Capital Allocation Disposition；
+- **诊断与决定** - 判断资格与保留，再决定生命周期状态和唯一确定 Capital Allocation Disposition；
   Governance 决定部署和资金比例，不决定单笔交易。
-- **冲突解析** — 完整集合分配可重放且与顺序无关；生命周期冲突按
+- **冲突解析** - 完整集合分配可重放且与顺序无关；生命周期冲突按
   `RECOVERY > RETIREMENT > PAUSE > DE_RISK > REDUCTION > PROMOTION > INITIAL_ACTIVATION` 只解析一次；
   `PROMOTION` 始终按该声明 rank 参与，且必须携带 `PROMOTION` evidence key；
   不利证据动作选择仍是独立的版本化三结果政策。
-- **输出与终态负例** — lifecycle decision envelope allocation disposition 或明确 no-write；证据缺失
+- **输出与终态负例** - lifecycle decision envelope allocation disposition 或明确 no-write；证据缺失
   过期 混合截面 无政策 tie 或未知时不产生新增风险转换。
-- **反馈与经济意义** — 表现 暴露 交互 degradation 事故和漂移共同决定稀缺资金是否启动 续期 降权 暂停或退役。
-- **禁止** — 不创作 Artifact 不读取保护细节，不拥有 Trade Intent 风险许可 订单 场所效果 账户投影，
+- **反馈与经济意义** - 表现 暴露 交互 degradation 事故和漂移共同决定稀缺资金是否启动 续期 降权 暂停或退役。
+- **禁止** - 不创作 Artifact 不读取保护细节，不拥有 Trade Intent 风险许可 订单 场所效果 账户投影，
   也不证明 Runtime 已应用决定。
 
 ## 后续实现验收

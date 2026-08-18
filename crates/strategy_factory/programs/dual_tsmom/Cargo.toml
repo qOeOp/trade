@@ -18,6 +18,9 @@ path = "src/lib.rs"
 [dependencies]
 strategy-factory-program-sdk = { path = "../sdk" }
 
+[dev-dependencies]
+rstest = "0.26.1"
+
 [workspace]
 
 [profile.release]

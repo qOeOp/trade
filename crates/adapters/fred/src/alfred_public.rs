@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{Context, ensure};
+use anyhow::Context;
 use rust_decimal::Decimal;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -59,31 +59,33 @@ impl AlfredPlan {
     /// # Errors
     /// Rejects invalid or duplicate series, dates, spans, and plans outside one to eight series.
     pub fn new(mut queries: Vec<AlfredQuery>) -> anyhow::Result<Self> {
-        ensure!(
+        anyhow::ensure!(
             (1..=8).contains(&queries.len()),
             "plan must contain 1..=8 series"
         );
+
         for query in &queries {
-            ensure!(
+            anyhow::ensure!(
                 (1..=32).contains(&query.series_id.len())
                     && query.series_id.bytes().all(|byte| {
                         byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_'
                     }),
                 "invalid ALFRED series id"
             );
+
             for (start, end, max_days) in [
                 (&query.observation_start, &query.observation_end, 3_660),
                 (&query.vintage_start, &query.vintage_end, 366),
             ] {
                 let (start, end) = (date(start)?, date(end)?);
-                ensure!(
+                anyhow::ensure!(
                     start <= end && (end - start).whole_days() <= max_days,
                     "invalid or excessive date range"
                 );
             }
         }
         queries.sort_by(|a, b| a.series_id.cmp(&b.series_id));
-        ensure!(
+        anyhow::ensure!(
             queries
                 .windows(2)
                 .all(|pair| pair[0].series_id != pair[1].series_id),
@@ -195,6 +197,7 @@ pub fn open_custodied(root: &Path, plan: &AlfredPlan) -> anyhow::Result<AlfredDa
     let mut evidence = Vec::with_capacity(plan.0.len());
     let mut series_counts = BTreeMap::new();
     let mut custom_data = Vec::new();
+
     for query in &plan.0 {
         let path = format!("{}.zip", query.series_id);
         let archive = read_bounded_regular_at(&custody, Path::new(&path), MAX_ARCHIVE)?;
@@ -233,7 +236,7 @@ pub fn open_custodied(root: &Path, plan: &AlfredPlan) -> anyhow::Result<AlfredDa
 
 fn archive_members(bytes: &[u8]) -> anyhow::Result<(Vec<u8>, Vec<u8>)> {
     let mut archive = ZipArchive::new(Cursor::new(bytes))?;
-    ensure!(
+    anyhow::ensure!(
         archive.len() == 2,
         "ALFRED ZIP must contain exactly two members"
     );
@@ -244,19 +247,19 @@ fn archive_members(bytes: &[u8]) -> anyhow::Result<(Vec<u8>, Vec<u8>)> {
 
 fn read_member<R: Read>(mut member: ZipFile<'_, R>) -> anyhow::Result<Vec<u8>> {
     let name = member.name().to_string();
-    ensure!(
+    anyhow::ensure!(
         member.is_file() && !member.is_symlink() && !member.encrypted(),
         "unsafe ZIP member"
     );
-    ensure!(
+    anyhow::ensure!(
         matches!(
             member.compression(),
             CompressionMethod::Stored | CompressionMethod::Deflated
         ),
         "unsupported ZIP compression"
     );
-    ensure!(member.size() <= MAX_MEMBER, "ZIP member exceeds bound");
-    ensure!(
+    anyhow::ensure!(member.size() <= MAX_MEMBER, "ZIP member exceeds bound");
+    anyhow::ensure!(
         member.enclosed_name().as_deref() == Some(Path::new(&name)),
         "unsafe ZIP member name"
     );
@@ -265,7 +268,7 @@ fn read_member<R: Read>(mut member: ZipFile<'_, R>) -> anyhow::Result<Vec<u8>> {
         .by_ref()
         .take(MAX_MEMBER + 1)
         .read_to_end(&mut content)?;
-    ensure!(
+    anyhow::ensure!(
         content.len() as u64 <= MAX_MEMBER,
         "ZIP member exceeds bound"
     );
@@ -275,11 +278,11 @@ fn read_member<R: Read>(mut member: ZipFile<'_, R>) -> anyhow::Result<Vec<u8>> {
 fn read_vintages(bytes: &[u8], query: &AlfredQuery) -> anyhow::Result<BTreeSet<String>> {
     let text = std::str::from_utf8(bytes)?;
     let series_line = format!("Series ID: {}", query.series_id);
-    ensure!(
+    anyhow::ensure!(
         text.lines().filter(|line| *line == series_line).count() == 1,
         "README series mismatch"
     );
-    ensure!(
+    anyhow::ensure!(
         text.lines()
             .filter(|line| *line == "Output Format: Observations, Initial Release Only")
             .count()
@@ -287,7 +290,7 @@ fn read_vintages(bytes: &[u8], query: &AlfredQuery) -> anyhow::Result<BTreeSet<S
         "README output format mismatch"
     );
     let marker = "Vintage Dates Specified:\n----------\n";
-    ensure!(
+    anyhow::ensure!(
         text.matches(marker).count() == 1,
         "README vintage block is not unique"
     );
@@ -300,6 +303,7 @@ fn read_vintages(bytes: &[u8], query: &AlfredQuery) -> anyhow::Result<BTreeSet<S
         .0;
     let mut vintages = BTreeSet::new();
     let mut previous = None;
+
     for raw in block.lines() {
         bounded_date(
             raw,
@@ -307,14 +311,14 @@ fn read_vintages(bytes: &[u8], query: &AlfredQuery) -> anyhow::Result<BTreeSet<S
             &query.vintage_end,
             "README vintage",
         )?;
-        ensure!(
+        anyhow::ensure!(
             previous.is_none_or(|value| value < raw),
             "README vintages are duplicate or unsorted"
         );
         vintages.insert(raw.to_string());
         previous = Some(raw);
     }
-    ensure!(!vintages.is_empty(), "README vintage block is empty");
+    anyhow::ensure!(!vintages.is_empty(), "README vintage block is empty");
     Ok(vintages)
 }
 
@@ -329,16 +333,17 @@ fn parse_csv(
         query.series_id.as_str(),
         "realtime_start_date",
     ];
-    ensure!(
+    anyhow::ensure!(
         reader.headers()?.iter().eq(expected),
         "unexpected ALFRED CSV schema"
     );
     let mut seen = BTreeSet::new();
     let mut missing = 0;
     let mut data = Vec::new();
+
     for row in reader.records() {
         let row = row?;
-        ensure!(row.len() == 3, "unexpected ALFRED CSV width");
+        anyhow::ensure!(row.len() == 3, "unexpected ALFRED CSV width");
         let observed = bounded_date(
             &row[0],
             &query.observation_start,
@@ -346,21 +351,22 @@ fn parse_csv(
             "observation",
         )?;
         let realtime = bounded_date(&row[2], &query.vintage_start, &query.vintage_end, "release")?;
-        ensure!(
+        anyhow::ensure!(
             vintages.contains(&row[2]),
             "CSV release is absent from README vintages"
         );
-        ensure!(
+        anyhow::ensure!(
             seen.insert(row[0].to_string()),
             "duplicate initial observation"
         );
+
         if row[1].is_empty() || &row[1] == "." {
             missing += 1;
             continue;
         }
         let ts_event = day_end(observed)?;
         let ts_init = midnight(realtime + Duration::days(1))?;
-        ensure!(
+        anyhow::ensure!(
             ts_init > ts_event,
             "initial release is not after observation"
         );
@@ -386,7 +392,7 @@ fn parse_csv(
 
 fn bounded_date(value: &str, start: &str, end: &str, label: &str) -> anyhow::Result<Date> {
     let value = date(value)?;
-    ensure!(
+    anyhow::ensure!(
         (date(start)?..=date(end)?).contains(&value),
         "{label} is outside frozen range"
     );
@@ -414,6 +420,7 @@ fn sha256(bytes: &[u8]) -> String {
 mod tests {
     use std::{fs, io::Write};
 
+    use rstest::rstest;
     use zip::{ZipWriter, write::SimpleFileOptions};
 
     use super::*;
@@ -460,7 +467,7 @@ mod tests {
         .unwrap();
     }
 
-    #[test]
+    #[rstest]
     fn opens_two_series_deterministically_and_counts_missing() {
         let root = tempfile::tempdir().unwrap();
         let path = fs::canonicalize(root.path()).unwrap();
@@ -486,7 +493,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn plan_rebound_schema_revision_and_tamper_fail_closed() {
         let root = tempfile::tempdir().unwrap();
         let path = fs::canonicalize(root.path()).unwrap();
@@ -511,7 +518,7 @@ mod tests {
         assert!(open_custodied(&path, &AlfredPlan::new(vec![query("DGS2")]).unwrap()).is_err());
     }
 
-    #[test]
+    #[rstest]
     fn revision_rows_and_bad_vintages_are_rejected() {
         let root = tempfile::tempdir().unwrap();
         let path = fs::canonicalize(root.path()).unwrap();
@@ -528,7 +535,7 @@ mod tests {
         assert!(open_custodied(&path, &plan).is_err());
     }
 
-    #[test]
+    #[rstest]
     #[ignore = "set VIBE_FRED_OFFICIAL_DATASET_ROOT to run the offline official-data probe"]
     fn official_2023_dataset_is_deterministic() {
         let Ok(root) = std::env::var("VIBE_FRED_OFFICIAL_DATASET_ROOT") else {
@@ -557,7 +564,7 @@ mod tests {
     }
 
     #[cfg(unix)]
-    #[test]
+    #[rstest]
     fn archive_symlink_is_rejected_by_custody_owner() {
         let root = tempfile::tempdir().unwrap();
         let path = fs::canonicalize(root.path()).unwrap();

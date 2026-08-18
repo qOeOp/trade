@@ -162,6 +162,7 @@ impl ProgramEffectBudget {
             "program effect budget counts are invalid"
         );
         let mut quantities = BTreeMap::new();
+
         for (handle, limit) in max_cumulative_opening_quantity {
             anyhow::ensure!(
                 quantities.insert(handle, limit).is_none(),
@@ -256,6 +257,7 @@ impl ProgramHostBindings {
             .values()
             .map(|binding| (binding.record_type_id, binding.channel))
             .collect::<BTreeSet<_>>();
+
         for binding in bindings {
             let key = program_data_key(&binding.data_type);
             anyhow::ensure!(
@@ -426,6 +428,7 @@ impl ProgramHostStrategy {
         for bar_type in self.bindings.bars.clone().into_keys() {
             self.subscribe_bars(bar_type, None, None);
         }
+
         for data_type in self.bindings.custom_subscriptions() {
             self.subscribe_data(data_type, None, None);
         }
@@ -440,6 +443,7 @@ impl ProgramHostStrategy {
             .context("program received an unbound BarType")?;
         let snapshots = self.instrument_snapshots()?;
         let mut bar_payload = [0_u8; 40];
+
         for (index, value) in [
             bar.open.as_f64(),
             bar.high.as_f64(),
@@ -516,11 +520,13 @@ impl ProgramHostStrategy {
     fn apply_actions(&mut self, actions: &[Action]) -> anyhow::Result<()> {
         let PreparedBatch { actions, debit } = self.prepare_actions(actions)?;
         self.reserve_effects(&debit)?;
+
         for action in &actions {
             if let PreparedAction::Submit { binding, .. } = action {
                 self.order_handles.insert(binding.0, binding.1);
             }
         }
+
         for action in actions {
             match action {
                 PreparedAction::Submit {
@@ -560,6 +566,7 @@ impl ProgramHostStrategy {
             total_effects: u32::try_from(actions.len())?,
             ..ProgramEffectUsage::default()
         };
+
         for action in actions {
             let handle = match action {
                 Action::Submit { handle, .. } | Action::Modify { handle, .. } => *handle,
@@ -569,6 +576,7 @@ impl ProgramHostStrategy {
                 touched.insert(handle),
                 "program action batch reuses an order handle"
             );
+
             match action {
                 Action::Submit {
                     kind,
@@ -689,6 +697,7 @@ impl ProgramHostStrategy {
                     let trigger_price = trigger_price
                         .map(|value| self.normalize_price(instrument_id, value))
                         .transpose()?;
+
                     if !order.is_reduce_only() {
                         let executable = self.executable_handle(instrument_id)?;
                         Self::charge_opening_quantity(
@@ -988,6 +997,7 @@ impl DataActor for ProgramHostStrategy {
         for bar_type in self.bindings.bars.clone().into_keys() {
             self.unsubscribe_bars(bar_type, None, None);
         }
+
         for data_type in self.bindings.custom_subscriptions() {
             self.unsubscribe_data(data_type, None, None);
         }
@@ -1036,9 +1046,7 @@ mod tests {
         }
     }
 
-    impl<const VERSION: u8, const LEN: usize> vibe_model::data::CustomDataTrait
-        for ProjectionCustom<VERSION, LEN>
-    {
+    impl<const VERSION: u8, const LEN: usize> CustomDataTrait for ProjectionCustom<VERSION, LEN> {
         fn type_name(&self) -> &'static str {
             "TestCustom"
         }
@@ -1055,11 +1063,11 @@ mod tests {
             Ok("{}".to_string())
         }
 
-        fn clone_arc(&self) -> Arc<dyn vibe_model::data::CustomDataTrait> {
+        fn clone_arc(&self) -> Arc<dyn CustomDataTrait> {
             Arc::new(self.clone())
         }
 
-        fn eq_arc(&self, other: &dyn vibe_model::data::CustomDataTrait) -> bool {
+        fn eq_arc(&self, other: &dyn CustomDataTrait) -> bool {
             other.as_any().downcast_ref::<Self>() == Some(self)
         }
     }

@@ -38,9 +38,9 @@ source-frontier 与 Time Evidence common cut 上取得原生来源事实支持�
 | 原因                                | 必需来源权威与决定性证据                                                                                                                                                                              |
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `STRATEGY_MECHANISM_DEGRADATION`    | R&D Research Intent 加 Portfolio Performance Receipt：冻结 prediction 与 falsifier 对照 performance deviation，并保留分别有证据支持的 regime data execution capacity interaction valuation 替代原因。 |
-| `MARKET_REGIME_CHANGE`              | Market Data PIT Snapshot 与 Valuation Facts 加 Portfolio Performance Receipt：版本化 regime-boundary membership 与匹配 response，不能只凭后续修订或执行症状。                                         |
+| `MARKET_REGIME_CHANGE`              | Market Data PIT Snapshot 与 Valuation Facts 加 Portfolio Performance Receipt：版本化 regime‑boundary membership 与匹配 response，不能只凭后续修订或执行症状。                                         |
 | `EXECUTION_QUALITY_DEGRADATION`     | Execution Account Fact 加 Portfolio Performance Receipt：完整非 `NONE_OBSERVED` category set、逐类别决定性证据及同一 effect frontier 的 performance impact。                                          |
-| `DATA_QUALITY_DEGRADATION`          | Market Data PIT Snapshot 加 Portfolio Performance Receipt：Owner-owned gap correction rights 或 PIT semantic defect 及有界受影响 performance lineage。                                                |
+| `DATA_QUALITY_DEGRADATION`          | Market Data PIT Snapshot 加 Portfolio Performance Receipt：Owner‑owned gap correction rights 或 PIT semantic defect 及有界受影响 performance lineage。                                                |
 | `CAPACITY_OR_LIQUIDITY_COMPRESSION` | 同一 methodology policy threshold 版本下的 Portfolio Capacity View、Market Data Valuation Facts、Performance Receipt 与 Exposure Receipt。                                                            |
 | `PORTFOLIO_INTERACTION_DEGRADATION` | 完整 contender set 及其 marginal impact 的当前 Portfolio Interaction、Performance 与 Exposure Receipt。                                                                                               |
 | `VALUATION_UNCERTAINTY`             | Market Data Valuation Facts 加 Portfolio Performance 与 Exposure Receipt：显式 uncertainty state methodology source frontier 与有界影响。                                                             |
@@ -60,33 +60,33 @@ source-frontier 与 Time Evidence common cut 上取得原生来源事实支持�
 
 ## 模块
 
-- **Account State** — 把已提交账户和成交事实与当前估值输入组合为持仓 余额 保证金 损益和权益。
-- **Exposure** — 使用当前合约和估值事实投影资产 策略 方向和币种暴露。
-- **Performance** — 根据账户事实和明确窗口生成版本化 Performance Receipt，包含收益 回撤 稳定性 实际风险资金 方法 输入截面和新鲜度。
-- **Capacity View** — 为 Capacity Scope 投影候选无关的 gross 经济上限。独立 Portfolio Risk Evidence
+- **Account State** - 把已提交账户和成交事实与当前估值输入组合为持仓 余额 保证金 损益和权益。
+- **Exposure** - 使用当前合约和估值事实投影资产 策略 方向和币种暴露。
+- **Performance** - 根据账户事实和明确窗口生成版本化 Performance Receipt，包含收益 回撤 稳定性 实际风险资金 方法 输入截面和新鲜度。
+- **Capacity View** - 为 Capacity Scope 投影候选无关的 gross 经济上限。独立 Portfolio Risk Evidence
   Bundle 向 Risk 携带一个一致来源截面。Portfolio 不扣除 Risk Reservation liability，不计算剩余
   headroom，也不分配资金或批准部署。
 
 ## 输入交接
 
-- [Execution](../execution/) 提供订单 成交 费用 账户和已对账场所回读事实。
-- [Market Data](../market-data/) 提供价格 汇率 合约规格 估值事实和带身份流动性来源截面。
+- [Execution](./execution/) 提供订单 成交 费用 账户和已对账场所回读事实。
+- [Market Data](./market-data/) 提供价格 汇率 合约规格 估值事实和带身份流动性来源截面。
 
 ## 输出交接
 
-- 在任何 Paper 或 Live Execution Scope 建立前，向 [Strategy Governance](../strategy-governance/) 提供唯一
+- 在任何 Paper 或 Live Execution Scope 建立前，向 [Strategy Governance](./strategy-governance/) 提供唯一
   不可变 `BOUND` Capacity Scope，绑定准确账户命名空间 mode 经济池与不相交共享约束证明。缺失 过期
   重叠 跨 mode 或成员未知时，不创建 Execution Scope 或 Capital Envelope。
-- 向 [Risk](../risk/) 提供同一 Capacity Scope 的当前 gross-ceiling Capacity View 与 Portfolio Risk
+- 向 [Risk](./risk/) 提供同一 Capacity Scope 的当前 gross-ceiling Capacity View 与 Portfolio Risk
   Evidence Bundle。bundle 携带一致的 projected exposure open order 账户估值截面和已纳入的
   Execution settlement lineage。Portfolio 不读取 Risk 状态也不扣除 Reservation commitment；只有
   Risk 把 bundle 与自身 liability 合并并计算剩余 headroom。
-- 向 [Strategy Governance](../strategy-governance/) 提供绑定兼容 Capacity View 的 Portfolio Lifecycle Evidence Receipt；`PROMOTION` 还按 `PROMOTION` transition-evidence key 绑定准确且新鲜的 Performance 与 Exposure 回执。
-- 向 [Strategy Governance](../strategy-governance/) 为每个集合 Capital Allocation Disposition 提供一个
+- 向 [Strategy Governance](./strategy-governance/) 提供绑定兼容 Capacity View 的 Portfolio Lifecycle Evidence Receipt；`PROMOTION` 还按 `PROMOTION` transition-evidence key 绑定准确且新鲜的 Performance 与 Exposure 回执。
+- 向 [Strategy Governance](./strategy-governance/) 为每个集合 Capital Allocation Disposition 提供一个
   Portfolio Interaction Receipt，并用同一 Portfolio Lifecycle Evidence Receipt 提供生命周期归因。
   Governance 拥有 contender 排序和生命周期动作，Portfolio 只提供一致来源事实与归因。
-- 向 [Scanner](../scanner/) 提供只作为提案提示的有界 Capacity View。
-- 恢复期间向 [Execution](../execution/) 提供 Recovery Case 所需已对账账户闭合投影。
+- 向 [Scanner](./scanner/) 提供只作为提案提示的有界 Capacity View。
+- 恢复期间向 [Execution](./execution/) 提供 Recovery Case 所需已对账账户闭合投影。
 - 向 Product Edge 提供一个有界 Portfolio View，绑定稳定请求 trusted principal 授权账户与 Execution Scope 授权政策截面和 Portfolio
   快照截面以及投影和 valid-through 时间。它以 `AVAILABLE` `INCOMPLETE_FAIL_CLOSED` `STALE` 或 `UNAVAILABLE` 报告账户 暴露 表现和容量投影，
   并携带来源事实引用与新鲜度；永不报告 Risk Reservation 状态 剩余 headroom Risk Decision 或部署交易权限。
@@ -113,16 +113,16 @@ source-frontier 与 Time Evidence common cut 上取得原生来源事实支持�
 
 ## 决策契约
 
-- **输入** — 同一一致截面上的 Execution 账户 订单 成交 fee settlement readback 事实，以及当前 Market
+- **输入** - 同一一致截面上的 Execution 账户 订单 成交 fee settlement readback 事实，以及当前 Market
   Data 估值 FX 合约和流动性事实。
-- **诊断与决定** — 投影账户 暴露 表现 容量 交互和 degradation；Portfolio 只决定事实可用性和归因状态，
+- **诊断与决定** - 投影账户 暴露 表现 容量 交互和 degradation；Portfolio 只决定事实可用性和归因状态，
   不决定资金或交易权限。
-- **冲突解析** — 来源 Owner 事实和最新一致截面高于本地投影；截面混合 重叠未解析或估值冲突时保持不可用。
-- **输出与终态负例** — 版本化回执或 `PARTIAL` `STALE` `UNAVAILABLE`
+- **冲突解析** - 来源 Owner 事实和最新一致截面高于本地投影；截面混合 重叠未解析或估值冲突时保持不可用。
+- **输出与终态负例** - 版本化回执或 `PARTIAL` `STALE` `UNAVAILABLE`
   `INCOMPLETE_FAIL_CLOSED` 和带准确缺失原因的 unresolved attribution。
-- **反馈与经济意义** — 展示真实 PnL 暴露 边际组合价值 容量压缩和 degradation，让 Governance 根据
+- **反馈与经济意义** - 展示真实 PnL 暴露 边际组合价值 容量压缩和 degradation，让 Governance 根据
   经济事实分配或退出资金。
-- **禁止** — 不拥有场所效果 资金分配 Risk 剩余 headroom 许可 生命周期转换 订单或 Recovery 闭合。
+- **禁止** - 不拥有场所效果 资金分配 Risk 剩余 headroom 许可 生命周期转换 订单或 Recovery 闭合。
 
 ## 后续实现验收
 

@@ -28,4 +28,5 @@ time = { workspace = true }
 zip = { workspace = true }
 
 [dev-dependencies]
+rstest = { workspace = true }
 tempfile = { workspace = true }

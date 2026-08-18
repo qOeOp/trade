@@ -30,13 +30,13 @@
 | `STACKEXCHANGE_KEY`                                                   | planned R&D Q&A 发现 connector             | 未来已准入 Stack Exchange connector                            | 本地已准备；connector candidate                                                                                   | `CONNECTOR_NOT_CONFIGURED` `RATE_LIMITED` 或 `UNAVAILABLE`                               | 仅 ignored local secret                                               |
 | `FIRECRAWL_API_KEY`                                                   | planned R&D web Source Intake connector    | 只用于通过 Source Acquisition Binding 准入的有界 fetch profile | 本地已准备；connector candidate                                                                                   | `CONNECTOR_NOT_CONFIGURED` `POLICY_UNAVAILABLE` 或 `TERMS_OR_LICENSE_BLOCKED`            | 仅 ignored local secret；不授予任意 crawl 权威                        |
 | `KAGGLE_API_TOKEN`                                                    | planned Market Data 或 R&D dataset 获取    | 只用于已准入且绑定 dataset/version/license 的 fetch            | 本地已准备；connector candidate                                                                                   | `CONNECTOR_NOT_CONFIGURED` `UNAVAILABLE` 或 `TERMS_OR_LICENSE_BLOCKED`                   | 仅 ignored local secret；数据集权利另行判断                           |
-| `FRED_API_KEY`                                                        | planned Market Data 经济序列 connector     | 未来已准入 FRED 或 ALFRED market-data connector                | 本地 credential 已存在且通过只读 metadata 认证 probe；connector 尚不存在；归档/回测用途为 `LEGAL_REVIEW_REQUIRED` | `CONNECTOR_NOT_CONFIGURED` `UNAVAILABLE` 或 `TERMS_OR_LICENSE_BLOCKED`，不能替换为当前值 | 仅 ignored local secret；credential 存在不等于取得存储 训练或回测权利 |
+| `FRED_API_KEY`                                                        | planned Market Data 经济序列 connector     | 未来已准入 FRED 或 ALFRED market‑data connector                | 本地 credential 已存在且通过只读 metadata 认证 probe；connector 尚不存在；归档/回测用途为 `LEGAL_REVIEW_REQUIRED` | `CONNECTOR_NOT_CONFIGURED` `UNAVAILABLE` 或 `TERMS_OR_LICENSE_BLOCKED`，不能替换为当前值 | 仅 ignored local secret；credential 存在不等于取得存储 训练或回测权利 |
 | `OPENAI_API_KEY` `ANTHROPIC_API_KEY` `ARK_API_KEY` `DEEPSEEK_API_KEY` | optional R&D 或 Agent Shell 模型 connector | 仅用于显式选择且绑定 manifest 的 model/tool profile            | 本地已准备；不是通用项目前置                                                                                      | connector `NOT_CONFIGURED` 或请求 `POLICY_UNAVAILABLE`，绝不削弱确定性 Owner gate        | 仅 ignored local secret；模型输出是不可信输入，不是交易证据或权威     |
 
 通用 LLM key 仅为前置发现列出，不是项目架构前置条件。没有当前 code consumer 的本地 key 既不是安装证据，也不是承诺
 connector。secret 值只保存在 ignored local secret 环境，绝不提交 打印 记录或复制到 request receipt
-artifact 文档 截图或审计包。增加 Research connector 前先阅读[研究来源接入指南](../source-intake/)，
-准入 data provider 或 dataset 前阅读[市场数据接入指南](../market-data-intake/)。
+artifact 文档 截图或审计包。增加 Research connector 前先阅读[研究来源接入指南](./source-intake/)，
+准入 data provider 或 dataset 前阅读[市场数据接入指南](./market-data-intake/)。
 
 ## 构建基础能力
 

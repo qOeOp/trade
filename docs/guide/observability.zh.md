@@ -28,13 +28,13 @@ API key、opaque credential value、Qualification 保护证据、原始 prompt/s
 | Owner               | 权威记录                                                           | Dashboard 投影                                                                                                                            |
 | ------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | R&D                 | source provenance、Research Intent、Artifact、迭代与选择           | 使用来源、假设、开发尝试、失败原因、到选中版本的迭代次数、D-only repair 历史                                                              |
-| Backtest            | replay request、exploratory/protected result 与 diagnosis          | 探索运行的用途、终态、耗时、成本、容量与诊断分布；保护运行只显示公共终态、类型不透明且不可解引用的 reference 与 source-frontier freshness |
+| Backtest            | replay request、exploratory/protected result 与 diagnosis          | 探索运行的用途、终态、耗时、成本、容量与诊断分布；保护运行只显示公共终态、类型不透明且不可解引用的 reference 与 source‑frontier freshness |
 | Qualification       | intake、保护评估、attempt disposition、Eligibility                 | 只按公共终态计数：`QUALIFIED`/`CLOSED_NOT_QUALIFIED`/expiry/revocation                                                                    |
 | Market Data         | source binding、PIT snapshot、stream、correction 与 valuation fact | 来源新鲜度、缺口、修订、权利/语义拒绝、provider 时延                                                                                      |
-| Scanner             | due-slot attempt、逐策略 disposition、receipt、proposal            | 调度次数、扫描候选、matched/failed、proposal 与时延                                                                                       |
+| Scanner             | due‑slot attempt、逐策略 disposition、receipt、proposal            | 调度次数、扫描候选、matched/failed、proposal 与时延                                                                                       |
 | Strategy Governance | registry、lifecycle、allocation 与 authorized generation decision  | 当前部署 generation、开始/停止时间、活跃时长、pause/retire/resume 与资金变化                                                              |
 | Runtime             | application、readiness、checkpoint 与 incident fact                | 当前应用 generation、uptime/downtime、重启、incident 与使用时长                                                                           |
-| Risk                | decision/reservation、aggregate commitment、fence 与 closure       | allow/reject/decrease-only、reservation 时延、liability、fence 与持续时间                                                                 |
+| Risk                | decision/reservation、aggregate commitment、fence 与 closure       | allow/reject/decrease‑only、reservation 时延、liability、fence 与持续时间                                                                 |
 | Execution           | journal、command、order/fill/readback、account 与 Recovery fact    | attempt、order、fill、adapter 时延、unknown effect、drift 与恢复时长                                                                      |
 | Portfolio           | performance、exposure、capacity、interaction 与 lifecycle evidence | PnL/drawdown、exposure、capacity、interaction degradation 与证据新鲜度                                                                    |
 

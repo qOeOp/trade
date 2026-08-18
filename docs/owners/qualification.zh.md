@@ -26,26 +26,26 @@
 
 ## 模块
 
-- **Candidate Intake** — 为不可变 Candidate 和证据包写入唯一回执；`NOT_ADMITTED` 不创建保护尝试也不消耗 holdout。
-- **Protected Evaluation** — 按结果揭示前冻结的规则请求并评估隔离保护重放；只有匹配
+- **Candidate Intake** - 为不可变 Candidate 和证据包写入唯一回执；`NOT_ADMITTED` 不创建保护尝试也不消耗 holdout。
+- **Protected Evaluation** - 按结果揭示前冻结的规则请求并评估隔离保护重放；只有匹配
   `TERMINAL_RESULT` 且按绑定保护决策政策版本评估后才能提交 Eligibility Fact。被拒绝 无效 非终态
   或不匹配证据均不能提交 Eligibility。
-- **Eligibility State** — 发布当前不合格 合格 过期或撤销的可部署事实 条件 撤销历史，以及 Governance
+- **Eligibility State** - 发布当前不合格 合格 过期或撤销的可部署事实 条件 撤销历史，以及 Governance
   与 Risk 必须执行的有界经济容量契约。它把撤销作为 Eligibility 转换拥有，但不接管 Runtime 恢复。
 
 ## 输入交接
 
-- [R&D](../rd/) 只提交拥有终态 `SELECTED_FOR_QUALIFICATION` Research Selection Disposition
+- [R&D](./rd/) 只提交拥有终态 `SELECTED_FOR_QUALIFICATION` Research Selection Disposition
   的冻结 Candidate。Candidate disposition 与 intake 交叉绑定准确冻结 Intent 证伪条件和停止规则
   探索请求结果前沿 成本 容量假设，以及包含 Candidate 截面前已消费预算的不可变穷尽 TrialFamily Census Frontier。
   它们还交叉绑定唯一准确预注册保护决策政策身份与版本及一个冻结 Protected Robustness Plan。
 - Product Edge 提交一个稳定评估请求，绑定来源 Research 请求 Candidate 规范类型化含义和从来源到当前的保护反馈观察前沿。
-- [Backtest](../backtest/) 返回请求的保护 Run Result 和消费输入回执，每个实际消费执行字段必须与请求字段完全相等。
+- [Backtest](./backtest/) 返回请求的保护 Run Result 和消费输入回执，每个实际消费执行字段必须与请求字段完全相等。
 - 已提交证据变化可以触发重评，唤醒通道不能替代读取 Owner 事实。
 
 ## 输出交接
 
-- 向 [Strategy Governance](../strategy-governance/) 提供包含撤销在内的分类 Eligibility State 事实，绑定
+- 向 [Strategy Governance](./strategy-governance/) 提供包含撤销在内的分类 Eligibility State 事实，绑定
   准确 Candidate 与事实版本 经济条件版本 已评估成本容量模型版本 资格容量上限 生效时间及不可解引用证据引用。
   过期 撤销 当前事实缺失和当前状态未知都是显式下游状态，任何状态都不能让 Governance 静默保留
   活动 generation 的新增风险权限。
@@ -112,18 +112,18 @@ Governance 可在每个不同的已授权 lifecycle request evaluation 与 decis
 
 ## 决策契约
 
-- **输入** — 带准确 `READY_FOR_SELECTION` 血缘的唯一 selected Candidate、穷尽 TrialFamily Census、
+- **输入** - 带准确 `READY_FOR_SELECTION` 血缘的唯一 selected Candidate、穷尽 TrialFamily Census、
   预注册保护政策 holdout ancestry 冻结 Replay Request 和密封 Run Result。
-- **诊断与决定** — 接纳或拒绝 intake，隔离保护评估，校验请求结果完全相等，应用冻结政策并提交
+- **诊断与决定** - 接纳或拒绝 intake，隔离保护评估，校验请求结果完全相等，应用冻结政策并提交
   attempt disposition 或 Eligibility State 转换。
-- **冲突解析** — 保护政策和累计 holdout frontier 不可变；重复 request 只加入一次，含义变化时拒绝，
+- **冲突解析** - 保护政策和累计 holdout frontier 不可变；重复 request 只加入一次，含义变化时拒绝，
   后续政策不能重新解释早期结果。
-- **输出与终态负例** — Intake Receipt Protected Attempt Disposition 或 Eligibility State；
+- **输出与终态负例** - Intake Receipt Protected Attempt Disposition 或 Eligibility State；
   `NOT_ADMITTED` replay rejected/invalid `DIAGNOSTIC_INVALID` `DIAGNOSTIC_UNRESOLVED`
   `ASSESSMENT_INVALID` `IN_PROGRESS_OR_UNKNOWN` `INELIGIBLE` 互相独立。
-- **反馈与经济意义** — 独立拒绝过拟合或无经济价值候选，只暴露公共终态、不可解引用 reference 与
+- **反馈与经济意义** - 独立拒绝过拟合或无经济价值候选，只暴露公共终态、不可解引用 reference 与
   source-frontier freshness，保存稀缺保护证据价值。
-- **禁止** — 不向 R&D 反馈调参细节 不改写 artifact，不拥有 lifecycle 扩大资金 Runtime
+- **禁止** - 不向 R&D 反馈调参细节 不改写 artifact，不拥有 lifecycle 扩大资金 Runtime
   activation 订单 账户效果或保护细节 Product view。
 
 ## 后续实现验收

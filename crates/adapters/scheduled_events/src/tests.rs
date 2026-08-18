@@ -1,5 +1,6 @@
 use std::{fs, path::Path};
 
+use rstest::rstest;
 use vibe_core::datetime::unix_nanos_to_iso8601;
 
 use super::*;
@@ -17,6 +18,7 @@ const RULE: &str = "<!doctype html><html><body><p>Committee policy statements fo
 
 fn bls() -> String {
     let mut rows = String::new();
+
     for month in 2..=12 {
         let name = [
             "",
@@ -33,6 +35,7 @@ fn bls() -> String {
             "November",
             "December",
         ][month];
+
         for (day, event) in [(2, "Employment Situation"), (12, "Consumer Price Index")] {
             rows.push_str(&format!("<tr><td class=\"date-cell\">Monday, {name} {day}, 2023</td><td class=\"time-cell\">08:30 AM</td><td class=\"desc-cell\"><strong>{event}</strong></td></tr>"));
         }
@@ -129,7 +132,7 @@ fn observations(dataset: &ScheduledEventDataset) -> Vec<&ScheduledEventObservati
         .collect()
 }
 
-#[test]
+#[rstest]
 fn emits_sorted_non_forgeable_custom_data_with_dst_and_frozen_type() {
     let (root, plan) = fixture();
     let dataset = open(root.path(), &plan).unwrap();
@@ -178,7 +181,7 @@ fn emits_sorted_non_forgeable_custom_data_with_dst_and_frozen_type() {
     );
 }
 
-#[test]
+#[rstest]
 fn manifest_is_reproducible_and_binds_parsed_events() {
     let (root, plan) = fixture();
     let first = open(root.path(), &plan).unwrap();
@@ -187,7 +190,7 @@ fn manifest_is_reproducible_and_binds_parsed_events() {
     assert_eq!(first.custom_data(), second.custom_data());
 }
 
-#[test]
+#[rstest]
 fn rejects_tamper_missing_and_symlink() {
     let (root, plan) = fixture();
     fs::write(root.path().join(&plan.sources[0].filename), b"tamper").unwrap();
@@ -210,7 +213,7 @@ fn rejects_tamper_missing_and_symlink() {
     }
 }
 
-#[test]
+#[rstest]
 fn rejects_duplicate_or_conflicting_release() {
     let root = tempfile::tempdir().unwrap();
     let mut bls = bls();
@@ -225,7 +228,7 @@ fn rejects_duplicate_or_conflicting_release() {
     assert!(open(root.path(), &plan).is_err());
 }
 
-#[test]
+#[rstest]
 fn rejects_non_2023_and_schedule_not_observed_in_advance() {
     let root = tempfile::tempdir().unwrap();
     let bls = bls().replace("January 6, 2023", "January 6, 2024");
@@ -243,7 +246,7 @@ fn rejects_non_2023_and_schedule_not_observed_in_advance() {
     assert!(open(root.path(), &plan).is_err());
 }
 
-#[test]
+#[rstest]
 fn same_owner_accepts_another_declared_year_and_unselected_release() {
     let root = tempfile::tempdir().unwrap();
     let bls = bls()
@@ -270,7 +273,7 @@ fn same_owner_accepts_another_declared_year_and_unselected_release() {
     );
 }
 
-#[test]
+#[rstest]
 fn rejects_rule_and_calendar_shape_drift() {
     let root = tempfile::tempdir().unwrap();
     let bls = bls();
@@ -295,7 +298,7 @@ fn rejects_rule_and_calendar_shape_drift() {
     assert!(open(root.path(), &plan).is_err());
 }
 
-#[test]
+#[rstest]
 #[ignore = "requires externally custodied official snapshot bytes"]
 fn official_cache_probe() {
     let root = std::env::var("VIBE_SCHEDULED_EVENTS_OFFICIAL_CACHE").unwrap();

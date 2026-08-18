@@ -3,7 +3,7 @@
 Scanner is the slow track that periodically asks which governed strategies are applicable now. Every tick
 produces one terminal Scanner Receipt; only `PROPOSED` carries a deployment proposal, never a deployment or trade.
 
-## Entry / 入口
+## Entry
 
 The exact schedule-definition version, scan-scope identity and version, and canonical unambiguous due-slot boundary
 derive one stable attempt identity before execution. Clock epoch and continuity are admission evidence, not part of
@@ -11,7 +11,7 @@ that identity. Duplicate delivery, concurrency, restart, or late execution joins
 An unknown scope, clock continuity, or conflicting due slot creates no attempt or proposal. There is no interactive
 approval inside the scan.
 
-## Value path / 价值路径
+## Value path
 
 Strategy Loader reads deployable ArtifactRefs, activation rules, data needs, versions, and lifecycle limits from Strategy
 Governance. Market Snapshot binds each strategy's supplied universe-selection rule, required symbols, windows,
@@ -24,7 +24,7 @@ generation-specific economic condition remains a separate input.
 Proposal Builder includes exactly the complete matches.
 One strategy's missing or failed input never suppresses a valid proposal for another strategy.
 
-## Owner handoffs / Owner 交接
+## Owner handoffs
 
 Strategy Governance → Scanner supplies registry facts and activation conditions. Market Data → Scanner supplies
 the timestamped market facts. Portfolio → Scanner may supply only a bounded Capacity View for proposal planning.
@@ -32,7 +32,7 @@ Scanner → Strategy Governance submits the terminal Scanner Receipt. There is n
 Governance may consider `PROPOSED` only inside a pre-existing authorized unattended lifecycle lineage and must
 commit its own lifecycle and Capital Allocation Disposition.
 
-## Proof / 证明
+## Proof
 
 Each tick ends exactly once as `PROPOSED`, `NO_MATCH`, `INSUFFICIENT_DATA`, `COMPLETED_NO_PROPOSAL`, or
 `FAILED`. A complete receipt binds equal expected
@@ -50,14 +50,14 @@ Only an independently evidenced typed batch system failure or an incomplete disp
 `FAILED`; no local disposition, including `CONDITION_FAILED`, can create that batch failure. Total precedence is independent
 batch `FAILED`, complete `PROPOSED`, complete `COMPLETED_NO_PROPOSAL`, `INSUFFICIENT_DATA`, then `NO_MATCH`.
 
-## Development outcome / 开发结果
+## Development outcome
 
-- **Beneficiary** — strategy operators who need periodic opportunity discovery without allowing a scheduler to deploy or trade.
-- **Observable outcome** — every scheduled tick accounts for the complete governed registry and returns exact matches, negative dispositions, missing members, and one terminal receipt.
-- **Harm if unchanged** — stale or data-poor strategies could be silently promoted, valid matches could disappear behind another failure, or Scanner could become a hidden deployment authority.
-- **Terminal negative** — `NO_MATCH`, `INSUFFICIENT_DATA`, `COMPLETED_NO_PROPOSAL`, or `FAILED` produces no deployment; only exact members of a complete `PROPOSED` receipt may be considered by Governance.
+- **Beneficiary** - strategy operators who need periodic opportunity discovery without allowing a scheduler to deploy or trade.
+- **Observable outcome** - every scheduled tick accounts for the complete governed registry and returns exact matches, negative dispositions, missing members, and one terminal receipt.
+- **Harm if unchanged** - stale or data-poor strategies could be silently promoted, valid matches could disappear behind another failure, or Scanner could become a hidden deployment authority.
+- **Terminal negative** - `NO_MATCH`, `INSUFFICIENT_DATA`, `COMPLETED_NO_PROPOSAL`, or `FAILED` produces no deployment; only exact members of a complete `PROPOSED` receipt may be considered by Governance.
 
-## Fail closed and forbidden transitions / 失败关闭与禁止转换
+## Fail closed and forbidden transitions
 
 - Missing history, stale market data, unknown instrument identity, or unmet lifecycle limits block only dependent strategies.
 - A data-blocked strategy cannot enter a proposal, but it cannot hide complete matches for unrelated strategies.

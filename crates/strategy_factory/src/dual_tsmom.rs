@@ -82,12 +82,12 @@ fn field<'a>(value: &'a serde_json::Value, name: &str) -> anyhow::Result<&'a str
 
 fn parse_intent() -> Result<serde_json::Value, StrategyFamilyError> {
     let intent: serde_json::Value =
-        serde_json::from_slice(INTENT).map_err(|error| definition(&error.to_string()))?;
-    let mut canonical =
-        serde_json::to_vec(&intent).map_err(|error| definition(&error.to_string()))?;
+        serde_json::from_slice(INTENT).map_err(|e| definition(&e.to_string()))?;
+    let mut canonical = serde_json::to_vec(&intent).map_err(|e| definition(&e.to_string()))?;
     canonical.push(b'\n');
     let program = &intent["payload"]["program_contract"];
     let budget = &program["effect_budget"];
+
     if canonical != INTENT
         || format!("{:x}", Sha256::digest(INTENT)) != INTENT_SHA256
         || intent["identity"] != INTENT_ID
@@ -122,7 +122,7 @@ fn verified_build() -> Result<&'static VerifiedCargoBuild, StrategyFamilyError> 
             build_recipe: RECIPE,
             runtime_budget: RUNTIME,
         })
-        .map_err(|error| definition(&error.to_string()))?;
+        .map_err(|e| definition(&e.to_string()))?;
         let _ = BUILD.set(build);
     }
     Ok(BUILD.get().expect("verified dual TSMOM build initialized"))
@@ -135,7 +135,7 @@ impl DualTsmomAdapter {
         Ok(Self {
             bindings_identity: dual_tsmom_bindings()?
                 .identity()
-                .map_err(|error| definition(&error.to_string()))?,
+                .map_err(|e| definition(&e.to_string()))?,
         })
     }
 }
@@ -172,7 +172,7 @@ impl FrozenFamilyDefinition for DualTsmomAdapter {
         let (parameters, bindings) = dual_tsmom_program_inputs(parameter_id, variant_id)?;
         if bindings
             .identity()
-            .map_err(|error| definition(&error.to_string()))?
+            .map_err(|e| definition(&e.to_string()))?
             != self.bindings_identity
         {
             return Err(StrategyFamilyError::ArtifactBinding);
@@ -226,15 +226,15 @@ fn dual_tsmom_bindings() -> Result<ProgramHostBindings, StrategyFamilyError> {
     .into_iter()
     .map(|(channel, bar)| Ok((channel, bar.parse::<BarType>()?)))
     .collect::<anyhow::Result<Vec<_>>>()
-    .map_err(|error| definition(&error.to_string()))?;
+    .map_err(|e| definition(&e.to_string()))?;
     let budget = ProgramEffectBudget::new(732, 732, 366, [(1, 1.83), (2, 18.3)])
-        .map_err(|error| definition(&error.to_string()))?;
+        .map_err(|e| definition(&e.to_string()))?;
     ProgramHostBindings::new(
         [(1, InstrumentId::from(BTC)), (2, InstrumentId::from(ETH))],
         bars,
         budget,
     )
-    .map_err(|error| definition(&error.to_string()))
+    .map_err(|e| definition(&e.to_string()))
 }
 
 pub(crate) fn validate_dual_tsmom_source_projection(
@@ -245,6 +245,7 @@ pub(crate) fn validate_dual_tsmom_source_projection(
         run_scope.decision_start_ns == DECISION_START_NS && run_scope.end_ns == RUN_END_NS,
         "dual TSMOM 365-slot decision scope changed"
     );
+
     for bar in [
         "BTCUSDT-PERP.BINANCE-1-DAY-LAST-EXTERNAL",
         "ETHUSDT-PERP.BINANCE-1-DAY-LAST-EXTERNAL",
@@ -297,6 +298,7 @@ pub(crate) fn dual_tsmom_coverage(tags: &[u32]) -> anyhow::Result<BTreeMap<Strin
         .iter()
         .map(|(_, name)| ((*name).to_string(), 0))
         .collect::<BTreeMap<_, _>>();
+
     for tag in tags {
         let name = TAGS
             .iter()
@@ -338,6 +340,7 @@ fn evaluate_dual_tsmom(
         trials.len() == 5,
         "dual TSMOM family must contain five trials"
     );
+
     for (trial, (parameter, variant, _)) in trials.iter().zip(COORDINATES) {
         anyhow::ensure!(
             trial.parameter_id == parameter && trial.variant_id == variant,
@@ -351,6 +354,7 @@ fn evaluate_dual_tsmom(
         FormationTrialDisposition::EconomicRejected,
         FormationTrialDisposition::EconomicRejected,
     ];
+
     if !bounded_cash_deletion_group_survives(&trials[..3])? || !primary_floors(&trials[0])? {
         return Ok(rejected(dispositions));
     }
@@ -487,10 +491,12 @@ pub(crate) fn recover_dual_tsmom_receipt(
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
     use crate::{artifact::StrategyArtifact, receipt::FormationTrialProjection};
 
-    #[test]
+    #[rstest]
     fn exact_family_build_budget_and_abi_are_stable() {
         let first = FrozenStrategyFamily::frozen_dual_tsmom().unwrap();
         let second = FrozenStrategyFamily::frozen_dual_tsmom().unwrap();
@@ -510,7 +516,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn intent_coordinate_and_coverage_domains_fail_closed() {
         assert!(parse_intent().is_ok());
         assert!(dual_tsmom_program_inputs("lookback-60", "unknown").is_err());
@@ -523,7 +529,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn fixed_primary_deletions_and_sensitivities_cannot_reselect() {
         let family = FrozenStrategyFamily::frozen_dual_tsmom().unwrap();
         let artifacts = family.materialize_all().unwrap();

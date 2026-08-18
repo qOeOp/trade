@@ -200,6 +200,7 @@ impl DualTsmom {
         {
             return Err(ProgramFault::ProgramRejected);
         }
+
         if slot >= 2
             && self.staged_h1.iter().all(Option::is_none)
             && decision_time < self.run_end
@@ -215,6 +216,7 @@ impl DualTsmom {
         } else {
             (&mut self.staged_h1, slot - 2)
         };
+
         if staged[leg].is_some() {
             return Err(ProgramFault::ProgramRejected);
         }
@@ -223,10 +225,12 @@ impl DualTsmom {
         let Some(pair) = staged[BTC].zip(staged[ETH]) else {
             return Ok(());
         };
+
         if pair.0.ts != pair.1.ts {
             return Err(ProgramFault::ProgramRejected);
         }
         *staged = [None, None];
+
         if slot < 2 {
             self.complete_d1(pair)
         } else {
@@ -243,16 +247,19 @@ impl DualTsmom {
         let Some(momentum) = self.history.push(closes, parameters.lookback) else {
             return Ok(());
         };
+
         if !momentum.iter().all(|value| value.is_finite()) {
             return Err(ProgramFault::ProgramRejected);
         }
         let mut enter = [false; 2];
+
         for leg in 0..2 {
             let positive = momentum[leg] > 0.0;
             enter[leg] =
                 positive && (parameters.features & 2 == 0 || self.legs[leg].previous_positive);
             self.legs[leg].previous_positive = positive;
         }
+
         if parameters.features & 1 == 0 {
             enter[ETH] = false;
         }
@@ -278,9 +285,11 @@ impl DualTsmom {
         if decision_time >= self.run_end || ts >= self.run_end {
             return self.halt();
         }
+
         if self.mode == Mode::Draining {
             return self.drain(actions);
         }
+
         if ts
             .checked_add(H1_NS)
             .is_none_or(|next| next >= self.run_end)
@@ -293,6 +302,7 @@ impl DualTsmom {
 
     fn reconcile(&mut self, snapshot: Snapshot) -> Result<(), ProgramFault> {
         let mut anomaly = false;
+
         for (leg, &quantity) in QUANTITIES.iter().enumerate() {
             let position = snapshot.positions[leg];
             let open_orders = snapshot.open_orders[leg];
@@ -302,9 +312,11 @@ impl DualTsmom {
             }
             self.legs[leg].position = position;
             self.legs[leg].open_orders = open_orders;
+
             if self.mode != Mode::Active {
                 continue;
             }
+
             match self.legs[leg].phase {
                 Phase::Flat if position != 0.0 || open_orders != 0.0 => {
                     return Err(ProgramFault::ProgramRejected);
@@ -327,6 +339,7 @@ impl DualTsmom {
                 Phase::Flat | Phase::Long => {}
             }
         }
+
         if anomaly {
             self.begin_draining();
         }
@@ -337,11 +350,13 @@ impl DualTsmom {
         let (Some(signal), Some(h1_available)) = (self.signal, self.h1_available) else {
             return Ok(());
         };
+
         if h1_available <= signal.available {
             return Ok(());
         }
         self.signal = None;
         self.h1_available = None;
+
         if self.mode != Mode::Active {
             return Ok(());
         }
@@ -350,6 +365,7 @@ impl DualTsmom {
             if leg == ETH && parameters.features & 1 == 0 {
                 continue;
             }
+
             match self.legs[leg].phase {
                 Phase::Flat if signal.enter[leg] => {
                     self.submit(
@@ -427,10 +443,12 @@ impl DualTsmom {
         if self.legs.iter().any(|leg| leg.open_orders != 0.0) {
             return Ok(());
         }
+
         if self.drain_sent {
             return self.halt();
         }
         let mut submitted = false;
+
         for (leg, &tag) in DRAIN_TAGS.iter().enumerate() {
             self.legs[leg].order = None;
             if self.legs[leg].position > 0.0 {
@@ -458,6 +476,7 @@ impl DualTsmom {
         {
             return Err(ProgramFault::ProgramRejected);
         }
+
         for (leg, &tag) in TERMINAL_TAGS.iter().enumerate() {
             if self.legs[leg].phase == Phase::Long {
                 self.submit(
@@ -533,6 +552,7 @@ impl DualTsmom {
             order_event::FILLED | order_event::REJECTED | order_event::CANCELED
         ))
         .then_some(order);
+
         if drain {
             self.begin_draining();
         }
@@ -565,12 +585,14 @@ impl StrategyProgram for DualTsmom {
         if first.meta.codec_version != 1 || first.meta.ts_event > first.meta.available_at {
             return Err(ProgramFault::MalformedFrame);
         }
+
         if first.meta.type_id == ORDER_EVENT_RECORD {
             if records.next().is_some() || !EXECUTABLES.contains(&first.meta.channel) {
                 return Err(ProgramFault::MalformedFrame);
             }
             return self.order_event(first.order_event()?);
         }
+
         if first.meta.type_id != BAR_RECORD || !CHANNELS.contains(&first.meta.channel) {
             return Err(ProgramFault::MalformedFrame);
         }
@@ -579,6 +601,7 @@ impl StrategyProgram for DualTsmom {
             return Err(ProgramFault::ProgramRejected);
         }
         let mut facts = [[0.0; 3]; 2];
+
         for leg in 0..2 {
             for (fact, record_type) in [POSITION_RECORD, ORDER_RECORD, BALANCE_RECORD]
                 .into_iter()
@@ -594,6 +617,7 @@ impl StrategyProgram for DualTsmom {
                 }
                 facts[leg][fact] = record.scalar()?;
             }
+
             if facts[leg]
                 .iter()
                 .any(|value| !value.is_finite() || *value < 0.0)
@@ -601,6 +625,7 @@ impl StrategyProgram for DualTsmom {
                 return Err(ProgramFault::ProgramRejected);
             }
         }
+
         if records.next().is_some() || facts[BTC][2].to_bits() != facts[ETH][2].to_bits() {
             return Err(ProgramFault::MalformedFrame);
         }
@@ -634,6 +659,7 @@ mod tests {
     extern crate std;
 
     use super::*;
+    use rstest::rstest;
     use std::vec::Vec;
     use strategy_factory_program_sdk::{
         CODEC_V1, FrameEncoder, RecordMeta, decode_actions, dispatch, order_event as oe,
@@ -744,6 +770,7 @@ mod tests {
             available_at: available,
         };
         let mut bar = [0; 40];
+
         for (index, value) in [100.0_f64, 100.0, 100.0, 100.0, 1.0]
             .into_iter()
             .enumerate()
@@ -752,6 +779,7 @@ mod tests {
         }
         frame.push(meta(BAR_RECORD, channel), &bar).unwrap();
         let state = snapshot([0.0; 2], [0.0; 2]);
+
         for leg in 0..2 {
             for (record_type, value) in [
                 (POSITION_RECORD, state.positions[leg]),
@@ -819,11 +847,12 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn exact_abi_and_warmup_boundaries() {
         for coordinate in 0..5 {
             assert!(Parameters::parse(&parameter_bytes(coordinate)).is_ok());
         }
+
         for offset in 0..64 {
             let mut invalid = parameter_bytes(0);
             invalid[offset] ^= 1;
@@ -859,10 +888,11 @@ mod tests {
         assert_eq!(full.signal.unwrap().enter, [false; 2]);
     }
 
-    #[test]
+    #[rstest]
     fn every_callback_permutation_is_h1_consumed_and_strictly_later() {
         let ts = 2 * D1_NS;
         let mut reference = None;
+
         for a in 1..=4 {
             for b in 1..=4 {
                 for c in 1..=4 {
@@ -875,6 +905,7 @@ mod tests {
                         prime(&mut program, 60);
                         program.history.closes.fill([90.0; 2]);
                         let mut emitted = Vec::new();
+
                         for channel in schedule {
                             let available = ts + if channel <= 2 { 1 } else { 2 };
                             let current = bar(&mut program, channel, ts, available).unwrap();
@@ -883,6 +914,7 @@ mod tests {
                             }
                             emitted.extend(current);
                         }
+
                         if emitted.is_empty() {
                             emitted
                                 .extend(bar(&mut program, 3, ts + H1_NS, ts + H1_NS + 1).unwrap());
@@ -905,6 +937,7 @@ mod tests {
             let emitted = bar(&mut delayed, channel, clock, clock + 10).unwrap();
             assert!(emitted.is_empty());
         }
+
         for channel in [1, 2] {
             assert!(bar(&mut delayed, channel, ts, ts + 10).unwrap().is_empty());
         }
@@ -913,7 +946,7 @@ mod tests {
         assert_eq!(delayed.mode, Mode::Active);
     }
 
-    #[test]
+    #[rstest]
     fn host_frame_pairing_continuity_and_balance_fail_closed() {
         assert_eq!(
             first_frame([1_000.0; 2], true).unwrap_err(),
@@ -935,7 +968,7 @@ mod tests {
         assert!(stage_unit(&mut gap, 1, 3 * D1_NS).is_err());
     }
 
-    #[test]
+    #[rstest]
     fn independent_legs_and_feature_deletions_emit_exact_actions() {
         let mut full = seeded(0);
         full.legs[ETH].phase = Phase::Long;
@@ -975,7 +1008,7 @@ mod tests {
         evt(program, (event.0, event.1, OrderSide::Buy, event.2))
     }
 
-    #[test]
+    #[rstest]
     fn order_events_global_drain_and_second_repair_fail_closed() {
         let mut duplicate = opening();
         buy(&mut duplicate, (1, oe::ACCEPTED, 0.0)).unwrap();
@@ -983,6 +1016,7 @@ mod tests {
         buy(&mut duplicate, (1, oe::PARTIALLY_FILLED, 0.004)).unwrap();
         buy(&mut duplicate, (1, oe::FILLED, 0.006)).unwrap();
         assert!(buy(&mut duplicate, (1, oe::FILLED, 0.01)).is_err());
+
         for case in [
             (99, OrderSide::Buy, 0.0),
             (1, OrderSide::Sell, 0.0),
@@ -1031,7 +1065,7 @@ mod tests {
         assert!(final_actions.is_empty());
     }
 
-    #[test]
+    #[rstest]
     fn terminal_backlog_never_opens_and_residual_final_state_rejects() {
         for ts in [10 * H1_NS, 11 * H1_NS] {
             let mut program = seeded(2);

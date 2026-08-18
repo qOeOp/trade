@@ -30,20 +30,20 @@
 
 ## 模块
 
-- **Data Clients** — 连接官方数据商和交易场所，取得原始成交 报价 K线和参考文件，但不定义业务身份。
-- **Data Engine** — 统一记录格式和时间语义，提供订阅查询并生成可复现快照。
-- **PIT Catalog** — 记录数据 calendar session action membership 与 correction 何时可观察，并执行外部
+- **Data Clients** - 连接官方数据商和交易场所，取得原始成交 报价 K线和参考文件，但不定义业务身份。
+- **Data Engine** - 统一记录格式和时间语义，提供订阅查询并生成可复现快照。
+- **PIT Catalog** - 记录数据 calendar session action membership 与 correction 何时可观察，并执行外部
   提供的 universe-selection rule，防止未来信息进入历史研究或重放。
-- **Instrument Master** — 拥有按生效时间版本化的标的身份 场所映射 合约条款 session time zone
+- **Instrument Master** - 拥有按生效时间版本化的标的身份 场所映射 合约条款 session time zone
   lifecycle 与 corporate-action 事实，不选择本轮运行标的。
 
 ## 输入交接
 
 - 数据商和交易场所通过 Data Clients 提供原始行情和参考记录。
-- [R&D](../rd/) 在探索消费前提交初始冻结 PIT Market Snapshot Request，绑定 Research Request
+- [R&D](./rd/) 在探索消费前提交初始冻结 PIT Market Snapshot Request，绑定 Research Request
   Intent TrialFamily、instrument 或 universe scope、四时间决定截面、必需 provenance license correction
   frontier、稳定 correlation 和 Time Evidence。
-- [R&D](../rd/) 只有从已提交 `REPAIR_INPUTS` Iteration Decision 才能发出一个 Market Data
+- [R&D](./rd/) 只有从已提交 `REPAIR_INPUTS` Iteration Decision 才能发出一个 Market Data
   Repair Request。它重复原始 PIT 请求身份与证明摘要 标的范围 决策截面 有界理由 稳定 correlation
   必需 provenance license correction 字段和共享 Time Evidence。
 - 运维提供 Market Data Source Binding 不透明 credential handle 许可范围和修订数据，但不能改写历史可观察时间。
@@ -51,15 +51,15 @@
 
 ## 输出交接
 
-- 向 [R&D](../rd/) 提供关联准确初始请求身份 内容摘要 scope cut provenance license correction
+- 向 [R&D](./rd/) 提供关联准确初始请求身份 内容摘要 scope cut provenance license correction
   和稳定 correlation 的 PIT Market Snapshot disposition，以及准确 Universe Selection Record 身份与
   摘要用于假设检验。修复请求另以同一关联请求身份返回携带已修复 snapshot 的 `AVAILABLE`，或携带
   有界决定性来源类别的终态 `UNAVAILABLE`。
-- 向 [Backtest](../backtest/) 提供绑定请求 PIT 范围和快照修订规则的准确 PIT Market Snapshot 与 Universe Selection Record，Run Result 必须重复两者身份和每个冻结执行身份。
-- 向 [Scanner](../scanner/) 提供已发布激活条件请求的准确 PIT Market Snapshot。
-- 向 [Runtime](../runtime/) 提供携带同一 Market Semantics Compatibility 身份的实时行情流和标的更新；
+- 向 [Backtest](./backtest/) 提供绑定请求 PIT 范围和快照修订规则的准确 PIT Market Snapshot 与 Universe Selection Record，Run Result 必须重复两者身份和每个冻结执行身份。
+- 向 [Scanner](./scanner/) 提供已发布激活条件请求的准确 PIT Market Snapshot。
+- 向 [Runtime](./runtime/) 提供携带同一 Market Semantics Compatibility 身份的实时行情流和标的更新；
   generation 的 Strategy Artifact 与历史证据必须消费该身份。
-- 向 [Portfolio](../portfolio/) 提供价格 汇率 合约规格 估值事实，以及 Capacity View 使用的带身份流动性输入截面。
+- 向 [Portfolio](./portfolio/) 提供价格 汇率 合约规格 估值事实，以及 Capacity View 使用的带身份流动性输入截面。
 
 ## 拒绝和禁止事项
 
@@ -92,17 +92,17 @@ rights evidence，绝不能跨 Owner 复制该终态。
 
 ## 决策契约
 
-- **输入** — 已接纳 source binding 原始行情与参考记录 correction feed license scope，以及请求方拥有
+- **输入** - 已接纳 source binding 原始行情与参考记录 correction feed license scope，以及请求方拥有
   的 universe rule 或 PIT scope。
-- **诊断与决定** — 统一含义 建立四时间可用性 解析 instrument identity coverage correction license，
+- **诊断与决定** - 统一含义 建立四时间可用性 解析 instrument identity coverage correction license，
   再生成一个版本化事实或 snapshot disposition。
-- **冲突解析** — source lineage 和决定时可用性高于后续 correction；identity clock version 冲突时保持
+- **冲突解析** - source lineage 和决定时可用性高于后续 correction；identity clock version 冲突时保持
   ambiguous，修订只创建后继。
-- **输出与终态负例** — stream instrument fact selection record PIT snapshot，或明确 `INSUFFICIENT`
+- **输出与终态负例** - stream instrument fact selection record PIT snapshot，或明确 `INSUFFICIENT`
   `STALE` `UNLICENSED` `AMBIGUOUS` unavailable。
-- **反馈与经济意义** — 历史和实时含义一致可阻止 look-ahead 错误合约条款或无许可不完整数据造成的
+- **反馈与经济意义** - 历史和实时含义一致可阻止 look-ahead 错误合约条款或无许可不完整数据造成的
   虚假 Alpha 估值漂移和不安全 sizing。
-- **禁止** — 不决定研究目标或策略 universe，不拥有生命周期 订单 账户投影，不泄露 credential，不
+- **禁止** - 不决定研究目标或策略 universe，不拥有生命周期 订单 账户投影，不泄露 credential，不
   forward fill 或改写可用性历史。
 
 ## 后续实现验收

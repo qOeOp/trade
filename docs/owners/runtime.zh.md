@@ -24,10 +24,10 @@
 
 ## 模块
 
-- **Strategy Instance** — 运行治理工件 消费行情事实 产生 Trade Intent，并把 Risk 许可绑定为
+- **Strategy Instance** - 运行治理工件 消费行情事实 产生 Trade Intent，并把 Risk 许可绑定为
   Authorized Order Command。Paper 与 Live 使用相同实例语义，只替换 Execution adapter、账户命名空间
   和效果命名空间
-- **Readiness Gate** — 先停止本地意图和命令，再提交 `NOT_READY` 并向 Risk 与 Execution 发布准确
+- **Readiness Gate** - 先停止本地意图和命令，再提交 `NOT_READY` 并向 Risk 与 Execution 发布准确
   generation checkpoint 影响范围和时间前沿
 
 checkpoint 与 readiness 持久化属于 Runtime 内部关注点，不是第二个可见能力或权威。实现可以变化，
@@ -35,29 +35,29 @@ checkpoint 与 readiness 持久化属于 Runtime 内部关注点，不是第二�
 
 ## 输入交接
 
-- [Strategy Governance](../strategy-governance/) 提供 generation 特定的 `INITIAL_ACTIVATION` `PROMOTION`
+- [Strategy Governance](./strategy-governance/) 提供 generation 特定的 `INITIAL_ACTIVATION` `PROMOTION`
   `REDUCTION` `PAUSE` `RETIREMENT` `DE_RISK` 或 `RECOVERY` 决定、
   Execution Scope、完整请求 Authorization Lineage，以及允许自动意图时的显式 Autonomous Policy
   Authorization 与保留有效期
-- [Market Data](../market-data/) 提供当前市场和标的事实
-- [Risk](../risk/) 返回终态 Risk Decision 一次性 Reservation decrease-only permit 或消费前终态撤回
-- [Execution](../execution/) 返回订单 成交 拒绝 终态回读和对账事实，用于更新实例或声明就绪丢失
-- [R&D](../rd/) 只提供冻结的 `RUNTIME_KERNEL` `native-repair-request`，绑定准确前驱决定 correlation proof
+- [Market Data](./market-data/) 提供当前市场和标的事实
+- [Risk](./risk/) 返回终态 Risk Decision 一次性 Reservation decrease-only permit 或消费前终态撤回
+- [Execution](./execution/) 返回订单 成交 拒绝 终态回读和对账事实，用于更新实例或声明就绪丢失
+- [R&D](./rd/) 只提供冻结的 `RUNTIME_KERNEL` `native-repair-request`，绑定准确前驱决定 correlation proof
   digest 旧 kernel identity 与 source cut policy 和新鲜 Time Evidence。类别 目标 前驱 proof identity cut
   policy 时间错误或含义变化都不创建 attempt 或 result
 
 ## 输出交接
 
-- 向 [Risk](../risk/) 提供正常 Trade Intent、decrease-only 生命周期意图、不可变 Runtime Readiness Fact
+- 向 [Risk](./risk/) 提供正常 Trade Intent、decrease-only 生命周期意图、不可变 Runtime Readiness Fact
   与已提交 `runtime-incident-fact`。`RUNTIME_INCIDENT` 通过 `runtime-risk-incident-fence` 把该来源事实
   提交给 Risk；Runtime 永不写由此产生的 Recovery Fence
-- 向 [Execution](../execution/) 正常提交 Authorized Order Command；Recovery 只提交实例 checkpoint
+- 向 [Execution](./execution/) 正常提交 Authorized Order Command；Recovery 只提交实例 checkpoint
   就绪和事故事实，绝不提交 Recovery Command
-- 向 [Strategy Governance](../strategy-governance/) 提供 Generation Application Receipt 和可直接读取的
+- 向 [Strategy Governance](./strategy-governance/) 提供 Generation Application Receipt 和可直接读取的
   Runtime Incident Fact；`RecoveryCase.KNOWN_CLOSED` 由 Execution 单独提供
-- 向 [R&D](../rd/) 提供已提交且按 generation 划分的 Incident 事实，只能作为后继来源证据。
+- 向 [R&D](./rd/) 提供已提交且按 generation 划分的 Incident 事实，只能作为后继来源证据。
   该交接不能调节运行中 generation 重开其 Intent 或暴露保护 Qualification 细节
-- 向 [R&D](../rd/) 提供准确 request-correlated Runtime Kernel Repair Result。`REPAIRED` 命名新 kernel
+- 向 [R&D](./rd/) 提供准确 request-correlated Runtime Kernel Repair Result。`REPAIRED` 命名新 kernel
   version，且只允许新请求相等 Replay Request，绑定准确 native repair request 与 result、新 kernel
   version、准确前驱 `REPAIR_INPUTS` 决定、`RUNTIME_KERNEL` 类别、稳定 correlation、原始 proof digest、
   前驱与后继 kernel identity 及 source cut，以及未改变的前驱请求语义。只有 `REPAIRED` 允许 re-entry；
@@ -103,16 +103,16 @@ Runtime 可以从 checkpoint 重启，但不能解除 fence 闭合 case 或恢�
 
 ## 决策契约
 
-- **输入** — 一个 Governance generation decision 与 artifact、当前 Market Data、终态 Risk decision 和
+- **输入** - 一个 Governance generation decision 与 artifact、当前 Market Data、终态 Risk decision 和
   Execution order fill readback 事实。
-- **诊断与决定** — 应用或拒绝一个 generation，判断策略条件，生成正常 Trade Intent，绑定授权命令并
+- **诊断与决定** - 应用或拒绝一个 generation，判断策略条件，生成正常 Trade Intent，绑定授权命令并
   提交 readiness 或 incident fact。
-- **冲突解析** — generation checkpoint readiness identity 单调前进；更新 fence 或 lifecycle state 抑制
+- **冲突解析** - generation checkpoint readiness identity 单调前进；更新 fence 或 lifecycle state 抑制
   旧写入，重复 application 只加入一次。
-- **输出与终态负例** — Application Receipt Trade Intent Authorized Order Command readiness incident；
+- **输出与终态负例** - Application Receipt Trade Intent Authorized Order Command readiness incident；
   拒绝 application unknown 与 `NOT_READY` 都不表示运行或成功。
-- **反馈与经济意义** — Paper 与 Live 运行同一受治理策略语义并返回解释行为的运行事实，不宣称订单或 PnL。
-- **禁止** — 不拥有超出绑定 scope 的 adapter 选择、成交 账户效果 订单生命周期 Reservation 状态
+- **反馈与经济意义** - Paper 与 Live 运行同一受治理策略语义并返回解释行为的运行事实，不宣称订单或 PnL。
+- **禁止** - 不拥有超出绑定 scope 的 adapter 选择、成交 账户效果 订单生命周期 Reservation 状态
   Recovery 动作 case closure，也不把内部持久化变成独立权威。
 
 ## 后续实现验收

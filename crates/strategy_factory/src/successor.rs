@@ -90,12 +90,12 @@ fn field<'a>(value: &'a serde_json::Value, name: &str) -> anyhow::Result<&'a str
 }
 
 fn parse_intent(bytes: &[u8]) -> Result<serde_json::Value, StrategyFamilyError> {
-    let intent: serde_json::Value =
-        serde_json::from_slice(bytes).map_err(|error| definition(&error))?;
-    let mut canonical = serde_json::to_vec(&intent).map_err(|error| definition(&error))?;
+    let intent: serde_json::Value = serde_json::from_slice(bytes).map_err(|e| definition(&e))?;
+    let mut canonical = serde_json::to_vec(&intent).map_err(|e| definition(&e))?;
     canonical.push(b'\n');
     let digest = format!("{:x}", Sha256::digest(bytes));
     let build = &intent["payload"]["program_contract"]["build"];
+
     if canonical != bytes
         || digest != INTENT_SHA256
         || intent["identity"] != INTENT_ID
@@ -134,7 +134,7 @@ fn verified_build() -> Result<&'static VerifiedCargoBuild, StrategyFamilyError> 
             build_recipe: RECIPE,
             runtime_budget: BUDGET,
         })
-        .map_err(|error| definition(&error))?;
+        .map_err(|e| definition(&e))?;
         let _ = BUILD.set(build);
     }
     Ok(BUILD.get().expect("verified SECAC build initialized"))
@@ -145,7 +145,7 @@ impl SecacAdapter {
         parse_intent(INTENT_BYTES)?;
         let bindings_identity = secac_program_bindings()?
             .identity()
-            .map_err(|error| definition(&error))?;
+            .map_err(|e| definition(&e))?;
         verified_build()?;
         Ok(Self {
             bindings_identity,
@@ -183,7 +183,7 @@ impl FrozenFamilyDefinition for SecacAdapter {
         variant_id: &str,
     ) -> Result<ArtifactIssuance<'_>, StrategyFamilyError> {
         let (parameters, bindings) = secac_program_inputs(parameter_id, variant_id)?;
-        if bindings.identity().map_err(|error| definition(&error))? != self.bindings_identity {
+        if bindings.identity().map_err(|e| definition(&e))? != self.bindings_identity {
             return Err(StrategyFamilyError::ArtifactBinding);
         }
         Ok(ArtifactIssuance::program(
@@ -250,7 +250,7 @@ fn secac_program_bindings() -> Result<ProgramHostBindings, StrategyFamilyError> 
     .into_iter()
     .map(|(channel, value)| Ok((channel, value.parse::<BarType>()?)))
     .collect::<anyhow::Result<Vec<_>>>()
-    .map_err(|error| definition(&error))?;
+    .map_err(|e| definition(&e))?;
     let mut customs = [
         ("DTWEXBGS", 10),
         ("DEXJPUS", 11),
@@ -267,14 +267,14 @@ fn secac_program_bindings() -> Result<ProgramHostBindings, StrategyFamilyError> 
         )
     })
     .collect::<anyhow::Result<Vec<_>>>()
-    .map_err(|error| definition(&error))?;
+    .map_err(|e| definition(&e))?;
     customs.push(
         ProgramCustomBinding::new::<ScheduledEventObservation>(
             ScheduledEventObservation::data_type(),
             1025,
             15,
         )
-        .map_err(|error| definition(&error))?,
+        .map_err(|e| definition(&e))?,
     );
     customs.push(
         ProgramCustomBinding::new::<Signal>(
@@ -286,7 +286,7 @@ fn secac_program_bindings() -> Result<ProgramHostBindings, StrategyFamilyError> 
             1026,
             16,
         )
-        .map_err(|error| definition(&error))?,
+        .map_err(|e| definition(&e))?,
     );
     let budget = ProgramEffectBudget::new(
         SECAC_MAX_EFFECTS,
@@ -294,14 +294,14 @@ fn secac_program_bindings() -> Result<ProgramHostBindings, StrategyFamilyError> 
         SECAC_MAX_OPENING_SUBMITS,
         [(SECAC_EXECUTABLE, SECAC_MAX_CUMULATIVE_OPENING_QUANTITY)],
     )
-    .map_err(|error| definition(&error))?;
+    .map_err(|e| definition(&e))?;
     ProgramHostBindings::new(
         [(SECAC_EXECUTABLE, InstrumentId::from("BTCUSDT-PERP.BINANCE"))],
         bars,
         budget,
     )
     .and_then(|bindings| bindings.with_custom(customs))
-    .map_err(|error| definition(&error))
+    .map_err(|e| definition(&e))
 }
 
 pub(crate) fn secac_program_inputs(
@@ -327,9 +327,11 @@ pub(crate) fn secac_program_inputs(
     for channel in 1_u32..=16 {
         bytes.extend_from_slice(&channel.to_le_bytes());
     }
+
     for value in [4_u16, 12, 16, 16] {
         bytes.extend_from_slice(&value.to_le_bytes());
     }
+
     for value in [0.010_f64, 0.5, 2.0, 1.5, 0.10, 0.5] {
         bytes.extend_from_slice(&value.to_le_bytes());
     }
@@ -339,6 +341,7 @@ pub(crate) fn secac_program_inputs(
 
 pub(crate) fn secac_coverage(tags: &[u32]) -> anyhow::Result<BTreeMap<String, usize>> {
     let mut counts = BTreeMap::new();
+
     for tag in tags {
         let name = COVERAGE_TAGS
             .iter()
@@ -432,9 +435,11 @@ pub(crate) fn recover_secac_formation_receipt(
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
 
-    #[test]
+    #[rstest]
     fn intent_family_and_parameter_abi_are_exact_and_bounded() {
         let first = FrozenStrategyFamily::frozen_secac_successor().unwrap();
         let second = FrozenStrategyFamily::frozen_secac_successor().unwrap();
@@ -449,7 +454,7 @@ mod tests {
         assert_eq!(first.materialize_all().unwrap().len(), 10);
     }
 
-    #[test]
+    #[rstest]
     fn canonical_intent_and_predecessor_receipt_fail_closed() {
         assert!(parse_intent(INTENT_BYTES).is_ok());
         let mut changed = INTENT_BYTES.to_vec();
@@ -463,7 +468,7 @@ mod tests {
         assert!(verify_secac_formation_source_projection("blake3:foreign").is_err());
     }
 
-    #[test]
+    #[rstest]
     fn decision_coverage_is_closed_and_counts_repeats() {
         let coverage = secac_coverage(&[111, 111, 122, 201, 202, 203, 204, 205]).unwrap();
         assert_eq!(coverage["entry_employment_long"], 2);

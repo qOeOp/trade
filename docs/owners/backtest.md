@@ -38,26 +38,26 @@ Replay frozen strategy artifacts against admitted historical facts with producti
 
 ## Modules
 
-- **Native Replay** — replay historical events with deterministic time while reusing the native Runtime, Risk, and order semantics where applicable.
-- **Sim Exchange** — model venue acceptance, latency, fills, fees, and account effects without external writes.
-- **Run Result** — bind consumed data, artifact, configuration, orders, fills, costs, and terminal outcome into one canonical receipt.
+- **Native Replay** - replay historical events with deterministic time while reusing the native Runtime, Risk, and order semantics where applicable.
+- **Sim Exchange** - model venue acceptance, latency, fills, fees, and account effects without external writes.
+- **Run Result** - bind consumed data, artifact, configuration, orders, fills, costs, and terminal outcome into one canonical receipt.
 
 ## Input handoffs
 
-- [R&D](../rd/) submits one frozen Exploratory Replay Request bound to the exact immutable artifact,
+- [R&D](./rd/) submits one frozen Exploratory Replay Request bound to the exact immutable artifact,
   requested PIT data scope, replay configuration, and the same cost, slippage, and capacity-model versions frozen
   by its Research Intent.
 - For an admitted `D1_EXECUTABLE_REPAIR`, R&D submits a distinct `REPAIR_VALIDATION` request bound to the D-only
   repair admission, predecessor and successor Artifacts, defect oracle, complete non-defect regression corpus,
   frozen semantic-equality proof, and deterministic event/signal/intent/order trace comparison. It is never an
   exploratory or protected request.
-- [Qualification](../qualification/) sends a frozen protected request created only after `ADMITTED` intake and
+- [Qualification](./qualification/) sends a frozen protected request created only after `ADMITTED` intake and
   holdout reservation, with every execution-defining identity and exact Candidate/Intake protected policy pair
   fixed. Each request addresses one declared Protected Robustness Plan cell or the exact frozen bounded matrix;
   Backtest cannot choose cells after observing results. Admission rejection must still commit a request-bound
   `RUN_REJECTED` result.
-- [Market Data](../market-data/) supplies frozen point-in-time data and instrument terms.
-- [R&D](../rd/) may additionally submit one frozen `SIMULATOR` or `BACKTEST_OPERATIONAL`
+- [Market Data](./market-data/) supplies frozen point-in-time data and instrument terms.
+- [R&D](./rd/) may additionally submit one frozen `SIMULATOR` or `BACKTEST_OPERATIONAL`
   `native-repair-request`. `SIMULATOR` targets only Backtest's Sim Exchange surface `sim-exchange`;
   `BACKTEST_OPERATIONAL` targets only Native Replay's `BACKTEST_RUNNER_SERVICE`. Wrong target, category,
   predecessor, proof, old identity, source cut, policy, time, or
@@ -65,12 +65,12 @@ Replay frozen strategy artifacts against admitted historical facts with producti
 
 ## Output handoffs
 
-- To [R&D](../rd/): exploratory Run Results with the complete finite `diagnosticCategorySet` and each
+- To [R&D](./rd/): exploratory Run Results with the complete finite `diagnosticCategorySet` and each
   member's decisive evidence cuts. Any execution-defect member preempts economic interpretation and Research
   chooses one repair under its frozen precedence while preserving all supported members. Only a set with no
   defect may use `NO_EXECUTION_DEFECT` or `VALID_ECONOMIC_FAILURE` for economic interpretation;
   `UNRESOLVED_FAILURE` permits no decision.
-- To [R&D](../rd/): for `REPAIR_INPUTS_SIMULATOR` or `REPAIR_INPUTS_BACKTEST_OPERATIONAL`, Backtest alone returns
+- To [R&D](./rd/): for `REPAIR_INPUTS_SIMULATOR` or `REPAIR_INPUTS_BACKTEST_OPERATIONAL`, Backtest alone returns
   the exact request-correlated `REPAIRED`, `UNAVAILABLE`, or `OUTCOME_UNKNOWN`. `REPAIRED` names a new simulator
   or operational-profile identity and permits only one new request-equal Replay Request bound to the exact
   predecessor `REPAIR_INPUTS` decision, category, native repair request and result identities, original proof
@@ -84,7 +84,7 @@ Replay frozen strategy artifacts against admitted historical facts with producti
 - To R&D's attended repair path: one request-equal passing `REPAIR_VALIDATION` result may support
   `D1_VALIDATED`; a failed, rejected, invalid, unknown, or unequal result supports no Candidate and cannot be
   relabeled as research evidence. R&D alone commits the D-only Repair Disposition.
-- To [Qualification](../qualification/): sealed Protected Run Results that repeat every consumed execution-defining identity for exact equality checking, plus complete consumed-input evidence only.
+- To [Qualification](./qualification/): sealed Protected Run Results that repeat every consumed execution-defining identity for exact equality checking, plus complete consumed-input evidence only.
 - To Product Edge: read-only exploratory Run Result views only; protected requests, measurements, results, and holdout details are never projected.
 
 ## Rejections and prohibitions
@@ -115,18 +115,18 @@ Eligibility Fact, and exposes neither the operational evidence nor protected det
 
 ## Decision contract
 
-- **Inputs** — one frozen exploratory or protected Replay Request plus exact admitted PIT snapshot, artifact,
+- **Inputs** - one frozen exploratory or protected Replay Request plus exact admitted PIT snapshot, artifact,
   runtime, simulator, cost, slippage and capacity identities.
-- **Diagnosis and decision** — admit or reject the exact request, establish runner/service operational readiness,
+- **Diagnosis and decision** - admit or reject the exact request, establish runner/service operational readiness,
   replay deterministically, and commit actual consumption, operational diagnosis, and terminal result without
   interpreting deployability.
-- **Conflict resolution** — request identity and namespace determine the run; changed meaning is rejected and
+- **Conflict resolution** - request identity and namespace determine the run; changed meaning is rejected and
   replay joins the same result rather than substituting defaults.
-- **Outputs and terminal negatives** — Run Result or `RUN_REJECTED`, `INVALID_REPLAY_EVIDENCE`, and
+- **Outputs and terminal negatives** - Run Result or `RUN_REJECTED`, `INVALID_REPLAY_EVIDENCE`, and
   `IN_PROGRESS_OR_UNKNOWN`; every branch remains factual evidence only.
-- **Feedback and economic meaning** — expose net-of-cost behavior and reproducibility so Research can learn and
+- **Feedback and economic meaning** - expose net-of-cost behavior and reproducibility so Research can learn and
   Qualification can test without granting eligibility or capital.
-- **Prohibitions** — no Candidate selection, protected feedback to Research, Eligibility, lifecycle, live order,
+- **Prohibitions** - no Candidate selection, protected feedback to Research, Eligibility, lifecycle, live order,
   account truth, or deployment authority.
 
 ## Subsequent implementation acceptance

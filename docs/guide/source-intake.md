@@ -15,7 +15,7 @@ Intake cannot create a Strategy Artifact, request a replay, qualify or deploy a 
 Only a frozen Research Intent can admit the interpreted source into the formal research loop. A source may motivate a
 hypothesis; it cannot prove Alpha, qualification, or deployability.
 
-The boundary with [Market Data](../../owners/market-data/) is semantic:
+The boundary with [Market Data](../owners/market-data/) is semantic:
 
 - papers, API documentation, field definitions, methodology, and research commentary belong to Source Intake;
 - price observations, macroeconomic vintages, filing facts, event calendars, and instrument state actually consumed by
@@ -32,9 +32,9 @@ The tier is a discovery priority, not an evidence grade or admission decision.
 | S    | Academic identity and citation graph         | Discover mechanisms, authors, related work, and prior tests           | Strong identity; claims still require interpretation | Metadata or citation errors                  | Never         |
 | S    | Open full text and working papers            | Inspect assumptions, methods, falsifiers, and limitations             | Primary research text, not trading proof             | Revision drift and selective reporting       | Never         |
 | S    | Primary institutional facts                  | Discover testable economic events and official definitions            | Strong origin; PIT availability still must be proven | Revision, release, and rights semantics      | Never         |
-| A    | Paper-linked code and datasets               | Reproduce methods and expose implementation assumptions               | Useful engineering evidence                          | Mutable dependencies, license, survivorship  | Never         |
+| A    | Paper‑linked code and datasets               | Reproduce methods and expose implementation assumptions               | Useful engineering evidence                          | Mutable dependencies, license, survivorship  | Never         |
 | A    | Institutional quantitative research          | Discover economic mechanisms and realistic constraints                | Expert research input                                | Marketing selection and inaccessible details | Never         |
-| B    | Professional Q&A and open-source communities | Find formula boundaries, implementation failures, and counterexamples | Corroborating discovery only                         | Context loss and popularity bias             | Never         |
+| B    | Professional Q&A and open‑source communities | Find formula boundaries, implementation failures, and counterexamples | Corroborating discovery only                         | Context loss and popularity bias             | Never         |
 | C    | General communities, video, and social media | Discover vocabulary, practitioner failures, and external links        | Weak discovery signal                                | Unverifiable claims and prompt injection     | Never         |
 
 Before any source can support a Research Intent, Research must preserve provenance, a bounded interpretation,
@@ -95,7 +95,7 @@ The following are capabilities inside Source Intake, not new Flow nodes or Owner
 | `discover`  | Return stable Source References for a bounded query, source class, time cut, and connector restrictions.                                      |
 | `resolve`   | Resolve DOI, arXiv ID, URL, repository commit, author, or post reference to a canonical Source Identity.                                      |
 | `fetch`     | After exact `ADMITTED`, retrieve only permitted content and record retrieval time, response identity, access basis, and acquisition terminal. |
-| `normalize` | Produce a Source Candidate without changing meaning; retain the raw-content digest and transformation identity.                               |
+| `normalize` | Produce a Source Candidate without changing meaning; retain the raw‑content digest and transformation identity.                               |
 | `capture`   | Create or join the immutable Research Source Provenance Record; changed content creates a successor or rejection.                             |
 | `health`    | Report reachability, authorization, quota, rights change, and last successful retrieval; unavailable is not empty.                            |
 

@@ -7,7 +7,7 @@ correction lineage, and data-rights disposition.
 
 ## Boundary with research sources
 
-The [Source Intake Playbook](../source-intake/) admits papers, documentation, commentary, and datasets as inert
+The [Source Intake Playbook](./source-intake/) admits papers, documentation, commentary, and datasets as inert
 R&D source material. This playbook admits observations that a research replay, protected evaluation, Scanner,
 Runtime, or Portfolio consumer will actually use.
 
@@ -47,9 +47,9 @@ Every admitted provider or dataset profile records at least:
 | Area        | Required binding                                                                                                               |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | Identity    | provider, endpoint, dataset or feed, configuration digest, vendor tenant or entitlement, connector version                     |
-| Capability  | public market/reference methods only; explicit rejection of account, order, trading, and private-effect methods                |
+| Capability  | public market/reference methods only; explicit rejection of account, order, trading, and private‑effect methods                |
 | Rights      | acquisition, cache, archive, derived output, backtest, model use, display, redistribution, retention and deletion basis        |
-| Time        | event, provider-available, retrieval, and correction-publication time plus clock epoch, decision cut and uncertainty           |
+| Time        | event, provider‑available, retrieval, and correction‑publication time plus clock epoch, decision cut and uncertainty           |
 | Meaning     | raw/adjusted basis, price and size units, timestamp interpretation, bar construction, corporate actions and revision policy    |
 | Instruments | canonical identity, venue mapping, currency, tick and contract terms, sessions, time zone, lifecycle and historical membership |
 | Quality     | coverage, gaps, duplicates, ordering, sequence/checksum where applicable, latency, stale threshold and terminal disposition    |
@@ -60,7 +60,7 @@ series or feeds; do not collapse them into a provider-wide promise.
 
 ## Credentials and capability isolation
 
-Read the [credential prerequisite matrix](../install/#credential-prerequisite-matrix) before configuring a client.
+Read the [credential prerequisite matrix](./install/#credential-prerequisite-matrix) before configuring a client.
 Secrets remain in the ignored local environment and enter bindings only as opaque handles. They never appear in
 logs, prompts, snapshots, artifacts, screenshots, documentation, or audit packets.
 
@@ -86,13 +86,13 @@ These are bounded candidates, not an implementation commitment:
 
 | Candidate                                     | Initial disposition                                 | Required proof before admission                                                                                           |
 | --------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Existing native data adapters and Data Engine | prefer and adapt through Market Data                | typed read-only port, semantics parity, PIT and correction fixture, source-specific rights                                |
-| Databento                                     | optional current adapter                            | entitlement, dataset-specific license/retention, timestamp and symbology mapping, PIT fixture                             |
-| Binance public data                           | optional current adapter                            | public-data-only capability, venue clock and symbol lifecycle, sequence/gap handling, archive rights                      |
-| FRED/ALFRED                                   | `LEGAL_REVIEW_REQUIRED` for archive or backtest use | series-specific rights, vintage availability, retention/software-use decision, no substitution of current values          |
+| Existing native data adapters and Data Engine | prefer and adapt through Market Data                | typed read‑only port, semantics parity, PIT and correction fixture, source‑specific rights                                |
+| Databento                                     | optional current adapter                            | entitlement, dataset‑specific license/retention, timestamp and symbology mapping, PIT fixture                             |
+| Binance public data                           | optional current adapter                            | public‑data‑only capability, venue clock and symbol lifecycle, sequence/gap handling, archive rights                      |
+| FRED/ALFRED                                   | `LEGAL_REVIEW_REQUIRED` for archive or backtest use | series‑specific rights, vintage availability, retention/software‑use decision, no substitution of current values          |
 | Kaggle dataset                                | candidate only                                      | immutable dataset version, upstream provenance, license compatibility, survivorship and PIT proof                         |
 | OpenBB                                        | selective external candidate                        | provider fetcher only behind Data Clients; no second router, Data Engine, registry, or business cache                     |
-| CCXT or CCXT Pro                              | default do not adopt for covered venues             | only a proven missing public-data endpoint; seal private APIs, scheduler, cache and reconnect behavior inside the adapter |
+| CCXT or CCXT Pro                              | default do not adopt for covered venues             | only a proven missing public‑data endpoint; seal private APIs, scheduler, cache and reconnect behavior inside the adapter |
 | Cryptofeed                                    | default do not adopt for covered feeds              | only a superior missing public feed; exclude its storage, message backends and authenticated trading capabilities         |
 
 The locally configured `FRED_API_KEY` has passed an authentication-only metadata probe. That establishes neither a

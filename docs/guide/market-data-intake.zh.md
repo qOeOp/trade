@@ -6,7 +6,7 @@
 
 ## 与研究来源的边界
 
-[研究来源接入指南](../source-intake/)把论文、文档、评论与数据集接纳为惰性的 R&D 来源材料；本指南
+[研究来源接入指南](./source-intake/)把论文、文档、评论与数据集接纳为惰性的 R&D 来源材料；本指南
 接纳研究重放、受保护评估、Scanner、Runtime 或 Portfolio 实际消费的观测。
 
 - API 文档和序列说明属于 Research Source Intake 材料。
@@ -44,9 +44,9 @@
 | 领域        | 必需 binding                                                                                                           |
 | ----------- | ---------------------------------------------------------------------------------------------------------------------- |
 | Identity    | provider、endpoint、dataset/feed、配置摘要、vendor tenant/entitlement、connector version                               |
-| Capability  | 只允许 public market/reference 方法；明确拒绝 account、order、trading 和 private-effect 方法                           |
+| Capability  | 只允许 public market/reference 方法；明确拒绝 account、order、trading 和 private‑effect 方法                           |
 | Rights      | acquisition、cache、archive、derived output、backtest、model use、display、redistribution、retention 与 deletion basis |
-| Time        | event、provider-available、retrieval、correction-publication time，以及 clock epoch、decision cut 与 uncertainty       |
+| Time        | event、provider‑available、retrieval、correction‑publication time，以及 clock epoch、decision cut 与 uncertainty       |
 | Meaning     | raw/adjusted basis、价格与数量单位、timestamp 解释、bar 构造、corporate action 与 revision policy                      |
 | Instruments | 规范身份、venue mapping、currency、tick/contract term、session、time zone、lifecycle 与历史 membership                 |
 | Quality     | coverage、gap、duplicate、ordering、适用时的 sequence/checksum、latency、stale threshold 与 terminal disposition       |
@@ -57,7 +57,7 @@ Profile 按 dataset 区分。同一 provider 的不同 series 或 feed 可能拥
 
 ## Credential 与能力隔离
 
-配置 client 前先读[凭证前置矩阵](../install/#credential-prerequisite-matrix)。secret 只保留在被忽略的本地
+配置 client 前先读[凭证前置矩阵](./install/#credential-prerequisite-matrix)。secret 只保留在被忽略的本地
 环境，并且只以 opaque handle 进入 binding。它们不能出现在 log、prompt、snapshot、artifact、截图、
 文档或审计包中。
 
@@ -81,13 +81,13 @@ generation。后续 correction 只能通过显式 successor-feedback 路径进�
 
 | 候选                                  | 初始处置                                             | 准入前必需证明                                                                                                 |
 | ------------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| 现有原生 data adapters 与 Data Engine | 优先通过 Market Data 适配                            | typed read-only port、semantics parity、PIT/correction fixture、source-specific rights                         |
-| Databento                             | 可选 current adapter                                 | entitlement、dataset-specific license/retention、timestamp/symbology mapping、PIT fixture                      |
-| Binance public data                   | 可选 current adapter                                 | public-data-only capability、venue clock/symbol lifecycle、sequence/gap 处理、archive rights                   |
-| FRED/ALFRED                           | archive 或 backtest 使用前为 `LEGAL_REVIEW_REQUIRED` | series-specific rights、vintage availability、retention/software-use decision、禁止 current-value substitution |
+| 现有原生 data adapters 与 Data Engine | 优先通过 Market Data 适配                            | typed read‑only port、semantics parity、PIT/correction fixture、source‑specific rights                         |
+| Databento                             | 可选 current adapter                                 | entitlement、dataset‑specific license/retention、timestamp/symbology mapping、PIT fixture                      |
+| Binance public data                   | 可选 current adapter                                 | public‑data‑only capability、venue clock/symbol lifecycle、sequence/gap 处理、archive rights                   |
+| FRED/ALFRED                           | archive 或 backtest 使用前为 `LEGAL_REVIEW_REQUIRED` | series‑specific rights、vintage availability、retention/software‑use decision、禁止 current‑value substitution |
 | Kaggle dataset                        | 仅候选                                               | immutable dataset version、上游 provenance、license compatibility、survivorship 与 PIT proof                   |
 | OpenBB                                | 选择性外部候选                                       | 只能作为 Data Clients 后的 provider fetcher，不能引入第二套 router、Data Engine、registry 或 business cache    |
-| CCXT 或 CCXT Pro                      | 已覆盖 venue 默认不采用                              | 只处理已证实缺失的 public-data endpoint；private API、scheduler、cache 与 reconnect 行为封装在 adapter 内      |
+| CCXT 或 CCXT Pro                      | 已覆盖 venue 默认不采用                              | 只处理已证实缺失的 public‑data endpoint；private API、scheduler、cache 与 reconnect 行为封装在 adapter 内      |
 | Cryptofeed                            | 已覆盖 feed 默认不采用                               | 只处理更优且缺失的 public feed；排除其 storage、message backend 与 authenticated trading capability            |
 
 本地配置的 `FRED_API_KEY` 已通过 authentication-only metadata probe。这既不建立当前产品 connector，也

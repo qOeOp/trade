@@ -42,59 +42,59 @@
 
 ## 模块
 
-- **Order Engine** — 验证许可或恢复围栏，并独占订单创建 修改 撤销和终态管理。
-- **Execution Adapters** — 只准入 Execution Scope 固定的 adapter binding，再转换请求 回执 成交 错误和
+- **Order Engine** - 验证许可或恢复围栏，并独占订单创建 修改 撤销和终态管理。
+- **Execution Adapters** - 只准入 Execution Scope 固定的 adapter binding，再转换请求 回执 成交 错误和
   回读；重启时不能改变 endpoint 账户 capability 或 trust policy。
-- **Effect Journal** — 请求准入前先持久化一个稳定 `PREPARED` attempt，只有匹配不可变 `ADMITTED_ONCE` 后才持久化 `INVOCATION_STARTED`，并把全部后续外部效果事实联结到该身份。
-- **Reconciler** — 拥有 Recovery Case 状态与有界 Recovery Command，比较效果与权威回读，联结闭合
+- **Effect Journal** - 请求准入前先持久化一个稳定 `PREPARED` attempt，只有匹配不可变 `ADMITTED_ONCE` 后才持久化 `INVOCATION_STARTED`，并把全部后续外部效果事实联结到该身份。
+- **Reconciler** - 拥有 Recovery Case 状态与有界 Recovery Command，比较效果与权威回读，联结闭合
   证据，并独占不可变 `KNOWN_CLOSED` 且不恢复交易。
 
 ## 输入交接
 
-- [Runtime](../runtime/) 发送 Authorized Order Command。新增风险命令绑定同一 Risk Decision 与
+- [Runtime](./runtime/) 发送 Authorized Order Command。新增风险命令绑定同一 Risk Decision 与
   Reservation；准确 decrease-only 命令改为绑定 `PERMIT_DECREASE_ONLY`，并明确不携带 Reservation
   或 claim。两者都绑定 authorization mode 与完整请求 Authorization Lineage。
   `UNATTENDED_REQUEST_WITH_POLICY` 还必须绑定当前 Autonomous Policy Authorization。
-- [Risk](../risk/) 先返回唯一不可变 Reservation Claim Result。只有 `CONSUMED` 才允许 prepared attempt；随后 Risk 返回唯一不可变 Adapter Admission Result，且只有匹配 `ADMITTED_ONCE` 才允许写入 `INVOCATION_STARTED` 并调用正常适配器。
+- [Risk](./risk/) 先返回唯一不可变 Reservation Claim Result。只有 `CONSUMED` 才允许 prepared attempt；随后 Risk 返回唯一不可变 Adapter Admission Result，且只有匹配 `ADMITTED_ONCE` 才允许写入 `INVOCATION_STARTED` 并调用正常适配器。
 - Recovery 中 Runtime 只提供实例 checkpoint 就绪和事故事实。`NOT_READY` Readiness Fact 按相同
   generation scope cause 和 source frontier 直接创建或加入唯一 Execution-owned case。Incident Fact 或
   Execution Drift Fact 先取得一个 Execution-owned Recovery Admission Disposition；只有带匹配 `ACTIVE`
   fence 的 `RECOVERY_ADMITTED` 才允许 case。Reconciler 根据权威 Execution 暴露
   截面创建绑定 case 与 fence 的撤销 减仓 清仓或回读命令。
-- [Risk](../risk/) 提供在唯一 Aggregate Commitment Frontier 证明的完整活动 fence set，包含全部来源
+- [Risk](./risk/) 提供在唯一 Aggregate Commitment Frontier 证明的完整活动 fence set，包含全部来源
   独立 member identity epoch policy action set 与 cut，并提供终态 Reservation 成员和剩余暴露闭合事实。携带准确
   `RISK_HARD_STOP` 来源分支的 fence 也会在 Runtime 仍可为 `READY` 时直接创建或加入 case；Execution
   保留 hard-stop 原因与政策引用，但不拥有它们。
-- [Portfolio](../portfolio/) 提供匹配账户闭合投影。
+- [Portfolio](./portfolio/) 提供匹配账户闭合投影。
 - 场所和模拟适配器提供权威回执 成交 账户回读和错误。
 
 ## 输出交接
 
 - 在 Strategy Governance 建立 Paper 或 Live Execution Scope 前，向
-  [Strategy Governance](../strategy-governance/) 提供唯一当前不可变 `ADMITTED` Execution Adapter
+  [Strategy Governance](./strategy-governance/) 提供唯一当前不可变 `ADMITTED` Execution Adapter
   Binding，绑定准确 mode 账户 效果命名空间 endpoint capability trust policy 与 valid-through。缺失
   撤销 跨 mode 命名空间别名或未知 binding 不产生 Execution Scope 或授权。
-- Paper 或 Live 向 [Risk](../risk/) 先提交稳定 Reservation Claim Request；`CONSUMED` 后再提交绑定持久 `PREPARED` attempt 与命令的 `ADAPTER_ADMISSION_REQUEST`，之后才提供未知效果 结算或唯一无效果证明。`PRE_ADAPTER_SUPPRESSION` 绑定 `SUPPRESSED_BY_FENCE` 结果与持久未调用 record，`VENUE_READBACK` 绑定一次 `ADMITTED_ONCE` 与 `INVOCATION_STARTED` attempt 和权威回读，两种证明互斥。
+- Paper 或 Live 向 [Risk](./risk/) 先提交稳定 Reservation Claim Request；`CONSUMED` 后再提交绑定持久 `PREPARED` attempt 与命令的 `ADAPTER_ADMISSION_REQUEST`，之后才提供未知效果 结算或唯一无效果证明。`PRE_ADAPTER_SUPPRESSION` 绑定 `SUPPRESSED_BY_FENCE` 结果与持久未调用 record，`VENUE_READBACK` 绑定一次 `ADMITTED_ONCE` 与 `INVOCATION_STARTED` attempt 和权威回读，两种证明互斥。
 - 准确 `PERMIT_DECREASE_ONLY` 命令绕过新增风险 Reservation 图：Execution 不创建 Reservation Claim
   Request 或 claim result，也不准入新增风险形状；但仍写入唯一稳定 `PREPARED` attempt，再发送
   `ADAPTER_ADMISSION_REQUEST`，由 Risk 把该请求与同 scope fence activation 排序。只有
   `ADMITTED_ONCE` 才允许 `INVOCATION_STARTED` 与有界 decrease 动作。Recovery 仍是独立活动 fence 路径。
-- Recovery 准入前，`execution-risk-drift-fence` 向 [Risk](../risk/) 提交 `RECONCILIATION_DRIFT` 已提交的
+- Recovery 准入前，`execution-risk-drift-fence` 向 [Risk](./risk/) 提交 `RECONCILIATION_DRIFT` 已提交的
   准确 `reconciliation-drift-fact`；Execution 永不写由此产生的 Recovery Fence。Recovery 中每个后续
   事实都绑定 case generation scope 完整活动 fence-set identity/digest Recovery Command 和 effect chain。
   已提交 drift `UNKNOWN_EFFECT` 绑定 effect journal、uncertain-effect lineage、不确定性观察、最后一次
   回读尝试或已证明缺失，以及完整 source/time frontier，不需要编造终态回读。只有 `NO_EFFECT` 与
   `SETTLED` 绑定权威终态回读和对账截面。恢复事实不属于
   `ADAPTER_ADMISSION_REQUEST`，Execution 既不读取也不断言 Risk 所有的 Reservation 成员关系。
-- 向 [Runtime](../runtime/) 提供订单 成交 命令拒绝 终态场所回读和对账结果。
-- 向 [R&D](../rd/) 提供已提交且按 generation 划分的账户 订单 成交 完整 Execution Quality
+- 向 [Runtime](./runtime/) 提供订单 成交 命令拒绝 终态场所回读和对账结果。
+- 向 [R&D](./rd/) 提供已提交且按 generation 划分的账户 订单 成交 完整 Execution Quality
   Observation Effect Journal 权威回读和 Reconciliation Drift 事实，只能作为后继来源证据。Research
   provenance 绑定这些准确已提交事实身份与来源截面，永不绑定 Effect Closure View。该本地反馈不能
   改写运行中或已选择血缘，也不含保护 Qualification 细节。
-- 向 [Portfolio](../portfolio/) 提供账户 订单 成交 费用 权威场所事实、稳定 settlement/readback lineage，
+- 向 [Portfolio](./portfolio/) 提供账户 订单 成交 费用 权威场所事实、稳定 settlement/readback lineage，
   以及 Portfolio 投影与归因使用的准确有限 Execution Quality Observation。
-- 向 [Strategy Governance](../strategy-governance/) 提供可直接读取的已提交 Reconciliation Drift Fact；Event Rail 只负责唤醒。
-- 向 [Strategy Governance](../strategy-governance/) 在任何新 generation 决定前提供不可变 `RecoveryCase.KNOWN_CLOSED`。
+- 向 [Strategy Governance](./strategy-governance/) 提供可直接读取的已提交 Reconciliation Drift Fact；Event Rail 只负责唤醒。
+- 向 [Strategy Governance](./strategy-governance/) 在任何新 generation 决定前提供不可变 `RecoveryCase.KNOWN_CLOSED`。
 - 向 Event Rail 发布已提交订单 成交和对账事件作为唤醒提示。
 
 ## 拒绝和禁止事项
@@ -162,17 +162,17 @@ Attempt `PREPARED`，紧邻外部调用前提交 `INVOCATION_STARTED`。两个�
 
 ## 决策契约
 
-- **输入** — 正常 Authorized Order Command 与 Risk claim/admission result，或 Execution-owned Recovery Case
+- **输入** - 正常 Authorized Order Command 与 Risk claim/admission result，或 Execution-owned Recovery Case
   与准确当前 active Risk Fence；adapter venue Risk Portfolio 事实闭合循环。
-- **诊断与决定** — 校验正常 effect 权威或选择一个有界 Recovery 动作，记录 attempt 截面，完成权威
+- **诊断与决定** - 校验正常 effect 权威或选择一个有界 Recovery 动作，记录 attempt 截面，完成权威
   回读与对账，再决定效果或 case 是否闭合。
-- **冲突解析** — 稳定正常 attempt identity 防止重复调用；Recovery 按回读 撤单 减仓 清仓和稳定身份
+- **冲突解析** - 稳定正常 attempt identity 防止重复调用；Recovery 按回读 撤单 减仓 清仓和稳定身份
   tie-break 排序，成员未解析时不变更。
-- **输出与终态负例** — order effect drift readback Effect Closure View Recovery Effect Attempt 和
+- **输出与终态负例** - order effect drift readback Effect Closure View Recovery Effect Attempt 和
   `KNOWN_CLOSED`；拒绝 no-effect unknown 保持互相独立的持久结果。
-- **反馈与经济意义** — 让每个外部效果 fee fill drift closure 可归因，使 Portfolio 测量经济结果并让
+- **反馈与经济意义** - 让每个外部效果 fee fill drift closure 可归因，使 Portfolio 测量经济结果并让
   Governance 安全改变生命周期。
-- **禁止** — 不拥有 Trade Intent 资金分配 Risk 状态 账户投影 生命周期状态，不盲重试 不编造成交，
+- **禁止** - 不拥有 Trade Intent 资金分配 Risk 状态 账户投影 生命周期状态，不盲重试 不编造成交，
   不把通知当证明也不激活 fence。
 
 ## 后续实现验收

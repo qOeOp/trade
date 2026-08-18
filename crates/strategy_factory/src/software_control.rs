@@ -381,6 +381,7 @@ fn software_control_trial_id(
     source_binding: &[u8],
 ) -> String {
     let mut hasher = blake3::Hasher::new();
+
     for bytes in [
         b"strategy-factory-software-control-trial-v1".as_slice(),
         build.source_capsule.as_ref(),
@@ -394,6 +395,7 @@ fn software_control_trial_id(
         hasher.update(&len.to_le_bytes());
         hasher.update(bytes);
     }
+
     for value in [
         run_scope.source_start_ns,
         run_scope.decision_start_ns,
@@ -463,6 +465,7 @@ fn validate_control(result: &CanonicalBacktestResult) -> anyhow::Result<()> {
         "PendingCancel",
         "Canceled",
     ];
+
     for expected in [
         ("Market", "FILLED", false, market_events.as_slice()),
         ("Market", "FILLED", true, market_events.as_slice()),
@@ -621,7 +624,7 @@ mod tests {
         CanonicalBacktestResult::from_slice(&serde_json::to_vec(&document).unwrap()).unwrap()
     }
 
-    #[test]
+    #[rstest]
     fn btc_terminal_wrapper_preserves_exact_identity_and_missing_key_behavior() {
         let accepted = terminal_result(
             &serde_json::json!([{"core": {"instrument_id": "BTCUSDT-PERP.BINANCE"}}]),
@@ -641,13 +644,14 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn completed_terminal_validator_rejects_each_nonterminal_boundary() {
         let base = terminal_result(
             &serde_json::json!([]),
             &serde_json::json!([]),
             &serde_json::json!([]),
         );
+
         for (pointer, replacement, expected) in [
             (
                 "/run/outcome",
@@ -689,7 +693,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn instrument_collector_counts_nested_exact_allowed_identities() {
         let value = serde_json::json!({
             "instrument_id": "BTCUSDT-PERP.BINANCE",
@@ -709,7 +713,7 @@ mod tests {
         assert_eq!(counts.values().sum::<usize>(), 3);
     }
 
-    #[test]
+    #[rstest]
     fn instrument_collector_reports_missing_and_rejects_foreign_or_non_string_ids() {
         let missing = collect_allowed_instrument_ids(
             &serde_json::json!({"nested": [{"other": true}]}),
@@ -741,6 +745,7 @@ mod tests {
         bar: BarObservation,
     ) -> Result<(), ProgramFault> {
         let mut payload = [0_u8; 40];
+
         for (index, value) in [bar.open, bar.high, bar.low, bar.close, bar.volume]
             .into_iter()
             .enumerate()
@@ -882,6 +887,7 @@ mod tests {
         let artifact = channel_control_artifact(&parameters, &bindings).unwrap();
         let mut session = ProgramSession::new(&artifact, &parameters, test_scope()).unwrap();
         assert!(session.start(0).unwrap().is_empty());
+
         for (index, bar_type) in bar_types.iter().enumerate() {
             let channel = u32::try_from(
                 bar_types

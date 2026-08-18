@@ -2,6 +2,9 @@ import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import remarkGfm from 'remark-gfm';
+import remarkParse from 'remark-parse';
+import { unified } from 'unified';
 import { PUBLISHED_DOC_ROOTS } from './lib/publication-contract.mjs';
 import {
   materializeCanonicalDevelopmentChunkRecord,
@@ -57,6 +60,38 @@ function titleFromHeading(heading) {
     .replace(/`([^`]+)`/g, '$1')
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
     .trim();
+}
+
+export function routeRelativeMarkdownLinks(source, route) {
+  if (route.split('/').at(-1) === 'index') return source;
+
+  const edits = [];
+  const visit = (node) => {
+    if (node.type === 'link' && /^\.\.?\//.test(node.url)) {
+      const start = node.position?.start.offset;
+      const end = node.position?.end.offset;
+      if (!Number.isInteger(start) || !Number.isInteger(end)) {
+        throw new Error('Relative Markdown link is missing a source position');
+      }
+      const raw = source.slice(start, end);
+      const destination = /\]\(\s*(?:<([^>\n]+)>|([^\s)>]+))/.exec(raw);
+      const rawTarget = destination?.[1] ?? destination?.[2];
+      if (!destination || rawTarget !== node.url) {
+        throw new Error(`Unsupported relative Markdown link spelling: ${raw}`);
+      }
+      const localStart = destination.index + destination[0].lastIndexOf(rawTarget);
+      const routeTarget = rawTarget.startsWith('./') ? `../${rawTarget.slice(2)}` : `../${rawTarget}`;
+      edits.push({ start: start + localStart, end: start + localStart + rawTarget.length, routeTarget });
+    }
+    for (const child of node.children ?? []) visit(child);
+  };
+  visit(unified().use(remarkParse).use(remarkGfm).parse(source));
+
+  let output = source;
+  for (const edit of edits.sort((left, right) => right.start - left.start)) {
+    output = `${output.slice(0, edit.start)}${edit.routeTarget}${output.slice(edit.end)}`;
+  }
+  return output;
 }
 
 const surfaces = [
@@ -556,7 +591,7 @@ function canonicalContractProjection(route, locale) {
   for (const surface of routeSurfaces) {
     const role = surfaceRole(surface);
     const modules = surface.modules ?? [];
-    lines.push('', `- **${surface.label}** — \`${surface.id}\` · ${text.role} \`${role}\` · ${text.route} \`${route}\``);
+    lines.push('', `- **${surface.label}** - \`${surface.id}\` · ${text.role} \`${role}\` · ${text.route} \`${route}\``);
     lines.push(`  - ${text.moduleCount}: \`${modules.length}\``);
     const surfaceKind = architectureContract.authorityOwners.includes(surface)
       ? 'authorityOwner'
@@ -576,7 +611,7 @@ function canonicalContractProjection(route, locale) {
     }
     const overlap = scenario.primaryRelationIds.filter((id) => scenario.supportingRelationIds.includes(id));
     if (overlap.length > 0) throw new Error(`Scenario ${scenario.id} repeats relations across PRIMARY and SUPPORTING: ${overlap.join(', ')}`);
-    lines.push('', `- **${localized(scenario.label, locale)}** — ${text.scenario} \`${scenario.id}\``);
+    lines.push('', `- **${localized(scenario.label, locale)}** - ${text.scenario} \`${scenario.id}\``);
     lines.push(`  - ${localized(scenario.description, locale)}`);
     lines.push(`  - ${locale === 'zh' ? '入口' : 'entry'}: ${localized(scenario.entry, locale)}`);
     lines.push(`  - ${locale === 'zh' ? '证明' : 'proof'}: ${localized(scenario.proof, locale)}`);
@@ -617,7 +652,7 @@ function canonicalContractProjection(route, locale) {
       );
     }
     const businessOutcome = relationBusinessOutcome(relation);
-    lines.push('', `- **${text.relation} \`${relation.id}\`** — \`${relation.sourceId}\` → \`${relation.targetId}\``);
+    lines.push('', `- **${text.relation} \`${relation.id}\`** - \`${relation.sourceId}\` → \`${relation.targetId}\``);
     lines.push(`  - ${text.class} \`${relation.class}\` · ${text.weight} \`${relation.weight}\` · ${text.route} \`${relation.docsRoute}\``);
     lines.push(`  - ${text.sourceRole} \`${relation.sourceRole}\` · ${text.actionKind} \`${relation.relation}\` · ${text.carriedObject} \`${relation.objectId}\` · ${text.objectAuthority} \`${relation.objectAuthority}\` · ${text.semanticsAuthority} \`RELATION_LOCAL\``);
     lines.push(businessOutcome.owner
@@ -636,7 +671,7 @@ function canonicalContractProjection(route, locale) {
     if (!object) throw new Error(`Unknown architecture object ${objectId} projected by ${route}`);
     const authority = object.authorityId ?? object.custodianId;
     if (!authority) throw new Error(`Architecture object ${object.id} has no authority or custodian`);
-    lines.push('', `- **${text.object} \`${object.id}\`** — \`${object.label}\` · ${text.authority} \`${authority}\``);
+    lines.push('', `- **${text.object} \`${object.id}\`** - \`${object.label}\` · ${text.authority} \`${authority}\``);
     if (object.visibility) lines.push(`  - ${text.visibility}: \`${object.visibility}\``);
     const baseFields = new Set(['id', 'label', 'authorityId', 'custodianId', 'visibility']);
     for (const [key, value] of Object.entries(object).filter(([key]) => !baseFields.has(key)).sort(([left], [right]) => left.localeCompare(right))) {
@@ -649,7 +684,7 @@ function canonicalContractProjection(route, locale) {
 
   for (const invariant of routeInvariants) {
     const authority = invariant.authorityId ?? invariant.custodianId;
-    lines.push('', `- **${text.invariant} \`${invariant.id}\`** — ${text.authority} \`${authority}\` · ${text.route} \`${invariant.docsRoute}\``);
+    lines.push('', `- **${text.invariant} \`${invariant.id}\`** - ${text.authority} \`${authority}\` · ${text.route} \`${invariant.docsRoute}\``);
     lines.push(`  - ${text.consumer}: \`${invariant.observableConsumerId}\` · ${text.scenario} \`${invariant.scenarioId}\``);
     lines.push(`  - ${text.object}: \`${invariant.objectId}\` · ${text.relatedObjects}: ${inlineList(invariant.requiredRelatedObjectIds)}`);
     lines.push(`  - ${text.guarantees}: ${inlineList(invariant.requiredGuarantees)}`);
@@ -774,8 +809,8 @@ async function checkCanonicalContractComponents(pages) {
 }
 
 async function addFrontmatter(path) {
-  const source = await readFile(path, 'utf8');
   const route = canonicalRouteFromPage(path);
+  const source = routeRelativeMarkdownLinks(await readFile(path, 'utf8'), route);
   const locale = /\.zh\.mdx?$/.test(path) ? 'zh' : 'en';
   const projection = canonicalContractProjection(route, locale);
   const outputPath = projection ? path.replace(/\.md$/, '.mdx') : path;

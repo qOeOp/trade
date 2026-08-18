@@ -56,6 +56,7 @@ pub(crate) fn binance_program_instruments<'a>(
     bindings: impl Iterator<Item = (BinanceProductType, &'a str)>,
 ) -> anyhow::Result<Vec<InstrumentAny>> {
     let mut unique = BTreeMap::new();
+
     for (product, symbol) in bindings {
         let instrument_id = format_instrument_id(&symbol.into(), product);
         if let Some(previous) = unique.insert(instrument_id, (product, symbol)) {

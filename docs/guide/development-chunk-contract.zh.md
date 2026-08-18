@@ -6,9 +6,9 @@
 ## 选择规则
 
 每次只选择一条规范关系，或一个具有可观察消费者的 authority 内部不变量。Authority 包括业务 Owner
-和显式建模的非业务边界托管方。切片不能是“实现整个 Owner”“迁移一个 crate”或“完成整个场景”。
+和显式建模的非业务边界托管方。切片不能是"实现整个 Owner""迁移一个 crate"或"完成整个场景"。
 当前代码路径在规划时发现并绑定；目标文档不声称当前实现一致。
-先选择 canonical 切片，再通过 [Agent 实现指南](../agent-implementation/)验证当前引擎 API、工具链指导与
+先选择 canonical 切片，再通过 [Agent 实现指南](./agent-implementation/)验证当前引擎 API、工具链指导与
 旧开发参考。
 
 ## 可复制规划包络
@@ -243,7 +243,7 @@ Artifact 的独立服务 Owner。边界可以生产
 - 对 CURRENT 与 LEGACY，record 加 contract 都不足以通过。公共校验器必须取得真实 immutable Git tree 与
   仓库 object database，把每个 locator 解析到唯一 blob，读取 bytes，重新计算 Git blob ID 与 SHA-256，
   并比较外部提供的 context digest。缺少解析、tree 过期或错误、path 不存在、伪造但内部自洽的 identity、
-  bytes 被修改时都无效。LEGACY 不存在“无法解析但仍有效”的例外；解析成功后仍必须
+  bytes 被修改时都无效。LEGACY 不存在"无法解析但仍有效"的例外；解析成功后仍必须
   `DO_NOT_USE_AND_REPLAN`。
 - 一个聚焦测试证明权威写入者和接受结果。
 - 一个边界消费者测试证明消费者读取已提交 Owner 结果。

@@ -40,26 +40,26 @@ Independently gate every normal Trade Intent against current policy, account exp
 
 ## Modules
 
-- **Risk Reservation** — durably serialize one Execution claim or withdraw an unconsumed allowance, then hold,
+- **Risk Reservation** - durably serialize one Execution claim or withdraw an unconsumed allowance, then hold,
   replace, or release liability on the same-scope frontier. Consumed liability closes only from Execution settlement
   facts joined to a matching Portfolio Risk Evidence Bundle; `SETTLED` alone does not release it.
-- **Risk Engine** — return allow with decision and reservation, or a terminal rejection, for every normal intent.
-- **Kill Switch** — block new risk and fence affected generations while defining the bounded cancel/reduce/flatten recovery scope.
+- **Risk Engine** - return allow with decision and reservation, or a terminal rejection, for every normal intent.
+- **Kill Switch** - block new risk and fence affected generations while defining the bounded cancel/reduce/flatten recovery scope.
 
 ## Input handoffs
 
-- [Runtime](../runtime/) submits Trade Intent, immutable Readiness Facts, and for `RUNTIME_INCIDENT` the committed
+- [Runtime](./runtime/) submits Trade Intent, immutable Readiness Facts, and for `RUNTIME_INCIDENT` the committed
   `runtime-incident-fact` through `runtime-risk-incident-fence`. Risk treats source facts as evidence for its own
   independent fence commit, not requests or acknowledgements.
-- [Strategy Governance](../strategy-governance/) supplies the applicable `POOL_ROOT` and exact
+- [Strategy Governance](./strategy-governance/) supplies the applicable `POOL_ROOT` and exact
   `STRATEGY_GENERATION` Capital Envelope chain with current Eligibility, each envelope's effective interval and
   complete shared Time Evidence, authorization mode, and complete request Authorization Lineage.
   `UNATTENDED_REQUEST_WITH_POLICY` additionally carries its current Autonomous Policy Authorization. One intent
   uses only its own chain; sibling envelopes are not a global minimum.
-- [Portfolio](../portfolio/) supplies the immutable Capacity Scope, candidate-neutral gross Capacity View, and one
+- [Portfolio](./portfolio/) supplies the immutable Capacity Scope, candidate-neutral gross Capacity View, and one
   coherent Portfolio Risk Evidence Bundle with exposure, open orders, account/valuation cut, and incorporated
   Execution lineages. It never supplies Risk commitment state or net headroom.
-- [Execution](../execution/) submits one stable Reservation Claim Request for add-risk. After matching `CONSUMED`,
+- [Execution](./execution/) submits one stable Reservation Claim Request for add-risk. After matching `CONSUMED`,
   it persists a `PREPARED` attempt and submits one stable `ADAPTER_ADMISSION_REQUEST`. For exact decrease-only it
   submits no claim, persists `PREPARED` with explicit-none Reservation/claim lineage, and submits the admission
   request directly. It later reports unknown effect, settlement, or exactly one no-effect proof: durable
@@ -74,8 +74,8 @@ Independently gate every normal Trade Intent against current policy, account exp
 
 ## Output handoffs
 
-- To [Runtime](../runtime/): terminal rejection, an approved Risk Decision with one-use Reservation, and any terminal pre-consumption `WITHDRAWN` outcome.
-- To [Execution](../execution/): exactly one immutable Reservation Claim Result for each stable add-risk claim,
+- To [Runtime](./runtime/): terminal rejection, an approved Risk Decision with one-use Reservation, and any terminal pre-consumption `WITHDRAWN` outcome.
+- To [Execution](./execution/): exactly one immutable Reservation Claim Result for each stable add-risk claim,
   then one Adapter Admission Result per prepared add-risk or decrease-only attempt. Risk commits `ADMITTED_ONCE`, `SUPPRESSED_BY_FENCE`, or `REJECTED`
   in the Aggregate Commitment Frontier mutation that orders admission against fence activation. It also supplies
   the complete active fence set, terminal Reservation membership, and residual-exposure closure facts to Reconciler.
@@ -165,18 +165,18 @@ Execution alone writes `KNOWN_CLOSED` after matching Risk and Portfolio closure 
 
 ## Decision contract
 
-- **Inputs** — one Runtime intent and readiness cut, Governance envelope and authorization lineage, coherent
+- **Inputs** - one Runtime intent and readiness cut, Governance envelope and authorization lineage, coherent
   Portfolio risk bundle, and later Execution claim, admission and settlement facts.
-- **Diagnosis and decision** — evaluate authorization, identity, evidence, limits, commitment frontier and fence;
+- **Diagnosis and decision** - evaluate authorization, identity, evidence, limits, commitment frontier and fence;
   commit one terminal rejection or one-use decision and Reservation.
-- **Conflict resolution** — same-scope mutations serialize under declared enforcement order; Governance allocation
+- **Conflict resolution** - same-scope mutations serialize under declared enforcement order; Governance allocation
   remains fixed, duplicate identity joins once, and unresolved business priority rejects.
-- **Outputs and terminal negatives** — decision, Reservation, claim/admission result, fence or a categorized
+- **Outputs and terminal negatives** - decision, Reservation, claim/admission result, fence or a categorized
   `REJECT` with the complete supported set, deterministic primary, decisive facts, and proof of no Reservation;
   missing or mixed-cut evidence supports `EVIDENCE_UNAVAILABLE_OR_MIXED_CUT` and never becomes implicit allow.
-- **Feedback and economic meaning** — bound worst-case outstanding liability and prevent stale, duplicate or
+- **Feedback and economic meaning** - bound worst-case outstanding liability and prevent stale, duplicate or
   over-limit exposure without deciding which strategy deserves capital.
-- **Prohibitions** — no contender allocation, order command, adapter call, venue fact, Portfolio projection,
+- **Prohibitions** - no contender allocation, order command, adapter call, venue fact, Portfolio projection,
   lifecycle decision, Recovery Case, or closure.
 
 ## Subsequent implementation acceptance
