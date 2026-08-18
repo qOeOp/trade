@@ -13,6 +13,7 @@ members = [
   "crates/adapters/deribit",
   "crates/adapters/derive",
   "crates/adapters/dydx",
+  "crates/adapters/fred",
   "crates/adapters/hyperliquid",
   "crates/adapters/interactive_brokers",
   "crates/adapters/kraken",
@@ -20,6 +21,7 @@ members = [
   "crates/adapters/okx",
   "crates/adapters/polymarket",
   "crates/adapters/sandbox",
+  "crates/adapters/scheduled_events",
   "crates/adapters/tardis",
   "crates/analysis",
   "crates/backtest",
@@ -31,6 +33,7 @@ members = [
   "crates/event_store",
   "crates/execution",
   "crates/indicators",
+  "crates/indicators/kernel",
   "crates/infrastructure",
   "crates/live",
   "crates/model",
@@ -43,6 +46,7 @@ members = [
   "crates/risk",
   "crates/serialization",
   "crates/strategy_factory",
+  "crates/strategy_factory/programs/sdk",
   "crates/system",
   "crates/testkit",
   "crates/trading",
@@ -67,6 +71,7 @@ vibe-cryptography = { path = "crates/cryptography", version = "0.62.0" }
 vibe-data = { path = "crates/data", version = "0.62.0" }
 vibe-execution = { path = "crates/execution", version = "0.62.0" }
 vibe-indicators = { path = "crates/indicators", version = "0.62.0" }
+vibe-indicators-kernel = { path = "crates/indicators/kernel", version = "0.62.0" }
 vibe-infrastructure = { path = "crates/infrastructure", version = "0.62.0" }
 vibe-live = { path = "crates/live", version = "0.62.0", default-features = false }
 vibe-model = { path = "crates/model", version = "0.62.0" }
@@ -97,6 +102,7 @@ vibe-databento = { path = "crates/adapters/databento", version = "0.62.0", defau
 vibe-deribit = { path = "crates/adapters/deribit", version = "0.62.0", default-features = false }
 vibe-derive = { path = "crates/adapters/derive", version = "0.62.0", default-features = false }
 vibe-dydx = { path = "crates/adapters/dydx", version = "0.62.0", default-features = false }
+vibe-fred = { path = "crates/adapters/fred", version = "0.62.0", default-features = false }
 vibe-hyperliquid = { path = "crates/adapters/hyperliquid", version = "0.62.0", default-features = false }
 vibe-interactive-brokers = { path = "crates/adapters/interactive_brokers", version = "0.62.0" }
 vibe-kraken = { path = "crates/adapters/kraken", version = "0.62.0", default-features = false }
@@ -104,6 +110,7 @@ vibe-lighter = { path = "crates/adapters/lighter", version = "0.62.0", default-f
 vibe-okx = { path = "crates/adapters/okx", version = "0.62.0", default-features = false }
 vibe-polymarket = { path = "crates/adapters/polymarket", version = "0.62.0", default-features = false }
 vibe-sandbox = { path = "crates/adapters/sandbox", version = "0.62.0", default-features = false }
+vibe-scheduled-events = { path = "crates/adapters/scheduled_events", version = "0.62.0", default-features = false }
 vibe-tardis = { path = "crates/adapters/tardis", version = "0.62.0", default-features = false }
 
 # -----------------------------------------------------------------------------
@@ -172,6 +179,7 @@ jiff = { version = "0.2.35", default-features = false, features = [
   "tz-fat",
   "tzdb-bundle-always",
 ] }
+libc = "0.2.183"
 libfuzzer-sys = "0.4.13"
 log = { version = "0.4.33", features = [
   "std",
@@ -236,6 +244,7 @@ reqwest = { version = "0.13.4", default-features = false, features = [
 rmp-serde = "1.3.1"
 rust_decimal = { version = "1.42.1", features = ["serde-with-float"] }
 rust_decimal_macros = "1.40.0"
+rustix = { version = "1.1.4", features = ["fs"] }
 rustls = { version = "0.23.43", default-features = false, features = [
   "aws-lc-rs",
   "logging",
@@ -243,6 +252,7 @@ rustls = { version = "0.23.43", default-features = false, features = [
   "tls12",
 ] }
 rustls-pemfile = "2.2.0"
+scraper = { version = "0.27.0", default-features = false }
 serde = { version = "1.0.229", default-features = false, features = [
   "derive",
   "std",
@@ -253,6 +263,7 @@ serde_json = { version = "1.0.151", default-features = false, features = [
   "std",
 ] }
 serde_urlencoded = "0.7.1"
+sha2 = "0.10.9"
 smallvec = { version = "1.15.2", features = ["serde"] }
 sockudo-ws = { version = "2.0.1", default-features = false, features = [
   "simd",
@@ -267,11 +278,13 @@ sqlx = { version = "0.9.0", default-features = false, features = [
   "derive",
   "rust_decimal",
 ] }
+statrs = { version = "0.19.0", default-features = false }
 strum = { version = "0.28.0", features = ["derive"] }
 sysinfo = { version = "0.39.6", default-features = false, features = [
   "system",
 ] }
 tabled = { version = "0.21.0", default-features = false, features = ["std"] }
+tar = { version = "0.4.46", default-features = false }
 thiserror = "2.0.19"
 tokio = { version = "1.53.1", default-features = false, features = [
   "rt-multi-thread",

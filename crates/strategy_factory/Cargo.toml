@@ -13,24 +13,39 @@ workspace = true
 [dependencies]
 anyhow = { workspace = true }
 blake3 = { workspace = true }
+jiff = { workspace = true }
+rust_decimal = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
+statrs = { workspace = true }
+strategy-factory-program-sdk = { path = "programs/sdk" }
+tar = { workspace = true }
+tempfile = { workspace = true }
 thiserror = { workspace = true }
-vibe-backtest = { workspace = true }
+vibe-analysis = { workspace = true }
+vibe-backtest = { workspace = true, features = ["streaming"] }
 vibe-binance = { workspace = true }
 vibe-common = { workspace = true }
 vibe-core = { workspace = true }
-vibe-indicators = { workspace = true }
+vibe-data = { workspace = true }
+vibe-fred = { workspace = true }
 vibe-model = { workspace = true }
+vibe-persistence = { workspace = true }
+vibe-scheduled-events = { workspace = true }
 vibe-trading = { workspace = true }
 wasmi = { workspace = true }
 wasmparser = { workspace = true }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { workspace = true }
+
 [dev-dependencies]
 rstest = { workspace = true }
+vibe-portfolio = { workspace = true }
 
 [[bin]]
-name = "strategy-factory-pilot"
-path = "src/bin/strategy_factory_pilot.rs"
+name = "strategy-factory-formation"
+path = "src/bin/strategy_factory_formation.rs"
 doc = false
 test = false

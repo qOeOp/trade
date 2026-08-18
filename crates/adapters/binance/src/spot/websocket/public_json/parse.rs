@@ -2,17 +2,14 @@
 
 use std::str::FromStr;
 
+#[cfg(test)]
+use crate::common::enums::BinanceKlineInterval;
 use anyhow::Context;
 use rust_decimal::Decimal;
 use vibe_core::nanos::UnixNanos;
 use vibe_model::{
-    data::{
-        BarSpecification, BarType, BookOrder, OrderBookDelta, OrderBookDeltas, QuoteTick, TradeTick,
-    },
-    enums::{
-        AggregationSource, AggressorSide, BarAggregation, BookAction, OrderSide, PriceType,
-        RecordFlag,
-    },
+    data::{BarType, BookOrder, OrderBookDelta, OrderBookDeltas, QuoteTick, TradeTick},
+    enums::{AggregationSource, AggressorSide, BookAction, OrderSide, RecordFlag},
     identifiers::TradeId,
     instruments::{Instrument, InstrumentAny},
     types::{Price, Quantity},
@@ -25,8 +22,10 @@ use super::messages::{
 use crate::{
     common::{
         bar::BinanceBar,
-        enums::BinanceKlineInterval,
-        parse::{parse_millis_or_init, parse_price_at_precision, parse_quantity_at_precision},
+        parse::{
+            binance_interval_to_bar_spec, parse_millis_or_init, parse_price_at_precision,
+            parse_quantity_at_precision,
+        },
     },
     data_types::BinanceSpotTicker,
 };
@@ -269,59 +268,6 @@ pub fn parse_depth_diff(
     Ok(Some(OrderBookDeltas::new(instrument_id, deltas)))
 }
 
-fn interval_to_bar_spec(interval: BinanceKlineInterval) -> BarSpecification {
-    match interval {
-        BinanceKlineInterval::Second1 => {
-            BarSpecification::new(1, BarAggregation::Second, PriceType::Last)
-        }
-        BinanceKlineInterval::Minute1 => {
-            BarSpecification::new(1, BarAggregation::Minute, PriceType::Last)
-        }
-        BinanceKlineInterval::Minute3 => {
-            BarSpecification::new(3, BarAggregation::Minute, PriceType::Last)
-        }
-        BinanceKlineInterval::Minute5 => {
-            BarSpecification::new(5, BarAggregation::Minute, PriceType::Last)
-        }
-        BinanceKlineInterval::Minute15 => {
-            BarSpecification::new(15, BarAggregation::Minute, PriceType::Last)
-        }
-        BinanceKlineInterval::Minute30 => {
-            BarSpecification::new(30, BarAggregation::Minute, PriceType::Last)
-        }
-        BinanceKlineInterval::Hour1 => {
-            BarSpecification::new(1, BarAggregation::Hour, PriceType::Last)
-        }
-        BinanceKlineInterval::Hour2 => {
-            BarSpecification::new(2, BarAggregation::Hour, PriceType::Last)
-        }
-        BinanceKlineInterval::Hour4 => {
-            BarSpecification::new(4, BarAggregation::Hour, PriceType::Last)
-        }
-        BinanceKlineInterval::Hour6 => {
-            BarSpecification::new(6, BarAggregation::Hour, PriceType::Last)
-        }
-        BinanceKlineInterval::Hour8 => {
-            BarSpecification::new(8, BarAggregation::Hour, PriceType::Last)
-        }
-        BinanceKlineInterval::Hour12 => {
-            BarSpecification::new(12, BarAggregation::Hour, PriceType::Last)
-        }
-        BinanceKlineInterval::Day1 => {
-            BarSpecification::new(1, BarAggregation::Day, PriceType::Last)
-        }
-        BinanceKlineInterval::Day3 => {
-            BarSpecification::new(3, BarAggregation::Day, PriceType::Last)
-        }
-        BinanceKlineInterval::Week1 => {
-            BarSpecification::new(1, BarAggregation::Week, PriceType::Last)
-        }
-        BinanceKlineInterval::Month1 => {
-            BarSpecification::new(1, BarAggregation::Month, PriceType::Last)
-        }
-    }
-}
-
 /// Parses a kline message into a closed `Bar`.
 ///
 /// Returns `None` if the kline is not closed yet.
@@ -342,7 +288,7 @@ pub fn parse_kline(
     let price_precision = instrument.price_precision();
     let size_precision = instrument.size_precision();
 
-    let spec = interval_to_bar_spec(msg.kline.interval);
+    let spec = binance_interval_to_bar_spec(msg.kline.interval);
     let bar_type = BarType::new(instrument_id, spec, AggregationSource::External);
 
     let open = parse_positive_price(&msg.kline.open, price_precision, "open price")?;

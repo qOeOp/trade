@@ -1,6 +1,8 @@
 use std::fmt::{Debug, Display};
 
 use arraydeque::{ArrayDeque, Wrapping};
+pub use vibe_indicators_kernel::population_std_with_mean as fast_std_with_mean;
+use vibe_indicators_kernel::{bands, typical_price};
 use vibe_model::data::{Bar, QuoteTick, TradeTick};
 
 use crate::{
@@ -120,7 +122,7 @@ impl BollingerBands {
     }
 
     pub fn update_raw(&mut self, high: f64, low: f64, close: f64) {
-        let typical = (high + low + close) / 3.0;
+        let typical = typical_price(high, low, close);
 
         if self.prices.len() == self.period {
             let _ = self.prices.pop_front();
@@ -141,32 +143,8 @@ impl BollingerBands {
             self.ma.value(),
         );
 
-        self.upper = self.k.mul_add(std, self.ma.value());
-        self.middle = self.ma.value();
-        self.lower = self.k.mul_add(-std, self.ma.value());
+        (self.upper, self.middle, self.lower) = bands(self.ma.value(), std, self.k);
     }
-}
-
-#[must_use]
-pub fn fast_std_with_mean<I>(values: I, mean: f64) -> f64
-where
-    I: IntoIterator<Item = f64>,
-{
-    let mut var_acc = 0.0_f64;
-    let mut count = 0_usize;
-
-    for v in values {
-        let diff = v - mean;
-        var_acc += diff * diff;
-        count += 1;
-    }
-
-    if count == 0 {
-        return 0.0;
-    }
-
-    let variance = var_acc / count as f64;
-    variance.sqrt()
 }
 
 #[cfg(test)]

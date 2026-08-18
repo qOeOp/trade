@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Display};
 
+use vibe_indicators_kernel::true_range;
 use vibe_model::data::{Bar, QuoteTick, TradeTick};
 
 use crate::{
@@ -102,13 +103,14 @@ impl AverageTrueRange {
 
     pub fn update_raw(&mut self, high: f64, low: f64, close: f64) {
         if self.use_previous {
-            if !self.has_inputs {
-                self.previous_close = close;
-            }
-            self.ma.update_raw(
-                f64::max(self.previous_close, high) - f64::min(low, self.previous_close),
+            let (range, previous_close) = true_range(
+                high,
+                low,
+                close,
+                self.has_inputs.then_some(self.previous_close),
             );
-            self.previous_close = close;
+            self.ma.update_raw(range);
+            self.previous_close = previous_close;
         } else {
             self.ma.update_raw(high - low);
         }

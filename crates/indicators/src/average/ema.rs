@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+use vibe_indicators_kernel::{EmaConfig, ema_next_value};
 use vibe_model::{
     data::{Bar, QuoteTick, TradeTick},
     enums::PriceType,
@@ -76,10 +77,11 @@ impl ExponentialMovingAverage {
             period > 0,
             "ExponentialMovingAverage::new → `period` must be positive (> 0); got {period}"
         );
+        let config = EmaConfig::new(period).expect("positive EMA period");
         Self {
             period,
             price_type: price_type.unwrap_or(PriceType::Last),
-            alpha: 2.0 / (period as f64 + 1.0),
+            alpha: config.alpha(),
             value: 0.0,
             count: 0,
             has_inputs: false,
@@ -102,17 +104,12 @@ impl MovingAverage for ExponentialMovingAverage {
             self.has_inputs = true;
             self.value = value;
             self.count = 1;
-
-            if self.period == 1 {
-                self.initialized = true;
-            }
+            self.initialized = self.period == 1;
             return;
         }
 
-        self.value = self.alpha.mul_add(value, (1.0 - self.alpha) * self.value);
+        self.value = ema_next_value(self.value, value, self.alpha);
         self.count += 1;
-
-        // Initialization logic
         if !self.initialized && self.count >= self.period {
             self.initialized = true;
         }
@@ -122,6 +119,7 @@ impl MovingAverage for ExponentialMovingAverage {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vibe_indicators_kernel::EmaConfig;
     use vibe_model::{
         data::{Bar, QuoteTick, TradeTick},
         enums::PriceType,
@@ -170,6 +168,19 @@ mod tests {
         assert!(ema.initialized());
         assert_eq!(ema.count, 10);
         assert_eq!(ema.value, 6.239_368_480_121_215_5);
+    }
+
+    #[rstest]
+    fn test_ema_update_raw_respects_public_alpha(indicator_ema_10: ExponentialMovingAverage) {
+        let mut ema = indicator_ema_10;
+        ema.update_raw(1.0);
+        ema.alpha = 0.5;
+        ema.update_raw(3.0);
+
+        let canonical_alpha = EmaConfig::new(ema.period).unwrap().alpha();
+        let canonical = canonical_alpha.mul_add(3.0, (1.0 - canonical_alpha) * 1.0);
+        assert_eq!(ema.value, 2.0);
+        assert_ne!(ema.value, canonical);
     }
 
     #[rstest]
@@ -303,5 +314,16 @@ mod tests {
             ema.value() > 0.0,
             "Underflow: EMA value collapsed to zero for sub-normal inputs"
         );
+    }
+
+    #[rstest]
+    fn public_period_mutation_does_not_panic_and_preserves_base_count_after_first_seed() {
+        let mut ema = ExponentialMovingAverage::new(10, None);
+        ema.period = 0;
+        ema.update_raw(10.0);
+        assert_eq!(ema.count(), 1);
+        assert_eq!(ema.value(), 10.0);
+        assert!(!ema.initialized());
+        assert_eq!(ema.period, 0);
     }
 }

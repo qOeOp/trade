@@ -1,0 +1,28 @@
+[package]
+name = "strategy-factory-channel-control-program"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97.1"
+license = "LGPL-3.0-or-later"
+publish = false
+description = "Pure no_std channel-control program source package"
+repository = "https://github.com/qOeOp/trade"
+
+[package.metadata.portable-no-std]
+portable = true
+
+[lib]
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[dependencies]
+strategy-factory-program-sdk = { path = "../sdk" }
+
+[workspace]
+
+[profile.release]
+panic = "abort"
+opt-level = "z"
+codegen-units = 1
+lto = "fat"
+strip = "symbols"

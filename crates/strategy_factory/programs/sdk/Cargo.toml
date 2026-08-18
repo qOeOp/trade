@@ -1,0 +1,18 @@
+[package]
+name = "strategy-factory-program-sdk"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97.1"
+license = "LGPL-3.0-or-later"
+publish = false
+description = "Pure no_std strategy-factory ABI program package"
+repository = "https://github.com/qOeOp/trade"
+
+[package.metadata.portable-no-std]
+portable = true
+
+[lib]
+path = "src/lib.rs"
+
+[dev-dependencies]
+rstest = "0.26.1"

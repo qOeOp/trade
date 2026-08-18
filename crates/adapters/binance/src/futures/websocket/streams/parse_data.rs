@@ -7,13 +7,10 @@ use ustr::Ustr;
 use vibe_core::nanos::UnixNanos;
 use vibe_model::{
     data::{
-        BarSpecification, BarType, BookOrder, FundingRateUpdate, IndexPriceUpdate, MarkPriceUpdate,
-        OrderBookDelta, OrderBookDeltas, QuoteTick, TradeTick,
+        BarType, BookOrder, FundingRateUpdate, IndexPriceUpdate, MarkPriceUpdate, OrderBookDelta,
+        OrderBookDeltas, QuoteTick, TradeTick,
     },
-    enums::{
-        AggregationSource, AggressorSide, BarAggregation, BookAction, OrderSide, PriceType,
-        RecordFlag,
-    },
+    enums::{AggregationSource, AggressorSide, BookAction, OrderSide, RecordFlag},
     identifiers::TradeId,
     instruments::{Instrument, InstrumentAny},
     types::{Price, Quantity},
@@ -30,10 +27,10 @@ use super::{
 use crate::{
     common::{
         bar::BinanceBar,
-        enums::{BinanceKlineInterval, BinanceWsEventType},
+        enums::BinanceWsEventType,
         parse::{
-            parse_millis, parse_millis_or_init, parse_required_price_at_precision,
-            parse_required_quantity_at_precision,
+            binance_interval_to_bar_spec, parse_millis, parse_millis_or_init,
+            parse_required_price_at_precision, parse_required_quantity_at_precision,
         },
     },
     data_types::{BinanceFuturesMarkPriceUpdate, BinanceFuturesTicker},
@@ -387,59 +384,6 @@ fn parse_ticker_decimal(field: &str, value: &str) -> BinanceWsResult<Decimal> {
 }
 
 /// Converts a Binance kline interval to a Vibe `BarSpecification`.
-fn interval_to_bar_spec(interval: BinanceKlineInterval) -> BarSpecification {
-    match interval {
-        BinanceKlineInterval::Second1 => {
-            BarSpecification::new(1, BarAggregation::Second, PriceType::Last)
-        }
-        BinanceKlineInterval::Minute1 => {
-            BarSpecification::new(1, BarAggregation::Minute, PriceType::Last)
-        }
-        BinanceKlineInterval::Minute3 => {
-            BarSpecification::new(3, BarAggregation::Minute, PriceType::Last)
-        }
-        BinanceKlineInterval::Minute5 => {
-            BarSpecification::new(5, BarAggregation::Minute, PriceType::Last)
-        }
-        BinanceKlineInterval::Minute15 => {
-            BarSpecification::new(15, BarAggregation::Minute, PriceType::Last)
-        }
-        BinanceKlineInterval::Minute30 => {
-            BarSpecification::new(30, BarAggregation::Minute, PriceType::Last)
-        }
-        BinanceKlineInterval::Hour1 => {
-            BarSpecification::new(1, BarAggregation::Hour, PriceType::Last)
-        }
-        BinanceKlineInterval::Hour2 => {
-            BarSpecification::new(2, BarAggregation::Hour, PriceType::Last)
-        }
-        BinanceKlineInterval::Hour4 => {
-            BarSpecification::new(4, BarAggregation::Hour, PriceType::Last)
-        }
-        BinanceKlineInterval::Hour6 => {
-            BarSpecification::new(6, BarAggregation::Hour, PriceType::Last)
-        }
-        BinanceKlineInterval::Hour8 => {
-            BarSpecification::new(8, BarAggregation::Hour, PriceType::Last)
-        }
-        BinanceKlineInterval::Hour12 => {
-            BarSpecification::new(12, BarAggregation::Hour, PriceType::Last)
-        }
-        BinanceKlineInterval::Day1 => {
-            BarSpecification::new(1, BarAggregation::Day, PriceType::Last)
-        }
-        BinanceKlineInterval::Day3 => {
-            BarSpecification::new(3, BarAggregation::Day, PriceType::Last)
-        }
-        BinanceKlineInterval::Week1 => {
-            BarSpecification::new(1, BarAggregation::Week, PriceType::Last)
-        }
-        BinanceKlineInterval::Month1 => {
-            BarSpecification::new(1, BarAggregation::Month, PriceType::Last)
-        }
-    }
-}
-
 /// Parses a kline message into a `Bar`.
 ///
 /// Returns `None` if the kline is not closed yet.
@@ -461,7 +405,7 @@ pub fn parse_kline(
     let price_precision = instrument.price_precision();
     let size_precision = instrument.size_precision();
 
-    let spec = interval_to_bar_spec(msg.kline.interval);
+    let spec = binance_interval_to_bar_spec(msg.kline.interval);
     let bar_type = BarType::new(instrument_id, spec, AggregationSource::External);
 
     let price = |field: &str, value: &str| {

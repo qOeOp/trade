@@ -1,0 +1,29 @@
+[package]
+name = "strategy-factory-secac-program"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97.1"
+license = "LGPL-3.0-or-later"
+publish = false
+description = "Pure no_std scheduled-event cross-asset confirmation program"
+repository = "https://github.com/qOeOp/trade"
+
+[package.metadata.portable-no-std]
+portable = true
+
+[lib]
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[dependencies]
+strategy-factory-program-sdk = { path = "../sdk" }
+vibe-indicators-kernel = { path = "../../../indicators/kernel" }
+
+[workspace]
+
+[profile.release]
+panic = "abort"
+opt-level = "z"
+codegen-units = 1
+lto = "fat"
+strip = "symbols"

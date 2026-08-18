@@ -154,8 +154,13 @@ impl OrderFactory {
         .unwrap_or_else(|e| panic!("{e}"))
     }
 
+    /// Creates a new market order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the order parameters fail validation.
     #[expect(clippy::too_many_arguments)]
-    pub(crate) fn try_market(
+    pub fn try_market(
         &mut self,
         instrument_id: InstrumentId,
         order_side: OrderSide,
@@ -244,8 +249,13 @@ impl OrderFactory {
         .unwrap_or_else(|e| panic!("{e}"))
     }
 
+    /// Creates a limit order with correctness checking.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the order parameters fail validation.
     #[expect(clippy::too_many_arguments)]
-    pub(crate) fn try_limit(
+    pub fn try_limit(
         &mut self,
         instrument_id: InstrumentId,
         order_side: OrderSide,
@@ -346,8 +356,13 @@ impl OrderFactory {
         .unwrap_or_else(|e| panic!("{e}"))
     }
 
+    /// Creates a stop-market order with correctness checking.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the order parameters fail validation.
     #[expect(clippy::too_many_arguments)]
-    pub(crate) fn try_stop_market(
+    pub fn try_stop_market(
         &mut self,
         instrument_id: InstrumentId,
         order_side: OrderSide,

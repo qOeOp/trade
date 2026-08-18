@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Display};
 
+use vibe_indicators_kernel::volatility_ratio;
 use vibe_model::data::{Bar, QuoteTick, TradeTick};
 
 use crate::{average::MovingAverageType, indicator::Indicator, volatility::atr::AverageTrueRange};
@@ -100,9 +101,7 @@ impl VolatilityRatio {
         self.atr_fast.update_raw(high, low, close);
         self.atr_slow.update_raw(high, low, close);
 
-        if self.atr_fast.value > 0.0 {
-            self.value = self.atr_slow.value / self.atr_fast.value;
-        }
+        self.value = volatility_ratio(self.atr_slow.value, self.atr_fast.value, self.value);
 
         if !self.initialized {
             self.has_inputs = true;

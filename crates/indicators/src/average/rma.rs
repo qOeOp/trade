@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+use vibe_indicators_kernel::ema_next_value;
 use vibe_model::{
     data::{Bar, QuoteTick, TradeTick},
     enums::PriceType,
@@ -107,7 +108,7 @@ impl MovingAverage for WilderMovingAverage {
             return;
         }
 
-        self.value = self.alpha.mul_add(price, (1.0 - self.alpha) * self.value);
+        self.value = ema_next_value(self.value, price, self.alpha);
         self.count += 1;
         if !self.initialized && self.count >= self.period {
             self.initialized = true;
@@ -319,5 +320,16 @@ mod tests {
         assert!(rma.value().is_nan());
         assert!(rma.has_inputs());
         assert_eq!(rma.count(), 1);
+    }
+
+    #[rstest]
+    fn public_period_mutation_does_not_panic_and_preserves_base_count_after_first_seed() {
+        let mut rma = WilderMovingAverage::new(10, None);
+        rma.period = 0;
+        rma.update_raw(10.0);
+        assert_eq!(rma.count(), 1);
+        assert_eq!(rma.value(), 10.0);
+        assert_eq!(rma.period, 0);
+        assert!(rma.initialized());
     }
 }

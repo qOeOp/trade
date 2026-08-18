@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 use arraydeque::{ArrayDeque, Wrapping};
+use vibe_indicators_kernel::rolling_sum_mean;
 use vibe_model::{
     data::{Bar, QuoteTick, TradeTick},
     enums::PriceType,
@@ -108,18 +109,16 @@ impl SimpleMovingAverage {
     }
 
     fn process_raw(&mut self, price: f64) {
-        if self.count == self.period {
-            if let Some(oldest) = self.buf.pop_front() {
-                self.sum -= oldest;
-            }
+        let evicted = if self.count == self.period {
+            self.buf.pop_front()
         } else {
             self.count += 1;
-        }
-
+            None
+        };
+        let (sum, value) = rolling_sum_mean(self.sum, self.count, price, evicted);
         let _ = self.buf.push_back(price);
-        self.sum += price;
-
-        self.value = self.sum / self.count as f64;
+        self.sum = sum;
+        self.value = value;
         self.initialized = self.count >= self.period;
     }
 }
@@ -479,5 +478,27 @@ mod tests {
                 deque_sum
             );
         }
+    }
+
+    #[rstest]
+    fn public_count_mutation_does_not_panic_with_empty_buffer_window_logic() {
+        let mut sma = SimpleMovingAverage::new(3, None);
+        sma.count = 3;
+        sma.sum = 0.0;
+        sma.update_raw(9.0);
+        assert_eq!(sma.count(), 3);
+        assert_eq!(sma.value(), 3.0);
+        assert_eq!(sma.buf.len(), 1);
+    }
+
+    #[rstest]
+    fn public_count_above_period_preserves_base_progression() {
+        let mut sma = SimpleMovingAverage::new(3, None);
+        sma.count = 4;
+        sma.sum = 8.0;
+        sma.update_raw(2.0);
+        assert_eq!(sma.count(), 5);
+        assert_eq!(sma.value(), 2.0);
+        assert_eq!(sma.buf.len(), 1);
     }
 }
