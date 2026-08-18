@@ -83,11 +83,13 @@ class PercentageVisualDistiller:
         candidate = await DeterministicDistiller().distill(source, frames)
         return replace(
             candidate,
-            methods=(
+            rules=(
+                *candidate.rules[:2],
                 (
                     _rule("61.8% 回调位与 4 小时上升趋势线重合时，才形成结构共振。"),
-                    candidate.methods[0][1],
+                    candidate.rules[2][1],
                 ),
+                *candidate.rules[3:],
             ),
         )
 
@@ -114,11 +116,8 @@ class DuplicateVisualOwnerDistiller:
         self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
     ) -> DistillCandidate:
         candidate = await DeterministicDistiller().distill(source, frames)
-        text, refs = candidate.core_strategies[0]
-        return replace(
-            candidate,
-            core_strategies=((text, (*refs, "G01")),),
-        )
+        text, refs = candidate.rules[0]
+        return replace(candidate, rules=((text, (*refs, "G01")), *candidate.rules[1:]))
 
 
 class MissingVisualDispositionDistiller:
@@ -135,10 +134,10 @@ class NonMaterialFrameCitationDistiller:
     ) -> DistillCandidate:
         candidate = await DeterministicDistiller().distill(source, frames)
         next(item for item in candidate.visuals if item.disposition == "no_material_increment")
-        text, refs = candidate.methods[0]
+        text, refs = candidate.rules[2]
         return replace(
             candidate,
-            methods=((text, (*refs, "G02")),),
+            rules=(*candidate.rules[:2], (text, (*refs, "G02")), *candidate.rules[3:]),
         )
 
 
@@ -147,8 +146,11 @@ class RawFrameCitationDistiller:
         self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
     ) -> DistillCandidate:
         candidate = await DeterministicDistiller().distill(source, frames)
-        text, refs = candidate.methods[0]
-        return replace(candidate, methods=((text, (*refs, frames[0].frame_id)),))
+        text, refs = candidate.rules[2]
+        return replace(
+            candidate,
+            rules=(*candidate.rules[:2], (text, (*refs, frames[0].frame_id)), *candidate.rules[3:]),
+        )
 
 
 class TwoMaterialGroupsDistiller:
@@ -159,16 +161,17 @@ class TwoMaterialGroupsDistiller:
         assert len(candidate.visuals) >= 2
         return replace(
             candidate,
-            methods=(
-                *candidate.methods,
-                (_rule("另一项结构条件用于确认参与位置。"), candidate.methods[0][1]),
+            rules=(
+                *candidate.rules[:4],
+                (_rule("另一项结构条件用于确认参与位置。"), candidate.rules[2][1]),
+                *candidate.rules[5:],
             ),
             visuals=(
                 candidate.visuals[0],
                 replace(
                     candidate.visuals[1],
                     disposition="supports_rule",
-                    rule_index=5,
+                    rule_index=4,
                     evidence_basis="static_frame",
                 ),
                 *candidate.visuals[2:],
@@ -201,10 +204,10 @@ class DuplicateMethodsWithSecondVisualOwnerDistiller:
         self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
     ) -> DistillCandidate:
         candidate = await DeterministicDistiller().distill(source, frames)
-        text, refs = candidate.methods[0]
+        text, refs = candidate.rules[2]
         return replace(
             candidate,
-            methods=((text, refs), (text, refs)),
+            rules=(*candidate.rules[:3], (text, refs), *candidate.rules[4:]),
             visuals=(
                 replace(candidate.visuals[0], rule_index=3),
                 *candidate.visuals[1:],
@@ -1173,9 +1176,11 @@ def test_candidate_evidence_basis_must_match_host_group_shape() -> None:
     ordered_frames = _ordered_and_singleton_frames()
     static_frames = (_frame(1, group_id="G01"), _frame(2, group_id="G02"))
     candidate = DistillCandidate(
-        core_strategies=((_rule("顺势交易。"), ("E001",)),),
-        methods=((_rule("等待确认。"), ("E001",)),),
-        risk_management=((_rule("失效后退出。"), ("E001",)),),
+        rules=(
+            (_rule("顺势交易。"), ("E001",)),
+            (_rule("等待确认。"), ("E001",)),
+            (_rule("失效后退出。"), ("E001",)),
+        ),
         visuals=(
             CandidateVisual("supports_rule", 0, "ordered_relation"),
             CandidateVisual("no_material_increment", None, None),
@@ -1219,9 +1224,14 @@ async def test_ordered_relation_requires_all_independent_verifier_guards(
     mutation: str,
 ) -> None:
     candidate = DistillCandidate(
-        core_strategies=((_rule("价格从阻力上方回到下方后转为空头偏好。"), ("E001",)),),
-        methods=((_rule("等待有序变化确认。"), ("E001",)),),
-        risk_management=((_rule("结构失效后退出。"), ("E001",)),),
+        rules=(
+            (_rule("价格从阻力上方回到下方后转为空头偏好。"), ("E001",)),
+            (_rule("等待有序变化确认。"), ("E001",)),
+            (_rule("在关键位置观察价格反应。"), ("E001",)),
+            (_rule("结合结构信号确认方向。"), ("E001",)),
+            (_rule("不明确时保持观望。"), ("E001",)),
+            (_rule("结构失效后退出。"), ("E001",)),
+        ),
         visuals=(CandidateVisual("supports_rule", 0, "ordered_relation"),),
         model_ref="fixture",
         profile_material_refs=(),
@@ -1248,9 +1258,14 @@ async def test_ordered_relation_requires_all_independent_verifier_guards(
 
 async def test_static_basis_rejects_verifier_detected_ordered_rule() -> None:
     candidate = DistillCandidate(
-        core_strategies=((_rule("价格前后变化形成方向偏好。"), ("E001",)),),
-        methods=((_rule("等待确认。"), ("E001",)),),
-        risk_management=((_rule("失效后退出。"), ("E001",)),),
+        rules=(
+            (_rule("价格前后变化形成方向偏好。"), ("E001",)),
+            (_rule("等待确认。"), ("E001",)),
+            (_rule("在关键位置观察价格反应。"), ("E001",)),
+            (_rule("结合结构信号确认方向。"), ("E001",)),
+            (_rule("不明确时保持观望。"), ("E001",)),
+            (_rule("失效后退出。"), ("E001",)),
+        ),
         visuals=(CandidateVisual("supports_rule", 0, "static_frame"),),
         model_ref="fixture",
         profile_material_refs=(),
@@ -1491,9 +1506,11 @@ async def test_asset_collision_atomically_degrades_ordered_group_during_bounded_
 
 def test_direct_candidate_rejects_normalized_duplicate_public_items() -> None:
     candidate = DistillCandidate(
-        core_strategies=((_rule("BTC 趋势过滤。"), ("E001",)),),
-        methods=((_rule("btc   趋势过滤。"), ("E001",)),),
-        risk_management=((_rule("结构失效时停止沿用原方向。"), ("E001",)),),
+        rules=(
+            (_rule("BTC 趋势过滤。"), ("E001",)),
+            (_rule("btc   趋势过滤。"), ("E001",)),
+            (_rule("结构失效时停止沿用原方向。"), ("E001",)),
+        ),
         visuals=(),
         model_ref="fixture",
         profile_material_refs=(),

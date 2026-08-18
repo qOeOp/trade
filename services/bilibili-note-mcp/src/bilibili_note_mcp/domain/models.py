@@ -274,13 +274,15 @@ class StrategySummaryV1(StrictModel):
     """Pure public-note material; evidence bindings stay in the private brief."""
 
     subject: NaturalText = Field(min_length=1, max_length=200)
-    core_strategies: tuple[PublicRuleV1, ...] = Field(min_length=1, max_length=9)
-    methods: tuple[PublicRuleV1, ...] = Field(min_length=1, max_length=9)
-    risk_management: tuple[PublicRuleV1, ...] = Field(min_length=1, max_length=6)
+    core_strategies: tuple[PublicRuleV1, ...] = Field(max_length=9)
+    methods: tuple[PublicRuleV1, ...] = Field(max_length=9)
+    risk_management: tuple[PublicRuleV1, ...] = Field(max_length=6)
 
     @model_validator(mode="after")
     def items_are_unique(self) -> StrategySummaryV1:
         items = (*self.core_strategies, *self.methods, *self.risk_management)
+        if not items:
+            raise ValueError("strategy summary must contain at least one item")
         if not summary_items_are_distinct(items):
             raise ValueError("strategy summary items must be unique")
         return self

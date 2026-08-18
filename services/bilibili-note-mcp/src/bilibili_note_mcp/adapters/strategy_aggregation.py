@@ -54,7 +54,7 @@ class _WireSynthesisOutput(_WireModel):
 
 class _WireSynthesis(_WireModel):
     catalog_ref: _CatalogRef
-    outputs: list[_WireSynthesisOutput] = Field(min_length=3, max_length=13)
+    outputs: list[_WireSynthesisOutput] = Field(min_length=1, max_length=13)
     episode_specific_ids: list[_ItemId] = Field(max_length=72)
 
 
@@ -75,7 +75,7 @@ class _WireEpisodeVerdict(_WireModel):
 class _WireSynthesisVerification(_WireModel):
     catalog_ref: _CatalogRef
     synthesis_ref: _SynthesisRef
-    outputs: list[_WireOutputVerdict] = Field(min_length=3, max_length=13)
+    outputs: list[_WireOutputVerdict] = Field(min_length=1, max_length=13)
     episode_specific: list[_WireEpisodeVerdict] = Field(max_length=72)
     complete_coverage: _Verdict
     category_preservation: _Verdict
@@ -276,8 +276,10 @@ class SiliconFlowStrategySynthesizer:
                 {
                     "role": "user",
                     "content": (
-                        "Synthesize reusable trading logic from the closed catalog into exactly "
-                        "1..3 core_strategy, 1..6 method and 1..4 risk_management outputs. Every "
+                        "Synthesize reusable trading logic from the closed catalog into at least "
+                        "one total output, with 0..3 core_strategy, 0..6 method and 0..4 "
+                        "risk_management "
+                        "outputs. Every "
                         "output must preserve polarity and every applicable material condition "
                         "from its same-category support_ids. Apply this complete condition-class "
                         "inventory: " + _MATERIAL_CONDITION_CONTRACT + ". "

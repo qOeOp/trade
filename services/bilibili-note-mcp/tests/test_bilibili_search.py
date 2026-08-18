@@ -113,7 +113,7 @@ async def test_exact_creator_is_ranked_before_newer_extended_account() -> None:
                     {
                         "type": "video",
                         "bvid": "BV1Gvuj6dENb",
-                        "title": "内部精修课程",
+                        "title": "指尖内部精修课程",
                         "author": "指尖金汇-黄金",
                         "pubdate": 300,
                     },

@@ -36,33 +36,17 @@ class MarkdownRenderer:
             f"# {markdown_literal(strategy_summary_title(summary.subject))}",
             "",
             UNVERIFIED_SUMMARY_SCOPE,
-            "",
-            "## 核心策略",
-            "",
         ]
-        lines.extend(
-            f"- {PUBLIC_RULE_FRAME}{markdown_literal(item.rule_body)}"
-            for item in summary.core_strategies
+        sections = (
+            ("核心策略", summary.core_strategies),
+            ("具体方法", summary.methods),
+            ("风险管理", summary.risk_management),
         )
-        lines.extend(
-            [
-                "",
-                "## 具体方法",
-                "",
-            ]
-        )
-        lines.extend(
-            f"- {PUBLIC_RULE_FRAME}{markdown_literal(item.rule_body)}" for item in summary.methods
-        )
-        lines.extend(
-            [
-                "",
-                "## 风险管理",
-                "",
-            ]
-        )
-        lines.extend(
-            f"- {PUBLIC_RULE_FRAME}{markdown_literal(item.rule_body)}"
-            for item in summary.risk_management
-        )
+        for heading, items in sections:
+            if not items:
+                continue
+            lines.extend(("", f"## {heading}", ""))
+            lines.extend(
+                f"- {PUBLIC_RULE_FRAME}{markdown_literal(item.rule_body)}" for item in items
+            )
         return "\n".join(lines).rstrip() + "\n"

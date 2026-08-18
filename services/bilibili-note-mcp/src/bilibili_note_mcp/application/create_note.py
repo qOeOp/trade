@@ -53,6 +53,7 @@ from bilibili_note_mcp.domain.models import (
     EvidenceSegmentV2,
     FailureCode,
     ProvenanceV2,
+    PublicRuleV1,
     StrategySummaryV1,
     VisualInsightV2,
     summary_items_are_distinct,
@@ -139,7 +140,7 @@ class CreateBilibiliNote:
             frames = await self._media.extract_frames(acquired, workspace)
             self._validate_frames(frames)
             await reporter.report(progress_update(ProgressStageV1.HD_FRAMES_READY))
-            candidate = await self._analyze_with_liveness(acquired, frames, reporter)
+            candidate, verification = await self._analyze_with_liveness(acquired, frames, reporter)
 
             evidence = tuple(
                 EvidenceSegmentV2(
@@ -160,10 +161,7 @@ class CreateBilibiliNote:
             if len(candidate.visuals) != len(frame_group_items):
                 _raise("DISTILLATION_FAILED", "model_visual_groups_invalid")
             visual_insights: list[VisualInsightV2] = []
-            core_records = [(rule, raw_refs) for rule, raw_refs in candidate.core_strategies]
-            method_records = [(rule, raw_refs) for rule, raw_refs in candidate.methods]
-            risk_records = [(rule, raw_refs) for rule, raw_refs in candidate.risk_management]
-            public_records = [*core_records, *method_records, *risk_records]
+            public_records = [(rule, raw_refs) for rule, raw_refs in candidate.rules]
             rule_visual_refs: dict[int, list[str]] = {}
             visual_index = 0
             for item, (_group_id, host_frame_ids) in zip(
@@ -223,11 +221,6 @@ class CreateBilibiliNote:
                     )
                 )
 
-            core_end = len(core_records)
-            method_end = core_end + len(method_records)
-            core_records = public_records[:core_end]
-            method_records = public_records[core_end:method_end]
-            risk_records = public_records[method_end:]
             all_records = tuple(public_records)
             if any(
                 _MODEL_EVIDENCE_REF.fullmatch(reference) is None
@@ -254,9 +247,7 @@ class CreateBilibiliNote:
                 )
 
             bound_records: list[BoundBriefItemV2] = []
-            for record_index, (rule, raw_refs) in enumerate(
-                (*core_records, *method_records, *risk_records)
-            ):
+            for record_index, (rule, raw_refs) in enumerate(public_records):
                 refs = list(map_refs(raw_refs))
                 refs.extend(rule_visual_refs.get(record_index, ()))
                 refs_tuple = tuple(
@@ -278,11 +269,18 @@ class CreateBilibiliNote:
                 )
             core = bound_records[0]
             key_points = tuple(bound_records[1:])
+            categorized: dict[str, list[PublicRuleV1]] = {
+                "core_strategy": [],
+                "method": [],
+                "risk_management": [],
+            }
+            for (rule, _raw_refs), verdict in zip(public_records, verification.rules, strict=True):
+                categorized[verdict.classified_category].append(rule)
             summary = StrategySummaryV1(
                 subject=public_author_subject(acquired.source.author_name),
-                core_strategies=tuple(rule for rule, _ in core_records),
-                methods=tuple(rule for rule, _ in method_records),
-                risk_management=tuple(rule for rule, _ in risk_records),
+                core_strategies=tuple(categorized["core_strategy"]),
+                methods=tuple(categorized["method"]),
+                risk_management=tuple(categorized["risk_management"]),
             )
             await reporter.report(progress_update(ProgressStageV1.ANALYSIS_READY))
             transcript_value = [
@@ -351,25 +349,12 @@ class CreateBilibiliNote:
 
     @staticmethod
     def _validate_candidate_text(candidate: DistillCandidate) -> None:
-        if not (
-            1 <= len(candidate.core_strategies) <= 9
-            and 1 <= len(candidate.methods) <= 9
-            and 1 <= len(candidate.risk_management) <= 6
-        ):
+        if not 1 <= len(candidate.rules) <= 24:
             _raise("DISTILLATION_FAILED", "model_rule_counts_invalid")
-        values = [
-            *(rule.rule_body for rule, _ in candidate.core_strategies),
-            *(rule.rule_body for rule, _ in candidate.methods),
-            *(rule.rule_body for rule, _ in candidate.risk_management),
-        ]
+        values = [rule.rule_body for rule, _ in candidate.rules]
         if any(not model_public_rule_representation_is_valid(value) for value in values):
             _raise("DISTILLATION_FAILED", "model_public_representation_invalid")
-        categories = (
-            tuple(rule for rule, _ in candidate.core_strategies),
-            tuple(rule for rule, _ in candidate.methods),
-            tuple(rule for rule, _ in candidate.risk_management),
-        )
-        if not summary_items_are_distinct(tuple(item for group in categories for item in group)):
+        if not summary_items_are_distinct(tuple(rule for rule, _ in candidate.rules)):
             _raise("DISTILLATION_FAILED", "model_public_items_not_unique")
 
     @staticmethod
@@ -382,9 +367,7 @@ class CreateBilibiliNote:
         )
         if len(candidate.visuals) != len(group_sizes):
             _raise("DISTILLATION_FAILED", "model_visual_groups_invalid")
-        rule_count = (
-            len(candidate.core_strategies) + len(candidate.methods) + len(candidate.risk_management)
-        )
+        rule_count = len(candidate.rules)
         for visual in candidate.visuals:
             if visual.disposition == "no_material_increment":
                 if visual.rule_index is not None or visual.evidence_basis is not None:
@@ -410,11 +393,7 @@ class CreateBilibiliNote:
     def _validate_verification(
         candidate: DistillCandidate, verification: CandidateVerification
     ) -> None:
-        candidate_rules = (
-            *candidate.core_strategies,
-            *candidate.methods,
-            *candidate.risk_management,
-        )
+        candidate_rules = candidate.rules
         if len(verification.rules) != len(candidate_rules) or any(
             verdict.item_index != index for index, verdict in enumerate(verification.rules)
         ):
@@ -425,14 +404,7 @@ class CreateBilibiliNote:
             or verification.priority_order_acceptable != "accept"
         ):
             _raise("DISTILLATION_FAILED", "candidate_semantics_rejected")
-        expected_categories = (
-            *("core_strategy" for _ in candidate.core_strategies),
-            *("method" for _ in candidate.methods),
-            *("risk_management" for _ in candidate.risk_management),
-        )
-        for rule_verdict, expected_category in zip(
-            verification.rules, expected_categories, strict=True
-        ):
+        for rule_verdict in verification.rules:
             if (
                 rule_verdict.intelligible != "accept"
                 or rule_verdict.source_resolvable != "accept"
@@ -441,9 +413,18 @@ class CreateBilibiliNote:
                 or rule_verdict.material_conditions_preserved != "accept"
                 or rule_verdict.reusable_abstraction_acceptable != "accept"
                 or rule_verdict.simplified_chinese_language != "accept"
-                or rule_verdict.classified_category != expected_category
             ):
                 _raise("DISTILLATION_FAILED", "candidate_semantics_rejected")
+        category_counts = {
+            category: sum(verdict.classified_category == category for verdict in verification.rules)
+            for category in ("core_strategy", "method", "risk_management")
+        }
+        if (
+            category_counts["core_strategy"] > 9
+            or category_counts["method"] > 9
+            or category_counts["risk_management"] > 6
+        ):
+            _raise("DISTILLATION_FAILED", "candidate_semantics_rejected")
         if len(verification.visuals) != len(candidate.visuals):
             _raise("DISTILLATION_FAILED", "verifier_response_invalid")
         for index, (candidate_visual, visual_verdict) in enumerate(
@@ -505,14 +486,14 @@ class CreateBilibiliNote:
         source: AcquiredSource,
         frames: tuple[FrameAsset, ...],
         reporter: ProgressReporter,
-    ) -> DistillCandidate:
-        async def analyze() -> DistillCandidate:
+    ) -> tuple[DistillCandidate, CandidateVerification]:
+        async def analyze() -> tuple[DistillCandidate, CandidateVerification]:
             candidate = await self._distiller.distill(source, frames)
             self._validate_candidate_text(candidate)
             self._validate_candidate_visuals(candidate, frames)
             verification = await self._verifier.verify(source, frames, candidate)
             self._validate_verification(candidate, verification)
-            return candidate
+            return candidate, verification
 
         task = asyncio.create_task(analyze())
         elapsed = 0

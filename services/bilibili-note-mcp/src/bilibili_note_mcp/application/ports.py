@@ -89,9 +89,7 @@ class CandidateVisual:
 
 @dataclass(frozen=True, slots=True)
 class DistillCandidate:
-    core_strategies: tuple[tuple[PublicRuleV1, tuple[str, ...]], ...]
-    methods: tuple[tuple[PublicRuleV1, tuple[str, ...]], ...]
-    risk_management: tuple[tuple[PublicRuleV1, tuple[str, ...]], ...]
+    rules: tuple[tuple[PublicRuleV1, tuple[str, ...]], ...]
     visuals: tuple[CandidateVisual, ...]
     model_ref: str
     profile_material_refs: tuple[str, ...]

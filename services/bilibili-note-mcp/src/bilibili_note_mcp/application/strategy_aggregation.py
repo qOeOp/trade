@@ -216,8 +216,8 @@ class VerifiedStrategySynthesisAggregator:
         }
         if any(output.category not in _CATEGORY_ORDER for output in synthesis.outputs):
             VerifiedStrategySynthesisAggregator._invalid_synthesis()
-        if any(
-            not 1 <= category_counts[category] <= limit
+        if not synthesis.outputs or any(
+            not 0 <= category_counts[category] <= limit
             for category, limit in _CATEGORY_LIMIT.items()
         ):
             VerifiedStrategySynthesisAggregator._invalid_synthesis()

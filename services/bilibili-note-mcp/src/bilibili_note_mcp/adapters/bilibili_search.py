@@ -110,10 +110,9 @@ def _relevance_score(query: str, row: dict[str, Any], title: str) -> int:
     compact_query = _relevance_text(query)
     if not compact_query:
         return 0
-    units = set(_query_units(query))
-    if len(compact_query) == 1:
-        units.add(compact_query)
-    else:
+    query_units = _query_units(query)
+    units = set(query_units)
+    if len(query_units) > 1 and len(compact_query) > 1:
         units.update(compact_query[index : index + 2] for index in range(len(compact_query) - 1))
     units.discard("")
     score = 0

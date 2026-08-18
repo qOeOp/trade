@@ -156,7 +156,7 @@ def contains_private_catalog_identity(value: str) -> bool:
 
 
 def rendered_summary_structure_is_valid(value: str) -> bool:
-    """Prove scope, sections and the one host-owned frame for every provider rule."""
+    """Prove scope, ordered nonempty sections and one host-owned frame per rule."""
     lines = value.splitlines()
     if len(lines) < 5 or value.count(UNVERIFIED_SUMMARY_SCOPE) != 1:
         return False
@@ -165,10 +165,25 @@ def rendered_summary_structure_is_valid(value: str) -> bool:
     if lines[1:4] != ["", UNVERIFIED_SUMMARY_SCOPE, ""]:
         return False
     cursor = 4
-    for section_index, heading in enumerate(("## 核心策略", "## 具体方法", "## 风险管理")):
-        if lines[cursor : cursor + 2] != [heading, ""]:
+    allowed_headings = ("## 核心策略", "## 具体方法", "## 风险管理")
+    previous_heading_index = -1
+    section_count = 0
+    while cursor < len(lines):
+        if section_count > 0:
+            if lines[cursor] != "":
+                return False
+            cursor += 1
+        if cursor >= len(lines) or lines[cursor] not in allowed_headings:
             return False
-        cursor += 2
+        heading_index = allowed_headings.index(lines[cursor])
+        if heading_index <= previous_heading_index:
+            return False
+        previous_heading_index = heading_index
+        section_count += 1
+        cursor += 1
+        if cursor >= len(lines) or lines[cursor] != "":
+            return False
+        cursor += 1
         item_count = 0
         while cursor < len(lines) and lines[cursor].startswith("- "):
             if not lines[cursor].startswith(f"- {PUBLIC_RULE_FRAME}"):
@@ -179,11 +194,7 @@ def rendered_summary_structure_is_valid(value: str) -> bool:
             cursor += 1
         if item_count == 0:
             return False
-        if section_index < 2:
-            if cursor >= len(lines) or lines[cursor] != "":
-                return False
-            cursor += 1
-    return cursor == len(lines)
+    return section_count > 0 and cursor == len(lines)
 
 
 def rendered_public_text_is_valid(value: str) -> bool:

@@ -64,6 +64,14 @@ def _rule(body: str) -> PublicRuleV1:
     return PublicRuleV1(rule_body=body)
 
 
+def _replace_candidate_rule(candidate: DistillCandidate, index: int, body: str) -> DistillCandidate:
+    _old_rule, refs = candidate.rules[index]
+    return replace(
+        candidate,
+        rules=(*candidate.rules[:index], (_rule(body), refs), *candidate.rules[index + 1 :]),
+    )
+
+
 class DuplicateVisualDistiller:
     async def distill(
         self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
@@ -77,12 +85,9 @@ class PublicTextLeakDistiller:
         self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
     ) -> DistillCandidate:
         candidate = await DeterministicDistiller().distill(source, frames)
-        first_rule, first_refs = candidate.core_strategies[0]
-        return replace(
-            candidate,
-            core_strategies=(
-                (_rule(first_rule.rule_body + " data:image/png;base64,QUFBQUFB"), first_refs),
-            ),
+        first_rule, _first_refs = candidate.rules[0]
+        return _replace_candidate_rule(
+            candidate, 0, first_rule.rule_body + " data:image/png;base64,QUFBQUFB"
         )
 
 
@@ -91,12 +96,16 @@ class PublicTradeDirectiveDistiller:
         self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
     ) -> DistillCandidate:
         candidate = await DeterministicDistiller().distill(source, frames)
-        refs = candidate.core_strategies[0][1]
+        refs = candidate.rules[0][1]
         return replace(
             candidate,
-            core_strategies=((_rule("交易规则：立即买入比特币并设置止损。"), refs),),
-            methods=((_rule("做多比特币并把止损设在前低下方。"), refs),),
-            risk_management=((_rule("跌破前低后立即止损。"), refs),),
+            rules=(
+                (_rule("交易规则：立即买入比特币并设置止损。"), refs),
+                *candidate.rules[1:2],
+                (_rule("做多比特币并把止损设在前低下方。"), refs),
+                *candidate.rules[3:5],
+                (_rule("跌破前低后立即止损。"), refs),
+            ),
         )
 
 
@@ -105,11 +114,7 @@ class PublicAttributionDistiller:
         self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
     ) -> DistillCandidate:
         candidate = await DeterministicDistiller().distill(source, frames)
-        _, refs = candidate.core_strategies[0]
-        return replace(
-            candidate,
-            core_strategies=((_rule("主播表示这里直接做多比特币。"), refs),),
-        )
+        return _replace_candidate_rule(candidate, 0, "主播表示这里直接做多比特币。")
 
 
 class PrivateRuleLeakDistiller:
@@ -120,11 +125,7 @@ class PrivateRuleLeakDistiller:
         self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
     ) -> DistillCandidate:
         candidate = await DeterministicDistiller().distill(source, frames)
-        _, refs = candidate.core_strategies[0]
-        return replace(
-            candidate,
-            core_strategies=((_rule(self._leaked_rule), refs),),
-        )
+        return _replace_candidate_rule(candidate, 0, self._leaked_rule)
 
 
 class ResidualModalDistiller:
@@ -132,11 +133,7 @@ class ResidualModalDistiller:
         self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
     ) -> DistillCandidate:
         candidate = await DeterministicDistiller().distill(source, frames)
-        _, refs = candidate.core_strategies[0]
-        return replace(
-            candidate,
-            core_strategies=((_rule("支撑阻力位应视为价格博弈的区域。"), refs),),
-        )
+        return _replace_candidate_rule(candidate, 0, "支撑阻力位应视为价格博弈的区域。")
 
 
 class TechnicalComparisonDistiller:
@@ -150,11 +147,7 @@ class TechnicalComparisonDistiller:
         self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
     ) -> DistillCandidate:
         candidate = await DeterministicDistiller().distill(source, frames)
-        _, refs = candidate.core_strategies[0]
-        return replace(
-            candidate,
-            core_strategies=((_rule(self._comparison), refs),),
-        )
+        return _replace_candidate_rule(candidate, 0, self._comparison)
 
 
 class PrivateCatalogLeakAggregator:
@@ -179,9 +172,11 @@ class OrderedSpeechMismatchDistiller:
     ) -> DistillCandidate:
         del source, frames
         return DistillCandidate(
-            core_strategies=((_rule("主要趋势决定方向偏好。"), ("E001",)),),
-            methods=((_rule("从起点到终点的变化用于确认参与条件。"), ("E001",)),),
-            risk_management=((_rule("结构失效后退出并控制风险。"), ("E003",)),),
+            rules=(
+                (_rule("主要趋势决定方向偏好。"), ("E001",)),
+                (_rule("从起点到终点的变化用于确认参与条件。"), ("E001",)),
+                (_rule("结构失效后退出并控制风险。"), ("E003",)),
+            ),
             visuals=(
                 CandidateVisual(
                     disposition="supports_rule",
@@ -216,18 +211,11 @@ class ClosedEvidenceMaturityDistiller:
         self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
     ) -> DistillCandidate:
         candidate = await DeterministicDistiller().distill(source, frames)
-        _, refs = candidate.methods[0]
-        return replace(
+        return _replace_candidate_rule(
             candidate,
-            methods=(
-                (
-                    _rule(
-                        "根据品种属性调整指标参数，例如在黄金交易中，"
-                        "MA40与MA20的参数组合被验证为具有较强共性。"
-                    ),
-                    refs,
-                ),
-            ),
+            2,
+            "根据品种属性调整指标参数，例如在黄金交易中，"
+            "MA40与MA20的参数组合被验证为具有较强共性。",
         )
 
 
@@ -236,8 +224,7 @@ class ResidualEvidenceMaturityDistiller:
         self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
     ) -> DistillCandidate:
         candidate = await DeterministicDistiller().distill(source, frames)
-        _, refs = candidate.methods[0]
-        return replace(candidate, methods=((_rule("回测结果表明该方法稳定。"), refs),))
+        return _replace_candidate_rule(candidate, 2, "回测结果表明该方法稳定。")
 
 
 class NeutralizationCollisionDistiller:
@@ -245,12 +232,14 @@ class NeutralizationCollisionDistiller:
         self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
     ) -> DistillCandidate:
         candidate = await DeterministicDistiller().distill(source, frames)
-        refs = candidate.methods[0][1]
+        refs = candidate.rules[2][1]
         return replace(
             candidate,
-            methods=(
+            rules=(
+                *candidate.rules[:2],
                 (_rule("参数组合被验证为具有共性。"), refs),
                 (_rule("参数组合具有共性这一假设仍待独立验证。"), refs),
+                *candidate.rules[4:],
             ),
         )
 
@@ -274,15 +263,7 @@ class VisualModalityDistiller:
         self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
     ) -> DistillCandidate:
         candidate = await DeterministicDistiller().distill(source, frames)
-        return replace(
-            candidate,
-            methods=(
-                (
-                    _rule("方法上：画面显示价格处于压力线下方。"),
-                    candidate.methods[0][1],
-                ),
-            ),
-        )
+        return _replace_candidate_rule(candidate, 2, "方法上：画面显示价格处于压力线下方。")
 
 
 class RejectingCandidateVerifier:
@@ -347,29 +328,19 @@ class DirectSemanticCounterexampleDistiller:
     ) -> DistillCandidate:
         candidate = await DeterministicDistiller().distill(source, frames)
         if self._mutation == "paraphrased_duplicate":
-            _, refs = candidate.methods[0]
+            _, refs = candidate.rules[2]
             return replace(
                 candidate,
-                methods=(
-                    *candidate.methods,
+                rules=(
+                    *candidate.rules,
                     (_rule("用价格相对关键线的位置来判断当前结构。"), refs),
                 ),
             )
         if self._mutation == "reversed_priority":
-            return replace(
-                candidate,
-                core_strategies=tuple(reversed(candidate.core_strategies)),
-            )
-        _, refs = candidate.methods[0]
+            return replace(candidate, rules=tuple(reversed(candidate.rules)))
         if self._mutation == "polarity_inversion":
-            return replace(
-                candidate,
-                methods=((_rule("价格与关键线的相对位置不得用于确认结构。"), refs),),
-            )
-        return replace(
-            candidate,
-            methods=((_rule("价格变化后参与。"), refs), *candidate.methods[1:]),
-        )
+            return _replace_candidate_rule(candidate, 2, "价格与关键线的相对位置不得用于确认结构。")
+        return _replace_candidate_rule(candidate, 2, "价格变化后参与。")
 
 
 class RejectingDirectSemanticVerifier:
@@ -395,7 +366,7 @@ class RejectingDirectSemanticVerifier:
             return replace(verification, no_duplicate_or_remaining_mergeable_rule="reject")
         if self._mutation == "reversed_priority":
             return replace(verification, priority_order_acceptable="reject")
-        target_index = len(candidate.core_strategies)
+        target_index = 2
         target = verification.rules[target_index]
         rejected = (
             replace(target, polarity_preserved="reject")
@@ -436,10 +407,8 @@ class MaterialConditionCounterexampleDistiller:
         self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
     ) -> DistillCandidate:
         candidate = await DeterministicDistiller().distill(source, frames)
-        _, refs = candidate.methods[0]
-        return replace(
-            candidate,
-            methods=((_rule(_MATERIAL_CONDITION_COUNTEREXAMPLES[self._condition_class]), refs),),
+        return _replace_candidate_rule(
+            candidate, 2, _MATERIAL_CONDITION_COUNTEREXAMPLES[self._condition_class]
         )
 
 
@@ -451,7 +420,7 @@ class RejectingDirectMaterialConditionVerifier:
         candidate: DistillCandidate,
     ):
         verification = await DeterministicCandidateVerifier().verify(source, frames, candidate)
-        target_index = len(candidate.core_strategies)
+        target_index = 2
         return replace(
             verification,
             rules=(
@@ -470,12 +439,8 @@ class MixedEnglishCounterexampleDistiller:
         self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
     ) -> DistillCandidate:
         candidate = await DeterministicDistiller().distill(source, frames)
-        _, refs = candidate.core_strategies[0]
-        return replace(
-            candidate,
-            core_strategies=(
-                (_rule("核心原则：Follow the market trend and wait for confirmation."), refs),
-            ),
+        return _replace_candidate_rule(
+            candidate, 0, "核心原则：Follow the market trend and wait for confirmation."
         )
 
 
@@ -612,24 +577,24 @@ class TooManyRulesDistiller:
     ) -> DistillCandidate:
         candidate = await DeterministicDistiller().distill(source, frames)
         limits = {"core": 10, "method": 10, "risk": 7}
-        attribute = {
-            "core": "core_strategies",
-            "method": "methods",
-            "risk": "risk_management",
-        }[self._category]
-        existing = getattr(candidate, attribute)
-        refs = existing[0][1]
+        refs = candidate.rules[0][1]
         expanded = tuple(
             (_rule(f"超额规则 {self._category} {index}。"), refs)
             for index in range(limits[self._category])
         )
-        return replace(candidate, **{attribute: expanded})
+        return replace(candidate, rules=expanded)
 
 
 class CountingCandidateVerifier:
-    def __init__(self, *, reject: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        reject: bool = False,
+        category: Literal["core", "method", "risk"] | None = None,
+    ) -> None:
         self.calls = 0
         self._reject = reject
+        self._category = category
 
     async def verify(
         self,
@@ -639,6 +604,18 @@ class CountingCandidateVerifier:
     ):
         self.calls += 1
         verification = await DeterministicCandidateVerifier().verify(source, frames, candidate)
+        if self._category is not None:
+            classified = {
+                "core": "core_strategy",
+                "method": "method",
+                "risk": "risk_management",
+            }[self._category]
+            verification = replace(
+                verification,
+                rules=tuple(
+                    replace(item, classified_category=classified) for item in verification.rules
+                ),
+            )
         if not self._reject:
             return verification
         return replace(
@@ -928,8 +905,13 @@ class FrameOnlyVisualDistiller:
         candidate = await DeterministicDistiller().distill(source, frames)
         return replace(
             candidate,
-            methods=(
-                (_rule("两个独立视觉时刻共同支持同一结构确认条件。"), candidate.methods[0][1]),
+            rules=(
+                *candidate.rules[:2],
+                (
+                    _rule("两个独立视觉时刻共同支持同一结构确认条件。"),
+                    candidate.rules[2][1],
+                ),
+                *candidate.rules[3:],
             ),
             visuals=(
                 CandidateVisual(
@@ -951,12 +933,14 @@ class LongOpposingRulesDistiller:
         self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
     ) -> DistillCandidate:
         candidate = await DeterministicDistiller().distill(source, frames)
-        refs = candidate.methods[0][1]
+        refs = candidate.rules[2][1]
         return replace(
             candidate,
-            methods=(
+            rules=(
+                *candidate.rules[:2],
                 (_rule("价格跌破关键前低时必须立即止损并且不得继续持有该仓位。"), refs),
                 (_rule("价格跌破关键前低时不必立即止损并且仍可继续持有该仓位。"), refs),
+                *candidate.rules[4:],
             ),
             visuals=tuple(
                 replace(
@@ -1000,7 +984,7 @@ async def test_direct_candidate_rule_counts_remain_single_source_bounded(
     category: Literal["core", "method", "risk"],
 ) -> None:
     fixture = generate_fixture(tmp_path / category)
-    verifier = CountingCandidateVerifier()
+    verifier = CountingCandidateVerifier(category=category)
 
     with pytest.raises(BilibiliNoteFailure) as failure:
         await _use_case(
@@ -1009,8 +993,8 @@ async def test_direct_candidate_rule_counts_remain_single_source_bounded(
             verifier=verifier,
         ).execute(FIXTURE_URL)
 
-    assert failure.value.reason == "model_rule_counts_invalid"
-    assert verifier.calls == 0
+    assert failure.value.reason == "candidate_semantics_rejected"
+    assert verifier.calls == 1
 
 
 async def test_client_receives_one_text_block_and_no_images(tmp_path: Path) -> None:
@@ -1126,12 +1110,6 @@ async def test_verifier_rejection_is_not_retried_or_reauthored(tmp_path: Path) -
         (RejectingCandidateVerifier(), "candidate_semantics_rejected"),
         (RejectingVisualVerifier(), "visual_support_rejected"),
         (RejectingSourceCoverageVerifier(), "candidate_semantics_rejected"),
-        (RejectingCategoryVerifier(0, "method"), "candidate_semantics_rejected"),
-        (RejectingCategoryVerifier(0, "risk_management"), "candidate_semantics_rejected"),
-        (RejectingCategoryVerifier(2, "core_strategy"), "candidate_semantics_rejected"),
-        (RejectingCategoryVerifier(2, "risk_management"), "candidate_semantics_rejected"),
-        (RejectingCategoryVerifier(5, "core_strategy"), "candidate_semantics_rejected"),
-        (RejectingCategoryVerifier(5, "method"), "candidate_semantics_rejected"),
         (DetectingOmittedVisualMaterialVerifier(), "visual_material_omitted"),
         (ReorderedCandidateVerifier(), "verifier_response_invalid"),
     ),
@@ -1159,6 +1137,43 @@ async def test_verifier_rejection_never_crosses_analysis_or_terminal_progress(
     assert result.structured_content["reason"] == reason
     assert observed == [5, 25, 50, 65]
     assert 75 not in observed and 89 not in observed and 100 not in observed
+
+
+@pytest.mark.parametrize(
+    ("item_index", "classified_category", "summary_field"),
+    (
+        (0, "method", "methods"),
+        (0, "risk_management", "risk_management"),
+        (2, "core_strategy", "core_strategies"),
+        (2, "risk_management", "risk_management"),
+        (5, "core_strategy", "core_strategies"),
+        (5, "method", "methods"),
+    ),
+)
+async def test_verifier_is_sole_public_category_authority(
+    tmp_path: Path,
+    item_index: int,
+    classified_category: Literal["core_strategy", "method", "risk_management"],
+    summary_field: str,
+) -> None:
+    fixture = generate_fixture(tmp_path / f"{item_index}-{classified_category}")
+    expected_bodies = (
+        "市场主要趋势决定交易方向偏好。",
+        "趋势与震荡状态采用不同的参与逻辑。",
+        "价格与关键线的相对位置用于确认结构。",
+        "结构确认后才参与，确认前保持观望。",
+        "等待价格到达预先识别的关键位置，避免在区间中部交易。",
+        "单笔仓位与风险敞口必须预先设定上限。",
+    )
+
+    payload = await _use_case(
+        fixture,
+        verifier=RejectingCategoryVerifier(item_index, classified_category),
+    ).execute(FIXTURE_URL)
+
+    assert expected_bodies[item_index] in {
+        item.rule_body for item in getattr(payload.summary, summary_field)
+    }
 
 
 @pytest.mark.parametrize(
@@ -2354,9 +2369,11 @@ async def test_invalid_model_identity_never_reaches_direct_mcp(
             "minItems"
         ]
         candidate = {
-            "core_strategies": [{"rule_body": "主要趋势决定方向偏好", "evidence_refs": ["E001"]}],
-            "methods": [{"rule_body": "方向不明确时保持观望", "evidence_refs": ["E001"]}],
-            "risk_management": [{"rule_body": "价格跌破失效位置后退出", "evidence_refs": ["E001"]}],
+            "rules": [
+                {"rule_body": "主要趋势决定方向偏好", "evidence_refs": ["E001"]},
+                {"rule_body": "方向不明确时保持观望", "evidence_refs": ["E001"]},
+                {"rule_body": "价格跌破失效位置后退出", "evidence_refs": ["E001"]},
+            ],
             "visuals": [
                 {
                     "disposition": "no_material_increment",

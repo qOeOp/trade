@@ -137,10 +137,10 @@ def _candidate_with_visuals(visuals: list[dict[str, object]]) -> dict[str, objec
         )
         normalized_visuals.append(normalized)
     return {
-        "core_strategies": [{"rule_body": "主要趋势决定方向偏好", "evidence_refs": ["E001"]}],
-        "methods": [{"rule_body": "方向不明确时保持观望", "evidence_refs": ["E001"]}],
-        "risk_management": [
-            {"rule_body": "价格跌破失效位置后退出并限制风险敞口", "evidence_refs": ["E001"]}
+        "rules": [
+            {"rule_body": "主要趋势决定方向偏好", "evidence_refs": ["E001"]},
+            {"rule_body": "方向不明确时保持观望", "evidence_refs": ["E001"]},
+            {"rule_body": "价格跌破失效位置后退出并限制风险敞口", "evidence_refs": ["E001"]},
         ],
         "visuals": normalized_visuals,
     }
@@ -172,10 +172,9 @@ def _accepted_rule_verdict(index: int, category: str) -> dict[str, object]:
 
 
 def _verification_wire(candidate: DistillCandidate) -> dict[str, object]:
-    categorized_rules = (
-        *("core_strategy" for _item in candidate.core_strategies),
-        *("method" for _item in candidate.methods),
-        *("risk_management" for _item in candidate.risk_management),
+    categorized_rules = tuple(
+        "core_strategy" if index < 2 else "method" if index < 5 else "risk_management"
+        for index, _item in enumerate(candidate.rules)
     )
     return {
         "source_coverage": "accept",
@@ -409,15 +408,9 @@ async def test_distiller_sends_time_aligned_vision_and_validates_wire(
         )
         schema = body["response_format"]["json_schema"]["schema"]
         assert schema["additionalProperties"] is False
-        assert set(schema["required"]) == {
-            "core_strategies",
-            "methods",
-            "risk_management",
-            "visuals",
-        }
-        assert schema["properties"]["core_strategies"]["maxItems"] == 9
-        assert schema["properties"]["methods"]["maxItems"] == 9
-        assert schema["properties"]["risk_management"]["maxItems"] == 6
+        assert set(schema["required"]) == {"rules", "visuals"}
+        assert schema["properties"]["rules"]["minItems"] == 1
+        assert schema["properties"]["rules"]["maxItems"] == 24
         bound_ref_schema = schema["$defs"]["_WireBound"]["properties"]["evidence_refs"]
         assert bound_ref_schema["items"]["pattern"] == r"^E[0-9]{3}$"
         assert set(schema["$defs"]["_WireBound"]["required"]) == {
@@ -448,24 +441,27 @@ async def test_distiller_sends_time_aligned_vision_and_validates_wire(
         prompt = content[0]["text"]
         assert "chronological recap" in prompt
         assert "Delete greetings" in prompt
+        assert "Return one flat rules catalog without core/method/risk category fields" in prompt
+        assert "supports at least one exact visible relation inside that rule" in prompt
         assert "highest cross-context reusable decision value" in prompt
         assert "Preserve its polarity, permission, prohibition, priority" in prompt
         assert "Do not preserve speaker-attribution prefixes" in prompt
         assert "Never infer temporal continuity" in prompt
-        assert prompt.count(_CATEGORY_CONTRACT) == 1
+        assert prompt.count(_CATEGORY_CONTRACT) == 0
         assert all(condition in prompt for condition in MATERIAL_CONDITION_CLASSES)
-        assert "global concatenation core_strategies, then methods, then risk_management" in prompt
+        assert "verifier is the sole category authority" in prompt
         assert '"transcript_refs":["E001"]' in prompt
         candidate = {
-            "core_strategies": [{"rule_body": "主要趋势决定方向偏好", "evidence_refs": ["E001"]}],
-            "methods": [
+            "rules": [
+                {"rule_body": "主要趋势决定方向偏好", "evidence_refs": ["E001"]},
                 {
                     "rule_body": "画面补足相对位置；补足口述没有表达的空间关系。",
                     "evidence_refs": ["E001"],
-                }
-            ],
-            "risk_management": [
-                {"rule_body": "价格跌破失效位置后退出并限制风险敞口", "evidence_refs": ["E001"]}
+                },
+                {
+                    "rule_body": "价格跌破失效位置后退出并限制风险敞口",
+                    "evidence_refs": ["E001"],
+                },
             ],
             "visuals": [
                 {
@@ -493,9 +489,9 @@ async def test_distiller_sends_time_aligned_vision_and_validates_wire(
         profile=_profile(), transport=httpx.MockTransport(respond)
     ).distill(_source(), frames)
     assert result.model_ref == "siliconflow:test-vision"
-    assert result.core_strategies[0][0].rule_body == "主要趋势决定方向偏好"
-    assert result.core_strategies[0][1] == ("E001",)
-    assert result.methods[0][1] == ("E001",)
+    assert result.rules[0][0].rule_body == "主要趋势决定方向偏好"
+    assert result.rules[0][1] == ("E001",)
+    assert result.rules[1][1] == ("E001",)
     assert result.visuals[0].rule_index == 0
 
 
@@ -555,10 +551,9 @@ async def test_verifier_ordered_group_requires_speech_context_and_relation_guard
     monkeypatch.setenv("TEST_SILICONFLOW_KEY", "secret")
     frames = _ordered_frames()
     candidate = await DeterministicDistiller().distill(_source(), frames)
-    categorized_rules = (
-        *("core_strategy" for _item in candidate.core_strategies),
-        *("method" for _item in candidate.methods),
-        *("risk_management" for _item in candidate.risk_management),
+    categorized_rules = tuple(
+        "core_strategy" if index < 2 else "method" if index < 5 else "risk_management"
+        for index, _item in enumerate(candidate.rules)
     )
 
     def respond(request: httpx.Request) -> httpx.Response:
@@ -630,19 +625,11 @@ async def test_verifier_uses_exact_positional_schema_and_returns_no_public_prose
 ) -> None:
     monkeypatch.setenv("TEST_SILICONFLOW_KEY", "secret")
     candidate = await DeterministicDistiller().distill(_source(), _frames())
-    expected_categories = (
-        *("core_strategy" for _ in candidate.core_strategies),
-        *("method" for _ in candidate.methods),
-        *("risk_management" for _ in candidate.risk_management),
+    expected_categories = tuple(
+        "core_strategy" if index < 2 else "method" if index < 5 else "risk_management"
+        for index, _item in enumerate(candidate.rules)
     )
-    rule_count = sum(
-        len(items)
-        for items in (
-            candidate.core_strategies,
-            candidate.methods,
-            candidate.risk_management,
-        )
-    )
+    rule_count = len(candidate.rules)
 
     def respond(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
@@ -687,6 +674,9 @@ async def test_verifier_uses_exact_positional_schema_and_returns_no_public_prose
         assert prompt.count(_CATEGORY_CONTRACT) == 1
         assert "uniquely bound material visual" in prompt
         assert "semantic paraphrases" in prompt
+        assert "one-off price narration" in prompt
+        assert "same instrument or direction" in prompt
+        assert "at least one exact material relation inside the bound rule" in prompt
         assert "threshold" in prompt
         assert all(condition in prompt for condition in MATERIAL_CONDITION_CLASSES)
         assert "English prose sentence or clause" in prompt
@@ -781,10 +771,12 @@ async def test_verifier_rejects_missing_or_extra_compatible_representation(
 ) -> None:
     monkeypatch.setenv("TEST_SILICONFLOW_KEY", "secret")
     candidate = await DeterministicDistiller().distill(_source(), _frames())
-    categorized_rules = (
-        *(("core_strategy", item) for item in candidate.core_strategies),
-        *(("method", item) for item in candidate.methods),
-        *(("risk_management", item) for item in candidate.risk_management),
+    categorized_rules = tuple(
+        (
+            "core_strategy" if index < 2 else "method" if index < 5 else "risk_management",
+            item,
+        )
+        for index, item in enumerate(candidate.rules)
     )
     verdict = {
         "source_coverage": "accept",
@@ -849,7 +841,7 @@ def test_old_wire_text_field_is_rejected_without_compatibility() -> None:
             }
         )
     )
-    candidate["core_strategies"] = [{"text": "旧字段", "evidence_refs": ["E001"]}]
+    candidate["rules"] = [{"text": "旧字段", "evidence_refs": ["E001"]}]
 
     with pytest.raises(ValueError):
         distillers._WireCandidate.model_validate(candidate)

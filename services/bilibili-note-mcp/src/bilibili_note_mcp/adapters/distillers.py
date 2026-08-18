@@ -46,7 +46,10 @@ _CATEGORY_CONTRACT = (
     "observable entry, avoidance, waiting, filter or confirmation condition, including a "
     "condition tied to market regime; (3) only otherwise core_strategy for an abstract "
     "strategy-wide objective, governing principle, regime preference or directional stance "
-    "that contains no operational trigger or consequence. Topic words never override this order."
+    "that contains no operational trigger or consequence. Avoiding, waiting or filtering at an "
+    "observable market condition remains method even when its rationale mentions loss; it becomes "
+    "risk_management only when the rule itself specifies stop-loss, exit, invalidation, "
+    "position-size or exposure control. Topic words never override this order."
 )
 _MATERIAL_CONDITION_CONTRACT = ", ".join(MATERIAL_CONDITION_CLASSES)
 
@@ -94,9 +97,7 @@ _WireVisual = Annotated[
 
 
 class _WireCandidate(_WireModel):
-    core_strategies: list[_WireBound] = Field(min_length=1, max_length=9)
-    methods: list[_WireBound] = Field(min_length=1, max_length=9)
-    risk_management: list[_WireBound] = Field(min_length=1, max_length=6)
+    rules: list[_WireBound] = Field(min_length=1, max_length=24)
     visuals: list[_WireVisual] = Field(min_length=2, max_length=5)
 
 
@@ -127,7 +128,7 @@ class _WireVerification(_WireModel):
     source_coverage: Literal["accept", "reject"]
     no_duplicate_or_remaining_mergeable_rule: Literal["accept", "reject"]
     priority_order_acceptable: Literal["accept", "reject"]
-    rules: list[_WireRuleVerdict] = Field(min_length=3, max_length=24)
+    rules: list[_WireRuleVerdict] = Field(min_length=1, max_length=24)
     visuals: list[_WireVisualVerdict] = Field(min_length=2, max_length=5)
 
 
@@ -142,7 +143,7 @@ def _wire_candidate_schema(visual_group_count: int) -> dict[str, Any]:
 
 
 def _wire_verification_schema(item_count: int, visual_group_count: int) -> dict[str, Any]:
-    if not 3 <= item_count <= 24 or not 2 <= visual_group_count <= 5:
+    if not 1 <= item_count <= 24 or not 2 <= visual_group_count <= 5:
         raise BilibiliNoteFailure("DISTILLATION_FAILED", "verifier_response_invalid")
     schema = _WireVerification.model_json_schema()
     rules = schema["properties"]["rules"]
@@ -258,17 +259,9 @@ def _candidate(
     value: _WireCandidate, model_ref: str, profile_material_refs: tuple[str, ...]
 ) -> DistillCandidate:
     return DistillCandidate(
-        core_strategies=tuple(
+        rules=tuple(
             (PublicRuleV1(rule_body=item.rule_body), tuple(item.evidence_refs))
-            for item in value.core_strategies
-        ),
-        methods=tuple(
-            (PublicRuleV1(rule_body=item.rule_body), tuple(item.evidence_refs))
-            for item in value.methods
-        ),
-        risk_management=tuple(
-            (PublicRuleV1(rule_body=item.rule_body), tuple(item.evidence_refs))
-            for item in value.risk_management
+            for item in value.rules
         ),
         visuals=tuple(
             CandidateVisual(
@@ -293,11 +286,9 @@ class DeterministicDistiller:
             group_id: sum(frame.group_id == group_id for frame in frames) for group_id in group_ids
         }
         return DistillCandidate(
-            core_strategies=(
+            rules=(
                 (PublicRuleV1(rule_body="市场主要趋势决定交易方向偏好。"), transcript_refs),
                 (PublicRuleV1(rule_body="趋势与震荡状态采用不同的参与原则。"), transcript_refs),
-            ),
-            methods=(
                 (PublicRuleV1(rule_body="价格与关键线的相对位置用于确认结构。"), transcript_refs),
                 (
                     PublicRuleV1(rule_body="在方向不明的震荡区间保持观望。"),
@@ -307,8 +298,6 @@ class DeterministicDistiller:
                     PublicRuleV1(rule_body="等待价格到达预先识别的关键位置，避免在区间中部交易。"),
                     transcript_refs,
                 ),
-            ),
-            risk_management=(
                 (
                     PublicRuleV1(rule_body="单笔仓位与风险敞口必须预先设定上限。"),
                     transcript_refs,
@@ -343,10 +332,15 @@ class DeterministicCandidateVerifier:
         candidate: DistillCandidate,
     ) -> CandidateVerification:
         del source, frames
-        categories: tuple[_RuleCategory, ...] = (
-            *(_CORE_CATEGORY for _item in candidate.core_strategies),
-            *(_METHOD_CATEGORY for _item in candidate.methods),
-            *(_RISK_CATEGORY for _item in candidate.risk_management),
+        if not candidate.rules:
+            raise BilibiliNoteFailure("DISTILLATION_FAILED", "verifier_response_invalid")
+        categories: tuple[_RuleCategory, ...] = tuple(
+            _CORE_CATEGORY
+            if index < min(2, len(candidate.rules))
+            else _RISK_CATEGORY
+            if index == len(candidate.rules) - 1
+            else _METHOD_CATEGORY
+            for index, _item in enumerate(candidate.rules)
         )
         return CandidateVerification(
             source_coverage="accept",
@@ -456,23 +450,19 @@ class SiliconFlowDistiller:
             for index, group in enumerate(grouped_frames)
         ]
         response_shape = {
-            "core_strategies": [
+            "rules": [
                 {
                     "rule_body": "顺势原则：市场主要趋势决定交易方向偏好。",
                     "evidence_refs": ["E001"],
-                }
-            ],
-            "methods": [
+                },
                 {
                     "rule_body": "结合下降趋势线与斐波那契回调位寻找参与位置。",
                     "evidence_refs": ["E001"],
-                }
-            ],
-            "risk_management": [
+                },
                 {
                     "rule_body": "价格跌破失效位置时退出并控制风险敞口。",
                     "evidence_refs": ["E001"],
-                }
+                },
             ],
             "visuals": visual_examples,
         }
@@ -486,9 +476,11 @@ class SiliconFlowDistiller:
                     "channel promotion, "
                     "repetition, jokes, emotional filler, audience interaction and any tangent "
                     "that does not change a reusable decision rule, setup, filter or risk control. "
-                    "Classify every retained fact into exactly one of core_strategies, methods or "
-                    "risk_management. " + _CATEGORY_CONTRACT + " Order every "
-                    "category from highest cross-context reusable decision value to lowest. Prefer "
+                    "Do not turn a statement that parameters or conclusions still need validation "
+                    "into a trading rule, and never duplicate one source idea. Return one flat "
+                    "rules catalog without core/method/risk category fields; the independent "
+                    "verifier is the sole category authority. Order the whole catalog from highest "
+                    "cross-context reusable decision value to lowest. Prefer "
                     "reusable rules over instrument-by-instrument recap, but preserve every "
                     "applicable condition that materially defines the rule. Apply this complete "
                     "condition-class inventory: " + _MATERIAL_CONDITION_CONTRACT + ". "
@@ -496,10 +488,13 @@ class SiliconFlowDistiller:
                     "Return exactly one disposition for every host visual group, in the "
                     "frame_catalog group's first-seen order. Never return or repeat group IDs; "
                     "the host exclusively owns each group's identity and exact frame set. Put "
-                    "every material reusable visual rule into its correct top-level category. Use "
-                    "supports_rule with its zero-based rule_index in the global concatenation "
-                    "core_strategies, then methods, then risk_management when a group materially "
-                    "supports that exact rule; "
+                    "every material reusable visual fact into one existing catalog rule. Use "
+                    "supports_rule with its zero-based rule_index in the flat rules catalog when "
+                    "a group materially "
+                    "supports at least one exact visible relation inside that rule without "
+                    "contradicting any other part; the speech may support the rule's remaining "
+                    "relations. Do not choose supports_rule merely because a chart is topically "
+                    "related; "
                     "the host derives the private evidence binding without changing public text. "
                     "Public section items cite E transcript IDs only and never cite G group IDs or "
                     "F frame IDs. Otherwise use no_material_increment with a null rule_index "
@@ -607,14 +602,10 @@ class SiliconFlowDistiller:
 
         def validate_candidate(value: object) -> _WireCandidate:
             wire = _WireCandidate.model_validate(value)
-            language_values = [
-                *(item.rule_body for item in wire.core_strategies),
-                *(item.rule_body for item in wire.methods),
-                *(item.rule_body for item in wire.risk_management),
-            ]
+            language_values = [item.rule_body for item in wire.rules]
             if any(not _contains_chinese(item) for item in language_values):
                 raise BilibiliNoteFailure("DISTILLATION_FAILED", "model_language_invalid")
-            rule_count = len(wire.core_strategies) + len(wire.methods) + len(wire.risk_management)
+            rule_count = len(wire.rules)
             if any(
                 item.disposition == "supports_rule"
                 and (item.rule_index is None or item.rule_index >= rule_count)
@@ -666,18 +657,13 @@ class SiliconFlowCandidateVerifier:
             }
             for item in source.transcript.segments
         ]
-        ordered_rules = (
-            *candidate.core_strategies,
-            *candidate.methods,
-            *candidate.risk_management,
-        )
         rule_catalog = [
             {
                 "item_index": index,
                 "rule_body": item[0].rule_body,
                 "evidence_refs": item[1],
             }
-            for index, item in enumerate(ordered_rules)
+            for index, item in enumerate(candidate.rules)
         ]
         group_ids = tuple(dict.fromkeys(item.group_id for item in frames))
         grouped_frames = tuple(
@@ -722,7 +708,10 @@ class SiliconFlowCandidateVerifier:
                     "supplied order. source_coverage "
                     "is accept only when every material reusable decision principle, setup, "
                     "filter or risk control stated by the transcript or visibly supplied by a "
-                    "visual group is represented by the candidate; otherwise reject. A rule is "
+                    "visual group is represented by the candidate; otherwise reject. Greetings, "
+                    "promotion, chronological market recap, one-off price narration and statements "
+                    "that parameters still need validation are not reusable omissions and must not "
+                    "cause rejection. A rule is "
                     "intelligible only when its operative terms, "
                     "conditions and relations are understandable without guessing or silently "
                     "correcting it, and when it is a complete reusable decision principle, setup, "
@@ -744,14 +733,16 @@ class SiliconFlowCandidateVerifier:
                     "standard instrument symbols, tickers, indicator or technical abbreviations, "
                     "and numeric notation do not by themselves require rejection. Independently "
                     "classify "
-                    "each rule without being shown its author-supplied category, using only this "
+                    "each rule and supply its sole public category, using only this "
                     "precedence contract: "
                     + _CATEGORY_CONTRACT
                     + " no_duplicate_or_remaining_mergeable_rule is accept only when no two rules "
                     "are semantic paraphrases or can be merged without losing a material source "
-                    "condition or polarity. priority_order_acceptable is accept only when rules "
-                    "inside each independently classified category are ordered from highest "
-                    "cross-context reusable decision value to lowest."
+                    "condition or polarity. A strategy-wide stance and a concrete setup that "
+                    "applies that stance are not duplicates merely because they concern the same "
+                    "instrument or direction. priority_order_acceptable is reject only for a clear "
+                    "within-category inversion of cross-context decision value; accept when two "
+                    "rules have incomparable scope or either stable order is reasonable."
                     + " It is source_resolvable only when its cited "
                     "transcript segments actually state or unambiguously define the rule, or, for "
                     "any rule, when its uniquely bound material visual visibly supplies the exact "
@@ -764,8 +755,10 @@ class SiliconFlowCandidateVerifier:
                     "the exact ordered relation is visibly supported. Never combine "
                     "frames across groups. Return materiality=material whenever a group contains a "
                     "reusable decision relation not fully redundant with the transcript. For "
-                    "supports_rule, independent_support is accept only when that group visibly "
-                    "supports the exact bound rule; otherwise reject. For no_material_increment, "
+                    "supports_rule, independent_support is accept when that group visibly supports "
+                    "at least one exact material relation inside the bound rule and contradicts "
+                    "none of it; speech may independently support the rule's remaining relations. "
+                    "Reject a merely topical chart. For no_material_increment, "
                     "independent_support must be not_applicable, regardless of materiality. Treat "
                     "host group membership and member order as fixed, but never treat absolute "
                     "timestamps or selector reasons as proof. Never produce explanations, "
