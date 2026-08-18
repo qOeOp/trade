@@ -52,6 +52,10 @@ source-frontier freshness。保护 phase、latency、terminal timing 与 timing-
 
 每个字段都引用来源 Owner 事实或 telemetry frontier，并显示 `observed-at`、`valid-through`、完整性、lag 与重建状态。`STALE`、`PARTIAL`、`REBUILDING`、`UNAVAILABLE` 必须明确显示，不能伪装成健康或完整。Dashboard 上触发变更的操作必须另行发起并接纳 Product Edge → Owner 请求，绝不能直接写入视图。
 
+展示 Product Edge 旅程不会让 Observability 成为产品闭环 Owner。它可以标注 Research 阶段、运行进度
+或失败诊断，但不能保存权威工作流阶段、创建 Iteration Decision、推进 Qualification、选择后继，或从
+遥测推断完成。产品闭环仍由原生 Owner 请求、回执和有界投影组合而成。
+
 ## 告警路由
 
 Alert Routing 消费受限 Event Wake 或策略已接纳的健康条件，再发送到 Telegram 或其他可替换适配器。它只拥有投递偏好、attempt 与 receipt。投递成功、静默、重复或失败都不能证明来源转换、解除围栏、重试未知订单效果、恢复策略或宣告 `KNOWN_CLOSED`。

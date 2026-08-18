@@ -3,6 +3,24 @@
 The product is a closed learning and control loop. Every transition changes either evidence, governance,
 runtime authority, external effects, or the factual projection used by the next decision.
 
+## User-facing closure and implementation boundary
+
+The Owner control loop below is the target authority flow; it does not by itself prove a usable application.
+User-facing closure exists only when [Product Edge](../../architecture/product-edge/) lets a user carry one bounded
+goal from entry to an authoritative result and its next legal action without manually joining Owner databases,
+receipts, logs, or terminal output.
+
+- `CURRENT/PARTIAL` - `crates/strategy_factory` provides a narrow frozen `ResearchIntent` to `StrategyArtifact`
+  to native replay and `TrialReceipt` pilot. It is `SURVIVED_NOT_ADMITTED`, not a complete R&D product.
+- `TARGET/ABSENT_TARGET_ONLY` - an R&D workbench presents Source and Hypothesis, frozen Intent, Artifact and Build
+  Receipt, exploratory Run Detail and Compare, Diagnosis, Iteration Decision, and the exact stop, repair,
+  successor, or Qualification handoff action.
+- `NOT_ADMITTED` - an architecture page, target read model, Dashboard, or reachable low-level API does not make
+  the workbench `CURRENT`.
+
+[Observability](../../architecture/observability/) may explain progress and failure, but it cannot close the journey,
+choose the next action, or substitute telemetry for a native Owner receipt.
+
 ## 1. Discover and formulate
 
 Product Edge accepts natural-language intent but owns no trading truth. Market Data supplies traceable,

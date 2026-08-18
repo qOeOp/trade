@@ -3,6 +3,23 @@
 产品是一个学习与控制闭环。每次转换都必须改变证据、治理决定、运行权限、外部效果，或供下一次
 决策读取的事实投影。
 
+## 面向用户的闭环与实现边界
+
+下方 Owner 控制闭环是目标权威 Flow，本身不能证明已有可用应用。只有用户能通过
+[Product Edge](../../architecture/product-edge/) 把一个有界目标从入口推进到权威结果及其下一个合法动作，
+而不需要手工拼接 Owner 数据库、回执、日志或终端输出时，面向用户的产品闭环才成立。
+
+- `CURRENT/PARTIAL` - `crates/strategy_factory` 提供从窄范围冻结 `ResearchIntent` 到 `StrategyArtifact`、
+  native replay 和 `TrialReceipt` 的 pilot。它是 `SURVIVED_NOT_ADMITTED`，不是完整 R&D 产品。
+- `TARGET/ABSENT_TARGET_ONLY` - R&D Workbench 展示 Source 与 Hypothesis、冻结 Intent、Artifact 与 Build
+  Receipt、探索 Run Detail 与 Compare、Diagnosis、Iteration Decision，以及准确的停止、修复、后继或
+  Qualification 交接动作。
+- `NOT_ADMITTED` - 架构页面、目标 read model、Dashboard 或可访问底层 API 都不能让 Workbench 成为
+  `CURRENT`。
+
+[Observability](../../architecture/observability/) 可以解释进度与失败，但不能闭合旅程、选择下一动作，
+或用 telemetry 替代原生 Owner 回执。
+
 ## 1. 发现并定义问题
 
 Product Edge 接受自然语言意图，但不拥有交易业务事实。Market Data 提供可追踪的 PIT 事实。

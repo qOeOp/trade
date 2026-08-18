@@ -111,6 +111,22 @@ view。source frontier 或权威回读未解析时，同一请求保持 `UNAVAIL
 准确重放加入同一投影，较新截面创建后继 view。Product Edge 可以用该 view 解释进度，但效果与
 Recovery 状态只能由已提交 Execution 及其他来源 Owner 事实建立，Research 永不把该 view 当 provenance。
 
+## 产品闭环与应用层
+
+只有用户能把一个有界目标从入口推进到权威结果及其下一个合法动作，而不需要手工拼接 Owner 数据库、
+回执、日志或终端输出时，产品闭环才成立。Product Edge 用类型化 Owner 请求、请求关联回执和有界只读
+模型组合这段旅程，但不拥有旅程中展示的业务转换。
+
+R&D 应用旅程展示 `Source / Hypothesis → Frozen Research Intent → Strategy Artifact and Build
+Receipt → Exploratory Run → Run Detail or Compare → Diagnosis → Iteration Decision`。它的终态动作是停止、提交准确的
+类型化输入修复请求、创建唯一已接纳后继，或把准确已选择 Candidate 交给 Qualification。每个阶段都
+绑定原生 Owner 事实、来源 frontier、新鲜度和未解析状态。可见按钮只提交一个新的类型化请求，绝不
+直接修改投影或推进阶段；原生 Owner 回执出现前，动作保持 `SUBMITTED_OR_UNKNOWN`。
+
+Product Edge 可以拥有筛选、布局和未提交表单等短暂交互细节，但不拥有 Research 血缘、Iteration
+Decision、Qualification 状态、生命周期状态或外部效果闭合。Observability 可以为旅程标注进度与诊断；
+遥测可用性、Dashboard 状态和告警投递永远不能证明完成或选择下一个业务动作。
+
 ## 权威边界
 
 它不拥有研究、策略、订单、账户、风险或恢复事实。Agent 操作成功只证明本地提交状态，不是 Owner 回执或业务结果。

@@ -53,6 +53,11 @@ publishes an internal `INELIGIBLE` or other protected-terminal event.
 
 Every field cites its source Owner facts or telemetry frontier and exposes `observed-at`, `valid-through`, completeness, lag, and rebuild state. `STALE`, `PARTIAL`, `REBUILDING`, and `UNAVAILABLE` remain visible; they cannot render as healthy or complete. A Dashboard click that requests a mutation starts a separately admitted Product Edge → Owner request and never writes through the view.
 
+Displaying a Product Edge journey does not make Observability the product-closure owner. It may annotate a
+Research stage, run progress, or failure diagnosis, but it cannot store the authoritative workflow stage, create
+an Iteration Decision, advance Qualification, select a successor, or infer completion from telemetry. Product
+closure remains the composition of native Owner requests, receipts, and bounded projections.
+
 ## Alert routing
 
 Alert Routing consumes bounded Event Wakes or policy-admitted health conditions and sends them to Telegram or another replaceable adapter. It owns delivery preferences, attempts, and receipts only. Delivery success, silence, duplication, or failure never proves a source transition, clears a fence, retries an unknown order effect, resumes a strategy, or declares `KNOWN_CLOSED`.
