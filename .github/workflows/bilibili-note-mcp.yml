@@ -118,9 +118,9 @@ jobs:
           test "$(git rev-parse HEAD)" = "$OPENCLAW_BASE_COMMIT"
           test "$(git rev-parse 'HEAD^{tree}')" = "$OPENCLAW_BASE_TREE"
           test "$(sha256sum "$OPENCLAW_PATCH" | cut -d ' ' -f 1)" = "$OPENCLAW_PATCH_SHA256"
-          git apply --check "$OPENCLAW_PATCH"
-          git apply "$OPENCLAW_PATCH"
-          test "$(git diff --name-only "$OPENCLAW_BASE_COMMIT" -- . | wc -l | tr -d ' ')" = "41"
+          git apply --check --index "$OPENCLAW_PATCH"
+          git apply --index "$OPENCLAW_PATCH"
+          test "$(git diff --cached --name-only "$OPENCLAW_BASE_COMMIT" -- . | wc -l | tr -d ' ')" = "41"
 
       - name: Install exact OpenClaw dependencies
         run: |
@@ -148,11 +148,11 @@ jobs:
         run: |
           pnpm tsgo:core
           pnpm tsgo:test:src
-          mapfile -d '' changed_paths < <(git diff --name-only -z "$OPENCLAW_BASE_COMMIT" -- .)
+          mapfile -d '' changed_paths < <(git diff --cached --name-only -z "$OPENCLAW_BASE_COMMIT" -- .)
           test "${#changed_paths[@]}" = "41"
           node scripts/run-oxlint.mjs "${changed_paths[@]}"
           node_modules/.bin/oxfmt --check --threads=1 "${changed_paths[@]}"
-          git diff --check
+          git diff --cached --check
 
       - name: Build patched OpenClaw
         run: pnpm build
