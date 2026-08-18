@@ -104,7 +104,7 @@ async def test_search_prioritizes_query_match_across_author_and_metadata() -> No
     assert result[0].author_name == "罗尼交易指南-官方"
 
 
-async def test_creator_mode_excludes_newer_extended_account() -> None:
+async def test_exact_creator_is_ranked_before_newer_extended_account() -> None:
     http = FakeHttp(
         {
             "code": 0,
@@ -131,10 +131,10 @@ async def test_creator_mode_excludes_newer_extended_account() -> None:
 
     result = await BilibiliSearch(cast(SafeHttpClient, http)).search("指尖金汇", 2)
 
-    assert [item.video_id for item in result] == ["BV1VSGo6JE98"]
+    assert [item.video_id for item in result] == ["BV1VSGo6JE98", "BV1Gvuj6dENb"]
 
 
-async def test_creator_mode_excludes_unrelated_suffix_account() -> None:
+async def test_exact_creator_is_ranked_before_unrelated_suffix_account() -> None:
     http = FakeHttp(
         {
             "code": 0,
@@ -159,7 +159,37 @@ async def test_creator_mode_excludes_unrelated_suffix_account() -> None:
 
     result = await BilibiliSearch(cast(SafeHttpClient, http)).search("指尖金汇", 2)
 
-    assert [item.video_id for item in result] == ["BV1VSGo6JE98"]
+    assert [item.video_id for item in result] == ["BV1VSGo6JE98", "BV1Gvuj6dENb"]
+
+
+async def test_exact_author_match_does_not_discard_other_topic_results() -> None:
+    http = FakeHttp(
+        {
+            "code": 0,
+            "data": {
+                "result": [
+                    {
+                        "type": "video",
+                        "bvid": "BV1VSGo6JE98",
+                        "title": "专题作者的新观点",
+                        "author": "专题作者",
+                        "pubdate": 100,
+                    },
+                    {
+                        "type": "video",
+                        "bvid": "BV1Gvuj6dENb",
+                        "title": "专题作者：跨作者评述",
+                        "author": "其他作者",
+                        "pubdate": 200,
+                    },
+                ]
+            },
+        }
+    )
+
+    result = await BilibiliSearch(cast(SafeHttpClient, http)).search("专题作者", 2)
+
+    assert [item.video_id for item in result] == ["BV1VSGo6JE98", "BV1Gvuj6dENb"]
 
 
 async def test_search_prioritizes_multi_concept_title_without_exact_author() -> None:

@@ -132,10 +132,6 @@ def _relevance_score(query: str, row: dict[str, Any], title: str) -> int:
     return score
 
 
-def _author_identity_rank(query: str, value: object) -> int:
-    return 0 if _normalized_identity(query) == _normalized_identity(value) else 1
-
-
 def _normalized_identity(value: object) -> str:
     if not isinstance(value, str):
         return ""
@@ -197,17 +193,11 @@ class BilibiliSearch:
                 continue
             usable_rows.append((upstream_index, value, video_id, title))
 
-        author_identity_mode = any(
-            _creator_identity_matches(query, row.get("author")) for _, row, _, _ in usable_rows
-        )
-        candidates: list[tuple[int, int, SearchCandidateV1]] = []
+        candidates: list[tuple[int, int, int, SearchCandidateV1]] = []
         seen: set[str] = set()
         for upstream_index, value, video_id, title in usable_rows:
-            relevant = (
-                _creator_identity_matches(query, value.get("author"))
-                if author_identity_mode
-                else _matches_all_query_units(query, value, title)
-                and (len(units) > 1 or _bounded_compact_match_any_field(query, value, title))
+            relevant = _matches_all_query_units(query, value, title) and (
+                len(units) > 1 or _bounded_compact_match_any_field(query, value, title)
             )
             if not relevant:
                 continue
@@ -216,6 +206,7 @@ class BilibiliSearch:
             seen.add(video_id)
             candidates.append(
                 (
+                    0 if _creator_identity_matches(query, value.get("author")) else 1,
                     _relevance_score(query, value, title),
                     upstream_index,
                     SearchCandidateV1(
@@ -229,21 +220,12 @@ class BilibiliSearch:
             )
         if not candidates:
             raise BilibiliNoteFailure("SEARCH_EMPTY", "search_no_usable_results")
-        if author_identity_mode:
-            candidates.sort(
-                key=lambda item: (
-                    _author_identity_rank(query, item[2].author_name),
-                    -(item[2].published_at or 0),
-                    -item[0],
-                    item[1],
-                )
+        candidates.sort(
+            key=lambda item: (
+                item[0],
+                -item[1],
+                -(item[3].published_at or 0),
+                item[2],
             )
-        else:
-            candidates.sort(
-                key=lambda item: (
-                    -item[0],
-                    -(item[2].published_at or 0),
-                    item[1],
-                )
-            )
-        return tuple(candidate for _, _, candidate in candidates[:limit])
+        )
+        return tuple(candidate for _, _, _, candidate in candidates[:limit])

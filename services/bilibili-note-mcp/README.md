@@ -34,12 +34,11 @@ template、unknown list、evidence locator or provenance。
 only by generic Unicode separator rules；there is no trading vocabulary、creator alias、video-specific
 rule or model-authored query expansion。A candidate must match every normalized query unit across
 title、author、tags or description。This prevents partial homonyms such as 罗尼 in 非泼罗尼 from
-entering media processing。When any result author is either the exact normalized query or that exact
-identity plus only the known `官方/官方账号` decoration，that author identity becomes mandatory；otherwise a
-single-unit compact query also requires one fully bounded occurrence。The adapter deduplicates exact
-BV IDs。Creator queries exclude extended accounts such as `<query>-黄金` or `<query>-反诈曝光`，then use
-newest publication time；topic queries retain lexical relevance as the
-primary order。It defaults to a target of 2 successful videos and hard-caps that target at 3，freezes
+entering media processing。An exact normalized author identity，including only the known
+`官方/官方账号` decoration，adds a bounded ranking signal but never changes the request into an inferred
+creator-only mode；other rows that satisfy the complete topic query remain eligible。A single-unit compact
+query also requires one fully bounded occurrence。The adapter deduplicates exact BV IDs and keeps lexical
+relevance as the topic authority。It defaults to a target of 2 successful videos and hard-caps that target at 3，freezes
 at most 9 fallback candidates，then returns one bounded systematic synthesis of all successfully
 parsed strategy facts。The host assigns every input rule a closed ID；one text-only call proposes at
 most 3 core principles、6 methods and 4 risk rules with exact same-category support IDs，while an
@@ -263,8 +262,10 @@ provider authority。Both actual-media ffprobe consumers likewise require width 
 non-boolean JSON integers，and duration/size to be bounded unsigned decimal strings，before a media artifact
 can reach ASR or frame extraction。The direct author prompt carries all twelve material-condition
 classes，polarity and reusable-abstraction constraints；strict host admission checks the bounded typed
-result before progress 75。The separate reject-only verifier is retained for offline evaluation only
-and cannot turn an otherwise valid live request into an empty terminal response。Public-text detection uses
+result before progress 75。One separate reject-only multimodal verifier then checks source coverage、
+entailment、polarity、material conditions、category/order and visual support against the immutable
+transcript/frame catalog before a live terminal may succeed。It cannot author or repair public text。
+Public-text detection uses
 one generic tag-shaped grammar rather than a finite browser-element list。After browser-visible
 canonicalization，every compact ASCII `<name...>` or `</name...>` form fails closed，including legacy、
 modern and unknown/custom names plus entity、full-width and Markdown-escaped variants。Unambiguous spaced
@@ -298,7 +299,7 @@ response class also uses a finite host-owned header set，and the loopback inten
 `Server` nor `Date`，so Python/runtime identity is not exposed。
 
 The current standalone gate is schema-clean，Ruff-clean over 66 Python files，strict-mypy-clean over
-44 package source files plus the loopback，self-check-clean and `878 passed` on CPython `3.14.6`。The exact OpenClaw patch is
+44 package source files plus the loopback，self-check-clean and `879 passed` on CPython `3.14.6`。The exact OpenClaw patch is
 SHA-256 `35ebbfcbc651be6b1914766701b047ec418b51342ef9733c32f388adee39f5a6` against base
 `0790d9f593ad30c940ed93b5872a8cf6d6f3cf8c`；its static terminal obligation prevents MCP startup，
 `tools/list` or schema failure from falling back to ordinary assistant output。

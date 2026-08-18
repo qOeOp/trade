@@ -1097,11 +1097,11 @@ async def test_success_invokes_exactly_one_author_and_one_verifier(tmp_path: Pat
     assert verifier.calls == 1
 
 
-def test_live_runtime_keeps_semantic_model_verifier_out_of_request_path() -> None:
+def test_live_runtime_uses_source_aware_semantic_model_verifier() -> None:
     use_case = cli_module._use_case(None, deterministic=False)
 
     assert isinstance(use_case._distiller, SiliconFlowDistiller)
-    assert isinstance(use_case._verifier, DeterministicCandidateVerifier)
+    assert isinstance(use_case._verifier, SiliconFlowCandidateVerifier)
 
 
 async def test_verifier_rejection_is_not_retried_or_reauthored(tmp_path: Path) -> None:

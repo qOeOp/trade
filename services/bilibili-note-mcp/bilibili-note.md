@@ -17,9 +17,9 @@
 
 用户在 LobeHub 输入一个直接 Bilibili 视频 URL，或输入一个自然语言研究主题。OpenClaw 对 URL
 调用 `bilibili_note.create`；对主题调用 `bilibili_note.search_and_create`。后者先从 Bilibili
-公开搜索结果按 BV 去重；creator query 只接受规范化作者名完全匹配，或完整身份后仅带
-`官方/官方账号` 装饰的账号，并排除其他扩展账号；结果按发布时间降序。topic query
-以标题、作者、标签和简介的确定性词法相关性为主。默认目标 2、
+公开搜索结果按 BV 去重；规范化作者名完全匹配，或完整身份后仅带 `官方/官方账号` 装饰，
+只增加一个有界排序信号，不能把自然语言主题自动改成 creator-only 模式。其他满足完整主题
+词法条件的结果仍保留；标题、作者、标签和简介的确定性相关性继续作为查询权威。默认目标 2、
 最多目标 3 个成功视频，最多冻结 9 个候选并在单候选失败后继续。每个视频仍由同一个
 CreateBilibiliNote authority 完整理解声音与关键画面：
 
@@ -64,14 +64,15 @@ CreateBilibiliNote 的有界组合入口；private v2 graph 和 public projectio
 ### 3.1 Included
 
 - 一个 direct `www.bilibili.com/video/BV...` URL，或 2–200 字自然语言研究主题；
-- anonymous Bilibili video search first page、BV 去重、exact-author/newest ordering、默认成功目标
+- anonymous Bilibili video search first page、BV 去重、exact-author rank signal + lexical ordering、默认成功目标
   2/硬上限 3、最多 9 个 fallback candidates；
 - metadata、完整 media、平台字幕优先/ASR fallback；
 - 完整音频覆盖和 host-owned 时间窗；
 - 通用视觉指示/屏幕交互/前后变化语法、窗口内 deterministic medoid 和 coverage anchors；领域词与数字本身
   不参与选帧排序；
-- 每个 source 恰好一次多模态候选生成 + host-owned 闭合 JSON wire、中文表示、证据引用和渲染校验；
-  reject-only 多模态 verifier 只保留作离线质量评测，不参与 live 请求终态；
+- 每个 source 恰好一次多模态候选生成 + 一次独立 reject-only 多模态 verifier；后者以完整
+  transcript/frames 核验覆盖、蕴含、方向、条件、分类/顺序和画面支持，全部通过后 live 请求
+  才能进入终态；
 - text-only canonical brief、Markdown projection、MCP schema、stdio server；
 - request-scoped progress、ASR window progress、视觉调用 liveness；
 - synthetic fixture、unit/stdio/live 两视频验证；
@@ -643,7 +644,7 @@ connection close/server shutdown reap the bounded non-daemon handler set。
 
 ## 16. Test authority
 
-Current deterministic suite：`878 passed` on CPython `3.14.6`。
+Current deterministic suite：`879 passed` on CPython `3.14.6`。
 
 Required checks：
 
@@ -2377,7 +2378,7 @@ v3/zero-image/three-section self-check on CPython `3.14.6`。The OpenClaw patch 
 review remains required；provider execution、desktop LobeHub acceptance and true same-line progress remain
 NOT_ADMITTED。
 
-### 18.40 CURRENT desktop request and public-media restoration candidate
+### 18.40 SUPERSEDED desktop request and public-media restoration candidate
 
 The desktop LobeHub consumer sends one closed continuity envelope rather than the former synthetic
 single-message body。The loopback now admits exactly either its internal one-user-message shape or the
@@ -2409,7 +2410,7 @@ request itself completed in 100.6 seconds with one 498-character Note and the cl
 `delta → text.done → content-part.done → output-item.done → completed → [DONE]` terminal sequence；it
 contained all three public sections，no private evidence noise and no 90/100 progress completion。
 
-### 18.41 CURRENT AgentSession clone-safe terminal projection
+### 18.41 SUPERSEDED AgentSession clone-safe terminal projection
 
 The live success above first exposed a consumer-only failure after MCP `request_completed`：OpenClaw's
 AgentSession clones the valid agent-tool result before `tool_execution_end`，while the previous private
@@ -2424,6 +2425,34 @@ tool and complete structured content before recovering the opaque verified recor
 replayed、second-call or cross-run results cannot project Note bytes。The exact-base patch-only replay passed
 19 Vitest projects / 934 tests，core and test-source type checks，41-path lint/format，binary diff identity
 and the full OpenClaw build in 90.5 seconds。
+
+Fresh delivery review then rejected two application-level semantics that those consumer receipts did not
+exercise。The live assembly paired `SiliconFlowDistiller` with `DeterministicCandidateVerifier`，whose
+fixture-only all-accept verdict could not establish source fidelity。Search also inferred a creator-only
+mode from the coincidence that one result author matched the natural-language query，discarding otherwise
+valid topic results。Neither earlier vote transfers to the changed candidate。
+
+### 18.42 CURRENT source-aware live admission and non-exclusive author ranking
+
+The live direct path now pairs the multimodal author with `SiliconFlowCandidateVerifier`。The verifier
+receives the immutable transcript、candidate rule catalog and exact host-selected frame groups，then
+independently rejects incomplete coverage、unresolved or unentailed rules、polarity/material-condition
+loss、wrong category/order and unsupported visual relations。It cannot author、repair、retry or mutate
+public text；the deterministic verifier remains fixture-only。
+
+Natural-language search now has one topic authority for every request。Every candidate must satisfy the
+complete normalized query；an exact author identity or its closed official decoration contributes only a
+bounded ranking bonus。It cannot exclude another complete title/author/tag/description match，so a topic
+that happens to equal an author name remains a topic search without adding an implicit mode or per-creator
+branch。A regression fixes one exact-author and one other-author topic result in the same admitted set。
+
+The integrated candidate is schema-drift clean，Ruff lint/format clean over 66 Python files，strict-mypy
+clean over 44 package files，passes `879` pytest cases and the v3/zero-image/three-section self-check on
+CPython `3.14.6`。The OpenClaw patch remains SHA-256
+`35ebbfcbc651be6b1914766701b047ec418b51342ef9733c32f388adee39f5a6` against base
+`0790d9f593ad30c940ed93b5872a8cf6d6f3cf8c`。Fresh immutable product-semantic and consumer-fail-close
+review is required before delivery；fresh provider execution and desktop-visible acceptance remain open
+evidence rather than inferred success。
 
 ## 19. Future trade integration
 
@@ -2478,9 +2507,9 @@ A development candidate is acceptable only when all are true：
 9. no repository-root runtime import or secrets-file read；
 10. deterministic suite、schemas、ruff、mypy、stdio checks pass；
 11. both frozen live videos and one searched pair pass the same profile without per-video rules；
-12. search deduplicates BV；creator mode admits only exact identity or its closed official decoration，
-    excludes extended accounts，and orders newest-first，
-    topic ranking is deterministic，successful-note target defaults to 2 and cannot exceed 3；
+12. search deduplicates BV；exact author identity or its closed official decoration is a bounded ranking
+    signal only and cannot discard another complete topic match；topic ranking is deterministic，
+    successful-note target defaults to 2 and cannot exceed 3；
 13. public Note has exactly title + one host-owned unverified scope + 核心策略 + 具体方法 + 风险管理，
     every item has exactly one `规则描述：` frame，with no candidate、failure、source、hypothesis、
     unknown or evidence sections；
@@ -2505,8 +2534,8 @@ A development candidate is acceptable only when all are true：
     the sole public rule-text authority，while `visuals[].rule_index` binds a material group to one rule
     in the global core → method → risk concatenation and the host alone derives complete E/private V
     refs；live admission allows a singleton only as static support and an ordered relation only inside
-    the same host-authorized three-frame group；the separate semantic verifier is offline evaluation
-    evidence rather than live terminal authority；non-material groups create no V/public increment，
+    the same host-authorized three-frame group；the separate source-aware semantic verifier must accept
+    the immutable candidate before live terminal success；non-material groups create no V/public increment，
     and the guarantee is limited to the bounded selected catalog rather than falsely claiming complete-
     video visual coverage。
 24. terminal OpenClaw projection retains and validates each exact advertised tool `outputSchema` before
@@ -2538,14 +2567,15 @@ A development candidate is acceptable only when all are true：
 32. actual-media width and height remain provider facts only when each is an exact non-boolean JSON integer；
     duration and size require bounded unsigned decimal strings。Coercible or ambiguous scalars fail before
     media，ASR，visual or progress-25 effects。
-33. direct live creation uses one multimodal author call followed by deterministic host admission；the
-    offline reject-only verifier may measure entailment、polarity、material conditions、mergeability and
-    priority but cannot fail or delay a user request or create an empty terminal response。
+33. direct live creation uses one multimodal author call followed by one reject-only multimodal verifier；
+    the verifier receives the immutable transcript/frame catalog and candidate，may only accept/reject
+    coverage、entailment、polarity、material conditions、mergeability、priority and visual support，and
+    cannot author、repair or retry public text。
 34. terminal obligation derives from effective static MCP transport configuration，not live catalog success；
     startup，tool-list or schema failure cannot restore ordinary assistant text for a terminal-required run。
-35. direct author and search author/verifier roles use one twelve-class material-condition inventory，
-    including regime/context、volatility、liquidity and session constraints；direct live Chinese/public-text
-    admission is host-owned，while search synthesis retains its bounded independent verifier。
+35. direct author/verifier and search author/verifier roles use one twelve-class material-condition
+    inventory，including regime/context、volatility、liquidity and session constraints；host-owned shape、
+    Chinese and public-text admission remains independent of both model roles。
 36. public representation uses one generic ASCII tag-shaped grammar rather than a finite browser vocabulary；
     explicitly spaced comparisons remain escaped prose，while compact ambiguous forms fail closed across
     raw and rendered direct/search paths。

@@ -16,6 +16,7 @@ from bilibili_note_mcp.adapters.bilibili_source import BilibiliSource
 from bilibili_note_mcp.adapters.distillers import (
     DeterministicCandidateVerifier,
     DeterministicDistiller,
+    SiliconFlowCandidateVerifier,
     SiliconFlowDistiller,
 )
 from bilibili_note_mcp.adapters.fixture_search import FixtureSearch
@@ -48,7 +49,7 @@ def _use_case(fixture_root: Path | None, deterministic: bool) -> CreateBilibiliN
         )
     )
     distiller = DeterministicDistiller() if deterministic else SiliconFlowDistiller()
-    verifier = DeterministicCandidateVerifier()
+    verifier = DeterministicCandidateVerifier() if deterministic else SiliconFlowCandidateVerifier()
     return CreateBilibiliNote(
         source=source,
         media=FfmpegMedia(),
