@@ -64,7 +64,7 @@ CreateBilibiliNote 的有界组合入口；private v2 graph 和 public projectio
 ### 3.1 Included
 
 - 一个 direct `www.bilibili.com/video/BV...` URL，或 2–200 字自然语言研究主题；
-- anonymous Bilibili video search first page、BV 去重、exact-author rank signal + lexical ordering、默认成功目标
+- anonymous Bilibili video search first page、BV 去重、lexical ordering + exact-author tie-break、默认成功目标
   2/硬上限 3、最多 9 个 fallback candidates；
 - metadata、完整 media、平台字幕优先/ASR fallback；
 - 完整音频覆盖和 host-owned 时间窗；
@@ -424,13 +424,14 @@ failure details。Search behavior is frozen：
   model-authored query expansion；
 - require every normalized query unit to occur across title、author、tags or description before media
   processing，preventing partial homonyms such as `罗尼` in `非泼罗尼` from entering the candidate set；
-- when any row's normalized author equals the query，or equals it plus only the complete known
-  `官方/官方账号` decoration，make creator identity mandatory；exclude extended accounts such as
-  `<query>-黄金` and `<query>-反诈曝光`；otherwise a single-unit topic query still needs one fully
-  bounded occurrence，so neither `非泼罗尼交易指南` nor `罗尼交易指南针` can satisfy `罗尼交易指南`；
+- an exact normalized author identity，or one plus only the complete known `官方/官方账号` decoration，
+  breaks equal-relevance ties but never excludes another complete topic match；a single-unit topic query
+  still needs one fully bounded occurrence，so neither `非泼罗尼交易指南` nor `罗尼交易指南针` can satisfy
+  `罗尼交易指南`；
 - rank the usable first-page rows deterministically by lexical query coverage across normalized
   title、author、tags and description；exact compact-query matches dominate bigram coverage，and
-  variant order then upstream order break ties；no second model or external recommender is called；
+  exact author identity，publication time and upstream order then break ties；no second model or external
+  recommender is called；
 - accept only exact BV IDs，strip only Bilibili's known keyword highlight tag，reject other markup；
 - deduplicate by BV before the bounded cut；default 2，hard maximum 3；
 - parse candidates through one request-local、work-conserving rolling window；start the lowest two
@@ -644,7 +645,7 @@ connection close/server shutdown reap the bounded non-daemon handler set。
 
 ## 16. Test authority
 
-Current deterministic suite：`879 passed` on CPython `3.14.6`。
+Current deterministic suite：`880 passed` on CPython `3.14.6`。
 
 Required checks：
 
@@ -2441,13 +2442,13 @@ loss、wrong category/order and unsupported visual relations。It cannot author�
 public text；the deterministic verifier remains fixture-only。
 
 Natural-language search now has one topic authority for every request。Every candidate must satisfy the
-complete normalized query；an exact author identity or its closed official decoration contributes only a
-bounded ranking bonus。It cannot exclude another complete title/author/tag/description match，so a topic
+complete normalized query；an exact author identity or its closed official decoration only breaks a
+lexical-relevance tie。It cannot exclude another complete title/author/tag/description match，so a topic
 that happens to equal an author name remains a topic search without adding an implicit mode or per-creator
 branch。A regression fixes one exact-author and one other-author topic result in the same admitted set。
 
 The integrated candidate is schema-drift clean，Ruff lint/format clean over 66 Python files，strict-mypy
-clean over 44 package files，passes `879` pytest cases and the v3/zero-image/three-section self-check on
+clean over 44 package files，passes `880` pytest cases and the v3/zero-image/three-section self-check on
 CPython `3.14.6`。The OpenClaw patch remains SHA-256
 `35ebbfcbc651be6b1914766701b047ec418b51342ef9733c32f388adee39f5a6` against base
 `0790d9f593ad30c940ed93b5872a8cf6d6f3cf8c`。Fresh immutable product-semantic and consumer-fail-close
@@ -2507,8 +2508,8 @@ A development candidate is acceptable only when all are true：
 9. no repository-root runtime import or secrets-file read；
 10. deterministic suite、schemas、ruff、mypy、stdio checks pass；
 11. both frozen live videos and one searched pair pass the same profile without per-video rules；
-12. search deduplicates BV；exact author identity or its closed official decoration is a bounded ranking
-    signal only and cannot discard another complete topic match；topic ranking is deterministic，
+12. search deduplicates BV；exact author identity or its closed official decoration only breaks a lexical-
+    relevance tie and cannot discard another stronger complete topic match before the bounded cut；topic ranking is deterministic，
     successful-note target defaults to 2 and cannot exceed 3；
 13. public Note has exactly title + one host-owned unverified scope + 核心策略 + 具体方法 + 风险管理，
     every item has exactly one `规则描述：` frame，with no candidate、failure、source、hypothesis、

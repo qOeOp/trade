@@ -222,8 +222,8 @@ class BilibiliSearch:
             raise BilibiliNoteFailure("SEARCH_EMPTY", "search_no_usable_results")
         candidates.sort(
             key=lambda item: (
-                item[0],
                 -item[1],
+                item[0],
                 -(item[3].published_at or 0),
                 item[2],
             )

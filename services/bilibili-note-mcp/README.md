@@ -35,7 +35,7 @@ only by generic Unicode separator rules；there is no trading vocabulary、creat
 rule or model-authored query expansion。A candidate must match every normalized query unit across
 title、author、tags or description。This prevents partial homonyms such as 罗尼 in 非泼罗尼 from
 entering media processing。An exact normalized author identity，including only the known
-`官方/官方账号` decoration，adds a bounded ranking signal but never changes the request into an inferred
+`官方/官方账号` decoration，breaks equal-relevance ties but never changes the request into an inferred
 creator-only mode；other rows that satisfy the complete topic query remain eligible。A single-unit compact
 query also requires one fully bounded occurrence。The adapter deduplicates exact BV IDs and keeps lexical
 relevance as the topic authority。It defaults to a target of 2 successful videos and hard-caps that target at 3，freezes
@@ -107,14 +107,14 @@ investment advice, a signal, or trading authorization.
    bounded to three concurrent
    ffmpeg children；frames are never upscaled，fit within 1920×1080/1080×1920，retain a 720-pixel
    minimum side，and are capped at 8 MiB each/32 MiB aggregate。
-5. Ask the vision model once to author a candidate from each time-aligned visual group with speech。
-   The live request path does not make a second semantic-model call：that former reject-only gate
-   returned unlocalized global booleans，could contradict its own accepted per-rule verdicts and could
-   time out after otherwise successful media、ASR and visual work。It remains available as an offline
-   evaluation component，not as user-request terminal authority。The live host instead enforces the
-   provider's exact JSON schema、bounded rule/group totals、existing transcript refs、visual-group
-   positional totality、category arrays、Simplified-Chinese representation、public-text safety and
-   deterministic rendering before returning a Note。There is no automatic model retry or repair call。
+5. Ask the vision model once to author a candidate from each time-aligned visual group with speech，then
+   make one separate reject-only multimodal verifier call over the immutable transcript、candidate rule
+   catalog and exact host-selected frame groups。The verifier cannot author、repair、retry or mutate public
+   text；it independently rejects incomplete coverage、unresolved or unentailed rules、polarity/material-
+   condition loss、wrong category/order and unsupported visual relations。Only complete author and
+   verifier acceptance may reach the host's exact JSON schema、bounded rule/group totals、existing
+   transcript refs、visual-group positional totality、Simplified-Chinese representation、public-text
+   safety and deterministic rendering gates。There is no automatic model retry、repair or third call。
    The authoring call removes greetings, promotion,
    repetition, jokes and tangents, classify retained material exactly once under one precedence
    contract：first choose risk management when the operative consequence is stop、exit、invalidation、
@@ -299,7 +299,7 @@ response class also uses a finite host-owned header set，and the loopback inten
 `Server` nor `Date`，so Python/runtime identity is not exposed。
 
 The current standalone gate is schema-clean，Ruff-clean over 66 Python files，strict-mypy-clean over
-44 package source files plus the loopback，self-check-clean and `879 passed` on CPython `3.14.6`。The exact OpenClaw patch is
+44 package source files plus the loopback，self-check-clean and `880 passed` on CPython `3.14.6`。The exact OpenClaw patch is
 SHA-256 `35ebbfcbc651be6b1914766701b047ec418b51342ef9733c32f388adee39f5a6` against base
 `0790d9f593ad30c940ed93b5872a8cf6d6f3cf8c`；its static terminal obligation prevents MCP startup，
 `tools/list` or schema failure from falling back to ordinary assistant output。

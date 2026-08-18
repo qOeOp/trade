@@ -192,6 +192,40 @@ async def test_exact_author_match_does_not_discard_other_topic_results() -> None
     assert [item.video_id for item in result] == ["BV1VSGo6JE98", "BV1Gvuj6dENb"]
 
 
+async def test_exact_author_is_only_a_tiebreak_after_topic_relevance_before_limit() -> None:
+    exact_author_rows = [
+        {
+            "type": "video",
+            "bvid": f"BV1{index:09d}",
+            "title": "日常更新",
+            "author": "专题作者",
+            "pubdate": 200 - index,
+        }
+        for index in range(9)
+    ]
+    strongest_topic_row = {
+        "type": "video",
+        "bvid": "BV1999999999",
+        "title": "专题作者深度研究",
+        "author": "独立研究员",
+        "tag": "专题作者",
+        "description": "专题作者完整方法",
+        "pubdate": 1,
+    }
+    http = FakeHttp(
+        {
+            "code": 0,
+            "data": {"result": [*exact_author_rows, strongest_topic_row]},
+        }
+    )
+
+    result = await BilibiliSearch(cast(SafeHttpClient, http)).search("专题作者", 9)
+
+    assert result[0].video_id == "BV1999999999"
+    assert len(result) == 9
+    assert "BV1000000008" not in {item.video_id for item in result}
+
+
 async def test_search_prioritizes_multi_concept_title_without_exact_author() -> None:
     http = FakeHttp(
         {

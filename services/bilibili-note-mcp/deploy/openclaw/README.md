@@ -38,6 +38,10 @@ node node_modules/vitest/vitest.mjs run \
 The source patch is the authority。Its SHA-256 is
 `35ebbfcbc651be6b1914766701b047ec418b51342ef9733c32f388adee39f5a6` and it changes 41 source paths，
 including the new shared MCP-schema and private terminal-provenance modules。
+The repository CI checks out the exact peeled commit and tree above，verifies the patch digest and
+41-path application，then runs the focused Vitest suite、core/test-source type checks、changed-path
+lint/format、diff validation and a full OpenClaw build。A Python-only service gate is not sufficient
+evidence for this consumer bridge。
 The final patch-only verification passed 12 changed test paths / 19 Vitest project files / 934 tests，
 core and test-source type checks，41-path lint/format，binary-diff identity and the full OpenClaw
 build（90.5s）。The
