@@ -5728,7 +5728,7 @@ test('R61 Capability Adoption separates target-only seams and source-verifies al
     assert.ok(allowedTargetOnly.has(mapping.disposition), `${mapping.capabilityId} uses reuse vocabulary for an absent source`);
   }
   const provider = adoption.workspaceMemberInventory.find(({ inventoryId }) => inventoryId === 'provider-adapter-containers');
-  assert.equal(provider.providerMemberPortEvidence.length, 19);
+  assert.equal(provider.providerMemberPortEvidence.length, 21);
   assert.deepEqual(provider.providerMemberPortEvidence.map(({ memberPath }) => memberPath).sort(), provider.memberPaths.slice().sort());
   for (const member of provider.providerMemberPortEvidence) {
     assert.deepEqual(member.typedPorts.map(({ portKind }) => portKind).sort(), ['EXECUTION_EFFECT', 'MARKET_DATA_SOURCE']);

@@ -1720,8 +1720,8 @@
       },
       {
         "capabilityId": "strategy-factory-restricted-decision-runtime",
-        "existingLocator": "crates/strategy_factory/src/runtime.rs",
-        "existingSymbolOrPort": "PreparedDecisionRuntime",
+        "existingLocator": "crates/strategy_factory/src/program_runtime.rs",
+        "existingSymbolOrPort": "StrategyProgramV1",
         "disposition": "PRESENT",
         "canonicalOwnerId": "rd",
         "canonicalObjectId": "artifact-security-admission",
@@ -1777,7 +1777,7 @@
       {
         "capabilityId": "strategy-factory-native-backtest-pilot",
         "existingLocator": "crates/strategy_factory/src/application.rs",
-        "existingSymbolOrPort": "PilotRun",
+        "existingSymbolOrPort": "run_frozen_pilot",
         "disposition": "PRESENT",
         "canonicalOwnerId": "backtest",
         "canonicalObjectId": "exploratory-result",
@@ -1846,6 +1846,7 @@
           "crates/adapters/deribit",
           "crates/adapters/derive",
           "crates/adapters/dydx",
+          "crates/adapters/fred",
           "crates/adapters/hyperliquid",
           "crates/adapters/interactive_brokers",
           "crates/adapters/kraken",
@@ -1853,6 +1854,7 @@
           "crates/adapters/okx",
           "crates/adapters/polymarket",
           "crates/adapters/sandbox",
+          "crates/adapters/scheduled_events",
           "crates/adapters/tardis"
         ],
         "disposition": "SPLIT_TYPED_PORTS_BEFORE_ADOPTION",
@@ -1939,6 +1941,13 @@
             ]
           },
           {
+            "memberPath": "crates/adapters/fred",
+            "typedPorts": [
+              {"portKind": "MARKET_DATA_SOURCE", "sourceAvailability": "PRESENT", "verifiedSourceLocator": "crates/adapters/fred/src/lib.rs", "destinationId": "market-data", "firstConsumerId": "market-data", "firstDevelopmentChunkId": "relation:data-rd"},
+              {"portKind": "EXECUTION_EFFECT", "sourceAvailability": "ABSENT", "verifiedSourceLocator": "crates/adapters/fred/src/lib.rs", "destinationId": "execution", "firstConsumerId": "execution", "firstDevelopmentChunkId": "STOP_SOURCE_PORT_ABSENT"}
+            ]
+          },
+          {
             "memberPath": "crates/adapters/hyperliquid",
             "typedPorts": [
               {"portKind": "MARKET_DATA_SOURCE", "sourceAvailability": "PRESENT", "verifiedSourceLocator": "crates/adapters/hyperliquid/src/data.rs", "destinationId": "market-data", "firstConsumerId": "market-data", "firstDevelopmentChunkId": "relation:data-rd"},
@@ -1988,6 +1997,13 @@
             ]
           },
           {
+            "memberPath": "crates/adapters/scheduled_events",
+            "typedPorts": [
+              {"portKind": "MARKET_DATA_SOURCE", "sourceAvailability": "PRESENT", "verifiedSourceLocator": "crates/adapters/scheduled_events/src/lib.rs", "destinationId": "market-data", "firstConsumerId": "market-data", "firstDevelopmentChunkId": "relation:data-rd"},
+              {"portKind": "EXECUTION_EFFECT", "sourceAvailability": "ABSENT", "verifiedSourceLocator": "crates/adapters/scheduled_events/src/lib.rs", "destinationId": "execution", "firstConsumerId": "execution", "firstDevelopmentChunkId": "STOP_SOURCE_PORT_ABSENT"}
+            ]
+          },
+          {
             "memberPath": "crates/adapters/tardis",
             "typedPorts": [
               {"portKind": "MARKET_DATA_SOURCE", "sourceAvailability": "PRESENT", "verifiedSourceLocator": "crates/adapters/tardis/src/data.rs", "destinationId": "market-data", "firstConsumerId": "market-data", "firstDevelopmentChunkId": "relation:data-rd"},
@@ -2018,7 +2034,7 @@
       },
       {
         "inventoryId": "indicators",
-        "memberPaths": ["crates/indicators"],
+        "memberPaths": ["crates/indicators", "crates/indicators/kernel"],
         "disposition": "ADOPT_THROUGH_OWNER",
         "destinationIds": ["rd", "backtest", "runtime"],
         "capabilityPortIds": [],
@@ -2038,7 +2054,7 @@
       },
       {
         "inventoryId": "strategy-factory-pilot",
-        "memberPaths": ["crates/strategy_factory"],
+        "memberPaths": ["crates/strategy_factory", "crates/strategy_factory/programs/sdk"],
         "disposition": "MIGRATE_PRESENT_FACETS_ONLY",
         "destinationIds": ["strategy-factory", "rd", "backtest", "market-data"],
       "capabilityPortIds": [
@@ -2237,9 +2253,9 @@
         "capabilityId": "program-host-sdk-wasm",
         "sourceAvailability": "PARTIAL",
         "sourceCapabilityPortIds": ["strategy-factory-restricted-decision-runtime"],
-        "verifiedPublicSurfaceLocators": ["crates/strategy_factory/src/decision.rs", "crates/strategy_factory/src/runtime.rs", "crates/strategy_factory/src/lib.rs"],
-        "presentSourceFacets": ["DecisionContract", "PreparedDecisionRuntime", "restricted Wasm validation and execution"],
-        "missingSourceFacets": ["independent ProgramHost product boundary", "general SDK", "production process-tree and effect-port admission proof"],
+        "verifiedPublicSurfaceLocators": ["crates/strategy_factory/programs/sdk/src/lib.rs", "crates/strategy_factory/src/lib.rs"],
+        "presentSourceFacets": ["restricted no_std program SDK ABI", "StrategyProgramV1", "restricted Wasm validation and execution"],
+        "missingSourceFacets": ["independent ProgramHost product boundary", "general-purpose SDK", "production process-tree and effect-port admission proof"],
         "disposition": "ADAPT",
         "destinationOwnerIds": ["rd"],
         "destinationObjectIds": ["artifact-security-admission"],
@@ -2302,7 +2318,7 @@
         "capabilityId": "data-adapters-and-admission",
         "sourceAvailability": "PARTIAL",
         "sourceCapabilityPortIds": ["strategy-factory-frozen-pilot-data-admission"],
-        "verifiedPublicSurfaceLocators": ["crates/strategy_factory/src/application.rs", "crates/strategy_factory/src/lib.rs"],
+        "verifiedPublicSurfaceLocators": ["crates/strategy_factory/src/lib.rs"],
         "presentSourceFacets": ["fixed Binance Vision pilot archive loading and bounded event normalization"],
         "missingSourceFacets": ["generic Market Data connector port", "source-license authority", "four-time PIT and correction-frontier contract"],
         "disposition": "SPLIT_AND_ADAPT",
@@ -2315,7 +2331,7 @@
         "capabilityId": "backtest-reuse",
         "sourceAvailability": "PARTIAL",
         "sourceCapabilityPortIds": ["strategy-factory-native-backtest-pilot"],
-        "verifiedPublicSurfaceLocators": ["crates/strategy_factory/src/application.rs", "crates/strategy_factory/src/lib.rs"],
+        "verifiedPublicSurfaceLocators": ["crates/strategy_factory/src/lib.rs"],
         "presentSourceFacets": ["one frozen pilot integration with the native Backtest engine"],
         "missingSourceFacets": ["general exploratory Replay Request port", "protected namespace isolation", "canonical Backtest result authority migration"],
         "disposition": "ADOPT_THROUGH_OWNER",
