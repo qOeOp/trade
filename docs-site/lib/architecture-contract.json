@@ -1,8 +1,114 @@
 {
-  "schemaVersion": 27,
+  "schemaVersion": 28,
   "limits": {
     "groupCount": 13,
     "maxModulesPerGroup": 5
+  },
+  "windmillProductEdgeContract": {
+    "status": "TARGET_ABSENT_TARGET_ONLY",
+    "capabilityEvidenceCut": {
+      "observedAt": "2026-08-18",
+      "localEditionAndVersion": "CE v1.791.0",
+      "levels": ["VENDOR_DECLARED", "LOCAL_REACHABLE", "PRODUCT_CURRENT"],
+      "achievedLevels": ["VENDOR_DECLARED", "LOCAL_REACHABLE"],
+      "productCurrentRequires": [
+        "repository-owned-full-code-app",
+        "curated-versioned-operation-set",
+        "app-and-mcp-semantic-equivalence",
+        "owner-request-receipt-resolution",
+        "unattended-loss-and-retry-proof",
+        "direct-browser-evidence"
+      ]
+    },
+    "editionFloor": "SELF_HOSTED_COMMUNITY_EDITION",
+    "optionalEnterpriseFeatures": [
+      "service-accounts",
+      "agent-workers",
+      "schedule-level-error-handlers",
+      "job-debouncing",
+      "critical-alerts",
+      "full-text-job-and-log-search",
+      "unlimited-job-retention",
+      "enterprise-otlp-export"
+    ],
+    "compatibilityCutBinds": [
+      "git-revision",
+      "windmill-server-version-and-image-digest",
+      "windmill-worker-version-and-image-digest",
+      "windmill-cli-version",
+      "app-script-flow-schedule-and-resource-versions",
+      "owner-api-schema-versions",
+      "scope-capability-and-audit-policy-versions",
+      "rollback-target"
+    ],
+    "movingReferencesForbidden": ["main", "latest", "unpinned-cli", "unversioned-operation"],
+    "app": {
+      "kind": "FULL_CODE_REACT",
+      "source": "REPOSITORY_RAW_APP",
+      "authentication": "REQUIRED",
+      "executionPolicy": "viewer",
+      "forbiddenPolicies": ["publisher", "anonymous", "public"]
+    },
+    "mcp": {
+      "transport": "NATIVE_WINDMILL_MCP",
+      "scopePolicy": "EXACT_DENY_BY_DEFAULT_TOOL_ALLOWLIST",
+      "canonicalWriteRequestObjectIds": ["rd-request", "qualification-review-request", "lifecycle-request"],
+      "canonicalReadObjectIds": [
+        "rd-view",
+        "rd-request-receipt",
+        "exploratory-run-result-view",
+        "candidate-intake-receipt",
+        "qualification-status-summary",
+        "scanner-receipt",
+        "governance-decision-view",
+        "generation-application-receipt",
+        "portfolio-view",
+        "effect-closure-view",
+        "global-status-view"
+      ],
+      "allowedBuiltInTools": ["getJob", "getJobLogs"],
+      "forbiddenToolClasses": [
+        "preview",
+        "app-create-update-delete",
+        "script-create-update-delete",
+        "flow-create-update-delete",
+        "resource-create-update-delete",
+        "variable-create-update-delete",
+        "schedule-create-update-delete",
+        "worker-mutation",
+        "self-deployment"
+      ],
+      "folderRestrictionAloneIsSufficient": false
+    },
+    "executionIdentity": {
+      "interactiveApp": "authenticated-viewer-bound-to-trade-principal",
+      "externalMcp": "workspace-scoped-oauth-or-token-bound-to-trade-principal",
+      "unattendedCe": "dedicated-least-privilege-virtual-user",
+      "unattendedEeOptional": "service-account-with-identical-effective-scope",
+      "forbidden": ["shared-admin", "app-publisher", "self-asserted-principal"]
+    },
+    "unattendedRequest": {
+      "identitySource": "canonical-due-slot-before-first-owner-call",
+      "retry": "same-request-identity-and-meaning",
+      "ambiguousTransport": "SUBMITTED_OR_UNKNOWN",
+      "resolution": "query-receiving-owner-receipt",
+      "overlap": "duplicate-due-slot-joins-the-same-owner-receipt",
+      "terminalAuthority": "receiving-owner-receipt-only",
+      "nakedSuccessorForbidden": true
+    },
+    "storageAuthority": {
+      "windmillOperationalOnly": ["job-id", "progress", "logs", "result", "audit-record", "resource", "variable", "data-table", "flow-state"],
+      "windmillDataTableAllowed": ["ui-preference", "explicitly-rebuildable-cache"],
+      "durableBusinessTruth": "native-trade-owner-storage",
+      "durableArtifacts": "owner-storage-or-admitted-object-storage"
+    },
+    "agentAndCredentialPlanes": {
+      "externalConversationModel": "client-owned-provider-credential",
+      "internalWindmillAgentModel": "independently-scoped-windmill-ai-resource",
+      "tradeAuthorization": "operator-authorization-and-agent-operation-manifest",
+      "modelCredentialGrantsTradeAuthority": false,
+      "agentOutputIsBusinessFact": false
+    }
   },
   "quickstartContract": {
     "canonicalActivationSequence": [

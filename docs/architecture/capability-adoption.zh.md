@@ -9,6 +9,28 @@
 - 基础设施不拥有交易事实。它只能代表已提交事实的 Owner 存储 传输 序列化 观测或暴露事实。
 - Flow 命名了目标产品表面或底层 API 可以访问，都不能证明该产品表面已经实现。
 
+## Windmill 架构变更前到目标的 gap 处置
+
+选择 Windmill 闭合了产品壳决策，但没有自动闭合实现合同。本表是规范 gap 审计；
+`Product Edge` 页面拥有由此产生的运行规则。
+
+| 本次审计前的 gap                                  | 采用的 Windmill 能力                                       | Trade 必须补建或禁止的内容                                                                                            | 目标证明                                                                      |
+| ------------------------------------------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| App 技术与调用者身份未指定                        | Full‑code React App 与 `viewer` execution policy           | 禁止 public、anonymous 与 publisher execution                                                                         | 浏览器测试证明两个 principal 保持不同权限并到达同一类型化 operation           |
+| 已选择 native MCP 但没有 tool boundary            | OAuth/scoped‑token MCP 与 per‑tool selection               | 准确 deny‑by‑default allowlist；禁止 workspace mutation 与 preview tool                                               | 枚举 tool receipt 只包含精选 operation 与最小只读 job tool                    |
+| 长时间工作混合了运维真相与业务真相                | Job、progress、log、SSE、flow 与 worker                    | Windmill id/log 只属运维；Owner receipt 与 artifact 才是持久真相                                                      | restart/timeout 测试解析同一 Owner request 且没有第二次业务写入               |
+| 周期自动化缺少 due‑slot 和重叠语义                | Schedule 与 flow error handling                            | 稳定 due‑slot request identity；无 lifecycle、deployment 或 live‑runtime authority                                    | 重复及重叠 delivery 汇合到同一 Owner receipt                                  |
+| 无人值守身份依赖未指定账户                        | Run‑on‑behalf 与专用 virtual user；可选 EE service account | 每类 workload 使用最小权限身份；禁止共享 admin 或 editor identity                                                     | 分别验证 schedule、App 与 MCP 归因及有效 scope                                |
+| Retry 与 recovery 语义停留在 flow success/failure | Flow retry、timeout、error handler 与 resolver job         | 只重试同一 request meaning；未知调用查询 Owner receipt                                                                | 在 Owner 接受前后注入丢失都不会创建裸 successor                               |
+| Workspace state 可能变成影子产品数据库            | Data table、resource、variable 与 transient flow state     | 只保存 UI preference 和可重建 cache；不得保存 Owner fact 或持久 artifact 真相                                         | 删除 Windmill cache 后能重建 view 且不丢业务事实                              |
+| Deployment 与 upgrade cut 未指定                  | `.raw_app/`、`wmill.yaml`、CLI sync 与 resource version    | Repository‑first source 和准确 server/worker/CLI/image digest compatibility cut                                       | clean deployment 复现已声明 App、operation set、policy 与 rollback target     |
+| CE 与 EE 能力混为一谈                             | 自托管 CE base 与可选 EE enhancement                       | 正确性不得依赖 EE‑only service account、Agent Workers、schedule error handler、alert、search、debouncing 或 retention | 所有可选 EE 功能缺失时 CE acceptance suite 仍通过                             |
+| 内部 AI 与外部 chat credential 混为一谈           | Windmill AI resource 与 native MCP                         | 两个 credential plane 分离；model key 不得授权 Trade 或泄露到 request/log                                             | Secret‑canary 与 authorization test 证明 provider credential 不会成为业务权威 |
+
+任何一行都不会让 Workbench 变成 `CURRENT`。它们共同把 TARGET 收敛到实现 Agent 无需选择新架构即可
+开发的确定程度。如果某个 Windmill 版本无法满足必需行，实现必须停止；不得静默增加第二个 shell、
+scheduler、MCP service 或 truth store。
+
 ## Strategy Factory 能力处置
 
 Strategy Factory 不是整体一次性迁移。`PRESENT` 表示已直接核实具名来源 facet；`PARTIAL` 表示仅列出的

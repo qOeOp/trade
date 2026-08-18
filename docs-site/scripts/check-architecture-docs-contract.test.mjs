@@ -126,7 +126,7 @@ function assertProviderEvidenceTable(source, language, providerInventory) {
 }
 
 test('architecture contract keeps the overview within its frozen complexity ceiling', () => {
-  assert.equal(contract.schemaVersion, 27);
+  assert.equal(contract.schemaVersion, 28);
   assert.equal(contract.limits.groupCount, 13);
   assert.equal(contract.limits.maxModulesPerGroup, 5);
   assert.equal(contract.authorityOwners.length, 10, 'the Flow must expose ten business-truth owners');
@@ -301,6 +301,55 @@ test('the canonical contract owns every architecture object and relation semanti
   assert.equal(contract.relations.find((relation) => relation.id === 'events-observability').objectId, 'event-wake');
   assert.equal(contract.relations.find((relation) => relation.id === 'events-observability').objectAuthority, 'event-rail');
   assert.equal(contract.architectureObjects.some((object) => object.id === 'alert-delivery'), false);
+});
+
+test('Windmill capability floor is deterministic, CE-correct, least-privilege, and Owner-resolved', () => {
+  const runtime = contract.windmillProductEdgeContract;
+  const objects = new Set(contract.architectureObjects.map((object) => object.id));
+
+  assert.equal(runtime.status, 'TARGET_ABSENT_TARGET_ONLY');
+  assert.equal(runtime.editionFloor, 'SELF_HOSTED_COMMUNITY_EDITION');
+  assert.deepEqual(runtime.capabilityEvidenceCut.achievedLevels, ['VENDOR_DECLARED', 'LOCAL_REACHABLE']);
+  assert.ok(!runtime.capabilityEvidenceCut.achievedLevels.includes('PRODUCT_CURRENT'));
+  assert.equal(runtime.app.kind, 'FULL_CODE_REACT');
+  assert.equal(runtime.app.executionPolicy, 'viewer');
+  assert.deepEqual(runtime.app.forbiddenPolicies, ['publisher', 'anonymous', 'public']);
+  assert.equal(runtime.mcp.scopePolicy, 'EXACT_DENY_BY_DEFAULT_TOOL_ALLOWLIST');
+  assert.equal(runtime.mcp.folderRestrictionAloneIsSufficient, false);
+  assert.deepEqual(runtime.mcp.allowedBuiltInTools, ['getJob', 'getJobLogs']);
+  assert.deepEqual(runtime.mcp.canonicalWriteRequestObjectIds, ['rd-request', 'qualification-review-request', 'lifecycle-request']);
+  for (const objectId of [...runtime.mcp.canonicalWriteRequestObjectIds, ...runtime.mcp.canonicalReadObjectIds]) {
+    assert.ok(objects.has(objectId), `Windmill MCP cites unknown architecture object ${objectId}`);
+  }
+  for (const forbidden of ['preview', 'resource-create-update-delete', 'variable-create-update-delete', 'schedule-create-update-delete', 'self-deployment']) {
+    assert.ok(runtime.mcp.forbiddenToolClasses.includes(forbidden), `Windmill MCP omits forbidden tool class ${forbidden}`);
+  }
+  assert.equal(runtime.executionIdentity.interactiveApp, 'authenticated-viewer-bound-to-trade-principal');
+  assert.equal(runtime.executionIdentity.unattendedCe, 'dedicated-least-privilege-virtual-user');
+  assert.equal(runtime.unattendedRequest.retry, 'same-request-identity-and-meaning');
+  assert.equal(runtime.unattendedRequest.ambiguousTransport, 'SUBMITTED_OR_UNKNOWN');
+  assert.equal(runtime.unattendedRequest.terminalAuthority, 'receiving-owner-receipt-only');
+  assert.equal(runtime.unattendedRequest.nakedSuccessorForbidden, true);
+  assert.equal(runtime.storageAuthority.durableBusinessTruth, 'native-trade-owner-storage');
+  assert.equal(runtime.agentAndCredentialPlanes.modelCredentialGrantsTradeAuthority, false);
+  assert.equal(runtime.agentAndCredentialPlanes.agentOutputIsBusinessFact, false);
+  for (const required of ['git-revision', 'windmill-server-version-and-image-digest', 'windmill-cli-version', 'owner-api-schema-versions', 'rollback-target']) {
+    assert.ok(runtime.compatibilityCutBinds.includes(required), `Windmill compatibility cut omits ${required}`);
+  }
+
+  const { english, chinese } = readBilingualDoc('architecture/product-edge');
+  for (const source of [english, chinese]) {
+    assert.match(source, /CE v1\.791\.0/);
+    assert.match(source, /VENDOR_DECLARED/);
+    assert.match(source, /LOCAL_REACHABLE/);
+    assert.match(source, /PRODUCT_CURRENT/);
+    assert.match(source, /viewer/);
+    assert.match(source, /deny by\s+default|deny-by-default|默认拒绝/);
+    assert.match(source, /SUBMITTED_OR_UNKNOWN/);
+  }
+  const adoption = readBilingualDoc('architecture/capability-adoption');
+  assert.equal(markdownTableAfterHeading(adoption.english, '## Windmill pre-change to target gap disposition').rows.length, 10);
+  assert.equal(markdownTableAfterHeading(adoption.chinese, '## Windmill 架构变更前到目标的 gap 处置').rows.length, 10);
 });
 
 test('one Windmill Product Edge gateway has permission-equivalent replay-safe Owner requests', () => {

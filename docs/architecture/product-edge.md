@@ -17,14 +17,71 @@ business authorities, or implementation-acceptance dependencies.
 
 The Windmill App and MCP endpoint invoke one curated set of versioned scripts and flows over typed Owner ports.
 They may not call arbitrary Owner SQL, mint business facts, or keep a shadow workflow truth. Scheduled research,
-scanner, replay, report, and maintenance work may run as Windmill jobs with durable progress, logs, retries, and
-artifact references. A live strategy loop, market session, order state machine, and recovery effect remain owned by
+scanner, replay, report, and maintenance work may run as Windmill jobs with live operational progress, logs,
+retries, and Owner-owned artifact references. A live strategy loop, market session, order state machine, and recovery effect remain owned by
 Trade Runtime, Risk, Execution, and Recovery; Windmill may supervise and display them but is never the trading
 runtime.
 
 This selection remains `TARGET/ABSENT_TARGET_ONLY`. A local Windmill installation, an MCP handshake, or a mock
 dashboard does not make the workbench `CURRENT`; acceptance requires the bounded user journeys, common operations,
 Owner receipts, unresolved states, and direct browser evidence defined below.
+
+## Windmill capability adoption contract
+
+The audited implementation floor is self-hosted Windmill Community Edition. The 2026-08-18 evidence cut verified
+local `CE v1.791.0` server and worker health and checked the official Windmill capability documentation for Apps,
+MCP, jobs, logs, schedules, workers, resources, and variables. That cut is `VENDOR_DECLARED` and
+`LOCAL_REACHABLE`, not `PRODUCT_CURRENT`. Every product release must pin the Windmill server, worker, and CLI to an
+exact compatible version and container digest; `main`, `latest`, or another moving tag is forbidden.
+
+| Windmill primitive                | Adopted Product Edge role                                                                               | Mandatory boundary                                                                                                                                                                                                                           |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Full‑code App                     | One repository‑owned React workbench, bundled from `.raw_app/` sources                                  | Authenticated and `viewer` execution policy only. `publisher`, `anonymous`, and `public` are forbidden because they erase the caller's effective permission boundary.                                                                        |
+| Native MCP                        | Optional conversation channel to the same versioned operation set                                       | Workspace‑scoped OAuth or a scoped token exposes an exact allowlist. It must not expose preview or create/update/delete tools for Apps, scripts, flows, resources, variables, schedules, or workers. Folder filtering alone is insufficient. |
+| Scripts and flows                 | Typed adapters and bounded orchestration over Owner ports                                               | They may route, wait, retry, and compose; they never write Owner storage, invent business state, or turn flow success into an Owner result.                                                                                                  |
+| Jobs, progress, logs, and SSE     | Operational run identity, live progress, diagnostics, and UI streaming                                  | A Windmill job ID, percentage, result, or log is not an Owner receipt. Self‑hosted CE job detail retention is bounded, so durable research artifacts and outcome facts remain with Trade Owners.                                             |
+| Schedules                         | Trigger bounded research, scanner, replay, report, and maintenance flows                                | A schedule is not a deployment registry, lifecycle authority, or live strategy runtime. CE correctness uses a flow‑level error path and same‑request resolution; it does not depend on the Enterprise schedule error handler.                |
+| Workers and worker groups         | Queue‑backed execution and workload isolation by admitted tags                                          | Worker loss leaves the business result unresolved until the receiving Owner is queried. Enterprise Agent Workers are not required and must not be confused with LLM agents.                                                                  |
+| AI Agent flow step                | Optional bounded internal R&D reasoning step with explicitly admitted script or MCP tools               | Agent memory, model output, and tool‑call success are non‑authoritative. The step gets no arbitrary shell, Owner SQL, lifecycle, Risk, Execution, secret‑management, or workspace‑management capability.                                     |
+| Resources, variables, and secrets | Typed connection configuration and opaque credential custody                                            | Windmill secret access is not Operator Authorization. Least‑privilege paths are mandatory; secret values never enter prompts, Owner requests, logs, artifacts, or receipts.                                                                  |
+| Data tables and transient state   | UI preferences and explicitly rebuildable non‑authoritative caches only                                 | Research lineage, receipts, Qualification, Governance, Runtime, Risk, Execution, Portfolio, and Recovery truth are forbidden. Long‑lived artifacts use Owner storage or admitted object storage.                                             |
+| Git and deployment versions       | Repository‑first source for App, script, flow, schedule, resource schema, and `wmill.yaml` declarations | UI state is a deployed projection. Promotion records the Git revision, Windmill resource versions, CLI version, image digest, schema versions, and rollback target as one compatibility cut.                                                 |
+
+The Community Edition floor must remain correct without service accounts, Agent Workers, schedule-level error
+handlers, job debouncing, critical alerts, full-text job/log search, unlimited retention, or Enterprise OTLP export.
+Enterprise features may improve isolation or operations, but cannot be required for business correctness. On CE,
+unattended schedules run on behalf of dedicated least-privilege virtual users; on EE a service account may replace
+that identity without changing its Product Edge principal, scope, manifest, or Owner semantics. Operator UI
+visibility is not an authorization boundary.
+
+Windmill's native MCP includes powerful workspace-management tools, so the distributable MCP profile is deny by
+default. Its allowed tools are only the curated Product Edge operations plus the read-only built-in tools `getJob`
+and `getJobLogs`. App and MCP calls bind the same operation version and semantic request;
+neither channel may deploy or edit the operation it is currently using.
+
+Unattended execution begins from a canonical due-slot identity and derives one stable Product Edge request
+identity before the first Owner call. Retries, worker restart, timeout recovery, and manual resolution reuse that
+identity and meaning. If Windmill cannot prove whether an Owner accepted the call, the run stays
+`SUBMITTED_OR_UNKNOWN` and a resolver queries the Owner receipt; it never submits a naked successor. Parallel or
+overlapping schedule delivery is harmless only when the due-slot and Owner idempotency contract join the same
+receipt. Flow error handling may notify and enqueue resolution, but only an Owner receipt closes the business
+operation.
+
+The external conversation client and Windmill internal AI are separate credential planes. A client may use its
+own model provider key before calling MCP; an internal AI Agent step uses an independently scoped Windmill AI
+resource. Neither model credential authenticates to Trade, and sharing one provider account is an operator choice,
+not an architecture dependency.
+
+Official capability evidence for this floor is the Windmill documentation for
+[full-code App deployment](https://www.windmill.dev/docs/full_code_apps/deployment),
+[MCP tools and scopes](https://www.windmill.dev/docs/core_concepts/mcp),
+[jobs and retention](https://www.windmill.dev/docs/core_concepts/jobs),
+[roles and run-on-behalf](https://www.windmill.dev/docs/core_concepts/roles_and_permissions),
+[schedules](https://www.windmill.dev/docs/core_concepts/scheduling),
+[flow error handling](https://www.windmill.dev/docs/core_concepts/error_handling),
+[persistent storage](https://www.windmill.dev/docs/core_concepts/persistent_storage), and
+[Git sync](https://www.windmill.dev/docs/advanced/git_sync). A later implementation chunk must re-audit these
+claims against its exact pinned Windmill version rather than assuming the 2026-08-18 evidence cut is timeless.
 
 ## Agent-native R&D authoring
 

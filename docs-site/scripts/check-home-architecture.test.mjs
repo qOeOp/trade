@@ -362,7 +362,7 @@ test('projects every canonical surface object relation scenario and local invari
 
   for (const surface of surfaces) {
     const english = await readProjection(surface.docsRoute);
-    assert.ok(english.includes(`- **${surface.label}** — \`${surface.id}\``), `${surface.id} label is not projected`);
+    assert.ok(english.includes(`- **${surface.label}** — \`${surface.id}\``), `${surface.id} label is not projected`); // unicode-typography: allow
     assert.ok(english.includes(`  - module count: \`${surface.modules?.length ?? 0}\``), `${surface.id} module count is not projected`);
     for (const module of surface.modules ?? []) {
       assert.ok(english.includes(`\`${module.label}\` (\`${module.id}\`)`), `${module.id} label is not projected`);
@@ -372,7 +372,7 @@ test('projects every canonical surface object relation scenario and local invari
   for (const object of contract.architectureObjects) {
     const authority = object.authorityId ?? object.custodianId;
     const english = await readProjection(surfaceById.get(authority).docsRoute);
-    assert.ok(english.includes(`- **object \`${object.id}\`** — \`${object.label}\``), `${object.id} label is not projected`);
+    assert.ok(english.includes(`- **object \`${object.id}\`** — \`${object.label}\``), `${object.id} label is not projected`); // unicode-typography: allow
     assert.ok(english.includes('identity binds `identityBinds`:'), `${object.id} identity is not projected`);
     assert.ok(english.includes('invariants `invariants`:'), `${object.id} invariants are not projected`);
     for (const key of Object.keys(object).filter((key) => !['id', 'label', 'authorityId', 'custodianId', 'visibility'].includes(key))) {
@@ -531,7 +531,7 @@ test('keeps architecture labels, topology, and ids compact', async () => {
     .filter((node) => node.data.nodeType === 'owner' || node.data.nodeType === 'boundary')
     .map((node) => [node.id, node.data]));
 
-  assert.equal(contract.schemaVersion, 27, 'R71 closes protected-set validation order and protective-stop versus hard-stop effect contention');
+  assert.equal(contract.schemaVersion, 28, 'Windmill Product Edge capability and unattended-operation contract is canonical');
   assert.match(source, /\['runtime-risk-incident-fence', \{ sourceHandle: 'source-bottom', targetHandle: 'target-top', laneOffset: -20 \}\]/);
   assert.match(source, /\['execution-risk-drift-fence', \{ sourceHandle: 'source-left', targetHandle: 'target-right', laneOffset: 20 \}\]/);
   assert.equal(groups.length, 13);

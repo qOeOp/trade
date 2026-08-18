@@ -9,6 +9,28 @@ This page connects the existing engine to the target product architecture. It do
 - Foundation code owns no trading truth. It may store, transport, serialize, observe, or expose facts only on behalf of the Owner that committed them.
 - A target product surface is not considered implemented merely because the Flow names it or a low-level API is reachable.
 
+## Windmill pre-change to target gap disposition
+
+The Windmill selection closed the product-shell decision, but did not by itself close the implementation contract.
+This table is the normative gap audit; the `Product Edge` page owns the resulting runtime rules.
+
+| Gap before this audit                                        | Windmill capability to adopt                                            | Required Trade addition or prohibition                                                                                                | Target proof                                                                                       |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| App technology and caller identity were unspecified          | Full‑code React App and `viewer` execution policy                       | Forbid public, anonymous, and publisher execution                                                                                     | Browser test proves two principals retain distinct permissions and reach the same typed operations |
+| Native MCP was selected without a tool boundary              | OAuth/scoped‑token MCP and per‑tool selection                           | Exact deny‑by‑default allowlist; forbid workspace mutation and preview tools                                                          | Enumerated tool receipt contains only curated operations and minimum read‑only job tools           |
+| Long‑running work mixed operational and business truth       | Jobs, progress, logs, SSE, flows, workers                               | Windmill IDs/logs are operational; Owner receipts and artifacts are durable truth                                                     | Restart/timeout test resolves the same Owner request without a second business write               |
+| Periodic automation lacked due‑slot and overlap semantics    | Schedules and flow error handling                                       | Stable due‑slot request identity; no lifecycle, deployment, or live‑runtime authority                                                 | Duplicate and overlapping delivery join one Owner receipt                                          |
+| Unattended identity depended on an unspecified account       | Run‑on‑behalf and dedicated virtual users; optional EE service accounts | Least‑privilege identity per workload; no shared admin or editor identity                                                             | Schedule, App, and MCP attribution and effective scopes are independently verified                 |
+| Retry and recovery semantics stopped at flow success/failure | Flow retry, timeout, error handler, and resolver job                    | Retry only the same request meaning; unknown calls query the Owner receipt                                                            | Injected loss before and after Owner acceptance never creates a naked successor                    |
+| Workspace state could become a shadow product database       | Data tables, resources, variables, transient flow state                 | Only UI preferences and rebuildable cache; no Owner fact or durable artifact truth                                                    | Deleting Windmill cache rebuilds views without losing a business fact                              |
+| Deployment and upgrade cut were unspecified                  | `.raw_app/`, `wmill.yaml`, CLI sync, resource versions                  | Repository‑first source and exact server/worker/CLI/image digest compatibility cut                                                    | Clean deployment reproduces the declared App, operation set, policies, and rollback target         |
+| CE and EE capabilities were conflated                        | Self‑hosted CE base plus optional EE enhancements                       | Correctness cannot require EE‑only service accounts, Agent Workers, schedule error handlers, alerts, search, debouncing, or retention | CE acceptance suite passes with every optional EE feature absent                                   |
+| Internal AI and external chat credentials were conflated     | Windmill AI resources and native MCP                                    | Separate credential planes; model keys never authorize Trade or leak into requests/logs                                               | Secret‑canary and authorization tests prove no provider credential becomes business authority      |
+
+No row turns the workbench into `CURRENT`. Together they make the TARGET deterministic enough for an implementation
+Agent to build without choosing a new architecture. If a Windmill version cannot satisfy a required row, the
+implementation stops; it may not silently add a second shell, scheduler, MCP service, or truth store.
+
 ## Strategy Factory capability disposition
 
 Strategy Factory is not one all-or-nothing migration. `PRESENT` means the named source facet is directly verified;
