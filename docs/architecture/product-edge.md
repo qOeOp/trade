@@ -26,6 +26,49 @@ This selection remains `TARGET/ABSENT_TARGET_ONLY`. A local Windmill installatio
 dashboard does not make the workbench `CURRENT`; acceptance requires the bounded user journeys, common operations,
 Owner receipts, unresolved states, and direct browser evidence defined below.
 
+## Agent-native R&D authoring
+
+The target product admits one user-facing strategy-authoring path: a person expresses a sourced research goal,
+question, explanation request, or revision request in natural language, and an Agent invokes the admitted typed
+R&D operations. The Windmill App may provide that attended conversation surface directly, while an optional
+external conversation client may invoke the same operations through Windmill MCP. Neither channel authors a
+business fact or edits an Artifact.
+
+This path separates two Agent roles. A **Conversation Agent** runs in the attended Windmill experience or an
+external client such as WorkBuddy; it frames intent, submits or queries typed operations, and explains returned
+views. A server-side **R&D Execution Agent** runs in a Windmill-supervised job and the admitted Development Sandbox;
+it continues after the conversation disconnects, performs bounded research and generation, and submits candidate
+outputs through R&D Owner ports. Neither Agent owns Research facts, and the Conversation Agent never drives the
+step-by-step lifetime of the execution Agent.
+
+MCP carries operation requests and bounded results, not an LLM session, hidden reasoning, model entitlement, or
+credential. The two Agent roles may be configured to use the same provider, gateway, billing account, or even the
+same underlying credential under deployment policy, but that is explicit backend configuration rather than
+credential pass-through. Each role retains a distinct invocation identity, scope, capability policy, budget, and
+audit trail. Secret values never enter MCP payloads, Owner facts, Artifact metadata, or logs.
+
+An accepted revision request starts a new governed R&D attempt. It either produces a new immutable,
+content-addressed Strategy Artifact and its own build and exploratory evidence, or closes with the native
+no-artifact, failure, rejection, or unknown disposition. It never changes bytes under an existing Artifact
+identity. A semantic strategy change requires the applicable successor hypothesis and Research Intent path;
+an attended D-only repair remains constrained by its separate repair contract. The visible **Ask Agent to revise**
+action submits that typed request and remains `SUBMITTED_OR_UNKNOWN` until the R&D-owned receipt arrives.
+
+The first admitted Artifact Review surface does not require raw source access. It presents the Artifact identity,
+Research Intent and iteration lineage, structured strategy-logic summary, parameter and dependency identities,
+build state, Agent change explanation, exploratory result references, bounded Qualification status, and allowed
+next actions. Every item binds its native Owner fact or is visibly non-authoritative explanation; an Agent summary
+cannot replace Artifact bytes, a Build Receipt, a Run Result, an Iteration Decision, or a Qualification fact.
+Semantic change summaries use only R&D-owned lineage and permitted exploratory evidence, never protected
+Qualification detail.
+
+Full source inspection, source-level diff, controlled source download, and source-linked diagnostics are
+`DEFERRED_TARGET` advanced audit capabilities. If introduced, they are read-only and are not required for the
+initial Workbench acceptance. An in-product code editor, Notebook-first authoring, in-place Artifact mutation, and
+overwriting an Artifact version are `NOT_ADMITTED`. External IDEs or notebooks may remain engineering tools, but
+they are outside the product contract and cannot establish a Product Edge request, Owner fact, or acceptance
+evidence.
+
 ## Agent Shell deployment binding
 
 Product Edge owns one non-business Agent Shell Deployment Binding for each deployment. The target binding names the

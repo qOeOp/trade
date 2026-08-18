@@ -26,6 +26,46 @@ live strategy loops, market sessions, risk, orders, and recovery effects.
 [Observability](../../architecture/observability/) may explain progress and failure, but it cannot close the journey,
 choose the next action, or substitute telemetry for a native Owner receipt.
 
+## Agent-native R&D experience
+
+The user-facing authoring loop is conversation-driven:
+
+Natural-language research request → Research Request Receipt → Frozen Research Intent → Agent activity and R&D
+iterations → immutable Strategy Artifact and Build Receipt → exploratory Run Detail or Compare → Iteration
+Decision → exact successor, stop, repair, or Qualification handoff.
+
+The Conversation Agent ends at typed request submission and bounded status queries. A server-side R&D Execution
+Agent owns the long-running execution session and remains supervised by Windmill when the conversation client is
+closed. MCP does not lend the client model or credentials to that job. The two roles may share an explicitly
+configured model provider or billing gateway, but not session authority, capability scope, budget, or audit
+identity.
+
+A user starts research, asks for an explanation, requests a revision, stops work, or submits the exact selected
+Candidate through a visible action. Each mutating action creates a new typed request. A revision produces a new
+immutable Artifact or an explicit native terminal disposition; it never edits or overwrites an existing Artifact.
+Windmill Job progress explains execution only. The receiving Owner receipt and projection determine the business
+phase and allowed next actions.
+
+The target Windmill R&D Workbench closes the journey through these application areas:
+
+| Area             | Required first product view                                                                                                                       | Authority boundary                                                                                                              |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Overview         | Active research, decisions awaiting attention, recent outcomes, Scanner and Runtime health                                                        | Summary only; every state links to its native Owner projection                                                                  |
+| Sources / Intake | Submitted papers, notes, media, tool output, acquisition state, provenance, interpretation, triage, and Research Queue                            | R&D Source Intake owns admission and provenance; external content stays untrusted and never creates Intent or Artifact directly |
+| Research         | Runs, frozen goal, timeline, Agent activity, iteration state, progress, logs, and allowed actions                                                 | R&D receipts and Research View decide state; logs do not                                                                        |
+| Hypotheses       | Pending, supported, falsified, stopped, or unresolved research hypotheses                                                                         | R&D owns provenance, lineage, and Iteration Decision                                                                            |
+| Artifacts        | Identity, intent and iteration lineage, structured logic, parameters, dependencies, build state, semantic change explanation, and allowed actions | Artifact and Build Receipt remain authoritative; explanation is not a substitute                                                |
+| Backtests        | Exploratory charts, risk metrics, Run Detail, and version comparison                                                                              | Backtest owns Run Results; comparison does not create Selection                                                                 |
+| Qualification    | Bounded public status and exact admitted handoff action                                                                                           | Protected details remain opaque; Qualification owns intake and eligibility                                                      |
+| Scanner          | Schedule, terminal Scanner Receipt, heartbeat, and unresolved state                                                                               | Windmill schedules work; Scanner owns proposal truth and never starts Runtime                                                   |
+| Runtime          | Applied generations, strategy-loop status, checkpoints, incidents, and permitted lifecycle actions                                                | Runtime, Governance, Risk, and Execution facts remain separate authorities                                                      |
+| Operations       | Windmill jobs, workers, progress, logs, retries, and incidents                                                                                    | Operational success never means research, Qualification, deployment, or trading success                                         |
+
+The first Artifact Review surface intentionally omits raw source. Full read-only source inspection, source diff,
+controlled download, and source-linked diagnostics are deferred advanced audit capabilities. Notebook-first
+authoring, an embedded code IDE, in-place Artifact edits, and version overwrite are not admitted product
+capabilities. A user requests a change through the Agent and reviews the resulting successor Artifact instead.
+
 ## 1. Discover and formulate
 
 Product Edge accepts natural-language intent but owns no trading truth. Market Data supplies traceable,

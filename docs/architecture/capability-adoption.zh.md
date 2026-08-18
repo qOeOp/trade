@@ -37,6 +37,25 @@ facet 存在，缺失的目标语义仍未实现；`ABSENT_TARGET_ONLY` 是目�
 link，不是两种能力。Research 仍是 TrialFamily/Census 唯一 writer，Qualification 只读；在缺失目标 facet
 实现前，源计数器不能证明穷尽 membership ancestry 改名安全或 holdout custody。
 
+## R&D 产品表面能力处置
+
+下列状态分类的是目标产品范围与优先级，不是当前实现。每个 `TARGET_REQUIRED` 与
+`DEFERRED_TARGET` 行都保持 `ABSENT_TARGET_ONLY`，直到规范 consumer 满足 Product Edge 验收契约。
+`NOT_ADMITTED` 是产品禁止项，并不声称工程工具或策略源码不存在。
+
+| 能力                                                                   | 状态              | 采用契约                                                                                                                                                          |
+| ---------------------------------------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 通过 Windmill App 或 Windmill MCP 的自然语言 Agent 创作                | `TARGET_REQUIRED` | 只能提交已接纳的 R&D 类型化 operation；对话与 Agent 输出不是业务事实                                                                                              |
+| Conversation 与 R&D Execution Agent 分离                               | `TARGET_REQUIRED` | 把客户端交互与持久服务端 R&D job 分开；即使两个角色使用同一已配置 provider 或计费 gateway，MCP 也不传递模型 session 或 credential                                 |
+| Research Source Intake 应用表面                                        | `TARGET_REQUIRED` | 通过共同 Product Edge 调用可替换、带版本的 connector flow；展示获取终态、provenance、解释、triage 与 Research Queue，不建立 connector 专属 MCP 或直接 Intent 路径 |
+| Research run、时间线、Agent 活动、迭代进度、日志与允许动作             | `TARGET_REQUIRED` | 组合 R&D 回执、Research View 与运维进度，但不建立影子 workflow 事实                                                                                               |
+| 结构化 Artifact Review                                                 | `TARGET_REQUIRED` | 无需原始源码即可展示 Artifact identity 与血缘、策略逻辑摘要、参数、依赖、构建状态、允许的探索引用、语义变更解释和允许动作                                         |
+| 探索比较、有界 Qualification 状态、Scanner、Runtime 与 Operations 视图 | `TARGET_REQUIRED` | 保留各原生 Owner 与保护反馈边界；Windmill Job 成功绝不是业务成功                                                                                                  |
+| 完整源码查看                                                           | `DEFERRED_TARGET` | 以后若准入，只能把不可变 Artifact 源码作为高级审计表面只读展示                                                                                                    |
+| 源码级 diff、受控下载与源码关联诊断                                    | `DEFERRED_TARGET` | 从准确不可变 Artifact identity 派生，绝不产生修改路径                                                                                                             |
+| Notebook-first 产品创作或内嵌代码 IDE                                  | `NOT_ADMITTED`    | 外部工程工具留在产品契约之外，不能满足 Workbench 验收                                                                                                             |
+| 原地编辑 Artifact 或覆盖版本                                           | `NOT_ADMITTED`    | 每个已接纳修改都创建新的受治理 attempt 和不可变后继 Artifact，或产生原生终态 disposition                                                                          |
+
 ## 能力映射
 
 | 现有 crate 或能力                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | 目标归属                                                     | 采用契约                                                                                                                                                                                                                                                                                                                                                                                                                                  |
