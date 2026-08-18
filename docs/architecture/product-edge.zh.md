@@ -16,13 +16,66 @@ Owner API、Windmill server 与 worker、所需持久化和本地入口。Windmi
 
 Windmill App 与 MCP endpoint 调用同一组经过挑选、带版本的 script 与 flow，并且只能通过有类型 Owner
 port 工作。它们不能执行任意 Owner SQL、产生业务事实或保存影子 workflow truth。定时研究、scanner、
-replay、报告与维护任务可以作为 Windmill job 运行并留下持久进度、日志、重试和工件引用。真实策略
+replay、报告与维护任务可以作为 Windmill job 运行并提供实时运维进度、日志、重试和 Owner-owned 工件引用。真实策略
 循环、行情会话、订单状态机与恢复效果仍由 Trade Runtime、Risk、Execution 与 Recovery 拥有；Windmill
 只能监督和展示，永远不是交易运行内核。
 
 该选择仍是 `TARGET/ABSENT_TARGET_ONLY`。本地安装 Windmill、MCP 握手成功或 mock dashboard 都不能
 让 Workbench 成为 `CURRENT`；验收必须覆盖下文定义的有界用户旅程、共同操作、Owner 回执、未解析
 状态以及直接浏览器证据。
+
+## Windmill 能力采用合同
+
+已审计的实现下限是自托管 Windmill Community Edition。2026-08-18 证据截面验证了本地
+`CE v1.791.0` server 与 worker 健康状态，并核对了 App、MCP、job、日志、schedule、worker、resource、
+variable 的 Windmill 官方能力文档。该截面只达到 `VENDOR_DECLARED` 与 `LOCAL_REACHABLE`，不是
+`PRODUCT_CURRENT`。每个产品发布都必须把 Windmill server、worker 与 CLI 固定到准确兼容版本和容器
+digest；禁止 `main`、`latest` 或其他浮动 tag。
+
+| Windmill 原语                 | Product Edge 采用职责                                                                               | 强制边界                                                                                                                                                                                        |
+| ----------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Full‑code App                 | 一个由仓库拥有、从 `.raw_app/` 源码打包的 React Workbench                                           | 只允许登录访问和 `viewer` 执行政策。禁止 `publisher`、`anonymous` 和 `public`，因为它们会抹掉调用者的有效权限边界。                                                                             |
+| Native MCP                    | 面向同一组带版本 operation 的可选对话 channel                                                       | workspace 范围 OAuth 或 scoped token 只暴露准确 allowlist。不得暴露 App、script、flow、resource、variable、schedule 或 worker 的 preview 与 create/update/delete 工具。只做 folder 过滤不充分。 |
+| Script 与 Flow                | Owner port 上的类型化 adapter 与有界 orchestration                                                  | 可以路由、等待、重试和组合；不得写 Owner storage、发明业务状态，或把 flow success 变成 Owner 结果。                                                                                             |
+| Job、progress、log 与 SSE     | 运行身份、实时进度、诊断和 UI streaming                                                             | Windmill job id、百分比、result 或 log 都不是 Owner receipt。自托管 CE 的 job detail 保留期有界，持久研究工件和结果事实仍归 Trade Owner。                                                       |
+| Schedule                      | 触发有界 research、scanner、replay、report 与 maintenance flow                                      | schedule 不是 deployment registry、lifecycle authority 或真实策略 runtime。CE 正确性使用 flow‑level error path 和同请求解析，不依赖 Enterprise schedule error handler。                         |
+| Worker 与 worker group        | 基于 queue 的执行，以及按已准入 tag 隔离工作负载                                                    | worker 丢失时业务结果保持未解析，直到查询 receiving Owner。不得依赖 Enterprise Agent Workers，也不得把它与 LLM agent 混为一谈。                                                                 |
+| AI Agent flow step            | 可选的内部有界 R&D reasoning step，只获得明确准入的 script 或 MCP tool                              | Agent memory、模型输出和 tool‑call success 都不具权威性。该 step 不得获得任意 shell、Owner SQL、lifecycle、Risk、Execution、secret management 或 workspace management 能力。                    |
+| Resource、variable 与 secret  | 类型化连接配置和不透明 credential custody                                                           | Windmill secret access 不是 Operator Authorization。必须使用最小权限 path；secret value 不得进入 prompt、Owner request、log、artifact 或 receipt。                                              |
+| Data table 与 transient state | 只保存 UI preference 和明确可重建的非权威 cache                                                     | 禁止保存 Research lineage、receipt、Qualification、Governance、Runtime、Risk、Execution、Portfolio 与 Recovery 事实。长期工件使用 Owner storage 或已准入 object storage。                       |
+| Git 与 deployment version     | App、script、flow、schedule、resource schema 与 `wmill.yaml` declaration 的 repository‑first source | UI state 是部署投影。promotion 把 Git revision、Windmill resource version、CLI version、image digest、schema version 与 rollback target 记录为一个 compatibility cut。                          |
+
+Community Edition 下限在没有 service account、Agent Workers、schedule-level error handler、job debouncing、
+critical alert、full-text job/log search、无限保留期或 Enterprise OTLP export 时仍必须正确。Enterprise 功能
+可以改善隔离或运维，但不得成为业务正确性的前提。CE 中无人值守 schedule 代表专用最小权限 virtual
+user 运行；EE 中可以换成 service account，但不得改变 Product Edge principal、scope、manifest 或 Owner
+语义。Operator UI 可见性不是授权边界。
+
+Windmill native MCP 包含强大的 workspace management tool，因此发布用 MCP profile 默认拒绝。只允许
+经过挑选的 Product Edge operation，以及只读内置 tool `getJob` 与 `getJobLogs`。App 与 MCP
+调用绑定同一个 operation version 和 semantic request；两个 channel 都不得部署或编辑自己正在使用的
+operation。
+
+无人值守执行从规范 due-slot identity 开始，并在第一次调用 Owner 前派生唯一稳定 Product Edge request
+identity。retry、worker restart、timeout recovery 与 manual resolution 复用该 identity 和 meaning。如果
+Windmill 不能证明 Owner 是否接受调用，run 保持 `SUBMITTED_OR_UNKNOWN`，resolver 查询 Owner receipt；
+不得提交裸 successor。并行或重叠 schedule delivery 只有在 due-slot 与 Owner idempotency contract 汇合到
+同一 receipt 时才无害。Flow error handling 可以通知并排队解析，但只有 Owner receipt 能闭合业务操作。
+
+外部对话 client 与 Windmill 内部 AI 是两个 credential plane。client 可以先使用自己的 model provider
+key 再调用 MCP；内部 AI Agent step 使用单独 scoped Windmill AI resource。两种 model credential 都不能
+认证 Trade；复用同一 provider account 是 operator 选择，不是架构依赖。
+
+该下限的官方能力证据是 Windmill 的
+[full-code App deployment](https://www.windmill.dev/docs/full_code_apps/deployment)、
+[MCP tool 与 scope](https://www.windmill.dev/docs/core_concepts/mcp)、
+[job 与 retention](https://www.windmill.dev/docs/core_concepts/jobs)、
+[role 与 run-on-behalf](https://www.windmill.dev/docs/core_concepts/roles_and_permissions)、
+[schedule](https://www.windmill.dev/docs/core_concepts/scheduling)、
+[flow error handling](https://www.windmill.dev/docs/core_concepts/error_handling)、
+[persistent storage](https://www.windmill.dev/docs/core_concepts/persistent_storage) 和
+[Git sync](https://www.windmill.dev/docs/advanced/git_sync) 文档。后续实现 chunk 必须对其准确固定的 Windmill
+版本重新审计这些声明，不得假设 2026-08-18 证据截面永久有效。
 
 ## Agent-native R&D 创作
 
