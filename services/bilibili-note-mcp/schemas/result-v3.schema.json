@@ -1,0 +1,23 @@
+{
+  "additionalProperties": false,
+  "description": "Research-agent-facing projection; internal trace data never crosses this boundary.",
+  "properties": {
+    "rendered_markdown": {
+      "maxLength": 65536,
+      "minLength": 1,
+      "title": "Rendered Markdown",
+      "type": "string"
+    },
+    "schema": {
+      "const": "bilibili-note.result/v3",
+      "title": "Schema",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "rendered_markdown"
+  ],
+  "title": "PublicBilibiliNoteResultV3",
+  "type": "object"
+}

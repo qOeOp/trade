@@ -1,0 +1,23 @@
+{
+  "additionalProperties": false,
+  "description": "Search-facing projection containing one deterministic strategy aggregation.",
+  "properties": {
+    "rendered_markdown": {
+      "maxLength": 262144,
+      "minLength": 1,
+      "title": "Rendered Markdown",
+      "type": "string"
+    },
+    "schema": {
+      "const": "bilibili-note.search-result/v1",
+      "title": "Schema",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "rendered_markdown"
+  ],
+  "title": "PublicBilibiliSearchResultV1",
+  "type": "object"
+}

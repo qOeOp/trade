@@ -1,0 +1,83 @@
+{
+  "$defs": {},
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "description": "Research-agent-facing projection; internal trace data never crosses this boundary.",
+      "properties": {
+        "rendered_markdown": {
+          "maxLength": 65536,
+          "minLength": 1,
+          "title": "Rendered Markdown",
+          "type": "string"
+        },
+        "schema": {
+          "const": "bilibili-note.result/v3",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "rendered_markdown"
+      ],
+      "title": "PublicBilibiliNoteResultV3",
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "INVALID_URL",
+            "UNSUPPORTED_URL",
+            "PART_REQUIRED",
+            "SOURCE_UNAVAILABLE",
+            "ACCESS_DENIED",
+            "RATE_LIMITED",
+            "SOURCE_CHANGED",
+            "TRANSCRIPT_UNAVAILABLE",
+            "TRANSCRIPT_INCOMPLETE",
+            "HD_SOURCE_UNAVAILABLE",
+            "DISTILLATION_FAILED",
+            "VISUAL_EVIDENCE_INCOMPLETE",
+            "OUTPUT_INVALID",
+            "CANCELLED",
+            "DEADLINE_EXCEEDED",
+            "SEARCH_EMPTY",
+            "SEARCH_TARGET_UNMET",
+            "INTERNAL"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "maturity": {
+          "const": "current_poc",
+          "title": "Maturity",
+          "type": "string"
+        },
+        "reason": {
+          "pattern": "^[a-z0-9_]{1,80}$",
+          "title": "Reason",
+          "type": "string"
+        },
+        "schema": {
+          "const": "bilibili-note.error/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "maturity",
+        "code",
+        "reason"
+      ],
+      "title": "ErrorV1",
+      "type": "object"
+    }
+  ],
+  "title": "BilibiliNoteToolOutputV2",
+  "type": "object"
+}
