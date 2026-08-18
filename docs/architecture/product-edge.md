@@ -129,6 +129,25 @@ same source cut joins the same projection; a newer cut creates a successor view.
 from this view, but only the committed Execution and other source-Owner facts establish effect or Recovery state,
 and Research never consumes the view as provenance.
 
+## Product closure and application layer
+
+A product closure exists only when a user can carry one bounded goal from entry to an authoritative outcome and
+its next legal action without manually joining Owner databases, receipts, logs, or terminal output. Product Edge
+composes that journey from typed Owner requests, request-correlated receipts, and bounded read models; it does not
+own the business transitions that the journey exposes.
+
+The R&D application journey presents `Source / Hypothesis → Frozen Research Intent → Strategy Artifact and Build
+Receipt → Exploratory Run → Run Detail or Compare → Diagnosis → Iteration Decision`. Its terminal actions are to
+stop, submit the exact typed input-repair request, create the single admitted successor, or hand an exact selected
+Candidate to Qualification. Each stage binds its native Owner fact, source frontier, freshness, and unresolved
+state. A visible button submits a new typed request; it never mutates a projection or advances a stage by itself.
+Until the native Owner receipt arrives, the action remains `SUBMITTED_OR_UNKNOWN`.
+
+Product Edge may own ephemeral interaction details such as filters, layout, and an unsubmitted form, but not
+Research lineage, Iteration Decision, Qualification status, lifecycle state, or external effect closure.
+Observability may annotate the journey with progress and diagnostics. Telemetry availability, Dashboard state,
+and alert delivery never establish completion or choose the next business action.
+
 ## Authority boundary
 
 It owns no research, strategy, order, account, risk, or recovery truth. A successful agent action proves only local submission state; it is not an Owner receipt or business result.

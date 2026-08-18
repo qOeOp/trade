@@ -7,6 +7,20 @@ R&D 把带来源市场假设转化为冻结且可复现的策略工件，同时�
 Product Edge 提交带来源链接的假设。请求说明预期机制和待证伪问题，并提交已经投影给该 principal 的
 有界 Qualification 阶段事实前沿，但此时既不是策略证据，也不是交易权限。
 
+## 用户产品闭环
+
+R&D Workbench 把已接纳 Source 与 Hypothesis、冻结 Research Intent、Strategy Artifact 与 Build
+Receipt、探索请求与结果、Diagnosis 和终态 Iteration Decision 展示为一段连续旅程。每个可见阶段都
+解析到原生 Owner 事实，或者绑定来源 frontier 的 `STALE`、`UNAVAILABLE` 或未解析状态；Workbench
+不是另一套 registry。
+
+探索结果出现后，Product Edge 只展示 R&D 事实已经接纳的动作：结果非终态或未知时等待；按
+`REPAIR_INPUTS` 选出的准确类别提交类型化修复请求；按已提交终态决定停止；创建唯一已接纳后继
+Intent；或把准确 `SELECTED_FOR_QUALIFICATION` Candidate 提交给 Qualification。每个动作都创建新的
+类型化请求，并在原生回执出现前保持 `SUBMITTED_OR_UNKNOWN`。Run Detail 与 Compare 可以组合有界
+投影用于解释，但 UI 状态和 Observability 遥测都不能创建 Iteration Decision、Selection 或
+Qualification intake。
+
 ## Value path / 价值路径
 
 Source Intake 记录来源，并把来源或工具内容视为不可信数据而非指令。Intent 冻结前，R&D 内的 Research 能力记录合理

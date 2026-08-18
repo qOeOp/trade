@@ -9,6 +9,20 @@ Product Edge submits a source-linked hypothesis. The request states the intended
 to falsify and commits the bounded Qualification phase-fact frontier already projected to that principal. It is
 not yet strategy evidence or permission to trade.
 
+## User product closure
+
+The R&D workbench presents the accepted Source and Hypothesis, frozen Research Intent, Strategy Artifact and
+Build Receipt, exploratory requests and results, Diagnosis, and the terminal Iteration Decision as one continuous
+journey. Every displayed stage resolves to its native Owner fact or a source-frontier-bound `STALE`, `UNAVAILABLE`,
+or unresolved state; the workbench is not another registry.
+
+After an exploratory result, Product Edge exposes only the action admitted by R&D facts: wait while the result is
+non-terminal or unknown, submit the exact typed repair request selected by `REPAIR_INPUTS`, stop on a committed
+terminal decision, create the one admitted successor Intent, or submit the exact `SELECTED_FOR_QUALIFICATION`
+Candidate to Qualification. Each action creates a new typed request and remains `SUBMITTED_OR_UNKNOWN` until its
+native receipt arrives. Run Detail and Compare may join bounded projections for explanation, but neither UI state
+nor Observability telemetry can create an Iteration Decision, Selection, or Qualification intake.
+
 ## Value path / 价值路径
 
 Source Intake records provenance and treats source or tool content as untrusted data, never instructions. Before
