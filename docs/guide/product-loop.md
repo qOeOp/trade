@@ -12,11 +12,16 @@ receipts, logs, or terminal output.
 
 - `CURRENT/PARTIAL` - `crates/strategy_factory` provides a narrow frozen `ResearchIntent` to `StrategyArtifact`
   to native replay and `TrialReceipt` pilot. It is `SURVIVED_NOT_ADMITTED`, not a complete R&D product.
-- `TARGET/ABSENT_TARGET_ONLY` - an R&D workbench presents Source and Hypothesis, frozen Intent, Artifact and Build
+- `TARGET/ABSENT_TARGET_ONLY` - the selected Windmill R&D Workbench presents Source and Hypothesis, frozen Intent, Artifact and Build
   Receipt, exploratory Run Detail and Compare, Diagnosis, Iteration Decision, and the exact stop, repair,
-  successor, or Qualification handoff action.
-- `NOT_ADMITTED` - an architecture page, target read model, Dashboard, or reachable low-level API does not make
-  the workbench `CURRENT`.
+  successor, or Qualification handoff action. Windmill App and Windmill MCP invoke the same versioned operations.
+- `NOT_ADMITTED` - an architecture page, local Windmill installation, MCP handshake, target read model, Dashboard,
+  or reachable low-level API does not make the workbench `CURRENT`.
+
+The target ships as one Docker Compose product package with one default Windmill web entry and one Windmill MCP
+conversation outlet. Optional external conversation clients are not bundled or individually adapted. Windmill
+schedules long-running research and scanner jobs; Trade Runtime remains the authority and process boundary for
+live strategy loops, market sessions, risk, orders, and recovery effects.
 
 [Observability](../../architecture/observability/) may explain progress and failure, but it cannot close the journey,
 choose the next action, or substitute telemetry for a native Owner receipt.

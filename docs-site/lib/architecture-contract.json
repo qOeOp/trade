@@ -1077,7 +1077,7 @@
         "observableConsumerId": "mutating-owner-request-gate",
         "scenarioId": "overview",
         "businessOwnerDisposition": "NONE_NON_BUSINESS_BOUNDARY",
-        "noBusinessOutcomeBasis": "Agent Shell cutover changes request attribution but creates no business outcome because only the matching receiving Owner receipt may commit that outcome",
+        "noBusinessOutcomeBasis": "Product Edge gateway cutover changes request attribution but creates no business outcome because only the matching receiving Owner receipt may commit that outcome",
         "migrationSurfaceId": "agent-shell-request-origin",
         "requiredRelatedObjectIds": [
           "rd-request",
@@ -1095,7 +1095,7 @@
         ],
         "semantics": {
           "accepted": "The predecessor binding commits SUPERSEDED the policy-equivalent successor binding becomes ACTIVE and typed submissions retain their original request and binding identities while business outcome remains owned by the matching receiving Owner receipt",
-          "rejected": "Dual shell writers stale binding policy mismatch or incomplete outbound request coverage keeps the successor inactive",
+          "rejected": "Dual channel writers stale binding policy mismatch or incomplete outbound request coverage keeps the successor inactive",
           "unknown": "Unknown deployment head generation cutover epoch fence ordering policy parity in-flight resolution or receiving Owner receipt keeps mutation admission cutover or business outcome fenced",
           "replay": "The same cutover and request identities join their existing binding and Owner receipts without creating another request or business transition"
         }
@@ -2143,7 +2143,7 @@
         "capabilityPortIds": [],
         "providerMemberPortEvidence": [],
         "adoptionRule": "Keep CLI and extension mechanisms behind explicit request consumers and Agent Operation Manifest admission",
-        "noAuthorityBasis": "CLI or plugin presence proves no Agent Shell product integration business authority or external effect permission"
+        "noAuthorityBasis": "CLI or plugin presence proves no Windmill App or MCP client product integration business authority or external effect permission"
       },
       {
         "inventoryId": "verification-and-reference",
@@ -2570,13 +2570,13 @@
         ],
         "requiredRollbackDispositionId": "preserve-request-identity-authorization-and-owner-receipt",
         "requiredKillObservationIds": [
-          "dual-shell-writer",
+          "dual-channel-writer",
           "policy-equivalence-mismatch",
           "stale-binding",
           "unresolved-in-flight-request"
         ],
         "activationProof": "predecessor binding SUPERSEDED successor binding ACTIVE and every in-flight request identity resolvable",
-        "rollbackBoundary": "shell reversal cannot rewrite request identity authorization or Owner receipt",
+        "rollbackBoundary": "gateway reversal cannot rewrite request identity authorization or Owner receipt",
         "incidentAuthorityId": "product-edge"
       }
     ]
@@ -3187,7 +3187,7 @@
       "modules": [
         {
           "id": "workspace",
-          "label": "LobeHub",
+          "label": "Windmill Workbench",
           "kind": "adapter",
           "emphasis": "support",
           "scenarios": [
@@ -3199,13 +3199,13 @@
             "recovery"
           ],
           "description": {
-            "en": "Natural-language product surface; no business truth",
-            "zh": "承载自然语言交互与状态查看，但不保存任何交易业务事实"
+            "en": "Default R&D workbench for jobs views and typed actions; no business truth",
+            "zh": "默认 R&D 工作台，展示任务与视图并提交有类型动作，但不保存任何交易业务事实"
           }
         },
         {
           "id": "agent-shell",
-          "label": "OpenClaw/Codex",
+          "label": "Windmill MCP",
           "kind": "adapter",
           "emphasis": "support",
           "scenarios": [
@@ -3217,8 +3217,8 @@
             "recovery"
           ],
           "description": {
-            "en": "Selects one configured agent shell OpenClaw or Codex\nUses the same bounded Skill and MCP authority surface\nNever grants either shell direct business write authority",
-            "zh": "通过配置在 OpenClaw 和 Codex 中选择一个 Agent Shell\n两者使用同一套受控 Skill 和 MCP 权限边界\n任何 Shell 都不能绕过 Owner 直接写入业务事实"
+            "en": "Exposes the Workbench operation set to optional MCP clients\nShares one WINDMILL_PRODUCT_EDGE admission gateway with the App\nNever grants a client direct business write authority",
+            "zh": "把 Workbench operation set 暴露给可选 MCP 客户端\n与 App 共用一个 WINDMILL_PRODUCT_EDGE 准入网关\n任何客户端都不能绕过 Owner 直接写入业务事实"
           }
         }
       ]
@@ -3769,7 +3769,7 @@
         "authoritative-deployment-history-head-before",
         "authoritative-deployment-history-head-after",
         "predecessor-binding-identity-or-genesis-only-when-history-empty",
-        "selected-shell-openclaw-or-codex",
+        "canonical-windmill-product-edge-admission-gateway",
         "effective-principal",
         "scope-policy-version",
         "approved-skill-and-mcp-capability-set-version",
@@ -3782,8 +3782,8 @@
       ],
       "invariants": [
         "ACTIVE and SUPERSEDED are the only canonical binding states and a binding identity is immutable",
-        "At most one ACTIVE binding selects either OpenClaw or Codex for a deployment and zero ACTIVE is an allowed fail-closed cutover window while multiple ACTIVE bindings admit no mutating Owner request",
-        "A shell-only successor preserves the same effective principal scope capability and audit policies while changing attribution only",
+        "At most one ACTIVE binding selects the canonical WINDMILL_PRODUCT_EDGE admission gateway for a deployment and zero ACTIVE is an allowed fail-closed cutover window while multiple ACTIVE bindings admit no mutating Owner request",
+        "A client-only or transport-only successor preserves the same effective principal scope capability and audit policies while changing attribution only",
         "The first binding may use genesis only when the authoritative deployment history is empty and its expected history head is EMPTY",
         "SUPERSEDED is the predecessor request-origin fence and a successor may commit ACTIVE only by one durable atomic serialization against the exact history head after its exact predecessor identity is SUPERSEDED the policies match exactly and the deployment has zero current ACTIVE bindings",
         "A successor generation is exactly predecessor generation plus one its cutover epoch is strictly greater and its immutable binding identity is globally unique across deployment history",

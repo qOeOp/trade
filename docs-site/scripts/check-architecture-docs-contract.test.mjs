@@ -99,12 +99,12 @@ function providerPortCell(memberPath, port, language) {
   const locatorPrefix = `${memberPath}/`;
   assert.ok(port.verifiedSourceLocator.startsWith(locatorPrefix), `${memberPath} has a non-local source locator`);
   const locator = port.verifiedSourceLocator.slice(locatorPrefix.length);
-  if (port.sourceAvailability === 'PRESENT') return `\`PRESENT\` — \`${locator}\``;
+  if (port.sourceAvailability === 'PRESENT') return `\`PRESENT\` - \`${locator}\``;
   assert.equal(port.sourceAvailability, 'ABSENT', `${memberPath} uses an unsupported table availability`);
   assert.equal(port.firstDevelopmentChunkId, 'STOP_SOURCE_PORT_ABSENT');
   return language === 'zh'
-    ? `\`ABSENT\` — 已检查 \`${locator}\`；\`STOP_SOURCE_PORT_ABSENT\``
-    : `\`ABSENT\` — inspected \`${locator}\`; \`STOP_SOURCE_PORT_ABSENT\``;
+    ? `\`ABSENT\` - 已检查 \`${locator}\`；\`STOP_SOURCE_PORT_ABSENT\``
+    : `\`ABSENT\` - inspected \`${locator}\`; \`STOP_SOURCE_PORT_ABSENT\``;
 }
 
 function assertProviderEvidenceTable(source, language, providerInventory) {
@@ -152,7 +152,8 @@ test('architecture contract keeps the overview within its frozen complexity ceil
 
   const productEdgeModules = contract.boundaries.find((boundary) => boundary.id === 'product-edge')?.modules ?? [];
   assert.deepEqual(productEdgeModules.map((module) => module.id), ['workspace', 'agent-shell']);
-  assert.equal(productEdgeModules.find((module) => module.id === 'agent-shell')?.label, 'OpenClaw/Codex');
+  assert.equal(productEdgeModules.find((module) => module.id === 'workspace')?.label, 'Windmill Workbench');
+  assert.equal(productEdgeModules.find((module) => module.id === 'agent-shell')?.label, 'Windmill MCP');
   assert.ok(!contractModules.some((module) => module.id === 'openclaw'));
 
   const authorityOwnerIds = new Set(contract.authorityOwners.map((owner) => owner.id));
@@ -302,7 +303,7 @@ test('the canonical contract owns every architecture object and relation semanti
   assert.equal(contract.architectureObjects.some((object) => object.id === 'alert-delivery'), false);
 });
 
-test('one configured Agent Shell has permission-equivalent replay-safe Owner requests', () => {
+test('one Windmill Product Edge gateway has permission-equivalent replay-safe Owner requests', () => {
   const objects = new Map(contract.architectureObjects.map((object) => [object.id, object]));
   const relations = new Map(contract.relations.map((relation) => [relation.id, relation]));
   const binding = objects.get('agent-shell-deployment-binding');
@@ -313,7 +314,7 @@ test('one configured Agent Shell has permission-equivalent replay-safe Owner req
   assert.ok(binding.identityBinds.includes('authoritative-deployment-history-head-before'));
   assert.ok(binding.identityBinds.includes('authoritative-deployment-history-head-after'));
   assert.ok(binding.identityBinds.includes('predecessor-binding-identity-or-genesis-only-when-history-empty'));
-  assert.match(binding.invariants.join('\n'), /At most one ACTIVE binding selects either OpenClaw or Codex/);
+  assert.match(binding.invariants.join('\n'), /At most one ACTIVE binding selects the canonical WINDMILL_PRODUCT_EDGE admission gateway/);
   assert.match(binding.invariants.join('\n'), /zero ACTIVE is an allowed fail-closed cutover window/);
   assert.match(binding.invariants.join('\n'), /SUPERSEDED is the predecessor request-origin fence/);
   assert.match(binding.invariants.join('\n'), /genesis only when the authoritative deployment history is empty/);
@@ -353,7 +354,7 @@ test('one configured Agent Shell has permission-equivalent replay-safe Owner req
     const candidate = active[0];
     const identities = new Set(bindings.map((current) => current.bindingId));
     if (identities.size !== bindings.length) return false;
-    return ['OPENCLAW', 'CODEX'].includes(candidate.shell)
+    return candidate.shell === 'WINDMILL_PRODUCT_EDGE'
       && candidate.bindingId === historyHead
       && candidate.deploymentId === expectedPolicy.deploymentId
       && Number.isInteger(candidate.generation)
@@ -370,32 +371,32 @@ test('one configured Agent Shell has permission-equivalent replay-safe Owner req
     auditPolicy: 'audit-v1',
     trustedPrincipal: 'principal-1',
   };
-  const openclaw = {
+  const windmillV1 = {
     ...expectedPolicy,
-    bindingId: 'binding-openclaw-1',
+    bindingId: 'binding-windmill-1',
     generation: 1,
     cutoverEpoch: 10,
     predecessorBindingId: null,
     historyHeadBefore: null,
-    historyHeadAfter: 'binding-openclaw-1',
-    shell: 'OPENCLAW',
+    historyHeadAfter: 'binding-windmill-1',
+    shell: 'WINDMILL_PRODUCT_EDGE',
     state: 'ACTIVE',
   };
-  const codex = {
+  const windmillV2 = {
     ...expectedPolicy,
-    bindingId: 'binding-codex-2',
+    bindingId: 'binding-windmill-2',
     generation: 2,
     cutoverEpoch: 11,
-    predecessorBindingId: openclaw.bindingId,
-    historyHeadBefore: openclaw.bindingId,
-    historyHeadAfter: 'binding-codex-2',
-    shell: 'CODEX',
+    predecessorBindingId: windmillV1.bindingId,
+    historyHeadBefore: windmillV1.bindingId,
+    historyHeadAfter: 'binding-windmill-2',
+    shell: 'WINDMILL_PRODUCT_EDGE',
   };
   assert.equal(admitsMutation([], expectedPolicy, null), false);
-  assert.equal(admitsMutation([openclaw, { ...codex, state: 'ACTIVE' }], expectedPolicy, codex.bindingId), false);
-  assert.equal(admitsMutation([{ ...openclaw, capabilityPolicy: 'broadened' }], expectedPolicy, openclaw.bindingId), false);
-  assert.equal(admitsMutation([openclaw], expectedPolicy, openclaw.bindingId), true);
-  assert.equal(admitsMutation([openclaw], expectedPolicy, 'different-head'), false, 'a unique stale ACTIVE is not the head');
+  assert.equal(admitsMutation([windmillV1, { ...windmillV2, state: 'ACTIVE' }], expectedPolicy, windmillV2.bindingId), false);
+  assert.equal(admitsMutation([{ ...windmillV1, capabilityPolicy: 'broadened' }], expectedPolicy, windmillV1.bindingId), false);
+  assert.equal(admitsMutation([windmillV1], expectedPolicy, windmillV1.bindingId), true);
+  assert.equal(admitsMutation([windmillV1], expectedPolicy, 'different-head'), false, 'a unique stale ACTIVE is not the head');
 
   const bindingStore = new Map();
   const globallyUsedBindingIds = new Set();
@@ -431,9 +432,9 @@ test('one configured Agent Shell has permission-equivalent replay-safe Owner req
     bindingStore.set(bindingId, { ...current, state: 'SUPERSEDED' });
     return 'SUPERSEDED';
   };
-  assert.equal(activateSuccessor(openclaw), 'ACTIVATED');
-  assert.equal(activateSuccessor(codex), 'REJECT_PREDECESSOR_NOT_SUPERSEDED');
-  assert.equal(activateSuccessor({ ...codex, capabilityPolicy: 'broadened' }), 'REJECT_POLICY_EXPANSION');
+  assert.equal(activateSuccessor(windmillV1), 'ACTIVATED');
+  assert.equal(activateSuccessor(windmillV2), 'REJECT_PREDECESSOR_NOT_SUPERSEDED');
+  assert.equal(activateSuccessor({ ...windmillV2, capabilityPolicy: 'broadened' }), 'REJECT_POLICY_EXPANSION');
 
   const requestStore = new Map();
   const ownerReceiptStore = new Map();
@@ -479,32 +480,32 @@ test('one configured Agent Shell has permission-equivalent replay-safe Owner req
   const originalContext = {
     requestId: 'req-1',
     meaning: 'pause:g1',
-    bindingId: openclaw.bindingId,
-    generation: openclaw.generation,
-    cutoverEpoch: openclaw.cutoverEpoch,
-    historyHeadAtAdmission: openclaw.bindingId,
+    bindingId: windmillV1.bindingId,
+    generation: windmillV1.generation,
+    cutoverEpoch: windmillV1.cutoverEpoch,
+    historyHeadAtAdmission: windmillV1.bindingId,
   };
   assert.equal(submit(originalContext), 'SUBMITTED_OR_UNKNOWN');
   assert.equal(submit(originalContext), 'SUBMITTED_OR_UNKNOWN');
   assert.equal(resolveOwnerReceipt(originalContext), 'SUBMITTED_OR_UNKNOWN');
-  assert.equal(supersedePredecessor(openclaw.bindingId), 'SUPERSEDED');
+  assert.equal(supersedePredecessor(windmillV1.bindingId), 'SUPERSEDED');
   assert.equal(admitsMutation([...bindingStore.values()], expectedPolicy, authoritativeHistoryHead), false, 'zero ACTIVE is a safe cutover window');
   assert.equal(submit(originalContext), 'SUBMITTED_OR_UNKNOWN', 'an admitted in-flight request resolves on its original identity after cutover starts');
-  assert.equal(activateSuccessor({ ...codex, bindingId: 'forged-genesis', predecessorBindingId: null, historyHeadAfter: 'forged-genesis' }), 'REJECT_PREDECESSOR_NOT_HEAD');
-  assert.equal(activateSuccessor({ ...codex, bindingId: openclaw.bindingId, historyHeadAfter: openclaw.bindingId }), 'REJECT_REUSED_BINDING_ID');
-  assert.equal(activateSuccessor({ ...codex, deploymentId: 'other-deployment', bindingId: openclaw.bindingId, historyHeadAfter: openclaw.bindingId }), 'REJECT_REUSED_BINDING_ID', 'binding identity is globally unique across deployments');
-  assert.equal(activateSuccessor({ ...codex, bindingId: 'stale-head', historyHeadBefore: null, historyHeadAfter: 'stale-head' }), 'REJECT_STALE_HISTORY_HEAD');
-  assert.equal(activateSuccessor({ ...codex, bindingId: 'bad-generation', generation: 1, historyHeadAfter: 'bad-generation' }), 'REJECT_NON_SUCCESSOR');
-  assert.equal(activateSuccessor({ ...codex, bindingId: 'bad-epoch', cutoverEpoch: 10, historyHeadAfter: 'bad-epoch' }), 'REJECT_NON_SUCCESSOR');
-  assert.equal(activateSuccessor(codex), 'ACTIVATED');
-  assert.equal(activateSuccessor({ ...codex, bindingId: 'concurrent-loser', historyHeadAfter: 'concurrent-loser' }), 'REJECT_STALE_HISTORY_HEAD', 'only one successor wins the durable serial order');
+  assert.equal(activateSuccessor({ ...windmillV2, bindingId: 'forged-genesis', predecessorBindingId: null, historyHeadAfter: 'forged-genesis' }), 'REJECT_PREDECESSOR_NOT_HEAD');
+  assert.equal(activateSuccessor({ ...windmillV2, bindingId: windmillV1.bindingId, historyHeadAfter: windmillV1.bindingId }), 'REJECT_REUSED_BINDING_ID');
+  assert.equal(activateSuccessor({ ...windmillV2, deploymentId: 'other-deployment', bindingId: windmillV1.bindingId, historyHeadAfter: windmillV1.bindingId }), 'REJECT_REUSED_BINDING_ID', 'binding identity is globally unique across deployments');
+  assert.equal(activateSuccessor({ ...windmillV2, bindingId: 'stale-head', historyHeadBefore: null, historyHeadAfter: 'stale-head' }), 'REJECT_STALE_HISTORY_HEAD');
+  assert.equal(activateSuccessor({ ...windmillV2, bindingId: 'bad-generation', generation: 1, historyHeadAfter: 'bad-generation' }), 'REJECT_NON_SUCCESSOR');
+  assert.equal(activateSuccessor({ ...windmillV2, bindingId: 'bad-epoch', cutoverEpoch: 10, historyHeadAfter: 'bad-epoch' }), 'REJECT_NON_SUCCESSOR');
+  assert.equal(activateSuccessor(windmillV2), 'ACTIVATED');
+  assert.equal(activateSuccessor({ ...windmillV2, bindingId: 'concurrent-loser', historyHeadAfter: 'concurrent-loser' }), 'REJECT_STALE_HISTORY_HEAD', 'only one successor wins the durable serial order');
   assert.equal(admitsMutation([...bindingStore.values()], expectedPolicy, authoritativeHistoryHead), true);
   const successorContext = {
     ...originalContext,
-    bindingId: codex.bindingId,
-    generation: codex.generation,
-    cutoverEpoch: codex.cutoverEpoch,
-    historyHeadAtAdmission: codex.bindingId,
+    bindingId: windmillV2.bindingId,
+    generation: windmillV2.generation,
+    cutoverEpoch: windmillV2.cutoverEpoch,
+    historyHeadAtAdmission: windmillV2.bindingId,
   };
   assert.equal(submit(successorContext), 'RESOLVE_ORIGINAL_REQUEST');
   assert.equal(resolveOwnerReceipt(successorContext), 'SUBMITTED_OR_UNKNOWN');
@@ -518,20 +519,20 @@ test('one configured Agent Shell has permission-equivalent replay-safe Owner req
   assert.equal(resolveOwnerReceipt({ ...successorContext, meaning: 'activate:g1' }), 'REJECT_REQUEST_IDENTITY');
   assert.equal(submit({ ...successorContext, requestId: 'req-2', meaning: 'pause:g2', generation: 1 }), 'REJECT_STALE_OR_UNKNOWN_BINDING');
   assert.equal(submit({ ...successorContext, requestId: 'req-3', meaning: 'pause:g3', bindingId: 'missing' }), 'REJECT_STALE_OR_UNKNOWN_BINDING');
-  assert.equal(submit({ ...successorContext, requestId: 'req-4', meaning: 'pause:g4', historyHeadAtAdmission: openclaw.bindingId }), 'REJECT_STALE_OR_UNKNOWN_BINDING', 'a head advance between read and submit loses the durable serial order');
+  assert.equal(submit({ ...successorContext, requestId: 'req-4', meaning: 'pause:g4', historyHeadAtAdmission: windmillV1.bindingId }), 'REJECT_STALE_OR_UNKNOWN_BINDING', 'a head advance between read and submit loses the durable serial order');
   assert.equal(resolveOwnerReceipt({ requestId: 'req-missing', meaning: 'pause:g4' }), 'REJECT_REQUEST_IDENTITY');
   const restartedRequests = new Map(requestStore);
   const restartedReceipts = new Map(ownerReceiptStore);
-  assert.equal(restartedRequests.get('req-1').bindingId, openclaw.bindingId);
+  assert.equal(restartedRequests.get('req-1').bindingId, windmillV1.bindingId);
   assert.equal(restartedReceipts.get('req-1').receiptId, 'owner-receipt-1');
   const staleRollbackStore = new Map(bindingStore);
-  staleRollbackStore.set(openclaw.bindingId, { ...staleRollbackStore.get(openclaw.bindingId), state: 'ACTIVE' });
+  staleRollbackStore.set(windmillV1.bindingId, { ...staleRollbackStore.get(windmillV1.bindingId), state: 'ACTIVE' });
   const activeAfterRollback = [...staleRollbackStore.values()].filter((candidate) => candidate.state === 'ACTIVE');
   assert.equal(activeAfterRollback.length, 2);
   assert.equal(admitsMutation([...staleRollbackStore.values()], expectedPolicy, authoritativeHistoryHead), false, 'restart cannot admit multiple ACTIVE bindings');
   const uniqueStaleRollbackStore = new Map(bindingStore);
-  uniqueStaleRollbackStore.set(codex.bindingId, { ...uniqueStaleRollbackStore.get(codex.bindingId), state: 'SUPERSEDED' });
-  uniqueStaleRollbackStore.set(openclaw.bindingId, { ...uniqueStaleRollbackStore.get(openclaw.bindingId), state: 'ACTIVE' });
+  uniqueStaleRollbackStore.set(windmillV2.bindingId, { ...uniqueStaleRollbackStore.get(windmillV2.bindingId), state: 'SUPERSEDED' });
+  uniqueStaleRollbackStore.set(windmillV1.bindingId, { ...uniqueStaleRollbackStore.get(windmillV1.bindingId), state: 'ACTIVE' });
   assert.equal(admitsMutation([...uniqueStaleRollbackStore.values()], expectedPolicy, authoritativeHistoryHead), false, 'restart cannot admit one stale ACTIVE whose identity is not the head');
   const transitionBinding = (store, bindingId, nextState) => {
     const current = store.get(bindingId);
@@ -539,15 +540,15 @@ test('one configured Agent Shell has permission-equivalent replay-safe Owner req
     store.set(bindingId, { ...current, state: nextState });
     return 'SUPERSEDED';
   };
-  assert.equal(transitionBinding(bindingStore, openclaw.bindingId, 'ACTIVE'), 'REJECT_IRREVERSIBLE_TRANSITION', 'SUPERSEDED cannot resurrect');
+  assert.equal(transitionBinding(bindingStore, windmillV1.bindingId, 'ACTIVE'), 'REJECT_IRREVERSIBLE_TRANSITION', 'SUPERSEDED cannot resurrect');
 
   const { english, chinese } = readBilingualDoc('architecture/product-edge');
   for (const source of [english, chinese]) {
     assert.match(source, /Agent Shell Deployment Binding/);
     assert.match(source, /SUBMITTED_OR_UNKNOWN/);
   }
-  assert.match(english, /OpenClaw\/Codex/);
-  assert.match(chinese, /OpenClaw\/Codex/);
+  assert.match(english, /WINDMILL_PRODUCT_EDGE/);
+  assert.match(chinese, /WINDMILL_PRODUCT_EDGE/);
 });
 
 test('Observability is pluggable, non-authoritative, source-bound, and rebuildable', () => {
@@ -1327,15 +1328,15 @@ test('every development chunk resolves one complete effective contract and one c
 
   const shellCutover = {
     ...executionCutover,
-    sliceIdentity: 'agent-shell-codex-cutover',
+    sliceIdentity: 'windmill-product-edge-cutover',
     surfaceClassId: 'agent-shell-request-origin',
-    predecessorRevision: 'openclaw-binding-v1',
-    successorRevision: 'codex-binding-v2',
+    predecessorRevision: 'windmill-binding-v1',
+    successorRevision: 'windmill-binding-v2',
     commonEvidenceCut: { domain: 'agent-shell-request-frontier', identity: 'agent-shell-request-frontier:42' },
     evidenceBindingIds: ['predecessor-binding-superseded', 'successor-binding-activation', 'in-flight-request-resolution-cut', 'policy-equivalence-proof'],
     rollbackDisposition: 'preserve-request-identity-authorization-and-owner-receipt',
     incidentAuthority: 'product-edge',
-    killObservations: ['dual-shell-writer', 'policy-equivalence-mismatch', 'stale-binding', 'unresolved-in-flight-request'],
+    killObservations: ['dual-channel-writer', 'policy-equivalence-mismatch', 'stale-binding', 'unresolved-in-flight-request'],
   };
   const shellCutoverChunk = {
     ...valid,
@@ -3727,12 +3728,12 @@ test('Development Chunk validator and docs projection are exact and bidirectiona
     .find((surface) => surface.id === cutoverInvariant.migrationSurfaceId);
   invariantRecord['owner-migration-binding-or-not-applicable-with-basis'] = {
     applicable: true,
-    'migration-slice-identity': 'agent-shell-openclaw-to-codex-v1',
+    'migration-slice-identity': 'windmill-product-edge-v1-to-v2',
     'surface-class-id': cutoverInvariant.migrationSurfaceId,
     'current-stage': 'SHADOW_READ_ONLY',
     'next-adjacent-stage': 'PREDECESSOR_FENCED',
-    'predecessor-revision': 'openclaw-binding-v1',
-    'successor-revision': 'codex-binding-v1',
+    'predecessor-revision': 'windmill-binding-v1',
+    'successor-revision': 'windmill-binding-v2',
     'common-evidence-cut': {
       domain: cutoverSurface.requiredCommonEvidenceCutDomain,
       identity: `${cutoverSurface.requiredCommonEvidenceCutDomain}:42`,
@@ -4005,14 +4006,14 @@ test('the bilingual quantitative docs project the canonical evidence and authori
     ['owners/portfolio', ['Portfolio Lifecycle Evidence Receipt', 'PARTIAL'], ['Portfolio Lifecycle Evidence Receipt', 'PARTIAL']],
     ['scenarios/backtest', ['R&D → Qualification', 'Protected Run Result'], ['R&D → Qualification', 'Protected Run Result']],
     ['scenarios/scan', ['NO_MATCH', 'Scanner → Runtime'], ['NO_MATCH', 'Scanner → Runtime']],
-    ['scenarios/overview', ['OpenClaw or Codex', 'one shell is active'], ['OpenClaw 或 Codex', '每次只启用一个 Shell']],
-    ['architecture/capability-adoption', ['OpenClaw or Codex', 'competing writers'], ['OpenClaw 或 Codex', '竞争写入者']],
+    ['scenarios/overview', ['Windmill MCP', 'WINDMILL_PRODUCT_EDGE'], ['Windmill MCP', 'WINDMILL_PRODUCT_EDGE']],
+    ['architecture/capability-adoption', ['Windmill MCP operation set', 'competing writers'], ['Windmill MCP operation set', '竞争 writer']],
     ['owners/backtest', ['exploratory Run Result views only', 'Never expose a protected result'], ['只读探索 Run Result 视图', '不通过 Product Edge 暴露保护结果']],
     ['owners/runtime', ['Runtime Incident Fact', 'notification delivery is never evidence'], ['Runtime Incident Fact', '通知投递永远不是证据']],
     ['owners/execution', ['Reconciliation Drift Fact', 'notification delivery never proves reconciliation'], ['Reconciliation Drift Fact', '通知投递永远不能证明对账完成']],
     ['owners/strategy-governance', ['Runtime Incident Fact', 'Execution Reconciliation Drift Fact', 'Never use Event Rail'], ['Runtime Incident Fact', 'Execution Reconciliation Drift Fact', '不把 Event Rail']],
     ['owners/qualification', ['Qualification Status Summary', 'cannot dereference protected detail'], ['Qualification Status Summary', '不能解引用为保护细节']],
-    ['architecture/product-edge', ['exactly one shell', 'same effective principal, scope, capability and audit policies', 'never reveal protected measurements', 'dereference protected evidence'], ['每次部署只启用其中一个', '相同的有效主体、权限范围、能力与审计政策', '绝不暴露保护测量', '解引用保护证据']],
+    ['architecture/product-edge', ['sole default product entry', 'same effective principal, scope', 'never reveal protected measurements', 'dereference protected evidence'], ['唯一默认产品入口', '相同的有效主体、权限范围', '绝不暴露保护测量', '解引用保护证据']],
     ['architecture/event-rail', ['protected measurements', 'never enter Event Rail'], ['保护测量', '绝不进入 Event Rail']],
     ['architecture/observability', ['at-least-once', 'Global Status View', 'protected Qualification evidence'], ['至少一次', 'Global Status View', 'Qualification 保护证据']],
   ];
@@ -4322,9 +4323,8 @@ test('Capability Adoption maps every workspace member without creating another a
     assert.match(source, /shared Cache|共享 Cache/);
     assert.match(source, /single order writer|订单唯一写入者/i);
     assert.match(source, /Strategy Artifact/);
-    assert.match(source, /LobeHub/);
-    assert.match(source, /OpenClaw/);
-    assert.match(source, /Codex/);
+    assert.match(source, /Windmill App/);
+    assert.match(source, /Windmill MCP/);
     assert.match(source, /Telegram/);
   }
 

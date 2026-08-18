@@ -8,7 +8,7 @@ Each mutable business fact has one Owner. Product Edge, Strategy Factory, and Ob
 
 ## Visible boundaries
 
-- [Product Edge](./product-edge/) is the natural-language shell.
+- [Product Edge](./product-edge/) is the Windmill-first application and MCP admission boundary.
 - [Strategy Factory](./strategy-factory/) is the R&D Backtest Qualification value stream.
 - [Observability](./observability/) collects telemetry, builds global status projections, and routes alerts.
 

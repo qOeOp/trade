@@ -8,7 +8,7 @@
 
 ## 可见边界
 
-- [Product Edge](./product-edge/) 是自然语言产品壳。
+- [Product Edge](./product-edge/) 是以 Windmill 为默认工作台的应用与 MCP 准入边界。
 - [Strategy Factory](./strategy-factory/) 是 R&D Backtest Qualification 价值流。
 - [Observability](./observability/) 采集遥测、生成全局状态投影并路由告警。
 
