@@ -219,16 +219,16 @@ or third call.
 
 Public progress is monotonic and artifact-based:
 
-| progress | admitted artifact |
-| ---: | --- |
-| 5 | canonical request/source identity admitted |
-| 25 | bounded media artifact admitted |
-| 25..49 | complete ASR windows admitted |
-| 50 | full transcript admitted |
-| 65 | host visual catalog admitted |
-| 66..74 | bounded model liveness only |
-| 75 | author and independent verifier admitted |
-| 89 | rendered terminal bytes admitted |
+| progress | admitted artifact                          |
+| -------: | ------------------------------------------ |
+|        5 | canonical request/source identity admitted |
+|       25 | bounded media artifact admitted            |
+|   25..49 | complete ASR windows admitted              |
+|       50 | full transcript admitted                   |
+|       65 | host visual catalog admitted               |
+|   66..74 | bounded model liveness only                |
+|       75 | author and independent verifier admitted   |
+|       89 | rendered terminal bytes admitted           |
 
 Search candidate progress is capped at 88. The service emits no synthetic 90 or 100. Repeated stage
 messages may prove liveness but cannot claim a future artifact.
