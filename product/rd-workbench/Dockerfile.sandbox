@@ -1,0 +1,24 @@
+# syntax=docker/dockerfile:1.20@sha256:26147acbda4f14c5add9946e2fd2ed543fc402884fd75146bd342a7f6271dc1d
+FROM --platform=linux/arm64 public.ecr.aws/docker/library/rust:1.97.1-slim-bookworm@sha256:99e09cb2284e2ddbb73a995deee3e91783fd04d177602ccf6eab326d778ee777 AS builder
+WORKDIR /workspace
+ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+COPY patches ./patches
+COPY examples/tutorials ./examples/tutorials
+COPY product/rd-workbench/Dockerfile.sandbox ./product/rd-workbench/Dockerfile.sandbox
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/workspace/target,sharing=locked \
+    cargo build --locked --release -p vibe-strategy-factory --bin strategy-factory-rd-build-sandbox \
+    && mkdir -p /out \
+    && cp target/release/strategy-factory-rd-build-sandbox /out/
+
+FROM --platform=linux/arm64 public.ecr.aws/docker/library/rust:1.97.1-slim-bookworm@sha256:99e09cb2284e2ddbb73a995deee3e91783fd04d177602ccf6eab326d778ee777
+RUN rustup target add wasm32v1-none \
+    && useradd --create-home --uid 10001 rd-sandbox \
+    && mkdir -p /run/trade-rd-sandbox \
+    && chown 10001:10001 /run/trade-rd-sandbox
+COPY --from=builder /out/strategy-factory-rd-build-sandbox /usr/local/bin/strategy-factory-rd-build-sandbox
+USER 10001:10001
+ENTRYPOINT ["/usr/local/bin/strategy-factory-rd-build-sandbox"]

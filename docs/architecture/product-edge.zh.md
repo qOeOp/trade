@@ -62,6 +62,14 @@ Windmill 不能证明 Owner 是否接受调用，run 保持 `SUBMITTED_OR_UNKNOW
 不得提交裸 successor。并行或重叠 schedule delivery 只有在 due-slot 与 Owner idempotency contract 汇合到
 同一 receipt 时才无害。Flow error handling 可以通知并排队解析，但只有 Owner receipt 能闭合业务操作。
 
+Artifact Formation 除冻结 Research Intent identity 外，还使用稳定 build-request identity 与稳定 attempt
+identity。相同语义 tuple 的重放汇合到同一 Owner attempt；任一 identity 被不同语义复用都形成 identity
+conflict。穷尽的 Owner disposition 是 `SUCCESS`、`FAILED_NO_ARTIFACT`、`REJECTED_NO_WRITE` 与
+`OUTCOME_UNKNOWN`；`SUBMITTED_OR_UNKNOWN` 只是查询状态，不是业务 disposition。只有 `SUCCESS` 才原子
+提交新的不可变 Artifact、Build Receipt、Artifact Review 与 `ARTIFACT_AVAILABLE` projection；其他处置
+均不产生 Artifact。commit 后响应丢失会解析到准确回执，commit 前 timeout 只能以 unknown 且无 Artifact
+闭合。App 与 MCP 调用同一个带版本 Formation operation，绝不以 Windmill job state 代替它。
+
 外部对话 client 与 Windmill 内部 AI 是两个 credential plane。client 可以先使用自己的 model provider
 key 再调用 MCP；内部 AI Agent step 使用单独 scoped Windmill AI resource。两种 model credential 都不能
 认证 Trade；复用同一 provider account 是 operator 选择，不是架构依赖。

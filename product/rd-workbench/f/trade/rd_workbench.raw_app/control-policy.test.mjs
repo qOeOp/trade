@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { actionControls } from "./control-policy.mjs"
+import { actionControls, artifactActionControls } from "./control-policy.mjs"
 
 test("only an unsubmitted request can be submitted", () => {
   assert.deepEqual(actionControls(null), {
@@ -37,4 +37,27 @@ test("acceptance and unrecognized actions expose no mutation", () => {
       canCreateSuccessor: false,
     })
   }
+})
+
+test("artifact controls expose only the Owner-declared next action", () => {
+  assert.deepEqual(artifactActionControls(null), {
+    canRun: true,
+    canResolve: false,
+    canCreateSuccessor: false,
+  })
+  assert.deepEqual(artifactActionControls("RESOLVE_SAME_ATTEMPT_IDENTITY"), {
+    canRun: false,
+    canResolve: true,
+    canCreateSuccessor: false,
+  })
+  assert.deepEqual(artifactActionControls("CREATE_SUCCESSOR_BUILD_REQUEST"), {
+    canRun: false,
+    canResolve: false,
+    canCreateSuccessor: true,
+  })
+  assert.deepEqual(artifactActionControls("REVIEW_ARTIFACT"), {
+    canRun: false,
+    canResolve: false,
+    canCreateSuccessor: false,
+  })
 })

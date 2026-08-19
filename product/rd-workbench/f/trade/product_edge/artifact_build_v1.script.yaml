@@ -1,0 +1,39 @@
+summary: Build or resolve one R&D Strategy Artifact
+description: >-
+  Uses canonical R&D Owner Intent facts, a bounded execution agent, and the isolated Development Sandbox.
+  Only the Owner result is authoritative.
+lock: "!inline f/trade/product_edge/artifact_build_v1.script.lock"
+kind: script
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - action
+    - build_request_identity
+    - attempt_identity
+    - intent_identity
+    - channel
+  properties:
+    action:
+      type: string
+      enum:
+        - RUN
+        - RESOLVE
+    attempt_identity:
+      type: string
+    build_request_identity:
+      type: string
+    channel:
+      type: string
+      enum:
+        - APP
+        - MCP
+    intent_identity:
+      type: string
+  required:
+    - action
+    - build_request_identity
+    - attempt_identity
+    - intent_identity
+    - channel
+tag: rd-product-edge

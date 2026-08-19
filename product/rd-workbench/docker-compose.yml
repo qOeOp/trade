@@ -29,12 +29,15 @@ services:
       RD_OWNER_EFFECTIVE_PRINCIPAL: ${RD_OWNER_EFFECTIVE_PRINCIPAL:-admin}
       RD_OWNER_PERMISSIONED_AS: ${RD_OWNER_PERMISSIONED_AS:-u/admin}
       RD_OWNER_ENABLE_ACCEPTANCE_FAULTS: ${RD_OWNER_ENABLE_ACCEPTANCE_FAULTS:-0}
+      RD_SANDBOX_SOCKET: /run/trade-rd-sandbox/build.sock
       RUST_LOG: info
     depends_on:
       postgres:
         condition: service_healthy
     expose:
       - 8080
+    volumes:
+      - sandbox-socket:/run/trade-rd-sandbox:ro
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080'"]
       interval: 5s
@@ -42,6 +45,33 @@ services:
       retries: 20
     security_opt:
       - no-new-privileges:true
+
+  rd-build-sandbox:
+    platform: linux/arm64
+    build:
+      context: ../..
+      dockerfile: product/rd-workbench/Dockerfile.sandbox
+    restart: unless-stopped
+    network_mode: none
+    environment:
+      PATH: /usr/local/cargo/bin:/usr/local/rustup/toolchains/1.97.1-aarch64-unknown-linux-gnu/bin:/usr/bin:/bin
+      RD_SANDBOX_SOCKET: /run/trade-rd-sandbox/build.sock
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=256m,uid=10001,gid=10001,mode=0700
+    volumes:
+      - sandbox-socket:/run/trade-rd-sandbox
+    cap_drop:
+      - ALL
+    pids_limit: 64
+    mem_limit: 512m
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /run/trade-rd-sandbox/build.sock"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   windmill-server:
     # yamllint disable rule:line-length
@@ -76,7 +106,10 @@ services:
       WORKER_GROUP: rd-product-edge
       WORKER_TAGS: rd-product-edge,dependency
       RD_OWNER_API_TOKEN: ${RD_OWNER_API_TOKEN:?set RD_OWNER_API_TOKEN}
-      WHITELIST_ENVS: RD_OWNER_API_TOKEN
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      RD_EXECUTION_AGENT_MODEL: ${RD_EXECUTION_AGENT_MODEL:-deepseek-chat}
+      WHITELIST_ENVS: RD_OWNER_API_TOKEN,DEEPSEEK_API_KEY,RD_EXECUTION_AGENT_MODEL
+      RUST_LOG: warn
     depends_on:
       postgres:
         condition: service_healthy
@@ -92,3 +125,4 @@ volumes:
   postgres-data:
   worker-cache:
   worker-logs:
+  sandbox-socket:

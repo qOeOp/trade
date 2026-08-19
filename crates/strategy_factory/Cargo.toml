@@ -14,6 +14,7 @@ workspace = true
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
+base64 = { workspace = true }
 blake3 = { workspace = true }
 jiff = { workspace = true }
 rust_decimal = { workspace = true }
@@ -59,5 +60,11 @@ test = false
 [[bin]]
 name = "strategy-factory-rd-owner-api"
 path = "src/bin/strategy_factory_rd_owner_api.rs"
+doc = false
+test = false
+
+[[bin]]
+name = "strategy-factory-rd-build-sandbox"
+path = "src/bin/strategy_factory_rd_build_sandbox.rs"
 doc = false
 test = false

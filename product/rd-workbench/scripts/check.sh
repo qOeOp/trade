@@ -24,6 +24,11 @@ if grep -Eq '^[[:space:]]*data:' "$app_yaml"; then
 fi
 grep -Fq '"IDENTITY_CONFLICT"' "$package_dir/f/trade/rd_workbench.raw_app/App.tsx"
 grep -Fq 'result.owner_receipt' "$package_dir/f/trade/rd_workbench.raw_app/App.tsx"
+grep -Fq 'backend.artifact_build' "$package_dir/f/trade/rd_workbench.raw_app/App.tsx"
+grep -Fq 'artifactResult.artifact_review' "$package_dir/f/trade/rd_workbench.raw_app/App.tsx"
+grep -Fq 'network_mode: none' "$compose_file"
+grep -Fq 'cap_drop:' "$compose_file"
+grep -Fq 'read_only: true' "$compose_file"
 node --test "$package_dir/f/trade/rd_workbench.raw_app/control-policy.test.mjs"
 
 python3 - "$profile" << 'PY'
@@ -33,6 +38,7 @@ import sys
 profile = json.load(open(sys.argv[1], encoding="utf-8"))
 expected = [
     "mcp:scripts:f/trade/product_edge/research_goal_v1",
+    "mcp:scripts:f/trade/product_edge/artifact_build_v1",
     "mcp:endpoints:getJob,getJobLogs",
 ]
 if profile.get("scopes") != expected:

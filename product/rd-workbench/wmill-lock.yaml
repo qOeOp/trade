@@ -1,3 +1,5 @@
 version: v2
 locks:
-  f/trade/product_edge/research_goal_v1: 0d2c11df0d2f180b908d0c079aa50782bb6224ac63f522069c2ffe0f54408716
+  f/trade/product_edge/artifact_build_v1: fddf3ed220da5f38ee1eeb8493c767cd635bf2c6ebea0ea2c0f59db632d0fd05
+  f/trade/product_edge/research_goal_v1: e7acbaf6e1edcff8ebff492bb4380c171ff2d31e85ba73ac5ad9b5c244f04267
+  f/trade/rd_workbench.raw_app+__app_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a

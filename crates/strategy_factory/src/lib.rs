@@ -5,6 +5,9 @@
 
 mod application;
 pub mod artifact;
+pub mod artifact_build;
+pub mod artifact_build_postgres;
+pub mod artifact_build_sandbox;
 mod binance_program_application;
 mod binance_program_data;
 #[allow(dead_code)]

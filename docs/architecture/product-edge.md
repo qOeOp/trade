@@ -67,6 +67,15 @@ overlapping schedule delivery is harmless only when the due-slot and Owner idemp
 receipt. Flow error handling may notify and enqueue resolution, but only an Owner receipt closes the business
 operation.
 
+Artifact Formation uses a stable build-request identity and a stable attempt identity in addition to the frozen
+Research Intent identity. Replaying the same semantic tuple joins the same Owner attempt; reusing either identity
+for different semantics is an identity conflict. The exhaustive Owner dispositions are `SUCCESS`,
+`FAILED_NO_ARTIFACT`, `REJECTED_NO_WRITE`, and `OUTCOME_UNKNOWN`; `SUBMITTED_OR_UNKNOWN` is a query state, not a
+business disposition. Only `SUCCESS` atomically commits a new immutable Artifact, Build Receipt, Artifact Review,
+and `ARTIFACT_AVAILABLE` projection. Every other disposition has no Artifact. Response loss after commit resolves
+to that exact receipt, while timeout before commit can only close unknown without an Artifact. App and MCP invoke
+the same versioned Formation operation and never use Windmill job state as a substitute.
+
 The external conversation client and Windmill internal AI are separate credential planes. A client may use its
 own model provider key before calling MCP; an internal AI Agent step uses an independently scoped Windmill AI
 resource. Neither model credential authenticates to Trade, and sharing one provider account is an operator choice,

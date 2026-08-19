@@ -26,8 +26,8 @@ button.secondary { background: #dce9e1; color: #173e31; }
 button.quiet { background: transparent; color: #52615b; border: 1px solid #c9d0ca; }
 button:disabled { cursor: not-allowed; opacity: .42; }
 .status-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 14px; border-radius: 10px; background: #edf1ed; }
-.result.ACCEPTED .status-row { background: #dff2e6; color: #175538; }
-.result.REJECTED_NO_WRITE .status-row { background: #f8e3dd; color: #7d3021; }
+.result.ACCEPTED .status-row, .result.SUCCESS .status-row { background: #dff2e6; color: #175538; }
+.result.REJECTED_NO_WRITE .status-row, .result.FAILED_NO_ARTIFACT .status-row, .result.OUTCOME_UNKNOWN .status-row { background: #f8e3dd; color: #7d3021; }
 .result.SUBMITTED_OR_UNKNOWN .status-row { background: #fff0c9; color: #765616; }
 dl { display: grid; grid-template-columns: 190px minmax(0,1fr); gap: 0; margin: 18px 0 0; border-top: 1px solid #d9ddd9; }
 dt, dd { margin: 0; padding: 12px 4px; border-bottom: 1px solid #e1e4e1; overflow-wrap: anywhere; }
