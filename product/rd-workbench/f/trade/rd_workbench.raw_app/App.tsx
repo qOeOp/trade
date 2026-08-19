@@ -234,7 +234,7 @@ export default function App() {
         <label>成本假设<textarea value={form.costs} onChange={(e) => update("costs", e.target.value)} /></label>
         <label className="wide">容量边界<textarea value={form.capacity} onChange={(e) => update("capacity", e.target.value)} /></label>
       </div>
-      <div className="request-id"><span>稳定请求身份</span><code>{requestIdentity}</code></div>
+      <label className="request-id"><span>稳定请求身份</span><input aria-label="稳定研究请求身份" value={requestIdentity} disabled={busy || result !== null} onChange={(e) => setRequestIdentity(e.target.value)} /></label>
       <div className="actions">
         <button disabled={busy || !controls.canSubmit} onClick={() => invoke("SUBMIT")}>提交到 R&D Owner</button>
         <button className="secondary" disabled={busy || !controls.canResolve} onClick={() => invoke("RESOLVE")}>用同一身份解析</button>
@@ -265,7 +265,8 @@ export default function App() {
     <section className={`card result ${artifactResult?.resolution ?? "EMPTY"}`}>
       <div className="section-title"><span>03</span><div><h2>Strategy Artifact Formation</h2><p>Execution Agent 输出不受信任；只有 Owner 原子提交的 Artifact、Build Receipt 与 Review 是业务事实。</p></div></div>
       <div className="request-id"><span>Frozen Intent</span><code>{intentIdentity ?? "先完成 S1 Frozen Research Intent"}</code></div>
-      <div className="request-id"><span>Build request / attempt</span><code>{buildRequestIdentity} / {attemptIdentity}</code></div>
+      <label className="request-id"><span>Build request</span><input aria-label="Artifact build request identity" value={buildRequestIdentity} disabled={busy || artifactResult !== null} onChange={(e) => setBuildRequestIdentity(e.target.value)} /></label>
+      <label className="request-id"><span>Attempt</span><input aria-label="Artifact build attempt identity" value={attemptIdentity} disabled={busy || artifactResult !== null} onChange={(e) => setAttemptIdentity(e.target.value)} /></label>
       <div className="actions">
         <button disabled={busy || !intentIdentity || !artifactControls.canRun} onClick={() => invokeArtifact("RUN")}>启动有界 Agent 与隔离构建</button>
         <button className="secondary" disabled={busy || !intentIdentity || !artifactControls.canResolve} onClick={() => invokeArtifact("RESOLVE")}>从 Owner 解析同一 attempt</button>

@@ -20,6 +20,8 @@ textarea { min-height: 76px; resize: vertical; }
 input:focus, textarea:focus { outline: 2px solid #78a58d; border-color: transparent; }
 .request-id { display: flex; gap: 12px; align-items: center; margin-top: 20px; padding: 12px 14px; border-radius: 10px; background: #edf1ed; color: #52615b; font-size: 12px; overflow: hidden; }
 .request-id code { color: #173e31; overflow-wrap: anywhere; }
+.request-id span { flex: 0 0 auto; }
+.request-id input { min-width: 0; flex: 1 1 auto; padding: 7px 9px; color: #173e31; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; }
 .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
 button { border: 0; border-radius: 999px; padding: 11px 18px; background: #173e31; color: #fff; font-weight: 750; cursor: pointer; }
 button.secondary { background: #dce9e1; color: #173e31; }
