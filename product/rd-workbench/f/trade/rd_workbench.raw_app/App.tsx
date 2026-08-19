@@ -104,13 +104,18 @@ function boundedOwnerResult<T>(operation: Promise<T>): Promise<T> {
 export default function App() {
   const [form, setForm] = useState(initial)
   const [requestIdentity, setRequestIdentity] = useState(() => `research-request-${crypto.randomUUID()}`)
+  const [requestIdentityImported, setRequestIdentityImported] = useState(false)
   const [result, setResult] = useState<OwnerResult | null>(null)
   const [buildRequestIdentity, setBuildRequestIdentity] = useState(() => `artifact-build-request-${crypto.randomUUID()}`)
+  const [buildRequestIdentityImported, setBuildRequestIdentityImported] = useState(false)
   const [attemptIdentity, setAttemptIdentity] = useState(() => `artifact-build-attempt-${crypto.randomUUID()}`)
+  const [attemptIdentityImported, setAttemptIdentityImported] = useState(false)
   const [artifactResult, setArtifactResult] = useState<ArtifactResult | null>(null)
   const [busy, setBusy] = useState(false)
   const controls = actionControls(result?.next_legal_action ?? null)
   const artifactControls = artifactActionControls(artifactResult?.next_legal_action ?? null)
+  const canResolveImportedRequest = result === null && requestIdentityImported && requestIdentity.trim() !== ""
+  const canResolveImportedArtifact = artifactResult === null && buildRequestIdentityImported && attemptIdentityImported && buildRequestIdentity.trim() !== "" && attemptIdentity.trim() !== ""
   const intentIdentity = result?.owner_receipt?.resulting_research_intent_identity
   const statusLabel = useMemo(() => {
     if (!result) return "尚未提交"
@@ -126,7 +131,7 @@ export default function App() {
   }
 
   async function invoke(action: "SUBMIT" | "RESOLVE") {
-    if ((action === "SUBMIT" && !controls.canSubmit) || (action === "RESOLVE" && !controls.canResolve)) return
+    if ((action === "SUBMIT" && !controls.canSubmit) || (action === "RESOLVE" && !controls.canResolve && !canResolveImportedRequest)) return
     setBusy(true)
     if (action === "SUBMIT") {
       setResult({ resolution: "SUBMITTED_OR_UNKNOWN", request_identity: requestIdentity, next_legal_action: "RESOLVE_SAME_REQUEST_IDENTITY" })
@@ -167,12 +172,13 @@ export default function App() {
   function newRequest() {
     if (!controls.canCreateSuccessor) return
     setRequestIdentity(`research-request-${crypto.randomUUID()}`)
+    setRequestIdentityImported(false)
     setResult(null)
   }
 
   async function invokeArtifact(action: "RUN" | "RESOLVE") {
     if (!intentIdentity) return
-    if ((action === "RUN" && !artifactControls.canRun) || (action === "RESOLVE" && !artifactControls.canResolve)) return
+    if ((action === "RUN" && !artifactControls.canRun) || (action === "RESOLVE" && !artifactControls.canResolve && !canResolveImportedArtifact)) return
     setBusy(true)
     if (action === "RUN") {
       setArtifactResult({
@@ -206,7 +212,9 @@ export default function App() {
   function newArtifactRequest() {
     if (!artifactControls.canCreateSuccessor) return
     setBuildRequestIdentity(`artifact-build-request-${crypto.randomUUID()}`)
+    setBuildRequestIdentityImported(false)
     setAttemptIdentity(`artifact-build-attempt-${crypto.randomUUID()}`)
+    setAttemptIdentityImported(false)
     setArtifactResult(null)
   }
 
@@ -234,10 +242,10 @@ export default function App() {
         <label>成本假设<textarea value={form.costs} onChange={(e) => update("costs", e.target.value)} /></label>
         <label className="wide">容量边界<textarea value={form.capacity} onChange={(e) => update("capacity", e.target.value)} /></label>
       </div>
-      <label className="request-id"><span>稳定请求身份</span><input aria-label="稳定研究请求身份" value={requestIdentity} disabled={busy || result !== null} onChange={(e) => setRequestIdentity(e.target.value)} /></label>
+      <label className="request-id"><span>稳定请求身份</span><input aria-label="稳定研究请求身份" value={requestIdentity} disabled={busy || result !== null} onChange={(e) => { setRequestIdentity(e.target.value); setRequestIdentityImported(true) }} /></label>
       <div className="actions">
         <button disabled={busy || !controls.canSubmit} onClick={() => invoke("SUBMIT")}>提交到 R&D Owner</button>
-        <button className="secondary" disabled={busy || !controls.canResolve} onClick={() => invoke("RESOLVE")}>用同一身份解析</button>
+        <button className="secondary" disabled={busy || (!controls.canResolve && !canResolveImportedRequest)} onClick={() => invoke("RESOLVE")}>用同一身份解析</button>
         <button className="quiet" disabled={busy || !controls.canCreateSuccessor} onClick={newRequest}>创建后继请求身份</button>
       </div>
     </section>
@@ -265,11 +273,11 @@ export default function App() {
     <section className={`card result ${artifactResult?.resolution ?? "EMPTY"}`}>
       <div className="section-title"><span>03</span><div><h2>Strategy Artifact Formation</h2><p>Execution Agent 输出不受信任；只有 Owner 原子提交的 Artifact、Build Receipt 与 Review 是业务事实。</p></div></div>
       <div className="request-id"><span>Frozen Intent</span><code>{intentIdentity ?? "先完成 S1 Frozen Research Intent"}</code></div>
-      <label className="request-id"><span>Build request</span><input aria-label="Artifact build request identity" value={buildRequestIdentity} disabled={busy || artifactResult !== null} onChange={(e) => setBuildRequestIdentity(e.target.value)} /></label>
-      <label className="request-id"><span>Attempt</span><input aria-label="Artifact build attempt identity" value={attemptIdentity} disabled={busy || artifactResult !== null} onChange={(e) => setAttemptIdentity(e.target.value)} /></label>
+      <label className="request-id"><span>Build request</span><input aria-label="Artifact build request identity" value={buildRequestIdentity} disabled={busy || artifactResult !== null} onChange={(e) => { setBuildRequestIdentity(e.target.value); setBuildRequestIdentityImported(true) }} /></label>
+      <label className="request-id"><span>Attempt</span><input aria-label="Artifact build attempt identity" value={attemptIdentity} disabled={busy || artifactResult !== null} onChange={(e) => { setAttemptIdentity(e.target.value); setAttemptIdentityImported(true) }} /></label>
       <div className="actions">
         <button disabled={busy || !intentIdentity || !artifactControls.canRun} onClick={() => invokeArtifact("RUN")}>启动有界 Agent 与隔离构建</button>
-        <button className="secondary" disabled={busy || !intentIdentity || !artifactControls.canResolve} onClick={() => invokeArtifact("RESOLVE")}>从 Owner 解析同一 attempt</button>
+        <button className="secondary" disabled={busy || !intentIdentity || (!artifactControls.canResolve && !canResolveImportedArtifact)} onClick={() => invokeArtifact("RESOLVE")}>从 Owner 解析同一 attempt</button>
         <button className="quiet" disabled={busy || !artifactControls.canCreateSuccessor} onClick={newArtifactRequest}>创建后继 build request</button>
       </div>
       <div className="status-row"><strong>{artifactResult?.resolution === "SUCCESS" ? "Artifact 已由 R&D Owner 原子提交" : artifactResult ? "以 Owner resolution 为准" : "尚未启动"}</strong><code>{artifactResult?.resolution ?? "NOT_SUBMITTED"}</code></div>
