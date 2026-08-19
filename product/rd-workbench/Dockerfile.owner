@@ -6,6 +6,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY patches ./patches
 COPY examples/tutorials ./examples/tutorials
+COPY product/rd-workbench/Dockerfile.sandbox ./product/rd-workbench/Dockerfile.sandbox
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/workspace/target,sharing=locked \

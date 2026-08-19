@@ -9,3 +9,14 @@ export function actionControls(nextLegalAction) {
     canCreateSuccessor: nextLegalAction === "CORRECT_INPUT_AND_CREATE_SUCCESSOR_REQUEST",
   }
 }
+
+export function artifactActionControls(nextLegalAction) {
+  return {
+    canRun: nextLegalAction === null,
+    canResolve: nextLegalAction === "RESOLVE_SAME_ATTEMPT_IDENTITY",
+    canCreateSuccessor: [
+      "CREATE_SUCCESSOR_BUILD_REQUEST",
+      "CORRECT_INPUT_AND_CREATE_SUCCESSOR_REQUEST",
+    ].includes(nextLegalAction),
+  }
+}

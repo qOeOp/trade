@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::cargo_artifact::{
-    BUILD_RECIPE_LOCATOR, ProgramProfileV1, RUSTC_COMMIT, RUSTC_RELEASE, SOURCE_CAPSULE_LOCATOR,
-    TARGET, VerifiedCargoBuild,
+    ProgramProfileV1, RUSTC_COMMIT, RUSTC_RELEASE, SOURCE_CAPSULE_LOCATOR, TARGET,
+    VerifiedCargoBuild,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -170,7 +170,7 @@ impl StrategyArtifact {
             wasm_digest: &wasm_digest,
             guest_source_locator: SOURCE_CAPSULE_LOCATOR,
             guest_source_digest: &guest_source_digest,
-            build_recipe_locator: BUILD_RECIPE_LOCATOR,
+            build_recipe_locator: issuance.build.build_recipe_locator,
             build_recipe_digest: &build_recipe_digest,
             rustc_release: RUSTC_RELEASE,
             rustc_commit: RUSTC_COMMIT,
@@ -189,7 +189,7 @@ impl StrategyArtifact {
                 wasm_digest,
                 guest_source_locator: SOURCE_CAPSULE_LOCATOR.to_string(),
                 guest_source_digest,
-                build_recipe_locator: BUILD_RECIPE_LOCATOR.to_string(),
+                build_recipe_locator: issuance.build.build_recipe_locator.to_string(),
                 build_recipe_digest,
                 rustc_release: RUSTC_RELEASE.to_string(),
                 rustc_commit: RUSTC_COMMIT.to_string(),

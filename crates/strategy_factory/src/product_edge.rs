@@ -123,6 +123,12 @@ pub struct ResearchViewV1 {
     pub phase: ResearchViewPhase,
     pub intent_identity: String,
     pub source_frontier: Vec<ResearchSourceV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_identity: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_receipt_identity: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_review_identity: Option<String>,
     pub next_legal_action: ResearchNextLegalAction,
 }
 
@@ -139,6 +145,7 @@ pub enum ResearchViewAvailability {
 pub enum ResearchViewPhase {
     RequestUnresolved,
     IntentFrozen,
+    ArtifactAvailable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -147,6 +154,7 @@ pub enum ResearchNextLegalAction {
     ResolveSameRequestIdentity,
     WaitForRAndDExecution,
     CorrectInputAndCreateSuccessorRequest,
+    ReviewArtifact,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -404,6 +412,9 @@ pub fn decide_commit(
         phase: ResearchViewPhase::IntentFrozen,
         intent_identity: intent_identity.clone(),
         source_frontier: intent.source_frontier.clone(),
+        artifact_identity: None,
+        build_receipt_identity: None,
+        artifact_review_identity: None,
         next_legal_action: ResearchNextLegalAction::WaitForRAndDExecution,
     };
     ResearchGoalCommitV1 {
@@ -444,7 +455,12 @@ pub fn result_from_commit_at(
     let (resolution, next_legal_action) = match commit.receipt.disposition {
         ResearchRequestDisposition::Accepted => (
             ProductEdgeResolution::Accepted,
-            ResearchNextLegalAction::WaitForRAndDExecution,
+            commit
+                .view
+                .as_ref()
+                .map_or(ResearchNextLegalAction::WaitForRAndDExecution, |view| {
+                    view.next_legal_action
+                }),
         ),
         ResearchRequestDisposition::RejectedNoWrite => (
             ProductEdgeResolution::RejectedNoWrite,

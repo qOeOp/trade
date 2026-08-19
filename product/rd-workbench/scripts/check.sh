@@ -24,6 +24,22 @@ if grep -Eq '^[[:space:]]*data:' "$app_yaml"; then
 fi
 grep -Fq '"IDENTITY_CONFLICT"' "$package_dir/f/trade/rd_workbench.raw_app/App.tsx"
 grep -Fq 'result.owner_receipt' "$package_dir/f/trade/rd_workbench.raw_app/App.tsx"
+grep -Fq 'backend.artifact_build' "$package_dir/f/trade/rd_workbench.raw_app/App.tsx"
+grep -Fq 'artifactResult.artifact_review' "$package_dir/f/trade/rd_workbench.raw_app/App.tsx"
+grep -Fq 'artifactResult?.artifact_review_actions?.actions' "$package_dir/f/trade/rd_workbench.raw_app/App.tsx"
+if grep -Fq '_NOT_IMPLEMENTED_IN_S2"))' "$package_dir/f/trade/rd_workbench.raw_app/App.tsx"; then
+  echo "Raw App must not infer action admission from string suffixes" >&2
+  exit 1
+fi
+trap_line=$(grep -n '^trap cleanup EXIT HUP INT TERM$' "$package_dir/scripts/deploy.sh" | cut -d: -f1)
+credential_copy_line=$(grep -n '^python3 - ' "$package_dir/scripts/deploy.sh" | cut -d: -f1)
+[ "$trap_line" -lt "$credential_copy_line" ] || {
+  echo "deployment credential cleanup must be armed before the first copy" >&2
+  exit 1
+}
+grep -Fq 'network_mode: none' "$compose_file"
+grep -Fq 'cap_drop:' "$compose_file"
+grep -Fq 'read_only: true' "$compose_file"
 node --test "$package_dir/f/trade/rd_workbench.raw_app/control-policy.test.mjs"
 
 python3 - "$profile" << 'PY'
@@ -33,6 +49,7 @@ import sys
 profile = json.load(open(sys.argv[1], encoding="utf-8"))
 expected = [
     "mcp:scripts:f/trade/product_edge/research_goal_v1",
+    "mcp:scripts:f/trade/product_edge/artifact_build_v1",
     "mcp:endpoints:getJob,getJobLogs",
 ]
 if profile.get("scopes") != expected:
