@@ -12,9 +12,9 @@ use crate::{
         ArtifactBuildError, ArtifactBuildNextLegalAction, ArtifactBuildOwnerPort,
         ArtifactBuildPreparationV1, ArtifactBuildReceiptV1, ArtifactBuildRequestV1,
         ArtifactBuildResolution, ArtifactBuildResultV1, ArtifactBuildSandboxPort, ArtifactReviewV1,
-        UnixArtifactBuildSandboxV1, artifact_review, build_receipt, build_request_semantic_digest,
-        canonical_intent_bytes, issue_artifact, sandbox_request, validate_candidate,
-        verify_sandbox_product,
+        UnixArtifactBuildSandboxV1, artifact_review, artifact_review_action_projection,
+        build_receipt, build_request_semantic_digest, canonical_intent_bytes, issue_artifact,
+        sandbox_request, validate_candidate, verify_sandbox_product,
     },
     product_edge::{
         FrozenResearchGoalIntentV1, ProductEdgeAdmissionPolicyV1, RESEARCH_OWNER_V1,
@@ -592,6 +592,10 @@ fn result(attempt: &StoredAttemptV1) -> ArtifactBuildResultV1 {
             ArtifactBuildNextLegalAction::ResolveSameAttemptIdentity,
         ),
     };
+    let artifact_review_actions = attempt
+        .artifact_review
+        .as_ref()
+        .map(|review| artifact_review_action_projection(&review.allowed_next_actions));
     ArtifactBuildResultV1 {
         schema_version: 1,
         resolution,
@@ -600,6 +604,7 @@ fn result(attempt: &StoredAttemptV1) -> ArtifactBuildResultV1 {
         owner_receipt: attempt.receipt.clone(),
         research_view: attempt.research_view.clone(),
         artifact_review: attempt.artifact_review.clone(),
+        artifact_review_actions,
         next_legal_action: next,
     }
 }
@@ -613,6 +618,7 @@ fn unknown_result(build_request_identity: &str, attempt_identity: &str) -> Artif
         owner_receipt: None,
         research_view: None,
         artifact_review: None,
+        artifact_review_actions: None,
         next_legal_action: ArtifactBuildNextLegalAction::ResolveSameAttemptIdentity,
     }
 }

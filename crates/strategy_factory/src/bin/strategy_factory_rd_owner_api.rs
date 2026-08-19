@@ -414,6 +414,7 @@ fn artifact_error(
             owner_receipt: None,
             research_view: None,
             artifact_review: None,
+            artifact_review_actions: None,
             next_legal_action: next,
         }),
     )
@@ -500,6 +501,7 @@ fn artifact_rejection(
             owner_receipt: None,
             research_view: None,
             artifact_review: None,
+            artifact_review_actions: None,
             next_legal_action: ArtifactBuildNextLegalAction::CorrectInputAndCreateSuccessorRequest,
         }),
     )

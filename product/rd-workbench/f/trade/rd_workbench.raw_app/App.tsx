@@ -74,6 +74,13 @@ type ArtifactResult = {
     agent_change_explanation_authority: string
     allowed_next_actions: string[]
   }
+  artifact_review_actions?: {
+    schema_version: number
+    actions: Array<{
+      action: string
+      admission: "ADMITTED" | "NOT_ADMITTED"
+    }>
+  }
 }
 
 const initial = {
@@ -117,9 +124,9 @@ export default function App() {
   const canResolveImportedRequest = result === null && requestIdentityImported && requestIdentity.trim() !== ""
   const canResolveImportedArtifact = artifactResult === null && buildRequestIdentityImported && attemptIdentityImported && buildRequestIdentity.trim() !== "" && attemptIdentity.trim() !== ""
   const intentIdentity = result?.owner_receipt?.resulting_research_intent_identity
-  const reviewActions = artifactResult?.artifact_review?.allowed_next_actions ?? []
-  const admittedReviewActions = reviewActions.filter((action) => !action.endsWith("_NOT_IMPLEMENTED_IN_S2"))
-  const notAdmittedReviewActions = reviewActions.filter((action) => action.endsWith("_NOT_IMPLEMENTED_IN_S2"))
+  const reviewActions = artifactResult?.artifact_review_actions?.actions ?? []
+  const admittedReviewActions = reviewActions.filter((action) => action.admission === "ADMITTED").map((action) => action.action)
+  const notAdmittedReviewActions = reviewActions.filter((action) => action.admission === "NOT_ADMITTED").map((action) => action.action)
   const statusLabel = useMemo(() => {
     if (!result) return "尚未提交"
     if (result.resolution === "ACCEPTED" && result.owner_receipt) return "R&D Owner 已接纳"

@@ -24,6 +24,11 @@ command -v python3 > /dev/null 2>&1 || {
 
 umask 077
 wmill_config_root=$(mktemp -d "${TMPDIR:-/tmp}/rd-workbench-wmill.XXXXXX")
+cleanup() {
+  [ -z "${app_payload:-}" ] || rm -f "$app_payload"
+  rm -rf "$wmill_config_root"
+}
+trap cleanup EXIT HUP INT TERM
 wmill_config_store="$wmill_config_root/windmill"
 mkdir -m 700 "$wmill_config_store"
 auth_header="$wmill_config_root/authorization.header"
@@ -76,11 +81,6 @@ command -v jq > /dev/null 2>&1 || {
 app_path=f/trade/rd_workbench
 app_dir="$package_dir/$app_path.raw_app"
 app_payload=$(mktemp "${TMPDIR:-/tmp}/rd-workbench-app.XXXXXX")
-cleanup() {
-  rm -f "$app_payload"
-  rm -rf "$wmill_config_root"
-}
-trap cleanup EXIT HUP INT TERM
 
 npx --yes --package=windmill-cli@1.791.0 -- wmill app bundle "$app_dir"
 npx --yes --package=windmill-cli@1.791.0 -- wmill \

@@ -133,6 +133,7 @@ pub struct ArtifactBuildResultV1 {
     pub owner_receipt: Option<ArtifactBuildReceiptV1>,
     pub research_view: Option<ResearchViewV1>,
     pub artifact_review: Option<ArtifactReviewV1>,
+    pub artifact_review_actions: Option<ArtifactReviewActionProjectionV1>,
     pub next_legal_action: ArtifactBuildNextLegalAction,
 }
 
@@ -223,6 +224,27 @@ pub struct ArtifactReviewV1 {
     pub agent_change_explanation: String,
     pub agent_change_explanation_authority: ExplanationAuthority,
     pub allowed_next_actions: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArtifactReviewActionProjectionV1 {
+    pub schema_version: u32,
+    pub actions: Vec<ArtifactReviewActionV1>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArtifactReviewActionV1 {
+    pub action: String,
+    pub admission: ArtifactReviewActionAdmissionV1,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ArtifactReviewActionAdmissionV1 {
+    Admitted,
+    NotAdmitted,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -725,6 +747,26 @@ pub(crate) fn artifact_review(
     }
 }
 
+pub(crate) fn artifact_review_action_projection(
+    allowed_next_actions: &[String],
+) -> ArtifactReviewActionProjectionV1 {
+    ArtifactReviewActionProjectionV1 {
+        schema_version: 1,
+        actions: allowed_next_actions
+            .iter()
+            .map(|action| ArtifactReviewActionV1 {
+                action: action.clone(),
+                admission: match action.as_str() {
+                    "REVIEW_ARTIFACT" | "CREATE_SUCCESSOR_BUILD_REQUEST" => {
+                        ArtifactReviewActionAdmissionV1::Admitted
+                    }
+                    _ => ArtifactReviewActionAdmissionV1::NotAdmitted,
+                },
+            })
+            .collect(),
+    }
+}
+
 pub(crate) fn sandbox_request(
     candidate: &ArtifactBuildCandidateV1,
     digest: &str,
@@ -868,6 +910,29 @@ mod tests {
         let mut candidate = candidate(&intent);
         candidate.candidate_identity = "agent-program-candidate-v1-pilot-template".to_string();
         assert!(validate_candidate(&candidate, &intent).is_err());
+    }
+
+    #[rstest]
+    fn owner_action_projection_fails_closed_for_unknown_and_legacy_actions() {
+        let projection = artifact_review_action_projection(&[
+            "REVIEW_ARTIFACT".to_string(),
+            "REQUEST_EXPLORATORY_REPLAY_NOT_IMPLEMENTED_IN_S2".to_string(),
+            "UNKNOWN_FUTURE_ACTION".to_string(),
+        ]);
+
+        assert_eq!(projection.schema_version, 1);
+        assert_eq!(
+            projection
+                .actions
+                .iter()
+                .map(|action| action.admission)
+                .collect::<Vec<_>>(),
+            vec![
+                ArtifactReviewActionAdmissionV1::Admitted,
+                ArtifactReviewActionAdmissionV1::NotAdmitted,
+                ArtifactReviewActionAdmissionV1::NotAdmitted,
+            ]
+        );
     }
 
     #[rstest]

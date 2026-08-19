@@ -125,6 +125,9 @@ Research Intent and iteration lineage, structured strategy-logic summary, parame
 build state, Agent change explanation, exploratory result references, bounded Qualification status, and allowed
 next actions. Every item binds its native Owner fact or is visibly non-authoritative explanation; an Agent summary
 cannot replace Artifact bytes, a Build Receipt, a Run Result, an Iteration Decision, or a Qualification fact.
+The R&D Owner publishes next-action admission as a versioned typed projection: only exhaustively known actions are
+`ADMITTED`; unknown and legacy actions are `NOT_ADMITTED`. Web and MCP consumers display that same projection and
+must not infer authority from action names.
 Semantic change summaries use only R&D-owned lineage and permitted exploratory evidence, never protected
 Qualification detail.
 

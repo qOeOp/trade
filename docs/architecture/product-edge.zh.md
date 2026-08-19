@@ -114,7 +114,9 @@ attended D-only repair 仍受独立 repair 契约约束。可见的 **让 Agent 
 迭代血缘、结构化策略逻辑摘要、参数和依赖 identity、构建状态、Agent 变更解释、探索结果引用、
 有界 Qualification 状态与允许的下一步动作。每一项都绑定原生 Owner 事实，或被明确标记为非权威
 解释；Agent 摘要不能替代 Artifact 字节、Build Receipt、Run Result、Iteration Decision 或
-Qualification 事实。语义变更摘要只能使用 R&D-owned 血缘和允许的探索证据，绝不能使用受保护的
+Qualification 事实。R&D Owner 以版本化类型 projection 发布下一动作准入：只有穷尽定义的已知动作
+才是 `ADMITTED`，未知和 legacy 动作一律为 `NOT_ADMITTED`；Web 与 MCP 展示同一 projection，
+不得从动作名称推断权威。语义变更摘要只能使用 R&D-owned 血缘和允许的探索证据，绝不能使用受保护的
 Qualification 细节。
 
 完整源码查看、源码级 diff、受控源码下载和源码关联诊断属于 `DEFERRED_TARGET` 高级审计能力。
