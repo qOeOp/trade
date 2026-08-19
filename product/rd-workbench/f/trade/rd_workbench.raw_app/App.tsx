@@ -117,6 +117,9 @@ export default function App() {
   const canResolveImportedRequest = result === null && requestIdentityImported && requestIdentity.trim() !== ""
   const canResolveImportedArtifact = artifactResult === null && buildRequestIdentityImported && attemptIdentityImported && buildRequestIdentity.trim() !== "" && attemptIdentity.trim() !== ""
   const intentIdentity = result?.owner_receipt?.resulting_research_intent_identity
+  const reviewActions = artifactResult?.artifact_review?.allowed_next_actions ?? []
+  const admittedReviewActions = reviewActions.filter((action) => !action.endsWith("_NOT_IMPLEMENTED_IN_S2"))
+  const notAdmittedReviewActions = reviewActions.filter((action) => action.endsWith("_NOT_IMPLEMENTED_IN_S2"))
   const statusLabel = useMemo(() => {
     if (!result) return "尚未提交"
     if (result.resolution === "ACCEPTED" && result.owner_receipt) return "R&D Owner 已接纳"
@@ -300,7 +303,8 @@ export default function App() {
         <dt>Build / Security</dt><dd>{artifactResult.artifact_review.build_security_state} · double-build={String(artifactResult.artifact_review.build_receipt.deterministic_double_build)} · {artifactResult.artifact_review.build_receipt.sandbox_policy}</dd>
         <dt>Toolchain / target</dt><dd>{artifactResult.artifact_review.artifact_identity.rustc_release} / {artifactResult.artifact_review.artifact_identity.rustc_commit} / {artifactResult.artifact_review.artifact_identity.target}</dd>
         <dt>Agent 变更说明</dt><dd>{artifactResult.artifact_review.agent_change_explanation}<br /><strong>{artifactResult.artifact_review.agent_change_explanation_authority}</strong></dd>
-        <dt>允许的下一动作</dt><dd className="next">{artifactResult.artifact_review.allowed_next_actions.join(" · ")}</dd>
+        <dt>允许的下一动作</dt><dd className="next">{admittedReviewActions.join(" · ")}</dd>
+        {notAdmittedReviewActions.length > 0 && <><dt>S2 NOT_ADMITTED</dt><dd>{notAdmittedReviewActions.join(" · ")}</dd></>}
       </dl>}
       {artifactResult && <dl><dt>唯一下一合法动作</dt><dd className="next">{artifactResult.next_legal_action}</dd></dl>}
       {["FAILED_NO_ARTIFACT", "REJECTED_NO_WRITE", "OUTCOME_UNKNOWN"].includes(artifactResult?.resolution ?? "") && <p className="rejected">该终态没有 canonical Artifact；不得把 Windmill job green 或 Agent 文本解释为成功。</p>}
