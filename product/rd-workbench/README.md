@@ -27,7 +27,7 @@ product/rd-workbench/scripts/deploy.sh
 the CLI an ephemeral private profile and gives `curl` a private header file, so
 the credential is not placed in process arguments or repository state.
 
-Open the deployed `Trade R&D Workbench` Raw App in Windmill. Its policy is authenticated `viewer`; it has no Data Table access.
+Open the deployed `Trade R&D Workbench` Raw App in Windmill. Its policy is authenticated `viewer`, and Windmill isolates the authored bundle in its opaque-origin Raw App sandbox. It declares no frontend SDK scopes and has no Data Table access.
 
 ## Native MCP profile
 

@@ -60,10 +60,10 @@ npx --yes --package=windmill-cli@1.791.0 -- wmill \
   --workspace "$workspace_id" \
   sync push --yes --locks-required --lint
 
-# Windmill CLI generates publisher mode for Full-code Apps by default. S1 is
-# deliberately viewer-mode: the authenticated viewer's permissions must govern
-# the only Product Edge operation. Re-upload the exact bundle with the same
-# generated trigger policy and only change execution_mode.
+# Windmill CLI generates publisher mode for Full-code Apps by default. The
+# Workbench is deliberately viewer-mode, and its authored bundle is isolated in
+# Windmill's opaque-origin Raw App sandbox. Re-upload the exact bundle with the
+# generated trigger policy while closing those two runtime policy fields.
 command -v curl > /dev/null 2>&1 || {
   echo "curl is required" >&2
   exit 1
@@ -88,8 +88,10 @@ npx --yes --package=windmill-cli@1.791.0 -- wmill \
   --workspace "$workspace_id" \
   app get "$app_path" --json |
   jq '.policy.execution_mode = "viewer"
+      | .policy.sandbox = true
+      | del(.policy.frontend_sdk_scopes)
       | {path, summary, value, policy,
-         deployment_message: "S1 authenticated viewer policy"}' \
+         deployment_message: "S2 authenticated sandboxed viewer policy"}' \
     > "$app_payload"
 
 curl --fail --silent --show-error \
@@ -107,5 +109,21 @@ execution_mode=$(npx --yes --package=windmill-cli@1.791.0 -- wmill \
   app get "$app_path" --json | jq -r '.policy.execution_mode')
 [ "$execution_mode" = viewer ] || {
   echo "raw app execution mode mismatch: $execution_mode" >&2
+  exit 1
+}
+sandbox=$(npx --yes --package=windmill-cli@1.791.0 -- wmill \
+  --config-dir "$wmill_config_root" \
+  --workspace "$workspace_id" \
+  app get "$app_path" --json | jq -r '.policy.sandbox // false')
+[ "$sandbox" = true ] || {
+  echo "raw app sandbox mismatch: $sandbox" >&2
+  exit 1
+}
+frontend_sdk_scope_count=$(npx --yes --package=windmill-cli@1.791.0 -- wmill \
+  --config-dir "$wmill_config_root" \
+  --workspace "$workspace_id" \
+  app get "$app_path" --json | jq -r '(.policy.frontend_sdk_scopes // []) | length')
+[ "$frontend_sdk_scope_count" -eq 0 ] || {
+  echo "raw app frontend SDK scopes must be empty" >&2
   exit 1
 }
