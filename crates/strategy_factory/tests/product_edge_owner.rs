@@ -240,6 +240,24 @@ async fn incompatible_principal_is_rejected_before_owner_write() {
 }
 
 #[rstest]
+fn owner_projection_becomes_stale_at_its_valid_through_cut() {
+    let request = request(ProductEdgeChannel::App);
+    let digest = semantic_digest(&request).unwrap();
+    let commit = decide_commit(request, digest, 1_000);
+    let valid_through_epoch_ms = commit.view.as_ref().unwrap().valid_through_epoch_ms;
+    let accepted_receipt = commit.receipt.clone();
+
+    let result = result_from_commit_at(commit, valid_through_epoch_ms);
+
+    assert_eq!(result.resolution, ProductEdgeResolution::Accepted);
+    assert_eq!(result.owner_receipt.as_ref(), Some(&accepted_receipt));
+    let view = result.research_view.unwrap();
+    assert_eq!(view.availability, ResearchViewAvailability::Stale);
+    assert_eq!(view.observed_at_epoch_ms, 1_000);
+    assert_eq!(view.projection_at_epoch_ms, valid_through_epoch_ms);
+}
+
+#[rstest]
 fn owner_projection_becomes_stale_after_its_valid_through_cut() {
     let request = request(ProductEdgeChannel::App);
     let digest = semantic_digest(&request).unwrap();

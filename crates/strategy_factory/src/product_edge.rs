@@ -447,7 +447,7 @@ pub fn result_from_commit_at(
     now_epoch_ms: u64,
 ) -> ResearchGoalOwnerResultV1 {
     if let Some(view) = commit.view.as_mut()
-        && now_epoch_ms > view.valid_through_epoch_ms
+        && now_epoch_ms >= view.valid_through_epoch_ms
     {
         view.availability = ResearchViewAvailability::Stale;
         view.projection_at_epoch_ms = now_epoch_ms;
