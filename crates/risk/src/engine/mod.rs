@@ -23,9 +23,6 @@ use vibe_common::{
     throttler::{RateLimit, Throttler},
 };
 use vibe_core::{UUID4, WeakCell};
-use vibe_execution::trailing::{
-    trailing_stop_calculate_with_bid_ask, trailing_stop_calculate_with_last,
-};
 use vibe_model::{
     accounts::{Account, AccountAny, CashAccount},
     enums::{
@@ -36,6 +33,7 @@ use vibe_model::{
     identifiers::{AccountId, InstrumentId},
     instruments::{Instrument, InstrumentAny},
     orders::{Order, OrderAny},
+    trailing::{trailing_stop_calculate_with_bid_ask, trailing_stop_calculate_with_last},
     types::{Currency, Money, Price, Quantity, money::MoneyRaw, quantity::QuantityRaw},
 };
 use vibe_portfolio::Portfolio;
