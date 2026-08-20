@@ -26,7 +26,6 @@ python = ["vibe-core/python", "vibe-model/python", "pyo3", "pyo3-stub-gen"]
 [dependencies]
 vibe-common = { workspace = true }
 vibe-core = { workspace = true }
-vibe-execution = { workspace = true }
 vibe-model = { workspace = true, features = ["stubs"] }
 vibe-portfolio = { workspace = true }
 
@@ -44,3 +43,4 @@ pyo3-stub-gen = { workspace = true, optional = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+vibe-execution = { workspace = true }
