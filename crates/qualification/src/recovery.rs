@@ -3,14 +3,7 @@
 //! This module is intentionally feature-gated and closed over one incident.
 //! It is not a general import, restore, or migration surface.
 
-use std::{
-    collections::BTreeMap,
-    env,
-    ffi::OsString,
-    fmt, fs,
-    path::Path,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{collections::BTreeMap, env, ffi::OsString, fmt, fs, path::Path};
 
 use serde::{Deserialize, Deserializer, Serialize, de};
 use sha2::{Digest, Sha256};
@@ -933,24 +926,13 @@ async fn recover_with_expected_target(
 async fn verify_current_cut_remains_unavailable(
     database_url: &str,
 ) -> Result<(), QualificationOwnerError> {
-    let read_cut_epoch_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(json_error)?
-        .as_millis()
-        .try_into()
-        .map_err(json_error)?;
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
         .connect(database_url)
         .await
         .map_err(storage)?;
     let mut transaction = pool.begin().await.map_err(storage)?;
-    let result = admit_projection_in_transaction(
-        &mut transaction,
-        &expected_basis_locator(),
-        read_cut_epoch_ms,
-    )
-    .await;
+    let result = admit_projection_in_transaction(&mut transaction, &expected_basis_locator()).await;
     transaction.rollback().await.map_err(storage)?;
 
     match result {
@@ -1987,11 +1969,10 @@ mod tests {
         });
         recovery_locked.await;
 
-        let ordinary = tokio::spawn(async move {
-            owner
-                .resolve_for_basis(&expected_basis_locator(), u64::MAX)
-                .await
-        });
+        let ordinary_future =
+            async move { owner.resolve_for_basis(&expected_basis_locator()).await };
+
+        let ordinary = tokio::spawn(ordinary_future);
         let receipt = recovery.await.unwrap().unwrap();
         assert!(ordinary.await.unwrap().is_err());
         assert_exact_counts(&pool, 1, 1, 1).await;

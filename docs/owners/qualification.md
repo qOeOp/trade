@@ -49,6 +49,12 @@ request scope, and commits one genesis frontier only when that history is empty.
 complete current opaque frontier; missing, stale, malformed, conflicting, cross-principal, cross-scope, or
 cross-basis input returns `UNAVAILABLE` and creates no frontier transition.
 
+Ordinary create, resolve, and in-transaction admission accept no caller time. After direct basis resolution, the
+principal/scope advisory lock, and complete canonical Qualification history verification, Qualification samples
+PostgreSQL `clock_timestamp()` inside the same transaction. Existing-read freshness uses that Owner cut. A new
+projection takes its single sample at the final write edge and uses only that cut for projection time, half-open
+`valid_through`, receipt commit time, and their identities and digests.
+
 The projection exposes only its resolution state, opaque frontier reference and digest, basis reference and
 digest, principal, scope, source sequence/cut, clock epoch, projection time, and half-open validity. It contains no
 protected payload, outcome, measurement, parameter, holdout detail, or dereferenceable evidence. Any later

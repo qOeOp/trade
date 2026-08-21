@@ -46,10 +46,21 @@ impl PostgresQualificationOwnerV1 {
 
     /// Resolve the exact R&D basis and create at most one Qualification-owned
     /// projection for that basis. The locator is never treated as evidence.
+    ///
+    /// Callers cannot supply the Qualification freshness cut:
+    ///
+    /// ```compile_fail
+    /// use vibe_qualification::{PostgresQualificationOwnerV1, RdIndependenceBasisLocatorV1};
+    /// fn caller_cut_is_rejected(
+    ///     owner: &PostgresQualificationOwnerV1,
+    ///     locator: &RdIndependenceBasisLocatorV1,
+    /// ) {
+    ///     let _ = owner.resolve_or_create_for_basis(locator, 1_u64);
+    /// }
+    /// ```
     pub async fn resolve_or_create_for_basis(
         &self,
         locator: &RdIndependenceBasisLocatorV1,
-        read_cut_epoch_ms: u64,
     ) -> Result<ProtectedFeedbackFrontierReadbackV1, QualificationOwnerError> {
         let mut transaction = self.pool.begin().await.map_err(storage)?;
         let basis = load_rd_basis_in_transaction(&mut transaction, locator).await?;
@@ -64,7 +75,9 @@ impl PostgresQualificationOwnerV1 {
         .await?;
 
         if let Some(existing) = history.projection_for_basis(&basis.basis_identity)? {
-            verify_projection_freshness(existing, read_cut_epoch_ms)?;
+            let owner_read_cut_epoch_ms =
+                owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
+            verify_projection_freshness(existing, owner_read_cut_epoch_ms)?;
             transaction.commit().await.map_err(storage)?;
             return Ok(existing.clone());
         }
@@ -93,6 +106,8 @@ impl PostgresQualificationOwnerV1 {
             )
         };
 
+        let owner_write_cut_epoch_ms =
+            owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
         let projection = form_projection(
             &basis,
             resolution,
@@ -100,7 +115,7 @@ impl PostgresQualificationOwnerV1 {
             source_cut,
             source_frontier_identity,
             source_frontier_digest,
-            read_cut_epoch_ms,
+            owner_write_cut_epoch_ms,
         )?;
         persist_projection_in_transaction(
             &mut transaction,
@@ -119,7 +134,7 @@ impl PostgresQualificationOwnerV1 {
         let verified = verified_history
             .projection_for_basis(&basis.basis_identity)?
             .ok_or_else(|| unavailable("committed Qualification projection missing"))?;
-        verify_projection_freshness(verified, read_cut_epoch_ms)?;
+        verify_projection_freshness(verified, owner_write_cut_epoch_ms)?;
         let verified = verified.clone();
         transaction.commit().await.map_err(storage)?;
         Ok(verified)
@@ -128,11 +143,9 @@ impl PostgresQualificationOwnerV1 {
     pub async fn resolve_for_basis(
         &self,
         locator: &RdIndependenceBasisLocatorV1,
-        read_cut_epoch_ms: u64,
     ) -> Result<Option<ProtectedFeedbackFrontierReadbackV1>, QualificationOwnerError> {
         let mut transaction = self.pool.begin().await.map_err(storage)?;
-        let projection =
-            admit_projection_in_transaction(&mut transaction, locator, read_cut_epoch_ms).await?;
+        let projection = admit_projection_in_transaction(&mut transaction, locator).await?;
         transaction.commit().await.map_err(storage)?;
         Ok(projection)
     }
@@ -141,9 +154,8 @@ impl PostgresQualificationOwnerV1 {
         &self,
         transaction: &mut Transaction<'_, Postgres>,
         locator: &RdIndependenceBasisLocatorV1,
-        read_cut_epoch_ms: u64,
     ) -> Result<Option<ProtectedFeedbackFrontierReadbackV1>, QualificationOwnerError> {
-        admit_projection_in_transaction(transaction, locator, read_cut_epoch_ms).await
+        admit_projection_in_transaction(transaction, locator).await
     }
 }
 
@@ -152,7 +164,6 @@ impl PostgresQualificationOwnerV1 {
 pub async fn admit_projection_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     locator: &RdIndependenceBasisLocatorV1,
-    read_cut_epoch_ms: u64,
 ) -> Result<Option<ProtectedFeedbackFrontierReadbackV1>, QualificationOwnerError> {
     let basis = load_rd_basis_in_transaction(transaction, locator).await?;
     let principal_scope_key = principal_scope_key(&basis.principal, &basis.request_scope)?;
@@ -167,9 +178,22 @@ pub async fn admit_projection_in_transaction(
     let projection = history.projection_for_basis(&basis.basis_identity)?;
 
     if let Some(projection) = projection {
-        verify_projection_freshness(projection, read_cut_epoch_ms)?;
+        let owner_read_cut_epoch_ms = owner_clock_epoch_ms_in_transaction(transaction).await?;
+        verify_projection_freshness(projection, owner_read_cut_epoch_ms)?;
     }
     Ok(projection.cloned())
+}
+
+async fn owner_clock_epoch_ms_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<u64, QualificationOwnerError> {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::BIGINT",
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(storage)
+    .and_then(|value| u64::try_from(value).map_err(json_storage))
 }
 
 async fn admit_projection_row_in_transaction(
@@ -406,10 +430,10 @@ pub(crate) async fn verify_scope_history_in_transaction(
 
 fn verify_projection_freshness(
     projection: &ProtectedFeedbackFrontierReadbackV1,
-    read_cut_epoch_ms: u64,
+    owner_cut_epoch_ms: u64,
 ) -> Result<(), QualificationOwnerError> {
-    if read_cut_epoch_ms < projection.projection_at_epoch_ms
-        || read_cut_epoch_ms >= projection.valid_through_epoch_ms
+    if owner_cut_epoch_ms < projection.projection_at_epoch_ms
+        || owner_cut_epoch_ms >= projection.valid_through_epoch_ms
     {
         return Err(unavailable("Qualification projection is stale"));
     }
@@ -1061,12 +1085,10 @@ mod postgres_tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[tokio::test]
-    #[ignore = "requires RD_OWNER_TEST_DATABASE_URL or RD_OWNER_DATABASE_URL"]
+    #[ignore = "requires explicit disposable QUALIFICATION_OWNER_RECOVERY_TEST_DATABASE_URL"]
     async fn genesis_projection_replays_and_outbox_corruption_fails_closed_until_restored() {
-        let database_url = std::env::var("RD_OWNER_TEST_DATABASE_URL")
-            .ok()
-            .or_else(|| std::env::var("RD_OWNER_DATABASE_URL").ok())
-            .expect("database-backed test requires Owner database URL");
+        let database_url = std::env::var("QUALIFICATION_OWNER_RECOVERY_TEST_DATABASE_URL")
+            .expect("database-backed test requires an explicit disposable database URL");
         let owner = PostgresQualificationOwnerV1::connect(&database_url)
             .await
             .unwrap();
@@ -1176,16 +1198,41 @@ mod postgres_tests {
             principal,
             request_scope,
         };
-        let first = owner
-            .resolve_or_create_for_basis(&locator, now)
-            .await
-            .unwrap();
+        let db_cut_before = sqlx::query_scalar::<_, i64>(
+            "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::BIGINT",
+        )
+        .fetch_one(&owner.pool)
+        .await
+        .unwrap();
+        let caller_sentinel_epoch_ms = 1_u64;
+        let first = owner.resolve_or_create_for_basis(&locator).await.unwrap();
+        let db_cut_after = sqlx::query_scalar::<_, i64>(
+            "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::BIGINT",
+        )
+        .fetch_one(&owner.pool)
+        .await
+        .unwrap();
+        let db_cut_before = u64::try_from(db_cut_before).unwrap();
+        let db_cut_after = u64::try_from(db_cut_after).unwrap();
+        assert!(db_cut_before <= first.projection_at_epoch_ms());
+        assert!(first.projection_at_epoch_ms() <= db_cut_after);
+        assert_ne!(first.projection_at_epoch_ms(), caller_sentinel_epoch_ms);
+        assert_eq!(
+            first.valid_through_epoch_ms(),
+            first.projection_at_epoch_ms() + PROJECTION_VALIDITY_MS
+        );
+        assert_eq!(
+            first.receipt().committed_at_epoch_ms(),
+            first.projection_at_epoch_ms()
+        );
+        assert!(verify_projection_freshness(&first, first.projection_at_epoch_ms()).is_ok());
+        assert!(verify_projection_freshness(&first, first.valid_through_epoch_ms()).is_err());
         assert_eq!(
             first.resolution(),
             ProtectedFeedbackResolutionV1::GenesisEmpty
         );
         assert_eq!(
-            owner.resolve_for_basis(&locator, now).await.unwrap(),
+            owner.resolve_for_basis(&locator).await.unwrap(),
             Some(first.clone())
         );
         let scope_key = principal_scope_key(&locator.principal, &locator.request_scope).unwrap();
@@ -1196,7 +1243,7 @@ mod postgres_tests {
         .execute(&owner.pool)
         .await
         .unwrap();
-        assert!(owner.resolve_for_basis(&locator, now).await.is_err());
+        assert!(owner.resolve_for_basis(&locator).await.is_err());
         assert_eq!(
             sqlx::query_scalar::<_, i64>(
                 "SELECT COUNT(*) FROM qualification_protected_feedback_projections_v1 WHERE projection_identity = $1",
@@ -1215,7 +1262,7 @@ mod postgres_tests {
             .bind(i64::try_from(first.receipt().committed_at_epoch_ms()).unwrap())
             .execute(&owner.pool).await.unwrap();
         assert_eq!(
-            owner.resolve_for_basis(&locator, now).await.unwrap(),
+            owner.resolve_for_basis(&locator).await.unwrap(),
             Some(first.clone())
         );
 
@@ -1228,7 +1275,7 @@ mod postgres_tests {
         .unwrap();
         sqlx::query("DELETE FROM qualification_protected_feedback_projections_v1 WHERE projection_identity = $1")
             .bind(first.projection_identity()).execute(&owner.pool).await.unwrap();
-        assert!(owner.resolve_for_basis(&locator, now).await.is_err());
+        assert!(owner.resolve_for_basis(&locator).await.is_err());
         let stored = first.as_stored();
         sqlx::query("INSERT INTO qualification_protected_feedback_projections_v1 (projection_identity,basis_identity,principal,request_scope_json,resolution_state,source_sequence,source_cut,projection_digest,projection_json,receipt_json,committed_at_epoch_ms,valid_through_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)")
             .bind(first.projection_identity()).bind(first.basis_identity()).bind(first.principal())
@@ -1244,7 +1291,7 @@ mod postgres_tests {
             .bind(first.source_cut()).bind(i64::try_from(first.receipt().committed_at_epoch_ms()).unwrap())
             .execute(&owner.pool).await.unwrap();
         assert_eq!(
-            owner.resolve_for_basis(&locator, now).await.unwrap(),
+            owner.resolve_for_basis(&locator).await.unwrap(),
             Some(first.clone())
         );
 
@@ -1253,16 +1300,16 @@ mod postgres_tests {
             .bind(first.projection_identity()).bind("sha256:tampered")
             .bind(serde_json::json!({"tampered": true}))
             .bind(i64::try_from(now).unwrap()).execute(&owner.pool).await.unwrap();
-        assert!(owner.resolve_for_basis(&locator, now).await.is_err());
+        assert!(owner.resolve_for_basis(&locator).await.is_err());
         sqlx::query("DELETE FROM qualification_owner_outbox_v1 WHERE aggregate_identity = $1 AND event_kind = 'TAMPERED_KIND'")
             .bind(first.projection_identity()).execute(&owner.pool).await.unwrap();
         assert_eq!(
-            owner.resolve_for_basis(&locator, now).await.unwrap(),
+            owner.resolve_for_basis(&locator).await.unwrap(),
             Some(first.clone())
         );
         sqlx::query("UPDATE rd_owner_outbox_v1 SET payload_digest = 'sha256:corrupt' WHERE aggregate_identity = $1")
             .bind(&basis.basis_identity).execute(&owner.pool).await.unwrap();
-        assert!(owner.resolve_for_basis(&locator, now).await.is_err());
+        assert!(owner.resolve_for_basis(&locator).await.is_err());
         sqlx::query(
             "UPDATE rd_owner_outbox_v1 SET payload_digest = $1 WHERE aggregate_identity = $2",
         )
@@ -1272,7 +1319,7 @@ mod postgres_tests {
         .await
         .unwrap();
         assert_eq!(
-            owner.resolve_for_basis(&locator, now).await.unwrap(),
+            owner.resolve_for_basis(&locator).await.unwrap(),
             Some(first.clone())
         );
         sqlx::query(
@@ -1298,5 +1345,15 @@ mod postgres_tests {
             .execute(&owner.pool)
             .await
             .unwrap();
+
+        for statement in [
+            "DROP TABLE qualification_protected_feedback_heads_v1",
+            "DROP TABLE qualification_owner_outbox_v1",
+            "DROP TABLE qualification_protected_feedback_projections_v1",
+            "DROP TABLE rd_owner_outbox_v1",
+            "DROP TABLE rd_independence_bases_v1",
+        ] {
+            sqlx::query(statement).execute(&owner.pool).await.unwrap();
+        }
     }
 }
