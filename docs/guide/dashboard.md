@@ -1032,14 +1032,19 @@ admission in its mutation transaction. The Dashboard therefore preserves both se
 the downstream seam separately; it never collapses the missing R&D receipt into an input rejection.
 
 The required backend target is `ProductEdgeDownstreamAdmissionResolverV1`, a Product Edge-owned hardened port that
-is callable by R&D within R&D's physical PostgreSQL transaction. Its implementation obtains the existing OA shared
-locks first, then locks and canonical-verifies Product Edge binding, head, manifest, admission, receipt, and outbox;
-it returns bounded sealed admission bytes and no table handle. R&D receives schema usage plus exact execute only.
-PUBLIC and unrelated Owners receive neither. A separate Product Edge connection, an unlocked read, direct R&D OA
-permission, or Dashboard/BFF reconstruction cannot satisfy this contract because each breaks the lock cut or Owner
-boundary. Until this port and its migration/ACL are dynamically admitted, the seam remains backend
-`NOT_ADMITTED`, the BFF returns `partial/unavailable` with the exact stop predicate, and S2/provider effects remain
-zero.
+is callable by R&D within R&D's physical PostgreSQL transaction. Its SQL boundary uses non-locking normalized hints
+only to build the complete bounded OA locator plan, obtains the sorted/deduplicated OA shared locks first, then
+locks the complete Product Edge binding/history/head/supersession/manifest/admission/receipt/outbox set and returns
+a provenance-bearing read-only envelope with no table handle. SQL performs no business admission, writes no fact,
+and never constructs sealed authority. The Product Edge Rust boundary reuses OA's explicitly non-authoritative
+canonical-envelope parser, verifies the complete OA and PE row/digest/receipt/outbox/cross-binding set, and alone
+privately constructs the non-deserializable sealed downstream admission readback that R&D may consume. A changed or
+new locator after the hint cut aborts the transaction; no additional OA lock is acquired after any PE lock. R&D
+receives schema usage plus exact function execute only. PUBLIC and unrelated Owners receive neither. A separate
+Product Edge connection, an unlocked read, direct R&D OA permission, raw SQL-envelope consumption, or Dashboard/BFF
+reconstruction cannot satisfy this contract because each breaks the lock cut or Owner boundary. Until both layers
+and their migration/ACL are dynamically admitted, the seam remains backend `NOT_ADMITTED`, the BFF returns
+`partial/unavailable` with the exact stop predicate, and S2/provider effects remain zero.
 
 It never queries Owner tables directly. A typed Dashboard API/BFF calls public Owner/Product Edge ports and returns
 discriminated `available`, `stale`, `partial`, `unavailable`, `unknown`, `rejected`, and `terminal` envelopes.

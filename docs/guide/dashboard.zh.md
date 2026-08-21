@@ -989,12 +989,18 @@ resolve，Product Edge 也能原子提交 admission 与 outbox，但 R&D 仍可�
 receipt 折叠为输入拒绝。
 
 后台目标合同是 `ProductEdgeDownstreamAdmissionResolverV1`：一个 Product Edge-owned hardened port，由 R&D
-在自己的物理 PostgreSQL transaction 内调用。它先取得既有 OA shared lock，再锁定并 canonical verify Product
-Edge binding、head、manifest、admission、receipt 与 outbox；只返回 bounded sealed admission bytes，不返回 table
-handle。R&D 只获得 schema usage 与该函数的 exact execute；PUBLIC 和无关 Owner 都没有权限。独立 Product Edge
-connection、unlocked read、R&D 直接 OA 权限或 Dashboard/BFF reconstruction 都不能满足此合同，因为它们会破坏
-lock cut 或 Owner boundary。在该 port 及其 migration/ACL 获得动态准入前，seam 仍为后台 `NOT_ADMITTED`，BFF
-返回带精确 stop predicate 的 `partial/unavailable`，S2/provider effect 保持零。
+在自己的物理 PostgreSQL transaction 内调用。其 SQL 边界只用 non-locking normalized hint 构造完整且有界的 OA
+locator plan，先取得排序去重后的全部 OA shared lock，再锁定完整 Product Edge
+binding/history/head/supersession/manifest/admission/receipt/outbox 集合，并返回带 provenance 的 read-only
+envelope，不返回 table handle。SQL 不作 business admission、不写事实，也不构造 sealed authority。Product Edge
+Rust 边界复用 OA 明确标为 non-authoritative 的 canonical-envelope parser，完整验证 OA/PE
+row/digest/receipt/outbox/cross-binding 集合，并且只有它能通过私有 constructor 构造不可 Deserialize、可供 R&D
+消费的 sealed downstream admission readback。hint cut 后出现变更或新增 locator 时必须中止整个 transaction；取得
+任一 PE lock 后不得再取得新的 OA lock。R&D 只获得 schema usage 与该函数的 exact execute；PUBLIC 和无关 Owner
+都没有权限。独立 Product Edge connection、unlocked read、R&D 直接 OA 权限、消费 raw SQL envelope 或
+Dashboard/BFF reconstruction 都不能满足此合同，因为它们会破坏 lock cut 或 Owner boundary。在这两层及其
+migration/ACL 获得动态准入前，seam 仍为后台 `NOT_ADMITTED`，BFF 返回带精确 stop predicate 的
+`partial/unavailable`，S2/provider effect 保持零。
 
 它绝不直接查询 Owner table。类型化 Dashboard API/BFF 调用 public Owner/Product Edge port，并返回
 `available`、`stale`、`partial`、`unavailable`、`unknown`、`rejected`、`terminal` discriminated envelope。
