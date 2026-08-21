@@ -890,11 +890,11 @@ await writeJson(join(targetRoot, 'meta.zh.json'), {
 });
 await writeJson(join(targetRoot, 'guide', 'meta.json'), {
   title: 'Guide',
-  pages: ['index', 'install', 'quickstart', 'product-loop', 'architecture-rules', 'development-chunk-contract', 'agent-implementation', 'source-intake', 'market-data-intake', 'observability', 'design-evidence'],
+  pages: ['index', 'install', 'quickstart', 'product-loop', 'architecture-rules', 'development-chunk-contract', 'agent-implementation', 'source-intake', 'market-data-intake', 'observability', 'dashboard', 'design-evidence'],
 });
 await writeJson(join(targetRoot, 'guide', 'meta.zh.json'), {
   title: '开始使用',
-  pages: ['index', 'install', 'quickstart', 'product-loop', 'architecture-rules', 'development-chunk-contract', 'agent-implementation', 'source-intake', 'market-data-intake', 'observability', 'design-evidence'],
+  pages: ['index', 'install', 'quickstart', 'product-loop', 'architecture-rules', 'development-chunk-contract', 'agent-implementation', 'source-intake', 'market-data-intake', 'observability', 'dashboard', 'design-evidence'],
 });
 await writeJson(join(targetRoot, 'architecture', 'meta.json'), {
   title: 'Architecture',
