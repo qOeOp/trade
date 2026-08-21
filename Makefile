@@ -224,7 +224,7 @@ CORE_CRATES := vibe-analysis vibe-backtest vibe-common vibe-core \
     vibe-cryptography vibe-data vibe-event-store vibe-execution \
     vibe-indicators vibe-indicators-kernel vibe-infrastructure vibe-live vibe-model \
     vibe-network vibe-persistence vibe-persistence-macros \
-    vibe-plugin vibe-portfolio vibe-risk vibe-serialization \
+    vibe-plugin vibe-portfolio vibe-qualification vibe-risk vibe-serialization \
     strategy-factory-program-sdk vibe-strategy-factory vibe-system vibe-testkit vibe-trading
 
 # Crates tested in the workspace-compiled adapter lane

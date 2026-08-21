@@ -1,0 +1,34 @@
+[package]
+name = "vibe-qualification"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Qualification Owner protected-feedback custody"
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[features]
+default = []
+owner-recovery = ["dep:tokio"]
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, optional = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+tokio = { workspace = true }
+
+[[bin]]
+name = "qualification-owner-recovery"
+path = "src/bin/qualification_owner_recovery.rs"
+required-features = ["owner-recovery"]
+doc = false
+test = false

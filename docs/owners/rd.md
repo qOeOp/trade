@@ -10,7 +10,10 @@ Unify Research and Develop under one business-fact Owner. The Research capabilit
   shared time evidence, license basis, and the bounded interpretation identity and digest used to form a hypothesis.
 - Frozen mechanism, data scope, exact cost, slippage, and capacity-model identities, capacity assumptions,
   permanent TrialFamily identity, budget, falsifier, and stop rule.
-- Adaptive research lineage with the complete semantic predecessor frontier, Product Edge's opaque protected-feedback observation frontier, and any independence basis committed before protected feedback.
+- Write-once Independence Basis Receipt, committed before protected feedback and bound to the effective principal,
+  Research request scope, untrusted user rationale digest, R&D-owned independence disposition, and immutable basis identity and digest.
+- Adaptive research lineage resolved only from locked R&D history as `GENESIS_EMPTY`, `COMPLETE_FRONTIER`, or
+  `UNAVAILABLE`, plus the principal/scope-bound opaque Qualification protected-feedback frontier projection.
 - Content-addressed Strategy Artifact and Build Receipt bound to intent, TrialFamily, exact code bytes, dependency
   provenance and lock identity, toolchain and runtime identity, Market Semantics Compatibility identity, sandbox
   policy, capability manifest, and Artifact Security Admission result.
@@ -50,6 +53,22 @@ Unify Research and Develop under one business-fact Owner. The Research capabilit
 - **Development Sandbox** - build and diagnose generated strategy code with explicit input and output mounts and no
   ambient filesystem, network, subprocess or process-tree escape, inherited capability, secret, account,
   deployment, or effect-port authority.
+
+## Lineage and protected-feedback admission
+
+The user or App supplies only an untrusted independence rationale. R&D derives and persists the disposition,
+basis identity, and basis receipt; Product Edge cannot construct them. Qualification directly rereads the exact
+R&D basis and returns an opaque projection only after inspecting its own complete principal/scope history.
+Product Edge binds that projection to the trusted request context and transports only its ref, digest, source cut,
+clock epoch, and half-open validity.
+
+Within one locked S1 admission transaction, R&D rereads the basis, resolves its complete local predecessor history,
+and verifies the current Qualification projection. A proven empty local history yields `GENESIS_EMPTY`; a non-empty
+history yields the exact `COMPLETE_FRONTIER`; missing, stale, malformed, conflicting, cross-principal, cross-scope,
+or cross-basis evidence yields `UNAVAILABLE`. `UNAVAILABLE` returns `SUBMITTED_OR_UNKNOWN` and writes no Research
+receipt, Intent, TrialFamily root/member/head, or transition outbox. A malformed rationale under otherwise current
+authority may produce only `REJECTED_NO_WRITE`. Same request, rationale, and canonical Owner cuts replay the exact
+bytes; changed meaning or changed cuts cannot join. R&D never reads protected payload or detail.
 
 ## Attended D-only repair
 
