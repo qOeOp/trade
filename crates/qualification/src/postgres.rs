@@ -13,6 +13,13 @@ const CLOCK_EPOCH_V1: &str = "unix-epoch-ms-v1";
 const PROJECTION_VALIDITY_MS: u64 = 600_000;
 const PROJECTED_EVENT_KIND: &str = "QUALIFICATION_PROTECTED_FEEDBACK_PROJECTED_V1";
 
+#[cfg(test)]
+#[derive(Debug, Clone, Copy)]
+struct CreateResponseTimingForTestV1 {
+    projection_age_ms: u64,
+    post_verify_delay_ms: i64,
+}
+
 #[derive(Debug, Clone)]
 pub struct PostgresQualificationOwnerV1 {
     pool: PgPool,
@@ -62,6 +69,18 @@ impl PostgresQualificationOwnerV1 {
         &self,
         locator: &RdIndependenceBasisLocatorV1,
     ) -> Result<ProtectedFeedbackFrontierReadbackV1, QualificationOwnerError> {
+        #[cfg(test)]
+        return self.resolve_or_create_for_basis_inner(locator, None).await;
+
+        #[cfg(not(test))]
+        self.resolve_or_create_for_basis_inner(locator).await
+    }
+
+    async fn resolve_or_create_for_basis_inner(
+        &self,
+        locator: &RdIndependenceBasisLocatorV1,
+        #[cfg(test)] test_timing: Option<CreateResponseTimingForTestV1>,
+    ) -> Result<ProtectedFeedbackFrontierReadbackV1, QualificationOwnerError> {
         let mut transaction = self.pool.begin().await.map_err(storage)?;
         let basis = load_rd_basis_in_transaction(&mut transaction, locator).await?;
         let principal_scope_key = principal_scope_key(&basis.principal, &basis.request_scope)?;
@@ -108,6 +127,16 @@ impl PostgresQualificationOwnerV1 {
 
         let owner_write_cut_epoch_ms =
             owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
+        #[cfg(test)]
+        let projection_at_epoch_ms = if let Some(timing) = test_timing {
+            owner_write_cut_epoch_ms
+                .checked_sub(timing.projection_age_ms)
+                .ok_or_else(|| unavailable("test projection age exceeds Owner write cut"))?
+        } else {
+            owner_write_cut_epoch_ms
+        };
+        #[cfg(not(test))]
+        let projection_at_epoch_ms = owner_write_cut_epoch_ms;
         let projection = form_projection(
             &basis,
             resolution,
@@ -115,7 +144,7 @@ impl PostgresQualificationOwnerV1 {
             source_cut,
             source_frontier_identity,
             source_frontier_digest,
-            owner_write_cut_epoch_ms,
+            projection_at_epoch_ms,
         )?;
         persist_projection_in_transaction(
             &mut transaction,
@@ -134,10 +163,37 @@ impl PostgresQualificationOwnerV1 {
         let verified = verified_history
             .projection_for_basis(&basis.basis_identity)?
             .ok_or_else(|| unavailable("committed Qualification projection missing"))?;
-        verify_projection_freshness(verified, owner_write_cut_epoch_ms)?;
+
+        #[cfg(test)]
+        if let Some(timing) = test_timing
+            && timing.post_verify_delay_ms > 0
+        {
+            sqlx::query("SELECT pg_catalog.pg_sleep($1::DOUBLE PRECISION / 1000.0)")
+                .bind(timing.post_verify_delay_ms)
+                .execute(&mut *transaction)
+                .await
+                .map_err(storage)?;
+        }
+
+        let owner_response_cut_epoch_ms =
+            owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
+        if let Err(e) = verify_projection_freshness(verified, owner_response_cut_epoch_ms) {
+            transaction.rollback().await.map_err(storage)?;
+            return Err(e);
+        }
         let verified = verified.clone();
         transaction.commit().await.map_err(storage)?;
         Ok(verified)
+    }
+
+    #[cfg(test)]
+    async fn resolve_or_create_for_basis_with_test_timing(
+        &self,
+        locator: &RdIndependenceBasisLocatorV1,
+        test_timing: CreateResponseTimingForTestV1,
+    ) -> Result<ProtectedFeedbackFrontierReadbackV1, QualificationOwnerError> {
+        self.resolve_or_create_for_basis_inner(locator, Some(test_timing))
+            .await
     }
 
     pub async fn resolve_for_basis(
@@ -188,7 +244,7 @@ async fn owner_clock_epoch_ms_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<u64, QualificationOwnerError> {
     sqlx::query_scalar::<_, i64>(
-        "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::BIGINT",
+        "SELECT floor(extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::BIGINT",
     )
     .fetch_one(&mut **transaction)
     .await
@@ -1086,7 +1142,7 @@ mod postgres_tests {
 
     #[tokio::test]
     #[ignore = "requires explicit disposable QUALIFICATION_OWNER_RECOVERY_TEST_DATABASE_URL"]
-    async fn genesis_projection_replays_and_outbox_corruption_fails_closed_until_restored() {
+    async fn response_cut_rolls_back_stale_create_and_history_corruption_fails_closed() {
         let database_url = std::env::var("QUALIFICATION_OWNER_RECOVERY_TEST_DATABASE_URL")
             .expect("database-backed test requires an explicit disposable database URL");
         let owner = PostgresQualificationOwnerV1::connect(&database_url)
@@ -1198,8 +1254,43 @@ mod postgres_tests {
             principal,
             request_scope,
         };
+
+        let stale = owner
+            .resolve_or_create_for_basis_with_test_timing(
+                &locator,
+                CreateResponseTimingForTestV1 {
+                    projection_age_ms: PROJECTION_VALIDITY_MS - 100,
+                    post_verify_delay_ms: 200,
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            stale,
+            QualificationOwnerError::Unavailable(message)
+                if message == "Qualification projection is stale"
+        ));
+        let projection_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM qualification_protected_feedback_projections_v1",
+        )
+        .fetch_one(&owner.pool)
+        .await
+        .unwrap();
+        let head_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM qualification_protected_feedback_heads_v1",
+        )
+        .fetch_one(&owner.pool)
+        .await
+        .unwrap();
+        let outbox_count =
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM qualification_owner_outbox_v1")
+                .fetch_one(&owner.pool)
+                .await
+                .unwrap();
+        assert_eq!((projection_count, head_count, outbox_count), (0, 0, 0));
+
         let db_cut_before = sqlx::query_scalar::<_, i64>(
-            "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::BIGINT",
+            "SELECT floor(extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::BIGINT",
         )
         .fetch_one(&owner.pool)
         .await
@@ -1207,7 +1298,7 @@ mod postgres_tests {
         let caller_sentinel_epoch_ms = 1_u64;
         let first = owner.resolve_or_create_for_basis(&locator).await.unwrap();
         let db_cut_after = sqlx::query_scalar::<_, i64>(
-            "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::BIGINT",
+            "SELECT floor(extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::BIGINT",
         )
         .fetch_one(&owner.pool)
         .await

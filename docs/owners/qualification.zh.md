@@ -46,7 +46,9 @@ genesis frontier。已有历史返回完整当前不透明 frontier；缺失 过
 普通 create、resolve 与事务内 admission 不接收任何调用方时间。直接解析 basis、取得 principal/scope advisory
 lock 并完整 canonical verification Qualification history 后，Qualification 在同一事务内采样 PostgreSQL
 `clock_timestamp()`；已有 read 的 freshness 使用该 Owner cut。新 projection 在最终写入边缘只采样一次，
-并只用该 cut 形成 projection time、半开 `valid_through`、receipt commit time 及其 identity 与 digest。
+并只用该 cut 形成 projection time、半开 `valid_through`、receipt commit time 及其 identity 与 digest。持久化并
+canonical reread 新 history 后，Qualification 在 freshness validation 与 commit 紧前采样独立 Owner response
+cut；跨越 `valid_through` 会原子 rollback projection、head 与 outbox。
 
 投影只公开 resolution state 不透明 frontier reference 与 digest basis reference 与 digest principal scope
 source sequence/cut clock epoch projection time 和半开有效期。它不包含保护 payload outcome measurement

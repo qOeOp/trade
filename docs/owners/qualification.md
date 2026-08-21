@@ -53,7 +53,9 @@ Ordinary create, resolve, and in-transaction admission accept no caller time. Af
 principal/scope advisory lock, and complete canonical Qualification history verification, Qualification samples
 PostgreSQL `clock_timestamp()` inside the same transaction. Existing-read freshness uses that Owner cut. A new
 projection takes its single sample at the final write edge and uses only that cut for projection time, half-open
-`valid_through`, receipt commit time, and their identities and digests.
+`valid_through`, receipt commit time, and their identities and digests. After persisting and canonically rereading
+the new history, Qualification samples a distinct Owner response cut immediately before freshness validation and
+commit; crossing `valid_through` rolls back projection, head, and outbox atomically.
 
 The projection exposes only its resolution state, opaque frontier reference and digest, basis reference and
 digest, principal, scope, source sequence/cut, clock epoch, projection time, and half-open validity. It contains no

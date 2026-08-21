@@ -44,7 +44,7 @@ for variable in (
 PY
 
 cargo test -p vibe-qualification --all-features \
-  postgres::postgres_tests::genesis_projection_replays_and_outbox_corruption_fails_closed_until_restored \
+  postgres::postgres_tests::response_cut_rolls_back_stale_create_and_history_corruption_fails_closed \
   -- --ignored --exact --nocapture
 
 cargo test -p vibe-qualification --all-features \
