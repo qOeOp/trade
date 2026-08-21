@@ -9,7 +9,10 @@
 - 不可变 Research Source Provenance Record，绑定来源身份 内容摘要 位置 检索截面 共享时间证据
   许可依据，以及形成假设时采用的有界解释身份与摘要。
 - 冻结的机制 数据范围 准确成本 滑点与容量模型身份 容量假设 永久 TrialFamily 身份 预算 证伪条件和停止规则。
-- 自适应研究血缘 完整语义前驱前沿 Product Edge 的不透明保护反馈观察前沿，以及保护反馈前已提交的独立性依据。
+- 只写一次的 Independence Basis Receipt，必须在保护反馈之前提交，并绑定有效 principal Research request scope
+  不受信用户理由摘要 R&D 拥有的独立性 disposition，以及不可变 basis identity 与 digest。
+- 只能从锁定 R&D 历史解析为 `GENESIS_EMPTY` `COMPLETE_FRONTIER` 或 `UNAVAILABLE` 的自适应研究血缘，
+  以及绑定 principal/scope 的 Qualification 不透明保护反馈 frontier 投影。
 - 绑定意图 TrialFamily 准确代码字节 依赖来源与 lock 身份 工具链与运行环境身份 Market Semantics
   Compatibility 身份 sandbox policy capability manifest 和 Artifact Security Admission 结果的 Strategy Artifact
   与 Build Receipt。
@@ -44,6 +47,20 @@
   Artifact Security Admission，供重放 资格与治理应用原样消费。
 - **Development Sandbox** - 只通过显式输入输出 mount 构建并诊断策略代码，没有环境 filesystem network
   subprocess 或 process-tree escape inherited capability secret 账户 部署或 effect-port 权威。
+
+## 血缘与保护反馈准入
+
+用户或 App 只能提供不受信的独立性理由。R&D 派生并持久化 disposition basis identity 与 basis receipt；
+Product Edge 不能构造这些事实。Qualification 直接回读准确 R&D basis，并且只有在检查自身完整
+principal/scope 历史后才返回不透明投影。Product Edge 把该投影绑定到受信请求上下文，仅搬运 ref digest
+source cut clock epoch 与半开有效期。
+
+在同一个锁定 S1 准入事务内，R&D 回读 basis 解析完整本地前驱历史并校验当前 Qualification 投影。
+经证明为空的本地历史产生 `GENESIS_EMPTY`，非空历史产生准确 `COMPLETE_FRONTIER`；缺失 过期 畸形
+冲突 跨 principal 跨 scope 或跨 basis 的证据都产生 `UNAVAILABLE`。`UNAVAILABLE` 返回
+`SUBMITTED_OR_UNKNOWN`，且不写 Research receipt Intent TrialFamily root/member/head 或转换 outbox。
+在其他权威均当前时，畸形理由只能产生 `REJECTED_NO_WRITE`。相同 request 理由和规范 Owner cuts
+重放准确相同字节；含义或 cut 改变不能加入。R&D 永不读取保护 payload 或细节。
 
 ## 有人值守的 D-only 修复
 

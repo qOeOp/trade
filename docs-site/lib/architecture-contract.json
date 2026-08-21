@@ -2178,6 +2178,16 @@
         "noAuthorityBasis": "Strategy Factory is a value stream and never a second Research Backtest Qualification Scanner Portfolio Governance or Runtime authority"
       },
       {
+        "inventoryId": "qualification-owner",
+        "memberPaths": ["crates/qualification"],
+        "disposition": "OWNER_NATIVE_IMPLEMENTATION",
+        "destinationIds": ["qualification"],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Own only durable sealed principal and request-scope-bound opaque protected-feedback genesis or current frontier resolution directly bound to a precommitted R&D Independence Basis Receipt",
+        "noAuthorityBasis": "Strategy Factory and Product Edge consume sealed Qualification projections only and cannot write Qualification facts; Candidate Intake protected attempts Eligibility holdout execution details and cross-family ancestry remain not admitted"
+      },
+      {
         "inventoryId": "backtest-engine",
         "memberPaths": ["crates/backtest"],
         "disposition": "ADOPT_THROUGH_OWNER",
@@ -3986,6 +3996,9 @@
         "capability-set-and-audit-policy-versions",
         "target-rd-owner-and-canonical-operation",
         "operation-kind-and-typed-payload-identity",
+        "untrusted-independence-rationale-digest",
+        "rd-independence-basis-receipt-ref-and-digest",
+        "qualification-protected-feedback-projection-ref-digest-and-cut",
         "protected-feedback-observation-frontier",
         "audit-correlation"
       ],
@@ -3997,9 +4010,15 @@
         "SOURCED_HYPOTHESIS": {
           "required": [
             "typed-sourced-hypothesis-payload-identity",
+            "untrusted-independence-rationale-digest",
+            "rd-independence-basis-receipt-ref-and-digest",
+            "qualification-protected-feedback-projection-ref-digest-and-cut",
             "protected-feedback-observation-frontier"
           ],
           "forbidden": [
+            "caller-semantic-predecessor-frontier",
+            "caller-protected-feedback-frontier",
+            "caller-independence-disposition-or-basis-identity",
             "selected-strategy-generation-and-artifact-cut",
             "defect-reproduction-and-allowed-repair-surface-digests",
             "repair-impact-class-and-requested-terminal"
@@ -4035,7 +4054,9 @@
       "invariants": [
         "Ambiguous target operation missing source or malformed typed meaning creates no Owner submission",
         "Transport or shell success never proves an R&D transition and only the correlated R&D-owned receipt is authoritative",
-        "SOURCED_HYPOTHESIS commits the bounded Qualification phase-fact frontier already projected to the same principal and scope without exposing protected detail to Research",
+        "SOURCED_HYPOTHESIS carries only the bounded Qualification protected-feedback projection already resolved for the same principal scope and exact R&D basis without exposing protected detail to Research",
+        "The caller supplies only an untrusted independence rationale and cannot supply or override either canonical frontier the independence disposition or basis identity",
+        "Missing stale malformed cross-principal cross-scope cross-basis or conflicting Owner authority remains SUBMITTED_OR_UNKNOWN and creates no R&D receipt Intent TrialFamily census or outbox write",
         "ATTENDED_D_ONLY_REPAIR binds an explicit user selection to the exact current Governance generation and Artifact cut and Product Edge cannot self-assert any of those Owner facts",
         "A D-only request changes no Research Intent hypothesis parameter universe PIT market semantics cost slippage capacity model or protected-feedback frontier and any such change is rejected into the sourced-hypothesis path",
         "D0_NON_EXECUTABLE creates no new deployable Artifact while D1_EXECUTABLE_REPAIR requires a new immutable Artifact and the requested terminal never grants validation Qualification Governance deployment or trading authority",
@@ -4404,6 +4425,9 @@
         "stable-read-request-identity",
         "trusted-principal-and-authorized-qualification-scope",
         "authorization-policy-identity-and-cut",
+        "exact-rd-independence-basis-receipt-ref-and-digest-for-pre-research-resolution",
+        "qualification-protected-feedback-source-sequence-and-cut",
+        "clock-epoch-projection-time-and-half-open-validity",
         "requested-qualification-candidate",
         "originating-qualification-review-request-identity-and-typed-meaning",
         "protected-feedback-observation-frontier",
@@ -4439,6 +4463,10 @@
         "QUALIFIED": "QUALIFIED"
       },
       "invariants": [
+        "PRE_RESEARCH_PROTECTED_FEEDBACK_FRONTIER directly resolves the exact R&D Independence Basis Receipt and locks the complete durable principal and scope history",
+        "GENESIS_EMPTY is authoritative only after locked inspection proves that complete Qualification history is empty",
+        "FRONTIER exposes only an opaque non-dereferenceable ref digest and cut and never protected payload detail outcome measurement parameter or holdout content",
+        "Every later protected-feedback write repeats the exact precommitted R&D basis relation",
         "INTAKE phase states NOT_ADMITTED and ADMITTED bind Candidate plus the write-once Candidate Intake Receipt and no Eligibility Fact",
         "Every phase preserves the originating review request correlation and the Qualification-owned protected-feedback observation frontier",
         "Publishing a bounded public terminal outcome advances the frontier before a successor review may be admitted",
@@ -7979,8 +8007,10 @@
         "controls-and-budget",
         "falsifier-and-stop",
         "complete-semantic-predecessor-intent-frontier",
+        "rd-locked-lineage-resolution-state-and-complete-semantic-predecessor-intent-frontier",
         "origin-protected-feedback-observation-frontier",
-        "precommitted-lineage-independence-basis"
+        "qualification-owned-opaque-protected-feedback-projection-ref-digest-and-cut",
+        "precommitted-rd-independence-basis-receipt-identity-and-digest"
       ],
       "changeDimensions": [
         "RETURN_MECHANISM",
@@ -8032,6 +8062,9 @@
         "SUPERSEDED"
       ],
       "invariants": [
+        "R&D derives GENESIS_EMPTY only after locked inspection proves complete local lineage history is empty and otherwise binds COMPLETE_FRONTIER",
+        "UNAVAILABLE local lineage or Qualification projection creates no Research receipt Intent TrialFamily census or outbox transition",
+        "The user rationale is untrusted input and never becomes a caller-authored frontier disposition or basis identity",
         "Trial family identity survives candidate and artifact renames",
         "A successor created after bounded Qualification feedback preserves the complete semantic predecessor frontier even when it uses another TrialFamily",
         "Research may declare lineage and an independence basis but cannot reset or author Qualification holdout budget",
@@ -9177,10 +9210,10 @@
         "zh": "产品入口向 Research 提交带来源的研究请求"
       },
       "semantics": {
-        "accepted": "Research validates the trusted shell binding non-self-assertable Operator Authorization content-addressed Agent Operation Manifest typed sourced-hypothesis meaning and stable request identity then commits the correlated receipt",
-        "rejected": "Ambiguous missing stale expired revoked wrong-audience manifest-digest-mismatched unauthorized policy-mismatched or conflicting-meaning requests create no Research transition",
-        "unknown": "Transport success stays SUBMITTED_OR_UNKNOWN and Product Edge resolves the same request identity without inferring Research admission",
-        "replay": "Same identity and meaning join one Research receipt while changed meaning is rejected and a new action requires a successor identity"
+        "accepted": "Research validates the trusted shell binding authorization manifest typed sourced-hypothesis meaning exact precommitted R&D basis canonical Qualification opaque projection and locked complete R&D lineage before committing the correlated receipt Intent and TrialFamily",
+        "rejected": "A malformed untrusted rationale under otherwise current Owner authority may commit only REJECTED_NO_WRITE and creates no Research transition",
+        "unknown": "Missing stale malformed mismatched or unavailable R&D lineage basis or Qualification projection stays SUBMITTED_OR_UNKNOWN and writes no Research receipt Intent TrialFamily census or outbox",
+        "replay": "Same identity rationale and canonical Owner cuts join one byte-equivalent Research receipt while changed meaning or changed Owner cut is rejected and a new action requires a successor identity"
       },
       "sourceRole": "product-edge",
       "objectAuthority": "product-edge",
@@ -9403,14 +9436,14 @@
       "weight": "light",
       "docsRoute": "architecture/product-edge",
       "description": {
-        "en": "Qualification returns bounded status summaries only",
-        "zh": "Qualification 只向产品返回有界状态摘要"
+        "en": "Qualification returns bounded opaque feedback and status projections only",
+        "zh": "Qualification 只向产品返回有界不透明反馈与状态投影"
       },
       "semantics": {
-        "accepted": "Product Edge reads one request-correlated public phase or outcome from the authoritative Qualification fact and commits only a type-opaque non-dereferenceable reference to its protected-feedback observation frontier; every negative protected terminal is CLOSED_NOT_QUALIFIED",
+        "accepted": "Before Research Product Edge reads one principal scope and R&D-basis-bound GENESIS_EMPTY or opaque FRONTIER projection; later it reads one request-correlated public phase or outcome and commits only a type-opaque non-dereferenceable reference; every negative protected terminal is CLOSED_NOT_QUALIFIED",
         "rejected": "Protected measurements parameters holdout details and evaluation outputs are never disclosed",
-        "unknown": "Unresolved Candidate or phase remains UNAVAILABLE and cannot be reconstructed from events or agent memory",
-        "replay": "Repeated reads preserve the same public phase outcome and type-opaque reference without revealing the internal terminal kind or fabricating another phase"
+        "unknown": "Unresolved basis history Candidate or phase remains UNAVAILABLE and cannot be reconstructed from caller assertions events or agent memory",
+        "replay": "Repeated reads preserve the same genesis or frontier cut public phase outcome and type-opaque reference without revealing protected detail or fabricating another phase"
       },
       "sourceRole": "qualification",
       "objectAuthority": "qualification",

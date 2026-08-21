@@ -43,6 +43,7 @@ members = [
   "crates/plugin",
   "crates/portfolio",
   "crates/pyo3",
+  "crates/qualification",
   "crates/risk",
   "crates/serialization",
   "crates/strategy_factory",

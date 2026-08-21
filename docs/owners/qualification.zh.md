@@ -6,6 +6,9 @@
 
 ## 拥有的权威事实
 
+- 持久 principal/scope 保护反馈历史及其不透明解析 frontier。Research 前的读取绑定一个准确 R&D
+  Independence Basis Receipt，只能解析为 `GENESIS_EMPTY` `FRONTIER(ref, cut)` 或 `UNAVAILABLE`，并绑定
+  source sequence/cut clock epoch 与半开有效期。
 - R&D 拥有 Candidate 身份及其不可变穷尽 TrialFamily Census Frontier。Qualification 为一个稳定
   Qualification Review Request 与规范类型化含义拥有只写一次的 Candidate Intake Receipt；该回执绑定
   Research 终态 `SELECTED_FOR_QUALIFICATION` Research Selection Disposition 不可变穷尽 TrialFamily
@@ -33,6 +36,47 @@
 - **Eligibility State** - 发布当前不合格 合格 过期或撤销的可部署事实 条件 撤销历史，以及 Governance
   与 Risk 必须执行的有界经济容量契约。它把撤销作为 Eligibility 转换拥有，但不接管 Runtime 恢复。
 
+## Research 前保护反馈解析
+
+Qualification 不接收调用方对 genesis 空历史或当前反馈的断言。它直接解析准确 R&D Independence Basis
+Receipt，锁定受信 principal 与 Research request scope 的完整持久历史，且只有历史为空时才提交唯一
+genesis frontier。已有历史返回完整当前不透明 frontier；缺失 过期 畸形 冲突 跨 principal 跨 scope 或
+跨 basis 输入都返回 `UNAVAILABLE`，且不创建 frontier 转换。
+
+普通 create、resolve 与事务内 admission 不接收任何调用方时间。直接解析 basis、取得 principal/scope advisory
+lock 并完整 canonical verification Qualification history 后，Qualification 在同一事务内采样 PostgreSQL
+`clock_timestamp()`；已有 read 的 freshness 使用该 Owner cut。新 projection 在最终写入边缘只采样一次，
+并只用该 cut 形成 projection time、半开 `valid_through`、receipt commit time 及其 identity 与 digest。持久化并
+canonical reread 新 history 后，Qualification 在 freshness validation 与 commit 紧前采样独立 Owner response
+cut；跨越 `valid_through` 会原子 rollback projection、head 与 outbox。
+
+投影只公开 resolution state 不透明 frontier reference 与 digest basis reference 与 digest principal scope
+source sequence/cut clock epoch projection time 和半开有效期。它不包含保护 payload outcome measurement
+parameter holdout detail 或可解引用 evidence。未来任何保护反馈写入都必须重复预提交 basis 关系。相同
+basis 与规范 source cut 重放准确相同字节；改变 basis 或 source cut 不能加入。
+
+## 特定事故 Owner 重建
+
+Qualification 只能执行为 2026-08-21 本地保护反馈丢失授权并封闭的
+`qualification-owner-incident-v1-01a02194-139a-7281-9d2b-a87ab29d67ba` 重建。这是单一事故的
+`DETERMINISTIC_CANONICAL_RECONSTRUCTION_NO_BACKUP` 契约，不是通用 restore 或 import API。它只接受准确的
+证据 session 资源定位符、事故身份、授权定位符和目标数据库资源定位符；projection row、JSON 值、时间戳、
+摘要、genesis 状态和当前有效性都不能由调用方输入。
+
+任何插入前，Qualification 严格重验绑定的 JSONL record 字节、call/output/turn 配对、冻结规范生成器身份、
+完整预期语义向量、存续 R&D basis/receipt/head/outbox、全局空 Qualification 历史、缺失的 recovery receipt
+与未运行的 outbox publisher。封闭事故契约把 PostgreSQL cluster `system_identifier`、database name/OID 与
+role name/OID 绑定为类型化字段及 domain-separated 摘要；Qualification 在任何 DDL 或写入前于事务 custody
+内比较该语义目标，并在第一次 DDL 紧前再次比较。一个 serializable 事务取得 principal/scope advisory lock 和表
+exclusive lock，随后依次插入原 projection、head、原 domain outbox row 与独立的 Qualification custody/audit
+receipt。该 receipt 不发 domain wake，并明确没有恢复物理备份、没有观察原 JSONB 存储字节、没有铸造新
+有效期。准确完成后的重放只返回相同 receipt 而不写入；partial、冲突、过期、畸形或非空状态全部 fail
+closed。重建 projection 保留原半开区间，因此普通 resolver 在当前 cut 仍为 `UNAVAILABLE`。
+
+Executable provenance 是独立的效果边界。Qualification 记录实际使用的 executable hash 并验证数据库语义，
+但不声称仓库代码能够独立证明自身 executable bytes。Hub 拥有的外部 effect controller 在释放数据库能力并
+执行该 worker 前，绑定已审查的 Origin ancestry、candidate commit/tree、executable path 与 SHA-256。
+
 ## 输入交接
 
 - [R&D](./rd/) 只提交拥有终态 `SELECTED_FOR_QUALIFICATION` Research Selection Disposition
@@ -52,7 +96,14 @@
 - 只有资格事实提交后才向 Event Rail 发布唤醒提示。保护 payload 只能包含公共终态、类型不透明且不可
   解引用的 reference 和 source-frontier freshness。保护 phase、latency、terminal timing 与 timing-derived
   field 明确禁止公开；永不发布内部 `INELIGIBLE` 或其他保护终态 disposition。
-- 向 Product Edge 先返回直接闭合准确评估请求的已提交且只写一次 `NOT_ADMITTED` 或 `ADMITTED` Candidate Intake Receipt，再单独提供关联请求的 Qualification Status Summary。回执缺失保持 `SUBMITTED_OR_UNKNOWN`，摘要不能替代或编造回执。摘要在接纳后继评估前推进有界保护反馈观察前沿；`EVALUATING` 由 `ADMITTED` 回执与 `IN_PROGRESS_OR_UNKNOWN` 请求派生；所有内部负面 attempt disposition 或 `INELIGIBLE` fact 只投影为 `CLOSED_NOT_QUALIFIED`，正向 Eligibility Fact 投影为 `QUALIFIED`。引用必须类型不透明且不可解引用。`UNAVAILABLE` 只绑定未解析 Candidate 和阶段身份，后续阶段不改写先前事实。
+- 向 Product Edge 在 Research 准入前返回 basis 绑定的不透明 `GENESIS_EMPTY` `FRONTIER` 或
+  `UNAVAILABLE` 保护反馈投影。Candidate Intake 时，先返回直接闭合准确评估请求的已提交且只写一次
+  `NOT_ADMITTED` 或 `ADMITTED` Candidate Intake Receipt，再单独提供关联请求的 Qualification Status
+  Summary。回执缺失保持 `SUBMITTED_OR_UNKNOWN`，摘要不能替代或编造回执。摘要在接纳后继评估前推进
+  有界保护反馈观察前沿；`EVALUATING` 由 `ADMITTED` 回执与 `IN_PROGRESS_OR_UNKNOWN` 请求派生；所有
+  内部负面 attempt disposition 或 `INELIGIBLE` fact 只投影为 `CLOSED_NOT_QUALIFIED`，正向 Eligibility
+  Fact 投影为 `QUALIFIED`。引用必须类型不透明且不可解引用。`UNAVAILABLE` 只绑定未解析请求和阶段身份，
+  后续阶段不改写先前事实。
 
 ## 拒绝和禁止事项
 
@@ -129,6 +180,14 @@ Governance 可在每个不同的已授权 lifecycle request evaluation 与 decis
 ## 后续实现验收
 
 - 候选和评估规则在保护证据揭示前不可变。
+- 事故 recovery binary 必须 feature-gated，并封闭到准确事故和四个资源定位符；它不能从调用方接收重建
+  fact 或 freshness 断言。
+- 复制 anchors 但 cluster/database/role identity 不同的 store，以及规范解码后 request scope 不同的 R&D
+  head，都必须在 Qualification DDL 或 row 之前失败。
+- 每次 recovery 写入后的 fault 必须把 projection、head、outbox、receipt 和事务 DDL 一并回滚；隔离
+  PostgreSQL 验证必须使用与任何默认 Owner 数据库不同、显式 disposable 的 database 与 role。
+- 成功重建后的全局计数必须准确为 `1/1/1` 加一个 recovery receipt，复现冻结规范 verifier 的
+  identity/digest/time，不增加 domain outbox event，并且对普通 current-cut resolver 仍保持 stale。
 - Candidate Intake Protected Replay Request Protected Run Result Protected Robustness Assessment 和每个
   Eligibility Fact 重复同一 Protected Robustness Plan 身份与版本。
 - 每个 `ADMITTED` Intake Receipt 都交叉绑定准确 `SELECTED_FOR_QUALIFICATION` disposition 与其冻结

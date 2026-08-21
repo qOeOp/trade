@@ -6,6 +6,9 @@ Independently decide whether a frozen candidate satisfies preregistered evidence
 
 ## Authoritative facts owned
 
+- Durable principal/scope protected-feedback history and its opaque resolution frontier. A pre-Research read is
+  bound to one exact R&D Independence Basis Receipt and resolves only as `GENESIS_EMPTY`, `FRONTIER(ref, cut)`, or
+  `UNAVAILABLE` with source sequence/cut, clock epoch, and half-open validity.
 - Write-once Candidate Intake Receipt for one stable Qualification Review Request and canonical typed meaning,
   the R&D-owned Candidate, its terminal `SELECTED_FOR_QUALIFICATION` Research Selection Disposition, and
   its immutable exhaustive TrialFamily Census Frontier plus exact preregistered protected decision-policy identity
@@ -38,6 +41,55 @@ Independently decide whether a frozen candidate satisfies preregistered evidence
   conditions, revocation history, and the bounded economic-capacity contract Governance and Risk must enforce.
   It owns revocation as an Eligibility transition without taking over Runtime recovery.
 
+## Pre-Research protected-feedback resolution
+
+Qualification accepts no caller assertion of genesis, emptiness, or current feedback. It directly resolves the
+exact R&D Independence Basis Receipt, locks its complete durable history for the trusted principal and Research
+request scope, and commits one genesis frontier only when that history is empty. Existing history returns the
+complete current opaque frontier; missing, stale, malformed, conflicting, cross-principal, cross-scope, or
+cross-basis input returns `UNAVAILABLE` and creates no frontier transition.
+
+Ordinary create, resolve, and in-transaction admission accept no caller time. After direct basis resolution, the
+principal/scope advisory lock, and complete canonical Qualification history verification, Qualification samples
+PostgreSQL `clock_timestamp()` inside the same transaction. Existing-read freshness uses that Owner cut. A new
+projection takes its single sample at the final write edge and uses only that cut for projection time, half-open
+`valid_through`, receipt commit time, and their identities and digests. After persisting and canonically rereading
+the new history, Qualification samples a distinct Owner response cut immediately before freshness validation and
+commit; crossing `valid_through` rolls back projection, head, and outbox atomically.
+
+The projection exposes only its resolution state, opaque frontier reference and digest, basis reference and
+digest, principal, scope, source sequence/cut, clock epoch, projection time, and half-open validity. It contains no
+protected payload, outcome, measurement, parameter, holdout detail, or dereferenceable evidence. Any later
+protected-feedback write must repeat the precommitted basis relation. Same basis and canonical source cut replay
+byte-identically; a changed basis or source cut cannot join.
+
+## Incident-specific Owner reconstruction
+
+Qualification alone may execute the sealed `qualification-owner-incident-v1-01a02194-139a-7281-9d2b-a87ab29d67ba`
+reconstruction authorized for the 2026-08-21 local protected-feedback loss. This is a one-incident
+`DETERMINISTIC_CANONICAL_RECONSTRUCTION_NO_BACKUP` contract, not a general restore or import API. It accepts only
+the exact evidence-session resource locator, incident identity, authorization locator, and target database
+resource locator. Projection rows, JSON values, timestamps, digests, genesis state, and current validity are never
+caller inputs.
+
+Before any insert, Qualification strictly revalidates the bound JSONL record bytes, call/output/turn pairing,
+frozen canonical generator identity, complete expected semantic vector, surviving R&D basis/receipt/head/outbox,
+global empty Qualification history, absent recovery receipt, and inactive outbox publisher. The closed incident
+contract binds PostgreSQL cluster `system_identifier`, database name/OID, and role name/OID as typed fields with a
+domain-separated digest. Qualification compares that semantic target under transaction custody before any DDL or
+write and repeats the comparison immediately before the first DDL.
+One serializable transaction takes the principal/scope advisory lock and exclusive table locks, then inserts the
+original projection, head, original domain outbox row, and a separate Qualification custody/audit receipt. The
+receipt emits no domain wake and states that no physical backup was restored, original JSONB storage bytes were
+not observed, and no new validity was minted. Exact completed replay returns the same receipt without writes;
+partial, conflicting, stale, malformed, or non-empty state fails closed. The reconstructed projection retains its
+original half-open interval, so a normal resolver at the current cut remains `UNAVAILABLE`.
+
+Executable provenance is a separate effect boundary. Qualification records the executable hash actually used and
+verifies database semantics; it does not claim that repository code can independently prove its own executable
+bytes. The Hub-owned external effect controller binds the reviewed Origin ancestry, candidate commit/tree,
+executable path, and SHA-256 before it releases the database capability and executes this worker.
+
 ## Input handoffs
 
 - [R&D](./rd/) submits the frozen Candidate only with a terminal `SELECTED_FOR_QUALIFICATION`
@@ -60,7 +112,16 @@ Independently decide whether a frozen candidate satisfies preregistered evidence
   only the public terminal outcome, a type-opaque non-dereferenceable reference, and source-frontier freshness.
   Protected phase, latency, terminal timing, and timing-derived fields are forbidden. It never emits internal
   `INELIGIBLE` or another protected terminal disposition.
-- To Product Edge: first, the committed write-once `NOT_ADMITTED` or `ADMITTED` Candidate Intake Receipt that authoritatively closes the exact review request; separately, a request-correlated Qualification Status Summary. Receipt absence remains `SUBMITTED_OR_UNKNOWN`, and the summary cannot replace or fabricate it. The summary advances the bounded protected-feedback observation frontier before a successor review is admitted. `EVALUATING` derives from an `ADMITTED` receipt plus a Protected Replay Request in `IN_PROGRESS_OR_UNKNOWN`; every negative internal attempt disposition or `INELIGIBLE` fact projects only `CLOSED_NOT_QUALIFIED`, while a positive Eligibility Fact projects `QUALIFIED`. References are type-opaque and non-dereferenceable. `UNAVAILABLE` binds only the unresolved Candidate and phase identity. Later phases never rewrite prior facts.
+- To Product Edge: before Research admission, the basis-bound opaque `GENESIS_EMPTY`, `FRONTIER`, or
+  `UNAVAILABLE` protected-feedback projection. For Candidate Intake, first the committed write-once
+  `NOT_ADMITTED` or `ADMITTED` receipt that authoritatively closes the exact review request; separately, a
+  request-correlated Qualification Status Summary. Receipt absence remains `SUBMITTED_OR_UNKNOWN`, and the summary
+  cannot replace or fabricate it. The summary advances the bounded protected-feedback observation frontier before
+  a successor review is admitted. `EVALUATING` derives from an `ADMITTED` receipt plus a Protected Replay Request
+  in `IN_PROGRESS_OR_UNKNOWN`; every negative internal attempt disposition or `INELIGIBLE` fact projects only
+  `CLOSED_NOT_QUALIFIED`, while a positive Eligibility Fact projects `QUALIFIED`. References are type-opaque and
+  non-dereferenceable. `UNAVAILABLE` binds only the unresolved request and phase identity. Later phases never
+  rewrite prior facts.
 
 ## Rejections and prohibitions
 
@@ -144,6 +205,16 @@ evaluation, and decision frontier, while duplicates inside that frontier join an
 ## Subsequent implementation acceptance
 
 - Candidate and evaluation rules are immutable before protected evidence is revealed.
+- The incident recovery binary is feature-gated, closed to the exact incident and four resource locators, and
+  cannot accept reconstructed facts or freshness claims from its caller.
+- A copied-anchor store with a different cluster/database/role identity and an R&D head whose canonically decoded
+  request scope differs from the frozen scope both fail before Qualification DDL or rows.
+- Faults after each recovery write roll back projection, head, outbox, receipt, and transactional DDL together;
+  isolated PostgreSQL verification uses an explicitly disposable database and role distinct from every default
+  Owner database.
+- A successful reconstruction has global counts exactly `1/1/1` plus one recovery receipt, reproduces the frozen
+  canonical verifier's identities/digests/times, emits no additional domain outbox event, and remains stale to the
+  ordinary current-cut resolver.
 - Candidate, Intake, Protected Replay Request, Protected Run Result, Protected Robustness Assessment, and every
   Eligibility Fact repeat the same Protected Robustness Plan identity and version.
 - Every `ADMITTED` Intake Receipt cross-binds the exact `SELECTED_FOR_QUALIFICATION` disposition and its frozen
