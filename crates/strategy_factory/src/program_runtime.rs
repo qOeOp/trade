@@ -330,12 +330,24 @@ fn execution_error(error: WasmiError) -> ProgramRuntimeError {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::Path, process::Command, sync::OnceLock};
+    use std::{ffi::OsStr, fs, path::Path, process::Command, sync::OnceLock};
 
     use rstest::rstest;
     use strategy_factory_program_sdk::{FrameEncoder, ProgramRunScope};
 
     use super::*;
+
+    const PROGRAM_RUSTFLAGS: &str = "-Dwarnings \
+        -Clink-arg=--initial-memory=65536 \
+        -Clink-arg=--max-memory=65536 \
+        -Clink-arg=--stack-first -Clink-arg=-z \
+        -Clink-arg=stack-size=32768";
+    const AMBIENT_RUST_FLAG_VARS: [&str; 4] = [
+        "RUSTFLAGS",
+        "RUSTDOCFLAGS",
+        "CARGO_ENCODED_RUSTFLAGS",
+        "CARGO_ENCODED_RUSTDOCFLAGS",
+    ];
 
     #[derive(Clone, Copy)]
     enum EventBody {
@@ -408,6 +420,41 @@ mod tests {
         ] {
             let mut runtime = StrategyProgramV1::new(wasm, budget(1_000_000)).unwrap();
             assert!(runtime.invoke(&start_frame(parameters)).unwrap().is_empty());
+        }
+    }
+
+    #[rstest]
+    fn real_program_builds_ignore_ci_rustflags_and_keep_explicit_warning_discipline() {
+        let injected_env = [
+            ("RUSTFLAGS", "-D warnings"),
+            ("RUSTDOCFLAGS", "-D warnings"),
+            (
+                "CARGO_ENCODED_RUSTFLAGS",
+                "-Dwarnings\u{1f}-Clink-arg=--initial-memory=1114112",
+            ),
+            ("CARGO_ENCODED_RUSTDOCFLAGS", "-Dwarnings"),
+        ];
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("programs");
+        let target = tempfile::tempdir().unwrap();
+        let command = program_build_command(&root.join("pilot"), target.path(), &injected_env);
+
+        for name in AMBIENT_RUST_FLAG_VARS {
+            assert!(matches!(
+                command.get_envs().find(|(key, _)| *key == OsStr::new(name)),
+                Some((_, None))
+            ));
+        }
+        assert_eq!(
+            command
+                .get_envs()
+                .find(|(key, _)| *key == OsStr::new("CARGO_TARGET_WASM32V1_NONE_RUSTFLAGS"))
+                .and_then(|(_, value)| value),
+            Some(OsStr::new(PROGRAM_RUSTFLAGS))
+        );
+
+        let (channel, pilot) = build_real_programs(&injected_env);
+        for wasm in [&channel, &pilot] {
+            StrategyProgramV1::new(wasm, budget(1_000_000)).unwrap();
         }
     }
 
@@ -541,46 +588,56 @@ mod tests {
 
     fn real_programs() -> &'static (Vec<u8>, Vec<u8>) {
         static PROGRAMS: OnceLock<(Vec<u8>, Vec<u8>)> = OnceLock::new();
-        PROGRAMS.get_or_init(|| {
-            let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("programs");
-            let target = tempfile::tempdir().unwrap();
+        PROGRAMS.get_or_init(|| build_real_programs(&[]))
+    }
 
-            for package in ["channel_control", "pilot"] {
-                let project = root.join(package);
-                let output = Command::new(env!("CARGO"))
-                    .env(
-                        "CARGO_TARGET_WASM32V1_NONE_RUSTFLAGS",
-                        "-Clink-arg=--initial-memory=65536 \
-                         -Clink-arg=--max-memory=65536 \
-                         -Clink-arg=--stack-first -Clink-arg=-z \
-                         -Clink-arg=stack-size=32768",
-                    )
-                    .args([
-                        "build",
-                        "--frozen",
-                        "--offline",
-                        "--release",
-                        "--target",
-                        "wasm32v1-none",
-                    ])
-                    .arg("--target-dir")
-                    .arg(target.path())
-                    .current_dir(&project)
-                    .output()
-                    .unwrap();
-                assert!(
-                    output.status.success(),
-                    "program build from {} failed: {}",
-                    project.display(),
-                    String::from_utf8_lossy(&output.stderr)
-                );
-            }
-            let output = target.path().join("wasm32v1-none/release");
-            (
-                read_wasm(&output, "strategy_factory_channel_control_program.wasm"),
-                read_wasm(&output, "strategy_factory_pilot_program.wasm"),
-            )
-        })
+    fn build_real_programs(injected_env: &[(&str, &str)]) -> (Vec<u8>, Vec<u8>) {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("programs");
+        let target = tempfile::tempdir().unwrap();
+
+        for package in ["channel_control", "pilot"] {
+            let project = root.join(package);
+            let output = program_build_command(&project, target.path(), injected_env)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "program build from {} failed: {}",
+                project.display(),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        let output = target.path().join("wasm32v1-none/release");
+        (
+            read_wasm(&output, "strategy_factory_channel_control_program.wasm"),
+            read_wasm(&output, "strategy_factory_pilot_program.wasm"),
+        )
+    }
+
+    fn program_build_command(
+        project: &Path,
+        target: &Path,
+        injected_env: &[(&str, &str)],
+    ) -> Command {
+        let mut command = Command::new(env!("CARGO"));
+        command.envs(injected_env.iter().copied());
+        for name in AMBIENT_RUST_FLAG_VARS {
+            command.env_remove(name);
+        }
+        command
+            .env("CARGO_TARGET_WASM32V1_NONE_RUSTFLAGS", PROGRAM_RUSTFLAGS)
+            .args([
+                "build",
+                "--frozen",
+                "--offline",
+                "--release",
+                "--target",
+                "wasm32v1-none",
+            ])
+            .arg("--target-dir")
+            .arg(target)
+            .current_dir(project);
+        command
     }
 
     fn read_wasm(root: &Path, name: &str) -> Vec<u8> {
