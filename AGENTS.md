@@ -13,6 +13,13 @@ design cannot be implemented as written, or implementation reveals that the docu
 design must change, stop the task and request explicit user authorization before changing the
 documentation or continuing the implementation.
 
+## Dashboard design status
+
+The Dashboard documentation under `docs/guide/dashboard.md` and
+`docs/guide/dashboard.zh.md` is an experimental design artifact only. It does not authorize Dashboard
+implementation. Do not develop, scaffold, deploy, or package Dashboard code unless the user later gives
+explicit implementation authority and the documentation's status is changed accordingly.
+
 ## Local API keys
 
 Codex may use the following API keys from the local environment when an admitted repository task

@@ -15,9 +15,10 @@ VibeTrader 是把可证伪市场想法转化为受治理自动交易的闭环产
 8. [研究来源接入指南](./source-intake/)为 Research 提供高 ROI 且 provider-neutral 的外部来源接纳基线。
 9. [市场数据接入指南](./market-data-intake/)把 credential 与 provider endpoint 转成有权利约束且 PIT 正确的事实。
 10. [可观测性接入指南](./observability/)定义 trace、telemetry、outbox、持久化与 Dashboard 投影，同时避免创建第二业务权威。
-11. [架构边界](../architecture/)区分权威 Owner 与产品壳 阶段和通道。
-12. [Owners](../owners/)定义十个业务事实写入者。
-13. [场景](../scenarios/)说明七条可观察的端到端产品故事。
+11. [Trade Dashboard](./dashboard/)定义未来第一方可视化外壳、导航、组件系统与最小 Windmill 替代边界。
+12. [架构边界](../architecture/)区分权威 Owner 与产品壳 阶段和通道。
+13. [Owners](../owners/)定义十个业务事实写入者。
+14. [场景](../scenarios/)说明七条可观察的端到端产品故事。
 
 ## 如何理解架构 Flow
 
