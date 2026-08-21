@@ -66,13 +66,21 @@ caller inputs.
 
 Before any insert, Qualification strictly revalidates the bound JSONL record bytes, call/output/turn pairing,
 frozen canonical generator identity, complete expected semantic vector, surviving R&D basis/receipt/head/outbox,
-target fingerprint, global empty Qualification history, absent recovery receipt, and inactive outbox publisher.
+global empty Qualification history, absent recovery receipt, and inactive outbox publisher. The closed incident
+contract binds PostgreSQL cluster `system_identifier`, database name/OID, and role name/OID as typed fields with a
+domain-separated digest. Qualification compares that semantic target under transaction custody before any DDL or
+write and repeats the comparison immediately before the first DDL.
 One serializable transaction takes the principal/scope advisory lock and exclusive table locks, then inserts the
 original projection, head, original domain outbox row, and a separate Qualification custody/audit receipt. The
 receipt emits no domain wake and states that no physical backup was restored, original JSONB storage bytes were
 not observed, and no new validity was minted. Exact completed replay returns the same receipt without writes;
 partial, conflicting, stale, malformed, or non-empty state fails closed. The reconstructed projection retains its
 original half-open interval, so a normal resolver at the current cut remains `UNAVAILABLE`.
+
+Executable provenance is a separate effect boundary. Qualification records the executable hash actually used and
+verifies database semantics; it does not claim that repository code can independently prove its own executable
+bytes. The Hub-owned external effect controller binds the reviewed Origin ancestry, candidate commit/tree,
+executable path, and SHA-256 before it releases the database capability and executes this worker.
 
 ## Input handoffs
 
@@ -191,6 +199,8 @@ evaluation, and decision frontier, while duplicates inside that frontier join an
 - Candidate and evaluation rules are immutable before protected evidence is revealed.
 - The incident recovery binary is feature-gated, closed to the exact incident and four resource locators, and
   cannot accept reconstructed facts or freshness claims from its caller.
+- A copied-anchor store with a different cluster/database/role identity and an R&D head whose canonically decoded
+  request scope differs from the frozen scope both fail before Qualification DDL or rows.
 - Faults after each recovery write roll back projection, head, outbox, receipt, and transactional DDL together;
   isolated PostgreSQL verification uses an explicitly disposable database and role distinct from every default
   Owner database.

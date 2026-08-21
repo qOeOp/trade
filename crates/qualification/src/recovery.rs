@@ -32,6 +32,13 @@ const INCIDENT_IDENTITY: &str =
 const AUTHORIZATION_LOCATOR: &str = "codex://threads/01a014ef-d305-7b40-8d6b-f5c6d26fca56";
 const EVIDENCE_SESSION_RESOURCE: &str = "/Users/vx/.codex/sessions/2026/08/21/rollout-2026-08-21T07-49-07-01a02194-139a-7281-9d2b-a87ab29d67ba.jsonl";
 const TARGET_DATABASE_RESOURCE: &str = "env:RD_OWNER_DATABASE_URL";
+const TARGET_CLUSTER_SYSTEM_IDENTIFIER: u64 = 7_675_384_521_409_548_322;
+const TARGET_DATABASE_NAME: &str = "rd_owner";
+const TARGET_DATABASE_OID: u32 = 16_386;
+const TARGET_ROLE_NAME: &str = "rd_owner";
+const TARGET_ROLE_OID: u32 = 16_385;
+const TARGET_DATABASE_DIGEST: &str =
+    "sha256:cb7a0b3d7041e007d87a1afc8b9aa7204535ef64706d7293337cca3c0a1ebd7e";
 const DISPOSITION: &str = "DETERMINISTIC_CANONICAL_RECONSTRUCTION_NO_BACKUP";
 const PROJECTED_EVENT_KIND: &str = "QUALIFICATION_PROTECTED_FEEDBACK_PROJECTED_V1";
 const GENERATOR_COMMIT: &str = "a05d76ea18e2b35d7e55d74357fbc30b971ec1a2";
@@ -86,6 +93,7 @@ pub struct RecoveryReceiptV1 {
     generator: GeneratorBindingV1,
     tool_executable_sha256: String,
     target_database_resource: String,
+    target_database_identity: TargetDatabaseIdentityV1,
     database_resource_fingerprint: String,
     rd_anchor: RdAnchorBindingV1,
     restored: RestoredBindingV1,
@@ -129,6 +137,7 @@ struct StoredRecoveryReceiptV1 {
     generator: GeneratorBindingV1,
     tool_executable_sha256: String,
     target_database_resource: String,
+    target_database_identity: TargetDatabaseIdentityV1,
     database_resource_fingerprint: String,
     rd_anchor: RdAnchorBindingV1,
     restored: RestoredBindingV1,
@@ -164,6 +173,23 @@ struct GeneratorBindingV1 {
     tree: String,
     postgres_blob: String,
     postgres_sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct TargetDatabaseIdentityV1 {
+    schema_version: u32,
+    cluster_system_identifier: u64,
+    database_name: String,
+    database_oid: u32,
+    role_name: String,
+    role_oid: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TargetDatabaseBindingV1 {
+    identity: TargetDatabaseIdentityV1,
+    digest: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -219,6 +245,7 @@ struct RecoveryReceiptMeaningV1<'a> {
     generator: &'a GeneratorBindingV1,
     tool_executable_sha256: &'a str,
     target_database_resource: &'a str,
+    target_database_identity: &'a TargetDatabaseIdentityV1,
     database_resource_fingerprint: &'a str,
     rd_anchor: &'a RdAnchorBindingV1,
     restored: &'a RestoredBindingV1,
@@ -705,6 +732,60 @@ async fn recover(
     evidence: &IncidentEvidenceV1,
     fault: FaultPoint,
 ) -> Result<RecoveryReceiptV1, QualificationOwnerError> {
+    let expected_target = production_target_database_identity();
+    let expected_target_digest = canonical_digest(
+        "qualification.owner-recovery-target-database.v1",
+        &expected_target,
+    )?;
+
+    if expected_target_digest != TARGET_DATABASE_DIGEST {
+        return Err(unavailable(
+            "closed target database identity digest mismatch",
+        ));
+    }
+    recover_with_expected_target(
+        database_url,
+        target_database_resource,
+        authorization_locator,
+        tool_executable_sha256,
+        evidence,
+        fault,
+        &expected_target,
+    )
+    .await
+}
+
+#[cfg(test)]
+async fn recover_for_test(
+    database_url: &str,
+    target_database_resource: &str,
+    authorization_locator: &str,
+    tool_executable_sha256: &str,
+    evidence: &IncidentEvidenceV1,
+    fault: FaultPoint,
+    expected_target: &TargetDatabaseIdentityV1,
+) -> Result<RecoveryReceiptV1, QualificationOwnerError> {
+    recover_with_expected_target(
+        database_url,
+        target_database_resource,
+        authorization_locator,
+        tool_executable_sha256,
+        evidence,
+        fault,
+        expected_target,
+    )
+    .await
+}
+
+async fn recover_with_expected_target(
+    database_url: &str,
+    target_database_resource: &str,
+    authorization_locator: &str,
+    tool_executable_sha256: &str,
+    evidence: &IncidentEvidenceV1,
+    fault: FaultPoint,
+    expected_target: &TargetDatabaseIdentityV1,
+) -> Result<RecoveryReceiptV1, QualificationOwnerError> {
     let canonical_evidence = verify_evidence(Path::new(EVIDENCE_SESSION_RESOURCE))?;
 
     if *evidence != canonical_evidence {
@@ -728,7 +809,8 @@ async fn recover(
         .await
         .map_err(storage)?;
 
-    let database_fingerprint = database_resource_fingerprint(&mut transaction).await?;
+    let target_database_binding =
+        verify_target_database_identity(&mut transaction, expected_target).await?;
     verify_no_active_publisher(&mut transaction).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
         .bind(INCIDENT_IDENTITY)
@@ -756,6 +838,14 @@ async fn recover(
         .execute(&mut *transaction)
         .await
         .map_err(storage)?;
+    let revalidated_target =
+        verify_target_database_identity(&mut transaction, expected_target).await?;
+
+    if revalidated_target != target_database_binding {
+        return Err(unavailable(
+            "target database identity changed before recovery write",
+        ));
+    }
     sqlx::query("CREATE TABLE IF NOT EXISTS qualification_owner_recovery_receipts_v1 (receipt_identity TEXT PRIMARY KEY, incident_identity TEXT NOT NULL UNIQUE, disposition TEXT NOT NULL, receipt_digest TEXT NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)")
         .execute(&mut *transaction)
         .await
@@ -783,7 +873,7 @@ async fn recover(
     {
         let receipt = read_completed_receipt(
             &mut transaction,
-            &database_fingerprint,
+            &target_database_binding,
             &rd_anchor,
             tool_executable_sha256,
             evidence,
@@ -815,7 +905,7 @@ async fn recover(
     .map_err(storage)
     .and_then(|value| u64::try_from(value).map_err(json_error))?;
     let receipt = form_recovery_receipt(
-        &database_fingerprint,
+        &target_database_binding,
         &rd_anchor,
         tool_executable_sha256,
         evidence,
@@ -886,23 +976,54 @@ fn expected_basis_locator() -> RdIndependenceBasisLocatorV1 {
     }
 }
 
-async fn database_resource_fingerprint(
+fn production_target_database_identity() -> TargetDatabaseIdentityV1 {
+    TargetDatabaseIdentityV1 {
+        schema_version: 1,
+        cluster_system_identifier: TARGET_CLUSTER_SYSTEM_IDENTIFIER,
+        database_name: TARGET_DATABASE_NAME.to_string(),
+        database_oid: TARGET_DATABASE_OID,
+        role_name: TARGET_ROLE_NAME.to_string(),
+        role_oid: TARGET_ROLE_OID,
+    }
+}
+
+async fn verify_target_database_identity(
     transaction: &mut Transaction<'_, Postgres>,
-) -> Result<String, QualificationOwnerError> {
-    let row = sqlx::query("SELECT current_database() AS database_name, current_user AS database_user, COALESCE(inet_server_addr()::TEXT, 'local') AS server_address, COALESCE(inet_server_port(), 0) AS server_port, current_setting('server_version_num') AS server_version_num")
+    expected: &TargetDatabaseIdentityV1,
+) -> Result<TargetDatabaseBindingV1, QualificationOwnerError> {
+    let observed = read_target_database_identity(transaction).await?;
+
+    if observed != *expected {
+        return Err(unavailable("target database identity mismatch"));
+    }
+    let digest = canonical_digest("qualification.owner-recovery-target-database.v1", &observed)?;
+    Ok(TargetDatabaseBindingV1 {
+        identity: observed,
+        digest,
+    })
+}
+
+async fn read_target_database_identity(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<TargetDatabaseIdentityV1, QualificationOwnerError> {
+    let row = sqlx::query("SELECT (pg_control_system()).system_identifier::TEXT AS cluster_system_identifier, current_database() AS database_name, (SELECT oid::BIGINT FROM pg_database WHERE datname = current_database()) AS database_oid, current_user AS role_name, (SELECT oid::BIGINT FROM pg_roles WHERE rolname = current_user) AS role_oid")
         .fetch_one(&mut **transaction)
         .await
         .map_err(storage)?;
-    let fields = (
-        row.try_get::<String, _>("database_name").map_err(storage)?,
-        row.try_get::<String, _>("database_user").map_err(storage)?,
-        row.try_get::<String, _>("server_address")
-            .map_err(storage)?,
-        row.try_get::<i32, _>("server_port").map_err(storage)?,
-        row.try_get::<String, _>("server_version_num")
-            .map_err(storage)?,
-    );
-    canonical_digest("qualification.recovery-database-resource.v1", &fields)
+    Ok(TargetDatabaseIdentityV1 {
+        schema_version: 1,
+        cluster_system_identifier: row
+            .try_get::<String, _>("cluster_system_identifier")
+            .map_err(storage)?
+            .parse()
+            .map_err(json_error)?,
+        database_name: row.try_get("database_name").map_err(storage)?,
+        database_oid: u32::try_from(row.try_get::<i64, _>("database_oid").map_err(storage)?)
+            .map_err(json_error)?,
+        role_name: row.try_get("role_name").map_err(storage)?,
+        role_oid: u32::try_from(row.try_get::<i64, _>("role_oid").map_err(storage)?)
+            .map_err(json_error)?,
+    })
 }
 
 async fn verify_no_active_publisher(
@@ -949,7 +1070,7 @@ async fn verify_rd_anchor(
         return Err(unavailable("surviving R&D basis receipt anchor mismatch"));
     }
 
-    let head_rows = sqlx::query("SELECT principal_scope_key, principal, basis_identity, lineage_digest, committed_at_epoch_ms FROM rd_independence_basis_heads_v1 WHERE principal_scope_key = $1 FOR SHARE")
+    let head_rows = sqlx::query("SELECT principal_scope_key, principal, request_scope_json, basis_identity, lineage_digest, committed_at_epoch_ms FROM rd_independence_basis_heads_v1 WHERE principal_scope_key = $1 FOR SHARE")
         .bind(RD_PRINCIPAL_SCOPE_KEY)
         .fetch_all(&mut **transaction)
         .await
@@ -959,11 +1080,18 @@ async fn verify_rd_anchor(
         return Err(unavailable("surviving R&D basis head unavailable"));
     }
     let head = &head_rows[0];
+    let head_scope: Vec<String> = decode_exact(
+        &head
+            .try_get::<serde_json::Value, _>("request_scope_json")
+            .map_err(storage)?,
+    )?;
+
     if head
         .try_get::<String, _>("principal_scope_key")
         .map_err(storage)?
         != RD_PRINCIPAL_SCOPE_KEY
         || head.try_get::<String, _>("principal").map_err(storage)? != PRINCIPAL
+        || head_scope != expected_scope()
         || head
             .try_get::<String, _>("basis_identity")
             .map_err(storage)?
@@ -1046,7 +1174,7 @@ fn checked_count(value: i64) -> Result<u64, QualificationOwnerError> {
 }
 
 fn form_recovery_receipt(
-    database_resource_fingerprint: &str,
+    target_database_binding: &TargetDatabaseBindingV1,
     rd_anchor: &RdAnchorBindingV1,
     tool_executable_sha256: &str,
     evidence: &IncidentEvidenceV1,
@@ -1096,7 +1224,8 @@ fn form_recovery_receipt(
         generator: &generator,
         tool_executable_sha256,
         target_database_resource: TARGET_DATABASE_RESOURCE,
-        database_resource_fingerprint,
+        target_database_identity: &target_database_binding.identity,
+        database_resource_fingerprint: &target_database_binding.digest,
         rd_anchor,
         restored: &restored,
         pre_counts,
@@ -1120,7 +1249,8 @@ fn form_recovery_receipt(
         generator,
         tool_executable_sha256: tool_executable_sha256.to_string(),
         target_database_resource: TARGET_DATABASE_RESOURCE.to_string(),
-        database_resource_fingerprint: database_resource_fingerprint.to_string(),
+        target_database_identity: target_database_binding.identity.clone(),
+        database_resource_fingerprint: target_database_binding.digest.clone(),
         rd_anchor: rd_anchor.clone(),
         restored,
         pre_counts,
@@ -1245,7 +1375,7 @@ async fn verify_reconstructed_history(
 
 async fn read_completed_receipt(
     transaction: &mut Transaction<'_, Postgres>,
-    database_fingerprint: &str,
+    target_database_binding: &TargetDatabaseBindingV1,
     rd_anchor: &RdAnchorBindingV1,
     tool_executable_sha256: &str,
     evidence: &IncidentEvidenceV1,
@@ -1264,8 +1394,9 @@ async fn read_completed_receipt(
             .map_err(storage)?,
     )?;
     let receipt = RecoveryReceiptV1::from_stored(stored);
-    receipt.verify_canonical()?;
-    if receipt.database_resource_fingerprint != database_fingerprint
+    receipt.verify_canonical(target_database_binding)?;
+    if receipt.target_database_identity != target_database_binding.identity
+        || receipt.database_resource_fingerprint != target_database_binding.digest
         || receipt.rd_anchor != *rd_anchor
         || receipt.tool_executable_sha256 != tool_executable_sha256
         || receipt.evidence_records != evidence.records
@@ -1308,6 +1439,7 @@ impl RecoveryReceiptV1 {
             generator: self.generator.clone(),
             tool_executable_sha256: self.tool_executable_sha256.clone(),
             target_database_resource: self.target_database_resource.clone(),
+            target_database_identity: self.target_database_identity.clone(),
             database_resource_fingerprint: self.database_resource_fingerprint.clone(),
             rd_anchor: self.rd_anchor.clone(),
             restored: self.restored.clone(),
@@ -1334,6 +1466,7 @@ impl RecoveryReceiptV1 {
             generator: stored.generator,
             tool_executable_sha256: stored.tool_executable_sha256,
             target_database_resource: stored.target_database_resource,
+            target_database_identity: stored.target_database_identity,
             database_resource_fingerprint: stored.database_resource_fingerprint,
             rd_anchor: stored.rd_anchor,
             restored: stored.restored,
@@ -1347,7 +1480,10 @@ impl RecoveryReceiptV1 {
         }
     }
 
-    fn verify_canonical(&self) -> Result<(), QualificationOwnerError> {
+    fn verify_canonical(
+        &self,
+        expected_target: &TargetDatabaseBindingV1,
+    ) -> Result<(), QualificationOwnerError> {
         let meaning = RecoveryReceiptMeaningV1 {
             schema_version: self.schema_version,
             incident_identity: &self.incident_identity,
@@ -1358,6 +1494,7 @@ impl RecoveryReceiptV1 {
             generator: &self.generator,
             tool_executable_sha256: &self.tool_executable_sha256,
             target_database_resource: &self.target_database_resource,
+            target_database_identity: &self.target_database_identity,
             database_resource_fingerprint: &self.database_resource_fingerprint,
             rd_anchor: &self.rd_anchor,
             restored: &self.restored,
@@ -1382,6 +1519,8 @@ impl RecoveryReceiptV1 {
             || self.generator.postgres_blob != GENERATOR_BLOB
             || self.generator.postgres_sha256 != format!("sha256:{GENERATOR_SHA256}")
             || self.target_database_resource != TARGET_DATABASE_RESOURCE
+            || self.target_database_identity != expected_target.identity
+            || self.database_resource_fingerprint != expected_target.digest
             || self.raw_original_jsonb_storage_observed
             || self.physical_backup_restored
             || self.new_validity_minted
@@ -1577,11 +1716,23 @@ mod tests {
         assert_eq!(evidence.records.len(), EVIDENCE_RECORDS.len());
     }
 
+    #[rstest]
+    fn frozen_target_database_binding_recomputes_exact_digest() {
+        let target = production_target_database_identity();
+        assert_eq!(
+            canonical_digest("qualification.owner-recovery-target-database.v1", &target).unwrap(),
+            TARGET_DATABASE_DIGEST,
+        );
+    }
+
     #[tokio::test]
     #[ignore = "requires explicit disposable QUALIFICATION_OWNER_RECOVERY_TEST_DATABASE_URL"]
     async fn isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe() {
         let database_url = env::var("QUALIFICATION_OWNER_RECOVERY_TEST_DATABASE_URL")
             .expect("explicit disposable Qualification recovery test database is required");
+        let second_database_url = env::var("QUALIFICATION_OWNER_RECOVERY_SECOND_TEST_DATABASE_URL")
+            .expect("explicit second disposable Qualification recovery test database is required");
+        assert_ne!(database_url, second_database_url);
         assert_ne!(
             Some(database_url.as_str()),
             env::var("RD_OWNER_DATABASE_URL").ok().as_deref()
@@ -1590,91 +1741,144 @@ mod tests {
             Some(database_url.as_str()),
             env::var("DATABASE_URL").ok().as_deref()
         );
+        assert_ne!(
+            Some(second_database_url.as_str()),
+            env::var("RD_OWNER_DATABASE_URL").ok().as_deref()
+        );
+        assert_ne!(
+            Some(second_database_url.as_str()),
+            env::var("DATABASE_URL").ok().as_deref()
+        );
 
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(8)
             .connect(&database_url)
             .await
             .unwrap();
-        let marker = sqlx::query(
-            "SELECT current_database() AS database_name, current_user AS database_user",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert!(
-            marker
-                .try_get::<String, _>("database_name")
-                .unwrap()
-                .starts_with("qualification_owner_recovery_test_")
-        );
-        assert!(
-            marker
-                .try_get::<String, _>("database_user")
-                .unwrap()
-                .starts_with("qualification_owner_recovery_test_")
-        );
-
-        for statement in [
-            "CREATE TABLE rd_independence_bases_v1 (basis_identity TEXT PRIMARY KEY, request_identity TEXT NOT NULL UNIQUE, principal TEXT NOT NULL, request_scope_json JSONB NOT NULL, lineage_digest TEXT NOT NULL, basis_digest TEXT NOT NULL, basis_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
-            "CREATE TABLE rd_independence_basis_heads_v1 (principal_scope_key TEXT PRIMARY KEY, principal TEXT NOT NULL, request_scope_json JSONB NOT NULL, basis_identity TEXT NOT NULL UNIQUE REFERENCES rd_independence_bases_v1(basis_identity), lineage_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
-            "CREATE TABLE rd_owner_outbox_v1 (event_identity TEXT PRIMARY KEY, aggregate_identity TEXT NOT NULL, event_kind TEXT NOT NULL, payload_digest TEXT NOT NULL, payload_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (aggregate_identity, event_kind))",
-        ] {
-            sqlx::query(statement).execute(&pool).await.unwrap();
-        }
+        let second_pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(4)
+            .connect(&second_database_url)
+            .await
+            .unwrap();
+        assert_disposable_test_store(&pool).await;
+        assert_disposable_test_store(&second_pool).await;
+        create_test_owner_tables(&pool).await;
+        create_test_owner_tables(&second_pool).await;
         let owner = PostgresQualificationOwnerV1::connect(&database_url)
             .await
             .unwrap();
+        PostgresQualificationOwnerV1::connect(&second_database_url)
+            .await
+            .unwrap();
         seed_exact_rd_anchor(&pool).await;
+        seed_exact_rd_anchor(&second_pool).await;
+        let mut target_transaction = pool.begin().await.unwrap();
+        let expected_target = read_target_database_identity(&mut target_transaction)
+            .await
+            .unwrap();
+        target_transaction.rollback().await.unwrap();
+        let mut second_target_transaction = second_pool.begin().await.unwrap();
+        let second_target = read_target_database_identity(&mut second_target_transaction)
+            .await
+            .unwrap();
+        second_target_transaction.rollback().await.unwrap();
+        assert_ne!(expected_target, second_target);
         let evidence = verify_evidence(Path::new(EVIDENCE_SESSION_RESOURCE)).unwrap();
         let tool_sha = format!("sha256:{}", "1".repeat(64));
+
+        assert!(
+            recover_for_test(
+                &second_database_url,
+                TARGET_DATABASE_RESOURCE,
+                AUTHORIZATION_LOCATOR,
+                &tool_sha,
+                &evidence,
+                FaultPoint::None,
+                &expected_target,
+            )
+            .await
+            .is_err()
+        );
+        assert_exact_counts(&second_pool, 0, 0, 0).await;
+        assert!(!recovery_receipt_table_exists(&second_pool).await);
+
+        sqlx::query("UPDATE rd_independence_basis_heads_v1 SET request_scope_json = '[\"research:view\"]'::JSONB WHERE principal_scope_key = $1")
+            .bind(RD_PRINCIPAL_SCOPE_KEY)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(
+            recover_for_test(
+                &database_url,
+                TARGET_DATABASE_RESOURCE,
+                AUTHORIZATION_LOCATOR,
+                &tool_sha,
+                &evidence,
+                FaultPoint::None,
+                &expected_target,
+            )
+            .await
+            .is_err()
+        );
+        assert_exact_counts(&pool, 0, 0, 0).await;
+        assert!(!recovery_receipt_table_exists(&pool).await);
+        sqlx::query("UPDATE rd_independence_basis_heads_v1 SET request_scope_json = $1 WHERE principal_scope_key = $2")
+            .bind(serde_json::to_value(expected_scope()).unwrap())
+            .bind(RD_PRINCIPAL_SCOPE_KEY)
+            .execute(&pool)
+            .await
+            .unwrap();
 
         let mut bad_evidence = evidence.clone();
         bad_evidence.records[0].output_sha256 = format!("sha256:{}", "0".repeat(64));
         assert!(
-            recover(
+            recover_for_test(
                 &database_url,
                 TARGET_DATABASE_RESOURCE,
                 AUTHORIZATION_LOCATOR,
                 &tool_sha,
                 &bad_evidence,
                 FaultPoint::None,
+                &expected_target,
             )
             .await
             .is_err()
         );
         assert!(
-            recover(
+            recover_for_test(
                 &database_url,
                 "env:WRONG_DATABASE_URL",
                 AUTHORIZATION_LOCATOR,
                 &tool_sha,
                 &evidence,
                 FaultPoint::None,
+                &expected_target,
             )
             .await
             .is_err()
         );
         assert!(
-            recover(
+            recover_for_test(
                 &database_url,
                 TARGET_DATABASE_RESOURCE,
                 "codex://threads/wrong",
                 &tool_sha,
                 &evidence,
                 FaultPoint::None,
+                &expected_target,
             )
             .await
             .is_err()
         );
         assert!(
-            recover(
+            recover_for_test(
                 &database_url,
                 TARGET_DATABASE_RESOURCE,
                 AUTHORIZATION_LOCATOR,
                 "sha256:not-a-tool",
                 &evidence,
                 FaultPoint::None,
+                &expected_target,
             )
             .await
             .is_err()
@@ -1686,13 +1890,14 @@ mod tests {
             .await
             .unwrap();
         assert!(
-            recover(
+            recover_for_test(
                 &database_url,
                 TARGET_DATABASE_RESOURCE,
                 AUTHORIZATION_LOCATOR,
                 &tool_sha,
                 &evidence,
                 FaultPoint::None,
+                &expected_target,
             )
             .await
             .is_err()
@@ -1715,13 +1920,14 @@ mod tests {
             .await
             .unwrap();
         assert!(
-            recover(
+            recover_for_test(
                 &database_url,
                 TARGET_DATABASE_RESOURCE,
                 AUTHORIZATION_LOCATOR,
                 &tool_sha,
                 &evidence,
                 FaultPoint::None,
+                &expected_target,
             )
             .await
             .is_err()
@@ -1738,13 +1944,14 @@ mod tests {
             FaultPoint::Receipt,
         ] {
             assert!(
-                recover(
+                recover_for_test(
                     &database_url,
                     TARGET_DATABASE_RESOURCE,
                     AUTHORIZATION_LOCATOR,
                     &tool_sha,
                     &evidence,
                     fault,
+                    &expected_target,
                 )
                 .await
                 .is_err()
@@ -1763,16 +1970,18 @@ mod tests {
         let recovery_database_url = database_url.clone();
         let recovery_evidence = evidence.clone();
         let recovery_tool_sha = tool_sha.clone();
+        let recovery_expected_target = expected_target.clone();
         let recovery_locked = RECOVERY_LOCKED_FOR_TEST.notified();
 
         let recovery = tokio::spawn(async move {
-            recover(
+            recover_for_test(
                 &recovery_database_url,
                 TARGET_DATABASE_RESOURCE,
                 AUTHORIZATION_LOCATOR,
                 &recovery_tool_sha,
                 &recovery_evidence,
                 FaultPoint::DelayAfterLocks,
+                &recovery_expected_target,
             )
             .await
         });
@@ -1796,13 +2005,14 @@ mod tests {
             1
         );
 
-        let replay = recover(
+        let replay = recover_for_test(
             &database_url,
             TARGET_DATABASE_RESOURCE,
             AUTHORIZATION_LOCATOR,
             &tool_sha,
             &evidence,
             FaultPoint::None,
+            &expected_target,
         )
         .await
         .unwrap();
@@ -1811,18 +2021,59 @@ mod tests {
 
         let wrong_tool_sha = format!("sha256:{}", "2".repeat(64));
         assert!(
-            recover(
+            recover_for_test(
                 &database_url,
                 TARGET_DATABASE_RESOURCE,
                 AUTHORIZATION_LOCATOR,
                 &wrong_tool_sha,
                 &evidence,
                 FaultPoint::None,
+                &expected_target,
             )
             .await
             .is_err()
         );
         assert_exact_counts(&pool, 1, 1, 1).await;
+    }
+
+    async fn assert_disposable_test_store(pool: &PgPool) {
+        let marker = sqlx::query(
+            "SELECT current_database() AS database_name, current_user AS database_user",
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        assert!(
+            marker
+                .try_get::<String, _>("database_name")
+                .unwrap()
+                .starts_with("qualification_owner_recovery_test_")
+        );
+        assert!(
+            marker
+                .try_get::<String, _>("database_user")
+                .unwrap()
+                .starts_with("qualification_owner_recovery_test_")
+        );
+    }
+
+    async fn create_test_owner_tables(pool: &PgPool) {
+        for statement in [
+            "CREATE TABLE rd_independence_bases_v1 (basis_identity TEXT PRIMARY KEY, request_identity TEXT NOT NULL UNIQUE, principal TEXT NOT NULL, request_scope_json JSONB NOT NULL, lineage_digest TEXT NOT NULL, basis_digest TEXT NOT NULL, basis_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+            "CREATE TABLE rd_independence_basis_heads_v1 (principal_scope_key TEXT PRIMARY KEY, principal TEXT NOT NULL, request_scope_json JSONB NOT NULL, basis_identity TEXT NOT NULL UNIQUE REFERENCES rd_independence_bases_v1(basis_identity), lineage_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+            "CREATE TABLE rd_owner_outbox_v1 (event_identity TEXT PRIMARY KEY, aggregate_identity TEXT NOT NULL, event_kind TEXT NOT NULL, payload_digest TEXT NOT NULL, payload_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (aggregate_identity, event_kind))",
+        ] {
+            sqlx::query(statement).execute(pool).await.unwrap();
+        }
+    }
+
+    async fn recovery_receipt_table_exists(pool: &PgPool) -> bool {
+        sqlx::query_scalar::<_, bool>(
+            "SELECT to_regclass('qualification_owner_recovery_receipts_v1') IS NOT NULL",
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap()
     }
 
     async fn seed_exact_rd_anchor(pool: &PgPool) {

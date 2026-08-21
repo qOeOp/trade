@@ -57,12 +57,18 @@ Qualification 只能执行为 2026-08-21 本地保护反馈丢失授权并封闭
 摘要、genesis 状态和当前有效性都不能由调用方输入。
 
 任何插入前，Qualification 严格重验绑定的 JSONL record 字节、call/output/turn 配对、冻结规范生成器身份、
-完整预期语义向量、存续 R&D basis/receipt/head/outbox、目标 fingerprint、全局空 Qualification 历史、缺失的
-recovery receipt 与未运行的 outbox publisher。一个 serializable 事务取得 principal/scope advisory lock 和表
+完整预期语义向量、存续 R&D basis/receipt/head/outbox、全局空 Qualification 历史、缺失的 recovery receipt
+与未运行的 outbox publisher。封闭事故契约把 PostgreSQL cluster `system_identifier`、database name/OID 与
+role name/OID 绑定为类型化字段及 domain-separated 摘要；Qualification 在任何 DDL 或写入前于事务 custody
+内比较该语义目标，并在第一次 DDL 紧前再次比较。一个 serializable 事务取得 principal/scope advisory lock 和表
 exclusive lock，随后依次插入原 projection、head、原 domain outbox row 与独立的 Qualification custody/audit
 receipt。该 receipt 不发 domain wake，并明确没有恢复物理备份、没有观察原 JSONB 存储字节、没有铸造新
 有效期。准确完成后的重放只返回相同 receipt 而不写入；partial、冲突、过期、畸形或非空状态全部 fail
 closed。重建 projection 保留原半开区间，因此普通 resolver 在当前 cut 仍为 `UNAVAILABLE`。
+
+Executable provenance 是独立的效果边界。Qualification 记录实际使用的 executable hash 并验证数据库语义，
+但不声称仓库代码能够独立证明自身 executable bytes。Hub 拥有的外部 effect controller 在释放数据库能力并
+执行该 worker 前，绑定已审查的 Origin ancestry、candidate commit/tree、executable path 与 SHA-256。
 
 ## 输入交接
 
@@ -169,6 +175,8 @@ Governance 可在每个不同的已授权 lifecycle request evaluation 与 decis
 - 候选和评估规则在保护证据揭示前不可变。
 - 事故 recovery binary 必须 feature-gated，并封闭到准确事故和四个资源定位符；它不能从调用方接收重建
   fact 或 freshness 断言。
+- 复制 anchors 但 cluster/database/role identity 不同的 store，以及规范解码后 request scope 不同的 R&D
+  head，都必须在 Qualification DDL 或 row 之前失败。
 - 每次 recovery 写入后的 fault 必须把 projection、head、outbox、receipt 和事务 DDL 一并回滚；隔离
   PostgreSQL 验证必须使用与任何默认 Owner 数据库不同、显式 disposable 的 database 与 role。
 - 成功重建后的全局计数必须准确为 `1/1/1` 加一个 recovery receipt，复现冻结规范 verifier 的
