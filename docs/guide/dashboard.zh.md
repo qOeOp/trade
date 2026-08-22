@@ -863,11 +863,12 @@ Windmill CE 的 resource detail 被隐藏，因此当前迁移证据显示 `reda
 projection。两者使用相同 ordered slot 与 route-backed tab：
 
 ```text
-H  Breadcrumb / Runs > path > shortened run ID          [Copy locator] [Resolve outcome]
+H  Breadcrumb / Runs > path > shortened run ID
+   [Copy locator] [Refresh] [Cancel queued dependency…?] [Resolve same identity] [Download bounded result/log]
 S  Semantic status | operational status | duration | received/started/completed
 P  Run identity, path, kind, tag, trigger, principal, worker, version, hash, language,
    memory peak, parent/root correlation, retention; then allowlisted Inputs key/value table
-   and `n fields withheld` disclosure with reason chips
+   and `n fields withheld` disclosure with reason chips；RunWorkerCompatibilityMatrix 绑定该 run ID
 Q  Owner Outcome: availability, source Owner, next legal action, receipt identity, source cut
 T  Result: allowlisted/redacted bounded JSON/tree view with Copy field, Copy JSON,
    Download bounded result, and the same withheld-field disclosure
@@ -876,6 +877,9 @@ T  Result: allowlisted/redacted bounded JSON/tree view with Copy field, Copy JSO
    Metrics= NotCollected/Unavailable/time-series
    Traces = NotCaptured/Unavailable/request spans
    Assets = Empty/disposable attachments only; Owner artifacts appear only as receipt locators
+A  DependencyCancellationPanel 位于固定 action slot，只在 queued、unclaimed、zero-domain-effect dependency run
+   且 current OperationalActionEnvelope 存在时显示。H 的第三个 action 打开或聚焦该 confirmation；panel 内唯一
+   effect button 是 Cancel queued dependency。其他情形 H slot 3 与 A 同时缺席。
 ```
 
 Button 不继承 Windmill 通用 `Run again`、`Share`、`Edit`、script editor、worker REPL、restart 或 cache clean。
@@ -954,8 +958,9 @@ span；绝不能改变 route order 或 drawer behavior。
 - `P` 与 `Q` 共用一个最小 320 px row。`Q` 放 context、stop predicate、evidence completeness 或当前 selected
   identity；它绝不能作为第二 writer 重复 `P`。
 - `T` 是 canonical list/history/comparison surface。Selection 打开 `D`，不替换 URL。
-- `A` 仅在 Owner projection 返回一个 admitted action 时出现，包含 action label、target identity、consequence、
-  stop predicate 与一个 primary button。
+- `A` 只为一个已准入的 `ActionAdmissionGate` branch 出现。`domain` variant 要求 Owner projection，并包含
+  action label、target identity、consequence、stop predicate 与一个 primary button。`operational` variant 要求
+  current `OperationalActionEnvelope`，保持同一 geometry，且不能承载 domain action 或替代 Owner admission。
 - `D` 在 desktop 为 480 px、compact desktop 为 400 px、低于 768 px 为 full-screen。内部顺序固定为 status、
   immutable identities、Owner receipt、source cut/frontier/freshness、evidence、独立 operational job link、
   recovery，最后是同一个 `A` action；不得包含第二份 semantic form。
@@ -965,7 +970,9 @@ span；绝不能改变 route order 或 drawer behavior。
 ### Routed page blueprint registry
 
 以下 registry 是 skeleton 的规范。Button 按列出的左右顺序出现。`Open`、`Copy`、`Refresh`、filter 与 compare
-selection 是只读 UI action；其他 button 在 render 时还必须取得命名 Owner action manifest。
+selection 是只读 UI action；其他 button 在 render 时还必须取得匹配的 admitted `ActionAdmissionGate` branch：
+`domain` 使用具名 Owner action manifest，显式注册的 `operational` control 使用 current
+`OperationalActionEnvelope`。
 
 #### Overview 与 R&D
 

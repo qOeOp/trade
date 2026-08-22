@@ -911,11 +911,12 @@ route-local drawer while the primary table/card state remains visible.
 at 480 px. Both use the same ordered slots and route-backed tabs:
 
 ```text
-H  Breadcrumb / Runs > path > shortened run ID          [Copy locator] [Resolve outcome]
+H  Breadcrumb / Runs > path > shortened run ID
+   [Copy locator] [Refresh] [Cancel queued dependency…?] [Resolve same identity] [Download bounded result/log]
 S  Semantic status | operational status | duration | received/started/completed
 P  Run identity, path, kind, tag, trigger, principal, worker, version, hash, language,
    memory peak, parent/root correlation, retention; then allowlisted Inputs key/value table
-   and `n fields withheld` disclosure with reason chips
+   and `n fields withheld` disclosure with reason chips; RunWorkerCompatibilityMatrix is bound to this run ID
 Q  Owner Outcome: availability, source Owner, next legal action, receipt identity, source cut
 T  Result: allowlisted/redacted bounded JSON/tree view with Copy field, Copy JSON,
    Download bounded result, and the same withheld-field disclosure
@@ -924,6 +925,9 @@ T  Result: allowlisted/redacted bounded JSON/tree view with Copy field, Copy JSO
    Metrics= NotCollected/Unavailable/time-series
    Traces = NotCaptured/Unavailable/request spans
    Assets = Empty/disposable attachments only; Owner artifacts appear only as receipt locators
+A  DependencyCancellationPanel in the fixed action slot, present only for a queued, unclaimed,
+   zero-domain-effect dependency run with a current OperationalActionEnvelope. The third H action opens/focuses
+   this confirmation; the panel's sole effect button is Cancel queued dependency. Otherwise H slot 3 and A are absent.
 ```
 
 Buttons never inherit Windmill's generic `Run again`, `Share`, `Edit`, script editor, worker REPL, restart, or cache
@@ -1004,8 +1008,10 @@ behavior.
 - `P` and `Q` are one 320 px minimum row. `Q` contains context, stop predicates, evidence completeness, or the
   currently selected identity; it never duplicates `P` as a second writer.
 - `T` is the canonical list/history/comparison surface. Selection opens `D`; it does not replace the URL.
-- `A` is absent unless the Owner projection returns one admitted action. It contains the action label, target
-  identity, consequence, stop predicate, and one primary button.
+- `A` appears only for one admitted `ActionAdmissionGate` branch. The `domain` variant requires the Owner projection
+  and contains the action label, target identity, consequence, stop predicate and one primary button. The
+  `operational` variant requires a current `OperationalActionEnvelope`, keeps the same geometry, and cannot host a
+  domain action or substitute for Owner admission.
 - `D` is 480 px at desktop, 400 px at compact desktop, and full-screen below 768 px. Its order is status, immutable
   identities, Owner receipt, source cut/frontier/freshness, evidence, separate operational job link, recovery, then
   the same `A` action. It never contains a second semantic form.
@@ -1016,7 +1022,8 @@ behavior.
 
 The following registry is normative for skeletons. Buttons appear left to right in the listed order. `Open`,
 `Copy`, `Refresh`, filters, and compare selection are read‑only UI actions; every other button additionally needs
-the named Owner action manifest at render time.
+the matching admitted `ActionAdmissionGate` branch at render time: a named Owner action manifest for `domain`, or a
+current `OperationalActionEnvelope` for the explicitly registered `operational` control.
 
 #### Overview and R&D
 
