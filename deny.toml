@@ -124,6 +124,8 @@ multiple-versions = "deny"
 # Deny wildcard version requirements (*)
 # Prevents uncontrolled version drift and supply-chain attacks
 wildcards = "deny"
+# Private workspace path dependencies are locally versioned and not registry wildcards.
+allow-wildcard-paths = true
 
 highlight = "all"
 
@@ -206,9 +208,18 @@ skip = [
   { crate = "ed25519" },
   { crate = "signature" },
 
-  # Perfect hash function crates - transitive
+  # Perfect hash runtime crates - transitive
   { crate = "phf" },
   { crate = "phf_shared" },
+
+  # phf codegen 0.11 is pinned by pyo3-stub-gen -> rustpython-parser and
+  # ibapi -> time-tz; 0.13 is required by scraper -> selectors/web_atoms.
+  { crate = "phf_codegen@0.11.3", reason = "upstream rustpython-parser/time-tz chain still requires phf_codegen 0.11" },
+  { crate = "phf_generator@0.11.3", reason = "phf_codegen 0.11 requires phf_generator 0.11" },
+
+  # rustc-hash 1 is pinned by pyo3-stub-gen -> rustpython-parser; scraper ->
+  # selectors requires rustc-hash 2.
+  { crate = "rustc-hash@1.1.0", reason = "upstream rustpython-parser chain still requires rustc-hash 1" },
 
   # Error handling - thiserror 1.x vs 2.x transition in progress
   { crate = "thiserror" },
@@ -220,6 +231,10 @@ skip = [
   # HTTP client - reqwest 0.12 vs 0.13 transition (databento, hypersync, object_store on 0.12)
   { crate = "reqwest" },
   { crate = "wasm-streams" },
+
+  # Axum 0.8 requires the 0.29 WebSocket stack while Vibe adapters use 0.30.
+  { crate = "tokio-tungstenite@0.29.0", reason = "upstream axum 0.8 still requires tokio-tungstenite 0.29" },
+  { crate = "tungstenite@0.29.0", reason = "tokio-tungstenite 0.29 requires tungstenite 0.29" },
 
   # Protobuf runtime - dYdX/cosmos/tonic use 0.13, ibapi uses 0.14
   { crate = "prost" },
