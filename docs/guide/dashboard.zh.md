@@ -19,8 +19,10 @@
 - `TARGET_DRAFT` 表示当前设计预期未来 Dashboard 提供该能力；相关真实消费者流程终结前仍可修订。
 - `NOT_ADMITTED` 表示 UI、绿色 job、图表、日志或本章都不能证明能力存在，也不能授权相关业务迁移。
 
-本设计证据切面为 2026-08-22、当前 Dashboard Origin
+本设计的主要证据切面冻结在 2026-08-22 Dashboard baseline Origin
 `6869be69256d093c222ae6e34027077efe83adeb`、tree `b4f23739eaf52c8c8efe213567904649e6a04677`。
+该 baseline 只标识紧随其后的 incident 与 downstream-resolver evidence 的 source revision；后续 consumer row
+各自绑定准确 candidate，绝不能把该 baseline 重新解释为当前 repository head。
 已停止的精确未提交 R&D candidate `a05d76ea18e2b35d7e55d74357fbc30b971ec1a2`、tree
 `eb25b1a8325c4711ebd8d2cd012b3a87f70741c6`、tracked diff
 `a5896bb23294e00fce158eedf97a429f9f06c35b9f243264455c7877c87da6c3` 与 untracked set

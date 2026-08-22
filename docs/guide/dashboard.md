@@ -25,8 +25,10 @@ or that the capability inventory is final while the observed backend programme r
 - `NOT_ADMITTED` means a UI, green job, chart, log, or this document does not prove the capability or authorize a
   related business transition.
 
-The evidence cut is 2026-08-22 at current Dashboard Origin
+The primary evidence cut is frozen at the 2026-08-22 Dashboard baseline Origin
 `6869be69256d093c222ae6e34027077efe83adeb`, tree `b4f23739eaf52c8c8efe213567904649e6a04677`.
+This baseline identifies the source revision for the incident and downstream-resolver evidence immediately below;
+later consumer rows bind their own exact candidates and do not redefine this baseline as the current repository head.
 The stopped exact uncommitted R&D candidate `a05d76ea18e2b35d7e55d74357fbc30b971ec1a2`, tree
 `eb25b1a8325c4711ebd8d2cd012b3a87f70741c6`, tracked diff
 `a5896bb23294e00fce158eedf97a429f9f06c35b9f243264455c7877c87da6c3`, and untracked set
