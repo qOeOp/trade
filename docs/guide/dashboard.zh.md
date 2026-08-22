@@ -868,7 +868,7 @@ H  Breadcrumb / Runs > path > shortened run ID
 S  Semantic status | operational status | duration | received/started/completed
 P  Run identity, path, kind, tag, trigger, principal, worker, version, hash, language,
    memory peak, parent/root correlation, retention; then allowlisted Inputs key/value table
-   and `n fields withheld` disclosure with reason chips；RunWorkerCompatibilityMatrix 绑定该 run ID
+   and `n fields withheld` disclosure with reason chips; RunWorkerCompatibilityMatrix is bound to this run ID
 Q  Owner Outcome: availability, source Owner, next legal action, receipt identity, source cut
 T  Result: allowlisted/redacted bounded JSON/tree view with Copy field, Copy JSON,
    Download bounded result, and the same withheld-field disclosure
@@ -877,9 +877,9 @@ T  Result: allowlisted/redacted bounded JSON/tree view with Copy field, Copy JSO
    Metrics= NotCollected/Unavailable/time-series
    Traces = NotCaptured/Unavailable/request spans
    Assets = Empty/disposable attachments only; Owner artifacts appear only as receipt locators
-A  DependencyCancellationPanel 位于固定 action slot，只在 queued、unclaimed、zero-domain-effect dependency run
-   且 current OperationalActionEnvelope 存在时显示。H 的第三个 action 打开或聚焦该 confirmation；panel 内唯一
-   effect button 是 Cancel queued dependency。其他情形 H slot 3 与 A 同时缺席。
+A  DependencyCancellationPanel in the fixed action slot, present only for a queued, unclaimed,
+   zero-domain-effect dependency run with a current OperationalActionEnvelope. The third H action opens/focuses
+   this confirmation; the panel's sole effect button is Cancel queued dependency. Otherwise H slot 3 and A are absent.
 ```
 
 Button 不继承 Windmill 通用 `Run again`、`Share`、`Edit`、script editor、worker REPL、restart 或 cache clean。
