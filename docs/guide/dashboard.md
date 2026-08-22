@@ -390,19 +390,22 @@ business-state panels.
 
 ### Reference implementation anchors
 
-The visual evidence cut is the local checkout `/Users/vx/WebstormProjects/vibe-trading`. It is a source reference,
-not a package dependency or business architecture authority. Future agents must inspect these anchors before
-changing tokens or shell geometry:
+The visual evidence cut is the local checkout `/Users/vx/WebstormProjects/vibe-trading` at commit
+`4a6d66fb77fc144c2a013417c703db2caf401641`, tree `984c7d684dba72a6af78dc3e6cf50191bc3622ea`. The referenced
+files below were clean against that revision at observation; unrelated dirty files in the stopped checkout are not
+design evidence. This is a source reference, not a package dependency or business architecture authority. Future
+agents must inspect these anchors before changing tokens or shell geometry:
 
-| Reference path under `apps/web/src`                | Inherit                                                                                                                                                            | Explicitly do not inherit                                                                                      |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
-| `app/globals.css`                                  | Mine warm‑neutral raw palette, Inter/JetBrains Mono, market‑direction separation, and the allowed zones/values for `glass-heavy`, `glass-light`, and tooltip glass | Factor/status token names as Trade business semantics; arbitrary literal colors                                |
-| `components/layout/left-icon-sidebar.tsx`          | 52 px rail content, 40 px round targets, 18 px icons, 1 px item gap, centered/scrolling heavy‑glass capsule, dark active item                                      | Reference module identities or phase labels                                                                    |
-| `features/blueprint/components/doc-mode-shell.tsx` | Full‑viewport flex shell, 12 px sidebar padding, 16 px content gap and right/bottom gutters, bounded inner overflow                                                | Blueprint mode, document toggle, or mock content as product features                                           |
-| `components/layout/top-nav-bar.tsx`                | 56 px top bar, replaceable left context slot, light‑glass capsule tabs, notification/action zone                                                                   | Market ticker data as a universal header requirement; Dashboard uses the evidence‑bound status tape            |
-| `components/ui/card.tsx`                           | White 12 px card, Mine border, restrained two‑layer shadow, compact structured header, optional canonical‑detail expansion                                         | The available `frosted` card variant; Dashboard business/data cards remain opaque                              |
-| `lib/chart-tokens.ts`                              | Resolve CSS custom properties when Canvas or another JavaScript renderer cannot consume `var(...)` directly                                                        | Component‑local chart palettes or literal status colors                                                        |
-| `features/blueprint/data/modules.ts`               | Visual density and route‑backed capsule‑navigation pattern only                                                                                                    | The stopped product's module order, labels, phase badges, mock metrics, workflow claims, or trading capability |
+| Reference path under `apps/web/src`                | Inherit                                                                                                                                                                | Explicitly do not inherit                                                                                      |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `app/globals.css`                                  | Mine warm‑neutral raw palette, Inter/JetBrains Mono, market‑direction separation, and the allowed zones/values for `glass-heavy`, `glass-light`, and tooltip glass     | Factor/status token names as Trade business semantics; arbitrary literal colors                                |
+| `components/layout/left-icon-sidebar.tsx`          | 52 px rail content, 40 px round targets, 18 px icons, 1 px item gap, centered/scrolling heavy‑glass capsule, dark active item                                          | Reference module identities or phase labels                                                                    |
+| `features/blueprint/components/doc-mode-shell.tsx` | Full‑viewport flex shell, 12 px sidebar padding, 16 px content gap and right/bottom gutters, bounded inner overflow                                                    | Blueprint mode, document toggle, or mock content as product features                                           |
+| `components/shared/bento-grid.tsx`                 | Container‑observed `wide/narrow/collapse` composition, `rowHeight=180`, `gap=16`, 560 px collapse and 700 px narrow evidence, 1/2/3/4/8 column spans and 1-4 row spans | Its 1/2/3/4/8 API as the routed‑page grid, or its 560/700 container thresholds as global viewport breakpoints  |
+| `components/layout/top-nav-bar.tsx`                | 56 px top bar, replaceable left context slot, light‑glass capsule tabs, notification/action zone                                                                       | Market ticker data as a universal header requirement; Dashboard uses the evidence‑bound status tape            |
+| `components/ui/card.tsx`                           | White 12 px card, Mine border, restrained two‑layer shadow, compact structured header, optional canonical‑detail expansion                                             | The available `frosted` card variant; Dashboard business/data cards remain opaque                              |
+| `lib/chart-tokens.ts`                              | Resolve CSS custom properties when Canvas or another JavaScript renderer cannot consume `var(...)` directly                                                            | Component‑local chart palettes or literal status colors                                                        |
+| `features/blueprint/data/modules.ts`               | Visual density and route‑backed capsule‑navigation pattern only                                                                                                        | The stopped product's module order, labels, phase badges, mock metrics, workflow claims, or trading capability |
 
 The Trade navigation, status vocabulary, domain components, and capability admission in this chapter override the
 reference project's information architecture. A screenshot match cannot promote a mock value or reference route
@@ -888,6 +891,15 @@ Every tab must be drawable from the following desktop skeleton before implementa
                                                     D detail drawer: 480 px max
 ```
 
+`RouteGrid` owns this page-level geometry and is distinct from the reference-derived `BentoGrid`. At viewport width
+`>=1280px`, it has 12 equal logical columns: `S1-S4=3` each, `P=8`, `Q=4`, and `T/A=12`. At `768-1279px`, it has
+six columns: each summary is three columns and wraps two per row, while `P/Q/T/A=6` and remain in source order.
+Below `768px`, it has one column and the order is `H -> S1 -> S2 -> S3 -> S4 -> P -> Q -> T -> A`; `D` is a
+full-screen overlay rather than a grid slot. `RouteSlot` owns only these spans and may not accept an arbitrary
+caller-supplied column count. Panel-internal `BentoGrid` retains container-observed `wide/narrow/collapse`, a
+180 px minimum auto-row, 16 px gap, 1/2/3/4/8 columns and 1-4 row spans; it never changes route order or drawer
+behavior.
+
 - `H` is 72-96 px and always contains page title, one-line purpose, scope selector when applicable, Owner/source
   cut, freshness badge, and only route-level actions.
 - `S1-S4` are 104 px summary cards. A missing metric keeps its slot and displays `Unavailable`; the grid never
@@ -1052,14 +1064,15 @@ Higher layers depend only on lower layers. Pages do not redefine color, spacing,
 
 ### Layout and navigation components
 
-| Component                                                                   | Contract                                                    |
-| --------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `DashboardShell`                                                            | full‑screen rail, top bar, viewport, overlay roots          |
-| `UserCapsule`                                                               | local operator and installation menu; no business authority |
-| `IconRail`, `IconNavItem`                                                   | stable order, tooltip, active/focus/disabled/attention      |
-| `TopBar`, `StatusTape`, `ModuleTabs`, `GlobalCommand`, `NotificationButton` | four top‑menu zones                                         |
-| `PageHeader`, `ScopeBar`, `AuthorityStamp`, `FreshnessStamp`                | Owner/evidence context                                      |
-| `BentoGrid`, `BentoItem`, `SplitPane`, `DetailDrawer`                       | responsive 1/2/3/4/8-column composition                     |
+| Component                                                                   | Contract                                                                                             |
+| --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `DashboardShell`                                                            | full‑screen rail, top bar, viewport, overlay roots                                                   |
+| `UserCapsule`                                                               | local operator and installation menu; no business authority                                          |
+| `IconRail`, `IconNavItem`                                                   | stable order, tooltip, active/focus/disabled/attention                                               |
+| `TopBar`, `StatusTape`, `ModuleTabs`, `GlobalCommand`, `NotificationButton` | four top‑menu zones                                                                                  |
+| `PageHeader`, `ScopeBar`, `AuthorityStamp`, `FreshnessStamp`                | Owner/evidence context                                                                               |
+| `RouteGrid`, `RouteSlot`                                                    | page‑level 12/6/1‑column contract, fixed slot spans/order, no caller‑defined column count            |
+| `BentoGrid`, `BentoItem`, `SplitPane`, `DetailDrawer`                       | panel‑internal container‑responsive 1/2/3/4/8‑column composition, 180 px minimum auto‑row, 16 px gap |
 
 ### Data display components
 

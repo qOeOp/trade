@@ -365,18 +365,22 @@ worker protocol、可丢弃 operational store，以及可选 exact-tool MCP chan
 
 ### 参考实现锚点
 
-视觉证据切面使用本地 checkout `/Users/vx/WebstormProjects/vibe-trading`。它是 source reference，不是 package
-dependency 或业务架构权威。未来 agent 修改 token 或 shell geometry 前必须检查以下锚点：
+视觉证据切面使用本地 checkout `/Users/vx/WebstormProjects/vibe-trading` 的 commit
+`4a6d66fb77fc144c2a013417c703db2caf401641`、tree `984c7d684dba72a6af78dc3e6cf50191bc3622ea`。观察时，
+下列 reference file 相对该 revision 均为 clean；中途停止 checkout 的其他 dirty file 不是设计证据。它是
+source reference，不是 package dependency 或业务架构权威。未来 agent 修改 token 或 shell geometry 前必须
+检查以下锚点：
 
-| `apps/web/src` 下的参考路径                        | 继承                                                                                                                                    | 明确不继承                                                                                        |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `app/globals.css`                                  | Mine 暖中性 raw palette、Inter/JetBrains Mono、market direction 分离，以及 `glass-heavy`、`glass-light`、tooltip glass 的允许区域与数值 | Factor/status token 名称作为 Trade 业务语义；任意 literal color                                   |
-| `components/layout/left-icon-sidebar.tsx`          | 52 px rail content、40 px 圆形 target、18 px icon、1 px item gap、居中/可滚动 heavy‑glass capsule、深色 active item                     | 参考项目的 module identity 或 phase label                                                         |
-| `features/blueprint/components/doc-mode-shell.tsx` | Full‑viewport flex shell、12 px sidebar padding、16 px content gap 与右/下 gutter、有界 inner overflow                                  | Blueprint mode、document toggle 或 mock content 作为产品功能                                      |
-| `components/layout/top-nav-bar.tsx`                | 56 px top bar、可替换 left context slot、light‑glass capsule tab、notification/action zone                                              | Market ticker data 作为全局 header 的硬要求；Dashboard 使用受证据约束的 status tape               |
-| `components/ui/card.tsx`                           | 白色 12 px card、Mine border、克制的双层 shadow、紧凑 structured header、可选 canonical‑detail expansion                                | 已存在的 `frosted` card variant；Dashboard 业务/data card 保持 opaque                             |
-| `lib/chart-tokens.ts`                              | Canvas 或其他 JavaScript renderer 不能直接消费 `var(...)` 时解析 CSS custom property                                                    | Component‑local chart palette 或 literal status color                                             |
-| `features/blueprint/data/modules.ts`               | 只继承视觉密度与 route‑backed capsule‑navigation pattern                                                                                | 中途停止项目的 module 顺序、label、phase badge、mock metric、workflow claim 或 trading capability |
+| `apps/web/src` 下的参考路径                        | 继承                                                                                                                                                           | 明确不继承                                                                                                   |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `app/globals.css`                                  | Mine 暖中性 raw palette、Inter/JetBrains Mono、market direction 分离，以及 `glass-heavy`、`glass-light`、tooltip glass 的允许区域与数值                        | Factor/status token 名称作为 Trade 业务语义；任意 literal color                                              |
+| `components/layout/left-icon-sidebar.tsx`          | 52 px rail content、40 px 圆形 target、18 px icon、1 px item gap、居中/可滚动 heavy‑glass capsule、深色 active item                                            | 参考项目的 module identity 或 phase label                                                                    |
+| `features/blueprint/components/doc-mode-shell.tsx` | Full‑viewport flex shell、12 px sidebar padding、16 px content gap 与右/下 gutter、有界 inner overflow                                                         | Blueprint mode、document toggle 或 mock content 作为产品功能                                                 |
+| `components/shared/bento-grid.tsx`                 | Container‑observed `wide/narrow/collapse` composition、`rowHeight=180`、`gap=16`、560 px collapse 与 700 px narrow 证据、1/2/3/4/8 column span 和 1-4 row span | 把它的 1/2/3/4/8 API 当成 routed‑page grid，或把 560/700 container threshold 当作 global viewport breakpoint |
+| `components/layout/top-nav-bar.tsx`                | 56 px top bar、可替换 left context slot、light‑glass capsule tab、notification/action zone                                                                     | Market ticker data 作为全局 header 的硬要求；Dashboard 使用受证据约束的 status tape                          |
+| `components/ui/card.tsx`                           | 白色 12 px card、Mine border、克制的双层 shadow、紧凑 structured header、可选 canonical‑detail expansion                                                       | 已存在的 `frosted` card variant；Dashboard 业务/data card 保持 opaque                                        |
+| `lib/chart-tokens.ts`                              | Canvas 或其他 JavaScript renderer 不能直接消费 `var(...)` 时解析 CSS custom property                                                                           | Component‑local chart palette 或 literal status color                                                        |
+| `features/blueprint/data/modules.ts`               | 只继承视觉密度与 route‑backed capsule‑navigation pattern                                                                                                       | 中途停止项目的 module 顺序、label、phase badge、mock metric、workflow claim 或 trading capability            |
 
 本章的 Trade navigation、状态词汇、domain component 与 capability admission 覆盖参考项目的信息架构。
 Screenshot 匹配不能把 mock value 或参考 route 提升为 `CURRENT`。
@@ -844,6 +848,14 @@ operation/version 与 stop reason 的 `Unavailable`。
                                                     D detail drawer: 480 px max
 ```
 
+`RouteGrid` 独占该 page-level geometry，并与参考项目派生的 `BentoGrid` 分离。Viewport width `>=1280px` 时，
+它有 12 个等宽 logical column：`S1-S4=3`、`P=8`、`Q=4`、`T/A=12`。`768-1279px` 时有 6 列：每个 summary
+占 3 列并每行两个，`P/Q/T/A=6` 且保持 source order。低于 `768px` 时只有一列，顺序为
+`H -> S1 -> S2 -> S3 -> S4 -> P -> Q -> T -> A`；`D` 是 full-screen overlay，不占 grid slot。
+`RouteSlot` 只拥有这些 span，不能接收任意 caller-supplied column count。Panel 内部的 `BentoGrid` 保留
+container-observed `wide/narrow/collapse`、180 px minimum auto-row、16 px gap、1/2/3/4/8 column 与 1-4 row
+span；绝不能改变 route order 或 drawer behavior。
+
 - `H` 高 72-96 px，固定包含 page title、单行 purpose、适用时的 scope selector、Owner/source cut、freshness
   badge，以及仅 route-level action。
 - `S1-S4` 是 104 px summary card。缺少 metric 时保留 slot 并显示 `Unavailable`，绝不能用零填补空位。
@@ -1005,14 +1017,15 @@ transport/session control。任何 viewport 都不出现 Issue/Renew authorizati
 
 ### Layout 与 navigation component
 
-| 组件                                                                        | 合同                                               |
-| --------------------------------------------------------------------------- | -------------------------------------------------- |
-| `DashboardShell`                                                            | full‑screen rail、top bar、viewport、overlay root  |
-| `UserCapsule`                                                               | 本地 operator 与 installation menu；无业务权威     |
-| `IconRail`, `IconNavItem`                                                   | 稳定顺序、tooltip、active/focus/disabled/attention |
-| `TopBar`, `StatusTape`, `ModuleTabs`, `GlobalCommand`, `NotificationButton` | top menu 四区                                      |
-| `PageHeader`, `ScopeBar`, `AuthorityStamp`, `FreshnessStamp`                | Owner/evidence context                             |
-| `BentoGrid`, `BentoItem`, `SplitPane`, `DetailDrawer`                       | 响应式 1/2/3/4/8-column 组合                       |
+| 组件                                                                        | 合同                                                                                      |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `DashboardShell`                                                            | full‑screen rail、top bar、viewport、overlay root                                         |
+| `UserCapsule`                                                               | 本地 operator 与 installation menu；无业务权威                                            |
+| `IconRail`, `IconNavItem`                                                   | 稳定顺序、tooltip、active/focus/disabled/attention                                        |
+| `TopBar`, `StatusTape`, `ModuleTabs`, `GlobalCommand`, `NotificationButton` | top menu 四区                                                                             |
+| `PageHeader`, `ScopeBar`, `AuthorityStamp`, `FreshnessStamp`                | Owner/evidence context                                                                    |
+| `RouteGrid`, `RouteSlot`                                                    | page‑level 12/6/1‑column contract、固定 slot span/order、无 caller‑defined column count   |
+| `BentoGrid`, `BentoItem`, `SplitPane`, `DetailDrawer`                       | panel 内部 container‑responsive 1/2/3/4/8‑column 组合、180 px minimum auto‑row、16 px gap |
 
 ### Data display component
 
