@@ -605,14 +605,16 @@ and current explicit effect authority. A visual button never shortcuts the chain
 The observed authenticated page is `/apps_raw/get/f/trade/rd_workbench` in workspace `trade-rd`. At a 1280 px
 browser viewport, Windmill contributes an approximately 208 px workspace sidebar and a 1072 px App iframe. Inside
 that iframe, the deployed Raw App uses a 1040 px shell with 16 px side margins, 48/32 px top/bottom padding, and a
-single vertical flow. Its four cards have 26 px padding, 18 px radius, 18 px vertical margins, and the source form
-uses two 485.5 px columns with a 15 px gap. Primary, secondary, and quiet actions are 46.5 px high and stay in that
-order. Below 720 px, the form and receipt lists become one column.
+single vertical flow. The observed four-card candidate has 26 px card padding, 18 px radius, 18 px vertical margins,
+and a source form with two 485.5 px columns separated by a 15 px gap. Primary, secondary, and quiet actions are
+46.5 px high and stay in that order. Below 720 px, the form and receipt lists become one column.
 
 The implementation evidence is the deployed iframe plus
-`product/rd-workbench/f/trade/rd_workbench.raw_app/App.tsx`, `index.css`, and `control-policy.mjs`. S3 replay remains
-`OBSERVED_CANDIDATE_NOT_CURRENT`; its deployed screen is evidence for layout and interaction, not main or product
-admission.
+`product/rd-workbench/f/trade/rd_workbench.raw_app/App.tsx`, `index.css`, and `control-policy.mjs`. The source checked
+into the frozen current Origin renders cards `01` through `03`; card `04` exists only in the observed deployed S3
+candidate. S3 replay therefore remains `OBSERVED_CANDIDATE_NOT_CURRENT`: its screen is evidence for layout and
+interaction, not main or product admission. The table below deliberately keeps both evidence classes visible and
+does not imply that all four stages coexist in current source.
 
 | Windmill stage                         | Observed internal order                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Dashboard destination                                                                                                                                                                                                                                                                                   |
 | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

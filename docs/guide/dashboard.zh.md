@@ -566,13 +566,15 @@ Execution 与 live 页面默认只读。未来 control 保留
 
 已观察的认证页面是 workspace `trade-rd` 中的 `/apps_raw/get/f/trade/rd_workbench`。在 1280 px 浏览器
 viewport 下，Windmill 提供约 208 px workspace sidebar 与 1072 px App iframe。Iframe 内部署的 Raw App 使用
-1040 px shell、左右各 16 px margin、上/下 48/32 px padding 与单一纵向 flow。四张 card 使用 26 px padding、
-18 px radius、18 px 垂直 margin；source form 是两个 485.5 px column，gap 15 px。Primary、secondary、quiet
-action 均高 46.5 px，并保持该顺序。低于 720 px 时 form 与 receipt list 变为单列。
+1040 px shell、左右各 16 px margin、上/下 48/32 px padding 与单一纵向 flow。已观察的四卡片 candidate 使用
+26 px card padding、18 px radius、18 px 垂直 margin；source form 是两个 485.5 px column，gap 15 px。
+Primary、secondary、quiet action 均高 46.5 px，并保持该顺序。低于 720 px 时 form 与 receipt list 变为单列。
 
 实现证据是已部署 iframe，以及 `product/rd-workbench/f/trade/rd_workbench.raw_app/App.tsx`、`index.css` 与
-`control-policy.mjs`。S3 replay 仍是 `OBSERVED_CANDIDATE_NOT_CURRENT`；其部署页面只证明 layout 与
-interaction，不能证明 main 或产品准入。
+`control-policy.mjs`。冻结 current Origin 中检入的 source 只渲染 `01` 至 `03`；`04` 仅存在于已观察的
+S3 deployed candidate。因此 S3 replay 仍是 `OBSERVED_CANDIDATE_NOT_CURRENT`：其页面只证明 layout 与
+interaction，不能证明 main 或产品准入。下表刻意同时保留两类证据，不表示四个 stage 已同时存在于
+current source。
 
 | Windmill stage                         | 已观察内部顺序                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Dashboard 归属                                                                                                                                                                                                                                                   |
 | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
