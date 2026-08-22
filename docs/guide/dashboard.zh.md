@@ -810,6 +810,7 @@ operation/version 与 stop reason 的 `Unavailable`。
 | Admission successor distance 大于一                                      | Disabled                              | Open/Copy authorization chain evidence                       | Disabled                                        | 显示 admission/current generation、distance 与 `DIRECT_SUCCESSOR_REQUIRED`；绝不选择 chain head                                                                                                                                                     |
 | Product Edge admission 已提交；downstream R&D custody unavailable        | Disabled                              | Resolve same request identity enabled                        | Successor disabled                              | `SUBMITTED_OR_UNKNOWN`；admission receipt/outbox 加 resolver stop predicate；绝非拒绝                                                                                                                                                               |
 | Sealed S1 basis；Qualification 与 terminal Research receipt 缺失         | Disabled                              | Resolve same request identity enabled                        | Disabled                                        | 仅为 TARGET：`SEALED_BASIS_PENDING_QUALIFICATION` 显示 basis receipt/head/outbox 与缺失的 next receipt；Resolve 必须推进 sealed Historical completion。被拒绝的 `e5893fd550` 只重复 terminal lookup miss，因此保持 unavailable，不能伪装为 recovery |
+| Verified S1 terminal；linked view stale                                  | Disabled                              | Resolve same request identity enabled                        | Open/Copy terminal evidence                     | 只有 currentness 使用 amber `STALE`；verified Research receipt 与 TrialFamily 保持 neutral/read‑only，successor/S2/review action 全部 absent，且状态绝不能变为绿色 success 或灰色 unavailable                                                       |
 | `CLAIMED` 但 invocation admission 缺失或 mismatch                        | Disabled                              | Resolve same attempt identity enabled                        | Disabled                                        | A0 receipt slot 显示 unavailable、保留 claim identity、没有 Run 或 replacement claim                                                                                                                                                                |
 | Claim wire schema/version mismatch                                       | Disabled                              | Resolve same attempt identity enabled                        | Disabled                                        | 固定 A0/A1 slot unavailable；显示 operation/schema 与两个 expected receipt field；无 Run                                                                                                                                                            |
 | Rust 省略 optional family key，但 gateway 期待 `null`                    | Disabled                              | Resolve same attempt identity enabled                        | Disabled                                        | 对应 A1/terminal slot unavailable；显示 absent‑vs‑null schema stop；不推断 fact                                                                                                                                                                     |
@@ -1111,6 +1112,13 @@ role，不能引入 literal color。
 Dark value 是 `TARGET`，不是参考项目已实现完整 dark theme 的证据。首个实现必须测试两个 theme 后才能
 声称 parity。Market direction 使用独立且 locale-aware 的 `--market-up`、`--market-flat`、`--market-down`，
 绝不能 alias 业务 success/failure。Chart 还要用 sign、label 或 glyph 重复方向。
+
+`S1TerminalCustodyPanel [data-state="stale"]` 只把 warning style 应用于 currentness row：
+`border-inline-start: 3px solid var(--status-warning)`，背景为
+`background: color-mix(in oklab, var(--status-warning) 8%, var(--surface-card))`，state icon 与 `STALE` label 同样消费
+`--status-warning`。Verified receipt 与 TrialFamily evidence row 继续继承 `--surface-card`、
+`--text-primary`、`--border-default`，不出现 positive wrapper。Terminal custody 缺失或 cross-bound 时，整个
+fixed geometry 切换为 `--status-unavailable`，不能复用 stale style。
 
 ### Component、geometry 与 motion token
 
