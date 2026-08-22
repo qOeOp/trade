@@ -294,7 +294,7 @@ mod linux {
         byte_length: u64,
     }
 
-    pub(super) fn verify(request: NativeProducerVerificationRequest) -> NativeProducerEvidence {
+    pub(super) fn verify(request: &NativeProducerVerificationRequest) -> NativeProducerEvidence {
         let Some(source_digest) = option_env!("STRATEGY_FACTORY_SOURCE_DIGEST") else {
             return NativeProducerEvidence::rejected(
                 NativeProducerErrorCode::BuildSourceDigestUnavailable,
@@ -668,7 +668,7 @@ mod linux {
         let mut sha = Sha256::new();
         let mut blake = blake3::Hasher::new();
         let mut byte_length = 0u64;
-        let mut buffer = [0u8; 64 * 1024];
+        let mut buffer = vec![0u8; 64 * 1024].into_boxed_slice();
         loop {
             let read = reader.read(&mut buffer).map_err(|_| ())?;
             if read == 0 {
@@ -891,5 +891,7 @@ mod linux {
 pub(crate) fn verify_native_producer(
     request: NativeProducerVerificationRequest,
 ) -> NativeProducerEvidence {
-    linux::verify(request)
+    let evidence = linux::verify(&request);
+    drop(request);
+    evidence
 }
