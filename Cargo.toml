@@ -50,6 +50,7 @@ members = [
   "crates/pyo3",
   "crates/qualification",
   "crates/rd_artifact_invocation_custody",
+  "crates/runtime",
   "crates/risk",
   "crates/serialization",
   "crates/strategy_factory",
