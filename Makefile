@@ -221,7 +221,7 @@ endif
 
 # Core crates (excludes adapters/* and workspace members without tests)
 CORE_CRATES := vibe-analysis vibe-backtest vibe-common vibe-core \
-    vibe-cryptography vibe-data vibe-event-store vibe-execution \
+    vibe-cryptography vibe-data vibe-deployment-attestation vibe-event-store vibe-execution \
     vibe-indicators vibe-indicators-kernel vibe-infrastructure vibe-live vibe-model vibe-scanner \
     vibe-network vibe-observability vibe-persistence vibe-persistence-macros \
     vibe-operator-authorization vibe-plugin vibe-portfolio vibe-product-edge vibe-product-edge-claim-custody vibe-qualification vibe-risk vibe-rd-artifact-invocation-custody vibe-runtime vibe-serialization \

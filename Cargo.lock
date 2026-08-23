@@ -10126,6 +10126,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "vibe-deployment-attestation"
+version = "0.62.0"
+dependencies = [
+ "blake3",
+ "libc",
+ "rstest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "trybuild",
+]
+
+[[package]]
 name = "vibe-deribit"
 version = "0.62.0"
 dependencies = [
@@ -11145,7 +11159,6 @@ dependencies = [
  "base64 0.23.1",
  "blake3",
  "jiff",
- "libc",
  "rstest",
  "rust_decimal",
  "serde",
@@ -11164,6 +11177,7 @@ dependencies = [
  "vibe-common",
  "vibe-core",
  "vibe-data",
+ "vibe-deployment-attestation",
  "vibe-fred",
  "vibe-model",
  "vibe-operator-authorization",

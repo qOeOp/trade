@@ -33,6 +33,7 @@ vibe-binance = { workspace = true }
 vibe-common = { workspace = true }
 vibe-core = { workspace = true }
 vibe-data = { workspace = true }
+vibe-deployment-attestation = { workspace = true }
 vibe-fred = { workspace = true }
 vibe-model = { workspace = true }
 vibe-persistence = { workspace = true }
@@ -43,9 +44,6 @@ vibe-scheduled-events = { workspace = true }
 vibe-trading = { workspace = true }
 wasmi = { workspace = true }
 wasmparser = { workspace = true }
-
-[target.'cfg(target_os = "linux")'.dependencies]
-libc = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
