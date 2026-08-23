@@ -518,6 +518,75 @@ fn accepted_replay_binds_complete_current_eligibility_evidence_without_writes() 
 }
 
 #[rstest]
+fn accepted_replay_revalidates_complete_current_decision_evidence() {
+    let mutations: [fn(&mut Fixture); 5] = [
+        |fixture| fixture.request.submitted_time.valid_through = 1_050,
+        |fixture| {
+            fixture
+                .evidence
+                .capacity
+                .as_mut()
+                .expect("capacity")
+                .time
+                .valid_through = 1_050;
+        },
+        |fixture| {
+            fixture
+                .evidence
+                .adapter_binding
+                .as_mut()
+                .expect("adapter binding")
+                .time
+                .valid_through = 1_050;
+        },
+        |fixture| {
+            fixture
+                .evidence
+                .authorization_lineage
+                .as_mut()
+                .expect("authorization lineage")
+                .time
+                .valid_through = 1_050;
+        },
+        |fixture| {
+            fixture
+                .evidence
+                .autonomous_policy
+                .as_mut()
+                .expect("autonomous policy")
+                .time
+                .valid_through = 1_050;
+        },
+    ];
+    let mut rejected = 0;
+
+    for mutate in mutations {
+        let mut fixture = Fixture::new();
+        mutate(&mut fixture);
+        let request_id = fixture.request.request_id.clone();
+        let submission = (fixture.request.clone(), fixture.evidence.clone());
+        let mut core = fixture.core(vec![time(1_000, 20), time(1_100, 21)], false);
+        let first = core
+            .resolve_frontier(std::slice::from_ref(&submission))
+            .expect("initial complete current evidence is accepted")
+            .remove(0);
+        assert_eq!(first.status(), ReceiptStatus::Accepted);
+
+        assert_eq!(
+            core.resolve_frontier(std::slice::from_ref(&submission)),
+            Err(StoreError::DecisionEvidenceUnavailable {
+                request_id: request_id.clone(),
+                reason: RejectionReason::EvidenceExpiredOrRevoked,
+            })
+        );
+        assert_eq!(core.receipt(&request_id), Some(&first));
+        rejected += 1;
+    }
+
+    assert_eq!(rejected, 5);
+}
+
+#[rstest]
 fn rejected_attempt_requires_exact_set_and_invalid_high_priority_does_not_close() {
     let fixture = Fixture::new();
     let mut high = fixture.request.clone();

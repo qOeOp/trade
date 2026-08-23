@@ -193,6 +193,8 @@ impl GovernanceCore {
                 return Err(StoreError::ReplaySetMismatch(frontier));
             }
 
+            self.admit_terminal_replay(submissions, &decision_time)?;
+
             return Ok(submissions
                 .iter()
                 .filter_map(|(request, _)| self.receipts.get(&request.request_id).cloned())
@@ -203,6 +205,8 @@ impl GovernanceCore {
             if attempts.iter().any(|attempt| {
                 attempt.exact_set == exact_set && attempt.decision_evidence == decision_evidence
             }) {
+                self.admit_terminal_replay(submissions, &decision_time)?;
+
                 return Ok(submissions
                     .iter()
                     .filter_map(|(request, _)| self.receipts.get(&request.request_id).cloned())
@@ -531,6 +535,76 @@ impl GovernanceCore {
         }
 
         Ok(eligibility)
+    }
+
+    fn admit_terminal_replay(
+        &self,
+        submissions: &[(LifecycleRequest, UntrustedDecisionEvidence)],
+        decision_time: &TimeEvidence,
+    ) -> Result<(), StoreError> {
+        for (request, evidence) in submissions {
+            let unavailable = |reason| StoreError::DecisionEvidenceUnavailable {
+                request_id: request.request_id.clone(),
+                reason,
+            };
+
+            if !causal_order(&request.submitted_time, decision_time) {
+                return Err(unavailable(RejectionReason::CausalOrderViolation));
+            }
+
+            if !request
+                .submitted_time
+                .is_current_at(decision_time.observed_at)
+            {
+                return Err(unavailable(RejectionReason::EvidenceExpiredOrRevoked));
+            }
+
+            if evidence
+                .artifact
+                .as_ref()
+                .is_some_and(|artifact| !self.admission.artifact(artifact))
+            {
+                return Err(unavailable(RejectionReason::EvidenceNotTrusted));
+            }
+
+            for (time, admitted) in [
+                evidence
+                    .capacity
+                    .as_ref()
+                    .map(|readback| (&readback.time, self.admission.capacity(readback))),
+                evidence
+                    .adapter_binding
+                    .as_ref()
+                    .map(|readback| (&readback.time, self.admission.adapter_binding(readback))),
+                evidence.authorization_lineage.as_ref().map(|readback| {
+                    (
+                        &readback.time,
+                        self.admission.authorization_lineage(readback),
+                    )
+                }),
+                evidence
+                    .autonomous_policy
+                    .as_ref()
+                    .map(|readback| (&readback.time, self.admission.autonomous_policy(readback))),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if !causal_order(time, decision_time) {
+                    return Err(unavailable(RejectionReason::CausalOrderViolation));
+                }
+
+                if !time.is_current_at(decision_time.observed_at) {
+                    return Err(unavailable(RejectionReason::EvidenceExpiredOrRevoked));
+                }
+
+                if !admitted {
+                    return Err(unavailable(RejectionReason::EvidenceNotTrusted));
+                }
+            }
+        }
+
+        Ok(())
     }
 
     #[allow(clippy::too_many_lines)]
