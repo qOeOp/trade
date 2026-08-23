@@ -52,10 +52,12 @@ members = [
   "crates/rd_artifact_invocation_custody",
   "crates/runtime",
   "crates/risk",
+  "crates/scanner",
   "crates/serialization",
   "crates/strategy_factory",
   "crates/strategy_factory_rd_owner_api",
   "crates/strategy_factory/programs/sdk",
+  "crates/strategy_governance",
   "crates/system",
   "crates/testkit",
   "crates/trading",
@@ -95,8 +97,10 @@ vibe-pyo3 = { path = "crates/pyo3", version = "0.62.0" }
 vibe-qualification = { path = "crates/qualification", version = "0.62.0" }
 vibe-rd-artifact-invocation-custody = { path = "crates/rd_artifact_invocation_custody", version = "0.62.0" }
 vibe-risk = { path = "crates/risk", version = "0.62.0" }
+vibe-scanner = { path = "crates/scanner", version = "0.62.0" }
 vibe-serialization = { path = "crates/serialization", version = "0.62.0" }
 vibe-strategy-factory = { path = "crates/strategy_factory", version = "0.62.0" }
+vibe-strategy-governance = { path = "crates/strategy_governance", version = "0.62.0" }
 vibe-system = { path = "crates/system", version = "0.62.0" }
 vibe-testkit = { path = "crates/testkit", version = "0.62.0", default-features = false }
 vibe-trading = { path = "crates/trading", version = "0.62.0" }
@@ -409,6 +413,7 @@ rcgen = { version = "0.14.8", default-features = false, features = [
 ] }
 rstest = "0.26.1"
 tempfile = "3.27.0"
+trybuild = "1.0.116"
 turmoil = "0.7.2"
 
 # -----------------------------------------------------------------------------

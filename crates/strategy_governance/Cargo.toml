@@ -1,0 +1,19 @@
+[package]
+name = "vibe-strategy-governance"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Lower-maturity static Strategy Governance owner core"
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+trybuild = { workspace = true }
