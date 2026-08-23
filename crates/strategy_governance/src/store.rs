@@ -202,6 +202,21 @@ impl GovernanceCore {
             }
         }
 
+        if self
+            .rejected_attempts
+            .get(&frontier)
+            .is_some_and(|attempts| {
+                attempts.iter().any(|attempt| {
+                    attempt.exact_set == exact_set && attempt.decision_evidence == decision_evidence
+                })
+            })
+        {
+            return Ok(submissions
+                .iter()
+                .filter_map(|(request, _)| self.receipts.get(&request.request_id).cloned())
+                .collect());
+        }
+
         if let Some(closed) = self.closed_frontiers.get(&frontier) {
             if closed.exact_set != exact_set || closed.decision_evidence != decision_evidence {
                 return Err(StoreError::ReplaySetMismatch(frontier));
@@ -213,25 +228,20 @@ impl GovernanceCore {
                 .collect());
         }
 
-        if let Some(attempts) = self.rejected_attempts.get(&frontier) {
-            if attempts.iter().any(|attempt| {
-                attempt.exact_set == exact_set && attempt.decision_evidence == decision_evidence
-            }) {
-                return Ok(submissions
-                    .iter()
-                    .filter_map(|(request, _)| self.receipts.get(&request.request_id).cloned())
-                    .collect());
-            }
-
-            if attempts.iter().any(|attempt| {
-                attempt.exact_set.iter().any(|(request_id, _)| {
-                    exact_set
-                        .iter()
-                        .any(|(attempted_id, _)| attempted_id == request_id)
+        if self
+            .rejected_attempts
+            .get(&frontier)
+            .is_some_and(|attempts| {
+                attempts.iter().any(|attempt| {
+                    attempt.exact_set.iter().any(|(request_id, _)| {
+                        exact_set
+                            .iter()
+                            .any(|(attempted_id, _)| attempted_id == request_id)
+                    })
                 })
-            }) {
-                return Err(StoreError::ReplaySetMismatch(frontier));
-            }
+            })
+        {
+            return Err(StoreError::ReplaySetMismatch(frontier));
         }
 
         for ((request, _), identity) in submissions.iter().zip(&identities) {

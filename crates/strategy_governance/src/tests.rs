@@ -722,6 +722,40 @@ fn rejected_attempt_requires_exact_set_and_invalid_high_priority_does_not_close(
 }
 
 #[rstest]
+fn exact_rejected_replay_joins_after_a_different_request_closes_the_frontier() {
+    let fixture = Fixture::new();
+    let mut rejected_evidence = fixture.evidence.clone();
+    rejected_evidence.capacity = None;
+    let rejected = (fixture.request.clone(), rejected_evidence);
+    let mut core = fixture.core(
+        vec![time(1_000, 20), time(1_010, 21), time(1_020, 22)],
+        false,
+    );
+
+    let original = core
+        .resolve_frontier(std::slice::from_ref(&rejected))
+        .expect("missing capacity writes one rejected receipt")
+        .remove(0);
+    assert_eq!(
+        original.rejection_reason(),
+        Some(RejectionReason::MissingCapacity)
+    );
+
+    let mut corrected_request = fixture.request.clone();
+    corrected_request.request_id = id("request-corrected", LifecycleRequestId::new);
+    let accepted = core
+        .resolve_frontier(&[(corrected_request, fixture.evidence)])
+        .expect("different corrected request closes the frontier")
+        .remove(0);
+    assert_eq!(accepted.status(), ReceiptStatus::Accepted);
+
+    assert_eq!(
+        core.resolve_frontier(std::slice::from_ref(&rejected)),
+        Ok(vec![original])
+    );
+}
+
+#[rstest]
 fn rejected_attempt_replay_requires_exact_decision_evidence() {
     let fixture = Fixture::new();
     let request_id = fixture.request.request_id.clone();
