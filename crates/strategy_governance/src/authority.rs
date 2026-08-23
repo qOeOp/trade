@@ -1,5 +1,5 @@
 use crate::model::{
-    UntrustedAdapterBindingReadback, UntrustedArtifactReadback,
+    TimeEvidence, UntrustedAdapterBindingReadback, UntrustedArtifactReadback,
     UntrustedAuthorizationLineageReadback, UntrustedAutonomousPolicyReadback,
     UntrustedCapacityViewReadback, UntrustedEligibilityReadback,
     UntrustedRuntimeApplicationReadback,
@@ -22,6 +22,7 @@ pub(crate) fn qualification_frontiers_match(
 /// request caller cannot implement it and approve its own readbacks.
 pub(crate) trait OwnerAdmission: Send + Sync {
     fn available(&self) -> bool;
+    fn request_time(&self, evidence: &TimeEvidence) -> bool;
     fn artifact(&self, readback: &UntrustedArtifactReadback) -> bool;
     #[allow(
         dead_code,
@@ -40,6 +41,10 @@ pub(crate) struct UnavailableOwnerAdmission;
 
 impl OwnerAdmission for UnavailableOwnerAdmission {
     fn available(&self) -> bool {
+        false
+    }
+
+    fn request_time(&self, _evidence: &TimeEvidence) -> bool {
         false
     }
 

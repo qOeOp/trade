@@ -227,6 +227,7 @@ impl Fixture {
     fn core(&self, clock_values: Vec<TimeEvidence>, runtime_available: bool) -> GovernanceCore {
         GovernanceCore::with_dependencies(
             Box::new(FixtureAdmission {
+                request_time: self.request.submitted_time.clone(),
                 evidence: self.evidence.clone(),
                 runtime_available,
             }),
@@ -282,6 +283,7 @@ fn qualification_owner_frontiers_require_byte_exact_typed_readback() {
 }
 
 struct FixtureAdmission {
+    request_time: TimeEvidence,
     evidence: UntrustedDecisionEvidence,
     runtime_available: bool,
 }
@@ -289,6 +291,10 @@ struct FixtureAdmission {
 impl OwnerAdmission for FixtureAdmission {
     fn available(&self) -> bool {
         true
+    }
+
+    fn request_time(&self, evidence: &TimeEvidence) -> bool {
+        &self.request_time == evidence
     }
 
     fn artifact(&self, readback: &UntrustedArtifactReadback) -> bool {
@@ -584,6 +590,26 @@ fn accepted_replay_revalidates_complete_current_decision_evidence() {
     }
 
     assert_eq!(rejected, 5);
+}
+
+#[rstest]
+fn caller_forged_submitted_time_is_unavailable_before_receipt_write() {
+    let fixture = Fixture::new();
+    let request_id = fixture.request.request_id.clone();
+    let mut forged_request = fixture.request.clone();
+    forged_request.submitted_time.source_frontier =
+        TimeSourceFrontierId::new("caller-forged-request-time-frontier")
+            .expect("valid untrusted locator vocabulary");
+    let mut core = fixture.core(vec![time(1_000, 20)], false);
+
+    assert_eq!(
+        core.resolve_frontier(&[(forged_request, fixture.evidence)]),
+        Err(StoreError::DecisionEvidenceUnavailable {
+            request_id: request_id.clone(),
+            reason: RejectionReason::EvidenceNotTrusted,
+        })
+    );
+    assert!(core.receipt(&request_id).is_none());
 }
 
 #[rstest]

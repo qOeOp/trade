@@ -177,6 +177,13 @@ impl GovernanceCore {
             .ok_or(StoreError::TimeEvidenceUnavailable)?;
         let mut admitted_eligibilities = Vec::with_capacity(submissions.len());
         for (request, evidence) in submissions {
+            if let Err(reason) = self.admit_request_time(request, &decision_time) {
+                return Err(StoreError::DecisionEvidenceUnavailable {
+                    request_id: request.request_id.clone(),
+                    reason,
+                });
+            }
+
             match self.admit_eligibility(request, evidence, &decision_time) {
                 Ok(eligibility) => admitted_eligibilities.push(eligibility),
                 Err(reason) => {
@@ -537,6 +544,33 @@ impl GovernanceCore {
         Ok(eligibility)
     }
 
+    fn admit_request_time(
+        &self,
+        request: &LifecycleRequest,
+        decision_time: &TimeEvidence,
+    ) -> Result<(), RejectionReason> {
+        if !self.admission.available() {
+            return Err(RejectionReason::SourceOwnerAdmissionUnavailable);
+        }
+
+        if !causal_order(&request.submitted_time, decision_time) {
+            return Err(RejectionReason::CausalOrderViolation);
+        }
+
+        if !request
+            .submitted_time
+            .is_current_at(decision_time.observed_at)
+        {
+            return Err(RejectionReason::EvidenceExpiredOrRevoked);
+        }
+
+        if !self.admission.request_time(&request.submitted_time) {
+            return Err(RejectionReason::EvidenceNotTrusted);
+        }
+
+        Ok(())
+    }
+
     fn admit_terminal_replay(
         &self,
         submissions: &[(LifecycleRequest, UntrustedDecisionEvidence)],
@@ -547,17 +581,6 @@ impl GovernanceCore {
                 request_id: request.request_id.clone(),
                 reason,
             };
-
-            if !causal_order(&request.submitted_time, decision_time) {
-                return Err(unavailable(RejectionReason::CausalOrderViolation));
-            }
-
-            if !request
-                .submitted_time
-                .is_current_at(decision_time.observed_at)
-            {
-                return Err(unavailable(RejectionReason::EvidenceExpiredOrRevoked));
-            }
 
             if evidence
                 .artifact
@@ -639,17 +662,6 @@ impl GovernanceCore {
             || request.allowed_intent_class != AllowedIntentClass::PaperAddRisk
         {
             return Err(RejectionReason::AuthorizationBindingMismatch);
-        }
-
-        if !causal_order(&request.submitted_time, decision_time) {
-            return Err(RejectionReason::CausalOrderViolation);
-        }
-
-        if !request
-            .submitted_time
-            .is_current_at(decision_time.observed_at)
-        {
-            return Err(RejectionReason::EvidenceExpiredOrRevoked);
         }
 
         let artifact = evidence
