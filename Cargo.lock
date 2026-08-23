@@ -10678,6 +10678,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "vibe-observability"
+version = "0.62.0"
+dependencies = [
+ "rstest",
+]
+
+[[package]]
 name = "vibe-okx"
 version = "0.62.0"
 dependencies = [
@@ -11271,9 +11278,11 @@ dependencies = [
 name = "vibe-trader"
 version = "0.62.0"
 dependencies = [
+ "rstest",
  "vibe-common",
  "vibe-core",
  "vibe-model",
+ "vibe-observability",
 ]
 
 [[package]]

@@ -9,3 +9,4 @@
 pub use vibe_common as common;
 pub use vibe_core as core;
 pub use vibe_model as model;
+pub use vibe_observability as observability;
