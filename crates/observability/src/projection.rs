@@ -1,8 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::envelope::{
-    EnvelopePolicy, EnvelopeViolation, OpaqueReference, OwnerEventEnvelope, TelemetryEnvelope,
-};
+use crate::envelope::{EnvelopePolicy, EnvelopeViolation, OpaqueReference, OwnerEventEnvelope};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SourceKey {
@@ -98,7 +96,6 @@ pub enum SourceRebuildState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TelemetryVisibility {
-    Available,
     Unavailable,
 }
 
@@ -292,7 +289,18 @@ pub enum ProjectionError {
         actual: SourceFrontier,
     },
     RebuildCheckpointMismatch,
-    RebuildIncomplete,
+}
+
+/// Seals Owner ingestion until a crate-owned typed adapter is integrated.
+pub struct OwnerIngestCapability {
+    _private: (),
+}
+
+impl OwnerIngestCapability {
+    #[cfg(test)]
+    pub(crate) const fn for_test() -> Self {
+        Self { _private: () }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -352,22 +360,6 @@ impl Snapshot {
             .collect()
     }
 
-    fn complete_against(&self, target: &Self) -> bool {
-        if target.events.is_empty() {
-            return self.events.is_empty();
-        }
-        let event_sources: Vec<_> = self
-            .sources
-            .values()
-            .filter(|source| source.frontier.is_some())
-            .collect();
-
-        !event_sources.is_empty()
-            && event_sources
-                .into_iter()
-                .all(|source| source.completeness() == Completeness::Complete)
-    }
-
     fn empty_source_bookkeeping_from(target: &Self) -> Self {
         let sources = target
             .sources
@@ -401,7 +393,6 @@ pub struct ProjectionCheckpoint {
     rebuild: Option<RebuildState>,
     quarantine: Vec<QuarantineRecord>,
     unavailable_sources: BTreeSet<SourceKey>,
-    telemetry_visibility: TelemetryVisibility,
 }
 
 #[derive(Debug)]
@@ -411,7 +402,6 @@ pub struct StatusProjection {
     rebuild: Option<RebuildState>,
     quarantine: Vec<QuarantineRecord>,
     unavailable_sources: BTreeSet<SourceKey>,
-    telemetry_visibility: TelemetryVisibility,
 }
 
 impl StatusProjection {
@@ -422,7 +412,6 @@ impl StatusProjection {
             rebuild: None,
             quarantine: Vec::new(),
             unavailable_sources: BTreeSet::new(),
-            telemetry_visibility: TelemetryVisibility::Unavailable,
         }
     }
 
@@ -433,7 +422,6 @@ impl StatusProjection {
             rebuild: checkpoint.rebuild,
             quarantine: checkpoint.quarantine,
             unavailable_sources: checkpoint.unavailable_sources,
-            telemetry_visibility: checkpoint.telemetry_visibility,
         }
     }
 
@@ -443,12 +431,12 @@ impl StatusProjection {
             rebuild: self.rebuild.clone(),
             quarantine: self.quarantine.clone(),
             unavailable_sources: self.unavailable_sources.clone(),
-            telemetry_visibility: self.telemetry_visibility,
         }
     }
 
     pub fn apply_owner_event(
         &mut self,
+        _capability: &OwnerIngestCapability,
         event: &OwnerEventEnvelope,
     ) -> Result<ApplyOutcome, ProjectionError> {
         if self.rebuild.is_some() {
@@ -458,21 +446,9 @@ impl StatusProjection {
         Ok(self.record_outcome(&event.canonical.record_identity, outcome))
     }
 
-    pub fn observe_telemetry(
-        &mut self,
-        telemetry: &TelemetryEnvelope,
-    ) -> Result<(), EnvelopeViolation> {
-        telemetry.validate(self.policy.envelope)?;
-        self.telemetry_visibility = TelemetryVisibility::Available;
-        Ok(())
-    }
-
-    pub const fn observe_telemetry_loss(&mut self) {
-        self.telemetry_visibility = TelemetryVisibility::Unavailable;
-    }
-
     pub fn set_source_unavailable(
         &mut self,
+        _capability: &OwnerIngestCapability,
         source: SourceKey,
         unavailable: bool,
     ) -> Result<(), ProjectionError> {
@@ -495,7 +471,10 @@ impl StatusProjection {
         Ok(())
     }
 
-    pub fn begin_rebuild(&mut self) -> Result<SourceFrontier, ProjectionError> {
+    pub fn begin_rebuild(
+        &mut self,
+        _capability: &OwnerIngestCapability,
+    ) -> Result<SourceFrontier, ProjectionError> {
         if self.rebuild.is_some() {
             return Err(ProjectionError::RebuildAlreadyInProgress);
         }
@@ -512,6 +491,7 @@ impl StatusProjection {
 
     pub fn apply_rebuild_event(
         &mut self,
+        _capability: &OwnerIngestCapability,
         event: &OwnerEventEnvelope,
     ) -> Result<ApplyOutcome, ProjectionError> {
         let Some(rebuild) = self.rebuild.as_mut() else {
@@ -521,14 +501,14 @@ impl StatusProjection {
         Ok(self.record_outcome(&event.canonical.record_identity, outcome))
     }
 
-    pub fn finish_rebuild(&mut self) -> Result<(), ProjectionError> {
+    pub fn finish_rebuild(
+        &mut self,
+        _capability: &OwnerIngestCapability,
+    ) -> Result<(), ProjectionError> {
         let Some(rebuild) = self.rebuild.as_ref() else {
             return Err(ProjectionError::RebuildNotInProgress);
         };
 
-        if !rebuild.working.complete_against(&rebuild.target) {
-            return Err(ProjectionError::RebuildIncomplete);
-        }
         let actual_frontier = rebuild.working.source_frontier();
         let expected_frontier = rebuild.target.source_frontier();
 
@@ -655,7 +635,7 @@ impl StatusProjection {
             owner_event_count: owner.owner_event_count,
             quarantine_count: self.quarantine.len(),
             rebuild_target_frontier,
-            telemetry_visibility: self.telemetry_visibility,
+            telemetry_visibility: TelemetryVisibility::Unavailable,
         }
     }
 

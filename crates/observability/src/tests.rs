@@ -1,15 +1,16 @@
-use rstest::rstest;
-use vibe_observability::{
+use crate::{
     envelope::{
         CANONICAL_ENVELOPE_SCHEMA_V1, CanonicalEnvelope, EnvelopePolicy, EnvelopeViolation,
         FactNamespaces, FourTimes, OpaqueReference, OwnerEventEnvelope, PayloadPointer,
         RedactionClass, SignalKind, TelemetryEnvelope, TraceContext,
     },
     projection::{
-        ApplyOutcome, Completeness, ProjectionError, ProjectionPolicy, ProjectionVisibility,
-        QuarantineReason, SourceKey, SourceRebuildState, StatusProjection, TelemetryVisibility,
+        ApplyOutcome, Completeness, OwnerIngestCapability, ProjectionError, ProjectionPolicy,
+        ProjectionVisibility, QuarantineReason, SourceKey, SourceRebuildState, StatusProjection,
+        TelemetryVisibility,
     },
 };
+use rstest::rstest;
 
 const DIGEST_A: &str = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const DIGEST_B: &str = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -93,6 +94,10 @@ fn source_key(owner: &str, node: &str) -> SourceKey {
     SourceKey::new(owner, node).unwrap()
 }
 
+fn capability() -> OwnerIngestCapability {
+    OwnerIngestCapability::for_test()
+}
+
 fn policy() -> ProjectionPolicy {
     ProjectionPolicy {
         max_event_identities: 32,
@@ -107,14 +112,18 @@ fn same_identity_with_changed_content_is_quarantined() {
     let mut projection = StatusProjection::new(policy());
     let original = owner_event("event-1", "Qualification", 1, 100);
     assert_eq!(
-        projection.apply_owner_event(&original).unwrap(),
+        projection
+            .apply_owner_event(&capability(), &original)
+            .unwrap(),
         ApplyOutcome::Applied
     );
 
     let mut conflict = owner_event("event-1", "Qualification", 1, 100);
     conflict.event_content_digest = DIGEST_B.to_string();
     assert_eq!(
-        projection.apply_owner_event(&conflict).unwrap(),
+        projection
+            .apply_owner_event(&capability(), &conflict)
+            .unwrap(),
         ApplyOutcome::Quarantined(QuarantineReason::IdentityContentConflict)
     );
     assert_eq!(projection.owner_state().owner_event_count(), 1);
@@ -170,11 +179,15 @@ fn caller_digest_cannot_mask_any_canonical_content_change() {
     );
 
     let mut projection = StatusProjection::new(policy());
-    projection.apply_owner_event(&original).unwrap();
+    projection
+        .apply_owner_event(&capability(), &original)
+        .unwrap();
 
     for conflict in conflicts {
         assert_eq!(
-            projection.apply_owner_event(&conflict).unwrap(),
+            projection
+                .apply_owner_event(&capability(), &conflict)
+                .unwrap(),
             ApplyOutcome::Quarantined(QuarantineReason::IdentityContentConflict)
         );
     }
@@ -187,11 +200,11 @@ fn at_least_once_delivery_is_idempotent() {
     let mut projection = StatusProjection::new(policy());
     let event = owner_event("event-1", "Research", 1, 100);
     assert_eq!(
-        projection.apply_owner_event(&event).unwrap(),
+        projection.apply_owner_event(&capability(), &event).unwrap(),
         ApplyOutcome::Applied
     );
     assert_eq!(
-        projection.apply_owner_event(&event).unwrap(),
+        projection.apply_owner_event(&capability(), &event).unwrap(),
         ApplyOutcome::Duplicate
     );
     assert_eq!(projection.owner_state().owner_event_count(), 1);
@@ -203,7 +216,7 @@ fn stale_partial_rebuilding_and_unavailable_are_explicit_per_source() {
     let research = source_key("Research", "node-a");
     let mut projection = StatusProjection::new(policy());
     projection
-        .apply_owner_event(&owner_event("event-1", "Research", 1, 100))
+        .apply_owner_event(&capability(), &owner_event("event-1", "Research", 1, 100))
         .unwrap();
     assert_eq!(
         projection.global_status(105).sources()[&research].visibility(),
@@ -216,10 +229,10 @@ fn stale_partial_rebuilding_and_unavailable_are_explicit_per_source() {
 
     let mut partial = StatusProjection::new(policy());
     partial
-        .apply_owner_event(&owner_event("event-1", "Research", 1, 100))
+        .apply_owner_event(&capability(), &owner_event("event-1", "Research", 1, 100))
         .unwrap();
     partial
-        .apply_owner_event(&owner_event("event-3", "Research", 3, 101))
+        .apply_owner_event(&capability(), &owner_event("event-3", "Research", 3, 101))
         .unwrap();
     let partial_view = partial.global_status(102);
     assert_eq!(
@@ -228,7 +241,7 @@ fn stale_partial_rebuilding_and_unavailable_are_explicit_per_source() {
     );
     assert_eq!(partial_view.visibility(), ProjectionVisibility::Partial);
 
-    projection.begin_rebuild().unwrap();
+    projection.begin_rebuild(&capability()).unwrap();
     let rebuilding = projection.global_status(105);
     assert_eq!(
         rebuilding.sources()[&research].rebuild_state(),
@@ -236,11 +249,11 @@ fn stale_partial_rebuilding_and_unavailable_are_explicit_per_source() {
     );
     assert_eq!(rebuilding.visibility(), ProjectionVisibility::Rebuilding);
     projection
-        .apply_rebuild_event(&owner_event("event-1", "Research", 1, 100))
+        .apply_rebuild_event(&capability(), &owner_event("event-1", "Research", 1, 100))
         .unwrap();
-    projection.finish_rebuild().unwrap();
+    projection.finish_rebuild(&capability()).unwrap();
     projection
-        .set_source_unavailable(research.clone(), true)
+        .set_source_unavailable(&capability(), research.clone(), true)
         .unwrap();
     assert_eq!(
         projection.global_status(105).sources()[&research].visibility(),
@@ -258,10 +271,16 @@ fn newer_source_cannot_mask_an_older_stale_source() {
     let qualification = source_key("Qualification", "node-a");
     let mut projection = StatusProjection::new(policy());
     projection
-        .apply_owner_event(&owner_event("research-1", "Research", 1, 100))
+        .apply_owner_event(
+            &capability(),
+            &owner_event("research-1", "Research", 1, 100),
+        )
         .unwrap();
     projection
-        .apply_owner_event(&owner_event("qualification-1", "Qualification", 1, 200))
+        .apply_owner_event(
+            &capability(),
+            &owner_event("qualification-1", "Qualification", 1, 200),
+        )
         .unwrap();
 
     let view = projection.global_status(205);
@@ -293,17 +312,19 @@ fn sequence_identity_and_completeness_are_scoped_by_owner_and_node() {
     let mut complete = StatusProjection::new(policy());
     assert_eq!(
         complete
-            .apply_owner_event(&owner_event_on_node(
-                "node-a-1", "Research", "node-a", 1, 100,
-            ))
+            .apply_owner_event(
+                &capability(),
+                &owner_event_on_node("node-a-1", "Research", "node-a", 1, 100,)
+            )
             .unwrap(),
         ApplyOutcome::Applied
     );
     assert_eq!(
         complete
-            .apply_owner_event(&owner_event_on_node(
-                "node-b-1", "Research", "node-b", 1, 101,
-            ))
+            .apply_owner_event(
+                &capability(),
+                &owner_event_on_node("node-b-1", "Research", "node-b", 1, 101,)
+            )
             .unwrap(),
         ApplyOutcome::Applied
     );
@@ -332,25 +353,24 @@ fn sequence_identity_and_completeness_are_scoped_by_owner_and_node() {
 
     assert_eq!(
         complete
-            .apply_owner_event(&owner_event_on_node(
-                "node-a-alias",
-                "Research",
-                "node-a",
-                1,
-                102,
-            ))
+            .apply_owner_event(
+                &capability(),
+                &owner_event_on_node("node-a-alias", "Research", "node-a", 1, 102,)
+            )
             .unwrap(),
         ApplyOutcome::Quarantined(QuarantineReason::SequenceIdentityConflict)
     );
 
     let mut gap = StatusProjection::new(policy());
-    gap.apply_owner_event(&owner_event_on_node(
-        "node-a-1", "Research", "node-a", 1, 100,
-    ))
+    gap.apply_owner_event(
+        &capability(),
+        &owner_event_on_node("node-a-1", "Research", "node-a", 1, 100),
+    )
     .unwrap();
-    gap.apply_owner_event(&owner_event_on_node(
-        "node-b-2", "Research", "node-b", 2, 101,
-    ))
+    gap.apply_owner_event(
+        &capability(),
+        &owner_event_on_node("node-b-2", "Research", "node-b", 2, 101),
+    )
     .unwrap();
     let gap_view = gap.global_status(102);
     assert_eq!(
@@ -369,16 +389,22 @@ fn rebuild_preserves_each_source_frontier_until_exact_replacement() {
     let mut projection = StatusProjection::new(policy());
     let first = owner_event("event-1", "Research", 1, 100);
     let second = owner_event("event-2", "Research", 2, 101);
-    projection.apply_owner_event(&first).unwrap();
-    projection.apply_owner_event(&second).unwrap();
+    projection.apply_owner_event(&capability(), &first).unwrap();
+    projection
+        .apply_owner_event(&capability(), &second)
+        .unwrap();
     let before = projection.owner_state();
 
-    let target = projection.begin_rebuild().unwrap();
+    let target = projection.begin_rebuild(&capability()).unwrap();
     assert_eq!(projection.global_status(102).source_frontier(), &target);
     assert_eq!(projection.owner_state(), before);
-    projection.apply_rebuild_event(&first).unwrap();
-    projection.apply_rebuild_event(&second).unwrap();
-    projection.finish_rebuild().unwrap();
+    projection
+        .apply_rebuild_event(&capability(), &first)
+        .unwrap();
+    projection
+        .apply_rebuild_event(&capability(), &second)
+        .unwrap();
+    projection.finish_rebuild(&capability()).unwrap();
 
     assert_eq!(projection.owner_state(), before);
     assert_eq!(
@@ -392,14 +418,16 @@ fn rebuild_requires_the_full_frozen_event_checkpoint() {
     let research = source_key("Research", "node-a");
     let mut projection = StatusProjection::new(policy());
     let original = owner_event("event-1", "Research", 1, 100);
-    projection.apply_owner_event(&original).unwrap();
+    projection
+        .apply_owner_event(&capability(), &original)
+        .unwrap();
     let before = projection.owner_state();
     assert_eq!(
         projection.global_status(200).sources()[&research].visibility(),
         ProjectionVisibility::Stale
     );
 
-    projection.begin_rebuild().unwrap();
+    projection.begin_rebuild(&capability()).unwrap();
     let mut changed = original;
     changed.canonical.times = FourTimes {
         event_at_epoch_ms: 397,
@@ -411,12 +439,14 @@ fn rebuild_requires_the_full_frozen_event_checkpoint() {
     changed.immutable_owner_fact_reference =
         OpaqueReference::new("opaque:Research:node-a:fact:replacement").unwrap();
     assert_eq!(
-        projection.apply_rebuild_event(&changed).unwrap(),
+        projection
+            .apply_rebuild_event(&capability(), &changed)
+            .unwrap(),
         ApplyOutcome::Applied
     );
 
     assert_eq!(
-        projection.finish_rebuild(),
+        projection.finish_rebuild(&capability()),
         Err(ProjectionError::RebuildCheckpointMismatch)
     );
     assert_eq!(projection.owner_state(), before);
@@ -439,14 +469,20 @@ fn identical_events_can_rebuild_out_of_order() {
     let mut projection = StatusProjection::new(policy());
     let first = owner_event("event-1", "Research", 1, 100);
     let second = owner_event("event-2", "Research", 2, 101);
-    projection.apply_owner_event(&first).unwrap();
-    projection.apply_owner_event(&second).unwrap();
+    projection.apply_owner_event(&capability(), &first).unwrap();
+    projection
+        .apply_owner_event(&capability(), &second)
+        .unwrap();
     let before = projection.owner_state();
 
-    projection.begin_rebuild().unwrap();
-    projection.apply_rebuild_event(&second).unwrap();
-    projection.apply_rebuild_event(&first).unwrap();
-    projection.finish_rebuild().unwrap();
+    projection.begin_rebuild(&capability()).unwrap();
+    projection
+        .apply_rebuild_event(&capability(), &second)
+        .unwrap();
+    projection
+        .apply_rebuild_event(&capability(), &first)
+        .unwrap();
+    projection.finish_rebuild(&capability()).unwrap();
 
     assert_eq!(projection.owner_state(), before);
     assert_eq!(
@@ -460,12 +496,16 @@ fn in_progress_rebuild_survives_an_opaque_checkpoint_restart() {
     let mut projection = StatusProjection::new(policy());
     let first = owner_event("event-1", "Research", 1, 100);
     let second = owner_event("event-2", "Research", 2, 101);
-    projection.apply_owner_event(&first).unwrap();
-    projection.apply_owner_event(&second).unwrap();
+    projection.apply_owner_event(&capability(), &first).unwrap();
+    projection
+        .apply_owner_event(&capability(), &second)
+        .unwrap();
     let published_before = projection.owner_state();
 
-    projection.begin_rebuild().unwrap();
-    projection.apply_rebuild_event(&second).unwrap();
+    projection.begin_rebuild(&capability()).unwrap();
+    projection
+        .apply_rebuild_event(&capability(), &second)
+        .unwrap();
     let checkpoint = projection.checkpoint();
     let mut restarted = StatusProjection::restore(policy(), checkpoint);
 
@@ -474,8 +514,10 @@ fn in_progress_rebuild_survives_an_opaque_checkpoint_restart() {
         restarted.global_status(102).visibility(),
         ProjectionVisibility::Rebuilding
     );
-    restarted.apply_rebuild_event(&first).unwrap();
-    restarted.finish_rebuild().unwrap();
+    restarted
+        .apply_rebuild_event(&capability(), &first)
+        .unwrap();
+    restarted.finish_rebuild(&capability()).unwrap();
 
     assert_eq!(restarted.owner_state(), published_before);
     assert_eq!(
@@ -489,15 +531,17 @@ fn empty_unavailable_source_bookkeeping_is_part_of_the_checkpoint() {
     let unavailable = source_key("Execution", "node-cold");
     let mut projection = StatusProjection::new(policy());
     let event = owner_event("event-1", "Research", 1, 100);
-    projection.apply_owner_event(&event).unwrap();
+    projection.apply_owner_event(&capability(), &event).unwrap();
     projection
-        .set_source_unavailable(unavailable.clone(), true)
+        .set_source_unavailable(&capability(), unavailable.clone(), true)
         .unwrap();
     let before = projection.owner_state();
 
-    projection.begin_rebuild().unwrap();
-    projection.apply_rebuild_event(&event).unwrap();
-    projection.finish_rebuild().unwrap();
+    projection.begin_rebuild(&capability()).unwrap();
+    projection
+        .apply_rebuild_event(&capability(), &event)
+        .unwrap();
+    projection.finish_rebuild(&capability()).unwrap();
 
     assert_eq!(projection.owner_state(), before);
     assert_eq!(
@@ -511,16 +555,16 @@ fn an_empty_unavailable_checkpoint_rebuilds_without_inventing_owner_events() {
     let unavailable = source_key("Execution", "node-cold");
     let mut projection = StatusProjection::new(policy());
     projection
-        .set_source_unavailable(unavailable.clone(), true)
+        .set_source_unavailable(&capability(), unavailable.clone(), true)
         .unwrap();
     let before = projection.owner_state();
 
-    assert!(projection.begin_rebuild().unwrap().is_empty());
+    assert!(projection.begin_rebuild(&capability()).unwrap().is_empty());
     assert_eq!(
-        projection.set_source_unavailable(unavailable.clone(), false),
+        projection.set_source_unavailable(&capability(), unavailable.clone(), false),
         Err(ProjectionError::RebuildInProgress)
     );
-    projection.finish_rebuild().unwrap();
+    projection.finish_rebuild(&capability()).unwrap();
 
     assert_eq!(projection.owner_state(), before);
     assert_eq!(projection.owner_state().owner_event_count(), 0);
@@ -534,18 +578,48 @@ fn an_empty_unavailable_checkpoint_rebuilds_without_inventing_owner_events() {
 fn rebuild_cannot_skip_an_earlier_owner_node_sequence() {
     let mut projection = StatusProjection::new(policy());
     projection
-        .apply_owner_event(&owner_event("event-1", "Research", 1, 100))
+        .apply_owner_event(&capability(), &owner_event("event-1", "Research", 1, 100))
         .unwrap();
     let second = owner_event("event-2", "Research", 2, 101);
-    projection.apply_owner_event(&second).unwrap();
-    projection.begin_rebuild().unwrap();
+    projection
+        .apply_owner_event(&capability(), &second)
+        .unwrap();
+    projection.begin_rebuild(&capability()).unwrap();
 
-    projection.apply_rebuild_event(&second).unwrap();
+    projection
+        .apply_rebuild_event(&capability(), &second)
+        .unwrap();
 
-    assert!(projection.finish_rebuild().is_err());
+    assert!(projection.finish_rebuild(&capability()).is_err());
     assert_eq!(
         projection.global_status(102).visibility(),
-        ProjectionVisibility::Rebuilding
+        ProjectionVisibility::Available
+    );
+}
+
+#[rstest]
+fn exact_partial_checkpoint_can_rebuild_without_inventing_a_missing_sequence() {
+    let mut projection = StatusProjection::new(policy());
+    let second = owner_event("event-2", "Research", 2, 101);
+    projection
+        .apply_owner_event(&capability(), &second)
+        .unwrap();
+    let before = projection.owner_state();
+    assert_eq!(
+        projection.global_status(102).visibility(),
+        ProjectionVisibility::Partial
+    );
+
+    projection.begin_rebuild(&capability()).unwrap();
+    projection
+        .apply_rebuild_event(&capability(), &second)
+        .unwrap();
+    projection.finish_rebuild(&capability()).unwrap();
+
+    assert_eq!(projection.owner_state(), before);
+    assert_eq!(
+        projection.global_status(102).visibility(),
+        ProjectionVisibility::Partial
     );
 }
 
@@ -554,18 +628,26 @@ fn rebuild_cannot_omit_a_second_node_frontier() {
     let node_a = owner_event_on_node("node-a-1", "Research", "node-a", 1, 100);
     let node_b = owner_event_on_node("node-b-1", "Research", "node-b", 1, 101);
     let mut projection = StatusProjection::new(policy());
-    projection.apply_owner_event(&node_a).unwrap();
-    projection.apply_owner_event(&node_b).unwrap();
+    projection
+        .apply_owner_event(&capability(), &node_a)
+        .unwrap();
+    projection
+        .apply_owner_event(&capability(), &node_b)
+        .unwrap();
     let before = projection.owner_state();
-    let target = projection.begin_rebuild().unwrap();
+    let target = projection.begin_rebuild(&capability()).unwrap();
     assert_eq!(target.len(), 2);
 
-    projection.apply_rebuild_event(&node_a).unwrap();
-    assert!(projection.finish_rebuild().is_err());
+    projection
+        .apply_rebuild_event(&capability(), &node_a)
+        .unwrap();
+    assert!(projection.finish_rebuild(&capability()).is_err());
     assert_eq!(projection.owner_state(), before);
 
-    projection.apply_rebuild_event(&node_b).unwrap();
-    projection.finish_rebuild().unwrap();
+    projection
+        .apply_rebuild_event(&capability(), &node_b)
+        .unwrap();
+    projection.finish_rebuild(&capability()).unwrap();
     assert_eq!(projection.owner_state(), before);
 }
 
@@ -577,7 +659,7 @@ fn empty_telemetry_is_unavailable_and_loss_never_changes_owner_state() {
         TelemetryVisibility::Unavailable
     );
     projection
-        .apply_owner_event(&owner_event("event-1", "Execution", 1, 100))
+        .apply_owner_event(&capability(), &owner_event("event-1", "Execution", 1, 100))
         .unwrap();
     let owner_before = projection.owner_state();
     let telemetry = TelemetryEnvelope {
@@ -590,13 +672,7 @@ fn empty_telemetry_is_unavailable_and_loss_never_changes_owner_state() {
         ),
     };
 
-    projection.observe_telemetry(&telemetry).unwrap();
-    assert_eq!(
-        projection.global_status(105).telemetry_visibility(),
-        TelemetryVisibility::Available
-    );
-    projection.observe_telemetry_loss();
-
+    telemetry.validate(EnvelopePolicy::default()).unwrap();
     assert_eq!(projection.owner_state(), owner_before);
     assert_eq!(
         projection.global_status(105).telemetry_visibility(),
@@ -610,7 +686,9 @@ fn secret_protected_and_high_cardinality_inputs_are_quarantined() {
     let mut secret = owner_event("event-secret", "Research", 1, 100);
     secret.canonical.redaction_class = RedactionClass::Secret;
     assert_eq!(
-        projection.apply_owner_event(&secret).unwrap(),
+        projection
+            .apply_owner_event(&capability(), &secret)
+            .unwrap(),
         ApplyOutcome::Quarantined(QuarantineReason::InvalidEnvelope(
             EnvelopeViolation::SecretData
         ))
@@ -618,7 +696,9 @@ fn secret_protected_and_high_cardinality_inputs_are_quarantined() {
     let mut protected = owner_event("event-protected", "Qualification", 1, 100);
     protected.canonical.redaction_class = RedactionClass::ProtectedQualification;
     assert_eq!(
-        projection.apply_owner_event(&protected).unwrap(),
+        projection
+            .apply_owner_event(&capability(), &protected)
+            .unwrap(),
         ApplyOutcome::Quarantined(QuarantineReason::InvalidEnvelope(
             EnvelopeViolation::ProtectedQualificationDetail
         ))
@@ -632,7 +712,10 @@ fn secret_protected_and_high_cardinality_inputs_are_quarantined() {
     let mut projection = StatusProjection::new(bounded);
     assert_eq!(
         projection
-            .apply_owner_event(&owner_event("event-wide", "Research", 1, 100))
+            .apply_owner_event(
+                &capability(),
+                &owner_event("event-wide", "Research", 1, 100)
+            )
             .unwrap(),
         ApplyOutcome::Quarantined(QuarantineReason::InvalidEnvelope(
             EnvelopeViolation::HighCardinalityNamespaces
@@ -642,7 +725,7 @@ fn secret_protected_and_high_cardinality_inputs_are_quarantined() {
 
 #[rstest]
 fn canonical_telemetry_is_valid_but_remains_outside_owner_projection() {
-    let mut projection = StatusProjection::new(policy());
+    let projection = StatusProjection::new(policy());
     let telemetry = TelemetryEnvelope {
         canonical: canonical(
             SignalKind::Telemetry,
@@ -653,6 +736,6 @@ fn canonical_telemetry_is_valid_but_remains_outside_owner_projection() {
         ),
     };
     let before = projection.owner_state();
-    projection.observe_telemetry(&telemetry).unwrap();
+    telemetry.validate(EnvelopePolicy::default()).unwrap();
     assert_eq!(projection.owner_state(), before);
 }

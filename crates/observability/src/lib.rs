@@ -7,3 +7,6 @@
 pub mod envelope;
 pub mod ports;
 pub mod projection;
+
+#[cfg(test)]
+mod tests;
