@@ -613,6 +613,60 @@ fn caller_forged_submitted_time_is_unavailable_before_receipt_write() {
 }
 
 #[rstest]
+fn forged_present_owner_evidence_is_unavailable_before_rejection_receipt_write() {
+    type Mutate = fn(&mut UntrustedDecisionEvidence);
+    let mutations: [Mutate; 5] = [
+        |evidence| {
+            evidence.artifact.as_mut().expect("artifact").artifact_ref =
+                fact("caller-forged-artifact");
+        },
+        |evidence| {
+            evidence.capacity.as_mut().expect("capacity").capacity_ref =
+                fact("caller-forged-capacity");
+        },
+        |evidence| {
+            evidence
+                .adapter_binding
+                .as_mut()
+                .expect("adapter binding")
+                .binding_ref = fact("caller-forged-adapter");
+        },
+        |evidence| {
+            evidence
+                .authorization_lineage
+                .as_mut()
+                .expect("authorization lineage")
+                .lineage_ref = fact("caller-forged-lineage");
+        },
+        |evidence| {
+            evidence
+                .autonomous_policy
+                .as_mut()
+                .expect("autonomous policy")
+                .policy_ref = fact("caller-forged-policy");
+        },
+    ];
+
+    for mutate in mutations {
+        let mut fixture = Fixture::new();
+        let request_id = fixture.request.request_id.clone();
+        let mut core = fixture.core(vec![time(1_000, 20)], false);
+
+        fixture.request.requested_capital = 51;
+        mutate(&mut fixture.evidence);
+
+        assert_eq!(
+            core.resolve_frontier(&[(fixture.request, fixture.evidence)]),
+            Err(StoreError::DecisionEvidenceUnavailable {
+                request_id: request_id.clone(),
+                reason: RejectionReason::EvidenceNotTrusted,
+            })
+        );
+        assert!(core.receipt(&request_id).is_none());
+    }
+}
+
+#[rstest]
 fn rejected_attempt_requires_exact_set_and_invalid_high_priority_does_not_close() {
     let fixture = Fixture::new();
     let mut high = fixture.request.clone();
@@ -887,10 +941,16 @@ fn causal_order_rejects_future_observation_and_stale_sequence() {
         .as_mut()
         .expect("capacity")
         .time = time(999, 21);
+    let request_id = stale_sequence.request.request_id.clone();
+    let mut core = stale_sequence.core(vec![time(1_000, 20)], false);
     assert_eq!(
-        stale_sequence.resolve().rejection_reason(),
-        Some(RejectionReason::CausalOrderViolation)
+        core.resolve_frontier(&[(stale_sequence.request, stale_sequence.evidence)]),
+        Err(StoreError::DecisionEvidenceUnavailable {
+            request_id: request_id.clone(),
+            reason: RejectionReason::CausalOrderViolation,
+        })
     );
+    assert!(core.receipt(&request_id).is_none());
 }
 
 #[rstest]

@@ -193,14 +193,19 @@ impl GovernanceCore {
                     });
                 }
             }
+
+            if let Err(reason) = self.admit_present_decision_evidence(evidence, &decision_time) {
+                return Err(StoreError::DecisionEvidenceUnavailable {
+                    request_id: request.request_id.clone(),
+                    reason,
+                });
+            }
         }
 
         if let Some(closed) = self.closed_frontiers.get(&frontier) {
             if closed.exact_set != exact_set || closed.decision_evidence != decision_evidence {
                 return Err(StoreError::ReplaySetMismatch(frontier));
             }
-
-            self.admit_terminal_replay(submissions, &decision_time)?;
 
             return Ok(submissions
                 .iter()
@@ -212,8 +217,6 @@ impl GovernanceCore {
             if attempts.iter().any(|attempt| {
                 attempt.exact_set == exact_set && attempt.decision_evidence == decision_evidence
             }) {
-                self.admit_terminal_replay(submissions, &decision_time)?;
-
                 return Ok(submissions
                     .iter()
                     .filter_map(|(request, _)| self.receipts.get(&request.request_id).cloned())
@@ -245,7 +248,7 @@ impl GovernanceCore {
             .zip(&identities)
             .zip(admitted_eligibilities)
             .map(|(((request, evidence), identity), eligibility)| {
-                self.validate(request, evidence, eligibility, *identity, &decision_time)
+                self.validate(request, evidence, eligibility, *identity)
             })
             .collect::<Vec<_>>();
         let invalid = validations
@@ -571,59 +574,52 @@ impl GovernanceCore {
         Ok(())
     }
 
-    fn admit_terminal_replay(
+    fn admit_present_decision_evidence(
         &self,
-        submissions: &[(LifecycleRequest, UntrustedDecisionEvidence)],
+        evidence: &UntrustedDecisionEvidence,
         decision_time: &TimeEvidence,
-    ) -> Result<(), StoreError> {
-        for (request, evidence) in submissions {
-            let unavailable = |reason| StoreError::DecisionEvidenceUnavailable {
-                request_id: request.request_id.clone(),
-                reason,
-            };
+    ) -> Result<(), RejectionReason> {
+        if evidence
+            .artifact
+            .as_ref()
+            .is_some_and(|artifact| !self.admission.artifact(artifact))
+        {
+            return Err(RejectionReason::EvidenceNotTrusted);
+        }
 
-            if evidence
-                .artifact
+        for (time, admitted) in [
+            evidence
+                .capacity
                 .as_ref()
-                .is_some_and(|artifact| !self.admission.artifact(artifact))
-            {
-                return Err(unavailable(RejectionReason::EvidenceNotTrusted));
+                .map(|readback| (&readback.time, self.admission.capacity(readback))),
+            evidence
+                .adapter_binding
+                .as_ref()
+                .map(|readback| (&readback.time, self.admission.adapter_binding(readback))),
+            evidence.authorization_lineage.as_ref().map(|readback| {
+                (
+                    &readback.time,
+                    self.admission.authorization_lineage(readback),
+                )
+            }),
+            evidence
+                .autonomous_policy
+                .as_ref()
+                .map(|readback| (&readback.time, self.admission.autonomous_policy(readback))),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if !causal_order(time, decision_time) {
+                return Err(RejectionReason::CausalOrderViolation);
             }
 
-            for (time, admitted) in [
-                evidence
-                    .capacity
-                    .as_ref()
-                    .map(|readback| (&readback.time, self.admission.capacity(readback))),
-                evidence
-                    .adapter_binding
-                    .as_ref()
-                    .map(|readback| (&readback.time, self.admission.adapter_binding(readback))),
-                evidence.authorization_lineage.as_ref().map(|readback| {
-                    (
-                        &readback.time,
-                        self.admission.authorization_lineage(readback),
-                    )
-                }),
-                evidence
-                    .autonomous_policy
-                    .as_ref()
-                    .map(|readback| (&readback.time, self.admission.autonomous_policy(readback))),
-            ]
-            .into_iter()
-            .flatten()
-            {
-                if !causal_order(time, decision_time) {
-                    return Err(unavailable(RejectionReason::CausalOrderViolation));
-                }
+            if !time.is_current_at(decision_time.observed_at) {
+                return Err(RejectionReason::EvidenceExpiredOrRevoked);
+            }
 
-                if !time.is_current_at(decision_time.observed_at) {
-                    return Err(unavailable(RejectionReason::EvidenceExpiredOrRevoked));
-                }
-
-                if !admitted {
-                    return Err(unavailable(RejectionReason::EvidenceNotTrusted));
-                }
+            if !admitted {
+                return Err(RejectionReason::EvidenceNotTrusted);
             }
         }
 
@@ -637,7 +633,6 @@ impl GovernanceCore {
         evidence: &UntrustedDecisionEvidence,
         eligibility: &crate::UntrustedEligibilityReadback,
         _identity: SemanticIdentity,
-        decision_time: &TimeEvidence,
     ) -> Result<ValidatedDecisionCuts, RejectionReason> {
         if request.execution_scope.mode != ExecutionMode::Paper {
             return Err(RejectionReason::LiveNotAdmitted);
@@ -763,25 +758,6 @@ impl GovernanceCore {
             || policy.revocation_frontier != request.autonomous_policy_revocation_frontier
         {
             return Err(RejectionReason::AuthorizationBindingMismatch);
-        }
-
-        for time in [&capacity.time, &adapter.time, &lineage.time, &policy.time] {
-            if !causal_order(time, decision_time) {
-                return Err(RejectionReason::CausalOrderViolation);
-            }
-
-            if !time.is_current_at(decision_time.observed_at) {
-                return Err(RejectionReason::EvidenceExpiredOrRevoked);
-            }
-        }
-
-        if !self.admission.artifact(artifact)
-            || !self.admission.capacity(capacity)
-            || !self.admission.adapter_binding(adapter)
-            || !self.admission.authorization_lineage(lineage)
-            || !self.admission.autonomous_policy(policy)
-        {
-            return Err(RejectionReason::EvidenceNotTrusted);
         }
 
         if request.action != LifecycleAction::InitialActivation {
