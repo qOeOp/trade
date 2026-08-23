@@ -1,8 +1,15 @@
+#![allow(
+    dead_code,
+    reason = "crate-private Market Data authority is reached only by the private composition and durable-store tests"
+)]
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Debug,
     sync::Mutex,
 };
+
+use serde::{Deserialize, Serialize};
 
 use super::{
     BindingDigest, MarketDataClockAdmission, MarketDataClockComparisonRule, MarketDataClockCutKind,
@@ -19,7 +26,7 @@ const FACT_DOMAIN: &[u8] = b"vibe.market-data.source-binding.fact.v1";
 const OUTBOX_DOMAIN: &[u8] = b"vibe.market-data.source-binding.outbox.v1";
 const OWNER_ID: &str = "MARKET_DATA";
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) enum SourceBindingDisposition {
     Admitted,
     Revoked,
@@ -28,7 +35,7 @@ pub(crate) enum SourceBindingDisposition {
     Unavailable,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) struct OwnerSourceBindingDecision {
     pub(crate) blockers: BTreeSet<SourceBindingBlocker>,
 }
@@ -62,7 +69,7 @@ impl MarketDataClockAdmission {
     }
 }
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) struct SourceBindingFact {
     proposal: UntrustedSourceBindingProposal,
     lineage_root: BindingDigest,
@@ -108,6 +115,14 @@ impl SourceBindingFact {
         self.predecessor_binding_id
     }
 
+    pub(crate) const fn predecessor_fact_digest(&self) -> Option<BindingDigest> {
+        self.predecessor_fact_digest
+    }
+
+    pub(crate) const fn proposal(&self) -> &UntrustedSourceBindingProposal {
+        &self.proposal
+    }
+
     pub(super) const fn blockers(&self) -> &BTreeSet<SourceBindingBlocker> {
         &self.blockers
     }
@@ -137,7 +152,7 @@ impl SourceBindingFact {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) struct SourceBindingReceipt {
     locator: UntrustedSourceBindingLocator,
     outbox_digest: BindingDigest,
@@ -148,13 +163,13 @@ impl SourceBindingReceipt {
         &self.locator
     }
 
-    pub(super) const fn outbox_digest(&self) -> BindingDigest {
+    pub(crate) const fn outbox_digest(&self) -> BindingDigest {
         self.outbox_digest
     }
 }
 
-#[derive(Clone, Eq, PartialEq)]
-pub(super) struct SourceBindingOutboxRecord {
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct SourceBindingOutboxRecord {
     payload: Box<[u8]>,
     digest: BindingDigest,
 }
@@ -170,20 +185,20 @@ impl Debug for SourceBindingOutboxRecord {
 }
 
 impl SourceBindingOutboxRecord {
-    pub(super) const fn digest(&self) -> BindingDigest {
+    pub(crate) const fn digest(&self) -> BindingDigest {
         self.digest
     }
 
-    pub(super) const fn payload_len(&self) -> usize {
+    pub(crate) const fn payload_len(&self) -> usize {
         self.payload.len()
     }
 
-    pub(super) fn payload(&self) -> &[u8] {
+    pub(crate) fn payload(&self) -> &[u8] {
         &self.payload
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) struct SourceBindingCommit {
     fact: SourceBindingFact,
     receipt: SourceBindingReceipt,
@@ -199,15 +214,25 @@ impl SourceBindingCommit {
     }
 }
 
-#[derive(Clone, Debug)]
-struct StoredCommit {
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct SourceBindingStoredAggregate {
     commit: SourceBindingCommit,
     outbox: SourceBindingOutboxRecord,
 }
 
+impl SourceBindingStoredAggregate {
+    pub(crate) const fn commit(&self) -> &SourceBindingCommit {
+        &self.commit
+    }
+
+    pub(crate) const fn outbox(&self) -> &SourceBindingOutboxRecord {
+        &self.outbox
+    }
+}
+
 #[derive(Debug, Default)]
 struct InMemoryState {
-    commits: BTreeMap<BindingDigest, StoredCommit>,
+    commits: BTreeMap<BindingDigest, SourceBindingStoredAggregate>,
     lineage_heads: BTreeMap<BindingDigest, BindingDigest>,
 }
 
@@ -388,8 +413,8 @@ impl TestOnlyInMemorySourceBindingOwner {
         fault: CommitFault,
     ) -> Result<SourceBindingCommit, SourceBindingError> {
         let binding_id = derive_binding_id(&proposal);
-        let canonical = canonical_fact_bytes(&proposal, &decision, binding_id, &lineage);
-        let fact_digest = digest(&canonical);
+        let aggregate = build_stored_aggregate(proposal, decision, lineage);
+        let fact_digest = aggregate.commit.fact.digest;
 
         if let Some(stored) = state.commits.get(&binding_id) {
             return if stored.commit.fact.digest == fact_digest {
@@ -403,39 +428,8 @@ impl TestOnlyInMemorySourceBindingOwner {
             return Err(SourceBindingError::CommitInterrupted);
         }
 
-        let primary_blocker = primary_blocker(&decision.blockers);
-        let fact = SourceBindingFact {
-            proposal,
-            lineage_root: lineage.root,
-            lineage_version: lineage.version,
-            predecessor_binding_id: lineage.predecessor_binding_id,
-            predecessor_fact_digest: lineage.predecessor_fact_digest,
-            binding_id,
-            blockers: decision.blockers,
-            disposition: disposition(primary_blocker),
-            primary_blocker,
-            digest: fact_digest,
-        };
-        let outbox_payload = canonical_outbox_bytes(&fact);
-        let outbox_digest = digest(&outbox_payload);
-        let locator = locator_for(&fact);
-        let commit = SourceBindingCommit {
-            fact,
-            receipt: SourceBindingReceipt {
-                locator,
-                outbox_digest,
-            },
-        };
-        state.commits.insert(
-            binding_id,
-            StoredCommit {
-                commit: commit.clone(),
-                outbox: SourceBindingOutboxRecord {
-                    payload: outbox_payload.into_boxed_slice(),
-                    digest: outbox_digest,
-                },
-            },
-        );
+        let commit = aggregate.commit.clone();
+        state.commits.insert(binding_id, aggregate);
         state.lineage_heads.insert(lineage.root, binding_id);
 
         if fault == CommitFault::ResponseLoss {
@@ -454,7 +448,7 @@ impl TestOnlyInMemorySourceBindingOwner {
     }
 }
 
-fn validate_successor_advances(
+pub(crate) fn validate_successor_advances(
     predecessor: &SourceBindingFact,
     successor: &UntrustedSourceBindingProposal,
 ) -> Result<(), SourceBindingError> {
@@ -504,11 +498,67 @@ fn frontier_is_nondecreasing(
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct OwnerLineage {
-    root: BindingDigest,
-    version: u64,
-    predecessor_binding_id: Option<BindingDigest>,
-    predecessor_fact_digest: Option<BindingDigest>,
+pub(crate) struct OwnerLineage {
+    pub(crate) root: BindingDigest,
+    pub(crate) version: u64,
+    pub(crate) predecessor_binding_id: Option<BindingDigest>,
+    pub(crate) predecessor_fact_digest: Option<BindingDigest>,
+}
+
+pub(crate) fn build_stored_aggregate(
+    proposal: UntrustedSourceBindingProposal,
+    decision: OwnerSourceBindingDecision,
+    lineage: OwnerLineage,
+) -> SourceBindingStoredAggregate {
+    let binding_id = derive_binding_id(&proposal);
+    let canonical = canonical_fact_bytes(&proposal, &decision, binding_id, &lineage);
+    let fact_digest = digest(&canonical);
+    let primary_blocker = primary_blocker(&decision.blockers);
+    let fact = SourceBindingFact {
+        proposal,
+        lineage_root: lineage.root,
+        lineage_version: lineage.version,
+        predecessor_binding_id: lineage.predecessor_binding_id,
+        predecessor_fact_digest: lineage.predecessor_fact_digest,
+        binding_id,
+        blockers: decision.blockers,
+        disposition: disposition(primary_blocker),
+        primary_blocker,
+        digest: fact_digest,
+    };
+    let outbox_payload = canonical_outbox_bytes(&fact);
+    let outbox_digest = digest(&outbox_payload);
+    let locator = locator_for(&fact);
+    SourceBindingStoredAggregate {
+        commit: SourceBindingCommit {
+            fact,
+            receipt: SourceBindingReceipt {
+                locator,
+                outbox_digest,
+            },
+        },
+        outbox: SourceBindingOutboxRecord {
+            payload: outbox_payload.into_boxed_slice(),
+            digest: outbox_digest,
+        },
+    }
+}
+
+pub(crate) fn verify_stored_aggregate(value: &SourceBindingStoredAggregate) -> bool {
+    let fact = &value.commit.fact;
+    let expected = build_stored_aggregate(
+        fact.proposal.clone(),
+        OwnerSourceBindingDecision {
+            blockers: fact.blockers.clone(),
+        },
+        OwnerLineage {
+            root: fact.lineage_root,
+            version: fact.lineage_version,
+            predecessor_binding_id: fact.predecessor_binding_id,
+            predecessor_fact_digest: fact.predecessor_fact_digest,
+        },
+    );
+    &expected == value
 }
 
 pub(crate) fn derive_binding_id(proposal: &UntrustedSourceBindingProposal) -> BindingDigest {
@@ -521,7 +571,7 @@ pub(crate) fn derive_time_evidence_identity(time: &UntrustedMarketDataAsOf) -> B
     digest(&encoder.finish())
 }
 
-fn validate_proposal(
+pub(crate) fn validate_proposal(
     proposal: &UntrustedSourceBindingProposal,
     clock: &MarketDataClockAdmission,
 ) -> Result<(), SourceBindingError> {
@@ -685,7 +735,7 @@ fn validate_time_for_commit(
     }
 }
 
-fn validate_clock_for_readback(
+pub(crate) fn validate_clock_for_readback(
     time: &UntrustedMarketDataAsOf,
     clock: &MarketDataClockAdmission,
 ) -> Result<(), SourceBindingError> {
@@ -707,7 +757,7 @@ fn validate_clock_for_readback(
     Ok(())
 }
 
-fn validate_clock_for_consumer_cut(
+pub(crate) fn validate_clock_for_consumer_cut(
     time: &UntrustedMarketDataAsOf,
     clock: &MarketDataClockAdmission,
 ) -> Result<(), SourceBindingError> {

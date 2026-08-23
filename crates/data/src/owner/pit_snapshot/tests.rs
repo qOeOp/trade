@@ -442,7 +442,7 @@ fn available_path_commits_one_sealed_fact_and_outbox_with_exact_readback() {
 }
 
 #[rstest]
-fn terminal_precedence_is_stable_for_every_blocker_permutation() {
+fn terminal_precedence_is_stable_and_stale_clock_is_zero_write() {
     let ordered = [
         (
             PitSnapshotBlocker::RightsUnlicensed,
@@ -499,11 +499,17 @@ fn terminal_precedence_is_stable_for_every_blocker_permutation() {
         }
         let basis = canonical_basis(&value, &source);
 
-        let fact = TestOnlyPitSnapshotOwner::default()
-            .commit_initial(value, &basis, &source_owner, &source_read_clock(40, 40, 1))
-            .expect("terminal")
-            .fact()
-            .clone();
+        let mut owner = TestOnlyPitSnapshotOwner::default();
+        let result =
+            owner.commit_initial(value, &basis, &source_owner, &source_read_clock(40, 40, 1));
+
+        if mask & (1 << 2) != 0 {
+            assert_eq!(result, Err(PitSnapshotError::TrustedClockMismatch));
+            assert_eq!(owner.commit_count(), 0);
+            assert_eq!(owner.outbox_count(), 0);
+            continue;
+        }
+        let fact = result.expect("terminal").fact().clone();
         assert_eq!(fact.primary_blocker(), Some(expected.0));
         assert_eq!(fact.disposition(), expected.1);
         assert_eq!(fact.blockers().len(), mask.count_ones() as usize);
