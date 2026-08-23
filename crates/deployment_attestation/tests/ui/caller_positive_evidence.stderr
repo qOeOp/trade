@@ -1,0 +1,10 @@
+error[E0599]: no associated function or constant named `verified` found for struct `StrategyFactoryFormationEvidence` in the current scope
+ --> tests/ui/caller_positive_evidence.rs:4:55
+  |
+4 |     let _evidence = StrategyFactoryFormationEvidence::verified();
+  |                                                       ^^^^^^^^ associated function or constant not found in `StrategyFactoryFormationEvidence`
+  |
+help: there is a method `is_verified` with a similar name
+  |
+4 |     let _evidence = StrategyFactoryFormationEvidence::is_verified();
+  |                                                       +++
