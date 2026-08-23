@@ -1,5 +1,8 @@
 //! Core Databento historical client for both Rust and Python usage.
 
+#[path = "pit_probe.rs"]
+pub mod pit_probe;
+
 use std::{fmt::Debug, fs, num::NonZeroU64, path::PathBuf, str::FromStr, sync::Arc};
 
 use ahash::AHashMap;
@@ -41,6 +44,14 @@ pub struct DatabentoHistoricalClient {
     symbol_venue_map: Arc<AtomicMap<Symbol, Venue>>,
     price_precisions: Arc<AtomicMap<Symbol, u8>>,
     use_exchange_as_venue: bool,
+    historical_api_endpoint: String,
+    pit_probe_transport: PitProbeTransport,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PitProbeTransport {
+    CanonicalDirect,
+    Custom,
 }
 
 /// Parameters for range queries to Databento historical API.
@@ -89,6 +100,11 @@ impl DatabentoHistoricalClient {
     ) -> anyhow::Result<Self> {
         let client = databento::HistoricalClient::builder()
             .user_agent_extension(VIBE_USER_AGENT.into())
+            .http_client_builder(
+                reqwest::ClientBuilder::new()
+                    .no_proxy()
+                    .redirect(reqwest::redirect::Policy::none()),
+            )
             .key(credential.api_key())
             .map_err(|e| anyhow::anyhow!("Failed to create client builder: {e}"))?
             .build()
@@ -100,6 +116,8 @@ impl DatabentoHistoricalClient {
             clock,
             use_exchange_as_venue,
             client,
+            "https://hist.databento.com".to_string(),
+            PitProbeTransport::CanonicalDirect,
         )
     }
 
@@ -134,6 +152,8 @@ impl DatabentoHistoricalClient {
             clock,
             use_exchange_as_venue,
             client,
+            base_url.to_string(),
+            PitProbeTransport::Custom,
         )
     }
 
@@ -143,6 +163,8 @@ impl DatabentoHistoricalClient {
         clock: &'static AtomicTime,
         use_exchange_as_venue: bool,
         client: databento::HistoricalClient,
+        historical_api_endpoint: String,
+        pit_probe_transport: PitProbeTransport,
     ) -> anyhow::Result<Self> {
         let file_content = fs::read_to_string(publishers_filepath)?;
         let publishers_vec: Vec<DatabentoPublisher> = serde_json::from_str(&file_content)?;
@@ -160,6 +182,8 @@ impl DatabentoHistoricalClient {
             price_precisions: Arc::new(AtomicMap::new()),
             credential,
             use_exchange_as_venue,
+            historical_api_endpoint,
+            pit_probe_transport,
         })
     }
 
@@ -1041,6 +1065,39 @@ mod tests {
         "test-000000000000000000000000000".to_string()
     }
 
+    #[tokio::test]
+    #[ignore = "requires explicit local DATABENTO_API_KEY read-only probe authority"]
+    async fn live_bounded_pit_probe_stops_on_cost_or_returns_authentic_evidence() {
+        let api_key = std::env::var("DATABENTO_API_KEY")
+            .expect("DATABENTO_API_KEY is required for the explicitly invoked live probe");
+        let client = DatabentoHistoricalClient::new(
+            Credential::new(api_key),
+            publishers_path(),
+            get_atomic_clock_realtime(),
+            false,
+        )
+        .unwrap();
+        let start = UnixNanos::from(1_704_205_800_000_000_000_u64);
+        let end = UnixNanos::from(start.as_u64() + 1_000_000_000);
+        let result = client
+            .attempt_bounded_pit_probe(start, end, [0xA5; 32])
+            .await;
+
+        match result {
+            Ok(evidence) => {
+                assert_eq!(
+                    evidence.receipt().dataset(),
+                    crate::pit_probe::PIT_PROBE_DATASET
+                );
+                assert_eq!(evidence.receipt().range(), (start.as_u64(), end.as_u64()));
+                assert_eq!(evidence.untrusted_bbo_cost_usd(), 0.0);
+                assert_eq!(evidence.untrusted_definition_cost_usd(), 0.0);
+            }
+            Err(e) if e.to_string().contains("cost preflight is non-zero") => {}
+            Err(e) => panic!("bounded live PIT probe failed before a safe terminal: {e}"),
+        }
+    }
+
     fn publishers_path() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("publishers.json")
     }
@@ -1071,6 +1128,48 @@ mod tests {
         assert!(
             err_msg.contains("Failed to parse Databento Historical API base URL"),
             "unexpected error message: {err_msg}",
+        );
+    }
+
+    #[rstest]
+    #[case("http://127.0.0.1:9")]
+    #[case("https://hist.databento.com")]
+    #[tokio::test]
+    async fn custom_base_url_cannot_enter_positive_pit_probe_path(#[case] base_url: &str) {
+        let client = DatabentoHistoricalClient::new_with_base_url(
+            Credential::new(test_api_key()),
+            publishers_path(),
+            get_atomic_clock_realtime(),
+            false,
+            base_url,
+        )
+        .unwrap();
+        let start = UnixNanos::from(1_704_205_800_000_000_000_u64);
+        let end = UnixNanos::from(start.as_u64() + 1_000_000_000);
+
+        let error = client
+            .attempt_bounded_pit_probe(start, end, [0xA5; 32])
+            .await
+            .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("requires the canonical direct Databento Historical transport")
+        );
+    }
+
+    #[rstest]
+    fn default_client_binds_canonical_direct_probe_transport(
+        historical_client: DatabentoHistoricalClient,
+    ) {
+        assert_eq!(
+            historical_client.pit_probe_transport,
+            PitProbeTransport::CanonicalDirect
+        );
+        assert_eq!(
+            historical_client.historical_api_endpoint,
+            "https://hist.databento.com"
         );
     }
 
