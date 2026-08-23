@@ -34,6 +34,7 @@ pub mod decode;
 pub mod enums;
 pub mod historical;
 pub mod loader;
+pub use historical::pit_probe;
 pub mod symbology;
 pub mod types;
 
