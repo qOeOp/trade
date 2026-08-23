@@ -70,6 +70,7 @@ struct ClosedFrontier {
 #[derive(Clone, Debug)]
 struct RejectedAttempt {
     exact_set: Vec<(LifecycleRequestId, Digest)>,
+    decision_evidence: Vec<(LifecycleRequestId, UntrustedDecisionEvidence)>,
 }
 
 /// Static Governance core. Public construction deliberately installs an
@@ -169,6 +170,24 @@ impl GovernanceCore {
             }
         }
 
+        let decision_time = self
+            .clock
+            .now()
+            .filter(valid_decision_time)
+            .ok_or(StoreError::TimeEvidenceUnavailable)?;
+        let mut admitted_eligibilities = Vec::with_capacity(submissions.len());
+        for (request, evidence) in submissions {
+            match self.admit_eligibility(request, evidence, &decision_time) {
+                Ok(eligibility) => admitted_eligibilities.push(eligibility),
+                Err(reason) => {
+                    return Err(StoreError::DecisionEvidenceUnavailable {
+                        request_id: request.request_id.clone(),
+                        reason,
+                    });
+                }
+            }
+        }
+
         if let Some(closed) = self.closed_frontiers.get(&frontier) {
             if closed.exact_set != exact_set || closed.decision_evidence != decision_evidence {
                 return Err(StoreError::ReplaySetMismatch(frontier));
@@ -181,10 +200,9 @@ impl GovernanceCore {
         }
 
         if let Some(attempts) = self.rejected_attempts.get(&frontier) {
-            if attempts
-                .iter()
-                .any(|attempt| attempt.exact_set == exact_set)
-            {
+            if attempts.iter().any(|attempt| {
+                attempt.exact_set == exact_set && attempt.decision_evidence == decision_evidence
+            }) {
                 return Ok(submissions
                     .iter()
                     .filter_map(|(request, _)| self.receipts.get(&request.request_id).cloned())
@@ -210,23 +228,6 @@ impl GovernanceCore {
             }
 
             self.reject_accepted_alias(request, *identity)?;
-        }
-        let decision_time = self
-            .clock
-            .now()
-            .filter(valid_decision_time)
-            .ok_or(StoreError::TimeEvidenceUnavailable)?;
-        let mut admitted_eligibilities = Vec::with_capacity(submissions.len());
-        for (request, evidence) in submissions {
-            match self.admit_eligibility(request, evidence, &decision_time) {
-                Ok(eligibility) => admitted_eligibilities.push(eligibility),
-                Err(reason) => {
-                    return Err(StoreError::DecisionEvidenceUnavailable {
-                        request_id: request.request_id.clone(),
-                        reason,
-                    });
-                }
-            }
         }
         let validations = submissions
             .iter()
@@ -295,7 +296,10 @@ impl GovernanceCore {
             self.rejected_attempts
                 .entry(frontier)
                 .or_default()
-                .push(RejectedAttempt { exact_set });
+                .push(RejectedAttempt {
+                    exact_set,
+                    decision_evidence,
+                });
 
             return Ok(receipts);
         }

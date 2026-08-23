@@ -415,7 +415,7 @@ fn sealed_complete_chain_authorizes_paper_but_runtime_stays_unknown() {
 #[rstest]
 fn exact_replay_joins_while_mutation_and_duplicate_cardinality_fail() {
     let fixture = Fixture::new();
-    let mut core = fixture.core(vec![time(1_000, 20)], false);
+    let mut core = fixture.core(vec![time(1_000, 20), time(1_010, 21)], false);
     let submission = [(fixture.request.clone(), fixture.evidence.clone())];
     let first = core
         .resolve_frontier(&submission)
@@ -449,7 +449,19 @@ fn accepted_replay_binds_complete_current_eligibility_evidence_without_writes() 
     let fixture = Fixture::new();
     let request_id = fixture.request.request_id.clone();
     let submission = (fixture.request.clone(), fixture.evidence.clone());
-    let mut core = fixture.core(vec![time(1_000, 20)], false);
+    let mut core = fixture.core(
+        vec![
+            time(1_000, 20),
+            time(1_010, 21),
+            time(1_020, 22),
+            time(1_030, 23),
+            time(1_040, 24),
+            time(1_050, 25),
+            time(1_060, 26),
+            time(1_070, 27),
+        ],
+        false,
+    );
     let first = core
         .resolve_frontier(std::slice::from_ref(&submission))
         .expect("initial accepted frontier")
@@ -477,15 +489,20 @@ fn accepted_replay_binds_complete_current_eligibility_evidence_without_writes() 
         .as_mut()
         .expect("eligibility")
         .eligibility_ref = fact("replacement-eligibility");
-    let cases = [missing, stale, replaced];
+    let cases = [
+        (missing, RejectionReason::MissingEligibility),
+        (stale, RejectionReason::EvidenceExpiredOrRevoked),
+        (replaced, RejectionReason::EvidenceNotTrusted),
+    ];
     let mut rejected = 0;
 
-    for evidence in cases {
+    for (evidence, reason) in cases {
         assert_eq!(
             core.resolve_frontier(&[(fixture.request.clone(), evidence)]),
-            Err(StoreError::ReplaySetMismatch(
-                fixture.request.decision_frontier_id.clone()
-            ))
+            Err(StoreError::DecisionEvidenceUnavailable {
+                request_id: request_id.clone(),
+                reason,
+            })
         );
         assert_eq!(core.receipt(&request_id), Some(&first));
         assert_eq!(
@@ -510,7 +527,15 @@ fn rejected_attempt_requires_exact_set_and_invalid_high_priority_does_not_close(
     high_evidence.artifact = None;
     let low = (fixture.request.clone(), fixture.evidence.clone());
     let batch = [(high, high_evidence), low.clone()];
-    let mut core = fixture.core(vec![time(1_000, 20), time(1_010, 21)], false);
+    let mut core = fixture.core(
+        vec![
+            time(1_000, 20),
+            time(1_010, 21),
+            time(1_020, 22),
+            time(1_030, 23),
+        ],
+        false,
+    );
     let receipts = core.resolve_frontier(&batch).expect("rejected attempt");
     assert_eq!(receipts.len(), 2);
     assert_eq!(
@@ -545,6 +570,72 @@ fn rejected_attempt_requires_exact_set_and_invalid_high_priority_does_not_close(
         .expect("new lawful set on still-open frontier")
         .remove(0);
     assert_eq!(corrected_receipt.status(), ReceiptStatus::Accepted);
+}
+
+#[rstest]
+fn rejected_attempt_replay_requires_exact_decision_evidence() {
+    let fixture = Fixture::new();
+    let request_id = fixture.request.request_id.clone();
+    let mut rejected_evidence = fixture.evidence.clone();
+    rejected_evidence.capacity = None;
+    let submission = (fixture.request.clone(), rejected_evidence.clone());
+    let mut core = fixture.core(
+        vec![
+            time(1_000, 20),
+            time(1_010, 21),
+            time(1_020, 22),
+            time(1_030, 23),
+            time(1_040, 24),
+        ],
+        false,
+    );
+    let first = core
+        .resolve_frontier(std::slice::from_ref(&submission))
+        .expect("valid owner evidence with a missing capacity cut writes one rejection")
+        .remove(0);
+    assert_eq!(
+        first.rejection_reason(),
+        Some(RejectionReason::MissingCapacity)
+    );
+
+    let mut missing = rejected_evidence.clone();
+    missing.eligibility = None;
+    let mut stale = rejected_evidence.clone();
+    stale
+        .eligibility
+        .as_mut()
+        .expect("eligibility")
+        .time
+        .valid_through = 1_020;
+    let mut replaced = rejected_evidence;
+    replaced
+        .eligibility
+        .as_mut()
+        .expect("eligibility")
+        .eligibility_ref = fact("replaced-eligibility");
+    let cases = [
+        (missing, RejectionReason::MissingEligibility),
+        (stale, RejectionReason::EvidenceExpiredOrRevoked),
+        (replaced, RejectionReason::EvidenceNotTrusted),
+    ];
+
+    for (evidence, reason) in cases {
+        assert_eq!(
+            core.resolve_frontier(&[(fixture.request.clone(), evidence)]),
+            Err(StoreError::DecisionEvidenceUnavailable {
+                request_id: request_id.clone(),
+                reason,
+            })
+        );
+        assert_eq!(core.receipt(&request_id), Some(&first));
+    }
+
+    assert_eq!(
+        core.resolve_frontier(std::slice::from_ref(&submission))
+            .expect("exact rejected replay remains joinable")
+            .remove(0),
+        first
+    );
 }
 
 #[rstest]
@@ -870,7 +961,7 @@ fn stale_revoked_cross_scope_and_capacity_cuts_fail_closed() {
 #[rstest]
 fn accepted_candidate_or_generation_alias_retry_is_rejected() {
     let fixture = Fixture::new();
-    let mut core = fixture.core(vec![time(1_000, 20)], false);
+    let mut core = fixture.core(vec![time(1_000, 20), time(1_010, 21)], false);
     core.resolve_frontier(&[(fixture.request.clone(), fixture.evidence.clone())])
         .expect("first accepted request");
 
@@ -964,7 +1055,10 @@ fn duplicate_complete_comparator_key_is_terminal_no_write_for_every_permutation_
         (request_a, fixture.evidence.clone()),
     ];
 
-    let mut forward_core = fixture.core(vec![time(1_000, 20)], false);
+    let mut forward_core = fixture.core(
+        vec![time(1_000, 20), time(1_010, 21), time(1_020, 22)],
+        false,
+    );
     let forward_receipts = forward_core
         .resolve_frontier(&forward)
         .expect("same-rank frontier resolves");
