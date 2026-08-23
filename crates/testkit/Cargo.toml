@@ -103,6 +103,8 @@ pyo3-stub-gen = { workspace = true, optional = true }
 [dev-dependencies]
 vibe-model = { workspace = true, features = ["stubs"] }
 vibe-portfolio = { workspace = true }
+vibe-scanner = { workspace = true }
+vibe-strategy-governance = { workspace = true }
 
 arrow = { workspace = true }
 axum = { workspace = true }

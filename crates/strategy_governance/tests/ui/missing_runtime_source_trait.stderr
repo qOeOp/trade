@@ -1,0 +1,5 @@
+error[E0432]: unresolved import `vibe_strategy_governance::RuntimeApplicationSource`
+ --> tests/ui/missing_runtime_source_trait.rs:1:5
+  |
+1 | use vibe_strategy_governance::RuntimeApplicationSource;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `RuntimeApplicationSource` in the root
