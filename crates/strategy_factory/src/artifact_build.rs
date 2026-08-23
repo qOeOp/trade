@@ -9,6 +9,11 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::UnixStream,
 };
+use vibe_product_edge::{
+    ARTIFACT_BUILD_REQUIRED_EFFECTS_V1, ProductEdgeAdmissionLocatorV1,
+    ProductEdgeAdmissionReadbackV1, ProductEdgeInvocationClaimReadbackV1,
+};
+use vibe_rd_artifact_invocation_custody::ArtifactInvocationStartReservationV1;
 
 use crate::{
     artifact::{ArtifactIssuance, StrategyArtifact, StrategyArtifactIdentity, digest},
@@ -16,10 +21,9 @@ use crate::{
         RUSTC_COMMIT, RUSTC_RELEASE, SANDBOX_POLICY_V1, SandboxedCargoBuildEvidence, TARGET,
         VerifiedCargoBuild,
     },
-    product_edge::{
-        FrozenResearchGoalIntentV1, ProductEdgeChannel, ResearchViewV1, TrustedProductEdgeContextV1,
-    },
+    product_edge::{FrozenResearchGoalIntent, ProductEdgeChannel, ResearchViewV1},
     program_runtime::ProgramRuntimeBudget,
+    trial_family::{ArtifactTrialFamilyReadbackV1, TrialFamilyResolutionV1},
 };
 
 pub const ARTIFACT_BUILD_OPERATION_V1: &str = "artifact_build.submit_or_resolve.v1";
@@ -67,7 +71,230 @@ pub struct ArtifactBuildRequestV1 {
     pub attempt_identity: String,
     pub intent_identity: String,
     pub channel: ProductEdgeChannel,
-    pub context: TrustedProductEdgeContextV1,
+    pub admission: ProductEdgeAdmissionLocatorV1,
+}
+
+/// Owner-issued proof that an exact Product Edge invocation claim is durably
+/// reserved against this immutable request before the provider-start fence.
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArtifactBuildInvocationCustodyV1 {
+    pub(crate) schema_version: u32,
+    pub(crate) request: ArtifactBuildRequestV1,
+    pub(crate) request_semantic_digest: String,
+    pub(crate) canonical_intent_bytes: String,
+    pub(crate) intent_semantic_digest: String,
+    pub(crate) research_request_identity: String,
+    pub(crate) research_valid_through_epoch_ms: u64,
+    pub(crate) trial_family_identity: String,
+    pub(crate) trial_family_root_digest: String,
+    pub(crate) census_frontier_identity: String,
+    pub(crate) census_frontier_digest: String,
+    pub(crate) claim_identity: String,
+    pub(crate) claim_digest: String,
+    pub(crate) invocation_admission_receipt_identity: String,
+    pub(crate) invocation_admission_receipt_digest: String,
+    pub(crate) claimed_state_digest: String,
+    pub(crate) execution_custody_digest: String,
+    pub(crate) reservation_identity: String,
+    pub(crate) reservation_digest: String,
+    pub(crate) reserved_at_epoch_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct StoredArtifactBuildInvocationSnapshotV1 {
+    pub(crate) schema_version: u32,
+    pub(crate) request: ArtifactBuildRequestV1,
+    pub(crate) request_semantic_digest: String,
+    pub(crate) canonical_intent_bytes: String,
+    pub(crate) intent_semantic_digest: String,
+    pub(crate) research_request_identity: String,
+    pub(crate) research_valid_through_epoch_ms: u64,
+    pub(crate) trial_family_identity: String,
+    pub(crate) trial_family_root_digest: String,
+    pub(crate) census_frontier_identity: String,
+    pub(crate) census_frontier_digest: String,
+    pub(crate) claim_identity: String,
+    pub(crate) claim_digest: String,
+    pub(crate) invocation_admission_receipt_identity: String,
+    pub(crate) invocation_admission_receipt_digest: String,
+    pub(crate) claimed_state_digest: String,
+    pub(crate) reserved_at_epoch_ms: u64,
+    pub(crate) custody_digest: String,
+}
+
+#[derive(Serialize)]
+struct ArtifactBuildInvocationSnapshotMeaningV1<'a> {
+    schema_version: u32,
+    request: &'a ArtifactBuildRequestV1,
+    request_semantic_digest: &'a str,
+    canonical_intent_bytes: &'a str,
+    intent_semantic_digest: &'a str,
+    research_request_identity: &'a str,
+    research_valid_through_epoch_ms: u64,
+    trial_family_identity: &'a str,
+    trial_family_root_digest: &'a str,
+    census_frontier_identity: &'a str,
+    census_frontier_digest: &'a str,
+    claim_identity: &'a str,
+    claim_digest: &'a str,
+    invocation_admission_receipt_identity: &'a str,
+    invocation_admission_receipt_digest: &'a str,
+    claimed_state_digest: &'a str,
+    reserved_at_epoch_ms: u64,
+}
+
+impl StoredArtifactBuildInvocationSnapshotV1 {
+    fn meaning(&self) -> ArtifactBuildInvocationSnapshotMeaningV1<'_> {
+        ArtifactBuildInvocationSnapshotMeaningV1 {
+            schema_version: self.schema_version,
+            request: &self.request,
+            request_semantic_digest: &self.request_semantic_digest,
+            canonical_intent_bytes: &self.canonical_intent_bytes,
+            intent_semantic_digest: &self.intent_semantic_digest,
+            research_request_identity: &self.research_request_identity,
+            research_valid_through_epoch_ms: self.research_valid_through_epoch_ms,
+            trial_family_identity: &self.trial_family_identity,
+            trial_family_root_digest: &self.trial_family_root_digest,
+            census_frontier_identity: &self.census_frontier_identity,
+            census_frontier_digest: &self.census_frontier_digest,
+            claim_identity: &self.claim_identity,
+            claim_digest: &self.claim_digest,
+            invocation_admission_receipt_identity: &self.invocation_admission_receipt_identity,
+            invocation_admission_receipt_digest: &self.invocation_admission_receipt_digest,
+            claimed_state_digest: &self.claimed_state_digest,
+            reserved_at_epoch_ms: self.reserved_at_epoch_ms,
+        }
+    }
+
+    pub(crate) fn seal(mut self) -> Result<Self, ArtifactBuildError> {
+        let bytes = serde_json::to_vec(&self.meaning())
+            .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?;
+        self.custody_digest = format!("sha256:{:x}", Sha256::digest(bytes));
+        Ok(self)
+    }
+
+    pub(crate) fn verify_digest(&self) -> Result<(), ArtifactBuildError> {
+        let bytes = serde_json::to_vec(&self.meaning())
+            .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?;
+        let expected = format!("sha256:{:x}", Sha256::digest(bytes));
+        if self.schema_version != 1 || self.custody_digest != expected {
+            return Err(ArtifactBuildError::Storage(
+                "invocation execution custody snapshot mismatch".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl ArtifactBuildInvocationCustodyV1 {
+    pub fn request(&self) -> &ArtifactBuildRequestV1 {
+        &self.request
+    }
+
+    pub fn request_semantic_digest(&self) -> &str {
+        &self.request_semantic_digest
+    }
+
+    pub fn canonical_intent_bytes(&self) -> &str {
+        &self.canonical_intent_bytes
+    }
+
+    pub fn intent_semantic_digest(&self) -> &str {
+        &self.intent_semantic_digest
+    }
+
+    pub fn research_request_identity(&self) -> &str {
+        &self.research_request_identity
+    }
+
+    pub fn research_valid_through_epoch_ms(&self) -> u64 {
+        self.research_valid_through_epoch_ms
+    }
+
+    pub fn trial_family_identity(&self) -> &str {
+        &self.trial_family_identity
+    }
+
+    pub fn trial_family_root_digest(&self) -> &str {
+        &self.trial_family_root_digest
+    }
+
+    pub fn census_frontier_identity(&self) -> &str {
+        &self.census_frontier_identity
+    }
+
+    pub fn census_frontier_digest(&self) -> &str {
+        &self.census_frontier_digest
+    }
+
+    pub fn claim_identity(&self) -> &str {
+        &self.claim_identity
+    }
+
+    pub fn claim_digest(&self) -> &str {
+        &self.claim_digest
+    }
+
+    pub fn invocation_admission_receipt_identity(&self) -> &str {
+        &self.invocation_admission_receipt_identity
+    }
+
+    pub fn invocation_admission_receipt_digest(&self) -> &str {
+        &self.invocation_admission_receipt_digest
+    }
+
+    pub fn claimed_state_digest(&self) -> &str {
+        &self.claimed_state_digest
+    }
+
+    pub fn execution_custody_digest(&self) -> &str {
+        &self.execution_custody_digest
+    }
+
+    pub fn reservation_identity(&self) -> &str {
+        &self.reservation_identity
+    }
+
+    pub fn reservation_digest(&self) -> &str {
+        &self.reservation_digest
+    }
+
+    pub fn reserved_at_epoch_ms(&self) -> u64 {
+        self.reserved_at_epoch_ms
+    }
+}
+
+/// In-process handoff from the R&D Owner to Product Edge.
+///
+/// The move-only start reservation is never serialized onto the HTTP or
+/// Windmill boundary. Only the execution custody remains observable there.
+#[derive(Debug)]
+pub struct ReservedArtifactBuildInvocationV1 {
+    start_reservation: ArtifactInvocationStartReservationV1,
+    execution_custody: ArtifactBuildInvocationCustodyV1,
+}
+
+impl ReservedArtifactBuildInvocationV1 {
+    pub(crate) fn new(
+        start_reservation: ArtifactInvocationStartReservationV1,
+        execution_custody: ArtifactBuildInvocationCustodyV1,
+    ) -> Self {
+        Self {
+            start_reservation,
+            execution_custody,
+        }
+    }
+
+    pub fn into_parts(
+        self,
+    ) -> (
+        ArtifactInvocationStartReservationV1,
+        ArtifactBuildInvocationCustodyV1,
+    ) {
+        (self.start_reservation, self.execution_custody)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -108,33 +335,222 @@ pub enum GeneratedDirectionV1 {
     LongShort,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+/// Owner-issued artifact build preparation.
+///
+/// Positive preparations are serialize-only and cannot be reconstructed or
+/// field-constructed by a caller:
+///
+/// ```compile_fail
+/// use vibe_strategy_factory::artifact_build::ArtifactBuildPreparationV1;
+/// let _: ArtifactBuildPreparationV1 = serde_json::from_str("{}").unwrap();
+/// ```
+///
+/// ```compile_fail
+/// use vibe_strategy_factory::artifact_build::{
+///     ArtifactBuildNextLegalAction, ArtifactBuildPreparationV1, ArtifactBuildResolution,
+/// };
+/// let _ = ArtifactBuildPreparationV1 {
+///     schema_version: 1,
+///     resolution: ArtifactBuildResolution::Prepared,
+///     build_request_identity: "request".to_string(),
+///     attempt_identity: "attempt".to_string(),
+///     semantic_digest: "sha256:digest".to_string(),
+///     canonical_intent_bytes: Some("{}".to_string()),
+///     intent_identity: Some("intent".to_string()),
+///     intent_semantic_digest: Some("sha256:intent".to_string()),
+///     owner_receipt: None,
+///     next_legal_action: ArtifactBuildNextLegalAction::RunBoundedExecutionAgent,
+/// };
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ArtifactBuildPreparationV1 {
-    pub schema_version: u32,
-    pub resolution: ArtifactBuildResolution,
-    pub build_request_identity: String,
-    pub attempt_identity: String,
-    pub semantic_digest: String,
-    pub canonical_intent_bytes: Option<String>,
-    pub intent_identity: Option<String>,
-    pub intent_semantic_digest: Option<String>,
-    pub owner_receipt: Option<ArtifactBuildReceiptV1>,
-    pub next_legal_action: ArtifactBuildNextLegalAction,
+    pub(crate) schema_version: u32,
+    pub(crate) resolution: ArtifactBuildResolution,
+    pub(crate) build_request_identity: String,
+    pub(crate) attempt_identity: String,
+    pub(crate) semantic_digest: String,
+    pub(crate) canonical_intent_bytes: Option<String>,
+    pub(crate) intent_identity: Option<String>,
+    pub(crate) intent_semantic_digest: Option<String>,
+    pub(crate) owner_receipt: Option<ArtifactBuildReceiptV1>,
+    pub(crate) next_legal_action: ArtifactBuildNextLegalAction,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+impl ArtifactBuildPreparationV1 {
+    pub fn identity_conflict(
+        build_request_identity: impl Into<String>,
+        attempt_identity: impl Into<String>,
+    ) -> Self {
+        Self::non_positive(
+            build_request_identity,
+            attempt_identity,
+            ArtifactBuildResolution::IdentityConflict,
+            ArtifactBuildNextLegalAction::ResolveSameAttemptIdentity,
+        )
+    }
+
+    pub fn submitted_or_unknown(
+        build_request_identity: impl Into<String>,
+        attempt_identity: impl Into<String>,
+    ) -> Self {
+        Self::non_positive(
+            build_request_identity,
+            attempt_identity,
+            ArtifactBuildResolution::SubmittedOrUnknown,
+            ArtifactBuildNextLegalAction::ResolveSameAttemptIdentity,
+        )
+    }
+
+    fn non_positive(
+        build_request_identity: impl Into<String>,
+        attempt_identity: impl Into<String>,
+        resolution: ArtifactBuildResolution,
+        next_legal_action: ArtifactBuildNextLegalAction,
+    ) -> Self {
+        Self {
+            schema_version: 1,
+            resolution,
+            build_request_identity: build_request_identity.into(),
+            attempt_identity: attempt_identity.into(),
+            semantic_digest: String::new(),
+            canonical_intent_bytes: None,
+            intent_identity: None,
+            intent_semantic_digest: None,
+            owner_receipt: None,
+            next_legal_action,
+        }
+    }
+
+    pub const fn schema_version(&self) -> u32 {
+        self.schema_version
+    }
+
+    pub const fn resolution(&self) -> ArtifactBuildResolution {
+        self.resolution
+    }
+
+    pub fn build_request_identity(&self) -> &str {
+        &self.build_request_identity
+    }
+
+    pub fn attempt_identity(&self) -> &str {
+        &self.attempt_identity
+    }
+
+    pub fn semantic_digest(&self) -> &str {
+        &self.semantic_digest
+    }
+
+    pub fn canonical_intent_bytes(&self) -> Option<&str> {
+        self.canonical_intent_bytes.as_deref()
+    }
+
+    pub fn intent_identity(&self) -> Option<&str> {
+        self.intent_identity.as_deref()
+    }
+
+    pub fn intent_semantic_digest(&self) -> Option<&str> {
+        self.intent_semantic_digest.as_deref()
+    }
+
+    pub fn owner_receipt(&self) -> Option<&ArtifactBuildReceiptV1> {
+        self.owner_receipt.as_ref()
+    }
+
+    pub const fn next_legal_action(&self) -> ArtifactBuildNextLegalAction {
+        self.next_legal_action
+    }
+}
+
+/// Owner-issued terminal artifact result.
+///
+/// Positive results are serialize-only and cannot be reconstructed by a caller:
+///
+/// ```compile_fail
+/// use vibe_strategy_factory::artifact_build::ArtifactBuildResultV1;
+/// let _: ArtifactBuildResultV1 = serde_json::from_str("{}").unwrap();
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ArtifactBuildResultV1 {
-    pub schema_version: u32,
-    pub resolution: ArtifactBuildResolution,
-    pub build_request_identity: String,
-    pub attempt_identity: String,
-    pub owner_receipt: Option<ArtifactBuildReceiptV1>,
-    pub research_view: Option<ResearchViewV1>,
-    pub artifact_review: Option<ArtifactReviewV1>,
-    pub artifact_review_actions: Option<ArtifactReviewActionProjectionV1>,
-    pub next_legal_action: ArtifactBuildNextLegalAction,
+    pub(crate) schema_version: u32,
+    pub(crate) resolution: ArtifactBuildResolution,
+    pub(crate) build_request_identity: String,
+    pub(crate) attempt_identity: String,
+    pub(crate) owner_receipt: Option<ArtifactBuildReceiptV1>,
+    pub(crate) research_view: Option<ResearchViewV1>,
+    pub(crate) artifact_review: Option<ArtifactReviewV1>,
+    pub(crate) artifact_review_actions: Option<ArtifactReviewActionProjectionV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) trial_family_resolution: Option<TrialFamilyResolutionV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) artifact_trial_family: Option<ArtifactTrialFamilyReadbackV1>,
+    pub(crate) next_legal_action: ArtifactBuildNextLegalAction,
+}
+
+impl ArtifactBuildResultV1 {
+    pub fn resolution(&self) -> ArtifactBuildResolution {
+        self.resolution
+    }
+
+    pub fn build_request_identity(&self) -> &str {
+        &self.build_request_identity
+    }
+
+    pub fn attempt_identity(&self) -> &str {
+        &self.attempt_identity
+    }
+
+    pub fn owner_receipt(&self) -> Option<&ArtifactBuildReceiptV1> {
+        self.owner_receipt.as_ref()
+    }
+
+    pub fn research_view(&self) -> Option<&ResearchViewV1> {
+        self.research_view.as_ref()
+    }
+
+    pub fn artifact_review(&self) -> Option<&ArtifactReviewV1> {
+        self.artifact_review.as_ref()
+    }
+
+    pub fn artifact_review_actions(&self) -> Option<&ArtifactReviewActionProjectionV1> {
+        self.artifact_review_actions.as_ref()
+    }
+
+    pub fn trial_family_resolution(&self) -> Option<TrialFamilyResolutionV1> {
+        self.trial_family_resolution
+    }
+
+    pub fn artifact_trial_family(&self) -> Option<&ArtifactTrialFamilyReadbackV1> {
+        self.artifact_trial_family.as_ref()
+    }
+
+    pub fn next_legal_action(&self) -> ArtifactBuildNextLegalAction {
+        self.next_legal_action
+    }
+
+    pub fn identity_conflict(build_request_identity: &str, attempt_identity: &str) -> Self {
+        let mut result = Self::submitted_or_unknown(build_request_identity, attempt_identity);
+        result.resolution = ArtifactBuildResolution::IdentityConflict;
+        result
+    }
+
+    pub fn submitted_or_unknown(build_request_identity: &str, attempt_identity: &str) -> Self {
+        Self {
+            schema_version: 1,
+            resolution: ArtifactBuildResolution::SubmittedOrUnknown,
+            build_request_identity: build_request_identity.to_string(),
+            attempt_identity: attempt_identity.to_string(),
+            owner_receipt: None,
+            research_view: None,
+            artifact_review: None,
+            artifact_review_actions: None,
+            trial_family_resolution: None,
+            artifact_trial_family: None,
+            next_legal_action: ArtifactBuildNextLegalAction::ResolveSameAttemptIdentity,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -147,6 +563,7 @@ pub enum ArtifactBuildResolution {
     OutcomeUnknown,
     SubmittedOrUnknown,
     IdentityConflict,
+    LegacyTerminalQuarantined,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -267,30 +684,58 @@ pub enum ArtifactBuildError {
     Storage(String),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArtifactRequestIdentityPreflightV1 {
+    Vacant,
+    Current,
+    LegacyTerminalQuarantined,
+}
+
 #[async_trait]
 pub trait ArtifactBuildOwnerPort: Send + Sync {
+    async fn preflight_request_identity(
+        &self,
+        build_request_identity: &str,
+        attempt_identity: &str,
+    ) -> Result<ArtifactRequestIdentityPreflightV1, ArtifactBuildError>;
+
     async fn prepare(
         &self,
         request: ArtifactBuildRequestV1,
     ) -> Result<ArtifactBuildPreparationV1, ArtifactBuildError>;
 
+    async fn reserve_provider_invocation_custody(
+        &self,
+        build_request_identity: &str,
+        attempt_identity: &str,
+        claim: ProductEdgeInvocationClaimReadbackV1,
+    ) -> Result<ReservedArtifactBuildInvocationV1, ArtifactBuildError>;
+
     async fn submit_candidate(
         &self,
         request: ArtifactBuildRequestV1,
         candidate: ArtifactBuildCandidateV1,
+        invocation: Option<&ProductEdgeInvocationClaimReadbackV1>,
     ) -> Result<ArtifactBuildResultV1, ArtifactBuildError>;
 
     async fn fail_no_artifact(
         &self,
         request: ArtifactBuildRequestV1,
         failure_code: &str,
+        invocation: Option<&ProductEdgeInvocationClaimReadbackV1>,
     ) -> Result<ArtifactBuildResultV1, ArtifactBuildError>;
 
     async fn resolve(
         &self,
         build_request_identity: &str,
         attempt_identity: &str,
-        context: &TrustedProductEdgeContextV1,
+        admission: &ProductEdgeAdmissionLocatorV1,
+    ) -> Result<ArtifactBuildResultV1, ArtifactBuildError>;
+
+    async fn resolve_legacy_terminal_quarantined(
+        &self,
+        build_request_identity: &str,
+        attempt_identity: &str,
     ) -> Result<ArtifactBuildResultV1, ArtifactBuildError>;
 }
 
@@ -513,11 +958,11 @@ fn append_capsule_entry(
 
 pub(crate) fn validate_candidate(
     candidate: &ArtifactBuildCandidateV1,
-    intent: &FrozenResearchGoalIntentV1,
+    intent: &FrozenResearchGoalIntent,
 ) -> Result<String, ArtifactBuildError> {
     if candidate.schema_version != 1
-        || candidate.intent_identity != intent.intent_identity
-        || candidate.intent_semantic_digest != intent.semantic_digest
+        || candidate.intent_identity != intent.intent_identity()
+        || candidate.intent_semantic_digest != intent.semantic_digest()
         || !candidate
             .candidate_identity
             .starts_with("agent-program-candidate-v1-")
@@ -639,7 +1084,7 @@ pub(crate) fn issue_artifact(
 }
 
 pub(crate) fn canonical_intent_bytes(
-    intent: &FrozenResearchGoalIntentV1,
+    intent: &FrozenResearchGoalIntent,
 ) -> Result<Vec<u8>, ArtifactBuildError> {
     let mut bytes =
         serde_json::to_vec(intent).map_err(|e| ArtifactBuildError::Storage(e.to_string()))?;
@@ -655,7 +1100,7 @@ pub(crate) fn build_request_semantic_digest(
         build_request_identity: &'a str,
         attempt_identity: &'a str,
         intent_identity: &'a str,
-        context: &'a TrustedProductEdgeContextV1,
+        admission: &'a ProductEdgeAdmissionLocatorV1,
     }
 
     for value in [
@@ -671,10 +1116,44 @@ pub(crate) fn build_request_semantic_digest(
         build_request_identity: &request.build_request_identity,
         attempt_identity: &request.attempt_identity,
         intent_identity: &request.intent_identity,
-        context: &request.context,
+        admission: &request.admission,
     })
     .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?;
     Ok(format!("sha256:{:x}", Sha256::digest(bytes)))
+}
+
+pub(crate) fn verify_artifact_build_admission(
+    admission: &ProductEdgeAdmissionReadbackV1,
+    request: &ArtifactBuildRequestV1,
+) -> Result<(), ArtifactBuildError> {
+    let admitted = admission.request();
+    let payload = serde_json::json!({
+        "build_request_identity": request.build_request_identity,
+        "attempt_identity": request.attempt_identity,
+        "intent_identity": request.intent_identity,
+        "channel": request.channel,
+    });
+
+    if admission.locator() != &request.admission
+        || admitted.request_identity != request.build_request_identity
+        || admitted.operation != ARTIFACT_BUILD_OPERATION_V1
+        || admitted.operation_schema != ARTIFACT_BUILD_SCHEMA_V1
+        || admitted.target_owner != crate::product_edge::RESEARCH_OWNER_V1
+        || !has_exact_artifact_build_effects(&admitted.requested_effects)
+        || admitted.typed_payload != payload
+    {
+        return Err(ArtifactBuildError::Unauthorized(
+            "canonical Product Edge admission mismatch",
+        ));
+    }
+    Ok(())
+}
+
+fn has_exact_artifact_build_effects(requested_effects: &[String]) -> bool {
+    requested_effects
+        .iter()
+        .map(String::as_str)
+        .eq(ARTIFACT_BUILD_REQUIRED_EFFECTS_V1)
 }
 
 pub(crate) fn build_receipt(
@@ -708,7 +1187,7 @@ pub(crate) fn build_receipt(
 }
 
 pub(crate) fn artifact_review(
-    intent: &FrozenResearchGoalIntentV1,
+    intent: &FrozenResearchGoalIntent,
     candidate: &ArtifactBuildCandidateV1,
     artifact: &StrategyArtifact,
     receipt: BuildReceiptV1,
@@ -724,11 +1203,11 @@ pub(crate) fn artifact_review(
                 .trim_start_matches("blake3:")
         ),
         artifact_identity: artifact.identity().clone(),
-        intent_identity: intent.intent_identity.clone(),
-        intent_semantic_digest: intent.semantic_digest.clone(),
-        request_identity: intent.request_identity.clone(),
+        intent_identity: intent.intent_identity().to_string(),
+        intent_semantic_digest: intent.semantic_digest().to_string(),
+        request_identity: intent.request_identity().to_string(),
         source_lineage: intent
-            .source_frontier
+            .source_frontier()
             .iter()
             .map(|source| format!("{}#{}", source.locator, source.content_digest))
             .collect(),
@@ -814,11 +1293,44 @@ fn sandbox(error: impl Display) -> ArtifactBuildError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::product_edge::{ResearchSourceV1, SourcedResearchGoalV1};
+    use crate::product_edge::{
+        FrozenResearchGoalIntentV1, ResearchSourceV1, SourcedResearchGoalV1,
+    };
     use rstest::rstest;
 
-    fn intent(identity: &str, digest: &str) -> FrozenResearchGoalIntentV1 {
-        FrozenResearchGoalIntentV1 {
+    #[rstest]
+    fn downstream_artifact_effects_are_exact_and_ordered() {
+        let exact = ARTIFACT_BUILD_REQUIRED_EFFECTS_V1
+            .iter()
+            .map(|effect| (*effect).to_string())
+            .collect::<Vec<_>>();
+        assert!(has_exact_artifact_build_effects(&exact));
+
+        for refuting in [
+            vec![],
+            vec!["R_AND_D_ARTIFACT_BUILD_MUTATION_V1".to_string()],
+            vec!["R_AND_D_PROVIDER_INVOCATION_V1".to_string()],
+            vec![
+                "R_AND_D_PROVIDER_INVOCATION_V1".to_string(),
+                "R_AND_D_ARTIFACT_BUILD_MUTATION_V1".to_string(),
+            ],
+            vec![
+                "R_AND_D_ARTIFACT_BUILD_MUTATION_V1".to_string(),
+                "R_AND_D_ARTIFACT_BUILD_MUTATION_V1".to_string(),
+                "R_AND_D_PROVIDER_INVOCATION_V1".to_string(),
+            ],
+            vec![
+                "R_AND_D_ARTIFACT_BUILD_MUTATION_V1".to_string(),
+                "R_AND_D_PROVIDER_INVOCATION_V1".to_string(),
+                "EXTRA_EFFECT_V1".to_string(),
+            ],
+        ] {
+            assert!(!has_exact_artifact_build_effects(&refuting));
+        }
+    }
+
+    fn intent(identity: &str, digest: &str) -> FrozenResearchGoalIntent {
+        FrozenResearchGoalIntent::V1(FrozenResearchGoalIntentV1 {
             schema_version: 1,
             intent_identity: identity.to_string(),
             request_identity: "research-request-01JZTEST0000000000000001".to_string(),
@@ -843,15 +1355,15 @@ mod tests {
                 sources: Vec::new(),
             },
             frozen_at_epoch_ms: 1,
-        }
+        })
     }
 
-    fn candidate(intent: &FrozenResearchGoalIntentV1) -> ArtifactBuildCandidateV1 {
+    fn candidate(intent: &FrozenResearchGoalIntent) -> ArtifactBuildCandidateV1 {
         ArtifactBuildCandidateV1 {
             schema_version: 1,
             candidate_identity: "agent-program-candidate-v1-momentum-001".to_string(),
-            intent_identity: intent.intent_identity.clone(),
-            intent_semantic_digest: intent.semantic_digest.clone(),
+            intent_identity: intent.intent_identity().to_string(),
+            intent_semantic_digest: intent.semantic_digest().to_string(),
             logic: GeneratedStrategyLogicV1 {
                 signal: GeneratedSignalV1::Momentum,
                 direction: GeneratedDirectionV1::LongOnly,
@@ -933,6 +1445,84 @@ mod tests {
                 ArtifactReviewActionAdmissionV1::NotAdmitted,
             ]
         );
+    }
+
+    #[rstest]
+    #[case(
+        ArtifactBuildPreparationV1::identity_conflict("request", "attempt"),
+        ArtifactBuildResolution::IdentityConflict,
+        ArtifactBuildNextLegalAction::ResolveSameAttemptIdentity
+    )]
+    #[case(
+        ArtifactBuildPreparationV1::submitted_or_unknown("request", "attempt"),
+        ArtifactBuildResolution::SubmittedOrUnknown,
+        ArtifactBuildNextLegalAction::ResolveSameAttemptIdentity
+    )]
+    fn caller_safe_preparation_outcomes_carry_no_positive_authority(
+        #[case] preparation: ArtifactBuildPreparationV1,
+        #[case] resolution: ArtifactBuildResolution,
+        #[case] next_legal_action: ArtifactBuildNextLegalAction,
+    ) {
+        assert_eq!(preparation.schema_version(), 1);
+        assert_eq!(preparation.resolution(), resolution);
+        assert_eq!(preparation.build_request_identity(), "request");
+        assert_eq!(preparation.attempt_identity(), "attempt");
+        assert_eq!(preparation.semantic_digest(), "");
+        assert_eq!(preparation.canonical_intent_bytes(), None);
+        assert_eq!(preparation.intent_identity(), None);
+        assert_eq!(preparation.intent_semantic_digest(), None);
+        assert_eq!(preparation.owner_receipt(), None);
+        assert_eq!(preparation.next_legal_action(), next_legal_action);
+        assert_eq!(
+            serde_json::to_value(&preparation).unwrap(),
+            serde_json::json!({
+                "schema_version": 1,
+                "resolution": resolution,
+                "build_request_identity": "request",
+                "attempt_identity": "attempt",
+                "semantic_digest": "",
+                "canonical_intent_bytes": null,
+                "intent_identity": null,
+                "intent_semantic_digest": null,
+                "owner_receipt": null,
+                "next_legal_action": next_legal_action,
+            })
+        );
+    }
+
+    #[rstest]
+    fn nonpositive_result_wire_omits_optional_trial_family_fields() {
+        let receipt = |disposition| ArtifactBuildReceiptV1 {
+            schema_version: 1,
+            receipt_identity: "receipt-1".to_string(),
+            build_request_identity: "request".to_string(),
+            attempt_identity: "attempt".to_string(),
+            request_semantic_digest: format!("sha256:{}", "a".repeat(64)),
+            intent_identity: Some("intent-1".to_string()),
+            intent_semantic_digest: Some(format!("sha256:{}", "b".repeat(64))),
+            disposition,
+            artifact_identity: None,
+            build_receipt_identity: None,
+            failure_code: Some("PROVIDER_ERROR".to_string()),
+            committed_at_epoch_ms: 1,
+        };
+        let mut failed = ArtifactBuildResultV1::submitted_or_unknown("request", "attempt");
+        failed.resolution = ArtifactBuildResolution::FailedNoArtifact;
+        failed.owner_receipt = Some(receipt(ArtifactBuildDisposition::FailedNoArtifact));
+        let mut outcome_unknown = ArtifactBuildResultV1::submitted_or_unknown("request", "attempt");
+        outcome_unknown.resolution = ArtifactBuildResolution::OutcomeUnknown;
+        outcome_unknown.owner_receipt = Some(receipt(ArtifactBuildDisposition::OutcomeUnknown));
+
+        for result in [
+            ArtifactBuildResultV1::submitted_or_unknown("request", "attempt"),
+            failed,
+            outcome_unknown,
+        ] {
+            let value = serde_json::to_value(result).unwrap();
+            let object = value.as_object().unwrap();
+            assert!(!object.contains_key("trial_family_resolution"));
+            assert!(!object.contains_key("artifact_trial_family"));
+        }
     }
 
     #[rstest]

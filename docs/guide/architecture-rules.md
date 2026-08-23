@@ -46,6 +46,38 @@ irreversible. Shell or transport success is only `SUBMITTED_OR_UNKNOWN`; the rec
 authoritative. Same identity and meaning join the same receipt, changed meaning rejects, and an already admitted
 in-flight request continues to resolve under its original binding even after a newer head becomes active.
 
+Product Edge is the unique writer of content-addressed Agent Operation Manifests, Agent Shell Deployment
+Bindings and their history head, immutable request admissions, and the matching outbox. A separately named
+**Operator Authorization Issuer** is the unique writer of authorization issuance and its revocation frontier.
+Product Edge may only direct-resolve the Issuer's canonical facts; Windmill, an API, R&D, a token, configuration,
+or Product Edge admission code cannot issue or self-assert them. Both writers use distinct PostgreSQL roles in
+one authority database. Admission holds a shared lock on the exact issuance and revocation frontier while it
+commits, and revocation takes the conflicting update lock. This common cut, rather than a copied DTO, cache, or
+signature checked by the same caller, decides whether an authorization is current.
+
+Deployment genesis is an explicit one-time administrative operation, never a service-start or request-path
+default. It requires completely verified empty binding and head history, expected head `EMPTY`, generation one,
+a finite validity interval, content-addressed manifests, one immutable receipt, and its outbox. Exact replay joins
+the same bytes; concurrent or changed meaning conflicts without creating another `ACTIVE` binding. Cutover first
+commits the exact predecessor `SUPERSEDED` fence and only then may commit its policy-equivalent successor
+`ACTIVE`; the zero-active interval is fail closed and no request may recreate genesis.
+
+An immutable Product Edge Request Admission binds the stable request identity and typed-payload digest, exact
+deployment binding and head, effective principal and scope, authorization identity, issuer and key version,
+validity and revocation frontier, manifest identity and digest, operation, schema, target and effects, time
+evidence, request-proof digest, and audit correlation. R&D receives only its locator and directly resolves the
+complete canonical admission before S1 or S2 mutation. If no downstream custody has committed, later expiry or
+revocation forbids the first submission. A committed downstream receipt remains resolvable under its original
+admission cut, but recovery cannot start a new provider or external-effect invocation without a new one-use
+invocation admission at a current authorization cut. Supersession, expiry, and revocation never rewrite an
+admission or downstream Owner receipt.
+
+Rows previously accepted only from environment-constructed authority are never backfilled or retroactively
+blessed. Terminal legacy rows are read-only and quarantined; an identity collision fails closed, and activation
+stops while any legacy nonterminal S2 custody remains undrained. Missing, dual, stale, expired, revoked,
+wrong-issuer, wrong-audience, cross-principal, cross-scope, proof-mismatched, manifest-mismatched, digest-mismatched,
+or mixed-cut authority creates no Product Edge admission and no downstream Owner write or provider call.
+
 The request's Authorization Lineage is the indivisible tuple of stable request identity, effective principal and
 scope, admitted `ACTIVE` shell binding and exact deployment-history head, Operator Authorization, and Agent
 Operation Manifest. Every accepted Governance lifecycle decision declares either `ATTENDED_REQUEST` or
@@ -92,11 +124,19 @@ explicit successor-Intent hypothesis change, never a silent replay or selection 
 Exploratory results may return from Backtest to Research. Research commits one terminal Research Selection
 Disposition cross-bound to the exact Intent falsifier, stop rule, exploratory frontier, Candidate, and Census
 Frontier. Only `SELECTED_FOR_QUALIFICATION` enters the independent protected path. Protected results never return
-to the same R&D loop. Eligibility is a fact consumed by
-Governance, not permission to bypass Governance. Product Edge commits the bounded Qualification phase-fact
-frontier already projected to a principal into each later Research and Qualification request. Research preserves
-semantic predecessors without receiving protected detail; Qualification alone resolves cross-family ancestry and
-cumulative holdout disposition. Changing TrialFamily, Candidate, Artifact, shell, or request identity cannot reset it.
+to the same R&D loop. Eligibility is a fact consumed by Governance, not permission to bypass Governance. Before a
+fresh Research program, R&D first commits a sealed principal/request-scope Independence Basis Receipt.
+Qualification directly resolves that receipt and its own complete durable history to publish only
+`GENESIS_EMPTY`, an opaque current `FRONTIER(ref, cut)`, or `UNAVAILABLE`. Product Edge transports that
+principal/scope-bound projection and cannot assert genesis, emptiness, disposition, basis identity, or a frontier.
+Physical custody follows the same boundary: R&D has no raw Qualification table read or write privilege and may
+only invoke the Qualification-owned locked admission function; Qualification Rust must canonically verify its raw
+envelope before producing a sealed positive readback. After that final reread, the consuming R&D transaction
+samples one final cut immediately before its first write and rechecks every half-open authority interval there.
+R&D then resolves its own locked local history as `GENESIS_EMPTY`, `COMPLETE_FRONTIER`, or `UNAVAILABLE`; only
+current canonical reads from both Owners may commit the Intent and TrialFamily. Research preserves semantic
+predecessors without receiving protected detail; Qualification alone resolves cross-family ancestry and cumulative
+holdout disposition. Changing TrialFamily, Candidate, Artifact, shell, or request identity cannot reset either history.
 A terminal Research stop creates no Selection or Candidate and therefore never reaches Qualification. A missing or
 mismatched selected-only disposition produces `NOT_ADMITTED` before protected replay and consumes no holdout.
 Every selected Candidate also binds one pre-result Protected Robustness Plan. It fixes the complete finite set of

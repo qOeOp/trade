@@ -1,0 +1,22 @@
+[package]
+name = "vibe-rd-artifact-invocation-custody"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Canonical R&D artifact invocation reservation custody"
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+vibe-product-edge-claim-custody = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }

@@ -41,6 +41,33 @@ head。`SUPERSEDED` 单调且不可逆。Shell 或传输成功只表示 `SUBMITT
 回执才是权威结果。相同身份和含义加入同一回执，含义改变必须拒绝；已经合法准入的在途请求即使
 新 head 生效也继续按原 binding 解析。
 
+Product Edge 是内容寻址 Agent Operation Manifest、Agent Shell Deployment Binding 及其 history head、
+不可变 request admission 与对应 outbox 的唯一 writer。独立命名的 **Operator Authorization Issuer**
+是授权签发与 revocation frontier 的唯一 writer。Product Edge 只能直接解析 Issuer 的规范事实；Windmill、
+API、R&D、token、配置或 Product Edge admission 代码都不能签发或自我声明这些事实。两个 writer 在同一
+authority database 使用不同 PostgreSQL role。Admission 提交时对准确 issuance 与 revocation frontier 持有
+共享锁，revocation 使用冲突的更新锁。决定授权是否当前的是这一共同截面，而不是复制 DTO、cache 或由
+同一 caller 校验的签名。
+
+Deployment genesis 是显式且只执行一次的管理员操作，绝不是服务启动或请求路径默认动作。它要求完整
+验证 binding 与 head 历史为空、expected head 为 `EMPTY`、generation 为一、有限有效期、内容寻址
+manifest、一份不可变 receipt 及其 outbox。准确重放加入相同字节；并发或含义改变发生冲突，不能创建
+第二个 `ACTIVE` binding。切换必须先提交准确前驱的 `SUPERSEDED` fence，随后才可提交政策等价后继
+`ACTIVE`；零活动区间失败关闭，任何请求都不能重新创建 genesis。
+
+不可变 Product Edge Request Admission 绑定稳定 request identity 与 typed-payload digest、准确 deployment
+binding 与 head、有效 principal 与 scope、authorization identity、issuer 与 key version、有效期与 revocation
+frontier、manifest identity 与 digest、operation、schema、target 与 effects、time evidence、request-proof
+digest 和 audit correlation。R&D 只接收其 locator，并在 S1 或 S2 mutation 前直接解析完整规范 admission。
+若尚无 downstream custody 提交，后续到期或撤销禁止第一次提交。已提交 downstream receipt 仍按原
+admission cut 解析，但 recovery 若要开始新的 provider 或外部 effect invocation，必须在当前授权截面取得
+新的单次 invocation admission。取代、到期和撤销绝不重写 admission 或 downstream Owner receipt。
+
+历史上只依赖环境构造 authority 接受的行绝不回填或追认。终态 legacy 行只读并 quarantine；identity
+碰撞失败关闭，任何 legacy 非终态 S2 custody 未排空时 activation 必须停止。authority 缺失、双重、过期、
+失效、被撤销、issuer 错误、audience 错误、跨 principal、跨 scope、proof 不匹配、manifest 不匹配、digest
+不匹配或混合截面时，不得创建 Product Edge admission、downstream Owner 写入或 provider 调用。
+
 请求 Authorization Lineage 是不可拆分元组，包含稳定 request identity 有效 principal 与 scope 已准入
 `ACTIVE` Shell binding 与准确 deployment history head Operator Authorization 和 Agent Operation
 Manifest。Governance 接受的每个生命周期决定必须声明 `ATTENDED_REQUEST` 或
@@ -84,10 +111,15 @@ Iteration Decision Research Selection 到 Candidate 保持相等。模型变化�
 探索结果可以从 Backtest 返回 Research。Research 提交一个终态 Research Selection Disposition，
 交叉绑定准确 Intent 证伪条件 停止规则 探索前沿 Candidate 和 Census Frontier。只有
 `SELECTED_FOR_QUALIFICATION` 能进入独立保护路径，保护结果不得返回同一个 R&D
-循环。资格是 Governance 消费的事实，不是绕过 Governance 的权限。Product Edge
-把同 principal 已投影的有界 Qualification phase-fact 前沿提交进后续 Research 与 Qualification 请求。
-Research 只保留语义前驱且不读取保护细节；Qualification 独占跨 TrialFamily 祖先与累计 holdout 处理解析。
-更换 TrialFamily Candidate Artifact Shell 或请求身份都不能重置该前沿。
+循环。资格是 Governance 消费的事实，不是绕过 Governance 的权限。新 Research program 开始前，R&D
+先提交密封且绑定 principal/request-scope 的 Independence Basis Receipt。Qualification 直接解析该回执与
+自身完整持久历史，只发布 `GENESIS_EMPTY` 不透明当前 `FRONTIER(ref, cut)` 或 `UNAVAILABLE`。
+Product Edge 只搬运绑定 principal/scope 的投影，不能断言 genesis 空历史 disposition basis identity 或
+frontier。R&D 再把自身锁定本地历史解析为 `GENESIS_EMPTY` `COMPLETE_FRONTIER` 或 `UNAVAILABLE`；只有
+物理 custody 也遵守同一边界：R&D 没有 Qualification 表的 raw read 或 write 权限，只能调用 Qualification-owned 锁定准入函数；Qualification Rust 必须规范校验其 raw envelope 后才可产生密封正向 readback。最后一次回读完成后，消费方 R&D 事务只能在第一笔写入前立即采样唯一 final cut，并在该 cut 重检所有半开 authority 区间。
+两个 Owner 的当前规范读取都成立时才可提交 Intent 与 TrialFamily。Research 只保留语义前驱且不读取
+保护细节；Qualification 独占跨 TrialFamily 祖先与累计 holdout 处理解析。更换 TrialFamily Candidate
+Artifact Shell 或请求身份都不能重置任一历史。
 Research 终态停止不创建 Selection 或 Candidate，因此永不进入 Qualification。仅选择 disposition 缺失
 或不匹配时，在保护回放前生成 `NOT_ADMITTED` 且不消耗 holdout。
 每个已选择 Candidate 还绑定结果前 Protected Robustness Plan。它冻结必需时间窗口 市场状态 标的切片

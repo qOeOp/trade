@@ -70,6 +70,10 @@ conflict。穷尽的 Owner disposition 是 `SUCCESS`、`FAILED_NO_ARTIFACT`、`R
 均不产生 Artifact。commit 后响应丢失会解析到准确回执，commit 前 timeout 只能以 unknown 且无 Artifact
 闭合。App 与 MCP 调用同一个带版本 Formation operation，绝不以 Windmill job state 代替它。
 
+Product Edge 只有在规范 authorization、deployment binding、manifest 与 admission 锁全部持有后，才会在第一笔写入前立即采样 request-admission commit cut。四项权威必须在同一个半开 cut 重新验证，该 cut 同时绑定 admission identity 与 receipt。如果锁等待期间跨过到期边界，请求必须零写入。Product Edge unavailable 或 storage unknown（包括 admission custody 可能已存在）必须返回 `SUBMITTED_OR_UNKNOWN`，且只有 `RESOLVE_SAME_ATTEMPT_IDENTITY`；绝不能转成 `REJECTED_NO_WRITE` 或 successor 权威。
+
+Provider invocation claim 本身是持久且一次性的 custody。若 claim 已提交但响应丢失，同 attempt 解析必须返回准确 `CLAIMED` claim 与唯一动作 `RUN_BOUNDED_EXECUTION_AGENT`。App 与脚本随后只能启动这一个既有 claim 一次；不得创建 successor claim 或第二次调用 provider。进入 `INVOCATION_STARTED` 后，除非已有权威终态 Owner receipt，否则唯一安全投影是人工 provider 对账。
+
 外部对话 client 与 Windmill 内部 AI 是两个 credential plane。client 可以先使用自己的 model provider
 key 再调用 MCP；内部 AI Agent step 使用单独 scoped Windmill AI resource。两种 model credential 都不能
 认证 Trade；复用同一 provider account 是 operator 选择，不是架构依赖。
@@ -142,7 +146,32 @@ epoch 严格递增，并使用历史中从未出现过的 binding identity。零
 准确前驱必须先提交 `SUPERSEDED`，以此形成持久请求来源围栏，政策完全等价的后继才能提交
 `ACTIVE`。每个写请求原子读取并绑定权威 history head，且准入要求唯一 `ACTIVE` binding 等于该
 head。已由合法前驱准入的请求保留原 request 与 binding 身份，新 head 生效后仍按该原绑定解析，
-不会发生写入重叠或裸重试。
+不会发生写入重叠或裸重试。如果其首次 downstream mutation 尚无回执，则只有在直接政策等价 successor 已成为 `ACTIVE`、原始存储 lineage 仍准确匹配且原 Operator Authorization 在 final write cut 仍 current 时才可继续。零 `ACTIVE` fence 会阻断这种连续性，所有新 admission 仍必须使用当前 `ACTIVE` head。
+
+### 管理员 bootstrap 与控制面 writer
+
+Product Edge 是 deployment binding 与 head、内容寻址 operation manifest、不可变 request admission 及其
+outbox 的唯一 writer。独立命名的 **Operator Authorization Issuer** 是授权签发与 revocation frontier 的唯一
+writer。它是 Product Edge 边界内独立控制面 writer，不是另一个业务 Owner，也不是 Product Edge admission
+helper。Product Edge 只能直接解析其事实而不能写入；Windmill、API、R&D、配置和持有 token 都不能签发
+authorization。
+
+两个 writer 在同一 authority database 使用不同 PostgreSQL role。Request-admission transaction 在写入
+admission 前以共享读锁锁定准确 issuance 与当前 revocation frontier；issuance 或 revocation 使用冲突的更新
+锁。因此两个 writer 的提交截面可被强制执行，不需要第三 verifier、cache、Event Store 或复制的 caller
+assertion。
+
+第一个 deployment binding 只能由显式且执行一次的管理员 bootstrap 创建。Bootstrap 禁止出现在服务
+启动和任何产品请求路径。它验证完整 binding 与 head 历史为空，要求 expected head 为 `EMPTY`、generation
+为一、有限有效区间、内容寻址 manifest 和已预先签发且当前有效的 Operator Authorization。Binding、head、
+manifest receipt 与 outbox 原子提交。准确重放加入原字节；含义改变或并发失败的 genesis 尝试发生冲突且
+没有部分写入。后继属于独立管理员 cutover：先提交准确前驱的 `SUPERSEDED` fence，随后且仅随后政策
+等价后继才能以 generation 加一成为 `ACTIVE`。
+
+本地 API token 只是 opaque request proof。Bootstrap 绑定其 digest，既不记录也不发布 secret；request
+admission 将该 proof 与规范 issuance 和 binding 比较。环境值、默认值、同对象比较或有效 transport session
+都不能提供 principal、scope、issuer、audience、authorization、manifest、deployment head、capability 或
+audit authority。
 
 ## 类型化 Owner 请求
 
@@ -161,6 +190,28 @@ schema 目标 Owner 允许 object class 禁止写入和 capability-policy 摘要
 Operator Authorization 和 Agent Operation Manifest 共同组成请求的 Authorization Lineage。Strategy
 Governance 接受生命周期请求时，必须把完整 lineage 交叉绑定进结果 Authorized Generation Decision。
 Scanner 证据 自然语言 Agent 计划或裸 Governance 决定都不能替代其中任何成员。
+
+Product Edge 必须在任何 R&D mutation 前把该完整元组持久化为一份不可变 Request Admission。Admission
+还绑定规范 typed-payload digest、operation schema、target Owner、允许与禁止的 effect、time evidence、
+request-proof digest 和 audit correlation。R&D 只接收 opaque admission locator，并在锁内直接解析完整规范
+字节；locator、序列化 readback 或 caller 可计算 digest 都不是 authority。相同 request 与含义加入原
+admission；含义改变或 authority cut 改变会发生冲突且不得 downstream 写入。
+
+Deployment binding 取代绝不重写已准入 request；其原 binding、head、authorization、frontier、manifest 与
+cut 始终可直接解析。Authorization 到期或撤销同样绝不重写 admission 或已经提交的 downstream Owner
+receipt。若尚无 downstream custody 提交，当前到期或撤销禁止第一次提交。若 R&D 已经提交 receipt 或
+prepared attempt，recovery 可以解析或终态化该 custody；但新的 provider 或 effect invocation 必须取得一份
+持久且只用一次、与当时当前 authorization frontier 序列化的 invocation admission。该 claim 响应丢失后
+绝不允许第二次 invocation。Product Edge 持久区分 claim 与 `INVOCATION_STARTED`；start fence 提交后，
+若 provider 没有可验证的幂等 key 或权威回读，只能返回 `OUTCOME_UNKNOWN` 并进行人工对账。该窗口的
+自动恢复与 `ACTUAL_PROVIDER_CALL_AT_MOST_ONCE` 仍为 `NOT_ADMITTED`；start fact 绝不证明 provider 已经
+执行或返回结果。
+
+由环境授权的 legacy 行没有 Product Edge admission，绝不回填。终态 legacy 行只读并 quarantine；identity
+碰撞失败关闭；只要存在 legacy 非终态 S2 attempt，R&D API 就拒绝 activation。authority 缺失、双重、过期、
+畸形、失效、被撤销、issuer 错误、audience 错误、跨 principal、跨 scope、proof 不匹配、manifest 不匹配、
+digest 不匹配或混合截面时，返回 `SUBMITTED_OR_UNKNOWN`，且不得创建 Product Edge admission、R&D/
+Qualification/TrialFamily/attempt/Artifact 写入、outbox 或 provider 调用。
 
 无人值守交易使用由该生命周期请求准入的独立显式 Autonomous Policy Authorization，不能伪装成每笔
 订单都由用户或 Agent 再次授权。它绑定 policy 身份与版本 principal 与 scope strategy generation 与

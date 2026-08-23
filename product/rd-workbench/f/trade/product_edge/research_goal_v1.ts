@@ -1,5 +1,4 @@
-type Channel = "APP" | "MCP"
-type Action = "SUBMIT" | "RESOLVE"
+type Action = "RESOLVE"
 
 export type ResearchSourceV1 = {
   locator: string
@@ -8,18 +7,6 @@ export type ResearchSourceV1 = {
   source_cut: string
   license_basis: string
   interpretation: string
-}
-
-export type SourcedResearchGoalV1 = {
-  hypothesis: string
-  mechanism: string
-  falsification_question: string
-  expected_observation: string
-  required_data: string[]
-  cost_assumption: string
-  capacity_assumption: string
-  protected_feedback_frontier: string
-  sources: ResearchSourceV1[]
 }
 
 const OWNER_URL = "http://rd-owner-api:8080"
@@ -36,30 +23,14 @@ function unknown(requestIdentity: string) {
 }
 
 export async function main(
-  action: Action,
+  _action: Action,
   request_identity: string,
-  channel: Channel,
-  goal?: SourcedResearchGoalV1,
 ) {
   const token = process.env.RD_OWNER_API_TOKEN
   if (!token) {
     return unknown(request_identity)
   }
-  const isResolve = action === "RESOLVE"
-  if (!isResolve && !goal) {
-    return {
-      ...unknown(request_identity),
-      resolution: "REJECTED_NO_WRITE",
-      rejection_code: "MISSING_TYPED_GOAL",
-      next_legal_action: "CORRECT_INPUT_AND_CREATE_SUCCESSOR_REQUEST",
-    }
-  }
-  const path = isResolve
-    ? `/v1/research-goals/${encodeURIComponent(request_identity)}/resolve`
-    : "/v1/research-goals"
-  const body = isResolve
-    ? {}
-    : { request_identity, channel, goal }
+  const path = `/v1/research-goals/${encodeURIComponent(request_identity)}/resolve`
   try {
     const response = await fetch(`${OWNER_URL}${path}`, {
       method: "POST",
@@ -67,7 +38,7 @@ export async function main(
         authorization: `Bearer ${token}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify({}),
       signal: AbortSignal.timeout(8_000),
     })
     const result = await response.json()

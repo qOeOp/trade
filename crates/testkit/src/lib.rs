@@ -60,6 +60,9 @@ pub mod common;
 pub mod components;
 pub mod events;
 
+#[cfg(feature = "postgres")]
+pub mod postgres;
+
 #[cfg(feature = "datasets")]
 pub mod files;
 #[cfg(feature = "datasets")]

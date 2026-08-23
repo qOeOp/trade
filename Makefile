@@ -224,8 +224,8 @@ CORE_CRATES := vibe-analysis vibe-backtest vibe-common vibe-core \
     vibe-cryptography vibe-data vibe-event-store vibe-execution \
     vibe-indicators vibe-indicators-kernel vibe-infrastructure vibe-live vibe-model \
     vibe-network vibe-persistence vibe-persistence-macros \
-    vibe-plugin vibe-portfolio vibe-qualification vibe-risk vibe-serialization \
-    strategy-factory-program-sdk vibe-strategy-factory vibe-system vibe-testkit vibe-trading
+    vibe-operator-authorization vibe-plugin vibe-portfolio vibe-product-edge vibe-product-edge-claim-custody vibe-qualification vibe-risk vibe-rd-artifact-invocation-custody vibe-serialization \
+    strategy-factory-program-sdk vibe-strategy-factory vibe-strategy-factory-rd-owner-api vibe-system vibe-testkit vibe-trading
 
 # Crates tested in the workspace-compiled adapter lane
 ADAPTER_CRATES := vibe-architect-ax vibe-betfair vibe-binance \
@@ -238,7 +238,7 @@ ADAPTER_CRATES := vibe-architect-ax vibe-betfair vibe-binance \
 # Workspace members without Rust test functions:
 # vibe-trader is the container library, vibe-pyo3 owns generated bindings, and vibe-tutorials has a
 # binary target with test = false.
-NO_TEST_CRATES := vibe-trader vibe-pyo3 vibe-tutorials
+NO_TEST_CRATES := vibe-product-edge-admin vibe-trader vibe-pyo3 vibe-tutorials
 
 # > Colors
 # Use ANSI escape codes directly for cross-platform compatibility (Git Bash on Windows doesn't have tput)
@@ -771,6 +771,14 @@ cargo-test-postgres-ci:  #-- Run focused PostgreSQL tests with the CI bootstrap 
 	CARGO_CI_PROFILE="$(CARGO_CI_PROFILE)" \
 	POSTGRES_TEST_FEATURES="$(BASE_FEATURES),capnp,hypersync" \
 	bash scripts/ci/test-postgres-bootstrap.bash
+
+.PHONY: cargo-test-rd-owner-postgres-isolated
+cargo-test-rd-owner-postgres-isolated:  #-- Run destructive R&D Owner tests in a disposable marked PostgreSQL instance
+	bash scripts/ci/test-rd-owner-postgres.bash
+
+.PHONY: check-rd-owner-postgres-isolation
+check-rd-owner-postgres-isolation:  #-- Statically verify destructive PostgreSQL test isolation
+	bash scripts/ci/test-rd-owner-postgres.bash --check
 
 # Doctests need their own target because `cargo nextest` cannot run them.
 # Sharing --features and --profile with the nextest targets lets both reuse the

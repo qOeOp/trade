@@ -1,0 +1,26 @@
+[package]
+name = "vibe-product-edge-admin"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Explicit administrative composition for Operator Authorization and Product Edge bootstrap"
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tokio = { workspace = true }
+vibe-operator-authorization = { workspace = true }
+vibe-product-edge = { workspace = true }
+
+[[bin]]
+name = "product-edge-authority-bootstrap"
+path = "src/main.rs"
+doc = false
+test = false

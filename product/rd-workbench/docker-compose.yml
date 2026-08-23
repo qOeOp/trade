@@ -7,6 +7,9 @@ services:
       - POSTGRES_PASSWORD
       - POSTGRES_DB=windmill
       - RD_OWNER_DB_PASSWORD
+      - OPERATOR_AUTHORIZATION_DB_PASSWORD
+      - QUALIFICATION_OWNER_DB_PASSWORD
+      - PRODUCT_EDGE_DB_PASSWORD
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./postgres-init/00-create-rd-owner.sh:/docker-entrypoint-initdb.d/00-create-rd-owner.sh:ro
@@ -25,9 +28,17 @@ services:
     restart: unless-stopped
     environment:
       RD_OWNER_DATABASE_URL: ${RD_OWNER_DATABASE_URL:?set RD_OWNER_DATABASE_URL}
+      QUALIFICATION_OWNER_DATABASE_URL: >-
+        ${QUALIFICATION_OWNER_DATABASE_URL:?set QUALIFICATION_OWNER_DATABASE_URL}
+      PRODUCT_EDGE_DATABASE_URL: ${PRODUCT_EDGE_DATABASE_URL:?set PRODUCT_EDGE_DATABASE_URL}
+      PRODUCT_EDGE_DEPLOYMENT_IDENTITY: ${PRODUCT_EDGE_DEPLOYMENT_IDENTITY:?set PRODUCT_EDGE_DEPLOYMENT_IDENTITY}
+      PRODUCT_EDGE_TRUSTED_ISSUER_IDENTITY: >-
+        ${PRODUCT_EDGE_TRUSTED_ISSUER_IDENTITY:?set PRODUCT_EDGE_TRUSTED_ISSUER_IDENTITY}
+      PRODUCT_EDGE_TRUSTED_ISSUER_KEY_VERSION: >-
+        ${PRODUCT_EDGE_TRUSTED_ISSUER_KEY_VERSION:?set PRODUCT_EDGE_TRUSTED_ISSUER_KEY_VERSION}
+      PRODUCT_EDGE_TRUSTED_AUTHORIZATION_AUDIENCE: >-
+        ${PRODUCT_EDGE_TRUSTED_AUTHORIZATION_AUDIENCE:?set PRODUCT_EDGE_TRUSTED_AUTHORIZATION_AUDIENCE}
       RD_OWNER_API_TOKEN: ${RD_OWNER_API_TOKEN:?set RD_OWNER_API_TOKEN}
-      RD_OWNER_EFFECTIVE_PRINCIPAL: ${RD_OWNER_EFFECTIVE_PRINCIPAL:-admin}
-      RD_OWNER_PERMISSIONED_AS: ${RD_OWNER_PERMISSIONED_AS:-u/admin}
       RD_OWNER_ENABLE_ACCEPTANCE_FAULTS: ${RD_OWNER_ENABLE_ACCEPTANCE_FAULTS:-0}
       RD_SANDBOX_SOCKET: /run/trade-rd-sandbox/build.sock
       RUST_LOG: info
@@ -43,6 +54,53 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+    security_opt:
+      - no-new-privileges:true
+
+  authority-custody-migrate:
+    profiles: ["authority-admin"]
+    image: postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      RD_OWNER_DB_PASSWORD: ${RD_OWNER_DB_PASSWORD:?set RD_OWNER_DB_PASSWORD}
+      OPERATOR_AUTHORIZATION_DB_PASSWORD: >-
+        ${OPERATOR_AUTHORIZATION_DB_PASSWORD:?set OPERATOR_AUTHORIZATION_DB_PASSWORD}
+      QUALIFICATION_OWNER_DB_PASSWORD: >-
+        ${QUALIFICATION_OWNER_DB_PASSWORD:?set QUALIFICATION_OWNER_DB_PASSWORD}
+      PRODUCT_EDGE_DB_PASSWORD: ${PRODUCT_EDGE_DB_PASSWORD:?set PRODUCT_EDGE_DB_PASSWORD}
+    entrypoint: ["/bin/sh", "/opt/trade/10-migrate-authority-custody.sh"]
+    volumes:
+      - ./postgres-init/10-migrate-authority-custody.sh:/opt/trade/10-migrate-authority-custody.sh:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+
+  authority-bootstrap:
+    profiles: ["authority-admin"]
+    build:
+      context: ../..
+      dockerfile: product/rd-workbench/Dockerfile.owner
+    entrypoint: ["/usr/local/bin/product-edge-authority-bootstrap"]
+    environment:
+      OPERATOR_AUTHORIZATION_DATABASE_URL: >-
+        ${OPERATOR_AUTHORIZATION_DATABASE_URL:?set OPERATOR_AUTHORIZATION_DATABASE_URL}
+      PRODUCT_EDGE_DATABASE_URL: ${PRODUCT_EDGE_DATABASE_URL:?set PRODUCT_EDGE_DATABASE_URL}
+      RD_OWNER_API_TOKEN: ${RD_OWNER_API_TOKEN:?set RD_OWNER_API_TOKEN}
+      PRODUCT_EDGE_TRUSTED_ISSUER_IDENTITY: >-
+        ${PRODUCT_EDGE_TRUSTED_ISSUER_IDENTITY:?set PRODUCT_EDGE_TRUSTED_ISSUER_IDENTITY}
+      PRODUCT_EDGE_TRUSTED_ISSUER_KEY_VERSION: >-
+        ${PRODUCT_EDGE_TRUSTED_ISSUER_KEY_VERSION:?set PRODUCT_EDGE_TRUSTED_ISSUER_KEY_VERSION}
+      PRODUCT_EDGE_TRUSTED_AUTHORIZATION_AUDIENCE: >-
+        ${PRODUCT_EDGE_TRUSTED_AUTHORIZATION_AUDIENCE:?set PRODUCT_EDGE_TRUSTED_AUTHORIZATION_AUDIENCE}
+      PRODUCT_EDGE_BOOTSTRAP_CONFIG: ${PRODUCT_EDGE_BOOTSTRAP_CONFIG:?set PRODUCT_EDGE_BOOTSTRAP_CONFIG}
+    command: ["/run/secrets/product-edge-bootstrap.json"]
+    volumes:
+      - ${PRODUCT_EDGE_BOOTSTRAP_CONFIG:?set PRODUCT_EDGE_BOOTSTRAP_CONFIG}:/run/secrets/product-edge-bootstrap.json:ro
+    depends_on:
+      authority-custody-migrate:
+        condition: service_completed_successfully
     security_opt:
       - no-new-privileges:true
 

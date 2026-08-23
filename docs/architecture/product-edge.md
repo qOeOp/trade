@@ -76,6 +76,19 @@ and `ARTIFACT_AVAILABLE` projection. Every other disposition has no Artifact. Re
 to that exact receipt, while timeout before commit can only close unknown without an Artifact. App and MCP invoke
 the same versioned Formation operation and never use Windmill job state as a substitute.
 
+Product Edge samples the request-admission commit cut only after the canonical authorization, deployment binding,
+manifest, and admission locks are held, immediately before its first write. It revalidates all four authorities at
+that same half-open cut and binds the cut into the admission identity and receipt. If expiry is crossed while a lock
+wait is in progress, the request writes nothing. Product Edge unavailability or storage uncertainty, including
+when admission custody may already exist, is reported as `SUBMITTED_OR_UNKNOWN` with only
+`RESOLVE_SAME_ATTEMPT_IDENTITY`; it is never converted into `REJECTED_NO_WRITE` or successor authority.
+
+A provider invocation claim is itself durable one-use custody. If the claim commits but its response is lost,
+same-attempt resolution returns the exact `CLAIMED` claim and the sole action
+`RUN_BOUNDED_EXECUTION_AGENT`. App and script may then start that existing claim once. They cannot create a
+successor claim or invoke the provider a second time; after `INVOCATION_STARTED`, the only safe projection is
+manual provider reconciliation unless an authoritative terminal Owner receipt exists.
+
 The external conversation client and Windmill internal AI are separate credential planes. A client may use its
 own model provider key before calling MCP; an internal AI Agent step uses an independently scoped Windmill AI
 resource. Neither model credential authenticates to Trade, and sharing one provider account is an operator choice,
@@ -159,7 +172,38 @@ policy mismatch likewise admit no mutation. The exact predecessor must commit `S
 request-origin fence, before the policy-equivalent successor can commit `ACTIVE`. Every mutating request atomically
 reads and binds the authoritative history head, and admission requires the unique `ACTIVE` binding to equal that
 head. A request already admitted under a valid predecessor keeps its original request and binding identities and
-continues to resolve under that binding after cutover, without overlapping writes or a naked retry.
+continues to resolve under that binding after cutover, without overlapping writes or a naked retry. If its first
+downstream mutation was not yet receipted, it may proceed only after the immediate policy-equivalent successor is
+`ACTIVE`, the original stored lineage still matches exactly, and the original Operator Authorization is current at
+the final write cut. The zero-`ACTIVE` fence blocks this continuity, and every new admission still requires the
+current `ACTIVE` head.
+
+### Administrative bootstrap and control-plane writers
+
+Product Edge is the sole writer of deployment bindings and heads, content-addressed operation manifests,
+immutable request admissions, and its outbox. A separately named **Operator Authorization Issuer** is the sole
+writer of authorization issuance and the revocation frontier. It is a distinct control-plane writer behind the
+Product Edge boundary, not another business Owner or a Product Edge admission helper. Product Edge direct-resolves
+its facts and cannot write them; Windmill, the API, R&D, configuration, and possession of a token cannot issue an
+authorization.
+
+Both writers use separate PostgreSQL roles in the same authority database. A request-admission transaction locks
+the exact issuance and current revocation frontier for shared read before writing the admission. Issuance or
+revocation takes the conflicting update lock. The committed serialization cut is therefore enforceable across
+the two writers without a third verifier, cache, Event Store, or copied caller assertion.
+
+The first deployment binding is created only by an explicit one-time administrative bootstrap. Bootstrap is
+forbidden on service start and on every product request path. It verifies complete empty binding and head history,
+requires expected head `EMPTY`, generation one, a finite validity interval, content-addressed manifests, and a
+pre-issued current Operator Authorization. Binding, head, manifest receipts, and outbox commit atomically. Exact
+replay joins the original bytes; changed meaning and concurrent losing genesis attempts conflict with no partial
+write. A successor is a separate administrative cutover: the exact predecessor's `SUPERSEDED` fence commits first,
+then and only then may a policy-equivalent successor become `ACTIVE` at generation plus one.
+
+The local API token is only opaque request proof. Bootstrap binds its digest without logging or publishing the
+secret, and request admission compares that proof against the canonical issuance and binding. Environment values,
+defaults, a same-object comparison, or a valid transport session cannot supply principal, scope, issuer, audience,
+authorization, manifest, deployment head, capability, or audit authority.
 
 ## Typed Owner requests
 
@@ -180,6 +224,31 @@ deployment-history head, Operator Authorization, and Agent Operation Manifest fo
 Lineage. A lifecycle request accepted by Strategy Governance must cross-bind that complete lineage into the
 resulting Authorized Generation Decision. Scanner evidence, natural language, an Agent plan, or a bare Governance
 decision cannot replace any member of the lineage.
+
+Product Edge persists that complete tuple as one immutable Request Admission before any R&D mutation. The
+admission additionally binds the canonical typed-payload digest, operation schema, target Owner, allowed and
+prohibited effects, time evidence, request-proof digest, and audit correlation. R&D receives only an opaque
+admission locator and direct-resolves the complete canonical bytes under lock; a locator, serialized readback, or
+caller-computable digest is not authority. Same request and meaning join the original admission, while changed
+meaning or a changed authority cut conflicts without a downstream write.
+
+Superseding a deployment binding never rewrites an admitted request; its original binding, head, authorization,
+frontier, manifest, and cut remain directly resolvable. Authorization expiry or revocation likewise never rewrites
+an admission or an already committed downstream Owner receipt. If no downstream custody has committed, current
+expiry or revocation forbids first submission. If R&D already committed a receipt or prepared attempt, recovery may
+resolve or terminalize that custody, but a new provider or effect invocation requires one durable, one-use
+invocation admission serialized against the then-current authorization frontier. Response loss after that claim
+never permits a second invocation. Product Edge durably separates the claim from `INVOCATION_STARTED`; once the
+start fence commits, missing provider idempotency or authoritative provider readback yields `OUTCOME_UNKNOWN` with
+manual reconciliation only. Automatic recovery across that window and `ACTUAL_PROVIDER_CALL_AT_MOST_ONCE` remain
+`NOT_ADMITTED`; the start fact never proves that the provider ran or returned a result.
+
+Environment-authorized legacy rows have no Product Edge admission and are never backfilled. Terminal legacy rows
+are read-only and quarantined, an identity collision fails closed, and the R&D API refuses activation while any
+legacy nonterminal S2 attempt remains. Missing, dual, stale, malformed, expired, revoked, wrong-issuer,
+wrong-audience, cross-principal, cross-scope, proof-mismatched, manifest-mismatched, digest-mismatched, or mixed-cut
+authority returns `SUBMITTED_OR_UNKNOWN` and creates no Product Edge admission, R&D/Qualification/TrialFamily/
+attempt/Artifact write, outbox, or provider call.
 
 Unattended trading uses a separate, explicit Autonomous Policy Authorization admitted by that lifecycle request;
 it does not pretend that a human or Agent authorized each later order. The authorization binds its policy identity

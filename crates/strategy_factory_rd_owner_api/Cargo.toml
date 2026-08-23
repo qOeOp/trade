@@ -1,0 +1,37 @@
+[package]
+name = "vibe-strategy-factory-rd-owner-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Composition API for R&D Owner and Product Edge"
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+vibe-product-edge = { workspace = true }
+vibe-strategy-factory = { workspace = true }
+
+[dev-dependencies]
+async-trait = { workspace = true }
+rstest = { workspace = true }
+sqlx = { workspace = true }
+vibe-operator-authorization = { workspace = true }
+vibe-rd-artifact-invocation-custody = { workspace = true }
+vibe-testkit = { workspace = true, features = ["postgres"] }
+
+[[bin]]
+name = "strategy-factory-rd-owner-api"
+path = "src/main.rs"
+doc = false
+test = false

@@ -1,0 +1,1153 @@
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use thiserror::Error;
+
+const MAX_IDENTITY_BYTES: usize = 256;
+const MAX_FRONTIER_MEMBERS: usize = 4_096;
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrialFamilyPolicyV1 {
+    pub trial_budget: u32,
+    pub stop_rule: String,
+    pub pit_rule_identity: String,
+    pub cost_model_identity: String,
+    pub slippage_model_identity: String,
+    pub capacity_model_identity: String,
+    pub semantic_predecessor_frontier: Vec<String>,
+    pub protected_feedback_frontier: String,
+    pub independence_disposition: TrialFamilyIndependenceDispositionV1,
+    pub independence_basis_identity: String,
+    pub frozen_falsifier_binding: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum TrialFamilyIndependenceDispositionV1 {
+    Independent,
+    Related,
+}
+
+/// Owner-issued positive family records are serialize-only outside this crate.
+///
+/// ```compile_fail
+/// use serde::de::DeserializeOwned;
+/// use vibe_strategy_factory::trial_family::{
+///     ArtifactTrialFamilyBindingReceiptV1, ArtifactTrialFamilyBindingV1,
+///     ArtifactTrialFamilyReadbackV1, TrialFamilyCensusFrontierV1,
+///     TrialFamilyCensusMemberKindV1, TrialFamilyCensusMemberV1,
+///     TrialFamilyMembershipReceiptV1, TrialFamilyReadbackV1,
+///     TrialFamilyRootReceiptV1, TrialFamilyRootV1,
+/// };
+/// fn decoded<T: DeserializeOwned>() {}
+/// decoded::<TrialFamilyRootV1>();
+/// decoded::<TrialFamilyRootReceiptV1>();
+/// decoded::<TrialFamilyCensusMemberKindV1>();
+/// decoded::<TrialFamilyCensusMemberV1>();
+/// decoded::<TrialFamilyMembershipReceiptV1>();
+/// decoded::<TrialFamilyCensusFrontierV1>();
+/// decoded::<ArtifactTrialFamilyBindingV1>();
+/// decoded::<ArtifactTrialFamilyBindingReceiptV1>();
+/// decoded::<TrialFamilyReadbackV1>();
+/// decoded::<ArtifactTrialFamilyReadbackV1>();
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrialFamilyRootV1 {
+    schema_version: u32,
+    trial_family_identity: String,
+    policy: TrialFamilyPolicyV1,
+    policy_digest: String,
+    root_digest: String,
+    created_at_epoch_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrialFamilyRootReceiptV1 {
+    schema_version: u32,
+    receipt_identity: String,
+    trial_family_identity: String,
+    intent_identity: String,
+    root_digest: String,
+    committed_at_epoch_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum TrialFamilyCensusMemberKindV1 {
+    Intent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrialFamilyCensusMemberV1 {
+    schema_version: u32,
+    member_identity: String,
+    trial_family_identity: String,
+    member_kind: TrialFamilyCensusMemberKindV1,
+    fact_identity: String,
+    fact_digest: String,
+    ordinal: u32,
+    member_digest: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrialFamilyMembershipReceiptV1 {
+    schema_version: u32,
+    receipt_identity: String,
+    trial_family_identity: String,
+    member_identity: String,
+    member_digest: String,
+    committed_at_epoch_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrialFamilyCensusFrontierV1 {
+    schema_version: u32,
+    frontier_identity: String,
+    trial_family_identity: String,
+    root_digest: String,
+    member_digests: Vec<String>,
+    consumed_trial_budget: u32,
+    frontier_digest: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArtifactTrialFamilyBindingV1 {
+    schema_version: u32,
+    binding_identity: String,
+    artifact_identity: String,
+    build_receipt_identity: String,
+    intent_identity: String,
+    trial_family_identity: String,
+    census_frontier_identity: String,
+    census_frontier_digest: String,
+    binding_digest: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArtifactTrialFamilyBindingReceiptV1 {
+    schema_version: u32,
+    receipt_identity: String,
+    binding_identity: String,
+    binding_digest: String,
+    committed_at_epoch_ms: u64,
+}
+
+/// ```compile_fail
+/// use vibe_strategy_factory::trial_family::TrialFamilyReadbackV1;
+/// let _ = TrialFamilyReadbackV1 {
+///     root: todo!(), root_receipt: todo!(), initial_intent_member: todo!(),
+///     membership_receipt: todo!(), census_frontier: todo!(),
+/// };
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrialFamilyReadbackV1 {
+    pub(crate) root: TrialFamilyRootV1,
+    pub(crate) root_receipt: TrialFamilyRootReceiptV1,
+    pub(crate) initial_intent_member: TrialFamilyCensusMemberV1,
+    pub(crate) membership_receipt: TrialFamilyMembershipReceiptV1,
+    pub(crate) census_frontier: TrialFamilyCensusFrontierV1,
+}
+
+/// ```compile_fail
+/// use vibe_strategy_factory::trial_family::ArtifactTrialFamilyReadbackV1;
+/// let _ = ArtifactTrialFamilyReadbackV1 {
+///     trial_family: todo!(), binding: todo!(), binding_receipt: todo!(),
+/// };
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArtifactTrialFamilyReadbackV1 {
+    pub(crate) trial_family: TrialFamilyReadbackV1,
+    pub(crate) binding: ArtifactTrialFamilyBindingV1,
+    pub(crate) binding_receipt: ArtifactTrialFamilyBindingReceiptV1,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredTrialFamilyRootV1 {
+    schema_version: u32,
+    trial_family_identity: String,
+    policy: TrialFamilyPolicyV1,
+    policy_digest: String,
+    root_digest: String,
+    created_at_epoch_ms: u64,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredTrialFamilyRootReceiptV1 {
+    schema_version: u32,
+    receipt_identity: String,
+    trial_family_identity: String,
+    intent_identity: String,
+    root_digest: String,
+    committed_at_epoch_ms: u64,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum StoredTrialFamilyCensusMemberKindV1 {
+    Intent,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredTrialFamilyCensusMemberV1 {
+    schema_version: u32,
+    member_identity: String,
+    trial_family_identity: String,
+    member_kind: StoredTrialFamilyCensusMemberKindV1,
+    fact_identity: String,
+    fact_digest: String,
+    ordinal: u32,
+    member_digest: String,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredTrialFamilyMembershipReceiptV1 {
+    schema_version: u32,
+    receipt_identity: String,
+    trial_family_identity: String,
+    member_identity: String,
+    member_digest: String,
+    committed_at_epoch_ms: u64,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredTrialFamilyCensusFrontierV1 {
+    schema_version: u32,
+    frontier_identity: String,
+    trial_family_identity: String,
+    root_digest: String,
+    member_digests: Vec<String>,
+    consumed_trial_budget: u32,
+    frontier_digest: String,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredArtifactTrialFamilyBindingV1 {
+    schema_version: u32,
+    binding_identity: String,
+    artifact_identity: String,
+    build_receipt_identity: String,
+    intent_identity: String,
+    trial_family_identity: String,
+    census_frontier_identity: String,
+    census_frontier_digest: String,
+    binding_digest: String,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredArtifactTrialFamilyBindingReceiptV1 {
+    schema_version: u32,
+    receipt_identity: String,
+    binding_identity: String,
+    binding_digest: String,
+    committed_at_epoch_ms: u64,
+}
+
+/// Owner-issued family availability.
+///
+/// The positive representation is serialize-only and has no public constructor:
+///
+/// ```compile_fail
+/// use vibe_strategy_factory::trial_family::TrialFamilyResolutionV1;
+/// let _: TrialFamilyResolutionV1 = serde_json::from_str("\"AVAILABLE\"").unwrap();
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct TrialFamilyResolutionV1(TrialFamilyResolutionKindV1);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum TrialFamilyResolutionKindV1 {
+    Available,
+    TrialFamilyUnavailableLegacy,
+    Unavailable,
+}
+
+impl TrialFamilyResolutionV1 {
+    pub fn is_available(self) -> bool {
+        self.0 == TrialFamilyResolutionKindV1::Available
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self.0 {
+            TrialFamilyResolutionKindV1::Available => "AVAILABLE",
+            TrialFamilyResolutionKindV1::TrialFamilyUnavailableLegacy => {
+                "TRIAL_FAMILY_UNAVAILABLE_LEGACY"
+            }
+            TrialFamilyResolutionKindV1::Unavailable => "UNAVAILABLE",
+        }
+    }
+
+    pub(crate) const fn available() -> Self {
+        Self(TrialFamilyResolutionKindV1::Available)
+    }
+
+    pub const fn legacy_unavailable() -> Self {
+        Self(TrialFamilyResolutionKindV1::TrialFamilyUnavailableLegacy)
+    }
+
+    pub(crate) const fn unavailable() -> Self {
+        Self(TrialFamilyResolutionKindV1::Unavailable)
+    }
+}
+
+/// Sealed transport projection for direct TrialFamily Owner resolution.
+///
+/// Callers can serialize Owner results, but cannot deserialize or construct a
+/// positive result:
+///
+/// ```compile_fail
+/// use vibe_strategy_factory::trial_family::TrialFamilyDirectResultV1;
+/// let _: TrialFamilyDirectResultV1 = serde_json::from_str(
+///     r#"{"schema_version":1,"resolution":"AVAILABLE","trial_family":null,"artifact_trial_family":null}"#,
+/// ).unwrap();
+/// ```
+///
+/// ```compile_fail
+/// use vibe_strategy_factory::trial_family::TrialFamilyDirectResultV1;
+/// let _ = TrialFamilyDirectResultV1 {
+///     schema_version: 1,
+///     resolution: todo!(),
+///     trial_family: None,
+///     artifact_trial_family: None,
+/// };
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrialFamilyDirectResultV1 {
+    schema_version: u32,
+    resolution: TrialFamilyResolutionV1,
+    trial_family: Option<TrialFamilyReadbackV1>,
+    artifact_trial_family: Option<ArtifactTrialFamilyReadbackV1>,
+}
+
+impl TrialFamilyDirectResultV1 {
+    pub fn schema_version(&self) -> u32 {
+        self.schema_version
+    }
+
+    pub fn resolution(&self) -> TrialFamilyResolutionV1 {
+        self.resolution
+    }
+
+    pub fn trial_family(&self) -> Option<&TrialFamilyReadbackV1> {
+        self.trial_family.as_ref()
+    }
+
+    pub fn artifact_trial_family(&self) -> Option<&ArtifactTrialFamilyReadbackV1> {
+        self.artifact_trial_family.as_ref()
+    }
+
+    pub const fn legacy_unavailable() -> Self {
+        Self {
+            schema_version: 1,
+            resolution: TrialFamilyResolutionV1::legacy_unavailable(),
+            trial_family: None,
+            artifact_trial_family: None,
+        }
+    }
+
+    pub const fn unavailable() -> Self {
+        Self {
+            schema_version: 1,
+            resolution: TrialFamilyResolutionV1::unavailable(),
+            trial_family: None,
+            artifact_trial_family: None,
+        }
+    }
+
+    pub(crate) fn available_by_intent(trial_family: TrialFamilyReadbackV1) -> Self {
+        Self {
+            schema_version: 1,
+            resolution: TrialFamilyResolutionV1::available(),
+            trial_family: Some(trial_family),
+            artifact_trial_family: None,
+        }
+    }
+
+    pub(crate) fn available_by_artifact(
+        artifact_trial_family: ArtifactTrialFamilyReadbackV1,
+    ) -> Self {
+        Self {
+            schema_version: 1,
+            resolution: TrialFamilyResolutionV1::available(),
+            trial_family: Some(artifact_trial_family.trial_family.clone()),
+            artifact_trial_family: Some(artifact_trial_family),
+        }
+    }
+}
+
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub enum TrialFamilyError {
+    #[error("trial family policy is invalid: {0}")]
+    InvalidPolicy(&'static str),
+    #[error("trial family identity was reused with conflicting content")]
+    ConflictingIdentity,
+    #[error("TRIAL_FAMILY_UNAVAILABLE_LEGACY")]
+    LegacyUnavailable,
+    #[error("trial family Owner state is unavailable: {0}")]
+    Unavailable(String),
+}
+
+impl TrialFamilyPolicyV1 {
+    pub fn expected_falsifier_binding(
+        falsification_question: &str,
+    ) -> Result<String, TrialFamilyError> {
+        falsifier_binding(falsification_question)
+    }
+}
+
+impl TrialFamilyRootV1 {
+    pub fn trial_family_identity(&self) -> &str {
+        &self.trial_family_identity
+    }
+
+    pub fn policy(&self) -> &TrialFamilyPolicyV1 {
+        &self.policy
+    }
+
+    pub fn policy_digest(&self) -> &str {
+        &self.policy_digest
+    }
+
+    pub fn root_digest(&self) -> &str {
+        &self.root_digest
+    }
+}
+
+impl TrialFamilyRootReceiptV1 {
+    pub fn receipt_identity(&self) -> &str {
+        &self.receipt_identity
+    }
+
+    pub fn intent_identity(&self) -> &str {
+        &self.intent_identity
+    }
+
+    pub(crate) fn committed_at_epoch_ms(&self) -> u64 {
+        self.committed_at_epoch_ms
+    }
+}
+
+impl TrialFamilyCensusMemberV1 {
+    pub fn member_identity(&self) -> &str {
+        &self.member_identity
+    }
+
+    pub fn fact_identity(&self) -> &str {
+        &self.fact_identity
+    }
+
+    pub(crate) fn trial_family_identity(&self) -> &str {
+        &self.trial_family_identity
+    }
+
+    pub(crate) fn ordinal(&self) -> u32 {
+        self.ordinal
+    }
+
+    pub fn member_digest(&self) -> &str {
+        &self.member_digest
+    }
+
+    pub fn fact_digest(&self) -> &str {
+        &self.fact_digest
+    }
+}
+
+impl TrialFamilyMembershipReceiptV1 {
+    pub fn receipt_identity(&self) -> &str {
+        &self.receipt_identity
+    }
+}
+
+impl TrialFamilyCensusFrontierV1 {
+    pub fn frontier_identity(&self) -> &str {
+        &self.frontier_identity
+    }
+
+    pub fn frontier_digest(&self) -> &str {
+        &self.frontier_digest
+    }
+
+    pub(crate) fn trial_family_identity(&self) -> &str {
+        &self.trial_family_identity
+    }
+
+    pub fn member_digests(&self) -> &[String] {
+        &self.member_digests
+    }
+}
+
+impl ArtifactTrialFamilyBindingV1 {
+    pub fn binding_identity(&self) -> &str {
+        &self.binding_identity
+    }
+
+    pub fn artifact_identity(&self) -> &str {
+        &self.artifact_identity
+    }
+
+    pub fn build_receipt_identity(&self) -> &str {
+        &self.build_receipt_identity
+    }
+
+    pub(crate) fn intent_identity(&self) -> &str {
+        &self.intent_identity
+    }
+
+    pub fn trial_family_identity(&self) -> &str {
+        &self.trial_family_identity
+    }
+
+    pub fn binding_digest(&self) -> &str {
+        &self.binding_digest
+    }
+}
+
+impl ArtifactTrialFamilyBindingReceiptV1 {
+    pub fn receipt_identity(&self) -> &str {
+        &self.receipt_identity
+    }
+
+    pub(crate) fn binding_identity(&self) -> &str {
+        &self.binding_identity
+    }
+
+    pub(crate) fn binding_digest(&self) -> &str {
+        &self.binding_digest
+    }
+
+    pub(crate) fn committed_at_epoch_ms(&self) -> u64 {
+        self.committed_at_epoch_ms
+    }
+}
+
+impl TrialFamilyReadbackV1 {
+    pub fn root(&self) -> &TrialFamilyRootV1 {
+        &self.root
+    }
+
+    pub fn root_receipt(&self) -> &TrialFamilyRootReceiptV1 {
+        &self.root_receipt
+    }
+
+    pub fn initial_intent_member(&self) -> &TrialFamilyCensusMemberV1 {
+        &self.initial_intent_member
+    }
+
+    pub fn membership_receipt(&self) -> &TrialFamilyMembershipReceiptV1 {
+        &self.membership_receipt
+    }
+
+    pub fn census_frontier(&self) -> &TrialFamilyCensusFrontierV1 {
+        &self.census_frontier
+    }
+}
+
+impl ArtifactTrialFamilyReadbackV1 {
+    pub fn trial_family(&self) -> &TrialFamilyReadbackV1 {
+        &self.trial_family
+    }
+
+    pub fn binding(&self) -> &ArtifactTrialFamilyBindingV1 {
+        &self.binding
+    }
+
+    pub fn binding_receipt(&self) -> &ArtifactTrialFamilyBindingReceiptV1 {
+        &self.binding_receipt
+    }
+}
+
+pub(crate) fn admit_stored_family(
+    root_json: &serde_json::Value,
+    root_receipt_json: &serde_json::Value,
+    member_json: &serde_json::Value,
+    membership_receipt_json: &serde_json::Value,
+    frontier_json: &serde_json::Value,
+) -> Result<TrialFamilyReadbackV1, TrialFamilyError> {
+    let stored_root: StoredTrialFamilyRootV1 = decode_stored(root_json)?;
+    let stored_root_receipt: StoredTrialFamilyRootReceiptV1 = decode_stored(root_receipt_json)?;
+    let stored_member: StoredTrialFamilyCensusMemberV1 = decode_stored(member_json)?;
+    let stored_membership_receipt: StoredTrialFamilyMembershipReceiptV1 =
+        decode_stored(membership_receipt_json)?;
+    let stored_frontier: StoredTrialFamilyCensusFrontierV1 = decode_stored(frontier_json)?;
+    let family = TrialFamilyReadbackV1 {
+        root: stored_root.into(),
+        root_receipt: stored_root_receipt.into(),
+        initial_intent_member: stored_member.into(),
+        membership_receipt: stored_membership_receipt.into(),
+        census_frontier: stored_frontier.into(),
+    };
+    verify_family(&family)?;
+    Ok(family)
+}
+
+pub(crate) fn admit_stored_artifact_binding(
+    family: TrialFamilyReadbackV1,
+    binding_json: &serde_json::Value,
+    binding_receipt_json: &serde_json::Value,
+) -> Result<ArtifactTrialFamilyReadbackV1, TrialFamilyError> {
+    let stored_binding: StoredArtifactTrialFamilyBindingV1 = decode_stored(binding_json)?;
+    let stored_binding_receipt: StoredArtifactTrialFamilyBindingReceiptV1 =
+        decode_stored(binding_receipt_json)?;
+    let readback = ArtifactTrialFamilyReadbackV1 {
+        trial_family: family,
+        binding: stored_binding.into(),
+        binding_receipt: stored_binding_receipt.into(),
+    };
+    verify_artifact_binding(&readback)?;
+    Ok(readback)
+}
+
+pub(crate) fn form_initial_family(
+    intent_identity: &str,
+    intent_digest: &str,
+    policy: TrialFamilyPolicyV1,
+    now_epoch_ms: u64,
+) -> Result<TrialFamilyReadbackV1, TrialFamilyError> {
+    require_identity(intent_identity, "INTENT_IDENTITY_INVALID")?;
+    require_sha256(intent_digest, "INTENT_DIGEST_INVALID")?;
+    let policy_digest = canonical_digest("rd.trial-family.policy.v1", &policy)?;
+    let family_identity_digest = canonical_digest(
+        "rd.trial-family.identity.v1",
+        &FamilyIdentityMeaningV1 {
+            intent_identity,
+            intent_digest,
+            policy_digest: &policy_digest,
+        },
+    )?;
+    let trial_family_identity = identity("rd-trial-family-v1", &family_identity_digest);
+    let root_meaning = RootMeaningV1 {
+        schema_version: 1,
+        trial_family_identity: &trial_family_identity,
+        policy: &policy,
+        policy_digest: &policy_digest,
+        created_at_epoch_ms: now_epoch_ms,
+    };
+    let root_digest = canonical_digest("rd.trial-family.root.v1", &root_meaning)?;
+    let root = TrialFamilyRootV1 {
+        schema_version: 1,
+        trial_family_identity: trial_family_identity.clone(),
+        policy,
+        policy_digest,
+        root_digest: root_digest.clone(),
+        created_at_epoch_ms: now_epoch_ms,
+    };
+    let root_receipt = TrialFamilyRootReceiptV1 {
+        schema_version: 1,
+        receipt_identity: identity("rd-trial-family-root-receipt-v1", &root_digest),
+        trial_family_identity: trial_family_identity.clone(),
+        intent_identity: intent_identity.to_string(),
+        root_digest: root_digest.clone(),
+        committed_at_epoch_ms: now_epoch_ms,
+    };
+    let member_meaning = MemberMeaningV1 {
+        schema_version: 1,
+        trial_family_identity: &trial_family_identity,
+        member_kind: TrialFamilyCensusMemberKindV1::Intent,
+        fact_identity: intent_identity,
+        fact_digest: intent_digest,
+        ordinal: 0,
+    };
+    let member_digest = canonical_digest("rd.trial-family.census-member.v1", &member_meaning)?;
+    let member = TrialFamilyCensusMemberV1 {
+        schema_version: 1,
+        member_identity: identity("rd-trial-family-member-v1", &member_digest),
+        trial_family_identity: trial_family_identity.clone(),
+        member_kind: TrialFamilyCensusMemberKindV1::Intent,
+        fact_identity: intent_identity.to_string(),
+        fact_digest: intent_digest.to_string(),
+        ordinal: 0,
+        member_digest: member_digest.clone(),
+    };
+    let membership_receipt = TrialFamilyMembershipReceiptV1 {
+        schema_version: 1,
+        receipt_identity: identity("rd-trial-family-membership-receipt-v1", &member_digest),
+        trial_family_identity: trial_family_identity.clone(),
+        member_identity: member.member_identity.clone(),
+        member_digest: member_digest.clone(),
+        committed_at_epoch_ms: now_epoch_ms,
+    };
+    let frontier_meaning = FrontierMeaningV1 {
+        schema_version: 1,
+        trial_family_identity: &trial_family_identity,
+        root_digest: &root_digest,
+        member_digests: std::slice::from_ref(&member_digest),
+        consumed_trial_budget: 1,
+    };
+    let frontier_digest =
+        canonical_digest("rd.trial-family.census-frontier.v1", &frontier_meaning)?;
+    let census_frontier = TrialFamilyCensusFrontierV1 {
+        schema_version: 1,
+        frontier_identity: identity("rd-trial-family-frontier-v1", &frontier_digest),
+        trial_family_identity,
+        root_digest,
+        member_digests: vec![member_digest],
+        consumed_trial_budget: 1,
+        frontier_digest,
+    };
+    Ok(TrialFamilyReadbackV1 {
+        root,
+        root_receipt,
+        initial_intent_member: member,
+        membership_receipt,
+        census_frontier,
+    })
+}
+
+pub(crate) fn form_artifact_binding(
+    family: TrialFamilyReadbackV1,
+    artifact_identity: &str,
+    build_receipt_identity: &str,
+    intent_identity: &str,
+    now_epoch_ms: u64,
+) -> Result<ArtifactTrialFamilyReadbackV1, TrialFamilyError> {
+    for value in [artifact_identity, build_receipt_identity, intent_identity] {
+        require_identity(value, "ARTIFACT_BINDING_IDENTITY_INVALID")?;
+    }
+
+    if family.root_receipt.intent_identity != intent_identity
+        || family.initial_intent_member.fact_identity != intent_identity
+    {
+        return Err(TrialFamilyError::Unavailable(
+            "intent-family binding mismatch".to_string(),
+        ));
+    }
+    let meaning = BindingMeaningV1 {
+        schema_version: 1,
+        artifact_identity,
+        build_receipt_identity,
+        intent_identity,
+        trial_family_identity: &family.root.trial_family_identity,
+        census_frontier_identity: &family.census_frontier.frontier_identity,
+        census_frontier_digest: &family.census_frontier.frontier_digest,
+    };
+    let binding_digest = canonical_digest("rd.artifact-trial-family-binding.v1", &meaning)?;
+    let binding = ArtifactTrialFamilyBindingV1 {
+        schema_version: 1,
+        binding_identity: identity("rd-artifact-trial-family-binding-v1", &binding_digest),
+        artifact_identity: artifact_identity.to_string(),
+        build_receipt_identity: build_receipt_identity.to_string(),
+        intent_identity: intent_identity.to_string(),
+        trial_family_identity: family.root.trial_family_identity.clone(),
+        census_frontier_identity: family.census_frontier.frontier_identity.clone(),
+        census_frontier_digest: family.census_frontier.frontier_digest.clone(),
+        binding_digest: binding_digest.clone(),
+    };
+    let receipt_digest = canonical_digest(
+        "rd.artifact-trial-family-binding-receipt.v1",
+        &BindingReceiptMeaningV1 {
+            schema_version: 1,
+            binding_identity: &binding.binding_identity,
+            binding_digest: &binding.binding_digest,
+            committed_at_epoch_ms: now_epoch_ms,
+        },
+    )?;
+    let binding_receipt = ArtifactTrialFamilyBindingReceiptV1 {
+        schema_version: 1,
+        receipt_identity: identity("rd-artifact-family-binding-receipt-v1", &receipt_digest),
+        binding_identity: binding.binding_identity.clone(),
+        binding_digest,
+        committed_at_epoch_ms: now_epoch_ms,
+    };
+    Ok(ArtifactTrialFamilyReadbackV1 {
+        trial_family: family,
+        binding,
+        binding_receipt,
+    })
+}
+
+pub(crate) fn verify_family(readback: &TrialFamilyReadbackV1) -> Result<(), TrialFamilyError> {
+    if readback.root.schema_version != 1
+        || readback.root_receipt.schema_version != 1
+        || readback.initial_intent_member.schema_version != 1
+        || readback.membership_receipt.schema_version != 1
+        || readback.census_frontier.schema_version != 1
+        || readback.root.trial_family_identity != readback.root_receipt.trial_family_identity
+        || readback.root.trial_family_identity
+            != readback.initial_intent_member.trial_family_identity
+        || readback.root.trial_family_identity != readback.membership_receipt.trial_family_identity
+        || readback.root.trial_family_identity != readback.census_frontier.trial_family_identity
+        || readback.root.root_digest != readback.root_receipt.root_digest
+        || readback.initial_intent_member.member_identity
+            != readback.membership_receipt.member_identity
+        || readback.initial_intent_member.member_digest != readback.membership_receipt.member_digest
+        || readback.root_receipt.intent_identity != readback.initial_intent_member.fact_identity
+        || readback.census_frontier.member_digests
+            != [readback.initial_intent_member.member_digest.clone()]
+        || readback.census_frontier.member_digests.len() > MAX_FRONTIER_MEMBERS
+    {
+        return Err(TrialFamilyError::Unavailable(
+            "family receipt/frontier mismatch".to_string(),
+        ));
+    }
+    let expected = form_initial_family(
+        &readback.initial_intent_member.fact_identity,
+        &readback.initial_intent_member.fact_digest,
+        readback.root.policy.clone(),
+        readback.root.created_at_epoch_ms,
+    )?;
+
+    if &expected != readback {
+        return Err(TrialFamilyError::Unavailable(
+            "family content digest mismatch".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn verify_artifact_binding(
+    readback: &ArtifactTrialFamilyReadbackV1,
+) -> Result<(), TrialFamilyError> {
+    verify_family(&readback.trial_family)?;
+    if readback.binding.schema_version != 1
+        || readback.binding_receipt.schema_version != 1
+        || readback.binding.binding_identity != readback.binding_receipt.binding_identity
+        || readback.binding.binding_digest != readback.binding_receipt.binding_digest
+    {
+        return Err(TrialFamilyError::Unavailable(
+            "artifact binding receipt mismatch".to_string(),
+        ));
+    }
+    let expected = form_artifact_binding(
+        readback.trial_family.clone(),
+        &readback.binding.artifact_identity,
+        &readback.binding.build_receipt_identity,
+        &readback.binding.intent_identity,
+        readback.binding_receipt.committed_at_epoch_ms,
+    )?;
+
+    if &expected != readback {
+        return Err(TrialFamilyError::Unavailable(
+            "artifact binding content digest mismatch".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct RootMeaningV1<'a> {
+    schema_version: u32,
+    trial_family_identity: &'a str,
+    policy: &'a TrialFamilyPolicyV1,
+    policy_digest: &'a str,
+    created_at_epoch_ms: u64,
+}
+
+#[derive(Serialize)]
+struct FamilyIdentityMeaningV1<'a> {
+    intent_identity: &'a str,
+    intent_digest: &'a str,
+    policy_digest: &'a str,
+}
+
+#[derive(Serialize)]
+struct MemberMeaningV1<'a> {
+    schema_version: u32,
+    trial_family_identity: &'a str,
+    member_kind: TrialFamilyCensusMemberKindV1,
+    fact_identity: &'a str,
+    fact_digest: &'a str,
+    ordinal: u32,
+}
+
+#[derive(Serialize)]
+struct FrontierMeaningV1<'a> {
+    schema_version: u32,
+    trial_family_identity: &'a str,
+    root_digest: &'a str,
+    member_digests: &'a [String],
+    consumed_trial_budget: u32,
+}
+
+#[derive(Serialize)]
+struct BindingMeaningV1<'a> {
+    schema_version: u32,
+    artifact_identity: &'a str,
+    build_receipt_identity: &'a str,
+    intent_identity: &'a str,
+    trial_family_identity: &'a str,
+    census_frontier_identity: &'a str,
+    census_frontier_digest: &'a str,
+}
+
+#[derive(Serialize)]
+struct BindingReceiptMeaningV1<'a> {
+    schema_version: u32,
+    binding_identity: &'a str,
+    binding_digest: &'a str,
+    committed_at_epoch_ms: u64,
+}
+
+impl From<StoredTrialFamilyRootV1> for TrialFamilyRootV1 {
+    fn from(value: StoredTrialFamilyRootV1) -> Self {
+        Self {
+            schema_version: value.schema_version,
+            trial_family_identity: value.trial_family_identity,
+            policy: value.policy,
+            policy_digest: value.policy_digest,
+            root_digest: value.root_digest,
+            created_at_epoch_ms: value.created_at_epoch_ms,
+        }
+    }
+}
+
+impl From<StoredTrialFamilyRootReceiptV1> for TrialFamilyRootReceiptV1 {
+    fn from(value: StoredTrialFamilyRootReceiptV1) -> Self {
+        Self {
+            schema_version: value.schema_version,
+            receipt_identity: value.receipt_identity,
+            trial_family_identity: value.trial_family_identity,
+            intent_identity: value.intent_identity,
+            root_digest: value.root_digest,
+            committed_at_epoch_ms: value.committed_at_epoch_ms,
+        }
+    }
+}
+
+impl From<StoredTrialFamilyCensusMemberKindV1> for TrialFamilyCensusMemberKindV1 {
+    fn from(value: StoredTrialFamilyCensusMemberKindV1) -> Self {
+        match value {
+            StoredTrialFamilyCensusMemberKindV1::Intent => Self::Intent,
+        }
+    }
+}
+
+impl From<StoredTrialFamilyCensusMemberV1> for TrialFamilyCensusMemberV1 {
+    fn from(value: StoredTrialFamilyCensusMemberV1) -> Self {
+        Self {
+            schema_version: value.schema_version,
+            member_identity: value.member_identity,
+            trial_family_identity: value.trial_family_identity,
+            member_kind: value.member_kind.into(),
+            fact_identity: value.fact_identity,
+            fact_digest: value.fact_digest,
+            ordinal: value.ordinal,
+            member_digest: value.member_digest,
+        }
+    }
+}
+
+impl From<StoredTrialFamilyMembershipReceiptV1> for TrialFamilyMembershipReceiptV1 {
+    fn from(value: StoredTrialFamilyMembershipReceiptV1) -> Self {
+        Self {
+            schema_version: value.schema_version,
+            receipt_identity: value.receipt_identity,
+            trial_family_identity: value.trial_family_identity,
+            member_identity: value.member_identity,
+            member_digest: value.member_digest,
+            committed_at_epoch_ms: value.committed_at_epoch_ms,
+        }
+    }
+}
+
+impl From<StoredTrialFamilyCensusFrontierV1> for TrialFamilyCensusFrontierV1 {
+    fn from(value: StoredTrialFamilyCensusFrontierV1) -> Self {
+        Self {
+            schema_version: value.schema_version,
+            frontier_identity: value.frontier_identity,
+            trial_family_identity: value.trial_family_identity,
+            root_digest: value.root_digest,
+            member_digests: value.member_digests,
+            consumed_trial_budget: value.consumed_trial_budget,
+            frontier_digest: value.frontier_digest,
+        }
+    }
+}
+
+impl From<StoredArtifactTrialFamilyBindingV1> for ArtifactTrialFamilyBindingV1 {
+    fn from(value: StoredArtifactTrialFamilyBindingV1) -> Self {
+        Self {
+            schema_version: value.schema_version,
+            binding_identity: value.binding_identity,
+            artifact_identity: value.artifact_identity,
+            build_receipt_identity: value.build_receipt_identity,
+            intent_identity: value.intent_identity,
+            trial_family_identity: value.trial_family_identity,
+            census_frontier_identity: value.census_frontier_identity,
+            census_frontier_digest: value.census_frontier_digest,
+            binding_digest: value.binding_digest,
+        }
+    }
+}
+
+impl From<StoredArtifactTrialFamilyBindingReceiptV1> for ArtifactTrialFamilyBindingReceiptV1 {
+    fn from(value: StoredArtifactTrialFamilyBindingReceiptV1) -> Self {
+        Self {
+            schema_version: value.schema_version,
+            receipt_identity: value.receipt_identity,
+            binding_identity: value.binding_identity,
+            binding_digest: value.binding_digest,
+            committed_at_epoch_ms: value.committed_at_epoch_ms,
+        }
+    }
+}
+
+fn decode_stored<T: for<'de> Deserialize<'de>>(
+    value: &serde_json::Value,
+) -> Result<T, TrialFamilyError> {
+    serde_json::from_value(value.clone()).map_err(|e| TrialFamilyError::Unavailable(e.to_string()))
+}
+
+fn canonical_digest(domain: &str, value: &impl Serialize) -> Result<String, TrialFamilyError> {
+    #[derive(Serialize)]
+    struct Envelope<'a, T> {
+        domain: &'a str,
+        value: &'a T,
+    }
+    let bytes = serde_json::to_vec(&Envelope { domain, value })
+        .map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
+    Ok(format!("sha256:{:x}", Sha256::digest(bytes)))
+}
+
+fn falsifier_binding(falsification_question: &str) -> Result<String, TrialFamilyError> {
+    require_text(
+        falsification_question,
+        16,
+        2_000,
+        "FALSIFICATION_QUESTION_INVALID",
+    )?;
+    canonical_digest("rd.trial-family.falsifier.v1", &falsification_question)
+}
+
+fn identity(prefix: &str, digest: &str) -> String {
+    format!("{prefix}-{}", digest.trim_start_matches("sha256:"))
+}
+
+fn require_identity(value: &str, code: &'static str) -> Result<(), TrialFamilyError> {
+    if (4..=MAX_IDENTITY_BYTES).contains(&value.len())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':' | b'.'))
+    {
+        Ok(())
+    } else {
+        Err(TrialFamilyError::InvalidPolicy(code))
+    }
+}
+
+fn require_sha256(value: &str, code: &'static str) -> Result<(), TrialFamilyError> {
+    let digest = value.strip_prefix("sha256:");
+    if digest.is_some_and(|digest| {
+        digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+    }) {
+        Ok(())
+    } else {
+        Err(TrialFamilyError::InvalidPolicy(code))
+    }
+}
+
+fn require_text(
+    value: &str,
+    minimum: usize,
+    maximum: usize,
+    code: &'static str,
+) -> Result<(), TrialFamilyError> {
+    let trimmed = value.trim();
+    if (minimum..=maximum).contains(&trimmed.len()) {
+        Ok(())
+    } else {
+        Err(TrialFamilyError::InvalidPolicy(code))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    fn policy() -> TrialFamilyPolicyV1 {
+        TrialFamilyPolicyV1 {
+            trial_budget: 2,
+            stop_rule: "stop after the bounded falsifier".to_string(),
+            pit_rule_identity: "pit-rule-v1".to_string(),
+            cost_model_identity: "cost-model-v1".to_string(),
+            slippage_model_identity: "slippage-model-v1".to_string(),
+            capacity_model_identity: "capacity-model-v1".to_string(),
+            semantic_predecessor_frontier: vec![],
+            protected_feedback_frontier: "qualification-frontier-v1".to_string(),
+            independence_disposition: TrialFamilyIndependenceDispositionV1::Independent,
+            independence_basis_identity: "independence-basis-v1".to_string(),
+            frozen_falsifier_binding: TrialFamilyPolicyV1::expected_falsifier_binding(
+                "Does the bounded signal survive exact costs?",
+            )
+            .unwrap(),
+        }
+    }
+
+    #[rstest]
+    fn private_stored_schema_roundtrips_and_rejects_unknown_fields() {
+        let intent_identity = "rd-research-intent-v2-test";
+        let intent_digest = format!("sha256:{}", "1".repeat(64));
+        let family = form_initial_family(intent_identity, &intent_digest, policy(), 42).unwrap();
+        let values = [
+            serde_json::to_value(&family.root).unwrap(),
+            serde_json::to_value(&family.root_receipt).unwrap(),
+            serde_json::to_value(&family.initial_intent_member).unwrap(),
+            serde_json::to_value(&family.membership_receipt).unwrap(),
+            serde_json::to_value(&family.census_frontier).unwrap(),
+        ];
+        let admitted =
+            admit_stored_family(&values[0], &values[1], &values[2], &values[3], &values[4])
+                .unwrap();
+        assert_eq!(
+            serde_json::to_value(&admitted).unwrap(),
+            serde_json::to_value(&family).unwrap()
+        );
+
+        for index in 0..values.len() {
+            let mut mutated = values.clone();
+            mutated[index]
+                .as_object_mut()
+                .unwrap()
+                .insert("unknown_authority".to_string(), serde_json::json!(true));
+            assert!(
+                admit_stored_family(
+                    &mutated[0],
+                    &mutated[1],
+                    &mutated[2],
+                    &mutated[3],
+                    &mutated[4],
+                )
+                .is_err()
+            );
+        }
+
+        let bound = form_artifact_binding(
+            family.clone(),
+            "blake3:artifact-test",
+            "rd-build-receipt-v1-test",
+            intent_identity,
+            43,
+        )
+        .unwrap();
+        let binding_json = serde_json::to_value(&bound.binding).unwrap();
+        let receipt_json = serde_json::to_value(&bound.binding_receipt).unwrap();
+        assert_eq!(
+            admit_stored_artifact_binding(family.clone(), &binding_json, &receipt_json).unwrap(),
+            bound
+        );
+        let mut mutated_binding = binding_json;
+        mutated_binding
+            .as_object_mut()
+            .unwrap()
+            .insert("unknown_authority".to_string(), serde_json::json!(true));
+        assert!(admit_stored_artifact_binding(family, &mutated_binding, &receipt_json).is_err());
+    }
+}

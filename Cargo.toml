@@ -38,15 +38,21 @@ members = [
   "crates/live",
   "crates/model",
   "crates/network",
+  "crates/operator_authorization",
   "crates/persistence",
   "crates/persistence/macros",
   "crates/plugin",
   "crates/portfolio",
+  "crates/product_edge",
+  "crates/product_edge_claim_custody",
+  "crates/product_edge_admin",
   "crates/pyo3",
   "crates/qualification",
+  "crates/rd_artifact_invocation_custody",
   "crates/risk",
   "crates/serialization",
   "crates/strategy_factory",
+  "crates/strategy_factory_rd_owner_api",
   "crates/strategy_factory/programs/sdk",
   "crates/system",
   "crates/testkit",
@@ -77,12 +83,18 @@ vibe-infrastructure = { path = "crates/infrastructure", version = "0.62.0" }
 vibe-live = { path = "crates/live", version = "0.62.0", default-features = false }
 vibe-model = { path = "crates/model", version = "0.62.0" }
 vibe-network = { path = "crates/network", version = "0.62.0" }
+vibe-operator-authorization = { path = "crates/operator_authorization", version = "0.62.0" }
 vibe-persistence = { path = "crates/persistence", version = "0.62.0" }
 vibe-persistence-macros = { path = "crates/persistence/macros", version = "0.62.0" }
 vibe-portfolio = { path = "crates/portfolio", version = "0.62.0" }
+vibe-product-edge = { path = "crates/product_edge", version = "0.62.0" }
+vibe-product-edge-claim-custody = { path = "crates/product_edge_claim_custody", version = "0.62.0" }
 vibe-pyo3 = { path = "crates/pyo3", version = "0.62.0" }
+vibe-qualification = { path = "crates/qualification", version = "0.62.0" }
+vibe-rd-artifact-invocation-custody = { path = "crates/rd_artifact_invocation_custody", version = "0.62.0" }
 vibe-risk = { path = "crates/risk", version = "0.62.0" }
 vibe-serialization = { path = "crates/serialization", version = "0.62.0" }
+vibe-strategy-factory = { path = "crates/strategy_factory", version = "0.62.0" }
 vibe-system = { path = "crates/system", version = "0.62.0" }
 vibe-testkit = { path = "crates/testkit", version = "0.62.0", default-features = false }
 vibe-trading = { path = "crates/trading", version = "0.62.0" }

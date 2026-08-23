@@ -38,21 +38,60 @@ impl PostgresQualificationOwnerV1 {
     }
 
     async fn migrate(&self) -> Result<(), QualificationOwnerError> {
-        for statement in [
-            "CREATE TABLE IF NOT EXISTS qualification_protected_feedback_projections_v1 (projection_identity TEXT PRIMARY KEY, basis_identity TEXT NOT NULL UNIQUE, principal TEXT NOT NULL, request_scope_json JSONB NOT NULL, resolution_state TEXT NOT NULL, source_sequence BIGINT NOT NULL, source_cut TEXT NOT NULL, projection_digest TEXT NOT NULL, projection_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, valid_through_epoch_ms BIGINT NOT NULL)",
-            "CREATE TABLE IF NOT EXISTS qualification_protected_feedback_heads_v1 (principal_scope_key TEXT PRIMARY KEY, principal TEXT NOT NULL, request_scope_json JSONB NOT NULL, frontier_identity TEXT NOT NULL UNIQUE REFERENCES qualification_protected_feedback_projections_v1(projection_identity), frontier_digest TEXT NOT NULL, source_sequence BIGINT NOT NULL, source_cut TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
-            "CREATE TABLE IF NOT EXISTS qualification_owner_outbox_v1 (event_identity TEXT PRIMARY KEY, aggregate_identity TEXT NOT NULL, event_kind TEXT NOT NULL, payload_digest TEXT NOT NULL, payload_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (aggregate_identity, event_kind))",
-        ] {
-            sqlx::query(statement)
-                .execute(&self.pool)
-                .await
-                .map_err(storage)?;
+        let admitted: bool = sqlx::query_scalar(
+            "SELECT
+                pg_catalog.has_database_privilege(current_user, pg_catalog.current_database(), 'CONNECT')
+                AND (SELECT pg_catalog.bool_and(pg_catalog.has_table_privilege(current_user, table_name, privilege_name))
+                 FROM pg_catalog.unnest(ARRAY[
+                   'public.qualification_protected_feedback_projections_v1',
+                   'public.qualification_protected_feedback_heads_v1',
+                   'public.qualification_owner_outbox_v1'
+                ]) table_name
+                 CROSS JOIN pg_catalog.unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE']) privilege_name)
+                AND NOT (SELECT pg_catalog.bool_or(pg_catalog.has_table_privilege(current_user, table_name, privilege_name))
+                 FROM pg_catalog.unnest(ARRAY[
+                   'public.qualification_protected_feedback_projections_v1',
+                   'public.qualification_protected_feedback_heads_v1',
+                   'public.qualification_owner_outbox_v1'
+                 ]) table_name
+                 CROSS JOIN pg_catalog.unnest(ARRAY['TRUNCATE','REFERENCES','TRIGGER']) privilege_name)
+                AND NOT EXISTS (
+                  SELECT 1 FROM pg_catalog.pg_tables table_entry
+                  WHERE table_entry.schemaname = 'public'
+                    AND table_entry.tablename LIKE 'rd_%'
+                    AND (SELECT pg_catalog.bool_or(pg_catalog.has_table_privilege(
+                      current_user,
+                      pg_catalog.format('public.%I', table_entry.tablename),
+                      privilege_name
+                    )) FROM pg_catalog.unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) privilege_name)
+                )
+                AND pg_catalog.has_schema_privilege(current_user, 'rd_owner_api', 'USAGE')
+                AND pg_catalog.has_function_privilege(current_user, 'rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb)', 'EXECUTE')
+                AND NOT pg_catalog.pg_has_role(current_user, 'qualification_owner', 'MEMBER')
+                AND NOT pg_catalog.has_schema_privilege(current_user, 'public', 'CREATE')
+                AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_tables WHERE tableowner = current_user)
+                AND NOT EXISTS (
+                  SELECT 1 FROM pg_catalog.pg_roles
+                  WHERE rolname = current_user
+                    AND (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls)
+                )
+                AND pg_catalog.has_function_privilege(current_user, 'qualification_api.lock_projection_for_basis_v1(text,text,text,text,jsonb,text)', 'EXECUTE')",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(storage)?;
+
+        if !admitted {
+            return Err(unavailable(
+                "Qualification writer physical custody is unavailable",
+            ));
         }
         Ok(())
     }
 
-    /// Resolve the exact R&D basis and create at most one Qualification-owned
-    /// projection for that basis. The locator is never treated as evidence.
+    /// Resolve the exact R&D basis and return its current Qualification-owned
+    /// projection, appending one locked successor only when the latest exact
+    /// projection is stale. The locator is never treated as evidence.
     ///
     /// Callers cannot supply the Qualification freshness cut:
     ///
@@ -93,12 +132,14 @@ impl PostgresQualificationOwnerV1 {
         )
         .await?;
 
-        if let Some(existing) = history.projection_for_basis(&basis.basis_identity)? {
+        if let Some(existing) = history.projection_for_basis(&basis.basis_identity) {
             let owner_read_cut_epoch_ms =
                 owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
-            verify_projection_freshness(existing, owner_read_cut_epoch_ms)?;
-            transaction.commit().await.map_err(storage)?;
-            return Ok(existing.clone());
+
+            if verify_projection_freshness(existing, owner_read_cut_epoch_ms).is_ok() {
+                transaction.commit().await.map_err(storage)?;
+                return Ok(existing.clone());
+            }
         }
 
         let (
@@ -161,7 +202,7 @@ impl PostgresQualificationOwnerV1 {
         )
         .await?;
         let verified = verified_history
-            .projection_for_basis(&basis.basis_identity)?
+            .projection_for_basis(&basis.basis_identity)
             .ok_or_else(|| unavailable("committed Qualification projection missing"))?;
 
         #[cfg(test)]
@@ -223,20 +264,237 @@ pub async fn admit_projection_in_transaction(
 ) -> Result<Option<ProtectedFeedbackFrontierReadbackV1>, QualificationOwnerError> {
     let basis = load_rd_basis_in_transaction(transaction, locator).await?;
     let principal_scope_key = principal_scope_key(&basis.principal, &basis.request_scope)?;
-    lock_principal_scope_in_transaction(transaction, &principal_scope_key).await?;
-    let history = verify_scope_history_in_transaction(
-        transaction,
-        &basis.principal,
-        &basis.request_scope,
-        &principal_scope_key,
+    let raw_envelope: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT qualification_api.lock_projection_for_basis_v1($1,$2,$3,$4,$5,$6)",
     )
-    .await?;
-    let projection = history.projection_for_basis(&basis.basis_identity)?;
+    .bind(&basis.basis_identity)
+    .bind(&basis.basis_digest)
+    .bind(&basis.request_identity)
+    .bind(&basis.principal)
+    .bind(serde_json::to_value(&basis.request_scope).map_err(json_storage)?)
+    .bind(&principal_scope_key)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    let raw_envelope = raw_envelope
+        .ok_or_else(|| unavailable("Qualification locked admission envelope unavailable"))?;
+    let envelope: QualificationAdmissionEnvelopeV1 = decode_exact(&raw_envelope)?;
+    verify_admission_envelope_in_transaction(
+        transaction,
+        &basis,
+        &principal_scope_key,
+        envelope,
+        ProjectionSelectionV1::Current,
+    )
+    .await
+}
 
-    if let Some(projection) = projection {
-        let owner_read_cut_epoch_ms = owner_clock_epoch_ms_in_transaction(transaction).await?;
-        verify_projection_freshness(projection, owner_read_cut_epoch_ms)?;
+/// Direct, locked historical Qualification Owner reread for terminal R&D
+/// custody. The complete canonical history is still verified; only freshness
+/// is deliberately not treated as authority for a new write.
+pub async fn admit_historical_projection_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    locator: &RdIndependenceBasisLocatorV1,
+    projection_identity: &str,
+    projection_digest: &str,
+) -> Result<Option<ProtectedFeedbackFrontierReadbackV1>, QualificationOwnerError> {
+    let basis = load_rd_basis_in_transaction(transaction, locator).await?;
+    let principal_scope_key = principal_scope_key(&basis.principal, &basis.request_scope)?;
+    let raw_envelope: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT qualification_api.lock_projection_for_basis_v1($1,$2,$3,$4,$5,$6)",
+    )
+    .bind(&basis.basis_identity)
+    .bind(&basis.basis_digest)
+    .bind(&basis.request_identity)
+    .bind(&basis.principal)
+    .bind(serde_json::to_value(&basis.request_scope).map_err(json_storage)?)
+    .bind(&principal_scope_key)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    let raw_envelope = raw_envelope
+        .ok_or_else(|| unavailable("Qualification locked admission envelope unavailable"))?;
+    let envelope: QualificationAdmissionEnvelopeV1 = decode_exact(&raw_envelope)?;
+    verify_admission_envelope_in_transaction(
+        transaction,
+        &basis,
+        &principal_scope_key,
+        envelope,
+        ProjectionSelectionV1::Historical {
+            projection_identity,
+            projection_digest,
+        },
+    )
+    .await
+}
+
+enum ProjectionSelectionV1<'a> {
+    Current,
+    Historical {
+        projection_identity: &'a str,
+        projection_digest: &'a str,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct QualificationAdmissionEnvelopeV1 {
+    schema_version: u32,
+    basis_identity: String,
+    basis_digest: String,
+    request_identity: String,
+    principal: String,
+    request_scope: Vec<String>,
+    principal_scope_key: String,
+    owner_cut_epoch_ms: i64,
+    heads: Vec<QualificationHeadEnvelopeRowV1>,
+    projections: Vec<QualificationProjectionEnvelopeRowV1>,
+    outboxes: Vec<QualificationOutboxEnvelopeRowV1>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct QualificationProjectionEnvelopeRowV1 {
+    projection_identity: String,
+    basis_identity: String,
+    principal: String,
+    request_scope_json: serde_json::Value,
+    resolution_state: String,
+    source_sequence: i64,
+    source_cut: String,
+    projection_digest: String,
+    projection_json: serde_json::Value,
+    receipt_json: serde_json::Value,
+    committed_at_epoch_ms: i64,
+    valid_through_epoch_ms: i64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct QualificationHeadEnvelopeRowV1 {
+    principal_scope_key: String,
+    principal: String,
+    request_scope_json: serde_json::Value,
+    frontier_identity: String,
+    frontier_digest: String,
+    source_sequence: i64,
+    source_cut: String,
+    committed_at_epoch_ms: i64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct QualificationOutboxEnvelopeRowV1 {
+    event_identity: String,
+    aggregate_identity: String,
+    event_kind: String,
+    payload_digest: String,
+    payload_json: serde_json::Value,
+    committed_at_epoch_ms: i64,
+}
+
+async fn verify_admission_envelope_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    basis: &StoredRdBasisV1,
+    principal_scope_key: &str,
+    envelope: QualificationAdmissionEnvelopeV1,
+    selection: ProjectionSelectionV1<'_>,
+) -> Result<Option<ProtectedFeedbackFrontierReadbackV1>, QualificationOwnerError> {
+    if envelope.schema_version != 1
+        || envelope.basis_identity != basis.basis_identity
+        || envelope.basis_digest != basis.basis_digest
+        || envelope.request_identity != basis.request_identity
+        || envelope.principal != basis.principal
+        || envelope.request_scope != basis.request_scope
+        || envelope.principal_scope_key != principal_scope_key
+    {
+        return Err(unavailable(
+            "Qualification admission envelope locator mismatch",
+        ));
     }
+    let owner_cut_epoch_ms = u64::try_from(envelope.owner_cut_epoch_ms).map_err(json_storage)?;
+    let mut projections = Vec::with_capacity(envelope.projections.len());
+
+    for row in &envelope.projections {
+        projections.push(admit_projection_envelope_row_in_transaction(transaction, row).await?);
+    }
+    let projection_identities = projections
+        .iter()
+        .map(|projection| projection.projection_identity.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut outbox_aggregates = std::collections::BTreeSet::new();
+
+    for row in &envelope.outboxes {
+        let projection = projections
+            .iter()
+            .find(|projection| projection.projection_identity == row.aggregate_identity)
+            .ok_or_else(|| unavailable("Qualification projection outbox is orphaned"))?;
+
+        if !outbox_aggregates.insert(row.aggregate_identity.as_str()) {
+            return Err(unavailable("Qualification projection outbox is ambiguous"));
+        }
+        verify_outbox_envelope_row(row, projection)?;
+    }
+
+    if outbox_aggregates != projection_identities {
+        return Err(unavailable("Qualification projection outbox unavailable"));
+    }
+
+    if envelope.heads.len() > 1 {
+        return Err(unavailable("Qualification feedback head is ambiguous"));
+    }
+    let current_frontier = envelope
+        .heads
+        .first()
+        .map(|head| {
+            verify_head_envelope_row(
+                head,
+                principal_scope_key,
+                &basis.principal,
+                &basis.request_scope,
+                &projections,
+            )
+        })
+        .transpose()?;
+
+    if current_frontier.is_none() && !projections.is_empty() {
+        return Err(unavailable(
+            "Qualification feedback history exists without a head",
+        ));
+    }
+    verify_projection_chain(&projections, current_frontier.as_ref())?;
+    let history = VerifiedScopeHistoryV1 {
+        projections,
+        current_frontier,
+    };
+    let projection = match selection {
+        ProjectionSelectionV1::Current => {
+            let projection = history.projection_for_basis(&basis.basis_identity);
+
+            if let Some(projection) = projection {
+                verify_projection_freshness(projection, owner_cut_epoch_ms)?;
+            }
+            projection
+        }
+        ProjectionSelectionV1::Historical {
+            projection_identity,
+            projection_digest,
+        } => {
+            let mut matches = history.projections.iter().filter(|projection| {
+                projection.basis_identity == basis.basis_identity
+                    && projection.projection_identity == projection_identity
+                    && projection.projection_digest == projection_digest
+            });
+            let projection = matches.next();
+
+            if matches.next().is_some() {
+                return Err(unavailable(
+                    "Qualification historical projection is ambiguous",
+                ));
+            }
+            projection
+        }
+    };
     Ok(projection.cloned())
 }
 
@@ -256,11 +514,17 @@ async fn admit_projection_row_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     row: &PgRow,
 ) -> Result<ProtectedFeedbackFrontierReadbackV1, QualificationOwnerError> {
-    let row_basis_identity: String = row.try_get("basis_identity").map_err(storage)?;
-    let basis = load_rd_basis_by_identity_in_transaction(transaction, &row_basis_identity).await?;
     let projection_json: serde_json::Value = row.try_get("projection_json").map_err(storage)?;
     let receipt_json: serde_json::Value = row.try_get("receipt_json").map_err(storage)?;
     let stored: StoredProjectionV1 = decode_exact(&projection_json)?;
+    let basis = load_rd_basis_by_locator_fields_in_transaction(
+        transaction,
+        &stored.basis_identity,
+        &stored.basis_digest,
+        &stored.principal,
+        &stored.request_scope,
+    )
+    .await?;
     let receipt: StoredProjectionReceiptV1 = decode_exact(&receipt_json)?;
     let expected = form_projection(
         &basis,
@@ -316,6 +580,116 @@ async fn admit_projection_row_in_transaction(
     Ok(expected)
 }
 
+async fn admit_projection_envelope_row_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    row: &QualificationProjectionEnvelopeRowV1,
+) -> Result<ProtectedFeedbackFrontierReadbackV1, QualificationOwnerError> {
+    let stored: StoredProjectionV1 = decode_exact(&row.projection_json)?;
+    let basis = load_rd_basis_by_locator_fields_in_transaction(
+        transaction,
+        &stored.basis_identity,
+        &stored.basis_digest,
+        &stored.principal,
+        &stored.request_scope,
+    )
+    .await?;
+    verify_projection_envelope_row(row, &basis)
+}
+
+fn verify_projection_envelope_row(
+    row: &QualificationProjectionEnvelopeRowV1,
+    basis: &StoredRdBasisV1,
+) -> Result<ProtectedFeedbackFrontierReadbackV1, QualificationOwnerError> {
+    let stored: StoredProjectionV1 = decode_exact(&row.projection_json)?;
+    let receipt: StoredProjectionReceiptV1 = decode_exact(&row.receipt_json)?;
+    let expected = form_projection(
+        basis,
+        stored.resolution,
+        stored.source_sequence,
+        stored.source_cut.clone(),
+        stored.source_frontier_identity.clone(),
+        stored.source_frontier_digest.clone(),
+        stored.projection_at_epoch_ms,
+    )?;
+    let row_scope: Vec<String> = decode_exact(&row.request_scope_json)?;
+
+    if expected.as_stored() != stored
+        || expected.receipt_as_stored() != receipt
+        || row.projection_identity != expected.projection_identity
+        || row.basis_identity != basis.basis_identity
+        || row.principal != basis.principal
+        || row_scope != basis.request_scope
+        || row.resolution_state != resolution_name(expected.resolution)
+        || u64::try_from(row.source_sequence).map_err(json_storage)? != expected.source_sequence
+        || row.source_cut != expected.source_cut
+        || row.projection_digest != expected.projection_digest
+        || u64::try_from(row.committed_at_epoch_ms).map_err(json_storage)?
+            != expected.receipt.committed_at_epoch_ms
+        || u64::try_from(row.valid_through_epoch_ms).map_err(json_storage)?
+            != expected.valid_through_epoch_ms
+    {
+        return Err(unavailable(
+            "Qualification admission envelope projection mismatch",
+        ));
+    }
+    Ok(expected)
+}
+
+fn verify_head_envelope_row(
+    row: &QualificationHeadEnvelopeRowV1,
+    principal_scope_key: &str,
+    principal: &str,
+    request_scope: &[String],
+    projections: &[ProtectedFeedbackFrontierReadbackV1],
+) -> Result<ProtectedFeedbackFrontierReadbackV1, QualificationOwnerError> {
+    let scope: Vec<String> = decode_exact(&row.request_scope_json)?;
+    let mut matching = projections
+        .iter()
+        .filter(|projection| projection.projection_identity == row.frontier_identity);
+    let projection = matching
+        .next()
+        .ok_or_else(|| unavailable("Qualification feedback head projection unavailable"))?;
+
+    if matching.next().is_some()
+        || row.principal_scope_key != principal_scope_key
+        || row.principal != principal
+        || scope != request_scope
+        || projection.principal != principal
+        || projection.request_scope != request_scope
+        || row.frontier_digest != projection.projection_digest
+        || u64::try_from(row.source_sequence).map_err(json_storage)? != projection.source_sequence
+        || row.source_cut != projection.source_cut
+        || u64::try_from(row.committed_at_epoch_ms).map_err(json_storage)?
+            != projection.receipt.committed_at_epoch_ms
+    {
+        return Err(unavailable("Qualification feedback head mismatch"));
+    }
+    Ok(projection.clone())
+}
+
+fn verify_outbox_envelope_row(
+    row: &QualificationOutboxEnvelopeRowV1,
+    projection: &ProtectedFeedbackFrontierReadbackV1,
+) -> Result<(), QualificationOwnerError> {
+    let projection_json = serde_json::to_value(projection.as_stored()).map_err(json_storage)?;
+    let payload_digest = canonical_digest(
+        "qualification.owner-outbox.payload.v1",
+        &projection.as_stored(),
+    )?;
+
+    if row.event_identity != identity("qualification-owner-event-v1", &payload_digest)
+        || row.aggregate_identity != projection.projection_identity
+        || row.event_kind != PROJECTED_EVENT_KIND
+        || row.payload_digest != payload_digest
+        || row.payload_json != projection_json
+        || u64::try_from(row.committed_at_epoch_ms).map_err(json_storage)?
+            != projection.receipt.committed_at_epoch_ms
+    {
+        return Err(unavailable("Qualification projection outbox mismatch"));
+    }
+    Ok(())
+}
+
 #[derive(Debug)]
 pub(crate) struct VerifiedScopeHistoryV1 {
     projections: Vec<ProtectedFeedbackFrontierReadbackV1>,
@@ -326,17 +700,23 @@ impl VerifiedScopeHistoryV1 {
     fn projection_for_basis(
         &self,
         basis_identity: &str,
-    ) -> Result<Option<&ProtectedFeedbackFrontierReadbackV1>, QualificationOwnerError> {
-        let mut matches = self
-            .projections
-            .iter()
-            .filter(|projection| projection.basis_identity == basis_identity);
-        let projection = matches.next();
+    ) -> Option<&ProtectedFeedbackFrontierReadbackV1> {
+        let mut cursor = self.current_frontier.as_ref();
 
-        if matches.next().is_some() {
-            return Err(unavailable("Qualification projection is ambiguous"));
+        while let Some(projection) = cursor {
+            if projection.basis_identity == basis_identity {
+                return Some(projection);
+            }
+            cursor = projection
+                .source_frontier_identity
+                .as_deref()
+                .and_then(|identity| {
+                    self.projections
+                        .iter()
+                        .find(|candidate| candidate.projection_identity == identity)
+                });
         }
-        Ok(projection)
+        None
     }
 }
 
@@ -428,7 +808,19 @@ pub(crate) async fn verify_scope_history_in_transaction(
         }
     };
 
-    if let Some(frontier) = current_frontier.as_ref() {
+    verify_projection_chain(&projections, current_frontier.as_ref())?;
+
+    Ok(VerifiedScopeHistoryV1 {
+        projections,
+        current_frontier,
+    })
+}
+
+fn verify_projection_chain(
+    projections: &[ProtectedFeedbackFrontierReadbackV1],
+    current_frontier: Option<&ProtectedFeedbackFrontierReadbackV1>,
+) -> Result<(), QualificationOwnerError> {
+    if let Some(frontier) = current_frontier {
         let mut visited = std::collections::BTreeSet::new();
         let mut cursor = frontier;
         loop {
@@ -477,11 +869,7 @@ pub(crate) async fn verify_scope_history_in_transaction(
             ));
         }
     }
-
-    Ok(VerifiedScopeHistoryV1 {
-        projections,
-        current_frontier,
-    })
+    Ok(())
 }
 
 fn verify_projection_freshness(
@@ -500,66 +888,104 @@ pub(crate) async fn load_rd_basis_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     locator: &RdIndependenceBasisLocatorV1,
 ) -> Result<StoredRdBasisV1, QualificationOwnerError> {
-    let basis =
-        load_rd_basis_by_identity_in_transaction(transaction, &locator.basis_identity).await?;
+    let basis = load_rd_basis_by_locator_fields_in_transaction(
+        transaction,
+        &locator.basis_identity,
+        &locator.basis_digest,
+        &locator.principal,
+        &locator.request_scope,
+    )
+    .await?;
 
-    if locator.basis_identity != basis.basis_identity
-        || locator.basis_digest != basis.basis_digest
-        || locator.request_identity != basis.request_identity
-        || locator.principal != basis.principal
-        || locator.request_scope != basis.request_scope
+    if locator.request_identity != basis.request_identity {
+        return Err(unavailable("R&D Independence Basis locator mismatch"));
+    }
+    Ok(basis)
+}
+
+async fn load_rd_basis_by_locator_fields_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    basis_identity: &str,
+    basis_digest: &str,
+    principal: &str,
+    request_scope: &[String],
+) -> Result<StoredRdBasisV1, QualificationOwnerError> {
+    let raw_envelope: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT rd_owner_api.lock_independence_basis_for_qualification_v1($1,$2,$3,$4)",
+    )
+    .bind(basis_identity)
+    .bind(basis_digest)
+    .bind(principal)
+    .bind(serde_json::to_value(request_scope).map_err(json_storage)?)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    let envelope: LockedRdBasisEnvelopeV1 = decode_exact(
+        &raw_envelope.ok_or_else(|| unavailable("R&D Independence Basis unavailable"))?,
+    )?;
+
+    if envelope.schema_version != 1 {
+        return Err(unavailable("R&D Independence Basis envelope mismatch"));
+    }
+    let row = envelope.basis;
+    let basis: StoredRdBasisV1 = decode_exact(&row.basis_json)?;
+    let receipt: StoredRdBasisReceiptV1 = decode_exact(&row.receipt_json)?;
+    verify_rd_basis(&basis, &receipt)?;
+    let row_scope: Vec<String> = decode_exact(&row.request_scope_json)?;
+    if row.basis_identity != basis.basis_identity
+        || row.request_identity != basis.request_identity
+        || row.principal != basis.principal
+        || row_scope != basis.request_scope
+        || row.lineage_digest != basis.lineage_digest
+        || row.basis_digest != basis.basis_digest
+        || u64::try_from(row.committed_at_epoch_ms).map_err(json_storage)?
+            != receipt.committed_at_epoch_ms
+    {
+        return Err(unavailable("R&D Independence Basis row mismatch"));
+    }
+    verify_rd_basis_outbox(&envelope.outbox, &basis, &receipt)?;
+
+    if basis_identity != basis.basis_identity
+        || basis_digest != basis.basis_digest
+        || principal != basis.principal
+        || request_scope != basis.request_scope
     {
         return Err(unavailable("R&D Independence Basis locator mismatch"));
     }
     Ok(basis)
 }
 
-async fn load_rd_basis_by_identity_in_transaction(
-    transaction: &mut Transaction<'_, Postgres>,
-    basis_identity: &str,
-) -> Result<StoredRdBasisV1, QualificationOwnerError> {
-    let rows = sqlx::query("SELECT basis_identity, request_identity, principal, request_scope_json, lineage_digest, basis_digest, basis_json, receipt_json, committed_at_epoch_ms FROM rd_independence_bases_v1 WHERE basis_identity = $1 FOR SHARE")
-        .bind(basis_identity)
-        .fetch_all(&mut **transaction)
-        .await
-        .map_err(storage)?;
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct LockedRdBasisEnvelopeV1 {
+    schema_version: u32,
+    basis: LockedRdBasisRowV1,
+    outbox: LockedRdBasisOutboxRowV1,
+}
 
-    if rows.len() != 1 {
-        return Err(unavailable("R&D Independence Basis unavailable"));
-    }
-    let row = &rows[0];
-    let basis_json: serde_json::Value = row.try_get("basis_json").map_err(storage)?;
-    let receipt_json: serde_json::Value = row.try_get("receipt_json").map_err(storage)?;
-    let basis: StoredRdBasisV1 = decode_exact(&basis_json)?;
-    let receipt: StoredRdBasisReceiptV1 = decode_exact(&receipt_json)?;
-    verify_rd_basis(&basis, &receipt)?;
-    let row_scope: Vec<String> = decode_exact(
-        &row.try_get::<serde_json::Value, _>("request_scope_json")
-            .map_err(storage)?,
-    )?;
-    let committed_at: i64 = row.try_get("committed_at_epoch_ms").map_err(storage)?;
-    if row
-        .try_get::<String, _>("basis_identity")
-        .map_err(storage)?
-        != basis.basis_identity
-        || row
-            .try_get::<String, _>("request_identity")
-            .map_err(storage)?
-            != basis.request_identity
-        || row.try_get::<String, _>("principal").map_err(storage)? != basis.principal
-        || row_scope != basis.request_scope
-        || row
-            .try_get::<String, _>("lineage_digest")
-            .map_err(storage)?
-            != basis.lineage_digest
-        || row.try_get::<String, _>("basis_digest").map_err(storage)? != basis.basis_digest
-        || u64::try_from(committed_at).map_err(json_storage)? != receipt.committed_at_epoch_ms
-        || basis_identity != basis.basis_identity
-    {
-        return Err(unavailable("R&D Independence Basis row mismatch"));
-    }
-    verify_rd_basis_outbox(transaction, &basis, &receipt).await?;
-    Ok(basis)
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct LockedRdBasisRowV1 {
+    basis_identity: String,
+    request_identity: String,
+    principal: String,
+    request_scope_json: serde_json::Value,
+    lineage_digest: String,
+    basis_digest: String,
+    basis_json: serde_json::Value,
+    receipt_json: serde_json::Value,
+    committed_at_epoch_ms: i64,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct LockedRdBasisOutboxRowV1 {
+    event_identity: String,
+    aggregate_identity: String,
+    event_kind: String,
+    payload_digest: String,
+    payload_json: serde_json::Value,
+    committed_at_epoch_ms: i64,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -574,27 +1000,13 @@ struct RdBasisOutboxPayloadV1 {
     lineage_digest: String,
 }
 
-async fn verify_rd_basis_outbox(
-    transaction: &mut Transaction<'_, Postgres>,
+fn verify_rd_basis_outbox(
+    row: &LockedRdBasisOutboxRowV1,
     basis: &StoredRdBasisV1,
     receipt: &StoredRdBasisReceiptV1,
 ) -> Result<(), QualificationOwnerError> {
-    let rows = sqlx::query("SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json, committed_at_epoch_ms FROM rd_owner_outbox_v1 WHERE aggregate_identity = $1 AND event_kind = 'INDEPENDENCE_BASIS_PRECOMMITTED_V1' FOR SHARE")
-        .bind(&basis.basis_identity)
-        .fetch_all(&mut **transaction)
-        .await
-        .map_err(storage)?;
-
-    if rows.len() != 1 {
-        return Err(unavailable("R&D Independence Basis outbox unavailable"));
-    }
-    let row = &rows[0];
-    let payload: RdBasisOutboxPayloadV1 = decode_exact(
-        &row.try_get::<serde_json::Value, _>("payload_json")
-            .map_err(storage)?,
-    )?;
+    let payload: RdBasisOutboxPayloadV1 = decode_exact(&row.payload_json)?;
     let payload_digest = canonical_digest("rd.owner-outbox.payload.v1", &payload)?;
-    let committed_at: i64 = row.try_get("committed_at_epoch_ms").map_err(storage)?;
 
     if payload.schema_version != 1
         || payload.basis_identity != basis.basis_identity
@@ -603,21 +1015,12 @@ async fn verify_rd_basis_outbox(
         || payload.principal != basis.principal
         || payload.request_scope != basis.request_scope
         || payload.lineage_digest != basis.lineage_digest
-        || row
-            .try_get::<String, _>("event_identity")
-            .map_err(storage)?
-            != identity("rd-owner-event-v1", &payload_digest)
-        || row
-            .try_get::<String, _>("aggregate_identity")
-            .map_err(storage)?
-            != basis.basis_identity
-        || row.try_get::<String, _>("event_kind").map_err(storage)?
-            != "INDEPENDENCE_BASIS_PRECOMMITTED_V1"
-        || row
-            .try_get::<String, _>("payload_digest")
-            .map_err(storage)?
-            != payload_digest
-        || u64::try_from(committed_at).map_err(json_storage)? != receipt.committed_at_epoch_ms
+        || row.event_identity != identity("rd-owner-event-v1", &payload_digest)
+        || row.aggregate_identity != basis.basis_identity
+        || row.event_kind != "INDEPENDENCE_BASIS_PRECOMMITTED_V1"
+        || row.payload_digest != payload_digest
+        || u64::try_from(row.committed_at_epoch_ms).map_err(json_storage)?
+            != receipt.committed_at_epoch_ms
     {
         return Err(unavailable("R&D Independence Basis outbox mismatch"));
     }
@@ -1137,8 +1540,137 @@ fn unavailable(error: impl Into<String>) -> QualificationOwnerError {
 
 #[cfg(test)]
 mod postgres_tests {
+    use rstest::rstest;
+
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[rstest]
+    fn forged_raw_envelope_cannot_construct_a_positive_readback() {
+        let basis = StoredRdBasisV1 {
+            schema_version: 1,
+            basis_identity: "basis-1".into(),
+            request_identity: "request-1".into(),
+            principal: "principal-1".into(),
+            request_scope: vec!["research:submit".into()],
+            rationale_digest: "sha256:rationale".into(),
+            independence_disposition: StoredIndependenceDispositionV1::Independent,
+            lineage_resolution: StoredLineageResolutionV1::GenesisEmpty,
+            semantic_predecessor_frontier: vec![],
+            lineage_digest: "sha256:lineage".into(),
+            basis_digest: "sha256:basis".into(),
+        };
+        let projection = form_projection(
+            &basis,
+            ProtectedFeedbackResolutionV1::GenesisEmpty,
+            0,
+            "qualification-protected-feedback-cut-v1-0".into(),
+            None,
+            None,
+            100,
+        )
+        .unwrap();
+        assert!(projection.is_current_at(projection.valid_through_epoch_ms() - 1));
+        assert!(!projection.is_current_at(projection.valid_through_epoch_ms()));
+        let mut row = QualificationProjectionEnvelopeRowV1 {
+            projection_identity: projection.projection_identity().into(),
+            basis_identity: projection.basis_identity().into(),
+            principal: projection.principal().into(),
+            request_scope_json: serde_json::to_value(projection.request_scope()).unwrap(),
+            resolution_state: resolution_name(projection.resolution()).into(),
+            source_sequence: i64::try_from(projection.source_sequence()).unwrap(),
+            source_cut: projection.source_cut().into(),
+            projection_digest: projection.projection_digest().into(),
+            projection_json: serde_json::to_value(projection.as_stored()).unwrap(),
+            receipt_json: serde_json::to_value(projection.receipt_as_stored()).unwrap(),
+            committed_at_epoch_ms: i64::try_from(projection.receipt().committed_at_epoch_ms())
+                .unwrap(),
+            valid_through_epoch_ms: i64::try_from(projection.valid_through_epoch_ms()).unwrap(),
+        };
+        row.projection_json["basis_digest"] = serde_json::json!("sha256:forged");
+
+        assert!(verify_projection_envelope_row(&row, &basis).is_err());
+    }
+
+    #[rstest]
+    fn same_basis_successor_is_latest_and_refuting_histories_fail_closed() {
+        let basis = StoredRdBasisV1 {
+            schema_version: 1,
+            basis_identity: "basis-1".into(),
+            request_identity: "request-1".into(),
+            principal: "principal-1".into(),
+            request_scope: vec!["research:submit".into()],
+            rationale_digest: "sha256:rationale".into(),
+            independence_disposition: StoredIndependenceDispositionV1::Independent,
+            lineage_resolution: StoredLineageResolutionV1::GenesisEmpty,
+            semantic_predecessor_frontier: vec![],
+            lineage_digest: "sha256:lineage".into(),
+            basis_digest: "sha256:basis".into(),
+        };
+        let first = form_projection(
+            &basis,
+            ProtectedFeedbackResolutionV1::GenesisEmpty,
+            0,
+            "qualification-protected-feedback-cut-v1-0".into(),
+            None,
+            None,
+            100,
+        )
+        .unwrap();
+        let successor = form_projection(
+            &basis,
+            ProtectedFeedbackResolutionV1::Frontier,
+            first.source_sequence(),
+            first.source_cut().into(),
+            Some(first.projection_identity().into()),
+            Some(first.projection_digest().into()),
+            first.valid_through_epoch_ms(),
+        )
+        .unwrap();
+        assert_eq!(
+            successor,
+            form_projection(
+                &basis,
+                ProtectedFeedbackResolutionV1::Frontier,
+                first.source_sequence(),
+                first.source_cut().into(),
+                Some(first.projection_identity().into()),
+                Some(first.projection_digest().into()),
+                first.valid_through_epoch_ms(),
+            )
+            .unwrap()
+        );
+        let history = VerifiedScopeHistoryV1 {
+            projections: vec![first.clone(), successor.clone()],
+            current_frontier: Some(successor.clone()),
+        };
+        verify_projection_chain(&history.projections, history.current_frontier.as_ref()).unwrap();
+        assert_eq!(
+            history.projection_for_basis(&basis.basis_identity),
+            Some(&successor)
+        );
+
+        let branch = form_projection(
+            &basis,
+            ProtectedFeedbackResolutionV1::Frontier,
+            first.source_sequence(),
+            first.source_cut().into(),
+            Some(first.projection_identity().into()),
+            Some(first.projection_digest().into()),
+            first.valid_through_epoch_ms().saturating_add(1),
+        )
+        .unwrap();
+        assert!(
+            verify_projection_chain(
+                &[first.clone(), successor.clone(), branch],
+                Some(&successor),
+            )
+            .is_err()
+        );
+        let mut tampered = successor;
+        tampered.source_frontier_digest = Some("sha256:tampered".into());
+        assert!(verify_projection_chain(&[first, tampered.clone()], Some(&tampered)).is_err());
+    }
 
     #[tokio::test]
     #[ignore = "requires explicit disposable QUALIFICATION_OWNER_RECOVERY_TEST_DATABASE_URL"]
@@ -1289,6 +1821,70 @@ mod postgres_tests {
                 .unwrap();
         assert_eq!((projection_count, head_count, outbox_count), (0, 0, 0));
 
+        let short_lived = owner
+            .resolve_or_create_for_basis_with_test_timing(
+                &locator,
+                CreateResponseTimingForTestV1 {
+                    projection_age_ms: PROJECTION_VALIDITY_MS - 100,
+                    post_verify_delay_ms: 0,
+                },
+            )
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(101)).await;
+        let renewed = owner.resolve_or_create_for_basis(&locator).await.unwrap();
+        assert_eq!(
+            renewed.resolution(),
+            ProtectedFeedbackResolutionV1::Frontier
+        );
+        assert_eq!(
+            renewed.source_frontier_identity(),
+            Some(short_lived.projection_identity())
+        );
+        assert_eq!(
+            renewed.source_frontier_digest(),
+            Some(short_lived.projection_digest())
+        );
+        assert_eq!(renewed.source_sequence(), short_lived.source_sequence());
+        assert_eq!(renewed.source_cut(), short_lived.source_cut());
+        assert_eq!(
+            owner.resolve_or_create_for_basis(&locator).await.unwrap(),
+            renewed
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM qualification_protected_feedback_projections_v1 WHERE basis_identity = $1",
+            )
+            .bind(&locator.basis_identity)
+            .fetch_one(&owner.pool)
+            .await
+            .unwrap(),
+            2
+        );
+        let scope_key = principal_scope_key(&locator.principal, &locator.request_scope).unwrap();
+        sqlx::query(
+            "DELETE FROM qualification_protected_feedback_heads_v1 WHERE principal_scope_key = $1",
+        )
+        .bind(&scope_key)
+        .execute(&owner.pool)
+        .await
+        .unwrap();
+        sqlx::query("DELETE FROM qualification_owner_outbox_v1 WHERE aggregate_identity = ANY($1)")
+            .bind(vec![
+                short_lived.projection_identity(),
+                renewed.projection_identity(),
+            ])
+            .execute(&owner.pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "DELETE FROM qualification_protected_feedback_projections_v1 WHERE basis_identity = $1",
+        )
+        .bind(&locator.basis_identity)
+        .execute(&owner.pool)
+        .await
+        .unwrap();
+
         let db_cut_before = sqlx::query_scalar::<_, i64>(
             "SELECT floor(extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::BIGINT",
         )
@@ -1326,7 +1922,10 @@ mod postgres_tests {
             owner.resolve_for_basis(&locator).await.unwrap(),
             Some(first.clone())
         );
-        let scope_key = principal_scope_key(&locator.principal, &locator.request_scope).unwrap();
+        assert_eq!(
+            owner.resolve_or_create_for_basis(&locator).await.unwrap(),
+            first
+        );
         sqlx::query(
             "DELETE FROM qualification_protected_feedback_heads_v1 WHERE principal_scope_key = $1",
         )
