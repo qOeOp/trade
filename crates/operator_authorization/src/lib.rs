@@ -12,7 +12,8 @@ use thiserror::Error;
 
 pub use postgres::{
     OperatorAuthorizationIssuerPostgresV1, parse_untrusted_authorization_envelope_v1,
-    resolve_authorization_in_transaction, resolve_portfolio_resource_grant_in_transaction,
+    parse_untrusted_portfolio_resource_grant_envelope_v1, resolve_authorization_in_transaction,
+    resolve_portfolio_resource_grant_in_transaction,
 };
 
 pub const OPERATOR_AUTHORIZATION_SCHEMA_V1: u32 = 1;
@@ -343,6 +344,77 @@ impl PortfolioResourceGrantReadbackV1 {
     }
     pub fn observed_at_epoch_ms(&self) -> u64 {
         self.observed_at_epoch_ms
+    }
+}
+
+/// Canonically consistent locked Portfolio grant bytes without Owner provenance.
+///
+/// Parsing untrusted bytes can produce this evidence, so it is explicitly not
+/// an authorization, a Portfolio availability decision, or permission for any
+/// read, write, or effect. A consuming Owner must retain the source database
+/// locks, compare its own custody, sample its later cut, and call
+/// [`Self::is_current_at`] before making its own fail-closed decision.
+///
+/// The type has private fields, no public constructor, no deserializer, and no
+/// conversion into [`PortfolioResourceGrantReadbackV1`].
+///
+/// ```compile_fail
+/// use vibe_operator_authorization::UntrustedCanonicalPortfolioResourceGrantEvidenceV1;
+/// let _: UntrustedCanonicalPortfolioResourceGrantEvidenceV1 =
+///     serde_json::from_str("{}").unwrap();
+/// ```
+///
+/// ```compile_fail
+/// use vibe_operator_authorization::UntrustedCanonicalPortfolioResourceGrantEvidenceV1;
+/// let _ = UntrustedCanonicalPortfolioResourceGrantEvidenceV1 {};
+/// ```
+///
+/// ```compile_fail
+/// use vibe_operator_authorization::{
+///     PortfolioResourceGrantReadbackV1,
+///     UntrustedCanonicalPortfolioResourceGrantEvidenceV1,
+/// };
+/// fn promote(
+///     evidence: UntrustedCanonicalPortfolioResourceGrantEvidenceV1,
+/// ) -> PortfolioResourceGrantReadbackV1 {
+///     evidence.into()
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct UntrustedCanonicalPortfolioResourceGrantEvidenceV1 {
+    schema_version: u32,
+    issuance_receipt: PortfolioResourceGrantIssuanceReceiptV1,
+    frontier: PortfolioResourceGrantRevocationFrontierV1,
+    content: PortfolioResourceGrantContentV1,
+}
+
+impl UntrustedCanonicalPortfolioResourceGrantEvidenceV1 {
+    pub fn locator(&self) -> PortfolioResourceGrantLocatorV1 {
+        PortfolioResourceGrantLocatorV1 {
+            grant_identity: self.issuance_receipt.grant_identity.clone(),
+            issuance_receipt_identity: self.issuance_receipt.receipt_identity.clone(),
+        }
+    }
+
+    pub fn frontier_identity(&self) -> &str {
+        &self.frontier.frontier_identity
+    }
+
+    pub fn matches_resource(&self, expected: &PortfolioResourceV1) -> bool {
+        &self.content.resource == expected
+    }
+
+    pub fn matches_product_edge_manifest(&self, expected: &ProductEdgeManifestBindingV1) -> bool {
+        &self.content.product_edge_manifest == expected
+    }
+
+    pub fn is_current_at(&self, cut_epoch_ms: u64) -> bool {
+        cut_epoch_ms >= self.content.effective_at_epoch_ms
+            && cut_epoch_ms < self.content.valid_through_epoch_ms
+            && !self
+                .frontier
+                .revoked_grant_identities
+                .contains(&self.issuance_receipt.grant_identity)
     }
 }
 
