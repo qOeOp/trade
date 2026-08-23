@@ -1749,11 +1749,22 @@ mod portfolio_resource_grant {
         PortfolioResourceGrantReadbackV1, PortfolioResourceGrantResolutionV1,
         PortfolioResourceGrantRevocationFrontierV1, PortfolioResourceGrantRevocationProposalV1,
         PortfolioResourceGrantSuccessorProposalV1, PortfolioResourceGrantUnavailableReasonV1,
-        PortfolioResourceV1,
+        PortfolioResourceV1, ProductEdgeManifestBindingV1,
     };
 
     const GRANT_ISSUED_EVENT: &str = "PORTFOLIO_RESOURCE_GRANT_ISSUED_V1";
     const GRANT_FRONTIER_EVENT: &str = "PORTFOLIO_RESOURCE_GRANT_REVOCATION_FRONTIER_V1";
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct StoredGrantOutboxV1 {
+        schema_version: u32,
+        event_identity: String,
+        aggregate_identity: String,
+        event_kind: String,
+        payload_digest: String,
+        committed_at_epoch_ms: u64,
+    }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -1866,11 +1877,22 @@ mod portfolio_resource_grant {
 
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
+    struct LockedGrantOutboxRowV1 {
+        event_identity: String,
+        aggregate_identity: String,
+        event_kind: String,
+        payload_digest: String,
+        payload_json: serde_json::Value,
+        committed_at_epoch_ms: i64,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
     struct LockedGrantEnvelopeV1 {
         issuances: Vec<LockedGrantIssuanceRowV1>,
         head: LockedGrantHeadRowV1,
         frontiers: Vec<LockedGrantFrontierRowV1>,
-        outboxes: Vec<LockedOutboxRowV1>,
+        outboxes: Vec<LockedGrantOutboxRowV1>,
         observed_at_epoch_ms: i64,
     }
 
@@ -1914,9 +1936,11 @@ mod portfolio_resource_grant {
             "CREATE TABLE IF NOT EXISTS operator_authorization_private.portfolio_resource_grant_issuances_v1 (grant_identity TEXT PRIMARY KEY, issuer_identity TEXT NOT NULL, principal TEXT NOT NULL, audience TEXT NOT NULL, permission TEXT NOT NULL, account_identity TEXT NOT NULL, execution_scope_identity TEXT NOT NULL, mode TEXT NOT NULL, resource_digest TEXT NOT NULL, semantic_digest TEXT NOT NULL, issuance_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1 (frontier_identity TEXT PRIMARY KEY, resource_digest TEXT NOT NULL, sequence BIGINT NOT NULL, predecessor_frontier_identity TEXT, frontier_digest TEXT NOT NULL, frontier_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE(resource_digest, sequence))",
             "CREATE TABLE IF NOT EXISTS operator_authorization_private.portfolio_resource_grant_revocation_heads_v1 (resource_digest TEXT PRIMARY KEY, frontier_identity TEXT NOT NULL REFERENCES operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1(frontier_identity), sequence BIGINT NOT NULL, frontier_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 (event_identity TEXT PRIMARY KEY, aggregate_identity TEXT NOT NULL, event_kind TEXT NOT NULL, payload_digest TEXT NOT NULL, payload_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
             "CREATE INDEX IF NOT EXISTS portfolio_resource_grant_issuance_resource_v1 ON operator_authorization_private.portfolio_resource_grant_issuances_v1(resource_digest, grant_identity)",
-            "REVOKE ALL ON TABLE operator_authorization_private.portfolio_resource_grant_issuances_v1, operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1, operator_authorization_private.portfolio_resource_grant_revocation_heads_v1 FROM PUBLIC, product_edge_owner, rd_owner, qualification_writer",
-            "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE operator_authorization_private.portfolio_resource_grant_issuances_v1, operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1, operator_authorization_private.portfolio_resource_grant_revocation_heads_v1 TO operator_authorization_writer",
+            "CREATE INDEX IF NOT EXISTS portfolio_resource_grant_outbox_aggregate_v1 ON operator_authorization_private.portfolio_resource_grant_owner_outbox_v1(aggregate_identity)",
+            "REVOKE ALL ON TABLE operator_authorization_private.portfolio_resource_grant_issuances_v1, operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1, operator_authorization_private.portfolio_resource_grant_revocation_heads_v1, operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 FROM PUBLIC, product_edge_owner, rd_owner, qualification_writer",
+            "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE operator_authorization_private.portfolio_resource_grant_issuances_v1, operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1, operator_authorization_private.portfolio_resource_grant_revocation_heads_v1, operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 TO operator_authorization_writer",
         ] {
             sqlx::query(statement)
                 .execute(&mut *transaction)
@@ -1947,17 +1971,17 @@ BEGIN
   IF NOT FOUND THEN RETURN NULL; END IF;
   PERFORM 1 FROM operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1
     WHERE resource_digest=issuance.resource_digest ORDER BY sequence, frontier_identity FOR SHARE;
-  PERFORM 1 FROM operator_authorization_private.operator_authorization_owner_outbox_v1 outbox
-    WHERE (outbox.event_kind='PORTFOLIO_RESOURCE_GRANT_ISSUED_V1' AND outbox.aggregate_identity IN
-      (SELECT grant_identity FROM operator_authorization_private.portfolio_resource_grant_issuances_v1 WHERE resource_digest=issuance.resource_digest))
-       OR (outbox.event_kind='PORTFOLIO_RESOURCE_GRANT_REVOCATION_FRONTIER_V1' AND outbox.aggregate_identity IN
-      (SELECT frontier_identity FROM operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1 WHERE resource_digest=issuance.resource_digest))
+  PERFORM 1 FROM operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 outbox
+    WHERE outbox.aggregate_identity IN
+      (SELECT grant_identity FROM operator_authorization_private.portfolio_resource_grant_issuances_v1 WHERE resource_digest=issuance.resource_digest)
+       OR outbox.aggregate_identity IN
+      (SELECT frontier_identity FROM operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1 WHERE resource_digest=issuance.resource_digest)
     ORDER BY outbox.event_identity FOR SHARE;
   RETURN jsonb_build_object(
     'issuances', COALESCE((SELECT jsonb_agg(to_jsonb(item) ORDER BY item.grant_identity) FROM operator_authorization_private.portfolio_resource_grant_issuances_v1 item WHERE item.resource_digest=issuance.resource_digest), '[]'::jsonb),
     'head', to_jsonb(head),
     'frontiers', COALESCE((SELECT jsonb_agg(to_jsonb(item) ORDER BY item.sequence, item.frontier_identity) FROM operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1 item WHERE item.resource_digest=issuance.resource_digest), '[]'::jsonb),
-    'outboxes', COALESCE((SELECT jsonb_agg(to_jsonb(outbox) ORDER BY outbox.event_identity) FROM operator_authorization_private.operator_authorization_owner_outbox_v1 outbox WHERE (outbox.event_kind='PORTFOLIO_RESOURCE_GRANT_ISSUED_V1' AND outbox.aggregate_identity IN (SELECT grant_identity FROM operator_authorization_private.portfolio_resource_grant_issuances_v1 WHERE resource_digest=issuance.resource_digest)) OR (outbox.event_kind='PORTFOLIO_RESOURCE_GRANT_REVOCATION_FRONTIER_V1' AND outbox.aggregate_identity IN (SELECT frontier_identity FROM operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1 WHERE resource_digest=issuance.resource_digest))), '[]'::jsonb),
+    'outboxes', COALESCE((SELECT jsonb_agg(to_jsonb(outbox) ORDER BY outbox.event_identity) FROM operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 outbox WHERE outbox.aggregate_identity IN (SELECT grant_identity FROM operator_authorization_private.portfolio_resource_grant_issuances_v1 WHERE resource_digest=issuance.resource_digest) OR outbox.aggregate_identity IN (SELECT frontier_identity FROM operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1 WHERE resource_digest=issuance.resource_digest)), '[]'::jsonb),
     'observed_at_epoch_ms', floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint
   );
 END
@@ -2006,11 +2030,12 @@ $function$",
                 if history.issuance(&proposal.grant_identity)? != &existing {
                     return Err(OperatorAuthorizationError::Unavailable);
                 }
-                let result = readback(
-                    &existing,
-                    history.current()?,
-                    existing.committed_at_epoch_ms,
-                )?;
+                let result = resolve_locked_grant_readback(
+                    &mut transaction,
+                    &history,
+                    &existing.proposal.grant_identity,
+                )
+                .await?;
                 transaction.commit().await.map_err(storage)?;
                 return Ok(result);
             }
@@ -2021,7 +2046,7 @@ $function$",
             {
                 return Err(OperatorAuthorizationError::ConflictingReplay);
             }
-            let committed_at = now_ms()?;
+            let committed_at = database_now(&mut transaction).await?;
             ensure_grant_current(&proposal.content, committed_at)?;
             let stored = StoredGrantIssuanceV1 {
                 schema_version: PORTFOLIO_RESOURCE_GRANT_SCHEMA_V1,
@@ -2038,7 +2063,7 @@ $function$",
             sqlx::query("INSERT INTO operator_authorization_private.portfolio_resource_grant_revocation_heads_v1 (resource_digest,frontier_identity,sequence,frontier_digest,committed_at_epoch_ms) VALUES ($1,$2,0,$3,$4)")
                 .bind(&resource_digest).bind(&frontier.frontier_identity).bind(&frontier_digest)
                 .bind(to_i64(committed_at)?).execute(&mut *transaction).await.map_err(storage)?;
-            insert_outbox(
+            insert_grant_outbox(
                 &mut transaction,
                 &receipt.receipt_identity,
                 &stored.proposal.grant_identity,
@@ -2047,7 +2072,7 @@ $function$",
                 committed_at,
             )
             .await?;
-            insert_outbox(
+            insert_grant_outbox(
                 &mut transaction,
                 &frontier.frontier_identity,
                 &frontier.frontier_identity,
@@ -2059,11 +2084,12 @@ $function$",
             let history = verify_grant_history(&mut transaction, &resource_digest, true)
                 .await?
                 .ok_or(OperatorAuthorizationError::Unavailable)?;
-            let result = readback(
-                history.issuance(&stored.proposal.grant_identity)?,
-                history.current()?,
-                committed_at,
-            )?;
+            let result = resolve_locked_grant_readback(
+                &mut transaction,
+                &history,
+                &stored.proposal.grant_identity,
+            )
+            .await?;
             transaction.commit().await.map_err(storage)?;
             Ok(result)
         }
@@ -2103,7 +2129,10 @@ $function$",
                 {
                     return Err(OperatorAuthorizationError::ConflictingReplay);
                 }
-                let result = readback(existing, current, existing.committed_at_epoch_ms)?;
+                let grant_identity = existing.proposal.grant_identity.clone();
+                let result =
+                    resolve_locked_grant_readback(&mut transaction, &history, &grant_identity)
+                        .await?;
                 transaction.commit().await.map_err(storage)?;
                 return Ok(result);
             }
@@ -2126,7 +2155,7 @@ $function$",
             {
                 return Err(OperatorAuthorizationError::ConflictingReplay);
             }
-            let committed_at = now_ms()?;
+            let committed_at = database_now(&mut transaction).await?;
             ensure_grant_current(&proposal.successor.content, committed_at)?;
             let stored = StoredGrantIssuanceV1 {
                 schema_version: PORTFOLIO_RESOURCE_GRANT_SCHEMA_V1,
@@ -2137,7 +2166,7 @@ $function$",
             };
             let receipt = grant_receipt(&stored);
             insert_grant_issuance(&mut transaction, &stored, &receipt).await?;
-            insert_outbox(
+            insert_grant_outbox(
                 &mut transaction,
                 &receipt.receipt_identity,
                 &stored.proposal.grant_identity,
@@ -2149,11 +2178,12 @@ $function$",
             let verified = verify_grant_history(&mut transaction, &resource_digest, true)
                 .await?
                 .ok_or(OperatorAuthorizationError::Unavailable)?;
-            let result = readback(
-                verified.issuance(&stored.proposal.grant_identity)?,
-                verified.current()?,
-                committed_at,
-            )?;
+            let result = resolve_locked_grant_readback(
+                &mut transaction,
+                &verified,
+                &stored.proposal.grant_identity,
+            )
+            .await?;
             transaction.commit().await.map_err(storage)?;
             Ok(result)
         }
@@ -2197,7 +2227,7 @@ $function$",
             if current.frontier_identity != proposal.expected_frontier_identity {
                 return Err(OperatorAuthorizationError::ConflictingReplay);
             }
-            let committed_at = now_ms()?;
+            let committed_at = database_now(&mut transaction).await?;
             let mut revocations = current.revocations.clone();
             revocations.push(StoredGrantRevocationV1 {
                 grant_identity: proposal.grant.grant_identity,
@@ -2234,7 +2264,7 @@ $function$",
             if updated.rows_affected() != 1 {
                 return Err(OperatorAuthorizationError::ConflictingReplay);
             }
-            insert_outbox(
+            insert_grant_outbox(
                 &mut transaction,
                 &next.frontier_identity,
                 &next.frontier_identity,
@@ -2283,39 +2313,12 @@ $function$",
             return unavailable(PortfolioResourceGrantUnavailableReasonV1::OwnerUnavailable);
         };
 
-        if issuance.proposal.content.resource != request.expected_resource {
-            return unavailable(PortfolioResourceGrantUnavailableReasonV1::ResourceMismatch);
-        }
-
-        if issuance.proposal.content.product_edge_manifest != request.expected_manifest {
-            return unavailable(PortfolioResourceGrantUnavailableReasonV1::ManifestMismatch);
-        }
-
-        if observed_at < issuance.proposal.content.effective_at_epoch_ms {
-            return unavailable(PortfolioResourceGrantUnavailableReasonV1::NotEffective);
-        }
-
-        if observed_at >= issuance.proposal.content.valid_through_epoch_ms {
-            return unavailable(PortfolioResourceGrantUnavailableReasonV1::Expired);
-        }
-
-        if frontier
-            .revocations
-            .iter()
-            .any(|item| item.grant_identity == issuance.proposal.grant_identity)
-        {
-            return unavailable(PortfolioResourceGrantUnavailableReasonV1::Revoked);
-        }
-        PortfolioResourceGrantResolutionV1::Available {
-            grant: Box::new(match readback(&issuance, &frontier, observed_at) {
-                Ok(value) => value,
-                Err(_) => {
-                    return unavailable(
-                        PortfolioResourceGrantUnavailableReasonV1::OwnerUnavailable,
-                    );
-                }
-            }),
-        }
+        resolve_verified_grant(
+            &issuance,
+            &frontier,
+            observed_at,
+            Some((&request.expected_resource, &request.expected_manifest)),
+        )
     }
 
     fn ensure_grant_current(
@@ -2398,26 +2401,79 @@ $function$",
         }
     }
 
-    fn readback(
+    fn resolve_verified_grant(
         stored: &StoredGrantIssuanceV1,
         frontier: &StoredGrantFrontierV1,
         observed_at: u64,
-    ) -> Result<PortfolioResourceGrantReadbackV1, OperatorAuthorizationError> {
-        ensure_grant_current(&stored.proposal.content, observed_at)?;
+        expected: Option<(&PortfolioResourceV1, &ProductEdgeManifestBindingV1)>,
+    ) -> PortfolioResourceGrantResolutionV1 {
+        let unavailable = |reason| PortfolioResourceGrantResolutionV1::Unavailable { reason };
+
+        if let Some((resource, manifest)) = expected {
+            if &stored.proposal.content.resource != resource {
+                return unavailable(PortfolioResourceGrantUnavailableReasonV1::ResourceMismatch);
+            }
+
+            if &stored.proposal.content.product_edge_manifest != manifest {
+                return unavailable(PortfolioResourceGrantUnavailableReasonV1::ManifestMismatch);
+            }
+        }
+
+        if observed_at < stored.proposal.content.effective_at_epoch_ms {
+            return unavailable(PortfolioResourceGrantUnavailableReasonV1::NotEffective);
+        }
+
+        if observed_at >= stored.proposal.content.valid_through_epoch_ms {
+            return unavailable(PortfolioResourceGrantUnavailableReasonV1::Expired);
+        }
 
         if frontier
             .revocations
             .iter()
             .any(|item| item.grant_identity == stored.proposal.grant_identity)
         {
-            return Err(OperatorAuthorizationError::Unavailable);
+            return unavailable(PortfolioResourceGrantUnavailableReasonV1::Revoked);
         }
-        Ok(PortfolioResourceGrantReadbackV1 {
-            issuance_receipt: grant_receipt(stored).into(),
-            frontier: frontier.public(),
-            content: stored.proposal.content.clone(),
-            observed_at_epoch_ms: observed_at,
-        })
+        PortfolioResourceGrantResolutionV1::Available {
+            grant: Box::new(PortfolioResourceGrantReadbackV1 {
+                issuance_receipt: grant_receipt(stored).into(),
+                frontier: frontier.public(),
+                content: stored.proposal.content.clone(),
+                observed_at_epoch_ms: observed_at,
+            }),
+        }
+    }
+
+    async fn database_now(
+        transaction: &mut Transaction<'_, Postgres>,
+    ) -> Result<u64, OperatorAuthorizationError> {
+        let observed: i64 = sqlx::query_scalar(
+            "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint",
+        )
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(storage)?;
+        from_i64(observed)
+    }
+
+    async fn resolve_locked_grant_readback(
+        transaction: &mut Transaction<'_, Postgres>,
+        history: &VerifiedGrantHistoryV1,
+        grant_identity: &str,
+    ) -> Result<PortfolioResourceGrantReadbackV1, OperatorAuthorizationError> {
+        let observed_at = database_now(transaction).await?;
+
+        match resolve_verified_grant(
+            history.issuance(grant_identity)?,
+            history.current()?,
+            observed_at,
+            None,
+        ) {
+            PortfolioResourceGrantResolutionV1::Available { grant } => Ok(*grant),
+            PortfolioResourceGrantResolutionV1::Unavailable { .. } => {
+                Err(OperatorAuthorizationError::Unavailable)
+            }
+        }
     }
 
     async fn insert_grant_issuance(
@@ -2776,6 +2832,74 @@ $function$",
         Ok(())
     }
 
+    fn grant_outbox_record<T: Serialize>(
+        seed: &str,
+        aggregate: &str,
+        kind: &str,
+        payload: &T,
+        committed_at: u64,
+    ) -> Result<StoredGrantOutboxV1, OperatorAuthorizationError> {
+        let payload_digest = canonical_digest(
+            "operator-authorization.portfolio-resource-grant-outbox-payload.v1",
+            payload,
+        )?;
+        Ok(StoredGrantOutboxV1 {
+            schema_version: PORTFOLIO_RESOURCE_GRANT_SCHEMA_V1,
+            event_identity: identity(
+                "operator-authorization-portfolio-resource-grant-owner-event-v1",
+                &[
+                    seed,
+                    aggregate,
+                    kind,
+                    &payload_digest,
+                    &committed_at.to_string(),
+                ],
+            ),
+            aggregate_identity: aggregate.to_string(),
+            event_kind: kind.to_string(),
+            payload_digest,
+            committed_at_epoch_ms: committed_at,
+        })
+    }
+
+    async fn insert_grant_outbox<T: Serialize>(
+        transaction: &mut Transaction<'_, Postgres>,
+        seed: &str,
+        aggregate: &str,
+        kind: &str,
+        payload: &T,
+        committed_at: u64,
+    ) -> Result<(), OperatorAuthorizationError> {
+        let record = grant_outbox_record(seed, aggregate, kind, payload, committed_at)?;
+        sqlx::query("INSERT INTO operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 (event_identity, aggregate_identity, event_kind, payload_digest, payload_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6)")
+            .bind(&record.event_identity).bind(&record.aggregate_identity).bind(&record.event_kind)
+            .bind(&record.payload_digest).bind(json(&record)?).bind(to_i64(committed_at)?)
+            .execute(&mut **transaction).await.map_err(storage)?;
+        Ok(())
+    }
+
+    fn verify_grant_outbox_row<T: Serialize>(
+        row: &LockedGrantOutboxRowV1,
+        seed: &str,
+        aggregate: &str,
+        kind: &str,
+        payload: &T,
+        committed_at: u64,
+    ) -> Result<(), OperatorAuthorizationError> {
+        let expected = grant_outbox_record(seed, aggregate, kind, payload, committed_at)?;
+        let stored: StoredGrantOutboxV1 = from_json(row.payload_json.clone())?;
+        if stored != expected
+            || row.event_identity != expected.event_identity
+            || row.aggregate_identity != expected.aggregate_identity
+            || row.event_kind != expected.event_kind
+            || row.payload_digest != expected.payload_digest
+            || from_i64(row.committed_at_epoch_ms)? != expected.committed_at_epoch_ms
+        {
+            return Err(OperatorAuthorizationError::Unavailable);
+        }
+        Ok(())
+    }
+
     async fn verify_grant_outboxes(
         transaction: &mut Transaction<'_, Postgres>,
         issuances: &[StoredGrantIssuanceV1],
@@ -2784,29 +2908,37 @@ $function$",
     ) -> Result<(), OperatorAuthorizationError> {
         for issuance in issuances {
             let receipt = grant_receipt(issuance);
-            verify_outbox(
-                transaction,
+            let rows = load_grant_outbox_rows(transaction, &issuance.proposal.grant_identity, lock)
+                .await?;
+
+            if rows.len() != 1 {
+                return Err(OperatorAuthorizationError::Unavailable);
+            }
+            verify_grant_outbox_row(
+                &rows[0],
                 &receipt.receipt_identity,
                 &issuance.proposal.grant_identity,
                 GRANT_ISSUED_EVENT,
                 &receipt,
                 issuance.committed_at_epoch_ms,
-                lock,
-            )
-            .await?;
+            )?;
         }
 
         for frontier in frontiers {
-            verify_outbox(
-                transaction,
+            let rows =
+                load_grant_outbox_rows(transaction, &frontier.frontier_identity, lock).await?;
+
+            if rows.len() != 1 {
+                return Err(OperatorAuthorizationError::Unavailable);
+            }
+            verify_grant_outbox_row(
+                &rows[0],
                 &frontier.frontier_identity,
                 &frontier.frontier_identity,
                 GRANT_FRONTIER_EVENT,
                 frontier,
                 frontier.committed_at_epoch_ms,
-                lock,
-            )
-            .await?;
+            )?;
         }
         Ok(())
     }
@@ -2814,7 +2946,7 @@ $function$",
     fn verify_locked_grant_outboxes(
         issuances: &[StoredGrantIssuanceV1],
         frontiers: &[StoredGrantFrontierV1],
-        rows: &[LockedOutboxRowV1],
+        rows: &[LockedGrantOutboxRowV1],
     ) -> Result<(), OperatorAuthorizationError> {
         if rows.len() != issuances.len().saturating_add(frontiers.len()) {
             return Err(OperatorAuthorizationError::Unavailable);
@@ -2822,8 +2954,16 @@ $function$",
 
         for issuance in issuances {
             let receipt = grant_receipt(issuance);
-            verify_locked_outbox_row(
-                rows,
+            let matches = rows
+                .iter()
+                .filter(|row| row.aggregate_identity == issuance.proposal.grant_identity)
+                .collect::<Vec<_>>();
+
+            if matches.len() != 1 {
+                return Err(OperatorAuthorizationError::Unavailable);
+            }
+            verify_grant_outbox_row(
+                matches[0],
                 &receipt.receipt_identity,
                 &issuance.proposal.grant_identity,
                 GRANT_ISSUED_EVENT,
@@ -2833,8 +2973,16 @@ $function$",
         }
 
         for frontier in frontiers {
-            verify_locked_outbox_row(
-                rows,
+            let matches = rows
+                .iter()
+                .filter(|row| row.aggregate_identity == frontier.frontier_identity)
+                .collect::<Vec<_>>();
+
+            if matches.len() != 1 {
+                return Err(OperatorAuthorizationError::Unavailable);
+            }
+            verify_grant_outbox_row(
+                matches[0],
                 &frontier.frontier_identity,
                 &frontier.frontier_identity,
                 GRANT_FRONTIER_EVENT,
@@ -2843,6 +2991,35 @@ $function$",
             )?;
         }
         Ok(())
+    }
+
+    async fn load_grant_outbox_rows(
+        transaction: &mut Transaction<'_, Postgres>,
+        aggregate_identity: &str,
+        lock: bool,
+    ) -> Result<Vec<LockedGrantOutboxRowV1>, OperatorAuthorizationError> {
+        let sql = if lock {
+            "SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms FROM operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 WHERE aggregate_identity=$1 FOR SHARE"
+        } else {
+            "SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms FROM operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 WHERE aggregate_identity=$1"
+        };
+        sqlx::query(sql)
+            .bind(aggregate_identity)
+            .fetch_all(&mut **transaction)
+            .await
+            .map_err(storage)?
+            .into_iter()
+            .map(|row| {
+                Ok(LockedGrantOutboxRowV1 {
+                    event_identity: row.try_get("event_identity").map_err(storage)?,
+                    aggregate_identity: row.try_get("aggregate_identity").map_err(storage)?,
+                    event_kind: row.try_get("event_kind").map_err(storage)?,
+                    payload_digest: row.try_get("payload_digest").map_err(storage)?,
+                    payload_json: row.try_get("payload_json").map_err(storage)?,
+                    committed_at_epoch_ms: row.try_get("committed_at_epoch_ms").map_err(storage)?,
+                })
+            })
+            .collect()
     }
 
     fn mode_text(resource: &PortfolioResourceV1) -> &'static str {
@@ -2865,9 +3042,10 @@ mod tests {
         OperationManifestBindingV1, OperatorAuthorizationScopeV1, PORTFOLIO_OWNER_AUDIENCE_V1,
         PORTFOLIO_VIEW_PERMISSION_V1, PortfolioResourceGrantContentV1,
         PortfolioResourceGrantIssuanceProposalV1, PortfolioResourceGrantReadRequestV1,
-        PortfolioResourceGrantResolutionV1, PortfolioResourceGrantRevocationProposalV1,
-        PortfolioResourceGrantSuccessorProposalV1, PortfolioResourceGrantUnavailableReasonV1,
-        PortfolioResourceModeV1, PortfolioResourceV1, ProductEdgeManifestBindingV1,
+        PortfolioResourceGrantReadbackV1, PortfolioResourceGrantResolutionV1,
+        PortfolioResourceGrantRevocationProposalV1, PortfolioResourceGrantSuccessorProposalV1,
+        PortfolioResourceGrantUnavailableReasonV1, PortfolioResourceModeV1, PortfolioResourceV1,
+        ProductEdgeManifestBindingV1,
     };
     use vibe_testkit::postgres::{
         CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1,
@@ -2930,13 +3108,34 @@ mod tests {
               'resource_issuances', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.grant_identity) FROM operator_authorization_private.portfolio_resource_grant_issuances_v1 row), '[]'::jsonb),
               'resource_frontiers', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.frontier_identity) FROM operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1 row), '[]'::jsonb),
               'resource_heads', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.resource_digest) FROM operator_authorization_private.portfolio_resource_grant_revocation_heads_v1 row), '[]'::jsonb),
-              'outbox', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.event_identity) FROM operator_authorization_private.operator_authorization_owner_outbox_v1 row), '[]'::jsonb)
+              'authorization_outbox', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.event_identity) FROM operator_authorization_private.operator_authorization_owner_outbox_v1 row), '[]'::jsonb),
+              'resource_outbox', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.event_identity) FROM operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 row), '[]'::jsonb)
             )",
         )
         .fetch_one(pool)
         .await
         .unwrap();
         canonical_digest("operator-authorization.test-table-fingerprint.v1", &value).unwrap()
+    }
+
+    fn assert_same_grant_authority(
+        left: &PortfolioResourceGrantReadbackV1,
+        right: &PortfolioResourceGrantReadbackV1,
+    ) {
+        assert_eq!(left.locator(), right.locator());
+        assert_eq!(left.content(), right.content());
+        assert_eq!(left.frontier(), right.frontier());
+    }
+
+    async fn resolve_grant(
+        pool: &PgPool,
+        request: &PortfolioResourceGrantReadRequestV1,
+    ) -> PortfolioResourceGrantResolutionV1 {
+        let mut transaction = pool.begin().await.unwrap();
+        let resolution =
+            resolve_portfolio_resource_grant_in_transaction(&mut transaction, request).await;
+        transaction.rollback().await.unwrap();
+        resolution
     }
 
     #[tokio::test]
@@ -2959,19 +3158,146 @@ mod tests {
             .issue_portfolio_resource_grant_genesis(proposal.clone())
             .await
             .unwrap();
-        assert_eq!(
-            owner
-                .issue_portfolio_resource_grant_genesis(proposal.clone())
-                .await
-                .unwrap(),
-            issued
-        );
+        let genesis_replay = owner
+            .issue_portfolio_resource_grant_genesis(proposal.clone())
+            .await
+            .unwrap();
+        assert_same_grant_authority(&genesis_replay, &issued);
+        assert!(genesis_replay.observed_at_epoch_ms() >= issued.observed_at_epoch_ms());
 
         let request = PortfolioResourceGrantReadRequestV1 {
             locator: issued.locator(),
             expected_resource: proposal.content.resource.clone(),
             expected_manifest: proposal.content.product_edge_manifest.clone(),
         };
+
+        let legacy_proposal = OperatorAuthorizationIssuanceProposalV1 {
+            authorization_identity: issued.locator().grant_identity,
+            issuer_identity: "operator-authorization-issuer-test-v1".into(),
+            issuer_key_version: "test-key-v1".into(),
+            scope: OperatorAuthorizationScopeV1 {
+                principal: format!("legacy-principal-{suffix}"),
+                audience: "PRODUCT_EDGE".into(),
+                permissions: vec!["provider:invoke".into()],
+            },
+            request_proof_digest: "sha256:test-proof".into(),
+            operation_manifests: vec![OperationManifestBindingV1 {
+                manifest_identity: format!("legacy-manifest-{suffix}"),
+                manifest_digest: format!("sha256:{}", "c".repeat(64)),
+            }],
+            not_before_epoch_ms: now.saturating_sub(1_000),
+            valid_through_epoch_ms: now.saturating_add(600_000),
+            expected_revocation_head: "EMPTY".into(),
+        };
+        let legacy = owner.issue_genesis(legacy_proposal.clone()).await.unwrap();
+        assert_eq!(owner.issue_genesis(legacy_proposal).await.unwrap(), legacy);
+        let collision_grant_replay = owner
+            .issue_portfolio_resource_grant_genesis(proposal.clone())
+            .await
+            .unwrap();
+        assert_same_grant_authority(&collision_grant_replay, &issued);
+        let mut historical_transaction = owner.pool().begin().await.unwrap();
+        assert_eq!(
+            resolve_authorization_in_transaction(
+                &mut historical_transaction,
+                &legacy.locator(),
+                AuthorizationReadModeV1::Historical {
+                    frontier_identity: legacy.frontier().frontier_identity().into(),
+                },
+            )
+            .await
+            .unwrap(),
+            legacy
+        );
+        historical_transaction.rollback().await.unwrap();
+        assert!(matches!(
+            resolve_grant(&consumer, &request).await,
+            PortfolioResourceGrantResolutionV1::Available { .. }
+        ));
+
+        let collision_baseline = oa_table_fingerprint(owner.pool()).await;
+
+        for (select_sql, corrupt_sql, restore_sql, insert_sql, delete_sql, legacy_must_fail) in [
+            (
+                "SELECT payload_digest FROM operator_authorization_private.operator_authorization_owner_outbox_v1 WHERE aggregate_identity=$1",
+                "UPDATE operator_authorization_private.operator_authorization_owner_outbox_v1 SET payload_digest='sha256:corrupt' WHERE aggregate_identity=$1",
+                "UPDATE operator_authorization_private.operator_authorization_owner_outbox_v1 SET payload_digest=$1 WHERE aggregate_identity=$2",
+                "INSERT INTO operator_authorization_private.operator_authorization_owner_outbox_v1 (event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms) VALUES ($1,$2,'UNEXPECTED_V1','sha256:corrupt','{}'::jsonb,$3)",
+                "DELETE FROM operator_authorization_private.operator_authorization_owner_outbox_v1 WHERE event_identity=$1",
+                true,
+            ),
+            (
+                "SELECT payload_digest FROM operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 WHERE aggregate_identity=$1",
+                "UPDATE operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 SET payload_digest='sha256:corrupt' WHERE aggregate_identity=$1",
+                "UPDATE operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 SET payload_digest=$1 WHERE aggregate_identity=$2",
+                "INSERT INTO operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 (event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms) VALUES ($1,$2,'UNEXPECTED_V1','sha256:corrupt','{}'::jsonb,$3)",
+                "DELETE FROM operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 WHERE event_identity=$1",
+                false,
+            ),
+        ] {
+            let original_digest: String = sqlx::query_scalar(select_sql)
+                .bind(&legacy.locator().authorization_identity)
+                .fetch_one(owner.pool())
+                .await
+                .unwrap();
+            sqlx::query(corrupt_sql)
+                .bind(&legacy.locator().authorization_identity)
+                .execute(owner.pool())
+                .await
+                .unwrap();
+            let corrupted = oa_table_fingerprint(owner.pool()).await;
+            assert_eq!(
+                resolve_current(&owner, &legacy, now_ms().unwrap())
+                    .await
+                    .is_err(),
+                legacy_must_fail
+            );
+            assert_eq!(
+                matches!(
+                    resolve_grant(&consumer, &request).await,
+                    PortfolioResourceGrantResolutionV1::Unavailable { .. }
+                ),
+                !legacy_must_fail
+            );
+            assert_eq!(oa_table_fingerprint(owner.pool()).await, corrupted);
+            sqlx::query(restore_sql)
+                .bind(&original_digest)
+                .bind(&legacy.locator().authorization_identity)
+                .execute(owner.pool())
+                .await
+                .unwrap();
+            assert_eq!(oa_table_fingerprint(owner.pool()).await, collision_baseline);
+
+            let duplicate_identity = format!("duplicate-{legacy_must_fail}-{suffix}");
+            sqlx::query(insert_sql)
+                .bind(&duplicate_identity)
+                .bind(&legacy.locator().authorization_identity)
+                .bind(to_i64(now).unwrap())
+                .execute(owner.pool())
+                .await
+                .unwrap();
+            let duplicated = oa_table_fingerprint(owner.pool()).await;
+            assert_eq!(
+                resolve_current(&owner, &legacy, now_ms().unwrap())
+                    .await
+                    .is_err(),
+                legacy_must_fail
+            );
+            assert_eq!(
+                matches!(
+                    resolve_grant(&consumer, &request).await,
+                    PortfolioResourceGrantResolutionV1::Unavailable { .. }
+                ),
+                !legacy_must_fail
+            );
+            assert_eq!(oa_table_fingerprint(owner.pool()).await, duplicated);
+            sqlx::query(delete_sql)
+                .bind(&duplicate_identity)
+                .execute(owner.pool())
+                .await
+                .unwrap();
+            assert_eq!(oa_table_fingerprint(owner.pool()).await, collision_baseline);
+        }
         let before_read_cut: i64 = sqlx::query_scalar(
             "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint",
         )
@@ -3070,13 +3396,12 @@ mod tests {
             .issue_portfolio_resource_grant_successor(successor.clone())
             .await
             .unwrap();
-        assert_eq!(
-            owner
-                .issue_portfolio_resource_grant_successor(successor)
-                .await
-                .unwrap(),
-            renewed
-        );
+        let successor_replay = owner
+            .issue_portfolio_resource_grant_successor(successor.clone())
+            .await
+            .unwrap();
+        assert_same_grant_authority(&successor_replay, &renewed);
+        assert!(successor_replay.observed_at_epoch_ms() >= renewed.observed_at_epoch_ms());
 
         drop(owner);
         let restarted = Arc::new(
@@ -3164,6 +3489,23 @@ mod tests {
                 .revoked_grant_identities()
                 .contains(&renewed.locator().grant_identity)
         );
+        let before_revoked_replay = oa_table_fingerprint(restarted.pool()).await;
+        assert!(matches!(
+            restarted
+                .issue_portfolio_resource_grant_successor(successor.clone())
+                .await,
+            Err(OperatorAuthorizationError::Unavailable)
+        ));
+        let PortfolioResourceGrantResolutionV1::Unavailable { reason } =
+            resolve_grant(&consumer, &renewed_request).await
+        else {
+            panic!("revoked successor replay and canonical resolve must fail closed");
+        };
+        assert_eq!(reason, PortfolioResourceGrantUnavailableReasonV1::Revoked);
+        assert_eq!(
+            oa_table_fingerprint(restarted.pool()).await,
+            before_revoked_replay
+        );
 
         let executable: bool = sqlx::query_scalar("SELECT has_function_privilege(current_user, 'operator_authorization_api.lock_current_portfolio_resource_grant_v1(text,text)', 'EXECUTE')")
             .fetch_one(&consumer).await.unwrap();
@@ -3180,6 +3522,7 @@ mod tests {
             "operator_authorization_private.portfolio_resource_grant_issuances_v1",
             "operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1",
             "operator_authorization_private.portfolio_resource_grant_revocation_heads_v1",
+            "operator_authorization_private.portfolio_resource_grant_owner_outbox_v1",
         ] {
             let relation_oid: i64 = sqlx::query_scalar("SELECT to_regclass($1)::oid::bigint")
                 .bind(table)
@@ -3214,6 +3557,28 @@ mod tests {
             .bind(&expiring.locator().grant_identity).fetch_one(&mut *expiry_gate).await.unwrap();
         let expiry_consumer = consumer.clone();
         let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+        let expiry_replay_owner = Arc::clone(&restarted);
+        let expiry_replay_proposal = expiry_proposal.clone();
+        let (replay_started_sender, replay_started_receiver) = tokio::sync::oneshot::channel();
+        let expiry_replay = tokio::spawn(async move {
+            replay_started_sender.send(()).unwrap();
+            expiry_replay_owner
+                .issue_portfolio_resource_grant_genesis(expiry_replay_proposal)
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(2), replay_started_receiver)
+            .await
+            .unwrap()
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let waiting: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pg_stat_activity WHERE usename='operator_authorization_writer' AND wait_event_type='Lock' AND query LIKE '%portfolio_resource_grant_issuances_v1%FOR UPDATE%'")
+                    .fetch_one(restarted.pool()).await.unwrap();
+
+                if waiting > 0 { break; }
+                tokio::task::yield_now().await;
+            }
+        }).await.unwrap();
 
         let expiry_reader = tokio::spawn(async move {
             let mut transaction = expiry_consumer.begin().await.unwrap();
@@ -3238,6 +3603,7 @@ mod tests {
             .unwrap();
         tokio::time::sleep(Duration::from_millis(50)).await;
         assert!(!expiry_reader.is_finished());
+        assert!(!expiry_replay.is_finished());
         let database_now: i64 = sqlx::query_scalar(
             "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint",
         )
@@ -3260,6 +3626,13 @@ mod tests {
             panic!("reader begun before expiry but released after expiry must fail closed");
         };
         assert_eq!(reason, PortfolioResourceGrantUnavailableReasonV1::Expired);
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(5), expiry_replay)
+                .await
+                .unwrap()
+                .unwrap(),
+            Err(OperatorAuthorizationError::Unavailable)
+        ));
         assert_eq!(
             oa_table_fingerprint(restarted.pool()).await,
             before_expired_read
