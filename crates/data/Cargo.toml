@@ -66,6 +66,7 @@ pyo3-stub-gen = { workspace = true, optional = true }
 [dev-dependencies]
 vibe-serialization = { workspace = true, features = ["arrow"] }
 
+blake3 = { workspace = true }
 criterion = { workspace = true }
 proptest = { workspace = true }
 rstest = { workspace = true }

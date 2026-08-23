@@ -115,6 +115,7 @@
     )
 )]
 
+pub mod adapter_binding;
 pub mod client;
 pub mod engine;
 pub mod matching_core;

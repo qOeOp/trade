@@ -2178,6 +2178,66 @@
         "noAuthorityBasis": "Strategy Factory is a value stream and never a second Research Backtest Qualification Scanner Portfolio Governance or Runtime authority"
       },
       {
+        "inventoryId": "operator-authorization-issuer",
+        "memberPaths": ["crates/operator_authorization"],
+        "disposition": "OWNER_NATIVE_IMPLEMENTATION",
+        "destinationIds": ["product-edge"],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Own only sealed Operator Authorization issuance and revocation-frontier facts and expose a direct locked read contract to Product Edge",
+        "noAuthorityBasis": "Product Edge R&D Strategy Factory Windmill API transport credentials and configuration cannot issue or revoke authorization and runtime product acceptance remains not admitted until integrated dynamic gates pass"
+      },
+      {
+        "inventoryId": "product-edge-authority",
+        "memberPaths": ["crates/product_edge"],
+        "disposition": "OWNER_NATIVE_IMPLEMENTATION",
+        "destinationIds": ["product-edge"],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Own only content-addressed operation manifests deployment bindings and history head immutable request admissions and their outbox while consuming the Operator Authorization Issuer read contract in one direction",
+        "noAuthorityBasis": "Product Edge grants no R&D or business Owner authority and Strategy Factory Windmill restart recovery and product acceptance remain not admitted until real-consumer dynamic gates pass"
+      },
+      {
+        "inventoryId": "product-edge-authority-admin-composition",
+        "memberPaths": ["crates/product_edge_admin"],
+        "disposition": "NON_AUTHORITATIVE_INFRASTRUCTURE",
+        "destinationIds": ["product-edge"],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Compose the concrete Operator Authorization Issuer and Product Edge Owner only for an explicit opt-in administrative genesis request and never from service startup or a Product Edge request path",
+        "noAuthorityBasis": "The composition owns no fact and cannot transfer authorization Product Edge R&D provider effect or trading authority to Strategy Factory Windmill API transport credentials or configuration"
+      },
+      {
+        "inventoryId": "product-edge-provider-invocation-custody",
+        "memberPaths": ["crates/product_edge_claim_custody"],
+        "disposition": "OWNER_NATIVE_IMPLEMENTATION",
+        "destinationIds": ["product-edge"],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Store and resolve Product Edge provider-invocation claim and start custody only through the canonical locked Owner boundary",
+        "noAuthorityBasis": "Caller records are proposals and cannot construct positive custody or transfer R&D provider effect production-write or trading authority"
+      },
+      {
+        "inventoryId": "rd-artifact-invocation-custody",
+        "memberPaths": ["crates/rd_artifact_invocation_custody"],
+        "disposition": "OWNER_NATIVE_IMPLEMENTATION",
+        "destinationIds": ["rd"],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Seal and resolve one R&D-owned artifact provider-invocation reservation under lock against exact Product Edge claim custody",
+        "noAuthorityBasis": "The custody seam cannot transfer Product Edge authority construct positive custody from caller input or authorize provider execution Windmill production writes or trading"
+      },
+      {
+        "inventoryId": "strategy-factory-rd-owner-api-composition",
+        "memberPaths": ["crates/strategy_factory_rd_owner_api"],
+        "disposition": "NON_AUTHORITATIVE_INFRASTRUCTURE",
+        "destinationIds": ["rd", "product-edge"],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Compose the existing R&D Owner and Product Edge ports behind an explicit authenticated transport boundary",
+        "noAuthorityBasis": "Transport HTTP success credentials configuration and provider output cannot manufacture either Owner fact or authorize production writes or trading"
+      },
+      {
         "inventoryId": "qualification-owner",
         "memberPaths": ["crates/qualification"],
         "disposition": "OWNER_NATIVE_IMPLEMENTATION",
@@ -3914,6 +3974,8 @@
       ],
       "invariants": [
         "ACTIVE and SUPERSEDED are the only canonical binding states and a binding identity is immutable",
+        "Product Edge is the unique writer of deployment bindings history heads content-addressed operation manifests immutable request admissions and their outbox",
+        "Deployment genesis is an explicit one-time administrative operation and never a service-start or request-path default",
         "At most one ACTIVE binding selects the canonical WINDMILL_PRODUCT_EDGE admission gateway for a deployment and zero ACTIVE is an allowed fail-closed cutover window while multiple ACTIVE bindings admit no mutating Owner request",
         "A client-only or transport-only successor preserves the same effective principal scope capability and audit policies while changing attribution only",
         "The first binding may use genesis only when the authoritative deployment history is empty and its expected history head is EMPTY",
@@ -3923,7 +3985,7 @@
         "The unique ACTIVE binding must be the authoritative deployment history head and ACTIVE may transition only once to SUPERSEDED which is irreversible across restart rollback and replay",
         "Every mutating Agent Shell request durably and atomically serializes its request identity against the authoritative history head after verifying that exact head is the unique ACTIVE binding and before any Owner submission",
         "A history-head advance between admission read and request commit rejects the new request while a previously committed in-flight request continues to resolve by its original request binding and admission-head identities",
-        "In-flight requests retain their original request and binding identities and remain resolvable after cutover without a naked retry",
+        "In-flight requests retain their original request and binding identities and after cutover may perform a still-unreceipted first mutation only against the immediate policy-equivalent ACTIVE successor with exact stored lineage and current original authorization at the final cut while zero ACTIVE blocks it and every new admission requires the current ACTIVE head",
         "Missing stale self-asserted or policy-mismatched binding context is rejected before any business Owner mutation"
       ]
     },
@@ -3949,10 +4011,13 @@
         "INVALID"
       ],
       "invariants": [
+        "The separately named Operator Authorization Issuer is the unique writer of issuance and the revocation frontier while Product Edge only direct-resolves its canonical facts",
+        "Issuer writes and Product Edge admission use distinct PostgreSQL roles in one authority database and conflicting row locks enforce one revocation and admission cut",
         "The Agent Shell cannot self-assert issuer principal audience scope expiry revocation or operation authority",
         "Every mutating request binds one EFFECTIVE authorization whose issuer audience operation scope time evidence and revocation frontier are validated before Owner submission",
         "Missing stale expired revoked wrong-audience cross-principal broadened or unverifiable authorization creates no Owner request",
-        "Replay binds the original authorization and manifest identities and cannot extend validity or widen scope"
+        "Replay binds the original authorization and manifest identities and cannot extend validity or widen scope",
+        "After canonical authorization binding manifest and admission locks are held Product Edge samples one final half-open cut immediately before the first write revalidates every authority there and binds that same cut into admission identity and receipt"
       ]
     },
     {
@@ -4053,6 +4118,13 @@
       ],
       "invariants": [
         "Ambiguous target operation missing source or malformed typed meaning creates no Owner submission",
+        "Product Edge commits one immutable canonical request admission and outbox before R&D receives only its opaque locator for direct resolution",
+        "A committed admission retains its original binding authorization frontier manifest and cut across supersession expiry or revocation and is never rewritten",
+        "Expiry or revocation before the first downstream custody forbids submission while committed custody may resolve or terminalize but a new provider invocation requires a current one-use invocation admission",
+        "A committed provider claim with a lost response resolves as the exact CLAIMED request attempt and claim with RUN_BOUNDED_EXECUTION_AGENT as its sole resumable action starts that claim once and never creates a successor claim or second provider invocation",
+        "After INVOCATION_STARTED no rerun is admitted without an authoritative terminal Owner receipt and the safe projection is manual provider reconciliation",
+        "Product Edge unavailable storage-unknown or ambiguous authority including possible existing custody returns SUBMITTED_OR_UNKNOWN with RESOLVE_SAME_ATTEMPT_IDENTITY and never REJECTED_NO_WRITE or successor authority",
+        "Environment-authorized legacy rows are never backfilled terminal legacy is read-only quarantined identity collisions fail closed and activation stops on legacy nonterminal S2 custody",
         "Transport or shell success never proves an R&D transition and only the correlated R&D-owned receipt is authoritative",
         "SOURCED_HYPOTHESIS carries only the bounded Qualification protected-feedback projection already resolved for the same principal scope and exact R&D basis without exposing protected detail to Research",
         "The caller supplies only an untrusted independence rationale and cannot supply or override either canonical frontier the independence disposition or basis identity",
@@ -4176,6 +4248,8 @@
         "A D-only repair admission preserves the exact predecessor Strategy Intent TrialFamily generation Artifact Governance and allowed-surface cut and creates no Research Intent deployment or trading authority",
         "REJECTED_NO_WRITE binds no resulting Research Intent repair admission or R&D transition",
         "Absence of this receipt leaves the Product Edge request SUBMITTED_OR_UNKNOWN and never implies acceptance or rejection",
+        "A verified committed Independence Basis stage seals the complete canonical request meaning semantic digest Product Edge admission locator and lineage basis receipt and outbox so exact RESOLVE may complete historically without a duplicate basis head or outbox",
+        "After this terminal receipt commits later authority or view expiry preserves the exact receipt Intent TrialFamily basis and consumed Qualification projection as STALE read-only custody with same-request resolution only",
         "Replay of the same request identity and meaning joins the same receipt after restart or concurrency while changed meaning is rejected without rewriting it"
       ]
     },
@@ -4427,6 +4501,7 @@
         "authorization-policy-identity-and-cut",
         "exact-rd-independence-basis-receipt-ref-and-digest-for-pre-research-resolution",
         "qualification-protected-feedback-source-sequence-and-cut",
+        "predecessor-projection-identity-and-digest-for-owner-renewal",
         "clock-epoch-projection-time-and-half-open-validity",
         "requested-qualification-candidate",
         "originating-qualification-review-request-identity-and-typed-meaning",
@@ -4465,6 +4540,8 @@
       "invariants": [
         "PRE_RESEARCH_PROTECTED_FEEDBACK_FRONTIER directly resolves the exact R&D Independence Basis Receipt and locks the complete durable principal and scope history",
         "GENESIS_EMPTY is authoritative only after locked inspection proves that complete Qualification history is empty",
+        "Only Qualification Owner under the principal and scope lock may append a stale projection successor bound to the exact basis predecessor projection canonical source sequence cut and frontier Owner clock new half-open validity receipt and outbox then atomically advance the one acyclic history head",
+        "A current projection joins byte-identically callers and R&D cannot self-renew and historical terminal R&D custody continues to resolve the exact projection it consumed",
         "FRONTIER exposes only an opaque non-dereferenceable ref digest and cut and never protected payload detail outcome measurement parameter or holdout content",
         "Every later protected-feedback write repeats the exact precommitted R&D basis relation",
         "INTAKE phase states NOT_ADMITTED and ADMITTED bind Candidate plus the write-once Candidate Intake Receipt and no Eligibility Fact",
@@ -8064,6 +8141,8 @@
       "invariants": [
         "R&D derives GENESIS_EMPTY only after locked inspection proves complete local lineage history is empty and otherwise binds COMPLETE_FRONTIER",
         "UNAVAILABLE local lineage or Qualification projection creates no Research receipt Intent TrialFamily census or outbox transition",
+        "qualification_owner physically owns Qualification tables and the fixed-search-path locked admission function while R&D has no raw SELECT or DML and Qualification Rust alone verifies the raw function envelope into a sealed positive readback",
+        "After the final Qualification reread R&D samples one cut immediately before its first write revalidates Operator Authorization Product Edge binding manifest and Qualification half-open validity at that exact cut and binds it into every resulting identity and receipt",
         "The user rationale is untrusted input and never becomes a caller-authored frontier disposition or basis identity",
         "Trial family identity survives candidate and artifact renames",
         "A successor created after bounded Qualification feedback preserves the complete semantic predecessor frontier even when it uses another TrialFamily",

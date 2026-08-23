@@ -856,13 +856,10 @@ async fn recover_with_expected_target(
 
     let counts = qualification_counts(&mut transaction).await?;
 
-    if counts
-        == (QualificationCountsV1 {
-            projections: 1,
-            heads: 1,
-            outbox_events: 1,
-            recovery_receipts: 1,
-        })
+    if counts.recovery_receipts == 1
+        && counts.heads == 1
+        && counts.projections >= 1
+        && counts.outbox_events == counts.projections
     {
         let receipt = read_completed_receipt(
             &mut transaction,

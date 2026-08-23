@@ -8,7 +8,10 @@ mod postgres;
 #[cfg(feature = "owner-recovery")]
 mod recovery;
 
-pub use postgres::{PostgresQualificationOwnerV1, admit_projection_in_transaction};
+pub use postgres::{
+    PostgresQualificationOwnerV1, admit_historical_projection_in_transaction,
+    admit_projection_in_transaction,
+};
 #[cfg(feature = "owner-recovery")]
 pub use recovery::{RecoveryReceiptV1, run_owner_recovery_cli};
 use serde::{Deserialize, Serialize};
@@ -116,6 +119,13 @@ impl ProtectedFeedbackFrontierReadbackV1 {
 
     pub fn valid_through_epoch_ms(&self) -> u64 {
         self.valid_through_epoch_ms
+    }
+
+    /// Whether this sealed Owner readback authorizes a write at the exact
+    /// half-open Owner cut supplied by the consuming transaction.
+    pub fn is_current_at(&self, owner_cut_epoch_ms: u64) -> bool {
+        self.projection_at_epoch_ms <= owner_cut_epoch_ms
+            && owner_cut_epoch_ms < self.valid_through_epoch_ms
     }
 
     pub fn receipt(&self) -> &ProtectedFeedbackFrontierReceiptV1 {

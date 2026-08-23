@@ -45,6 +45,7 @@ testers = [
   "dep:serde",
   "dep:ustr",
 ]
+postgres = ["dep:sqlx", "dep:url"]
 extension-module = [
   "vibe-common/extension-module",
   "vibe-core/extension-module",
@@ -91,7 +92,9 @@ reqwest = { workspace = true, features = ["blocking"], optional = true }
 rust_decimal = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
+sqlx = { workspace = true, optional = true }
 tokio = { workspace = true }
+url = { workspace = true, optional = true }
 ustr = { workspace = true, optional = true }
 
 pyo3 = { workspace = true, optional = true }

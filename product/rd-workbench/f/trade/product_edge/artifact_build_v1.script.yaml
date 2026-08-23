@@ -11,8 +11,8 @@ schema:
     - action
     - build_request_identity
     - attempt_identity
-    - intent_identity
-    - channel
+    - research_request_identity
+    - identity_mode
   properties:
     action:
       type: string
@@ -23,17 +23,20 @@ schema:
       type: string
     build_request_identity:
       type: string
-    channel:
+    research_request_identity:
       type: string
+    identity_mode:
+      type: string
+      description: >-
+        GENERATE derives canonical identities from the supplied generation
+        nonces; EXACT can only resolve or recover existing custody.
       enum:
-        - APP
-        - MCP
-    intent_identity:
-      type: string
+        - GENERATE
+        - EXACT
   required:
     - action
     - build_request_identity
     - attempt_identity
-    - intent_identity
-    - channel
+    - research_request_identity
+    - identity_mode
 tag: rd-product-edge

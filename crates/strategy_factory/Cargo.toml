@@ -13,7 +13,6 @@ workspace = true
 [dependencies]
 anyhow = { workspace = true }
 async-trait = { workspace = true }
-axum = { workspace = true }
 base64 = { workspace = true }
 blake3 = { workspace = true }
 jiff = { workspace = true }
@@ -28,8 +27,6 @@ tar = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
 vibe-analysis = { workspace = true }
 vibe-backtest = { workspace = true, features = ["streaming"] }
 vibe-binance = { workspace = true }
@@ -39,6 +36,9 @@ vibe-data = { workspace = true }
 vibe-fred = { workspace = true }
 vibe-model = { workspace = true }
 vibe-persistence = { workspace = true }
+vibe-product-edge = { workspace = true }
+vibe-qualification = { workspace = true }
+vibe-rd-artifact-invocation-custody = { workspace = true }
 vibe-scheduled-events = { workspace = true }
 vibe-trading = { workspace = true }
 wasmi = { workspace = true }
@@ -49,17 +49,13 @@ libc = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+vibe-operator-authorization = { workspace = true }
 vibe-portfolio = { workspace = true }
+vibe-testkit = { workspace = true, features = ["postgres"] }
 
 [[bin]]
 name = "strategy-factory-formation"
 path = "src/bin/strategy_factory_formation.rs"
-doc = false
-test = false
-
-[[bin]]
-name = "strategy-factory-rd-owner-api"
-path = "src/bin/strategy_factory_rd_owner_api.rs"
 doc = false
 test = false
 

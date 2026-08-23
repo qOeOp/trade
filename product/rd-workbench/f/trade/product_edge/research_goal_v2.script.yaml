@@ -1,0 +1,28 @@
+summary: Submit or resolve one sourced R&D V2 research goal and TrialFamily root
+description: Routes a V2 request without caller family identity to R&D Owner and returns sealed family readback.
+lock: "!inline f/trade/product_edge/research_goal_v2.script.lock"
+kind: script
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - action
+    - request_identity
+    - goal
+    - trial_family_proposal
+  properties:
+    action:
+      type: string
+      enum:
+        - SUBMIT
+        - RESOLVE
+    goal:
+      type: object
+    request_identity:
+      type: string
+    trial_family_proposal:
+      type: object
+  required:
+    - action
+    - request_identity
+tag: rd-product-edge

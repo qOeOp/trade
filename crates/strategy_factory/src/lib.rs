@@ -30,6 +30,7 @@ mod program_host;
 mod program_project;
 mod program_runtime;
 mod program_session;
+mod rd_owner_postgres_custody;
 pub mod receipt;
 mod representative;
 mod research;
@@ -37,6 +38,8 @@ mod robustness;
 mod software_control;
 pub mod status;
 mod successor;
+pub mod trial_family;
+pub mod trial_family_postgres;
 
 pub use application::{
     RepresentativeSourceRoots, recover_frozen_complex_formation_status,

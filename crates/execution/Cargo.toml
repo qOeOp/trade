@@ -51,6 +51,7 @@ rstest = { workspace = true }
 rust_decimal = { workspace = true }
 rust_decimal_macros = { workspace = true }
 serde = { workspace = true }
+sha2 = { workspace = true }
 smallvec = { workspace = true }
 ustr = { workspace = true }
 uuid = { workspace = true }
