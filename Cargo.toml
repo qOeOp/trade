@@ -38,6 +38,7 @@ members = [
   "crates/live",
   "crates/model",
   "crates/network",
+  "crates/observability",
   "crates/operator_authorization",
   "crates/persistence",
   "crates/persistence/macros",
