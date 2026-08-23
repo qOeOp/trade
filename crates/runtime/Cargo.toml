@@ -1,0 +1,14 @@
+[package]
+name = "vibe-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Runtime Owner checkpoint and readiness foundation"
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+rstest = { workspace = true }

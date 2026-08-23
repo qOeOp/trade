@@ -11017,6 +11017,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "vibe-runtime"
+version = "0.62.0"
+dependencies = [
+ "rstest",
+]
+
+[[package]]
 name = "vibe-sandbox"
 version = "0.62.0"
 dependencies = [

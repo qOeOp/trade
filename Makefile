@@ -224,7 +224,7 @@ CORE_CRATES := vibe-analysis vibe-backtest vibe-common vibe-core \
     vibe-cryptography vibe-data vibe-event-store vibe-execution \
     vibe-indicators vibe-indicators-kernel vibe-infrastructure vibe-live vibe-model \
     vibe-network vibe-observability vibe-persistence vibe-persistence-macros \
-    vibe-operator-authorization vibe-plugin vibe-portfolio vibe-product-edge vibe-product-edge-claim-custody vibe-qualification vibe-risk vibe-rd-artifact-invocation-custody vibe-serialization \
+    vibe-operator-authorization vibe-plugin vibe-portfolio vibe-product-edge vibe-product-edge-claim-custody vibe-qualification vibe-risk vibe-rd-artifact-invocation-custody vibe-runtime vibe-serialization \
     strategy-factory-program-sdk vibe-strategy-factory vibe-strategy-factory-rd-owner-api vibe-system vibe-testkit vibe-trader vibe-trading
 
 # Crates tested in the workspace-compiled adapter lane
