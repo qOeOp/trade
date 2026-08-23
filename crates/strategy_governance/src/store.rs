@@ -46,6 +46,10 @@ pub enum StoreError {
     ReplaySetMismatch(DecisionFrontierId),
     OpenFrontierContainsTerminalRequest(LifecycleRequestId),
     ValidationStateConflict(LifecycleRequestId),
+    DecisionEvidenceUnavailable {
+        request_id: LifecycleRequestId,
+        reason: RejectionReason,
+    },
     TimeEvidenceUnavailable,
 }
 
@@ -212,11 +216,24 @@ impl GovernanceCore {
             .now()
             .filter(valid_decision_time)
             .ok_or(StoreError::TimeEvidenceUnavailable)?;
+        let mut admitted_eligibilities = Vec::with_capacity(submissions.len());
+        for (request, evidence) in submissions {
+            match self.admit_eligibility(request, evidence, &decision_time) {
+                Ok(eligibility) => admitted_eligibilities.push(eligibility),
+                Err(reason) => {
+                    return Err(StoreError::DecisionEvidenceUnavailable {
+                        request_id: request.request_id.clone(),
+                        reason,
+                    });
+                }
+            }
+        }
         let validations = submissions
             .iter()
             .zip(&identities)
-            .map(|((request, evidence), identity)| {
-                self.validate(request, evidence, *identity, &decision_time)
+            .zip(admitted_eligibilities)
+            .map(|(((request, evidence), identity), eligibility)| {
+                self.validate(request, evidence, eligibility, *identity, &decision_time)
             })
             .collect::<Vec<_>>();
         let invalid = validations
@@ -468,11 +485,56 @@ impl GovernanceCore {
         );
     }
 
+    fn admit_eligibility<'a>(
+        &self,
+        request: &LifecycleRequest,
+        evidence: &'a UntrustedDecisionEvidence,
+        decision_time: &TimeEvidence,
+    ) -> Result<&'a crate::UntrustedEligibilityReadback, RejectionReason> {
+        if !self.admission.available() {
+            return Err(RejectionReason::SourceOwnerAdmissionUnavailable);
+        }
+
+        let eligibility = evidence
+            .eligibility
+            .as_ref()
+            .ok_or(RejectionReason::MissingEligibility)?;
+
+        if eligibility.state != EligibilityState::Qualified {
+            return Err(RejectionReason::EvidenceExpiredOrRevoked);
+        }
+
+        if eligibility.artifact_id != request.artifact_id
+            || eligibility.candidate_id != request.candidate_id
+            || eligibility.economic_conditions_version != request.economic_conditions_version
+        {
+            return Err(RejectionReason::CrossScopeMismatch);
+        }
+
+        if !causal_order(&eligibility.time, decision_time) {
+            return Err(RejectionReason::CausalOrderViolation);
+        }
+
+        if !(eligibility.effective_from <= decision_time.observed_at
+            && decision_time.observed_at < eligibility.effective_through)
+            || !eligibility.time.is_current_at(decision_time.observed_at)
+        {
+            return Err(RejectionReason::EvidenceExpiredOrRevoked);
+        }
+
+        if !self.admission.eligibility(eligibility) {
+            return Err(RejectionReason::EvidenceNotTrusted);
+        }
+
+        Ok(eligibility)
+    }
+
     #[allow(clippy::too_many_lines)]
     fn validate(
         &self,
         request: &LifecycleRequest,
         evidence: &UntrustedDecisionEvidence,
+        eligibility: &crate::UntrustedEligibilityReadback,
         _identity: SemanticIdentity,
         decision_time: &TimeEvidence,
     ) -> Result<ValidatedDecisionCuts, RejectionReason> {
@@ -516,10 +578,6 @@ impl GovernanceCore {
             .artifact
             .as_ref()
             .ok_or(RejectionReason::MissingArtifact)?;
-        let eligibility = evidence
-            .eligibility
-            .as_ref()
-            .ok_or(RejectionReason::MissingEligibility)?;
         let capacity = evidence
             .capacity
             .as_ref()
@@ -546,23 +604,6 @@ impl GovernanceCore {
             || artifact.generation_id != request.generation_id
         {
             return Err(RejectionReason::CrossScopeMismatch);
-        }
-
-        if eligibility.state != EligibilityState::Qualified {
-            return Err(RejectionReason::EvidenceExpiredOrRevoked);
-        }
-
-        if eligibility.artifact_id != request.artifact_id
-            || eligibility.candidate_id != request.candidate_id
-            || eligibility.economic_conditions_version != request.economic_conditions_version
-        {
-            return Err(RejectionReason::CrossScopeMismatch);
-        }
-
-        if !(eligibility.effective_from <= decision_time.observed_at
-            && decision_time.observed_at < eligibility.effective_through)
-        {
-            return Err(RejectionReason::EvidenceExpiredOrRevoked);
         }
 
         if request.requested_capital > eligibility.capacity_ceiling {
@@ -634,13 +675,7 @@ impl GovernanceCore {
             return Err(RejectionReason::AuthorizationBindingMismatch);
         }
 
-        for time in [
-            &eligibility.time,
-            &capacity.time,
-            &adapter.time,
-            &lineage.time,
-            &policy.time,
-        ] {
+        for time in [&capacity.time, &adapter.time, &lineage.time, &policy.time] {
             if !causal_order(time, decision_time) {
                 return Err(RejectionReason::CausalOrderViolation);
             }
@@ -650,12 +685,7 @@ impl GovernanceCore {
             }
         }
 
-        if !self.admission.available() {
-            return Err(RejectionReason::SourceOwnerAdmissionUnavailable);
-        }
-
         if !self.admission.artifact(artifact)
-            || !self.admission.eligibility(eligibility)
             || !self.admission.capacity(capacity)
             || !self.admission.adapter_binding(adapter)
             || !self.admission.authorization_lineage(lineage)

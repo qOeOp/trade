@@ -569,6 +569,65 @@ fn rejected_no_write_does_not_consume_candidate_or_generation_alias() {
 }
 
 #[rstest]
+fn unavailable_or_changed_eligibility_is_error_no_write_and_does_not_reserve_request() {
+    type Mutate = fn(&mut UntrustedDecisionEvidence);
+    let cases: [(Mutate, RejectionReason); 3] = [
+        (
+            |evidence| evidence.eligibility = None,
+            RejectionReason::MissingEligibility,
+        ),
+        (
+            |evidence| {
+                evidence
+                    .eligibility
+                    .as_mut()
+                    .expect("eligibility")
+                    .time
+                    .valid_through = 1_000;
+            },
+            RejectionReason::EvidenceExpiredOrRevoked,
+        ),
+        (
+            |evidence| {
+                evidence
+                    .eligibility
+                    .as_mut()
+                    .expect("eligibility")
+                    .eligibility_ref = fact("replaced-eligibility");
+            },
+            RejectionReason::EvidenceNotTrusted,
+        ),
+    ];
+    let mut rejected = 0;
+
+    for (mutate, reason) in cases {
+        let fixture = Fixture::new();
+        let request_id = fixture.request.request_id.clone();
+        let mut invalid = fixture.evidence.clone();
+        mutate(&mut invalid);
+        let mut core = fixture.core(vec![time(1_000, 20), time(1_010, 21)], false);
+
+        assert_eq!(
+            core.resolve_frontier(&[(fixture.request.clone(), invalid)]),
+            Err(StoreError::DecisionEvidenceUnavailable {
+                request_id: request_id.clone(),
+                reason,
+            })
+        );
+        assert!(core.receipt(&request_id).is_none());
+
+        let accepted = core
+            .resolve_frontier(&[(fixture.request.clone(), fixture.evidence.clone())])
+            .expect("authority failure must not reserve the request")
+            .remove(0);
+        assert_eq!(accepted.status(), ReceiptStatus::Accepted);
+        rejected += 1;
+    }
+
+    assert_eq!(rejected, 3);
+}
+
+#[rstest]
 fn authorization_shape_rejects_cross_generation_frontier_and_audience() {
     let mut cases = Vec::new();
     let mut generation = Fixture::new();
@@ -624,10 +683,16 @@ fn causal_order_rejects_future_observation_and_stale_sequence() {
         .as_mut()
         .expect("eligibility")
         .time = time(1_001, 19);
+    let request_id = future.request.request_id.clone();
+    let mut core = future.core(vec![time(1_000, 20)], false);
     assert_eq!(
-        future.resolve().rejection_reason(),
-        Some(RejectionReason::CausalOrderViolation)
+        core.resolve_frontier(&[(future.request, future.evidence)]),
+        Err(StoreError::DecisionEvidenceUnavailable {
+            request_id: request_id.clone(),
+            reason: RejectionReason::CausalOrderViolation,
+        })
     );
+    assert!(core.receipt(&request_id).is_none());
 
     let mut stale_sequence = Fixture::new();
     stale_sequence
@@ -675,9 +740,22 @@ fn omissions_capacity_live_attended_and_scanner_fail_without_decision() {
     for (omit, expected) in omissions {
         let mut fixture = Fixture::new();
         omit(&mut fixture.evidence);
-        let receipt = fixture.resolve();
-        assert_eq!(receipt.rejection_reason(), Some(expected));
-        assert!(receipt.decision().is_none());
+        if expected == RejectionReason::MissingEligibility {
+            let request_id = fixture.request.request_id.clone();
+            let mut core = fixture.core(vec![time(1_000, 20)], false);
+            assert_eq!(
+                core.resolve_frontier(&[(fixture.request, fixture.evidence)]),
+                Err(StoreError::DecisionEvidenceUnavailable {
+                    request_id: request_id.clone(),
+                    reason: expected,
+                })
+            );
+            assert!(core.receipt(&request_id).is_none());
+        } else {
+            let receipt = fixture.resolve();
+            assert_eq!(receipt.rejection_reason(), Some(expected));
+            assert!(receipt.decision().is_none());
+        }
     }
 
     let mut rejected_modes: Vec<(Fixture, RejectionReason)> = Vec::new();
@@ -705,7 +783,7 @@ fn omissions_capacity_live_attended_and_scanner_fail_without_decision() {
 
 #[rstest]
 fn stale_revoked_cross_scope_and_capacity_cuts_fail_closed() {
-    let mut cases = Vec::new();
+    let mut authority_cases = Vec::new();
 
     let mut stale = Fixture::new();
     stale
@@ -715,7 +793,7 @@ fn stale_revoked_cross_scope_and_capacity_cuts_fail_closed() {
         .expect("eligibility")
         .time
         .valid_through = 999;
-    cases.push((stale, RejectionReason::EvidenceExpiredOrRevoked));
+    authority_cases.push((stale, RejectionReason::EvidenceExpiredOrRevoked));
 
     let mut equal_exclusive_boundary = Fixture::new();
     let eligibility = equal_exclusive_boundary
@@ -724,10 +802,25 @@ fn stale_revoked_cross_scope_and_capacity_cuts_fail_closed() {
         .as_mut()
         .expect("eligibility");
     eligibility.time.valid_through = eligibility.time.observed_at;
-    cases.push((
+    authority_cases.push((
         equal_exclusive_boundary,
         RejectionReason::CausalOrderViolation,
     ));
+
+    for (fixture, reason) in authority_cases {
+        let request_id = fixture.request.request_id.clone();
+        let mut core = fixture.core(vec![time(1_000, 20)], false);
+        assert_eq!(
+            core.resolve_frontier(&[(fixture.request, fixture.evidence)]),
+            Err(StoreError::DecisionEvidenceUnavailable {
+                request_id: request_id.clone(),
+                reason,
+            })
+        );
+        assert!(core.receipt(&request_id).is_none());
+    }
+
+    let mut cases = Vec::new();
 
     let mut revoked = Fixture::new();
     revoked

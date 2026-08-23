@@ -460,7 +460,6 @@ pub struct BatchOperationalFailure {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FailedReason {
-    IncompleteKnown { terminal_reason: OpaqueId },
     MembershipUnresolved { terminal_reason: OpaqueId },
     BatchOperational(BatchOperationalFailure),
 }
@@ -582,40 +581,6 @@ impl ScannerReceipt {
             },
             dispositions,
             proposal,
-        })
-    }
-
-    pub fn incomplete_known(
-        attempt_id: AttemptId,
-        meaning: AttemptMeaning,
-        observed: impl IntoIterator<Item = StrategyDisposition>,
-        terminal_reason: OpaqueId,
-    ) -> Result<Self, DomainError> {
-        validate_attempt_meaning(&attempt_id, &meaning)?;
-        let expected = resolved_expected(&meaning)?;
-        let dispositions = index_dispositions(observed)?;
-        validate_observed_bindings(expected, &dispositions)?;
-        let expected_ids = expected.keys().cloned().collect::<BTreeSet<_>>();
-        let observed_ids = dispositions.keys().cloned().collect::<BTreeSet<_>>();
-        let missing = expected_ids
-            .difference(&observed_ids)
-            .cloned()
-            .collect::<BTreeSet<_>>();
-
-        if missing.is_empty() {
-            return Err(DomainError::CompleteSetCannotBeIncomplete);
-        }
-        Ok(Self {
-            attempt_id,
-            meaning,
-            status: ReceiptStatus::Failed(FailedReason::IncompleteKnown { terminal_reason }),
-            membership: MembershipBranch::Resolved {
-                expected: expected_ids,
-                observed: observed_ids,
-                missing,
-            },
-            dispositions,
-            proposal: None,
         })
     }
 

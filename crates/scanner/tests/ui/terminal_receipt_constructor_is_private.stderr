@@ -1,0 +1,5 @@
+error[E0599]: no associated function or constant named `incomplete_known` found for struct `ScannerReceipt` in the current scope
+ --> tests/ui/terminal_receipt_constructor_is_private.rs:6:36
+  |
+6 |     let _receipt = ScannerReceipt::incomplete_known(
+  |                                    ^^^^^^^^^^^^^^^^ associated function or constant not found in `ScannerReceipt`

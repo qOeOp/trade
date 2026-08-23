@@ -791,7 +791,7 @@ fn mixed_strategy_outcomes_preserve_negative_members_and_valid_match() {
 }
 
 #[rstest]
-fn complete_set_and_two_incomplete_membership_branches_are_enforced() {
+fn complete_resolved_membership_is_enforced() {
     let (no_match, _) = matcher(
         &[("a", Evaluation::NoMatch), ("b", Evaluation::NoMatch)],
         None,
@@ -818,34 +818,6 @@ fn complete_set_and_two_incomplete_membership_branches_are_enforced() {
             missing,
         } if expected == observed && missing.is_empty() && expected.len() == 2
     ));
-    let observed_a = complete.dispositions()[&id("a")].clone();
-    let mut mismatched_attempt = complete.attempt_id().clone();
-    mismatched_attempt.definition.version = version(4);
-    assert_eq!(
-        ScannerReceipt::incomplete_known(
-            mismatched_attempt,
-            complete.meaning().clone(),
-            [observed_a.clone()],
-            id("matcher-interrupted"),
-        ),
-        Err(DomainError::AttemptMeaningConflict)
-    );
-    let incomplete = ScannerReceipt::incomplete_known(
-        complete.attempt_id().clone(),
-        complete.meaning().clone(),
-        [observed_a],
-        id("matcher-interrupted"),
-    )
-    .unwrap();
-    assert!(matches!(
-        incomplete.membership(),
-        MembershipBranch::Resolved { missing, .. } if missing == &BTreeSet::from([id("b")])
-    ));
-    assert!(matches!(
-        incomplete.status(),
-        ReceiptStatus::Failed(FailedReason::IncompleteKnown { .. })
-    ));
-    assert!(incomplete.proposal().is_none());
 }
 
 #[rstest]

@@ -11091,6 +11091,7 @@ name = "vibe-scanner"
 version = "0.62.0"
 dependencies = [
  "rstest",
+ "trybuild",
 ]
 
 [[package]]
