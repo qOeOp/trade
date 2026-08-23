@@ -60,6 +60,7 @@
 
 pub mod config;
 pub mod manager;
+pub mod owner;
 pub mod portfolio;
 
 #[cfg(feature = "python")]
