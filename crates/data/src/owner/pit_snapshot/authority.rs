@@ -1,3 +1,8 @@
+#![allow(
+    dead_code,
+    reason = "crate-private Market Data authority is reached only by the private composition and durable-store tests"
+)]
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
@@ -23,7 +28,7 @@ const OUTBOX_DOMAIN: &[u8] = b"vibe.market-data.pit-snapshot.outbox.v1";
 const OWNER_ID: &str = "MARKET_DATA";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct OwnerResolvedCanonicalBasis {
+pub(crate) struct OwnerResolvedCanonicalBasis {
     request: UntrustedPitSnapshotRequest,
     evidence: super::UntrustedPitSnapshotEvidence,
     clock_admission: MarketDataClockAdmission,
@@ -49,7 +54,7 @@ impl TestOnlyCanonicalBasisResolver {
         }
     }
 
-    fn resolve(
+    pub(crate) fn resolve(
         &self,
         request: &UntrustedPitSnapshotRequest,
         evidence: &super::UntrustedPitSnapshotEvidence,
@@ -255,50 +260,8 @@ impl TestOnlyPitSnapshotOwner {
         lineage: OwnerLineage,
         fault: CommitFault,
     ) -> Result<PitSnapshotCommitAggregate, PitSnapshotError> {
-        let primary_blocker = primary_blocker(&blockers);
-        let disposition = disposition(primary_blocker);
-        let snapshot_identity =
-            derive_snapshot_identity(&proposal, source_binding.identity, &blockers);
-        let fact_bytes = canonical_fact_bytes(
-            &proposal,
-            &clock_admission,
-            &source_binding,
-            snapshot_identity,
-            &blockers,
-            &lineage,
-        );
-        let fact_digest = digest(&fact_bytes);
-        let fact = PitSnapshotFact {
-            request: proposal.request,
-            evidence: proposal.evidence,
-            clock_admission,
-            source_binding_identity: source_binding.identity,
-            source_binding_lineage_root: source_binding.lineage_root,
-            source_binding_lineage_version: source_binding.lineage_version,
-            snapshot_identity,
-            lineage_root: lineage.root,
-            lineage_version: lineage.version,
-            predecessor_snapshot_identity: lineage.predecessor_snapshot_identity,
-            predecessor_fact_digest: lineage.predecessor_fact_digest,
-            blockers,
-            disposition,
-            primary_blocker,
-            digest: fact_digest,
-        };
-        let payload = canonical_outbox_bytes(&fact);
-        let outbox_digest = digest(&payload);
-        let locator = locator_for(&fact);
-        let aggregate = PitSnapshotCommitAggregate {
-            fact,
-            outbox: PitSnapshotOutboxRecord {
-                payload: payload.into_boxed_slice(),
-                digest: outbox_digest,
-            },
-            receipt: PitSnapshotReceipt {
-                locator,
-                outbox_digest,
-            },
-        };
+        let aggregate =
+            build_aggregate(proposal, source_binding, clock_admission, blockers, lineage);
 
         if fault == CommitFault::BeforeCommit {
             return Err(PitSnapshotError::CommitInterrupted);
@@ -335,28 +298,106 @@ impl TestOnlyPitSnapshotOwner {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct OwnerLineage {
-    root: BindingDigest,
-    version: u64,
-    predecessor_snapshot_identity: Option<BindingDigest>,
-    predecessor_fact_digest: Option<BindingDigest>,
+pub(crate) struct OwnerLineage {
+    pub(crate) root: BindingDigest,
+    pub(crate) version: u64,
+    pub(crate) predecessor_snapshot_identity: Option<BindingDigest>,
+    pub(crate) predecessor_fact_digest: Option<BindingDigest>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct ResolvedSourceBinding {
-    identity: BindingDigest,
-    lineage_root: BindingDigest,
-    lineage_version: u64,
+pub(crate) struct ResolvedSourceBinding {
+    pub(crate) identity: BindingDigest,
+    pub(crate) lineage_root: BindingDigest,
+    pub(crate) lineage_version: u64,
 }
 
 impl ResolvedSourceBinding {
-    fn from_fact(fact: &crate::owner::source_binding::authority::SourceBindingFact) -> Self {
+    pub(crate) fn from_fact(
+        fact: &crate::owner::source_binding::authority::SourceBindingFact,
+    ) -> Self {
         Self {
             identity: fact.binding_id(),
             lineage_root: fact.lineage_root(),
             lineage_version: fact.lineage_version(),
         }
     }
+}
+
+pub(crate) fn build_aggregate(
+    proposal: UntrustedPitSnapshotProposal,
+    source_binding: ResolvedSourceBinding,
+    clock_admission: MarketDataClockAdmission,
+    blockers: BTreeSet<PitSnapshotBlocker>,
+    lineage: OwnerLineage,
+) -> PitSnapshotCommitAggregate {
+    let primary_blocker = primary_blocker(&blockers);
+    let disposition = disposition(primary_blocker);
+    let snapshot_identity = derive_snapshot_identity(&proposal, source_binding.identity, &blockers);
+    let fact_bytes = canonical_fact_bytes(
+        &proposal,
+        &clock_admission,
+        &source_binding,
+        snapshot_identity,
+        &blockers,
+        &lineage,
+    );
+    let fact_digest = digest(&fact_bytes);
+    let fact = PitSnapshotFact {
+        request: proposal.request,
+        evidence: proposal.evidence,
+        clock_admission,
+        source_binding_identity: source_binding.identity,
+        source_binding_lineage_root: source_binding.lineage_root,
+        source_binding_lineage_version: source_binding.lineage_version,
+        snapshot_identity,
+        lineage_root: lineage.root,
+        lineage_version: lineage.version,
+        predecessor_snapshot_identity: lineage.predecessor_snapshot_identity,
+        predecessor_fact_digest: lineage.predecessor_fact_digest,
+        blockers,
+        disposition,
+        primary_blocker,
+        digest: fact_digest,
+    };
+    let payload = canonical_outbox_bytes(&fact);
+    let outbox_digest = digest(&payload);
+    let locator = locator_for(&fact);
+    PitSnapshotCommitAggregate {
+        fact,
+        outbox: PitSnapshotOutboxRecord {
+            payload: payload.into_boxed_slice(),
+            digest: outbox_digest,
+        },
+        receipt: PitSnapshotReceipt {
+            locator,
+            outbox_digest,
+        },
+    }
+}
+
+pub(crate) fn verify_aggregate(value: &PitSnapshotCommitAggregate) -> bool {
+    let fact = &value.fact;
+    let expected = build_aggregate(
+        UntrustedPitSnapshotProposal {
+            request: fact.request.clone(),
+            evidence: fact.evidence.clone(),
+        },
+        ResolvedSourceBinding {
+            identity: fact.source_binding_identity,
+            lineage_root: fact.source_binding_lineage_root,
+            lineage_version: fact.source_binding_lineage_version,
+        },
+        fact.clock_admission.clone(),
+        fact.blockers.clone(),
+        OwnerLineage {
+            root: fact.lineage_root,
+            version: fact.lineage_version,
+            predecessor_snapshot_identity: fact.predecessor_snapshot_identity,
+            predecessor_fact_digest: fact.predecessor_fact_digest,
+        },
+    );
+    &expected == value
 }
 
 fn validate_and_resolve<'a>(
@@ -387,7 +428,87 @@ fn validate_and_resolve<'a>(
     Ok((source_fact, basis))
 }
 
-fn validate_request(request: &UntrustedPitSnapshotRequest) -> Result<(), PitSnapshotError> {
+pub(crate) fn prepare_initial_aggregate(
+    proposal: UntrustedPitSnapshotProposal,
+    canonical_basis: &TestOnlyCanonicalBasisResolver,
+    source_fact: &crate::owner::source_binding::authority::SourceBindingFact,
+    clock: &MarketDataClockAdmission,
+) -> Result<PitSnapshotCommitAggregate, PitSnapshotError> {
+    let basis = validate_and_resolve_fact(&proposal, canonical_basis, source_fact, clock)?;
+    let blockers = derive_blockers(&proposal.request.time_evidence, source_fact, basis);
+    let snapshot_identity =
+        derive_snapshot_identity(&proposal, source_fact.binding_id(), &blockers);
+    Ok(build_aggregate(
+        proposal,
+        ResolvedSourceBinding::from_fact(source_fact),
+        clock.clone(),
+        blockers,
+        OwnerLineage {
+            root: snapshot_identity,
+            version: 1,
+            predecessor_snapshot_identity: None,
+            predecessor_fact_digest: None,
+        },
+    ))
+}
+
+pub(crate) fn prepare_correction_aggregate(
+    predecessor: &PitSnapshotFact,
+    proposal: UntrustedPitSnapshotProposal,
+    canonical_basis: &TestOnlyCanonicalBasisResolver,
+    source_fact: &crate::owner::source_binding::authority::SourceBindingFact,
+    clock: &MarketDataClockAdmission,
+) -> Result<PitSnapshotCommitAggregate, PitSnapshotError> {
+    validate_correction_request(predecessor, &proposal)?;
+    validate_correction_advances(predecessor, &proposal)?;
+    let basis = validate_and_resolve_fact(&proposal, canonical_basis, source_fact, clock)?;
+    validate_source_binding_successor(predecessor, source_fact)?;
+    let blockers = derive_blockers(&proposal.request.time_evidence, source_fact, basis);
+    let lineage_version = predecessor
+        .lineage_version
+        .checked_add(1)
+        .ok_or(PitSnapshotError::InvalidCorrectionSequence)?;
+    Ok(build_aggregate(
+        proposal,
+        ResolvedSourceBinding::from_fact(source_fact),
+        clock.clone(),
+        blockers,
+        OwnerLineage {
+            root: predecessor.lineage_root,
+            version: lineage_version,
+            predecessor_snapshot_identity: Some(predecessor.snapshot_identity),
+            predecessor_fact_digest: Some(predecessor.digest),
+        },
+    ))
+}
+
+fn validate_and_resolve_fact<'a>(
+    proposal: &UntrustedPitSnapshotProposal,
+    canonical_basis: &'a TestOnlyCanonicalBasisResolver,
+    source_fact: &crate::owner::source_binding::authority::SourceBindingFact,
+    clock: &MarketDataClockAdmission,
+) -> Result<&'a OwnerResolvedCanonicalBasis, PitSnapshotError> {
+    validate_request(&proposal.request)?;
+    validate_evidence(&proposal.evidence)?;
+    let basis = canonical_basis.resolve(&proposal.request, &proposal.evidence, clock)?;
+    validate_commit_clock(&proposal.request.time_evidence, clock)?;
+    crate::owner::source_binding::authority::validate_clock_for_consumer_cut(
+        source_fact.time_evidence(),
+        clock,
+    )
+    .map_err(|_| PitSnapshotError::SourceBindingUnavailable)?;
+
+    if source_fact.source_frontier() != &proposal.evidence.source_frontier
+        || source_fact.correction_frontier() != &proposal.evidence.correction_frontier
+    {
+        return Err(PitSnapshotError::CanonicalBasisMismatch);
+    }
+    Ok(basis)
+}
+
+pub(crate) fn validate_request(
+    request: &UntrustedPitSnapshotRequest,
+) -> Result<(), PitSnapshotError> {
     for (digest, name) in [
         (request.correlation_identity, "correlation_identity"),
         (request.requester_identity, "requester_identity"),
@@ -415,7 +536,7 @@ fn validate_request(request: &UntrustedPitSnapshotRequest) -> Result<(), PitSnap
     Ok(())
 }
 
-fn validate_evidence(
+pub(crate) fn validate_evidence(
     evidence: &super::UntrustedPitSnapshotEvidence,
 ) -> Result<(), PitSnapshotError> {
     nonzero_digest(
@@ -448,7 +569,7 @@ fn nonzero_digest(digest: BindingDigest, name: &'static str) -> Result<(), PitSn
     }
 }
 
-fn validate_commit_clock(
+pub(crate) fn validate_commit_clock(
     time: &UntrustedPitSnapshotTimeEvidence,
     clock: &MarketDataClockAdmission,
 ) -> Result<(), PitSnapshotError> {
@@ -460,6 +581,7 @@ fn validate_commit_clock(
         && time.uncertainty_bound == clock.uncertainty_bound
         && time.skew_bound == clock.skew_bound
         && time.observed_at == clock.wall_observed
+        && time.valid_through == clock.valid_through
         && clock.wall_observed == clock.decision_cut;
 
     if clock.is_complete() && exact {
@@ -469,7 +591,7 @@ fn validate_commit_clock(
     }
 }
 
-fn validate_read_clock(
+pub(crate) fn validate_read_clock(
     time: &UntrustedPitSnapshotTimeEvidence,
     clock: &MarketDataClockAdmission,
 ) -> Result<(), PitSnapshotError> {
@@ -478,7 +600,8 @@ fn validate_read_clock(
         && clock.decision_cut == time.decision_cut.value
         && clock.restart_continuity_digest == time.restart_continuity_digest
         && clock.uncertainty_bound == time.uncertainty_bound
-        && clock.skew_bound == time.skew_bound;
+        && clock.skew_bound == time.skew_bound
+        && clock.valid_through == time.valid_through;
 
     if !clock.is_complete() || !exact_cut || clock.monotonic_sequence < time.monotonic_sequence {
         return Err(PitSnapshotError::TrustedClockMismatch);
@@ -490,7 +613,7 @@ fn validate_read_clock(
     Ok(())
 }
 
-fn validate_correction_request(
+pub(crate) fn validate_correction_request(
     predecessor: &PitSnapshotFact,
     proposal: &UntrustedPitSnapshotProposal,
 ) -> Result<(), PitSnapshotError> {
@@ -510,7 +633,7 @@ fn validate_correction_request(
     Ok(())
 }
 
-fn validate_correction_advances(
+pub(crate) fn validate_correction_advances(
     predecessor: &PitSnapshotFact,
     proposal: &UntrustedPitSnapshotProposal,
 ) -> Result<(), PitSnapshotError> {
@@ -576,7 +699,7 @@ fn correction_frontier_is_exact_successor(
         && next.digest != previous.digest
 }
 
-fn validate_source_binding_successor(
+pub(crate) fn validate_source_binding_successor(
     predecessor: &PitSnapshotFact,
     source_fact: &crate::owner::source_binding::authority::SourceBindingFact,
 ) -> Result<(), PitSnapshotError> {

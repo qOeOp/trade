@@ -32,14 +32,31 @@
 //!
 //! let forged = SourceBindingDisposition::Admitted;
 //! ```
+//!
+//! Sealed durable readback cannot be caller-constructed and the PostgreSQL implementation is not
+//! a public composition surface:
+//!
+//! ```compile_fail
+//! use vibe_data::owner::source_binding::{BindingDigest, SourceBindingOwnerReadback};
+//!
+//! let forged = SourceBindingOwnerReadback {
+//!     binding_id: BindingDigest::from_untrusted_bytes([1; 32]),
+//! };
+//! ```
+//!
+//! ```compile_fail
+//! use vibe_data::owner::postgres::MarketDataOwnerPostgres;
+//! ```
 
 use std::{
     collections::BTreeSet,
     fmt::{Debug, Display},
 };
 
+use serde::{Deserialize, Serialize};
+
 /// A fixed-size digest supplied through an untrusted boundary.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct BindingDigest([u8; 32]);
 
 impl BindingDigest {
@@ -55,7 +72,7 @@ impl BindingDigest {
 }
 
 /// Untrusted adapter implementation, configuration, endpoint, dataset, and account evidence.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct UntrustedAdapterBinding {
     /// Adapter implementation digest.
     pub implementation_digest: BindingDigest,
@@ -70,7 +87,7 @@ pub struct UntrustedAdapterBinding {
 }
 
 /// Untrusted audience claim for credential custody.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum UntrustedCredentialAudienceClaim {
     /// Market Data only.
     MarketData,
@@ -89,7 +106,7 @@ pub enum UntrustedCredentialAudienceClaim {
 }
 
 /// Untrusted capability claim for a Market Data credential handle.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum UntrustedCredentialCapabilityClaim {
     /// Read public market data.
     MarketDataRead,
@@ -107,7 +124,7 @@ pub enum UntrustedCredentialCapabilityClaim {
     PrivateEffect,
 }
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 enum UntrustedCredentialMaterialClaim {
     HandleIdentity(BindingDigest),
     RawMaterialSupplied,
@@ -118,7 +135,7 @@ enum UntrustedCredentialMaterialClaim {
 /// The admitted representation can contain only a fixed handle-identity digest. A caller that has
 /// raw material can explicitly submit it for rejection, but those bytes are discarded immediately
 /// and never retained or encoded.
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub struct UntrustedOpaqueCredentialHandle {
     material: UntrustedCredentialMaterialClaim,
     audience: UntrustedCredentialAudienceClaim,
@@ -162,7 +179,7 @@ impl Debug for UntrustedOpaqueCredentialHandle {
 }
 
 /// Untrusted versioned source trust-policy claim.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct UntrustedTrustPolicy {
     /// Stable policy identity.
     pub identity: String,
@@ -171,7 +188,7 @@ pub struct UntrustedTrustPolicy {
 }
 
 /// Complete untrusted market-meaning claim.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct UntrustedMarketSemantics {
     /// Normalization rules identity.
     pub normalization: String,
@@ -198,7 +215,7 @@ pub struct UntrustedMarketSemantics {
 }
 
 /// Complete untrusted license, retention, and redaction claim.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct UntrustedLicensePolicy {
     /// Acquisition, cache, archive, derived-output, backtest, model, and display use scope.
     pub use_scope: String,
@@ -211,7 +228,7 @@ pub struct UntrustedLicensePolicy {
 }
 
 /// A complete untrusted native frontier claim.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct UntrustedCompleteFrontier {
     /// Stable native source or correction stream identity.
     pub stream_identity: String,
@@ -224,7 +241,7 @@ pub struct UntrustedCompleteFrontier {
 }
 
 /// Complete untrusted `MARKET_DATA_AS_OF` evidence.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct UntrustedMarketDataAsOf {
     /// Claimed domain-separated identity of this complete time-evidence tuple.
     pub claimed_evidence_identity: BindingDigest,
@@ -260,7 +277,7 @@ pub struct UntrustedMarketDataAsOf {
     dead_code,
     reason = "the canonical clock is constructed only by the test-only Owner until composition exists"
 )]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) enum MarketDataClockCutKind {
     MarketDataAsOf,
 }
@@ -269,12 +286,12 @@ pub(crate) enum MarketDataClockCutKind {
     dead_code,
     reason = "the canonical clock is constructed only by the test-only Owner until composition exists"
 )]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) enum MarketDataClockComparisonRule {
     ExclusiveValidThrough,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) struct MarketDataClockAdmission {
     pub(crate) cut_kind: MarketDataClockCutKind,
     pub(crate) clock_identity: String,
@@ -311,7 +328,7 @@ impl MarketDataClockAdmission {
 }
 
 /// Supported Source Binding blockers in stable Owner precedence order.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum SourceBindingBlocker {
     /// Rights were revoked.
     RightsRevoked,
@@ -330,7 +347,7 @@ pub enum SourceBindingBlocker {
 }
 
 /// Untrusted Source Binding proposal. It can never mint a positive Owner fact directly.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct UntrustedSourceBindingProposal {
     /// Claimed semantic binding identity; Market Data derives and compares it independently.
     pub claimed_binding_id: BindingDigest,
@@ -355,7 +372,7 @@ pub struct UntrustedSourceBindingProposal {
 }
 
 /// Untrusted locator used only for exact Owner-store resolution.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct UntrustedSourceBindingLocator {
     pub(crate) owner: String,
     pub(crate) lineage_root: BindingDigest,
@@ -424,6 +441,90 @@ impl UntrustedSourceBindingLocator {
     }
 }
 
+/// Owner-sealed immutable Source Binding readback.
+///
+/// Callers can inspect this value but cannot construct or deserialize one. The canonical
+/// disposition remains private to Market Data; `is_admitted` is observational and grants no
+/// write or credential authority.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct SourceBindingOwnerReadback {
+    binding_id: BindingDigest,
+    fact_digest: BindingDigest,
+    lineage_root: BindingDigest,
+    lineage_version: u64,
+    outbox_digest: BindingDigest,
+    admitted: bool,
+    locator: UntrustedSourceBindingLocator,
+}
+
+impl SourceBindingOwnerReadback {
+    #[allow(
+        dead_code,
+        reason = "constructed by the private durable resolver before product composition exists"
+    )]
+    pub(crate) fn from_verified(aggregate: &authority::SourceBindingStoredAggregate) -> Self {
+        let commit = aggregate.commit();
+        let fact = commit.fact();
+        Self {
+            binding_id: fact.binding_id(),
+            fact_digest: fact.digest(),
+            lineage_root: fact.lineage_root(),
+            lineage_version: fact.lineage_version(),
+            outbox_digest: commit.receipt().outbox_digest(),
+            admitted: fact.disposition() == authority::SourceBindingDisposition::Admitted,
+            locator: commit.receipt().locator().clone(),
+        }
+    }
+
+    /// Returns the canonical immutable binding identity.
+    pub const fn binding_id(&self) -> BindingDigest {
+        self.binding_id
+    }
+
+    /// Returns the canonical fact digest.
+    pub const fn fact_digest(&self) -> BindingDigest {
+        self.fact_digest
+    }
+
+    /// Returns the canonical lineage root.
+    pub const fn lineage_root(&self) -> BindingDigest {
+        self.lineage_root
+    }
+
+    /// Returns the canonical lineage version.
+    pub const fn lineage_version(&self) -> u64 {
+        self.lineage_version
+    }
+
+    /// Returns the co-committed native outbox digest.
+    pub const fn outbox_digest(&self) -> BindingDigest {
+        self.outbox_digest
+    }
+
+    /// Reports whether Market Data's private canonical disposition is admitted.
+    pub const fn is_admitted(&self) -> bool {
+        self.admitted
+    }
+
+    /// Returns an untrusted locator suitable only for exact Owner resolution.
+    pub const fn locator(&self) -> &UntrustedSourceBindingLocator {
+        &self.locator
+    }
+}
+
+/// Read-only direct Source Binding Owner consumer port.
+///
+/// Implementations may return a positive value only after exact native-store verification. This
+/// trait exposes no writer, clock, database constructor, or raw-envelope path.
+#[async_trait::async_trait]
+pub trait SourceBindingOwnerResolver: Send + Sync {
+    /// Resolves one exact immutable locator from native Market Data custody.
+    async fn resolve_source_binding(
+        &self,
+        locator: &UntrustedSourceBindingLocator,
+    ) -> Result<SourceBindingOwnerReadback, SourceBindingError>;
+}
+
 /// Rejected untrusted proposal or test-only Owner operation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SourceBindingError {
@@ -471,7 +572,6 @@ impl Display for SourceBindingError {
 
 impl std::error::Error for SourceBindingError {}
 
-#[cfg(test)]
 pub(crate) mod authority;
 #[cfg(test)]
 mod tests;

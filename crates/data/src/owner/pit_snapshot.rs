@@ -19,11 +19,25 @@
 //!     PitSnapshotCommitAggregate, PitSnapshotPersistencePort,
 //! };
 //! ```
+//!
+//! Durable positive readback and its PostgreSQL composition cannot be caller-created:
+//!
+//! ```compile_fail
+//! use vibe_data::owner::pit_snapshot::PitSnapshotOwnerReadback;
+//!
+//! let forged = PitSnapshotOwnerReadback { available: true };
+//! ```
+//!
+//! ```compile_fail
+//! use vibe_data::owner::postgres::MarketDataReadPostgres;
+//! ```
 
 use std::{
     collections::BTreeSet,
     fmt::{Debug, Display},
 };
+
+use serde::{Deserialize, Serialize};
 
 use super::source_binding::{
     BindingDigest, MarketDataClockAdmission, UntrustedCompleteFrontier,
@@ -33,7 +47,7 @@ use super::source_binding::{
 macro_rules! untrusted_time_coordinate {
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*
-        #[derive(Clone, Debug, Eq, PartialEq)]
+        #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
         pub struct $name {
             /// Claimed coordinate value.
             pub value: u64,
@@ -82,7 +96,7 @@ untrusted_time_coordinate!(
 );
 
 /// Complete untrusted typed `MARKET_DATA_AS_OF` evidence for one PIT request.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct UntrustedPitSnapshotTimeEvidence {
     /// Event-effective coordinate.
     pub event_effective: UntrustedEventEffectiveTime,
@@ -109,7 +123,7 @@ pub struct UntrustedPitSnapshotTimeEvidence {
 }
 
 /// Untrusted immutable PIT Market Snapshot request claim.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct UntrustedPitSnapshotRequest {
     /// Claimed Market Data-derived request identity.
     pub claimed_request_identity: BindingDigest,
@@ -134,7 +148,7 @@ pub struct UntrustedPitSnapshotRequest {
 }
 
 /// Untrusted evidence from which Market Data alone derives a terminal snapshot disposition.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct UntrustedPitSnapshotEvidence {
     /// Digest of the normalized snapshot payload; payload bytes are not part of A0.
     pub normalized_records_digest: BindingDigest,
@@ -151,7 +165,7 @@ pub struct UntrustedPitSnapshotEvidence {
 }
 
 /// Complete untrusted PIT Snapshot proposal. It cannot mint a positive Owner fact directly.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct UntrustedPitSnapshotProposal {
     /// Exact request claim.
     pub request: UntrustedPitSnapshotRequest,
@@ -201,7 +215,7 @@ pub struct UntrustedPitSnapshotLocatorFields {
 }
 
 /// An untrusted locator that grants no Market Data read or write authority.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct UntrustedPitSnapshotLocator {
     pub(crate) owner: String,
     pub(crate) request_identity: BindingDigest,
@@ -249,6 +263,106 @@ impl UntrustedPitSnapshotLocator {
     }
 }
 
+/// Owner-sealed immutable PIT Snapshot readback.
+///
+/// Callers cannot construct or deserialize this value. Availability is observational and does not
+/// grant provider, ingestion, or trading authority.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct PitSnapshotOwnerReadback {
+    request_identity: BindingDigest,
+    request_digest: BindingDigest,
+    snapshot_identity: BindingDigest,
+    fact_digest: BindingDigest,
+    source_binding_identity: BindingDigest,
+    lineage_root: BindingDigest,
+    lineage_version: u64,
+    outbox_digest: BindingDigest,
+    available: bool,
+    locator: UntrustedPitSnapshotLocator,
+}
+
+impl PitSnapshotOwnerReadback {
+    #[allow(
+        dead_code,
+        reason = "constructed by the private durable resolver before product composition exists"
+    )]
+    pub(crate) fn from_verified(aggregate: &PitSnapshotCommitAggregate) -> Self {
+        let fact = aggregate.fact();
+        Self {
+            request_identity: fact.request_identity(),
+            request_digest: fact.request_digest(),
+            snapshot_identity: fact.snapshot_identity(),
+            fact_digest: fact.digest(),
+            source_binding_identity: fact.source_binding_identity(),
+            lineage_root: fact.lineage_root(),
+            lineage_version: fact.lineage_version(),
+            outbox_digest: aggregate.receipt().outbox_digest(),
+            available: fact.disposition() == PitSnapshotDisposition::Available,
+            locator: aggregate.receipt().locator().clone(),
+        }
+    }
+
+    /// Returns the exact request identity.
+    pub const fn request_identity(&self) -> BindingDigest {
+        self.request_identity
+    }
+
+    /// Returns the exact request content digest.
+    pub const fn request_digest(&self) -> BindingDigest {
+        self.request_digest
+    }
+
+    /// Returns the canonical snapshot identity.
+    pub const fn snapshot_identity(&self) -> BindingDigest {
+        self.snapshot_identity
+    }
+
+    /// Returns the canonical fact digest.
+    pub const fn fact_digest(&self) -> BindingDigest {
+        self.fact_digest
+    }
+
+    /// Returns the exact Source Binding identity consumed at the PIT cut.
+    pub const fn source_binding_identity(&self) -> BindingDigest {
+        self.source_binding_identity
+    }
+
+    /// Returns the immutable correction lineage root.
+    pub const fn lineage_root(&self) -> BindingDigest {
+        self.lineage_root
+    }
+
+    /// Returns the immutable correction lineage version.
+    pub const fn lineage_version(&self) -> u64 {
+        self.lineage_version
+    }
+
+    /// Returns the co-committed native outbox digest.
+    pub const fn outbox_digest(&self) -> BindingDigest {
+        self.outbox_digest
+    }
+
+    /// Reports whether Market Data's private canonical disposition is available.
+    pub const fn is_available(&self) -> bool {
+        self.available
+    }
+
+    /// Returns an untrusted locator suitable only for exact Owner resolution.
+    pub const fn locator(&self) -> &UntrustedPitSnapshotLocator {
+        &self.locator
+    }
+}
+
+/// Read-only direct PIT Snapshot Owner consumer port.
+#[async_trait::async_trait]
+pub trait PitSnapshotOwnerResolver: Send + Sync {
+    /// Resolves one exact immutable locator from native Market Data custody.
+    async fn resolve_pit_snapshot(
+        &self,
+        locator: &UntrustedPitSnapshotLocator,
+    ) -> Result<PitSnapshotOwnerReadback, PitSnapshotError>;
+}
+
 /// Rejected untrusted proposal or test-only Owner operation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PitSnapshotError {
@@ -290,7 +404,7 @@ impl Display for PitSnapshotError {
 
 impl std::error::Error for PitSnapshotError {}
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[allow(
     dead_code,
     reason = "A0 terminal vocabulary is consumed by the later Market Data composition"
@@ -303,7 +417,7 @@ pub(crate) enum PitSnapshotBlocker {
     SourceUnavailable,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[allow(
     dead_code,
     reason = "A0 terminal vocabulary is consumed by the later Market Data composition"
@@ -321,7 +435,7 @@ pub(crate) enum PitSnapshotDisposition {
     dead_code,
     reason = "A0 is consumed by the later A1 persistence implementation"
 )]
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) struct PitSnapshotFact {
     request: UntrustedPitSnapshotRequest,
     evidence: UntrustedPitSnapshotEvidence,
@@ -403,6 +517,30 @@ impl PitSnapshotFact {
         self.lineage_version
     }
 
+    pub(crate) const fn lineage_root(&self) -> BindingDigest {
+        self.lineage_root
+    }
+
+    pub(crate) const fn predecessor_snapshot_identity(&self) -> Option<BindingDigest> {
+        self.predecessor_snapshot_identity
+    }
+
+    pub(crate) const fn predecessor_fact_digest(&self) -> Option<BindingDigest> {
+        self.predecessor_fact_digest
+    }
+
+    pub(crate) const fn request(&self) -> &UntrustedPitSnapshotRequest {
+        &self.request
+    }
+
+    pub(crate) const fn evidence(&self) -> &UntrustedPitSnapshotEvidence {
+        &self.evidence
+    }
+
+    pub(crate) const fn clock_admission(&self) -> &MarketDataClockAdmission {
+        &self.clock_admission
+    }
+
     pub(crate) const fn digest(&self) -> BindingDigest {
         self.digest
     }
@@ -412,7 +550,7 @@ impl PitSnapshotFact {
     dead_code,
     reason = "A0 is consumed by the later A1 persistence implementation"
 )]
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) struct PitSnapshotOutboxRecord {
     payload: Box<[u8]>,
     digest: BindingDigest,
@@ -446,7 +584,7 @@ impl PitSnapshotOutboxRecord {
     dead_code,
     reason = "A0 is consumed by the later A1 persistence implementation"
 )]
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) struct PitSnapshotReceipt {
     locator: UntrustedPitSnapshotLocator,
     outbox_digest: BindingDigest,
@@ -471,7 +609,7 @@ impl PitSnapshotReceipt {
     dead_code,
     reason = "A0 is consumed by the later A1 persistence implementation"
 )]
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) struct PitSnapshotCommitAggregate {
     fact: PitSnapshotFact,
     outbox: PitSnapshotOutboxRecord,
@@ -526,7 +664,6 @@ pub(crate) trait PitSnapshotPersistencePort {
     ) -> Result<PitSnapshotCommitAggregate, PitSnapshotError>;
 }
 
-#[cfg(test)]
-mod authority;
+pub(crate) mod authority;
 #[cfg(test)]
 mod tests;
