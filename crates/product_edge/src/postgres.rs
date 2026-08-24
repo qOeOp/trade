@@ -11,7 +11,7 @@ use vibe_operator_authorization::{
     AuthorizationReadModeV1, OperationManifestBindingV1, OperatorAuthorizationError,
     OperatorAuthorizationLocatorV1, OperatorAuthorizationReadbackV1,
     UntrustedCanonicalAuthorizationEvidenceV1, parse_untrusted_authorization_envelope_v1,
-    resolve_authorization_in_transaction,
+    parse_untrusted_portfolio_resource_grant_envelope_v1, resolve_authorization_in_transaction,
 };
 use vibe_product_edge_claim_custody::{
     StoredInvocationAdmissionReceiptV1, StoredInvocationClaimV1, StoredInvocationStateKindV1,
@@ -23,7 +23,12 @@ use vibe_rd_artifact_invocation_custody::{
 
 use crate::{
     ARTIFACT_BUILD_REQUIRED_EFFECTS_V1, AgentOperationManifestProposalV1,
-    DownstreamAdmissionModeV1, PRODUCT_EDGE_SCHEMA_V1, ProductEdgeAdmissionLocatorV1,
+    DownstreamAdmissionModeV1, PORTFOLIO_READ_ONLY_EFFECT_POLICY_V1,
+    PORTFOLIO_READ_POLICY_OPERATION_SCHEMA_V1, PORTFOLIO_READ_POLICY_OPERATION_V1,
+    PORTFOLIO_READ_POLICY_SCHEMA_V1, PORTFOLIO_READ_POLICY_TARGET_OWNER_V1, PRODUCT_EDGE_SCHEMA_V1,
+    PortfolioReadPolicyCustodyV1, PortfolioReadPolicyPayloadV1, PortfolioReadPolicyRequestV1,
+    PortfolioReadPolicyResolutionV1, PortfolioReadPolicyUnavailableReasonV1,
+    PortfolioSourceOwnerResolveResultV1, ProductEdgeAdmissionLocatorV1,
     ProductEdgeAdmissionReadbackV1, ProductEdgeAdmissionReceiptV1, ProductEdgeAdmissionRequestV1,
     ProductEdgeAuthorizationTrustV1, ProductEdgeBootstrapProposalV1,
     ProductEdgeBootstrapReadbackV1, ProductEdgeCurrentPolicyEvidenceV1, ProductEdgeError,
@@ -997,6 +1002,7 @@ fn verify_locked_downstream_envelope(
         manifest_identity: stored_admission.manifest_identity,
         manifest_digest: stored_admission.manifest_digest,
         read_cut_epoch_ms: stored_admission.read_cut_epoch_ms,
+        manifest_proposal: manifest.proposal.clone(),
         original_current_authorization_evidence,
         current_policy_evidence,
     })
@@ -2515,6 +2521,176 @@ pub async fn resolve_admission_for_downstream_in_transaction(
     )
 }
 
+/// Resolves only Product Edge-owned read-policy custody for a later Portfolio
+/// Owner source resolve. The caller transaction retains every OA and Product
+/// Edge lock until it commits or rolls back.
+pub async fn resolve_portfolio_read_policy_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    request: &PortfolioReadPolicyRequestV1,
+) -> PortfolioReadPolicyResolutionV1 {
+    let unavailable = |reason| PortfolioReadPolicyResolutionV1::Unavailable { reason };
+    if request.validate().is_err() {
+        return unavailable(PortfolioReadPolicyUnavailableReasonV1::InvalidRequest);
+    }
+
+    let envelope: Option<serde_json::Value> = match sqlx::query_scalar(
+        "SELECT product_edge_api.lock_portfolio_read_policy_v1($1,$2,$3,$4,$5)",
+    )
+    .bind(&request.grant.grant_identity)
+    .bind(&request.grant.issuance_receipt_identity)
+    .bind(&request.admission.request_identity)
+    .bind(&request.admission.admission_identity)
+    .bind(&request.admission.admission_digest)
+    .fetch_one(&mut **transaction)
+    .await
+    {
+        Ok(value) => value,
+        Err(_) => return unavailable(PortfolioReadPolicyUnavailableReasonV1::OwnerUnavailable),
+    };
+    let Some(envelope) = envelope else {
+        return unavailable(PortfolioReadPolicyUnavailableReasonV1::OwnerUnavailable);
+    };
+    let final_cut_epoch_ms = match database_now(transaction).await {
+        Ok(value) => value,
+        Err(_) => return unavailable(PortfolioReadPolicyUnavailableReasonV1::OwnerUnavailable),
+    };
+    let envelope: LockedPortfolioReadPolicyEnvelopeV1 = match from_json(envelope) {
+        Ok(value) => value,
+        Err(_) => return unavailable(PortfolioReadPolicyUnavailableReasonV1::OwnerUnavailable),
+    };
+    let grant_bytes = match serde_json::to_vec(&envelope.operator_authorization) {
+        Ok(value) => value,
+        Err(_) => return unavailable(PortfolioReadPolicyUnavailableReasonV1::OwnerUnavailable),
+    };
+    let grant_evidence =
+        match parse_untrusted_portfolio_resource_grant_envelope_v1(&grant_bytes, &request.grant) {
+            Ok(value) => value,
+            Err(_) => {
+                return unavailable(
+                    PortfolioReadPolicyUnavailableReasonV1::OperatorAuthorizationMismatch,
+                );
+            }
+        };
+    let admission_evidence = match verify_locked_downstream_envelope(
+        envelope.product_edge,
+        &request.admission,
+        DownstreamAdmissionModeV1::FirstMutation {
+            read_cut_epoch_ms: final_cut_epoch_ms,
+        },
+    ) {
+        Ok(value) => value,
+        Err(_) => {
+            return unavailable(PortfolioReadPolicyUnavailableReasonV1::ProductEdgeCustodyMismatch);
+        }
+    };
+    let payload: PortfolioReadPolicyPayloadV1 =
+        match serde_json::from_value(admission_evidence.request().typed_payload.clone()) {
+            Ok(value) => value,
+            Err(_) => {
+                return unavailable(
+                    PortfolioReadPolicyUnavailableReasonV1::ProductEdgeCustodyMismatch,
+                );
+            }
+        };
+
+    if payload.validate().is_err()
+        || payload.grant != request.grant
+        || admission_evidence.request().operation != PORTFOLIO_READ_POLICY_OPERATION_V1
+        || admission_evidence.request().operation_schema
+            != PORTFOLIO_READ_POLICY_OPERATION_SCHEMA_V1
+        || admission_evidence.request().target_owner != PORTFOLIO_READ_POLICY_TARGET_OWNER_V1
+        || admission_evidence.request().requested_effects
+            != [PORTFOLIO_READ_ONLY_EFFECT_POLICY_V1.to_string()]
+        || !admission_evidence.has_exact_portfolio_read_manifest()
+        || admission_evidence.effective_principal() != payload.resource.principal
+        || admission_evidence.authorized_scope()
+            != [vibe_operator_authorization::PORTFOLIO_VIEW_PERMISSION_V1]
+        || admission_evidence.manifest_identity() != payload.manifest.manifest_locator
+        || admission_evidence.manifest_digest() != payload.manifest.manifest_digest
+    {
+        return unavailable(PortfolioReadPolicyUnavailableReasonV1::ProductEdgeCustodyMismatch);
+    }
+
+    if !grant_evidence.matches_resource(&payload.resource)
+        || !grant_evidence.matches_product_edge_manifest(&payload.manifest)
+    {
+        return unavailable(PortfolioReadPolicyUnavailableReasonV1::OperatorAuthorizationMismatch);
+    }
+
+    if !admission_evidence.has_current_policy_at(final_cut_epoch_ms)
+        || !grant_evidence.is_current_at(final_cut_epoch_ms)
+    {
+        return unavailable(PortfolioReadPolicyUnavailableReasonV1::PolicyNotCurrent);
+    }
+
+    let request_semantic_digest = match admission_evidence.request().semantic_digest() {
+        Ok(value) => value,
+        Err(_) => return unavailable(PortfolioReadPolicyUnavailableReasonV1::OwnerUnavailable),
+    };
+    let policy_digest = match payload.policy_digest() {
+        Ok(value) => value,
+        Err(_) => {
+            return unavailable(PortfolioReadPolicyUnavailableReasonV1::ProductEdgeCustodyMismatch);
+        }
+    };
+
+    if request_semantic_digest != request.expected_request_semantic_digest
+        || policy_digest != request.expected_policy_digest
+    {
+        return unavailable(PortfolioReadPolicyUnavailableReasonV1::ProductEdgeCustodyMismatch);
+    }
+    let authorization_policy_cut = grant_evidence.frontier_identity().to_string();
+    let custody_meaning = serde_json::json!({
+        "schema_version": PORTFOLIO_READ_POLICY_SCHEMA_V1,
+        "admission": &request.admission,
+        "request_semantic_digest": &request_semantic_digest,
+        "policy_digest": &policy_digest,
+        "resource": &payload.resource,
+        "grant": &request.grant,
+        "manifest": &payload.manifest,
+        "allowed_object_classes": &payload.allowed_object_classes,
+        "effect_policy": payload.effect_policy,
+        "authorization_policy_cut": &authorization_policy_cut,
+        "final_cut_epoch_ms": final_cut_epoch_ms,
+        "source_owner_result": PortfolioSourceOwnerResolveResultV1::SourceOwnerResolveUnavailable,
+    });
+    let custody_digest = match canonical_digest(
+        "product-edge.portfolio-read-policy-custody.v1",
+        &custody_meaning,
+    ) {
+        Ok(value) => value,
+        Err(_) => return unavailable(PortfolioReadPolicyUnavailableReasonV1::OwnerUnavailable),
+    };
+    let custody_identity = identity(
+        "product-edge-portfolio-read-policy-custody-v1",
+        &[
+            &request_semantic_digest,
+            &authorization_policy_cut,
+            &custody_digest,
+        ],
+    );
+
+    PortfolioReadPolicyResolutionV1::Sealed {
+        custody: Box::new(PortfolioReadPolicyCustodyV1 {
+            custody_identity,
+            custody_digest,
+            admission: request.admission.clone(),
+            request_semantic_digest,
+            policy_digest,
+            resource: payload.resource,
+            grant: request.grant.clone(),
+            manifest: payload.manifest,
+            allowed_object_classes: payload.allowed_object_classes,
+            effect_policy: payload.effect_policy,
+            authorization_policy_cut,
+            final_cut_epoch_ms,
+            source_owner_result: PortfolioSourceOwnerResolveResultV1::SourceOwnerResolveUnavailable,
+            admission_evidence,
+            grant_evidence,
+        }),
+    }
+}
+
 async fn verify_admission(
     transaction: &mut Transaction<'_, Postgres>,
     stored: StoredAdmissionV1,
@@ -2671,6 +2847,7 @@ async fn verify_admission(
         manifest_identity: stored.manifest_identity,
         manifest_digest: stored.manifest_digest,
         read_cut_epoch_ms: stored.read_cut_epoch_ms,
+        manifest_proposal: manifest.proposal.clone(),
         original_current_authorization_evidence: None,
         current_policy_evidence,
     })
@@ -3629,6 +3806,16 @@ fn now_ms() -> Result<u64, ProductEdgeError> {
         .map_err(|e| ProductEdgeError::Storage(e.to_string()))?;
     u64::try_from(duration.as_millis()).map_err(|e| ProductEdgeError::Storage(e.to_string()))
 }
+async fn database_now(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<u64, ProductEdgeError> {
+    let value: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint")
+            .fetch_one(&mut **transaction)
+            .await
+            .map_err(storage)?;
+    from_i64(value)
+}
 fn json<T: Serialize>(value: &T) -> Result<serde_json::Value, ProductEdgeError> {
     serde_json::to_value(value).map_err(|e| ProductEdgeError::Storage(e.to_string()))
 }
@@ -3679,15 +3866,23 @@ fn authority(error: OperatorAuthorizationError) -> ProductEdgeError {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use std::{
+        str::FromStr,
+        time::{Duration, SystemTime, UNIX_EPOCH},
+    };
 
     use super::*;
     use rstest::rstest;
+    use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
     use vibe_operator_authorization::{
         OperationManifestBindingV1, OperatorAuthorizationIssuanceProposalV1,
         OperatorAuthorizationIssuerPostgresV1, OperatorAuthorizationRevocationProposalV1,
-        OperatorAuthorizationScopeV1,
+        OperatorAuthorizationScopeV1, PORTFOLIO_OWNER_AUDIENCE_V1, PORTFOLIO_VIEW_PERMISSION_V1,
+        PortfolioResourceGrantContentV1, PortfolioResourceGrantIssuanceProposalV1,
+        PortfolioResourceGrantRevocationProposalV1, PortfolioResourceGrantSuccessorProposalV1,
+        PortfolioResourceModeV1, PortfolioResourceV1, ProductEdgeManifestBindingV1,
     };
+    use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
     #[rstest]
     fn artifact_build_effects_are_exact_and_ordered() {
@@ -3943,14 +4138,586 @@ mod tests {
         assert!(from_json::<StoredInvocationAdmissionReceiptV1>(missing).is_err());
     }
 
+    async fn authority_table_fingerprint(pool: &PgPool) -> String {
+        let value: serde_json::Value = sqlx::query_scalar(
+            "SELECT jsonb_build_object(
+              'authorization_issuances', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.authorization_identity) FROM operator_authorization_private.operator_authorization_issuances_v1 row), '[]'::jsonb),
+              'authorization_frontiers', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.frontier_identity) FROM operator_authorization_private.operator_authorization_revocation_frontiers_v1 row), '[]'::jsonb),
+              'authorization_heads', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.scope_digest) FROM operator_authorization_private.operator_authorization_revocation_heads_v1 row), '[]'::jsonb),
+              'grant_issuances', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.grant_identity) FROM operator_authorization_private.portfolio_resource_grant_issuances_v1 row), '[]'::jsonb),
+              'grant_frontiers', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.frontier_identity) FROM operator_authorization_private.portfolio_resource_grant_revocation_frontiers_v1 row), '[]'::jsonb),
+              'grant_heads', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.resource_digest) FROM operator_authorization_private.portfolio_resource_grant_revocation_heads_v1 row), '[]'::jsonb),
+              'authorization_outbox', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.event_identity) FROM operator_authorization_private.operator_authorization_owner_outbox_v1 row), '[]'::jsonb),
+              'grant_outbox', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.event_identity) FROM operator_authorization_private.portfolio_resource_grant_owner_outbox_v1 row), '[]'::jsonb)
+            )",
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        canonical_digest("product-edge.test-authority-table-fingerprint.v1", &value).unwrap()
+    }
+
+    async fn product_edge_table_fingerprint(pool: &PgPool) -> String {
+        let value: serde_json::Value = sqlx::query_scalar(
+            "SELECT jsonb_build_object(
+              'manifests', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.manifest_identity) FROM product_edge_operation_manifests_v1 row), '[]'::jsonb),
+              'bindings', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.binding_identity) FROM product_edge_deployment_bindings_v1 row), '[]'::jsonb),
+              'binding_manifests', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.binding_identity, row.manifest_identity) FROM product_edge_binding_manifests_v1 row), '[]'::jsonb),
+              'heads', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.deployment_identity) FROM product_edge_deployment_heads_v1 row), '[]'::jsonb),
+              'supersessions', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.binding_identity) FROM product_edge_deployment_supersessions_v1 row), '[]'::jsonb),
+              'admissions', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.request_identity) FROM product_edge_request_admissions_v1 row), '[]'::jsonb),
+              'outbox', COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY row.event_identity) FROM product_edge_owner_outbox_v1 row), '[]'::jsonb)
+            )",
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        canonical_digest("product-edge.test-owner-table-fingerprint.v1", &value).unwrap()
+    }
+
+    async fn isolated_portfolio_owner_pool(
+        test_database: &CanonicalOwnerPostgresTestDatabaseV1,
+    ) -> PgPool {
+        let options = PgConnectOptions::from_str(
+            test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+        )
+        .unwrap()
+        .username("postgres");
+        let pool = PgPoolOptions::new()
+            .max_connections(8)
+            .after_connect(|connection, _| {
+                Box::pin(async move {
+                    sqlx::query("SET SESSION AUTHORIZATION portfolio_owner")
+                        .execute(connection)
+                        .await?;
+                    Ok(())
+                })
+            })
+            .connect_with(options)
+            .await
+            .unwrap();
+        let identity: (String, String) =
+            sqlx::query_as("SELECT current_user::text, session_user::text")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            identity,
+            ("portfolio_owner".into(), "portfolio_owner".into())
+        );
+        pool
+    }
+
+    async fn exercise_portfolio_read_policy_consumer(
+        test_database: &CanonicalOwnerPostgresTestDatabaseV1,
+    ) {
+        use std::sync::Arc;
+
+        let mutation = test_database.mutation();
+        let issuer = Arc::new(
+            OperatorAuthorizationIssuerPostgresV1::connect(
+                test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+            )
+            .await
+            .unwrap(),
+        );
+        let oa_pool = mutation.pool(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter);
+        let pe_pool = mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
+        let portfolio_pool = isolated_portfolio_owner_pool(test_database).await;
+        let role_boundary: (bool, bool) = sqlx::query_as(
+            "SELECT pg_has_role('product_edge_owner', 'portfolio_owner', 'MEMBER'), rolcanlogin FROM pg_roles WHERE rolname='portfolio_owner'",
+        )
+        .fetch_one(pe_pool)
+        .await
+        .unwrap();
+        assert_eq!(role_boundary, (false, false));
+        let mut denied_role = pe_pool.begin().await.unwrap();
+        assert!(
+            sqlx::query("SET LOCAL ROLE portfolio_owner")
+                .execute(&mut *denied_role)
+                .await
+                .is_err(),
+            "Product Edge Owner must not assume Portfolio Owner"
+        );
+        denied_role.rollback().await.unwrap();
+        let suffix = format!("portfolio-read-{}", unique_suffix());
+        let now = now_ms().unwrap();
+        let principal = format!("portfolio-principal-{suffix}");
+        let manifest = AgentOperationManifestProposalV1 {
+            operation: PORTFOLIO_READ_POLICY_OPERATION_V1.into(),
+            operation_schema: PORTFOLIO_READ_POLICY_OPERATION_SCHEMA_V1.into(),
+            target_owner: PORTFOLIO_READ_POLICY_TARGET_OWNER_V1.into(),
+            allowed_effects: vec![PORTFOLIO_READ_ONLY_EFFECT_POLICY_V1.into()],
+            prohibited_effects: vec![
+                "DEPLOYMENT_V1".into(),
+                "EXECUTION_V1".into(),
+                "ORDER_V1".into(),
+                "PORTFOLIO_MUTATION_V1".into(),
+                "PROVIDER_EFFECT_V1".into(),
+                "REAL_TRADING_V1".into(),
+                "WINDMILL_WRITE_V1".into(),
+            ],
+            capability_policy_digest: format!("sha256:{}", "e".repeat(64)),
+            effective_from_epoch_ms: now.saturating_sub(1_000),
+            valid_through_epoch_ms: now.saturating_add(3_600_000),
+        };
+        let manifest_binding = ProductEdgeManifestBindingV1 {
+            manifest_locator: manifest.manifest_identity().unwrap(),
+            manifest_digest: manifest.manifest_digest().unwrap(),
+        };
+        let authorization = issuer
+            .issue_genesis(OperatorAuthorizationIssuanceProposalV1 {
+                authorization_identity: format!("portfolio-policy-authorization-{suffix}"),
+                issuer_identity: "operator-authorization-issuer-test-v1".into(),
+                issuer_key_version: "test-key-v1".into(),
+                scope: OperatorAuthorizationScopeV1 {
+                    principal: principal.clone(),
+                    audience: "PRODUCT_EDGE".into(),
+                    permissions: vec![PORTFOLIO_VIEW_PERMISSION_V1.into()],
+                },
+                request_proof_digest: "sha256:portfolio-read-proof".into(),
+                operation_manifests: vec![OperationManifestBindingV1 {
+                    manifest_identity: manifest_binding.manifest_locator.clone(),
+                    manifest_digest: manifest_binding.manifest_digest.clone(),
+                }],
+                not_before_epoch_ms: now.saturating_sub(1_000),
+                valid_through_epoch_ms: now.saturating_add(3_600_000),
+                expected_revocation_head: "EMPTY".into(),
+            })
+            .await
+            .unwrap();
+        let resource = PortfolioResourceV1 {
+            principal: principal.clone(),
+            audience: PORTFOLIO_OWNER_AUDIENCE_V1.into(),
+            permission: PORTFOLIO_VIEW_PERMISSION_V1.into(),
+            account_identity: format!("account-{suffix}"),
+            execution_scope_identity: format!("execution-scope-{suffix}"),
+            mode: PortfolioResourceModeV1::Paper,
+        };
+        let grant_content = PortfolioResourceGrantContentV1 {
+            issuer_identity: "operator-authorization-owner-test-v1".into(),
+            issuer_key_version: "test-key-v1".into(),
+            resource: resource.clone(),
+            product_edge_manifest: manifest_binding.clone(),
+            effective_at_epoch_ms: now.saturating_sub(1_000),
+            valid_through_epoch_ms: now.saturating_add(3_600_000),
+        };
+        let genesis_grant = issuer
+            .issue_portfolio_resource_grant_genesis(PortfolioResourceGrantIssuanceProposalV1 {
+                grant_identity: grant_content.grant_identity().unwrap(),
+                content: grant_content.clone(),
+                expected_revocation_frontier_identity: "EMPTY".into(),
+            })
+            .await
+            .unwrap();
+        let mut successor_content = grant_content.clone();
+        successor_content.valid_through_epoch_ms = successor_content
+            .valid_through_epoch_ms
+            .saturating_add(1_000);
+        let current_frontier = genesis_grant.frontier().frontier_identity().to_string();
+        let successor_grant = issuer
+            .issue_portfolio_resource_grant_successor(PortfolioResourceGrantSuccessorProposalV1 {
+                predecessor: genesis_grant.locator(),
+                expected_current_frontier_identity: current_frontier.clone(),
+                successor: PortfolioResourceGrantIssuanceProposalV1 {
+                    grant_identity: successor_content.grant_identity().unwrap(),
+                    content: successor_content.clone(),
+                    expected_revocation_frontier_identity: current_frontier,
+                },
+            })
+            .await
+            .unwrap();
+        let (grant, bound_grant_content, earlier_grant) =
+            if genesis_grant.locator().grant_identity < successor_grant.locator().grant_identity {
+                (successor_grant, successor_content, genesis_grant)
+            } else {
+                (genesis_grant, grant_content, successor_grant)
+            };
+        assert!(earlier_grant.locator().grant_identity < grant.locator().grant_identity);
+        let deployment = format!("portfolio-policy-deployment-{suffix}");
+        let owner = ProductEdgePostgresOwnerV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+            &deployment,
+            ProductEdgeAuthorizationTrustV1 {
+                issuer_identity: "operator-authorization-issuer-test-v1".into(),
+                issuer_key_version: "test-key-v1".into(),
+                audience: "PRODUCT_EDGE".into(),
+            },
+        )
+        .await
+        .unwrap();
+        owner
+            .bootstrap_genesis(ProductEdgeBootstrapProposalV1 {
+                deployment_identity: deployment,
+                binding_identity: format!("portfolio-policy-binding-{suffix}"),
+                expected_history_head: "EMPTY".into(),
+                generation: 1,
+                effective_principal: principal,
+                scope_policy_version: "portfolio-scope-v1".into(),
+                capability_policy_version: "portfolio-capability-v1".into(),
+                audit_policy_version: "portfolio-audit-v1".into(),
+                valid_from_epoch_ms: now.saturating_sub(1_000),
+                valid_through_epoch_ms: now.saturating_add(3_600_000),
+                authorization: authorization.locator(),
+                manifests: vec![manifest],
+            })
+            .await
+            .unwrap();
+        let payload = PortfolioReadPolicyPayloadV1 {
+            schema_version: PORTFOLIO_READ_POLICY_SCHEMA_V1,
+            resource: bound_grant_content.resource,
+            grant: grant.locator(),
+            manifest: bound_grant_content.product_edge_manifest,
+            allowed_object_classes: vec![
+                crate::PortfolioReadObjectClassV1::Account,
+                crate::PortfolioReadObjectClassV1::Exposure,
+                crate::PortfolioReadObjectClassV1::GrossCapacityView,
+                crate::PortfolioReadObjectClassV1::Performance,
+            ],
+            effect_policy: crate::PortfolioReadEffectPolicyV1::ReadOnlyNoWritesNoEffects,
+        };
+        let request_identity = format!("portfolio-policy-request-{suffix}");
+        let admission_request = ProductEdgeAdmissionRequestV1 {
+            request_identity,
+            typed_payload: serde_json::to_value(&payload).unwrap(),
+            operation: PORTFOLIO_READ_POLICY_OPERATION_V1.into(),
+            operation_schema: PORTFOLIO_READ_POLICY_OPERATION_SCHEMA_V1.into(),
+            target_owner: PORTFOLIO_READ_POLICY_TARGET_OWNER_V1.into(),
+            requested_effects: vec![PORTFOLIO_READ_ONLY_EFFECT_POLICY_V1.into()],
+            request_proof_digest: "sha256:portfolio-read-proof".into(),
+            audit_correlation: format!("portfolio-read:{suffix}"),
+        };
+        let semantic_digest = admission_request.semantic_digest().unwrap();
+        let admission = owner.admit_request(admission_request).await.unwrap();
+        let request = PortfolioReadPolicyRequestV1 {
+            admission: admission.locator().clone(),
+            grant: grant.locator(),
+            expected_request_semantic_digest: semantic_digest,
+            expected_policy_digest: payload.policy_digest().unwrap(),
+        };
+
+        let function_catalog: (String, bool, String, String, bool, Option<Vec<String>>) =
+            sqlx::query_as("SELECT role.rolname, procedure.prosecdef, procedure.provolatile::text, procedure.proparallel::text, procedure.proisstrict, procedure.proconfig FROM pg_proc procedure JOIN pg_roles role ON role.oid=procedure.proowner WHERE procedure.oid=to_regprocedure('product_edge_api.lock_portfolio_read_policy_v1(text,text,text,text,text)')")
+                .fetch_one(pe_pool).await.unwrap();
+        assert_eq!(function_catalog.0, "product_edge_owner");
+        assert!(function_catalog.1 && function_catalog.4);
+        assert_eq!(
+            (function_catalog.2.as_str(), function_catalog.3.as_str()),
+            ("v", "u")
+        );
+        assert_eq!(
+            function_catalog.5,
+            Some(vec!["search_path=pg_catalog".into()])
+        );
+
+        for (role, wrapper, generic, direct_oa) in [
+            ("portfolio_owner", true, false, false),
+            ("rd_owner", false, true, false),
+            ("operator_authorization_writer", false, false, true),
+        ] {
+            let observed: (bool, bool, bool) = sqlx::query_as(
+                "SELECT has_function_privilege($1::name, 'product_edge_api.lock_portfolio_read_policy_v1(text,text,text,text,text)', 'EXECUTE'), has_function_privilege($1::name, 'product_edge_api.lock_downstream_admission_v1(text,text,text)', 'EXECUTE'), has_function_privilege($1::name, 'operator_authorization_api.lock_current_portfolio_resource_grant_v1(text,text)', 'EXECUTE')",
+            )
+            .bind(role)
+            .fetch_one(pe_pool)
+            .await
+            .unwrap();
+            assert_eq!(
+                observed,
+                (wrapper, generic, direct_oa),
+                "ACL drift for {role}"
+            );
+        }
+
+        let before = (
+            authority_table_fingerprint(oa_pool).await,
+            product_edge_table_fingerprint(pe_pool).await,
+        );
+
+        for index in 0..7 {
+            let mut mismatched = request.clone();
+            match index {
+                0 => mismatched.grant.grant_identity.push_str("-other"),
+                1 => mismatched
+                    .grant
+                    .issuance_receipt_identity
+                    .push_str("-other"),
+                2 => mismatched.admission.request_identity.push_str("-other"),
+                3 => mismatched.admission.admission_identity.push_str("-other"),
+                4 => mutate_sha256(&mut mismatched.admission.admission_digest),
+                5 => mutate_sha256(&mut mismatched.expected_request_semantic_digest),
+                6 => mutate_sha256(&mut mismatched.expected_policy_digest),
+                _ => unreachable!(),
+            }
+            let mut mismatch_consumer = portfolio_pool.begin().await.unwrap();
+            assert!(matches!(
+                resolve_portfolio_read_policy_in_transaction(&mut mismatch_consumer, &mismatched,)
+                    .await,
+                PortfolioReadPolicyResolutionV1::Unavailable { .. }
+            ));
+            mismatch_consumer.rollback().await.unwrap();
+        }
+        assert_eq!(
+            (
+                authority_table_fingerprint(oa_pool).await,
+                product_edge_table_fingerprint(pe_pool).await,
+            ),
+            before,
+            "caller locator and digest mismatches must write no Owner state"
+        );
+
+        let expiry_start = now_ms().unwrap();
+        let expiry_at = expiry_start.saturating_add(900);
+        let expiring_resource = PortfolioResourceV1 {
+            account_identity: format!("expiring-account-{suffix}"),
+            ..payload.resource.clone()
+        };
+        let expiring_content = PortfolioResourceGrantContentV1 {
+            issuer_identity: "operator-authorization-owner-test-v1".into(),
+            issuer_key_version: "test-key-v1".into(),
+            resource: expiring_resource.clone(),
+            product_edge_manifest: payload.manifest.clone(),
+            effective_at_epoch_ms: expiry_start.saturating_sub(1_000),
+            valid_through_epoch_ms: expiry_at,
+        };
+        let expiring_grant = issuer
+            .issue_portfolio_resource_grant_genesis(PortfolioResourceGrantIssuanceProposalV1 {
+                grant_identity: expiring_content.grant_identity().unwrap(),
+                content: expiring_content,
+                expected_revocation_frontier_identity: "EMPTY".into(),
+            })
+            .await
+            .unwrap();
+        let expiring_payload = PortfolioReadPolicyPayloadV1 {
+            resource: expiring_resource,
+            grant: expiring_grant.locator(),
+            ..payload.clone()
+        };
+        let expiring_request_identity = format!("portfolio-policy-expiring-{suffix}");
+        let expiring_admission_request = ProductEdgeAdmissionRequestV1 {
+            request_identity: expiring_request_identity.clone(),
+            typed_payload: serde_json::to_value(&expiring_payload).unwrap(),
+            operation: PORTFOLIO_READ_POLICY_OPERATION_V1.into(),
+            operation_schema: PORTFOLIO_READ_POLICY_OPERATION_SCHEMA_V1.into(),
+            target_owner: PORTFOLIO_READ_POLICY_TARGET_OWNER_V1.into(),
+            requested_effects: vec![PORTFOLIO_READ_ONLY_EFFECT_POLICY_V1.into()],
+            request_proof_digest: "sha256:portfolio-read-proof".into(),
+            audit_correlation: format!("portfolio-read-expiry:{suffix}"),
+        };
+        let expiring_semantic_digest = expiring_admission_request.semantic_digest().unwrap();
+        let expiring_admission = owner
+            .admit_request(expiring_admission_request)
+            .await
+            .unwrap();
+        let expiring_request = PortfolioReadPolicyRequestV1 {
+            admission: expiring_admission.locator().clone(),
+            grant: expiring_grant.locator(),
+            expected_request_semantic_digest: expiring_semantic_digest,
+            expected_policy_digest: expiring_payload.policy_digest().unwrap(),
+        };
+        let expiry_fingerprint = (
+            authority_table_fingerprint(oa_pool).await,
+            product_edge_table_fingerprint(pe_pool).await,
+        );
+        let mut pe_blocker = pe_pool.begin().await.unwrap();
+        sqlx::query(
+            "SELECT request_identity FROM product_edge_request_admissions_v1 WHERE request_identity=$1 FOR UPDATE",
+        )
+        .bind(&expiring_request_identity)
+        .fetch_one(&mut *pe_blocker)
+        .await
+        .unwrap();
+        let expiring_pool = portfolio_pool.clone();
+        let expiring_task = tokio::spawn(async move {
+            let mut transaction = expiring_pool.begin().await.unwrap();
+            let resolution =
+                resolve_portfolio_read_policy_in_transaction(&mut transaction, &expiring_request)
+                    .await;
+            transaction.rollback().await.unwrap();
+            resolution
+        });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(
+            !expiring_task.is_finished(),
+            "consumer must wait on the PE lock"
+        );
+        let mut oa_probe = oa_pool.begin().await.unwrap();
+        assert!(
+            sqlx::query("SELECT grant_identity FROM operator_authorization_private.portfolio_resource_grant_issuances_v1 WHERE grant_identity=$1 FOR UPDATE NOWAIT")
+                .bind(&expiring_grant.locator().grant_identity)
+                .fetch_one(&mut *oa_probe)
+                .await
+                .is_err(),
+            "OA grant must be locked before the PE wait"
+        );
+        oa_probe.rollback().await.unwrap();
+        let remaining = expiry_at.saturating_sub(now_ms().unwrap());
+        tokio::time::sleep(Duration::from_millis(remaining.saturating_add(50))).await;
+        pe_blocker.rollback().await.unwrap();
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(5), expiring_task)
+                .await
+                .unwrap()
+                .unwrap(),
+            PortfolioReadPolicyResolutionV1::Unavailable {
+                reason: PortfolioReadPolicyUnavailableReasonV1::PolicyNotCurrent
+            }
+        ));
+        assert_eq!(
+            (
+                authority_table_fingerprint(oa_pool).await,
+                product_edge_table_fingerprint(pe_pool).await,
+            ),
+            expiry_fingerprint,
+            "post-lock expiry must write no Owner state"
+        );
+        let mut consumer = portfolio_pool.begin().await.unwrap();
+        assert_eq!(
+            sqlx::query_as::<_, (String, String)>("SELECT current_user::text, session_user::text",)
+                .fetch_one(&mut *consumer)
+                .await
+                .unwrap(),
+            ("portfolio_owner".into(), "portfolio_owner".into())
+        );
+        let direct_privileges: (bool, bool) = sqlx::query_as(
+            "SELECT
+              has_table_privilege(current_user, (SELECT class.oid FROM pg_class class JOIN pg_namespace namespace ON namespace.oid=class.relnamespace WHERE namespace.nspname='public' AND class.relname='product_edge_request_admissions_v1'), 'SELECT'),
+              has_table_privilege(current_user, (SELECT class.oid FROM pg_class class JOIN pg_namespace namespace ON namespace.oid=class.relnamespace WHERE namespace.nspname='operator_authorization_private' AND class.relname='portfolio_resource_grant_issuances_v1'), 'SELECT')",
+        )
+        .fetch_one(&mut *consumer)
+        .await
+        .unwrap();
+        assert_eq!(direct_privileges, (false, false));
+        let resolution =
+            resolve_portfolio_read_policy_in_transaction(&mut consumer, &request).await;
+        let PortfolioReadPolicyResolutionV1::Sealed { custody } = resolution else {
+            panic!("expected sealed Portfolio read-policy custody: {resolution:?}");
+        };
+        assert!(custody.is_current_at(custody.final_cut_epoch_ms()));
+        assert_eq!(
+            custody.source_owner_result(),
+            PortfolioSourceOwnerResolveResultV1::SourceOwnerResolveUnavailable
+        );
+
+        let distinct_revoke = {
+            let issuer = Arc::clone(&issuer);
+            let locator = earlier_grant.locator();
+            let frontier = custody.authorization_policy_cut().to_string();
+
+            tokio::spawn(async move {
+                issuer
+                    .revoke_portfolio_resource_grant(PortfolioResourceGrantRevocationProposalV1 {
+                        grant: locator,
+                        expected_frontier_identity: frontier,
+                        reason_code: "DISTINCT_GRANT_REVERSE_ORDER".into(),
+                    })
+                    .await
+            })
+        };
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), async {
+                while !distinct_revoke.is_finished() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .is_err(),
+            "OA writer must wait on the Portfolio read of the later grant"
+        );
+        consumer.rollback().await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), distinct_revoke)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+
+        let after_distinct_revoke = (
+            authority_table_fingerprint(oa_pool).await,
+            product_edge_table_fingerprint(pe_pool).await,
+        );
+        assert_ne!(expiry_fingerprint.0, after_distinct_revoke.0);
+        assert_eq!(expiry_fingerprint.1, after_distinct_revoke.1);
+
+        let mut current_consumer = portfolio_pool.begin().await.unwrap();
+        let current_resolution =
+            resolve_portfolio_read_policy_in_transaction(&mut current_consumer, &request).await;
+        let PortfolioReadPolicyResolutionV1::Sealed {
+            custody: current_custody,
+        } = current_resolution
+        else {
+            panic!("the distinct-grant revoke must preserve bound grant custody");
+        };
+        assert!(current_custody.is_current_at(current_custody.final_cut_epoch_ms()));
+        assert_eq!(
+            (
+                authority_table_fingerprint(oa_pool).await,
+                product_edge_table_fingerprint(pe_pool).await,
+            ),
+            after_distinct_revoke,
+            "the post-frontier Portfolio read must write no Owner state"
+        );
+
+        let bound_revoke = {
+            let issuer = Arc::clone(&issuer);
+            let locator = grant.locator();
+            let frontier = current_custody.authorization_policy_cut().to_string();
+
+            tokio::spawn(async move {
+                issuer
+                    .revoke_portfolio_resource_grant(PortfolioResourceGrantRevocationProposalV1 {
+                        grant: locator,
+                        expected_frontier_identity: frontier,
+                        reason_code: "ADMIN_REVOKED".into(),
+                    })
+                    .await
+            })
+        };
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), async {
+                while !bound_revoke.is_finished() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .is_err(),
+            "OA writer must wait while bound Portfolio custody holds its cut"
+        );
+        current_consumer.rollback().await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), bound_revoke)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+
+        let after_bound_revoke = (
+            authority_table_fingerprint(oa_pool).await,
+            product_edge_table_fingerprint(pe_pool).await,
+        );
+        let mut revoked_consumer = portfolio_pool.begin().await.unwrap();
+        assert!(matches!(
+            resolve_portfolio_read_policy_in_transaction(&mut revoked_consumer, &request).await,
+            PortfolioReadPolicyResolutionV1::Unavailable {
+                reason: PortfolioReadPolicyUnavailableReasonV1::PolicyNotCurrent
+            }
+        ));
+        revoked_consumer.rollback().await.unwrap();
+        assert_eq!(
+            (
+                authority_table_fingerprint(oa_pool).await,
+                product_edge_table_fingerprint(pe_pool).await,
+            ),
+            after_bound_revoke,
+            "revoked resolve must write no OA or Product Edge table"
+        );
+        assert_ne!(after_distinct_revoke.0, after_bound_revoke.0);
+        assert_eq!(after_distinct_revoke.1, after_bound_revoke.1);
+    }
+
     #[tokio::test]
     #[ignore = "requires the disposable canonical OA/PE/R&D/Qualification PostgreSQL topology"]
     async fn genesis_admission_claim_cutover_and_revocation_are_canonical() {
-        use vibe_testkit::postgres::{
-            CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1,
-        };
-
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        Box::pin(exercise_portfolio_read_policy_consumer(&test_database)).await;
         let mutation = test_database.mutation();
         let now = now_ms().unwrap();
         let suffix = unique_suffix();
@@ -4422,5 +5189,10 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         )
+    }
+
+    fn mutate_sha256(value: &mut String) {
+        let replacement = if &value[7..8] == "0" { "1" } else { "0" };
+        value.replace_range(7..8, replacement);
     }
 }
