@@ -994,8 +994,19 @@ async fn insert_epoch_proof(
     .bind(i64::try_from(proof.commit_cut()).map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?)
     .execute(&mut **transaction)
     .await
-    .map_err(|_| SharedTimeEvidenceError::ReplayConflict)?;
+    .map_err(|e| map_shared_time_insert_error(&e))?;
     Ok(())
+}
+
+fn map_shared_time_insert_error(error: &sqlx::Error) -> SharedTimeEvidenceError {
+    if error
+        .as_database_error()
+        .is_some_and(sqlx::error::DatabaseError::is_unique_violation)
+    {
+        SharedTimeEvidenceError::ReplayConflict
+    } else {
+        SharedTimeEvidenceError::StoreUnavailable
+    }
 }
 
 async fn load_current_clock_fact_for_update(

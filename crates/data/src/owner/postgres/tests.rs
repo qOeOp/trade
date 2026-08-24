@@ -1240,6 +1240,25 @@ async fn postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed() {
             .epoch_successor_proof()
             .is_none()
     );
+    sqlx::query(
+        "ALTER TABLE market_data_private.epoch_successor_proofs_v1 RENAME TO epoch_successor_proofs_unavailable_test",
+    )
+    .execute(epoch_owner.pool())
+    .await
+    .unwrap();
+    let unavailable_proof_store = shared_clock("market-clock", "epoch-3", 1, 120, d(19), 1, 2);
+    assert_eq!(
+        epoch_owner
+            .commit_clock_successor(winner.handoff(), &unavailable_proof_store)
+            .await,
+        Err(SharedTimeEvidenceError::StoreUnavailable),
+    );
+    sqlx::query(
+        "ALTER TABLE market_data_private.epoch_successor_proofs_unavailable_test RENAME TO epoch_successor_proofs_v1",
+    )
+    .execute(epoch_owner.pool())
+    .await
+    .unwrap();
     assert_eq!(shared_time_counts(epoch_owner.pool()).await, (7, 1));
     assert!(
         sqlx::query("SELECT * FROM market_data_private.clock_handoffs_v1")
