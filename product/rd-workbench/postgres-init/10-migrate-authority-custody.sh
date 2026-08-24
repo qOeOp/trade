@@ -16,6 +16,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'qualification_owner') THEN CREATE ROLE qualification_owner NOLOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'qualification_writer') THEN CREATE ROLE qualification_writer LOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'product_edge_owner') THEN CREATE ROLE product_edge_owner LOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'portfolio_owner') THEN CREATE ROLE portfolio_owner NOLOGIN; END IF;
 END
 $roles$;
 ALTER ROLE rd_owner PASSWORD :'rd_password';
@@ -24,7 +25,9 @@ ALTER ROLE operator_authorization_writer LOGIN PASSWORD :'issuer_password';
 ALTER ROLE qualification_owner NOLOGIN;
 ALTER ROLE qualification_writer LOGIN PASSWORD :'qualification_password';
 ALTER ROLE product_edge_owner PASSWORD :'edge_password';
+ALTER ROLE portfolio_owner NOLOGIN;
 GRANT operator_authorization_owner TO operator_authorization_writer;
+REVOKE portfolio_owner FROM product_edge_owner;
 REVOKE operator_authorization_owner FROM product_edge_owner, rd_owner;
 REVOKE qualification_owner FROM qualification_writer, product_edge_owner, rd_owner, operator_authorization_writer;
 
@@ -32,7 +35,7 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 DO $database_grants$
 BEGIN
   EXECUTE pg_catalog.format(
-    'REVOKE CONNECT ON DATABASE %I FROM PUBLIC, operator_authorization_owner, qualification_owner',
+    'REVOKE CONNECT ON DATABASE %I FROM PUBLIC, operator_authorization_owner, qualification_owner, portfolio_owner',
     pg_catalog.current_database()
   );
   EXECUTE pg_catalog.format(
@@ -45,15 +48,15 @@ CREATE SCHEMA IF NOT EXISTS operator_authorization_private AUTHORIZATION operato
 CREATE SCHEMA IF NOT EXISTS operator_authorization_api AUTHORIZATION operator_authorization_owner;
 ALTER SCHEMA operator_authorization_private OWNER TO operator_authorization_owner;
 ALTER SCHEMA operator_authorization_api OWNER TO operator_authorization_owner;
-REVOKE ALL ON SCHEMA operator_authorization_private FROM PUBLIC, rd_owner, product_edge_owner;
-REVOKE ALL ON SCHEMA operator_authorization_api FROM PUBLIC, rd_owner, product_edge_owner;
+REVOKE ALL ON SCHEMA operator_authorization_private FROM PUBLIC, rd_owner, product_edge_owner, portfolio_owner;
+REVOKE ALL ON SCHEMA operator_authorization_api FROM PUBLIC, rd_owner, product_edge_owner, portfolio_owner;
 GRANT USAGE ON SCHEMA operator_authorization_api TO product_edge_owner;
 GRANT USAGE, CREATE ON SCHEMA public TO rd_owner, product_edge_owner;
 GRANT USAGE ON SCHEMA public TO qualification_writer;
 CREATE SCHEMA IF NOT EXISTS product_edge_api AUTHORIZATION product_edge_owner;
 ALTER SCHEMA product_edge_api OWNER TO product_edge_owner;
-REVOKE ALL ON SCHEMA product_edge_api FROM PUBLIC, operator_authorization_writer;
-GRANT USAGE ON SCHEMA product_edge_api TO rd_owner;
+REVOKE ALL ON SCHEMA product_edge_api FROM PUBLIC, operator_authorization_writer, portfolio_owner;
+GRANT USAGE ON SCHEMA product_edge_api TO rd_owner, portfolio_owner;
 CREATE SCHEMA IF NOT EXISTS rd_owner_api AUTHORIZATION rd_owner;
 ALTER SCHEMA rd_owner_api OWNER TO rd_owner;
 REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC, operator_authorization_writer, qualification_writer;
@@ -340,7 +343,7 @@ DECLARE object record;
 BEGIN
   FOR object IN SELECT schemaname, tablename FROM pg_tables WHERE schemaname = 'public' AND tablename LIKE 'product_edge_%' LOOP
     EXECUTE format('ALTER TABLE %I.%I OWNER TO product_edge_owner', object.schemaname, object.tablename);
-    EXECUTE format('REVOKE ALL ON TABLE %I.%I FROM rd_owner, operator_authorization_writer', object.schemaname, object.tablename);
+    EXECUTE format('REVOKE ALL ON TABLE %I.%I FROM rd_owner, operator_authorization_writer, portfolio_owner', object.schemaname, object.tablename);
   END LOOP;
 END
 $product_edge_ownership$;
@@ -476,7 +479,46 @@ BEGIN
 END
 $function$;
 ALTER FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) OWNER TO product_edge_owner;
-REVOKE ALL ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) FROM PUBLIC, operator_authorization_writer;
+REVOKE ALL ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) FROM PUBLIC, operator_authorization_writer, portfolio_owner;
 GRANT EXECUTE ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) TO rd_owner, product_edge_owner;
+
+CREATE OR REPLACE FUNCTION product_edge_api.lock_portfolio_read_policy_v1(
+  requested_grant_identity text,
+  requested_grant_receipt_identity text,
+  requested_request_identity text,
+  requested_admission_identity text,
+  requested_admission_digest text
+)
+RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+DECLARE
+  operator_authorization_envelope jsonb;
+  product_edge_envelope jsonb;
+BEGIN
+  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+
+  SELECT operator_authorization_api.lock_current_portfolio_resource_grant_v1(
+    requested_grant_identity,
+    requested_grant_receipt_identity
+  ) INTO operator_authorization_envelope;
+  IF operator_authorization_envelope IS NULL THEN RETURN NULL; END IF;
+
+  SELECT product_edge_api.lock_downstream_admission_v1(
+    requested_request_identity,
+    requested_admission_identity,
+    requested_admission_digest
+  ) INTO product_edge_envelope;
+  IF product_edge_envelope IS NULL THEN RETURN NULL; END IF;
+
+  RETURN pg_catalog.jsonb_build_object(
+    'operator_authorization', operator_authorization_envelope,
+    'product_edge', product_edge_envelope
+  );
+END
+$function$;
+ALTER FUNCTION product_edge_api.lock_portfolio_read_policy_v1(text,text,text,text,text) OWNER TO product_edge_owner;
+REVOKE ALL ON FUNCTION product_edge_api.lock_portfolio_read_policy_v1(text,text,text,text,text) FROM PUBLIC, rd_owner, operator_authorization_writer, qualification_owner, qualification_writer;
+GRANT EXECUTE ON FUNCTION product_edge_api.lock_portfolio_read_policy_v1(text,text,text,text,text) TO portfolio_owner;
 COMMIT;
 SQL

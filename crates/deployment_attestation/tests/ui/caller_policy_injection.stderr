@@ -1,0 +1,5 @@
+error[E0432]: unresolved import `vibe_deployment_attestation::VerificationPolicy`
+ --> tests/ui/caller_policy_injection.rs:1:5
+  |
+1 | use vibe_deployment_attestation::VerificationPolicy;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `VerificationPolicy` in the root

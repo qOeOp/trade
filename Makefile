@@ -221,11 +221,11 @@ endif
 
 # Core crates (excludes adapters/* and workspace members without tests)
 CORE_CRATES := vibe-analysis vibe-backtest vibe-common vibe-core \
-    vibe-cryptography vibe-data vibe-event-store vibe-execution \
-    vibe-indicators vibe-indicators-kernel vibe-infrastructure vibe-live vibe-model \
+    vibe-cryptography vibe-data vibe-deployment-attestation vibe-event-store vibe-execution \
+    vibe-indicators vibe-indicators-kernel vibe-infrastructure vibe-live vibe-model vibe-scanner \
     vibe-network vibe-observability vibe-persistence vibe-persistence-macros \
     vibe-operator-authorization vibe-plugin vibe-portfolio vibe-product-edge vibe-product-edge-claim-custody vibe-qualification vibe-risk vibe-rd-artifact-invocation-custody vibe-runtime vibe-serialization \
-    strategy-factory-program-sdk vibe-strategy-factory vibe-strategy-factory-rd-owner-api vibe-system vibe-testkit vibe-trader vibe-trading
+    strategy-factory-program-sdk vibe-strategy-factory vibe-strategy-factory-rd-owner-api vibe-strategy-governance vibe-system vibe-testkit vibe-trader vibe-trading
 
 # Crates tested in the workspace-compiled adapter lane
 ADAPTER_CRATES := vibe-architect-ax vibe-betfair vibe-binance \

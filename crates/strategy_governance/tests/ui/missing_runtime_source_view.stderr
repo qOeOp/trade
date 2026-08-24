@@ -1,0 +1,5 @@
+error[E0599]: no method named `view_from_runtime_source` found for struct `GovernanceCore` in the current scope
+ --> tests/ui/missing_runtime_source_view.rs:5:10
+  |
+5 |     core.view_from_runtime_source();
+  |          ^^^^^^^^^^^^^^^^^^^^^^^^ method not found in `GovernanceCore`
