@@ -622,6 +622,34 @@ mod tests {
     }
 
     #[rstest]
+    fn new_epoch_successor_requires_new_continuity_and_strict_cuts() {
+        let prior = build_head_fact(&clock("epoch-1", 9, 100, d(1)), None).unwrap();
+        let valid = clock("epoch-2", 1, 110, d(2));
+        validate_new_epoch_successor(&prior, &valid).unwrap();
+
+        let mut variants = Vec::new();
+        let mut value = valid.clone();
+        value.restart_continuity_digest = d(1);
+        variants.push(value);
+        let mut value = valid.clone();
+        value.wall_observed = 100;
+        variants.push(value);
+        let mut value = valid.clone();
+        value.decision_cut = 100;
+        variants.push(value);
+        let mut value = valid;
+        value.valid_through = 160;
+        variants.push(value);
+
+        for variant in variants {
+            assert_eq!(
+                validate_new_epoch_successor(&prior, &variant),
+                Err(SharedTimeEvidenceError::EpochSuccessorProofMismatch)
+            );
+        }
+    }
+
+    #[rstest]
     fn proof_identity_binds_every_direct_epoch_transition_field() {
         let prior = build_head_fact(&clock("epoch-1", 9, 100, d(1)), None).unwrap();
         let successor_clock = clock("epoch-2", 1, 110, d(2));
@@ -635,6 +663,10 @@ mod tests {
         let successor =
             build_head_fact(&successor_clock, Some(prior.handoff.head_digest())).unwrap();
         let proof = build_epoch_successor_proof(&prior, &successor);
+        assert_eq!(
+            proof.proof_identity,
+            digest(EPOCH_PROOF_IDENTITY_DOMAIN, &canonical_proof_bytes(&proof))
+        );
         assert!(verify_epoch_successor_proof(&proof, &prior, &successor));
 
         let mut variants = Vec::new();
