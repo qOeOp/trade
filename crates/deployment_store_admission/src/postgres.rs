@@ -82,6 +82,10 @@ impl PostgresMeasurementSpec {
                 .iter()
                 .chain(&spec.acl_relations)
                 .any(|value| value.is_empty() || value.len() > 512)
+            || spec
+                .function_signatures
+                .iter()
+                .any(|signature| !canonical_function_signature(signature))
             || !canonical_identifier(&spec.schema_name)
             || quoted_qualified_name(&spec.migration_relation).is_none()
             || spec
@@ -277,6 +281,14 @@ impl PostgresDirectMeasurer {
             .execute(&mut *transaction)
             .await
             .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+        sqlx::query("SET LOCAL statement_timeout = '5000ms'")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+        sqlx::query("SET LOCAL lock_timeout = '1000ms'")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
 
         let identity = sqlx::query(
             "SELECT (pg_catalog.pg_control_system()).system_identifier::text AS system_identifier, pg_catalog.current_setting('server_version_num')::text AS server_version, pg_catalog.inet_server_addr()::text AS server_address, pg_catalog.inet_server_port()::bigint AS server_port, pg_catalog.current_database()::text AS database_name, database.oid::bigint AS database_oid, current_user::text AS role_name, role.oid::bigint AS role_oid, role.rolsuper, role.rolinherit, role.rolcreaterole, role.rolcreatedb, role.rolcanlogin, role.rolreplication, role.rolbypassrls FROM pg_catalog.pg_database AS database JOIN pg_catalog.pg_roles AS role ON role.rolname = current_user WHERE database.datname = pg_catalog.current_database()",
@@ -320,13 +332,22 @@ impl PostgresDirectMeasurer {
             _ => return Err(PostgresMeasurementError::IdentityDecodeUnavailable),
         };
         let role_membership_rows = sqlx::query(
-            "WITH RECURSIVE membership_path AS (SELECT membership.roleid, membership.member, membership.grantor, membership.admin_option, membership.inherit_option, membership.set_option, ARRAY[membership.member, membership.roleid] AS path, 1::bigint AS depth FROM pg_catalog.pg_auth_members AS membership JOIN pg_catalog.pg_roles AS session_role ON session_role.oid = membership.member WHERE session_role.rolname = current_user UNION ALL SELECT next.roleid, next.member, next.grantor, next.admin_option, next.inherit_option, next.set_option, prior.path || next.roleid, prior.depth + 1 FROM membership_path AS prior JOIN pg_catalog.pg_auth_members AS next ON next.member = prior.roleid WHERE prior.depth < 32 AND NOT next.roleid = ANY(prior.path)) SELECT pg_catalog.pg_get_userbyid(roleid)::text AS role_name, pg_catalog.pg_get_userbyid(member)::text AS member_name, pg_catalog.pg_get_userbyid(grantor)::text AS grantor_name, admin_option, inherit_option, set_option, depth FROM membership_path ORDER BY depth, role_name, member_name, grantor_name",
+            "WITH RECURSIVE membership_path AS (SELECT membership.roleid, membership.member, membership.grantor, membership.admin_option, membership.inherit_option, membership.set_option, ARRAY[membership.member, membership.roleid] AS path, 1::bigint AS depth FROM pg_catalog.pg_auth_members AS membership JOIN pg_catalog.pg_roles AS session_role ON session_role.oid = membership.member WHERE session_role.rolname = current_user UNION ALL SELECT next.roleid, next.member, next.grantor, next.admin_option, next.inherit_option, next.set_option, prior.path || next.roleid, prior.depth + 1 FROM membership_path AS prior JOIN pg_catalog.pg_auth_members AS next ON next.member = prior.roleid WHERE prior.depth < 33 AND NOT next.roleid = ANY(prior.path)) SELECT granted_role.rolname::text AS role_name, pg_catalog.pg_get_userbyid(path.member)::text AS member_name, pg_catalog.pg_get_userbyid(path.grantor)::text AS grantor_name, path.admin_option, path.inherit_option, path.set_option, path.depth, granted_role.rolsuper AS role_super, granted_role.rolinherit AS role_inherit, granted_role.rolcreaterole AS role_create_role, granted_role.rolcreatedb AS role_create_database, granted_role.rolcanlogin AS role_can_login, granted_role.rolreplication AS role_replication, granted_role.rolbypassrls AS role_bypass_rls FROM membership_path AS path JOIN pg_catalog.pg_roles AS granted_role ON granted_role.oid = path.roleid ORDER BY path.depth, role_name, member_name, grantor_name LIMIT 257",
         )
         .fetch_all(&mut *transaction)
         .await
         .map_err(|_| PostgresMeasurementError::IdentityQueryUnavailable)?;
         if role_membership_rows.len() > 256 {
             return Err(PostgresMeasurementError::CatalogTargetMismatch);
+        }
+
+        for row in &role_membership_rows {
+            let depth: i64 = row
+                .try_get("depth")
+                .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
+            if depth > 32 {
+                return Err(PostgresMeasurementError::CatalogTargetMismatch);
+            }
         }
         let role_membership_identity = rows_digest(
             &role_membership_rows,
@@ -338,6 +359,13 @@ impl PostgresDirectMeasurer {
                 "inherit_option",
                 "set_option",
                 "depth",
+                "role_super",
+                "role_inherit",
+                "role_create_role",
+                "role_create_database",
+                "role_can_login",
+                "role_replication",
+                "role_bypass_rls",
             ],
         )?;
 
@@ -400,8 +428,24 @@ impl PostgresDirectMeasurer {
         )?;
         let migration_relation = quoted_qualified_name(&spec.migration_relation)
             .ok_or(PostgresMeasurementError::InvalidSpecification)?;
+        let migration_budget_query = format!(
+            "SELECT COUNT(*)::bigint AS row_count, COALESCE(MAX(pg_catalog.octet_length(pg_catalog.to_jsonb(migration_row)::text)), 0)::bigint AS max_row_bytes FROM {migration_relation} AS migration_row"
+        );
+        let migration_budget = sqlx::query(AssertSqlSafe(migration_budget_query))
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(|_| PostgresMeasurementError::MigrationIdentityUnavailable)?;
+        let migration_row_count: i64 = migration_budget
+            .try_get("row_count")
+            .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
+        let migration_max_row_bytes: i64 = migration_budget
+            .try_get("max_row_bytes")
+            .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
+        if migration_row_count > 10_000 || migration_max_row_bytes > 65_536 {
+            return Err(PostgresMeasurementError::CatalogTargetMismatch);
+        }
         let migration_content_query = format!(
-            "SELECT pg_catalog.to_jsonb(migration_row)::text AS row_json FROM {migration_relation} AS migration_row ORDER BY pg_catalog.to_jsonb(migration_row)::text"
+            "SELECT pg_catalog.to_jsonb(migration_row)::text AS row_json FROM {migration_relation} AS migration_row ORDER BY pg_catalog.to_jsonb(migration_row)::text LIMIT 10001"
         );
         let migration_content_rows = sqlx::query(AssertSqlSafe(migration_content_query))
             .fetch_all(&mut *transaction)
@@ -480,7 +524,7 @@ impl PostgresDirectMeasurer {
                 &["ordinal", "column_name", "acl"],
             )?);
             let policy_rows = sqlx::query(
-                "SELECT policy.polname::text AS policy_name, policy.polpermissive, policy.polcmd::text AS command, policy.polroles::text AS roles, COALESCE(pg_catalog.pg_get_expr(policy.polqual, policy.polrelid), '')::text AS using_expression, COALESCE(pg_catalog.pg_get_expr(policy.polwithcheck, policy.polrelid), '')::text AS check_expression FROM pg_catalog.pg_policy AS policy WHERE policy.polrelid = pg_catalog.to_regclass($1) ORDER BY policy.polname",
+                "SELECT policy.polname::text AS policy_name, policy.polpermissive, policy.polcmd::text AS command, policy.polroles::text AS roles, LEFT(COALESCE(pg_catalog.pg_get_expr(policy.polqual, policy.polrelid), '')::text, 65537) AS using_expression, LEFT(COALESCE(pg_catalog.pg_get_expr(policy.polwithcheck, policy.polrelid), '')::text, 65537) AS check_expression FROM pg_catalog.pg_policy AS policy WHERE policy.polrelid = pg_catalog.to_regclass($1) ORDER BY policy.polname LIMIT 257",
             )
             .bind(relation)
             .fetch_all(&mut *transaction)
@@ -488,6 +532,18 @@ impl PostgresDirectMeasurer {
             .map_err(|_| PostgresMeasurementError::AclIdentityUnavailable)?;
             if policy_rows.len() > 256 {
                 return Err(PostgresMeasurementError::CatalogTargetMismatch);
+            }
+
+            for row in &policy_rows {
+                let using_expression: String = row
+                    .try_get("using_expression")
+                    .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
+                let check_expression: String = row
+                    .try_get("check_expression")
+                    .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
+                if using_expression.len() > 65_536 || check_expression.len() > 65_536 {
+                    return Err(PostgresMeasurementError::CatalogTargetMismatch);
+                }
             }
             acl_records.push(rows_digest(
                 &policy_rows,
@@ -568,6 +624,34 @@ fn canonical_identifier(value: &str) -> bool {
         .next()
         .is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_')
         && bytes.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$'))
+}
+
+fn canonical_function_signature(value: &str) -> bool {
+    let Some((qualified_name, arguments)) = value.split_once('(') else {
+        return false;
+    };
+    let Some(arguments) = arguments.strip_suffix(')') else {
+        return false;
+    };
+
+    if value.matches('(').count() != 1 || value.matches(')').count() != 1 {
+        return false;
+    }
+    let mut name_parts = qualified_name.split('.');
+    let Some(schema) = name_parts.next() else {
+        return false;
+    };
+    let Some(function) = name_parts.next() else {
+        return false;
+    };
+
+    name_parts.next().is_none()
+        && canonical_identifier(schema)
+        && canonical_identifier(function)
+        && arguments.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric()
+                || matches!(byte, b'_' | b'$' | b'.' | b',' | b' ' | b'[' | b']')
+        })
 }
 
 fn quoted_qualified_name(value: &str) -> Option<String> {

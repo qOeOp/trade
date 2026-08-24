@@ -206,9 +206,10 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn bootstrap_deployment_store_admission() -> anyhow::Result<()> {
-    bootstrap_deployment_store_admission_from_lookup(|name| env::var(name).ok()).await
+    enforce_deployment_store_admission(RdOwnerStoreAdmissionBootstrap::from_environment()?).await
 }
 
+#[cfg(test)]
 async fn bootstrap_deployment_store_admission_from_lookup(
     lookup: impl FnMut(&str) -> Option<String>,
 ) -> anyhow::Result<()> {
