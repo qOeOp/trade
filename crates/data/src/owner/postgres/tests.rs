@@ -1046,7 +1046,7 @@ async fn run_postgres_owner_scenario() {
         reader_again
             .resolve_pit_snapshot(correction.receipt().locator())
             .await,
-        Err(PitSnapshotError::LocatorMismatch),
+        Err(PitSnapshotError::PersistenceUnavailable),
     );
     sqlx::query(
         "UPDATE market_data_private.pit_snapshot_heads_v1 SET fact_digest=$1 WHERE lineage_root=$2",
@@ -1402,13 +1402,13 @@ async fn run_postgres_owner_scenario() {
                 &clock(50, 2),
             )
             .await,
-        Err(PitSnapshotError::SourceBindingUnavailable),
+        Err(PitSnapshotError::PersistenceUnavailable),
     );
     assert_eq!(
         final_reader
             .resolve_pit_snapshot(pit_third.receipt().locator())
             .await,
-        Err(PitSnapshotError::SourceBindingUnavailable),
+        Err(PitSnapshotError::PersistenceUnavailable),
     );
     sqlx::query(
         "UPDATE market_data_private.source_binding_heads_v1 SET fact_digest=$1 WHERE lineage_root=$2",
@@ -1493,6 +1493,111 @@ async fn run_postgres_owner_scenario() {
     assert_eq!(shared_time_counts(final_owner.pool()).await, (3, 0));
 
     let same_epoch_clock = clock(70, 4);
+    sqlx::query(
+        "UPDATE market_data_private.source_binding_heads_v1 SET binding_id=$1,fact_digest=$2 WHERE lineage_root=$3",
+    )
+    .bind(source.fact().binding_id().as_bytes().as_slice())
+    .bind(source.fact().digest().as_bytes().as_slice())
+    .bind(source_third.fact().lineage_root().as_bytes().as_slice())
+    .execute(final_owner.pool())
+    .await
+    .unwrap();
+    assert!(matches!(
+        MarketDataOwnerPostgres::connect(&owner_url).await,
+        Err(SourceBindingError::StoreUnavailable)
+    ));
+    assert_eq!(
+        final_owner
+            .commit_clock_successor(&epoch_one_head, &same_epoch_clock)
+            .await,
+        Err(SharedTimeEvidenceError::StoreUnavailable),
+    );
+    let mut rollback_blocked_initial = source_third.fact().proposal().clone();
+    rollback_blocked_initial.adapter.configuration_digest = d(112);
+    rollback_blocked_initial.claimed_binding_id = derive_binding_id(&rollback_blocked_initial);
+    assert_eq!(
+        final_owner
+            .commit_source_initial(
+                rollback_blocked_initial,
+                OwnerSourceBindingDecision {
+                    blockers: BTreeSet::new(),
+                },
+                &clock(60, 3),
+            )
+            .await,
+        Err(SourceBindingError::StoreUnavailable),
+    );
+    sqlx::query(
+        "UPDATE market_data_private.source_binding_heads_v1 SET binding_id=$1,fact_digest=$2 WHERE lineage_root=$3",
+    )
+    .bind(source_third.fact().binding_id().as_bytes().as_slice())
+    .bind(source_third.fact().digest().as_bytes().as_slice())
+    .bind(source_third.fact().lineage_root().as_bytes().as_slice())
+    .execute(final_owner.pool())
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "UPDATE market_data_private.pit_snapshot_heads_v1 SET snapshot_identity=$1,fact_digest=$2 WHERE lineage_root=$3",
+    )
+    .bind(pit.fact().snapshot_identity().as_bytes().as_slice())
+    .bind(pit.fact().digest().as_bytes().as_slice())
+    .bind(pit_third.fact().lineage_root().as_bytes().as_slice())
+    .execute(final_owner.pool())
+    .await
+    .unwrap();
+    assert!(matches!(
+        MarketDataOwnerPostgres::connect(&owner_url).await,
+        Err(SourceBindingError::StoreUnavailable)
+    ));
+    let mut rollback_blocked_pit = distinct_pit_proposal(&source_third, 113);
+    rollback_blocked_pit.request.time_evidence = pit_time(60, 3);
+    refresh_request_claims(&mut rollback_blocked_pit.request);
+    let rollback_blocked_pit_basis = basis_at(&rollback_blocked_pit, &clock(60, 3));
+    assert_eq!(
+        final_owner
+            .commit_pit_initial(
+                rollback_blocked_pit,
+                &rollback_blocked_pit_basis,
+                &clock(60, 3),
+            )
+            .await,
+        Err(PitSnapshotError::PersistenceUnavailable),
+    );
+    let mut rollback_blocked_successor = source_proposal(14, 70);
+    rollback_blocked_successor.time_evidence.monotonic_sequence = 4;
+    rollback_blocked_successor.time_evidence.provider_available = 65;
+    rollback_blocked_successor.time_evidence.retrieval = 69;
+    rollback_blocked_successor
+        .time_evidence
+        .correction_publication = 69;
+    rollback_blocked_successor
+        .time_evidence
+        .claimed_evidence_identity =
+        derive_time_evidence_identity(&rollback_blocked_successor.time_evidence);
+    rollback_blocked_successor.claimed_binding_id = derive_binding_id(&rollback_blocked_successor);
+    assert_eq!(
+        Box::pin(final_owner.commit_source_successor(
+            source_third.receipt().locator(),
+            rollback_blocked_successor,
+            OwnerSourceBindingDecision {
+                blockers: BTreeSet::new(),
+            },
+            &same_epoch_clock,
+        ))
+        .await,
+        Err(SourceBindingError::StoreUnavailable),
+    );
+    sqlx::query(
+        "UPDATE market_data_private.pit_snapshot_heads_v1 SET snapshot_identity=$1,fact_digest=$2 WHERE lineage_root=$3",
+    )
+    .bind(pit_third.fact().snapshot_identity().as_bytes().as_slice())
+    .bind(pit_third.fact().digest().as_bytes().as_slice())
+    .bind(pit_third.fact().lineage_root().as_bytes().as_slice())
+    .execute(final_owner.pool())
+    .await
+    .unwrap();
+
     let same_epoch = final_owner
         .commit_clock_successor(&epoch_one_head, &same_epoch_clock)
         .await

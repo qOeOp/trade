@@ -632,6 +632,7 @@ async fn validate_source_lineage_shape(
     .await
     .map_err(|_| SourceBindingError::StoreUnavailable)?;
     let mut prior = None;
+    let mut terminal_head = None;
 
     for (offset, identity) in identities.iter().enumerate() {
         let identity =
@@ -668,7 +669,26 @@ async fn validate_source_lineage_shape(
                     && fact.predecessor_fact_digest() == Some(prior_digest) => {}
             _ => return Err(SourceBindingError::StoreUnavailable),
         }
+        terminal_head = Some((
+            envelope.native.head.lineage_root,
+            envelope.native.head.identity,
+            envelope.native.head.fact_digest,
+            envelope.native.head.lineage_version,
+        ));
         prior = Some((fact.binding_id(), fact.digest()));
+    }
+    let (terminal_identity, terminal_digest) = prior.ok_or(SourceBindingError::StoreUnavailable)?;
+    let terminal_version =
+        u64::try_from(identities.len()).map_err(|_| SourceBindingError::StoreUnavailable)?;
+    let (head_root, head_identity, head_digest, head_version) =
+        terminal_head.ok_or(SourceBindingError::StoreUnavailable)?;
+
+    if head_root != lineage_root
+        || head_identity != terminal_identity
+        || head_digest != terminal_digest
+        || head_version != terminal_version
+    {
+        return Err(SourceBindingError::StoreUnavailable);
     }
     Ok(())
 }
@@ -1042,7 +1062,10 @@ async fn persist_pit(
     }
     admit_clock(&mut transaction, clock)
         .await
-        .map_err(|_| PitSnapshotError::TrustedClockMismatch)?;
+        .map_err(|e| match e {
+            SourceBindingError::StoreUnavailable => PitSnapshotError::PersistenceUnavailable,
+            _ => PitSnapshotError::TrustedClockMismatch,
+        })?;
     insert_pit(&mut transaction, &aggregate, fault).await?;
     transaction
         .commit()
@@ -1170,6 +1193,7 @@ async fn validate_pit_lineage_shape(
     .await
     .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
     let mut prior = None;
+    let mut terminal_head = None;
 
     for (offset, identity) in identities.iter().enumerate() {
         let identity =
@@ -1206,7 +1230,27 @@ async fn validate_pit_lineage_shape(
                     && fact.predecessor_fact_digest() == Some(prior_digest) => {}
             _ => return Err(PitSnapshotError::PersistenceUnavailable),
         }
+        terminal_head = Some((
+            envelope.native.head.lineage_root,
+            envelope.native.head.identity,
+            envelope.native.head.fact_digest,
+            envelope.native.head.lineage_version,
+        ));
         prior = Some((fact.snapshot_identity(), fact.digest()));
+    }
+    let (terminal_identity, terminal_digest) =
+        prior.ok_or(PitSnapshotError::PersistenceUnavailable)?;
+    let terminal_version =
+        u64::try_from(identities.len()).map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    let (head_root, head_identity, head_digest, head_version) =
+        terminal_head.ok_or(PitSnapshotError::PersistenceUnavailable)?;
+
+    if head_root != lineage_root
+        || head_identity != terminal_identity
+        || head_digest != terminal_digest
+        || head_version != terminal_version
+    {
+        return Err(PitSnapshotError::PersistenceUnavailable);
     }
     Ok(())
 }
