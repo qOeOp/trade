@@ -1942,6 +1942,21 @@ async fn run_postgres_owner_scenario() {
             .await,
         Err(SharedTimeEvidenceError::StoreUnavailable),
     );
+    let mut custody_blocked_source = census_aggregate.commit().fact().proposal().clone();
+    custody_blocked_source.adapter.configuration_digest = d(47);
+    custody_blocked_source.claimed_binding_id = derive_binding_id(&custody_blocked_source);
+    assert_eq!(
+        epoch_owner
+            .commit_source_initial(
+                custody_blocked_source,
+                OwnerSourceBindingDecision {
+                    blockers: BTreeSet::new(),
+                },
+                &winner_clock,
+            )
+            .await,
+        Err(SourceBindingError::StoreUnavailable),
+    );
     sqlx::query(
         "DELETE FROM market_data_private.source_binding_outbox_v1 WHERE aggregate_identity=$1",
     )

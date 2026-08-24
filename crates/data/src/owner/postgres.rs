@@ -831,6 +831,7 @@ async fn admit_clock(
     if !shared_time_migration_is_installed(transaction).await? {
         return Err(SourceBindingError::StoreUnavailable);
     }
+    validate_owner_history_custody(transaction).await?;
     let current = load_current_clock_for_update(transaction).await?;
     if let Some(current) = current {
         let current_fact = ensure_clock_handoff_state(transaction, &current).await?;
