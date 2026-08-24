@@ -11,6 +11,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
+use vibe_deployment_store_admission::{
+    RdOwnerStoreAdmissionBootstrap, admit_rd_owner_market_data_postgres,
+};
 use vibe_product_edge::{
     ARTIFACT_BUILD_REQUIRED_EFFECTS_V1, ProductEdgeAdmissionLocatorV1,
     ProductEdgeAdmissionReadbackV1, ProductEdgeAdmissionRequestV1, ProductEdgeAuthorizationTrustV1,
@@ -118,6 +121,7 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .init();
+    bootstrap_deployment_store_admission().await?;
     let database_url = required_env("RD_OWNER_DATABASE_URL")?;
     let qualification_database_url = required_env("QUALIFICATION_OWNER_DATABASE_URL")?;
     let product_edge_database_url = required_env("PRODUCT_EDGE_DATABASE_URL")?;
@@ -199,6 +203,34 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(listen = %address, "R&D Owner API ready");
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+async fn bootstrap_deployment_store_admission() -> anyhow::Result<()> {
+    enforce_deployment_store_admission(RdOwnerStoreAdmissionBootstrap::from_environment()?).await
+}
+
+#[cfg(test)]
+async fn bootstrap_deployment_store_admission_from_lookup(
+    lookup: impl FnMut(&str) -> Option<String>,
+) -> anyhow::Result<()> {
+    enforce_deployment_store_admission(RdOwnerStoreAdmissionBootstrap::from_lookup(lookup)?).await
+}
+
+async fn enforce_deployment_store_admission(
+    bootstrap: RdOwnerStoreAdmissionBootstrap,
+) -> anyhow::Result<()> {
+    match bootstrap {
+        RdOwnerStoreAdmissionBootstrap::Disabled => Ok(()),
+        RdOwnerStoreAdmissionBootstrap::Required(request) => {
+            let receipt = admit_rd_owner_market_data_postgres(&request).await?;
+            tracing::info!(
+                receipt_identity = receipt.receipt_identity(),
+                consumer = receipt.consumer_identity(),
+                "sealed Deployment Store Admission receipt consumed; governed Market Data repository remains uncomposed"
+            );
+            Ok(())
+        }
+    }
 }
 
 async fn health() -> &'static str {
@@ -1306,6 +1338,75 @@ mod tests {
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
     use super::*;
+
+    #[tokio::test]
+    async fn deployment_store_consumer_seam_preserves_default_and_fails_closed_when_required() {
+        assert!(
+            bootstrap_deployment_store_admission_from_lookup(|_| None)
+                .await
+                .is_ok()
+        );
+
+        let invalid_mode = bootstrap_deployment_store_admission_from_lookup(|name| {
+            (name == "DEPLOYMENT_STORE_ADMISSION_MODE").then(|| "positive".to_string())
+        })
+        .await
+        .unwrap_err();
+        assert!(
+            invalid_mode
+                .downcast_ref::<vibe_deployment_store_admission::BootstrapConfigurationError>()
+                .is_some_and(|e| *e
+                    == vibe_deployment_store_admission::BootstrapConfigurationError::InvalidMode)
+        );
+        let empty_mode = bootstrap_deployment_store_admission_from_lookup(|name| {
+            (name == "DEPLOYMENT_STORE_ADMISSION_MODE").then(String::new)
+        })
+        .await
+        .unwrap_err();
+        assert!(
+            empty_mode
+                .downcast_ref::<vibe_deployment_store_admission::BootstrapConfigurationError>()
+                .is_some_and(|e| *e
+                    == vibe_deployment_store_admission::BootstrapConfigurationError::InvalidMode)
+        );
+
+        let missing_head = bootstrap_deployment_store_admission_from_lookup(|name| match name {
+            "DEPLOYMENT_STORE_ADMISSION_MODE" => Some("required".to_string()),
+            "DEPLOYMENT_STORE_ENVIRONMENT_IDENTITY" => Some("test-environment".to_string()),
+            "DEPLOYMENT_STORE_DEPLOYMENT_IDENTITY" => Some("rd-workbench-test".to_string()),
+            _ => None,
+        })
+        .await
+        .unwrap_err();
+        assert!(
+            missing_head
+                .downcast_ref::<vibe_deployment_store_admission::BootstrapConfigurationError>()
+                .is_some_and(|e| matches!(
+            e,
+            vibe_deployment_store_admission::BootstrapConfigurationError::MissingRequiredIdentity(
+                "DEPLOYMENT_STORE_EXPECTED_HEAD_IDENTITY"
+            )
+        ))
+        );
+
+        let unavailable = bootstrap_deployment_store_admission_from_lookup(|name| match name {
+            "DEPLOYMENT_STORE_ADMISSION_MODE" => Some("required".to_string()),
+            "DEPLOYMENT_STORE_ENVIRONMENT_IDENTITY" => Some("test-environment".to_string()),
+            "DEPLOYMENT_STORE_DEPLOYMENT_IDENTITY" => Some("rd-workbench-test".to_string()),
+            "DEPLOYMENT_STORE_EXPECTED_HEAD_IDENTITY" => Some(format!("sha256:{}", "a".repeat(64))),
+            _ => None,
+        })
+        .await
+        .unwrap_err();
+        assert!(
+            unavailable
+                .downcast_ref::<vibe_deployment_store_admission::DeploymentStoreAdmissionError>()
+                .is_some_and(|e| {
+                    e.code()
+            == vibe_deployment_store_admission::AdmissionFailureCode::ProductionResolverUnavailable
+                })
+        );
+    }
 
     async fn assert_receiptless_artifact_unknown(response: Response) {
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
