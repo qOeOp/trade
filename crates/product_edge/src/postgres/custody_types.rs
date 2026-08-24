@@ -1,5 +1,12 @@
 use super::*;
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct LockedPortfolioReadPolicyEnvelopeV1 {
+    pub(super) operator_authorization: serde_json::Value,
+    pub(super) product_edge: serde_json::Value,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct StoredManifestV1 {
