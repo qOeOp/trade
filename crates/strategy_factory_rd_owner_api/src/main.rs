@@ -11,6 +11,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
+use vibe_deployment_store_admission::{
+    RdOwnerStoreAdmissionBootstrap, admit_rd_owner_market_data_postgres,
+};
 use vibe_product_edge::{
     ARTIFACT_BUILD_REQUIRED_EFFECTS_V1, ProductEdgeAdmissionLocatorV1,
     ProductEdgeAdmissionReadbackV1, ProductEdgeAdmissionRequestV1, ProductEdgeAuthorizationTrustV1,
@@ -118,6 +121,7 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .init();
+    bootstrap_deployment_store_admission().await?;
     let database_url = required_env("RD_OWNER_DATABASE_URL")?;
     let qualification_database_url = required_env("QUALIFICATION_OWNER_DATABASE_URL")?;
     let product_edge_database_url = required_env("PRODUCT_EDGE_DATABASE_URL")?;
@@ -199,6 +203,27 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(listen = %address, "R&D Owner API ready");
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+async fn bootstrap_deployment_store_admission() -> anyhow::Result<()> {
+    enforce_deployment_store_admission(RdOwnerStoreAdmissionBootstrap::from_environment()?).await
+}
+
+async fn enforce_deployment_store_admission(
+    bootstrap: RdOwnerStoreAdmissionBootstrap,
+) -> anyhow::Result<()> {
+    match bootstrap {
+        RdOwnerStoreAdmissionBootstrap::Disabled => Ok(()),
+        RdOwnerStoreAdmissionBootstrap::Required(request) => {
+            let receipt = admit_rd_owner_market_data_postgres(&request).await?;
+            tracing::info!(
+                receipt_identity = receipt.receipt_identity(),
+                consumer = receipt.consumer_identity(),
+                "sealed Deployment Store Admission receipt consumed; governed Market Data repository remains uncomposed"
+            );
+            Ok(())
+        }
+    }
 }
 
 async fn health() -> &'static str {
@@ -1306,6 +1331,26 @@ mod tests {
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
     use super::*;
+
+    #[tokio::test]
+    async fn deployment_store_consumer_seam_preserves_default_and_fails_closed_when_required() {
+        assert!(
+            enforce_deployment_store_admission(RdOwnerStoreAdmissionBootstrap::Disabled)
+                .await
+                .is_ok()
+        );
+        let required = vibe_deployment_store_admission::RdOwnerMarketDataAdmissionRequest::new(
+            "test-environment".to_string(),
+            "rd-workbench-test".to_string(),
+            "sha256:expected-head".to_string(),
+        )
+        .unwrap();
+        let error =
+            enforce_deployment_store_admission(RdOwnerStoreAdmissionBootstrap::Required(required))
+                .await
+                .unwrap_err();
+        assert!(error.to_string().contains("ProductionResolverUnavailable"));
+    }
 
     async fn assert_receiptless_artifact_unknown(response: Response) {
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
