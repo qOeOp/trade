@@ -67,6 +67,8 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_lineage_custody_v1(p_lineage_root BYTEA) RETURNS BOOLEAN LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT EXISTS(SELECT 1 FROM market_data_private.pit_snapshot_heads_v1 AS h WHERE h.lineage_root=p_lineage_root AND h.lineage_version=(SELECT COUNT(*) FROM market_data_private.pit_snapshot_facts_v1 AS f WHERE f.lineage_root=p_lineage_root) AND h.lineage_version=(SELECT COUNT(*) FROM market_data_private.pit_snapshot_outbox_v1 AS o JOIN market_data_private.pit_snapshot_facts_v1 AS f ON f.snapshot_identity=o.aggregate_identity WHERE f.lineage_root=p_lineage_root) AND h.lineage_version=(SELECT MAX(f.lineage_version) FROM market_data_private.pit_snapshot_facts_v1 AS f WHERE f.lineage_root=p_lineage_root)) $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_source_lineage_members_v1(p_lineage_root BYTEA) RETURNS TABLE(member_identity BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT f.binding_id FROM market_data_private.source_binding_facts_v1 AS f WHERE f.lineage_root=p_lineage_root ORDER BY f.lineage_version $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_lineage_members_v1(p_lineage_root BYTEA) RETURNS TABLE(member_identity BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT f.snapshot_identity FROM market_data_private.pit_snapshot_facts_v1 AS f WHERE f.lineage_root=p_lineage_root ORDER BY f.lineage_version $function$",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_source_lineage_roots_v1() RETURNS TABLE(lineage_root BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT h.lineage_root FROM market_data_private.source_binding_heads_v1 AS h ORDER BY h.lineage_root $function$",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_lineage_roots_v1() RETURNS TABLE(lineage_root BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT h.lineage_root FROM market_data_private.pit_snapshot_heads_v1 AS h ORDER BY h.lineage_root $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_clock_handoff_v1(p_head_identity BYTEA) RETURNS TABLE(head_identity BYTEA, head_digest BYTEA, predecessor_head_digest BYTEA, clock_identity TEXT, clock_epoch TEXT, monotonic_sequence BIGINT, wall_observed BIGINT, decision_cut BIGINT, valid_through BIGINT, restart_continuity_digest BYTEA, uncertainty_bound BIGINT, skew_bound BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT h.head_identity,h.head_digest,h.predecessor_head_digest,h.clock_identity,h.clock_epoch,h.monotonic_sequence,h.wall_observed,h.decision_cut,h.valid_through,h.restart_continuity_digest,h.uncertainty_bound,h.skew_bound,h.comparison_rule FROM market_data_private.clock_handoffs_v1 AS h WHERE h.head_identity=p_head_identity $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_epoch_successor_proof_v1(p_successor_head_digest BYTEA) RETURNS TABLE(proof_identity BYTEA, predecessor_head_digest BYTEA, successor_head_digest BYTEA, prior_clock_identity TEXT, prior_clock_epoch TEXT, successor_clock_identity TEXT, successor_clock_epoch TEXT, successor_continuity_digest BYTEA, commit_cut BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT p.proof_identity,p.predecessor_head_digest,p.successor_head_digest,p.prior_clock_identity,p.prior_clock_epoch,p.successor_clock_identity,p.successor_clock_epoch,p.successor_continuity_digest,p.commit_cut,p.comparison_rule FROM market_data_private.epoch_successor_proofs_v1 AS p WHERE p.successor_head_digest=p_successor_head_digest $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_clock_membership_custody_v1() RETURNS TABLE(handoff_count BIGINT, head_identity BYTEA, root_head_identity BYTEA, ordinal BIGINT, prior_head_identity BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT state.handoff_count,edge.head_identity,edge.root_head_identity,edge.ordinal,edge.prior_head_identity FROM market_data_private.clock_handoff_state_v1 AS state LEFT JOIN LATERAL (SELECT membership.head_identity,membership.root_head_identity,membership.ordinal,prior.head_identity AS prior_head_identity FROM market_data_private.clock_handoff_membership_v1 AS membership JOIN market_data_private.clock_handoffs_v1 AS handoff ON handoff.head_identity=membership.head_identity LEFT JOIN market_data_private.clock_handoffs_v1 AS prior ON prior.head_digest=handoff.predecessor_head_digest) AS edge ON TRUE WHERE state.singleton $function$",
@@ -78,6 +80,8 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_lineage_custody_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_source_lineage_members_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_lineage_members_v1(BYTEA) FROM PUBLIC",
+    "REVOKE ALL ON FUNCTION market_data_private.resolve_source_lineage_roots_v1() FROM PUBLIC",
+    "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_lineage_roots_v1() FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_clock_handoff_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_epoch_successor_proof_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_clock_membership_custody_v1() FROM PUBLIC",
@@ -117,6 +121,7 @@ impl MarketDataOwnerPostgres {
                 .await
                 .map_err(|_| SourceBindingError::StoreUnavailable)?;
         }
+        validate_owner_history_custody(&mut transaction).await?;
         let shared_time_installed: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM market_data_private.owner_migrations_v1 WHERE migration_id=$1)",
         )
@@ -647,6 +652,39 @@ async fn validate_source_lineage_shape(
             _ => return Err(SourceBindingError::StoreUnavailable),
         }
         prior = Some((fact.binding_id(), fact.digest()));
+    }
+    Ok(())
+}
+
+async fn validate_owner_history_custody(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), SourceBindingError> {
+    let source_roots: Vec<Vec<u8>> = sqlx::query_scalar(
+        "SELECT lineage_root FROM market_data_private.resolve_source_lineage_roots_v1()",
+    )
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|_| SourceBindingError::StoreUnavailable)?;
+
+    for lineage_root in source_roots {
+        let lineage_root =
+            digest_from_bytes(&lineage_root).map_err(|_| SourceBindingError::StoreUnavailable)?;
+        validate_source_lineage_shape(transaction, lineage_root).await?;
+    }
+
+    let pit_roots: Vec<Vec<u8>> = sqlx::query_scalar(
+        "SELECT lineage_root FROM market_data_private.resolve_pit_lineage_roots_v1()",
+    )
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|_| SourceBindingError::StoreUnavailable)?;
+
+    for lineage_root in pit_roots {
+        let lineage_root =
+            digest_from_bytes(&lineage_root).map_err(|_| SourceBindingError::StoreUnavailable)?;
+        validate_pit_lineage_shape(transaction, lineage_root)
+            .await
+            .map_err(|_| SourceBindingError::StoreUnavailable)?;
     }
     Ok(())
 }
@@ -1211,6 +1249,7 @@ async fn validate_materialized_clock_custody(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), SourceBindingError> {
     lock_clock_state(transaction).await?;
+    validate_owner_history_custody(transaction).await?;
     let current = load_current_clock_for_update(transaction)
         .await?
         .ok_or(SourceBindingError::StoreUnavailable)?;
@@ -2122,6 +2161,9 @@ async fn validate_clock_membership_custody(
 async fn validate_read_custody(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), SharedTimeEvidenceError> {
+    validate_owner_history_custody(transaction)
+        .await
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
     let row = sqlx::query("SELECT * FROM market_data_private.resolve_clock_custody_state_v1()")
         .fetch_optional(&mut **transaction)
         .await

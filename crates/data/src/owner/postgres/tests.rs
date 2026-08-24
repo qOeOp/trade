@@ -365,6 +365,8 @@ async fn grant_reader(admin: &PgPool) {
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_pit_lineage_custody_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_source_lineage_members_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_pit_lineage_members_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_source_lineage_roots_v1() TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_pit_lineage_roots_v1() TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_clock_handoff_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_epoch_successor_proof_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_clock_membership_custody_v1() TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
@@ -1194,6 +1196,11 @@ async fn run_postgres_owner_scenario() {
     let final_owner = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
     let final_reader = MarketDataReadPostgres::connect(&reader_url).await.unwrap();
     let before_corrupt_replays = owner_counts(final_owner.pool()).await;
+    let first_clock_head = build_head_fact(&clock(40, 1), None).unwrap();
+    let second_clock_head =
+        build_head_fact(&clock(50, 2), Some(first_clock_head.handoff.head_digest())).unwrap();
+    let current_clock_head =
+        build_head_fact(&clock(60, 3), Some(second_clock_head.handoff.head_digest())).unwrap();
     sqlx::query(
         "UPDATE market_data_private.source_binding_facts_v1 SET fact_digest=$1 WHERE binding_id=$2",
     )
@@ -1212,8 +1219,18 @@ async fn run_postgres_owner_scenario() {
         final_reader
             .resolve_pit_snapshot(pit_third.receipt().locator())
             .await,
-        Err(PitSnapshotError::SourceBindingUnavailable),
+        Err(PitSnapshotError::PersistenceUnavailable),
     );
+    assert_eq!(
+        final_reader
+            .resolve_clock_head(current_clock_head.handoff.locator())
+            .await,
+        Err(SharedTimeEvidenceError::StoreUnavailable),
+    );
+    assert!(matches!(
+        MarketDataOwnerPostgres::connect(&owner_url).await,
+        Err(SourceBindingError::StoreUnavailable)
+    ));
     assert_eq!(
         Box::pin(final_owner.commit_source_successor(
             source.receipt().locator(),
@@ -1259,6 +1276,16 @@ async fn run_postgres_owner_scenario() {
             .await,
         Err(PitSnapshotError::PersistenceUnavailable),
     );
+    assert_eq!(
+        final_reader
+            .resolve_clock_head(current_clock_head.handoff.locator())
+            .await,
+        Err(SharedTimeEvidenceError::StoreUnavailable),
+    );
+    assert!(matches!(
+        MarketDataOwnerPostgres::connect(&owner_url).await,
+        Err(SourceBindingError::StoreUnavailable)
+    ));
     sqlx::query(
         "UPDATE market_data_private.pit_snapshot_facts_v1 SET fact_digest=$1 WHERE snapshot_identity=$2",
     )
