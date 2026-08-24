@@ -1921,6 +1921,7 @@ async fn run_postgres_owner_scenario() {
         .await
         .unwrap();
     assert_eq!(&census_source, census_aggregate.commit());
+    let census_owner_counts = owner_counts(epoch_owner.pool()).await;
     sqlx::query("DELETE FROM market_data_private.source_binding_heads_v1 WHERE lineage_root=$1")
         .bind(census_source.fact().lineage_root().as_bytes().as_slice())
         .execute(epoch_owner.pool())
@@ -1957,6 +1958,162 @@ async fn run_postgres_owner_scenario() {
     .await
     .unwrap();
     restore_census.commit().await.unwrap();
+    assert_eq!(owner_counts(epoch_owner.pool()).await, census_owner_counts);
+    assert_eq!(
+        epoch_reader
+            .resolve_clock_head(winner.handoff().locator())
+            .await
+            .unwrap(),
+        *winner.handoff()
+    );
+    assert!(MarketDataOwnerPostgres::connect(&owner_url).await.is_ok());
+
+    sqlx::query("DELETE FROM market_data_private.source_binding_heads_v1 WHERE lineage_root=$1")
+        .bind(census_source.fact().lineage_root().as_bytes().as_slice())
+        .execute(epoch_owner.pool())
+        .await
+        .unwrap();
+    sqlx::query(
+        "DELETE FROM market_data_private.source_binding_outbox_v1 WHERE aggregate_identity=$1",
+    )
+    .bind(census_source.fact().binding_id().as_bytes().as_slice())
+    .execute(epoch_owner.pool())
+    .await
+    .unwrap();
+    sqlx::query("DELETE FROM market_data_private.source_binding_facts_v1 WHERE lineage_root=$1")
+        .bind(census_source.fact().lineage_root().as_bytes().as_slice())
+        .execute(epoch_owner.pool())
+        .await
+        .unwrap();
+    sqlx::query(
+        "DELETE FROM market_data_private.source_binding_lineage_census_v1 WHERE lineage_root=$1",
+    )
+    .bind(census_source.fact().lineage_root().as_bytes().as_slice())
+    .execute(epoch_owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        epoch_reader
+            .resolve_clock_head(winner.handoff().locator())
+            .await,
+        Err(SharedTimeEvidenceError::StoreUnavailable),
+    );
+    assert!(matches!(
+        MarketDataOwnerPostgres::connect(&owner_url).await,
+        Err(SourceBindingError::StoreUnavailable)
+    ));
+    let mut restore_census_count = epoch_owner.pool().begin().await.unwrap();
+    sqlx::query(
+        "INSERT INTO market_data_private.source_binding_lineage_census_v1(lineage_root) VALUES ($1)",
+    )
+    .bind(census_source.fact().lineage_root().as_bytes().as_slice())
+    .execute(&mut *restore_census_count)
+    .await
+    .unwrap();
+    insert_source(
+        &mut restore_census_count,
+        &census_aggregate,
+        PostgresCommitFault::None,
+    )
+    .await
+    .unwrap();
+    restore_census_count.commit().await.unwrap();
+    assert_eq!(owner_counts(epoch_owner.pool()).await, census_owner_counts);
+    assert_eq!(
+        epoch_reader
+            .resolve_clock_head(winner.handoff().locator())
+            .await
+            .unwrap(),
+        *winner.handoff()
+    );
+    assert!(MarketDataOwnerPostgres::connect(&owner_url).await.is_ok());
+
+    sqlx::query(
+        "DELETE FROM market_data_private.source_binding_lineage_census_v1 WHERE lineage_root=$1",
+    )
+    .bind(census_source.fact().lineage_root().as_bytes().as_slice())
+    .execute(epoch_owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        epoch_reader
+            .resolve_clock_head(winner.handoff().locator())
+            .await,
+        Err(SharedTimeEvidenceError::StoreUnavailable),
+    );
+    assert!(matches!(
+        MarketDataOwnerPostgres::connect(&owner_url).await,
+        Err(SourceBindingError::StoreUnavailable)
+    ));
+    sqlx::query(
+        "INSERT INTO market_data_private.source_binding_lineage_census_v1(lineage_root) VALUES ($1)",
+    )
+    .bind(census_source.fact().lineage_root().as_bytes().as_slice())
+    .execute(epoch_owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        epoch_reader
+            .resolve_clock_head(winner.handoff().locator())
+            .await
+            .unwrap(),
+        *winner.handoff()
+    );
+    assert!(MarketDataOwnerPostgres::connect(&owner_url).await.is_ok());
+
+    sqlx::query("DELETE FROM market_data_private.owner_history_census_state_v1 WHERE singleton")
+        .execute(epoch_owner.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        epoch_reader
+            .resolve_clock_head(winner.handoff().locator())
+            .await,
+        Err(SharedTimeEvidenceError::StoreUnavailable),
+    );
+    assert!(matches!(
+        MarketDataOwnerPostgres::connect(&owner_url).await,
+        Err(SourceBindingError::StoreUnavailable)
+    ));
+    sqlx::query("INSERT INTO market_data_private.owner_history_census_state_v1(singleton,source_lineage_count,pit_lineage_count) VALUES (TRUE,(SELECT COUNT(*) FROM market_data_private.source_binding_lineage_census_v1),(SELECT COUNT(*) FROM market_data_private.pit_snapshot_lineage_census_v1))")
+        .execute(epoch_owner.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        epoch_reader
+            .resolve_clock_head(winner.handoff().locator())
+            .await
+            .unwrap(),
+        *winner.handoff()
+    );
+    assert!(MarketDataOwnerPostgres::connect(&owner_url).await.is_ok());
+
+    sqlx::query("UPDATE market_data_private.owner_history_census_state_v1 SET source_lineage_count=source_lineage_count+1 WHERE singleton")
+        .execute(epoch_owner.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        epoch_reader
+            .resolve_clock_head(winner.handoff().locator())
+            .await,
+        Err(SharedTimeEvidenceError::StoreUnavailable),
+    );
+    assert!(matches!(
+        MarketDataOwnerPostgres::connect(&owner_url).await,
+        Err(SourceBindingError::StoreUnavailable)
+    ));
+    sqlx::query("UPDATE market_data_private.owner_history_census_state_v1 SET source_lineage_count=source_lineage_count-1 WHERE singleton")
+        .execute(epoch_owner.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        epoch_reader
+            .resolve_clock_head(winner.handoff().locator())
+            .await
+            .unwrap(),
+        *winner.handoff()
+    );
+    assert!(MarketDataOwnerPostgres::connect(&owner_url).await.is_ok());
     sqlx::query(
         "ALTER TABLE market_data_private.epoch_successor_proofs_v1 RENAME TO epoch_successor_proofs_unavailable_test",
     )
@@ -2212,6 +2369,10 @@ async fn run_postgres_owner_scenario() {
         Err(PitSnapshotError::PersistenceUnavailable),
     );
     assert_exact_owner_replays_unavailable(&epoch_owner, &source, &pit).await;
+    assert!(matches!(
+        MarketDataOwnerPostgres::connect(&owner_url).await,
+        Err(SourceBindingError::StoreUnavailable)
+    ));
     sqlx::query("INSERT INTO market_data_private.owner_migrations_v1(migration_id) VALUES ($1)")
         .bind(SHARED_TIME_MIGRATION_ID)
         .execute(epoch_owner.pool())
@@ -2224,6 +2385,8 @@ async fn run_postgres_owner_scenario() {
             .unwrap(),
         *recovered_proof_store.handoff()
     );
+    assert!(MarketDataOwnerPostgres::connect(&owner_url).await.is_ok());
+    consume_direct(&epoch_reader, &epoch_reader, &source_third, &pit_third).await;
     assert_eq!(shared_time_counts(epoch_owner.pool()).await, (8, 2));
 
     let before_partial_loss_owner = owner_counts(epoch_owner.pool()).await;
@@ -2305,6 +2468,7 @@ async fn run_postgres_owner_scenario() {
     restore.commit().await.unwrap();
     consume_direct(&epoch_reader, &epoch_reader, &source_third, &pit_third).await;
 
+    let before_lineage_head_loss = owner_counts(epoch_owner.pool()).await;
     sqlx::query("DELETE FROM market_data_private.source_binding_heads_v1 WHERE lineage_root=$1")
         .bind(source_third.fact().lineage_root().as_bytes().as_slice())
         .execute(epoch_owner.pool())
@@ -2328,6 +2492,19 @@ async fn run_postgres_owner_scenario() {
         .execute(epoch_owner.pool())
         .await
         .unwrap();
+    assert_eq!(
+        owner_counts(epoch_owner.pool()).await,
+        before_lineage_head_loss
+    );
+    assert_eq!(
+        epoch_reader
+            .resolve_clock_head(winner.handoff().locator())
+            .await
+            .unwrap(),
+        *winner.handoff()
+    );
+    consume_direct(&epoch_reader, &epoch_reader, &source_third, &pit_third).await;
+    assert!(MarketDataOwnerPostgres::connect(&owner_url).await.is_ok());
     sqlx::query("DELETE FROM market_data_private.pit_snapshot_heads_v1 WHERE lineage_root=$1")
         .bind(pit_third.fact().lineage_root().as_bytes().as_slice())
         .execute(epoch_owner.pool())
@@ -2351,6 +2528,19 @@ async fn run_postgres_owner_scenario() {
         .execute(epoch_owner.pool())
         .await
         .unwrap();
+    assert_eq!(
+        owner_counts(epoch_owner.pool()).await,
+        before_lineage_head_loss
+    );
+    assert_eq!(
+        epoch_reader
+            .resolve_clock_head(winner.handoff().locator())
+            .await
+            .unwrap(),
+        *winner.handoff()
+    );
+    consume_direct(&epoch_reader, &epoch_reader, &source_third, &pit_third).await;
+    assert!(MarketDataOwnerPostgres::connect(&owner_url).await.is_ok());
 
     assert!(
         sqlx::query("SELECT * FROM market_data_private.clock_handoffs_v1")
