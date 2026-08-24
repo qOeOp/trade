@@ -1000,7 +1000,13 @@ async fn postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed() {
 
     assert_eq!(owner_counts(final_owner.pool()).await, (4, 4, 4, 4));
 
-    let epoch_one_head = build_head_fact(&clock(60, 3), None).unwrap().handoff;
+    let first_clock_head = build_head_fact(&clock(40, 1), None).unwrap();
+    let second_clock_head =
+        build_head_fact(&clock(50, 2), Some(first_clock_head.handoff.head_digest())).unwrap();
+    let epoch_one_head =
+        build_head_fact(&clock(60, 3), Some(second_clock_head.handoff.head_digest()))
+            .unwrap()
+            .handoff;
     let epoch_one_head = final_reader
         .resolve_clock_head(epoch_one_head.locator())
         .await
@@ -1062,6 +1068,52 @@ async fn postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed() {
         .await
         .unwrap();
     assert_eq!(recovered_after_restart, recovered_response);
+    let forged_locator = UntrustedClockHeadLocator::from_untrusted(
+        recovered_response.handoff().head_identity(),
+        d(99),
+    );
+    assert_eq!(
+        epoch_reader.resolve_clock_head(&forged_locator).await,
+        Err(SharedTimeEvidenceError::LocatorMismatch),
+    );
+
+    sqlx::query(
+        "UPDATE market_data_private.clock_handoffs_v1 SET predecessor_head_digest=NULL WHERE head_identity=$1",
+    )
+    .bind(same_epoch.handoff().head_identity().as_bytes().as_slice())
+    .execute(epoch_owner.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE market_data_private.clock_handoffs_v1 SET predecessor_head_digest=$1 WHERE head_identity=$2",
+    )
+    .bind(epoch_one_head.head_digest().as_bytes().as_slice())
+    .bind(recovered_response.handoff().head_identity().as_bytes().as_slice())
+    .execute(epoch_owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        epoch_reader
+            .resolve_clock_successor(&epoch_one_head, recovered_response.handoff().locator())
+            .await,
+        Err(SharedTimeEvidenceError::StoreUnavailable),
+    );
+    sqlx::query(
+        "UPDATE market_data_private.clock_handoffs_v1 SET predecessor_head_digest=$1 WHERE head_identity=$2",
+    )
+    .bind(same_epoch.handoff().head_digest().as_bytes().as_slice())
+    .bind(recovered_response.handoff().head_identity().as_bytes().as_slice())
+    .execute(epoch_owner.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE market_data_private.clock_handoffs_v1 SET predecessor_head_digest=$1 WHERE head_identity=$2",
+    )
+    .bind(epoch_one_head.head_digest().as_bytes().as_slice())
+    .bind(same_epoch.handoff().head_identity().as_bytes().as_slice())
+    .execute(epoch_owner.pool())
+    .await
+    .unwrap();
 
     let epoch_two_clock = shared_clock("market-clock", "epoch-2", 1, 90, d(17), 2, 3);
     let before_interrupted_epoch = shared_time_counts(epoch_owner.pool()).await;

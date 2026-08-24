@@ -297,7 +297,10 @@ pub(crate) fn build_head_fact(
         return Err(SharedTimeEvidenceError::InvalidHead);
     }
     let head_identity = digest(HEAD_IDENTITY_DOMAIN, &canonical_clock_bytes(clock));
-    let head_digest = digest(HEAD_DIGEST_DOMAIN, &canonical_clock_bytes(clock));
+    let head_digest = digest(
+        HEAD_DIGEST_DOMAIN,
+        &canonical_head_bytes(clock, predecessor_head_digest),
+    );
     Ok(ClockHeadFact {
         predecessor_head_digest,
         handoff: ClockHeadHandoff {
@@ -441,6 +444,22 @@ fn canonical_clock_bytes(clock: &MarketDataClockAdmission) -> Vec<u8> {
     bytes
 }
 
+fn canonical_head_bytes(
+    clock: &MarketDataClockAdmission,
+    predecessor_head_digest: Option<BindingDigest>,
+) -> Vec<u8> {
+    let mut bytes = canonical_clock_bytes(clock);
+
+    match predecessor_head_digest {
+        Some(value) => {
+            bytes.push(1);
+            bytes.extend_from_slice(value.as_bytes());
+        }
+        None => bytes.push(0),
+    }
+    bytes
+}
+
 fn canonical_proof_bytes(proof: &EpochSuccessorProof) -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(proof.predecessor_head_digest.as_bytes());
@@ -546,6 +565,16 @@ mod tests {
             );
             assert_ne!(fact.handoff.head_digest(), base_fact.handoff.head_digest());
         }
+
+        let linked = build_head_fact(&clock("epoch-1", 1, 100, d(1)), Some(d(9))).unwrap();
+        assert_eq!(
+            linked.handoff.head_identity(),
+            base_fact.handoff.head_identity()
+        );
+        assert_ne!(
+            linked.handoff.head_digest(),
+            base_fact.handoff.head_digest()
+        );
     }
 
     #[rstest]
