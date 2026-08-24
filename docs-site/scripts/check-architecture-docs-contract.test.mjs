@@ -84,6 +84,16 @@ function markdownTableAfterHeading(source, heading) {
   return { header, rows };
 }
 
+function markdownSectionAfterHeading(source, heading) {
+  const lines = source.split('\n');
+  const headingIndex = lines.indexOf(heading);
+  assert.notEqual(headingIndex, -1, `missing Markdown heading ${heading}`);
+  const level = heading.match(/^#+/)?.[0].length;
+  assert.ok(level, `${heading} is not a Markdown heading`);
+  const endIndex = lines.findIndex((line, index) => index > headingIndex && new RegExp(`^#{1,${level}} `).test(line));
+  return lines.slice(headingIndex + 1, endIndex === -1 ? lines.length : endIndex).join('\n');
+}
+
 function assertResearchDiagnosisTable(source, heading, labels, rowPatterns) {
   const { header, rows } = markdownTableAfterHeading(source, heading);
   assert.equal(header.length, 3, `${heading} must retain three semantic columns`);
@@ -3567,6 +3577,283 @@ test('owner-local operational profiles enforce time readiness drain and bounded 
   assert.equal(admit({ owner: 'runtime', profile: 'runtime-op-v1', clockEpoch: 'clock-1', now: 121 }), 'REJECT_TIME_EVIDENCE');
   queues.get('runtime').state = 'DRAINING';
   assert.equal(admit({ owner: 'runtime', profile: 'runtime-op-v1', clockEpoch: 'clock-1', now: 101 }), 'REJECT_NOT_READY');
+});
+
+function validateSharedTimeClockHeadHandoff(candidate) {
+  const requiredHandoffBindings = [
+    'clock-head-identity', 'clock-head-digest', 'clock-identity', 'clock-epoch-identity',
+    'monotonic-sequence', 'wall-observation', 'decision-cut', 'exclusive-valid-through',
+    'restart-continuity-digest', 'uncertainty-bound', 'skew-bound', 'comparison-rule',
+  ];
+  const requiredProofBindings = [
+    'exact-predecessor-head-digest', 'exact-successor-head-digest', 'prior-epoch-identity',
+    'successor-epoch-identity', 'successor-continuity-digest', 'proof-identity', 'commit-cut',
+    'comparison-rule',
+  ];
+  const forbidden = ['chain-walking', 'skipped-predecessor', 'monotonic-sequence-comparison-across-epochs'];
+  assert.equal(candidate.producerOwnerId, 'market-data');
+  assert.equal(candidate.businessAuthorityDisposition, 'OWNER_LOCAL_NO_GLOBAL_TIME_OWNER');
+  assert.match(candidate.currentState, /^CURRENT_.*NO_CROSS_OWNER_HANDOFF_OR_EPOCH_PROOF$/);
+  assert.match(candidate.targetState, /^TARGET_.*IMMUTABLE.*EXACTLY_RESOLVABLE/);
+  assert.deepEqual(candidate.requiredHandoffBindings, requiredHandoffBindings);
+  assert.match(candidate.sameEpochSuccessorRule, /strictly advances every required cut/);
+  assert.match(candidate.epochSuccessorProof.commitRule, /direct immutable proof is committed atomically with the new canonical head/);
+  assert.deepEqual(candidate.epochSuccessorProof.requiredBindings, requiredProofBindings);
+  assert.deepEqual(candidate.epochSuccessorProof.forbidden, forbidden);
+  assert.match(candidate.consumerTransitionRule, /exact prior sealed handoff.*sole authority/);
+  assert.deepEqual(candidate.firstTargetConsumer, {
+    status: 'TARGET_AFTER_PRODUCER_CLOSURE', ownerId: 'portfolio', cutKind: 'PORTFOLIO_FRESHNESS',
+  });
+}
+
+function validateDeploymentStoreAdmission(candidate) {
+  const requiredStoreBindings = [
+    'environment-identity', 'deployment-identity', 'consumer-owner-identity', 'backend-identity',
+    'endpoint-identity', 'tls-identity-and-policy', 'server-identity',
+    'database-or-bucket-and-prefix-identity',
+    'postgresql-schema-migration-function-role-and-acl-identities-or-s3-capability-and-version-semantics',
+    'opaque-credential-handle-identity-audience-and-version', 'predecessor-head-identity', 'generation',
+    'effective-from-and-valid-through', 'recovery-disposition',
+  ];
+  const positiveReceiptRequirements = [
+    'custodian-signature', 'unique-current-head', 'anti-rollback-witness',
+    'direct-target-measurement', 'credential-lease', 'closed-rotation-fence',
+  ];
+  assert.equal(candidate.contractClass, 'OPERATIONAL_NON_AUTHORITY');
+  assert.equal(candidate.businessAuthority, 'none');
+  assert.equal(candidate.topologyDisposition, 'ABSENT_FROM_AUTHORITY_OWNERS_FLOW_AND_DASHBOARD');
+  assert.match(candidate.currentState, /^CURRENT_NO_SIGNED_EXTERNAL_STORE_HEAD_OR_MANIFEST/);
+  assert.match(candidate.targetState, /^TARGET_SIGNED_APPEND_ONLY/);
+  assert.deepEqual(candidate.requiredStoreBindings, requiredStoreBindings);
+  assert.deepEqual(candidate.positiveReceiptRequirements, positiveReceiptRequirements);
+  assert.match(candidate.positiveEvidenceRule, /Caller-authored evidence cannot create a positive receipt/);
+  assert.match(candidate.restartAndAmbiguityRule, /re-verifies signatures.*directly remeasures.*no Owner repository.*no business retry/);
+  assert.deepEqual(candidate.firstTargetConsumer, {
+    status: 'TARGET_UNTIL_IMPLEMENTED',
+    compositionPath: 'product/rd-workbench/docker-compose.yml#services.rd-owner-api',
+    codePath: 'crates/strategy_factory_rd_owner_api/src/main.rs::main',
+    consumerService: 'rd-owner-api',
+    consumerOwnerId: 'market-data',
+    backend: 'postgresql',
+    admissionPoint: 'before-constructing-governed-market-data-postgresql-repository',
+  });
+  assert.match(candidate.s3Disposition, /^TARGET_UNAVAILABLE_/);
+  assert.match(candidate.productionAdaptersDisposition, /^UNAVAILABLE_/);
+  for (const prohibition of [
+    'business-fact-or-business-receipt', 'global-registry-scheduler-or-deployment-service',
+    'raw-dsn-secret-or-private-key-in-artifact-or-log', 'automatic-ddl-role-credential-or-bucket-mutation',
+    'provider-probing', 'production-write', 'dashboard-implementation', 'trading',
+  ]) assert.ok(candidate.notAdmitted.includes(prohibition), `store admission omits NOT_ADMITTED ${prohibition}`);
+}
+
+test('D0 Shared Time handoff requires every binding and direct atomic epoch succession', () => {
+  const handoff = contract.operationalContract.sharedTimeClockHeadHandoff;
+  validateSharedTimeClockHeadHandoff(handoff);
+  assert.throws(() => validateSharedTimeClockHeadHandoff({ ...handoff, currentState: 'TARGET_ONLY' }));
+  assert.throws(() => validateSharedTimeClockHeadHandoff({ ...handoff, targetState: 'CURRENT' }));
+  assert.throws(() => validateSharedTimeClockHeadHandoff({
+    ...handoff, businessAuthorityDisposition: 'GLOBAL_TIME_OWNER',
+  }));
+  assert.throws(() => validateSharedTimeClockHeadHandoff({
+    ...handoff, firstTargetConsumer: { ...handoff.firstTargetConsumer, ownerId: 'risk' },
+  }));
+  for (const field of handoff.requiredHandoffBindings) {
+    assert.throws(() => validateSharedTimeClockHeadHandoff({
+      ...handoff, requiredHandoffBindings: handoff.requiredHandoffBindings.filter((value) => value !== field),
+    }), undefined, `removing handoff binding ${field} must fail`);
+  }
+  for (const field of handoff.epochSuccessorProof.requiredBindings) {
+    assert.throws(() => validateSharedTimeClockHeadHandoff({
+      ...handoff,
+      epochSuccessorProof: {
+        ...handoff.epochSuccessorProof,
+        requiredBindings: handoff.epochSuccessorProof.requiredBindings.filter((value) => value !== field),
+      },
+    }), undefined, `removing epoch proof binding ${field} must fail`);
+  }
+  for (const forbidden of handoff.epochSuccessorProof.forbidden) {
+    assert.throws(() => validateSharedTimeClockHeadHandoff({
+      ...handoff,
+      epochSuccessorProof: {
+        ...handoff.epochSuccessorProof,
+        forbidden: handoff.epochSuccessorProof.forbidden.filter((value) => value !== forbidden),
+      },
+    }), undefined, `removing epoch prohibition ${forbidden} must fail`);
+  }
+  assert.throws(() => validateSharedTimeClockHeadHandoff({
+    ...handoff,
+    epochSuccessorProof: { ...handoff.epochSuccessorProof, commitRule: 'proof may arrive later' },
+  }));
+});
+
+test('D0 Deployment Store Admission is non-authority and seals its exact first consumer', () => {
+  const admission = contract.operationalContract.deploymentStoreAdmission;
+  validateDeploymentStoreAdmission(admission);
+  assert.throws(() => validateDeploymentStoreAdmission({ ...admission, currentState: 'TARGET_ONLY' }));
+  assert.throws(() => validateDeploymentStoreAdmission({ ...admission, targetState: 'CURRENT' }));
+  assert.throws(() => validateDeploymentStoreAdmission({ ...admission, businessAuthority: 'product-edge' }));
+  assert.throws(() => validateDeploymentStoreAdmission({
+    ...admission,
+    firstTargetConsumer: { ...admission.firstTargetConsumer, consumerService: 'authority-bootstrap' },
+  }));
+  for (const field of admission.requiredStoreBindings) {
+    assert.throws(() => validateDeploymentStoreAdmission({
+      ...admission, requiredStoreBindings: admission.requiredStoreBindings.filter((value) => value !== field),
+    }), undefined, `removing store binding ${field} must fail`);
+  }
+  for (const field of admission.positiveReceiptRequirements) {
+    assert.throws(() => validateDeploymentStoreAdmission({
+      ...admission,
+      positiveReceiptRequirements: admission.positiveReceiptRequirements.filter((value) => value !== field),
+    }), undefined, `removing positive receipt requirement ${field} must fail`);
+  }
+  for (const prohibition of admission.notAdmitted) {
+    assert.throws(() => validateDeploymentStoreAdmission({
+      ...admission, notAdmitted: admission.notAdmitted.filter((value) => value !== prohibition),
+    }), undefined, `removing NOT_ADMITTED ${prohibition} must fail`);
+  }
+  assert.ok(!contract.authorityOwners.some(({ id }) => id === admission.custodianId));
+  assert.ok(!contractGroups.some(({ id }) => id === admission.custodianId));
+  assert.ok(!contractModules.some(({ id }) => id === admission.custodianId));
+  assert.equal(contract.authorityOwners.length, 10);
+  assert.equal(contractGroups.length, 13);
+});
+
+function validateD0BilingualDocs({ architectureRules, adoption, marketData }) {
+  const architectureTime = [
+    markdownSectionAfterHeading(architectureRules.english, '### Shared Time clock-head handoff'),
+    markdownSectionAfterHeading(architectureRules.chinese, '### Shared Time clock-head 交接'),
+  ];
+  const architectureStore = [
+    markdownSectionAfterHeading(architectureRules.english, '### Deployment Store Admission'),
+    markdownSectionAfterHeading(architectureRules.chinese, '### Deployment Store Admission'),
+  ];
+  for (const section of architectureTime) {
+    assert.match(section, /\*\*CURRENT/);
+    assert.match(section, /\*\*TARGET/);
+    assert.match(section, /PORTFOLIO_FRESHNESS/);
+    assert.match(section, /direct.*immutable Epoch Successor Proof/s);
+  }
+  for (const section of architectureStore) {
+    assert.match(section, /\*\*CURRENT/);
+    assert.match(section, /\*\*TARGET/);
+    assert.match(section, /\*\*NOT_ADMITTED/);
+    assert.match(section, /rd-owner-api/);
+    assert.match(section, /S3.*(?:UNAVAILABLE|`UNAVAILABLE`)/s);
+  }
+
+  const adoptionTime = [
+    markdownSectionAfterHeading(adoption.english, '### Shared Time'),
+    markdownSectionAfterHeading(adoption.chinese, '### Shared Time'),
+  ];
+  const adoptionStore = [
+    markdownSectionAfterHeading(adoption.english, '### Deployment Store Admission'),
+    markdownSectionAfterHeading(adoption.chinese, '### Deployment Store Admission'),
+  ];
+  for (const section of adoptionTime) {
+    assert.match(section, /\*\*CURRENT/);
+    assert.match(section, /\*\*TARGET/);
+    assert.match(section, /PORTFOLIO_FRESHNESS/);
+  }
+  for (const section of adoptionStore) {
+    assert.match(section, /\*\*CURRENT/);
+    assert.match(section, /- \*\*TARGET(?:：|:)\*\*/);
+    assert.match(section, /\*\*TARGET \/ UNAVAILABLE/);
+    assert.match(section, /\*\*NOT_ADMITTED/);
+    assert.match(section, /product\/rd-workbench\/docker-compose\.yml#services\.rd-owner-api/);
+    assert.match(section, /crates\/strategy_factory_rd_owner_api\/src\/main\.rs::main/);
+  }
+
+  const marketFacts = [
+    markdownSectionAfterHeading(marketData.english, '## Authoritative facts owned'),
+    markdownSectionAfterHeading(marketData.chinese, '## 拥有的权威事实'),
+  ];
+  const marketOutputs = [
+    markdownSectionAfterHeading(marketData.english, '## Output handoffs'),
+    markdownSectionAfterHeading(marketData.chinese, '## 输出交接'),
+  ];
+  const marketProhibitions = [
+    markdownSectionAfterHeading(marketData.english, '## Rejections and prohibitions'),
+    markdownSectionAfterHeading(marketData.chinese, '## 拒绝和禁止事项'),
+  ];
+  for (const section of marketFacts) {
+    assert.match(section, /\*\*CURRENT/);
+    assert.match(section, /\*\*TARGET/);
+    assert.match(section, /Epoch Successor Proof/);
+  }
+  for (const section of marketOutputs) {
+    assert.match(section, /\*\*TARGET/);
+    assert.match(section, /PORTFOLIO_FRESHNESS/);
+  }
+  for (const section of marketProhibitions) {
+    assert.match(section, /Deployment Store Admission receipt/);
+    assert.match(section, /TARGET/);
+  }
+}
+
+test('D0 bilingual sections preserve local CURRENT TARGET and NOT_ADMITTED classification', () => {
+  const docs = {
+    architectureRules: readBilingualDoc('guide/architecture-rules'),
+    adoption: readBilingualDoc('architecture/capability-adoption'),
+    marketData: readBilingualDoc('owners/market-data'),
+  };
+  validateD0BilingualDocs(docs);
+  assert.throws(() => validateD0BilingualDocs({
+    ...docs,
+    architectureRules: {
+      ...docs.architectureRules,
+      english: docs.architectureRules.english.replace(
+        '**CURRENT:** Market Data atomically persists', '**TARGET:** Market Data atomically persists',
+      ),
+    },
+  }));
+  assert.throws(() => validateD0BilingualDocs({
+    ...docs,
+    architectureRules: {
+      ...docs.architectureRules,
+      chinese: docs.architectureRules.chinese.replace(
+        '**NOT_ADMITTED：** custodian', '**TARGET：** custodian',
+      ),
+    },
+  }));
+  assert.throws(() => validateD0BilingualDocs({
+    ...docs,
+    adoption: {
+      ...docs.adoption,
+      english: docs.adoption.english.replace(
+        '- **TARGET:** one non-business Deployment Store Admission Custodian',
+        '- **CURRENT:** one non-business Deployment Store Admission Custodian',
+      ),
+    },
+  }));
+  assert.throws(() => validateD0BilingualDocs({
+    ...docs,
+    adoption: {
+      ...docs.adoption,
+      chinese: docs.adoption.chinese.replace(
+        '- **TARGET：** 一个非业务 Deployment Store Admission Custodian',
+        '- **CURRENT：** 一个非业务 Deployment Store Admission Custodian',
+      ),
+    },
+  }));
+  assert.throws(() => validateD0BilingualDocs({
+    ...docs,
+    adoption: {
+      ...docs.adoption,
+      english: docs.adoption.english.replace(
+        '- **TARGET / UNAVAILABLE:** S3', '- **CURRENT:** S3',
+      ),
+    },
+  }));
+  assert.throws(() => validateD0BilingualDocs({
+    ...docs,
+    marketData: {
+      ...docs.marketData,
+      chinese: docs.marketData.chinese.replace(
+        '- **CURRENT：** 一个私有规范 clock head', '- **TARGET：** 一个私有规范 clock head',
+      ),
+    },
+  }));
 });
 
 test('Effect Closure View exposes nonterminal blockers and exact evidence frontiers', () => {
