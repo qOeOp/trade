@@ -2178,6 +2178,56 @@
         "noAuthorityBasis": "Strategy Factory is a value stream and never a second Research Backtest Qualification Scanner Portfolio Governance or Runtime authority"
       },
       {
+        "inventoryId": "deployment-attestation",
+        "memberPaths": ["crates/deployment_attestation"],
+        "disposition": "NON_AUTHORITATIVE_INFRASTRUCTURE",
+        "destinationIds": ["strategy-factory"],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Verify Strategy Factory formation artifacts through the fixed sealed policy at the executable use boundary",
+        "noAuthorityBasis": "Verification evidence is a consumer input and grants no deployment business Owner provider effect or trading authority"
+      },
+      {
+        "inventoryId": "observability-projection",
+        "memberPaths": ["crates/observability"],
+        "disposition": "NON_AUTHORITATIVE_INFRASTRUCTURE",
+        "destinationIds": ["observability"],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Project canonical Owner records into one read-only rebuildable fail-closed status view",
+        "noAuthorityBasis": "Observability owns no source fact command retry terminal decision or trading effect"
+      },
+      {
+        "inventoryId": "runtime-foundation",
+        "memberPaths": ["crates/runtime"],
+        "disposition": "MIGRATE_PRESENT_FACETS_ONLY",
+        "destinationIds": ["runtime"],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Expose only the non-authoritative NOT_READY foundation status and its exact revalidation dependencies until canonical durable custody exists",
+        "noAuthorityBasis": "Foundation status grants no Runtime generation checkpoint readiness deployment process control provider order or trading authority"
+      },
+      {
+        "inventoryId": "scanner-owner",
+        "memberPaths": ["crates/scanner"],
+        "disposition": "OWNER_NATIVE_IMPLEMENTATION",
+        "destinationIds": ["scanner"],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Own sealed Scanner attempt admission and receipt production while failing closed before effects when time membership or source authority is unavailable",
+        "noAuthorityBasis": "Scanner receipts grant no Qualification Governance Runtime provider effect or trading authority"
+      },
+      {
+        "inventoryId": "strategy-governance-owner",
+        "memberPaths": ["crates/strategy_governance"],
+        "disposition": "OWNER_NATIVE_IMPLEMENTATION",
+        "destinationIds": ["strategy-governance"],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Own exact fail-closed authorization and lifecycle receipts only after canonical source-Owner evidence admission",
+        "noAuthorityBasis": "Caller adapter evidence cannot manufacture Governance authority and an authorization never proves Runtime application"
+      },
+      {
         "inventoryId": "operator-authorization-issuer",
         "memberPaths": ["crates/operator_authorization"],
         "disposition": "OWNER_NATIVE_IMPLEMENTATION",
