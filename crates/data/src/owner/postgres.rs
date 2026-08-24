@@ -42,6 +42,7 @@ use super::{
 };
 
 const MIGRATION_ID: &str = "market-data-owner-postgres-v1";
+const SHARED_TIME_MIGRATION_ID: &str = "market-data-owner-shared-time-v1";
 
 const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE SCHEMA IF NOT EXISTS market_data_private AUTHORIZATION CURRENT_USER",
@@ -50,6 +51,7 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.clock_head_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), clock_identity TEXT NOT NULL, clock_epoch TEXT NOT NULL, monotonic_sequence BIGINT NOT NULL CHECK (monotonic_sequence > 0), wall_observed BIGINT NOT NULL CHECK (wall_observed > 0), decision_cut BIGINT NOT NULL CHECK (decision_cut > 0), valid_through BIGINT NOT NULL, restart_continuity_digest BYTEA NOT NULL CHECK (octet_length(restart_continuity_digest) = 32), uncertainty_bound BIGINT NOT NULL CHECK (uncertainty_bound >= 0), skew_bound BIGINT NOT NULL CHECK (skew_bound > 0), comparison_rule SMALLINT NOT NULL CHECK (comparison_rule = 1), CHECK (uncertainty_bound <= skew_bound), CHECK (decision_cut <= wall_observed), CHECK (wall_observed < valid_through))",
     "CREATE TABLE IF NOT EXISTS market_data_private.clock_handoffs_v1 (head_identity BYTEA PRIMARY KEY CHECK (octet_length(head_identity) = 32), head_digest BYTEA NOT NULL UNIQUE CHECK (octet_length(head_digest) = 32), predecessor_head_digest BYTEA NULL UNIQUE REFERENCES market_data_private.clock_handoffs_v1(head_digest) CHECK (predecessor_head_digest IS NULL OR octet_length(predecessor_head_digest) = 32), clock_identity TEXT NOT NULL, clock_epoch TEXT NOT NULL, monotonic_sequence BIGINT NOT NULL CHECK (monotonic_sequence > 0), wall_observed BIGINT NOT NULL CHECK (wall_observed > 0), decision_cut BIGINT NOT NULL CHECK (decision_cut > 0), valid_through BIGINT NOT NULL, restart_continuity_digest BYTEA NOT NULL CHECK (octet_length(restart_continuity_digest) = 32), uncertainty_bound BIGINT NOT NULL CHECK (uncertainty_bound >= 0), skew_bound BIGINT NOT NULL CHECK (skew_bound > 0), comparison_rule SMALLINT NOT NULL CHECK (comparison_rule = 1), CHECK (uncertainty_bound <= skew_bound), CHECK (decision_cut <= wall_observed), CHECK (wall_observed < valid_through))",
     "CREATE TABLE IF NOT EXISTS market_data_private.clock_handoff_head_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), head_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.clock_handoffs_v1(head_identity))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.clock_handoff_state_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), materialized BOOLEAN NOT NULL, handoff_count BIGINT NOT NULL CHECK (handoff_count >= 0), epoch_transition_count BIGINT NOT NULL CHECK (epoch_transition_count >= 0), CHECK ((NOT materialized AND handoff_count = 0 AND epoch_transition_count = 0) OR (materialized AND handoff_count > 0 AND epoch_transition_count < handoff_count)))",
     "CREATE TABLE IF NOT EXISTS market_data_private.epoch_successor_proofs_v1 (proof_identity BYTEA PRIMARY KEY CHECK (octet_length(proof_identity) = 32), predecessor_head_digest BYTEA NOT NULL UNIQUE REFERENCES market_data_private.clock_handoffs_v1(head_digest), successor_head_digest BYTEA NOT NULL UNIQUE REFERENCES market_data_private.clock_handoffs_v1(head_digest), prior_clock_identity TEXT NOT NULL, prior_clock_epoch TEXT NOT NULL, successor_clock_identity TEXT NOT NULL, successor_clock_epoch TEXT NOT NULL, successor_continuity_digest BYTEA NOT NULL CHECK (octet_length(successor_continuity_digest) = 32), commit_cut BIGINT NOT NULL CHECK (commit_cut > 0), comparison_rule SMALLINT NOT NULL CHECK (comparison_rule = 1), CHECK (predecessor_head_digest <> successor_head_digest), CHECK (prior_clock_epoch <> successor_clock_epoch))",
     "CREATE TABLE IF NOT EXISTS market_data_private.source_binding_facts_v1 (binding_id BYTEA PRIMARY KEY CHECK (octet_length(binding_id) = 32), fact_digest BYTEA NOT NULL CHECK (octet_length(fact_digest) = 32), lineage_root BYTEA NOT NULL CHECK (octet_length(lineage_root) = 32), lineage_version BIGINT NOT NULL CHECK (lineage_version > 0), aggregate_json JSONB NOT NULL, UNIQUE(lineage_root, lineage_version))",
     "CREATE TABLE IF NOT EXISTS market_data_private.source_binding_heads_v1 (lineage_root BYTEA PRIMARY KEY CHECK (octet_length(lineage_root) = 32), binding_id BYTEA NOT NULL UNIQUE REFERENCES market_data_private.source_binding_facts_v1(binding_id), fact_digest BYTEA NOT NULL CHECK (octet_length(fact_digest) = 32), lineage_version BIGINT NOT NULL CHECK (lineage_version > 0))",
@@ -100,6 +102,26 @@ impl MarketDataOwnerPostgres {
                 .execute(&mut *transaction)
                 .await
                 .map_err(|_| SourceBindingError::StoreUnavailable)?;
+        }
+        let shared_time_installed: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM market_data_private.owner_migrations_v1 WHERE migration_id=$1)",
+        )
+        .bind(SHARED_TIME_MIGRATION_ID)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|_| SourceBindingError::StoreUnavailable)?;
+
+        if shared_time_installed {
+            validate_clock_handoff_installation(&mut transaction).await?;
+        } else {
+            install_clock_handoff_state(&mut transaction).await?;
+            sqlx::query(
+                "INSERT INTO market_data_private.owner_migrations_v1(migration_id) VALUES ($1)",
+            )
+            .bind(SHARED_TIME_MIGRATION_ID)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| SourceBindingError::StoreUnavailable)?;
         }
         sqlx::query(
             "INSERT INTO market_data_private.owner_migrations_v1(migration_id) VALUES ($1) ON CONFLICT (migration_id) DO NOTHING",
@@ -547,14 +569,8 @@ async fn admit_clock(
         return Err(SourceBindingError::TrustedClockMismatch);
     }
     lock_clock_state(transaction).await?;
-    let row = sqlx::query(
-        "SELECT clock_identity,clock_epoch,monotonic_sequence,wall_observed,decision_cut,valid_through,restart_continuity_digest,uncertainty_bound,skew_bound,comparison_rule FROM market_data_private.clock_head_v1 WHERE singleton FOR UPDATE",
-    )
-    .fetch_optional(&mut **transaction)
-    .await
-    .map_err(|_| SourceBindingError::StoreUnavailable)?;
-    if let Some(row) = row {
-        let current = decode_clock(&row).map_err(|_| SourceBindingError::StoreUnavailable)?;
+    let current = load_current_clock_for_update(transaction).await?;
+    if let Some(current) = current {
         let current_fact = ensure_clock_handoff_state(transaction, &current).await?;
         if next == &current {
             return Ok(());
@@ -566,7 +582,14 @@ async fn admit_clock(
         insert_clock_handoff(transaction, &next_fact).await?;
         update_clock(transaction, next).await?;
         set_clock_handoff_head(transaction, next_fact.handoff.head_identity()).await?;
+        advance_clock_handoff_state(transaction, false).await?;
     } else {
+        let state = load_clock_handoff_state_for_update(transaction).await?;
+
+        if state.materialized || state.handoff_count != 0 || state.epoch_transition_count != 0 {
+            return Err(SourceBindingError::StoreUnavailable);
+        }
+
         if !clock_handoff_history_is_empty(transaction).await? {
             return Err(SourceBindingError::StoreUnavailable);
         }
@@ -575,6 +598,7 @@ async fn admit_clock(
         insert_clock_handoff(transaction, &fact).await?;
         insert_clock(transaction, next).await?;
         set_clock_handoff_head(transaction, fact.handoff.head_identity()).await?;
+        materialize_initial_clock_handoff_state(transaction).await?;
     }
     Ok(())
 }
@@ -812,10 +836,194 @@ async fn lock_clock_state(
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+struct DurableClockHandoffState {
+    materialized: bool,
+    handoff_count: i64,
+    epoch_transition_count: i64,
+}
+
+async fn load_current_clock_for_update(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<Option<MarketDataClockAdmission>, SourceBindingError> {
+    sqlx::query(
+        "SELECT clock_identity,clock_epoch,monotonic_sequence,wall_observed,decision_cut,valid_through,restart_continuity_digest,uncertainty_bound,skew_bound,comparison_rule FROM market_data_private.clock_head_v1 WHERE singleton FOR UPDATE",
+    )
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|_| SourceBindingError::StoreUnavailable)?
+    .map(|row| decode_clock(&row).map_err(|_| SourceBindingError::StoreUnavailable))
+    .transpose()
+}
+
+async fn load_clock_handoff_state_for_update(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<DurableClockHandoffState, SourceBindingError> {
+    let row = sqlx::query(
+        "SELECT materialized,handoff_count,epoch_transition_count FROM market_data_private.clock_handoff_state_v1 WHERE singleton FOR UPDATE",
+    )
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|_| SourceBindingError::StoreUnavailable)?
+    .ok_or(SourceBindingError::StoreUnavailable)?;
+    Ok(DurableClockHandoffState {
+        materialized: row
+            .try_get("materialized")
+            .map_err(|_| SourceBindingError::StoreUnavailable)?,
+        handoff_count: row
+            .try_get("handoff_count")
+            .map_err(|_| SourceBindingError::StoreUnavailable)?,
+        epoch_transition_count: row
+            .try_get("epoch_transition_count")
+            .map_err(|_| SourceBindingError::StoreUnavailable)?,
+    })
+}
+
+async fn clock_handoff_storage_counts(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(i64, i64, i64), SourceBindingError> {
+    sqlx::query_as(
+        "SELECT (SELECT COUNT(*) FROM market_data_private.clock_handoffs_v1), (SELECT COUNT(*) FROM market_data_private.clock_handoff_head_v1), (SELECT COUNT(*) FROM market_data_private.epoch_successor_proofs_v1)",
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|_| SourceBindingError::StoreUnavailable)
+}
+
+async fn insert_clock_handoff_state(
+    transaction: &mut Transaction<'_, Postgres>,
+    state: DurableClockHandoffState,
+) -> Result<(), SourceBindingError> {
+    sqlx::query(
+        "INSERT INTO market_data_private.clock_handoff_state_v1(singleton,materialized,handoff_count,epoch_transition_count) VALUES (TRUE,$1,$2,$3)",
+    )
+    .bind(state.materialized)
+    .bind(state.handoff_count)
+    .bind(state.epoch_transition_count)
+    .execute(&mut **transaction)
+    .await
+    .map_err(|_| SourceBindingError::StoreUnavailable)?;
+    Ok(())
+}
+
+async fn materialize_initial_clock_handoff_state(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), SourceBindingError> {
+    let result = sqlx::query(
+        "UPDATE market_data_private.clock_handoff_state_v1 SET materialized=TRUE,handoff_count=1 WHERE singleton AND NOT materialized AND handoff_count=0 AND epoch_transition_count=0",
+    )
+    .execute(&mut **transaction)
+    .await
+    .map_err(|_| SourceBindingError::StoreUnavailable)?;
+
+    if result.rows_affected() == 1 {
+        Ok(())
+    } else {
+        Err(SourceBindingError::StoreUnavailable)
+    }
+}
+
+async fn advance_clock_handoff_state(
+    transaction: &mut Transaction<'_, Postgres>,
+    epoch_changed: bool,
+) -> Result<(), SourceBindingError> {
+    let result = sqlx::query(
+        "UPDATE market_data_private.clock_handoff_state_v1 SET handoff_count=handoff_count+1,epoch_transition_count=epoch_transition_count+$1 WHERE singleton AND materialized",
+    )
+    .bind(i64::from(epoch_changed))
+    .execute(&mut **transaction)
+    .await
+    .map_err(|_| SourceBindingError::StoreUnavailable)?;
+
+    if result.rows_affected() == 1 {
+        Ok(())
+    } else {
+        Err(SourceBindingError::StoreUnavailable)
+    }
+}
+
+async fn install_clock_handoff_state(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), SourceBindingError> {
+    lock_clock_state(transaction).await?;
+    let state_rows: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM market_data_private.clock_handoff_state_v1")
+            .fetch_one(&mut **transaction)
+            .await
+            .map_err(|_| SourceBindingError::StoreUnavailable)?;
+    if state_rows != 0 {
+        return Err(SourceBindingError::StoreUnavailable);
+    }
+    let current = load_current_clock_for_update(transaction).await?;
+    let counts = clock_handoff_storage_counts(transaction).await?;
+    match (current, counts) {
+        (None, (0, 0, 0)) => {
+            insert_clock_handoff_state(
+                transaction,
+                DurableClockHandoffState {
+                    materialized: false,
+                    handoff_count: 0,
+                    epoch_transition_count: 0,
+                },
+            )
+            .await
+        }
+        (Some(clock), (0, 0, 0)) => {
+            let fact = build_head_fact(&clock, None)
+                .map_err(|_| SourceBindingError::TrustedClockMismatch)?;
+            insert_clock_handoff(transaction, &fact).await?;
+            set_clock_handoff_head(transaction, fact.handoff.head_identity()).await?;
+            insert_clock_handoff_state(
+                transaction,
+                DurableClockHandoffState {
+                    materialized: true,
+                    handoff_count: 1,
+                    epoch_transition_count: 0,
+                },
+            )
+            .await
+        }
+        _ => Err(SourceBindingError::StoreUnavailable),
+    }
+}
+
+async fn validate_clock_handoff_installation(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), SourceBindingError> {
+    lock_clock_state(transaction).await?;
+    let state = load_clock_handoff_state_for_update(transaction).await?;
+    let current = load_current_clock_for_update(transaction).await?;
+    let counts = clock_handoff_storage_counts(transaction).await?;
+    match (state.materialized, current, counts) {
+        (false, None, (0, 0, 0))
+            if state.handoff_count == 0 && state.epoch_transition_count == 0 =>
+        {
+            Ok(())
+        }
+        (true, Some(clock), _) => {
+            ensure_clock_handoff_state(transaction, &clock).await?;
+            Ok(())
+        }
+        _ => Err(SourceBindingError::StoreUnavailable),
+    }
+}
+
 async fn ensure_clock_handoff_state(
     transaction: &mut Transaction<'_, Postgres>,
     current: &MarketDataClockAdmission,
 ) -> Result<ClockHeadFact, SourceBindingError> {
+    let state = load_clock_handoff_state_for_update(transaction).await?;
+    let (handoff_count, head_count, epoch_transition_count) =
+        clock_handoff_storage_counts(transaction).await?;
+
+    if !state.materialized
+        || state.handoff_count != handoff_count
+        || state.epoch_transition_count != epoch_transition_count
+        || head_count != 1
+    {
+        return Err(SourceBindingError::StoreUnavailable);
+    }
+
     if let Some(fact) = load_current_clock_fact_for_update(transaction)
         .await
         .map_err(|_| SourceBindingError::StoreUnavailable)?
@@ -825,19 +1033,7 @@ async fn ensure_clock_handoff_state(
         }
         return Err(SourceBindingError::StoreUnavailable);
     }
-    let count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM market_data_private.clock_handoffs_v1")
-            .fetch_one(&mut **transaction)
-            .await
-            .map_err(|_| SourceBindingError::StoreUnavailable)?;
-    if count != 0 {
-        return Err(SourceBindingError::StoreUnavailable);
-    }
-    let fact =
-        build_head_fact(current, None).map_err(|_| SourceBindingError::TrustedClockMismatch)?;
-    insert_clock_handoff(transaction, &fact).await?;
-    set_clock_handoff_head(transaction, fact.handoff.head_identity()).await?;
-    Ok(fact)
+    Err(SourceBindingError::StoreUnavailable)
 }
 
 async fn insert_clock_handoff(
@@ -888,15 +1084,10 @@ async fn persist_clock_successor(
     lock_clock_state(&mut transaction)
         .await
         .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
-    let current_clock_row = sqlx::query(
-        "SELECT clock_identity,clock_epoch,monotonic_sequence,wall_observed,decision_cut,valid_through,restart_continuity_digest,uncertainty_bound,skew_bound,comparison_rule FROM market_data_private.clock_head_v1 WHERE singleton FOR UPDATE",
-    )
-    .fetch_optional(&mut *transaction)
-    .await
-    .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?
-    .ok_or(SharedTimeEvidenceError::PriorHandoffMismatch)?;
-    let current_clock =
-        decode_clock(&current_clock_row).map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+    let current_clock = load_current_clock_for_update(&mut transaction)
+        .await
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?
+        .ok_or(SharedTimeEvidenceError::StoreUnavailable)?;
     let current = ensure_clock_handoff_state(&mut transaction, &current_clock)
         .await
         .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
@@ -964,6 +1155,9 @@ async fn persist_clock_successor(
         .await
         .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
     set_clock_handoff_head(&mut transaction, next_fact.handoff.head_identity())
+        .await
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+    advance_clock_handoff_state(&mut transaction, epoch_changed)
         .await
         .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
     transaction

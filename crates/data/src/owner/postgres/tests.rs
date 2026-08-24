@@ -605,10 +605,32 @@ async fn postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed() {
         Err(SourceBindingError::TrustedClockMismatch),
     );
 
+    let before_upgrade = owner_counts(owner.pool()).await;
+    let mut legacy = owner.pool().begin().await.unwrap();
+    sqlx::query("DELETE FROM market_data_private.owner_migrations_v1 WHERE migration_id=$1")
+        .bind(SHARED_TIME_MIGRATION_ID)
+        .execute(&mut *legacy)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM market_data_private.clock_handoff_state_v1")
+        .execute(&mut *legacy)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM market_data_private.clock_handoff_head_v1")
+        .execute(&mut *legacy)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM market_data_private.clock_handoffs_v1")
+        .execute(&mut *legacy)
+        .await
+        .unwrap();
+    legacy.commit().await.unwrap();
     drop(owner);
     let restarted = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
     let reader = MarketDataReadPostgres::connect(&reader_url).await.unwrap();
     consume_direct(&reader, &reader, &source, &pit).await;
+    assert_eq!(owner_counts(restarted.pool()).await, before_upgrade);
+    assert_eq!(shared_time_counts(restarted.pool()).await, (1, 0));
     let recovered_again = restarted
         .commit_source_initial(source_value, decision.clone(), &clock(40, 1))
         .await
@@ -1251,6 +1273,21 @@ async fn postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed() {
     .execute(epoch_owner.pool())
     .await
     .unwrap();
+    let unavailable_same_epoch = shared_clock(
+        "market-clock",
+        "epoch-2",
+        winner_clock.monotonic_sequence + 1,
+        winner_clock.wall_observed + 10,
+        d(17),
+        2,
+        3,
+    );
+    assert_eq!(
+        epoch_owner
+            .commit_clock_successor(winner.handoff(), &unavailable_same_epoch)
+            .await,
+        Err(SharedTimeEvidenceError::StoreUnavailable),
+    );
     let unavailable_proof_store = shared_clock("market-clock", "epoch-3", 1, 120, d(19), 1, 2);
     assert_eq!(
         epoch_owner
@@ -1272,6 +1309,21 @@ async fn postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed() {
         .execute(epoch_owner.pool())
         .await
         .unwrap();
+    let unavailable_without_singleton = shared_clock(
+        "market-clock",
+        "epoch-2",
+        winner_clock.monotonic_sequence + 1,
+        winner_clock.wall_observed + 10,
+        d(17),
+        2,
+        3,
+    );
+    assert_eq!(
+        epoch_owner
+            .commit_clock_successor(winner.handoff(), &unavailable_without_singleton)
+            .await,
+        Err(SharedTimeEvidenceError::StoreUnavailable),
+    );
     let mut orphan_source = source_proposal(10, 130);
     orphan_source.adapter.configuration_digest = d(44);
     orphan_source.time_evidence.clock_epoch = "orphan-epoch".into();
@@ -1320,6 +1372,57 @@ async fn postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed() {
             .execute(&epoch_reader.pool)
             .await
             .is_err()
+    );
+
+    let before_reverse_partial_loss = owner_counts(epoch_owner.pool()).await;
+    sqlx::query("DELETE FROM market_data_private.epoch_successor_proofs_v1")
+        .execute(epoch_owner.pool())
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM market_data_private.clock_handoff_head_v1")
+        .execute(epoch_owner.pool())
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM market_data_private.clock_handoffs_v1")
+        .execute(epoch_owner.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        epoch_owner
+            .commit_clock_successor(winner.handoff(), &unavailable_without_singleton)
+            .await,
+        Err(SharedTimeEvidenceError::StoreUnavailable),
+    );
+    let mut reverse_loss_source = source_proposal(10, winner_clock.decision_cut);
+    reverse_loss_source.adapter.configuration_digest = d(45);
+    reverse_loss_source.time_evidence.clock_identity = winner_clock.clock_identity.clone();
+    reverse_loss_source.time_evidence.clock_epoch = winner_clock.clock_epoch.clone();
+    reverse_loss_source.time_evidence.monotonic_sequence = winner_clock.monotonic_sequence;
+    reverse_loss_source.time_evidence.restart_continuity_digest =
+        winner_clock.restart_continuity_digest;
+    reverse_loss_source.time_evidence.skew_bound = winner_clock.skew_bound;
+    reverse_loss_source.time_evidence.uncertainty_bound = winner_clock.uncertainty_bound;
+    reverse_loss_source.time_evidence.observed_at = winner_clock.wall_observed;
+    reverse_loss_source.time_evidence.effective_at = winner_clock.decision_cut;
+    reverse_loss_source.time_evidence.valid_through = winner_clock.valid_through;
+    reverse_loss_source.time_evidence.claimed_evidence_identity =
+        derive_time_evidence_identity(&reverse_loss_source.time_evidence);
+    reverse_loss_source.claimed_binding_id = derive_binding_id(&reverse_loss_source);
+    assert_eq!(
+        epoch_owner
+            .commit_source_initial(
+                reverse_loss_source,
+                OwnerSourceBindingDecision {
+                    blockers: BTreeSet::new(),
+                },
+                &winner_clock,
+            )
+            .await,
+        Err(SourceBindingError::StoreUnavailable),
+    );
+    assert_eq!(
+        owner_counts(epoch_owner.pool()).await,
+        before_reverse_partial_loss
     );
     admin.close().await;
 }
