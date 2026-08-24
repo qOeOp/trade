@@ -11,7 +11,7 @@ mod postgres;
 use std::{fmt::Display, sync::Arc};
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
@@ -53,7 +53,7 @@ impl RdOwnerStoreAdmissionBootstrap {
         mut lookup: impl FnMut(&str) -> Option<String>,
     ) -> Result<Self, BootstrapConfigurationError> {
         match lookup(MODE_ENV).as_deref().unwrap_or("disabled") {
-            "disabled" | "" => Ok(Self::Disabled),
+            "disabled" => Ok(Self::Disabled),
             "required" => Ok(Self::Required(RdOwnerMarketDataAdmissionRequest::new(
                 required_lookup(&mut lookup, ENVIRONMENT_ENV)?,
                 required_lookup(&mut lookup, DEPLOYMENT_ENV)?,
@@ -69,7 +69,19 @@ impl RdOwnerStoreAdmissionBootstrap {
     ///
     /// Returns a typed error for invalid or incomplete configuration.
     pub fn from_environment() -> Result<Self, BootstrapConfigurationError> {
-        Self::from_lookup(|name| std::env::var(name).ok())
+        match std::env::var(MODE_ENV) {
+            Ok(mode) => Self::from_lookup(|name| {
+                if name == MODE_ENV {
+                    Some(mode.clone())
+                } else {
+                    std::env::var(name).ok()
+                }
+            }),
+            Err(std::env::VarError::NotPresent) => {
+                Self::from_lookup(|name| std::env::var(name).ok())
+            }
+            Err(std::env::VarError::NotUnicode(_)) => Err(BootstrapConfigurationError::InvalidMode),
+        }
     }
 }
 
@@ -171,7 +183,10 @@ pub struct SealedDeploymentStoreAdmissionReceipt {
     head_identity: String,
     generation: u64,
     history_digest: String,
+    signed_history_proof_identity: String,
+    signed_head_proof_identity: String,
     witness_identity: String,
+    witness_proof_identity: String,
     measurement_digest: String,
     credential_handle_identity: String,
     credential_handle_audience: String,
@@ -180,6 +195,7 @@ pub struct SealedDeploymentStoreAdmissionReceipt {
     admitted_at_epoch_ms: u64,
     valid_through_epoch_ms: u64,
     recovery_identity: String,
+    replay_identity: String,
 }
 
 impl SealedDeploymentStoreAdmissionReceipt {
@@ -214,6 +230,7 @@ pub enum AdmissionFailureCode {
     AntiRollbackRejected,
     ManifestNotCurrent,
     ManifestExpired,
+    AdmissionCutExpired,
     RotationFenceOpen,
     CredentialLeaseRejected,
     DirectMeasurementUnavailable,
@@ -312,28 +329,28 @@ struct AdmissionScope {
     expected_head_identity: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 struct CredentialHandleBinding {
     identity: String,
     audience: String,
     version: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 struct RecoveryBinding {
     identity: String,
     restart_requires_reverification: bool,
     ambiguity_forbids_business_retry: bool,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 struct RotationFence {
     identity: String,
     predecessor_manifest_identity: Option<String>,
     closed_at_epoch_ms: Option<u64>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 struct StoreManifest {
     manifest_identity: String,
     environment_identity: String,
@@ -356,14 +373,14 @@ struct StoreManifest {
     rotation_fence: RotationFence,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 struct SignedManifest {
     manifest: StoreManifest,
     signer_identity: String,
     signature: Vec<u8>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 struct StoreHead {
     head_identity: String,
     environment_identity: String,
@@ -376,7 +393,7 @@ struct StoreHead {
     history_digest: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 struct SignedHead {
     head: StoreHead,
     signer_identity: String,
@@ -389,13 +406,21 @@ struct ResolvedHistory {
     current_heads: Vec<SignedHead>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 struct AntiRollbackObservation {
     witness_identity: String,
     head_identity: String,
     manifest_identity: String,
     generation: u64,
     observed_at_epoch_ms: u64,
+    valid_through_epoch_ms: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct AdmissionCommitCut {
+    signed_history_proof_identity: String,
+    signed_head_proof_identity: String,
+    witness_proof_identity: String,
     valid_through_epoch_ms: u64,
 }
 
@@ -411,6 +436,7 @@ enum ReceiptCommitError {
     Unavailable,
     HeadChanged,
     ConflictingReceipt,
+    Expired,
 }
 
 #[async_trait]
@@ -420,7 +446,7 @@ trait CustodyStore: Send + Sync {
     async fn commit_receipt_if_current(
         &self,
         scope: &AdmissionScope,
-        expected_head: &StoreHead,
+        expected_cut: &AdmissionCommitCut,
         receipt: SealedDeploymentStoreAdmissionReceipt,
     ) -> Result<SealedDeploymentStoreAdmissionReceipt, ReceiptCommitError>;
 }
@@ -549,6 +575,8 @@ impl Custodian {
                 .map(|entry| &entry.manifest.manifest_identity)
                 .collect::<Vec<_>>(),
         );
+        let signed_history_proof_identity = digest_serializable(&manifests);
+        let signed_head_proof_identity = digest_serializable(signed_head);
         let latest = &manifests
             .last()
             .ok_or_else(|| rejection(&scope, AdmissionFailureCode::HistoryUnavailable))?
@@ -628,6 +656,16 @@ impl Custodian {
             ));
         }
 
+        let commit_now = self.clock.now_epoch_ms();
+        let valid_through_epoch_ms = latest
+            .valid_through_epoch_ms
+            .min(observation.valid_through_epoch_ms)
+            .min(lease.valid_through_epoch_ms());
+        if commit_now >= valid_through_epoch_ms {
+            return Err(rejection(&scope, AdmissionFailureCode::AdmissionCutExpired));
+        }
+        let witness_proof_identity = digest_serializable(&observation);
+
         let mut receipt = SealedDeploymentStoreAdmissionReceipt {
             receipt_identity: String::new(),
             environment_identity: scope.environment_identity.clone(),
@@ -639,23 +677,32 @@ impl Custodian {
             head_identity: signed_head.head.head_identity.clone(),
             generation: latest.generation,
             history_digest,
+            signed_history_proof_identity: signed_history_proof_identity.clone(),
+            signed_head_proof_identity: signed_head_proof_identity.clone(),
             witness_identity: observation.witness_identity,
+            witness_proof_identity: witness_proof_identity.clone(),
             measurement_digest: digest_serializable(&measurement),
             credential_handle_identity: latest.credential_handle.identity.clone(),
             credential_handle_audience: latest.credential_handle.audience.clone(),
             credential_handle_version: latest.credential_handle.version.clone(),
             rotation_fence_identity: latest.rotation_fence.identity.clone(),
-            admitted_at_epoch_ms: now,
-            valid_through_epoch_ms: latest
-                .valid_through_epoch_ms
-                .min(observation.valid_through_epoch_ms)
-                .min(lease.valid_through_epoch_ms()),
+            admitted_at_epoch_ms: commit_now,
+            valid_through_epoch_ms,
             recovery_identity: latest.recovery.identity.clone(),
+            replay_identity: String::new(),
         };
+        receipt.replay_identity = receipt_replay_identity(&receipt);
         receipt.receipt_identity = digest_serializable(&receipt);
 
+        let commit_cut = AdmissionCommitCut {
+            signed_history_proof_identity,
+            signed_head_proof_identity,
+            witness_proof_identity,
+            valid_through_epoch_ms,
+        };
+
         self.custody
-            .commit_receipt_if_current(&scope, &signed_head.head, receipt)
+            .commit_receipt_if_current(&scope, &commit_cut, receipt)
             .await
             .map_err(|e| match e {
                 ReceiptCommitError::Unavailable => rejection(
@@ -668,6 +715,9 @@ impl Custodian {
                 ReceiptCommitError::ConflictingReceipt => {
                     rejection(&scope, AdmissionFailureCode::AmbiguousCurrentHead)
                 }
+                ReceiptCommitError::Expired => {
+                    rejection(&scope, AdmissionFailureCode::AdmissionCutExpired)
+                }
             })
     }
 
@@ -678,6 +728,9 @@ impl Custodian {
         value: &T,
         signature: &[u8],
     ) -> Result<(), DeploymentStoreAdmissionError> {
+        if !valid_opaque_identity(signer_identity) {
+            return Err(rejection(scope, AdmissionFailureCode::InvalidSignature));
+        }
         let message = serde_json::to_vec(value)
             .map_err(|_| rejection(scope, AdmissionFailureCode::InvalidSignature))?;
 
@@ -810,11 +863,11 @@ fn digest_serializable(value: &impl Serialize) -> String {
     output
 }
 
-#[cfg(test)]
 fn receipt_replay_identity(receipt: &SealedDeploymentStoreAdmissionReceipt) -> String {
     let mut meaning = receipt.clone();
     meaning.receipt_identity.clear();
     meaning.admitted_at_epoch_ms = 0;
+    meaning.replay_identity.clear();
     digest_serializable(&meaning)
 }
 
@@ -851,7 +904,7 @@ impl CustodyStore for UnavailableCustodyStore {
     async fn commit_receipt_if_current(
         &self,
         _scope: &AdmissionScope,
-        _expected_head: &StoreHead,
+        _expected_cut: &AdmissionCommitCut,
         _receipt: SealedDeploymentStoreAdmissionReceipt,
     ) -> Result<SealedDeploymentStoreAdmissionReceipt, ReceiptCommitError> {
         Err(ReceiptCommitError::Unavailable)
@@ -959,9 +1012,20 @@ mod tests {
         }
     }
 
+    struct MutableClock {
+        now: Arc<AtomicU64>,
+    }
+
+    impl Clock for MutableClock {
+        fn now_epoch_ms(&self) -> u64 {
+            self.now.load(Ordering::SeqCst)
+        }
+    }
+
     struct FakeCustodyState {
         history: ResolvedHistory,
         receipts: HashMap<String, SealedDeploymentStoreAdmissionReceipt>,
+        now_epoch_ms: u64,
     }
 
     #[derive(Clone)]
@@ -981,7 +1045,7 @@ mod tests {
         async fn commit_receipt_if_current(
             &self,
             scope: &AdmissionScope,
-            expected_head: &StoreHead,
+            expected_cut: &AdmissionCommitCut,
             receipt: SealedDeploymentStoreAdmissionReceipt,
         ) -> Result<SealedDeploymentStoreAdmissionReceipt, ReceiptCommitError> {
             let mut state = self
@@ -989,10 +1053,19 @@ mod tests {
                 .lock()
                 .map_err(|_| ReceiptCommitError::Unavailable)?;
 
-            if state.history.current_heads.len() != 1
-                || state.history.current_heads[0].head != *expected_head
+            if state.history.current_heads.len() != 1 {
+                return Err(ReceiptCommitError::HeadChanged);
+            }
+            let current_head_proof = digest_serializable(&state.history.current_heads[0]);
+            let current_history_proof = digest_serializable(&state.history.manifests);
+            if current_head_proof != expected_cut.signed_head_proof_identity
+                || current_history_proof != expected_cut.signed_history_proof_identity
             {
                 return Err(ReceiptCommitError::HeadChanged);
+            }
+
+            if state.now_epoch_ms >= expected_cut.valid_through_epoch_ms {
+                return Err(ReceiptCommitError::Expired);
             }
             let slot = digest_serializable(&(
                 &scope.environment_identity,
@@ -1000,11 +1073,13 @@ mod tests {
                 &scope.consumer_owner,
                 &scope.consumer_identity,
                 &scope.backend,
-                &expected_head.head_identity,
+                &expected_cut.signed_head_proof_identity,
+                &expected_cut.signed_history_proof_identity,
+                &expected_cut.witness_proof_identity,
             ));
 
             if let Some(existing) = state.receipts.get(&slot) {
-                return if receipt_replay_identity(existing) == receipt_replay_identity(&receipt) {
+                return if existing.replay_identity == receipt.replay_identity {
                     Ok(existing.clone())
                 } else {
                     Err(ReceiptCommitError::ConflictingReceipt)
@@ -1033,6 +1108,23 @@ mod tests {
             if signer_identity != SIGNER {
                 return Ok(false);
             }
+            let signature = Signature::try_from(signature).map_err(|_| ())?;
+            Ok(self.key.verify(message, &signature).is_ok())
+        }
+    }
+
+    struct AnyTestSignerVerifier {
+        key: VerifyingKey,
+    }
+
+    #[async_trait]
+    impl SignatureVerifier for AnyTestSignerVerifier {
+        async fn verify(
+            &self,
+            _signer_identity: &str,
+            message: &[u8],
+            signature: &[u8],
+        ) -> Result<bool, ()> {
             let signature = Signature::try_from(signature).map_err(|_| ())?;
             Ok(self.key.verify(message, &signature).is_ok())
         }
@@ -1083,6 +1175,23 @@ mod tests {
         custody: FakeCustodyStore,
     }
 
+    struct ExpiringMeasurer {
+        value: PostgresMeasurement,
+        now: Arc<AtomicU64>,
+    }
+
+    #[async_trait]
+    impl DirectMeasurer for ExpiringMeasurer {
+        async fn measure(
+            &self,
+            _lease: &PostgresCredentialLease,
+            _spec: &PostgresMeasurementSpec,
+        ) -> Result<PostgresMeasurement, ()> {
+            self.now.store(NOW + 5_000, Ordering::SeqCst);
+            Ok(self.value.clone())
+        }
+    }
+
     #[async_trait]
     impl DirectMeasurer for HeadSwitchingMeasurer {
         async fn measure(
@@ -1091,8 +1200,7 @@ mod tests {
             _spec: &PostgresMeasurementSpec,
         ) -> Result<PostgresMeasurement, ()> {
             let mut state = self.custody.state.lock().map_err(|_| ())?;
-            let competing_head = state.history.current_heads[0].clone();
-            state.history.current_heads.push(competing_head);
+            state.history.current_heads[0].signature[0] ^= 1;
             Ok(self.value.clone())
         }
     }
@@ -1212,6 +1320,7 @@ mod tests {
                 state: Arc::new(Mutex::new(FakeCustodyState {
                     history: self.history.clone(),
                     receipts: HashMap::new(),
+                    now_epoch_ms: NOW,
                 })),
             }
         }
@@ -1222,20 +1331,35 @@ mod tests {
             measurement_calls: Arc<AtomicUsize>,
             clock: Arc<dyn Clock>,
         ) -> Custodian {
-            Custodian::new(
-                Arc::new(self.custody()),
+            self.custodian_with_ports(
+                self.custody(),
                 Arc::new(Ed25519Verifier {
                     key: self.signing_key.verifying_key(),
                     calls: signature_calls,
                 }),
-                Arc::new(FakeWitness {
-                    observation: self.witness.clone(),
-                }),
-                Arc::new(FakeCredentials),
                 Arc::new(FakeMeasurer {
                     value: self.measurement.clone(),
                     calls: measurement_calls,
                 }),
+                clock,
+            )
+        }
+
+        fn custodian_with_ports(
+            &self,
+            custody: FakeCustodyStore,
+            signatures: Arc<dyn SignatureVerifier>,
+            measurer: Arc<dyn DirectMeasurer>,
+            clock: Arc<dyn Clock>,
+        ) -> Custodian {
+            Custodian::new(
+                Arc::new(custody),
+                signatures,
+                Arc::new(FakeWitness {
+                    observation: self.witness.clone(),
+                }),
+                Arc::new(FakeCredentials),
+                measurer,
                 clock,
             )
         }
@@ -1376,7 +1500,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn head_change_during_measurement_cannot_commit_a_receipt() {
+    async fn signed_head_change_during_measurement_cannot_commit_a_receipt() {
         let fixture = Fixture::new();
         let custody = fixture.custody();
         let custodian = Custodian::new(
@@ -1398,6 +1522,71 @@ mod tests {
 
         let error = custodian.admit(fixture.request.scope()).await.unwrap_err();
         assert_eq!(error.code(), AdmissionFailureCode::ManifestNotCurrent);
+    }
+
+    #[tokio::test]
+    async fn signer_provenance_changes_the_sealed_receipt() {
+        let first = Fixture::new();
+        let mut second = Fixture::new();
+        for manifest in &mut second.history.manifests {
+            manifest.signer_identity = "deployment-store-other-signer-v2".to_string();
+        }
+        second.history.current_heads[0].signer_identity =
+            "deployment-store-other-signer-v2".to_string();
+
+        let first_receipt = first
+            .custodian_with_ports(
+                first.custody(),
+                Arc::new(AnyTestSignerVerifier {
+                    key: first.signing_key.verifying_key(),
+                }),
+                Arc::new(FakeMeasurer {
+                    value: first.measurement.clone(),
+                    calls: Arc::new(AtomicUsize::new(0)),
+                }),
+                Arc::new(FixedClock),
+            )
+            .admit(first.request.scope())
+            .await
+            .unwrap();
+        let second_receipt = second
+            .custodian_with_ports(
+                second.custody(),
+                Arc::new(AnyTestSignerVerifier {
+                    key: second.signing_key.verifying_key(),
+                }),
+                Arc::new(FakeMeasurer {
+                    value: second.measurement.clone(),
+                    calls: Arc::new(AtomicUsize::new(0)),
+                }),
+                Arc::new(FixedClock),
+            )
+            .admit(second.request.scope())
+            .await
+            .unwrap();
+
+        assert_ne!(first_receipt, second_receipt);
+    }
+
+    #[tokio::test]
+    async fn expiry_during_direct_measurement_yields_no_receipt() {
+        let fixture = Fixture::new();
+        let now = Arc::new(AtomicU64::new(NOW));
+        let custodian = fixture.custodian_with_ports(
+            fixture.custody(),
+            Arc::new(Ed25519Verifier {
+                key: fixture.signing_key.verifying_key(),
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+            Arc::new(ExpiringMeasurer {
+                value: fixture.measurement.clone(),
+                now: now.clone(),
+            }),
+            Arc::new(MutableClock { now }),
+        );
+
+        let error = custodian.admit(fixture.request.scope()).await.unwrap_err();
+        assert_eq!(error.code(), AdmissionFailureCode::AdmissionCutExpired);
     }
 
     #[tokio::test]
@@ -1451,6 +1640,7 @@ mod tests {
                 state: Arc::new(Mutex::new(FakeCustodyState {
                     history: changed.history.clone(),
                     receipts: HashMap::new(),
+                    now_epoch_ms: NOW,
                 })),
             }),
             Arc::new(Ed25519Verifier {

@@ -58,4 +58,11 @@ async fn directly_remeasures_pinned_disposable_postgres_without_secret_disclosur
         after_migration_row,
         measurer.measure(&lease, &spec).await.unwrap()
     );
+
+    sqlx::query("ALTER TABLE deployment_store_test.schema_migrations_v1 ENABLE ROW LEVEL SECURITY")
+        .execute(mutation.pool(CanonicalOwnerTestRoleV1::RdOwner))
+        .await
+        .unwrap();
+    let after_rls_change = measurer.measure(&lease, &spec).await.unwrap();
+    assert_ne!(after_migration_row, after_rls_change);
 }

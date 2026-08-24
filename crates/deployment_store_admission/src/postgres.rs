@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use sqlx::{AssertSqlSafe, Connection, PgConnection, Row};
 use thiserror::Error;
@@ -8,23 +8,29 @@ use url::Url;
 use zeroize::Zeroizing;
 
 /// TLS identity observed for the exact PostgreSQL session.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PostgresTlsIdentity {
     pub(crate) enabled: bool,
     pub(crate) server_name: String,
     pub(crate) protocol: String,
     pub(crate) cipher: String,
+    pub(crate) verification_mode: String,
+    pub(crate) peer_certificate_identity: String,
+    pub(crate) trust_policy_identity: String,
 }
 
 impl PostgresTlsIdentity {
     /// Creates the expected no-TLS identity used only by a pinned disposable local PostgreSQL test.
     #[must_use]
-    pub fn disposable_plaintext(server_name: impl Into<String>) -> Self {
+    pub(crate) fn disposable_plaintext(server_name: impl Into<String>) -> Self {
         Self {
             enabled: false,
             server_name: server_name.into(),
             protocol: "PLAINTEXT_DISPOSABLE_TEST_ONLY".to_string(),
             cipher: "NONE".to_string(),
+            verification_mode: "DISPOSABLE_LOOPBACK_ONLY".to_string(),
+            peer_certificate_identity: "UNAVAILABLE_DISPOSABLE_PLAINTEXT".to_string(),
+            trust_policy_identity: "PINNED_DISPOSABLE_POSTGRES_V1".to_string(),
         }
     }
 
@@ -36,7 +42,7 @@ impl PostgresTlsIdentity {
 }
 
 /// Exact catalog surfaces directly measured through the credential lease.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PostgresMeasurementSpec {
     schema_name: String,
     migration_relation: String,
@@ -170,7 +176,7 @@ impl Debug for PostgresCredentialLease {
 }
 
 /// Canonical direct measurement of one PostgreSQL target and its governed catalog surface.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PostgresMeasurement {
     pub(crate) endpoint_identity: String,
     pub(crate) tls_identity: PostgresTlsIdentity,
@@ -240,14 +246,16 @@ pub enum PostgresMeasurementError {
     CatalogTargetMismatch,
 }
 
-/// Read-only direct PostgreSQL target measurer.
+/// Read-only direct PostgreSQL target measurer for a pinned disposable loopback authority.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PostgresDirectMeasurer;
 
 impl PostgresDirectMeasurer {
     /// Connects with the resolved lease and measures the target in one read-only transaction.
     ///
-    /// No DDL, role, credential, provider, or application mutation is performed.
+    /// Non-loopback, non-test-database, and TLS targets fail closed. Authenticated production TLS
+    /// remains unavailable until a peer-certificate and trust-policy measuring adapter exists. No
+    /// DDL, role, credential, provider, or application mutation is performed.
     ///
     /// # Errors
     ///
@@ -311,6 +319,27 @@ impl PostgresDirectMeasurer {
             }
             _ => return Err(PostgresMeasurementError::IdentityDecodeUnavailable),
         };
+        let role_membership_rows = sqlx::query(
+            "WITH RECURSIVE membership_path AS (SELECT membership.roleid, membership.member, membership.grantor, membership.admin_option, membership.inherit_option, membership.set_option, ARRAY[membership.member, membership.roleid] AS path, 1::bigint AS depth FROM pg_catalog.pg_auth_members AS membership JOIN pg_catalog.pg_roles AS session_role ON session_role.oid = membership.member WHERE session_role.rolname = current_user UNION ALL SELECT next.roleid, next.member, next.grantor, next.admin_option, next.inherit_option, next.set_option, prior.path || next.roleid, prior.depth + 1 FROM membership_path AS prior JOIN pg_catalog.pg_auth_members AS next ON next.member = prior.roleid WHERE prior.depth < 32 AND NOT next.roleid = ANY(prior.path)) SELECT pg_catalog.pg_get_userbyid(roleid)::text AS role_name, pg_catalog.pg_get_userbyid(member)::text AS member_name, pg_catalog.pg_get_userbyid(grantor)::text AS grantor_name, admin_option, inherit_option, set_option, depth FROM membership_path ORDER BY depth, role_name, member_name, grantor_name",
+        )
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::IdentityQueryUnavailable)?;
+        if role_membership_rows.len() > 256 {
+            return Err(PostgresMeasurementError::CatalogTargetMismatch);
+        }
+        let role_membership_identity = rows_digest(
+            &role_membership_rows,
+            &[
+                "role_name",
+                "member_name",
+                "grantor_name",
+                "admin_option",
+                "inherit_option",
+                "set_option",
+                "depth",
+            ],
+        )?;
 
         let tls = sqlx::query(
             "SELECT ssl, COALESCE(version, '')::text AS protocol, COALESCE(cipher, '')::text AS cipher FROM pg_catalog.pg_stat_ssl WHERE pid = pg_catalog.pg_backend_pid()",
@@ -327,16 +356,10 @@ impl PostgresDirectMeasurer {
         let cipher: String = tls
             .try_get("cipher")
             .map_err(|_| PostgresMeasurementError::TlsIdentityUnavailable)?;
-        let tls_identity = if tls_enabled {
-            PostgresTlsIdentity {
-                enabled: true,
-                server_name: target.host.clone(),
-                protocol,
-                cipher,
-            }
-        } else {
-            PostgresTlsIdentity::disposable_plaintext(&target.host)
-        };
+        if tls_enabled || !protocol.is_empty() || !cipher.is_empty() {
+            return Err(PostgresMeasurementError::TlsIdentityUnavailable);
+        }
+        let tls_identity = PostgresTlsIdentity::disposable_plaintext(&target.host);
 
         let schema_rows = sqlx::query(
             "SELECT namespace.oid::bigint AS oid, namespace.nspname::text AS name, pg_catalog.pg_get_userbyid(namespace.nspowner)::text AS owner, COALESCE(namespace.nspacl::text, 'DEFAULT') AS acl FROM pg_catalog.pg_namespace AS namespace WHERE namespace.nspname = $1",
@@ -424,7 +447,7 @@ impl PostgresDirectMeasurer {
 
         for relation in &spec.acl_relations {
             let rows = sqlx::query(
-                "SELECT class.oid::bigint AS oid, namespace.nspname::text AS schema_name, class.relname::text AS relation_name, pg_catalog.pg_get_userbyid(class.relowner)::text AS owner, COALESCE(class.relacl::text, 'DEFAULT') AS acl FROM pg_catalog.pg_class AS class JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace WHERE class.oid = pg_catalog.to_regclass($1)",
+                "SELECT class.oid::bigint AS oid, namespace.nspname::text AS schema_name, class.relname::text AS relation_name, pg_catalog.pg_get_userbyid(class.relowner)::text AS owner, COALESCE(class.relacl::text, 'DEFAULT') AS acl, class.relrowsecurity, class.relforcerowsecurity FROM pg_catalog.pg_class AS class JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace WHERE class.oid = pg_catalog.to_regclass($1)",
             )
             .bind(relation)
             .fetch_all(&mut *transaction)
@@ -435,7 +458,47 @@ impl PostgresDirectMeasurer {
             }
             acl_records.push(rows_digest(
                 &rows,
-                &["oid", "schema_name", "relation_name", "owner", "acl"],
+                &[
+                    "oid",
+                    "schema_name",
+                    "relation_name",
+                    "owner",
+                    "acl",
+                    "relrowsecurity",
+                    "relforcerowsecurity",
+                ],
+            )?);
+            let column_rows = sqlx::query(
+                "SELECT attribute.attnum::bigint AS ordinal, attribute.attname::text AS column_name, COALESCE(attribute.attacl::text, 'DEFAULT') AS acl FROM pg_catalog.pg_attribute AS attribute WHERE attribute.attrelid = pg_catalog.to_regclass($1) AND attribute.attnum > 0 AND NOT attribute.attisdropped ORDER BY attribute.attnum",
+            )
+            .bind(relation)
+            .fetch_all(&mut *transaction)
+            .await
+            .map_err(|_| PostgresMeasurementError::AclIdentityUnavailable)?;
+            acl_records.push(rows_digest(
+                &column_rows,
+                &["ordinal", "column_name", "acl"],
+            )?);
+            let policy_rows = sqlx::query(
+                "SELECT policy.polname::text AS policy_name, policy.polpermissive, policy.polcmd::text AS command, policy.polroles::text AS roles, COALESCE(pg_catalog.pg_get_expr(policy.polqual, policy.polrelid), '')::text AS using_expression, COALESCE(pg_catalog.pg_get_expr(policy.polwithcheck, policy.polrelid), '')::text AS check_expression FROM pg_catalog.pg_policy AS policy WHERE policy.polrelid = pg_catalog.to_regclass($1) ORDER BY policy.polname",
+            )
+            .bind(relation)
+            .fetch_all(&mut *transaction)
+            .await
+            .map_err(|_| PostgresMeasurementError::AclIdentityUnavailable)?;
+            if policy_rows.len() > 256 {
+                return Err(PostgresMeasurementError::CatalogTargetMismatch);
+            }
+            acl_records.push(rows_digest(
+                &policy_rows,
+                &[
+                    "policy_name",
+                    "polpermissive",
+                    "command",
+                    "roles",
+                    "using_expression",
+                    "check_expression",
+                ],
             )?);
         }
         let acl_identity = digest_parts(&acl_records);
@@ -455,7 +518,7 @@ impl PostgresDirectMeasurer {
             schema_identity,
             migration_identity,
             function_identity,
-            role_identity: digest_serializable(&role_record),
+            role_identity: digest_serializable(&(role_record, role_membership_identity)),
             acl_identity,
         })
     }
@@ -469,10 +532,11 @@ struct ParsedTarget {
 
 fn parse_target(database_url: &str) -> Result<ParsedTarget, PostgresMeasurementError> {
     let parsed = Url::parse(database_url).map_err(|_| PostgresMeasurementError::InvalidTarget)?;
+    let database = parsed.path().trim_start_matches('/');
     if !matches!(parsed.scheme(), "postgres" | "postgresql")
         || parsed.host_str().is_none()
         || parsed.username().is_empty()
-        || parsed.path().trim_start_matches('/').is_empty()
+        || !database.starts_with("vibe_test_")
     {
         return Err(PostgresMeasurementError::InvalidTarget);
     }
@@ -481,6 +545,10 @@ fn parse_target(database_url: &str) -> Result<ParsedTarget, PostgresMeasurementE
         .ok_or(PostgresMeasurementError::InvalidTarget)?
         .trim_matches(['[', ']'])
         .to_ascii_lowercase();
+
+    if !matches!(host.as_str(), "127.0.0.1" | "localhost" | "::1") {
+        return Err(PostgresMeasurementError::InvalidTarget);
+    }
     Ok(ParsedTarget {
         host,
         port: parsed.port().unwrap_or(5432),

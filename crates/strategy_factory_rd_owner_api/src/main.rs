@@ -1357,6 +1357,17 @@ mod tests {
                 .is_some_and(|e| *e
                     == vibe_deployment_store_admission::BootstrapConfigurationError::InvalidMode)
         );
+        let empty_mode = bootstrap_deployment_store_admission_from_lookup(|name| {
+            (name == "DEPLOYMENT_STORE_ADMISSION_MODE").then(String::new)
+        })
+        .await
+        .unwrap_err();
+        assert!(
+            empty_mode
+                .downcast_ref::<vibe_deployment_store_admission::BootstrapConfigurationError>()
+                .is_some_and(|e| *e
+                    == vibe_deployment_store_admission::BootstrapConfigurationError::InvalidMode)
+        );
 
         let missing_head = bootstrap_deployment_store_admission_from_lookup(|name| match name {
             "DEPLOYMENT_STORE_ADMISSION_MODE" => Some("required".to_string()),
