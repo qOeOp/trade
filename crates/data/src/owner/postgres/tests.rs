@@ -1159,6 +1159,70 @@ async fn run_postgres_owner_scenario() {
     drop(restarted_again);
     let final_owner = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
     let final_reader = MarketDataReadPostgres::connect(&reader_url).await.unwrap();
+    let before_corrupt_replays = owner_counts(final_owner.pool()).await;
+    sqlx::query(
+        "UPDATE market_data_private.source_binding_heads_v1 SET fact_digest=$1 WHERE lineage_root=$2",
+    )
+    .bind(d(110).as_bytes().as_slice())
+    .bind(source_third.fact().lineage_root().as_bytes().as_slice())
+    .execute(final_owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        Box::pin(final_owner.commit_source_successor(
+            source.receipt().locator(),
+            source_successor_value.clone(),
+            OwnerSourceBindingDecision {
+                blockers: BTreeSet::new(),
+            },
+            &clock(50, 2),
+        ))
+        .await,
+        Err(SourceBindingError::StoreUnavailable),
+    );
+    sqlx::query(
+        "UPDATE market_data_private.source_binding_heads_v1 SET fact_digest=$1 WHERE lineage_root=$2",
+    )
+    .bind(source_third.fact().digest().as_bytes().as_slice())
+    .bind(source_third.fact().lineage_root().as_bytes().as_slice())
+    .execute(final_owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        owner_counts(final_owner.pool()).await,
+        before_corrupt_replays
+    );
+    sqlx::query(
+        "UPDATE market_data_private.pit_snapshot_heads_v1 SET fact_digest=$1 WHERE lineage_root=$2",
+    )
+    .bind(d(111).as_bytes().as_slice())
+    .bind(pit_third.fact().lineage_root().as_bytes().as_slice())
+    .execute(final_owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        final_owner
+            .commit_pit_correction(
+                pit.receipt().locator(),
+                correction_value.clone(),
+                &correction_basis,
+                &clock(50, 2),
+            )
+            .await,
+        Err(PitSnapshotError::PersistenceUnavailable),
+    );
+    sqlx::query(
+        "UPDATE market_data_private.pit_snapshot_heads_v1 SET fact_digest=$1 WHERE lineage_root=$2",
+    )
+    .bind(pit_third.fact().digest().as_bytes().as_slice())
+    .bind(pit_third.fact().lineage_root().as_bytes().as_slice())
+    .execute(final_owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        owner_counts(final_owner.pool()).await,
+        before_corrupt_replays
+    );
     let source_second_replay = Box::pin(final_owner.commit_source_successor(
         source.receipt().locator(),
         source_successor_value,

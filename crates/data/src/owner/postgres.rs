@@ -186,6 +186,11 @@ impl MarketDataOwnerPostgres {
         if let Some(stored) = load_source_for_update(&mut transaction, binding_id, false).await? {
             validate_materialized_clock_custody(&mut transaction).await?;
             Box::pin(validate_source_replay_clock(&mut transaction, &stored)).await?;
+            validate_source_lineage_head_custody(
+                &mut transaction,
+                stored.commit().fact().lineage_root(),
+            )
+            .await?;
             return exact_source_replay(&stored, &aggregate);
         }
 
@@ -263,6 +268,11 @@ impl MarketDataOwnerPostgres {
         if let Some(stored) = load_source_for_update(&mut transaction, binding_id, false).await? {
             validate_materialized_clock_custody(&mut transaction).await?;
             Box::pin(validate_source_replay_clock(&mut transaction, &stored)).await?;
+            validate_source_lineage_head_custody(
+                &mut transaction,
+                stored.commit().fact().lineage_root(),
+            )
+            .await?;
             return exact_source_replay(&stored, &aggregate);
         }
         let head = source_head_for_update(&mut transaction, lineage.root)
@@ -556,6 +566,19 @@ async fn source_head_for_update(
         .transpose()
 }
 
+async fn validate_source_lineage_head_custody(
+    transaction: &mut Transaction<'_, Postgres>,
+    lineage_root: BindingDigest,
+) -> Result<(), SourceBindingError> {
+    let head = source_head_for_update(transaction, lineage_root)
+        .await?
+        .ok_or(SourceBindingError::StoreUnavailable)?;
+    load_source_for_update(transaction, head.identity, true)
+        .await?
+        .ok_or(SourceBindingError::StoreUnavailable)?;
+    Ok(())
+}
+
 async fn insert_source(
     transaction: &mut Transaction<'_, Postgres>,
     aggregate: &SourceBindingStoredAggregate,
@@ -764,6 +787,7 @@ async fn persist_pit(
             .await
             .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
         Box::pin(validate_pit_replay_clock(&mut transaction, &stored)).await?;
+        validate_pit_lineage_head_custody(&mut transaction, stored.fact().lineage_root()).await?;
         return if stored == aggregate {
             Ok(stored)
         } else {
@@ -878,6 +902,19 @@ async fn pit_head_for_update(
     .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
     row.map(|row| decode_head(&row).map_err(|_| PitSnapshotError::PersistenceUnavailable))
         .transpose()
+}
+
+async fn validate_pit_lineage_head_custody(
+    transaction: &mut Transaction<'_, Postgres>,
+    lineage_root: BindingDigest,
+) -> Result<(), PitSnapshotError> {
+    let head = pit_head_for_update(transaction, lineage_root)
+        .await?
+        .ok_or(PitSnapshotError::PersistenceUnavailable)?;
+    load_pit_for_update(transaction, head.identity, true)
+        .await?
+        .ok_or(PitSnapshotError::PersistenceUnavailable)?;
+    Ok(())
 }
 
 async fn insert_pit(
