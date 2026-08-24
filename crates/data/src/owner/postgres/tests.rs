@@ -2235,6 +2235,53 @@ async fn run_postgres_owner_scenario() {
     restore.commit().await.unwrap();
     consume_direct(&epoch_reader, &epoch_reader, &source_third, &pit_third).await;
 
+    sqlx::query("DELETE FROM market_data_private.source_binding_heads_v1 WHERE lineage_root=$1")
+        .bind(source_third.fact().lineage_root().as_bytes().as_slice())
+        .execute(epoch_owner.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        epoch_reader
+            .resolve_clock_head(winner.handoff().locator())
+            .await,
+        Err(SharedTimeEvidenceError::StoreUnavailable),
+    );
+    assert!(matches!(
+        MarketDataOwnerPostgres::connect(&owner_url).await,
+        Err(SourceBindingError::StoreUnavailable)
+    ));
+    sqlx::query("INSERT INTO market_data_private.source_binding_heads_v1(lineage_root,binding_id,fact_digest,lineage_version) VALUES ($1,$2,$3,$4)")
+        .bind(source_third.fact().lineage_root().as_bytes().as_slice())
+        .bind(source_third.fact().binding_id().as_bytes().as_slice())
+        .bind(source_third.fact().digest().as_bytes().as_slice())
+        .bind(i64::try_from(source_third.fact().lineage_version()).unwrap())
+        .execute(epoch_owner.pool())
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM market_data_private.pit_snapshot_heads_v1 WHERE lineage_root=$1")
+        .bind(pit_third.fact().lineage_root().as_bytes().as_slice())
+        .execute(epoch_owner.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        epoch_reader
+            .resolve_clock_head(winner.handoff().locator())
+            .await,
+        Err(SharedTimeEvidenceError::StoreUnavailable),
+    );
+    assert!(matches!(
+        MarketDataOwnerPostgres::connect(&owner_url).await,
+        Err(SourceBindingError::StoreUnavailable)
+    ));
+    sqlx::query("INSERT INTO market_data_private.pit_snapshot_heads_v1(lineage_root,snapshot_identity,fact_digest,lineage_version) VALUES ($1,$2,$3,$4)")
+        .bind(pit_third.fact().lineage_root().as_bytes().as_slice())
+        .bind(pit_third.fact().snapshot_identity().as_bytes().as_slice())
+        .bind(pit_third.fact().digest().as_bytes().as_slice())
+        .bind(i64::try_from(pit_third.fact().lineage_version()).unwrap())
+        .execute(epoch_owner.pool())
+        .await
+        .unwrap();
+
     assert!(
         sqlx::query("SELECT * FROM market_data_private.clock_handoffs_v1")
             .execute(&epoch_reader.pool)
