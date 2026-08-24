@@ -363,7 +363,7 @@ async fn grant_reader(admin: &PgPool) {
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_pit_snapshot_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_clock_handoff_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_epoch_successor_proof_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
-    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_clock_epoch_custody_v1() TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_clock_membership_custody_v1() TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_clock_custody_state_v1() TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
 }
 
@@ -432,6 +432,103 @@ async fn assert_exact_owner_replays_unavailable(
             .await,
         Err(PitSnapshotError::PersistenceUnavailable),
     );
+}
+
+async fn assert_detached_clock_history_unavailable(
+    owner: &MarketDataOwnerPostgres,
+    reader: &MarketDataReadPostgres,
+    owner_url: &str,
+    source: &SourceBindingCommit,
+    pit: &PitSnapshotCommitAggregate,
+) {
+    let prior_clock = shared_clock("detached-clock", "detached-epoch-1", 1, 200, d(60), 1, 2);
+    let prior = build_head_fact(&prior_clock, None).unwrap();
+    let same_clock = shared_clock("detached-clock", "detached-epoch-1", 2, 210, d(60), 1, 2);
+    let same = build_head_fact(&same_clock, Some(prior.handoff.head_digest())).unwrap();
+    let mut same_insert = owner.pool().begin().await.unwrap();
+    insert_clock_handoff(&mut same_insert, &prior)
+        .await
+        .unwrap();
+    insert_clock_handoff(&mut same_insert, &same).await.unwrap();
+    sqlx::query(
+        "UPDATE market_data_private.clock_handoff_state_v1 SET handoff_count=handoff_count+2 WHERE singleton",
+    )
+    .execute(&mut *same_insert)
+    .await
+    .unwrap();
+    same_insert.commit().await.unwrap();
+    assert_eq!(
+        reader
+            .resolve_clock_successor(&prior.handoff, same.handoff.locator())
+            .await,
+        Err(SharedTimeEvidenceError::StoreUnavailable),
+    );
+    sqlx::query(
+        "UPDATE market_data_private.clock_handoff_state_v1 SET handoff_count=handoff_count-2 WHERE singleton",
+    )
+    .execute(owner.pool())
+    .await
+    .unwrap();
+    sqlx::query("DELETE FROM market_data_private.clock_handoffs_v1 WHERE head_identity IN ($1,$2)")
+        .bind(same.handoff.head_identity().as_bytes().as_slice())
+        .bind(prior.handoff.head_identity().as_bytes().as_slice())
+        .execute(owner.pool())
+        .await
+        .unwrap();
+
+    let next_clock = shared_clock("detached-clock", "detached-epoch-2", 1, 210, d(61), 1, 2);
+    let next = build_head_fact(&next_clock, Some(prior.handoff.head_digest())).unwrap();
+    let proof = build_epoch_successor_proof(&prior, &next);
+    let mut next_insert = owner.pool().begin().await.unwrap();
+    insert_clock_handoff(&mut next_insert, &prior)
+        .await
+        .unwrap();
+    insert_clock_handoff(&mut next_insert, &next).await.unwrap();
+    insert_epoch_proof(&mut next_insert, &proof).await.unwrap();
+    sqlx::query(
+        "UPDATE market_data_private.clock_handoff_state_v1 SET handoff_count=handoff_count+2,epoch_transition_count=epoch_transition_count+1 WHERE singleton",
+    )
+    .execute(&mut *next_insert)
+    .await
+    .unwrap();
+    next_insert.commit().await.unwrap();
+    assert_eq!(
+        reader.resolve_clock_head(prior.handoff.locator()).await,
+        Err(SharedTimeEvidenceError::StoreUnavailable),
+    );
+    assert_eq!(
+        reader
+            .resolve_clock_successor(&prior.handoff, next.handoff.locator())
+            .await,
+        Err(SharedTimeEvidenceError::StoreUnavailable),
+    );
+    Box::pin(assert_exact_owner_replays_unavailable(owner, source, pit)).await;
+    assert!(matches!(
+        MarketDataOwnerPostgres::connect(owner_url).await,
+        Err(SourceBindingError::StoreUnavailable)
+    ));
+    let mut cleanup = owner.pool().begin().await.unwrap();
+    sqlx::query(
+        "UPDATE market_data_private.clock_handoff_state_v1 SET handoff_count=handoff_count-2,epoch_transition_count=epoch_transition_count-1 WHERE singleton",
+    )
+    .execute(&mut *cleanup)
+    .await
+    .unwrap();
+    sqlx::query(
+        "DELETE FROM market_data_private.epoch_successor_proofs_v1 WHERE proof_identity=$1",
+    )
+    .bind(proof.proof_identity().as_bytes().as_slice())
+    .execute(&mut *cleanup)
+    .await
+    .unwrap();
+    sqlx::query("DELETE FROM market_data_private.clock_handoffs_v1 WHERE head_identity IN ($1,$2)")
+        .bind(next.handoff.head_identity().as_bytes().as_slice())
+        .bind(prior.handoff.head_identity().as_bytes().as_slice())
+        .execute(&mut *cleanup)
+        .await
+        .unwrap();
+    cleanup.commit().await.unwrap();
+    assert!(MarketDataOwnerPostgres::connect(owner_url).await.is_ok());
 }
 
 async fn owner_counts(pool: &PgPool) -> (i64, i64, i64, i64) {
@@ -674,6 +771,10 @@ async fn run_postgres_owner_scenario() {
         .await
         .unwrap();
     sqlx::query("DELETE FROM market_data_private.clock_handoff_head_v1")
+        .execute(&mut *legacy)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM market_data_private.clock_handoff_membership_v1")
         .execute(&mut *legacy)
         .await
         .unwrap();
@@ -1324,6 +1425,45 @@ async fn run_postgres_owner_scenario() {
         before_epoch_reuse
     );
 
+    sqlx::query(
+        "UPDATE market_data_private.clock_handoffs_v1 SET wall_observed=wall_observed+1 WHERE head_identity=$1",
+    )
+    .bind(second_clock_head.handoff.head_identity().as_bytes().as_slice())
+    .execute(epoch_owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        epoch_reader
+            .resolve_clock_head(epoch_two.handoff().locator())
+            .await,
+        Err(SharedTimeEvidenceError::StoreUnavailable),
+    );
+    assert_eq!(
+        epoch_reader
+            .resolve_source_binding(source.receipt().locator())
+            .await,
+        Err(SourceBindingError::StoreUnavailable),
+    );
+    assert_eq!(
+        epoch_reader
+            .resolve_pit_snapshot(pit.receipt().locator())
+            .await,
+        Err(PitSnapshotError::PersistenceUnavailable),
+    );
+    assert_exact_owner_replays_unavailable(&epoch_owner, &source, &pit).await;
+    assert!(matches!(
+        MarketDataOwnerPostgres::connect(&owner_url).await,
+        Err(SourceBindingError::StoreUnavailable)
+    ));
+    sqlx::query(
+        "UPDATE market_data_private.clock_handoffs_v1 SET wall_observed=wall_observed-1 WHERE head_identity=$1",
+    )
+    .bind(second_clock_head.handoff.head_identity().as_bytes().as_slice())
+    .execute(epoch_owner.pool())
+    .await
+    .unwrap();
+    assert!(MarketDataOwnerPostgres::connect(&owner_url).await.is_ok());
+
     let original_commit_cut: i64 = sqlx::query_scalar(
         "SELECT commit_cut FROM market_data_private.epoch_successor_proofs_v1 WHERE proof_identity=$1",
     )
@@ -1532,6 +1672,15 @@ async fn run_postgres_owner_scenario() {
             .is_some()
     );
     assert_eq!(shared_time_counts(epoch_owner.pool()).await, (8, 2));
+
+    Box::pin(assert_detached_clock_history_unavailable(
+        &epoch_owner,
+        &epoch_reader,
+        &owner_url,
+        &source,
+        &pit,
+    ))
+    .await;
 
     let snapshot_only_clock = shared_clock("market-clock", "epoch-3", 2, 140, d(19), 1, 2);
     let snapshot_only_fact = build_head_fact(
@@ -1812,6 +1961,10 @@ async fn run_postgres_owner_scenario() {
         .await
         .unwrap();
     sqlx::query("DELETE FROM market_data_private.clock_handoff_head_v1")
+        .execute(epoch_owner.pool())
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM market_data_private.clock_handoff_membership_v1")
         .execute(epoch_owner.pool())
         .await
         .unwrap();
