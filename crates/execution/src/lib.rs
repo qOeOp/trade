@@ -125,6 +125,7 @@ pub mod order_emulator;
 pub mod order_manager;
 pub mod protection;
 pub mod reconciliation;
+pub mod recovery_frontier;
 pub mod trailing;
 
 #[cfg(feature = "python")]
