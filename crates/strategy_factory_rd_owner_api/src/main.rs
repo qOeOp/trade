@@ -206,7 +206,13 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn bootstrap_deployment_store_admission() -> anyhow::Result<()> {
-    enforce_deployment_store_admission(RdOwnerStoreAdmissionBootstrap::from_environment()?).await
+    bootstrap_deployment_store_admission_from_lookup(|name| env::var(name).ok()).await
+}
+
+async fn bootstrap_deployment_store_admission_from_lookup(
+    lookup: impl FnMut(&str) -> Option<String>,
+) -> anyhow::Result<()> {
+    enforce_deployment_store_admission(RdOwnerStoreAdmissionBootstrap::from_lookup(lookup)?).await
 }
 
 async fn enforce_deployment_store_admission(
@@ -1335,21 +1341,59 @@ mod tests {
     #[tokio::test]
     async fn deployment_store_consumer_seam_preserves_default_and_fails_closed_when_required() {
         assert!(
-            enforce_deployment_store_admission(RdOwnerStoreAdmissionBootstrap::Disabled)
+            bootstrap_deployment_store_admission_from_lookup(|_| None)
                 .await
                 .is_ok()
         );
-        let required = vibe_deployment_store_admission::RdOwnerMarketDataAdmissionRequest::new(
-            "test-environment".to_string(),
-            "rd-workbench-test".to_string(),
-            "sha256:expected-head".to_string(),
-        )
-        .unwrap();
-        let error =
-            enforce_deployment_store_admission(RdOwnerStoreAdmissionBootstrap::Required(required))
-                .await
-                .unwrap_err();
-        assert!(error.to_string().contains("ProductionResolverUnavailable"));
+
+        let invalid_mode = bootstrap_deployment_store_admission_from_lookup(|name| {
+            (name == "DEPLOYMENT_STORE_ADMISSION_MODE").then(|| "positive".to_string())
+        })
+        .await
+        .unwrap_err();
+        assert!(
+            invalid_mode
+                .downcast_ref::<vibe_deployment_store_admission::BootstrapConfigurationError>()
+                .is_some_and(|e| *e
+                    == vibe_deployment_store_admission::BootstrapConfigurationError::InvalidMode)
+        );
+
+        let missing_head = bootstrap_deployment_store_admission_from_lookup(|name| match name {
+            "DEPLOYMENT_STORE_ADMISSION_MODE" => Some("required".to_string()),
+            "DEPLOYMENT_STORE_ENVIRONMENT_IDENTITY" => Some("test-environment".to_string()),
+            "DEPLOYMENT_STORE_DEPLOYMENT_IDENTITY" => Some("rd-workbench-test".to_string()),
+            _ => None,
+        })
+        .await
+        .unwrap_err();
+        assert!(
+            missing_head
+                .downcast_ref::<vibe_deployment_store_admission::BootstrapConfigurationError>()
+                .is_some_and(|e| matches!(
+            e,
+            vibe_deployment_store_admission::BootstrapConfigurationError::MissingRequiredIdentity(
+                "DEPLOYMENT_STORE_EXPECTED_HEAD_IDENTITY"
+            )
+        ))
+        );
+
+        let unavailable = bootstrap_deployment_store_admission_from_lookup(|name| match name {
+            "DEPLOYMENT_STORE_ADMISSION_MODE" => Some("required".to_string()),
+            "DEPLOYMENT_STORE_ENVIRONMENT_IDENTITY" => Some("test-environment".to_string()),
+            "DEPLOYMENT_STORE_DEPLOYMENT_IDENTITY" => Some("rd-workbench-test".to_string()),
+            "DEPLOYMENT_STORE_EXPECTED_HEAD_IDENTITY" => Some(format!("sha256:{}", "a".repeat(64))),
+            _ => None,
+        })
+        .await
+        .unwrap_err();
+        assert!(
+            unavailable
+                .downcast_ref::<vibe_deployment_store_admission::DeploymentStoreAdmissionError>()
+                .is_some_and(|e| {
+                    e.code()
+            == vibe_deployment_store_admission::AdmissionFailureCode::ProductionResolverUnavailable
+                })
+        );
     }
 
     async fn assert_receiptless_artifact_unknown(response: Response) {

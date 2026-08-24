@@ -18,10 +18,10 @@ async fn directly_remeasures_pinned_disposable_postgres_without_secret_disclosur
     )
     .unwrap();
     let spec = PostgresMeasurementSpec::new(
-        "vibe_test_admin",
-        "vibe_test_admin.dedicated_postgres_test_instance_v1",
-        vec!["pg_catalog.current_database()".to_string()],
-        vec!["vibe_test_admin.dedicated_postgres_test_instance_v1".to_string()],
+        "deployment_store_test",
+        "deployment_store_test.schema_migrations_v1",
+        vec!["deployment_store_test.resolve_v1()".to_string()],
+        vec!["deployment_store_test.schema_migrations_v1".to_string()],
     )
     .unwrap();
     let measurer = PostgresDirectMeasurer;
@@ -31,11 +31,7 @@ async fn directly_remeasures_pinned_disposable_postgres_without_secret_disclosur
 
     assert_eq!(first, after_cache_loss);
     assert!(first.endpoint_identity().starts_with("postgresql://"));
-    assert!(
-        first
-            .server_identity()
-            .starts_with("postgres-server:160004@")
-    );
+    assert!(first.server_identity().contains(":server:160004@"));
     assert!(
         first
             .database_identity()
@@ -46,4 +42,20 @@ async fn directly_remeasures_pinned_disposable_postgres_without_secret_disclosur
     assert!(!serialized.contains("password"));
     assert!(!serialized.contains("secret"));
     assert!(!format!("{lease:?}").contains("password"));
+
+    let mutation = database.mutation();
+    sqlx::query(
+        "INSERT INTO deployment_store_test.schema_migrations_v1(version, checksum) VALUES ($1, $2)",
+    )
+    .bind("review-drift-v1")
+    .bind("sha256:test-only")
+    .execute(mutation.pool(CanonicalOwnerTestRoleV1::RdOwner))
+    .await
+    .unwrap();
+    let after_migration_row = measurer.measure(&lease, &spec).await.unwrap();
+    assert_ne!(after_cache_loss, after_migration_row);
+    assert_eq!(
+        after_migration_row,
+        measurer.measure(&lease, &spec).await.unwrap()
+    );
 }

@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{Connection, PgConnection, Row};
+use sqlx::{AssertSqlSafe, Connection, PgConnection, Row};
 use thiserror::Error;
 use url::Url;
 use zeroize::Zeroizing;
@@ -76,6 +76,12 @@ impl PostgresMeasurementSpec {
                 .iter()
                 .chain(&spec.acl_relations)
                 .any(|value| value.is_empty() || value.len() > 512)
+            || !canonical_identifier(&spec.schema_name)
+            || quoted_qualified_name(&spec.migration_relation).is_none()
+            || spec
+                .acl_relations
+                .iter()
+                .any(|relation| quoted_qualified_name(relation).is_none())
         {
             return Err(PostgresMeasurementError::InvalidSpecification);
         }
@@ -120,6 +126,9 @@ impl PostgresCredentialLease {
             || lease.version.is_empty()
             || lease.valid_through_epoch_ms == 0
             || lease.database_url.is_empty()
+            || !safe_opaque_identity(&lease.handle_identity)
+            || !safe_opaque_identity(&lease.audience)
+            || !safe_opaque_identity(&lease.version)
         {
             return Err(PostgresMeasurementError::InvalidCredentialLease);
         }
@@ -262,13 +271,16 @@ impl PostgresDirectMeasurer {
             .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
 
         let identity = sqlx::query(
-            "SELECT pg_catalog.current_setting('server_version_num')::text AS server_version, pg_catalog.inet_server_addr()::text AS server_address, pg_catalog.inet_server_port()::bigint AS server_port, pg_catalog.current_database()::text AS database_name, database.oid::bigint AS database_oid, current_user::text AS role_name, role.oid::bigint AS role_oid, role.rolsuper, role.rolinherit, role.rolcreaterole, role.rolcreatedb, role.rolcanlogin, role.rolreplication, role.rolbypassrls FROM pg_catalog.pg_database AS database JOIN pg_catalog.pg_roles AS role ON role.rolname = current_user WHERE database.datname = pg_catalog.current_database()",
+            "SELECT (pg_catalog.pg_control_system()).system_identifier::text AS system_identifier, pg_catalog.current_setting('server_version_num')::text AS server_version, pg_catalog.inet_server_addr()::text AS server_address, pg_catalog.inet_server_port()::bigint AS server_port, pg_catalog.current_database()::text AS database_name, database.oid::bigint AS database_oid, current_user::text AS role_name, role.oid::bigint AS role_oid, role.rolsuper, role.rolinherit, role.rolcreaterole, role.rolcreatedb, role.rolcanlogin, role.rolreplication, role.rolbypassrls FROM pg_catalog.pg_database AS database JOIN pg_catalog.pg_roles AS role ON role.rolname = current_user WHERE database.datname = pg_catalog.current_database()",
         )
         .fetch_one(&mut *transaction)
         .await
         .map_err(|_| PostgresMeasurementError::IdentityQueryUnavailable)?;
         let server_version: String = identity
             .try_get("server_version")
+            .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
+        let system_identifier: String = identity
+            .try_get("system_identifier")
             .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
         let database_name: String = identity
             .try_get("database_name")
@@ -348,7 +360,7 @@ impl PostgresDirectMeasurer {
         if migration_rows.is_empty() {
             return Err(PostgresMeasurementError::CatalogTargetMismatch);
         }
-        let migration_identity = rows_digest(
+        let migration_definition_identity = rows_digest(
             &migration_rows,
             &[
                 "relation_oid",
@@ -363,6 +375,22 @@ impl PostgresDirectMeasurer {
                 "default_expression",
             ],
         )?;
+        let migration_relation = quoted_qualified_name(&spec.migration_relation)
+            .ok_or(PostgresMeasurementError::InvalidSpecification)?;
+        let migration_content_query = format!(
+            "SELECT pg_catalog.to_jsonb(migration_row)::text AS row_json FROM {migration_relation} AS migration_row ORDER BY pg_catalog.to_jsonb(migration_row)::text"
+        );
+        let migration_content_rows = sqlx::query(AssertSqlSafe(migration_content_query))
+            .fetch_all(&mut *transaction)
+            .await
+            .map_err(|_| PostgresMeasurementError::MigrationIdentityUnavailable)?;
+
+        if migration_content_rows.len() > 10_000 {
+            return Err(PostgresMeasurementError::CatalogTargetMismatch);
+        }
+        let migration_content_identity = rows_digest(&migration_content_rows, &["row_json"])?;
+        let migration_identity =
+            digest_serializable(&(migration_definition_identity, migration_content_identity));
 
         let mut function_records = Vec::with_capacity(spec.function_signatures.len());
         for signature in &spec.function_signatures {
@@ -421,7 +449,7 @@ impl PostgresDirectMeasurer {
             endpoint_identity: format!("postgresql://{}:{}", target.host, target.port),
             tls_identity,
             server_identity: format!(
-                "postgres-server:{server_version}@{server_address}:{server_port}"
+                "postgres-system:{system_identifier}:server:{server_version}@{server_address}:{server_port}"
             ),
             database_identity: format!("postgres-database:{database_name}:{database_oid}"),
             schema_identity,
@@ -457,6 +485,32 @@ fn parse_target(database_url: &str) -> Result<ParsedTarget, PostgresMeasurementE
         host,
         port: parsed.port().unwrap_or(5432),
     })
+}
+
+fn safe_opaque_identity(value: &str) -> bool {
+    (1..=128).contains(&value.len())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+}
+
+fn canonical_identifier(value: &str) -> bool {
+    let mut bytes = value.bytes();
+    bytes
+        .next()
+        .is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$'))
+}
+
+fn quoted_qualified_name(value: &str) -> Option<String> {
+    let mut parts = value.split('.');
+    let schema = parts.next()?;
+    let relation = parts.next()?;
+
+    if parts.next().is_some() || !canonical_identifier(schema) || !canonical_identifier(relation) {
+        return None;
+    }
+    Some(format!("\"{schema}\".\"{relation}\""))
 }
 
 fn rows_digest(

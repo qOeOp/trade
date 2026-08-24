@@ -36,3 +36,7 @@ name = "strategy-factory-rd-owner-api"
 path = "src/main.rs"
 doc = false
 test = false
+
+[[test]]
+name = "rd_owner_api_main"
+path = "src/main.rs"

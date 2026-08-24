@@ -23,5 +23,6 @@ zeroize = { workspace = true }
 [dev-dependencies]
 ed25519-dalek = { workspace = true }
 rstest = { workspace = true }
+sqlx = { workspace = true }
 tokio = { workspace = true }
 vibe-testkit = { workspace = true, features = ["postgres"] }
