@@ -340,7 +340,7 @@ pub(crate) fn validate_same_epoch_successor(
         && next.uncertainty_bound == current.uncertainty_bound
         && next.skew_bound == current.skew_bound
         && next.comparison_rule == current.comparison_rule;
-    let advances = next.monotonic_sequence > current.monotonic_sequence
+    let advances = current.monotonic_sequence.checked_add(1) == Some(next.monotonic_sequence)
         && next.wall_observed > current.wall_observed
         && next.decision_cut > current.decision_cut
         && next.valid_through > current.valid_through;
@@ -602,6 +602,9 @@ mod tests {
         variants.push(value);
         let mut value = valid.clone();
         value.monotonic_sequence = 1;
+        variants.push(value);
+        let mut value = valid.clone();
+        value.monotonic_sequence = 3;
         variants.push(value);
         let mut value = valid.clone();
         value.wall_observed = 105;
