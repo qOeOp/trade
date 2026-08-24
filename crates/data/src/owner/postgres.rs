@@ -594,6 +594,10 @@ async fn admit_clock(
         if !clock_handoff_history_is_empty(transaction).await? {
             return Err(SourceBindingError::StoreUnavailable);
         }
+
+        if !owner_fact_history_is_empty(transaction).await? {
+            return Err(SourceBindingError::StoreUnavailable);
+        }
         let fact =
             build_head_fact(next, None).map_err(|_| SourceBindingError::TrustedClockMismatch)?;
         insert_clock_handoff(transaction, &fact).await?;
@@ -609,6 +613,18 @@ async fn clock_handoff_history_is_empty(
 ) -> Result<bool, SourceBindingError> {
     let count: i64 = sqlx::query_scalar(
         "SELECT (SELECT COUNT(*) FROM market_data_private.clock_handoffs_v1) + (SELECT COUNT(*) FROM market_data_private.clock_handoff_head_v1) + (SELECT COUNT(*) FROM market_data_private.epoch_successor_proofs_v1)",
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|_| SourceBindingError::StoreUnavailable)?;
+    Ok(count == 0)
+}
+
+async fn owner_fact_history_is_empty(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<bool, SourceBindingError> {
+    let count: i64 = sqlx::query_scalar(
+        "SELECT (SELECT COUNT(*) FROM market_data_private.source_binding_facts_v1) + (SELECT COUNT(*) FROM market_data_private.source_binding_heads_v1) + (SELECT COUNT(*) FROM market_data_private.source_binding_outbox_v1) + (SELECT COUNT(*) FROM market_data_private.pit_snapshot_facts_v1) + (SELECT COUNT(*) FROM market_data_private.pit_snapshot_heads_v1) + (SELECT COUNT(*) FROM market_data_private.pit_snapshot_outbox_v1)",
     )
     .fetch_one(&mut **transaction)
     .await
@@ -971,7 +987,7 @@ async fn install_clock_handoff_state(
         load_clock_materialization_witness_for_update(transaction).await?;
     let counts = clock_handoff_storage_counts(transaction).await?;
     match (current, materialization_witness, counts) {
-        (None, None, (0, 0, 0)) => {
+        (None, None, (0, 0, 0)) if owner_fact_history_is_empty(transaction).await? => {
             insert_clock_handoff_state(
                 transaction,
                 DurableClockHandoffState {

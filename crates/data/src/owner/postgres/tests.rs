@@ -1059,6 +1059,43 @@ async fn postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed() {
     assert_eq!(same_epoch_readback, same_epoch);
     consume_direct(&final_reader, &final_reader, &source_third, &pit_third).await;
 
+    let before_same_epoch_rejections = shared_time_counts(final_owner.pool()).await;
+    let mut rejected_same_epoch = Vec::new();
+    let mut value = clock(80, 5);
+    value.clock_identity = "other-clock".into();
+    rejected_same_epoch.push(value);
+    let mut value = clock(80, 5);
+    value.restart_continuity_digest = d(8);
+    rejected_same_epoch.push(value);
+    let mut value = clock(80, 5);
+    value.uncertainty_bound = 0;
+    rejected_same_epoch.push(value);
+    let mut value = clock(80, 5);
+    value.skew_bound = 3;
+    rejected_same_epoch.push(value);
+    let mut value = clock(80, 5);
+    value.monotonic_sequence = same_epoch_clock.monotonic_sequence;
+    rejected_same_epoch.push(value);
+    for rejected in rejected_same_epoch {
+        assert_eq!(
+            final_owner
+                .commit_clock_successor(same_epoch.handoff(), &rejected)
+                .await,
+            Err(SharedTimeEvidenceError::SuccessorDoesNotAdvance),
+        );
+        assert_eq!(
+            shared_time_counts(final_owner.pool()).await,
+            before_same_epoch_rejections
+        );
+        assert_eq!(
+            final_reader
+                .resolve_clock_head(same_epoch.handoff().locator())
+                .await
+                .unwrap(),
+            *same_epoch.handoff()
+        );
+    }
+
     let mut cut_rollback = clock(80, 5);
     cut_rollback.decision_cut = same_epoch_clock.decision_cut;
     assert_eq!(
@@ -1086,6 +1123,17 @@ async fn postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed() {
             )
             .await,
         Err(SharedTimeEvidenceError::ResponseLost),
+    );
+    let after_response_loss = shared_time_counts(final_owner.pool()).await;
+    assert_eq!(
+        final_owner
+            .commit_clock_successor(&epoch_one_head, &response_loss_clock)
+            .await,
+        Err(SharedTimeEvidenceError::ReplayConflict),
+    );
+    assert_eq!(
+        shared_time_counts(final_owner.pool()).await,
+        after_response_loss
     );
     let recovered_response = final_owner
         .commit_clock_successor(same_epoch.handoff(), &response_loss_clock)
@@ -1254,6 +1302,64 @@ async fn postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed() {
     .await
     .unwrap();
 
+    sqlx::query(
+        "DELETE FROM market_data_private.epoch_successor_proofs_v1 WHERE proof_identity=$1",
+    )
+    .bind(epoch_proof.proof_identity().as_bytes().as_slice())
+    .execute(epoch_owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        epoch_reader
+            .resolve_clock_successor(recovered_response.handoff(), epoch_two.handoff().locator())
+            .await,
+        Err(SharedTimeEvidenceError::EpochSuccessorProofMismatch),
+    );
+    sqlx::query(
+        "INSERT INTO market_data_private.epoch_successor_proofs_v1(proof_identity,predecessor_head_digest,successor_head_digest,prior_clock_identity,prior_clock_epoch,successor_clock_identity,successor_clock_epoch,successor_continuity_digest,commit_cut,comparison_rule) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,1)",
+    )
+    .bind(epoch_proof.proof_identity().as_bytes().as_slice())
+    .bind(epoch_proof.predecessor_head_digest().as_bytes().as_slice())
+    .bind(epoch_proof.successor_head_digest().as_bytes().as_slice())
+    .bind(epoch_proof.prior_clock_identity())
+    .bind(epoch_proof.prior_clock_epoch())
+    .bind(epoch_proof.successor_clock_identity())
+    .bind(epoch_proof.successor_clock_epoch())
+    .bind(
+        epoch_proof
+            .successor_continuity_digest()
+            .as_bytes()
+            .as_slice(),
+    )
+    .bind(i64::try_from(epoch_proof.commit_cut()).unwrap())
+    .execute(epoch_owner.pool())
+    .await
+    .unwrap();
+    assert!(
+        sqlx::query(
+            "INSERT INTO market_data_private.epoch_successor_proofs_v1(proof_identity,predecessor_head_digest,successor_head_digest,prior_clock_identity,prior_clock_epoch,successor_clock_identity,successor_clock_epoch,successor_continuity_digest,commit_cut,comparison_rule) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,1)",
+        )
+        .bind(d(46).as_bytes().as_slice())
+        .bind(epoch_proof.predecessor_head_digest().as_bytes().as_slice())
+        .bind(epoch_proof.successor_head_digest().as_bytes().as_slice())
+        .bind(epoch_proof.prior_clock_identity())
+        .bind(epoch_proof.prior_clock_epoch())
+        .bind(epoch_proof.successor_clock_identity())
+        .bind(epoch_proof.successor_clock_epoch())
+        .bind(epoch_proof.successor_continuity_digest().as_bytes().as_slice())
+        .bind(i64::try_from(epoch_proof.commit_cut()).unwrap())
+        .execute(epoch_owner.pool())
+        .await
+        .is_err()
+    );
+    assert_eq!(
+        epoch_reader
+            .resolve_clock_successor(recovered_response.handoff(), epoch_two.handoff().locator())
+            .await
+            .unwrap(),
+        epoch_two
+    );
+
     let concurrent_owner = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
     let concurrent_a = shared_clock("market-clock", "epoch-2", 2, 100, d(17), 2, 3);
     let concurrent_b = shared_clock("market-clock", "epoch-2", 2, 101, d(17), 2, 3);
@@ -1316,6 +1422,104 @@ async fn postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed() {
     .unwrap();
     assert_eq!(shared_time_counts(epoch_owner.pool()).await, (7, 1));
 
+    sqlx::query(
+        "CREATE FUNCTION market_data_private.reject_epoch_proof_for_test() RETURNS trigger LANGUAGE plpgsql AS $function$ BEGIN RAISE EXCEPTION 'proof store unavailable' USING ERRCODE='P0001'; END $function$",
+    )
+    .execute(epoch_owner.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE TRIGGER reject_epoch_proof_for_test BEFORE INSERT ON market_data_private.epoch_successor_proofs_v1 FOR EACH ROW EXECUTE FUNCTION market_data_private.reject_epoch_proof_for_test()",
+    )
+    .execute(epoch_owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        epoch_owner
+            .commit_clock_successor(winner.handoff(), &unavailable_proof_store)
+            .await,
+        Err(SharedTimeEvidenceError::StoreUnavailable),
+    );
+    assert_eq!(shared_time_counts(epoch_owner.pool()).await, (7, 1));
+    sqlx::query(
+        "DROP TRIGGER reject_epoch_proof_for_test ON market_data_private.epoch_successor_proofs_v1",
+    )
+    .execute(epoch_owner.pool())
+    .await
+    .unwrap();
+    sqlx::query("DROP FUNCTION market_data_private.reject_epoch_proof_for_test()")
+        .execute(epoch_owner.pool())
+        .await
+        .unwrap();
+    let recovered_proof_store = epoch_owner
+        .commit_clock_successor(winner.handoff(), &unavailable_proof_store)
+        .await
+        .unwrap();
+    assert!(
+        epoch_reader
+            .resolve_clock_successor(winner.handoff(), recovered_proof_store.handoff().locator(),)
+            .await
+            .unwrap()
+            .epoch_successor_proof()
+            .is_some()
+    );
+    assert_eq!(shared_time_counts(epoch_owner.pool()).await, (8, 2));
+
+    let durable_state: (bool, i64, i64) = sqlx::query_as(
+        "SELECT materialized,handoff_count,epoch_transition_count FROM market_data_private.clock_handoff_state_v1 WHERE singleton",
+    )
+    .fetch_one(epoch_owner.pool())
+    .await
+    .unwrap();
+    let next_epoch_three = shared_clock("market-clock", "epoch-3", 2, 130, d(19), 1, 2);
+    sqlx::query("DELETE FROM market_data_private.clock_handoff_state_v1")
+        .execute(epoch_owner.pool())
+        .await
+        .unwrap();
+    assert!(matches!(
+        MarketDataOwnerPostgres::connect(&owner_url).await,
+        Err(SourceBindingError::StoreUnavailable)
+    ));
+    assert_eq!(
+        epoch_owner
+            .commit_clock_successor(recovered_proof_store.handoff(), &next_epoch_three)
+            .await,
+        Err(SharedTimeEvidenceError::StoreUnavailable),
+    );
+    sqlx::query(
+        "INSERT INTO market_data_private.clock_handoff_state_v1(singleton,materialized,handoff_count,epoch_transition_count) VALUES (TRUE,$1,$2,$3)",
+    )
+    .bind(durable_state.0)
+    .bind(durable_state.1)
+    .bind(durable_state.2)
+    .execute(epoch_owner.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE market_data_private.clock_head_v1 SET shared_time_materialized=FALSE WHERE singleton",
+    )
+    .execute(epoch_owner.pool())
+    .await
+    .unwrap();
+    assert!(matches!(
+        MarketDataOwnerPostgres::connect(&owner_url).await,
+        Err(SourceBindingError::StoreUnavailable)
+    ));
+    assert_eq!(
+        epoch_owner
+            .commit_clock_successor(recovered_proof_store.handoff(), &next_epoch_three)
+            .await,
+        Err(SharedTimeEvidenceError::StoreUnavailable),
+    );
+    sqlx::query(
+        "UPDATE market_data_private.clock_head_v1 SET shared_time_materialized=TRUE WHERE singleton",
+    )
+    .execute(epoch_owner.pool())
+    .await
+    .unwrap();
+    assert!(MarketDataOwnerPostgres::connect(&owner_url).await.is_ok());
+    assert_eq!(shared_time_counts(epoch_owner.pool()).await, (8, 2));
+
     let before_partial_loss_owner = owner_counts(epoch_owner.pool()).await;
     let before_partial_loss_shared_time = shared_time_counts(epoch_owner.pool()).await;
     sqlx::query("DELETE FROM market_data_private.clock_head_v1 WHERE singleton")
@@ -1370,7 +1574,9 @@ async fn postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed() {
         before_partial_loss_shared_time
     );
     let mut restore = epoch_owner.pool().begin().await.unwrap();
-    insert_clock(&mut restore, &winner_clock).await.unwrap();
+    insert_clock(&mut restore, &unavailable_proof_store)
+        .await
+        .unwrap();
     restore.commit().await.unwrap();
     consume_direct(&epoch_reader, &epoch_reader, &source_third, &pit_third).await;
 
@@ -1443,6 +1649,14 @@ async fn postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed() {
         .unwrap();
     sqlx::query("DELETE FROM market_data_private.owner_migrations_v1 WHERE migration_id=$1")
         .bind(SHARED_TIME_MIGRATION_ID)
+        .execute(epoch_owner.pool())
+        .await
+        .unwrap();
+    assert!(matches!(
+        MarketDataOwnerPostgres::connect(&owner_url).await,
+        Err(SourceBindingError::StoreUnavailable)
+    ));
+    sqlx::query("DELETE FROM market_data_private.clock_head_v1 WHERE singleton")
         .execute(epoch_owner.pool())
         .await
         .unwrap();

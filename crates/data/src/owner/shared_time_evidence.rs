@@ -579,6 +579,49 @@ mod tests {
     }
 
     #[rstest]
+    fn same_epoch_successor_requires_every_stable_field_and_strict_cut() {
+        let mut prior_clock = clock("epoch-1", 1, 100, d(1));
+        prior_clock.wall_observed = 105;
+        let prior = build_head_fact(&prior_clock, None).unwrap();
+        let mut valid = clock("epoch-1", 2, 101, d(1));
+        valid.wall_observed = 110;
+        validate_same_epoch_successor(&prior, &valid).unwrap();
+        let mut variants = Vec::new();
+
+        let mut value = valid.clone();
+        value.clock_identity = "other-clock".into();
+        variants.push(value);
+        let mut value = valid.clone();
+        value.restart_continuity_digest = d(2);
+        variants.push(value);
+        let mut value = valid.clone();
+        value.uncertainty_bound = 0;
+        variants.push(value);
+        let mut value = valid.clone();
+        value.skew_bound = 3;
+        variants.push(value);
+        let mut value = valid.clone();
+        value.monotonic_sequence = 1;
+        variants.push(value);
+        let mut value = valid.clone();
+        value.wall_observed = 105;
+        variants.push(value);
+        let mut value = valid.clone();
+        value.decision_cut = 100;
+        variants.push(value);
+        let mut value = valid;
+        value.valid_through = 160;
+        variants.push(value);
+
+        for variant in variants {
+            assert_eq!(
+                validate_same_epoch_successor(&prior, &variant),
+                Err(SharedTimeEvidenceError::SuccessorDoesNotAdvance)
+            );
+        }
+    }
+
+    #[rstest]
     fn proof_identity_binds_every_direct_epoch_transition_field() {
         let prior = build_head_fact(&clock("epoch-1", 9, 100, d(1)), None).unwrap();
         let successor_clock = clock("epoch-2", 1, 110, d(2));
