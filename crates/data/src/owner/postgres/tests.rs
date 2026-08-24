@@ -1180,6 +1180,23 @@ async fn run_postgres_owner_scenario() {
         .await,
         Err(SourceBindingError::StoreUnavailable),
     );
+    assert_eq!(
+        final_owner
+            .commit_pit_correction(
+                pit.receipt().locator(),
+                correction_value.clone(),
+                &correction_basis,
+                &clock(50, 2),
+            )
+            .await,
+        Err(PitSnapshotError::SourceBindingUnavailable),
+    );
+    assert_eq!(
+        final_reader
+            .resolve_pit_snapshot(pit_third.receipt().locator())
+            .await,
+        Err(PitSnapshotError::SourceBindingUnavailable),
+    );
     sqlx::query(
         "UPDATE market_data_private.source_binding_heads_v1 SET fact_digest=$1 WHERE lineage_root=$2",
     )

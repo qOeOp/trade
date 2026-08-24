@@ -788,6 +788,12 @@ async fn persist_pit(
             .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
         Box::pin(validate_pit_replay_clock(&mut transaction, &stored)).await?;
         validate_pit_lineage_head_custody(&mut transaction, stored.fact().lineage_root()).await?;
+        validate_source_lineage_head_custody(
+            &mut transaction,
+            stored.fact().source_binding_lineage_root(),
+        )
+        .await
+        .map_err(|_| PitSnapshotError::SourceBindingUnavailable)?;
         return if stored == aggregate {
             Ok(stored)
         } else {
@@ -2088,6 +2094,8 @@ impl PitSnapshotOwnerResolver for MarketDataReadPostgres {
         {
             return Err(PitSnapshotError::LocatorMismatch);
         }
+        validate_source_read_custody(&mut transaction, &aggregate.fact().request().source_binding)
+            .await?;
         let expected_clock = clock_for_pit_time(&aggregate.fact().request().time_evidence);
         let historical_clock = load_historical_clock(&mut transaction, &expected_clock)
             .await
@@ -2113,6 +2121,44 @@ impl PitSnapshotOwnerResolver for MarketDataReadPostgres {
 struct StoredEnvelope {
     aggregate: Value,
     native: NativeIndex,
+}
+
+async fn validate_source_read_custody(
+    transaction: &mut Transaction<'_, Postgres>,
+    locator: &UntrustedSourceBindingLocator,
+) -> Result<(), PitSnapshotError> {
+    let historical = load_envelope(
+        transaction,
+        "SELECT * FROM market_data_private.resolve_source_binding_v1($1)",
+        locator.binding_id,
+    )
+    .await
+    .map_err(|_| PitSnapshotError::SourceBindingUnavailable)?
+    .ok_or(PitSnapshotError::SourceBindingUnavailable)?;
+    let historical_aggregate: SourceBindingStoredAggregate =
+        serde_json::from_value(historical.aggregate)
+            .map_err(|_| PitSnapshotError::SourceBindingUnavailable)?;
+
+    if !verify_source_native(&historical_aggregate, &historical.native, false)
+        || historical_aggregate.commit().receipt().locator() != locator
+    {
+        return Err(PitSnapshotError::SourceBindingUnavailable);
+    }
+
+    let current = load_envelope(
+        transaction,
+        "SELECT * FROM market_data_private.resolve_source_binding_v1($1)",
+        historical.native.head.identity,
+    )
+    .await
+    .map_err(|_| PitSnapshotError::SourceBindingUnavailable)?
+    .ok_or(PitSnapshotError::SourceBindingUnavailable)?;
+    let current_aggregate: SourceBindingStoredAggregate = serde_json::from_value(current.aggregate)
+        .map_err(|_| PitSnapshotError::SourceBindingUnavailable)?;
+    if !verify_source_native(&current_aggregate, &current.native, true) {
+        return Err(PitSnapshotError::SourceBindingUnavailable);
+    }
+    Ok(())
 }
 
 struct NativeIndex {
