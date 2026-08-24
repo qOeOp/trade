@@ -51,7 +51,8 @@ impl WeightedMovingAverage {
     /// - `weights` sum is effectively zero.
     #[must_use]
     pub fn new(period: usize, weights: Vec<f64>, price_type: Option<PriceType>) -> Self {
-        Self::new_checked(period, weights, price_type).expect(FAILED)
+        Self::new_checked(period, weights, price_type)
+            .unwrap_or_else(|error| panic!("{FAILED}: {error:?}"))
     }
 
     /// Creates a new [`WeightedMovingAverage`] instance with the given period and weights.
