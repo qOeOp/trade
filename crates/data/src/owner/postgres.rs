@@ -924,6 +924,9 @@ async fn persist_clock_successor(
     let epoch_changed = next.clock_epoch != current_clock.clock_epoch;
     if epoch_changed {
         validate_new_epoch_successor(&current, next)?;
+        if clock_epoch_seen(&mut transaction, next).await? {
+            return Err(SharedTimeEvidenceError::EpochSuccessorProofMismatch);
+        }
     } else {
         validate_same_epoch_successor(&current, next)?;
     }
@@ -957,6 +960,20 @@ async fn persist_clock_successor(
     } else {
         Ok(successor_readback(next_fact.handoff, proof))
     }
+}
+
+async fn clock_epoch_seen(
+    transaction: &mut Transaction<'_, Postgres>,
+    next: &MarketDataClockAdmission,
+) -> Result<bool, SharedTimeEvidenceError> {
+    sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM market_data_private.clock_handoffs_v1 WHERE clock_identity=$1 AND clock_epoch=$2)",
+    )
+    .bind(&next.clock_identity)
+    .bind(&next.clock_epoch)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)
 }
 
 async fn insert_epoch_proof(

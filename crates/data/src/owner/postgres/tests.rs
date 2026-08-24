@@ -1172,6 +1172,18 @@ async fn postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed() {
             .await,
         Err(SharedTimeEvidenceError::PriorHandoffMismatch),
     );
+    let before_epoch_reuse = shared_time_counts(epoch_owner.pool()).await;
+    let reused_epoch = shared_clock("market-clock", "epoch-1", 1, 100, d(18), 1, 2);
+    assert_eq!(
+        epoch_owner
+            .commit_clock_successor(epoch_two.handoff(), &reused_epoch)
+            .await,
+        Err(SharedTimeEvidenceError::EpochSuccessorProofMismatch),
+    );
+    assert_eq!(
+        shared_time_counts(epoch_owner.pool()).await,
+        before_epoch_reuse
+    );
 
     let original_commit_cut: i64 = sqlx::query_scalar(
         "SELECT commit_cut FROM market_data_private.epoch_successor_proofs_v1 WHERE proof_identity=$1",
