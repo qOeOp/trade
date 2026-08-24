@@ -23,16 +23,20 @@ fn bench_uuid4_from_str(c: &mut Criterion) {
 fn bench_uuid4_serialize(c: &mut Criterion) {
     let uuid = UUID4::new();
     c.bench_function("UUID4::serialize", |b| {
-        b.iter(|| serde_json::to_string(&uuid).expect("Serialization failed"));
+        b.iter(|| {
+            serde_json::to_string(&uuid).unwrap_or_else(|e| panic!("Serialization failed: {e:?}"))
+        });
     });
 }
 
 fn bench_uuid4_deserialize(c: &mut Criterion) {
     let uuid = UUID4::new();
-    let serialized = serde_json::to_string(&uuid).expect("Serialization failed");
+    let serialized =
+        serde_json::to_string(&uuid).unwrap_or_else(|e| panic!("Serialization failed: {e:?}"));
     c.bench_function("UUID4::deserialize", |b| {
         b.iter(|| {
-            let _: UUID4 = serde_json::from_str(&serialized).expect("Deserialization failed");
+            let _: UUID4 = serde_json::from_str(&serialized)
+                .unwrap_or_else(|e| panic!("Deserialization failed: {e:?}"));
         });
     });
 }
@@ -41,8 +45,10 @@ fn bench_uuid4_round_trip(c: &mut Criterion) {
     let uuid = UUID4::new();
     c.bench_function("UUID4::round_trip", |b| {
         b.iter(|| {
-            let serialized = serde_json::to_string(&uuid).expect("Serialization failed");
-            let _: UUID4 = serde_json::from_str(&serialized).expect("Deserialization failed");
+            let serialized = serde_json::to_string(&uuid)
+                .unwrap_or_else(|e| panic!("Serialization failed: {e:?}"));
+            let _: UUID4 = serde_json::from_str(&serialized)
+                .unwrap_or_else(|e| panic!("Deserialization failed: {e:?}"));
         });
     });
 }

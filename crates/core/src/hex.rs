@@ -43,7 +43,8 @@ pub fn encode(data: impl AsRef<[u8]>) -> String {
     for &b in bytes {
         buf.extend_from_slice(&ENCODE_PAIR[b as usize]);
     }
-    String::from_utf8(buf).unwrap()
+    String::from_utf8(buf)
+        .unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"))
 }
 
 /// Encodes a byte slice as a `"0x"`-prefixed lowercase hexadecimal string.
@@ -60,7 +61,8 @@ pub fn encode_prefixed(data: impl AsRef<[u8]>) -> String {
     for &b in bytes {
         buf.extend_from_slice(&ENCODE_PAIR[b as usize]);
     }
-    String::from_utf8(buf).unwrap()
+    String::from_utf8(buf)
+        .unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"))
 }
 
 /// Decodes a hexadecimal string into bytes.

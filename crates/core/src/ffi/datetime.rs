@@ -44,7 +44,8 @@ pub extern "C" fn secs_to_nanos(secs: f64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn secs_to_millis(secs: f64) -> u64 {
     abort_on_panic(|| {
-        crate::datetime::secs_to_millis(secs).expect("secs_to_millis: invalid or overflowing input")
+        crate::datetime::secs_to_millis(secs)
+            .unwrap_or_else(|e| panic!("secs_to_millis: invalid or overflowing input: {e:?}"))
     })
 }
 

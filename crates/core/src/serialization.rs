@@ -313,10 +313,9 @@ fn round_decimal_components(
         increment_decimal_digits(&mut integer, &mut rounded);
     }
 
-    (
-        integer,
-        String::from_utf8(rounded).expect("decimal digits are ASCII"),
-    )
+    let fractional =
+        String::from_utf8(rounded).unwrap_or_else(|e| panic!("decimal digits are ASCII: {e:?}"));
+    (integer, fractional)
 }
 
 fn increment_decimal_digits(integer: &mut String, fractional: &mut [u8]) {
@@ -332,13 +331,15 @@ fn increment_decimal_digits(integer: &mut String, fractional: &mut [u8]) {
     for digit in integer_digits.iter_mut().rev() {
         if *digit < b'9' {
             *digit += 1;
-            *integer = String::from_utf8(integer_digits).expect("decimal digits are ASCII");
+            *integer = String::from_utf8(integer_digits)
+                .unwrap_or_else(|e| panic!("decimal digits are ASCII: {e:?}"));
             return;
         }
         *digit = b'0';
     }
     integer_digits.insert(0, b'1');
-    *integer = String::from_utf8(integer_digits).expect("decimal digits are ASCII");
+    *integer = String::from_utf8(integer_digits)
+        .unwrap_or_else(|e| panic!("decimal digits are ASCII: {e:?}"));
 }
 
 fn decimal_digits_are_zero(integer: &str, fractional: &str) -> bool {

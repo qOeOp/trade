@@ -45,7 +45,8 @@ fn bench_stackstr_clone() {
 }
 
 fn bench_stackstr_from_bytes() {
-    black_box(StackStr::from_bytes(b"O-20231215-001-001")).unwrap();
+    black_box(StackStr::from_bytes(b"O-20231215-001-001"))
+        .unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"));
 }
 
 fn bench_stackstr_cmp() {

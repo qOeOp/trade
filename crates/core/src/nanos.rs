@@ -201,7 +201,7 @@ impl UnixNanos {
     #[must_use]
     pub fn to_datetime_utc(&self) -> Timestamp {
         Timestamp::from_nanosecond(i128::from(self.0))
-            .expect("UnixNanos is within Jiff's timestamp range")
+            .unwrap_or_else(|e| panic!("UnixNanos is within Jiff's timestamp range: {e:?}"))
     }
 
     /// Converts the underlying value to an ISO 8601 (RFC 3339) string.
@@ -430,7 +430,9 @@ impl From<Timestamp> for UnixNanos {
 
         assert!(nanos >= 0, "DateTime timestamp cannot be negative: {nanos}");
 
-        Self::from(u64::try_from(nanos).expect("DateTime timestamp out of range for UnixNanos"))
+        let nanos = u64::try_from(nanos)
+            .unwrap_or_else(|e| panic!("DateTime timestamp out of range for UnixNanos: {e:?}"));
+        Self::from(nanos)
     }
 }
 
@@ -438,10 +440,10 @@ impl From<SystemTime> for UnixNanos {
     fn from(value: SystemTime) -> Self {
         let duration = value
             .duration_since(std::time::UNIX_EPOCH)
-            .expect("SystemTime before UNIX EPOCH");
+            .unwrap_or_else(|e| panic!("SystemTime before UNIX EPOCH: {e:?}"));
 
-        let nanos =
-            u64::try_from(duration.as_nanos()).expect("SystemTime overflowed u64 nanoseconds");
+        let nanos = u64::try_from(duration.as_nanos())
+            .unwrap_or_else(|e| panic!("SystemTime overflowed u64 nanoseconds: {e:?}"));
 
         Self::from(nanos)
     }
@@ -467,11 +469,9 @@ impl Add for UnixNanos {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Self(
-            self.0
-                .checked_add(rhs.0)
-                .expect("UnixNanos overflow in addition - invalid timestamp calculation"),
-        )
+        Self(self.0.checked_add(rhs.0).unwrap_or_else(|| {
+            panic!("UnixNanos overflow in addition - invalid timestamp calculation")
+        }))
     }
 }
 
@@ -487,11 +487,9 @@ impl Sub for UnixNanos {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        Self(
-            self.0
-                .checked_sub(rhs.0)
-                .expect("UnixNanos underflow in subtraction - invalid timestamp calculation"),
-        )
+        Self(self.0.checked_sub(rhs.0).unwrap_or_else(|| {
+            panic!("UnixNanos underflow in subtraction - invalid timestamp calculation")
+        }))
     }
 }
 
@@ -508,7 +506,7 @@ impl Add<u64> for UnixNanos {
         Self(
             self.0
                 .checked_add(rhs)
-                .expect("UnixNanos overflow in addition"),
+                .unwrap_or_else(|| panic!("UnixNanos overflow in addition")),
         )
     }
 }
@@ -526,7 +524,7 @@ impl Sub<u64> for UnixNanos {
         Self(
             self.0
                 .checked_sub(rhs)
-                .expect("UnixNanos underflow in subtraction"),
+                .unwrap_or_else(|| panic!("UnixNanos underflow in subtraction")),
         )
     }
 }
@@ -542,7 +540,7 @@ impl<T: Into<u64>> AddAssign<T> for UnixNanos {
         self.0 = self
             .0
             .checked_add(other_u64)
-            .expect("UnixNanos overflow in add_assign");
+            .unwrap_or_else(|| panic!("UnixNanos overflow in add_assign"));
     }
 }
 
@@ -557,7 +555,7 @@ impl<T: Into<u64>> SubAssign<T> for UnixNanos {
         self.0 = self
             .0
             .checked_sub(other_u64)
-            .expect("UnixNanos underflow in sub_assign");
+            .unwrap_or_else(|| panic!("UnixNanos underflow in sub_assign"));
     }
 }
 

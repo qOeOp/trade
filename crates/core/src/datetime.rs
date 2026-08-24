@@ -91,11 +91,10 @@ fn civil_from_days(days_since_epoch: i64) -> (i32, u32, u32) {
     let month = month_prime + if month_prime < 10 { 3 } else { -9 };
     let year = year + i64::from(month <= 2);
 
-    (
-        i32::try_from(year).expect("year fits in i32"),
-        u32::try_from(month).expect("month is positive"),
-        u32::try_from(day).expect("day is positive"),
-    )
+    let year = i32::try_from(year).unwrap_or_else(|e| panic!("year fits in i32: {e:?}"));
+    let month = u32::try_from(month).unwrap_or_else(|e| panic!("month is positive: {e:?}"));
+    let day = u32::try_from(day).unwrap_or_else(|e| panic!("day is positive: {e:?}"));
+    (year, month, day)
 }
 
 struct DateTimeParts {
@@ -130,7 +129,7 @@ fn push_3_digits(out: &mut String, value: u32) {
 
 fn push_4_digits(out: &mut String, value: i32) {
     debug_assert!((0..=9_999).contains(&value));
-    let value = u32::try_from(value).expect("year is non-negative");
+    let value = u32::try_from(value).unwrap_or_else(|e| panic!("year is non-negative: {e:?}"));
     push_digit(out, value / 1_000);
     push_digit(out, (value / 100) % 10);
     push_2_digits(out, value % 100);
@@ -148,15 +147,18 @@ fn push_9_digits(out: &mut String, value: u32) {
 fn split_unix_nanos(unix_nanos: UnixNanos) -> DateTimeParts {
     let nanos = unix_nanos.as_u64();
     let total_seconds = nanos / NANOSECONDS_IN_SECOND;
-    let subsec_nanos = u32::try_from(nanos % NANOSECONDS_IN_SECOND).expect("subsecond fits u32");
+    let subsec_nanos = u32::try_from(nanos % NANOSECONDS_IN_SECOND)
+        .unwrap_or_else(|e| panic!("subsecond fits u32: {e:?}"));
     let days = total_seconds / SECONDS_IN_DAY;
     let seconds_of_day = total_seconds % SECONDS_IN_DAY;
-    let (year, month, day) =
-        civil_from_days(i64::try_from(days).expect("days since epoch fits i64"));
-    let hour = u32::try_from(seconds_of_day / SECONDS_IN_HOUR).expect("hour fits u32");
-    let minute =
-        u32::try_from((seconds_of_day % SECONDS_IN_HOUR) / SECONDS_IN_MINUTE).expect("minute fits");
-    let second = u32::try_from(seconds_of_day % SECONDS_IN_MINUTE).expect("second fits");
+    let days = i64::try_from(days).unwrap_or_else(|e| panic!("days since epoch fits i64: {e:?}"));
+    let (year, month, day) = civil_from_days(days);
+    let hour = u32::try_from(seconds_of_day / SECONDS_IN_HOUR)
+        .unwrap_or_else(|e| panic!("hour fits u32: {e:?}"));
+    let minute = u32::try_from((seconds_of_day % SECONDS_IN_HOUR) / SECONDS_IN_MINUTE)
+        .unwrap_or_else(|e| panic!("minute fits: {e:?}"));
+    let second = u32::try_from(seconds_of_day % SECONDS_IN_MINUTE)
+        .unwrap_or_else(|e| panic!("second fits: {e:?}"));
 
     DateTimeParts {
         year,
@@ -259,7 +261,8 @@ pub fn secs_to_millis(secs: f64) -> anyhow::Result<u64> {
 /// Panics if [`secs_to_nanos`] would return an error for `secs`.
 #[must_use]
 pub fn secs_to_nanos_unchecked(secs: f64) -> u64 {
-    secs_to_nanos(secs).expect("secs_to_nanos_unchecked: invalid or overflowing input")
+    secs_to_nanos(secs)
+        .unwrap_or_else(|e| panic!("secs_to_nanos_unchecked: invalid or overflowing input: {e:?}"))
 }
 
 /// Converts minutes to seconds.
@@ -269,7 +272,10 @@ pub fn secs_to_nanos_unchecked(secs: f64) -> u64 {
 /// Panics if the result cannot be represented as `u64` seconds.
 #[must_use]
 pub const fn mins_to_secs(mins: u64) -> u64 {
-    checked_mins_to_secs(mins).expect("minutes to seconds conversion overflow")
+    match checked_mins_to_secs(mins) {
+        Some(seconds) => seconds,
+        None => panic!("minutes to seconds conversion overflow"),
+    }
 }
 
 /// Converts minutes to seconds, returning `None` on overflow.
@@ -285,7 +291,10 @@ pub const fn checked_mins_to_secs(mins: u64) -> Option<u64> {
 /// Panics if the result cannot be represented as `u64` nanoseconds.
 #[must_use]
 pub const fn mins_to_nanos(mins: u64) -> u64 {
-    checked_mins_to_nanos(mins).expect("minutes to nanoseconds conversion overflow")
+    match checked_mins_to_nanos(mins) {
+        Some(nanos) => nanos,
+        None => panic!("minutes to nanoseconds conversion overflow"),
+    }
 }
 
 /// Converts minutes to nanoseconds, returning `None` on overflow.
@@ -332,7 +341,9 @@ pub fn millis_to_nanos(millis: f64) -> anyhow::Result<u64> {
 /// Panics if [`millis_to_nanos`] would return an error for `millis`.
 #[must_use]
 pub fn millis_to_nanos_unchecked(millis: f64) -> u64 {
-    millis_to_nanos(millis).expect("millis_to_nanos_unchecked: invalid or overflowing input")
+    millis_to_nanos(millis).unwrap_or_else(|e| {
+        panic!("millis_to_nanos_unchecked: invalid or overflowing input: {e:?}")
+    })
 }
 
 /// Converts microseconds (μs) to nanoseconds (ns).
@@ -373,7 +384,9 @@ pub fn micros_to_nanos(micros: f64) -> anyhow::Result<u64> {
 /// Panics if [`micros_to_nanos`] would return an error for `micros`.
 #[must_use]
 pub fn micros_to_nanos_unchecked(micros: f64) -> u64 {
-    micros_to_nanos(micros).expect("micros_to_nanos_unchecked: invalid or overflowing input")
+    micros_to_nanos(micros).unwrap_or_else(|e| {
+        panic!("micros_to_nanos_unchecked: invalid or overflowing input: {e:?}")
+    })
 }
 
 /// Converts nanoseconds (ns) to seconds.

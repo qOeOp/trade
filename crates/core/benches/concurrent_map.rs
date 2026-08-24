@@ -101,7 +101,9 @@ fn bench_single_thread_read(c: &mut Criterion) {
             let mut idx = 0usize;
             b.iter(|| {
                 let key = &keys[idx % keys.len()];
-                let guard = rwl.read().unwrap();
+                let guard = rwl.read().unwrap_or_else(|e| {
+                    panic!("called `Result::unwrap()` on an `Err` value: {e:?}")
+                });
                 let val = guard.get(key).copied();
                 drop(guard);
                 black_box(val);
@@ -174,7 +176,11 @@ fn bench_concurrent_reads(c: &mut Criterion) {
 
                                     for i in 0..READS_PER_THREAD {
                                         let key = &ks[(t * READS_PER_THREAD + i) % ks.len()];
-                                        let guard = map.read().unwrap();
+                                        let guard = map.read().unwrap_or_else(|e| {
+                                            panic!(
+                                                "called `Result::unwrap()` on an `Err` value: {e:?}"
+                                            )
+                                        });
                                         black_box(guard.get(key).copied());
                                         drop(guard);
                                     }
@@ -286,13 +292,17 @@ fn bench_read_heavy_mixed(c: &mut Criterion) {
                                 bar.wait();
 
                                 for (i, key) in wk.iter().enumerate() {
-                                    let mut guard = map.write().unwrap();
+                                    let mut guard = map.write().unwrap_or_else(|e| {
+                                        panic!("called `Result::unwrap()` on an `Err` value: {e:?}")
+                                    });
                                     guard.insert(key.clone(), (size + i) as u64);
                                     drop(guard);
                                 }
 
                                 for key in wk.iter() {
-                                    let mut guard = map.write().unwrap();
+                                    let mut guard = map.write().unwrap_or_else(|e| {
+                                        panic!("called `Result::unwrap()` on an `Err` value: {e:?}")
+                                    });
                                     guard.remove(key);
                                     drop(guard);
                                 }
@@ -307,7 +317,11 @@ fn bench_read_heavy_mixed(c: &mut Criterion) {
 
                                     for i in 0..READS_PER_THREAD {
                                         let key = &ks[(t * READS_PER_THREAD + i) % ks.len()];
-                                        let guard = map.read().unwrap();
+                                        let guard = map.read().unwrap_or_else(|e| {
+                                            panic!(
+                                                "called `Result::unwrap()` on an `Err` value: {e:?}"
+                                            )
+                                        });
                                         black_box(guard.get(key).copied());
                                         drop(guard);
                                     }
@@ -415,7 +429,11 @@ fn bench_write_once_read_many(c: &mut Criterion) {
 
                                     for i in 0..READS_PER_THREAD {
                                         let key = &ks[(t * READS_PER_THREAD + i) % ks.len()];
-                                        let guard = map.read().unwrap();
+                                        let guard = map.read().unwrap_or_else(|e| {
+                                            panic!(
+                                                "called `Result::unwrap()` on an `Err` value: {e:?}"
+                                            )
+                                        });
                                         black_box(guard.get(key).copied());
                                         drop(guard);
                                     }

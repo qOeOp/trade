@@ -91,8 +91,9 @@ impl UUID4 {
     #[must_use]
     pub fn to_cstr(&self) -> &CStr {
         // We always store valid C strings
-        CStr::from_bytes_with_nul(&self.value)
-            .expect("UUID byte representation should be a valid C string")
+        CStr::from_bytes_with_nul(&self.value).unwrap_or_else(|e| {
+            panic!("UUID byte representation should be a valid C string: {e:?}")
+        })
     }
 
     /// Returns the UUID as a string slice.
@@ -104,7 +105,9 @@ impl UUID4 {
     #[must_use]
     pub fn as_str(&self) -> &str {
         // We always store valid ASCII UUID strings
-        self.to_cstr().to_str().expect("UUID should be valid UTF-8")
+        self.to_cstr()
+            .to_str()
+            .unwrap_or_else(|e| panic!("UUID should be valid UTF-8: {e:?}"))
     }
 
     /// Returns the raw UUID bytes (16 bytes).
@@ -118,8 +121,11 @@ impl UUID4 {
     /// UTF-8 UUID v4 string produced by [`UUID4::new`] or deserialization paths.
     #[must_use]
     pub fn as_bytes(&self) -> [u8; 16] {
-        let uuid_str = self.to_cstr().to_str().expect("Valid UTF-8");
-        let uuid = Uuid::parse_str(uuid_str).expect("Valid UUID4");
+        let uuid_str = self
+            .to_cstr()
+            .to_str()
+            .unwrap_or_else(|e| panic!("Valid UTF-8: {e:?}"));
+        let uuid = Uuid::parse_str(uuid_str).unwrap_or_else(|e| panic!("Valid UUID4: {e:?}"));
         *uuid.as_bytes()
     }
 
@@ -178,13 +184,13 @@ impl FromStr for UUID4 {
 
 impl From<&str> for UUID4 {
     fn from(value: &str) -> Self {
-        Self::from_str(value).expect("Invalid UUID4 string")
+        Self::from_str(value).unwrap_or_else(|e| panic!("Invalid UUID4 string: {e:?}"))
     }
 }
 
 impl From<String> for UUID4 {
     fn from(value: String) -> Self {
-        Self::from_str(&value).expect("Invalid UUID4 string")
+        Self::from_str(&value).unwrap_or_else(|e| panic!("Invalid UUID4 string: {e:?}"))
     }
 }
 

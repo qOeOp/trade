@@ -53,10 +53,18 @@ fn bench_decimal_types(c: &mut Criterion) {
 
     for (name, json) in cases {
         group.bench_with_input(BenchmarkId::new("old", name), &json, |b, j| {
-            b.iter(|| serde_json::from_str::<Old>(j).unwrap());
+            b.iter(|| {
+                serde_json::from_str::<Old>(j).unwrap_or_else(|e| {
+                    panic!("called `Result::unwrap()` on an `Err` value: {e:?}")
+                })
+            });
         });
         group.bench_with_input(BenchmarkId::new("new", name), &json, |b, j| {
-            b.iter(|| serde_json::from_str::<New>(j).unwrap());
+            b.iter(|| {
+                serde_json::from_str::<New>(j).unwrap_or_else(|e| {
+                    panic!("called `Result::unwrap()` on an `Err` value: {e:?}")
+                })
+            });
         });
     }
     group.finish();
@@ -99,10 +107,16 @@ fn bench_realistic_batch(c: &mut Criterion) {
     group.throughput(Throughput::Elements(100));
 
     group.bench_function("old", |b| {
-        b.iter(|| serde_json::from_str::<Vec<TickOld>>(&json).unwrap());
+        b.iter(|| {
+            serde_json::from_str::<Vec<TickOld>>(&json)
+                .unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"))
+        });
     });
     group.bench_function("new", |b| {
-        b.iter(|| serde_json::from_str::<Vec<TickNew>>(&json).unwrap());
+        b.iter(|| {
+            serde_json::from_str::<Vec<TickNew>>(&json)
+                .unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"))
+        });
     });
     group.finish();
 }
