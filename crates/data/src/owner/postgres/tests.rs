@@ -367,6 +367,7 @@ async fn grant_reader(admin: &PgPool) {
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_pit_lineage_members_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_source_lineage_roots_v1() TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_pit_lineage_roots_v1() TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_owner_history_census_custody_v1() TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_clock_handoff_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_epoch_successor_proof_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_clock_membership_custody_v1() TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
@@ -1887,6 +1888,75 @@ async fn run_postgres_owner_scenario() {
             .epoch_successor_proof()
             .is_none()
     );
+    let mut census_proposal = source_proposal(10, winner_clock.decision_cut);
+    census_proposal.adapter.configuration_digest = d(46);
+    census_proposal.time_evidence.clock_identity = winner_clock.clock_identity.clone();
+    census_proposal.time_evidence.clock_epoch = winner_clock.clock_epoch.clone();
+    census_proposal.time_evidence.monotonic_sequence = winner_clock.monotonic_sequence;
+    census_proposal.time_evidence.restart_continuity_digest =
+        winner_clock.restart_continuity_digest;
+    census_proposal.time_evidence.skew_bound = winner_clock.skew_bound;
+    census_proposal.time_evidence.uncertainty_bound = winner_clock.uncertainty_bound;
+    census_proposal.time_evidence.observed_at = winner_clock.wall_observed;
+    census_proposal.time_evidence.effective_at = winner_clock.decision_cut;
+    census_proposal.time_evidence.valid_through = winner_clock.valid_through;
+    census_proposal.time_evidence.claimed_evidence_identity =
+        derive_time_evidence_identity(&census_proposal.time_evidence);
+    census_proposal.claimed_binding_id = derive_binding_id(&census_proposal);
+    let census_decision = OwnerSourceBindingDecision {
+        blockers: BTreeSet::new(),
+    };
+    let census_aggregate = build_stored_aggregate(
+        census_proposal.clone(),
+        census_decision.clone(),
+        SourceOwnerLineage {
+            root: census_proposal.claimed_binding_id,
+            version: 1,
+            predecessor_binding_id: None,
+            predecessor_fact_digest: None,
+        },
+    );
+    let census_source = epoch_owner
+        .commit_source_initial(census_proposal, census_decision, &winner_clock)
+        .await
+        .unwrap();
+    assert_eq!(&census_source, census_aggregate.commit());
+    sqlx::query("DELETE FROM market_data_private.source_binding_heads_v1 WHERE lineage_root=$1")
+        .bind(census_source.fact().lineage_root().as_bytes().as_slice())
+        .execute(epoch_owner.pool())
+        .await
+        .unwrap();
+    sqlx::query(
+        "DELETE FROM market_data_private.source_binding_outbox_v1 WHERE aggregate_identity=$1",
+    )
+    .bind(census_source.fact().binding_id().as_bytes().as_slice())
+    .execute(epoch_owner.pool())
+    .await
+    .unwrap();
+    sqlx::query("DELETE FROM market_data_private.source_binding_facts_v1 WHERE lineage_root=$1")
+        .bind(census_source.fact().lineage_root().as_bytes().as_slice())
+        .execute(epoch_owner.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        epoch_reader
+            .resolve_clock_head(winner.handoff().locator())
+            .await,
+        Err(SharedTimeEvidenceError::StoreUnavailable),
+    );
+    assert!(matches!(
+        MarketDataOwnerPostgres::connect(&owner_url).await,
+        Err(SourceBindingError::StoreUnavailable)
+    ));
+    let mut restore_census = epoch_owner.pool().begin().await.unwrap();
+    insert_source(
+        &mut restore_census,
+        &census_aggregate,
+        PostgresCommitFault::None,
+    )
+    .await
+    .unwrap();
+    restore_census.commit().await.unwrap();
     sqlx::query(
         "ALTER TABLE market_data_private.epoch_successor_proofs_v1 RENAME TO epoch_successor_proofs_unavailable_test",
     )

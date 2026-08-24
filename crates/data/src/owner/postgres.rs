@@ -43,6 +43,7 @@ use super::{
 
 const MIGRATION_ID: &str = "market-data-owner-postgres-v1";
 const SHARED_TIME_MIGRATION_ID: &str = "market-data-owner-shared-time-v1";
+const OWNER_HISTORY_CENSUS_MIGRATION_ID: &str = "market-data-owner-history-census-v1";
 
 const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE SCHEMA IF NOT EXISTS market_data_private AUTHORIZATION CURRENT_USER",
@@ -61,14 +62,18 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_snapshot_facts_v1 (snapshot_identity BYTEA PRIMARY KEY CHECK (octet_length(snapshot_identity) = 32), fact_digest BYTEA NOT NULL CHECK (octet_length(fact_digest) = 32), request_identity BYTEA NOT NULL CHECK (octet_length(request_identity) = 32), request_digest BYTEA NOT NULL CHECK (octet_length(request_digest) = 32), correction_stream_identity TEXT NOT NULL, correction_sequence BIGINT NOT NULL CHECK (correction_sequence > 0), lineage_root BYTEA NOT NULL CHECK (octet_length(lineage_root) = 32), lineage_version BIGINT NOT NULL CHECK (lineage_version > 0), aggregate_json JSONB NOT NULL, UNIQUE(request_identity, correction_stream_identity, correction_sequence), UNIQUE(lineage_root, lineage_version))",
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_snapshot_heads_v1 (lineage_root BYTEA PRIMARY KEY CHECK (octet_length(lineage_root) = 32), snapshot_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity), fact_digest BYTEA NOT NULL CHECK (octet_length(fact_digest) = 32), lineage_version BIGINT NOT NULL CHECK (lineage_version > 0))",
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_snapshot_outbox_v1 (event_identity BYTEA PRIMARY KEY CHECK (octet_length(event_identity) = 32), aggregate_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity), payload_digest BYTEA NOT NULL CHECK (octet_length(payload_digest) = 32), payload BYTEA NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS market_data_private.source_binding_lineage_census_v1 (lineage_root BYTEA PRIMARY KEY CHECK (octet_length(lineage_root) = 32))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.pit_snapshot_lineage_census_v1 (lineage_root BYTEA PRIMARY KEY CHECK (octet_length(lineage_root) = 32))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.owner_history_census_state_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), source_lineage_count BIGINT NOT NULL CHECK (source_lineage_count >= 0), pit_lineage_count BIGINT NOT NULL CHECK (pit_lineage_count >= 0))",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_source_binding_v1(p_binding_id BYTEA) RETURNS TABLE(row_identity BYTEA, fact_digest BYTEA, request_identity BYTEA, request_digest BYTEA, correction_stream_identity TEXT, correction_sequence BIGINT, fact_lineage_root BYTEA, fact_lineage_version BIGINT, aggregate_json JSONB, outbox_event_identity BYTEA, outbox_aggregate_identity BYTEA, outbox_payload BYTEA, outbox_digest BYTEA, head_lineage_root BYTEA, head_identity BYTEA, head_digest BYTEA, head_version BIGINT, clock_identity TEXT, clock_epoch TEXT, monotonic_sequence BIGINT, wall_observed BIGINT, decision_cut BIGINT, valid_through BIGINT, restart_continuity_digest BYTEA, uncertainty_bound BIGINT, skew_bound BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT f.binding_id, f.fact_digest, NULL::BYTEA, NULL::BYTEA, NULL::TEXT, NULL::BIGINT, f.lineage_root, f.lineage_version, f.aggregate_json, o.event_identity, o.aggregate_identity, o.payload, o.payload_digest, h.lineage_root, h.binding_id, h.fact_digest, h.lineage_version, NULL::TEXT, NULL::TEXT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BYTEA, NULL::BIGINT, NULL::BIGINT, NULL::SMALLINT FROM market_data_private.source_binding_facts_v1 AS f JOIN market_data_private.source_binding_outbox_v1 AS o ON o.aggregate_identity = f.binding_id JOIN market_data_private.source_binding_heads_v1 AS h ON h.lineage_root = f.lineage_root WHERE f.binding_id = p_binding_id $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_snapshot_v1(p_snapshot_identity BYTEA) RETURNS TABLE(row_identity BYTEA, fact_digest BYTEA, request_identity BYTEA, request_digest BYTEA, correction_stream_identity TEXT, correction_sequence BIGINT, fact_lineage_root BYTEA, fact_lineage_version BIGINT, aggregate_json JSONB, outbox_event_identity BYTEA, outbox_aggregate_identity BYTEA, outbox_payload BYTEA, outbox_digest BYTEA, head_lineage_root BYTEA, head_identity BYTEA, head_digest BYTEA, head_version BIGINT, clock_identity TEXT, clock_epoch TEXT, monotonic_sequence BIGINT, wall_observed BIGINT, decision_cut BIGINT, valid_through BIGINT, restart_continuity_digest BYTEA, uncertainty_bound BIGINT, skew_bound BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT f.snapshot_identity, f.fact_digest, f.request_identity, f.request_digest, f.correction_stream_identity, f.correction_sequence, f.lineage_root, f.lineage_version, f.aggregate_json, o.event_identity, o.aggregate_identity, o.payload, o.payload_digest, h.lineage_root, h.snapshot_identity, h.fact_digest, h.lineage_version, NULL::TEXT, NULL::TEXT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BYTEA, NULL::BIGINT, NULL::BIGINT, NULL::SMALLINT FROM market_data_private.pit_snapshot_facts_v1 AS f JOIN market_data_private.pit_snapshot_outbox_v1 AS o ON o.aggregate_identity = f.snapshot_identity JOIN market_data_private.pit_snapshot_heads_v1 AS h ON h.lineage_root = f.lineage_root WHERE f.snapshot_identity = p_snapshot_identity $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_source_lineage_custody_v1(p_lineage_root BYTEA) RETURNS BOOLEAN LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT EXISTS(SELECT 1 FROM market_data_private.source_binding_heads_v1 AS h WHERE h.lineage_root=p_lineage_root AND h.lineage_version=(SELECT COUNT(*) FROM market_data_private.source_binding_facts_v1 AS f WHERE f.lineage_root=p_lineage_root) AND h.lineage_version=(SELECT COUNT(*) FROM market_data_private.source_binding_outbox_v1 AS o JOIN market_data_private.source_binding_facts_v1 AS f ON f.binding_id=o.aggregate_identity WHERE f.lineage_root=p_lineage_root) AND h.lineage_version=(SELECT MAX(f.lineage_version) FROM market_data_private.source_binding_facts_v1 AS f WHERE f.lineage_root=p_lineage_root)) $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_lineage_custody_v1(p_lineage_root BYTEA) RETURNS BOOLEAN LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT EXISTS(SELECT 1 FROM market_data_private.pit_snapshot_heads_v1 AS h WHERE h.lineage_root=p_lineage_root AND h.lineage_version=(SELECT COUNT(*) FROM market_data_private.pit_snapshot_facts_v1 AS f WHERE f.lineage_root=p_lineage_root) AND h.lineage_version=(SELECT COUNT(*) FROM market_data_private.pit_snapshot_outbox_v1 AS o JOIN market_data_private.pit_snapshot_facts_v1 AS f ON f.snapshot_identity=o.aggregate_identity WHERE f.lineage_root=p_lineage_root) AND h.lineage_version=(SELECT MAX(f.lineage_version) FROM market_data_private.pit_snapshot_facts_v1 AS f WHERE f.lineage_root=p_lineage_root)) $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_source_lineage_members_v1(p_lineage_root BYTEA) RETURNS TABLE(member_identity BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT f.binding_id FROM market_data_private.source_binding_facts_v1 AS f WHERE f.lineage_root=p_lineage_root ORDER BY f.lineage_version $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_lineage_members_v1(p_lineage_root BYTEA) RETURNS TABLE(member_identity BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT f.snapshot_identity FROM market_data_private.pit_snapshot_facts_v1 AS f WHERE f.lineage_root=p_lineage_root ORDER BY f.lineage_version $function$",
-    "CREATE OR REPLACE FUNCTION market_data_private.resolve_source_lineage_roots_v1() RETURNS TABLE(lineage_root BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT lineage_root FROM market_data_private.source_binding_heads_v1 UNION SELECT lineage_root FROM market_data_private.source_binding_facts_v1 ORDER BY lineage_root $function$",
-    "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_lineage_roots_v1() RETURNS TABLE(lineage_root BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT lineage_root FROM market_data_private.pit_snapshot_heads_v1 UNION SELECT lineage_root FROM market_data_private.pit_snapshot_facts_v1 ORDER BY lineage_root $function$",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_source_lineage_roots_v1() RETURNS TABLE(lineage_root BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT lineage_root FROM market_data_private.source_binding_lineage_census_v1 ORDER BY lineage_root $function$",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_lineage_roots_v1() RETURNS TABLE(lineage_root BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT lineage_root FROM market_data_private.pit_snapshot_lineage_census_v1 ORDER BY lineage_root $function$",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_owner_history_census_custody_v1() RETURNS BOOLEAN LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT EXISTS(SELECT 1 FROM market_data_private.owner_history_census_state_v1 AS s WHERE s.singleton AND s.source_lineage_count=(SELECT COUNT(*) FROM market_data_private.source_binding_lineage_census_v1) AND s.pit_lineage_count=(SELECT COUNT(*) FROM market_data_private.pit_snapshot_lineage_census_v1)) AND EXISTS(SELECT 1 FROM market_data_private.owner_migrations_v1 WHERE migration_id='market-data-owner-history-census-v1') AND NOT EXISTS(SELECT 1 FROM market_data_private.source_binding_facts_v1 AS f LEFT JOIN market_data_private.source_binding_lineage_census_v1 AS c ON c.lineage_root=f.lineage_root WHERE c.lineage_root IS NULL) AND NOT EXISTS(SELECT 1 FROM market_data_private.source_binding_heads_v1 AS h LEFT JOIN market_data_private.source_binding_lineage_census_v1 AS c ON c.lineage_root=h.lineage_root WHERE c.lineage_root IS NULL) AND NOT EXISTS(SELECT 1 FROM market_data_private.pit_snapshot_facts_v1 AS f LEFT JOIN market_data_private.pit_snapshot_lineage_census_v1 AS c ON c.lineage_root=f.lineage_root WHERE c.lineage_root IS NULL) AND NOT EXISTS(SELECT 1 FROM market_data_private.pit_snapshot_heads_v1 AS h LEFT JOIN market_data_private.pit_snapshot_lineage_census_v1 AS c ON c.lineage_root=h.lineage_root WHERE c.lineage_root IS NULL) $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_clock_handoff_v1(p_head_identity BYTEA) RETURNS TABLE(head_identity BYTEA, head_digest BYTEA, predecessor_head_digest BYTEA, clock_identity TEXT, clock_epoch TEXT, monotonic_sequence BIGINT, wall_observed BIGINT, decision_cut BIGINT, valid_through BIGINT, restart_continuity_digest BYTEA, uncertainty_bound BIGINT, skew_bound BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT h.head_identity,h.head_digest,h.predecessor_head_digest,h.clock_identity,h.clock_epoch,h.monotonic_sequence,h.wall_observed,h.decision_cut,h.valid_through,h.restart_continuity_digest,h.uncertainty_bound,h.skew_bound,h.comparison_rule FROM market_data_private.clock_handoffs_v1 AS h WHERE h.head_identity=p_head_identity $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_epoch_successor_proof_v1(p_successor_head_digest BYTEA) RETURNS TABLE(proof_identity BYTEA, predecessor_head_digest BYTEA, successor_head_digest BYTEA, prior_clock_identity TEXT, prior_clock_epoch TEXT, successor_clock_identity TEXT, successor_clock_epoch TEXT, successor_continuity_digest BYTEA, commit_cut BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT p.proof_identity,p.predecessor_head_digest,p.successor_head_digest,p.prior_clock_identity,p.prior_clock_epoch,p.successor_clock_identity,p.successor_clock_epoch,p.successor_continuity_digest,p.commit_cut,p.comparison_rule FROM market_data_private.epoch_successor_proofs_v1 AS p WHERE p.successor_head_digest=p_successor_head_digest $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_clock_membership_custody_v1() RETURNS TABLE(handoff_count BIGINT, head_identity BYTEA, root_head_identity BYTEA, ordinal BIGINT, prior_head_identity BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT state.handoff_count,edge.head_identity,edge.root_head_identity,edge.ordinal,edge.prior_head_identity FROM market_data_private.clock_handoff_state_v1 AS state LEFT JOIN LATERAL (SELECT membership.head_identity,membership.root_head_identity,membership.ordinal,prior.head_identity AS prior_head_identity FROM market_data_private.clock_handoff_membership_v1 AS membership JOIN market_data_private.clock_handoffs_v1 AS handoff ON handoff.head_identity=membership.head_identity LEFT JOIN market_data_private.clock_handoffs_v1 AS prior ON prior.head_digest=handoff.predecessor_head_digest) AS edge ON TRUE WHERE state.singleton $function$",
@@ -82,6 +87,7 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_lineage_members_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_source_lineage_roots_v1() FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_lineage_roots_v1() FROM PUBLIC",
+    "REVOKE ALL ON FUNCTION market_data_private.resolve_owner_history_census_custody_v1() FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_clock_handoff_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_epoch_successor_proof_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_clock_membership_custody_v1() FROM PUBLIC",
@@ -120,6 +126,17 @@ impl MarketDataOwnerPostgres {
                 .execute(&mut *transaction)
                 .await
                 .map_err(|_| SourceBindingError::StoreUnavailable)?;
+        }
+        let history_census_installed: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM market_data_private.owner_migrations_v1 WHERE migration_id=$1)",
+        )
+        .bind(OWNER_HISTORY_CENSUS_MIGRATION_ID)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|_| SourceBindingError::StoreUnavailable)?;
+
+        if !history_census_installed {
+            install_owner_history_census(&mut transaction).await?;
         }
         validate_owner_history_custody(&mut transaction).await?;
         let shared_time_installed: bool = sqlx::query_scalar(
@@ -659,6 +676,15 @@ async fn validate_source_lineage_shape(
 async fn validate_owner_history_custody(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), SourceBindingError> {
+    let census_is_valid: bool =
+        sqlx::query_scalar("SELECT market_data_private.resolve_owner_history_census_custody_v1()")
+            .fetch_one(&mut **transaction)
+            .await
+            .map_err(|_| SourceBindingError::StoreUnavailable)?;
+
+    if !census_is_valid {
+        return Err(SourceBindingError::StoreUnavailable);
+    }
     let source_roots: Vec<Vec<u8>> = sqlx::query_scalar(
         "SELECT lineage_root FROM market_data_private.resolve_source_lineage_roots_v1()",
     )
@@ -689,12 +715,69 @@ async fn validate_owner_history_custody(
     Ok(())
 }
 
+async fn install_owner_history_census(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), SourceBindingError> {
+    sqlx::query(
+        "INSERT INTO market_data_private.source_binding_lineage_census_v1(lineage_root) SELECT lineage_root FROM market_data_private.source_binding_heads_v1 UNION SELECT lineage_root FROM market_data_private.source_binding_facts_v1",
+    )
+    .execute(&mut **transaction)
+    .await
+    .map_err(|_| SourceBindingError::StoreUnavailable)?;
+    sqlx::query(
+        "INSERT INTO market_data_private.pit_snapshot_lineage_census_v1(lineage_root) SELECT lineage_root FROM market_data_private.pit_snapshot_heads_v1 UNION SELECT lineage_root FROM market_data_private.pit_snapshot_facts_v1",
+    )
+    .execute(&mut **transaction)
+    .await
+    .map_err(|_| SourceBindingError::StoreUnavailable)?;
+    sqlx::query(
+        "INSERT INTO market_data_private.owner_history_census_state_v1(singleton,source_lineage_count,pit_lineage_count) VALUES (TRUE,(SELECT COUNT(*) FROM market_data_private.source_binding_lineage_census_v1),(SELECT COUNT(*) FROM market_data_private.pit_snapshot_lineage_census_v1))",
+    )
+    .execute(&mut **transaction)
+    .await
+    .map_err(|_| SourceBindingError::StoreUnavailable)?;
+    sqlx::query("INSERT INTO market_data_private.owner_migrations_v1(migration_id) VALUES ($1)")
+        .bind(OWNER_HISTORY_CENSUS_MIGRATION_ID)
+        .execute(&mut **transaction)
+        .await
+        .map_err(|_| SourceBindingError::StoreUnavailable)?;
+    Ok(())
+}
+
+async fn admit_source_lineage_census(
+    transaction: &mut Transaction<'_, Postgres>,
+    lineage_root: BindingDigest,
+) -> Result<(), SourceBindingError> {
+    let inserted: Option<i64> = sqlx::query_scalar(
+        "INSERT INTO market_data_private.source_binding_lineage_census_v1(lineage_root) VALUES ($1) ON CONFLICT (lineage_root) DO NOTHING RETURNING 1::BIGINT",
+    )
+    .bind(lineage_root.as_bytes().as_slice())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|_| SourceBindingError::StoreUnavailable)?;
+
+    if inserted.is_some() {
+        let result = sqlx::query(
+            "UPDATE market_data_private.owner_history_census_state_v1 SET source_lineage_count=source_lineage_count+1 WHERE singleton",
+        )
+        .execute(&mut **transaction)
+        .await
+        .map_err(|_| SourceBindingError::StoreUnavailable)?;
+
+        if result.rows_affected() != 1 {
+            return Err(SourceBindingError::StoreUnavailable);
+        }
+    }
+    Ok(())
+}
+
 async fn insert_source(
     transaction: &mut Transaction<'_, Postgres>,
     aggregate: &SourceBindingStoredAggregate,
     fault: PostgresCommitFault,
 ) -> Result<(), SourceBindingError> {
     let fact = aggregate.commit().fact();
+    admit_source_lineage_census(transaction, fact.lineage_root()).await?;
     let json = serde_json::to_value(aggregate).map_err(|_| SourceBindingError::StoreUnavailable)?;
     sqlx::query(
         "INSERT INTO market_data_private.source_binding_facts_v1(binding_id,fact_digest,lineage_root,lineage_version,aggregate_json) VALUES ($1,$2,$3,$4,$5)",
@@ -1127,12 +1210,40 @@ async fn validate_pit_lineage_shape(
     Ok(())
 }
 
+async fn admit_pit_lineage_census(
+    transaction: &mut Transaction<'_, Postgres>,
+    lineage_root: BindingDigest,
+) -> Result<(), PitSnapshotError> {
+    let inserted: Option<i64> = sqlx::query_scalar(
+        "INSERT INTO market_data_private.pit_snapshot_lineage_census_v1(lineage_root) VALUES ($1) ON CONFLICT (lineage_root) DO NOTHING RETURNING 1::BIGINT",
+    )
+    .bind(lineage_root.as_bytes().as_slice())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+
+    if inserted.is_some() {
+        let result = sqlx::query(
+            "UPDATE market_data_private.owner_history_census_state_v1 SET pit_lineage_count=pit_lineage_count+1 WHERE singleton",
+        )
+        .execute(&mut **transaction)
+        .await
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+
+        if result.rows_affected() != 1 {
+            return Err(PitSnapshotError::PersistenceUnavailable);
+        }
+    }
+    Ok(())
+}
+
 async fn insert_pit(
     transaction: &mut Transaction<'_, Postgres>,
     aggregate: &PitSnapshotCommitAggregate,
     fault: PostgresCommitFault,
 ) -> Result<(), PitSnapshotError> {
     let fact = aggregate.fact();
+    admit_pit_lineage_census(transaction, fact.lineage_root()).await?;
     let correction = &fact.evidence().correction_frontier;
     let json =
         serde_json::to_value(aggregate).map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
