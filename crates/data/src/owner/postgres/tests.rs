@@ -1927,6 +1927,21 @@ async fn run_postgres_owner_scenario() {
         .execute(epoch_owner.pool())
         .await
         .unwrap();
+    let custody_blocked_clock = shared_clock(
+        "market-clock",
+        "epoch-2",
+        winner_clock.monotonic_sequence + 1,
+        winner_clock.wall_observed + 10,
+        d(17),
+        2,
+        3,
+    );
+    assert_eq!(
+        epoch_owner
+            .commit_clock_successor(winner.handoff(), &custody_blocked_clock)
+            .await,
+        Err(SharedTimeEvidenceError::StoreUnavailable),
+    );
     sqlx::query(
         "DELETE FROM market_data_private.source_binding_outbox_v1 WHERE aggregate_identity=$1",
     )

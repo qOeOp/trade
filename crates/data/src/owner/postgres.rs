@@ -1719,6 +1719,9 @@ async fn persist_clock_successor(
     lock_clock_state(&mut transaction)
         .await
         .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+    validate_owner_history_custody(&mut transaction)
+        .await
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
     let current_clock = load_current_clock_for_update(&mut transaction)
         .await
         .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?
