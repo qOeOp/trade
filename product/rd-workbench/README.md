@@ -2,6 +2,29 @@
 
 This package is the non-live Product Edge candidate through Strategy Artifact Formation. The default Web path uses S1 V2: Windmill submits policy but no family identity, while R&D atomically derives and persists the frozen Intent, TrialFamily root, initial INTENT Census member/head, receipts, and outbox. S2 atomically binds its immutable Artifact and Build Receipt to that Owner family. Windmill submits, resolves, and renders; only the Owner commits or directly resolves those facts.
 
+## Deployment Store Admission boundary
+
+The Workbench defaults `DEPLOYMENT_STORE_ADMISSION_MODE` to `disabled`. In that
+mode the three store identities may remain empty and no governed Market Data
+repository is constructed.
+
+`required` mode requires all three of these deployment identities before
+`rd-owner-api` can listen:
+
+- `DEPLOYMENT_STORE_ENVIRONMENT_IDENTITY`: the exact environment identity;
+- `DEPLOYMENT_STORE_DEPLOYMENT_IDENTITY`: the exact deployment identity;
+- `DEPLOYMENT_STORE_EXPECTED_HEAD_IDENTITY`: the expected current head as
+  `sha256:` followed by 64 lowercase hexadecimal characters.
+
+These values select the intended custody scope; they are not positive evidence
+or credentials. A raw DSN, password, secret, private key, or caller-authored
+receipt cannot replace the sealed handoff. The production custody resolver,
+signature verifier, anti-rollback witness, credential resolver, and receipt
+store adapters are currently unavailable. Consequently `required` mode can
+only fail closed during startup. It does not claim that a governed Market Data
+repository has been composed. Do not enable `required` until those production
+adapters and their deployment authority are separately available.
+
 ## Start
 
 Create a private environment file outside the repository or copy `.env.example` and replace every placeholder with a local value. `WINDMILL_DATABASE_URL` and `RD_OWNER_DATABASE_URL` must be private PostgreSQL connection URLs for the Compose `postgres` service, with credentials matching `POSTGRES_PASSWORD` and `RD_OWNER_DB_PASSWORD` respectively. Do not commit it.
