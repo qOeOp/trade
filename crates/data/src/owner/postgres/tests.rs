@@ -363,6 +363,8 @@ async fn grant_reader(admin: &PgPool) {
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_pit_snapshot_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_source_lineage_custody_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_pit_lineage_custody_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_source_lineage_members_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_pit_lineage_members_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_clock_handoff_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_epoch_successor_proof_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_clock_membership_custody_v1() TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
@@ -846,7 +848,7 @@ async fn run_postgres_owner_scenario() {
         reader
             .resolve_source_binding(source.receipt().locator())
             .await,
-        Err(SourceBindingError::LocatorMismatch),
+        Err(SourceBindingError::StoreUnavailable),
     );
     sqlx::query(
         "UPDATE market_data_private.source_binding_facts_v1 SET fact_digest=$1 WHERE binding_id=$2",
@@ -1018,7 +1020,7 @@ async fn run_postgres_owner_scenario() {
         reader_again
             .resolve_pit_snapshot(correction.receipt().locator())
             .await,
-        Err(PitSnapshotError::LocatorMismatch),
+        Err(PitSnapshotError::PersistenceUnavailable),
     );
     sqlx::query(
         "UPDATE market_data_private.pit_snapshot_facts_v1 SET request_identity=$1 WHERE snapshot_identity=$2",
@@ -1064,7 +1066,7 @@ async fn run_postgres_owner_scenario() {
         reader_again
             .resolve_pit_snapshot(correction.receipt().locator())
             .await,
-        Err(PitSnapshotError::LocatorMismatch),
+        Err(PitSnapshotError::PersistenceUnavailable),
     );
     sqlx::query(
         "UPDATE market_data_private.pit_snapshot_outbox_v1 SET event_identity=$1 WHERE aggregate_identity=$2",
@@ -1157,11 +1159,118 @@ async fn run_postgres_owner_scenario() {
         .await
         .unwrap();
 
+    let mut same_epoch_legacy = restarted_again.pool().begin().await.unwrap();
+    sqlx::query(
+        "UPDATE market_data_private.clock_head_v1 SET shared_time_materialized=FALSE WHERE singleton",
+    )
+    .execute(&mut *same_epoch_legacy)
+    .await
+    .unwrap();
+    sqlx::query("DELETE FROM market_data_private.owner_migrations_v1 WHERE migration_id=$1")
+        .bind(SHARED_TIME_MIGRATION_ID)
+        .execute(&mut *same_epoch_legacy)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM market_data_private.clock_handoff_state_v1")
+        .execute(&mut *same_epoch_legacy)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM market_data_private.clock_handoff_head_v1")
+        .execute(&mut *same_epoch_legacy)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM market_data_private.clock_handoff_membership_v1")
+        .execute(&mut *same_epoch_legacy)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM market_data_private.clock_handoffs_v1")
+        .execute(&mut *same_epoch_legacy)
+        .await
+        .unwrap();
+    same_epoch_legacy.commit().await.unwrap();
+
     drop(reader_again);
     drop(restarted_again);
     let final_owner = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
     let final_reader = MarketDataReadPostgres::connect(&reader_url).await.unwrap();
     let before_corrupt_replays = owner_counts(final_owner.pool()).await;
+    sqlx::query(
+        "UPDATE market_data_private.source_binding_facts_v1 SET fact_digest=$1 WHERE binding_id=$2",
+    )
+    .bind(d(112).as_bytes().as_slice())
+    .bind(source_successor.fact().binding_id().as_bytes().as_slice())
+    .execute(final_owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        final_reader
+            .resolve_source_binding(source_third.receipt().locator())
+            .await,
+        Err(SourceBindingError::StoreUnavailable),
+    );
+    assert_eq!(
+        final_reader
+            .resolve_pit_snapshot(pit_third.receipt().locator())
+            .await,
+        Err(PitSnapshotError::SourceBindingUnavailable),
+    );
+    assert_eq!(
+        Box::pin(final_owner.commit_source_successor(
+            source.receipt().locator(),
+            source_successor_value.clone(),
+            OwnerSourceBindingDecision {
+                blockers: BTreeSet::new(),
+            },
+            &clock(50, 2),
+        ))
+        .await,
+        Err(SourceBindingError::StoreUnavailable),
+    );
+    sqlx::query(
+        "UPDATE market_data_private.source_binding_facts_v1 SET fact_digest=$1 WHERE binding_id=$2",
+    )
+    .bind(source_successor.fact().digest().as_bytes().as_slice())
+    .bind(source_successor.fact().binding_id().as_bytes().as_slice())
+    .execute(final_owner.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE market_data_private.pit_snapshot_facts_v1 SET fact_digest=$1 WHERE snapshot_identity=$2",
+    )
+    .bind(d(113).as_bytes().as_slice())
+    .bind(correction.fact().snapshot_identity().as_bytes().as_slice())
+    .execute(final_owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        final_reader
+            .resolve_pit_snapshot(pit_third.receipt().locator())
+            .await,
+        Err(PitSnapshotError::PersistenceUnavailable),
+    );
+    assert_eq!(
+        final_owner
+            .commit_pit_correction(
+                pit.receipt().locator(),
+                correction_value.clone(),
+                &correction_basis,
+                &clock(50, 2),
+            )
+            .await,
+        Err(PitSnapshotError::PersistenceUnavailable),
+    );
+    sqlx::query(
+        "UPDATE market_data_private.pit_snapshot_facts_v1 SET fact_digest=$1 WHERE snapshot_identity=$2",
+    )
+    .bind(correction.fact().digest().as_bytes().as_slice())
+    .bind(correction.fact().snapshot_identity().as_bytes().as_slice())
+    .execute(final_owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        owner_counts(final_owner.pool()).await,
+        before_corrupt_replays
+    );
     sqlx::query(
         "UPDATE market_data_private.source_binding_heads_v1 SET binding_id=$1,fact_digest=$2,lineage_version=$3 WHERE lineage_root=$4",
     )
