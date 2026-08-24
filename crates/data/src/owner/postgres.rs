@@ -976,9 +976,7 @@ async fn legacy_owner_history_clocks(
         clocks.push(clock.clone());
     }
     clocks.sort_by_key(|value| value.monotonic_sequence);
-    if clocks.first().map(|value| value.monotonic_sequence) != Some(1)
-        || clocks.last() != Some(clock)
-    {
+    if clocks.last() != Some(clock) {
         return Ok(None);
     }
     let Some(first) = clocks.first() else {

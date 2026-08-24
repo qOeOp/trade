@@ -383,6 +383,79 @@ async fn shared_time_counts(pool: &PgPool) -> (i64, i64) {
     .unwrap()
 }
 
+async fn assert_legacy_sequence_five_migrates(owner_url: &str) {
+    let owner = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
+    let legacy_clock = clock(40, 5);
+    let mut legacy_source = source_proposal(10, 40);
+    legacy_source.time_evidence.monotonic_sequence = legacy_clock.monotonic_sequence;
+    legacy_source.time_evidence.claimed_evidence_identity =
+        derive_time_evidence_identity(&legacy_source.time_evidence);
+    legacy_source.claimed_binding_id = derive_binding_id(&legacy_source);
+    owner
+        .commit_source_initial(
+            legacy_source,
+            OwnerSourceBindingDecision {
+                blockers: BTreeSet::new(),
+            },
+            &legacy_clock,
+        )
+        .await
+        .unwrap();
+
+    let mut legacy = owner.pool().begin().await.unwrap();
+    sqlx::query(
+        "UPDATE market_data_private.clock_head_v1 SET shared_time_materialized=FALSE WHERE singleton",
+    )
+    .execute(&mut *legacy)
+    .await
+    .unwrap();
+    sqlx::query("DELETE FROM market_data_private.owner_migrations_v1 WHERE migration_id=$1")
+        .bind(SHARED_TIME_MIGRATION_ID)
+        .execute(&mut *legacy)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM market_data_private.epoch_successor_proofs_v1")
+        .execute(&mut *legacy)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM market_data_private.clock_handoff_head_v1")
+        .execute(&mut *legacy)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM market_data_private.clock_handoff_membership_v1")
+        .execute(&mut *legacy)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM market_data_private.clock_handoffs_v1")
+        .execute(&mut *legacy)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM market_data_private.clock_handoff_state_v1")
+        .execute(&mut *legacy)
+        .await
+        .unwrap();
+    legacy.commit().await.unwrap();
+    drop(owner);
+
+    let migrated = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
+    assert_eq!(shared_time_counts(migrated.pool()).await, (1, 0));
+    let (sequence, materialized): (i64, bool) = sqlx::query_as(
+        "SELECT monotonic_sequence,shared_time_materialized FROM market_data_private.clock_head_v1 WHERE singleton",
+    )
+    .fetch_one(migrated.pool())
+    .await
+    .unwrap();
+    assert_eq!((sequence, materialized), (5, true));
+    drop(migrated);
+
+    let restarted = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
+    assert_eq!(shared_time_counts(restarted.pool()).await, (1, 0));
+    sqlx::query("DROP SCHEMA market_data_private CASCADE")
+        .execute(restarted.pool())
+        .await
+        .unwrap();
+}
+
 async fn consume_direct(
     source_resolver: &impl SourceBindingOwnerResolver,
     pit_resolver: &impl PitSnapshotOwnerResolver,
@@ -567,6 +640,7 @@ fn postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed() {
 
 async fn run_postgres_owner_scenario() {
     let (owner_url, reader_url, admin) = guarded_pools().await;
+    assert_legacy_sequence_five_migrates(&owner_url).await;
     let owner = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
     grant_reader(&admin).await;
 
