@@ -607,6 +607,12 @@ async fn postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed() {
 
     let before_upgrade = owner_counts(owner.pool()).await;
     let mut legacy = owner.pool().begin().await.unwrap();
+    sqlx::query(
+        "UPDATE market_data_private.clock_head_v1 SET shared_time_materialized=FALSE WHERE singleton",
+    )
+    .execute(&mut *legacy)
+    .await
+    .unwrap();
     sqlx::query("DELETE FROM market_data_private.owner_migrations_v1 WHERE migration_id=$1")
         .bind(SHARED_TIME_MIGRATION_ID)
         .execute(&mut *legacy)
@@ -1207,6 +1213,13 @@ async fn postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed() {
             .await,
         Err(SharedTimeEvidenceError::EpochSuccessorProofMismatch),
     );
+    let reused_epoch_other_clock = shared_clock("other-clock", "epoch-1", 1, 100, d(18), 1, 2);
+    assert_eq!(
+        epoch_owner
+            .commit_clock_successor(epoch_two.handoff(), &reused_epoch_other_clock)
+            .await,
+        Err(SharedTimeEvidenceError::EpochSuccessorProofMismatch),
+    );
     assert_eq!(
         shared_time_counts(epoch_owner.pool()).await,
         before_epoch_reuse
@@ -1424,5 +1437,18 @@ async fn postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed() {
         owner_counts(epoch_owner.pool()).await,
         before_reverse_partial_loss
     );
+    sqlx::query("DELETE FROM market_data_private.clock_handoff_state_v1")
+        .execute(epoch_owner.pool())
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM market_data_private.owner_migrations_v1 WHERE migration_id=$1")
+        .bind(SHARED_TIME_MIGRATION_ID)
+        .execute(epoch_owner.pool())
+        .await
+        .unwrap();
+    assert!(matches!(
+        MarketDataOwnerPostgres::connect(&owner_url).await,
+        Err(SourceBindingError::StoreUnavailable)
+    ));
     admin.close().await;
 }

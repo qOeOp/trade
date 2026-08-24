@@ -357,6 +357,7 @@ pub(crate) fn validate_new_epoch_successor(
 ) -> Result<(), SharedTimeEvidenceError> {
     let current = prior.clock();
     let valid = next.is_complete()
+        && next.clock_identity == current.clock_identity
         && next.clock_epoch != current.clock_epoch
         && next.restart_continuity_digest != current.restart_continuity_digest
         && next.wall_observed > current.wall_observed
@@ -582,6 +583,12 @@ mod tests {
         let prior = build_head_fact(&clock("epoch-1", 9, 100, d(1)), None).unwrap();
         let successor_clock = clock("epoch-2", 1, 110, d(2));
         validate_new_epoch_successor(&prior, &successor_clock).unwrap();
+        let mut different_clock = successor_clock.clone();
+        different_clock.clock_identity = "other-clock".into();
+        assert_eq!(
+            validate_new_epoch_successor(&prior, &different_clock),
+            Err(SharedTimeEvidenceError::EpochSuccessorProofMismatch)
+        );
         let successor =
             build_head_fact(&successor_clock, Some(prior.handoff.head_digest())).unwrap();
         let proof = build_epoch_successor_proof(&prior, &successor);

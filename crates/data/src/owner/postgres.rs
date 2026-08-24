@@ -48,7 +48,8 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE SCHEMA IF NOT EXISTS market_data_private AUTHORIZATION CURRENT_USER",
     "REVOKE ALL ON SCHEMA market_data_private FROM PUBLIC",
     "CREATE TABLE IF NOT EXISTS market_data_private.owner_migrations_v1 (migration_id TEXT PRIMARY KEY, installed_at TIMESTAMPTZ NOT NULL DEFAULT transaction_timestamp())",
-    "CREATE TABLE IF NOT EXISTS market_data_private.clock_head_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), clock_identity TEXT NOT NULL, clock_epoch TEXT NOT NULL, monotonic_sequence BIGINT NOT NULL CHECK (monotonic_sequence > 0), wall_observed BIGINT NOT NULL CHECK (wall_observed > 0), decision_cut BIGINT NOT NULL CHECK (decision_cut > 0), valid_through BIGINT NOT NULL, restart_continuity_digest BYTEA NOT NULL CHECK (octet_length(restart_continuity_digest) = 32), uncertainty_bound BIGINT NOT NULL CHECK (uncertainty_bound >= 0), skew_bound BIGINT NOT NULL CHECK (skew_bound > 0), comparison_rule SMALLINT NOT NULL CHECK (comparison_rule = 1), CHECK (uncertainty_bound <= skew_bound), CHECK (decision_cut <= wall_observed), CHECK (wall_observed < valid_through))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.clock_head_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), clock_identity TEXT NOT NULL, clock_epoch TEXT NOT NULL, monotonic_sequence BIGINT NOT NULL CHECK (monotonic_sequence > 0), wall_observed BIGINT NOT NULL CHECK (wall_observed > 0), decision_cut BIGINT NOT NULL CHECK (decision_cut > 0), valid_through BIGINT NOT NULL, restart_continuity_digest BYTEA NOT NULL CHECK (octet_length(restart_continuity_digest) = 32), uncertainty_bound BIGINT NOT NULL CHECK (uncertainty_bound >= 0), skew_bound BIGINT NOT NULL CHECK (skew_bound > 0), comparison_rule SMALLINT NOT NULL CHECK (comparison_rule = 1), shared_time_materialized BOOLEAN NOT NULL DEFAULT FALSE, CHECK (uncertainty_bound <= skew_bound), CHECK (decision_cut <= wall_observed), CHECK (wall_observed < valid_through))",
+    "ALTER TABLE market_data_private.clock_head_v1 ADD COLUMN IF NOT EXISTS shared_time_materialized BOOLEAN NOT NULL DEFAULT FALSE",
     "CREATE TABLE IF NOT EXISTS market_data_private.clock_handoffs_v1 (head_identity BYTEA PRIMARY KEY CHECK (octet_length(head_identity) = 32), head_digest BYTEA NOT NULL UNIQUE CHECK (octet_length(head_digest) = 32), predecessor_head_digest BYTEA NULL UNIQUE REFERENCES market_data_private.clock_handoffs_v1(head_digest) CHECK (predecessor_head_digest IS NULL OR octet_length(predecessor_head_digest) = 32), clock_identity TEXT NOT NULL, clock_epoch TEXT NOT NULL, monotonic_sequence BIGINT NOT NULL CHECK (monotonic_sequence > 0), wall_observed BIGINT NOT NULL CHECK (wall_observed > 0), decision_cut BIGINT NOT NULL CHECK (decision_cut > 0), valid_through BIGINT NOT NULL, restart_continuity_digest BYTEA NOT NULL CHECK (octet_length(restart_continuity_digest) = 32), uncertainty_bound BIGINT NOT NULL CHECK (uncertainty_bound >= 0), skew_bound BIGINT NOT NULL CHECK (skew_bound > 0), comparison_rule SMALLINT NOT NULL CHECK (comparison_rule = 1), CHECK (uncertainty_bound <= skew_bound), CHECK (decision_cut <= wall_observed), CHECK (wall_observed < valid_through))",
     "CREATE TABLE IF NOT EXISTS market_data_private.clock_handoff_head_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), head_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.clock_handoffs_v1(head_identity))",
     "CREATE TABLE IF NOT EXISTS market_data_private.clock_handoff_state_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), materialized BOOLEAN NOT NULL, handoff_count BIGINT NOT NULL CHECK (handoff_count >= 0), epoch_transition_count BIGINT NOT NULL CHECK (epoch_transition_count >= 0), CHECK ((NOT materialized AND handoff_count = 0 AND epoch_transition_count = 0) OR (materialized AND handoff_count > 0 AND epoch_transition_count < handoff_count)))",
@@ -784,7 +785,7 @@ async fn insert_clock(
     clock: &MarketDataClockAdmission,
 ) -> Result<(), SourceBindingError> {
     sqlx::query(
-        "INSERT INTO market_data_private.clock_head_v1(singleton,clock_identity,clock_epoch,monotonic_sequence,wall_observed,decision_cut,valid_through,restart_continuity_digest,uncertainty_bound,skew_bound,comparison_rule) VALUES (TRUE,$1,$2,$3,$4,$5,$6,$7,$8,$9,1)",
+        "INSERT INTO market_data_private.clock_head_v1(singleton,clock_identity,clock_epoch,monotonic_sequence,wall_observed,decision_cut,valid_through,restart_continuity_digest,uncertainty_bound,skew_bound,comparison_rule,shared_time_materialized) VALUES (TRUE,$1,$2,$3,$4,$5,$6,$7,$8,$9,1,TRUE)",
     )
     .bind(&clock.clock_identity)
     .bind(&clock.clock_epoch)
@@ -854,6 +855,17 @@ async fn load_current_clock_for_update(
     .map_err(|_| SourceBindingError::StoreUnavailable)?
     .map(|row| decode_clock(&row).map_err(|_| SourceBindingError::StoreUnavailable))
     .transpose()
+}
+
+async fn load_clock_materialization_witness_for_update(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<Option<bool>, SourceBindingError> {
+    sqlx::query_scalar(
+        "SELECT shared_time_materialized FROM market_data_private.clock_head_v1 WHERE singleton FOR UPDATE",
+    )
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|_| SourceBindingError::StoreUnavailable)
 }
 
 async fn load_clock_handoff_state_for_update(
@@ -955,9 +967,11 @@ async fn install_clock_handoff_state(
         return Err(SourceBindingError::StoreUnavailable);
     }
     let current = load_current_clock_for_update(transaction).await?;
+    let materialization_witness =
+        load_clock_materialization_witness_for_update(transaction).await?;
     let counts = clock_handoff_storage_counts(transaction).await?;
-    match (current, counts) {
-        (None, (0, 0, 0)) => {
+    match (current, materialization_witness, counts) {
+        (None, None, (0, 0, 0)) => {
             insert_clock_handoff_state(
                 transaction,
                 DurableClockHandoffState {
@@ -968,11 +982,17 @@ async fn install_clock_handoff_state(
             )
             .await
         }
-        (Some(clock), (0, 0, 0)) => {
+        (Some(clock), Some(false), (0, 0, 0)) => {
             let fact = build_head_fact(&clock, None)
                 .map_err(|_| SourceBindingError::TrustedClockMismatch)?;
             insert_clock_handoff(transaction, &fact).await?;
             set_clock_handoff_head(transaction, fact.handoff.head_identity()).await?;
+            sqlx::query(
+                "UPDATE market_data_private.clock_head_v1 SET shared_time_materialized=TRUE WHERE singleton AND NOT shared_time_materialized",
+            )
+            .execute(&mut **transaction)
+            .await
+            .map_err(|_| SourceBindingError::StoreUnavailable)?;
             insert_clock_handoff_state(
                 transaction,
                 DurableClockHandoffState {
@@ -993,14 +1013,16 @@ async fn validate_clock_handoff_installation(
     lock_clock_state(transaction).await?;
     let state = load_clock_handoff_state_for_update(transaction).await?;
     let current = load_current_clock_for_update(transaction).await?;
+    let materialization_witness =
+        load_clock_materialization_witness_for_update(transaction).await?;
     let counts = clock_handoff_storage_counts(transaction).await?;
-    match (state.materialized, current, counts) {
-        (false, None, (0, 0, 0))
+    match (state.materialized, current, materialization_witness, counts) {
+        (false, None, None, (0, 0, 0))
             if state.handoff_count == 0 && state.epoch_transition_count == 0 =>
         {
             Ok(())
         }
-        (true, Some(clock), _) => {
+        (true, Some(clock), Some(true), _) => {
             ensure_clock_handoff_state(transaction, &clock).await?;
             Ok(())
         }
@@ -1013,10 +1035,13 @@ async fn ensure_clock_handoff_state(
     current: &MarketDataClockAdmission,
 ) -> Result<ClockHeadFact, SourceBindingError> {
     let state = load_clock_handoff_state_for_update(transaction).await?;
+    let materialization_witness =
+        load_clock_materialization_witness_for_update(transaction).await?;
     let (handoff_count, head_count, epoch_transition_count) =
         clock_handoff_storage_counts(transaction).await?;
 
     if !state.materialized
+        || materialization_witness != Some(true)
         || state.handoff_count != handoff_count
         || state.epoch_transition_count != epoch_transition_count
         || head_count != 1
