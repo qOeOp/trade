@@ -37,16 +37,28 @@ fn d(byte: u8) -> BindingDigest {
 }
 
 fn clock(cut: u64, sequence: u64) -> MarketDataClockAdmission {
+    shared_clock("market-clock", "epoch-1", sequence, cut, d(7), 1, 2)
+}
+
+fn shared_clock(
+    clock_identity: &str,
+    epoch: &str,
+    sequence: u64,
+    cut: u64,
+    continuity: BindingDigest,
+    uncertainty: u64,
+    skew: u64,
+) -> MarketDataClockAdmission {
     MarketDataClockAdmission::seal_for_test(
-        "market-clock",
-        "epoch-1",
+        clock_identity,
+        epoch,
         sequence,
         cut,
         cut,
         cut + 60,
-        d(7),
-        1,
-        2,
+        continuity,
+        uncertainty,
+        skew,
     )
 }
 
@@ -348,6 +360,17 @@ async fn grant_reader(admin: &PgPool) {
         .unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_source_binding_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_pit_snapshot_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_clock_handoff_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_epoch_successor_proof_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+}
+
+async fn shared_time_counts(pool: &PgPool) -> (i64, i64) {
+    sqlx::query_as(
+        "SELECT (SELECT COUNT(*) FROM market_data_private.clock_handoffs_v1), (SELECT COUNT(*) FROM market_data_private.epoch_successor_proofs_v1)",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
 
 async fn consume_direct(
@@ -976,5 +999,195 @@ async fn postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed() {
     consume_direct(&final_reader, &final_reader, &source_third, &pit_third).await;
 
     assert_eq!(owner_counts(final_owner.pool()).await, (4, 4, 4, 4));
+
+    let epoch_one_head = build_head_fact(&clock(60, 3), None).unwrap().handoff;
+    let epoch_one_head = final_reader
+        .resolve_clock_head(epoch_one_head.locator())
+        .await
+        .unwrap();
+    assert_eq!(epoch_one_head.clock_epoch(), "epoch-1");
+    assert_eq!(shared_time_counts(final_owner.pool()).await, (3, 0));
+
+    let same_epoch_clock = clock(70, 4);
+    let same_epoch = final_owner
+        .commit_clock_successor(&epoch_one_head, &same_epoch_clock)
+        .await
+        .unwrap();
+    assert!(same_epoch.epoch_successor_proof().is_none());
+    let same_epoch_readback = final_reader
+        .resolve_clock_successor(&epoch_one_head, same_epoch.handoff().locator())
+        .await
+        .unwrap();
+    assert_eq!(same_epoch_readback, same_epoch);
+
+    let mut cut_rollback = clock(80, 5);
+    cut_rollback.decision_cut = same_epoch_clock.decision_cut;
+    assert_eq!(
+        final_owner
+            .commit_clock_successor(same_epoch.handoff(), &cut_rollback)
+            .await,
+        Err(SharedTimeEvidenceError::SuccessorDoesNotAdvance),
+    );
+    let mut validity_rollback = clock(80, 5);
+    validity_rollback.valid_through = same_epoch_clock.valid_through;
+    assert_eq!(
+        final_owner
+            .commit_clock_successor(same_epoch.handoff(), &validity_rollback)
+            .await,
+        Err(SharedTimeEvidenceError::SuccessorDoesNotAdvance),
+    );
+
+    let response_loss_clock = clock(80, 5);
+    assert_eq!(
+        final_owner
+            .commit_clock_successor_with_fault(
+                same_epoch.handoff(),
+                &response_loss_clock,
+                PostgresCommitFault::ResponseLoss,
+            )
+            .await,
+        Err(SharedTimeEvidenceError::ResponseLost),
+    );
+    let recovered_response = final_owner
+        .commit_clock_successor(same_epoch.handoff(), &response_loss_clock)
+        .await
+        .unwrap();
+
+    drop(final_reader);
+    drop(final_owner);
+    let epoch_owner = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
+    let epoch_reader = MarketDataReadPostgres::connect(&reader_url).await.unwrap();
+    let recovered_after_restart = epoch_reader
+        .resolve_clock_successor(same_epoch.handoff(), recovered_response.handoff().locator())
+        .await
+        .unwrap();
+    assert_eq!(recovered_after_restart, recovered_response);
+
+    let epoch_two_clock = shared_clock("market-clock", "epoch-2", 1, 90, d(17), 2, 3);
+    let before_interrupted_epoch = shared_time_counts(epoch_owner.pool()).await;
+    assert_eq!(
+        epoch_owner
+            .commit_clock_successor_with_fault(
+                recovered_response.handoff(),
+                &epoch_two_clock,
+                PostgresCommitFault::AfterClockHeadBeforeEpochProof,
+            )
+            .await,
+        Err(SharedTimeEvidenceError::CommitInterrupted),
+    );
+    assert_eq!(
+        shared_time_counts(epoch_owner.pool()).await,
+        before_interrupted_epoch
+    );
+    assert_eq!(
+        epoch_owner
+            .commit_clock_successor_with_fault(
+                recovered_response.handoff(),
+                &epoch_two_clock,
+                PostgresCommitFault::ResponseLoss,
+            )
+            .await,
+        Err(SharedTimeEvidenceError::ResponseLost),
+    );
+    let epoch_two = epoch_owner
+        .commit_clock_successor(recovered_response.handoff(), &epoch_two_clock)
+        .await
+        .unwrap();
+    let epoch_proof = epoch_two.epoch_successor_proof().unwrap();
+    assert_eq!(
+        epoch_proof.predecessor_head_digest(),
+        recovered_response.handoff().head_digest()
+    );
+    assert_eq!(
+        epoch_proof.successor_head_digest(),
+        epoch_two.handoff().head_digest()
+    );
+    assert_eq!(epoch_proof.prior_clock_epoch(), "epoch-1");
+    assert_eq!(epoch_proof.successor_clock_epoch(), "epoch-2");
+    assert_eq!(epoch_proof.commit_cut(), 90);
+    assert_eq!(epoch_two.handoff().monotonic_sequence(), 1);
+    assert!(
+        epoch_reader
+            .resolve_clock_successor(recovered_response.handoff(), epoch_two.handoff().locator())
+            .await
+            .unwrap()
+            .epoch_successor_proof()
+            .is_some()
+    );
+    assert_eq!(
+        epoch_reader
+            .resolve_clock_successor(same_epoch.handoff(), epoch_two.handoff().locator())
+            .await,
+        Err(SharedTimeEvidenceError::PriorHandoffMismatch),
+    );
+
+    let original_commit_cut: i64 = sqlx::query_scalar(
+        "SELECT commit_cut FROM market_data_private.epoch_successor_proofs_v1 WHERE proof_identity=$1",
+    )
+    .bind(epoch_proof.proof_identity().as_bytes().as_slice())
+    .fetch_one(epoch_owner.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE market_data_private.epoch_successor_proofs_v1 SET commit_cut=commit_cut+1 WHERE proof_identity=$1",
+    )
+    .bind(epoch_proof.proof_identity().as_bytes().as_slice())
+    .execute(epoch_owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        epoch_reader
+            .resolve_clock_successor(recovered_response.handoff(), epoch_two.handoff().locator())
+            .await,
+        Err(SharedTimeEvidenceError::EpochSuccessorProofMismatch),
+    );
+    sqlx::query(
+        "UPDATE market_data_private.epoch_successor_proofs_v1 SET commit_cut=$1 WHERE proof_identity=$2",
+    )
+    .bind(original_commit_cut)
+    .bind(epoch_proof.proof_identity().as_bytes().as_slice())
+    .execute(epoch_owner.pool())
+    .await
+    .unwrap();
+
+    let concurrent_owner = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
+    let concurrent_a = shared_clock("market-clock", "epoch-2", 2, 100, d(17), 2, 3);
+    let concurrent_b = shared_clock("market-clock", "epoch-2", 2, 101, d(17), 2, 3);
+    let (result_a, result_b) = tokio::join!(
+        epoch_owner.commit_clock_successor(epoch_two.handoff(), &concurrent_a),
+        concurrent_owner.commit_clock_successor(epoch_two.handoff(), &concurrent_b),
+    );
+    let (winner, winner_clock) = match (result_a, result_b) {
+        (Ok(value), Err(SharedTimeEvidenceError::PriorHandoffMismatch)) => (value, concurrent_a),
+        (Err(SharedTimeEvidenceError::PriorHandoffMismatch), Ok(value)) => (value, concurrent_b),
+        other => panic!("unexpected concurrent result: {other:?}"),
+    };
+    let (replay_a, replay_b) = tokio::join!(
+        epoch_owner.commit_clock_successor(epoch_two.handoff(), &winner_clock),
+        concurrent_owner.commit_clock_successor(epoch_two.handoff(), &winner_clock),
+    );
+    assert_eq!(replay_a.unwrap(), winner);
+    assert_eq!(replay_b.unwrap(), winner);
+    assert!(
+        epoch_reader
+            .resolve_clock_successor(epoch_two.handoff(), winner.handoff().locator())
+            .await
+            .unwrap()
+            .epoch_successor_proof()
+            .is_none()
+    );
+    assert_eq!(shared_time_counts(epoch_owner.pool()).await, (7, 1));
+    assert!(
+        sqlx::query("SELECT * FROM market_data_private.clock_handoffs_v1")
+            .execute(&epoch_reader.pool)
+            .await
+            .is_err()
+    );
+    assert!(
+        sqlx::query("UPDATE market_data_private.epoch_successor_proofs_v1 SET commit_cut=1")
+            .execute(&epoch_reader.pool)
+            .await
+            .is_err()
+    );
     admin.close().await;
 }

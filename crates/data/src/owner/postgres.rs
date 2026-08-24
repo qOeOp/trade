@@ -21,9 +21,17 @@ use super::{
             prepare_initial_aggregate, verify_aggregate as verify_pit_aggregate,
         },
     },
+    shared_time_evidence::{
+        ClockHeadFact, ClockHeadHandoff, ClockHeadSuccessorReadback, EpochSuccessorProof,
+        SharedTimeEvidenceError, SharedTimeEvidenceResolver, UntrustedClockHeadLocator,
+        build_epoch_successor_proof, build_head_fact, successor_readback,
+        validate_new_epoch_successor, validate_same_epoch_successor, verify_epoch_successor_proof,
+        verify_head_fact,
+    },
     source_binding::{
-        BindingDigest, MarketDataClockAdmission, SourceBindingError, SourceBindingOwnerReadback,
-        SourceBindingOwnerResolver, UntrustedSourceBindingLocator, UntrustedSourceBindingProposal,
+        BindingDigest, MarketDataClockAdmission, MarketDataClockComparisonRule, SourceBindingError,
+        SourceBindingOwnerReadback, SourceBindingOwnerResolver, UntrustedSourceBindingLocator,
+        UntrustedSourceBindingProposal,
         authority::{
             OwnerLineage as SourceOwnerLineage, OwnerSourceBindingDecision, SourceBindingCommit,
             SourceBindingStoredAggregate, build_stored_aggregate, derive_binding_id,
@@ -40,6 +48,9 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "REVOKE ALL ON SCHEMA market_data_private FROM PUBLIC",
     "CREATE TABLE IF NOT EXISTS market_data_private.owner_migrations_v1 (migration_id TEXT PRIMARY KEY, installed_at TIMESTAMPTZ NOT NULL DEFAULT transaction_timestamp())",
     "CREATE TABLE IF NOT EXISTS market_data_private.clock_head_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), clock_identity TEXT NOT NULL, clock_epoch TEXT NOT NULL, monotonic_sequence BIGINT NOT NULL CHECK (monotonic_sequence > 0), wall_observed BIGINT NOT NULL CHECK (wall_observed > 0), decision_cut BIGINT NOT NULL CHECK (decision_cut > 0), valid_through BIGINT NOT NULL, restart_continuity_digest BYTEA NOT NULL CHECK (octet_length(restart_continuity_digest) = 32), uncertainty_bound BIGINT NOT NULL CHECK (uncertainty_bound >= 0), skew_bound BIGINT NOT NULL CHECK (skew_bound > 0), comparison_rule SMALLINT NOT NULL CHECK (comparison_rule = 1), CHECK (uncertainty_bound <= skew_bound), CHECK (decision_cut <= wall_observed), CHECK (wall_observed < valid_through))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.clock_handoffs_v1 (head_identity BYTEA PRIMARY KEY CHECK (octet_length(head_identity) = 32), head_digest BYTEA NOT NULL UNIQUE CHECK (octet_length(head_digest) = 32), predecessor_head_digest BYTEA NULL UNIQUE REFERENCES market_data_private.clock_handoffs_v1(head_digest) CHECK (predecessor_head_digest IS NULL OR octet_length(predecessor_head_digest) = 32), clock_identity TEXT NOT NULL, clock_epoch TEXT NOT NULL, monotonic_sequence BIGINT NOT NULL CHECK (monotonic_sequence > 0), wall_observed BIGINT NOT NULL CHECK (wall_observed > 0), decision_cut BIGINT NOT NULL CHECK (decision_cut > 0), valid_through BIGINT NOT NULL, restart_continuity_digest BYTEA NOT NULL CHECK (octet_length(restart_continuity_digest) = 32), uncertainty_bound BIGINT NOT NULL CHECK (uncertainty_bound >= 0), skew_bound BIGINT NOT NULL CHECK (skew_bound > 0), comparison_rule SMALLINT NOT NULL CHECK (comparison_rule = 1), CHECK (uncertainty_bound <= skew_bound), CHECK (decision_cut <= wall_observed), CHECK (wall_observed < valid_through))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.clock_handoff_head_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), head_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.clock_handoffs_v1(head_identity))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.epoch_successor_proofs_v1 (proof_identity BYTEA PRIMARY KEY CHECK (octet_length(proof_identity) = 32), predecessor_head_digest BYTEA NOT NULL UNIQUE REFERENCES market_data_private.clock_handoffs_v1(head_digest), successor_head_digest BYTEA NOT NULL UNIQUE REFERENCES market_data_private.clock_handoffs_v1(head_digest), prior_clock_identity TEXT NOT NULL, prior_clock_epoch TEXT NOT NULL, successor_clock_identity TEXT NOT NULL, successor_clock_epoch TEXT NOT NULL, successor_continuity_digest BYTEA NOT NULL CHECK (octet_length(successor_continuity_digest) = 32), commit_cut BIGINT NOT NULL CHECK (commit_cut > 0), comparison_rule SMALLINT NOT NULL CHECK (comparison_rule = 1), CHECK (predecessor_head_digest <> successor_head_digest), CHECK (prior_clock_epoch <> successor_clock_epoch))",
     "CREATE TABLE IF NOT EXISTS market_data_private.source_binding_facts_v1 (binding_id BYTEA PRIMARY KEY CHECK (octet_length(binding_id) = 32), fact_digest BYTEA NOT NULL CHECK (octet_length(fact_digest) = 32), lineage_root BYTEA NOT NULL CHECK (octet_length(lineage_root) = 32), lineage_version BIGINT NOT NULL CHECK (lineage_version > 0), aggregate_json JSONB NOT NULL, UNIQUE(lineage_root, lineage_version))",
     "CREATE TABLE IF NOT EXISTS market_data_private.source_binding_heads_v1 (lineage_root BYTEA PRIMARY KEY CHECK (octet_length(lineage_root) = 32), binding_id BYTEA NOT NULL UNIQUE REFERENCES market_data_private.source_binding_facts_v1(binding_id), fact_digest BYTEA NOT NULL CHECK (octet_length(fact_digest) = 32), lineage_version BIGINT NOT NULL CHECK (lineage_version > 0))",
     "CREATE TABLE IF NOT EXISTS market_data_private.source_binding_outbox_v1 (event_identity BYTEA PRIMARY KEY CHECK (octet_length(event_identity) = 32), aggregate_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.source_binding_facts_v1(binding_id), payload_digest BYTEA NOT NULL CHECK (octet_length(payload_digest) = 32), payload BYTEA NOT NULL)",
@@ -48,9 +59,13 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_snapshot_outbox_v1 (event_identity BYTEA PRIMARY KEY CHECK (octet_length(event_identity) = 32), aggregate_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity), payload_digest BYTEA NOT NULL CHECK (octet_length(payload_digest) = 32), payload BYTEA NOT NULL)",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_source_binding_v1(p_binding_id BYTEA) RETURNS TABLE(row_identity BYTEA, fact_digest BYTEA, request_identity BYTEA, request_digest BYTEA, correction_stream_identity TEXT, correction_sequence BIGINT, fact_lineage_root BYTEA, fact_lineage_version BIGINT, aggregate_json JSONB, outbox_event_identity BYTEA, outbox_aggregate_identity BYTEA, outbox_payload BYTEA, outbox_digest BYTEA, head_lineage_root BYTEA, head_identity BYTEA, head_digest BYTEA, head_version BIGINT, clock_identity TEXT, clock_epoch TEXT, monotonic_sequence BIGINT, wall_observed BIGINT, decision_cut BIGINT, valid_through BIGINT, restart_continuity_digest BYTEA, uncertainty_bound BIGINT, skew_bound BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT f.binding_id, f.fact_digest, NULL::BYTEA, NULL::BYTEA, NULL::TEXT, NULL::BIGINT, f.lineage_root, f.lineage_version, f.aggregate_json, o.event_identity, o.aggregate_identity, o.payload, o.payload_digest, h.lineage_root, h.binding_id, h.fact_digest, h.lineage_version, c.clock_identity, c.clock_epoch, c.monotonic_sequence, c.wall_observed, c.decision_cut, c.valid_through, c.restart_continuity_digest, c.uncertainty_bound, c.skew_bound, c.comparison_rule FROM market_data_private.source_binding_facts_v1 AS f JOIN market_data_private.source_binding_outbox_v1 AS o ON o.aggregate_identity = f.binding_id JOIN market_data_private.source_binding_heads_v1 AS h ON h.lineage_root = f.lineage_root JOIN market_data_private.clock_head_v1 AS c ON c.singleton WHERE f.binding_id = p_binding_id $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_snapshot_v1(p_snapshot_identity BYTEA) RETURNS TABLE(row_identity BYTEA, fact_digest BYTEA, request_identity BYTEA, request_digest BYTEA, correction_stream_identity TEXT, correction_sequence BIGINT, fact_lineage_root BYTEA, fact_lineage_version BIGINT, aggregate_json JSONB, outbox_event_identity BYTEA, outbox_aggregate_identity BYTEA, outbox_payload BYTEA, outbox_digest BYTEA, head_lineage_root BYTEA, head_identity BYTEA, head_digest BYTEA, head_version BIGINT, clock_identity TEXT, clock_epoch TEXT, monotonic_sequence BIGINT, wall_observed BIGINT, decision_cut BIGINT, valid_through BIGINT, restart_continuity_digest BYTEA, uncertainty_bound BIGINT, skew_bound BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT f.snapshot_identity, f.fact_digest, f.request_identity, f.request_digest, f.correction_stream_identity, f.correction_sequence, f.lineage_root, f.lineage_version, f.aggregate_json, o.event_identity, o.aggregate_identity, o.payload, o.payload_digest, h.lineage_root, h.snapshot_identity, h.fact_digest, h.lineage_version, c.clock_identity, c.clock_epoch, c.monotonic_sequence, c.wall_observed, c.decision_cut, c.valid_through, c.restart_continuity_digest, c.uncertainty_bound, c.skew_bound, c.comparison_rule FROM market_data_private.pit_snapshot_facts_v1 AS f JOIN market_data_private.pit_snapshot_outbox_v1 AS o ON o.aggregate_identity = f.snapshot_identity JOIN market_data_private.pit_snapshot_heads_v1 AS h ON h.lineage_root = f.lineage_root JOIN market_data_private.clock_head_v1 AS c ON c.singleton WHERE f.snapshot_identity = p_snapshot_identity $function$",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_clock_handoff_v1(p_head_identity BYTEA) RETURNS TABLE(head_identity BYTEA, head_digest BYTEA, predecessor_head_digest BYTEA, clock_identity TEXT, clock_epoch TEXT, monotonic_sequence BIGINT, wall_observed BIGINT, decision_cut BIGINT, valid_through BIGINT, restart_continuity_digest BYTEA, uncertainty_bound BIGINT, skew_bound BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT h.head_identity,h.head_digest,h.predecessor_head_digest,h.clock_identity,h.clock_epoch,h.monotonic_sequence,h.wall_observed,h.decision_cut,h.valid_through,h.restart_continuity_digest,h.uncertainty_bound,h.skew_bound,h.comparison_rule FROM market_data_private.clock_handoffs_v1 AS h WHERE h.head_identity=p_head_identity $function$",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_epoch_successor_proof_v1(p_successor_head_digest BYTEA) RETURNS TABLE(proof_identity BYTEA, predecessor_head_digest BYTEA, successor_head_digest BYTEA, prior_clock_identity TEXT, prior_clock_epoch TEXT, successor_clock_identity TEXT, successor_clock_epoch TEXT, successor_continuity_digest BYTEA, commit_cut BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT p.proof_identity,p.predecessor_head_digest,p.successor_head_digest,p.prior_clock_identity,p.prior_clock_epoch,p.successor_clock_identity,p.successor_clock_epoch,p.successor_continuity_digest,p.commit_cut,p.comparison_rule FROM market_data_private.epoch_successor_proofs_v1 AS p WHERE p.successor_head_digest=p_successor_head_digest $function$",
     "REVOKE ALL ON ALL TABLES IN SCHEMA market_data_private FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_source_binding_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_snapshot_v1(BYTEA) FROM PUBLIC",
+    "REVOKE ALL ON FUNCTION market_data_private.resolve_clock_handoff_v1(BYTEA) FROM PUBLIC",
+    "REVOKE ALL ON FUNCTION market_data_private.resolve_epoch_successor_proof_v1(BYTEA) FROM PUBLIC",
 ];
 
 pub(crate) struct MarketDataOwnerPostgres {
@@ -320,12 +335,36 @@ impl MarketDataOwnerPostgres {
         )?;
         persist_pit(transaction, aggregate, clock, PostgresCommitFault::None).await
     }
+
+    pub(crate) async fn commit_clock_successor(
+        &self,
+        prior: &ClockHeadHandoff,
+        next: &MarketDataClockAdmission,
+    ) -> Result<ClockHeadSuccessorReadback, SharedTimeEvidenceError> {
+        self.commit_clock_successor_with_fault(prior, next, PostgresCommitFault::None)
+            .await
+    }
+
+    async fn commit_clock_successor_with_fault(
+        &self,
+        prior: &ClockHeadHandoff,
+        next: &MarketDataClockAdmission,
+        fault: PostgresCommitFault,
+    ) -> Result<ClockHeadSuccessorReadback, SharedTimeEvidenceError> {
+        let transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+        persist_clock_successor(transaction, prior, next, fault).await
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum PostgresCommitFault {
     None,
     AfterFactBeforeOutbox,
+    AfterClockHeadBeforeEpochProof,
     ResponseLoss,
 }
 
@@ -507,6 +546,7 @@ async fn admit_clock(
     if !next.is_complete() {
         return Err(SourceBindingError::TrustedClockMismatch);
     }
+    lock_clock_state(transaction).await?;
     let row = sqlx::query(
         "SELECT clock_identity,clock_epoch,monotonic_sequence,wall_observed,decision_cut,valid_through,restart_continuity_digest,uncertainty_bound,skew_bound,comparison_rule FROM market_data_private.clock_head_v1 WHERE singleton FOR UPDATE",
     )
@@ -515,29 +555,23 @@ async fn admit_clock(
     .map_err(|_| SourceBindingError::StoreUnavailable)?;
     if let Some(row) = row {
         let current = decode_clock(&row).map_err(|_| SourceBindingError::StoreUnavailable)?;
-        let stable = next.clock_identity == current.clock_identity
-            && next.clock_epoch == current.clock_epoch
-            && next.restart_continuity_digest == current.restart_continuity_digest
-            && next.uncertainty_bound == current.uncertainty_bound
-            && next.skew_bound == current.skew_bound
-            && next.comparison_rule == current.comparison_rule;
-        let monotonic = if next.monotonic_sequence == current.monotonic_sequence {
-            next == &current
-        } else {
-            next.monotonic_sequence > current.monotonic_sequence
-                && next.decision_cut > current.decision_cut
-                && next.wall_observed > current.wall_observed
-        };
-
-        if !stable || !monotonic {
-            return Err(SourceBindingError::TrustedClockMismatch);
+        let current_fact = ensure_clock_handoff_state(transaction, &current).await?;
+        if next == &current {
+            return Ok(());
         }
-
-        if next != &current {
-            update_clock(transaction, next).await?;
-        }
+        validate_same_epoch_successor(&current_fact, next)
+            .map_err(|_| SourceBindingError::TrustedClockMismatch)?;
+        let next_fact = build_head_fact(next, Some(current_fact.handoff.head_digest()))
+            .map_err(|_| SourceBindingError::TrustedClockMismatch)?;
+        insert_clock_handoff(transaction, &next_fact).await?;
+        update_clock(transaction, next).await?;
+        set_clock_handoff_head(transaction, next_fact.handoff.head_identity()).await?;
     } else {
+        let fact =
+            build_head_fact(next, None).map_err(|_| SourceBindingError::TrustedClockMismatch)?;
+        insert_clock_handoff(transaction, &fact).await?;
         insert_clock(transaction, next).await?;
+        set_clock_handoff_head(transaction, fact.handoff.head_identity()).await?;
     }
     Ok(())
 }
@@ -733,16 +767,462 @@ async fn update_clock(
     clock: &MarketDataClockAdmission,
 ) -> Result<(), SourceBindingError> {
     sqlx::query(
-        "UPDATE market_data_private.clock_head_v1 SET monotonic_sequence=$1,wall_observed=$2,decision_cut=$3,valid_through=$4 WHERE singleton",
+        "UPDATE market_data_private.clock_head_v1 SET clock_identity=$1,clock_epoch=$2,monotonic_sequence=$3,wall_observed=$4,decision_cut=$5,valid_through=$6,restart_continuity_digest=$7,uncertainty_bound=$8,skew_bound=$9,comparison_rule=1 WHERE singleton",
     )
+    .bind(&clock.clock_identity)
+    .bind(&clock.clock_epoch)
     .bind(to_i64(clock.monotonic_sequence)?)
     .bind(to_i64(clock.wall_observed)?)
     .bind(to_i64(clock.decision_cut)?)
     .bind(to_i64(clock.valid_through)?)
+    .bind(clock.restart_continuity_digest.as_bytes().as_slice())
+    .bind(to_i64(clock.uncertainty_bound)?)
+    .bind(to_i64(clock.skew_bound)?)
     .execute(&mut **transaction)
     .await
     .map_err(|_| SourceBindingError::StoreUnavailable)?;
     Ok(())
+}
+
+const CLOCK_STATE_LOCK_KEY: i64 = 0x5649_4245_5449_4d45;
+
+async fn lock_clock_state(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), SourceBindingError> {
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(CLOCK_STATE_LOCK_KEY)
+        .execute(&mut **transaction)
+        .await
+        .map_err(|_| SourceBindingError::StoreUnavailable)?;
+    Ok(())
+}
+
+async fn ensure_clock_handoff_state(
+    transaction: &mut Transaction<'_, Postgres>,
+    current: &MarketDataClockAdmission,
+) -> Result<ClockHeadFact, SourceBindingError> {
+    if let Some(fact) = load_current_clock_fact_for_update(transaction)
+        .await
+        .map_err(|_| SourceBindingError::StoreUnavailable)?
+    {
+        if fact.clock() == *current && verify_head_fact(&fact) {
+            return Ok(fact);
+        }
+        return Err(SourceBindingError::StoreUnavailable);
+    }
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM market_data_private.clock_handoffs_v1")
+            .fetch_one(&mut **transaction)
+            .await
+            .map_err(|_| SourceBindingError::StoreUnavailable)?;
+    if count != 0 {
+        return Err(SourceBindingError::StoreUnavailable);
+    }
+    let fact =
+        build_head_fact(current, None).map_err(|_| SourceBindingError::TrustedClockMismatch)?;
+    insert_clock_handoff(transaction, &fact).await?;
+    set_clock_handoff_head(transaction, fact.handoff.head_identity()).await?;
+    Ok(fact)
+}
+
+async fn insert_clock_handoff(
+    transaction: &mut Transaction<'_, Postgres>,
+    fact: &ClockHeadFact,
+) -> Result<(), SourceBindingError> {
+    sqlx::query(
+        "INSERT INTO market_data_private.clock_handoffs_v1(head_identity,head_digest,predecessor_head_digest,clock_identity,clock_epoch,monotonic_sequence,wall_observed,decision_cut,valid_through,restart_continuity_digest,uncertainty_bound,skew_bound,comparison_rule) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,1)",
+    )
+    .bind(fact.handoff.head_identity().as_bytes().as_slice())
+    .bind(fact.handoff.head_digest().as_bytes().as_slice())
+    .bind(fact.predecessor_head_digest.map(|value| value.as_bytes().to_vec()))
+    .bind(fact.handoff.clock_identity())
+    .bind(fact.handoff.clock_epoch())
+    .bind(to_i64(fact.handoff.monotonic_sequence())?)
+    .bind(to_i64(fact.handoff.wall_observed())?)
+    .bind(to_i64(fact.handoff.decision_cut())?)
+    .bind(to_i64(fact.handoff.valid_through())?)
+    .bind(fact.handoff.restart_continuity_digest().as_bytes().as_slice())
+    .bind(to_i64(fact.handoff.uncertainty_bound())?)
+    .bind(to_i64(fact.handoff.skew_bound())?)
+    .execute(&mut **transaction)
+    .await
+    .map_err(|_| SourceBindingError::StoreUnavailable)?;
+    Ok(())
+}
+
+async fn set_clock_handoff_head(
+    transaction: &mut Transaction<'_, Postgres>,
+    identity: BindingDigest,
+) -> Result<(), SourceBindingError> {
+    sqlx::query(
+        "INSERT INTO market_data_private.clock_handoff_head_v1(singleton,head_identity) VALUES (TRUE,$1) ON CONFLICT (singleton) DO UPDATE SET head_identity=EXCLUDED.head_identity",
+    )
+    .bind(identity.as_bytes().as_slice())
+    .execute(&mut **transaction)
+    .await
+    .map_err(|_| SourceBindingError::StoreUnavailable)?;
+    Ok(())
+}
+
+async fn persist_clock_successor(
+    mut transaction: Transaction<'_, Postgres>,
+    prior: &ClockHeadHandoff,
+    next: &MarketDataClockAdmission,
+    fault: PostgresCommitFault,
+) -> Result<ClockHeadSuccessorReadback, SharedTimeEvidenceError> {
+    lock_clock_state(&mut transaction)
+        .await
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+    let current_clock_row = sqlx::query(
+        "SELECT clock_identity,clock_epoch,monotonic_sequence,wall_observed,decision_cut,valid_through,restart_continuity_digest,uncertainty_bound,skew_bound,comparison_rule FROM market_data_private.clock_head_v1 WHERE singleton FOR UPDATE",
+    )
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?
+    .ok_or(SharedTimeEvidenceError::PriorHandoffMismatch)?;
+    let current_clock =
+        decode_clock(&current_clock_row).map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+    let current = ensure_clock_handoff_state(&mut transaction, &current_clock)
+        .await
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+    let next_fact = build_head_fact(next, Some(prior.head_digest()))?;
+
+    if let Some(stored) =
+        load_clock_fact_by_identity(&mut transaction, next_fact.handoff.head_identity(), false)
+            .await?
+    {
+        if stored != next_fact || stored.predecessor_head_digest != Some(prior.head_digest()) {
+            return Err(SharedTimeEvidenceError::ReplayConflict);
+        }
+        let proof = load_epoch_proof(&mut transaction, stored.handoff.head_digest()).await?;
+        let stored_prior =
+            load_clock_fact_by_identity(&mut transaction, prior.head_identity(), false)
+                .await?
+                .ok_or(SharedTimeEvidenceError::PriorHandoffMismatch)?;
+        if &stored_prior.handoff != prior {
+            return Err(SharedTimeEvidenceError::PriorHandoffMismatch);
+        }
+        let expected_proof = if prior.clock_epoch() == stored.handoff.clock_epoch() {
+            None
+        } else {
+            Some(build_epoch_successor_proof(&stored_prior, &stored))
+        };
+
+        if proof != expected_proof {
+            return Err(SharedTimeEvidenceError::EpochSuccessorProofMismatch);
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+        return Ok(successor_readback(stored.handoff, proof));
+    }
+
+    if &current.handoff != prior {
+        return Err(SharedTimeEvidenceError::PriorHandoffMismatch);
+    }
+    let epoch_changed = next.clock_epoch != current_clock.clock_epoch;
+    if epoch_changed {
+        validate_new_epoch_successor(&current, next)?;
+    } else {
+        validate_same_epoch_successor(&current, next)?;
+    }
+
+    insert_clock_handoff(&mut transaction, &next_fact)
+        .await
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+    let proof = if epoch_changed {
+        let proof = build_epoch_successor_proof(&current, &next_fact);
+
+        if fault == PostgresCommitFault::AfterClockHeadBeforeEpochProof {
+            return Err(SharedTimeEvidenceError::CommitInterrupted);
+        }
+        insert_epoch_proof(&mut transaction, &proof).await?;
+        Some(proof)
+    } else {
+        None
+    };
+    update_clock(&mut transaction, next)
+        .await
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+    set_clock_handoff_head(&mut transaction, next_fact.handoff.head_identity())
+        .await
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+    transaction
+        .commit()
+        .await
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+    if fault == PostgresCommitFault::ResponseLoss {
+        Err(SharedTimeEvidenceError::ResponseLost)
+    } else {
+        Ok(successor_readback(next_fact.handoff, proof))
+    }
+}
+
+async fn insert_epoch_proof(
+    transaction: &mut Transaction<'_, Postgres>,
+    proof: &EpochSuccessorProof,
+) -> Result<(), SharedTimeEvidenceError> {
+    sqlx::query(
+        "INSERT INTO market_data_private.epoch_successor_proofs_v1(proof_identity,predecessor_head_digest,successor_head_digest,prior_clock_identity,prior_clock_epoch,successor_clock_identity,successor_clock_epoch,successor_continuity_digest,commit_cut,comparison_rule) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,1)",
+    )
+    .bind(proof.proof_identity().as_bytes().as_slice())
+    .bind(proof.predecessor_head_digest().as_bytes().as_slice())
+    .bind(proof.successor_head_digest().as_bytes().as_slice())
+    .bind(proof.prior_clock_identity())
+    .bind(proof.prior_clock_epoch())
+    .bind(proof.successor_clock_identity())
+    .bind(proof.successor_clock_epoch())
+    .bind(proof.successor_continuity_digest().as_bytes().as_slice())
+    .bind(i64::try_from(proof.commit_cut()).map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?)
+    .execute(&mut **transaction)
+    .await
+    .map_err(|_| SharedTimeEvidenceError::ReplayConflict)?;
+    Ok(())
+}
+
+async fn load_current_clock_fact_for_update(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<Option<ClockHeadFact>, SharedTimeEvidenceError> {
+    let row = sqlx::query(
+        "SELECT h.* FROM market_data_private.clock_handoff_head_v1 AS p JOIN market_data_private.clock_handoffs_v1 AS h ON h.head_identity=p.head_identity WHERE p.singleton FOR UPDATE OF p,h",
+    )
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+    row.map(|row| decode_clock_fact(&row)).transpose()
+}
+
+async fn load_clock_fact_by_identity(
+    transaction: &mut Transaction<'_, Postgres>,
+    identity: BindingDigest,
+    for_update: bool,
+) -> Result<Option<ClockHeadFact>, SharedTimeEvidenceError> {
+    let statement = if for_update {
+        "SELECT * FROM market_data_private.clock_handoffs_v1 WHERE head_identity=$1 FOR UPDATE"
+    } else {
+        "SELECT * FROM market_data_private.clock_handoffs_v1 WHERE head_identity=$1"
+    };
+    let row = sqlx::query(statement)
+        .bind(identity.as_bytes().as_slice())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+    row.map(|row| decode_clock_fact(&row)).transpose()
+}
+
+fn decode_clock_fact(
+    row: &sqlx::postgres::PgRow,
+) -> Result<ClockHeadFact, SharedTimeEvidenceError> {
+    let comparison_rule: i16 = row
+        .try_get("comparison_rule")
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+    if comparison_rule != 1 {
+        return Err(SharedTimeEvidenceError::StoreUnavailable);
+    }
+    let restart: Vec<u8> = row
+        .try_get("restart_continuity_digest")
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+    let predecessor: Option<Vec<u8>> = row
+        .try_get("predecessor_head_digest")
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+    let clock = MarketDataClockAdmission {
+        cut_kind: super::source_binding::MarketDataClockCutKind::MarketDataAsOf,
+        clock_identity: row
+            .try_get("clock_identity")
+            .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?,
+        clock_epoch: row
+            .try_get("clock_epoch")
+            .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?,
+        monotonic_sequence: positive_u64(
+            row.try_get("monotonic_sequence")
+                .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?,
+        )
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?,
+        wall_observed: positive_u64(
+            row.try_get("wall_observed")
+                .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?,
+        )
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?,
+        decision_cut: positive_u64(
+            row.try_get("decision_cut")
+                .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?,
+        )
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?,
+        valid_through: positive_u64(
+            row.try_get("valid_through")
+                .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?,
+        )
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?,
+        restart_continuity_digest: digest_from_bytes(&restart)
+            .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?,
+        uncertainty_bound: nonnegative_u64(
+            row.try_get("uncertainty_bound")
+                .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?,
+        )
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?,
+        skew_bound: positive_u64(
+            row.try_get("skew_bound")
+                .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?,
+        )
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?,
+        comparison_rule: MarketDataClockComparisonRule::ExclusiveValidThrough,
+    };
+    let fact = build_head_fact(
+        &clock,
+        predecessor
+            .map(|value| digest_from_bytes(&value))
+            .transpose()
+            .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?,
+    )?;
+    let stored_identity: Vec<u8> = row
+        .try_get("head_identity")
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+    let stored_digest: Vec<u8> = row
+        .try_get("head_digest")
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+
+    if fact.handoff.head_identity()
+        != digest_from_bytes(&stored_identity)
+            .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?
+        || fact.handoff.head_digest()
+            != digest_from_bytes(&stored_digest)
+                .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?
+        || !verify_head_fact(&fact)
+    {
+        return Err(SharedTimeEvidenceError::StoreUnavailable);
+    }
+    Ok(fact)
+}
+
+async fn load_epoch_proof(
+    transaction: &mut Transaction<'_, Postgres>,
+    successor_digest: BindingDigest,
+) -> Result<Option<EpochSuccessorProof>, SharedTimeEvidenceError> {
+    let row = sqlx::query(
+        "SELECT * FROM market_data_private.epoch_successor_proofs_v1 WHERE successor_head_digest=$1",
+    )
+    .bind(successor_digest.as_bytes().as_slice())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+    row.map(|row| decode_epoch_proof(&row)).transpose()
+}
+
+fn decode_epoch_proof(
+    row: &sqlx::postgres::PgRow,
+) -> Result<EpochSuccessorProof, SharedTimeEvidenceError> {
+    let comparison_rule: i16 = row
+        .try_get("comparison_rule")
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+    if comparison_rule != 1 {
+        return Err(SharedTimeEvidenceError::StoreUnavailable);
+    }
+    let digest_column = |name: &'static str| -> Result<BindingDigest, SharedTimeEvidenceError> {
+        let value: Vec<u8> = row
+            .try_get(name)
+            .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+        digest_from_bytes(&value).map_err(|_| SharedTimeEvidenceError::StoreUnavailable)
+    };
+    Ok(EpochSuccessorProof {
+        proof_identity: digest_column("proof_identity")?,
+        predecessor_head_digest: digest_column("predecessor_head_digest")?,
+        successor_head_digest: digest_column("successor_head_digest")?,
+        prior_clock_identity: row
+            .try_get("prior_clock_identity")
+            .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?,
+        prior_clock_epoch: row
+            .try_get("prior_clock_epoch")
+            .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?,
+        successor_clock_identity: row
+            .try_get("successor_clock_identity")
+            .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?,
+        successor_clock_epoch: row
+            .try_get("successor_clock_epoch")
+            .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?,
+        successor_continuity_digest: digest_column("successor_continuity_digest")?,
+        commit_cut: positive_u64(
+            row.try_get("commit_cut")
+                .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?,
+        )
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?,
+        comparison_rule:
+            super::shared_time_evidence::ClockHeadComparisonRule::ExclusiveValidThrough,
+    })
+}
+
+async fn load_clock_fact_from_pool(
+    pool: &PgPool,
+    locator: &UntrustedClockHeadLocator,
+) -> Result<ClockHeadFact, SharedTimeEvidenceError> {
+    let row = sqlx::query("SELECT * FROM market_data_private.resolve_clock_handoff_v1($1)")
+        .bind(locator.head_identity().as_bytes().as_slice())
+        .fetch_optional(pool)
+        .await
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?
+        .ok_or(SharedTimeEvidenceError::LocatorMismatch)?;
+    let fact = decode_clock_fact(&row)?;
+    if fact.handoff.locator() != locator {
+        return Err(SharedTimeEvidenceError::LocatorMismatch);
+    }
+    Ok(fact)
+}
+
+async fn load_epoch_proof_from_pool(
+    pool: &PgPool,
+    successor_digest: BindingDigest,
+) -> Result<Option<EpochSuccessorProof>, SharedTimeEvidenceError> {
+    let row = sqlx::query("SELECT * FROM market_data_private.resolve_epoch_successor_proof_v1($1)")
+        .bind(successor_digest.as_bytes().as_slice())
+        .fetch_optional(pool)
+        .await
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+    row.map(|row| decode_epoch_proof(&row)).transpose()
+}
+
+#[async_trait::async_trait]
+impl SharedTimeEvidenceResolver for MarketDataReadPostgres {
+    async fn resolve_clock_head(
+        &self,
+        locator: &UntrustedClockHeadLocator,
+    ) -> Result<ClockHeadHandoff, SharedTimeEvidenceError> {
+        Ok(load_clock_fact_from_pool(&self.pool, locator)
+            .await?
+            .handoff)
+    }
+
+    async fn resolve_clock_successor(
+        &self,
+        prior: &ClockHeadHandoff,
+        successor: &UntrustedClockHeadLocator,
+    ) -> Result<ClockHeadSuccessorReadback, SharedTimeEvidenceError> {
+        let prior_fact = load_clock_fact_from_pool(&self.pool, prior.locator()).await?;
+        if &prior_fact.handoff != prior {
+            return Err(SharedTimeEvidenceError::PriorHandoffMismatch);
+        }
+        let successor_fact = load_clock_fact_from_pool(&self.pool, successor).await?;
+        if successor_fact.predecessor_head_digest != Some(prior.head_digest()) {
+            return Err(SharedTimeEvidenceError::PriorHandoffMismatch);
+        }
+        let proof =
+            load_epoch_proof_from_pool(&self.pool, successor_fact.handoff.head_digest()).await?;
+        if prior.clock_epoch() == successor_fact.handoff.clock_epoch() {
+            validate_same_epoch_successor(&prior_fact, &successor_fact.clock())?;
+
+            if proof.is_some() {
+                return Err(SharedTimeEvidenceError::EpochSuccessorProofMismatch);
+            }
+        } else {
+            validate_new_epoch_successor(&prior_fact, &successor_fact.clock())?;
+            let proof_value = proof
+                .as_ref()
+                .ok_or(SharedTimeEvidenceError::EpochSuccessorProofMismatch)?;
+            if !verify_epoch_successor_proof(proof_value, &prior_fact, &successor_fact) {
+                return Err(SharedTimeEvidenceError::EpochSuccessorProofMismatch);
+            }
+        }
+        Ok(successor_readback(successor_fact.handoff, proof))
+    }
 }
 
 #[async_trait::async_trait]
