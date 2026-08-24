@@ -1795,6 +1795,30 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn postgres_target_override_parameters_fail_before_connection() {
+        let lease = PostgresCredentialLease::from_resolved_secret(
+            "test-handle",
+            RD_OWNER_API_CONSUMER,
+            "test-v1",
+            NOW + 1,
+            "postgresql://rd_owner@127.0.0.1/vibe_test_decoy?hostaddr=192.0.2.1".to_string(),
+        )
+        .unwrap();
+        let spec = PostgresMeasurementSpec::new(
+            "safe_schema",
+            "safe_schema.schema_migrations_v1",
+            vec!["safe_schema.resolve_v1()".to_string()],
+            vec!["safe_schema.facts_v1".to_string()],
+        )
+        .unwrap();
+
+        assert_eq!(
+            PostgresDirectMeasurer.measure(&lease, &spec).await,
+            Err(PostgresMeasurementError::InvalidTarget)
+        );
+    }
+
     #[rstest]
     fn consumer_configuration_is_disabled_by_default_and_required_is_exact() {
         assert_eq!(

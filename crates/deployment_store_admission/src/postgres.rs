@@ -314,8 +314,10 @@ impl PostgresDirectMeasurer {
         let server_port: i64 = identity
             .try_get("server_port")
             .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
-        let role_record = (
-            identity.try_get::<String, _>("role_name"),
+        let role_name: String = identity
+            .try_get("role_name")
+            .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
+        let role_attributes = (
             identity.try_get::<i64, _>("role_oid"),
             identity.try_get::<bool, _>("rolsuper"),
             identity.try_get::<bool, _>("rolinherit"),
@@ -325,12 +327,16 @@ impl PostgresDirectMeasurer {
             identity.try_get::<bool, _>("rolreplication"),
             identity.try_get::<bool, _>("rolbypassrls"),
         );
-        let role_record = match role_record {
-            (Ok(a), Ok(b), Ok(c), Ok(d), Ok(e), Ok(f), Ok(g), Ok(h), Ok(i)) => {
-                (a, b, c, d, e, f, g, h, i)
+        let role_record = match role_attributes {
+            (Ok(a), Ok(b), Ok(c), Ok(d), Ok(e), Ok(f), Ok(g), Ok(h)) => {
+                (role_name.clone(), a, b, c, d, e, f, g, h)
             }
             _ => return Err(PostgresMeasurementError::IdentityDecodeUnavailable),
         };
+
+        if database_name != target.database || role_name != target.role {
+            return Err(PostgresMeasurementError::InvalidTarget);
+        }
         let role_membership_rows = sqlx::query(
             "WITH RECURSIVE membership_path AS (SELECT membership.roleid, membership.member, membership.grantor, membership.admin_option, membership.inherit_option, membership.set_option, ARRAY[membership.member, membership.roleid] AS path, 1::bigint AS depth FROM pg_catalog.pg_auth_members AS membership JOIN pg_catalog.pg_roles AS session_role ON session_role.oid = membership.member WHERE session_role.rolname = current_user UNION ALL SELECT next.roleid, next.member, next.grantor, next.admin_option, next.inherit_option, next.set_option, prior.path || next.roleid, prior.depth + 1 FROM membership_path AS prior JOIN pg_catalog.pg_auth_members AS next ON next.member = prior.roleid WHERE prior.depth < 33 AND NOT next.roleid = ANY(prior.path)) SELECT granted_role.rolname::text AS role_name, pg_catalog.pg_get_userbyid(path.member)::text AS member_name, pg_catalog.pg_get_userbyid(path.grantor)::text AS grantor_name, path.admin_option, path.inherit_option, path.set_option, path.depth, granted_role.rolsuper AS role_super, granted_role.rolinherit AS role_inherit, granted_role.rolcreaterole AS role_create_role, granted_role.rolcreatedb AS role_create_database, granted_role.rolcanlogin AS role_can_login, granted_role.rolreplication AS role_replication, granted_role.rolbypassrls AS role_bypass_rls FROM membership_path AS path JOIN pg_catalog.pg_roles AS granted_role ON granted_role.oid = path.roleid ORDER BY path.depth, role_name, member_name, grantor_name LIMIT 257",
         )
@@ -565,7 +571,10 @@ impl PostgresDirectMeasurer {
             .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
 
         Ok(PostgresMeasurement {
-            endpoint_identity: format!("postgresql://{}:{}", target.host, target.port),
+            endpoint_identity: format!(
+                "postgresql-requested://{}:{};observed://{server_address}:{server_port}",
+                target.host, target.port
+            ),
             tls_identity,
             server_identity: format!(
                 "postgres-system:{system_identifier}:server:{server_version}@{server_address}:{server_port}"
@@ -584,15 +593,21 @@ impl PostgresDirectMeasurer {
 struct ParsedTarget {
     host: String,
     port: u16,
+    database: String,
+    role: String,
 }
 
 fn parse_target(database_url: &str) -> Result<ParsedTarget, PostgresMeasurementError> {
     let parsed = Url::parse(database_url).map_err(|_| PostgresMeasurementError::InvalidTarget)?;
     let database = parsed.path().trim_start_matches('/');
+    let role = parsed.username();
     if !matches!(parsed.scheme(), "postgres" | "postgresql")
         || parsed.host_str().is_none()
-        || parsed.username().is_empty()
+        || !safe_opaque_identity(role)
+        || !safe_opaque_identity(database)
         || !database.starts_with("vibe_test_")
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
     {
         return Err(PostgresMeasurementError::InvalidTarget);
     }
@@ -608,6 +623,8 @@ fn parse_target(database_url: &str) -> Result<ParsedTarget, PostgresMeasurementE
     Ok(ParsedTarget {
         host,
         port: parsed.port().unwrap_or(5432),
+        database: database.to_string(),
+        role: role.to_string(),
     })
 }
 

@@ -30,7 +30,11 @@ async fn directly_remeasures_pinned_disposable_postgres_without_secret_disclosur
     let after_cache_loss = measurer.measure(&lease, &spec).await.unwrap();
 
     assert_eq!(first, after_cache_loss);
-    assert!(first.endpoint_identity().starts_with("postgresql://"));
+    assert!(
+        first
+            .endpoint_identity()
+            .starts_with("postgresql-requested://127.0.0.1:")
+    );
     assert!(first.server_identity().contains(":server:160004@"));
     assert!(
         first
