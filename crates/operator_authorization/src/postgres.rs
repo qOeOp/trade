@@ -1758,6 +1758,8 @@ mod portfolio_resource_grant {
 
     const GRANT_ISSUED_EVENT: &str = "PORTFOLIO_RESOURCE_GRANT_ISSUED_V1";
     const GRANT_FRONTIER_EVENT: &str = "PORTFOLIO_RESOURCE_GRANT_REVOCATION_FRONTIER_V1";
+    const GRANT_ADVISORY_LOCK_NAMESPACE: &str =
+        "operator-authorization.portfolio-resource-grant.resource.v1";
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -1965,16 +1967,26 @@ SECURITY DEFINER
 SET search_path = pg_catalog, operator_authorization_private
 AS $function$
 DECLARE
+  hinted_resource_digest text;
   issuance operator_authorization_private.portfolio_resource_grant_issuances_v1%ROWTYPE;
   head operator_authorization_private.portfolio_resource_grant_revocation_heads_v1%ROWTYPE;
 BEGIN
+  SELECT item.resource_digest INTO hinted_resource_digest
+    FROM operator_authorization_private.portfolio_resource_grant_issuances_v1 item
+    WHERE item.grant_identity=requested_grant_identity;
+  IF NOT FOUND THEN RETURN NULL; END IF;
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended(
+    'operator-authorization.portfolio-resource-grant.resource.v1:' || hinted_resource_digest,
+    0
+  ));
+  PERFORM 1 FROM operator_authorization_private.portfolio_resource_grant_issuances_v1
+    WHERE resource_digest=hinted_resource_digest ORDER BY grant_identity FOR SHARE;
   SELECT * INTO issuance FROM operator_authorization_private.portfolio_resource_grant_issuances_v1
-    WHERE grant_identity=requested_grant_identity FOR SHARE;
+    WHERE grant_identity=requested_grant_identity
+      AND resource_digest=hinted_resource_digest;
   IF NOT FOUND OR issuance.receipt_json->>'receipt_identity' <> requested_issuance_receipt_identity THEN
     RETURN NULL;
   END IF;
-  PERFORM 1 FROM operator_authorization_private.portfolio_resource_grant_issuances_v1
-    WHERE resource_digest=issuance.resource_digest ORDER BY grant_identity FOR SHARE;
   SELECT * INTO head FROM operator_authorization_private.portfolio_resource_grant_revocation_heads_v1
     WHERE resource_digest=issuance.resource_digest FOR SHARE;
   IF NOT FOUND THEN RETURN NULL; END IF;
@@ -2027,17 +2039,17 @@ $function$",
             let semantic_digest = proposal.semantic_digest()?;
             let resource_digest = proposal.content.resource.digest()?;
             let mut transaction = self.pool.begin().await.map_err(storage)?;
-            if let Some(existing) =
-                load_grant_issuance(&mut transaction, &proposal.grant_identity, true).await?
+            lock_grant_resource_for_write(&mut transaction, &resource_digest).await?;
+            if let Some(history) =
+                verify_grant_history(&mut transaction, &resource_digest, true).await?
             {
+                let existing = history
+                    .issuances
+                    .iter()
+                    .find(|item| item.proposal.grant_identity == proposal.grant_identity)
+                    .ok_or(OperatorAuthorizationError::ConflictingReplay)?;
                 if existing.proposal != proposal || existing.issuance_digest != semantic_digest {
                     return Err(OperatorAuthorizationError::ConflictingReplay);
-                }
-                let history = verify_grant_history(&mut transaction, &resource_digest, true)
-                    .await?
-                    .ok_or(OperatorAuthorizationError::Unavailable)?;
-                if history.issuance(&proposal.grant_identity)? != &existing {
-                    return Err(OperatorAuthorizationError::Unavailable);
                 }
                 let result = resolve_locked_grant_readback(
                     &mut transaction,
@@ -2049,12 +2061,6 @@ $function$",
                 return Ok(result);
             }
 
-            if verify_grant_history(&mut transaction, &resource_digest, true)
-                .await?
-                .is_some()
-            {
-                return Err(OperatorAuthorizationError::ConflictingReplay);
-            }
             let committed_at = database_now(&mut transaction).await?;
             ensure_grant_current(&proposal.content, committed_at)?;
             let stored = StoredGrantIssuanceV1 {
@@ -2109,20 +2115,25 @@ $function$",
         ) -> Result<PortfolioResourceGrantReadbackV1, OperatorAuthorizationError> {
             proposal.validate()?;
             let mut transaction = self.pool.begin().await.map_err(storage)?;
-            let predecessor =
-                load_grant_issuance(&mut transaction, &proposal.predecessor.grant_identity, true)
-                    .await?
-                    .ok_or(OperatorAuthorizationError::Unavailable)?;
+            let resource_digest = load_grant_resource_digest_hint(
+                &mut transaction,
+                &proposal.predecessor.grant_identity,
+            )
+            .await?
+            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            lock_grant_resource_for_write(&mut transaction, &resource_digest).await?;
+            let history = verify_grant_history(&mut transaction, &resource_digest, true)
+                .await?
+                .ok_or(OperatorAuthorizationError::Unavailable)?;
+            let predecessor = history
+                .issuance(&proposal.predecessor.grant_identity)?
+                .clone();
 
             if grant_receipt(&predecessor).receipt_identity
                 != proposal.predecessor.issuance_receipt_identity
             {
                 return Err(OperatorAuthorizationError::Unavailable);
             }
-            let resource_digest = predecessor.proposal.content.resource.digest()?;
-            let history = verify_grant_history(&mut transaction, &resource_digest, true)
-                .await?
-                .ok_or(OperatorAuthorizationError::Unavailable)?;
             let current = history.current()?;
             let digest = proposal.semantic_digest()?;
 
@@ -2204,19 +2215,20 @@ $function$",
         {
             proposal.validate()?;
             let mut transaction = self.pool.begin().await.map_err(storage)?;
-            let issuance =
-                load_grant_issuance(&mut transaction, &proposal.grant.grant_identity, true)
+            let resource_digest =
+                load_grant_resource_digest_hint(&mut transaction, &proposal.grant.grant_identity)
                     .await?
                     .ok_or(OperatorAuthorizationError::Unavailable)?;
+            lock_grant_resource_for_write(&mut transaction, &resource_digest).await?;
+            let history = verify_grant_history(&mut transaction, &resource_digest, true)
+                .await?
+                .ok_or(OperatorAuthorizationError::Unavailable)?;
+            let issuance = history.issuance(&proposal.grant.grant_identity)?.clone();
 
             if grant_receipt(&issuance).receipt_identity != proposal.grant.issuance_receipt_identity
             {
                 return Err(OperatorAuthorizationError::Unavailable);
             }
-            let resource_digest = issuance.proposal.content.resource.digest()?;
-            let history = verify_grant_history(&mut transaction, &resource_digest, true)
-                .await?
-                .ok_or(OperatorAuthorizationError::Unavailable)?;
             let current = history.current()?;
             if let Some(existing) = current
                 .revocations
@@ -2530,22 +2542,33 @@ $function$",
         Ok(())
     }
 
-    async fn load_grant_issuance(
+    pub(super) fn grant_advisory_lock_identity(resource_digest: &str) -> String {
+        format!("{GRANT_ADVISORY_LOCK_NAMESPACE}:{resource_digest}")
+    }
+
+    pub(super) async fn lock_grant_resource_for_write(
+        transaction: &mut Transaction<'_, Postgres>,
+        resource_digest: &str,
+    ) -> Result<(), OperatorAuthorizationError> {
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(grant_advisory_lock_identity(resource_digest))
+            .execute(&mut **transaction)
+            .await
+            .map_err(storage)?;
+        Ok(())
+    }
+
+    async fn load_grant_resource_digest_hint(
         transaction: &mut Transaction<'_, Postgres>,
         grant_identity: &str,
-        lock: bool,
-    ) -> Result<Option<StoredGrantIssuanceV1>, OperatorAuthorizationError> {
-        let sql = if lock {
-            "SELECT grant_identity,issuer_identity,principal,audience,permission,account_identity,execution_scope_identity,mode,resource_digest,semantic_digest,issuance_json,receipt_json,committed_at_epoch_ms FROM operator_authorization_private.portfolio_resource_grant_issuances_v1 WHERE grant_identity=$1 FOR UPDATE"
-        } else {
-            "SELECT grant_identity,issuer_identity,principal,audience,permission,account_identity,execution_scope_identity,mode,resource_digest,semantic_digest,issuance_json,receipt_json,committed_at_epoch_ms FROM operator_authorization_private.portfolio_resource_grant_issuances_v1 WHERE grant_identity=$1"
-        };
-        let row = sqlx::query(sql)
+    ) -> Result<Option<String>, OperatorAuthorizationError> {
+        sqlx::query_scalar(
+            "SELECT resource_digest FROM operator_authorization_private.portfolio_resource_grant_issuances_v1 WHERE grant_identity=$1",
+        )
             .bind(grant_identity)
             .fetch_optional(&mut **transaction)
             .await
-            .map_err(storage)?;
-        row.as_ref().map(verify_grant_issuance_row).transpose()
+            .map_err(storage)
     }
 
     fn verify_grant_issuance_row(
@@ -3423,6 +3446,9 @@ mod tests {
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
 
+    use super::portfolio_resource_grant::{
+        grant_advisory_lock_identity, lock_grant_resource_for_write,
+    };
     use super::*;
     use crate::{
         OperationManifestBindingV1, OperatorAuthorizationScopeV1, PORTFOLIO_OWNER_AUDIENCE_V1,
@@ -3525,6 +3551,27 @@ mod tests {
         resolution
     }
 
+    async fn wait_for_advisory_lock(pool: &PgPool, role: &str) {
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let waiting: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM pg_stat_activity WHERE usename=$1 AND wait_event_type='Lock' AND wait_event='advisory'",
+                )
+                .bind(role)
+                .fetch_one(pool)
+                .await
+                .unwrap();
+
+                if waiting > 0 {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+
     async fn parse_locked_grant_evidence(
         pool: &PgPool,
         locator: &PortfolioResourceGrantLocatorV1,
@@ -3546,6 +3593,224 @@ mod tests {
         );
         transaction.rollback().await.unwrap();
         result
+    }
+
+    #[tokio::test]
+    #[ignore = "requires admitted OA and Product Edge PostgreSQL test URLs"]
+    async fn portfolio_resource_grant_advisory_lock_serializes_distinct_grants() {
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let mutation = test_database.mutation();
+        let owner = Arc::new(
+            OperatorAuthorizationIssuerPostgresV1::connect(
+                test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+            )
+            .await
+            .unwrap(),
+        );
+        let consumer = mutation
+            .pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner)
+            .clone();
+        let suffix = format!("advisory-{}-{}", std::process::id(), now_ms().unwrap());
+        let now = now_ms().unwrap();
+        let proposal = portfolio_grant_proposal(&suffix, now, "serialization", 600_000);
+        let resource_digest = proposal.content.resource.digest().unwrap();
+        let rust_lock_identity = grant_advisory_lock_identity(&resource_digest);
+        let mut genesis_gate = consumer.begin().await.unwrap();
+        sqlx::query("SELECT pg_advisory_xact_lock_shared(hashtextextended($1, 0))")
+            .bind(&rust_lock_identity)
+            .execute(&mut *genesis_gate)
+            .await
+            .unwrap();
+        let genesis_owner = Arc::clone(&owner);
+        let genesis_proposal = proposal.clone();
+
+        let genesis_task = tokio::spawn(async move {
+            genesis_owner
+                .issue_portfolio_resource_grant_genesis(genesis_proposal)
+                .await
+        });
+        wait_for_advisory_lock(owner.pool(), "operator_authorization_writer").await;
+        assert!(!genesis_task.is_finished());
+        genesis_gate.rollback().await.unwrap();
+        let genesis = genesis_task.await.unwrap().unwrap();
+        let mut successor_content = proposal.content.clone();
+        successor_content.valid_through_epoch_ms += 600_000;
+        successor_content
+            .product_edge_manifest
+            .manifest_locator
+            .push_str("-successor");
+        successor_content.product_edge_manifest.manifest_digest =
+            format!("sha256:{}", "b".repeat(64));
+        let successor_proposal = PortfolioResourceGrantSuccessorProposalV1 {
+            predecessor: genesis.locator(),
+            expected_current_frontier_identity: genesis.frontier().frontier_identity().into(),
+            successor: PortfolioResourceGrantIssuanceProposalV1 {
+                grant_identity: successor_content.grant_identity().unwrap(),
+                content: successor_content.clone(),
+                expected_revocation_frontier_identity: genesis
+                    .frontier()
+                    .frontier_identity()
+                    .into(),
+            },
+        };
+        let mut successor_gate = consumer.begin().await.unwrap();
+        sqlx::query("SELECT pg_advisory_xact_lock_shared(hashtextextended($1, 0))")
+            .bind(&rust_lock_identity)
+            .execute(&mut *successor_gate)
+            .await
+            .unwrap();
+        let successor_owner = Arc::clone(&owner);
+        let successor_task = tokio::spawn(async move {
+            successor_owner
+                .issue_portfolio_resource_grant_successor(successor_proposal)
+                .await
+        });
+        wait_for_advisory_lock(owner.pool(), "operator_authorization_writer").await;
+        assert!(!successor_task.is_finished());
+        successor_gate.rollback().await.unwrap();
+        let successor = successor_task.await.unwrap().unwrap();
+        let matching_key: bool = sqlx::query_scalar(
+            "SELECT hashtextextended($1, 0) = hashtextextended('operator-authorization.portfolio-resource-grant.resource.v1:' || $2, 0)",
+        )
+        .bind(&rust_lock_identity)
+        .bind(&resource_digest)
+        .fetch_one(owner.pool())
+        .await
+        .unwrap();
+        assert!(matching_key, "Rust and PL/pgSQL advisory keys diverged");
+
+        let function_definition: String = sqlx::query_scalar(
+            "SELECT pg_get_functiondef('operator_authorization_api.lock_current_portfolio_resource_grant_v1(text,text)'::regprocedure)",
+        )
+        .fetch_one(owner.pool())
+        .await
+        .unwrap();
+        let advisory_position = function_definition
+            .find("pg_advisory_xact_lock_shared")
+            .unwrap();
+        let first_row_lock_position = function_definition
+            .find("ORDER BY grant_identity FOR SHARE")
+            .unwrap();
+        assert!(advisory_position < first_row_lock_position);
+
+        let request_for = |grant: &PortfolioResourceGrantReadbackV1,
+                           content: &PortfolioResourceGrantContentV1| {
+            PortfolioResourceGrantReadRequestV1 {
+                locator: grant.locator(),
+                expected_resource: content.resource.clone(),
+                expected_manifest: content.product_edge_manifest.clone(),
+            }
+        };
+        let (earlier, later_request) =
+            if genesis.locator().grant_identity < successor.locator().grant_identity {
+                (
+                    genesis.locator(),
+                    request_for(&successor, &successor_content),
+                )
+            } else {
+                (
+                    successor.locator(),
+                    request_for(&genesis, &proposal.content),
+                )
+            };
+
+        let before_schedule = oa_table_fingerprint(owner.pool()).await;
+        let mut reader_first = consumer.begin().await.unwrap();
+        assert!(matches!(
+            resolve_portfolio_resource_grant_in_transaction(&mut reader_first, &later_request)
+                .await,
+            PortfolioResourceGrantResolutionV1::Available { .. }
+        ));
+        let revoke_owner = Arc::clone(&owner);
+        let expected_frontier_identity = successor.frontier().frontier_identity().to_string();
+
+        let revoke_task = tokio::spawn(async move {
+            revoke_owner
+                .revoke_portfolio_resource_grant(PortfolioResourceGrantRevocationProposalV1 {
+                    grant: earlier,
+                    expected_frontier_identity,
+                    reason_code: "SERIALIZATION_TEST".into(),
+                })
+                .await
+        });
+        wait_for_advisory_lock(owner.pool(), "operator_authorization_writer").await;
+        assert!(!revoke_task.is_finished());
+        reader_first.rollback().await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), revoke_task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_ne!(oa_table_fingerprint(owner.pool()).await, before_schedule);
+
+        let reverse_proposal =
+            portfolio_grant_proposal(&suffix, now_ms().unwrap(), "reverse", 600_000);
+        let reverse = owner
+            .issue_portfolio_resource_grant_genesis(reverse_proposal.clone())
+            .await
+            .unwrap();
+        let reverse_request = request_for(&reverse, &reverse_proposal.content);
+        let reverse_digest = reverse_proposal.content.resource.digest().unwrap();
+        let mut writer_first = owner.pool().begin().await.unwrap();
+        lock_grant_resource_for_write(&mut writer_first, &reverse_digest)
+            .await
+            .unwrap();
+        let reverse_consumer = consumer.clone();
+        let reverse_reader = tokio::spawn(async move {
+            let mut transaction = reverse_consumer.begin().await.unwrap();
+            let resolution =
+                resolve_portfolio_resource_grant_in_transaction(&mut transaction, &reverse_request)
+                    .await;
+            transaction.rollback().await.unwrap();
+            resolution
+        });
+        wait_for_advisory_lock(&consumer, "product_edge_owner").await;
+        assert!(!reverse_reader.is_finished());
+        writer_first.rollback().await.unwrap();
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(5), reverse_reader)
+                .await
+                .unwrap()
+                .unwrap(),
+            PortfolioResourceGrantResolutionV1::Available { .. }
+        ));
+
+        let before_invalid_locator = oa_table_fingerprint(owner.pool()).await;
+        let mut invalid_request = request_for(&reverse, &reverse_proposal.content);
+        invalid_request.locator.grant_identity.push_str("-missing");
+        assert!(matches!(
+            resolve_grant(&consumer, &invalid_request).await,
+            PortfolioResourceGrantResolutionV1::Unavailable { .. }
+        ));
+        assert_eq!(
+            oa_table_fingerprint(owner.pool()).await,
+            before_invalid_locator
+        );
+
+        sqlx::query("UPDATE operator_authorization_private.portfolio_resource_grant_issuances_v1 SET resource_digest='sha256:invalid-hint' WHERE grant_identity=$1")
+            .bind(&reverse.locator().grant_identity)
+            .execute(owner.pool())
+            .await
+            .unwrap();
+        let invalid_hint_fingerprint = oa_table_fingerprint(owner.pool()).await;
+        assert!(matches!(
+            resolve_grant(&consumer, &request_for(&reverse, &reverse_proposal.content)).await,
+            PortfolioResourceGrantResolutionV1::Unavailable { .. }
+        ));
+        assert_eq!(
+            oa_table_fingerprint(owner.pool()).await,
+            invalid_hint_fingerprint
+        );
+        sqlx::query("UPDATE operator_authorization_private.portfolio_resource_grant_issuances_v1 SET resource_digest=$1 WHERE grant_identity=$2")
+            .bind(&reverse_digest)
+            .bind(&reverse.locator().grant_identity)
+            .execute(owner.pool())
+            .await
+            .unwrap();
+        assert_eq!(
+            oa_table_fingerprint(owner.pool()).await,
+            before_invalid_locator
+        );
     }
 
     #[tokio::test]
