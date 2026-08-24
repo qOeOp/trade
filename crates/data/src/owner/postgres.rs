@@ -57,8 +57,8 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_snapshot_facts_v1 (snapshot_identity BYTEA PRIMARY KEY CHECK (octet_length(snapshot_identity) = 32), fact_digest BYTEA NOT NULL CHECK (octet_length(fact_digest) = 32), request_identity BYTEA NOT NULL CHECK (octet_length(request_identity) = 32), request_digest BYTEA NOT NULL CHECK (octet_length(request_digest) = 32), correction_stream_identity TEXT NOT NULL, correction_sequence BIGINT NOT NULL CHECK (correction_sequence > 0), lineage_root BYTEA NOT NULL CHECK (octet_length(lineage_root) = 32), lineage_version BIGINT NOT NULL CHECK (lineage_version > 0), aggregate_json JSONB NOT NULL, UNIQUE(request_identity, correction_stream_identity, correction_sequence), UNIQUE(lineage_root, lineage_version))",
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_snapshot_heads_v1 (lineage_root BYTEA PRIMARY KEY CHECK (octet_length(lineage_root) = 32), snapshot_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity), fact_digest BYTEA NOT NULL CHECK (octet_length(fact_digest) = 32), lineage_version BIGINT NOT NULL CHECK (lineage_version > 0))",
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_snapshot_outbox_v1 (event_identity BYTEA PRIMARY KEY CHECK (octet_length(event_identity) = 32), aggregate_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity), payload_digest BYTEA NOT NULL CHECK (octet_length(payload_digest) = 32), payload BYTEA NOT NULL)",
-    "CREATE OR REPLACE FUNCTION market_data_private.resolve_source_binding_v1(p_binding_id BYTEA) RETURNS TABLE(row_identity BYTEA, fact_digest BYTEA, request_identity BYTEA, request_digest BYTEA, correction_stream_identity TEXT, correction_sequence BIGINT, fact_lineage_root BYTEA, fact_lineage_version BIGINT, aggregate_json JSONB, outbox_event_identity BYTEA, outbox_aggregate_identity BYTEA, outbox_payload BYTEA, outbox_digest BYTEA, head_lineage_root BYTEA, head_identity BYTEA, head_digest BYTEA, head_version BIGINT, clock_identity TEXT, clock_epoch TEXT, monotonic_sequence BIGINT, wall_observed BIGINT, decision_cut BIGINT, valid_through BIGINT, restart_continuity_digest BYTEA, uncertainty_bound BIGINT, skew_bound BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT f.binding_id, f.fact_digest, NULL::BYTEA, NULL::BYTEA, NULL::TEXT, NULL::BIGINT, f.lineage_root, f.lineage_version, f.aggregate_json, o.event_identity, o.aggregate_identity, o.payload, o.payload_digest, h.lineage_root, h.binding_id, h.fact_digest, h.lineage_version, c.clock_identity, c.clock_epoch, c.monotonic_sequence, c.wall_observed, c.decision_cut, c.valid_through, c.restart_continuity_digest, c.uncertainty_bound, c.skew_bound, c.comparison_rule FROM market_data_private.source_binding_facts_v1 AS f JOIN market_data_private.source_binding_outbox_v1 AS o ON o.aggregate_identity = f.binding_id JOIN market_data_private.source_binding_heads_v1 AS h ON h.lineage_root = f.lineage_root JOIN market_data_private.clock_head_v1 AS c ON c.singleton WHERE f.binding_id = p_binding_id $function$",
-    "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_snapshot_v1(p_snapshot_identity BYTEA) RETURNS TABLE(row_identity BYTEA, fact_digest BYTEA, request_identity BYTEA, request_digest BYTEA, correction_stream_identity TEXT, correction_sequence BIGINT, fact_lineage_root BYTEA, fact_lineage_version BIGINT, aggregate_json JSONB, outbox_event_identity BYTEA, outbox_aggregate_identity BYTEA, outbox_payload BYTEA, outbox_digest BYTEA, head_lineage_root BYTEA, head_identity BYTEA, head_digest BYTEA, head_version BIGINT, clock_identity TEXT, clock_epoch TEXT, monotonic_sequence BIGINT, wall_observed BIGINT, decision_cut BIGINT, valid_through BIGINT, restart_continuity_digest BYTEA, uncertainty_bound BIGINT, skew_bound BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT f.snapshot_identity, f.fact_digest, f.request_identity, f.request_digest, f.correction_stream_identity, f.correction_sequence, f.lineage_root, f.lineage_version, f.aggregate_json, o.event_identity, o.aggregate_identity, o.payload, o.payload_digest, h.lineage_root, h.snapshot_identity, h.fact_digest, h.lineage_version, c.clock_identity, c.clock_epoch, c.monotonic_sequence, c.wall_observed, c.decision_cut, c.valid_through, c.restart_continuity_digest, c.uncertainty_bound, c.skew_bound, c.comparison_rule FROM market_data_private.pit_snapshot_facts_v1 AS f JOIN market_data_private.pit_snapshot_outbox_v1 AS o ON o.aggregate_identity = f.snapshot_identity JOIN market_data_private.pit_snapshot_heads_v1 AS h ON h.lineage_root = f.lineage_root JOIN market_data_private.clock_head_v1 AS c ON c.singleton WHERE f.snapshot_identity = p_snapshot_identity $function$",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_source_binding_v1(p_binding_id BYTEA) RETURNS TABLE(row_identity BYTEA, fact_digest BYTEA, request_identity BYTEA, request_digest BYTEA, correction_stream_identity TEXT, correction_sequence BIGINT, fact_lineage_root BYTEA, fact_lineage_version BIGINT, aggregate_json JSONB, outbox_event_identity BYTEA, outbox_aggregate_identity BYTEA, outbox_payload BYTEA, outbox_digest BYTEA, head_lineage_root BYTEA, head_identity BYTEA, head_digest BYTEA, head_version BIGINT, clock_identity TEXT, clock_epoch TEXT, monotonic_sequence BIGINT, wall_observed BIGINT, decision_cut BIGINT, valid_through BIGINT, restart_continuity_digest BYTEA, uncertainty_bound BIGINT, skew_bound BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT f.binding_id, f.fact_digest, NULL::BYTEA, NULL::BYTEA, NULL::TEXT, NULL::BIGINT, f.lineage_root, f.lineage_version, f.aggregate_json, o.event_identity, o.aggregate_identity, o.payload, o.payload_digest, h.lineage_root, h.binding_id, h.fact_digest, h.lineage_version, NULL::TEXT, NULL::TEXT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BYTEA, NULL::BIGINT, NULL::BIGINT, NULL::SMALLINT FROM market_data_private.source_binding_facts_v1 AS f JOIN market_data_private.source_binding_outbox_v1 AS o ON o.aggregate_identity = f.binding_id JOIN market_data_private.source_binding_heads_v1 AS h ON h.lineage_root = f.lineage_root WHERE f.binding_id = p_binding_id $function$",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_snapshot_v1(p_snapshot_identity BYTEA) RETURNS TABLE(row_identity BYTEA, fact_digest BYTEA, request_identity BYTEA, request_digest BYTEA, correction_stream_identity TEXT, correction_sequence BIGINT, fact_lineage_root BYTEA, fact_lineage_version BIGINT, aggregate_json JSONB, outbox_event_identity BYTEA, outbox_aggregate_identity BYTEA, outbox_payload BYTEA, outbox_digest BYTEA, head_lineage_root BYTEA, head_identity BYTEA, head_digest BYTEA, head_version BIGINT, clock_identity TEXT, clock_epoch TEXT, monotonic_sequence BIGINT, wall_observed BIGINT, decision_cut BIGINT, valid_through BIGINT, restart_continuity_digest BYTEA, uncertainty_bound BIGINT, skew_bound BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT f.snapshot_identity, f.fact_digest, f.request_identity, f.request_digest, f.correction_stream_identity, f.correction_sequence, f.lineage_root, f.lineage_version, f.aggregate_json, o.event_identity, o.aggregate_identity, o.payload, o.payload_digest, h.lineage_root, h.snapshot_identity, h.fact_digest, h.lineage_version, NULL::TEXT, NULL::TEXT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BYTEA, NULL::BIGINT, NULL::BIGINT, NULL::SMALLINT FROM market_data_private.pit_snapshot_facts_v1 AS f JOIN market_data_private.pit_snapshot_outbox_v1 AS o ON o.aggregate_identity = f.snapshot_identity JOIN market_data_private.pit_snapshot_heads_v1 AS h ON h.lineage_root = f.lineage_root WHERE f.snapshot_identity = p_snapshot_identity $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_clock_handoff_v1(p_head_identity BYTEA) RETURNS TABLE(head_identity BYTEA, head_digest BYTEA, predecessor_head_digest BYTEA, clock_identity TEXT, clock_epoch TEXT, monotonic_sequence BIGINT, wall_observed BIGINT, decision_cut BIGINT, valid_through BIGINT, restart_continuity_digest BYTEA, uncertainty_bound BIGINT, skew_bound BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT h.head_identity,h.head_digest,h.predecessor_head_digest,h.clock_identity,h.clock_epoch,h.monotonic_sequence,h.wall_observed,h.decision_cut,h.valid_through,h.restart_continuity_digest,h.uncertainty_bound,h.skew_bound,h.comparison_rule FROM market_data_private.clock_handoffs_v1 AS h WHERE h.head_identity=p_head_identity $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_epoch_successor_proof_v1(p_successor_head_digest BYTEA) RETURNS TABLE(proof_identity BYTEA, predecessor_head_digest BYTEA, successor_head_digest BYTEA, prior_clock_identity TEXT, prior_clock_epoch TEXT, successor_clock_identity TEXT, successor_clock_epoch TEXT, successor_continuity_digest BYTEA, commit_cut BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT p.proof_identity,p.predecessor_head_digest,p.successor_head_digest,p.prior_clock_identity,p.prior_clock_epoch,p.successor_clock_identity,p.successor_clock_epoch,p.successor_continuity_digest,p.commit_cut,p.comparison_rule FROM market_data_private.epoch_successor_proofs_v1 AS p WHERE p.successor_head_digest=p_successor_head_digest $function$",
     "REVOKE ALL ON ALL TABLES IN SCHEMA market_data_private FROM PUBLIC",
@@ -567,6 +567,9 @@ async fn admit_clock(
         update_clock(transaction, next).await?;
         set_clock_handoff_head(transaction, next_fact.handoff.head_identity()).await?;
     } else {
+        if !clock_handoff_history_is_empty(transaction).await? {
+            return Err(SourceBindingError::StoreUnavailable);
+        }
         let fact =
             build_head_fact(next, None).map_err(|_| SourceBindingError::TrustedClockMismatch)?;
         insert_clock_handoff(transaction, &fact).await?;
@@ -574,6 +577,18 @@ async fn admit_clock(
         set_clock_handoff_head(transaction, fact.handoff.head_identity()).await?;
     }
     Ok(())
+}
+
+async fn clock_handoff_history_is_empty(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<bool, SourceBindingError> {
+    let count: i64 = sqlx::query_scalar(
+        "SELECT (SELECT COUNT(*) FROM market_data_private.clock_handoffs_v1) + (SELECT COUNT(*) FROM market_data_private.clock_handoff_head_v1) + (SELECT COUNT(*) FROM market_data_private.epoch_successor_proofs_v1)",
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|_| SourceBindingError::StoreUnavailable)?;
+    Ok(count == 0)
 }
 
 async fn persist_pit(
@@ -1196,6 +1211,62 @@ async fn load_clock_fact_from_pool(
     Ok(fact)
 }
 
+async fn load_historical_clock(
+    pool: &PgPool,
+    expected: &MarketDataClockAdmission,
+) -> Result<MarketDataClockAdmission, SharedTimeEvidenceError> {
+    let semantic_identity = build_head_fact(expected, None)?.handoff.head_identity();
+    let row = sqlx::query("SELECT * FROM market_data_private.resolve_clock_handoff_v1($1)")
+        .bind(semantic_identity.as_bytes().as_slice())
+        .fetch_optional(pool)
+        .await
+        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?
+        .ok_or(SharedTimeEvidenceError::LocatorMismatch)?;
+    let fact = decode_clock_fact(&row)?;
+    let clock = fact.clock();
+
+    if &clock != expected {
+        return Err(SharedTimeEvidenceError::LocatorMismatch);
+    }
+    Ok(clock)
+}
+
+fn clock_for_source_time(
+    time: &super::source_binding::UntrustedMarketDataAsOf,
+) -> MarketDataClockAdmission {
+    MarketDataClockAdmission {
+        cut_kind: super::source_binding::MarketDataClockCutKind::MarketDataAsOf,
+        clock_identity: time.clock_identity.clone(),
+        clock_epoch: time.clock_epoch.clone(),
+        monotonic_sequence: time.monotonic_sequence,
+        wall_observed: time.observed_at,
+        decision_cut: time.effective_at,
+        valid_through: time.valid_through,
+        restart_continuity_digest: time.restart_continuity_digest,
+        uncertainty_bound: time.uncertainty_bound,
+        skew_bound: time.skew_bound,
+        comparison_rule: MarketDataClockComparisonRule::ExclusiveValidThrough,
+    }
+}
+
+fn clock_for_pit_time(
+    time: &super::pit_snapshot::UntrustedPitSnapshotTimeEvidence,
+) -> MarketDataClockAdmission {
+    MarketDataClockAdmission {
+        cut_kind: super::source_binding::MarketDataClockCutKind::MarketDataAsOf,
+        clock_identity: time.decision_cut.clock_identity.clone(),
+        clock_epoch: time.decision_cut.clock_epoch.clone(),
+        monotonic_sequence: time.monotonic_sequence,
+        wall_observed: time.observed_at,
+        decision_cut: time.decision_cut.value,
+        valid_through: time.valid_through,
+        restart_continuity_digest: time.restart_continuity_digest,
+        uncertainty_bound: time.uncertainty_bound,
+        skew_bound: time.skew_bound,
+        comparison_rule: MarketDataClockComparisonRule::ExclusiveValidThrough,
+    }
+}
+
 async fn load_epoch_proof_from_pool(
     pool: &PgPool,
     successor_digest: BindingDigest,
@@ -1275,7 +1346,14 @@ impl SourceBindingOwnerResolver for MarketDataReadPostgres {
         {
             return Err(SourceBindingError::LocatorMismatch);
         }
-        validate_clock_for_readback(aggregate.commit().fact().time_evidence(), &envelope.clock)?;
+        let expected_clock = clock_for_source_time(aggregate.commit().fact().time_evidence());
+        let historical_clock = load_historical_clock(&self.pool, &expected_clock)
+            .await
+            .map_err(|e| match e {
+                SharedTimeEvidenceError::StoreUnavailable => SourceBindingError::StoreUnavailable,
+                _ => SourceBindingError::TrustedClockMismatch,
+            })?;
+        validate_clock_for_readback(aggregate.commit().fact().time_evidence(), &historical_clock)?;
         Ok(SourceBindingOwnerReadback::from_verified(&aggregate))
     }
 }
@@ -1302,9 +1380,18 @@ impl PitSnapshotOwnerResolver for MarketDataReadPostgres {
         {
             return Err(PitSnapshotError::LocatorMismatch);
         }
+        let expected_clock = clock_for_pit_time(&aggregate.fact().request().time_evidence);
+        let historical_clock = load_historical_clock(&self.pool, &expected_clock)
+            .await
+            .map_err(|e| match e {
+                SharedTimeEvidenceError::StoreUnavailable => {
+                    PitSnapshotError::PersistenceUnavailable
+                }
+                _ => PitSnapshotError::TrustedClockMismatch,
+            })?;
         super::pit_snapshot::authority::validate_read_clock(
             &aggregate.fact().request().time_evidence,
-            &envelope.clock,
+            &historical_clock,
         )?;
         Ok(PitSnapshotOwnerReadback::from_verified(&aggregate))
     }
@@ -1313,7 +1400,6 @@ impl PitSnapshotOwnerResolver for MarketDataReadPostgres {
 struct StoredEnvelope {
     aggregate: Value,
     native: NativeIndex,
-    clock: MarketDataClockAdmission,
 }
 
 struct NativeIndex {
@@ -1437,7 +1523,6 @@ fn decode_envelope(row: &sqlx::postgres::PgRow) -> Result<StoredEnvelope, sqlx::
     Ok(StoredEnvelope {
         aggregate: row.try_get("aggregate_json")?,
         native: decode_native_index(row)?,
-        clock: decode_clock(row)?,
     })
 }
 
