@@ -110,7 +110,7 @@ link，不是两种能力。Research 仍是 TrialFamily/Census 唯一 writer，Q
 - `crates/deployment_attestation` → **Strategy Factory 部署验证。** 只在 executable 使用边界复用密封的固定策略 verifier。其 evidence 是 consumer 输入，不是部署权威或业务事实。
 - `crates/observability` → **Observability 非权威边界。** 保留基于规范 Owner 记录的只读、可重建投影。它不拥有来源事实、command、retry、终态决策或交易权威。
 - `crates/runtime` → **Runtime foundation。** 保留非权威的 `NOT_READY` 状态与精确 revalidation dependencies。规范 Runtime custody、generation、checkpoint、readiness、deployment 与 effects 仍为 `TARGET`。
-- `crates/scanner` → **Scanner Owner。** 采用 fail-closed Scanner core 生成密封的 attempt admission 与 receipt。time、membership 或 source authority 不可用时不产生 attempt 或下游效果。
+- `crates/scanner` → **Scanner Owner。** 采用 fail-closed Scanner core 生成密封的 attempt admission 与 receipt。time 或 source authority 不可用时在 attempt admission 前失败；sealed admission 后 membership 不可用时提交终态 `Failed(MembershipUnresolved)` receipt，并抑制 matcher、proposal 与下游效果。
 - `crates/strategy_governance` → **Strategy Governance Owner。** 采用静态 fail-closed Governance core 生成精确 authorization 与 lifecycle receipts。adapter evidence 在规范 Owner 回读前保持不可信，authorization 也不证明 Runtime 已应用。
 - `crates/product_edge_claim_custody` → **Product Edge provider invocation custody。** `CURRENT` 是 claim 与 start custody 的 Owner 内部存储和加锁解析 seam。caller 记录仅是 proposal；provider 执行与交易仍为 `NOT_ADMITTED`。
 - `crates/rd_artifact_invocation_custody` → **R&D invocation reservation custody。** `CURRENT` 针对精确 Product Edge custody 密封并解析一个 R&D-owned reservation，不转移任一 Owner 权威。provider 执行与交易仍为 `NOT_ADMITTED`。
