@@ -2,7 +2,10 @@ use std::fmt::Debug;
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use sqlx::{AssertSqlSafe, Connection, PgConnection, Row};
+use sqlx::{
+    AssertSqlSafe, Connection, PgConnection, Row,
+    postgres::{PgConnectOptions, PgSslMode},
+};
 use thiserror::Error;
 use url::Url;
 use zeroize::Zeroizing;
@@ -270,7 +273,19 @@ impl PostgresDirectMeasurer {
         spec: &PostgresMeasurementSpec,
     ) -> Result<PostgresMeasurement, PostgresMeasurementError> {
         let target = parse_target(lease.database_url())?;
-        let mut connection = PgConnection::connect(lease.database_url())
+
+        if ambient_pg_configuration_present() {
+            return Err(PostgresMeasurementError::InvalidTarget);
+        }
+        let options = PgConnectOptions::new_without_pgpass()
+            .host(&target.host)
+            .port(target.port)
+            .username(&target.role)
+            .password(target.password.as_str())
+            .database(&target.database)
+            .ssl_mode(PgSslMode::Disable)
+            .application_name("vibe-deployment-store-admission-disposable-v1");
+        let mut connection = PgConnection::connect_with(&options)
             .await
             .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
         let mut transaction = connection
@@ -589,18 +604,19 @@ impl PostgresDirectMeasurer {
     }
 }
 
-#[derive(Debug)]
 struct ParsedTarget {
     host: String,
     port: u16,
     database: String,
     role: String,
+    password: Zeroizing<String>,
 }
 
 fn parse_target(database_url: &str) -> Result<ParsedTarget, PostgresMeasurementError> {
     let parsed = Url::parse(database_url).map_err(|_| PostgresMeasurementError::InvalidTarget)?;
     let database = parsed.path().trim_start_matches('/');
     let role = parsed.username();
+    let password = parsed.password().unwrap_or("");
     if !matches!(parsed.scheme(), "postgres" | "postgresql")
         || parsed.host_str().is_none()
         || !safe_opaque_identity(role)
@@ -608,6 +624,9 @@ fn parse_target(database_url: &str) -> Result<ParsedTarget, PostgresMeasurementE
         || !database.starts_with("vibe_test_")
         || parsed.query().is_some()
         || parsed.fragment().is_some()
+        || role.contains('%')
+        || database.contains('%')
+        || password.contains('%')
     {
         return Err(PostgresMeasurementError::InvalidTarget);
     }
@@ -625,7 +644,31 @@ fn parse_target(database_url: &str) -> Result<ParsedTarget, PostgresMeasurementE
         port: parsed.port().unwrap_or(5432),
         database: database.to_string(),
         role: role.to_string(),
+        password: Zeroizing::new(password.to_string()),
     })
+}
+
+fn ambient_pg_configuration_present() -> bool {
+    const PG_ENVIRONMENT: [&str; 15] = [
+        "PGPORT",
+        "PGHOSTADDR",
+        "PGHOST",
+        "PGUSER",
+        "PGDATABASE",
+        "PGPASSWORD",
+        "PGSSLROOTCERT",
+        "PGSSLCERT",
+        "PGSSLKEY",
+        "PGSSLMODE",
+        "PGAPPNAME",
+        "PGOPTIONS",
+        "PGPASSFILE",
+        "PGSERVICE",
+        "PGSERVICEFILE",
+    ];
+    PG_ENVIRONMENT
+        .iter()
+        .any(|name| std::env::var_os(name).is_some())
 }
 
 fn safe_opaque_identity(value: &str) -> bool {

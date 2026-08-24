@@ -1001,6 +1001,7 @@ mod tests {
     const NOW: u64 = 1_000_000;
     const SIGNER: &str = "deployment-store-test-signer-v1";
     static MODE_ENV_LOCK: Mutex<()> = Mutex::new(());
+    static PG_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     struct FixedClock;
 
@@ -1817,6 +1818,44 @@ mod tests {
             PostgresDirectMeasurer.measure(&lease, &spec).await,
             Err(PostgresMeasurementError::InvalidTarget)
         );
+    }
+
+    #[rstest]
+    fn ambient_postgres_configuration_fails_before_connection() {
+        let _lock = PG_ENV_LOCK.lock().unwrap();
+        let prior = std::env::var_os("PGPORT");
+        // SAFETY: this test serializes all mutations of this exact process variable.
+        unsafe { std::env::set_var("PGPORT", "6543") };
+        let lease = PostgresCredentialLease::from_resolved_secret(
+            "test-handle",
+            RD_OWNER_API_CONSUMER,
+            "test-v1",
+            NOW + 1,
+            "postgresql://rd_owner@127.0.0.1/vibe_test_decoy".to_string(),
+        )
+        .unwrap();
+        let spec = PostgresMeasurementSpec::new(
+            "safe_schema",
+            "safe_schema.schema_migrations_v1",
+            vec!["safe_schema.resolve_v1()".to_string()],
+            vec!["safe_schema.facts_v1".to_string()],
+        )
+        .unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let result = runtime.block_on(PostgresDirectMeasurer.measure(&lease, &spec));
+
+        if let Some(value) = prior {
+            // SAFETY: restoration is covered by the same serialized critical section.
+            unsafe { std::env::set_var("PGPORT", value) };
+        } else {
+            // SAFETY: restoration is covered by the same serialized critical section.
+            unsafe { std::env::remove_var("PGPORT") };
+        }
+
+        assert_eq!(result, Err(PostgresMeasurementError::InvalidTarget));
     }
 
     #[rstest]
