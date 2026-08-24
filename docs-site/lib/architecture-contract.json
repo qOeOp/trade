@@ -160,6 +160,121 @@
       "restart-continuity-or-new-epoch-proof",
       "observed-at-and-valid-through"
     ],
+    "sharedTimeClockHeadHandoff": {
+      "producerOwnerId": "market-data",
+      "businessAuthorityDisposition": "OWNER_LOCAL_NO_GLOBAL_TIME_OWNER",
+      "currentState": "CURRENT_PRIVATE_CANONICAL_CLOCK_HEAD_EXACT_REPLAY_AND_SAME_EPOCH_ADVANCEMENT_EPOCH_CHANGE_REJECTED_NO_CROSS_OWNER_HANDOFF_OR_EPOCH_PROOF",
+      "targetState": "TARGET_SEALED_IMMUTABLE_CONTENT_ADDRESSED_EXACTLY_RESOLVABLE_HANDOFF_AND_DIRECT_EPOCH_SUCCESSOR_PROOF",
+      "requiredHandoffBindings": [
+        "clock-head-identity",
+        "clock-head-digest",
+        "clock-identity",
+        "clock-epoch-identity",
+        "monotonic-sequence",
+        "wall-observation",
+        "decision-cut",
+        "exclusive-valid-through",
+        "restart-continuity-digest",
+        "uncertainty-bound",
+        "skew-bound",
+        "comparison-rule"
+      ],
+      "sameEpochSuccessorRule": "Exact replay joins the immutable handoff while a successor strictly advances every required cut and preserves epoch-stable semantics",
+      "epochSuccessorProof": {
+        "commitRule": "One direct immutable proof is committed atomically with the new canonical head and both remain content-addressed and exactly resolvable",
+        "requiredBindings": [
+          "exact-predecessor-head-digest",
+          "exact-successor-head-digest",
+          "prior-epoch-identity",
+          "successor-epoch-identity",
+          "successor-continuity-digest",
+          "proof-identity",
+          "commit-cut",
+          "comparison-rule"
+        ],
+        "forbidden": [
+          "chain-walking",
+          "skipped-predecessor",
+          "monotonic-sequence-comparison-across-epochs"
+        ]
+      },
+      "consumerTransitionRule": "Each consumer supplies its exact prior sealed handoff and retains sole authority for its own transition",
+      "firstTargetConsumer": {
+        "status": "TARGET_AFTER_PRODUCER_CLOSURE",
+        "ownerId": "portfolio",
+        "cutKind": "PORTFOLIO_FRESHNESS"
+      }
+    },
+    "deploymentStoreAdmission": {
+      "contractClass": "OPERATIONAL_NON_AUTHORITY",
+      "businessAuthority": "none",
+      "custodianId": "deployment-store-admission-custodian",
+      "topologyDisposition": "ABSENT_FROM_AUTHORITY_OWNERS_FLOW_AND_DASHBOARD",
+      "currentState": "CURRENT_NO_SIGNED_EXTERNAL_STORE_HEAD_OR_MANIFEST_DIRECT_CANONICAL_MEASUREMENT_OPAQUE_CREDENTIAL_RESOLUTION_OR_REAL_ADMITTED_CONSUMER",
+      "currentMechanismFacts": [
+        "deployment-attestation-is-fixed-strategy-factory-binary-verification-only",
+        "product-edge-owns-operation-and-deployment-request-custody",
+        "persistence-is-mechanism-not-authority",
+        "market-data-postgresql-is-crate-private-disposable-test-only-and-not-product-composed",
+        "generic-s3-catalog-accepts-caller-uri-and-storage-options-and-is-not-authority"
+      ],
+      "targetState": "TARGET_SIGNED_APPEND_ONLY_STORE_ADMISSION_CUSTODY",
+      "custodyFacts": [
+        "signed-append-only-store-manifest-and-history",
+        "unique-signed-current-head",
+        "direct-target-measurements",
+        "immutable-admission-receipts",
+        "rotation-fencing",
+        "custody-incidents"
+      ],
+      "requiredStoreBindings": [
+        "environment-identity",
+        "deployment-identity",
+        "consumer-owner-identity",
+        "backend-identity",
+        "endpoint-identity",
+        "tls-identity-and-policy",
+        "server-identity",
+        "database-or-bucket-and-prefix-identity",
+        "postgresql-schema-migration-function-role-and-acl-identities-or-s3-capability-and-version-semantics",
+        "opaque-credential-handle-identity-audience-and-version",
+        "predecessor-head-identity",
+        "generation",
+        "effective-from-and-valid-through",
+        "recovery-disposition"
+      ],
+      "positiveReceiptRequirements": [
+        "custodian-signature",
+        "unique-current-head",
+        "anti-rollback-witness",
+        "direct-target-measurement",
+        "credential-lease",
+        "closed-rotation-fence"
+      ],
+      "positiveEvidenceRule": "Caller-authored evidence cannot create a positive receipt",
+      "restartAndAmbiguityRule": "Restart or cache loss re-verifies signatures and the current head and directly remeasures the target while ambiguity constructs no Owner repository and creates no business retry",
+      "firstTargetConsumer": {
+        "status": "TARGET_UNTIL_IMPLEMENTED",
+        "compositionPath": "product/rd-workbench/docker-compose.yml#services.rd-owner-api",
+        "codePath": "crates/strategy_factory_rd_owner_api/src/main.rs::main",
+        "consumerService": "rd-owner-api",
+        "consumerOwnerId": "market-data",
+        "backend": "postgresql",
+        "admissionPoint": "before-constructing-governed-market-data-postgresql-repository"
+      },
+      "s3Disposition": "TARGET_UNAVAILABLE_UNTIL_REAL_CATALOG_CONSUMER_AND_PINNED_DISPOSABLE_S3_COMPATIBLE_TEST_AUTHORITY",
+      "productionAdaptersDisposition": "UNAVAILABLE_WITHOUT_SIGNER_RESOLVER_WITNESS_EVIDENCE",
+      "notAdmitted": [
+        "business-fact-or-business-receipt",
+        "global-registry-scheduler-or-deployment-service",
+        "raw-dsn-secret-or-private-key-in-artifact-or-log",
+        "automatic-ddl-role-credential-or-bucket-mutation",
+        "provider-probing",
+        "production-write",
+        "dashboard-implementation",
+        "trading"
+      ]
+    },
     "timeEvidenceCoverageMatrix": [
       {
         "cutKind": "MARKET_DATA_AS_OF",

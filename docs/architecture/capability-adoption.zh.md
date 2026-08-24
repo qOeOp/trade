@@ -116,6 +116,47 @@ link，不是两种能力。Research 仍是 TrialFamily/Census 唯一 writer，Q
 - `crates/rd_artifact_invocation_custody` → **R&D invocation reservation custody。** `CURRENT` 针对精确 Product Edge custody 密封并解析一个 R&D-owned reservation，不转移任一 Owner 权威。provider 执行与交易仍为 `NOT_ADMITTED`。
 - `crates/strategy_factory_rd_owner_api` → **R&D 与 Product Edge API composition。** `CURRENT` 只组合现有 Owner ports，不拥有事实，也不把 transport、credential、配置或 provider output 变成权威。生产写与交易仍为 `NOT_ADMITTED`。
 
+## Operational custody 采用
+
+### Shared Time
+
+- **CURRENT：** `crates/data/src/owner/postgres.rs` 保留 crate-private singleton clock head，并与 Market Data
+  Source Binding 和 PIT fact 原子提交。准确 replay 与同 epoch 前进已实现，epoch 变化被拒绝。sealed 跨 Owner
+  handoff 与 immutable Epoch Successor Proof 均非当前能力。
+- **TARGET：** Market Data 暴露一个 immutable、content-addressed、可按准确身份回读的 sealed handoff；只有
+  新 epoch 才提供一个与新 head 原子提交的 direct immutable predecessor-to-successor proof。不设 global Time
+  Owner，不遍历 chain、不跳过 predecessor，也不跨 epoch 比较 sequence。每个 consumer 提供自己的准确 prior
+  handoff，并保留唯一 transition 权威。producer state machine 闭合后，Portfolio `PORTFOLIO_FRESHNESS` 是
+  首个真实 consumer。
+
+### Deployment Store Admission
+
+- **CURRENT：** `crates/deployment_attestation` 只做固定 Strategy Factory binary verification。Product Edge
+  拥有 operation 与 deployment-request custody。Market Data PostgreSQL constructor 为 crate-private 且只由
+  disposable test 使用；`product/rd-workbench` 未组合它。通用 S3 catalog 接受 caller URI 与 storage options，
+  只提供机制而非权威。当前不存在 signed store manifest/head、direct canonical measurement、opaque credential
+  resolution 或真实已准入 store consumer。
+- **TARGET：** 一个非业务 Deployment Store Admission Custodian 只拥有 signed append-only manifest/history、
+  唯一 signed current head、direct target measurement、immutable admission receipt、rotation fence 与 custody
+  incident。它不是业务 `authorityOwner`、Flow 或 Dashboard node。其首个准确 deployment/bootstrap consumer 是
+  `product/rd-workbench/docker-compose.yml#services.rd-owner-api`，根为
+  `crates/strategy_factory_rd_owner_api/src/main.rs::main`。该默认 composition 在构造受治理 Market Data
+  PostgreSQL repository 前，必须消费一个 sealed receipt，绑定准确 environment、deployment、Market Data Owner、
+  `rd-owner-api` consumer、PostgreSQL backend、endpoint/TLS/server/database identity、schema/migration/function/
+  role/ACL measurement、opaque credential-handle identity/audience/version、predecessor/generation/validity/recovery、
+  signature、head、anti-rollback witness、direct measurement、credential lease 与 closed rotation fence。restart
+  或 cache loss 必须重复 signature/head verification 与 direct measurement；歧义不构造 Owner repository，也不
+  触发 business retry。
+- **TARGET / UNAVAILABLE：** S3 fan-out 等待真实 catalog consumer 与 pinned disposable S3-compatible test
+  authority。production signer、resolver 与 anti-rollback witness adapter 在有证据前保持 unavailable。
+- **NOT_ADMITTED：** 不创建 business fact/receipt、global registry、scheduler、deployment service、caller-authored
+  positive evidence；artifact/log 不保存 raw DSN/secret/private key；不自动执行 DDL/role/credential/bucket
+  mutation、provider probe、production write、Dashboard implementation 或 trading。
+
+本 D0 合同合并后，D1 Shared Time producer 先于其 Portfolio consumer。D1 Deployment Store Admission port/
+test double、disposable PostgreSQL measurement 与 RD Workbench bootstrap consumer 在 D0 后并行。两者都必须
+对 merged D0 重新验证；S3 fan-out 保持更后且有条件。
+
 ## Provider 有类型端口证据
 
 `PRESENT` 表示已检查列出的公共来源 port。`ABSENT` 表示已检查该 member 且不存在该 port，不能通过

@@ -362,6 +362,55 @@ Restart without proven continuity creates a new clock epoch. Excess skew, ambigu
 `valid-through`, or a missing required time field fails only the dependent transition and can never be normalized
 away by local time conversion.
 
+### Shared Time clock-head handoff
+
+**CURRENT:** Market Data atomically persists one private canonical clock head with its own Source Binding and PIT
+facts. The implementation supports exact replay and same-epoch advancement and rejects an epoch change. It exposes
+neither a canonical cross-Owner handoff nor a current epoch-successor proof.
+
+**TARGET:** Market Data remains the Owner-local producer; there is no global Time Owner. Its sealed read-only
+clock-head handoff is immutable, content-addressed, and exactly resolvable. It binds the head identity and digest,
+clock identity and epoch, monotonic sequence, wall observation, decision cut, exclusive `valid-through`,
+restart-continuity digest, uncertainty and skew bounds, and the comparison rule. A same-epoch successor strictly
+advances every required cut while preserving epoch-stable semantics. A new epoch is consumable only with one direct,
+immutable Epoch Successor Proof committed atomically with the new head. The proof binds the exact predecessor and
+successor head digests, prior and successor epoch identities, successor continuity digest, proof identity, commit cut,
+and comparison rule. Consumers cannot walk a chain, skip a predecessor, or compare sequences across epochs. Each
+consumer supplies its exact prior sealed handoff and alone decides its own transition. After producer closure,
+Portfolio `PORTFOLIO_FRESHNESS` is the first TARGET real consumer.
+
+### Deployment Store Admission
+
+**CURRENT:** `deployment_attestation` verifies only the fixed Strategy Factory binary policy. Product Edge owns
+operation and deployment-request custody. Persistence remains mechanism: Market Data PostgreSQL is crate-private and
+exercised only by disposable tests, with no production composition; the generic S3 catalog accepts caller URI and
+storage options and is not authority. No signed external-store manifest or head, direct canonical measurement, opaque
+credential resolution, or real admitted consumer is current.
+
+**TARGET:** One non-business Deployment Store Admission Custodian, absent from business `authorityOwners`, Flow, and
+Dashboard, owns only a signed append-only store manifest and history, one unique signed current head, direct target
+measurements, immutable admission receipts, rotation fencing, and custody incidents. The manifest binds environment,
+deployment, consumer Owner, backend, endpoint, TLS, server and database or bucket and prefix identities; PostgreSQL
+schema, migration, function, role, and ACL identity or S3 capability and version semantics; an opaque credential-handle
+identity, audience, and version; and predecessor, generation, validity, and recovery. A positive receipt requires the
+signature, current head, anti-rollback witness, direct measurement, credential lease, and closed rotation fence. It
+cannot be assembled from caller-authored positive evidence. Restart or cache loss re-verifies signatures and the head
+and remeasures the target. Ambiguity yields no Owner repository and no business retry.
+
+The first exact TARGET consumer is the default `product/rd-workbench` `rd-owner-api` bootstrap composition. Before it
+constructs the governed Market Data PostgreSQL repository, it must consume one sealed store-admission receipt for the
+exact Market Data Owner, PostgreSQL backend, environment, deployment, and consumer identity. S3 remains TARGET and
+`UNAVAILABLE` until a real catalog consumer and pinned disposable S3-compatible test authority exist.
+
+**NOT_ADMITTED:** the custodian creates no business fact or receipt, global registry, scheduler, or deployment service;
+stores no raw DSN, secret, or private key in artifacts or logs; performs no automatic DDL, role, credential, bucket, or
+provider mutation or probe; and authorizes no production write, Dashboard implementation, or trading.
+
+After this documentation contract is merged, the Shared Time producer state machine precedes its Portfolio consumer.
+Deployment Store Admission ports, test doubles, disposable PostgreSQL measurement, and the RD Workbench bootstrap
+consumer may proceed in parallel with that path, but both implementation paths must revalidate against merged D0.
+Production signer, resolver, witness, and S3 adapters remain unavailable without their own evidence.
+
 Execution's Product Edge Effect Closure View distinguishes `UNKNOWN_EFFECT`, `NO_EFFECT`, and `SETTLED`, and binds the exact
 effect frontier, readback/reconciliation cuts, blockers, freshness, and responsible Owner. Recovery projection
 separately distinguishes Runtime readiness `NOT_READY`, Risk fence `ACTIVE`, and Execution case `OPEN`,

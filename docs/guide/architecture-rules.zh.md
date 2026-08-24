@@ -319,6 +319,52 @@ incident 与 drift fact、Recovery admission 与 closure，以及所有显式时
 重启若没有 continuity 证明必须创建新 clock epoch。skew 超限 DST 解析不明 `valid-through` 过期或
 必需时间字段缺失时只阻止依赖转换，不能通过本地时间转换抹去。
 
+### Shared Time clock-head 交接
+
+**CURRENT：** Market Data 把一个私有规范 clock head 与自身 Source Binding 和 PIT fact 原子持久化。当前
+实现支持准确 replay 与同 epoch 前进，并拒绝 epoch 变化；规范跨 Owner 交接与 epoch-successor proof 均非当前能力。
+
+**TARGET：** Market Data 仍是 Owner-local producer，不设 global Time Owner。其 sealed read-only clock-head
+handoff 不可变、内容寻址且可按准确身份回读，绑定 head identity 与 digest、clock identity 与 epoch、
+monotonic sequence、wall observation、decision cut、排他的 `valid-through`、restart-continuity digest、
+uncertainty 与 skew bound 和 comparison rule。同 epoch successor 必须严格推进全部必需 cut 并保持 epoch-stable
+语义。新 epoch 只有在一个 direct immutable Epoch Successor Proof 与新 head 原子提交后才可消费。proof 绑定
+准确 predecessor 与 successor head digest、前后 epoch identity、successor continuity digest、proof identity、
+commit cut 与 comparison rule。消费者不能遍历 proof chain、跳过前驱或跨 epoch 比较 sequence。每个消费者
+提交自己的准确 prior sealed handoff，并独自决定自身 transition。producer 闭合后，Portfolio
+`PORTFOLIO_FRESHNESS` 是首个 TARGET 真实消费者。
+
+### Deployment Store Admission
+
+**CURRENT：** `deployment_attestation` 只验证固定 Strategy Factory binary policy。Product Edge 拥有 operation
+与 deployment-request custody。持久化仍只是机制：Market Data PostgreSQL 是 crate-private 且只由 disposable
+test 使用，没有 production composition；通用 S3 catalog 接受 caller URI 与 storage options，不是权威。当前
+不存在 signed external-store manifest/head、直接规范 measurement、不透明 credential resolution 或真实已准入 consumer。
+
+**TARGET：** 一个不属于业务的 Deployment Store Admission Custodian，只拥有 signed append-only store manifest
+与 history、唯一 signed current head、direct target measurement、immutable admission receipt、rotation fence 和
+custody incident；它不进入业务 `authorityOwners`、Flow 或 Dashboard。manifest 绑定 environment、deployment、
+consumer Owner、backend、endpoint、TLS、server 与 database 或 bucket 与 prefix identity；PostgreSQL schema、
+migration、function、role 与 ACL identity，或 S3 capability 与 version 语义；opaque credential-handle identity、
+audience 与 version；以及 predecessor、generation、validity 与 recovery。positive receipt 必须具备 signature、
+current head、anti-rollback witness、direct measurement、credential lease 与已闭合 rotation fence，不能由 caller
+自写 positive evidence 组装。restart 或 cache loss 必须重验 signature/head 并重新测量目标。任何歧义都不构造
+Owner repository，也不触发 business retry。
+
+首个准确 TARGET consumer 是默认 `product/rd-workbench` 的 `rd-owner-api` bootstrap composition。它在构造
+受治理 Market Data PostgreSQL repository 之前，必须消费一个绑定准确 Market Data Owner、PostgreSQL backend、
+environment、deployment 与 consumer identity 的 sealed store-admission receipt。S3 保持 TARGET 和
+`UNAVAILABLE`，直到存在真实 catalog consumer 与 pinned disposable S3-compatible test authority。
+
+**NOT_ADMITTED：** custodian 不创建 business fact/receipt、global registry、scheduler 或 deployment service；
+artifact/log 不保存 raw DSN、secret 或 private key；不自动执行 DDL、role、credential、bucket mutation 或
+provider probe；也不授权 production write、Dashboard implementation 或 trading。
+
+本 D0 文档合同合并后，Shared Time producer state machine 先于其 Portfolio consumer。Deployment Store
+Admission port、test double、disposable PostgreSQL measurement 与 RD Workbench bootstrap consumer 可与该路径
+并行，但两条实现路径都必须对 merged D0 重新验证。production signer、resolver、witness 与 S3 adapter 在有
+自身证据前保持 unavailable。
+
 Execution 面向 Product Edge 的 Effect Closure View 区分 `UNKNOWN_EFFECT` `NO_EFFECT` `SETTLED`，并绑定准确 effect frontier
 回读与对账截面 blocker freshness 和责任 Owner。Recovery 投影另行区分 Runtime readiness `NOT_READY`
 Risk fence `ACTIVE` 和 Execution case `OPEN` `FENCED_OPEN` `KNOWN_CLOSED`。视图可以解释进度，但不能替来源 Owner 宣告转换。

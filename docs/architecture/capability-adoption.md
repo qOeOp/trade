@@ -119,6 +119,47 @@ strategy source code do not exist.
 - `crates/rd_artifact_invocation_custody` → **R&D invocation reservation custody.** `CURRENT` seals and resolves one R&D-owned reservation against exact Product Edge custody without transferring either Owner's authority. Provider execution and trading remain `NOT_ADMITTED`.
 - `crates/strategy_factory_rd_owner_api` → **R&D and Product Edge API composition.** `CURRENT` composes existing Owner ports without owning facts or turning transport, credentials, configuration, or provider output into authority. Production writes and trading remain `NOT_ADMITTED`.
 
+## Operational custody adoption
+
+### Shared Time
+
+- **CURRENT:** `crates/data/src/owner/postgres.rs` keeps a crate-private singleton clock head and commits it atomically
+  with Market Data Source Binding and PIT facts. Exact replay and same-epoch advancement are implemented; epoch change
+  is rejected. No sealed cross-Owner handoff or immutable Epoch Successor Proof is current.
+- **TARGET:** Market Data exposes one immutable, content-addressed, exactly resolvable sealed handoff and, only for a
+  new epoch, one direct immutable predecessor-to-successor proof atomically committed with the new head. There is no
+  global Time Owner, chain walking, skipped predecessor, or cross-epoch sequence comparison. Every consumer provides
+  its exact prior handoff and retains sole transition authority. Portfolio `PORTFOLIO_FRESHNESS` is the first real
+  consumer after the producer state machine closes.
+
+### Deployment Store Admission
+
+- **CURRENT:** `crates/deployment_attestation` is fixed Strategy Factory binary verification only. Product Edge owns
+  operation and deployment-request custody. Market Data PostgreSQL constructors are crate-private and exercised only
+  by disposable tests; `product/rd-workbench` does not compose them. The generic S3 catalog accepts caller URI and
+  storage options and supplies mechanism, not authority. No signed store manifest/head, direct canonical measurement,
+  opaque credential resolution, or real admitted store consumer exists.
+- **TARGET:** one non-business Deployment Store Admission Custodian owns only signed append-only manifest/history, one
+  unique signed current head, direct target measurements, immutable admission receipts, rotation fencing, and custody
+  incidents. It is not a business `authorityOwner`, Flow or Dashboard node. Its first exact deployment/bootstrap
+  consumer is `product/rd-workbench/docker-compose.yml#services.rd-owner-api`, rooted at
+  `crates/strategy_factory_rd_owner_api/src/main.rs::main`. Before that default composition constructs the governed
+  Market Data PostgreSQL repository, it must consume a sealed receipt bound to the exact environment, deployment,
+  Market Data Owner, `rd-owner-api` consumer, PostgreSQL backend, endpoint/TLS/server/database identities,
+  schema/migration/function/role/ACL measurements, opaque credential-handle identity/audience/version,
+  predecessor/generation/validity/recovery, signature, head, anti-rollback witness, direct measurement, credential
+  lease, and closed rotation fence. Restart or cache loss repeats signature/head verification and direct measurement;
+  ambiguity constructs no Owner repository and triggers no business retry.
+- **TARGET / UNAVAILABLE:** S3 fan-out waits for a real catalog consumer and a pinned disposable S3-compatible test
+  authority. Production signer, resolver, and anti-rollback witness adapters remain unavailable without evidence.
+- **NOT_ADMITTED:** no business fact or receipt, global registry, scheduler, deployment service, caller-authored
+  positive evidence, raw DSN/secret/private key in artifacts or logs, automatic DDL/role/credential/bucket mutation,
+  provider probe, production write, Dashboard implementation, or trading.
+
+After this D0 contract is merged, D1 Shared Time producer work precedes its Portfolio consumer. D1 Deployment Store
+Admission ports/test doubles, disposable PostgreSQL measurement, and the RD Workbench bootstrap consumer are parallel
+after D0. Both must revalidate against merged D0; S3 fan-out remains later and conditional.
+
 ## Provider typed-port evidence
 
 `PRESENT` means the listed public source port was inspected. `ABSENT` means the member was inspected and that port

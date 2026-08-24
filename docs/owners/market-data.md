@@ -33,6 +33,15 @@ Provide canonical, time-correct market, reference, and instrument facts to every
   one primary category and canonical state independent of evidence arrival order: revoked rights are `REVOKED`,
   definitive denial is `UNLICENSED`, unresolved rights evidence or source unavailability is `UNAVAILABLE`, and
   identity/configuration or semantics mismatch is `INCOMPATIBLE`. `ADMITTED` is exclusive and requires no failure.
+- **CURRENT:** one private canonical clock head is atomically persisted with Owner-local Source Binding and PIT facts.
+  Exact replay and same-epoch advancement are supported; epoch change, a sealed cross-Owner handoff, and an Epoch
+  Successor Proof are not current.
+- **TARGET:** an immutable, content-addressed, exactly resolvable sealed clock-head handoff binds head identity/digest,
+  clock identity/epoch, monotonic sequence, wall observation, decision cut, exclusive valid-through,
+  restart-continuity digest, uncertainty/skew bounds, and comparison rule. Same-epoch successors strictly advance the
+  required cuts. A new epoch additionally requires one direct immutable Epoch Successor Proof atomically committed
+  with the new head and binding exact predecessor/successor head digests, prior/successor epoch identities, successor
+  continuity digest, proof identity, commit cut, and comparison rule.
 
 ## Modules
 
@@ -66,6 +75,9 @@ Provide canonical, time-correct market, reference, and instrument facts to every
 - To [Runtime](./runtime/): live market streams and instrument updates carrying the same Market Semantics
   Compatibility identity consumed by the generation's Strategy Artifact and historical evidence.
 - To [Portfolio](./portfolio/): prices, FX rates, contract specifications, valuation facts, and an identified liquidity input cut for Capacity View.
+- **TARGET, after Shared Time producer closure, to [Portfolio](./portfolio/):** the sealed canonical clock-head handoff
+  for `PORTFOLIO_FRESHNESS`. Portfolio supplies its exact prior handoff and alone authorizes its transition; it cannot
+  walk or skip proof links or compare monotonic sequences across epochs.
 
 ## Rejections and prohibitions
 
@@ -79,6 +91,10 @@ Provide canonical, time-correct market, reference, and instrument facts to every
   never mutates the old snapshot or Research Intent.
 - Never infer an ordinary snapshot result from submission or transport acknowledgement, or serve an earlier
   snapshot under a changed request identity, content digest, scope, decision cut, or policy binding.
+- Never become a global Time Owner or decide another Owner's clock transition.
+- Never construct the governed Market Data PostgreSQL repository from a DSN, secret, caller assertion, or ambiguous
+  store state alone. The future default RD Workbench `rd-owner-api` bootstrap must first consume its exact sealed
+  Deployment Store Admission receipt; this requirement is TARGET and does not claim current product composition.
 
 ## Failure and recovery
 
@@ -134,6 +150,9 @@ fact, and retrieval after the cut never backfills an earlier decision.
 - Simultaneous rights, compatibility, freshness, sufficiency, and availability failures preserve the complete
   blocker set while the frozen precedence selects the same primary under every evidence-arrival permutation.
 - Protected replay cannot substitute a different PIT scope, Universe Selection Record identity or digest, snapshot rule, correction frontier, or snapshot identity after Qualification freezes the request.
+- Same-epoch handoff replay joins exact bytes; advancement strictly advances required cuts without changing epoch
+  semantics. A new epoch fails closed unless its new head and direct immutable proof commit atomically and both remain
+  exactly resolvable by digest.
 
 ## Observability and persistence
 

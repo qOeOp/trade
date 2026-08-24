@@ -27,6 +27,13 @@
   选择一个 primary category 与规范状态：权利撤销为 `REVOKED`，明确拒绝为 `UNLICENSED`，权利证据
   未解析或来源不可用为 `UNAVAILABLE`，identity/configuration 或 semantics 不匹配为 `INCOMPATIBLE`。
   `ADMITTED` 是互斥状态，要求 failure set 为空。
+- **CURRENT：** 一个私有规范 clock head 与 Owner-local Source Binding 和 PIT fact 原子持久化。当前支持准确
+  replay 与同 epoch 前进；epoch 变化、sealed 跨 Owner handoff 与 Epoch Successor Proof 均非当前能力。
+- **TARGET：** immutable、content-addressed 且可按准确身份回读的 sealed clock-head handoff 绑定 head
+  identity/digest、clock identity/epoch、monotonic sequence、wall observation、decision cut、排他的 valid-through、
+  restart-continuity digest、uncertainty/skew bound 与 comparison rule。同 epoch successor 严格推进必需 cut。
+  新 epoch 还要求一个 direct immutable Epoch Successor Proof 与新 head 原子提交，绑定准确 predecessor/successor
+  head digest、前后 epoch identity、successor continuity digest、proof identity、commit cut 与 comparison rule。
 
 ## 模块
 
@@ -60,6 +67,9 @@
 - 向 [Runtime](./runtime/) 提供携带同一 Market Semantics Compatibility 身份的实时行情流和标的更新；
   generation 的 Strategy Artifact 与历史证据必须消费该身份。
 - 向 [Portfolio](./portfolio/) 提供价格 汇率 合约规格 估值事实，以及 Capacity View 使用的带身份流动性输入截面。
+- **TARGET，在 Shared Time producer 闭合后，向 [Portfolio](./portfolio/)：** 为 `PORTFOLIO_FRESHNESS` 提供
+  sealed 规范 clock-head handoff。Portfolio 提交自己的准确 prior handoff 并独自授权自身 transition；不能
+  遍历或跳过 proof link，也不能跨 epoch 比较 monotonic sequence。
 
 ## 拒绝和禁止事项
 
@@ -72,6 +82,10 @@
 - 不从送达 静默 旧 snapshot 或不匹配请求证明推断修复终态。修复不改写旧 snapshot 或 Research Intent。
 - 不从提交或传输确认推断普通 snapshot 结果，也不在请求身份 内容摘要 scope 决定截面或政策 binding
   已变化时复用旧 snapshot。
+- 不成为 global Time Owner，也不替其他 Owner 决定 clock transition。
+- 不仅凭 DSN、secret、caller assertion 或含糊 store state 构造受治理 Market Data PostgreSQL repository。
+  未来默认 RD Workbench `rd-owner-api` bootstrap 必须先消费其准确 sealed Deployment Store Admission receipt；
+  该要求是 TARGET，不声称当前 product composition 已存在。
 
 ## 失败与恢复
 
@@ -124,6 +138,8 @@ rights evidence，绝不能跨 Owner 复制该终态。
 - rights compatibility freshness sufficiency availability 同时失败时保留完整 blocker set，并由冻结优先级
   在任意证据到达排列下选择相同 primary。
 - Qualification 冻结保护请求后，重放不能替换 PIT 范围 Universe Selection Record 身份或摘要 快照规则 修订前沿或快照身份。
+- 同 epoch handoff replay 合并准确 bytes；前进必须严格推进必需 cut 且不改变 epoch 语义。新 epoch 的新 head
+  与 direct immutable proof 若未原子提交并可按 digest 准确回读，必须失败关闭。
 
 ## 可观测性与持久化
 
