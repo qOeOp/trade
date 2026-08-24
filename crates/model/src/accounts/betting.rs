@@ -125,7 +125,8 @@ impl BettingAccount {
             OrderSide::Buy => -(quantity.as_decimal() * (price.as_decimal() - Decimal::ONE)),
             OrderSide::NoOrderSide => panic!("invalid `OrderSide`, was {order_side}"),
         };
-        Money::from_decimal(impact, currency).expect("invalid betting balance impact")
+        Money::from_decimal(impact, currency)
+            .unwrap_or_else(|error| panic!("invalid betting balance impact: {error:?}"))
     }
 
     /// Recalculates the account balance for the specified currency based on per-instrument locks.

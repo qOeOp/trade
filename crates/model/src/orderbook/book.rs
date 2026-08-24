@@ -25,6 +25,10 @@ use crate::{
     },
 };
 
+fn unwrap_book_value<T, E: std::fmt::Debug>(result: Result<T, E>, message: &str) -> T {
+    result.unwrap_or_else(|error| panic!("{message}: {error:?}"))
+}
+
 /// Provides a high-performance, versatile order book.
 ///
 /// Maintains buy (bid) and sell (ask) orders in price-time priority, supporting multiple
@@ -710,7 +714,7 @@ impl OrderBook {
         now: Option<u64>,
     ) -> Self {
         self.filtered_view_checked(own_book, depth, status, accepted_buffer_ns, now)
-            .expect(FAILED)
+            .unwrap_or_else(|error| panic!("{FAILED}: {error:?}"))
     }
 
     /// Fallible version of [`Self::filtered_view`].
@@ -761,9 +765,14 @@ impl OrderBook {
 
             let order = BookOrder::new(
                 OrderSide::Buy,
-                Price::from_decimal(price).expect("Invalid bid price for OrderBook::filtered_view"),
-                Quantity::from_decimal(quantity)
-                    .expect("Invalid bid quantity for OrderBook::filtered_view"),
+                unwrap_book_value(
+                    Price::from_decimal(price),
+                    "Invalid bid price for OrderBook::filtered_view",
+                ),
+                unwrap_book_value(
+                    Quantity::from_decimal(quantity),
+                    "Invalid bid quantity for OrderBook::filtered_view",
+                ),
                 order_id,
             );
             order_id += 1;
@@ -777,9 +786,14 @@ impl OrderBook {
 
             let order = BookOrder::new(
                 OrderSide::Sell,
-                Price::from_decimal(price).expect("Invalid ask price for OrderBook::filtered_view"),
-                Quantity::from_decimal(quantity)
-                    .expect("Invalid ask quantity for OrderBook::filtered_view"),
+                unwrap_book_value(
+                    Price::from_decimal(price),
+                    "Invalid ask price for OrderBook::filtered_view",
+                ),
+                unwrap_book_value(
+                    Quantity::from_decimal(quantity),
+                    "Invalid ask quantity for OrderBook::filtered_view",
+                ),
                 order_id,
             );
             order_id += 1;
@@ -1229,7 +1243,8 @@ impl OrderBook {
         let mut last_ask: Option<Price> = None;
 
         for delta in deltas {
-            book.apply_delta(delta).unwrap();
+            book.apply_delta(delta)
+                .unwrap_or_else(|error| panic!("{error}"));
             let bid = book.best_bid_price();
             let ask = book.best_ask_price();
 
@@ -1245,9 +1260,19 @@ impl OrderBook {
             {
                 last_bid = bid;
                 last_ask = ask;
-                let bid_level = book.bids.top().unwrap();
-                let ask_level = book.asks.top().unwrap();
-                let precision = bid_level.first().unwrap().size.precision;
+                let bid_level = book
+                    .bids
+                    .top()
+                    .unwrap_or_else(|| panic!("bid level exists when best bid exists"));
+                let ask_level = book
+                    .asks
+                    .top()
+                    .unwrap_or_else(|| panic!("ask level exists when best ask exists"));
+                let precision = bid_level
+                    .first()
+                    .unwrap_or_else(|| panic!("top bid level contains an order"))
+                    .size
+                    .precision;
                 let bid_sz = Quantity::from_raw(bid_level.size_raw(), precision);
                 let ask_sz = Quantity::from_raw(ask_level.size_raw(), precision);
                 let quote = QuoteTick::new(

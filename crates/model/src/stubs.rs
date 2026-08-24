@@ -99,15 +99,28 @@ pub fn calculate_commission(
         .calculate_notional_value(last_qty, last_px, use_quote_for_inverse)
         .as_f64();
     let commission = if liquidity_side == LiquiditySide::Maker {
-        notional * instrument.maker_fee().to_f64().unwrap()
+        notional
+            * instrument
+                .maker_fee()
+                .to_f64()
+                .unwrap_or_else(|| panic!("maker fee must fit in f64"))
     } else if liquidity_side == LiquiditySide::Taker {
-        notional * instrument.taker_fee().to_f64().unwrap()
+        notional
+            * instrument
+                .taker_fee()
+                .to_f64()
+                .unwrap_or_else(|| panic!("taker fee must fit in f64"))
     } else {
         panic!("Invalid liquidity side {liquidity_side}")
     };
 
     if instrument.is_inverse() && !use_quote_for_inverse.unwrap_or(false) {
-        Money::new(commission, instrument.base_currency().unwrap())
+        Money::new(
+            commission,
+            instrument
+                .base_currency()
+                .unwrap_or_else(|| panic!("instrument must have a base currency")),
+        )
     } else {
         Money::new(commission, instrument.quote_currency())
     }

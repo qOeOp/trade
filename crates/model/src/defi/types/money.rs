@@ -28,7 +28,7 @@ impl Money {
         let raw_u256: U256 = raw_wei.into();
         let raw_u128: u128 = raw_u256
             .try_into()
-            .expect("raw wei value exceeds 128-bit range");
+            .unwrap_or_else(|error| panic!("raw wei value exceeds 128-bit range: {error:?}"));
 
         assert!(
             raw_u128 <= i128::MAX as u128,

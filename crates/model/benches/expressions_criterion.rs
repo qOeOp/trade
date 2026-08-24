@@ -72,7 +72,15 @@ pub fn bench_eval(c: &mut Criterion) {
         "(BTC.BINANCE + LTC.BINANCE) / 2.0",
     );
     group.bench_function("simple_avg", |b| {
-        b.iter(|| black_box(synth_avg.calculate(black_box(&[50000.0, 100.0])).unwrap()));
+        b.iter(|| {
+            black_box(
+                synth_avg
+                    .calculate(black_box(&[50000.0, 100.0]))
+                    .unwrap_or_else(|error| {
+                        panic!("benchmark expression must evaluate: {error:?}")
+                    }),
+            )
+        });
     });
 
     let synth_weighted = make_synth(
@@ -84,7 +92,9 @@ pub fn bench_eval(c: &mut Criterion) {
             black_box(
                 synth_weighted
                     .calculate(black_box(&[50000.0, 3000.0, 150.0, 0.5]))
-                    .unwrap(),
+                    .unwrap_or_else(|error| {
+                        panic!("benchmark expression must evaluate: {error:?}")
+                    }),
             )
         });
     });
@@ -94,7 +104,15 @@ pub fn bench_eval(c: &mut Criterion) {
         "if(BTC.BINANCE > ETH.BINANCE, BTC.BINANCE - ETH.BINANCE, ETH.BINANCE - BTC.BINANCE)",
     );
     group.bench_function("conditional", |b| {
-        b.iter(|| black_box(synth_cond.calculate(black_box(&[50000.0, 3000.0])).unwrap()));
+        b.iter(|| {
+            black_box(
+                synth_cond
+                    .calculate(black_box(&[50000.0, 3000.0]))
+                    .unwrap_or_else(|error| {
+                        panic!("benchmark expression must evaluate: {error:?}")
+                    }),
+            )
+        });
     });
 
     let synth_locals = make_synth(
@@ -106,7 +124,9 @@ pub fn bench_eval(c: &mut Criterion) {
             black_box(
                 synth_locals
                     .calculate(black_box(&[50000.0, 3000.0]))
-                    .unwrap(),
+                    .unwrap_or_else(|error| {
+                        panic!("benchmark expression must evaluate: {error:?}")
+                    }),
             )
         });
     });
@@ -120,7 +140,9 @@ pub fn bench_eval(c: &mut Criterion) {
             black_box(
                 synth_nested
                     .calculate(black_box(&[50000.0, 3000.0]))
-                    .unwrap(),
+                    .unwrap_or_else(|error| {
+                        panic!("benchmark expression must evaluate: {error:?}")
+                    }),
             )
         });
     });
@@ -145,7 +167,11 @@ pub fn bench_eval_scaling(c: &mut Criterion) {
         let inputs: Vec<f64> = (0..n).map(|i| 100.0 + i as f64 * 10.0).collect();
 
         group.bench_with_input(BenchmarkId::new("weighted_sum", n), &inputs, |b, inputs| {
-            b.iter(|| black_box(synth.calculate(black_box(inputs)).unwrap()));
+            b.iter(|| {
+                black_box(synth.calculate(black_box(inputs)).unwrap_or_else(|error| {
+                    panic!("benchmark expression must evaluate: {error:?}")
+                }))
+            });
         });
     }
 

@@ -96,7 +96,7 @@ impl OrderAny {
         match self
             .events()
             .first()
-            .expect("Order invariant violated: no events")
+            .unwrap_or_else(|| panic!("Order invariant violated: no events"))
         {
             OrderEventAny::Initialized(init) => init,
             _ => panic!("Order invariant violated: first event must be OrderInitialized"),
@@ -123,7 +123,7 @@ impl OrderAny {
         let init = match order
             .events
             .first_mut()
-            .expect("Order invariant violated: no events")
+            .unwrap_or_else(|| panic!("Order invariant violated: no events"))
         {
             OrderEventAny::Initialized(init) => init,
             _ => panic!("Order invariant violated: first event must be OrderInitialized"),
@@ -299,14 +299,16 @@ impl LimitOrderAny {
     pub fn limit_px(&self) -> Price {
         match self {
             Self::Limit(order) => order.price,
-            Self::MarketToLimit(order) => order.price.expect("MarketToLimit order price not set"),
+            Self::MarketToLimit(order) => order
+                .price
+                .unwrap_or_else(|| panic!("MarketToLimit order price not set")),
             Self::StopLimit(order) => order.price,
-            Self::TrailingStopLimit(order) => {
-                order.price.expect("TrailingStopLimit order price not set")
-            }
-            Self::MarketOrderWithProtection(order) => {
-                order.protection_price.expect("No price for order")
-            }
+            Self::TrailingStopLimit(order) => order
+                .price
+                .unwrap_or_else(|| panic!("TrailingStopLimit order price not set")),
+            Self::MarketOrderWithProtection(order) => order
+                .protection_price
+                .unwrap_or_else(|| panic!("No price for order")),
         }
     }
 }

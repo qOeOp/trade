@@ -88,7 +88,7 @@ impl PoolIdentifier {
     /// Panics if validation fails.
     #[must_use]
     pub fn new<T: AsRef<str>>(value: T) -> Self {
-        Self::new_checked(value).expect(FAILED)
+        Self::new_checked(value).unwrap_or_else(|error| panic!("{FAILED}: {error:?}"))
     }
 
     /// Creates an Address variant from an alloy Address.

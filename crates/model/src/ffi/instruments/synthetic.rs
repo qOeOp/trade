@@ -178,7 +178,9 @@ pub unsafe extern "C" fn synthetic_instrument_change_formula(
     formula_ptr: *const c_char,
 ) {
     let formula = unsafe { cstr_as_str(formula_ptr) };
-    synth.change_formula(formula).unwrap();
+    synth
+        .change_formula(formula)
+        .unwrap_or_else(|error| panic!("{error}"));
 }
 
 #[unsafe(no_mangle)]

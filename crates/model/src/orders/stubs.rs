@@ -593,7 +593,9 @@ impl TestOrderStubs {
             AccountId::from("SIM-001"),
             VenueOrderId::from("V-001"),
         );
-        new_order.apply(accepted_event).unwrap();
+        new_order
+            .apply(accepted_event)
+            .unwrap_or_else(|error| panic!("{error}"));
         new_order
     }
 
@@ -610,7 +612,9 @@ impl TestOrderStubs {
         let fill = OrderFilledTestBuilder::new(&accepted_order, instrument)
             .liquidity_side(liquidity_side)
             .build();
-        accepted_order.apply(fill).unwrap();
+        accepted_order
+            .apply(fill)
+            .unwrap_or_else(|error| panic!("{error}"));
         accepted_order
     }
 }

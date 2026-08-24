@@ -137,7 +137,8 @@ impl OrderTestBuilder {
     }
 
     fn get_instrument_id(&self) -> InstrumentId {
-        self.instrument_id.expect("Instrument ID not set")
+        self.instrument_id
+            .unwrap_or_else(|| panic!("Instrument ID not set"))
     }
 
     // ----------- ClientOrderId ----------
@@ -168,7 +169,8 @@ impl OrderTestBuilder {
     }
 
     fn get_quantity(&self) -> Quantity {
-        self.quantity.expect("Order quantity not set")
+        self.quantity
+            .unwrap_or_else(|| panic!("Order quantity not set"))
     }
 
     // ----------- Price ----------
@@ -178,7 +180,7 @@ impl OrderTestBuilder {
     }
 
     fn get_price(&self) -> Price {
-        self.price.expect("Price not set")
+        self.price.unwrap_or_else(|| panic!("Price not set"))
     }
 
     // ----------- TriggerPrice ----------
@@ -188,7 +190,8 @@ impl OrderTestBuilder {
     }
 
     fn get_trigger_price(&self) -> Price {
-        self.trigger_price.expect("Trigger price not set")
+        self.trigger_price
+            .unwrap_or_else(|| panic!("Trigger price not set"))
     }
 
     // ----------- ActivationPrice ----------
@@ -218,7 +221,8 @@ impl OrderTestBuilder {
     }
 
     fn get_limit_offset(&self) -> Decimal {
-        self.limit_offset.expect("Limit offset not set")
+        self.limit_offset
+            .unwrap_or_else(|| panic!("Limit offset not set"))
     }
 
     // ----------- TrailingOffset ----------
@@ -228,7 +232,8 @@ impl OrderTestBuilder {
     }
 
     fn get_trailing_offset(&self) -> Decimal {
-        self.trailing_offset.expect("Trailing offset not set")
+        self.trailing_offset
+            .unwrap_or_else(|| panic!("Trailing offset not set"))
     }
 
     // ----------- TrailingOffsetType ----------
@@ -698,7 +703,9 @@ impl OrderTestBuilder {
                 .client_order_id(order.client_order_id())
                 .account_id(AccountId::from("ACCOUNT-001"))
                 .build();
-            order.apply(OrderEventAny::Submitted(submit_event)).unwrap();
+            order
+                .apply(OrderEventAny::Submitted(submit_event))
+                .unwrap_or_else(|error| panic!("{error}"));
         }
 
         order

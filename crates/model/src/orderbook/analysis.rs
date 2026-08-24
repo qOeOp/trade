@@ -104,7 +104,7 @@ pub fn get_avg_px_for_quantity(qty: Quantity, levels: &BTreeMap<BookPrice, BookL
         (cumulative_value / cumulative_size)
             .to_string()
             .parse::<f64>()
-            .expect("Decimal average price must parse as f64")
+            .unwrap_or_else(|error| panic!("Decimal average price must parse as f64: {error:?}"))
     }
 }
 

@@ -253,7 +253,7 @@ pub extern "C" fn orderbook_has_ask(book: &mut OrderBook_API) -> u8 {
 pub extern "C" fn orderbook_best_bid_price(book: &mut OrderBook_API) -> Price {
     abort_on_panic(|| {
         book.best_bid_price()
-            .expect("Error: No bid orders for best bid price")
+            .unwrap_or_else(|| panic!("Error: No bid orders for best bid price"))
     })
 }
 
@@ -265,7 +265,7 @@ pub extern "C" fn orderbook_best_bid_price(book: &mut OrderBook_API) -> Price {
 pub extern "C" fn orderbook_best_ask_price(book: &mut OrderBook_API) -> Price {
     abort_on_panic(|| {
         book.best_ask_price()
-            .expect("Error: No ask orders for best ask price")
+            .unwrap_or_else(|| panic!("Error: No ask orders for best ask price"))
     })
 }
 
@@ -277,7 +277,7 @@ pub extern "C" fn orderbook_best_ask_price(book: &mut OrderBook_API) -> Price {
 pub extern "C" fn orderbook_best_bid_size(book: &mut OrderBook_API) -> Quantity {
     abort_on_panic(|| {
         book.best_bid_size()
-            .expect("Error: No bid orders for best bid size")
+            .unwrap_or_else(|| panic!("Error: No bid orders for best bid size"))
     })
 }
 
@@ -289,7 +289,7 @@ pub extern "C" fn orderbook_best_bid_size(book: &mut OrderBook_API) -> Quantity 
 pub extern "C" fn orderbook_best_ask_size(book: &mut OrderBook_API) -> Quantity {
     abort_on_panic(|| {
         book.best_ask_size()
-            .expect("Error: No ask orders for best ask size")
+            .unwrap_or_else(|| panic!("Error: No ask orders for best ask size"))
     })
 }
 
@@ -300,7 +300,7 @@ pub extern "C" fn orderbook_best_ask_size(book: &mut OrderBook_API) -> Quantity 
 pub extern "C" fn orderbook_spread(book: &mut OrderBook_API) -> f64 {
     abort_on_panic(|| {
         book.spread()
-            .expect("Error: Unable to calculate `spread` (no bid or ask)")
+            .unwrap_or_else(|| panic!("Error: Unable to calculate `spread` (no bid or ask)"))
     })
 }
 
@@ -311,7 +311,7 @@ pub extern "C" fn orderbook_spread(book: &mut OrderBook_API) -> f64 {
 pub extern "C" fn orderbook_midpoint(book: &mut OrderBook_API) -> f64 {
     abort_on_panic(|| {
         book.midpoint()
-            .expect("Error: Unable to calculate `midpoint` (no bid or ask)")
+            .unwrap_or_else(|| panic!("Error: Unable to calculate `midpoint` (no bid or ask)"))
     })
 }
 
@@ -364,7 +364,8 @@ pub extern "C" fn orderbook_get_quantity_at_level(
 /// Panics if book type is not `L1_MBP`.
 #[unsafe(no_mangle)]
 pub extern "C" fn orderbook_update_quote_tick(book: &mut OrderBook_API, quote: &QuoteTick) {
-    book.update_quote_tick(quote).unwrap();
+    book.update_quote_tick(quote)
+        .unwrap_or_else(|error| panic!("{error}"));
 }
 
 /// Updates the order book with a trade tick.
@@ -374,7 +375,8 @@ pub extern "C" fn orderbook_update_quote_tick(book: &mut OrderBook_API, quote: &
 /// Panics if book type is not `L1_MBP`.
 #[unsafe(no_mangle)]
 pub extern "C" fn orderbook_update_trade_tick(book: &mut OrderBook_API, trade: &TradeTick) {
-    book.update_trade_tick(trade).unwrap();
+    book.update_trade_tick(trade)
+        .unwrap_or_else(|error| panic!("{error}"));
 }
 
 #[unsafe(no_mangle)]

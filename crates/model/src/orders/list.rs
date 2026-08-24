@@ -107,10 +107,10 @@ impl OrderList {
     pub fn from_orders(orders: &[OrderAny], ts_init: UnixNanos) -> Self {
         let first = orders
             .first()
-            .expect("OrderList::from_orders requires non-empty orders");
-        let order_list_id = first
-            .order_list_id()
-            .expect("OrderList::from_orders requires first order to have order_list_id");
+            .unwrap_or_else(|| panic!("OrderList::from_orders requires non-empty orders"));
+        let order_list_id = first.order_list_id().unwrap_or_else(|| {
+            panic!("OrderList::from_orders requires first order to have order_list_id")
+        });
         let instrument_id = first.instrument_id();
         let strategy_id = first.strategy_id();
         let venue = instrument_id.venue;

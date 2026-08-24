@@ -280,9 +280,11 @@ impl<'a> Parser<'a> {
     }
 
     fn peek(&self) -> &'a Token {
-        self.tokens
-            .get(self.index + 1)
-            .unwrap_or_else(|| self.tokens.last().expect("tokens always end with EOF"))
+        self.tokens.get(self.index + 1).unwrap_or_else(|| {
+            self.tokens
+                .last()
+                .unwrap_or_else(|| panic!("tokens always end with EOF"))
+        })
     }
 
     fn advance(&mut self) {

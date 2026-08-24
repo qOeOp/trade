@@ -12,6 +12,12 @@ pub const MAX_SQRT_RATIO: U160 = U160::from_limbs([
     0xfffd_8963_u64,           // Upper 32 bits
 ]);
 
+#[inline]
+fn parse_constant(value: &str, radix: u64) -> U256 {
+    U256::from_str_radix(value, radix)
+        .unwrap_or_else(|error| panic!("called `Result::unwrap()` on an `Err` value: {error:?}"))
+}
+
 /// Returns the sqrt ratio as a Q64.96 for the given tick. The sqrt ratio is computed as
 /// sqrt(1.0001)^tick.
 ///
@@ -38,103 +44,86 @@ pub fn get_sqrt_ratio_at_tick(tick: i32) -> U160 {
 
     // Equivalent: ratio = 2**128 / sqrt(1.0001) if abs_tick & 0x1 else 1 << 128
     let mut ratio = if abs_tick & 0x1 != 0 {
-        U256::from_str_radix("fffcb933bd6fad37aa2d162d1a594001", 16).unwrap()
+        parse_constant("fffcb933bd6fad37aa2d162d1a594001", 16)
     } else {
-        U256::from_str_radix("100000000000000000000000000000000", 16).unwrap()
+        parse_constant("100000000000000000000000000000000", 16)
     };
 
     // Iterate through 1th to 19th bit of abs_tick because MAX_TICK < 2**20
     if abs_tick & 0x2 != 0 {
-        ratio =
-            (ratio * U256::from_str_radix("fff97272373d413259a46990580e213a", 16).unwrap()) >> 128;
+        ratio = (ratio * parse_constant("fff97272373d413259a46990580e213a", 16)) >> 128;
     }
 
     if abs_tick & 0x4 != 0 {
-        ratio =
-            (ratio * U256::from_str_radix("fff2e50f5f656932ef12357cf3c7fdcc", 16).unwrap()) >> 128;
+        ratio = (ratio * parse_constant("fff2e50f5f656932ef12357cf3c7fdcc", 16)) >> 128;
     }
 
     if abs_tick & 0x8 != 0 {
-        ratio =
-            (ratio * U256::from_str_radix("ffe5caca7e10e4e61c3624eaa0941cd0", 16).unwrap()) >> 128;
+        ratio = (ratio * parse_constant("ffe5caca7e10e4e61c3624eaa0941cd0", 16)) >> 128;
     }
 
     if abs_tick & 0x10 != 0 {
-        ratio =
-            (ratio * U256::from_str_radix("ffcb9843d60f6159c9db58835c926644", 16).unwrap()) >> 128;
+        ratio = (ratio * parse_constant("ffcb9843d60f6159c9db58835c926644", 16)) >> 128;
     }
 
     if abs_tick & 0x20 != 0 {
-        ratio =
-            (ratio * U256::from_str_radix("ff973b41fa98c081472e6896dfb254c0", 16).unwrap()) >> 128;
+        ratio = (ratio * parse_constant("ff973b41fa98c081472e6896dfb254c0", 16)) >> 128;
     }
 
     if abs_tick & 0x40 != 0 {
-        ratio =
-            (ratio * U256::from_str_radix("ff2ea16466c96a3843ec78b326b52861", 16).unwrap()) >> 128;
+        ratio = (ratio * parse_constant("ff2ea16466c96a3843ec78b326b52861", 16)) >> 128;
     }
 
     if abs_tick & 0x80 != 0 {
-        ratio =
-            (ratio * U256::from_str_radix("fe5dee046a99a2a811c461f1969c3053", 16).unwrap()) >> 128;
+        ratio = (ratio * parse_constant("fe5dee046a99a2a811c461f1969c3053", 16)) >> 128;
     }
 
     if abs_tick & 0x100 != 0 {
-        ratio =
-            (ratio * U256::from_str_radix("fcbe86c7900a88aedcffc83b479aa3a4", 16).unwrap()) >> 128;
+        ratio = (ratio * parse_constant("fcbe86c7900a88aedcffc83b479aa3a4", 16)) >> 128;
     }
 
     if abs_tick & 0x200 != 0 {
-        ratio =
-            (ratio * U256::from_str_radix("f987a7253ac413176f2b074cf7815e54", 16).unwrap()) >> 128;
+        ratio = (ratio * parse_constant("f987a7253ac413176f2b074cf7815e54", 16)) >> 128;
     }
 
     if abs_tick & 0x400 != 0 {
-        ratio =
-            (ratio * U256::from_str_radix("f3392b0822b70005940c7a398e4b70f3", 16).unwrap()) >> 128;
+        ratio = (ratio * parse_constant("f3392b0822b70005940c7a398e4b70f3", 16)) >> 128;
     }
 
     if abs_tick & 0x800 != 0 {
-        ratio =
-            (ratio * U256::from_str_radix("e7159475a2c29b7443b29c7fa6e889d9", 16).unwrap()) >> 128;
+        ratio = (ratio * parse_constant("e7159475a2c29b7443b29c7fa6e889d9", 16)) >> 128;
     }
 
     if abs_tick & 0x1000 != 0 {
-        ratio =
-            (ratio * U256::from_str_radix("d097f3bdfd2022b8845ad8f792aa5825", 16).unwrap()) >> 128;
+        ratio = (ratio * parse_constant("d097f3bdfd2022b8845ad8f792aa5825", 16)) >> 128;
     }
 
     if abs_tick & 0x2000 != 0 {
-        ratio =
-            (ratio * U256::from_str_radix("a9f746462d870fdf8a65dc1f90e061e5", 16).unwrap()) >> 128;
+        ratio = (ratio * parse_constant("a9f746462d870fdf8a65dc1f90e061e5", 16)) >> 128;
     }
 
     if abs_tick & 0x4000 != 0 {
-        ratio =
-            (ratio * U256::from_str_radix("70d869a156d2a1b890bb3df62baf32f7", 16).unwrap()) >> 128;
+        ratio = (ratio * parse_constant("70d869a156d2a1b890bb3df62baf32f7", 16)) >> 128;
     }
 
     if abs_tick & 0x8000 != 0 {
-        ratio =
-            (ratio * U256::from_str_radix("31be135f97d08fd981231505542fcfa6", 16).unwrap()) >> 128;
+        ratio = (ratio * parse_constant("31be135f97d08fd981231505542fcfa6", 16)) >> 128;
     }
 
     if abs_tick & 0x10000 != 0 {
-        ratio =
-            (ratio * U256::from_str_radix("9aa508b5b7a84e1c677de54f3e99bc9", 16).unwrap()) >> 128;
+        ratio = (ratio * parse_constant("9aa508b5b7a84e1c677de54f3e99bc9", 16)) >> 128;
     }
 
     if abs_tick & 0x20000 != 0 {
-        ratio =
-            (ratio * U256::from_str_radix("5d6af8dedb81196699c329225ee604", 16).unwrap()) >> 128;
+        ratio = (ratio * parse_constant("5d6af8dedb81196699c329225ee604", 16)) >> 128;
     }
 
     if abs_tick & 0x40000 != 0 {
-        ratio = (ratio * U256::from_str_radix("2216e584f5fa1ea926041bedfe98", 16).unwrap()) >> 128;
+        ratio = (ratio * parse_constant("2216e584f5fa1ea926041bedfe98", 16)) >> 128;
     }
 
     if abs_tick & 0x80000 != 0 {
-        ratio = (ratio * U256::from_str_radix("48a170391f7dc42444e8fa2", 16).unwrap()) >> 128;
+        ratio = (ratio * parse_constant("48a170391f7dc42444e8fa2", 16)) >> 128;
     }
 
     if tick.is_positive() {
@@ -204,10 +193,10 @@ pub fn get_tick_at_sqrt_ratio(sqrt_price_x96: U160) -> i32 {
     let log_sqrt10001 = log_2_x64 * U256::from(255_738_958_999_603_826_347_141_u128);
 
     // Calculate tick bounds using wrapping arithmetic
-    let tick_low_offset =
-        U256::from_str_radix("3402992956809132418596140100660247210", 10).unwrap();
-    let tick_hi_offset =
-        U256::from_str_radix("291339464771989622907027621153398088495", 10).unwrap();
+    let tick_low_offset = U256::from_str_radix("3402992956809132418596140100660247210", 10)
+        .unwrap_or_else(|error| panic!("called `Result::unwrap()` on an `Err` value: {error:?}"));
+    let tick_hi_offset = U256::from_str_radix("291339464771989622907027621153398088495", 10)
+        .unwrap_or_else(|error| panic!("called `Result::unwrap()` on an `Err` value: {error:?}"));
 
     let tick_low_u256: U256 = (log_sqrt10001 - tick_low_offset) >> 128;
     let tick_hi_u256: U256 = (log_sqrt10001 + tick_hi_offset) >> 128;

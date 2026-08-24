@@ -37,7 +37,12 @@ pub extern "C" fn venue_is_synthetic(venue: &Venue) -> u8 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn venue_code_exists(code_ptr: *const c_char) -> u8 {
     let code = unsafe { cstr_as_str(code_ptr) };
-    u8::from(VENUE_MAP.lock().expect(MUTEX_POISONED).contains_key(code))
+    u8::from(
+        VENUE_MAP
+            .lock()
+            .unwrap_or_else(|error| panic!("{MUTEX_POISONED}: {error:?}"))
+            .contains_key(code),
+    )
 }
 
 /// Converts a UTF-8 C string pointer to a `Venue`.
@@ -52,5 +57,5 @@ pub unsafe extern "C" fn venue_code_exists(code_ptr: *const c_char) -> u8 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn venue_from_cstr_code(code_ptr: *const c_char) -> Venue {
     let code = unsafe { cstr_as_str(code_ptr) };
-    Venue::from_code(code).unwrap()
+    Venue::from_code(code).unwrap_or_else(|error| panic!("{error}"))
 }

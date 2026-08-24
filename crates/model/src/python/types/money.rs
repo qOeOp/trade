@@ -297,7 +297,7 @@ impl Money {
 
     fn __int__(&self) -> MoneyRaw {
         let scale = MoneyRaw::try_from(raw_scale(self.currency.precision))
-            .expect("effective raw scale should fit in MoneyRaw");
+            .unwrap_or_else(|_| panic!("effective raw scale should fit in MoneyRaw"));
         self.raw / scale
     }
 

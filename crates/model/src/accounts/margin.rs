@@ -238,7 +238,9 @@ impl MarginAccount {
             margin_balance.is_some(),
             "Cannot get margin_init when no margin_balance"
         );
-        margin_balance.unwrap().initial
+        margin_balance
+            .unwrap_or_else(|| panic!("called `Option::unwrap()` on a `None` value"))
+            .initial
     }
 
     /// Updates the maintenance margin for the specified instrument.
@@ -295,7 +297,9 @@ impl MarginAccount {
             margin_balance.is_some(),
             "Cannot get maintenance_margin when no margin_balance"
         );
-        margin_balance.unwrap().maintenance
+        margin_balance
+            .unwrap_or_else(|| panic!("called `Option::unwrap()` on a `None` value"))
+            .maintenance
     }
 
     /// Returns the margin balance for the specified instrument.

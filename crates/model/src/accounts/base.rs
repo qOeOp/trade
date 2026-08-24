@@ -68,7 +68,7 @@ impl BaseAccount {
     pub fn base_balance(&self, currency: Option<Currency>) -> Option<&AccountBalance> {
         let currency = currency
             .or(self.base_currency)
-            .expect("Currency must be specified");
+            .unwrap_or_else(|| panic!("Currency must be specified"));
         self.balances.get(&currency)
     }
 
@@ -81,7 +81,7 @@ impl BaseAccount {
     pub fn base_balance_total(&self, currency: Option<Currency>) -> Option<Money> {
         let currency = currency
             .or(self.base_currency)
-            .expect("Currency must be specified");
+            .unwrap_or_else(|| panic!("Currency must be specified"));
         let account_balance = self.balances.get(&currency);
         account_balance.map(|balance| balance.total)
     }
@@ -103,7 +103,7 @@ impl BaseAccount {
     pub fn base_balance_free(&self, currency: Option<Currency>) -> Option<Money> {
         let currency = currency
             .or(self.base_currency)
-            .expect("Currency must be specified");
+            .unwrap_or_else(|| panic!("Currency must be specified"));
         let account_balance = self.balances.get(&currency);
         account_balance.map(|balance| balance.free)
     }
@@ -125,7 +125,7 @@ impl BaseAccount {
     pub fn base_balance_locked(&self, currency: Option<Currency>) -> Option<Money> {
         let currency = currency
             .or(self.base_currency)
-            .expect("Currency must be specified");
+            .unwrap_or_else(|| panic!("Currency must be specified"));
         let account_balance = self.balances.get(&currency);
         account_balance.map(|balance| balance.locked)
     }
@@ -163,7 +163,7 @@ impl BaseAccount {
     /// use [`Self::try_update_commissions`] when the input is not already known to fit.
     pub fn update_commissions(&mut self, commission: Money) {
         self.try_update_commissions(commission)
-            .expect("commission total exceeded Money bounds");
+            .unwrap_or_else(|error| panic!("commission total exceeded Money bounds: {error:?}"));
     }
 
     /// Updates the account commissions with the provided amount.
@@ -206,7 +206,8 @@ impl BaseAccount {
     ///
     /// Panics if `event.account_id` does not match this account's ID.
     pub fn base_apply(&mut self, event: AccountState) {
-        check_equal(&event.account_id, &self.id, "event.account_id", "self.id").expect(FAILED);
+        check_equal(&event.account_id, &self.id, "event.account_id", "self.id")
+            .unwrap_or_else(|error| panic!("{FAILED}: {error:?}"));
         self.update_balances(&event.balances);
         self.events.push(event);
     }
@@ -231,7 +232,12 @@ impl BaseAccount {
 
         // Guarantee ≥ 1 event
         if retained_events.is_empty() && !self.events.is_empty() {
-            retained_events.push(self.events.last().expect("events not empty").clone());
+            retained_events.push(
+                self.events
+                    .last()
+                    .unwrap_or_else(|| panic!("events not empty"))
+                    .clone(),
+            );
         }
 
         self.events = retained_events;

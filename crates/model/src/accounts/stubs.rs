@@ -105,5 +105,5 @@ pub fn calculate_commission(
     let account = cash_account_million_usd(account_state);
     account
         .calculate_commission(instrument, quantity, price, LiquiditySide::Taker, None)
-        .unwrap()
+        .unwrap_or_else(|error| panic!("called `Result::unwrap()` on an `Err` value: {error:?}"))
 }

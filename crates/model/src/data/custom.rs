@@ -23,7 +23,10 @@ fn intern_type_name_static(name: String) -> &'static str {
     if let Ok(guard) = set.read()
         && guard.contains(name.as_str())
     {
-        return guard.get(name.as_str()).copied().unwrap();
+        return guard
+            .get(name.as_str())
+            .copied()
+            .unwrap_or_else(|| panic!("called `Option::unwrap()` on a `None` value"));
     }
 
     if let Ok(mut guard) = set.write() {
