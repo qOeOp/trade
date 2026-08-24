@@ -12,10 +12,14 @@ use crate::{
     OperatorAuthorizationIssuanceReceiptV1, OperatorAuthorizationLocatorV1,
     OperatorAuthorizationReadbackV1, OperatorAuthorizationRevocationFrontierV1,
     OperatorAuthorizationRevocationProposalV1, OperatorAuthorizationSuccessorIssuanceProposalV1,
-    UntrustedCanonicalAuthorizationEvidenceV1, canonical_digest, identity,
+    UntrustedCanonicalAuthorizationEvidenceV1, UntrustedCanonicalPortfolioResourceGrantEvidenceV1,
+    canonical_digest, identity,
 };
 
-pub use portfolio_resource_grant::resolve_portfolio_resource_grant_in_transaction;
+pub use portfolio_resource_grant::{
+    parse_untrusted_portfolio_resource_grant_envelope_v1,
+    resolve_portfolio_resource_grant_in_transaction,
+};
 
 const ISSUED_EVENT: &str = "OPERATOR_AUTHORIZATION_ISSUED_V1";
 const FRONTIER_EVENT: &str = "OPERATOR_AUTHORIZATION_REVOCATION_FRONTIER_V1";
@@ -1836,6 +1840,7 @@ mod portfolio_resource_grant {
     }
 
     #[derive(Deserialize)]
+    #[cfg_attr(test, derive(Serialize))]
     #[serde(deny_unknown_fields)]
     struct LockedGrantIssuanceRowV1 {
         grant_identity: String,
@@ -1854,6 +1859,7 @@ mod portfolio_resource_grant {
     }
 
     #[derive(Deserialize)]
+    #[cfg_attr(test, derive(Serialize))]
     #[serde(deny_unknown_fields)]
     struct LockedGrantFrontierRowV1 {
         frontier_identity: String,
@@ -1866,6 +1872,7 @@ mod portfolio_resource_grant {
     }
 
     #[derive(Deserialize)]
+    #[cfg_attr(test, derive(Serialize))]
     #[serde(deny_unknown_fields)]
     struct LockedGrantHeadRowV1 {
         resource_digest: String,
@@ -1876,6 +1883,7 @@ mod portfolio_resource_grant {
     }
 
     #[derive(Deserialize)]
+    #[cfg_attr(test, derive(Serialize))]
     #[serde(deny_unknown_fields)]
     struct LockedGrantOutboxRowV1 {
         event_identity: String,
@@ -1887,6 +1895,7 @@ mod portfolio_resource_grant {
     }
 
     #[derive(Deserialize)]
+    #[cfg_attr(test, derive(Serialize))]
     #[serde(deny_unknown_fields)]
     struct LockedGrantEnvelopeV1 {
         issuances: Vec<LockedGrantIssuanceRowV1>,
@@ -2307,15 +2316,22 @@ $function$",
         let Ok(Some(value)) = envelope else {
             return unavailable(PortfolioResourceGrantUnavailableReasonV1::OwnerUnavailable);
         };
-        let Ok((issuance, frontier, observed_at)) =
-            verify_locked_grant_envelope(value, &request.locator)
-        else {
+        let observed_at = value
+            .get("observed_at_epoch_ms")
+            .and_then(serde_json::Value::as_i64)
+            .ok_or(OperatorAuthorizationError::Unavailable)
+            .and_then(from_i64);
+        let evidence = serde_json::to_vec(&value)
+            .map_err(storage)
+            .and_then(|bytes| {
+                parse_untrusted_portfolio_resource_grant_envelope_v1(&bytes, &request.locator)
+            });
+        let (Ok(observed_at), Ok(evidence)) = (observed_at, evidence) else {
             return unavailable(PortfolioResourceGrantUnavailableReasonV1::OwnerUnavailable);
         };
 
-        resolve_verified_grant(
-            &issuance,
-            &frontier,
+        resolve_verified_grant_evidence(
+            &evidence,
             observed_at,
             Some((&request.expected_resource, &request.expected_manifest)),
         )
@@ -2407,38 +2423,48 @@ $function$",
         observed_at: u64,
         expected: Option<(&PortfolioResourceV1, &ProductEdgeManifestBindingV1)>,
     ) -> PortfolioResourceGrantResolutionV1 {
+        let evidence = UntrustedCanonicalPortfolioResourceGrantEvidenceV1 {
+            schema_version: PORTFOLIO_RESOURCE_GRANT_SCHEMA_V1,
+            issuance_receipt: grant_receipt(stored).into(),
+            frontier: frontier.public(),
+            content: stored.proposal.content.clone(),
+        };
+        resolve_verified_grant_evidence(&evidence, observed_at, expected)
+    }
+
+    fn resolve_verified_grant_evidence(
+        evidence: &UntrustedCanonicalPortfolioResourceGrantEvidenceV1,
+        observed_at: u64,
+        expected: Option<(&PortfolioResourceV1, &ProductEdgeManifestBindingV1)>,
+    ) -> PortfolioResourceGrantResolutionV1 {
         let unavailable = |reason| PortfolioResourceGrantResolutionV1::Unavailable { reason };
 
         if let Some((resource, manifest)) = expected {
-            if &stored.proposal.content.resource != resource {
+            if !evidence.matches_resource(resource) {
                 return unavailable(PortfolioResourceGrantUnavailableReasonV1::ResourceMismatch);
             }
 
-            if &stored.proposal.content.product_edge_manifest != manifest {
+            if !evidence.matches_product_edge_manifest(manifest) {
                 return unavailable(PortfolioResourceGrantUnavailableReasonV1::ManifestMismatch);
             }
         }
 
-        if observed_at < stored.proposal.content.effective_at_epoch_ms {
+        if observed_at < evidence.content.effective_at_epoch_ms {
             return unavailable(PortfolioResourceGrantUnavailableReasonV1::NotEffective);
         }
 
-        if observed_at >= stored.proposal.content.valid_through_epoch_ms {
+        if observed_at >= evidence.content.valid_through_epoch_ms {
             return unavailable(PortfolioResourceGrantUnavailableReasonV1::Expired);
         }
 
-        if frontier
-            .revocations
-            .iter()
-            .any(|item| item.grant_identity == stored.proposal.grant_identity)
-        {
+        if !evidence.is_current_at(observed_at) {
             return unavailable(PortfolioResourceGrantUnavailableReasonV1::Revoked);
         }
         PortfolioResourceGrantResolutionV1::Available {
             grant: Box::new(PortfolioResourceGrantReadbackV1 {
-                issuance_receipt: grant_receipt(stored).into(),
-                frontier: frontier.public(),
-                content: stored.proposal.content.clone(),
+                issuance_receipt: evidence.issuance_receipt.clone(),
+                frontier: evidence.frontier.clone(),
+                content: evidence.content.clone(),
                 observed_at_epoch_ms: observed_at,
             }),
         }
@@ -2633,12 +2659,29 @@ $function$",
         }))
     }
 
-    fn verify_locked_grant_envelope(
-        value: serde_json::Value,
+    pub fn parse_untrusted_portfolio_resource_grant_envelope_v1(
+        bytes: &[u8],
         locator: &PortfolioResourceGrantLocatorV1,
-    ) -> Result<(StoredGrantIssuanceV1, StoredGrantFrontierV1, u64), OperatorAuthorizationError>
+    ) -> Result<UntrustedCanonicalPortfolioResourceGrantEvidenceV1, OperatorAuthorizationError>
     {
-        let envelope: LockedGrantEnvelopeV1 = from_json(value)?;
+        let envelope: LockedGrantEnvelopeV1 =
+            serde_json::from_slice(bytes).map_err(|_| OperatorAuthorizationError::Unavailable)?;
+        from_i64(envelope.observed_at_epoch_ms)?;
+        if envelope
+            .issuances
+            .windows(2)
+            .any(|pair| pair[0].grant_identity >= pair[1].grant_identity)
+            || envelope.frontiers.windows(2).any(|pair| {
+                (pair[0].sequence, &pair[0].frontier_identity)
+                    >= (pair[1].sequence, &pair[1].frontier_identity)
+            })
+            || envelope
+                .outboxes
+                .windows(2)
+                .any(|pair| pair[0].event_identity >= pair[1].event_identity)
+        {
+            return Err(OperatorAuthorizationError::Unavailable);
+        }
         let issuances = order_grant_issuances(
             envelope
                 .issuances
@@ -2672,11 +2715,12 @@ $function$",
             return Err(OperatorAuthorizationError::Unavailable);
         }
         verify_locked_grant_outboxes(&issuances, &frontiers, &envelope.outboxes)?;
-        Ok((
-            issuance.clone(),
-            current.clone(),
-            from_i64(envelope.observed_at_epoch_ms)?,
-        ))
+        Ok(UntrustedCanonicalPortfolioResourceGrantEvidenceV1 {
+            schema_version: PORTFOLIO_RESOURCE_GRANT_SCHEMA_V1,
+            issuance_receipt: grant_receipt(issuance).into(),
+            frontier: current.public(),
+            content: issuance.proposal.content.clone(),
+        })
     }
 
     fn verify_locked_grant_issuance_row(
@@ -3028,6 +3072,348 @@ $function$",
             crate::PortfolioResourceModeV1::Live => "LIVE",
         }
     }
+
+    #[cfg(test)]
+    mod parser_tests {
+        use rstest::rstest;
+
+        use super::*;
+
+        fn issuance_row(stored: &StoredGrantIssuanceV1) -> LockedGrantIssuanceRowV1 {
+            let resource = &stored.proposal.content.resource;
+            LockedGrantIssuanceRowV1 {
+                grant_identity: stored.proposal.grant_identity.clone(),
+                issuer_identity: stored.proposal.content.issuer_identity.clone(),
+                principal: resource.principal.clone(),
+                audience: resource.audience.clone(),
+                permission: resource.permission.clone(),
+                account_identity: resource.account_identity.clone(),
+                execution_scope_identity: resource.execution_scope_identity.clone(),
+                mode: mode_text(resource).into(),
+                resource_digest: resource.digest().unwrap(),
+                semantic_digest: stored_grant_digest(stored).unwrap(),
+                issuance_json: serde_json::to_value(stored).unwrap(),
+                receipt_json: serde_json::to_value(grant_receipt(stored)).unwrap(),
+                committed_at_epoch_ms: to_i64(stored.committed_at_epoch_ms).unwrap(),
+            }
+        }
+
+        fn frontier_row(frontier: &StoredGrantFrontierV1) -> LockedGrantFrontierRowV1 {
+            LockedGrantFrontierRowV1 {
+                frontier_identity: frontier.frontier_identity.clone(),
+                resource_digest: frontier.resource_digest.clone(),
+                sequence: to_i64(frontier.sequence).unwrap(),
+                predecessor_frontier_identity: frontier.predecessor_frontier_identity.clone(),
+                frontier_digest: grant_frontier_digest(frontier).unwrap(),
+                frontier_json: serde_json::to_value(frontier).unwrap(),
+                committed_at_epoch_ms: to_i64(frontier.committed_at_epoch_ms).unwrap(),
+            }
+        }
+
+        fn outbox_row(
+            seed: &str,
+            aggregate: &str,
+            kind: &str,
+            payload: &impl Serialize,
+            committed_at: u64,
+        ) -> LockedGrantOutboxRowV1 {
+            let record = grant_outbox_record(seed, aggregate, kind, payload, committed_at).unwrap();
+            LockedGrantOutboxRowV1 {
+                event_identity: record.event_identity.clone(),
+                aggregate_identity: record.aggregate_identity.clone(),
+                event_kind: record.event_kind.clone(),
+                payload_digest: record.payload_digest.clone(),
+                payload_json: serde_json::to_value(record).unwrap(),
+                committed_at_epoch_ms: to_i64(committed_at).unwrap(),
+            }
+        }
+
+        fn canonical_envelope() -> (
+            serde_json::Value,
+            PortfolioResourceGrantLocatorV1,
+            PortfolioResourceGrantLocatorV1,
+            PortfolioResourceGrantContentV1,
+            String,
+        ) {
+            let content = PortfolioResourceGrantContentV1 {
+                issuer_identity: "issuer-v1".into(),
+                issuer_key_version: "key-v1".into(),
+                resource: PortfolioResourceV1 {
+                    principal: "principal-v1".into(),
+                    audience: crate::PORTFOLIO_OWNER_AUDIENCE_V1.into(),
+                    permission: crate::PORTFOLIO_VIEW_PERMISSION_V1.into(),
+                    account_identity: "account-v1".into(),
+                    execution_scope_identity: "execution-scope-v1".into(),
+                    mode: crate::PortfolioResourceModeV1::Paper,
+                },
+                product_edge_manifest: ProductEdgeManifestBindingV1 {
+                    manifest_locator: "manifest-v1".into(),
+                    manifest_digest: format!("sha256:{}", "a".repeat(64)),
+                },
+                effective_at_epoch_ms: 10,
+                valid_through_epoch_ms: 1_000,
+            };
+            let genesis_proposal = PortfolioResourceGrantIssuanceProposalV1 {
+                grant_identity: content.grant_identity().unwrap(),
+                content: content.clone(),
+                expected_revocation_frontier_identity: "EMPTY".into(),
+            };
+            let genesis = StoredGrantIssuanceV1 {
+                schema_version: PORTFOLIO_RESOURCE_GRANT_SCHEMA_V1,
+                issuance_digest: genesis_proposal.semantic_digest().unwrap(),
+                proposal: genesis_proposal,
+                predecessor: None,
+                committed_at_epoch_ms: 100,
+            };
+            let genesis_locator = PortfolioResourceGrantLocatorV1 {
+                grant_identity: genesis.proposal.grant_identity.clone(),
+                issuance_receipt_identity: grant_receipt(&genesis).receipt_identity,
+            };
+            let genesis_frontier = grant_genesis_frontier(&genesis).unwrap();
+
+            let mut successor_content = content;
+            successor_content.valid_through_epoch_ms = 2_000;
+            successor_content.product_edge_manifest.manifest_locator = "manifest-v2".into();
+            successor_content.product_edge_manifest.manifest_digest =
+                format!("sha256:{}", "b".repeat(64));
+            let successor_proposal = PortfolioResourceGrantIssuanceProposalV1 {
+                grant_identity: successor_content.grant_identity().unwrap(),
+                content: successor_content.clone(),
+                expected_revocation_frontier_identity: genesis_frontier.frontier_identity.clone(),
+            };
+            let mut successor = StoredGrantIssuanceV1 {
+                schema_version: PORTFOLIO_RESOURCE_GRANT_SCHEMA_V1,
+                proposal: successor_proposal,
+                predecessor: Some(genesis_locator.clone()),
+                issuance_digest: String::new(),
+                committed_at_epoch_ms: 110,
+            };
+            successor.issuance_digest = stored_grant_digest(&successor).unwrap();
+            let successor_locator = PortfolioResourceGrantLocatorV1 {
+                grant_identity: successor.proposal.grant_identity.clone(),
+                issuance_receipt_identity: grant_receipt(&successor).receipt_identity,
+            };
+
+            let revocations = vec![StoredGrantRevocationV1 {
+                grant_identity: genesis_locator.grant_identity.clone(),
+                reason_code: "ADMIN_REVOKED".into(),
+            }];
+            let current_frontier = StoredGrantFrontierV1 {
+                schema_version: PORTFOLIO_RESOURCE_GRANT_SCHEMA_V1,
+                frontier_identity: identity(
+                    "operator-authorization-portfolio-resource-grant-frontier-v1",
+                    &[
+                        &genesis_frontier.resource_digest,
+                        &genesis_frontier.frontier_identity,
+                        &canonical_digest(
+                            "operator-authorization.portfolio-resource-grant-revocations.v1",
+                            &revocations,
+                        )
+                        .unwrap(),
+                        "120",
+                    ],
+                ),
+                resource_digest: genesis_frontier.resource_digest.clone(),
+                sequence: 1,
+                predecessor_frontier_identity: Some(genesis_frontier.frontier_identity.clone()),
+                revocations,
+                committed_at_epoch_ms: 120,
+            };
+
+            let mut issuances = vec![issuance_row(&genesis), issuance_row(&successor)];
+            issuances.sort_by(|left, right| left.grant_identity.cmp(&right.grant_identity));
+            let frontiers = vec![
+                frontier_row(&genesis_frontier),
+                frontier_row(&current_frontier),
+            ];
+            let mut outboxes = vec![
+                outbox_row(
+                    &genesis_locator.issuance_receipt_identity,
+                    &genesis_locator.grant_identity,
+                    GRANT_ISSUED_EVENT,
+                    &grant_receipt(&genesis),
+                    genesis.committed_at_epoch_ms,
+                ),
+                outbox_row(
+                    &successor_locator.issuance_receipt_identity,
+                    &successor_locator.grant_identity,
+                    GRANT_ISSUED_EVENT,
+                    &grant_receipt(&successor),
+                    successor.committed_at_epoch_ms,
+                ),
+                outbox_row(
+                    &genesis_frontier.frontier_identity,
+                    &genesis_frontier.frontier_identity,
+                    GRANT_FRONTIER_EVENT,
+                    &genesis_frontier,
+                    genesis_frontier.committed_at_epoch_ms,
+                ),
+                outbox_row(
+                    &current_frontier.frontier_identity,
+                    &current_frontier.frontier_identity,
+                    GRANT_FRONTIER_EVENT,
+                    &current_frontier,
+                    current_frontier.committed_at_epoch_ms,
+                ),
+            ];
+            outboxes.sort_by(|left, right| left.event_identity.cmp(&right.event_identity));
+            let current_frontier_identity = current_frontier.frontier_identity.clone();
+            let envelope = LockedGrantEnvelopeV1 {
+                issuances,
+                head: LockedGrantHeadRowV1 {
+                    resource_digest: current_frontier.resource_digest.clone(),
+                    frontier_identity: current_frontier.frontier_identity.clone(),
+                    sequence: to_i64(current_frontier.sequence).unwrap(),
+                    frontier_digest: grant_frontier_digest(&current_frontier).unwrap(),
+                    committed_at_epoch_ms: to_i64(current_frontier.committed_at_epoch_ms).unwrap(),
+                },
+                frontiers,
+                outboxes,
+                observed_at_epoch_ms: 130,
+            };
+            (
+                serde_json::to_value(envelope).unwrap(),
+                genesis_locator,
+                successor_locator,
+                successor_content,
+                current_frontier_identity,
+            )
+        }
+
+        fn parse(
+            value: &serde_json::Value,
+            locator: &PortfolioResourceGrantLocatorV1,
+        ) -> Result<UntrustedCanonicalPortfolioResourceGrantEvidenceV1, OperatorAuthorizationError>
+        {
+            parse_untrusted_portfolio_resource_grant_envelope_v1(
+                &serde_json::to_vec(value).unwrap(),
+                locator,
+            )
+        }
+
+        #[rstest]
+        fn parser_returns_non_authoritative_evidence_for_a_later_cut() {
+            let (envelope, genesis, successor, content, frontier_identity) = canonical_envelope();
+            let evidence = parse(&envelope, &successor).unwrap();
+            assert_eq!(evidence.locator(), successor);
+            assert_eq!(evidence.frontier_identity(), frontier_identity);
+            assert!(evidence.matches_resource(&content.resource));
+            assert!(evidence.matches_product_edge_manifest(&content.product_edge_manifest));
+            assert!(evidence.is_current_at(130));
+            assert!(!evidence.is_current_at(content.valid_through_epoch_ms));
+
+            let revoked = parse(&envelope, &genesis).unwrap();
+            assert!(!revoked.is_current_at(130));
+            assert!(parse(&serde_json::to_value(&evidence).unwrap(), &successor).is_err());
+        }
+
+        #[rstest]
+        fn parser_binds_every_grant_coordinate_and_complete_locked_history() {
+            let (envelope, _, successor, _, _) = canonical_envelope();
+            let selected_index = envelope["issuances"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .position(|row| row["grant_identity"] == successor.grant_identity)
+                .unwrap();
+            let current_frontier_index = envelope["frontiers"].as_array().unwrap().len() - 1;
+            let paths = [
+                format!("/issuances/{selected_index}/grant_identity"),
+                format!("/issuances/{selected_index}/issuer_identity"),
+                format!("/issuances/{selected_index}/principal"),
+                format!("/issuances/{selected_index}/audience"),
+                format!("/issuances/{selected_index}/permission"),
+                format!("/issuances/{selected_index}/account_identity"),
+                format!("/issuances/{selected_index}/execution_scope_identity"),
+                format!("/issuances/{selected_index}/mode"),
+                format!("/issuances/{selected_index}/resource_digest"),
+                format!("/issuances/{selected_index}/semantic_digest"),
+                format!(
+                    "/issuances/{selected_index}/issuance_json/proposal/content/issuer_identity"
+                ),
+                format!(
+                    "/issuances/{selected_index}/issuance_json/proposal/content/issuer_key_version"
+                ),
+                format!(
+                    "/issuances/{selected_index}/issuance_json/proposal/content/resource/principal"
+                ),
+                format!(
+                    "/issuances/{selected_index}/issuance_json/proposal/content/resource/audience"
+                ),
+                format!(
+                    "/issuances/{selected_index}/issuance_json/proposal/content/resource/permission"
+                ),
+                format!(
+                    "/issuances/{selected_index}/issuance_json/proposal/content/resource/account_identity"
+                ),
+                format!(
+                    "/issuances/{selected_index}/issuance_json/proposal/content/resource/execution_scope_identity"
+                ),
+                format!("/issuances/{selected_index}/issuance_json/proposal/content/resource/mode"),
+                format!(
+                    "/issuances/{selected_index}/issuance_json/proposal/content/product_edge_manifest/manifest_locator"
+                ),
+                format!(
+                    "/issuances/{selected_index}/issuance_json/proposal/content/product_edge_manifest/manifest_digest"
+                ),
+                format!(
+                    "/issuances/{selected_index}/issuance_json/proposal/content/effective_at_epoch_ms"
+                ),
+                format!(
+                    "/issuances/{selected_index}/issuance_json/proposal/content/valid_through_epoch_ms"
+                ),
+                format!("/issuances/{selected_index}/receipt_json/receipt_identity"),
+                format!("/issuances/{selected_index}/committed_at_epoch_ms"),
+                format!("/frontiers/{current_frontier_index}/frontier_identity"),
+                format!("/frontiers/{current_frontier_index}/resource_digest"),
+                format!("/frontiers/{current_frontier_index}/frontier_digest"),
+                format!(
+                    "/frontiers/{current_frontier_index}/frontier_json/revocations/0/reason_code"
+                ),
+                "/head/frontier_identity".into(),
+                "/head/frontier_digest".into(),
+                "/outboxes/0/payload_digest".into(),
+                "/outboxes/0/payload_json/event_kind".into(),
+            ];
+
+            for path in paths {
+                let mut changed = envelope.clone();
+                let target = changed.pointer_mut(&path).unwrap();
+                *target = match target {
+                    serde_json::Value::String(_) => serde_json::json!("tampered"),
+                    serde_json::Value::Number(number) => {
+                        serde_json::json!(number.as_i64().unwrap() + 1)
+                    }
+                    _ => unreachable!("mutation path must name a scalar"),
+                };
+                assert!(parse(&changed, &successor).is_err(), "accepted {path}");
+            }
+
+            for key in ["issuances", "frontiers", "outboxes"] {
+                let mut reordered = envelope.clone();
+                reordered[key].as_array_mut().unwrap().reverse();
+                assert!(
+                    parse(&reordered, &successor).is_err(),
+                    "accepted {key} reorder"
+                );
+
+                let mut duplicated = envelope.clone();
+                let duplicate = duplicated[key].as_array().unwrap()[0].clone();
+                duplicated[key].as_array_mut().unwrap().push(duplicate);
+                assert!(
+                    parse(&duplicated, &successor).is_err(),
+                    "accepted duplicate {key}"
+                );
+            }
+
+            let mut invalid_observation = envelope;
+            invalid_observation["observed_at_epoch_ms"] = serde_json::json!(-1);
+            assert!(parse(&invalid_observation, &successor).is_err());
+            assert!(
+                parse_untrusted_portfolio_resource_grant_envelope_v1(b"{}", &successor).is_err()
+            );
+        }
+    }
 }
 
 #[cfg(test)]
@@ -3041,11 +3427,12 @@ mod tests {
     use crate::{
         OperationManifestBindingV1, OperatorAuthorizationScopeV1, PORTFOLIO_OWNER_AUDIENCE_V1,
         PORTFOLIO_VIEW_PERMISSION_V1, PortfolioResourceGrantContentV1,
-        PortfolioResourceGrantIssuanceProposalV1, PortfolioResourceGrantReadRequestV1,
-        PortfolioResourceGrantReadbackV1, PortfolioResourceGrantResolutionV1,
-        PortfolioResourceGrantRevocationProposalV1, PortfolioResourceGrantSuccessorProposalV1,
-        PortfolioResourceGrantUnavailableReasonV1, PortfolioResourceModeV1, PortfolioResourceV1,
-        ProductEdgeManifestBindingV1,
+        PortfolioResourceGrantIssuanceProposalV1, PortfolioResourceGrantLocatorV1,
+        PortfolioResourceGrantReadRequestV1, PortfolioResourceGrantReadbackV1,
+        PortfolioResourceGrantResolutionV1, PortfolioResourceGrantRevocationProposalV1,
+        PortfolioResourceGrantSuccessorProposalV1, PortfolioResourceGrantUnavailableReasonV1,
+        PortfolioResourceModeV1, PortfolioResourceV1, ProductEdgeManifestBindingV1,
+        UntrustedCanonicalPortfolioResourceGrantEvidenceV1,
     };
     use vibe_testkit::postgres::{
         CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1,
@@ -3138,6 +3525,29 @@ mod tests {
         resolution
     }
 
+    async fn parse_locked_grant_evidence(
+        pool: &PgPool,
+        locator: &PortfolioResourceGrantLocatorV1,
+    ) -> Result<UntrustedCanonicalPortfolioResourceGrantEvidenceV1, OperatorAuthorizationError>
+    {
+        let mut transaction = pool.begin().await.unwrap();
+        let envelope: Option<serde_json::Value> = sqlx::query_scalar(
+            "SELECT operator_authorization_api.lock_current_portfolio_resource_grant_v1($1,$2)",
+        )
+        .bind(&locator.grant_identity)
+        .bind(&locator.issuance_receipt_identity)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(storage)?;
+        let result = parse_untrusted_portfolio_resource_grant_envelope_v1(
+            &serde_json::to_vec(&envelope.ok_or(OperatorAuthorizationError::Unavailable)?)
+                .map_err(storage)?,
+            locator,
+        );
+        transaction.rollback().await.unwrap();
+        result
+    }
+
     #[tokio::test]
     #[ignore = "requires admitted OA and Product Edge PostgreSQL test URLs"]
     async fn portfolio_resource_grant_issue_read_replay_successor_revoke_restart_acl_and_expiry() {
@@ -3164,6 +3574,52 @@ mod tests {
             .unwrap();
         assert_same_grant_authority(&genesis_replay, &issued);
         assert!(genesis_replay.observed_at_epoch_ms() >= issued.observed_at_epoch_ms());
+        let issued_evidence = parse_locked_grant_evidence(&consumer, &issued.locator())
+            .await
+            .unwrap();
+        assert_eq!(issued_evidence.locator(), issued.locator());
+        assert_eq!(
+            issued_evidence.frontier_identity(),
+            issued.frontier().frontier_identity()
+        );
+        assert!(issued_evidence.matches_resource(&proposal.content.resource));
+        assert!(
+            issued_evidence.matches_product_edge_manifest(&proposal.content.product_edge_manifest)
+        );
+        assert!(issued_evidence.is_current_at(now));
+        let parser_fingerprint = oa_table_fingerprint(owner.pool()).await;
+        let mut parser_transaction = consumer.begin().await.unwrap();
+        let locked_envelope: serde_json::Value = sqlx::query_scalar(
+            "SELECT operator_authorization_api.lock_current_portfolio_resource_grant_v1($1,$2)",
+        )
+        .bind(&issued.locator().grant_identity)
+        .bind(&issued.locator().issuance_receipt_identity)
+        .fetch_one(&mut *parser_transaction)
+        .await
+        .unwrap();
+
+        for path in [
+            "/issuances/0/principal",
+            "/issuances/0/account_identity",
+            "/issuances/0/execution_scope_identity",
+            "/issuances/0/semantic_digest",
+            "/frontiers/0/frontier_digest",
+            "/head/frontier_identity",
+            "/outboxes/0/payload_digest",
+        ] {
+            let mut tampered = locked_envelope.clone();
+            *tampered.pointer_mut(path).unwrap() = serde_json::json!("caller-authored");
+            assert!(
+                parse_untrusted_portfolio_resource_grant_envelope_v1(
+                    &serde_json::to_vec(&tampered).unwrap(),
+                    &issued.locator(),
+                )
+                .is_err(),
+                "accepted tampered database envelope at {path}"
+            );
+        }
+        parser_transaction.rollback().await.unwrap();
+        assert_eq!(oa_table_fingerprint(owner.pool()).await, parser_fingerprint);
 
         let request = PortfolioResourceGrantReadRequestV1 {
             locator: issued.locator(),
@@ -3423,6 +3879,15 @@ mod tests {
             PortfolioResourceGrantResolutionV1::Available { .. }
         ));
         transaction.rollback().await.unwrap();
+        let restarted_evidence = parse_locked_grant_evidence(&consumer, &renewed.locator())
+            .await
+            .unwrap();
+        assert_eq!(restarted_evidence.locator(), renewed.locator());
+        assert!(restarted_evidence.matches_resource(&successor_content.resource));
+        assert!(
+            restarted_evidence
+                .matches_product_edge_manifest(&successor_content.product_edge_manifest)
+        );
 
         let mut revocation_gate = restarted.pool().begin().await.unwrap();
         sqlx::query("SELECT grant_identity FROM operator_authorization_private.portfolio_resource_grant_issuances_v1 WHERE grant_identity=$1 FOR UPDATE")
@@ -3502,6 +3967,14 @@ mod tests {
             panic!("revoked successor replay and canonical resolve must fail closed");
         };
         assert_eq!(reason, PortfolioResourceGrantUnavailableReasonV1::Revoked);
+        let revoked_evidence = parse_locked_grant_evidence(&consumer, &renewed.locator())
+            .await
+            .unwrap();
+        assert_eq!(
+            revoked_evidence.frontier_identity(),
+            revoked.frontier_identity()
+        );
+        assert!(!revoked_evidence.is_current_at(now_ms().unwrap()));
         assert_eq!(
             oa_table_fingerprint(restarted.pool()).await,
             before_revoked_replay
@@ -3633,6 +4106,10 @@ mod tests {
                 .unwrap(),
             Err(OperatorAuthorizationError::Unavailable)
         ));
+        let expired_evidence = parse_locked_grant_evidence(&consumer, &expiring.locator())
+            .await
+            .unwrap();
+        assert!(!expired_evidence.is_current_at(now_ms().unwrap()));
         assert_eq!(
             oa_table_fingerprint(restarted.pool()).await,
             before_expired_read
