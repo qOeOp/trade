@@ -125,18 +125,10 @@ impl EncodeToRecordBatch for OrderBookDepth10 {
 
         for depth in data {
             for i in 0..DEPTH10_LEN {
-                bid_price_builders[i]
-                    .append_value(depth.bids[i].price.raw.to_le_bytes())
-                    .unwrap();
-                ask_price_builders[i]
-                    .append_value(depth.asks[i].price.raw.to_le_bytes())
-                    .unwrap();
-                bid_size_builders[i]
-                    .append_value(depth.bids[i].size.raw.to_le_bytes())
-                    .unwrap();
-                ask_size_builders[i]
-                    .append_value(depth.asks[i].size.raw.to_le_bytes())
-                    .unwrap();
+                bid_price_builders[i].append_value(depth.bids[i].price.raw.to_le_bytes())?;
+                ask_price_builders[i].append_value(depth.asks[i].price.raw.to_le_bytes())?;
+                bid_size_builders[i].append_value(depth.bids[i].size.raw.to_le_bytes())?;
+                ask_size_builders[i].append_value(depth.asks[i].size.raw.to_le_bytes())?;
                 bid_count_builders[i].append_value(depth.bid_counts[i]);
                 ask_count_builders[i].append_value(depth.ask_counts[i]);
             }

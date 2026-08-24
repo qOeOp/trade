@@ -78,12 +78,8 @@ impl EncodeToRecordBatch for TradeTick {
         let mut ts_init_builder = UInt64Array::builder(data.len());
 
         for tick in data {
-            price_builder
-                .append_value(tick.price.raw.to_le_bytes())
-                .unwrap();
-            size_builder
-                .append_value(tick.size.raw.to_le_bytes())
-                .unwrap();
+            price_builder.append_value(tick.price.raw.to_le_bytes())?;
+            size_builder.append_value(tick.size.raw.to_le_bytes())?;
             aggressor_side_builder.append_value(tick.aggressor_side as u8);
             trade_id_builder.append_value(tick.trade_id.to_string());
             ts_event_builder.append_value(tick.ts_event.as_u64());

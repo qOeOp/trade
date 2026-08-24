@@ -30,13 +30,49 @@ use vibe_serialization::sbe::{
     DataAny, FromSbe, FromSbeReuse, SbeDecodeError, SbeEncodeError, ToSbe,
 };
 
+trait FailLoud<T> {
+    #[track_caller]
+    fn fail_loud(self) -> T;
+}
+
+impl<T> FailLoud<T> for Option<T> {
+    #[track_caller]
+    fn fail_loud(self) -> T {
+        self.unwrap_or_else(|| panic!("called `Option::unwrap()` on a `None` value"))
+    }
+}
+
+impl<T, E: std::fmt::Debug> FailLoud<T> for Result<T, E> {
+    #[track_caller]
+    fn fail_loud(self) -> T {
+        self.unwrap_or_else(|error| {
+            panic!("called `Result::unwrap()` on an `Err` value: {error:?}")
+        })
+    }
+}
+
+trait FailLoudError<E> {
+    #[track_caller]
+    fn fail_loud_error(self) -> E;
+}
+
+impl<T: std::fmt::Debug, E> FailLoudError<E> for Result<T, E> {
+    #[track_caller]
+    fn fail_loud_error(self) -> E {
+        match self {
+            Err(error) => error,
+            Ok(value) => panic!("called `Result::unwrap_err()` on an `Ok` value: {value:?}"),
+        }
+    }
+}
+
 macro_rules! sbe_roundtrip_test {
     ($name:ident, $value:expr, $ty:ty) => {
         #[rstest]
         fn $name() {
             let value: $ty = $value;
-            let bytes = value.to_sbe().unwrap();
-            let decoded = <$ty>::from_sbe(&bytes).unwrap();
+            let bytes = value.to_sbe().fail_loud();
+            let decoded = <$ty>::from_sbe(&bytes).fail_loud();
             assert_eq!(value, decoded);
         }
     };
@@ -88,8 +124,8 @@ fn test_book_order_roundtrip() {
         123_456,
     );
 
-    let bytes = value.to_sbe().unwrap();
-    let decoded = BookOrder::from_sbe(&bytes).unwrap();
+    let bytes = value.to_sbe().fail_loud();
+    let decoded = BookOrder::from_sbe(&bytes).fail_loud();
 
     assert_book_order_fields(&value, &decoded);
 }
@@ -105,8 +141,8 @@ fn test_sbe_resolved_raw_width_roundtrip() {
         123_456,
     );
 
-    let bytes = value.to_sbe().unwrap();
-    let decoded = BookOrder::from_sbe(&bytes).unwrap();
+    let bytes = value.to_sbe().fail_loud();
+    let decoded = BookOrder::from_sbe(&bytes).fail_loud();
 
     assert_book_order_fields(&value, &decoded);
 }
@@ -115,8 +151,8 @@ fn test_sbe_resolved_raw_width_roundtrip() {
 fn test_order_book_delta_roundtrip() {
     let value = stub_delta();
 
-    let bytes = value.to_sbe().unwrap();
-    let decoded = OrderBookDelta::from_sbe(&bytes).unwrap();
+    let bytes = value.to_sbe().fail_loud();
+    let decoded = OrderBookDelta::from_sbe(&bytes).fail_loud();
 
     assert_order_book_delta_fields(&value, &decoded);
 }
@@ -125,8 +161,8 @@ fn test_order_book_delta_roundtrip() {
 fn test_order_book_deltas_roundtrip() {
     let value = stub_deltas();
 
-    let bytes = value.to_sbe().unwrap();
-    let decoded = OrderBookDeltas::from_sbe(&bytes).unwrap();
+    let bytes = value.to_sbe().fail_loud();
+    let decoded = OrderBookDeltas::from_sbe(&bytes).fail_loud();
 
     assert_order_book_deltas_fields(&value, &decoded);
 }
@@ -167,8 +203,8 @@ fn test_order_book_deltas_preserve_delta_instrument_ids() {
         ],
     );
 
-    let bytes = value.to_sbe().unwrap();
-    let decoded = OrderBookDeltas::from_sbe(&bytes).unwrap();
+    let bytes = value.to_sbe().fail_loud();
+    let decoded = OrderBookDeltas::from_sbe(&bytes).fail_loud();
 
     assert_order_book_deltas_fields(&value, &decoded);
 }
@@ -176,11 +212,11 @@ fn test_order_book_deltas_preserve_delta_instrument_ids() {
 #[rstest]
 fn test_order_book_deltas_from_sbe_reuse_matches_from_sbe() {
     let value = stub_deltas();
-    let bytes = value.to_sbe().unwrap();
+    let bytes = value.to_sbe().fail_loud();
 
     let mut scratch: Vec<OrderBookDelta> = Vec::new();
-    let reused = OrderBookDeltas::from_sbe_reuse(&bytes, &mut scratch).unwrap();
-    let plain = OrderBookDeltas::from_sbe(&bytes).unwrap();
+    let reused = OrderBookDeltas::from_sbe_reuse(&bytes, &mut scratch).fail_loud();
+    let plain = OrderBookDeltas::from_sbe(&bytes).fail_loud();
 
     assert_order_book_deltas_fields(&reused, &plain);
     assert!(
@@ -192,17 +228,17 @@ fn test_order_book_deltas_from_sbe_reuse_matches_from_sbe() {
 #[rstest]
 fn test_order_book_deltas_from_sbe_reuse_preserves_allocation() {
     let value = stub_deltas();
-    let bytes = value.to_sbe().unwrap();
+    let bytes = value.to_sbe().fail_loud();
 
     let mut scratch: Vec<OrderBookDelta> = Vec::new();
-    let first = OrderBookDeltas::from_sbe_reuse(&bytes, &mut scratch).unwrap();
+    let first = OrderBookDeltas::from_sbe_reuse(&bytes, &mut scratch).fail_loud();
 
     // Move the allocation back for the second decode; capacity should be reused.
     scratch = first.deltas;
     let cap_before = scratch.capacity();
     assert!(cap_before >= value.deltas.len());
 
-    let second = OrderBookDeltas::from_sbe_reuse(&bytes, &mut scratch).unwrap();
+    let second = OrderBookDeltas::from_sbe_reuse(&bytes, &mut scratch).fail_loud();
     assert_eq!(second.deltas.capacity(), cap_before);
     assert_order_book_deltas_fields(&value, &second);
 }
@@ -211,8 +247,8 @@ fn test_order_book_deltas_from_sbe_reuse_preserves_allocation() {
 fn test_order_book_depth10_roundtrip() {
     let value = stub_depth10();
 
-    let bytes = value.to_sbe().unwrap();
-    let decoded = OrderBookDepth10::from_sbe(&bytes).unwrap();
+    let bytes = value.to_sbe().fail_loud();
+    let decoded = OrderBookDepth10::from_sbe(&bytes).fail_loud();
 
     assert_order_book_depth10_matches_capnp_parity(&value, &decoded);
 }
@@ -221,8 +257,8 @@ fn test_order_book_depth10_roundtrip() {
 fn test_funding_rate_update_roundtrip() {
     let value = sample_funding_rate_update();
 
-    let bytes = value.to_sbe().unwrap();
-    let decoded = FundingRateUpdate::from_sbe(&bytes).unwrap();
+    let bytes = value.to_sbe().fail_loud();
+    let decoded = FundingRateUpdate::from_sbe(&bytes).fail_loud();
 
     assert_funding_rate_update_fields(&value, &decoded);
 }
@@ -238,8 +274,8 @@ fn test_funding_rate_update_roundtrip_without_optional_fields() {
         9876543211.into(),
     );
 
-    let bytes = value.to_sbe().unwrap();
-    let decoded = FundingRateUpdate::from_sbe(&bytes).unwrap();
+    let bytes = value.to_sbe().fail_loud();
+    let decoded = FundingRateUpdate::from_sbe(&bytes).fail_loud();
 
     assert_funding_rate_update_fields(&value, &decoded);
 }
@@ -255,8 +291,8 @@ fn test_funding_rate_update_zero_values_roundtrip() {
         9876543211.into(),
     );
 
-    let bytes = value.to_sbe().unwrap();
-    let decoded = FundingRateUpdate::from_sbe(&bytes).unwrap();
+    let bytes = value.to_sbe().fail_loud();
+    let decoded = FundingRateUpdate::from_sbe(&bytes).fail_loud();
 
     assert_eq!(decoded.interval, Some(0));
     assert_eq!(decoded.next_funding_ns, Some(0.into()));
@@ -325,8 +361,8 @@ fn test_option_greeks_roundtrip_without_optional_fields() {
         ts_init: 2234567891.into(),
     };
 
-    let bytes = value.to_sbe().unwrap();
-    let decoded = OptionGreeks::from_sbe(&bytes).unwrap();
+    let bytes = value.to_sbe().fail_loud();
+    let decoded = OptionGreeks::from_sbe(&bytes).fail_loud();
 
     assert_eq!(value, decoded);
 }
@@ -352,8 +388,8 @@ fn test_option_greeks_roundtrip_with_zero_optional_fields() {
         ts_init: 2234567891.into(),
     };
 
-    let bytes = value.to_sbe().unwrap();
-    let decoded = OptionGreeks::from_sbe(&bytes).unwrap();
+    let bytes = value.to_sbe().fail_loud();
+    let decoded = OptionGreeks::from_sbe(&bytes).fail_loud();
 
     assert_eq!(value, decoded);
 }
@@ -362,10 +398,10 @@ fn test_option_greeks_roundtrip_with_zero_optional_fields() {
 fn test_option_greeks_rejects_unknown_optional_mask_bits() {
     const OPTION_GREEKS_OPTIONAL_MASK_OFFSET: usize = 9;
 
-    let mut bytes = sample_option_greeks().to_sbe().unwrap();
+    let mut bytes = sample_option_greeks().to_sbe().fail_loud();
     bytes[OPTION_GREEKS_OPTIONAL_MASK_OFFSET] |= 0b1000_0000;
 
-    let err = OptionGreeks::from_sbe(&bytes).unwrap_err();
+    let err = OptionGreeks::from_sbe(&bytes).fail_loud_error();
 
     assert_eq!(
         err,
@@ -379,8 +415,8 @@ fn test_option_greeks_rejects_unknown_optional_mask_bits() {
 fn test_instrument_status_roundtrip() {
     let value = stub_instrument_status();
 
-    let bytes = value.to_sbe().unwrap();
-    let decoded = InstrumentStatus::from_sbe(&bytes).unwrap();
+    let bytes = value.to_sbe().fail_loud();
+    let decoded = InstrumentStatus::from_sbe(&bytes).fail_loud();
 
     assert_instrument_status_matches_capnp_parity(&value, &decoded);
 }
@@ -399,8 +435,8 @@ fn test_instrument_status_with_no_optional_fields() {
         is_short_sell_restricted: None,
     };
 
-    let bytes = value.to_sbe().unwrap();
-    let decoded = InstrumentStatus::from_sbe(&bytes).unwrap();
+    let bytes = value.to_sbe().fail_loud();
+    let decoded = InstrumentStatus::from_sbe(&bytes).fail_loud();
 
     assert_instrument_status_matches_capnp_parity(&value, &decoded);
 }
@@ -419,8 +455,8 @@ fn test_instrument_status_with_empty_strings() {
         is_short_sell_restricted: Some(false),
     };
 
-    let bytes = value.to_sbe().unwrap();
-    let decoded = InstrumentStatus::from_sbe(&bytes).unwrap();
+    let bytes = value.to_sbe().fail_loud();
+    let decoded = InstrumentStatus::from_sbe(&bytes).fail_loud();
 
     assert_instrument_status_matches_capnp_parity(&value, &decoded);
 }
@@ -448,8 +484,8 @@ fn test_instrument_status_optional_bool_roundtrip(
         is_short_sell_restricted,
     };
 
-    let bytes = value.to_sbe().unwrap();
-    let decoded = InstrumentStatus::from_sbe(&bytes).unwrap();
+    let bytes = value.to_sbe().fail_loud();
+    let decoded = InstrumentStatus::from_sbe(&bytes).fail_loud();
 
     assert_eq!(value, decoded);
 }
@@ -465,8 +501,8 @@ fn test_bar_type_composite_roundtrip_matches_capnp_parity() {
         AggregationSource::External,
     );
 
-    let bytes = value.to_sbe().unwrap();
-    let decoded = BarType::from_sbe(&bytes).unwrap();
+    let bytes = value.to_sbe().fail_loud();
+    let decoded = BarType::from_sbe(&bytes).fail_loud();
 
     assert_eq!(normalize_bar_type_capnp_parity(value), decoded);
 }
@@ -491,8 +527,8 @@ fn test_bar_with_composite_type_roundtrip_matches_capnp_parity() {
         124.into(),
     );
 
-    let bytes = value.to_sbe().unwrap();
-    let decoded = Bar::from_sbe(&bytes).unwrap();
+    let bytes = value.to_sbe().fail_loud();
+    let decoded = Bar::from_sbe(&bytes).fail_loud();
 
     assert_bar_matches_capnp_parity(&value, &decoded);
 }
@@ -510,7 +546,7 @@ fn test_bar_type_step_overflow_returns_encode_error() {
         AggregationSource::Internal,
     );
 
-    let err = value.to_sbe().unwrap_err();
+    let err = value.to_sbe().fail_loud_error();
 
     assert_eq!(
         err,
@@ -524,7 +560,7 @@ fn test_bar_type_step_overflow_returns_encode_error() {
 fn test_order_book_depth10_header_block_length_matches_fixed_body() {
     let value = stub_depth10();
 
-    let bytes = value.to_sbe().unwrap();
+    let bytes = value.to_sbe().fail_loud();
     let block_length = u16::from_le_bytes([bytes[0], bytes[1]]);
 
     assert_eq!(block_length, 785);
@@ -596,12 +632,12 @@ fn test_to_sbe_into_reuses_buffer_and_clears_previous_bytes() {
     let smaller = DataAny::from(QuoteTick::default());
     let mut buf = Vec::new();
 
-    larger.to_sbe_into(&mut buf).unwrap();
+    larger.to_sbe_into(&mut buf).fail_loud();
     let reused_capacity = buf.capacity();
 
-    smaller.to_sbe_into(&mut buf).unwrap();
+    smaller.to_sbe_into(&mut buf).fail_loud();
 
-    assert_eq!(buf, smaller.to_sbe().unwrap());
+    assert_eq!(buf, smaller.to_sbe().fail_loud());
     assert_eq!(buf.capacity(), reused_capacity);
 }
 
@@ -738,8 +774,8 @@ fn assert_bar_matches_capnp_parity(expected: &Bar, actual: &Bar) {
 }
 
 fn assert_data_any_roundtrip_matches_capnp_parity(value: DataAny) {
-    let bytes = value.to_sbe().unwrap();
-    let decoded = DataAny::from_sbe(&bytes).unwrap();
+    let bytes = value.to_sbe().fail_loud();
+    let decoded = DataAny::from_sbe(&bytes).fail_loud();
 
     match (value, decoded) {
         (DataAny::Quote(expected), DataAny::Quote(actual)) => assert_eq!(expected, actual),

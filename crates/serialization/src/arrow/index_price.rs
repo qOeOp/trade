@@ -57,9 +57,7 @@ impl EncodeToRecordBatch for IndexPriceUpdate {
         let mut ts_init_builder = UInt64Array::builder(data.len());
 
         for update in data {
-            value_builder
-                .append_value(update.value.raw.to_le_bytes())
-                .unwrap();
+            value_builder.append_value(update.value.raw.to_le_bytes())?;
             ts_event_builder.append_value(update.ts_event.as_u64());
             ts_init_builder.append_value(update.ts_init.as_u64());
         }

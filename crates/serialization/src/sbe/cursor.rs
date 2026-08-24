@@ -233,9 +233,8 @@ impl<'a> SbeCursor<'a> {
     #[inline]
     fn read_array<const N: usize>(&mut self) -> Result<[u8; N], SbeDecodeError> {
         self.require(N)?;
-        let bytes: [u8; N] = self.buf[self.pos..self.pos + N]
-            .try_into()
-            .expect("slice length matches N");
+        let mut bytes = [0; N];
+        bytes.copy_from_slice(&self.buf[self.pos..self.pos + N]);
         self.pos += N;
         Ok(bytes)
     }

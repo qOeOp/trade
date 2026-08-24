@@ -72,19 +72,11 @@ impl EncodeToRecordBatch for Bar {
         let mut ts_init_builder = UInt64Array::builder(data.len());
 
         for bar in data {
-            open_builder
-                .append_value(bar.open.raw.to_le_bytes())
-                .unwrap();
-            high_builder
-                .append_value(bar.high.raw.to_le_bytes())
-                .unwrap();
-            low_builder.append_value(bar.low.raw.to_le_bytes()).unwrap();
-            close_builder
-                .append_value(bar.close.raw.to_le_bytes())
-                .unwrap();
-            volume_builder
-                .append_value(bar.volume.raw.to_le_bytes())
-                .unwrap();
+            open_builder.append_value(bar.open.raw.to_le_bytes())?;
+            high_builder.append_value(bar.high.raw.to_le_bytes())?;
+            low_builder.append_value(bar.low.raw.to_le_bytes())?;
+            close_builder.append_value(bar.close.raw.to_le_bytes())?;
+            volume_builder.append_value(bar.volume.raw.to_le_bytes())?;
             ts_event_builder.append_value(bar.ts_event.as_u64());
             ts_init_builder.append_value(bar.ts_init.as_u64());
         }

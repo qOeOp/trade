@@ -25,6 +25,27 @@ use vibe_serialization::{
     sbe::{DataAny, FromSbe, FromSbeReuse, ToSbe},
 };
 
+trait FailLoud<T> {
+    #[track_caller]
+    fn fail_loud(self) -> T;
+}
+
+impl<T> FailLoud<T> for Option<T> {
+    #[track_caller]
+    fn fail_loud(self) -> T {
+        self.unwrap_or_else(|| panic!("called `Option::unwrap()` on a `None` value"))
+    }
+}
+
+impl<T, E: std::fmt::Debug> FailLoud<T> for Result<T, E> {
+    #[track_caller]
+    fn fail_loud(self) -> T {
+        self.unwrap_or_else(|error| {
+            panic!("called `Result::unwrap()` on an `Err` value: {error:?}")
+        })
+    }
+}
+
 macro_rules! capnp_helpers {
     ($encode_fn:ident, $decode_fn:ident, $ty:ty, $builder_ty:path, $reader_ty:path) => {
         fn $encode_fn(value: &$ty) -> Vec<u8> {
@@ -33,14 +54,14 @@ macro_rules! capnp_helpers {
             value.to_capnp(builder);
 
             let mut bytes = Vec::new();
-            serialize::write_message(&mut bytes, &message).unwrap();
+            serialize::write_message(&mut bytes, &message).fail_loud();
             bytes
         }
 
         fn $decode_fn(bytes: &[u8]) -> $ty {
-            let reader = serialize::read_message(&mut &bytes[..], ReaderOptions::new()).unwrap();
-            let root = reader.get_root::<$reader_ty>().unwrap();
-            <$ty as FromCapnp>::from_capnp(root).unwrap()
+            let reader = serialize::read_message(&mut &bytes[..], ReaderOptions::new()).fail_loud();
+            let root = reader.get_root::<$reader_ty>().fail_loud();
+            <$ty as FromCapnp>::from_capnp(root).fail_loud()
         }
     };
 }
@@ -320,25 +341,25 @@ fn bench_capnp_sbe_type<T>(
 ) where
     T: Clone + FromSbe + PartialEq + std::fmt::Debug + ToSbe,
 {
-    let sbe_bytes = value.to_sbe().unwrap();
+    let sbe_bytes = value.to_sbe().fail_loud();
     let capnp_bytes = capnp_encode(&value);
 
-    assert_eq!(T::from_sbe(&sbe_bytes).unwrap(), value);
+    assert_eq!(T::from_sbe(&sbe_bytes).fail_loud(), value);
     assert_eq!(capnp_decode(&capnp_bytes), value);
 
     let mut group = c.benchmark_group(name);
     group.bench_function("sbe_encode", |b| {
-        b.iter(|| black_box(black_box(&value).to_sbe().unwrap()));
+        b.iter(|| black_box(black_box(&value).to_sbe().fail_loud()));
     });
     group.bench_function("sbe_encode_reuse", |b| {
         let mut buf = Vec::new();
         b.iter(|| {
-            black_box(&value).to_sbe_into(&mut buf).unwrap();
+            black_box(&value).to_sbe_into(&mut buf).fail_loud();
             black_box(buf.as_slice());
         });
     });
     group.bench_function("sbe_decode", |b| {
-        b.iter(|| black_box(T::from_sbe(black_box(&sbe_bytes)).unwrap()));
+        b.iter(|| black_box(T::from_sbe(black_box(&sbe_bytes)).fail_loud()));
     });
     group.bench_function("capnp_encode", |b| {
         b.iter(|| black_box(capnp_encode(black_box(&value))));
@@ -448,14 +469,14 @@ fn bench_order_book_deltas_scaling(c: &mut Criterion) {
 
     for count in [1usize, 10, 100] {
         let value = sample_order_book_deltas(count);
-        let sbe_bytes = value.to_sbe().unwrap();
+        let sbe_bytes = value.to_sbe().fail_loud();
         let capnp_bytes = encode_order_book_deltas_capnp(&value);
 
-        assert_eq!(OrderBookDeltas::from_sbe(&sbe_bytes).unwrap(), value);
+        assert_eq!(OrderBookDeltas::from_sbe(&sbe_bytes).fail_loud(), value);
         assert_eq!(decode_order_book_deltas_capnp(&capnp_bytes), value);
 
         group.bench_with_input(BenchmarkId::new("sbe_encode", count), &value, |b, value| {
-            b.iter(|| black_box(black_box(value).to_sbe().unwrap()));
+            b.iter(|| black_box(black_box(value).to_sbe().fail_loud()));
         });
         group.bench_with_input(
             BenchmarkId::new("sbe_encode_reuse", count),
@@ -463,7 +484,7 @@ fn bench_order_book_deltas_scaling(c: &mut Criterion) {
             |b, value| {
                 let mut buf = Vec::new();
                 b.iter(|| {
-                    black_box(value).to_sbe_into(&mut buf).unwrap();
+                    black_box(value).to_sbe_into(&mut buf).fail_loud();
                     black_box(buf.as_slice());
                 });
             },
@@ -472,7 +493,7 @@ fn bench_order_book_deltas_scaling(c: &mut Criterion) {
             BenchmarkId::new("sbe_decode", count),
             &sbe_bytes,
             |b, bytes| {
-                b.iter(|| black_box(OrderBookDeltas::from_sbe(black_box(bytes)).unwrap()));
+                b.iter(|| black_box(OrderBookDeltas::from_sbe(black_box(bytes)).fail_loud()));
             },
         );
         group.bench_with_input(
@@ -482,7 +503,7 @@ fn bench_order_book_deltas_scaling(c: &mut Criterion) {
                 let mut scratch: Vec<OrderBookDelta> = Vec::new();
                 b.iter(|| {
                     let result =
-                        OrderBookDeltas::from_sbe_reuse(black_box(bytes), &mut scratch).unwrap();
+                        OrderBookDeltas::from_sbe_reuse(black_box(bytes), &mut scratch).fail_loud();
                     scratch = black_box(result).deltas;
                 });
             },
@@ -539,11 +560,11 @@ fn bench_data_any(c: &mut Criterion) {
     let mut group = c.benchmark_group("DataAny::sbe");
 
     for (name, value) in cases {
-        let bytes = value.to_sbe().unwrap();
-        assert_eq!(DataAny::from_sbe(&bytes).unwrap(), value);
+        let bytes = value.to_sbe().fail_loud();
+        assert_eq!(DataAny::from_sbe(&bytes).fail_loud(), value);
 
         group.bench_with_input(BenchmarkId::new("encode", name), &value, |b, value| {
-            b.iter(|| black_box(black_box(value).to_sbe().unwrap()));
+            b.iter(|| black_box(black_box(value).to_sbe().fail_loud()));
         });
         group.bench_with_input(
             BenchmarkId::new("encode_reuse", name),
@@ -551,13 +572,13 @@ fn bench_data_any(c: &mut Criterion) {
             |b, value| {
                 let mut buf = Vec::new();
                 b.iter(|| {
-                    black_box(value).to_sbe_into(&mut buf).unwrap();
+                    black_box(value).to_sbe_into(&mut buf).fail_loud();
                     black_box(buf.as_slice());
                 });
             },
         );
         group.bench_with_input(BenchmarkId::new("decode", name), &bytes, |b, bytes| {
-            b.iter(|| black_box(DataAny::from_sbe(black_box(bytes)).unwrap()));
+            b.iter(|| black_box(DataAny::from_sbe(black_box(bytes)).fail_loud()));
         });
     }
 

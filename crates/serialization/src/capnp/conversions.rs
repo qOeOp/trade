@@ -131,10 +131,26 @@ impl<'a> FromCapnp<'a> for vibe_core::UUID4 {
 // - Bytes 12-15: hi (u32) - high 32 bits of coefficient
 fn decimal_to_parts(value: &Decimal) -> (u64, u64, u64, u32) {
     let bytes = value.serialize();
-    let flags = u32::from_le_bytes(bytes[0..4].try_into().expect("flags slice"));
-    let lo = u32::from_le_bytes(bytes[4..8].try_into().expect("lo slice"));
-    let mid = u32::from_le_bytes(bytes[8..12].try_into().expect("mid slice"));
-    let hi = u32::from_le_bytes(bytes[12..16].try_into().expect("hi slice"));
+    let flags = u32::from_le_bytes(
+        bytes[0..4]
+            .try_into()
+            .unwrap_or_else(|error| panic!("flags slice: {error}")),
+    );
+    let lo = u32::from_le_bytes(
+        bytes[4..8]
+            .try_into()
+            .unwrap_or_else(|error| panic!("lo slice: {error}")),
+    );
+    let mid = u32::from_le_bytes(
+        bytes[8..12]
+            .try_into()
+            .unwrap_or_else(|error| panic!("mid slice: {error}")),
+    );
+    let hi = u32::from_le_bytes(
+        bytes[12..16]
+            .try_into()
+            .unwrap_or_else(|error| panic!("hi slice: {error}")),
+    );
     (lo as u64, mid as u64, hi as u64, flags)
 }
 
@@ -294,7 +310,11 @@ impl<'a> ToCapnp<'a> for TradeId {
     type Builder = identifiers_capnp::trade_id::Builder<'a>;
 
     fn to_capnp(&self, mut builder: Self::Builder) {
-        builder.set_value(self.as_cstr().to_str().expect("Valid UTF-8"));
+        builder.set_value(
+            self.as_cstr()
+                .to_str()
+                .unwrap_or_else(|error| panic!("Valid UTF-8: {error}")),
+        );
     }
 }
 

@@ -3,10 +3,44 @@ use std::hint::black_box;
 use criterion::{Criterion, criterion_group, criterion_main};
 use vibe_serialization::sbe::SbeCursor;
 
+trait FailLoud<T> {
+    #[track_caller]
+    fn fail_loud(self) -> T;
+
+    #[track_caller]
+    fn fail_loud_with(self, context: &str) -> T;
+}
+
+impl<T> FailLoud<T> for Option<T> {
+    #[track_caller]
+    fn fail_loud(self) -> T {
+        self.unwrap_or_else(|| panic!("called `Option::unwrap()` on a `None` value"))
+    }
+
+    #[track_caller]
+    fn fail_loud_with(self, context: &str) -> T {
+        self.unwrap_or_else(|| panic!("{context}"))
+    }
+}
+
+impl<T, E: std::fmt::Debug> FailLoud<T> for Result<T, E> {
+    #[track_caller]
+    fn fail_loud(self) -> T {
+        self.unwrap_or_else(|error| {
+            panic!("called `Result::unwrap()` on an `Err` value: {error:?}")
+        })
+    }
+
+    #[track_caller]
+    fn fail_loud_with(self, context: &str) -> T {
+        self.unwrap_or_else(|error| panic!("{context}: {error:?}"))
+    }
+}
+
 fn make_i64_buffer(count: usize) -> Vec<u8> {
     let mut buf = Vec::with_capacity(count * 8);
     for i in 0..count {
-        let value = i64::try_from(i).expect("benchmark index must fit in i64");
+        let value = i64::try_from(i).fail_loud_with("benchmark index must fit in i64");
         buf.extend_from_slice(&value.to_le_bytes());
     }
     buf
@@ -14,7 +48,7 @@ fn make_i64_buffer(count: usize) -> Vec<u8> {
 
 fn make_var_string8_buffer(count: usize, value: &str) -> Vec<u8> {
     let bytes = value.as_bytes();
-    let len = u8::try_from(bytes.len()).expect("value must fit in varString8");
+    let len = u8::try_from(bytes.len()).fail_loud_with("value must fit in varString8");
     let mut buf = Vec::with_capacity(count * (usize::from(len) + 1));
 
     for _ in 0..count {
@@ -47,7 +81,7 @@ fn bench_read_i64(c: &mut Criterion) {
             let mut sum = 0i64;
 
             for _ in 0..count {
-                sum += cursor.read_i64_le().unwrap();
+                sum += cursor.read_i64_le().fail_loud();
             }
 
             black_box(sum)
@@ -65,7 +99,7 @@ fn bench_read_var_string8_ref(c: &mut Criterion) {
             let mut total_len = 0usize;
 
             for _ in 0..count {
-                total_len += cursor.read_var_string8_ref().unwrap().len();
+                total_len += cursor.read_var_string8_ref().fail_loud().len();
             }
 
             black_box(total_len)
@@ -79,7 +113,7 @@ fn bench_read_group(c: &mut Criterion) {
     c.bench_function("SbeCursor::read_group (256 levels)", |b| {
         b.iter(|| {
             let mut cursor = SbeCursor::new(&data);
-            let (block_length, count) = cursor.read_group_header().unwrap();
+            let (block_length, count) = cursor.read_group_header().fail_loud();
 
             let levels = cursor
                 .read_group(block_length, count, |cur| {
@@ -87,7 +121,7 @@ fn bench_read_group(c: &mut Criterion) {
                     let qty = cur.read_i64_le()?;
                     Ok((price, qty))
                 })
-                .unwrap();
+                .fail_loud();
 
             black_box(levels.len())
         });

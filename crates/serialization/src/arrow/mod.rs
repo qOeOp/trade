@@ -103,20 +103,16 @@ pub enum EncodingError {
 
 #[inline]
 fn get_raw_price(bytes: &[u8]) -> PriceRaw {
-    PriceRaw::from_le_bytes(
-        bytes
-            .try_into()
-            .expect("Price raw bytes must be exactly the size of PriceRaw"),
-    )
+    PriceRaw::from_le_bytes(bytes.try_into().unwrap_or_else(|error| {
+        panic!("Price raw bytes must be exactly the size of PriceRaw: {error}")
+    }))
 }
 
 #[inline]
 fn get_raw_quantity(bytes: &[u8]) -> QuantityRaw {
-    QuantityRaw::from_le_bytes(
-        bytes
-            .try_into()
-            .expect("Quantity raw bytes must be exactly the size of QuantityRaw"),
-    )
+    QuantityRaw::from_le_bytes(bytes.try_into().unwrap_or_else(|error| {
+        panic!("Quantity raw bytes must be exactly the size of QuantityRaw: {error}")
+    }))
 }
 
 /// Gets raw price bytes and corrects for floating-point precision errors in stored data.
@@ -288,10 +284,10 @@ where
     ///
     /// Panics if `chunk` is empty.
     fn chunk_metadata(chunk: &[Self]) -> HashMap<String, String> {
-        chunk
-            .first()
-            .map(Self::metadata)
-            .expect("Chunk must have at least one element to encode")
+        chunk.first().map_or_else(
+            || panic!("Chunk must have at least one element to encode"),
+            Self::metadata,
+        )
     }
 }
 
@@ -686,7 +682,6 @@ pub fn index_prices_to_arrow_record_batch_bytes(
 /// Returns an error if:
 /// - `data` is empty: `EncodingError::EmptyData`.
 /// - Encoding fails: `EncodingError::ArrowError`.
-#[expect(clippy::missing_panics_doc)] // Guarded by empty check
 pub fn instrument_status_to_arrow_record_batch_bytes(
     data: &[InstrumentStatus],
 ) -> Result<RecordBatch, EncodingError> {
@@ -694,7 +689,7 @@ pub fn instrument_status_to_arrow_record_batch_bytes(
         return Err(EncodingError::EmptyData);
     }
 
-    let first = data.first().unwrap();
+    let first = data.first().ok_or(EncodingError::EmptyData)?;
     let metadata = first.metadata();
     InstrumentStatus::encode_batch(&metadata, data).map_err(EncodingError::ArrowError)
 }
@@ -706,7 +701,6 @@ pub fn instrument_status_to_arrow_record_batch_bytes(
 /// Returns an error if:
 /// - `data` is empty: `EncodingError::EmptyData`.
 /// - Encoding fails: `EncodingError::ArrowError`.
-#[expect(clippy::missing_panics_doc)] // Guarded by empty check
 pub fn option_greeks_to_arrow_record_batch_bytes(
     data: &[OptionGreeks],
 ) -> Result<RecordBatch, EncodingError> {
@@ -714,7 +708,7 @@ pub fn option_greeks_to_arrow_record_batch_bytes(
         return Err(EncodingError::EmptyData);
     }
 
-    let first = data.first().unwrap();
+    let first = data.first().ok_or(EncodingError::EmptyData)?;
     let metadata = first.metadata();
     OptionGreeks::encode_batch(&metadata, data).map_err(EncodingError::ArrowError)
 }
