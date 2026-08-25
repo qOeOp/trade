@@ -3,22 +3,23 @@ use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
-use vibe_product_edge::DownstreamAdmissionModeV1;
+use vibe_product_edge::ProductEdgeAdmissionReadbackV1;
 
 use crate::{
-    artifact_build::ArtifactBuildDisposition,
+    artifact_build::{ArtifactBuildDisposition, verify_artifact_build_admission},
     exploratory_replay::{
-        EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V1, ExploratoryReplayAvailabilityV1,
+        EXPLORATORY_REPLAY_MUTATION_EFFECT_V1, EXPLORATORY_REPLAY_OPERATION_V1,
+        EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V1, EXPLORATORY_REPLAY_SCHEMA_V1,
+        EXPLORATORY_REPLAY_SCOPE_V1, ExploratoryReplayAvailabilityV1,
         ExploratoryReplayCommitReceiptV1, ExploratoryReplayCommitResultV1,
         ExploratoryReplayNextLegalActionV1, ExploratoryReplayOwnerError,
         ExploratoryReplayReadResultV1, ExploratoryReplayRequestLocatorV1,
         ExploratoryReplayRequestProjectionV1, ExploratoryReplayRequestProposalV1,
         FrozenExploratoryReplayRequestV1, SealedExploratoryReplayReadbackV1,
+        exploratory_replay_admission_payload_v1,
     },
-    product_edge::{FrozenResearchGoalIntent, ResearchRequestDisposition},
-    rd_owner_postgres_custody::{
-        AttemptState, admit_attempt_custody_with_admission_mode_in_transaction,
-    },
+    product_edge::{FrozenResearchGoalIntent, RESEARCH_OWNER_V1, ResearchRequestDisposition},
+    rd_owner_postgres_custody::{AttemptState, VerifiedAttemptCustodyV1},
 };
 
 const LOCK_FUNCTION: &str = "rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)";
@@ -34,6 +35,7 @@ pub(crate) struct BoundBacktestReadV1 {
 struct FrozenMeaningV1<'a> {
     schema_version: u32,
     proposal: &'a ExploratoryReplayRequestProposalV1,
+    product_edge_request_semantic_digest: &'a str,
     research_receipt_identity: &'a str,
     intent_semantic_digest: &'a str,
     trial_family_root_digest: &'a str,
@@ -59,6 +61,7 @@ struct FrozenMeaningV1<'a> {
 struct StoredFrozenV1 {
     schema_version: u32,
     proposal: ExploratoryReplayRequestProposalV1,
+    product_edge_request_semantic_digest: String,
     research_receipt_identity: String,
     intent_semantic_digest: String,
     trial_family_root_digest: String,
@@ -180,6 +183,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
     }
 
     let mut publication = pool.begin().await.map_err(storage)?;
+
     for statement in [
         "DROP FUNCTION IF EXISTS rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)",
         "DROP FUNCTION IF EXISTS rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)",
@@ -458,16 +462,19 @@ pub(crate) async fn commit(
     .await
     .map_err(storage)?;
     let now = u64::try_from(now).map_err(unavailable)?;
-    let custody = Box::pin(admit_attempt_custody_with_admission_mode_in_transaction(
-        &mut transaction,
-        &proposal.build_request_identity,
-        DownstreamAdmissionModeV1::FirstMutation {
-            read_cut_epoch_ms: now,
-        },
-    ))
+    let (custody, replay_admission) = Box::pin(
+        VerifiedAttemptCustodyV1::admit_for_exploratory_replay_in_transaction(
+            &mut transaction,
+            &proposal.build_request_identity,
+            &proposal.admission,
+            now,
+        ),
+    )
     .await
     .map_err(|e| ExploratoryReplayOwnerError::Unavailable(e.to_string()))?
     .ok_or_else(|| ExploratoryReplayOwnerError::Unavailable("artifact custody missing".into()))?;
+    verify_replay_admission(&replay_admission, &proposal)?;
+
     if !custody.research.authority_available_at(now)
         || !custody
             .product_edge_admission
@@ -582,9 +589,51 @@ pub(crate) async fn commit(
     .await
     .map_err(storage)?;
 
+    let final_cut: i64 = sqlx::query_scalar(
+        "SELECT pg_catalog.floor(extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint",
+    )
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(storage)?;
+    let final_cut = u64::try_from(final_cut).map_err(unavailable)?;
+    let (final_replay_admission, final_artifact_admission) = Box::pin(
+        VerifiedAttemptCustodyV1::lock_exploratory_replay_admissions_in_transaction(
+            &mut transaction,
+            &proposal.admission,
+            &custody.attempt.request.admission,
+            final_cut,
+        ),
+    )
+    .await
+    .map_err(|e| ExploratoryReplayOwnerError::Unavailable(e.to_string()))?;
+    verify_replay_admission(&final_replay_admission, &proposal)?;
+    verify_artifact_build_admission(&final_artifact_admission, &custody.attempt.request)
+        .map_err(|e| ExploratoryReplayOwnerError::Unavailable(e.to_string()))?;
+    let research_admission = custody.research.product_edge_admission().ok_or_else(|| {
+        ExploratoryReplayOwnerError::Unavailable("research Product Edge admission missing".into())
+    })?;
+
+    if !custody.research.authority_available_at(final_cut)
+        || !final_replay_admission.authorizes_first_mutation_at(final_cut)
+        || !final_artifact_admission.authorizes_first_mutation_at(final_cut)
+        || !same_product_edge_authority(&replay_admission, &final_replay_admission)
+        || !same_product_edge_authority(&custody.product_edge_admission, &final_artifact_admission)
+        || !same_product_edge_authority(&final_replay_admission, &final_artifact_admission)
+        || !same_product_edge_authority(&final_replay_admission, research_admission)
+    {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "Product Edge authority changed before final Replay custody".into(),
+        ));
+    }
+    let product_edge_request_semantic_digest = final_replay_admission
+        .request()
+        .semantic_digest()
+        .map_err(unavailable)?;
+
     let expected = StoredFrozenV1 {
         schema_version: 1,
         proposal: proposal.clone(),
+        product_edge_request_semantic_digest,
         research_receipt_identity: research_receipt.receipt_identity.clone(),
         intent_semantic_digest: intent.semantic_digest().to_string(),
         trial_family_root_digest: root.root_digest().to_string(),
@@ -686,6 +735,7 @@ async fn resolve_existing(
         .fetch_one(&mut **transaction)
         .await
         .map_err(storage)?;
+
         if exists {
             return Err(ExploratoryReplayOwnerError::Unavailable(
                 "existing exploratory request failed sealed verification".into(),
@@ -695,6 +745,7 @@ async fn resolve_existing(
     };
 
     let envelope: LockedEnvelopeV1 = decode_exact(&value)?;
+
     if envelope.availability != ExploratoryReplayAvailabilityV1::Available {
         return Err(ExploratoryReplayOwnerError::Unavailable(
             "existing exploratory request is not available".into(),
@@ -946,6 +997,7 @@ fn validate_available_envelope(
         &frozen.artifact_family_outbox_digest,
         frozen.artifact_family_outbox_committed_at_epoch_ms,
     )?;
+
     if let Some(locator) = locator
         && (locator.request_identity != frozen.proposal.request_identity
             || locator.request_digest != frozen.request_digest
@@ -970,6 +1022,8 @@ fn validate_proposal(
 ) -> Result<(), ExploratoryReplayOwnerError> {
     let identities = [
         proposal.request_identity.as_str(),
+        proposal.admission.request_identity.as_str(),
+        proposal.admission.admission_identity.as_str(),
         proposal.build_request_identity.as_str(),
         proposal.attempt_identity.as_str(),
         proposal.intent_identity.as_str(),
@@ -1009,6 +1063,7 @@ fn validate_proposal(
         &proposal.feature_set.digest,
         &proposal.strategy_spec.digest,
         &proposal.replay_config.digest,
+        &proposal.admission.admission_digest,
     ] {
         if !valid_sha256(digest) {
             return Err(ExploratoryReplayOwnerError::InvalidProposal("digest"));
@@ -1031,6 +1086,7 @@ fn frozen_digest(frozen: &StoredFrozenV1) -> Result<String, ExploratoryReplayOwn
         &FrozenMeaningV1 {
             schema_version: frozen.schema_version,
             proposal: &frozen.proposal,
+            product_edge_request_semantic_digest: &frozen.product_edge_request_semantic_digest,
             research_receipt_identity: &frozen.research_receipt_identity,
             intent_semantic_digest: &frozen.intent_semantic_digest,
             trial_family_root_digest: &frozen.trial_family_root_digest,
@@ -1056,10 +1112,53 @@ fn frozen_digest(frozen: &StoredFrozenV1) -> Result<String, ExploratoryReplayOwn
     )
 }
 
+fn verify_replay_admission(
+    admission: &ProductEdgeAdmissionReadbackV1,
+    proposal: &ExploratoryReplayRequestProposalV1,
+) -> Result<(), ExploratoryReplayOwnerError> {
+    let admitted = admission.request();
+    let expected_payload =
+        exploratory_replay_admission_payload_v1(proposal).map_err(unavailable)?;
+    if admission.locator() != &proposal.admission
+        || proposal.admission.request_identity != proposal.request_identity
+        || admitted.request_identity != proposal.request_identity
+        || admitted.typed_payload != expected_payload
+        || admitted.operation != EXPLORATORY_REPLAY_OPERATION_V1
+        || admitted.operation_schema != EXPLORATORY_REPLAY_SCHEMA_V1
+        || admitted.target_owner != RESEARCH_OWNER_V1
+        || admitted.requested_effects.len() != 1
+        || admitted.requested_effects[0] != EXPLORATORY_REPLAY_MUTATION_EFFECT_V1
+        || !admission
+            .authorized_scope()
+            .iter()
+            .any(|scope| scope == EXPLORATORY_REPLAY_SCOPE_V1)
+    {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "canonical Product Edge Replay admission mismatch".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn same_product_edge_authority(
+    left: &ProductEdgeAdmissionReadbackV1,
+    right: &ProductEdgeAdmissionReadbackV1,
+) -> bool {
+    left.deployment_identity() == right.deployment_identity()
+        && left.binding_identity() == right.binding_identity()
+        && left.binding_generation() == right.binding_generation()
+        && left.effective_principal() == right.effective_principal()
+        && left.scope_policy_version() == right.scope_policy_version()
+        && left.capability_policy_version() == right.capability_policy_version()
+        && left.audit_policy_version() == right.audit_policy_version()
+        && left.authorization().locator() == right.authorization().locator()
+}
+
 fn verify_frozen(frozen: &StoredFrozenV1) -> Result<(), ExploratoryReplayOwnerError> {
     validate_proposal(&frozen.proposal)?;
     if frozen.schema_version != 1
         || !valid_sha256(&frozen.exact_code_bytes_sha256_digest)
+        || !valid_sha256(&frozen.product_edge_request_semantic_digest)
         || frozen.request_digest != frozen_digest(frozen)?
     {
         return Err(ExploratoryReplayOwnerError::Unavailable(
@@ -1146,6 +1245,7 @@ fn verify_family_dependency_outbox(
         &outbox.payload_digest,
         committed_at_epoch_ms,
     )?;
+
     if payload != *expected {
         return Err(ExploratoryReplayOwnerError::Unavailable(
             "trial family outbox payload mismatch".into(),
@@ -1168,6 +1268,7 @@ fn verify_artifact_dependency_outbox(
         &outbox.payload_digest,
         committed_at_epoch_ms,
     )?;
+
     if payload != *expected {
         return Err(ExploratoryReplayOwnerError::Unavailable(
             "artifact family outbox payload mismatch".into(),
@@ -1241,6 +1342,7 @@ fn into_frozen(stored: StoredFrozenV1) -> FrozenExploratoryReplayRequestV1 {
     FrozenExploratoryReplayRequestV1 {
         schema_version: stored.schema_version,
         proposal: stored.proposal,
+        product_edge_request_semantic_digest: stored.product_edge_request_semantic_digest,
         research_receipt_identity: stored.research_receipt_identity,
         intent_semantic_digest: stored.intent_semantic_digest,
         trial_family_root_digest: stored.trial_family_root_digest,

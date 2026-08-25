@@ -6,10 +6,16 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
+use vibe_product_edge::ProductEdgeAdmissionLocatorV1;
 
 pub mod postgres;
 
 pub const EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V1: &str = "EXPLORATORY_REPLAY_REQUEST_FROZEN_V1";
+pub const EXPLORATORY_REPLAY_OPERATION_V1: &str = "exploratory_replay.submit_or_resolve.v1";
+pub const EXPLORATORY_REPLAY_SCHEMA_V1: &str = "rd-exploratory-replay-request-v1";
+pub const EXPLORATORY_REPLAY_SCOPE_V1: &str = "research:replay";
+pub const EXPLORATORY_REPLAY_MUTATION_EFFECT_V1: &str =
+    "R_AND_D_EXPLORATORY_REPLAY_REQUEST_MUTATION_V1";
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -30,6 +36,7 @@ pub struct VersionedIdentityV1 {
 #[serde(deny_unknown_fields)]
 pub struct ExploratoryReplayRequestProposalV1 {
     pub request_identity: String,
+    pub admission: ProductEdgeAdmissionLocatorV1,
     pub build_request_identity: String,
     pub attempt_identity: String,
     pub intent_identity: String,
@@ -55,6 +62,20 @@ pub struct ExploratoryReplayRequestProposalV1 {
     pub range_end_epoch_ms: u64,
     pub calendar_identity: String,
     pub time_zone_identity: String,
+}
+
+pub(crate) fn exploratory_replay_admission_payload_v1(
+    proposal: &ExploratoryReplayRequestProposalV1,
+) -> Result<serde_json::Value, serde_json::Error> {
+    let mut payload = serde_json::to_value(proposal)?;
+    let removed = payload
+        .as_object_mut()
+        .and_then(|object| object.remove("admission"));
+    debug_assert!(
+        removed.is_some(),
+        "proposal schema includes admission locator"
+    );
+    Ok(payload)
 }
 
 pub fn exploratory_replay_proposal_digest_v1(
@@ -111,6 +132,7 @@ pub struct ExploratoryReplayRequestProjectionV1 {
 pub struct FrozenExploratoryReplayRequestV1 {
     pub(crate) schema_version: u32,
     pub(crate) proposal: ExploratoryReplayRequestProposalV1,
+    pub(crate) product_edge_request_semantic_digest: String,
     pub(crate) research_receipt_identity: String,
     pub(crate) intent_semantic_digest: String,
     pub(crate) trial_family_root_digest: String,
@@ -241,6 +263,11 @@ mod tests {
     fn proposal() -> ExploratoryReplayRequestProposalV1 {
         ExploratoryReplayRequestProposalV1 {
             request_identity: "request-1".into(),
+            admission: ProductEdgeAdmissionLocatorV1 {
+                request_identity: "request-1".into(),
+                admission_identity: "admission-1".into(),
+                admission_digest: format!("sha256:{}", "0".repeat(64)),
+            },
             build_request_identity: "build-request-1".into(),
             attempt_identity: "attempt-1".into(),
             intent_identity: "intent-1".into(),
@@ -284,6 +311,9 @@ mod tests {
         let expected = exploratory_replay_proposal_digest_v1(&original).unwrap();
         let mut mutations: Vec<ProposalMutation> = vec![
             Box::new(|v| v.request_identity.push('x')),
+            Box::new(|v| v.admission.request_identity.push('x')),
+            Box::new(|v| v.admission.admission_identity.push('x')),
+            Box::new(|v| v.admission.admission_digest.push('x')),
             Box::new(|v| v.build_request_identity.push('x')),
             Box::new(|v| v.attempt_identity.push('x')),
             Box::new(|v| v.intent_identity.push('x')),
@@ -327,6 +357,17 @@ mod tests {
                 expected
             );
         }
+    }
+
+    #[rstest]
+    fn replay_admission_payload_is_the_full_proposal_except_for_the_locator() {
+        let proposal = proposal();
+        let payload = exploratory_replay_admission_payload_v1(&proposal).unwrap();
+        let mut expected = serde_json::to_value(&proposal).unwrap();
+        expected.as_object_mut().unwrap().remove("admission");
+
+        assert_eq!(payload, expected);
+        assert!(payload.get("admission").is_none());
     }
 
     #[rstest]

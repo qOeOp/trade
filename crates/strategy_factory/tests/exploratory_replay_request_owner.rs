@@ -26,7 +26,8 @@ use vibe_strategy_factory::{
     },
     artifact_build_postgres::PostgresArtifactBuildOwnerV1,
     exploratory_replay::{
-        ExploratoryReplayAvailabilityV1, ExploratoryReplayOwnerError,
+        EXPLORATORY_REPLAY_MUTATION_EFFECT_V1, EXPLORATORY_REPLAY_OPERATION_V1,
+        EXPLORATORY_REPLAY_SCHEMA_V1, ExploratoryReplayAvailabilityV1, ExploratoryReplayOwnerError,
         ExploratoryReplayRequestLocatorV1, ExploratoryReplayRequestProposalV1, IdentityDigestV1,
         VersionedIdentityV1,
     },
@@ -202,8 +203,9 @@ async fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owne
         .as_deref()
         .expect("build receipt");
 
-    let proposal = ExploratoryReplayRequestProposalV1 {
+    let mut proposal = ExploratoryReplayRequestProposalV1 {
         request_identity: format!("exploratory-replay-request-{suffix}"),
+        admission: placeholder_admission(&format!("exploratory-replay-request-{suffix}")),
         build_request_identity: build_request.build_request_identity.clone(),
         attempt_identity: build_request.attempt_identity.clone(),
         intent_identity,
@@ -238,6 +240,75 @@ async fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owne
         calendar_identity: "calendar-utc-continuous-v1".into(),
         time_zone_identity: "UTC".into(),
     };
+    proposal = edge.admit_replay(proposal).await;
+
+    let mut mismatched_meaning = proposal.clone();
+    mismatched_meaning.request_identity.push_str("-mismatched");
+    mismatched_meaning.admission = placeholder_admission(&mismatched_meaning.request_identity);
+    mismatched_meaning = edge.admit_replay(mismatched_meaning).await;
+    mismatched_meaning.deterministic_seed += 1;
+    mismatched_meaning.dataset = binding("dataset-v2", '9');
+    assert!(matches!(
+        owner
+            .commit_exploratory_replay_request_v1(mismatched_meaning.clone())
+            .await,
+        Err(ExploratoryReplayOwnerError::Unavailable(_))
+    ));
+    assert_eq!(
+        request_counts(
+            mutation.pool(CanonicalOwnerTestRoleV1::RdOwner),
+            &mismatched_meaning.request_identity,
+        )
+        .await,
+        [0, 0]
+    );
+
+    let mut matching_new_meaning = proposal.clone();
+    matching_new_meaning
+        .request_identity
+        .push_str("-matching-new-meaning");
+    matching_new_meaning.deterministic_seed += 1;
+    matching_new_meaning.dataset = binding("dataset-v2", '9');
+    matching_new_meaning.admission = placeholder_admission(&matching_new_meaning.request_identity);
+    matching_new_meaning = edge.admit_replay(matching_new_meaning).await;
+    let matching_new = owner
+        .commit_exploratory_replay_request_v1(matching_new_meaning.clone())
+        .await
+        .expect("fresh Replay meaning with exact full admission");
+    assert_eq!(
+        matching_new.projection().availability,
+        ExploratoryReplayAvailabilityV1::Available
+    );
+    assert_eq!(
+        request_counts(
+            mutation.pool(CanonicalOwnerTestRoleV1::RdOwner),
+            &matching_new_meaning.request_identity,
+        )
+        .await,
+        [1, 1]
+    );
+
+    let mut tampered_locator = proposal.clone();
+    tampered_locator
+        .request_identity
+        .push_str("-tampered-locator");
+    tampered_locator.admission = placeholder_admission(&tampered_locator.request_identity);
+    tampered_locator = edge.admit_replay(tampered_locator).await;
+    tampered_locator.admission.admission_digest = format!("sha256:{}", "f".repeat(64));
+    assert!(matches!(
+        owner
+            .commit_exploratory_replay_request_v1(tampered_locator.clone())
+            .await,
+        Err(ExploratoryReplayOwnerError::Unavailable(_))
+    ));
+    assert_eq!(
+        request_counts(
+            mutation.pool(CanonicalOwnerTestRoleV1::RdOwner),
+            &tampered_locator.request_identity,
+        )
+        .await,
+        [0, 0]
+    );
 
     let first = owner
         .commit_exploratory_replay_request_v1(proposal.clone())
@@ -424,6 +495,7 @@ async fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owne
             .and_then(serde_json::Value::as_str),
         Some("AVAILABLE")
     );
+
     for role in [
         CanonicalOwnerTestRoleV1::BacktestOwner,
         CanonicalOwnerTestRoleV1::ProductEdgeOwner,
@@ -470,6 +542,20 @@ async fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owne
     assert_unavailable(&owner, first.locator()).await;
     sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,dataset,digest}',to_jsonb($2::text)) WHERE request_identity=$1")
         .bind(&proposal.request_identity).bind(&proposal.dataset.digest).execute(rd_pool).await.unwrap();
+    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,admission,admission_digest}',to_jsonb('sha256:tampered'::text)) WHERE request_identity=$1")
+        .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
+    assert_unavailable(&owner, first.locator()).await;
+    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,admission,admission_digest}',to_jsonb($2::text)) WHERE request_identity=$1")
+        .bind(&proposal.request_identity).bind(&proposal.admission.admission_digest).execute(rd_pool).await.unwrap();
+    let product_edge_request_semantic_digest =
+        internal_envelope["frozen"]["product_edge_request_semantic_digest"]
+            .as_str()
+            .unwrap();
+    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{product_edge_request_semantic_digest}',to_jsonb('sha256:tampered'::text)) WHERE request_identity=$1")
+        .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
+    assert_unavailable(&owner, first.locator()).await;
+    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{product_edge_request_semantic_digest}',to_jsonb($2::text)) WHERE request_identity=$1")
+        .bind(&proposal.request_identity).bind(product_edge_request_semantic_digest).execute(rd_pool).await.unwrap();
     sqlx::query("UPDATE public.rd_owner_outbox_v1 SET event_kind='MISSING_FOR_TEST' WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V1'")
         .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
     assert_unavailable(&owner, first.locator()).await;
@@ -947,6 +1033,13 @@ impl TestProductEdge {
                 now,
                 valid_through,
             ),
+            manifest(
+                EXPLORATORY_REPLAY_OPERATION_V1,
+                EXPLORATORY_REPLAY_SCHEMA_V1,
+                vec![EXPLORATORY_REPLAY_MUTATION_EFFECT_V1.into()],
+                now,
+                valid_through,
+            ),
         ];
         manifests.sort_by_key(|manifest| manifest.manifest_identity().unwrap());
         let proof = format!("sha256:{}", "a".repeat(64));
@@ -963,6 +1056,7 @@ impl TestProductEdge {
                     audience: format!("R_AND_D:{suffix}"),
                     permissions: vec![
                         "research:artifact-build".into(),
+                        "research:replay".into(),
                         "research:submit".into(),
                         "research:view".into(),
                     ],
@@ -1067,6 +1161,24 @@ impl TestProductEdge {
             .locator()
             .clone();
         request
+    }
+
+    async fn admit_replay(
+        &self,
+        mut proposal: ExploratoryReplayRequestProposalV1,
+    ) -> ExploratoryReplayRequestProposalV1 {
+        let mut payload = serde_json::to_value(&proposal).unwrap();
+        payload.as_object_mut().unwrap().remove("admission");
+        proposal.admission = self
+            .admit(
+                &proposal.request_identity,
+                payload,
+                EXPLORATORY_REPLAY_OPERATION_V1,
+                EXPLORATORY_REPLAY_SCHEMA_V1,
+                vec![EXPLORATORY_REPLAY_MUTATION_EFFECT_V1.into()],
+            )
+            .await;
+        proposal
     }
 
     async fn admit(
