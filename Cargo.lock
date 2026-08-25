@@ -11086,6 +11086,7 @@ name = "vibe-runtime"
 version = "0.62.0"
 dependencies = [
  "rstest",
+ "vibe-execution",
 ]
 
 [[package]]
