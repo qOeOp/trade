@@ -909,6 +909,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             ));
         }
         let research_request_identity = custody.research.receipt().request_identity.clone();
+        let locked_research_receipt = custody.research.receipt().clone();
         let verified_family = custody.research.family().cloned();
         let old_view = custody
             .research
@@ -998,7 +999,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
         current.receipt = Some(receipt);
 
         if intent.is_v2() {
-            let family = verified_family.ok_or_else(|| {
+            let family = verified_family.clone().ok_or_else(|| {
                 ArtifactBuildError::Storage("V2 family custody missing".to_string())
             })?;
             persist_artifact_binding(
@@ -1013,10 +1014,30 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             .map_err(|e| trial_family_storage(&e))?;
         }
         persist_attempt(&mut transaction, &custody.attempt, &current).await?;
+        let refreshed_research = Box::pin(admit_research_custody_in_transaction(
+            &mut transaction,
+            ResearchCustodyLookupV1::Intent(&request.intent_identity),
+        ))
+        .await
+        .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?
+        .ok_or_else(|| {
+            ArtifactBuildError::Storage(
+                "successful artifact research custody missing after view update".to_string(),
+            )
+        })?;
+
+        if refreshed_research.receipt() != &locked_research_receipt
+            || refreshed_research.intent() != Some(&intent)
+            || refreshed_research.family() != verified_family.as_ref()
+        {
+            return Err(ArtifactBuildError::Storage(
+                "successful artifact research custody changed after view update".to_string(),
+            ));
+        }
         let custody = Box::pin(admit_attempt_with_research_in_transaction(
             &mut transaction,
             &request.build_request_identity,
-            custody.research,
+            refreshed_research,
             custody.product_edge_admission,
         ))
         .await?

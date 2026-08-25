@@ -10,11 +10,12 @@ use url::Url;
 
 const EXPECTED_DATABASE_ENV: &str = "VIBE_POSTGRES_TEST_DATABASE_NAME";
 const EXPECTED_MARKER_ENV: &str = "VIBE_POSTGRES_TEST_INSTANCE_MARKER";
-const PRODUCTION_DATABASE_URL_ENVS: [&str; 4] = [
+const PRODUCTION_DATABASE_URL_ENVS: [&str; 5] = [
     "RD_OWNER_DATABASE_URL",
     "WINDMILL_DATABASE_URL",
     "PRODUCT_EDGE_DATABASE_URL",
     "OPERATOR_AUTHORIZATION_DATABASE_URL",
+    "BACKTEST_DATABASE_URL",
 ];
 const DEFAULT_DATABASE_NAMES: [&str; 7] = [
     "postgres",
@@ -25,7 +26,7 @@ const DEFAULT_DATABASE_NAMES: [&str; 7] = [
     "rd_owner",
     "product_edge",
 ];
-const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 4] = [
+const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 5] = [
     (
         "OPERATOR_AUTHORIZATION_TEST_DATABASE_URL",
         "operator_authorization_writer",
@@ -33,6 +34,7 @@ const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 4] = [
     ("PRODUCT_EDGE_TEST_DATABASE_URL", "product_edge_owner"),
     ("RD_OWNER_TEST_DATABASE_URL", "rd_owner"),
     ("QUALIFICATION_TEST_DATABASE_URL", "qualification_writer"),
+    ("BACKTEST_TEST_DATABASE_URL", "backtest_owner"),
 ];
 
 /// A stable, credential-redacting failure from dedicated test-database admission.
@@ -137,13 +139,14 @@ pub struct DedicatedPostgresTestDatabase {
     pool: PgPool,
 }
 
-/// Canonical non-privileged roles in the disposable OA/PE/R&D/Qualification topology.
+/// Canonical non-privileged roles in the disposable OA/PE/R&D/Qualification/Backtest topology.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CanonicalOwnerTestRoleV1 {
     OperatorAuthorizationWriter,
     ProductEdgeOwner,
     RdOwner,
     QualificationWriter,
+    BacktestOwner,
 }
 
 impl CanonicalOwnerTestRoleV1 {
@@ -153,14 +156,15 @@ impl CanonicalOwnerTestRoleV1 {
             Self::ProductEdgeOwner => 1,
             Self::RdOwner => 2,
             Self::QualificationWriter => 3,
+            Self::BacktestOwner => 4,
         }
     }
 }
 
 /// Proof that all canonical Owner roles resolve to one immutable, disposable database.
 pub struct CanonicalOwnerPostgresTestDatabaseV1 {
-    database_urls: [String; 4],
-    pools: [PgPool; 4],
+    database_urls: [String; 5],
+    pools: [PgPool; 5],
     marker_identity: String,
 }
 
@@ -174,7 +178,7 @@ impl Debug for CanonicalOwnerPostgresTestDatabaseV1 {
 }
 
 impl CanonicalOwnerPostgresTestDatabaseV1 {
-    /// Admits the fixed OA writer, PE Owner, R&D Owner and Qualification writer role map.
+    /// Admits the fixed OA writer, PE Owner, R&D Owner, Qualification writer and Backtest role map.
     ///
     /// This is separate from [`DedicatedPostgresTestDatabase`]: it does not relax that
     /// guard's `vibe_test_role_*` identity requirement.
@@ -498,6 +502,7 @@ fn role_environment(url_environment: &str) -> Option<&'static str> {
             Some("OPERATOR_AUTHORIZATION_TEST_DATABASE_ROLE")
         }
         "QUALIFICATION_TEST_DATABASE_URL" => Some("QUALIFICATION_TEST_DATABASE_ROLE"),
+        "BACKTEST_TEST_DATABASE_URL" => Some("BACKTEST_TEST_DATABASE_ROLE"),
         _ => None,
     }
 }

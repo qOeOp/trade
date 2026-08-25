@@ -10,6 +10,10 @@ use vibe_product_edge::{
 };
 use vibe_qualification::PostgresQualificationOwnerV1;
 
+use crate::exploratory_replay::{
+    ExploratoryReplayCommitResultV1, ExploratoryReplayOwnerError, ExploratoryReplayReadResultV1,
+    ExploratoryReplayRequestLocatorV1, ExploratoryReplayRequestProposalV1,
+};
 use crate::product_edge::{
     FrozenResearchGoalIntent, IndependenceBasisReadbackV1, IndependenceBasisReceiptV1,
     ProductEdgeResearchGoalRequestV2, ProductEdgeResolution, ResearchGoalOwnerError,
@@ -37,6 +41,7 @@ use crate::{
 pub struct PostgresResearchGoalOwnerV1 {
     pool: PgPool,
     qualification: PostgresQualificationOwnerV1,
+    backtest: Option<crate::exploratory_replay::postgres::BoundBacktestReadV1>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,7 +115,25 @@ impl PostgresResearchGoalOwnerV1 {
         Ok(Self {
             pool,
             qualification,
+            backtest: None,
         })
+    }
+
+    pub async fn connect_with_backtest(
+        database_url: &str,
+        qualification_database_url: &str,
+        backtest_database_url: &str,
+    ) -> Result<Self, ResearchGoalOwnerError> {
+        let mut owner = Self::connect(database_url, qualification_database_url).await?;
+        owner.backtest = Some(
+            crate::exploratory_replay::postgres::bind_backtest_read(
+                &owner.pool,
+                backtest_database_url,
+            )
+            .await
+            .map_err(json_storage)?,
+        );
+        Ok(owner)
     }
 
     async fn migrate_rd_storage(pool: &PgPool) -> Result<(), ResearchGoalOwnerError> {
@@ -277,6 +300,9 @@ impl PostgresResearchGoalOwnerV1 {
         migrate_trial_family(pool)
             .await
             .map_err(|e| trial_family_storage(&e))?;
+        crate::exploratory_replay::postgres::migrate(pool)
+            .await
+            .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
         let mut publication = pool.begin().await.map_err(|e| storage(&e))?;
         sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS rd_owner_outbox_aggregate_kind_v1 ON public.rd_owner_outbox_v1 (aggregate_identity, event_kind)")
             .execute(&mut *publication)
@@ -361,6 +387,30 @@ impl PostgresResearchGoalOwnerV1 {
         }
         publication.commit().await.map_err(|e| storage(&e))?;
         Ok(())
+    }
+
+    /// Freezes one request only after the complete current R&D lineage is locked and revalidated.
+    pub async fn commit_exploratory_replay_request_v1(
+        &self,
+        proposal: ExploratoryReplayRequestProposalV1,
+    ) -> Result<ExploratoryReplayCommitResultV1, ExploratoryReplayOwnerError> {
+        Box::pin(crate::exploratory_replay::postgres::commit(
+            &self.pool, proposal,
+        ))
+        .await
+    }
+
+    /// Uses a canonical `backtest_owner` session to consume only the sealed R&D lock API.
+    pub async fn lock_exploratory_replay_request_for_backtest_v1(
+        &self,
+        locator: &ExploratoryReplayRequestLocatorV1,
+    ) -> Result<ExploratoryReplayReadResultV1, ExploratoryReplayOwnerError> {
+        let backtest = self.backtest.as_ref().ok_or_else(|| {
+            ExploratoryReplayOwnerError::Unavailable(
+                "R&D Owner has no bound Backtest read capability".into(),
+            )
+        })?;
+        crate::exploratory_replay::postgres::lock_for_backtest(&self.pool, backtest, locator).await
     }
 
     pub async fn preflight_request_identity(

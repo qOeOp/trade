@@ -15,6 +15,7 @@ mod cargo_artifact;
 mod decision;
 mod dual_tsmom;
 mod experiment;
+pub mod exploratory_replay;
 mod family;
 mod family_adapters;
 mod formation_adapters;

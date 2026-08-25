@@ -12,6 +12,7 @@ use crate::{
     trial_family_postgres::load_artifact_trial_family_in_transaction,
 };
 use serde::{Deserialize, Serialize};
+use vibe_product_edge::ProductEdgeAdmissionLocatorV1;
 
 mod invocation_reservation;
 
@@ -49,6 +50,122 @@ pub(crate) struct VerifiedAttemptCustodyV1 {
     pub(crate) product_edge_admission: ProductEdgeAdmissionReadbackV1,
     pub(crate) artifact_review: Option<ArtifactReviewV1>,
     pub(crate) artifact_family: Option<ArtifactTrialFamilyReadbackV1>,
+}
+
+impl VerifiedAttemptCustodyV1 {
+    pub(crate) async fn admit_for_exploratory_replay_in_transaction(
+        transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        build_request_identity: &str,
+        replay_admission: &ProductEdgeAdmissionLocatorV1,
+        read_cut_epoch_ms: u64,
+    ) -> Result<Option<(Self, ProductEdgeAdmissionReadbackV1)>, ArtifactBuildError> {
+        let hint_rows = sqlx::query("SELECT build_request_identity, attempt_identity, semantic_digest, attempt_json, prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1 WHERE build_request_identity = $1")
+            .bind(build_request_identity)
+            .fetch_all(&mut **transaction)
+            .await
+            .map_err(storage)?;
+
+        if hint_rows.is_empty() {
+            return Ok(None);
+        }
+
+        if hint_rows.len() != 1 {
+            return Err(ArtifactBuildError::Storage(
+                "replay attempt custody locator is ambiguous".into(),
+            ));
+        }
+
+        let hint = decode_attempt_row(&hint_rows[0], build_request_identity)?;
+        let (replay, artifact) = Self::lock_exploratory_replay_admissions_in_transaction(
+            transaction,
+            replay_admission,
+            &hint.request.admission,
+            read_cut_epoch_ms,
+        )
+        .await?;
+        verify_artifact_build_admission(&artifact, &hint.request)?;
+
+        // Both mutation admissions are locked before any R&D row lock. Research
+        // custody then preloads its own Product Edge admissions before its FOR UPDATE cut.
+        let research = admit_research_row_in_transaction(
+            transaction,
+            ResearchCustodyLookupV1::Intent(hint.request.intent_identity.as_str()),
+        )
+        .await
+        .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?
+        .ok_or_else(|| ArtifactBuildError::Storage("attempt research custody missing".into()))?;
+        let custody = Box::pin(admit_attempt_with_research_in_transaction(
+            transaction,
+            build_request_identity,
+            research,
+            artifact,
+        ))
+        .await?
+        .ok_or_else(|| ArtifactBuildError::Storage("attempt custody missing".into()))?;
+        verify_attempt_authority(&replay, &custody.product_edge_admission)?;
+        verify_attempt_authority(
+            &replay,
+            custody.research.product_edge_admission().ok_or_else(|| {
+                ArtifactBuildError::Storage("research Product Edge admission missing".into())
+            })?,
+        )?;
+        Ok(Some((custody, replay)))
+    }
+
+    pub(crate) async fn lock_exploratory_replay_admissions_in_transaction(
+        transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        replay_admission: &ProductEdgeAdmissionLocatorV1,
+        artifact_admission: &ProductEdgeAdmissionLocatorV1,
+        read_cut_epoch_ms: u64,
+    ) -> Result<
+        (
+            ProductEdgeAdmissionReadbackV1,
+            ProductEdgeAdmissionReadbackV1,
+        ),
+        ArtifactBuildError,
+    > {
+        let mut locators = [(false, replay_admission), (true, artifact_admission)];
+        locators.sort_by(|left, right| {
+            (
+                &left.1.request_identity,
+                &left.1.admission_identity,
+                &left.1.admission_digest,
+                left.0,
+            )
+                .cmp(&(
+                    &right.1.request_identity,
+                    &right.1.admission_identity,
+                    &right.1.admission_digest,
+                    right.0,
+                ))
+        });
+
+        let mut replay = None;
+        let mut artifact = None;
+
+        for (is_artifact, locator) in locators {
+            let admission = resolve_admission_for_downstream_in_transaction(
+                transaction,
+                locator,
+                DownstreamAdmissionModeV1::FirstMutation { read_cut_epoch_ms },
+            )
+            .await
+            .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?;
+            if is_artifact {
+                artifact = Some(admission);
+            } else {
+                replay = Some(admission);
+            }
+        }
+
+        let replay = replay.ok_or_else(|| {
+            ArtifactBuildError::Storage("replay Product Edge admission missing".into())
+        })?;
+        let artifact = artifact.ok_or_else(|| {
+            ArtifactBuildError::Storage("artifact Product Edge admission missing".into())
+        })?;
+        Ok((replay, artifact))
+    }
 }
 
 pub(crate) struct VerifiedAttemptReservationHeaderV1 {
