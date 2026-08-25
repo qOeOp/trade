@@ -347,6 +347,7 @@ async fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owne
     );
 
     for role in [
+        CanonicalOwnerTestRoleV1::RdOwner,
         CanonicalOwnerTestRoleV1::ProductEdgeOwner,
         CanonicalOwnerTestRoleV1::QualificationWriter,
         CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter,
@@ -365,6 +366,82 @@ async fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owne
     }
 
     let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+    let publication_catalog_is_exact: bool = sqlx::query_scalar(
+        "SELECT facade_owner.rolname='rd_owner'
+             AND facade.prosecdef
+             AND facade.provolatile='v'
+             AND facade.proparallel='u'
+             AND facade.proisstrict
+             AND facade.proconfig=ARRAY['search_path=pg_catalog']::text[]
+             AND pg_catalog.has_function_privilege('backtest_owner',facade.oid,'EXECUTE')
+             AND NOT pg_catalog.has_function_privilege('rd_owner',facade.oid,'EXECUTE')
+             AND NOT EXISTS (
+               SELECT 1 FROM pg_catalog.aclexplode(facade.proacl) acl
+                WHERE acl.privilege_type='EXECUTE'
+                  AND acl.grantee<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner')
+             )
+             AND helper_owner.rolname='rd_owner'
+             AND NOT helper.prosecdef
+             AND helper.provolatile='v'
+             AND helper.proparallel='u'
+             AND helper.proisstrict
+             AND helper.proconfig=ARRAY['search_path=pg_catalog']::text[]
+             AND pg_catalog.has_function_privilege('rd_owner',helper.oid,'EXECUTE')
+             AND NOT pg_catalog.has_function_privilege('backtest_owner',helper.oid,'EXECUTE')
+             AND NOT EXISTS (
+               SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) acl
+                WHERE acl.privilege_type='EXECUTE'
+                  AND acl.grantee<>helper_owner.oid
+             )
+          FROM pg_catalog.pg_proc facade
+          JOIN pg_catalog.pg_roles facade_owner ON facade_owner.oid=facade.proowner
+          JOIN pg_catalog.pg_proc helper
+            ON helper.oid=pg_catalog.to_regprocedure(
+              'rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)'
+            )
+          JOIN pg_catalog.pg_roles helper_owner ON helper_owner.oid=helper.proowner
+         WHERE facade.oid=pg_catalog.to_regprocedure(
+           'rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)'
+         )",
+    )
+    .fetch_one(rd_pool)
+    .await
+    .expect("published replay verifier catalog");
+    assert!(publication_catalog_is_exact);
+
+    let internal_envelope: serde_json::Value = sqlx::query_scalar(
+        "SELECT rd_owner_api.verify_exploratory_replay_request_internal_v1($1,$2,$3)",
+    )
+    .bind(&first.locator().request_identity)
+    .bind(&first.locator().request_digest)
+    .bind(&first.locator().receipt_identity)
+    .fetch_one(rd_pool)
+    .await
+    .expect("R&D-internal sealed verifier");
+    assert_eq!(
+        internal_envelope
+            .get("availability")
+            .and_then(serde_json::Value::as_str),
+        Some("AVAILABLE")
+    );
+    for role in [
+        CanonicalOwnerTestRoleV1::BacktestOwner,
+        CanonicalOwnerTestRoleV1::ProductEdgeOwner,
+        CanonicalOwnerTestRoleV1::QualificationWriter,
+        CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter,
+    ] {
+        assert!(
+            sqlx::query_scalar::<_, Option<serde_json::Value>>(
+                "SELECT rd_owner_api.verify_exploratory_replay_request_internal_v1($1,$2,$3)",
+            )
+            .bind(&first.locator().request_identity)
+            .bind(&first.locator().request_digest)
+            .bind(&first.locator().receipt_identity)
+            .fetch_one(mutation.pool(role))
+            .await
+            .is_err()
+        );
+    }
 
     for (break_sql, restore_sql) in [
         (
@@ -708,44 +785,38 @@ async fn assert_impersonator_rejected(
     envelope: &serde_json::Value,
 ) {
     let encoded = BASE64.encode(serde_json::to_vec(envelope).unwrap());
-    let options = format!("-cvibe.fake_envelope_base64={encoded}");
-    let database_url = format!(
-        "{impersonator_url}?options={}",
-        encode_query_value(&options)
-    );
-    let pool = PgPool::connect(&database_url)
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect(impersonator_url)
         .await
         .expect("impersonating backtest_owner pool");
+    let mut connection = pool.acquire().await.unwrap();
+    let configured: String =
+        sqlx::query_scalar("SELECT pg_catalog.set_config('vibe.fake_envelope_base64',$1,false)")
+            .bind(&encoded)
+            .fetch_one(&mut *connection)
+            .await
+            .expect("impersonator session envelope");
+    assert_eq!(configured, encoded);
     let observed: serde_json::Value =
         sqlx::query_scalar("SELECT rd_owner_api.lock_exploratory_replay_request_v1($1,$2,$3)")
             .bind(&locator.request_identity)
             .bind(&locator.request_digest)
             .bind(&locator.receipt_identity)
-            .fetch_one(&pool)
+            .fetch_one(&mut *connection)
             .await
             .expect("impersonator function envelope");
     assert_eq!(observed, *envelope);
+    drop(connection);
     assert!(
         PostgresResearchGoalOwnerV1::connect_with_backtest(
             rd_url,
             qualification_url,
-            &database_url,
+            impersonator_url,
         )
         .await
         .is_err()
     );
-}
-
-fn encode_query_value(value: &str) -> String {
-    let mut encoded = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
-            encoded.push(char::from(byte));
-        } else {
-            encoded.push_str(&format!("%{byte:02X}"));
-        }
-    }
-    encoded
 }
 
 async fn request_counts(pool: &PgPool, identity: &str) -> [i64; 2] {

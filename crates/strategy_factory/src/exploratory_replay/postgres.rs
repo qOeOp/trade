@@ -22,6 +22,8 @@ use crate::{
 };
 
 const LOCK_FUNCTION: &str = "rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)";
+const INTERNAL_VERIFY_FUNCTION: &str =
+    "rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)";
 
 #[derive(Debug, Clone)]
 pub(crate) struct BoundBacktestReadV1 {
@@ -156,6 +158,12 @@ struct LockedEnvelopeV1 {
     artifact_family_outbox: Option<LockedOutboxRowV1>,
 }
 
+struct ValidatedAvailableEnvelopeV1 {
+    frozen: StoredFrozenV1,
+    receipt: StoredReceiptV1,
+    owner_cut_epoch_ms: u64,
+}
+
 pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerError> {
     for statement in [
         "CREATE TABLE IF NOT EXISTS public.rd_exploratory_replay_requests_v1 (request_identity TEXT PRIMARY KEY, request_digest TEXT NOT NULL, build_request_identity TEXT NOT NULL, attempt_identity TEXT NOT NULL, intent_identity TEXT NOT NULL, trial_family_identity TEXT NOT NULL, artifact_identity TEXT NOT NULL, build_receipt_identity TEXT NOT NULL, artifact_family_binding_identity TEXT NOT NULL, census_frontier_identity TEXT NOT NULL, frozen_json JSONB NOT NULL, receipt_json JSONB NOT NULL, lifecycle_state TEXT NOT NULL DEFAULT 'FROZEN', committed_at_epoch_ms BIGINT NOT NULL)",
@@ -171,57 +179,23 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
             .map_err(storage)?;
     }
 
-    let published_lock_api_is_sealed: Option<bool> = sqlx::query_scalar(
-        "
-        SELECT procedure.prosecdef
-           AND procedure.provolatile = 'v'
-           AND procedure.proparallel = 'u'
-           AND procedure.proisstrict
-           AND procedure.proconfig = ARRAY['search_path=pg_catalog']::text[]
-           AND owner.rolname = 'rd_owner'
-           AND language.lanname = 'plpgsql'
-           AND pg_catalog.pg_get_function_result(procedure.oid) = 'jsonb'
-           AND NOT EXISTS (
-             SELECT 1
-               FROM pg_catalog.aclexplode(COALESCE(
-                      procedure.proacl,
-                      pg_catalog.acldefault('f', procedure.proowner)
-                    )) AS privilege
-              WHERE privilege.privilege_type = 'EXECUTE'
-                AND privilege.grantee <> (
-                  SELECT role.oid FROM pg_catalog.pg_roles role
-                   WHERE role.rolname = 'backtest_owner'
-                )
-           )
-           AND pg_catalog.has_function_privilege(
-                 'backtest_owner', procedure.oid, 'EXECUTE'
-               )
-          FROM pg_catalog.pg_proc procedure
-          JOIN pg_catalog.pg_roles owner ON owner.oid = procedure.proowner
-          JOIN pg_catalog.pg_language language ON language.oid = procedure.prolang
-         WHERE procedure.oid = pg_catalog.to_regprocedure($1)
-        ",
-    )
-    .bind(LOCK_FUNCTION)
-    .fetch_optional(pool)
-    .await
-    .map_err(storage)?;
-
-    if let Some(is_sealed) = published_lock_api_is_sealed {
-        if !is_sealed {
-            return Err(ExploratoryReplayOwnerError::Unavailable(
-                "published Backtest lock API authority drift".into(),
-            ));
-        }
+    let mut publication = pool.begin().await.map_err(storage)?;
+    for statement in [
+        "DROP FUNCTION IF EXISTS rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)",
+        "DROP FUNCTION IF EXISTS rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)",
+    ] {
+        sqlx::query(statement)
+            .execute(&mut *publication)
+            .await
+            .map_err(storage)?;
     }
-
     sqlx::query(
         "
-        CREATE OR REPLACE FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(
+        CREATE FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(
           requested_request_identity text,
           requested_request_digest text,
           requested_receipt_identity text
-        ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+        ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER
         SET search_path = pg_catalog
         AS $function$
         DECLARE sealed record;
@@ -234,14 +208,14 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
           SELECT * INTO sealed
             FROM public.rd_exploratory_replay_requests_v1
            WHERE request_identity = requested_request_identity
-             AND request_digest = requested_request_digest
+             AND (requested_request_digest = '' OR request_digest = requested_request_digest)
            FOR SHARE;
           IF NOT FOUND THEN RETURN NULL; END IF;
           IF sealed.lifecycle_state = 'REVOKED' THEN
             RETURN pg_catalog.jsonb_build_object('schema_version',1,'availability','STALE');
           END IF;
           IF sealed.lifecycle_state <> 'FROZEN'
-             OR sealed.receipt_json->>'receipt_identity' <> requested_receipt_identity
+             OR (requested_receipt_identity <> '' AND sealed.receipt_json->>'receipt_identity' <> requested_receipt_identity)
              OR sealed.frozen_json->>'schema_version' <> '1'
              OR sealed.frozen_json->>'request_digest' <> sealed.request_digest
              OR sealed.frozen_json->>'committed_at_epoch_ms' <> sealed.committed_at_epoch_ms::text
@@ -417,20 +391,46 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
         $function$
         ",
     )
-    .execute(pool)
+    .execute(&mut *publication)
+    .await
+    .map_err(storage)?;
+    sqlx::query(
+        "
+        CREATE FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(
+          requested_request_identity text,
+          requested_request_digest text,
+          requested_receipt_identity text
+        ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+        SET search_path = pg_catalog
+        AS $function$
+        BEGIN
+          RETURN rd_owner_api.verify_exploratory_replay_request_internal_v1(
+            requested_request_identity,
+            requested_request_digest,
+            requested_receipt_identity
+          );
+        END
+        $function$
+        ",
+    )
+    .execute(&mut *publication)
     .await
     .map_err(storage)?;
 
     for statement in [
+        "ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) OWNER TO rd_owner",
         "ALTER FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text) OWNER TO rd_owner",
+        "REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner",
+        "GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) TO rd_owner",
         "REVOKE ALL ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, rd_owner",
         "GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text) TO backtest_owner",
     ] {
         sqlx::query(statement)
-            .execute(pool)
+            .execute(&mut *publication)
             .await
             .map_err(storage)?;
     }
+    publication.commit().await.map_err(storage)?;
     Ok(())
 }
 
@@ -670,283 +670,41 @@ async fn resolve_existing(
     transaction: &mut Transaction<'_, Postgres>,
     proposal: &ExploratoryReplayRequestProposalV1,
 ) -> Result<Option<ExploratoryReplayCommitResultV1>, ExploratoryReplayOwnerError> {
-    let Some(row) = sqlx::query(
-        "SELECT request_identity,request_digest,build_request_identity,attempt_identity,intent_identity,trial_family_identity,artifact_identity,build_receipt_identity,artifact_family_binding_identity,census_frontier_identity,frozen_json,receipt_json,lifecycle_state,committed_at_epoch_ms FROM public.rd_exploratory_replay_requests_v1 WHERE request_identity=$1 FOR UPDATE",
+    let value: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT rd_owner_api.verify_exploratory_replay_request_internal_v1($1,'','')",
     )
     .bind(&proposal.request_identity)
-    .fetch_optional(&mut **transaction)
+    .fetch_one(&mut **transaction)
     .await
-    .map_err(storage)?
-    else {
+    .map_err(storage)?;
+
+    let Some(value) = value else {
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM public.rd_exploratory_replay_requests_v1 WHERE request_identity=$1)",
+        )
+        .bind(&proposal.request_identity)
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(storage)?;
+        if exists {
+            return Err(ExploratoryReplayOwnerError::Unavailable(
+                "existing exploratory request failed sealed verification".into(),
+            ));
+        }
         return Ok(None);
     };
 
-    let frozen_json = row.try_get("frozen_json").map_err(storage)?;
-    let receipt_json = row.try_get("receipt_json").map_err(storage)?;
-    let frozen = decode_frozen(&frozen_json)?;
-    let receipt = decode_receipt(&receipt_json)?;
-    verify_frozen(&frozen)?;
-    verify_receipt(&receipt, &frozen)?;
-
-    let committed_at_epoch_ms = u64::try_from(
-        row.try_get::<i64, _>("committed_at_epoch_ms")
-            .map_err(storage)?,
-    )
-    .map_err(unavailable)?;
-
-    if row
-        .try_get::<String, _>("request_identity")
-        .map_err(storage)?
-        != frozen.proposal.request_identity
-        || row
-            .try_get::<String, _>("request_digest")
-            .map_err(storage)?
-            != frozen.request_digest
-        || row
-            .try_get::<String, _>("build_request_identity")
-            .map_err(storage)?
-            != frozen.proposal.build_request_identity
-        || row
-            .try_get::<String, _>("attempt_identity")
-            .map_err(storage)?
-            != frozen.proposal.attempt_identity
-        || row
-            .try_get::<String, _>("intent_identity")
-            .map_err(storage)?
-            != frozen.proposal.intent_identity
-        || row
-            .try_get::<String, _>("trial_family_identity")
-            .map_err(storage)?
-            != frozen.proposal.trial_family_identity
-        || row
-            .try_get::<String, _>("artifact_identity")
-            .map_err(storage)?
-            != frozen.proposal.artifact_identity
-        || row
-            .try_get::<String, _>("build_receipt_identity")
-            .map_err(storage)?
-            != frozen.proposal.build_receipt_identity
-        || row
-            .try_get::<String, _>("artifact_family_binding_identity")
-            .map_err(storage)?
-            != frozen.proposal.artifact_family_binding_identity
-        || row
-            .try_get::<String, _>("census_frontier_identity")
-            .map_err(storage)?
-            != frozen.proposal.census_frontier_identity
-        || row
-            .try_get::<String, _>("lifecycle_state")
-            .map_err(storage)?
-            != "FROZEN"
-        || committed_at_epoch_ms != frozen.committed_at_epoch_ms
-    {
+    let envelope: LockedEnvelopeV1 = decode_exact(&value)?;
+    if envelope.availability != ExploratoryReplayAvailabilityV1::Available {
         return Err(ExploratoryReplayOwnerError::Unavailable(
-            "stored exploratory request columns mismatch".into(),
+            "existing exploratory request is not available".into(),
         ));
     }
-
-    let outbox_row = sqlx::query(
-        "SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2 FOR SHARE",
-    )
-    .bind(&proposal.request_identity)
-    .bind(EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V1)
-    .fetch_one(&mut **transaction)
-    .await
-    .map_err(storage)?;
-    let outbox = locked_outbox_from_row(&outbox_row)?;
-    verify_outbox(&outbox, &frozen, &receipt)?;
-    verify_historical_lineage(transaction, &frozen).await?;
-
-    if frozen.proposal != *proposal {
+    let validated = validate_available_envelope(envelope, None)?;
+    if validated.frozen.proposal != *proposal {
         return Err(ExploratoryReplayOwnerError::ConflictingReplay);
     }
-    Ok(Some(assemble(frozen, receipt)))
-}
-
-async fn verify_historical_lineage(
-    transaction: &mut Transaction<'_, Postgres>,
-    frozen: &StoredFrozenV1,
-) -> Result<(), ExploratoryReplayOwnerError> {
-    let frozen_json = serde_json::to_value(frozen).map_err(unavailable)?;
-    let valid: bool = sqlx::query_scalar(
-        "
-        WITH expected AS (SELECT $1::jsonb AS frozen),
-        research AS MATERIALIZED (
-          SELECT 1 FROM public.rd_research_request_receipts_v1 research, expected
-           WHERE research.intent_json->>'intent_identity'=expected.frozen->'proposal'->>'intent_identity'
-             AND research.intent_json->>'semantic_digest'=expected.frozen->>'intent_semantic_digest'
-             AND research.receipt_json->>'receipt_identity'=expected.frozen->>'research_receipt_identity'
-             AND research.receipt_json->>'disposition'='ACCEPTED'
-             AND research.view_json->>'availability'='AVAILABLE'
-             AND research.view_json->>'phase'='ARTIFACT_AVAILABLE'
-             AND research.view_json->>'attempt_identity'=expected.frozen->'proposal'->>'attempt_identity'
-             AND research.view_json->>'artifact_identity'=expected.frozen->'proposal'->>'artifact_identity'
-             AND research.view_json->>'build_receipt_identity'=expected.frozen->'proposal'->>'build_receipt_identity'
-             AND research.view_json->>'artifact_review_identity'=expected.frozen->>'artifact_review_identity'
-           FOR SHARE OF research
-        ),
-        family AS MATERIALIZED (
-          SELECT 1 FROM public.rd_trial_families_v1 family
-          JOIN public.rd_trial_family_heads_v1 head USING (trial_family_identity), expected
-           WHERE family.trial_family_identity=expected.frozen->'proposal'->>'trial_family_identity'
-             AND family.intent_identity=expected.frozen->'proposal'->>'intent_identity'
-             AND family.root_digest=expected.frozen->>'trial_family_root_digest'
-             AND head.frontier_identity=expected.frozen->'proposal'->>'census_frontier_identity'
-             AND head.frontier_digest=expected.frozen->>'census_frontier_digest'
-           FOR SHARE OF family, head
-        ),
-        binding AS MATERIALIZED (
-          SELECT 1 FROM public.rd_artifact_trial_family_bindings_v1 binding, expected
-           WHERE binding.binding_identity=expected.frozen->'proposal'->>'artifact_family_binding_identity'
-             AND binding.artifact_identity=expected.frozen->'proposal'->>'artifact_identity'
-             AND binding.build_receipt_identity=expected.frozen->'proposal'->>'build_receipt_identity'
-             AND binding.intent_identity=expected.frozen->'proposal'->>'intent_identity'
-             AND binding.trial_family_identity=expected.frozen->'proposal'->>'trial_family_identity'
-             AND binding.binding_digest=expected.frozen->>'artifact_family_binding_digest'
-             AND binding.binding_receipt_json->>'receipt_identity'=expected.frozen->>'artifact_family_binding_receipt_identity'
-           FOR SHARE OF binding
-        ),
-        attempt AS MATERIALIZED (
-          SELECT 1 FROM public.rd_artifact_build_attempts_v1 attempt, expected
-           WHERE attempt.build_request_identity=expected.frozen->'proposal'->>'build_request_identity'
-             AND attempt.attempt_identity=expected.frozen->'proposal'->>'attempt_identity'
-             AND attempt.attempt_json->>'state'='TERMINAL'
-             AND attempt.attempt_json->'receipt'->>'disposition'='SUCCESS'
-             AND attempt.attempt_json->'receipt'->>'artifact_identity'=expected.frozen->'proposal'->>'artifact_identity'
-             AND attempt.attempt_json->'receipt'->>'build_receipt_identity'=expected.frozen->'proposal'->>'build_receipt_identity'
-           FOR SHARE OF attempt
-        ),
-        artifact AS MATERIALIZED (
-          SELECT 1 FROM public.rd_strategy_artifacts_v1 artifact, expected
-           WHERE artifact.artifact_digest=expected.frozen->'proposal'->>'artifact_identity'
-             AND artifact.intent_identity=expected.frozen->'proposal'->>'intent_identity'
-             AND artifact.attempt_identity=expected.frozen->'proposal'->>'attempt_identity'
-             AND artifact.build_receipt_json->>'build_receipt_identity'=expected.frozen->'proposal'->>'build_receipt_identity'
-             AND artifact.build_receipt_json->>'wasm_digest'=expected.frozen->'proposal'->>'exact_code_bytes_digest'
-             AND ('sha256:' || pg_catalog.encode(pg_catalog.sha256(artifact.wasm_bytes),'hex'))=expected.frozen->>'exact_code_bytes_sha256_digest'
-             AND artifact.build_receipt_json->>'source_capsule_digest'=expected.frozen->>'source_capsule_digest'
-             AND artifact.build_receipt_json->>'build_recipe_digest'=expected.frozen->>'build_recipe_digest'
-             AND artifact.build_receipt_json->>'dependency_identity'=expected.frozen->>'dependency_identity'
-             AND artifact.artifact_review_json->>'review_identity'=expected.frozen->>'artifact_review_identity'
-           FOR SHARE OF artifact
-        ),
-        family_outbox AS MATERIALIZED (
-          SELECT 1
-            FROM public.rd_owner_outbox_v1 outbox
-            JOIN public.rd_trial_families_v1 family
-              ON family.trial_family_identity=outbox.aggregate_identity
-            JOIN public.rd_trial_family_members_v1 member
-              ON member.trial_family_identity=family.trial_family_identity
-             AND member.ordinal=0
-            JOIN public.rd_trial_family_heads_v1 head
-              ON head.trial_family_identity=family.trial_family_identity,
-                 expected
-           WHERE outbox.aggregate_identity=expected.frozen->'proposal'->>'trial_family_identity'
-             AND outbox.event_kind='TRIAL_FAMILY_FROZEN_V1'
-             AND outbox.payload_digest=expected.frozen->>'trial_family_outbox_digest'
-             AND outbox.event_identity=expected.frozen->>'trial_family_outbox_event_identity'
-             AND outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(head.frontier_digest,'sha256:','')
-             AND outbox.committed_at_epoch_ms=(expected.frozen->>'trial_family_outbox_committed_at_epoch_ms')::bigint
-             AND outbox.committed_at_epoch_ms=family.committed_at_epoch_ms
-             AND outbox.payload_json=pg_catalog.jsonb_build_object(
-               'schema_version',1,
-               'research_receipt_identity',expected.frozen->>'research_receipt_identity',
-               'intent_identity',expected.frozen->'proposal'->>'intent_identity',
-               'trial_family_identity',expected.frozen->'proposal'->>'trial_family_identity',
-               'root_receipt_identity',family.root_receipt_json->>'receipt_identity',
-               'membership_receipt_identity',member.membership_receipt_json->>'receipt_identity',
-               'census_frontier_identity',head.frontier_identity,
-               'census_frontier_digest',head.frontier_digest
-             )
-           FOR SHARE OF outbox, family, member, head
-        ),
-        artifact_outbox AS MATERIALIZED (
-          SELECT 1
-            FROM public.rd_owner_outbox_v1 outbox
-            JOIN public.rd_artifact_trial_family_bindings_v1 binding
-              ON binding.artifact_identity=outbox.aggregate_identity,
-                 expected
-           WHERE outbox.aggregate_identity=expected.frozen->'proposal'->>'artifact_identity'
-             AND outbox.event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'
-             AND outbox.payload_digest=expected.frozen->>'artifact_family_outbox_digest'
-             AND outbox.event_identity=expected.frozen->>'artifact_family_outbox_event_identity'
-             AND outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(binding.binding_digest,'sha256:','')
-             AND outbox.committed_at_epoch_ms=(expected.frozen->>'artifact_family_outbox_committed_at_epoch_ms')::bigint
-             AND outbox.committed_at_epoch_ms=binding.committed_at_epoch_ms
-             AND outbox.payload_json=pg_catalog.jsonb_build_object(
-               'schema_version',1,
-               'artifact_identity',expected.frozen->'proposal'->>'artifact_identity',
-               'build_receipt_identity',expected.frozen->'proposal'->>'build_receipt_identity',
-               'trial_family_identity',expected.frozen->'proposal'->>'trial_family_identity',
-               'binding_identity',expected.frozen->'proposal'->>'artifact_family_binding_identity',
-               'binding_receipt_identity',expected.frozen->>'artifact_family_binding_receipt_identity'
-             )
-           FOR SHARE OF outbox, binding
-        )
-        SELECT EXISTS(SELECT 1 FROM research)
-           AND EXISTS(SELECT 1 FROM family)
-           AND EXISTS(SELECT 1 FROM binding)
-           AND EXISTS(SELECT 1 FROM attempt)
-           AND EXISTS(SELECT 1 FROM artifact)
-           AND EXISTS(SELECT 1 FROM family_outbox)
-           AND EXISTS(SELECT 1 FROM artifact_outbox)
-        ",
-    )
-    .bind(frozen_json)
-    .fetch_one(&mut **transaction)
-    .await
-    .map_err(storage)?;
-
-    if !valid {
-        return Err(ExploratoryReplayOwnerError::Unavailable(
-            "historical R&D lineage custody unavailable".into(),
-        ));
-    }
-    let family_outbox = load_dependency_outbox(
-        transaction,
-        &frozen.proposal.trial_family_identity,
-        "TRIAL_FAMILY_FROZEN_V1",
-    )
-    .await?;
-    let _: FamilyFrozenOutboxV1 = verify_dependency_outbox(
-        &family_outbox,
-        &frozen.proposal.trial_family_identity,
-        "TRIAL_FAMILY_FROZEN_V1",
-        &frozen.trial_family_outbox_event_identity,
-        &frozen.trial_family_outbox_digest,
-        frozen.trial_family_outbox_committed_at_epoch_ms,
-    )?;
-    let artifact_outbox = load_dependency_outbox(
-        transaction,
-        &frozen.proposal.artifact_identity,
-        "ARTIFACT_TRIAL_FAMILY_BOUND_V1",
-    )
-    .await?;
-    let _: ArtifactBoundOutboxV1 = verify_dependency_outbox(
-        &artifact_outbox,
-        &frozen.proposal.artifact_identity,
-        "ARTIFACT_TRIAL_FAMILY_BOUND_V1",
-        &frozen.artifact_family_outbox_event_identity,
-        &frozen.artifact_family_outbox_digest,
-        frozen.artifact_family_outbox_committed_at_epoch_ms,
-    )?;
-    Ok(())
-}
-
-async fn load_dependency_outbox(
-    transaction: &mut Transaction<'_, Postgres>,
-    aggregate_identity: &str,
-    event_kind: &str,
-) -> Result<LockedOutboxRowV1, ExploratoryReplayOwnerError> {
-    let row = sqlx::query(
-        "SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2 FOR SHARE",
-    )
-    .bind(aggregate_identity)
-    .bind(event_kind)
-    .fetch_one(&mut **transaction)
-    .await
-    .map_err(storage)?;
-    locked_outbox_from_row(&row)
+    Ok(Some(assemble(validated.frozen, validated.receipt)))
 }
 
 pub(crate) async fn bind_backtest_read(
@@ -993,12 +751,18 @@ pub(crate) async fn lock_for_backtest(
             readback: None,
         }),
         ExploratoryReplayAvailabilityV1::Available => {
-            let Ok(readback) = validate_available_envelope(envelope, locator) else {
+            let Ok(validated) = validate_available_envelope(envelope, Some(locator)) else {
                 return Ok(unavailable_result(&locator.request_identity));
+            };
+            let request_identity = validated.frozen.proposal.request_identity.clone();
+            let readback = SealedExploratoryReplayReadbackV1 {
+                frozen: into_frozen(validated.frozen),
+                receipt: into_receipt(validated.receipt),
+                owner_cut_epoch_ms: validated.owner_cut_epoch_ms,
             };
             Ok(ExploratoryReplayReadResultV1 {
                 projection: projection(
-                    readback.request_identity(),
+                    &request_identity,
                     ExploratoryReplayAvailabilityV1::Available,
                 ),
                 readback: Some(readback),
@@ -1082,6 +846,7 @@ async fn validate_backtest_binding(
              AND procedure.proargtypes='25 25 25'::pg_catalog.oidvector
              AND owner.rolname='rd_owner'
              AND language.lanname='plpgsql'
+             AND pg_catalog.strpos(procedure.prosrc,'rd_owner_api.verify_exploratory_replay_request_internal_v1') > 0
              AND backtest.rolcanlogin
              AND NOT (backtest.rolsuper OR backtest.rolcreatedb OR backtest.rolcreaterole OR backtest.rolreplication OR backtest.rolbypassrls)
              AND EXISTS (
@@ -1096,6 +861,30 @@ async fn validate_backtest_binding(
                 WHERE acl.privilege_type='EXECUTE'
                   AND acl.grantee NOT IN (owner.oid,backtest.oid)
              )
+             AND NOT pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE')
+             AND EXISTS (
+               SELECT 1
+                 FROM pg_catalog.pg_proc helper
+                 JOIN pg_catalog.pg_roles helper_owner ON helper_owner.oid=helper.proowner
+                 JOIN pg_catalog.pg_language helper_language ON helper_language.oid=helper.prolang
+                WHERE helper.oid=pg_catalog.to_regprocedure($2)
+                  AND NOT helper.prosecdef
+                  AND helper.provolatile='v'
+                  AND helper.proparallel='u'
+                  AND helper.proisstrict
+                  AND helper.proconfig=ARRAY['search_path=pg_catalog']::text[]
+                  AND helper.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
+                  AND helper.proargtypes='25 25 25'::pg_catalog.oidvector
+                  AND helper_owner.rolname='rd_owner'
+                  AND helper_language.lanname='plpgsql'
+                  AND pg_catalog.has_function_privilege('rd_owner',helper.oid,'EXECUTE')
+                  AND NOT pg_catalog.has_function_privilege('backtest_owner',helper.oid,'EXECUTE')
+                  AND NOT EXISTS (
+                    SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) helper_acl
+                     WHERE helper_acl.privilege_type='EXECUTE'
+                       AND helper_acl.grantee<>helper_owner.oid
+                  )
+             )
            FROM pg_catalog.pg_proc procedure
            JOIN pg_catalog.pg_roles owner ON owner.oid=procedure.proowner
            JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
@@ -1103,6 +892,7 @@ async fn validate_backtest_binding(
           WHERE procedure.oid=pg_catalog.to_regprocedure($1)",
     )
     .bind(LOCK_FUNCTION)
+    .bind(INTERNAL_VERIFY_FUNCTION)
     .fetch_optional(backtest_pool)
     .await
     .map_err(storage)?
@@ -1118,8 +908,8 @@ async fn validate_backtest_binding(
 
 fn validate_available_envelope(
     envelope: LockedEnvelopeV1,
-    locator: &ExploratoryReplayRequestLocatorV1,
-) -> Result<SealedExploratoryReplayReadbackV1, ExploratoryReplayOwnerError> {
+    locator: Option<&ExploratoryReplayRequestLocatorV1>,
+) -> Result<ValidatedAvailableEnvelopeV1, ExploratoryReplayOwnerError> {
     let frozen_json = envelope.frozen.ok_or_else(|| {
         ExploratoryReplayOwnerError::Unavailable("sealed frozen request missing".into())
     })?;
@@ -1156,9 +946,10 @@ fn validate_available_envelope(
         &frozen.artifact_family_outbox_digest,
         frozen.artifact_family_outbox_committed_at_epoch_ms,
     )?;
-    if locator.request_identity != frozen.proposal.request_identity
-        || locator.request_digest != frozen.request_digest
-        || locator.receipt_identity != receipt.receipt_identity
+    if let Some(locator) = locator
+        && (locator.request_identity != frozen.proposal.request_identity
+            || locator.request_digest != frozen.request_digest
+            || locator.receipt_identity != receipt.receipt_identity)
     {
         return Err(ExploratoryReplayOwnerError::Unavailable(
             "sealed locator mismatch".into(),
@@ -1167,9 +958,9 @@ fn validate_available_envelope(
     let owner_cut_epoch_ms = envelope
         .owner_cut_epoch_ms
         .ok_or_else(|| ExploratoryReplayOwnerError::Unavailable("Owner cut missing".into()))?;
-    Ok(SealedExploratoryReplayReadbackV1 {
-        frozen: into_frozen(frozen),
-        receipt: into_receipt(receipt),
+    Ok(ValidatedAvailableEnvelopeV1 {
+        frozen,
+        receipt,
         owner_cut_epoch_ms,
     })
 }
@@ -1536,8 +1327,12 @@ fn canonical_digest<T: Serialize + ?Sized>(
     domain: &str,
     value: &T,
 ) -> Result<String, ExploratoryReplayOwnerError> {
-    let bytes = serde_json::to_vec(&serde_json::json!({"domain": domain, "value": value}))
-        .map_err(unavailable)?;
+    #[derive(Serialize)]
+    struct Envelope<'a, T: ?Sized> {
+        domain: &'a str,
+        value: &'a T,
+    }
+    let bytes = serde_json::to_vec(&Envelope { domain, value }).map_err(unavailable)?;
     Ok(format!("sha256:{:x}", Sha256::digest(bytes)))
 }
 
