@@ -15,7 +15,7 @@ pub const MAX_SQRT_RATIO: U160 = U160::from_limbs([
 #[inline]
 fn parse_constant(value: &str, radix: u64) -> U256 {
     U256::from_str_radix(value, radix)
-        .unwrap_or_else(|error| panic!("called `Result::unwrap()` on an `Err` value: {error:?}"))
+        .unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"))
 }
 
 /// Returns the sqrt ratio as a Q64.96 for the given tick. The sqrt ratio is computed as
@@ -194,9 +194,9 @@ pub fn get_tick_at_sqrt_ratio(sqrt_price_x96: U160) -> i32 {
 
     // Calculate tick bounds using wrapping arithmetic
     let tick_low_offset = U256::from_str_radix("3402992956809132418596140100660247210", 10)
-        .unwrap_or_else(|error| panic!("called `Result::unwrap()` on an `Err` value: {error:?}"));
+        .unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"));
     let tick_hi_offset = U256::from_str_radix("291339464771989622907027621153398088495", 10)
-        .unwrap_or_else(|error| panic!("called `Result::unwrap()` on an `Err` value: {error:?}"));
+        .unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"));
 
     let tick_low_u256: U256 = (log_sqrt10001 - tick_low_offset) >> 128;
     let tick_hi_u256: U256 = (log_sqrt10001 + tick_hi_offset) >> 128;

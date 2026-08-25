@@ -213,6 +213,7 @@ impl EncodeToRecordBatch for InstrumentAny {
                 "Cannot encode empty instrument batch".to_string(),
             ));
         };
+
         match type_name.as_str() {
             "Cfd" => {
                 let cfds: Vec<_> = instruments

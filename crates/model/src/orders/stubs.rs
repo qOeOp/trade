@@ -595,7 +595,7 @@ impl TestOrderStubs {
         );
         new_order
             .apply(accepted_event)
-            .unwrap_or_else(|error| panic!("{error}"));
+            .unwrap_or_else(|e| panic!("{e}"));
         new_order
     }
 
@@ -612,9 +612,7 @@ impl TestOrderStubs {
         let fill = OrderFilledTestBuilder::new(&accepted_order, instrument)
             .liquidity_side(liquidity_side)
             .build();
-        accepted_order
-            .apply(fill)
-            .unwrap_or_else(|error| panic!("{error}"));
+        accepted_order.apply(fill).unwrap_or_else(|e| panic!("{e}"));
         accepted_order
     }
 }

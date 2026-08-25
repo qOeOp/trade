@@ -538,9 +538,9 @@ fn log_audit_error(client_order_id: &ClientOrderId) {
 
 fn transform_opposite_order(order: OwnBookOrder, side: OrderSideSpecified) -> OwnBookOrder {
     let parity_price =
-        Price::from_decimal(Decimal::ONE - order.price.as_decimal()).unwrap_or_else(|error| {
+        Price::from_decimal(Decimal::ONE - order.price.as_decimal()).unwrap_or_else(|e| {
             panic!(
-                "Invalid parity transformed price for OwnOrderBook::combined_with_opposite: {error:?}"
+                "Invalid parity transformed price for OwnOrderBook::combined_with_opposite: {e:?}"
             )
         });
 

@@ -47,7 +47,7 @@ pub fn encode_sqrt_ratio_x96(amount0: u128, amount1: u128) -> U160 {
 
         // Use FullMath for precise division
         let result = FullMath::mul_div(sqrt_amount0, q96, sqrt_amount1)
-            .unwrap_or_else(|error| panic!("mul_div overflow: {error:?}"));
+            .unwrap_or_else(|e| panic!("mul_div overflow: {e:?}"));
 
         // Convert to U160, truncating if necessary
         return if result > U256::from(U160::MAX) {
@@ -59,7 +59,7 @@ pub fn encode_sqrt_ratio_x96(amount0: u128, amount1: u128) -> U160 {
 
     // Standard path: calculate (amount0 * 2^192) / amount1, then sqrt
     let ratio_q192 = FullMath::mul_div(amount0_u256, q192, amount1_u256)
-        .unwrap_or_else(|error| panic!("mul_div overflow: {error:?}"));
+        .unwrap_or_else(|e| panic!("mul_div overflow: {e:?}"));
 
     // Take the square root of the ratio
     let sqrt_result = FullMath::sqrt(ratio_q192);
@@ -92,7 +92,7 @@ fn get_next_sqrt_price_from_amount0_rounding_up(
             if denominator >= numerator {
                 // always fit to 160bits
                 let result = FullMath::mul_div_rounding_up(numerator, sqrt_price_x96, denominator)
-                    .unwrap_or_else(|error| panic!("mul_div_rounding_up failed: {error:?}"));
+                    .unwrap_or_else(|e| panic!("mul_div_rounding_up failed: {e:?}"));
                 return U160::from(result);
             }
         }
@@ -100,7 +100,7 @@ fn get_next_sqrt_price_from_amount0_rounding_up(
         // Fallback: divRoundingUp(numerator1, (numerator1 / sqrtPX96).add(amount))
         let fallback_denominator = (numerator / sqrt_price_x96) + amount;
         let result = FullMath::div_rounding_up(numerator, fallback_denominator)
-            .unwrap_or_else(|error| panic!("div_rounding_up failed: {error:?}"));
+            .unwrap_or_else(|e| panic!("div_rounding_up failed: {e:?}"));
 
         // Check if result fits in U160
         assert!(result <= U256::from(U160::MAX), "Result overflows U160");
@@ -114,7 +114,7 @@ fn get_next_sqrt_price_from_amount0_rounding_up(
 
         let denominator = numerator - product;
         let result = FullMath::mul_div_rounding_up(numerator, sqrt_price_x96, denominator)
-            .unwrap_or_else(|error| panic!("mul_div_rounding_up failed: {error:?}"));
+            .unwrap_or_else(|e| panic!("mul_div_rounding_up failed: {e:?}"));
         U160::from(result)
     }
 }

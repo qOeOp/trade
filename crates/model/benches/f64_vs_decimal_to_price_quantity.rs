@@ -37,20 +37,20 @@ fn bench_deser_type(c: &mut Criterion) {
     group.bench_function("f64_from_number", |b| {
         b.iter(|| {
             serde_json::from_str::<F64Tick>(json_num)
-                .unwrap_or_else(|error| panic!("benchmark JSON must deserialize: {error:?}"))
+                .unwrap_or_else(|e| panic!("benchmark JSON must deserialize: {e:?}"))
         });
     });
     group.bench_function("decimal_from_string", |b| {
         b.iter(|| {
             serde_json::from_str::<DecimalTick>(json_str)
-                .unwrap_or_else(|error| panic!("benchmark JSON must deserialize: {error:?}"))
+                .unwrap_or_else(|e| panic!("benchmark JSON must deserialize: {e:?}"))
         });
     });
     // Also test Decimal from numbers for fair comparison
     group.bench_function("decimal_from_number", |b| {
         b.iter(|| {
             serde_json::from_str::<DecimalTick>(json_num)
-                .unwrap_or_else(|error| panic!("benchmark JSON must deserialize: {error:?}"))
+                .unwrap_or_else(|e| panic!("benchmark JSON must deserialize: {e:?}"))
         });
     });
     group.finish();
@@ -66,7 +66,7 @@ fn bench_json_to_price(c: &mut Criterion) {
     group.bench_function("via_f64", |b| {
         b.iter(|| {
             let t: F64Tick = serde_json::from_str(json_num)
-                .unwrap_or_else(|error| panic!("benchmark JSON must deserialize: {error:?}"));
+                .unwrap_or_else(|e| panic!("benchmark JSON must deserialize: {e:?}"));
             (Price::new(t.p, precision), Quantity::new(t.q, precision))
         });
     });
@@ -74,12 +74,12 @@ fn bench_json_to_price(c: &mut Criterion) {
     group.bench_function("via_decimal", |b| {
         b.iter(|| {
             let t: DecimalTick = serde_json::from_str(json_str)
-                .unwrap_or_else(|error| panic!("benchmark JSON must deserialize: {error:?}"));
+                .unwrap_or_else(|e| panic!("benchmark JSON must deserialize: {e:?}"));
             (
                 Price::from_decimal_dp(t.p, precision)
-                    .unwrap_or_else(|error| panic!("benchmark price must convert: {error:?}")),
+                    .unwrap_or_else(|e| panic!("benchmark price must convert: {e:?}")),
                 Quantity::from_decimal_dp(t.q, precision)
-                    .unwrap_or_else(|error| panic!("benchmark quantity must convert: {error:?}")),
+                    .unwrap_or_else(|e| panic!("benchmark quantity must convert: {e:?}")),
             )
         });
     });
@@ -128,7 +128,7 @@ fn bench_batch_to_price(c: &mut Criterion) {
     group.bench_function("via_f64", |b| {
         b.iter(|| {
             serde_json::from_str::<Vec<F64Tick>>(&json_num)
-                .unwrap_or_else(|error| panic!("benchmark JSON must deserialize: {error:?}"))
+                .unwrap_or_else(|e| panic!("benchmark JSON must deserialize: {e:?}"))
                 .into_iter()
                 .map(|t| (Price::new(t.p, 8), Quantity::new(t.q, 4)))
                 .collect::<Vec<_>>()
@@ -138,16 +138,14 @@ fn bench_batch_to_price(c: &mut Criterion) {
     group.bench_function("via_decimal", |b| {
         b.iter(|| {
             serde_json::from_str::<Vec<DecimalTick>>(&json_str)
-                .unwrap_or_else(|error| panic!("benchmark JSON must deserialize: {error:?}"))
+                .unwrap_or_else(|e| panic!("benchmark JSON must deserialize: {e:?}"))
                 .into_iter()
                 .map(|t| {
                     (
-                        Price::from_decimal_dp(t.p, 8).unwrap_or_else(|error| {
-                            panic!("benchmark price must convert: {error:?}")
-                        }),
-                        Quantity::from_decimal_dp(t.q, 4).unwrap_or_else(|error| {
-                            panic!("benchmark quantity must convert: {error:?}")
-                        }),
+                        Price::from_decimal_dp(t.p, 8)
+                            .unwrap_or_else(|e| panic!("benchmark price must convert: {e:?}")),
+                        Quantity::from_decimal_dp(t.q, 4)
+                            .unwrap_or_else(|e| panic!("benchmark quantity must convert: {e:?}")),
                     )
                 })
                 .collect::<Vec<_>>()

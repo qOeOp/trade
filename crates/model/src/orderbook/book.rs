@@ -26,7 +26,7 @@ use crate::{
 };
 
 fn unwrap_book_value<T, E: std::fmt::Debug>(result: Result<T, E>, message: &str) -> T {
-    result.unwrap_or_else(|error| panic!("{message}: {error:?}"))
+    result.unwrap_or_else(|e| panic!("{message}: {e:?}"))
 }
 
 /// Provides a high-performance, versatile order book.
@@ -714,7 +714,7 @@ impl OrderBook {
         now: Option<u64>,
     ) -> Self {
         self.filtered_view_checked(own_book, depth, status, accepted_buffer_ns, now)
-            .unwrap_or_else(|error| panic!("{FAILED}: {error:?}"))
+            .unwrap_or_else(|e| panic!("{FAILED}: {e:?}"))
     }
 
     /// Fallible version of [`Self::filtered_view`].
@@ -723,12 +723,6 @@ impl OrderBook {
     ///
     /// Returns [`BookViewError::InstrumentMismatch`] if `self` and `own_book` have different
     /// instrument IDs.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `own_book` is `Some`, `accepted_buffer_ns` is positive, and `now` is `None`.
-    /// Panics if `Price::from_decimal` or `Quantity::from_decimal` fails when
-    /// reconstructing filtered levels.
     pub fn filtered_view_checked(
         &self,
         own_book: Option<&OwnOrderBook>,
@@ -1243,8 +1237,7 @@ impl OrderBook {
         let mut last_ask: Option<Price> = None;
 
         for delta in deltas {
-            book.apply_delta(delta)
-                .unwrap_or_else(|error| panic!("{error}"));
+            book.apply_delta(delta).unwrap_or_else(|e| panic!("{e}"));
             let bid = book.best_bid_price();
             let ask = book.best_ask_price();
 

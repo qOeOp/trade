@@ -64,7 +64,7 @@ pub extern "C" fn currency_register(currency: Currency) {
     abort_on_panic(|| {
         CURRENCY_MAP
             .lock()
-            .unwrap_or_else(|error| panic!("{MUTEX_POISONED}: {error:?}"))
+            .unwrap_or_else(|e| panic!("{MUTEX_POISONED}: {e:?}"))
             .insert(currency.code.to_string(), currency);
     });
 }
@@ -85,7 +85,7 @@ pub unsafe extern "C" fn currency_exists(code_ptr: *const c_char) -> u8 {
         u8::from(
             CURRENCY_MAP
                 .lock()
-                .unwrap_or_else(|error| panic!("{MUTEX_POISONED}: {error:?}"))
+                .unwrap_or_else(|e| panic!("{MUTEX_POISONED}: {e:?}"))
                 .contains_key(code),
         )
     })
@@ -104,7 +104,7 @@ pub unsafe extern "C" fn currency_exists(code_ptr: *const c_char) -> u8 {
 pub unsafe extern "C" fn currency_from_cstr(code_ptr: *const c_char) -> Currency {
     abort_on_panic(|| {
         let code = unsafe { cstr_as_str(code_ptr) };
-        Currency::from_str(code).unwrap_or_else(|error| panic!("{error}"))
+        Currency::from_str(code).unwrap_or_else(|e| panic!("{e}"))
     })
 }
 

@@ -123,7 +123,7 @@ impl Position {
             "instrument.id()",
             "fill.instrument_id",
         )
-        .unwrap_or_else(|error| panic!("{FAILED}: {error:?}"));
+        .unwrap_or_else(|e| panic!("{FAILED}: {e:?}"));
         assert_ne!(fill.order_side, OrderSide::NoOrderSide);
 
         let position_id = fill
@@ -344,7 +344,7 @@ impl Position {
                 !self.trade_ids.contains(&fill.trade_id),
                 "`fill.trade_id` already contained in `trade_ids",
             )
-            .unwrap_or_else(|error| panic!("{FAILED}: {error:?}"));
+            .unwrap_or_else(|e| panic!("{FAILED}: {e:?}"));
             self.replay_events
                 .push(PositionReplayEvent::Filled(fill.clone()));
         }
@@ -1283,7 +1283,7 @@ impl Position {
     #[must_use]
     pub fn notional_value(&self, last: Price) -> Money {
         self.try_notional_value(last)
-            .unwrap_or_else(|error| panic!("invalid notional value: {error:?}"))
+            .unwrap_or_else(|e| panic!("invalid notional value: {e:?}"))
     }
 
     /// Returns the last `OrderFilled` event for the position (if any after purging).

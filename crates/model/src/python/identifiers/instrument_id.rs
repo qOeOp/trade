@@ -60,7 +60,7 @@ impl InstrumentId {
 
     #[staticmethod]
     fn _safe_constructor() -> Self {
-        Self::from_str("NULL.NULL").unwrap_or_else(|error| panic!("{error}")) // Safe default
+        Self::from_str("NULL.NULL").unwrap_or_else(|e| panic!("{e}")) // Safe default
     }
 
     #[expect(clippy::needless_pass_by_value)]

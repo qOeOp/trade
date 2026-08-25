@@ -99,7 +99,7 @@ impl TradeTick {
             ts_event,
             ts_init,
         )
-        .unwrap_or_else(|error| panic!("{FAILED}: {error:?}"))
+        .unwrap_or_else(|e| panic!("{FAILED}: {e:?}"))
     }
 
     /// Returns the metadata for the type, for use with serialization formats.

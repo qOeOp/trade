@@ -925,11 +925,8 @@ impl DataType {
         let metadata = self.metadata.as_ref()?;
         let instrument_id = metadata.get_str("instrument_id")?;
         Some(
-            InstrumentId::from_str(instrument_id).unwrap_or_else(|error| {
-                panic!(
-                    "{}: {error:?}",
-                    "Invalid `InstrumentId` for 'instrument_id'"
-                )
+            InstrumentId::from_str(instrument_id).unwrap_or_else(|e| {
+                panic!("{}: {e:?}", "Invalid `InstrumentId` for 'instrument_id'")
             }),
         )
     }
@@ -959,7 +956,7 @@ impl DataType {
         let start_str = metadata.get_str("start")?;
         Some(
             UnixNanos::from_str(start_str)
-                .unwrap_or_else(|error| panic!("Invalid `UnixNanos` for 'start': {error:?}")),
+                .unwrap_or_else(|e| panic!("Invalid `UnixNanos` for 'start': {e:?}")),
         )
     }
 
@@ -975,7 +972,7 @@ impl DataType {
         let end_str = metadata.get_str("end")?;
         Some(
             UnixNanos::from_str(end_str)
-                .unwrap_or_else(|error| panic!("Invalid `UnixNanos` for 'end': {error:?}")),
+                .unwrap_or_else(|e| panic!("Invalid `UnixNanos` for 'end': {e:?}")),
         )
     }
 
@@ -991,7 +988,7 @@ impl DataType {
         metadata.get_usize("limit").or_else(|| {
             metadata.get_str("limit").map(|s| {
                 s.parse::<usize>()
-                    .unwrap_or_else(|error| panic!("Invalid `usize` for 'limit': {error:?}"))
+                    .unwrap_or_else(|e| panic!("Invalid `usize` for 'limit': {e:?}"))
             })
         })
     }

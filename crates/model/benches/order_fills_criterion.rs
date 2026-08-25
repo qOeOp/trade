@@ -71,7 +71,7 @@ fn accepted_market_order(quantity: Quantity) -> MarketOrder {
     );
     order
         .apply(OrderEventAny::Accepted(accepted))
-        .unwrap_or_else(|error| panic!("benchmark acceptance event must apply: {error:?}"));
+        .unwrap_or_else(|e| panic!("benchmark acceptance event must apply: {e:?}"));
 
     order
 }
@@ -118,9 +118,7 @@ fn bench_order_fills(c: &mut Criterion) {
                     for event in events {
                         order
                             .apply(black_box(event.clone()))
-                            .unwrap_or_else(|error| {
-                                panic!("benchmark fill event must apply: {error:?}")
-                            });
+                            .unwrap_or_else(|e| panic!("benchmark fill event must apply: {e:?}"));
                     }
                 },
                 BatchSize::SmallInput,

@@ -510,7 +510,7 @@ impl Price {
         }
 
         let raw_i128 = mantissa_exponent_to_fixed_i128(i128::from(mantissa), exponent, precision)
-            .unwrap_or_else(|error| panic!("Overflow in Price::from_mantissa_exponent: {error:?}"));
+            .unwrap_or_else(|e| panic!("Overflow in Price::from_mantissa_exponent: {e:?}"));
 
         #[allow(
             clippy::useless_conversion,
@@ -574,7 +574,7 @@ impl FromStr for Price {
 
 impl<T: AsRef<str>> From<T> for Price {
     fn from(value: T) -> Self {
-        Self::from_str(value.as_ref()).unwrap_or_else(|error| panic!("{FAILED}: {error:?}"))
+        Self::from_str(value.as_ref()).unwrap_or_else(|e| panic!("{FAILED}: {e:?}"))
     }
 }
 

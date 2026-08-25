@@ -75,7 +75,7 @@ fn bench_orderbook_apply_deltas() {
     };
 
     book.apply_deltas(&deltas)
-        .unwrap_or_else(|error| panic!("benchmark deltas must apply: {error:?}"));
+        .unwrap_or_else(|e| panic!("benchmark deltas must apply: {e:?}"));
     black_box(());
 }
 

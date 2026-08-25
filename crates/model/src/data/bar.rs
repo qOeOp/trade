@@ -174,8 +174,8 @@ pub fn get_bar_interval(bar_type: &BarType) -> SignedDuration {
 #[must_use]
 pub fn get_bar_interval_ns(bar_type: &BarType) -> UnixNanos {
     let interval_ns = get_bar_interval(bar_type).as_nanos();
-    let interval_ns = u64::try_from(interval_ns)
-        .unwrap_or_else(|error| panic!("Invalid bar interval: {error:?}"));
+    let interval_ns =
+        u64::try_from(interval_ns).unwrap_or_else(|e| panic!("Invalid bar interval: {e:?}"));
     UnixNanos::from(interval_ns)
 }
 
@@ -216,10 +216,10 @@ pub fn get_time_bar_start(
             let week_start_date = now_civil
                 .date()
                 .checked_sub(jiff::Span::new().days(days_from_monday))
-                .unwrap_or_else(|error| panic!("valid week start: {error:?}"));
+                .unwrap_or_else(|e| panic!("valid week start: {e:?}"));
             let mut start_time = Offset::UTC
                 .to_timestamp(week_start_date.at(0, 0, 0, 0))
-                .unwrap_or_else(|error| panic!("valid UTC week start: {error:?}"));
+                .unwrap_or_else(|e| panic!("valid UTC week start: {e:?}"));
             start_time += origin_offset;
 
             if now < start_time {
@@ -237,52 +237,46 @@ pub fn get_time_bar_start(
             let mut start_time = Offset::UTC
                 .to_timestamp(
                     Date::new(now_civil.year(), 1, 1)
-                        .unwrap_or_else(|error| panic!("valid year start date: {error:?}"))
+                        .unwrap_or_else(|e| panic!("valid year start date: {e:?}"))
                         .at(0, 0, 0, 0),
                 )
-                .unwrap_or_else(|error| panic!("valid UTC year start: {error:?}"));
+                .unwrap_or_else(|e| panic!("valid UTC year start: {e:?}"));
             start_time += origin_offset;
 
             if now < start_time {
                 start_time = subtract_n_months(start_time, 12)
-                    .unwrap_or_else(|error| panic!("Failed to subtract 12 months: {error:?}"));
+                    .unwrap_or_else(|e| panic!("Failed to subtract 12 months: {e:?}"));
             }
 
-            let months_step = u32::try_from(step).unwrap_or_else(|error| {
-                panic!(
-                    "{}: {error:?}",
-                    "`step` exceeds u32 range for month arithmetic"
-                )
+            let months_step = u32::try_from(step).unwrap_or_else(|e| {
+                panic!("{}: {e:?}", "`step` exceeds u32 range for month arithmetic")
             });
 
             while start_time <= now {
                 start_time = add_n_months(start_time, months_step)
-                    .unwrap_or_else(|error| panic!("Failed to add months in loop: {error:?}"));
+                    .unwrap_or_else(|e| panic!("Failed to add months in loop: {e:?}"));
             }
 
             start_time = subtract_n_months(start_time, months_step)
-                .unwrap_or_else(|error| panic!("Failed to subtract months_step: {error:?}"));
+                .unwrap_or_else(|e| panic!("Failed to subtract months_step: {e:?}"));
             start_time
         }
         BarAggregation::Year => {
-            let step_i32 = i32::try_from(step).unwrap_or_else(|error| {
-                panic!(
-                    "{}: {error:?}",
-                    "`step` exceeds i32 range for year arithmetic"
-                )
+            let step_i32 = i32::try_from(step).unwrap_or_else(|e| {
+                panic!("{}: {e:?}", "`step` exceeds i32 range for year arithmetic")
             });
 
             // Reconstruct from Jan 1 + origin each time to avoid leap-day drift
             let year_start = |year: i32| {
                 let year = i16::try_from(year)
-                    .unwrap_or_else(|error| panic!("year exceeds Jiff supported range: {error:?}"));
+                    .unwrap_or_else(|e| panic!("year exceeds Jiff supported range: {e:?}"));
                 Offset::UTC
                     .to_timestamp(
                         Date::new(year, 1, 1)
-                            .unwrap_or_else(|error| panic!("valid year start date: {error:?}"))
+                            .unwrap_or_else(|e| panic!("valid year start date: {e:?}"))
                             .at(0, 0, 0, 0),
                     )
-                    .unwrap_or_else(|error| panic!("valid UTC year start: {error:?}"))
+                    .unwrap_or_else(|e| panic!("valid UTC year start: {e:?}"))
                     + origin_offset
             };
 
@@ -325,7 +319,7 @@ fn find_closest_smaller_time(
     // Floor to start of day
     let day_start = Offset::UTC
         .to_timestamp(Offset::UTC.to_datetime(now).date().at(0, 0, 0, 0))
-        .unwrap_or_else(|error| panic!("valid UTC day start: {error:?}"));
+        .unwrap_or_else(|e| panic!("valid UTC day start: {e:?}"));
     let base_time = day_start + daily_time_origin;
 
     let time_difference = base_time.duration_until(now);
@@ -353,7 +347,7 @@ fn duration_days(days: i64) -> SignedDuration {
 ///
 /// Panics if `step` exceeds the `i64` range.
 fn step_to_i64(step: NonZeroUsize) -> i64 {
-    i64::try_from(step.get()).unwrap_or_else(|error| panic!("`step` exceeds i64 range: {error:?}"))
+    i64::try_from(step.get()).unwrap_or_else(|e| panic!("`step` exceeds i64 range: {e:?}"))
 }
 
 /// Represents a bar aggregation specification including a step, aggregation
@@ -483,7 +477,7 @@ impl BarSpecification {
     #[must_use]
     pub fn new(step: usize, aggregation: BarAggregation, price_type: PriceType) -> Self {
         Self::new_checked(step, aggregation, price_type)
-            .unwrap_or_else(|error| panic!("{FAILED}: {error:?}"))
+            .unwrap_or_else(|e| panic!("{FAILED}: {e:?}"))
     }
 
     /// Returns the [`SignedDuration`] interval for this bar specification.
@@ -702,7 +696,7 @@ impl BarType {
             composite_aggregation,
             composite_aggregation_source,
         )
-        .unwrap_or_else(|error| panic!("{FAILED}: {error:?}"))
+        .unwrap_or_else(|e| panic!("{FAILED}: {e:?}"))
     }
 
     /// Returns whether this instance is a standard bar type.
@@ -943,7 +937,7 @@ impl FromStr for BarType {
 
 impl<T: AsRef<str>> From<T> for BarType {
     fn from(value: T) -> Self {
-        Self::from_str(value.as_ref()).unwrap_or_else(|error| panic!("{FAILED}: {error:?}"))
+        Self::from_str(value.as_ref()).unwrap_or_else(|e| panic!("{FAILED}: {e:?}"))
     }
 }
 
@@ -1136,7 +1130,7 @@ impl Bar {
         ts_init: UnixNanos,
     ) -> Self {
         Self::new_checked(bar_type, open, high, low, close, volume, ts_event, ts_init)
-            .unwrap_or_else(|error| panic!("{FAILED}: {error:?}"))
+            .unwrap_or_else(|e| panic!("{FAILED}: {e:?}"))
     }
 
     #[must_use]

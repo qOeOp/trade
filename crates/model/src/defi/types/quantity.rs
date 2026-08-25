@@ -19,9 +19,9 @@ impl Quantity {
         U: Into<U256>,
     {
         let raw_u256: U256 = raw_wei.into();
-        let raw_u128: u128 = raw_u256.try_into().unwrap_or_else(|error| {
-            panic!("raw wei value exceeds unsigned 128-bit range: {error:?}")
-        });
+        let raw_u128: u128 = raw_u256
+            .try_into()
+            .unwrap_or_else(|e| panic!("raw wei value exceeds unsigned 128-bit range: {e:?}"));
 
         Self::from_raw(raw_u128, 18)
     }

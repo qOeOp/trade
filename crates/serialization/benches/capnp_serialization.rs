@@ -106,9 +106,8 @@ fn bench_quote_tick_serialize(c: &mut Criterion) {
             let builder = message.init_root::<market_capnp::quote_tick::Builder>();
             black_box(&quote).to_capnp(builder);
             let mut bytes = Vec::new();
-            capnp::serialize::write_message(&mut bytes, &message).unwrap_or_else(|error| {
-                panic!("QuoteTick benchmark message must serialize: {error:?}")
-            });
+            capnp::serialize::write_message(&mut bytes, &message)
+                .unwrap_or_else(|e| panic!("QuoteTick benchmark message must serialize: {e:?}"));
             black_box(bytes)
         });
     });
@@ -121,7 +120,7 @@ fn bench_quote_tick_deserialize(c: &mut Criterion) {
     quote.to_capnp(builder);
     let mut bytes = Vec::new();
     capnp::serialize::write_message(&mut bytes, &message)
-        .unwrap_or_else(|error| panic!("QuoteTick benchmark message must serialize: {error:?}"));
+        .unwrap_or_else(|e| panic!("QuoteTick benchmark message must serialize: {e:?}"));
 
     c.bench_function("QuoteTick::capnp_deserialize", |b| {
         b.iter(|| {
@@ -129,15 +128,15 @@ fn bench_quote_tick_deserialize(c: &mut Criterion) {
                 &mut black_box(&bytes[..]),
                 capnp::message::ReaderOptions::new(),
             )
-            .unwrap_or_else(|error| {
-                panic!("QuoteTick benchmark message must deserialize: {error:?}")
-            });
+            .unwrap_or_else(|e| panic!("QuoteTick benchmark message must deserialize: {e:?}"));
             let root = reader
                 .get_root::<market_capnp::quote_tick::Reader>()
-                .unwrap_or_else(|error| panic!("QuoteTick benchmark root must decode: {error:?}"));
-            black_box(QuoteTick::from_capnp(root).unwrap_or_else(|error| {
-                panic!("QuoteTick benchmark conversion must succeed: {error:?}")
-            }))
+                .unwrap_or_else(|e| panic!("QuoteTick benchmark root must decode: {e:?}"));
+            black_box(
+                QuoteTick::from_capnp(root).unwrap_or_else(|e| {
+                    panic!("QuoteTick benchmark conversion must succeed: {e:?}")
+                }),
+            )
         });
     });
 }
@@ -152,9 +151,8 @@ fn bench_trade_tick_serialize(c: &mut Criterion) {
             let builder = message.init_root::<market_capnp::trade_tick::Builder>();
             black_box(&trade).to_capnp(builder);
             let mut bytes = Vec::new();
-            capnp::serialize::write_message(&mut bytes, &message).unwrap_or_else(|error| {
-                panic!("TradeTick benchmark message must serialize: {error:?}")
-            });
+            capnp::serialize::write_message(&mut bytes, &message)
+                .unwrap_or_else(|e| panic!("TradeTick benchmark message must serialize: {e:?}"));
             black_box(bytes)
         });
     });
@@ -167,7 +165,7 @@ fn bench_trade_tick_deserialize(c: &mut Criterion) {
     black_box(&trade).to_capnp(builder);
     let mut bytes = Vec::new();
     capnp::serialize::write_message(&mut bytes, &message)
-        .unwrap_or_else(|error| panic!("TradeTick benchmark message must serialize: {error:?}"));
+        .unwrap_or_else(|e| panic!("TradeTick benchmark message must serialize: {e:?}"));
 
     c.bench_function("TradeTick::capnp_deserialize", |b| {
         b.iter(|| {
@@ -175,15 +173,15 @@ fn bench_trade_tick_deserialize(c: &mut Criterion) {
                 &mut black_box(&bytes[..]),
                 capnp::message::ReaderOptions::new(),
             )
-            .unwrap_or_else(|error| {
-                panic!("TradeTick benchmark message must deserialize: {error:?}")
-            });
+            .unwrap_or_else(|e| panic!("TradeTick benchmark message must deserialize: {e:?}"));
             let root = reader
                 .get_root::<market_capnp::trade_tick::Reader>()
-                .unwrap_or_else(|error| panic!("TradeTick benchmark root must decode: {error:?}"));
-            black_box(TradeTick::from_capnp(root).unwrap_or_else(|error| {
-                panic!("TradeTick benchmark conversion must succeed: {error:?}")
-            }))
+                .unwrap_or_else(|e| panic!("TradeTick benchmark root must decode: {e:?}"));
+            black_box(
+                TradeTick::from_capnp(root).unwrap_or_else(|e| {
+                    panic!("TradeTick benchmark conversion must succeed: {e:?}")
+                }),
+            )
         });
     });
 }
@@ -199,7 +197,7 @@ fn bench_bar_serialize(c: &mut Criterion) {
             black_box(&bar).to_capnp(builder);
             let mut bytes = Vec::new();
             capnp::serialize::write_message(&mut bytes, &message)
-                .unwrap_or_else(|error| panic!("Bar benchmark message must serialize: {error:?}"));
+                .unwrap_or_else(|e| panic!("Bar benchmark message must serialize: {e:?}"));
             black_box(bytes)
         });
     });
@@ -212,7 +210,7 @@ fn bench_bar_deserialize(c: &mut Criterion) {
     black_box(&bar).to_capnp(builder);
     let mut bytes = Vec::new();
     capnp::serialize::write_message(&mut bytes, &message)
-        .unwrap_or_else(|error| panic!("Bar benchmark message must serialize: {error:?}"));
+        .unwrap_or_else(|e| panic!("Bar benchmark message must serialize: {e:?}"));
 
     c.bench_function("Bar::capnp_deserialize", |b| {
         b.iter(|| {
@@ -220,14 +218,13 @@ fn bench_bar_deserialize(c: &mut Criterion) {
                 &mut black_box(&bytes[..]),
                 capnp::message::ReaderOptions::new(),
             )
-            .unwrap_or_else(|error| panic!("Bar benchmark message must deserialize: {error:?}"));
+            .unwrap_or_else(|e| panic!("Bar benchmark message must deserialize: {e:?}"));
             let root = reader
                 .get_root::<market_capnp::bar::Reader>()
-                .unwrap_or_else(|error| panic!("Bar benchmark root must decode: {error:?}"));
+                .unwrap_or_else(|e| panic!("Bar benchmark root must decode: {e:?}"));
             black_box(
-                Bar::from_capnp(root).unwrap_or_else(|error| {
-                    panic!("Bar benchmark conversion must succeed: {error:?}")
-                }),
+                Bar::from_capnp(root)
+                    .unwrap_or_else(|e| panic!("Bar benchmark conversion must succeed: {e:?}")),
             )
         });
     });
@@ -243,8 +240,8 @@ fn bench_order_book_deltas_serialize_1(c: &mut Criterion) {
             let builder = message.init_root::<market_capnp::order_book_deltas::Builder>();
             black_box(&deltas).to_capnp(builder);
             let mut bytes = Vec::new();
-            capnp::serialize::write_message(&mut bytes, &message).unwrap_or_else(|error| {
-                panic!("OrderBookDeltas benchmark message must serialize: {error:?}")
+            capnp::serialize::write_message(&mut bytes, &message).unwrap_or_else(|e| {
+                panic!("OrderBookDeltas benchmark message must serialize: {e:?}")
             });
             black_box(bytes)
         });
@@ -259,8 +256,8 @@ fn bench_order_book_deltas_serialize_10(c: &mut Criterion) {
             let builder = message.init_root::<market_capnp::order_book_deltas::Builder>();
             black_box(&deltas).to_capnp(builder);
             let mut bytes = Vec::new();
-            capnp::serialize::write_message(&mut bytes, &message).unwrap_or_else(|error| {
-                panic!("OrderBookDeltas benchmark message must serialize: {error:?}")
+            capnp::serialize::write_message(&mut bytes, &message).unwrap_or_else(|e| {
+                panic!("OrderBookDeltas benchmark message must serialize: {e:?}")
             });
             black_box(bytes)
         });
@@ -275,8 +272,8 @@ fn bench_order_book_deltas_serialize_100(c: &mut Criterion) {
             let builder = message.init_root::<market_capnp::order_book_deltas::Builder>();
             black_box(&deltas).to_capnp(builder);
             let mut bytes = Vec::new();
-            capnp::serialize::write_message(&mut bytes, &message).unwrap_or_else(|error| {
-                panic!("OrderBookDeltas benchmark message must serialize: {error:?}")
+            capnp::serialize::write_message(&mut bytes, &message).unwrap_or_else(|e| {
+                panic!("OrderBookDeltas benchmark message must serialize: {e:?}")
             });
             black_box(bytes)
         });
@@ -289,9 +286,8 @@ fn bench_order_book_deltas_deserialize_1(c: &mut Criterion) {
     let builder = message.init_root::<market_capnp::order_book_deltas::Builder>();
     black_box(&deltas).to_capnp(builder);
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap_or_else(|error| {
-        panic!("OrderBookDeltas benchmark message must serialize: {error:?}")
-    });
+    capnp::serialize::write_message(&mut bytes, &message)
+        .unwrap_or_else(|e| panic!("OrderBookDeltas benchmark message must serialize: {e:?}"));
 
     c.bench_function("OrderBookDeltas::capnp_deserialize_1", |b| {
         b.iter(|| {
@@ -299,16 +295,14 @@ fn bench_order_book_deltas_deserialize_1(c: &mut Criterion) {
                 &mut black_box(&bytes[..]),
                 capnp::message::ReaderOptions::new(),
             )
-            .unwrap_or_else(|error| {
-                panic!("OrderBookDeltas benchmark message must deserialize: {error:?}")
+            .unwrap_or_else(|e| {
+                panic!("OrderBookDeltas benchmark message must deserialize: {e:?}")
             });
             let root = reader
                 .get_root::<market_capnp::order_book_deltas::Reader>()
-                .unwrap_or_else(|error| {
-                    panic!("OrderBookDeltas benchmark root must decode: {error:?}")
-                });
-            black_box(OrderBookDeltas::from_capnp(root).unwrap_or_else(|error| {
-                panic!("OrderBookDeltas benchmark conversion must succeed: {error:?}")
+                .unwrap_or_else(|e| panic!("OrderBookDeltas benchmark root must decode: {e:?}"));
+            black_box(OrderBookDeltas::from_capnp(root).unwrap_or_else(|e| {
+                panic!("OrderBookDeltas benchmark conversion must succeed: {e:?}")
             }))
         });
     });
@@ -320,9 +314,8 @@ fn bench_order_book_deltas_deserialize_10(c: &mut Criterion) {
     let builder = message.init_root::<market_capnp::order_book_deltas::Builder>();
     black_box(&deltas).to_capnp(builder);
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap_or_else(|error| {
-        panic!("OrderBookDeltas benchmark message must serialize: {error:?}")
-    });
+    capnp::serialize::write_message(&mut bytes, &message)
+        .unwrap_or_else(|e| panic!("OrderBookDeltas benchmark message must serialize: {e:?}"));
 
     c.bench_function("OrderBookDeltas::capnp_deserialize_10", |b| {
         b.iter(|| {
@@ -330,16 +323,14 @@ fn bench_order_book_deltas_deserialize_10(c: &mut Criterion) {
                 &mut black_box(&bytes[..]),
                 capnp::message::ReaderOptions::new(),
             )
-            .unwrap_or_else(|error| {
-                panic!("OrderBookDeltas benchmark message must deserialize: {error:?}")
+            .unwrap_or_else(|e| {
+                panic!("OrderBookDeltas benchmark message must deserialize: {e:?}")
             });
             let root = reader
                 .get_root::<market_capnp::order_book_deltas::Reader>()
-                .unwrap_or_else(|error| {
-                    panic!("OrderBookDeltas benchmark root must decode: {error:?}")
-                });
-            black_box(OrderBookDeltas::from_capnp(root).unwrap_or_else(|error| {
-                panic!("OrderBookDeltas benchmark conversion must succeed: {error:?}")
+                .unwrap_or_else(|e| panic!("OrderBookDeltas benchmark root must decode: {e:?}"));
+            black_box(OrderBookDeltas::from_capnp(root).unwrap_or_else(|e| {
+                panic!("OrderBookDeltas benchmark conversion must succeed: {e:?}")
             }))
         });
     });
@@ -351,9 +342,8 @@ fn bench_order_book_deltas_deserialize_100(c: &mut Criterion) {
     let builder = message.init_root::<market_capnp::order_book_deltas::Builder>();
     black_box(&deltas).to_capnp(builder);
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap_or_else(|error| {
-        panic!("OrderBookDeltas benchmark message must serialize: {error:?}")
-    });
+    capnp::serialize::write_message(&mut bytes, &message)
+        .unwrap_or_else(|e| panic!("OrderBookDeltas benchmark message must serialize: {e:?}"));
 
     c.bench_function("OrderBookDeltas::capnp_deserialize_100", |b| {
         b.iter(|| {
@@ -361,16 +351,14 @@ fn bench_order_book_deltas_deserialize_100(c: &mut Criterion) {
                 &mut black_box(&bytes[..]),
                 capnp::message::ReaderOptions::new(),
             )
-            .unwrap_or_else(|error| {
-                panic!("OrderBookDeltas benchmark message must deserialize: {error:?}")
+            .unwrap_or_else(|e| {
+                panic!("OrderBookDeltas benchmark message must deserialize: {e:?}")
             });
             let root = reader
                 .get_root::<market_capnp::order_book_deltas::Reader>()
-                .unwrap_or_else(|error| {
-                    panic!("OrderBookDeltas benchmark root must decode: {error:?}")
-                });
-            black_box(OrderBookDeltas::from_capnp(root).unwrap_or_else(|error| {
-                panic!("OrderBookDeltas benchmark conversion must succeed: {error:?}")
+                .unwrap_or_else(|e| panic!("OrderBookDeltas benchmark root must decode: {e:?}"));
+            black_box(OrderBookDeltas::from_capnp(root).unwrap_or_else(|e| {
+                panic!("OrderBookDeltas benchmark conversion must succeed: {e:?}")
             }))
         });
     });

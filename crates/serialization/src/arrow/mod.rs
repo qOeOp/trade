@@ -103,15 +103,17 @@ pub enum EncodingError {
 
 #[inline]
 fn get_raw_price(bytes: &[u8]) -> PriceRaw {
-    PriceRaw::from_le_bytes(bytes.try_into().unwrap_or_else(|error| {
-        panic!("Price raw bytes must be exactly the size of PriceRaw: {error:?}")
-    }))
+    PriceRaw::from_le_bytes(
+        bytes.try_into().unwrap_or_else(|e| {
+            panic!("Price raw bytes must be exactly the size of PriceRaw: {e:?}")
+        }),
+    )
 }
 
 #[inline]
 fn get_raw_quantity(bytes: &[u8]) -> QuantityRaw {
-    QuantityRaw::from_le_bytes(bytes.try_into().unwrap_or_else(|error| {
-        panic!("Quantity raw bytes must be exactly the size of QuantityRaw: {error:?}")
+    QuantityRaw::from_le_bytes(bytes.try_into().unwrap_or_else(|e| {
+        panic!("Quantity raw bytes must be exactly the size of QuantityRaw: {e:?}")
     }))
 }
 
