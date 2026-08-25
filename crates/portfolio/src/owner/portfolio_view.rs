@@ -871,7 +871,7 @@ impl CanonicalEncoder {
     clippy::many_single_char_names,
     reason = "SHA-256 round variables use the names defined by the algorithm"
 )]
-fn sha256_hex(input: &[u8]) -> String {
+pub(super) fn sha256_hex(input: &[u8]) -> String {
     const INITIAL: [u32; 8] = [
         0x6a09_e667,
         0xbb67_ae85,
