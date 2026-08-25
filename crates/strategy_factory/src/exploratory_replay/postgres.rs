@@ -43,8 +43,12 @@ struct FrozenMeaningV1<'a> {
     source_capsule_digest: &'a str,
     build_recipe_digest: &'a str,
     dependency_identity: &'a str,
+    trial_family_outbox_event_identity: &'a str,
     trial_family_outbox_digest: &'a str,
+    trial_family_outbox_committed_at_epoch_ms: u64,
+    artifact_family_outbox_event_identity: &'a str,
     artifact_family_outbox_digest: &'a str,
+    artifact_family_outbox_committed_at_epoch_ms: u64,
     committed_at_epoch_ms: u64,
 }
 
@@ -64,10 +68,38 @@ struct StoredFrozenV1 {
     source_capsule_digest: String,
     build_recipe_digest: String,
     dependency_identity: String,
+    trial_family_outbox_event_identity: String,
     trial_family_outbox_digest: String,
+    trial_family_outbox_committed_at_epoch_ms: u64,
+    artifact_family_outbox_event_identity: String,
     artifact_family_outbox_digest: String,
+    artifact_family_outbox_committed_at_epoch_ms: u64,
     committed_at_epoch_ms: u64,
     request_digest: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct FamilyFrozenOutboxV1 {
+    schema_version: u32,
+    research_receipt_identity: String,
+    intent_identity: String,
+    trial_family_identity: String,
+    root_receipt_identity: String,
+    membership_receipt_identity: String,
+    census_frontier_identity: String,
+    census_frontier_digest: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ArtifactBoundOutboxV1 {
+    schema_version: u32,
+    artifact_identity: String,
+    build_receipt_identity: String,
+    trial_family_identity: String,
+    binding_identity: String,
+    binding_receipt_identity: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -118,6 +150,10 @@ struct LockedEnvelopeV1 {
     receipt: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     outbox: Option<LockedOutboxRowV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    trial_family_outbox: Option<LockedOutboxRowV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    artifact_family_outbox: Option<LockedOutboxRowV1>,
 }
 
 pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerError> {
@@ -177,7 +213,6 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
                 "published Backtest lock API authority drift".into(),
             ));
         }
-        return Ok(());
     }
 
     sqlx::query(
@@ -191,6 +226,8 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
         AS $function$
         DECLARE sealed record;
         DECLARE locked_outbox record;
+        DECLARE locked_trial_family_outbox record;
+        DECLARE locked_artifact_family_outbox record;
         DECLARE owner_cut bigint;
         BEGIN
           IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
@@ -222,6 +259,21 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
              OR sealed.receipt_json->>'request_digest' <> sealed.request_digest
              OR sealed.receipt_json->>'committed_at_epoch_ms' <> sealed.committed_at_epoch_ms::text
           THEN RETURN NULL; END IF;
+
+          SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json,
+                 committed_at_epoch_ms
+            INTO STRICT locked_trial_family_outbox
+            FROM public.rd_owner_outbox_v1
+           WHERE aggregate_identity=sealed.trial_family_identity
+             AND event_kind='TRIAL_FAMILY_FROZEN_V1'
+           FOR SHARE;
+          SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json,
+                 committed_at_epoch_ms
+            INTO STRICT locked_artifact_family_outbox
+            FROM public.rd_owner_outbox_v1
+           WHERE aggregate_identity=sealed.artifact_identity
+             AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'
+           FOR SHARE;
 
           IF NOT EXISTS (
             SELECT 1 FROM public.rd_research_request_receipts_v1 research
@@ -273,15 +325,52 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
                AND artifact.build_receipt_json->>'dependency_identity'=sealed.frozen_json->>'dependency_identity'
                AND artifact.artifact_review_json->>'review_identity'=sealed.frozen_json->>'artifact_review_identity'
           ) OR NOT EXISTS (
-            SELECT 1 FROM public.rd_owner_outbox_v1 family_outbox
+            SELECT 1
+              FROM public.rd_owner_outbox_v1 family_outbox
+              JOIN public.rd_trial_families_v1 family
+                ON family.trial_family_identity=family_outbox.aggregate_identity
+              JOIN public.rd_trial_family_members_v1 member
+                ON member.trial_family_identity=family.trial_family_identity
+               AND member.ordinal=0
+              JOIN public.rd_trial_family_heads_v1 head
+                ON head.trial_family_identity=family.trial_family_identity
              WHERE family_outbox.aggregate_identity=sealed.trial_family_identity
                AND family_outbox.event_kind='TRIAL_FAMILY_FROZEN_V1'
                AND family_outbox.payload_digest=sealed.frozen_json->>'trial_family_outbox_digest'
+               AND family_outbox.event_identity=sealed.frozen_json->>'trial_family_outbox_event_identity'
+               AND family_outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(head.frontier_digest,'sha256:','')
+               AND family_outbox.committed_at_epoch_ms=(sealed.frozen_json->>'trial_family_outbox_committed_at_epoch_ms')::bigint
+               AND family_outbox.committed_at_epoch_ms=family.committed_at_epoch_ms
+               AND family_outbox.payload_json=pg_catalog.jsonb_build_object(
+                 'schema_version',1,
+                 'research_receipt_identity',sealed.frozen_json->>'research_receipt_identity',
+                 'intent_identity',sealed.intent_identity,
+                 'trial_family_identity',sealed.trial_family_identity,
+                 'root_receipt_identity',family.root_receipt_json->>'receipt_identity',
+                 'membership_receipt_identity',member.membership_receipt_json->>'receipt_identity',
+                 'census_frontier_identity',head.frontier_identity,
+                 'census_frontier_digest',head.frontier_digest
+               )
           ) OR NOT EXISTS (
-            SELECT 1 FROM public.rd_owner_outbox_v1 artifact_outbox
+            SELECT 1
+              FROM public.rd_owner_outbox_v1 artifact_outbox
+              JOIN public.rd_artifact_trial_family_bindings_v1 binding
+                ON binding.artifact_identity=artifact_outbox.aggregate_identity
              WHERE artifact_outbox.aggregate_identity=sealed.artifact_identity
                AND artifact_outbox.event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'
                AND artifact_outbox.payload_digest=sealed.frozen_json->>'artifact_family_outbox_digest'
+               AND artifact_outbox.event_identity=sealed.frozen_json->>'artifact_family_outbox_event_identity'
+               AND artifact_outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(binding.binding_digest,'sha256:','')
+               AND artifact_outbox.committed_at_epoch_ms=(sealed.frozen_json->>'artifact_family_outbox_committed_at_epoch_ms')::bigint
+               AND artifact_outbox.committed_at_epoch_ms=binding.committed_at_epoch_ms
+               AND artifact_outbox.payload_json=pg_catalog.jsonb_build_object(
+                 'schema_version',1,
+                 'artifact_identity',sealed.artifact_identity,
+                 'build_receipt_identity',sealed.build_receipt_identity,
+                 'trial_family_identity',sealed.trial_family_identity,
+                 'binding_identity',sealed.artifact_family_binding_identity,
+                 'binding_receipt_identity',sealed.frozen_json->>'artifact_family_binding_receipt_identity'
+               )
           ) THEN RETURN NULL; END IF;
 
           SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json,
@@ -305,6 +394,22 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
               'payload_digest',locked_outbox.payload_digest,
               'payload_json',locked_outbox.payload_json,
               'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms
+            ),
+            'trial_family_outbox',pg_catalog.jsonb_build_object(
+              'event_identity',locked_trial_family_outbox.event_identity,
+              'aggregate_identity',locked_trial_family_outbox.aggregate_identity,
+              'event_kind',locked_trial_family_outbox.event_kind,
+              'payload_digest',locked_trial_family_outbox.payload_digest,
+              'payload_json',locked_trial_family_outbox.payload_json,
+              'committed_at_epoch_ms',locked_trial_family_outbox.committed_at_epoch_ms
+            ),
+            'artifact_family_outbox',pg_catalog.jsonb_build_object(
+              'event_identity',locked_artifact_family_outbox.event_identity,
+              'aggregate_identity',locked_artifact_family_outbox.aggregate_identity,
+              'event_kind',locked_artifact_family_outbox.event_kind,
+              'payload_digest',locked_artifact_family_outbox.payload_digest,
+              'payload_json',locked_artifact_family_outbox.payload_json,
+              'committed_at_epoch_ms',locked_artifact_family_outbox.committed_at_epoch_ms
             )
           );
         EXCEPTION WHEN no_data_found OR too_many_rows THEN RETURN NULL;
@@ -412,20 +517,60 @@ pub(crate) async fn commit(
         ));
     }
 
-    let trial_family_outbox_digest: String = sqlx::query_scalar(
-        "SELECT payload_digest FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1' FOR SHARE",
+    let trial_family_outbox = sqlx::query(
+        "SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1' FOR SHARE",
     )
     .bind(&proposal.trial_family_identity)
     .fetch_one(&mut *transaction)
     .await
-    .map_err(storage)?;
-    let artifact_family_outbox_digest: String = sqlx::query_scalar(
-        "SELECT payload_digest FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1' FOR SHARE",
+    .map_err(storage)
+    .and_then(|row| locked_outbox_from_row(&row))?;
+    verify_family_dependency_outbox(
+        &trial_family_outbox,
+        &FamilyFrozenOutboxV1 {
+            schema_version: 1,
+            research_receipt_identity: research_receipt.receipt_identity.clone(),
+            intent_identity: proposal.intent_identity.clone(),
+            trial_family_identity: proposal.trial_family_identity.clone(),
+            root_receipt_identity: family
+                .trial_family()
+                .root_receipt()
+                .receipt_identity()
+                .to_string(),
+            membership_receipt_identity: family
+                .trial_family()
+                .membership_receipt()
+                .receipt_identity()
+                .to_string(),
+            census_frontier_identity: proposal.census_frontier_identity.clone(),
+            census_frontier_digest: frontier.frontier_digest().to_string(),
+        },
+        research_receipt.committed_at_epoch_ms,
+    )?;
+    let artifact_family_outbox = sqlx::query(
+        "SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1' FOR SHARE",
     )
     .bind(&proposal.artifact_identity)
     .fetch_one(&mut *transaction)
     .await
-    .map_err(storage)?;
+    .map_err(storage)
+    .and_then(|row| locked_outbox_from_row(&row))?;
+    verify_artifact_dependency_outbox(
+        &artifact_family_outbox,
+        &ArtifactBoundOutboxV1 {
+            schema_version: 1,
+            artifact_identity: proposal.artifact_identity.clone(),
+            build_receipt_identity: proposal.build_receipt_identity.clone(),
+            trial_family_identity: proposal.trial_family_identity.clone(),
+            binding_identity: proposal.artifact_family_binding_identity.clone(),
+            binding_receipt_identity: binding_receipt.receipt_identity().to_string(),
+        },
+        &format!(
+            "rd-owner-outbox-v1-{}",
+            binding.binding_digest().trim_start_matches("sha256:")
+        ),
+        binding_receipt.committed_at_epoch_ms(),
+    )?;
     let exact_code_bytes_sha256_digest: String = sqlx::query_scalar(
         "SELECT 'sha256:' || pg_catalog.encode(pg_catalog.sha256(wasm_bytes),'hex') FROM public.rd_strategy_artifacts_v1 WHERE artifact_digest=$1 AND intent_identity=$2 AND attempt_identity=$3 AND build_receipt_json->>'build_receipt_identity'=$4 FOR SHARE",
     )
@@ -451,8 +596,12 @@ pub(crate) async fn commit(
         source_capsule_digest: review.build_receipt.source_capsule_digest.clone(),
         build_recipe_digest: review.build_receipt.build_recipe_digest.clone(),
         dependency_identity: review.build_receipt.dependency_identity.clone(),
-        trial_family_outbox_digest,
-        artifact_family_outbox_digest,
+        trial_family_outbox_event_identity: trial_family_outbox.event_identity.clone(),
+        trial_family_outbox_digest: trial_family_outbox.payload_digest.clone(),
+        trial_family_outbox_committed_at_epoch_ms: trial_family_outbox.committed_at_epoch_ms,
+        artifact_family_outbox_event_identity: artifact_family_outbox.event_identity.clone(),
+        artifact_family_outbox_digest: artifact_family_outbox.payload_digest.clone(),
+        artifact_family_outbox_committed_at_epoch_ms: artifact_family_outbox.committed_at_epoch_ms,
         committed_at_epoch_ms: now,
         request_digest: String::new(),
     };
@@ -682,18 +831,57 @@ async fn verify_historical_lineage(
            FOR SHARE OF artifact
         ),
         family_outbox AS MATERIALIZED (
-          SELECT 1 FROM public.rd_owner_outbox_v1 outbox, expected
+          SELECT 1
+            FROM public.rd_owner_outbox_v1 outbox
+            JOIN public.rd_trial_families_v1 family
+              ON family.trial_family_identity=outbox.aggregate_identity
+            JOIN public.rd_trial_family_members_v1 member
+              ON member.trial_family_identity=family.trial_family_identity
+             AND member.ordinal=0
+            JOIN public.rd_trial_family_heads_v1 head
+              ON head.trial_family_identity=family.trial_family_identity,
+                 expected
            WHERE outbox.aggregate_identity=expected.frozen->'proposal'->>'trial_family_identity'
              AND outbox.event_kind='TRIAL_FAMILY_FROZEN_V1'
              AND outbox.payload_digest=expected.frozen->>'trial_family_outbox_digest'
-           FOR SHARE OF outbox
+             AND outbox.event_identity=expected.frozen->>'trial_family_outbox_event_identity'
+             AND outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(head.frontier_digest,'sha256:','')
+             AND outbox.committed_at_epoch_ms=(expected.frozen->>'trial_family_outbox_committed_at_epoch_ms')::bigint
+             AND outbox.committed_at_epoch_ms=family.committed_at_epoch_ms
+             AND outbox.payload_json=pg_catalog.jsonb_build_object(
+               'schema_version',1,
+               'research_receipt_identity',expected.frozen->>'research_receipt_identity',
+               'intent_identity',expected.frozen->'proposal'->>'intent_identity',
+               'trial_family_identity',expected.frozen->'proposal'->>'trial_family_identity',
+               'root_receipt_identity',family.root_receipt_json->>'receipt_identity',
+               'membership_receipt_identity',member.membership_receipt_json->>'receipt_identity',
+               'census_frontier_identity',head.frontier_identity,
+               'census_frontier_digest',head.frontier_digest
+             )
+           FOR SHARE OF outbox, family, member, head
         ),
         artifact_outbox AS MATERIALIZED (
-          SELECT 1 FROM public.rd_owner_outbox_v1 outbox, expected
+          SELECT 1
+            FROM public.rd_owner_outbox_v1 outbox
+            JOIN public.rd_artifact_trial_family_bindings_v1 binding
+              ON binding.artifact_identity=outbox.aggregate_identity,
+                 expected
            WHERE outbox.aggregate_identity=expected.frozen->'proposal'->>'artifact_identity'
              AND outbox.event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'
              AND outbox.payload_digest=expected.frozen->>'artifact_family_outbox_digest'
-           FOR SHARE OF outbox
+             AND outbox.event_identity=expected.frozen->>'artifact_family_outbox_event_identity'
+             AND outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(binding.binding_digest,'sha256:','')
+             AND outbox.committed_at_epoch_ms=(expected.frozen->>'artifact_family_outbox_committed_at_epoch_ms')::bigint
+             AND outbox.committed_at_epoch_ms=binding.committed_at_epoch_ms
+             AND outbox.payload_json=pg_catalog.jsonb_build_object(
+               'schema_version',1,
+               'artifact_identity',expected.frozen->'proposal'->>'artifact_identity',
+               'build_receipt_identity',expected.frozen->'proposal'->>'build_receipt_identity',
+               'trial_family_identity',expected.frozen->'proposal'->>'trial_family_identity',
+               'binding_identity',expected.frozen->'proposal'->>'artifact_family_binding_identity',
+               'binding_receipt_identity',expected.frozen->>'artifact_family_binding_receipt_identity'
+             )
+           FOR SHARE OF outbox, binding
         )
         SELECT EXISTS(SELECT 1 FROM research)
            AND EXISTS(SELECT 1 FROM family)
@@ -714,7 +902,51 @@ async fn verify_historical_lineage(
             "historical R&D lineage custody unavailable".into(),
         ));
     }
+    let family_outbox = load_dependency_outbox(
+        transaction,
+        &frozen.proposal.trial_family_identity,
+        "TRIAL_FAMILY_FROZEN_V1",
+    )
+    .await?;
+    let _: FamilyFrozenOutboxV1 = verify_dependency_outbox(
+        &family_outbox,
+        &frozen.proposal.trial_family_identity,
+        "TRIAL_FAMILY_FROZEN_V1",
+        &frozen.trial_family_outbox_event_identity,
+        &frozen.trial_family_outbox_digest,
+        frozen.trial_family_outbox_committed_at_epoch_ms,
+    )?;
+    let artifact_outbox = load_dependency_outbox(
+        transaction,
+        &frozen.proposal.artifact_identity,
+        "ARTIFACT_TRIAL_FAMILY_BOUND_V1",
+    )
+    .await?;
+    let _: ArtifactBoundOutboxV1 = verify_dependency_outbox(
+        &artifact_outbox,
+        &frozen.proposal.artifact_identity,
+        "ARTIFACT_TRIAL_FAMILY_BOUND_V1",
+        &frozen.artifact_family_outbox_event_identity,
+        &frozen.artifact_family_outbox_digest,
+        frozen.artifact_family_outbox_committed_at_epoch_ms,
+    )?;
     Ok(())
+}
+
+async fn load_dependency_outbox(
+    transaction: &mut Transaction<'_, Postgres>,
+    aggregate_identity: &str,
+    event_kind: &str,
+) -> Result<LockedOutboxRowV1, ExploratoryReplayOwnerError> {
+    let row = sqlx::query(
+        "SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2 FOR SHARE",
+    )
+    .bind(aggregate_identity)
+    .bind(event_kind)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    locked_outbox_from_row(&row)
 }
 
 pub(crate) async fn bind_backtest_read(
@@ -902,6 +1134,28 @@ fn validate_available_envelope(
     verify_frozen(&frozen)?;
     verify_receipt(&receipt, &frozen)?;
     verify_outbox(&outbox, &frozen, &receipt)?;
+    let trial_family_outbox = envelope.trial_family_outbox.ok_or_else(|| {
+        ExploratoryReplayOwnerError::Unavailable("trial family outbox missing".into())
+    })?;
+    let _: FamilyFrozenOutboxV1 = verify_dependency_outbox(
+        &trial_family_outbox,
+        &frozen.proposal.trial_family_identity,
+        "TRIAL_FAMILY_FROZEN_V1",
+        &frozen.trial_family_outbox_event_identity,
+        &frozen.trial_family_outbox_digest,
+        frozen.trial_family_outbox_committed_at_epoch_ms,
+    )?;
+    let artifact_family_outbox = envelope.artifact_family_outbox.ok_or_else(|| {
+        ExploratoryReplayOwnerError::Unavailable("artifact family outbox missing".into())
+    })?;
+    let _: ArtifactBoundOutboxV1 = verify_dependency_outbox(
+        &artifact_family_outbox,
+        &frozen.proposal.artifact_identity,
+        "ARTIFACT_TRIAL_FAMILY_BOUND_V1",
+        &frozen.artifact_family_outbox_event_identity,
+        &frozen.artifact_family_outbox_digest,
+        frozen.artifact_family_outbox_committed_at_epoch_ms,
+    )?;
     if locator.request_identity != frozen.proposal.request_identity
         || locator.request_digest != frozen.request_digest
         || locator.receipt_identity != receipt.receipt_identity
@@ -998,8 +1252,14 @@ fn frozen_digest(frozen: &StoredFrozenV1) -> Result<String, ExploratoryReplayOwn
             source_capsule_digest: &frozen.source_capsule_digest,
             build_recipe_digest: &frozen.build_recipe_digest,
             dependency_identity: &frozen.dependency_identity,
+            trial_family_outbox_event_identity: &frozen.trial_family_outbox_event_identity,
             trial_family_outbox_digest: &frozen.trial_family_outbox_digest,
+            trial_family_outbox_committed_at_epoch_ms: frozen
+                .trial_family_outbox_committed_at_epoch_ms,
+            artifact_family_outbox_event_identity: &frozen.artifact_family_outbox_event_identity,
             artifact_family_outbox_digest: &frozen.artifact_family_outbox_digest,
+            artifact_family_outbox_committed_at_epoch_ms: frozen
+                .artifact_family_outbox_committed_at_epoch_ms,
             committed_at_epoch_ms: frozen.committed_at_epoch_ms,
         },
     )
@@ -1075,6 +1335,81 @@ fn verify_outbox(
         ));
     }
     Ok(())
+}
+
+fn verify_family_dependency_outbox(
+    outbox: &LockedOutboxRowV1,
+    expected: &FamilyFrozenOutboxV1,
+    committed_at_epoch_ms: u64,
+) -> Result<(), ExploratoryReplayOwnerError> {
+    let payload: FamilyFrozenOutboxV1 = verify_dependency_outbox(
+        outbox,
+        &expected.trial_family_identity,
+        "TRIAL_FAMILY_FROZEN_V1",
+        &format!(
+            "rd-owner-outbox-v1-{}",
+            expected
+                .census_frontier_digest
+                .trim_start_matches("sha256:")
+        ),
+        &outbox.payload_digest,
+        committed_at_epoch_ms,
+    )?;
+    if payload != *expected {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "trial family outbox payload mismatch".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn verify_artifact_dependency_outbox(
+    outbox: &LockedOutboxRowV1,
+    expected: &ArtifactBoundOutboxV1,
+    event_identity: &str,
+    committed_at_epoch_ms: u64,
+) -> Result<(), ExploratoryReplayOwnerError> {
+    let payload: ArtifactBoundOutboxV1 = verify_dependency_outbox(
+        outbox,
+        &expected.artifact_identity,
+        "ARTIFACT_TRIAL_FAMILY_BOUND_V1",
+        event_identity,
+        &outbox.payload_digest,
+        committed_at_epoch_ms,
+    )?;
+    if payload != *expected {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "artifact family outbox payload mismatch".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn verify_dependency_outbox<T>(
+    outbox: &LockedOutboxRowV1,
+    aggregate_identity: &str,
+    event_kind: &str,
+    event_identity: &str,
+    payload_digest: &str,
+    committed_at_epoch_ms: u64,
+) -> Result<T, ExploratoryReplayOwnerError>
+where
+    T: serde::de::DeserializeOwned + Serialize,
+{
+    let payload: T = decode_exact(&outbox.payload_json)?;
+    let recomputed_digest = canonical_digest("rd.owner-outbox.payload.v1", &payload)?;
+    if outbox.aggregate_identity != aggregate_identity
+        || outbox.event_kind != event_kind
+        || outbox.event_identity != event_identity
+        || outbox.payload_digest != payload_digest
+        || outbox.payload_digest != recomputed_digest
+        || outbox.committed_at_epoch_ms != committed_at_epoch_ms
+    {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "dependency outbox seal mismatch".into(),
+        ));
+    }
+    Ok(payload)
 }
 
 fn locked_outbox_from_row(

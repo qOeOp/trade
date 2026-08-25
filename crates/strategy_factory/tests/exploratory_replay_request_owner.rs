@@ -1,6 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use tokio::{
@@ -37,6 +38,30 @@ use vibe_strategy_factory::{
     product_edge_postgres::PostgresResearchGoalOwnerV1,
 };
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct TestFamilyFrozenOutboxV1 {
+    schema_version: u32,
+    research_receipt_identity: String,
+    intent_identity: String,
+    trial_family_identity: String,
+    root_receipt_identity: String,
+    membership_receipt_identity: String,
+    census_frontier_identity: String,
+    census_frontier_digest: String,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct TestArtifactBoundOutboxV1 {
+    schema_version: u32,
+    artifact_identity: String,
+    build_receipt_identity: String,
+    trial_family_identity: String,
+    binding_identity: String,
+    binding_receipt_identity: String,
+}
 
 #[tokio::test]
 #[ignore = "requires the canonical disposable five-role PostgreSQL route"]
@@ -380,11 +405,200 @@ async fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owne
     sqlx::query("UPDATE public.rd_artifact_trial_family_bindings_v1 SET binding_digest=binding_json->>'binding_digest' WHERE binding_identity=$1")
         .bind(&proposal.artifact_family_binding_identity).execute(rd_pool).await.unwrap();
 
-    sqlx::query("UPDATE public.rd_owner_outbox_v1 SET payload_digest=payload_digest||'-tampered' WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'")
-        .bind(&proposal.trial_family_identity).execute(rd_pool).await.unwrap();
+    for (break_sql, restore_sql, aggregate_identity) in [
+        (
+            "UPDATE public.rd_owner_outbox_v1 SET event_identity=event_identity||'-tampered' WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'",
+            "UPDATE public.rd_owner_outbox_v1 outbox SET event_identity=request.frozen_json->>'trial_family_outbox_event_identity' FROM public.rd_exploratory_replay_requests_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='TRIAL_FAMILY_FROZEN_V1' AND request.request_identity=$2",
+            proposal.trial_family_identity.as_str(),
+        ),
+        (
+            "UPDATE public.rd_owner_outbox_v1 SET payload_digest=payload_digest||'-tampered' WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'",
+            "UPDATE public.rd_owner_outbox_v1 outbox SET payload_digest=request.frozen_json->>'trial_family_outbox_digest' FROM public.rd_exploratory_replay_requests_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='TRIAL_FAMILY_FROZEN_V1' AND request.request_identity=$2",
+            proposal.trial_family_identity.as_str(),
+        ),
+        (
+            "UPDATE public.rd_owner_outbox_v1 SET committed_at_epoch_ms=committed_at_epoch_ms+1 WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'",
+            "UPDATE public.rd_owner_outbox_v1 outbox SET committed_at_epoch_ms=(request.frozen_json->>'trial_family_outbox_committed_at_epoch_ms')::bigint FROM public.rd_exploratory_replay_requests_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='TRIAL_FAMILY_FROZEN_V1' AND request.request_identity=$2",
+            proposal.trial_family_identity.as_str(),
+        ),
+        (
+            "UPDATE public.rd_owner_outbox_v1 SET event_identity=event_identity||'-tampered' WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'",
+            "UPDATE public.rd_owner_outbox_v1 outbox SET event_identity=request.frozen_json->>'artifact_family_outbox_event_identity' FROM public.rd_exploratory_replay_requests_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1' AND request.request_identity=$2",
+            proposal.artifact_identity.as_str(),
+        ),
+        (
+            "UPDATE public.rd_owner_outbox_v1 SET payload_digest=payload_digest||'-tampered' WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'",
+            "UPDATE public.rd_owner_outbox_v1 outbox SET payload_digest=request.frozen_json->>'artifact_family_outbox_digest' FROM public.rd_exploratory_replay_requests_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1' AND request.request_identity=$2",
+            proposal.artifact_identity.as_str(),
+        ),
+        (
+            "UPDATE public.rd_owner_outbox_v1 SET committed_at_epoch_ms=committed_at_epoch_ms+1 WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'",
+            "UPDATE public.rd_owner_outbox_v1 outbox SET committed_at_epoch_ms=(request.frozen_json->>'artifact_family_outbox_committed_at_epoch_ms')::bigint FROM public.rd_exploratory_replay_requests_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1' AND request.request_identity=$2",
+            proposal.artifact_identity.as_str(),
+        ),
+    ] {
+        sqlx::query(break_sql)
+            .bind(aggregate_identity)
+            .execute(rd_pool)
+            .await
+            .unwrap();
+        assert!(matches!(
+            owner
+                .commit_exploratory_replay_request_v1(proposal.clone())
+                .await,
+            Err(ExploratoryReplayOwnerError::Unavailable(_))
+        ));
+        assert_unavailable(&owner, first.locator()).await;
+        assert_eq!(
+            request_counts(rd_pool, &proposal.request_identity).await,
+            [1, 1]
+        );
+        sqlx::query(restore_sql)
+            .bind(aggregate_identity)
+            .bind(&proposal.request_identity)
+            .execute(rd_pool)
+            .await
+            .unwrap();
+        let restored = owner
+            .commit_exploratory_replay_request_v1(proposal.clone())
+            .await
+            .expect("restored dependency outbox retry");
+        assert_eq!(
+            serde_json::to_value(&restored).unwrap(),
+            serde_json::to_value(&first).unwrap()
+        );
+    }
+
+    for (break_sql, restore_sql, aggregate_identity, restored_value) in [
+        (
+            "UPDATE public.rd_owner_outbox_v1 SET payload_json=jsonb_set(payload_json,'{intent_identity}',to_jsonb('foreign-intent'::text)) WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'",
+            "UPDATE public.rd_owner_outbox_v1 SET payload_json=jsonb_set(payload_json,'{intent_identity}',to_jsonb($2::text)) WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'",
+            proposal.trial_family_identity.as_str(),
+            proposal.intent_identity.as_str(),
+        ),
+        (
+            "UPDATE public.rd_owner_outbox_v1 SET payload_json=jsonb_set(payload_json,'{binding_identity}',to_jsonb('foreign-binding'::text)) WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'",
+            "UPDATE public.rd_owner_outbox_v1 SET payload_json=jsonb_set(payload_json,'{binding_identity}',to_jsonb($2::text)) WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'",
+            proposal.artifact_identity.as_str(),
+            proposal.artifact_family_binding_identity.as_str(),
+        ),
+    ] {
+        sqlx::query(break_sql)
+            .bind(aggregate_identity)
+            .execute(rd_pool)
+            .await
+            .unwrap();
+        assert!(matches!(
+            owner
+                .commit_exploratory_replay_request_v1(proposal.clone())
+                .await,
+            Err(ExploratoryReplayOwnerError::Unavailable(_))
+        ));
+        assert_unavailable(&owner, first.locator()).await;
+        assert_raw_lock_not_available(
+            mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner),
+            first.locator(),
+        )
+        .await;
+        assert_eq!(
+            request_counts(rd_pool, &proposal.request_identity).await,
+            [1, 1]
+        );
+        sqlx::query(restore_sql)
+            .bind(aggregate_identity)
+            .bind(restored_value)
+            .execute(rd_pool)
+            .await
+            .unwrap();
+        let restored = owner
+            .commit_exploratory_replay_request_v1(proposal.clone())
+            .await
+            .expect("restored historical outbox retry");
+        assert_eq!(
+            serde_json::to_value(&restored).unwrap(),
+            serde_json::to_value(&first).unwrap()
+        );
+    }
+
+    let (family_payload, family_digest): (serde_json::Value, String) = sqlx::query_as(
+        "SELECT payload_json,payload_digest FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'",
+    )
+    .bind(&proposal.trial_family_identity)
+    .fetch_one(rd_pool)
+    .await
+    .unwrap();
+    let mut tampered_family_payload = family_payload.clone();
+    tampered_family_payload["intent_identity"] = serde_json::json!("foreign-intent");
+    let tampered_family: TestFamilyFrozenOutboxV1 =
+        serde_json::from_value(tampered_family_payload.clone()).unwrap();
+    sqlx::query("UPDATE public.rd_owner_outbox_v1 SET payload_json=$2,payload_digest=$3 WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'")
+        .bind(&proposal.trial_family_identity)
+        .bind(tampered_family_payload)
+        .bind(dependency_payload_digest(&tampered_family))
+        .execute(rd_pool).await.unwrap();
+    assert!(matches!(
+        owner
+            .commit_exploratory_replay_request_v1(proposal.clone())
+            .await,
+        Err(ExploratoryReplayOwnerError::Unavailable(_))
+    ));
     assert_unavailable(&owner, first.locator()).await;
-    sqlx::query("UPDATE public.rd_owner_outbox_v1 outbox SET payload_digest=request.frozen_json->>'trial_family_outbox_digest' FROM public.rd_exploratory_replay_requests_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='TRIAL_FAMILY_FROZEN_V1' AND request.request_identity=$2")
-        .bind(&proposal.trial_family_identity).bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
+    assert_raw_lock_not_available(
+        mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner),
+        first.locator(),
+    )
+    .await;
+    assert_eq!(
+        request_counts(rd_pool, &proposal.request_identity).await,
+        [1, 1]
+    );
+    sqlx::query("UPDATE public.rd_owner_outbox_v1 SET payload_json=$2,payload_digest=$3 WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'")
+        .bind(&proposal.trial_family_identity).bind(family_payload).bind(family_digest)
+        .execute(rd_pool).await.unwrap();
+
+    let (artifact_payload, artifact_digest): (serde_json::Value, String) = sqlx::query_as(
+        "SELECT payload_json,payload_digest FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'",
+    )
+    .bind(&proposal.artifact_identity)
+    .fetch_one(rd_pool)
+    .await
+    .unwrap();
+    let mut tampered_artifact_payload = artifact_payload.clone();
+    tampered_artifact_payload["binding_identity"] = serde_json::json!("foreign-binding");
+    let tampered_artifact: TestArtifactBoundOutboxV1 =
+        serde_json::from_value(tampered_artifact_payload.clone()).unwrap();
+    sqlx::query("UPDATE public.rd_owner_outbox_v1 SET payload_json=$2,payload_digest=$3 WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'")
+        .bind(&proposal.artifact_identity)
+        .bind(tampered_artifact_payload)
+        .bind(dependency_payload_digest(&tampered_artifact))
+        .execute(rd_pool).await.unwrap();
+    assert!(matches!(
+        owner
+            .commit_exploratory_replay_request_v1(proposal.clone())
+            .await,
+        Err(ExploratoryReplayOwnerError::Unavailable(_))
+    ));
+    assert_unavailable(&owner, first.locator()).await;
+    assert_raw_lock_not_available(
+        mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner),
+        first.locator(),
+    )
+    .await;
+    assert_eq!(
+        request_counts(rd_pool, &proposal.request_identity).await,
+        [1, 1]
+    );
+    sqlx::query("UPDATE public.rd_owner_outbox_v1 SET payload_json=$2,payload_digest=$3 WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'")
+        .bind(&proposal.artifact_identity).bind(artifact_payload).bind(artifact_digest)
+        .execute(rd_pool).await.unwrap();
+    let restored = owner
+        .commit_exploratory_replay_request_v1(proposal.clone())
+        .await
+        .expect("coordinated outbox tamper restored");
+    assert_eq!(
+        serde_json::to_value(&restored).unwrap(),
+        serde_json::to_value(&first).unwrap()
+    );
 
     let wasm_bytes: Vec<u8> = sqlx::query_scalar(
         "SELECT wasm_bytes FROM public.rd_strategy_artifacts_v1 WHERE artifact_digest=$1",
@@ -449,6 +663,41 @@ async fn assert_unavailable(
         ExploratoryReplayAvailabilityV1::Unavailable
     );
     assert!(result.readback().is_none());
+}
+
+async fn assert_raw_lock_not_available(
+    backtest_pool: &PgPool,
+    locator: &ExploratoryReplayRequestLocatorV1,
+) {
+    let value: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT rd_owner_api.lock_exploratory_replay_request_v1($1,$2,$3)")
+            .bind(&locator.request_identity)
+            .bind(&locator.request_digest)
+            .bind(&locator.receipt_identity)
+            .fetch_one(backtest_pool)
+            .await
+            .unwrap();
+    assert_ne!(
+        value
+            .as_ref()
+            .and_then(|envelope| envelope.get("availability"))
+            .and_then(serde_json::Value::as_str),
+        Some("AVAILABLE")
+    );
+}
+
+fn dependency_payload_digest<T: Serialize>(payload: &T) -> String {
+    #[derive(Serialize)]
+    struct Envelope<'a, T> {
+        domain: &'a str,
+        value: &'a T,
+    }
+    let bytes = serde_json::to_vec(&Envelope {
+        domain: "rd.owner-outbox.payload.v1",
+        value: payload,
+    })
+    .unwrap();
+    format!("sha256:{:x}", Sha256::digest(bytes))
 }
 
 async fn assert_impersonator_rejected(
