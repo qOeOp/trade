@@ -71,6 +71,11 @@ pub type MoneyRaw = i128;
 #[cfg(not(feature = "high-precision"))]
 pub type MoneyRaw = i64;
 
+fn effective_raw_scale(precision: u8) -> MoneyRaw {
+    MoneyRaw::try_from(raw_scale(precision))
+        .unwrap_or_else(|error| panic!("effective raw scale should fit in MoneyRaw: {error:?}"))
+}
+
 // -----------------------------------------------------------------------------
 
 /// The maximum raw money integer value.
@@ -252,7 +257,9 @@ impl Money {
 
         let raw_i128 =
             mantissa_exponent_to_fixed_i128(i128::from(mantissa), exponent, currency.precision)
-                .expect("Overflow in Money::from_mantissa_exponent");
+                .unwrap_or_else(|error| {
+                    panic!("Overflow in Money::from_mantissa_exponent: {error:?}")
+                });
 
         #[allow(
             clippy::useless_conversion,
@@ -504,7 +511,7 @@ impl FromStr for Money {
 
 impl<T: AsRef<str>> From<T> for Money {
     fn from(value: T) -> Self {
-        Self::from_str(value.as_ref()).expect(FAILED)
+        Self::from_str(value.as_ref()).unwrap_or_else(|error| panic!("{FAILED}: {error:?}"))
     }
 }
 
@@ -588,7 +595,7 @@ impl Add for Money {
             raw: self
                 .raw
                 .checked_add(rhs.raw)
-                .expect("Overflow occurred when adding `Money`"),
+                .unwrap_or_else(|| panic!("Overflow occurred when adding `Money`")),
             currency: self.currency,
         }
     }
@@ -606,7 +613,7 @@ impl Sub for Money {
             raw: self
                 .raw
                 .checked_sub(rhs.raw)
-                .expect("Underflow occurred when subtracting `Money`"),
+                .unwrap_or_else(|| panic!("Underflow occurred when subtracting `Money`")),
             currency: self.currency,
         }
     }
@@ -674,8 +681,7 @@ impl Debug for Money {
             write!(f, "{}({}, {})", stringify!(Money), self.raw, self.currency)
         } else {
             let precision = self.currency.precision;
-            let scale = MoneyRaw::try_from(raw_scale(precision))
-                .expect("effective raw scale should fit in MoneyRaw");
+            let scale = effective_raw_scale(precision);
             let currency_scale = MoneyRaw::pow(10, u32::from(precision));
             let amount = self.raw / (scale / currency_scale);
 

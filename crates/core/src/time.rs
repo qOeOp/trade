@@ -74,7 +74,7 @@ pub fn duration_since_unix_epoch() -> Duration {
     // - Such failures are extremely rare in practice and indicate hardware/OS problems
     wall_clock_now()
         .duration_since(UNIX_EPOCH)
-        .expect("Error calling `SystemTime`")
+        .unwrap_or_else(|e| panic!("Error calling `SystemTime`: {e:?}"))
 }
 
 /// Returns the current wall-clock time as [`SystemTime`].
@@ -117,8 +117,9 @@ fn wall_clock_now() -> SystemTime {
 #[inline(always)]
 #[must_use]
 pub fn nanos_since_unix_epoch() -> u64 {
-    u64::try_from(duration_since_unix_epoch().as_nanos())
-        .expect("System time overflow: value exceeds u64::MAX nanoseconds")
+    u64::try_from(duration_since_unix_epoch().as_nanos()).unwrap_or_else(|e| {
+        panic!("System time overflow: value exceeds u64::MAX nanoseconds: {e:?}")
+    })
 }
 
 /// Represents an atomic timekeeping structure.
@@ -319,7 +320,7 @@ impl AtomicTime {
             // Ensure we never wrap past u64::MAX - treat that as a fatal error
             let incremented = last
                 .checked_add(1)
-                .expect("AtomicTime overflow: reached u64::MAX");
+                .unwrap_or_else(|| panic!("AtomicTime overflow: reached u64::MAX"));
             let next = now.max(incremented);
 
             // AcqRel on success ensures this new value is published,

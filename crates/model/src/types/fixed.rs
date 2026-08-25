@@ -775,7 +775,7 @@ pub fn f64_to_fixed_i64(value: f64, precision: u8) -> i64 {
     let rounded = (value * pow1 as f64).round() as i64;
     rounded
         .checked_mul(pow2)
-        .expect("Overflow when scaling f64 to fixed-point i64")
+        .unwrap_or_else(|| panic!("Overflow when scaling f64 to fixed-point i64"))
 }
 
 /// Converts an `f64` value to a raw fixed-point `i128` representation with a specified precision.
@@ -800,7 +800,7 @@ pub fn f64_to_fixed_i128(value: f64, precision: u8) -> i128 {
     let rounded = (value * pow1 as f64).round() as i128;
     rounded
         .checked_mul(pow2)
-        .expect("Overflow when scaling f64 to fixed-point i128")
+        .unwrap_or_else(|| panic!("Overflow when scaling f64 to fixed-point i128"))
 }
 
 /// Converts an `f64` value to a raw fixed-point `u64` representation with a specified precision.
@@ -826,7 +826,7 @@ pub fn f64_to_fixed_u64(value: f64, precision: u8) -> u64 {
     let rounded = (value * pow1 as f64).round() as u64;
     rounded
         .checked_mul(pow2)
-        .expect("Overflow when scaling f64 to fixed-point u64")
+        .unwrap_or_else(|| panic!("Overflow when scaling f64 to fixed-point u64"))
 }
 
 /// Converts an `f64` value to a raw fixed-point `u128` representation with a specified precision.
@@ -852,7 +852,7 @@ pub fn f64_to_fixed_u128(value: f64, precision: u8) -> u128 {
     let rounded = (value * pow1 as f64).round() as u128;
     rounded
         .checked_mul(pow2)
-        .expect("Overflow when scaling f64 to fixed-point u128")
+        .unwrap_or_else(|| panic!("Overflow when scaling f64 to fixed-point u128"))
 }
 
 /// Converts a raw fixed-point `i64` value back to an `f64` value.

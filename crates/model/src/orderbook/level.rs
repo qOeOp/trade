@@ -108,7 +108,7 @@ impl BookLevel {
             .try_fold(0, |total: QuantityRaw, order| {
                 total.checked_add(order.size.raw)
             })
-            .expect("Overflow occurred when summing `BookLevel` raw size")
+            .unwrap_or_else(|| panic!("Overflow occurred when summing `BookLevel` raw size"))
     }
 
     /// Returns the total size of all orders at this price level as a decimal.
@@ -242,7 +242,7 @@ fn calculate_exposure_raw_native(
     let scalar = 10_u128.pow(u32::from(scale_precision));
     let exposure = U256::from(price_raw)
         .checked_mul(U256::from(size_raw))
-        .expect("a positive i128 times a u128 fits U256")
+        .unwrap_or_else(|| panic!("a positive i128 times a u128 fits U256"))
         / U256::from(scalar);
 
     QuantityRaw::try_from(exposure).unwrap_or(QuantityRaw::MAX)

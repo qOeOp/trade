@@ -103,7 +103,10 @@ impl SwapQuote {
             );
         }
 
-        Ok(self.trade_info.as_ref().unwrap())
+        match self.trade_info.as_ref() {
+            Some(trade_info) => Ok(trade_info),
+            None => unreachable!("trade info presence checked above"),
+        }
     }
 
     /// Calculates and populates the `trade_info` field with market-oriented trade data.

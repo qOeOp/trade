@@ -10,75 +10,91 @@ use vibe_core::correctness::{
 };
 
 fn bench_check_predicate_true() {
-    black_box(check_predicate_true(true, "predicate must be true")).unwrap();
+    black_box(check_predicate_true(true, "predicate must be true"))
+        .unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"));
 }
 
 fn bench_check_predicate_false() {
-    black_box(check_predicate_false(false, "predicate must be false")).unwrap();
+    black_box(check_predicate_false(false, "predicate must be false"))
+        .unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"));
 }
 
 fn bench_check_valid_string_ascii() {
-    black_box(check_valid_string_ascii("Hello", "param")).unwrap();
+    black_box(check_valid_string_ascii("Hello", "param"))
+        .unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"));
 }
 
 fn bench_check_valid_string_ascii_optional() {
-    black_box(check_valid_string_ascii_optional(Some("Hello"), "param")).unwrap();
+    black_box(check_valid_string_ascii_optional(Some("Hello"), "param"))
+        .unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"));
 }
 
 fn bench_check_string_contains() {
-    black_box(check_string_contains("Hello, world!", "world", "param")).unwrap();
+    black_box(check_string_contains("Hello, world!", "world", "param"))
+        .unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"));
 }
 
 fn bench_check_equal() {
-    black_box(check_equal(&42, &42, "lhs", "rhs")).unwrap();
+    black_box(check_equal(&42, &42, "lhs", "rhs"))
+        .unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"));
 }
 
 fn bench_check_in_range_inclusive_u8() {
-    black_box(check_in_range_inclusive_u8(5, 0, 10, "param")).unwrap();
+    black_box(check_in_range_inclusive_u8(5, 0, 10, "param"))
+        .unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"));
 }
 
 fn bench_check_in_range_inclusive_u64() {
-    black_box(check_in_range_inclusive_u64(500, 0, 1000, "param")).unwrap();
+    black_box(check_in_range_inclusive_u64(500, 0, 1000, "param"))
+        .unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"));
 }
 
 fn bench_check_map_empty() {
     let empty_map: HashMap<u32, u32> = HashMap::new();
-    black_box(check_map_empty(&empty_map, "param")).unwrap();
+    black_box(check_map_empty(&empty_map, "param"))
+        .unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"));
 }
 
 fn bench_check_map_not_empty() {
     let map: HashMap<u32, u32> = HashMap::from([(1, 42)]);
-    black_box(check_map_not_empty(&map, "param")).unwrap();
+    black_box(check_map_not_empty(&map, "param"))
+        .unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"));
 }
 
 fn bench_check_key_in_map() {
     let map: HashMap<u32, u32> = HashMap::from([(1, 42)]);
-    black_box(check_key_in_map(&1, &map, "key", "map")).unwrap();
+    black_box(check_key_in_map(&1, &map, "key", "map"))
+        .unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"));
 }
 
 fn bench_check_key_not_in_map() {
     let map: HashMap<u32, u32> = HashMap::from([(1, 42)]);
-    black_box(check_key_not_in_map(&2, &map, "key", "map")).unwrap();
+    black_box(check_key_not_in_map(&2, &map, "key", "map"))
+        .unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"));
 }
 
 fn bench_check_index_map_in() {
     let map: IndexMap<u32, u32> = IndexMap::from([(1, 42)]);
-    black_box(check_key_in_map(&1, &map, "key", "map")).unwrap();
+    black_box(check_key_in_map(&1, &map, "key", "map"))
+        .unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"));
 }
 
 fn bench_check_index_map_not_in() {
     let map: IndexMap<u32, u32> = IndexMap::from([(1, 42)]);
-    black_box(check_key_not_in_map(&2, &map, "key", "map")).unwrap();
+    black_box(check_key_not_in_map(&2, &map, "key", "map"))
+        .unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"));
 }
 
 fn bench_check_member_in_set() {
     let set: HashSet<u32> = HashSet::from([1, 42]);
-    black_box(check_member_in_set(&1, &set, "key", "set")).unwrap();
+    black_box(check_member_in_set(&1, &set, "key", "set"))
+        .unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"));
 }
 
 fn bench_check_member_not_in_set() {
     let set: HashSet<u32> = HashSet::from([1, 42]);
-    black_box(check_member_not_in_set(&100, &set, "key", "set")).unwrap();
+    black_box(check_member_not_in_set(&100, &set, "key", "set"))
+        .unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"));
 }
 
 main!(

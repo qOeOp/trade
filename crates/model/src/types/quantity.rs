@@ -414,10 +414,11 @@ impl Quantity {
         reason = "try_from is infallible when QuantityRaw is u64, fallible when u128"
     )]
     pub(crate) fn raw_as_decimal(raw: QuantityRaw) -> Decimal {
-        let whole =
-            i128::try_from(raw / FIXED_SCALAR_RAW).expect("Whole raw quantity must fit in Decimal");
-        let fractional = i128::try_from(raw % FIXED_SCALAR_RAW)
-            .expect("Fractional raw quantity must fit in Decimal");
+        let whole = i128::try_from(raw / FIXED_SCALAR_RAW)
+            .unwrap_or_else(|error| panic!("Whole raw quantity must fit in Decimal: {error:?}"));
+        let fractional = i128::try_from(raw % FIXED_SCALAR_RAW).unwrap_or_else(|error| {
+            panic!("Fractional raw quantity must fit in Decimal: {error:?}")
+        });
 
         Decimal::from(whole) + Decimal::from_i128_with_scale(fractional, u32::from(FIXED_PRECISION))
     }
@@ -505,11 +506,15 @@ impl Quantity {
         }
 
         let raw_i128 = mantissa_exponent_to_fixed_i128(i128::from(mantissa), exponent, precision)
-            .expect("Overflow in Quantity::from_mantissa_exponent");
+            .unwrap_or_else(|error| {
+                panic!("Overflow in Quantity::from_mantissa_exponent: {error:?}")
+            });
 
-        let raw: QuantityRaw = raw_i128
-            .try_into()
-            .expect("Raw value exceeds QuantityRaw range in Quantity::from_mantissa_exponent");
+        let raw: QuantityRaw = raw_i128.try_into().unwrap_or_else(|error| {
+            panic!(
+                "Raw value exceeds QuantityRaw range in Quantity::from_mantissa_exponent: {error:?}"
+            )
+        });
         assert!(
             raw <= QUANTITY_RAW_MAX,
             "`raw` value {raw} exceeded QUANTITY_RAW_MAX={QUANTITY_RAW_MAX} for Quantity"
@@ -686,7 +691,7 @@ impl Add for Quantity {
             raw: self
                 .raw
                 .checked_add(rhs.raw)
-                .expect("Overflow occurred when adding `Quantity`"),
+                .unwrap_or_else(|| panic!("Overflow occurred when adding `Quantity`")),
             precision: self.precision.max(rhs.precision),
         }
     }
@@ -699,7 +704,7 @@ impl Sub for Quantity {
             raw: self
                 .raw
                 .checked_sub(rhs.raw)
-                .expect("Underflow occurred when subtracting `Quantity`"),
+                .unwrap_or_else(|| panic!("Underflow occurred when subtracting `Quantity`")),
             precision: self.precision.max(rhs.precision),
         }
     }
@@ -719,7 +724,7 @@ impl Mul for Quantity {
                 .checked_mul(rhs.raw)
                 .map(|raw| raw / FIXED_SCALAR_RAW)
         }
-        .expect("Overflow occurred when multiplying `Quantity`");
+        .unwrap_or_else(|| panic!("Overflow occurred when multiplying `Quantity`"));
 
         Self {
             raw: result_raw,
@@ -831,19 +836,19 @@ impl FromStr for Quantity {
 
 impl From<&str> for Quantity {
     fn from(value: &str) -> Self {
-        Self::from_str(value).expect(FAILED)
+        Self::from_str(value).unwrap_or_else(|error| panic!("{FAILED}: {error:?}"))
     }
 }
 
 impl From<String> for Quantity {
     fn from(value: String) -> Self {
-        Self::from_str(&value).expect(FAILED)
+        Self::from_str(&value).unwrap_or_else(|error| panic!("{FAILED}: {error:?}"))
     }
 }
 
 impl From<&String> for Quantity {
     fn from(value: &String) -> Self {
-        Self::from_str(value).expect(FAILED)
+        Self::from_str(value).unwrap_or_else(|error| panic!("{FAILED}: {error:?}"))
     }
 }
 

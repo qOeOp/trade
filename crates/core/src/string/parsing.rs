@@ -103,8 +103,9 @@ pub fn precision_from_str(s: &str) -> u8 {
     let s = s.trim().to_ascii_lowercase();
 
     if s.contains('e') {
-        return precision_from_scientific(&s, false, true)
-            .expect("precision_from_scientific should return Some in strict mode");
+        return precision_from_scientific(&s, false, true).unwrap_or_else(|| {
+            panic!("precision_from_scientific should return Some in strict mode")
+        });
     }
 
     if let Some((_, decimal_part)) = s.split_once('.') {

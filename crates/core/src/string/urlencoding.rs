@@ -79,7 +79,9 @@ const DECODE_NIBBLE: [u8; 256] = {
 pub fn encode(input: &str) -> Cow<'_, str> {
     match encode_bytes(input.as_bytes()) {
         Cow::Borrowed(_) => Cow::Borrowed(input),
-        Cow::Owned(bytes) => Cow::Owned(String::from_utf8(bytes).expect("encoded output is ASCII")),
+        Cow::Owned(bytes) => Cow::Owned(
+            String::from_utf8(bytes).unwrap_or_else(|e| panic!("encoded output is ASCII: {e:?}")),
+        ),
     }
 }
 

@@ -96,7 +96,10 @@ impl TraderId {
     /// Panics if the internal ID string does not contain a '-' separator.
     #[must_use]
     pub fn get_tag(&self) -> &str {
-        self.0.split('-').next_back().unwrap()
+        self.0
+            .split('-')
+            .next_back()
+            .unwrap_or_else(|| panic!("TraderId contains at least one segment"))
     }
 
     /// Creates an external trader ID used for orders from external sources.

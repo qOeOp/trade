@@ -69,7 +69,9 @@ fn accepted_market_order(quantity: Quantity) -> MarketOrder {
         UnixNanos::default(),
         false,
     );
-    order.apply(OrderEventAny::Accepted(accepted)).unwrap();
+    order
+        .apply(OrderEventAny::Accepted(accepted))
+        .unwrap_or_else(|error| panic!("benchmark acceptance event must apply: {error:?}"));
 
     order
 }
@@ -114,7 +116,11 @@ fn bench_order_fills(c: &mut Criterion) {
                 || accepted_market_order(Quantity::from(count)),
                 |order| {
                     for event in events {
-                        order.apply(black_box(event.clone())).unwrap();
+                        order
+                            .apply(black_box(event.clone()))
+                            .unwrap_or_else(|error| {
+                                panic!("benchmark fill event must apply: {error:?}")
+                            });
                     }
                 },
                 BatchSize::SmallInput,

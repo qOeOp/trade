@@ -35,14 +35,23 @@ fn bench_deser_type(c: &mut Criterion) {
     let json_str = r#"{"p":"50000.12345678","q":"1.5"}"#;
 
     group.bench_function("f64_from_number", |b| {
-        b.iter(|| serde_json::from_str::<F64Tick>(json_num).unwrap());
+        b.iter(|| {
+            serde_json::from_str::<F64Tick>(json_num)
+                .unwrap_or_else(|error| panic!("benchmark JSON must deserialize: {error:?}"))
+        });
     });
     group.bench_function("decimal_from_string", |b| {
-        b.iter(|| serde_json::from_str::<DecimalTick>(json_str).unwrap());
+        b.iter(|| {
+            serde_json::from_str::<DecimalTick>(json_str)
+                .unwrap_or_else(|error| panic!("benchmark JSON must deserialize: {error:?}"))
+        });
     });
     // Also test Decimal from numbers for fair comparison
     group.bench_function("decimal_from_number", |b| {
-        b.iter(|| serde_json::from_str::<DecimalTick>(json_num).unwrap());
+        b.iter(|| {
+            serde_json::from_str::<DecimalTick>(json_num)
+                .unwrap_or_else(|error| panic!("benchmark JSON must deserialize: {error:?}"))
+        });
     });
     group.finish();
 }
@@ -56,17 +65,21 @@ fn bench_json_to_price(c: &mut Criterion) {
 
     group.bench_function("via_f64", |b| {
         b.iter(|| {
-            let t: F64Tick = serde_json::from_str(json_num).unwrap();
+            let t: F64Tick = serde_json::from_str(json_num)
+                .unwrap_or_else(|error| panic!("benchmark JSON must deserialize: {error:?}"));
             (Price::new(t.p, precision), Quantity::new(t.q, precision))
         });
     });
 
     group.bench_function("via_decimal", |b| {
         b.iter(|| {
-            let t: DecimalTick = serde_json::from_str(json_str).unwrap();
+            let t: DecimalTick = serde_json::from_str(json_str)
+                .unwrap_or_else(|error| panic!("benchmark JSON must deserialize: {error:?}"));
             (
-                Price::from_decimal_dp(t.p, precision).unwrap(),
-                Quantity::from_decimal_dp(t.q, precision).unwrap(),
+                Price::from_decimal_dp(t.p, precision)
+                    .unwrap_or_else(|error| panic!("benchmark price must convert: {error:?}")),
+                Quantity::from_decimal_dp(t.q, precision)
+                    .unwrap_or_else(|error| panic!("benchmark quantity must convert: {error:?}")),
             )
         });
     });
@@ -115,7 +128,7 @@ fn bench_batch_to_price(c: &mut Criterion) {
     group.bench_function("via_f64", |b| {
         b.iter(|| {
             serde_json::from_str::<Vec<F64Tick>>(&json_num)
-                .unwrap()
+                .unwrap_or_else(|error| panic!("benchmark JSON must deserialize: {error:?}"))
                 .into_iter()
                 .map(|t| (Price::new(t.p, 8), Quantity::new(t.q, 4)))
                 .collect::<Vec<_>>()
@@ -125,12 +138,16 @@ fn bench_batch_to_price(c: &mut Criterion) {
     group.bench_function("via_decimal", |b| {
         b.iter(|| {
             serde_json::from_str::<Vec<DecimalTick>>(&json_str)
-                .unwrap()
+                .unwrap_or_else(|error| panic!("benchmark JSON must deserialize: {error:?}"))
                 .into_iter()
                 .map(|t| {
                     (
-                        Price::from_decimal_dp(t.p, 8).unwrap(),
-                        Quantity::from_decimal_dp(t.q, 4).unwrap(),
+                        Price::from_decimal_dp(t.p, 8).unwrap_or_else(|error| {
+                            panic!("benchmark price must convert: {error:?}")
+                        }),
+                        Quantity::from_decimal_dp(t.q, 4).unwrap_or_else(|error| {
+                            panic!("benchmark quantity must convert: {error:?}")
+                        }),
                     )
                 })
                 .collect::<Vec<_>>()

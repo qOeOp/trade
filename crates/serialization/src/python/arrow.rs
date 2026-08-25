@@ -87,7 +87,6 @@ pub fn get_arrow_schema_map(py: Python<'_>, cls: &Bound<'_, PyType>) -> PyResult
 /// Converts a vector of `OrderBookDelta` into an Arrow `RecordBatch`.
 #[pyfunction]
 #[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.serialization")]
-#[expect(clippy::missing_panics_doc)] // Guarded by empty check
 pub fn pyobjects_to_arrow_record_batch_bytes(
     py: Python,
     data: Vec<Bound<'_, PyAny>>,
@@ -98,7 +97,7 @@ pub fn pyobjects_to_arrow_record_batch_bytes(
 
     let data_type: String = data
         .first()
-        .unwrap() // SAFETY: Unwrap safe as already checked that `data` not empty
+        .ok_or_else(|| to_pyvalue_err("Empty data"))?
         .getattr("__class__")?
         .getattr("__name__")?
         .extract()?;

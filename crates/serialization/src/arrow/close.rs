@@ -67,9 +67,7 @@ impl EncodeToRecordBatch for InstrumentClose {
         let mut ts_init_builder = UInt64Array::builder(data.len());
 
         for item in data {
-            close_price_builder
-                .append_value(item.close_price.raw.to_le_bytes())
-                .unwrap();
+            close_price_builder.append_value(item.close_price.raw.to_le_bytes())?;
             close_type_builder.append_value(item.close_type as u8);
             ts_event_builder.append_value(item.ts_event.as_u64());
             ts_init_builder.append_value(item.ts_init.as_u64());

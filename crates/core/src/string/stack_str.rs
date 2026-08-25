@@ -188,7 +188,9 @@ impl StackStr {
     pub unsafe fn from_c_ptr(ptr: *const c_char) -> Self {
         // SAFETY: Caller guarantees ptr is valid and null-terminated
         let cstr = unsafe { CStr::from_ptr(ptr) };
-        let s = cstr.to_str().expect("Invalid UTF-8 in C string");
+        let s = cstr
+            .to_str()
+            .unwrap_or_else(|e| panic!("Invalid UTF-8 in C string: {e:?}"));
         Self::new(s)
     }
 

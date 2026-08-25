@@ -925,8 +925,12 @@ impl DataType {
         let metadata = self.metadata.as_ref()?;
         let instrument_id = metadata.get_str("instrument_id")?;
         Some(
-            InstrumentId::from_str(instrument_id)
-                .expect("Invalid `InstrumentId` for 'instrument_id'"),
+            InstrumentId::from_str(instrument_id).unwrap_or_else(|error| {
+                panic!(
+                    "{}: {error:?}",
+                    "Invalid `InstrumentId` for 'instrument_id'"
+                )
+            }),
         )
     }
 
@@ -953,7 +957,10 @@ impl DataType {
     pub fn start(&self) -> Option<UnixNanos> {
         let metadata = self.metadata.as_ref()?;
         let start_str = metadata.get_str("start")?;
-        Some(UnixNanos::from_str(start_str).expect("Invalid `UnixNanos` for 'start'"))
+        Some(
+            UnixNanos::from_str(start_str)
+                .unwrap_or_else(|error| panic!("Invalid `UnixNanos` for 'start': {error:?}")),
+        )
     }
 
     /// Returns an [`Option<UnixNanos>`] parsed from the metadata `end` field.
@@ -966,7 +973,10 @@ impl DataType {
     pub fn end(&self) -> Option<UnixNanos> {
         let metadata = self.metadata.as_ref()?;
         let end_str = metadata.get_str("end")?;
-        Some(UnixNanos::from_str(end_str).expect("Invalid `UnixNanos` for 'end'"))
+        Some(
+            UnixNanos::from_str(end_str)
+                .unwrap_or_else(|error| panic!("Invalid `UnixNanos` for 'end': {error:?}")),
+        )
     }
 
     /// Returns an [`Option<usize>`] parsed from the metadata `limit` field.
@@ -979,9 +989,10 @@ impl DataType {
     pub fn limit(&self) -> Option<usize> {
         let metadata = self.metadata.as_ref()?;
         metadata.get_usize("limit").or_else(|| {
-            metadata
-                .get_str("limit")
-                .map(|s| s.parse::<usize>().expect("Invalid `usize` for 'limit'"))
+            metadata.get_str("limit").map(|s| {
+                s.parse::<usize>()
+                    .unwrap_or_else(|error| panic!("Invalid `usize` for 'limit': {error:?}"))
+            })
         })
     }
 }

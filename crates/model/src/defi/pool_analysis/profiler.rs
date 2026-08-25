@@ -90,7 +90,9 @@ impl PoolProfiler {
     /// Panics if the pool's tick spacing is not set.
     #[must_use]
     pub fn new(pool: SharedPool) -> Self {
-        let tick_spacing = pool.tick_spacing.expect("Pool tick spacing must be set");
+        let tick_spacing = pool
+            .tick_spacing
+            .unwrap_or_else(|| panic!("Pool tick spacing must be set"));
         let mut state = PoolState::default();
 
         if let Some((fee_protocol0, fee_protocol1)) =
@@ -473,7 +475,10 @@ impl PoolProfiler {
         traverse_empty_ranges: bool,
     ) -> anyhow::Result<SwapQuote> {
         let exact_input = amount_specified.is_positive();
-        let fee_tier = self.pool.fee.expect("Pool fee should be initialized");
+        let fee_tier = self
+            .pool
+            .fee
+            .unwrap_or_else(|| unreachable!("Pool fee should be initialized"));
 
         let mut current_sqrt_price = self.state.price_sqrt_ratio_x96;
         let mut current_tick = self.state.current_tick;
@@ -1322,7 +1327,10 @@ impl PoolProfiler {
     ) -> anyhow::Result<PoolFlash> {
         self.check_if_initialized(PoolEventKind::Flash)?;
 
-        let fee_tier = self.pool.fee.expect("Pool fee should be initialized");
+        let fee_tier = self
+            .pool
+            .fee
+            .unwrap_or_else(|| unreachable!("Pool fee should be initialized"));
 
         // Calculate fees or paid0/paid1
         let paid0 = if amount0 > U256::ZERO {
@@ -1586,9 +1594,11 @@ impl PoolProfiler {
             anyhow::bail!("Invalid tick range: {tick_lower} >= {tick_upper}")
         }
 
-        if tick_lower % self.pool.tick_spacing.unwrap() as i32 != 0
-            || tick_upper % self.pool.tick_spacing.unwrap() as i32 != 0
-        {
+        let tick_spacing = self
+            .pool
+            .tick_spacing
+            .unwrap_or_else(|| unreachable!("called `Option::unwrap()` on a `None` value"));
+        if tick_lower % tick_spacing as i32 != 0 || tick_upper % tick_spacing as i32 != 0 {
             anyhow::bail!(
                 "Ticks {tick_lower} and {tick_upper} must be multiples of the tick spacing"
             )
@@ -1690,7 +1700,7 @@ impl PoolProfiler {
         self.tick_map = TickMap::new(
             self.pool
                 .tick_spacing
-                .expect("Pool tick spacing must be set"),
+                .unwrap_or_else(|| unreachable!("Pool tick spacing must be set")),
         );
 
         for tick in snapshot.ticks {

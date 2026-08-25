@@ -83,12 +83,8 @@ impl EncodeToRecordBatch for OrderBookDelta {
         for delta in data {
             action_builder.append_value(delta.action as u8);
             side_builder.append_value(delta.order.side as u8);
-            price_builder
-                .append_value(delta.order.price.raw.to_le_bytes())
-                .unwrap();
-            size_builder
-                .append_value(delta.order.size.raw.to_le_bytes())
-                .unwrap();
+            price_builder.append_value(delta.order.price.raw.to_le_bytes())?;
+            size_builder.append_value(delta.order.size.raw.to_le_bytes())?;
             order_id_builder.append_value(delta.order.order_id);
             flags_builder.append_value(delta.flags);
             sequence_builder.append_value(delta.sequence);
@@ -138,8 +134,10 @@ impl EncodeToRecordBatch for OrderBookDelta {
             .iter()
             .find(|delta| delta.action != BookAction::Clear)
             .or_else(|| chunk.first())
-            .map(EncodeToRecordBatch::metadata)
-            .expect("Chunk must have at least one element to encode")
+            .map_or_else(
+                || panic!("Chunk must have at least one element to encode"),
+                EncodeToRecordBatch::metadata,
+            )
     }
 }
 

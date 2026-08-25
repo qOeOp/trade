@@ -97,7 +97,12 @@ impl AccountId {
     /// Panics if the internal ID does not contain a hyphen separator.
     #[must_use]
     pub fn get_issuer(&self) -> Venue {
-        Venue::from_str_unchecked(self.0.split_once('-').expect("AccountId contains '-'").0)
+        Venue::from_str_unchecked(
+            self.0
+                .split_once('-')
+                .unwrap_or_else(|| panic!("AccountId contains '-'"))
+                .0,
+        )
     }
 
     /// Returns the account ID assigned by the issuer.
@@ -107,7 +112,10 @@ impl AccountId {
     /// Panics if the internal ID does not contain a hyphen separator.
     #[must_use]
     pub fn get_issuers_id(&self) -> &str {
-        self.0.split_once('-').expect("AccountId contains '-'").1
+        self.0
+            .split_once('-')
+            .unwrap_or_else(|| panic!("AccountId contains '-'"))
+            .1
     }
 }
 

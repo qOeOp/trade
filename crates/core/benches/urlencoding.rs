@@ -73,7 +73,9 @@ fn bench_roundtrip_iso_timestamp(c: &mut Criterion) {
     c.bench_function("urlencoding roundtrip (ISO timestamp)", |b| {
         b.iter(|| {
             let encoded = urlencoding::encode(black_box(ISO_TIMESTAMP));
-            urlencoding::decode(&encoded).unwrap().into_owned()
+            urlencoding::decode(&encoded)
+                .unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"))
+                .into_owned()
         });
     });
 }

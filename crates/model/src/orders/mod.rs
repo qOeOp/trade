@@ -357,7 +357,7 @@ pub trait Order: 'static + Send {
     fn last_event(&self) -> &OrderEventAny {
         self.events()
             .last()
-            .expect("Order invariant violated: no events")
+            .unwrap_or_else(|| panic!("Order invariant violated: no events"))
     }
 
     fn event_count(&self) -> usize {
@@ -500,7 +500,8 @@ pub trait Order: 'static + Send {
             self.client_order_id(),
             self.venue_order_id(),
             self.order_side().as_specified(),
-            self.price().expect("`OwnBookOrder` must have a price"),
+            self.price()
+                .unwrap_or_else(|| panic!("`OwnBookOrder` must have a price")),
             self.leaves_qty(),
             self.order_type(),
             self.time_in_force(),
@@ -1204,7 +1205,11 @@ impl OrderCore {
 
         if let Some(venue_order_id) = &event.venue_order_id
             && (self.venue_order_id.is_none()
-                || venue_order_id != self.venue_order_id.as_ref().unwrap())
+                || venue_order_id
+                    != self
+                        .venue_order_id
+                        .as_ref()
+                        .unwrap_or_else(|| panic!("venue_order_id is set")))
         {
             self.venue_order_id = Some(*venue_order_id);
             self.venue_order_ids.push(*venue_order_id);

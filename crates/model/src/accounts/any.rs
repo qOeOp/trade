@@ -109,13 +109,12 @@ impl AccountAny {
     /// # Errors
     ///
     /// Returns an error if `events` is empty.
-    #[expect(clippy::missing_panics_doc)] // Guarded by empty check above
     pub fn from_events(events: &[AccountState]) -> anyhow::Result<Self> {
         if events.is_empty() {
             anyhow::bail!("No order events provided to create `AccountAny`");
         }
 
-        let init_event = events.first().unwrap();
+        let init_event = &events[0];
         let mut account = Self::from(init_event.clone());
         for event in events.iter().skip(1) {
             account.apply(event.clone())?;
@@ -209,7 +208,8 @@ impl From<AccountState> for AccountAny {
     /// Panics if the account type is `Wallet` (unsupported in Rust).
     /// Use [`AccountAny::try_from_state`] for fallible conversion.
     fn from(event: AccountState) -> Self {
-        Self::try_from_state(event).expect("Unsupported account type")
+        Self::try_from_state(event)
+            .unwrap_or_else(|error| panic!("Unsupported account type: {error:?}"))
     }
 }
 

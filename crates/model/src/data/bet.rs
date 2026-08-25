@@ -279,7 +279,9 @@ impl BetPosition {
         match abs_bet_exposure.cmp(&abs_self_exposure) {
             std::cmp::Ordering::Less => {
                 let decreasing_volume = abs_bet_exposure / self.price;
-                let current_side = self.side().unwrap();
+                let current_side = self
+                    .side()
+                    .unwrap_or_else(|| panic!("called `Option::unwrap()` on a `None` value"));
                 let decreasing_bet = Bet::new(self.price, decreasing_volume, current_side);
                 let pnl = calc_bets_pnl(&[bet.clone(), decreasing_bet]);
                 self.realized_pnl += pnl;

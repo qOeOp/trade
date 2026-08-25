@@ -40,19 +40,20 @@ pub unsafe fn bytes_to_string_vec(ptr: *const c_char) -> Vec<String> {
     let c_str = unsafe { CStr::from_ptr(ptr) };
     let bytes = c_str.to_bytes();
 
-    let json_string = std::str::from_utf8(bytes).expect("C string contains invalid UTF-8");
-    let value: serde_json::Value =
-        serde_json::from_str(json_string).expect("C string contains invalid JSON");
+    let json_string = std::str::from_utf8(bytes)
+        .unwrap_or_else(|e| panic!("C string contains invalid UTF-8: {e:?}"));
+    let value: serde_json::Value = serde_json::from_str(json_string)
+        .unwrap_or_else(|e| panic!("C string contains invalid JSON: {e:?}"));
 
     let arr = value
         .as_array()
-        .expect("C string JSON must be an array of strings");
+        .unwrap_or_else(|| panic!("C string JSON must be an array of strings"));
 
     arr.iter()
         .map(|value| {
             value
                 .as_str()
-                .expect("C string JSON array must contain only strings")
+                .unwrap_or_else(|| panic!("C string JSON array must contain only strings"))
                 .to_owned()
         })
         .collect()
@@ -65,8 +66,10 @@ pub unsafe fn bytes_to_string_vec(ptr: *const c_char) -> Vec<String> {
 /// Panics if JSON serialization fails or if the generated string contains interior null bytes.
 #[must_use]
 pub fn string_vec_to_bytes(strings: &[String]) -> *const c_char {
-    let json_string = serde_json::to_string(strings).expect("Failed to serialize strings to JSON");
-    let c_string = CString::new(json_string).expect("JSON string contains interior null bytes");
+    let json_string = serde_json::to_string(strings)
+        .unwrap_or_else(|e| panic!("Failed to serialize strings to JSON: {e:?}"));
+    let c_string = CString::new(json_string)
+        .unwrap_or_else(|e| panic!("JSON string contains interior null bytes: {e:?}"));
 
     c_string.into_raw()
 }
@@ -89,8 +92,10 @@ pub unsafe fn optional_bytes_to_json(ptr: *const c_char) -> Option<HashMap<Strin
         let c_str = unsafe { CStr::from_ptr(ptr) };
         let bytes = c_str.to_bytes();
 
-        let json_string = std::str::from_utf8(bytes).expect("C string contains invalid UTF-8");
-        let result = serde_json::from_str(json_string).expect("C string contains invalid JSON");
+        let json_string = std::str::from_utf8(bytes)
+            .unwrap_or_else(|e| panic!("C string contains invalid UTF-8: {e:?}"));
+        let result = serde_json::from_str(json_string)
+            .unwrap_or_else(|e| panic!("C string contains invalid JSON: {e:?}"));
 
         Some(result)
     }
@@ -114,8 +119,10 @@ pub unsafe fn optional_bytes_to_str_map(ptr: *const c_char) -> Option<HashMap<Us
         let c_str = unsafe { CStr::from_ptr(ptr) };
         let bytes = c_str.to_bytes();
 
-        let json_string = std::str::from_utf8(bytes).expect("C string contains invalid UTF-8");
-        let result = serde_json::from_str(json_string).expect("C string contains invalid JSON");
+        let json_string = std::str::from_utf8(bytes)
+            .unwrap_or_else(|e| panic!("C string contains invalid UTF-8: {e:?}"));
+        let result = serde_json::from_str(json_string)
+            .unwrap_or_else(|e| panic!("C string contains invalid JSON: {e:?}"));
 
         Some(result)
     }
@@ -139,8 +146,10 @@ pub unsafe fn optional_bytes_to_str_vec(ptr: *const c_char) -> Option<Vec<String
         let c_str = unsafe { CStr::from_ptr(ptr) };
         let bytes = c_str.to_bytes();
 
-        let json_string = std::str::from_utf8(bytes).expect("C string contains invalid UTF-8");
-        let result = serde_json::from_str(json_string).expect("C string contains invalid JSON");
+        let json_string = std::str::from_utf8(bytes)
+            .unwrap_or_else(|e| panic!("C string contains invalid UTF-8: {e:?}"));
+        let result = serde_json::from_str(json_string)
+            .unwrap_or_else(|e| panic!("C string contains invalid JSON: {e:?}"));
 
         Some(result)
     }
@@ -189,10 +198,9 @@ fn precision_from_v1_str(value: &str) -> u8 {
     let value = value.trim().to_ascii_lowercase();
 
     if value.contains("e-") {
-        let exponent = value
-            .split("e-")
-            .nth(1)
-            .expect("Invalid scientific notation format: missing exponent after 'e-'");
+        let exponent = value.split("e-").nth(1).unwrap_or_else(|| {
+            panic!("Invalid scientific notation format: missing exponent after 'e-'")
+        });
 
         if let Ok(exponent) = exponent.parse::<u64>() {
             return u8::try_from(exponent).unwrap_or(u8::MAX);

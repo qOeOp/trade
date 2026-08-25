@@ -107,9 +107,14 @@ fn bench_fill_void_replay(c: &mut Criterion) {
                 b.iter_batched_ref(
                     || (position.clone(), Some(fill_voided.clone())),
                     |(position, fill_voided)| {
+                        let fill_voided = fill_voided
+                            .take()
+                            .unwrap_or_else(|| panic!("benchmark fill-void event must be present"));
                         let result = position
-                            .apply_fill_void(fill_voided.take().unwrap(), Quantity::from(1), None)
-                            .unwrap();
+                            .apply_fill_void(fill_voided, Quantity::from(1), None)
+                            .unwrap_or_else(|error| {
+                                panic!("benchmark fill-void event must apply: {error:?}")
+                            });
                         black_box(result);
                         black_box(&*position);
                     },
@@ -132,16 +137,24 @@ fn position_for_fill(position: &Position) -> Position {
 
 fn position_after_fill_void(count: usize) -> Position {
     let (mut position, _) = position_with_fills(count);
-    let last = position.events.last().unwrap().clone();
+    let last = position
+        .events
+        .last()
+        .unwrap_or_else(|| panic!("benchmark position must contain an event"))
+        .clone();
     position
         .apply_fill_void(fill_void(&last), Quantity::from(1), None)
-        .unwrap();
+        .unwrap_or_else(|error| panic!("benchmark fill-void event must apply: {error:?}"));
     position
 }
 
 fn position_with_prior_cycle(count: usize) -> (Position, OrderFilled, OrderFilled) {
     let (mut position, mut first) = position_with_fills(count);
-    let mut last = position.events.last().unwrap().clone();
+    let mut last = position
+        .events
+        .last()
+        .unwrap_or_else(|| panic!("benchmark position must contain an event"))
+        .clone();
     position.apply(&fill(count, OrderSide::Sell, Quantity::from(count as u64)));
     position.apply(&fill(count + 1, OrderSide::Buy, Quantity::from(1)));
     first.event_id = UUID4::new();

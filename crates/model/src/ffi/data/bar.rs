@@ -26,9 +26,10 @@ pub extern "C" fn bar_specification_new(
     aggregation: u8,
     price_type: u8,
 ) -> BarSpecification {
-    let aggregation =
-        BarAggregation::from_repr(aggregation as usize).expect("Error converting enum");
-    let price_type = PriceType::from_repr(price_type as usize).expect("Error converting enum");
+    let aggregation = BarAggregation::from_repr(aggregation as usize)
+        .unwrap_or_else(|| panic!("Error converting enum"));
+    let price_type = PriceType::from_repr(price_type as usize)
+        .unwrap_or_else(|| panic!("Error converting enum"));
     BarSpecification::new(step, aggregation, price_type)
 }
 
@@ -79,8 +80,8 @@ pub extern "C" fn bar_type_new(
     spec: BarSpecification,
     aggregation_source: u8,
 ) -> BarType {
-    let aggregation_source =
-        AggregationSource::from_repr(aggregation_source as usize).expect("Error converting enum");
+    let aggregation_source = AggregationSource::from_repr(aggregation_source as usize)
+        .unwrap_or_else(|| panic!("Error converting enum"));
 
     BarType::Standard {
         instrument_id,

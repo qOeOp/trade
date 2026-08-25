@@ -286,7 +286,7 @@ impl Price {
 
     fn __int__(&self) -> PriceRaw {
         let scale = PriceRaw::try_from(raw_scale(self.precision))
-            .expect("effective raw scale should fit in PriceRaw");
+            .unwrap_or_else(|_| panic!("effective raw scale should fit in PriceRaw"));
         self.raw / scale
     }
 

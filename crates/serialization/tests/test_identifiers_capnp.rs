@@ -9,6 +9,27 @@ use vibe_model::identifiers::{
 };
 use vibe_serialization::capnp::{FromCapnp, ToCapnp, identifiers_capnp};
 
+trait FailLoud<T> {
+    #[track_caller]
+    fn fail_loud(self) -> T;
+}
+
+impl<T> FailLoud<T> for Option<T> {
+    #[track_caller]
+    fn fail_loud(self) -> T {
+        self.unwrap_or_else(|| panic!("called `Option::unwrap()` on a `None` value"))
+    }
+}
+
+impl<T, E: std::fmt::Debug> FailLoud<T> for Result<T, E> {
+    #[track_caller]
+    fn fail_loud(self) -> T {
+        self.unwrap_or_else(|error| {
+            panic!("called `Result::unwrap()` on an `Err` value: {error:?}")
+        })
+    }
+}
+
 #[rstest]
 fn test_trader_id_roundtrip() {
     let trader_id = TraderId::from("TRADER-001");
@@ -18,15 +39,15 @@ fn test_trader_id_roundtrip() {
     trader_id.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<identifiers_capnp::trader_id::Reader>()
-        .unwrap();
-    let decoded = TraderId::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = TraderId::from_capnp(root).fail_loud();
 
     assert_eq!(trader_id, decoded);
 }
@@ -40,15 +61,15 @@ fn test_strategy_id_roundtrip() {
     strategy_id.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<identifiers_capnp::strategy_id::Reader>()
-        .unwrap();
-    let decoded = StrategyId::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = StrategyId::from_capnp(root).fail_loud();
 
     assert_eq!(strategy_id, decoded);
 }
@@ -62,15 +83,15 @@ fn test_actor_id_roundtrip() {
     actor_id.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<identifiers_capnp::actor_id::Reader>()
-        .unwrap();
-    let decoded = ActorId::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = ActorId::from_capnp(root).fail_loud();
 
     assert_eq!(actor_id, decoded);
 }
@@ -84,15 +105,15 @@ fn test_account_id_roundtrip() {
     account_id.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<identifiers_capnp::account_id::Reader>()
-        .unwrap();
-    let decoded = AccountId::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = AccountId::from_capnp(root).fail_loud();
 
     assert_eq!(account_id, decoded);
 }
@@ -106,15 +127,15 @@ fn test_client_id_roundtrip() {
     client_id.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<identifiers_capnp::client_id::Reader>()
-        .unwrap();
-    let decoded = ClientId::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = ClientId::from_capnp(root).fail_loud();
 
     assert_eq!(client_id, decoded);
 }
@@ -128,15 +149,15 @@ fn test_client_order_id_roundtrip() {
     client_order_id.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<identifiers_capnp::client_order_id::Reader>()
-        .unwrap();
-    let decoded = ClientOrderId::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = ClientOrderId::from_capnp(root).fail_loud();
 
     assert_eq!(client_order_id, decoded);
 }
@@ -150,15 +171,15 @@ fn test_venue_order_id_roundtrip() {
     venue_order_id.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<identifiers_capnp::venue_order_id::Reader>()
-        .unwrap();
-    let decoded = VenueOrderId::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = VenueOrderId::from_capnp(root).fail_loud();
 
     assert_eq!(venue_order_id, decoded);
 }
@@ -172,15 +193,15 @@ fn test_trade_id_roundtrip() {
     trade_id.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<identifiers_capnp::trade_id::Reader>()
-        .unwrap();
-    let decoded = TradeId::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = TradeId::from_capnp(root).fail_loud();
 
     assert_eq!(trade_id, decoded);
 }
@@ -194,15 +215,15 @@ fn test_position_id_roundtrip() {
     position_id.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<identifiers_capnp::position_id::Reader>()
-        .unwrap();
-    let decoded = PositionId::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = PositionId::from_capnp(root).fail_loud();
 
     assert_eq!(position_id, decoded);
 }
@@ -216,15 +237,15 @@ fn test_exec_algorithm_id_roundtrip() {
     exec_algorithm_id.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<identifiers_capnp::exec_algorithm_id::Reader>()
-        .unwrap();
-    let decoded = ExecAlgorithmId::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = ExecAlgorithmId::from_capnp(root).fail_loud();
 
     assert_eq!(exec_algorithm_id, decoded);
 }
@@ -238,15 +259,15 @@ fn test_component_id_roundtrip() {
     component_id.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<identifiers_capnp::component_id::Reader>()
-        .unwrap();
-    let decoded = ComponentId::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = ComponentId::from_capnp(root).fail_loud();
 
     assert_eq!(component_id, decoded);
 }
@@ -260,15 +281,15 @@ fn test_order_list_id_roundtrip() {
     order_list_id.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<identifiers_capnp::order_list_id::Reader>()
-        .unwrap();
-    let decoded = OrderListId::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = OrderListId::from_capnp(root).fail_loud();
 
     assert_eq!(order_list_id, decoded);
 }
@@ -282,15 +303,15 @@ fn test_symbol_roundtrip() {
     symbol.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<identifiers_capnp::symbol::Reader>()
-        .unwrap();
-    let decoded = Symbol::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = Symbol::from_capnp(root).fail_loud();
 
     assert_eq!(symbol, decoded);
 }
@@ -304,15 +325,15 @@ fn test_venue_roundtrip() {
     venue.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<identifiers_capnp::venue::Reader>()
-        .unwrap();
-    let decoded = Venue::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = Venue::from_capnp(root).fail_loud();
 
     assert_eq!(venue, decoded);
 }
@@ -326,15 +347,15 @@ fn test_instrument_id_roundtrip() {
     instrument_id.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<identifiers_capnp::instrument_id::Reader>()
-        .unwrap();
-    let decoded = InstrumentId::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = InstrumentId::from_capnp(root).fail_loud();
 
     assert_eq!(instrument_id, decoded);
 }

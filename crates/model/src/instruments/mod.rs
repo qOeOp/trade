@@ -220,7 +220,7 @@ pub trait Instrument: 'static + Send {
     fn cost_currency(&self) -> Currency {
         if self.is_inverse() {
             self.base_currency()
-                .expect("inverse instrument without base_currency")
+                .unwrap_or_else(|| panic!("inverse instrument without base_currency"))
         } else if self.is_quanto() {
             self.settlement_currency()
         } else {
@@ -312,7 +312,8 @@ pub trait Instrument: 'static + Send {
     ///
     /// Panics if the value cannot be converted to a `Price` (see `try_make_price_from_decimal`).
     fn make_price_from_decimal(&self, value: Decimal) -> Price {
-        self.try_make_price_from_decimal(value).unwrap()
+        self.try_make_price_from_decimal(value)
+            .unwrap_or_else(|error| panic!("{error}"))
     }
 
     /// # Errors
@@ -330,7 +331,8 @@ pub trait Instrument: 'static + Send {
     ///
     /// Panics if the value cannot be converted to a `Price` (see `try_make_price`).
     fn make_price(&self, value: f64) -> Price {
-        self.try_make_price(value).unwrap()
+        self.try_make_price(value)
+            .unwrap_or_else(|error| panic!("{error}"))
     }
 
     /// Returns `price` rebuilt with the instrument precision when it is on the price grid.
@@ -437,7 +439,8 @@ pub trait Instrument: 'static + Send {
     ///
     /// Panics if the value cannot be converted to a `Quantity` (see `try_make_qty_from_decimal`).
     fn make_qty_from_decimal(&self, value: Decimal, round_down: Option<bool>) -> Quantity {
-        self.try_make_qty_from_decimal(value, round_down).unwrap()
+        self.try_make_qty_from_decimal(value, round_down)
+            .unwrap_or_else(|error| panic!("{error}"))
     }
 
     /// # Errors
@@ -455,7 +458,8 @@ pub trait Instrument: 'static + Send {
     ///
     /// Panics if the value cannot be converted to a `Quantity` (see `try_make_qty`).
     fn make_qty(&self, value: f64, round_down: Option<bool>) -> Quantity {
-        self.try_make_qty(value, round_down).unwrap()
+        self.try_make_qty(value, round_down)
+            .unwrap_or_else(|error| panic!("{error}"))
     }
 
     /// Returns `quantity` rebuilt with the instrument precision when it is on the size grid.
@@ -541,7 +545,7 @@ pub trait Instrument: 'static + Send {
     /// (see `try_calculate_base_quantity`).
     fn calculate_base_quantity(&self, quantity: Quantity, last_price: Price) -> Quantity {
         self.try_calculate_base_quantity(quantity, last_price)
-            .unwrap()
+            .unwrap_or_else(|error| panic!("{error}"))
     }
 
     /// Calculates the notional value for the given quantity and price.
@@ -593,7 +597,7 @@ pub trait Instrument: 'static + Send {
         use_quote_for_inverse: Option<bool>,
     ) -> Money {
         self.try_calculate_notional_value(quantity, price, use_quote_for_inverse)
-            .expect("invalid notional value")
+            .unwrap_or_else(|error| panic!("invalid notional value: {error:?}"))
     }
 
     #[inline(always)]

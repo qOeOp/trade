@@ -17,12 +17,15 @@ fn compile_capnp_schemas() {
         return;
     }
 
-    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR")
+        .unwrap_or_else(|error| panic!("CARGO_MANIFEST_DIR not set: {error}"));
     let manifest_path = PathBuf::from(&manifest_dir);
 
     // Schemas are bundled with the crate for self-contained builds
     let schema_dir = manifest_path.join("schemas/capnp");
-    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
+    let out_dir = PathBuf::from(
+        env::var("OUT_DIR").unwrap_or_else(|error| panic!("OUT_DIR not set: {error}")),
+    );
 
     println!("cargo:rerun-if-changed={}", schema_dir.display());
 
@@ -59,7 +62,7 @@ fn compile_capnp_schemas() {
 
     command
         .run()
-        .expect("Failed to compile Cap'n Proto schemas");
+        .unwrap_or_else(|error| panic!("Failed to compile Cap'n Proto schemas: {error}"));
 
     println!("Cap'n Proto schemas compiled to: {}", out_dir.display());
 }

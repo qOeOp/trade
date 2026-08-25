@@ -164,7 +164,7 @@ impl ArcherMovingAveragesTrends {
             let fast_front = *self
                 .fast_ma_price
                 .front()
-                .expect("buffer has at least one element");
+                .unwrap_or_else(|| panic!("buffer has at least one element"));
 
             let fast_diff = fast_back - fast_front;
             self.long_run = fast_diff > 0.0 || self.long_run;

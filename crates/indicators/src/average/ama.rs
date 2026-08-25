@@ -188,9 +188,10 @@ impl MovingAverage for AdaptiveMovingAverage {
             .powi(2);
 
         // Calculate the AMA
-        // TODO: Remove unwraps
-        self.value = smoothing_constant
-            .mul_add(value - self.prior_value.unwrap(), self.prior_value.unwrap());
+        let Some(prior_value) = self.prior_value else {
+            panic!("called `Option::unwrap()` on a `None` value");
+        };
+        self.value = smoothing_constant.mul_add(value - prior_value, prior_value);
 
         if self.efficiency_ratio.initialized() {
             self.initialized = true;

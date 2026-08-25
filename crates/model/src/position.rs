@@ -123,10 +123,12 @@ impl Position {
             "instrument.id()",
             "fill.instrument_id",
         )
-        .expect(FAILED);
+        .unwrap_or_else(|error| panic!("{FAILED}: {error:?}"));
         assert_ne!(fill.order_side, OrderSide::NoOrderSide);
 
-        let position_id = fill.position_id.expect("No position ID to open `Position`");
+        let position_id = fill
+            .position_id
+            .unwrap_or_else(|| panic!("No position ID to open `Position`"));
 
         let mut item = Self {
             events: Vec::<OrderFilled>::new(),
@@ -342,7 +344,7 @@ impl Position {
                 !self.trade_ids.contains(&fill.trade_id),
                 "`fill.trade_id` already contained in `trade_ids",
             )
-            .expect(FAILED);
+            .unwrap_or_else(|error| panic!("{FAILED}: {error:?}"));
             self.replay_events
                 .push(PositionReplayEvent::Filled(fill.clone()));
         }
@@ -615,7 +617,7 @@ impl Position {
         if let Some(quantity_change) = adjustment.quantity_change {
             self.signed_qty += quantity_change
                 .to_f64()
-                .expect("Failed to convert Decimal to f64");
+                .unwrap_or_else(|| panic!("Failed to convert Decimal to f64"));
 
             self.quantity = Quantity::new(self.signed_qty.abs(), self.size_precision);
 
@@ -1281,7 +1283,7 @@ impl Position {
     #[must_use]
     pub fn notional_value(&self, last: Price) -> Money {
         self.try_notional_value(last)
-            .expect("invalid notional value")
+            .unwrap_or_else(|error| panic!("invalid notional value: {error:?}"))
     }
 
     /// Returns the last `OrderFilled` event for the position (if any after purging).

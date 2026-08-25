@@ -510,7 +510,7 @@ impl Price {
         }
 
         let raw_i128 = mantissa_exponent_to_fixed_i128(i128::from(mantissa), exponent, precision)
-            .expect("Overflow in Price::from_mantissa_exponent");
+            .unwrap_or_else(|error| panic!("Overflow in Price::from_mantissa_exponent: {error:?}"));
 
         #[allow(
             clippy::useless_conversion,
@@ -574,7 +574,7 @@ impl FromStr for Price {
 
 impl<T: AsRef<str>> From<T> for Price {
     fn from(value: T) -> Self {
-        Self::from_str(value.as_ref()).expect(FAILED)
+        Self::from_str(value.as_ref()).unwrap_or_else(|error| panic!("{FAILED}: {error:?}"))
     }
 }
 
@@ -671,7 +671,7 @@ impl Add for Price {
             raw: self
                 .raw
                 .checked_add(rhs.raw)
-                .expect("Overflow occurred when adding `Price`"),
+                .unwrap_or_else(|| panic!("Overflow occurred when adding `Price`")),
             precision: self.precision.max(rhs.precision),
         }
     }
@@ -684,7 +684,7 @@ impl Sub for Price {
             raw: self
                 .raw
                 .checked_sub(rhs.raw)
-                .expect("Underflow occurred when subtracting `Price`"),
+                .unwrap_or_else(|| panic!("Underflow occurred when subtracting `Price`")),
             precision: self.precision.max(rhs.precision),
         }
     }

@@ -77,7 +77,7 @@ impl ExponentialMovingAverage {
             period > 0,
             "ExponentialMovingAverage::new → `period` must be positive (> 0); got {period}"
         );
-        let config = EmaConfig::new(period).expect("positive EMA period");
+        let config = EmaConfig::new(period).unwrap_or_else(|| panic!("positive EMA period"));
         Self {
             period,
             price_type: price_type.unwrap_or(PriceType::Last),

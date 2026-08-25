@@ -54,7 +54,10 @@ pub unsafe fn cstr_to_ustr(ptr: *const c_char) -> Ustr {
     assert!(!ptr.is_null(), "`ptr` was NULL");
     // SAFETY: Caller guarantees ptr is valid per function contract
     let cstr = unsafe { CStr::from_ptr(ptr) };
-    Ustr::from(cstr.to_str().expect("CStr::from_ptr failed"))
+    let value = cstr
+        .to_str()
+        .unwrap_or_else(|e| panic!("CStr::from_ptr failed: {e:?}"));
+    Ustr::from(value)
 }
 
 /// Convert a C string pointer into a borrowed byte slice.
@@ -111,7 +114,8 @@ pub unsafe fn cstr_as_str<'a>(ptr: *const c_char) -> &'a str {
     assert!(!ptr.is_null(), "`ptr` was NULL");
     // SAFETY: Caller guarantees ptr is valid per function contract
     let cstr = unsafe { CStr::from_ptr(ptr) };
-    cstr.to_str().expect("C string contains invalid UTF-8")
+    cstr.to_str()
+        .unwrap_or_else(|e| panic!("C string contains invalid UTF-8: {e:?}"))
 }
 
 /// Convert an optional C string pointer into `Option<&str>`.
@@ -141,7 +145,9 @@ pub unsafe fn optional_cstr_to_str<'a>(ptr: *const c_char) -> Option<&'a str> {
 /// Panics if the input string contains interior null bytes.
 #[must_use]
 pub fn str_to_cstr(s: &str) -> *const c_char {
-    CString::new(s).expect("CString::new failed").into_raw()
+    CString::new(s)
+        .unwrap_or_else(|e| panic!("CString::new failed: {e:?}"))
+        .into_raw()
 }
 
 /// Drops the C string memory at the pointer.

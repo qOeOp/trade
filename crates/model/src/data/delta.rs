@@ -103,7 +103,7 @@ impl OrderBookDelta {
             ts_event,
             ts_init,
         )
-        .expect(FAILED)
+        .unwrap_or_else(|error| panic!("{FAILED}: {error:?}"))
     }
 
     /// Creates a new [`OrderBookDelta`] instance with a `Clear` action and NULL order.

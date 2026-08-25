@@ -156,8 +156,9 @@ const BETFAIR_PRICE_TIERS: [(f64, f64, f64); 10] = [
 ];
 
 pub static BETFAIR_TICK_SCHEME: LazyLock<TieredTickScheme> = LazyLock::new(|| {
-    TieredTickScheme::new(&BETFAIR_PRICE_TIERS, 2, 100)
-        .expect("BETFAIR tick scheme tiers are valid by construction")
+    TieredTickScheme::new(&BETFAIR_PRICE_TIERS, 2, 100).unwrap_or_else(|error| {
+        panic!("BETFAIR tick scheme tiers are valid by construction: {error:?}")
+    })
 });
 
 pub static TOPIX100_TICK_SCHEME: LazyLock<TieredTickScheme> = LazyLock::new(|| {
@@ -178,20 +179,27 @@ pub static TOPIX100_TICK_SCHEME: LazyLock<TieredTickScheme> = LazyLock::new(|| {
         4,
         10_000,
     )
-    .expect("TOPIX100 tick scheme tiers are valid by construction")
+    .unwrap_or_else(|error| {
+        panic!("TOPIX100 tick scheme tiers are valid by construction: {error:?}")
+    })
 });
 
-static FIXED_TICK_SCHEME: LazyLock<FixedTickScheme> =
-    LazyLock::new(|| FixedTickScheme::new(1.0).expect("fixed tick scheme is valid"));
+static FIXED_TICK_SCHEME: LazyLock<FixedTickScheme> = LazyLock::new(|| {
+    FixedTickScheme::new(1.0)
+        .unwrap_or_else(|error| panic!("fixed tick scheme is valid: {error:?}"))
+});
 
-static CRYPTO_0_01_TICK_SCHEME: LazyLock<FixedTickScheme> =
-    LazyLock::new(|| FixedTickScheme::new(0.01).expect("crypto tick scheme is valid"));
+static CRYPTO_0_01_TICK_SCHEME: LazyLock<FixedTickScheme> = LazyLock::new(|| {
+    FixedTickScheme::new(0.01)
+        .unwrap_or_else(|error| panic!("crypto tick scheme is valid: {error:?}"))
+});
 
 static FIXED_PRECISION_TICK_SCHEMES: LazyLock<Vec<FixedTickScheme>> = LazyLock::new(|| {
     (0..=FIXED_PRECISION)
         .map(|precision| {
             let tick = 10_f64.powi(-i32::from(precision));
-            FixedTickScheme::new(tick).expect("fixed precision tick scheme is valid")
+            FixedTickScheme::new(tick)
+                .unwrap_or_else(|error| panic!("fixed precision tick scheme is valid: {error:?}"))
         })
         .collect()
 });

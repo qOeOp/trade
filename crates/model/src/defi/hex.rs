@@ -30,7 +30,12 @@ pub fn from_str_hex_to_u64(hex_string: &str) -> Result<u64, std::num::ParseIntEr
     if without_prefix.len() > 16 {
         // Force-generate the standard overflow error and return it. This keeps the public API
         // identical to the branch that would have overflowed inside `from_str_radix`.
-        return Err(u64::from_str_radix("ffffffffffffffffffffffff", 16).unwrap_err());
+        return match u64::from_str_radix("ffffffffffffffffffffffff", 16) {
+            Err(error) => Err(error),
+            Ok(value) => {
+                unreachable!("called `Result::unwrap_err()` on an `Ok` value: {value:?}")
+            }
+        };
     }
 
     u64::from_str_radix(without_prefix, 16)

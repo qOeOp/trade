@@ -23,9 +23,11 @@ use crate::{
 
 fn timestamp(year: i16, month: i8, day: i8, hour: i8, minute: i8, second: i8) -> Timestamp {
     let datetime = Date::new(year, month, day)
-        .expect("valid date")
+        .unwrap_or_else(|error| panic!("valid date: {error:?}"))
         .at(hour, minute, second, 0);
-    Offset::UTC.to_timestamp(datetime).expect("valid timestamp")
+    Offset::UTC
+        .to_timestamp(datetime)
+        .unwrap_or_else(|error| panic!("valid timestamp: {error:?}"))
 }
 
 impl Default for SyntheticInstrument {
@@ -372,8 +374,16 @@ pub fn currency_pair_ethusdt() -> CurrencyPair {
 pub fn default_fx_ccy(symbol: Symbol, venue: Option<Venue>) -> CurrencyPair {
     let target_venue = venue.unwrap_or(Venue::from("SIM"));
     let instrument_id = InstrumentId::new(symbol, target_venue);
-    let base_currency = symbol.as_str().split('/').next().unwrap();
-    let quote_currency = symbol.as_str().split('/').next_back().unwrap();
+    let base_currency = symbol
+        .as_str()
+        .split('/')
+        .next()
+        .unwrap_or_else(|| panic!("symbol contains at least one currency segment"));
+    let quote_currency = symbol
+        .as_str()
+        .split('/')
+        .next_back()
+        .unwrap_or_else(|| panic!("symbol contains at least one currency segment"));
     let price_precision = if quote_currency == "JPY" { 3 } else { 5 };
     let tick_scheme = if quote_currency == "JPY" {
         "FOREX_3DECIMAL"

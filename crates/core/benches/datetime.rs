@@ -11,7 +11,7 @@ const CURRENT_SAMPLE: u64 = 1_707_578_323_456_789_123;
 const MILLIS_SAMPLE: u64 = 1_707_578_323_456_000_000;
 
 fn max_chrono_nanos() -> u64 {
-    u64::try_from(i64::MAX).expect("i64::MAX fits in u64")
+    u64::try_from(i64::MAX).unwrap_or_else(|e| panic!("i64::MAX fits in u64: {e:?}"))
 }
 
 fn raw_fallback_nanos() -> u64 {

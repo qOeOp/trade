@@ -45,15 +45,21 @@ pub unsafe extern "C" fn orderbook_depth10_new(
 
         let bids_slice = unsafe { std::slice::from_raw_parts(bids_ptr, DEPTH10_LEN) };
         let asks_slice = unsafe { std::slice::from_raw_parts(asks_ptr, DEPTH10_LEN) };
-        let bids: [BookOrder; DEPTH10_LEN] = bids_slice.try_into().expect("Slice length != 10");
-        let asks: [BookOrder; DEPTH10_LEN] = asks_slice.try_into().expect("Slice length != 10");
+        let bids: [BookOrder; DEPTH10_LEN] = bids_slice
+            .try_into()
+            .unwrap_or_else(|_| panic!("Slice length != 10"));
+        let asks: [BookOrder; DEPTH10_LEN] = asks_slice
+            .try_into()
+            .unwrap_or_else(|_| panic!("Slice length != 10"));
 
         let bid_counts_slice = unsafe { std::slice::from_raw_parts(bid_counts_ptr, DEPTH10_LEN) };
         let ask_counts_slice = unsafe { std::slice::from_raw_parts(ask_counts_ptr, DEPTH10_LEN) };
-        let bid_counts: [u32; DEPTH10_LEN] =
-            bid_counts_slice.try_into().expect("Slice length != 10");
-        let ask_counts: [u32; DEPTH10_LEN] =
-            ask_counts_slice.try_into().expect("Slice length != 10");
+        let bid_counts: [u32; DEPTH10_LEN] = bid_counts_slice
+            .try_into()
+            .unwrap_or_else(|_| panic!("Slice length != 10"));
+        let ask_counts: [u32; DEPTH10_LEN] = ask_counts_slice
+            .try_into()
+            .unwrap_or_else(|_| panic!("Slice length != 10"));
 
         OrderBookDepth10::new(
             instrument_id,

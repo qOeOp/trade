@@ -208,7 +208,11 @@ impl EncodeToRecordBatch for InstrumentAny {
             ));
         }
 
-        let (type_name, instruments) = by_type.iter().next().unwrap();
+        let Some((type_name, instruments)) = by_type.iter().next() else {
+            return Err(ArrowError::InvalidArgumentError(
+                "Cannot encode empty instrument batch".to_string(),
+            ));
+        };
         match type_name.as_str() {
             "Cfd" => {
                 let cfds: Vec<_> = instruments

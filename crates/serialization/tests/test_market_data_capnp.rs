@@ -35,6 +35,42 @@ use vibe_serialization::capnp::{
     market_capnp,
 };
 
+trait FailLoud<T> {
+    #[track_caller]
+    fn fail_loud(self) -> T;
+}
+
+impl<T> FailLoud<T> for Option<T> {
+    #[track_caller]
+    fn fail_loud(self) -> T {
+        self.unwrap_or_else(|| panic!("called `Option::unwrap()` on a `None` value"))
+    }
+}
+
+impl<T, E: std::fmt::Debug> FailLoud<T> for Result<T, E> {
+    #[track_caller]
+    fn fail_loud(self) -> T {
+        self.unwrap_or_else(|error| {
+            panic!("called `Result::unwrap()` on an `Err` value: {error:?}")
+        })
+    }
+}
+
+trait FailLoudError<E> {
+    #[track_caller]
+    fn fail_loud_error(self) -> E;
+}
+
+impl<T: std::fmt::Debug, E> FailLoudError<E> for Result<T, E> {
+    #[track_caller]
+    fn fail_loud_error(self) -> E {
+        match self {
+            Err(error) => error,
+            Ok(value) => panic!("called `Result::unwrap_err()` on an `Ok` value: {value:?}"),
+        }
+    }
+}
+
 #[rstest]
 fn test_quote_tick_roundtrip() {
     let quote = QuoteTick {
@@ -52,15 +88,15 @@ fn test_quote_tick_roundtrip() {
     quote.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<market_capnp::quote_tick::Reader>()
-        .unwrap();
-    let decoded = QuoteTick::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = QuoteTick::from_capnp(root).fail_loud();
 
     assert_eq!(quote.instrument_id, decoded.instrument_id);
     assert_eq!(quote.bid_price, decoded.bid_price);
@@ -89,14 +125,14 @@ fn test_quote_tick_invalid_nested_price_precision_returns_error() {
     builder
         .reborrow()
         .get_bid_price()
-        .unwrap()
+        .fail_loud()
         .set_precision(u8::MAX);
 
     let reader = message
         .get_root_as_reader::<market_capnp::quote_tick::Reader>()
-        .unwrap();
-    let error = QuoteTick::from_capnp(reader).unwrap_err();
-    let expected_error = check_fixed_precision(u8::MAX).unwrap_err();
+        .fail_loud();
+    let error = QuoteTick::from_capnp(reader).fail_loud_error();
+    let expected_error = check_fixed_precision(u8::MAX).fail_loud_error();
 
     assert_eq!(error.to_string(), expected_error.to_string());
 }
@@ -110,13 +146,13 @@ fn test_capnp_resolved_raw_width_roundtrip() {
     let quantity = Quantity::from("20000.00");
     let money = Money::new(20_000.0, Currency::USD());
 
-    let price_bytes = serialize_price(&price).unwrap();
-    let quantity_bytes = serialize_quantity(&quantity).unwrap();
-    let money_bytes = serialize_money(&money).unwrap();
+    let price_bytes = serialize_price(&price).fail_loud();
+    let quantity_bytes = serialize_quantity(&quantity).fail_loud();
+    let money_bytes = serialize_money(&money).fail_loud();
 
-    assert_eq!(deserialize_price(&price_bytes).unwrap(), price);
-    assert_eq!(deserialize_quantity(&quantity_bytes).unwrap(), quantity);
-    assert_eq!(deserialize_money(&money_bytes).unwrap(), money);
+    assert_eq!(deserialize_price(&price_bytes).fail_loud(), price);
+    assert_eq!(deserialize_quantity(&quantity_bytes).fail_loud(), quantity);
+    assert_eq!(deserialize_money(&money_bytes).fail_loud(), money);
 }
 
 #[rstest]
@@ -136,15 +172,15 @@ fn test_trade_tick_roundtrip() {
     trade.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<market_capnp::trade_tick::Reader>()
-        .unwrap();
-    let decoded = TradeTick::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = TradeTick::from_capnp(root).fail_loud();
 
     assert_eq!(trade.instrument_id, decoded.instrument_id);
     assert_eq!(trade.price, decoded.price);
@@ -175,15 +211,15 @@ fn test_trade_tick_all_aggressor_sides(#[case] aggressor_side: AggressorSide) {
     trade.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<market_capnp::trade_tick::Reader>()
-        .unwrap();
-    let decoded = TradeTick::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = TradeTick::from_capnp(root).fail_loud();
 
     assert_eq!(trade.aggressor_side, decoded.aggressor_side);
 }
@@ -202,15 +238,15 @@ fn test_mark_price_update_roundtrip() {
     mark_price.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<market_capnp::mark_price_update::Reader>()
-        .unwrap();
-    let decoded = MarkPriceUpdate::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = MarkPriceUpdate::from_capnp(root).fail_loud();
 
     assert_eq!(mark_price.instrument_id, decoded.instrument_id);
     assert_eq!(mark_price.value, decoded.value);
@@ -232,15 +268,15 @@ fn test_index_price_update_roundtrip() {
     index_price.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<market_capnp::index_price_update::Reader>()
-        .unwrap();
-    let decoded = IndexPriceUpdate::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = IndexPriceUpdate::from_capnp(root).fail_loud();
 
     assert_eq!(index_price.instrument_id, decoded.instrument_id);
     assert_eq!(index_price.value, decoded.value);
@@ -264,15 +300,15 @@ fn test_funding_rate_update_with_next_funding_time() {
     funding_rate.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<market_capnp::funding_rate_update::Reader>()
-        .unwrap();
-    let decoded = FundingRateUpdate::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = FundingRateUpdate::from_capnp(root).fail_loud();
 
     assert_eq!(funding_rate.instrument_id, decoded.instrument_id);
     assert_eq!(funding_rate.rate, decoded.rate);
@@ -298,15 +334,15 @@ fn test_funding_rate_update_without_next_funding_time() {
     funding_rate.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<market_capnp::funding_rate_update::Reader>()
-        .unwrap();
-    let decoded = FundingRateUpdate::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = FundingRateUpdate::from_capnp(root).fail_loud();
 
     assert_eq!(funding_rate.instrument_id, decoded.instrument_id);
     assert_eq!(funding_rate.rate, decoded.rate);
@@ -332,15 +368,15 @@ fn test_funding_rate_update_with_large_decimal() {
     funding_rate.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<market_capnp::funding_rate_update::Reader>()
-        .unwrap();
-    let decoded = FundingRateUpdate::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = FundingRateUpdate::from_capnp(root).fail_loud();
 
     assert_eq!(funding_rate.instrument_id, decoded.instrument_id);
     assert_eq!(funding_rate.rate, decoded.rate);
@@ -367,15 +403,15 @@ fn test_instrument_close_all_types(#[case] close_type: InstrumentCloseType) {
     close.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<market_capnp::instrument_close::Reader>()
-        .unwrap();
-    let decoded = InstrumentClose::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = InstrumentClose::from_capnp(root).fail_loud();
 
     assert_eq!(close.instrument_id, decoded.instrument_id);
     assert_eq!(close.close_price, decoded.close_price);
@@ -419,15 +455,15 @@ fn test_instrument_status_all_actions(#[case] action: MarketStatusAction) {
     status.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<market_capnp::instrument_status::Reader>()
-        .unwrap();
-    let decoded = InstrumentStatus::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = InstrumentStatus::from_capnp(root).fail_loud();
 
     assert_eq!(status.instrument_id, decoded.instrument_id);
     assert_eq!(status.action, decoded.action);
@@ -462,15 +498,15 @@ fn test_instrument_status_with_no_optional_fields() {
     status.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<market_capnp::instrument_status::Reader>()
-        .unwrap();
-    let decoded = InstrumentStatus::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = InstrumentStatus::from_capnp(root).fail_loud();
 
     assert_eq!(status.instrument_id, decoded.instrument_id);
     assert_eq!(status.action, decoded.action);
@@ -502,15 +538,15 @@ fn test_instrument_status_with_empty_strings() {
     status.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<market_capnp::instrument_status::Reader>()
-        .unwrap();
-    let decoded = InstrumentStatus::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = InstrumentStatus::from_capnp(root).fail_loud();
 
     assert_eq!(status.instrument_id, decoded.instrument_id);
     assert_eq!(status.action, decoded.action);
@@ -554,15 +590,15 @@ fn test_instrument_status_optional_bool_roundtrip(
     status.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<market_capnp::instrument_status::Reader>()
-        .unwrap();
-    let decoded = InstrumentStatus::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = InstrumentStatus::from_capnp(root).fail_loud();
 
     assert_eq!(status, decoded);
 }
@@ -589,13 +625,15 @@ fn test_bar_specification_all_combinations(
     spec.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
-    let root = reader.get_root::<market_capnp::bar_spec::Reader>().unwrap();
-    let decoded = BarSpecification::from_capnp(root).unwrap();
+            .fail_loud();
+    let root = reader
+        .get_root::<market_capnp::bar_spec::Reader>()
+        .fail_loud();
+    let decoded = BarSpecification::from_capnp(root).fail_loud();
 
     assert_eq!(spec.step, decoded.step);
     assert_eq!(spec.aggregation, decoded.aggregation);
@@ -612,8 +650,8 @@ fn test_bar_specification_max_step_roundtrip() {
 
     let reader = message
         .get_root_as_reader::<market_capnp::bar_spec::Reader>()
-        .unwrap();
-    let decoded = BarSpecification::from_capnp(reader).unwrap();
+        .fail_loud();
+    let decoded = BarSpecification::from_capnp(reader).fail_loud();
 
     assert_eq!(decoded, spec);
 }
@@ -633,13 +671,15 @@ fn test_bar_type_all_aggregation_sources(#[case] aggregation_source: Aggregation
     bar_type.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
-    let root = reader.get_root::<market_capnp::bar_type::Reader>().unwrap();
-    let decoded = BarType::from_capnp(root).unwrap();
+            .fail_loud();
+    let root = reader
+        .get_root::<market_capnp::bar_type::Reader>()
+        .fail_loud();
+    let decoded = BarType::from_capnp(root).fail_loud();
 
     assert_eq!(bar_type.instrument_id(), decoded.instrument_id());
     assert_eq!(bar_type.spec(), decoded.spec());
@@ -659,13 +699,15 @@ fn test_bar_type_with_different_instruments() {
     bar_type1.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
-    let root = reader.get_root::<market_capnp::bar_type::Reader>().unwrap();
-    let decoded = BarType::from_capnp(root).unwrap();
+            .fail_loud();
+    let root = reader
+        .get_root::<market_capnp::bar_type::Reader>()
+        .fail_loud();
+    let decoded = BarType::from_capnp(root).fail_loud();
 
     assert_eq!(bar_type1, decoded);
 }
@@ -693,13 +735,13 @@ fn test_bar_roundtrip() {
     bar.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
-    let root = reader.get_root::<market_capnp::bar::Reader>().unwrap();
-    let decoded = Bar::from_capnp(root).unwrap();
+            .fail_loud();
+    let root = reader.get_root::<market_capnp::bar::Reader>().fail_loud();
+    let decoded = Bar::from_capnp(root).fail_loud();
 
     assert_eq!(bar.bar_type, decoded.bar_type);
     assert_eq!(bar.open, decoded.open);
@@ -734,13 +776,13 @@ fn test_bar_with_hour_aggregation() {
     bar.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
-    let root = reader.get_root::<market_capnp::bar::Reader>().unwrap();
-    let decoded = Bar::from_capnp(root).unwrap();
+            .fail_loud();
+    let root = reader.get_root::<market_capnp::bar::Reader>().fail_loud();
+    let decoded = Bar::from_capnp(root).fail_loud();
 
     assert_eq!(bar.bar_type, decoded.bar_type);
     assert_eq!(bar.open, decoded.open);
@@ -775,13 +817,13 @@ fn test_bar_with_tick_aggregation() {
     bar.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
-    let root = reader.get_root::<market_capnp::bar::Reader>().unwrap();
-    let decoded = Bar::from_capnp(root).unwrap();
+            .fail_loud();
+    let root = reader.get_root::<market_capnp::bar::Reader>().fail_loud();
+    let decoded = Bar::from_capnp(root).fail_loud();
 
     assert_eq!(bar, decoded);
 }
@@ -809,13 +851,13 @@ fn test_bar_with_volume_aggregation() {
     bar.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
-    let root = reader.get_root::<market_capnp::bar::Reader>().unwrap();
-    let decoded = Bar::from_capnp(root).unwrap();
+            .fail_loud();
+    let root = reader.get_root::<market_capnp::bar::Reader>().fail_loud();
+    let decoded = Bar::from_capnp(root).fail_loud();
 
     assert_eq!(bar, decoded);
 }
@@ -831,15 +873,15 @@ fn test_book_order_all_sides(#[case] side: OrderSide) {
     order.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<market_capnp::book_order::Reader>()
-        .unwrap();
-    let decoded = BookOrder::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = BookOrder::from_capnp(root).fail_loud();
 
     assert_eq!(order.side, decoded.side);
     assert_eq!(order.price, decoded.price);
@@ -874,15 +916,15 @@ fn test_order_book_delta_all_actions(#[case] action: BookAction) {
     delta.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<market_capnp::order_book_delta::Reader>()
-        .unwrap();
-    let decoded = OrderBookDelta::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = OrderBookDelta::from_capnp(root).fail_loud();
 
     assert_eq!(delta.instrument_id, decoded.instrument_id);
     assert_eq!(delta.action, decoded.action);
@@ -955,15 +997,15 @@ fn test_order_book_deltas_with_multiple_deltas() {
     deltas.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<market_capnp::order_book_deltas::Reader>()
-        .unwrap();
-    let decoded = OrderBookDeltas::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = OrderBookDeltas::from_capnp(root).fail_loud();
 
     assert_eq!(deltas.instrument_id, decoded.instrument_id);
     assert_eq!(deltas.deltas.len(), decoded.deltas.len());
@@ -1078,15 +1120,15 @@ fn test_order_book_depth10_roundtrip() {
     depth.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<market_capnp::order_book_depth10::Reader>()
-        .unwrap();
-    let decoded = OrderBookDepth10::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = OrderBookDepth10::from_capnp(root).fail_loud();
 
     assert_eq!(depth.instrument_id, decoded.instrument_id);
 
@@ -1164,15 +1206,15 @@ fn test_order_book_depth10_with_partial_levels() {
     depth.to_capnp(builder);
 
     let mut bytes = Vec::new();
-    capnp::serialize::write_message(&mut bytes, &message).unwrap();
+    capnp::serialize::write_message(&mut bytes, &message).fail_loud();
 
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())
-            .unwrap();
+            .fail_loud();
     let root = reader
         .get_root::<market_capnp::order_book_depth10::Reader>()
-        .unwrap();
-    let decoded = OrderBookDepth10::from_capnp(root).unwrap();
+        .fail_loud();
+    let decoded = OrderBookDepth10::from_capnp(root).fail_loud();
 
     assert_eq!(depth.instrument_id, decoded.instrument_id);
 
