@@ -1,0 +1,1083 @@
+use std::fmt::Display;
+
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use sqlx::{PgPool, Row};
+use vibe_product_edge::DownstreamAdmissionModeV1;
+
+use crate::{
+    artifact_build::ArtifactBuildDisposition,
+    exploratory_replay::{
+        EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V1, ExploratoryReplayAvailabilityV1,
+        ExploratoryReplayCommitReceiptV1, ExploratoryReplayCommitResultV1,
+        ExploratoryReplayNextLegalActionV1, ExploratoryReplayOwnerError,
+        ExploratoryReplayReadResultV1, ExploratoryReplayRequestLocatorV1,
+        ExploratoryReplayRequestProjectionV1, ExploratoryReplayRequestProposalV1,
+        FrozenExploratoryReplayRequestV1, SealedExploratoryReplayReadbackV1,
+    },
+    product_edge::{FrozenResearchGoalIntent, ResearchRequestDisposition},
+    rd_owner_postgres_custody::{
+        AttemptState, admit_attempt_custody_with_admission_mode_in_transaction,
+    },
+};
+
+const LOCK_FUNCTION: &str = "rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)";
+
+#[derive(Debug, Clone)]
+pub(crate) struct BoundBacktestReadV1 {
+    pool: PgPool,
+}
+
+#[derive(Serialize)]
+struct FrozenMeaningV1<'a> {
+    schema_version: u32,
+    proposal: &'a ExploratoryReplayRequestProposalV1,
+    research_receipt_identity: &'a str,
+    intent_semantic_digest: &'a str,
+    trial_family_root_digest: &'a str,
+    census_frontier_digest: &'a str,
+    artifact_family_binding_digest: &'a str,
+    artifact_family_binding_receipt_identity: &'a str,
+    artifact_review_identity: &'a str,
+    exact_code_bytes_sha256_digest: &'a str,
+    source_capsule_digest: &'a str,
+    build_recipe_digest: &'a str,
+    dependency_identity: &'a str,
+    trial_family_outbox_digest: &'a str,
+    artifact_family_outbox_digest: &'a str,
+    committed_at_epoch_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredFrozenV1 {
+    schema_version: u32,
+    proposal: ExploratoryReplayRequestProposalV1,
+    research_receipt_identity: String,
+    intent_semantic_digest: String,
+    trial_family_root_digest: String,
+    census_frontier_digest: String,
+    artifact_family_binding_digest: String,
+    artifact_family_binding_receipt_identity: String,
+    artifact_review_identity: String,
+    exact_code_bytes_sha256_digest: String,
+    source_capsule_digest: String,
+    build_recipe_digest: String,
+    dependency_identity: String,
+    trial_family_outbox_digest: String,
+    artifact_family_outbox_digest: String,
+    committed_at_epoch_ms: u64,
+    request_digest: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredReceiptV1 {
+    schema_version: u32,
+    receipt_identity: String,
+    request_identity: String,
+    request_digest: String,
+    committed_at_epoch_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredOutboxV1 {
+    schema_version: u32,
+    request_identity: String,
+    request_digest: String,
+    receipt_identity: String,
+    intent_identity: String,
+    trial_family_identity: String,
+    artifact_identity: String,
+    census_frontier_identity: String,
+    committed_at_epoch_ms: u64,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct LockedOutboxRowV1 {
+    event_identity: String,
+    aggregate_identity: String,
+    event_kind: String,
+    payload_digest: String,
+    payload_json: serde_json::Value,
+    committed_at_epoch_ms: u64,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct LockedEnvelopeV1 {
+    schema_version: u32,
+    availability: ExploratoryReplayAvailabilityV1,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    owner_cut_epoch_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    frozen: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    receipt: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    outbox: Option<LockedOutboxRowV1>,
+}
+
+pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerError> {
+    for statement in [
+        "CREATE TABLE IF NOT EXISTS public.rd_exploratory_replay_requests_v1 (request_identity TEXT PRIMARY KEY, request_digest TEXT NOT NULL, build_request_identity TEXT NOT NULL, attempt_identity TEXT NOT NULL, intent_identity TEXT NOT NULL, trial_family_identity TEXT NOT NULL, artifact_identity TEXT NOT NULL, build_receipt_identity TEXT NOT NULL, artifact_family_binding_identity TEXT NOT NULL, census_frontier_identity TEXT NOT NULL, frozen_json JSONB NOT NULL, receipt_json JSONB NOT NULL, lifecycle_state TEXT NOT NULL DEFAULT 'FROZEN', committed_at_epoch_ms BIGINT NOT NULL)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS rd_exploratory_replay_artifact_request_v1 ON public.rd_exploratory_replay_requests_v1(artifact_identity, request_identity)",
+        "ALTER TABLE public.rd_exploratory_replay_requests_v1 OWNER TO rd_owner",
+        "REVOKE ALL ON TABLE public.rd_exploratory_replay_requests_v1 FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner",
+        "REVOKE ALL ON SCHEMA rd_owner_api FROM backtest_owner",
+        "GRANT USAGE ON SCHEMA rd_owner_api TO backtest_owner",
+    ] {
+        sqlx::query(statement)
+            .execute(pool)
+            .await
+            .map_err(storage)?;
+    }
+
+    let published_lock_api_is_sealed: Option<bool> = sqlx::query_scalar(
+        "
+        SELECT procedure.prosecdef
+           AND procedure.provolatile = 'v'
+           AND procedure.proparallel = 'u'
+           AND procedure.proisstrict
+           AND procedure.proconfig = ARRAY['search_path=pg_catalog']::text[]
+           AND owner.rolname = 'rd_owner'
+           AND language.lanname = 'plpgsql'
+           AND pg_catalog.pg_get_function_result(procedure.oid) = 'jsonb'
+           AND NOT EXISTS (
+             SELECT 1
+               FROM pg_catalog.aclexplode(COALESCE(
+                      procedure.proacl,
+                      pg_catalog.acldefault('f', procedure.proowner)
+                    )) AS privilege
+              WHERE privilege.privilege_type = 'EXECUTE'
+                AND privilege.grantee <> (
+                  SELECT role.oid FROM pg_catalog.pg_roles role
+                   WHERE role.rolname = 'backtest_owner'
+                )
+           )
+           AND pg_catalog.has_function_privilege(
+                 'backtest_owner', procedure.oid, 'EXECUTE'
+               )
+          FROM pg_catalog.pg_proc procedure
+          JOIN pg_catalog.pg_roles owner ON owner.oid = procedure.proowner
+          JOIN pg_catalog.pg_language language ON language.oid = procedure.prolang
+         WHERE procedure.oid = pg_catalog.to_regprocedure($1)
+        ",
+    )
+    .bind(LOCK_FUNCTION)
+    .fetch_optional(pool)
+    .await
+    .map_err(storage)?;
+
+    if let Some(is_sealed) = published_lock_api_is_sealed {
+        if !is_sealed {
+            return Err(ExploratoryReplayOwnerError::Unavailable(
+                "published Backtest lock API authority drift".into(),
+            ));
+        }
+        return Ok(());
+    }
+
+    sqlx::query(
+        "
+        CREATE OR REPLACE FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(
+          requested_request_identity text,
+          requested_request_digest text,
+          requested_receipt_identity text
+        ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+        SET search_path = pg_catalog
+        AS $function$
+        DECLARE sealed record;
+        DECLARE locked_outbox record;
+        DECLARE owner_cut bigint;
+        BEGIN
+          IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+          SELECT * INTO sealed
+            FROM public.rd_exploratory_replay_requests_v1
+           WHERE request_identity = requested_request_identity
+             AND request_digest = requested_request_digest
+           FOR SHARE;
+          IF NOT FOUND THEN RETURN NULL; END IF;
+          IF sealed.lifecycle_state = 'REVOKED' THEN
+            RETURN pg_catalog.jsonb_build_object('schema_version',1,'availability','STALE');
+          END IF;
+          IF sealed.lifecycle_state <> 'FROZEN'
+             OR sealed.receipt_json->>'receipt_identity' <> requested_receipt_identity
+             OR sealed.frozen_json->>'schema_version' <> '1'
+             OR sealed.frozen_json->>'request_digest' <> sealed.request_digest
+             OR sealed.frozen_json->>'committed_at_epoch_ms' <> sealed.committed_at_epoch_ms::text
+             OR sealed.frozen_json->'proposal'->>'request_identity' <> sealed.request_identity
+             OR sealed.frozen_json->'proposal'->>'build_request_identity' <> sealed.build_request_identity
+             OR sealed.frozen_json->'proposal'->>'attempt_identity' <> sealed.attempt_identity
+             OR sealed.frozen_json->'proposal'->>'intent_identity' <> sealed.intent_identity
+             OR sealed.frozen_json->'proposal'->>'trial_family_identity' <> sealed.trial_family_identity
+             OR sealed.frozen_json->'proposal'->>'artifact_identity' <> sealed.artifact_identity
+             OR sealed.frozen_json->'proposal'->>'build_receipt_identity' <> sealed.build_receipt_identity
+             OR sealed.frozen_json->'proposal'->>'artifact_family_binding_identity' <> sealed.artifact_family_binding_identity
+             OR sealed.frozen_json->'proposal'->>'census_frontier_identity' <> sealed.census_frontier_identity
+             OR sealed.receipt_json->>'schema_version' <> '1'
+             OR sealed.receipt_json->>'request_identity' <> sealed.request_identity
+             OR sealed.receipt_json->>'request_digest' <> sealed.request_digest
+             OR sealed.receipt_json->>'committed_at_epoch_ms' <> sealed.committed_at_epoch_ms::text
+          THEN RETURN NULL; END IF;
+
+          IF NOT EXISTS (
+            SELECT 1 FROM public.rd_research_request_receipts_v1 research
+             WHERE research.intent_json->>'intent_identity'=sealed.intent_identity
+               AND research.intent_json->>'semantic_digest'=sealed.frozen_json->>'intent_semantic_digest'
+               AND research.receipt_json->>'receipt_identity'=sealed.frozen_json->>'research_receipt_identity'
+               AND research.receipt_json->>'disposition'='ACCEPTED'
+               AND research.view_json->>'availability'='AVAILABLE'
+               AND research.view_json->>'phase'='ARTIFACT_AVAILABLE'
+               AND research.view_json->>'attempt_identity'=sealed.attempt_identity
+               AND research.view_json->>'artifact_identity'=sealed.artifact_identity
+               AND research.view_json->>'build_receipt_identity'=sealed.build_receipt_identity
+               AND research.view_json->>'artifact_review_identity'=sealed.frozen_json->>'artifact_review_identity'
+          ) OR NOT EXISTS (
+            SELECT 1 FROM public.rd_trial_families_v1 family
+            JOIN public.rd_trial_family_heads_v1 head USING (trial_family_identity)
+             WHERE family.trial_family_identity=sealed.trial_family_identity
+               AND family.intent_identity=sealed.intent_identity
+               AND family.root_digest=sealed.frozen_json->>'trial_family_root_digest'
+               AND head.frontier_identity=sealed.census_frontier_identity
+               AND head.frontier_digest=sealed.frozen_json->>'census_frontier_digest'
+          ) OR NOT EXISTS (
+            SELECT 1 FROM public.rd_artifact_trial_family_bindings_v1 binding
+             WHERE binding.binding_identity=sealed.artifact_family_binding_identity
+               AND binding.artifact_identity=sealed.artifact_identity
+               AND binding.build_receipt_identity=sealed.build_receipt_identity
+               AND binding.intent_identity=sealed.intent_identity
+               AND binding.trial_family_identity=sealed.trial_family_identity
+               AND binding.binding_digest=sealed.frozen_json->>'artifact_family_binding_digest'
+               AND binding.binding_receipt_json->>'receipt_identity'=sealed.frozen_json->>'artifact_family_binding_receipt_identity'
+          ) OR NOT EXISTS (
+            SELECT 1 FROM public.rd_artifact_build_attempts_v1 attempt
+             WHERE attempt.build_request_identity=sealed.build_request_identity
+               AND attempt.attempt_identity=sealed.attempt_identity
+               AND attempt.attempt_json->>'state'='TERMINAL'
+               AND attempt.attempt_json->'receipt'->>'disposition'='SUCCESS'
+               AND attempt.attempt_json->'receipt'->>'artifact_identity'=sealed.artifact_identity
+               AND attempt.attempt_json->'receipt'->>'build_receipt_identity'=sealed.build_receipt_identity
+          ) OR NOT EXISTS (
+            SELECT 1 FROM public.rd_strategy_artifacts_v1 artifact
+             WHERE artifact.artifact_digest=sealed.artifact_identity
+               AND artifact.intent_identity=sealed.intent_identity
+               AND artifact.attempt_identity=sealed.attempt_identity
+               AND artifact.build_receipt_json->>'build_receipt_identity'=sealed.build_receipt_identity
+               AND artifact.build_receipt_json->>'wasm_digest'=sealed.frozen_json->'proposal'->>'exact_code_bytes_digest'
+               AND ('sha256:' || pg_catalog.encode(pg_catalog.sha256(artifact.wasm_bytes),'hex'))=sealed.frozen_json->>'exact_code_bytes_sha256_digest'
+               AND artifact.build_receipt_json->>'source_capsule_digest'=sealed.frozen_json->>'source_capsule_digest'
+               AND artifact.build_receipt_json->>'build_recipe_digest'=sealed.frozen_json->>'build_recipe_digest'
+               AND artifact.build_receipt_json->>'dependency_identity'=sealed.frozen_json->>'dependency_identity'
+               AND artifact.artifact_review_json->>'review_identity'=sealed.frozen_json->>'artifact_review_identity'
+          ) OR NOT EXISTS (
+            SELECT 1 FROM public.rd_owner_outbox_v1 family_outbox
+             WHERE family_outbox.aggregate_identity=sealed.trial_family_identity
+               AND family_outbox.event_kind='TRIAL_FAMILY_FROZEN_V1'
+               AND family_outbox.payload_digest=sealed.frozen_json->>'trial_family_outbox_digest'
+          ) OR NOT EXISTS (
+            SELECT 1 FROM public.rd_owner_outbox_v1 artifact_outbox
+             WHERE artifact_outbox.aggregate_identity=sealed.artifact_identity
+               AND artifact_outbox.event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'
+               AND artifact_outbox.payload_digest=sealed.frozen_json->>'artifact_family_outbox_digest'
+          ) THEN RETURN NULL; END IF;
+
+          SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json,
+                 committed_at_epoch_ms
+            INTO STRICT locked_outbox
+            FROM public.rd_owner_outbox_v1
+           WHERE aggregate_identity=sealed.request_identity
+             AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V1'
+           FOR SHARE;
+          owner_cut := pg_catalog.floor(extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint;
+          RETURN pg_catalog.jsonb_build_object(
+            'schema_version',1,
+            'availability','AVAILABLE',
+            'owner_cut_epoch_ms',owner_cut,
+            'frozen',sealed.frozen_json,
+            'receipt',sealed.receipt_json,
+            'outbox',pg_catalog.jsonb_build_object(
+              'event_identity',locked_outbox.event_identity,
+              'aggregate_identity',locked_outbox.aggregate_identity,
+              'event_kind',locked_outbox.event_kind,
+              'payload_digest',locked_outbox.payload_digest,
+              'payload_json',locked_outbox.payload_json,
+              'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms
+            )
+          );
+        EXCEPTION WHEN no_data_found OR too_many_rows THEN RETURN NULL;
+        END
+        $function$
+        ",
+    )
+    .execute(pool)
+    .await
+    .map_err(storage)?;
+
+    for statement in [
+        "ALTER FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text) OWNER TO rd_owner",
+        "REVOKE ALL ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, rd_owner",
+        "GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text) TO backtest_owner",
+    ] {
+        sqlx::query(statement)
+            .execute(pool)
+            .await
+            .map_err(storage)?;
+    }
+    Ok(())
+}
+
+pub(crate) async fn commit(
+    pool: &PgPool,
+    proposal: ExploratoryReplayRequestProposalV1,
+) -> Result<ExploratoryReplayCommitResultV1, ExploratoryReplayOwnerError> {
+    validate_proposal(&proposal)?;
+    let mut transaction = pool.begin().await.map_err(storage)?;
+    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended($1,0))")
+        .bind(&proposal.request_identity)
+        .execute(&mut *transaction)
+        .await
+        .map_err(storage)?;
+
+    let now: i64 = sqlx::query_scalar(
+        "SELECT pg_catalog.floor(extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint",
+    )
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(storage)?;
+    let now = u64::try_from(now).map_err(unavailable)?;
+    let custody = Box::pin(admit_attempt_custody_with_admission_mode_in_transaction(
+        &mut transaction,
+        &proposal.build_request_identity,
+        DownstreamAdmissionModeV1::FirstMutation {
+            read_cut_epoch_ms: now,
+        },
+    ))
+    .await
+    .map_err(|e| ExploratoryReplayOwnerError::Unavailable(e.to_string()))?
+    .ok_or_else(|| ExploratoryReplayOwnerError::Unavailable("artifact custody missing".into()))?;
+    if !custody.research.authority_available_at(now)
+        || !custody
+            .product_edge_admission
+            .authorizes_first_mutation_at(now)
+    {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "current R&D lineage authority unavailable".into(),
+        ));
+    }
+    let intent = custody.research.intent().ok_or_else(|| {
+        ExploratoryReplayOwnerError::Unavailable("research intent missing".into())
+    })?;
+    let receipt = custody.attempt.receipt.as_ref().ok_or_else(|| {
+        ExploratoryReplayOwnerError::Unavailable("artifact receipt missing".into())
+    })?;
+    let family = custody.artifact_family.as_ref().ok_or_else(|| {
+        ExploratoryReplayOwnerError::Unavailable("artifact family binding missing".into())
+    })?;
+    let review = custody.artifact_review.as_ref().ok_or_else(|| {
+        ExploratoryReplayOwnerError::Unavailable("artifact review missing".into())
+    })?;
+    let research_receipt = custody.research.receipt();
+    let root = family.trial_family().root();
+    let frontier = family.trial_family().census_frontier();
+    let binding = family.binding();
+    let binding_receipt = family.binding_receipt();
+
+    if custody.attempt.state != AttemptState::Terminal
+        || receipt.disposition != ArtifactBuildDisposition::Success
+        || research_receipt.disposition != ResearchRequestDisposition::Accepted
+        || !matches!(intent, FrozenResearchGoalIntent::V2(_))
+        || proposal.attempt_identity != custody.attempt.request.attempt_identity
+        || proposal.intent_identity != intent.intent_identity()
+        || proposal.trial_family_identity != root.trial_family_identity()
+        || receipt.artifact_identity.as_deref() != Some(proposal.artifact_identity.as_str())
+        || receipt.build_receipt_identity.as_deref()
+            != Some(proposal.build_receipt_identity.as_str())
+        || proposal.artifact_family_binding_identity != binding.binding_identity()
+        || proposal.census_frontier_identity != frontier.frontier_identity()
+        || proposal.exact_code_bytes_digest != review.build_receipt.wasm_digest
+        || proposal.cost_model_identity != root.policy().cost_model_identity
+        || proposal.slippage_model_identity != root.policy().slippage_model_identity
+        || proposal.capacity_model_identity != root.policy().capacity_model_identity
+    {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "proposal does not equal locked R&D lineage".into(),
+        ));
+    }
+
+    let trial_family_outbox_digest: String = sqlx::query_scalar(
+        "SELECT payload_digest FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1' FOR SHARE",
+    )
+    .bind(&proposal.trial_family_identity)
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(storage)?;
+    let artifact_family_outbox_digest: String = sqlx::query_scalar(
+        "SELECT payload_digest FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1' FOR SHARE",
+    )
+    .bind(&proposal.artifact_identity)
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(storage)?;
+    let exact_code_bytes_sha256_digest: String = sqlx::query_scalar(
+        "SELECT 'sha256:' || pg_catalog.encode(pg_catalog.sha256(wasm_bytes),'hex') FROM public.rd_strategy_artifacts_v1 WHERE artifact_digest=$1 AND intent_identity=$2 AND attempt_identity=$3 AND build_receipt_json->>'build_receipt_identity'=$4 FOR SHARE",
+    )
+    .bind(&proposal.artifact_identity)
+    .bind(&proposal.intent_identity)
+    .bind(&proposal.attempt_identity)
+    .bind(&proposal.build_receipt_identity)
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(storage)?;
+
+    let expected = StoredFrozenV1 {
+        schema_version: 1,
+        proposal: proposal.clone(),
+        research_receipt_identity: research_receipt.receipt_identity.clone(),
+        intent_semantic_digest: intent.semantic_digest().to_string(),
+        trial_family_root_digest: root.root_digest().to_string(),
+        census_frontier_digest: frontier.frontier_digest().to_string(),
+        artifact_family_binding_digest: binding.binding_digest().to_string(),
+        artifact_family_binding_receipt_identity: binding_receipt.receipt_identity().to_string(),
+        artifact_review_identity: review.review_identity.clone(),
+        exact_code_bytes_sha256_digest,
+        source_capsule_digest: review.build_receipt.source_capsule_digest.clone(),
+        build_recipe_digest: review.build_receipt.build_recipe_digest.clone(),
+        dependency_identity: review.build_receipt.dependency_identity.clone(),
+        trial_family_outbox_digest,
+        artifact_family_outbox_digest,
+        committed_at_epoch_ms: now,
+        request_digest: String::new(),
+    };
+
+    if let Some(row) = sqlx::query(
+        "SELECT frozen_json, receipt_json FROM public.rd_exploratory_replay_requests_v1 WHERE request_identity=$1 FOR UPDATE",
+    )
+    .bind(&proposal.request_identity)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(storage)?
+    {
+        let frozen_json = row.try_get("frozen_json").map_err(storage)?;
+        let receipt_json = row.try_get("receipt_json").map_err(storage)?;
+        let stored = decode_frozen(&frozen_json)?;
+        let stored_receipt = decode_receipt(&receipt_json)?;
+
+        if !same_precommit_meaning(&stored, &expected) {
+            return Err(ExploratoryReplayOwnerError::ConflictingReplay);
+        }
+        verify_frozen(&stored)?;
+        verify_receipt(&stored_receipt, &stored)?;
+        let outbox_row = sqlx::query(
+            "SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2 FOR SHARE",
+        )
+        .bind(&proposal.request_identity)
+        .bind(EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V1)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(storage)?;
+        let outbox = locked_outbox_from_row(&outbox_row)?;
+        verify_outbox(&outbox, &stored, &stored_receipt)?;
+        transaction.commit().await.map_err(storage)?;
+        return Ok(assemble(stored, stored_receipt));
+    }
+
+    let mut frozen = expected;
+    frozen.request_digest = frozen_digest(&frozen)?;
+    let receipt_digest = canonical_digest(
+        "rd.exploratory-replay-request-receipt.v1",
+        &(
+            1_u32,
+            &frozen.proposal.request_identity,
+            &frozen.request_digest,
+            frozen.committed_at_epoch_ms,
+        ),
+    )?;
+    let stored_receipt = StoredReceiptV1 {
+        schema_version: 1,
+        receipt_identity: identity("rd-exploratory-replay-receipt-v1", &receipt_digest),
+        request_identity: frozen.proposal.request_identity.clone(),
+        request_digest: frozen.request_digest.clone(),
+        committed_at_epoch_ms: frozen.committed_at_epoch_ms,
+    };
+    let payload = StoredOutboxV1 {
+        schema_version: 1,
+        request_identity: frozen.proposal.request_identity.clone(),
+        request_digest: frozen.request_digest.clone(),
+        receipt_identity: stored_receipt.receipt_identity.clone(),
+        intent_identity: frozen.proposal.intent_identity.clone(),
+        trial_family_identity: frozen.proposal.trial_family_identity.clone(),
+        artifact_identity: frozen.proposal.artifact_identity.clone(),
+        census_frontier_identity: frozen.proposal.census_frontier_identity.clone(),
+        committed_at_epoch_ms: frozen.committed_at_epoch_ms,
+    };
+    let payload_digest = canonical_digest("rd.owner-outbox.payload.v1", &payload)?;
+    let event_identity = identity("rd-owner-event-v1", &payload_digest);
+    sqlx::query("INSERT INTO public.rd_exploratory_replay_requests_v1 (request_identity,request_digest,build_request_identity,attempt_identity,intent_identity,trial_family_identity,artifact_identity,build_receipt_identity,artifact_family_binding_identity,census_frontier_identity,frozen_json,receipt_json,lifecycle_state,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'FROZEN',$13)")
+        .bind(&frozen.proposal.request_identity)
+        .bind(&frozen.request_digest)
+        .bind(&frozen.proposal.build_request_identity)
+        .bind(&frozen.proposal.attempt_identity)
+        .bind(&frozen.proposal.intent_identity)
+        .bind(&frozen.proposal.trial_family_identity)
+        .bind(&frozen.proposal.artifact_identity)
+        .bind(&frozen.proposal.build_receipt_identity)
+        .bind(&frozen.proposal.artifact_family_binding_identity)
+        .bind(&frozen.proposal.census_frontier_identity)
+        .bind(serde_json::to_value(&frozen).map_err(unavailable)?)
+        .bind(serde_json::to_value(&stored_receipt).map_err(unavailable)?)
+        .bind(i64::try_from(frozen.committed_at_epoch_ms).map_err(unavailable)?)
+        .execute(&mut *transaction).await.map_err(storage)?;
+    sqlx::query("INSERT INTO public.rd_owner_outbox_v1 (event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6)")
+        .bind(event_identity)
+        .bind(&frozen.proposal.request_identity)
+        .bind(EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V1)
+        .bind(payload_digest)
+        .bind(serde_json::to_value(payload).map_err(unavailable)?)
+        .bind(i64::try_from(frozen.committed_at_epoch_ms).map_err(unavailable)?)
+        .execute(&mut *transaction).await.map_err(storage)?;
+    verify_frozen(&frozen)?;
+    verify_receipt(&stored_receipt, &frozen)?;
+    transaction.commit().await.map_err(storage)?;
+    Ok(assemble(frozen, stored_receipt))
+}
+
+pub(crate) async fn bind_backtest_read(
+    rd_pool: &PgPool,
+    database_url: &str,
+) -> Result<BoundBacktestReadV1, ExploratoryReplayOwnerError> {
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .connect(database_url)
+        .await
+        .map_err(storage)?;
+    validate_backtest_binding(rd_pool, &pool).await?;
+    Ok(BoundBacktestReadV1 { pool })
+}
+
+pub(crate) async fn lock_for_backtest(
+    rd_pool: &PgPool,
+    backtest: &BoundBacktestReadV1,
+    locator: &ExploratoryReplayRequestLocatorV1,
+) -> Result<ExploratoryReplayReadResultV1, ExploratoryReplayOwnerError> {
+    validate_backtest_binding(rd_pool, &backtest.pool).await?;
+    let pool = &backtest.pool;
+    let value: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT rd_owner_api.lock_exploratory_replay_request_v1($1,$2,$3)")
+            .bind(&locator.request_identity)
+            .bind(&locator.request_digest)
+            .bind(&locator.receipt_identity)
+            .fetch_one(pool)
+            .await
+            .map_err(storage)?;
+    let Some(value) = value else {
+        return Ok(unavailable_result(&locator.request_identity));
+    };
+    let envelope: LockedEnvelopeV1 = decode_exact(&value)?;
+    match envelope.availability {
+        ExploratoryReplayAvailabilityV1::Unavailable => {
+            Ok(unavailable_result(&locator.request_identity))
+        }
+        ExploratoryReplayAvailabilityV1::Stale => Ok(ExploratoryReplayReadResultV1 {
+            projection: projection(
+                &locator.request_identity,
+                ExploratoryReplayAvailabilityV1::Stale,
+            ),
+            readback: None,
+        }),
+        ExploratoryReplayAvailabilityV1::Available => {
+            let Ok(readback) = validate_available_envelope(envelope, locator) else {
+                return Ok(unavailable_result(&locator.request_identity));
+            };
+            Ok(ExploratoryReplayReadResultV1 {
+                projection: projection(
+                    readback.request_identity(),
+                    ExploratoryReplayAvailabilityV1::Available,
+                ),
+                readback: Some(readback),
+            })
+        }
+    }
+}
+
+async fn validate_backtest_binding(
+    rd_pool: &PgPool,
+    backtest_pool: &PgPool,
+) -> Result<(), ExploratoryReplayOwnerError> {
+    let rd_identity: String = sqlx::query_scalar("SELECT current_user")
+        .fetch_one(rd_pool)
+        .await
+        .map_err(storage)?;
+
+    if rd_identity != "rd_owner" {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "canonical rd_owner session required".into(),
+        ));
+    }
+    let identity: String = sqlx::query_scalar("SELECT current_user")
+        .fetch_one(backtest_pool)
+        .await
+        .map_err(storage)?;
+
+    if identity != "backtest_owner" {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "canonical backtest_owner session required".into(),
+        ));
+    }
+    let mut rd_transaction = rd_pool.begin().await.map_err(storage)?;
+    let challenge: i64 = sqlx::query_scalar(
+        "SELECT pg_catalog.hashtextextended(pg_catalog.clock_timestamp()::text || ':' || pg_catalog.random()::text || ':' || pg_catalog.pg_backend_pid()::text, 0)",
+    )
+    .fetch_one(&mut *rd_transaction)
+    .await
+    .map_err(storage)?;
+    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock($1)")
+        .bind(challenge)
+        .execute(&mut *rd_transaction)
+        .await
+        .map_err(storage)?;
+    let rd_database: (String, i64) = sqlx::query_as(
+        "SELECT pg_catalog.current_database(), database.oid::bigint FROM pg_catalog.pg_database database WHERE database.datname=pg_catalog.current_database()",
+    )
+    .fetch_one(&mut *rd_transaction)
+    .await
+    .map_err(storage)?;
+
+    let mut backtest_transaction = backtest_pool.begin().await.map_err(storage)?;
+    let acquired_challenge: bool =
+        sqlx::query_scalar("SELECT pg_catalog.pg_try_advisory_xact_lock($1)")
+            .bind(challenge)
+            .fetch_one(&mut *backtest_transaction)
+            .await
+            .map_err(storage)?;
+    let backtest_database: (String, i64) = sqlx::query_as(
+        "SELECT pg_catalog.current_database(), database.oid::bigint FROM pg_catalog.pg_database database WHERE database.datname=pg_catalog.current_database()",
+    )
+    .fetch_one(&mut *backtest_transaction)
+    .await
+    .map_err(storage)?;
+    backtest_transaction.rollback().await.map_err(storage)?;
+    rd_transaction.rollback().await.map_err(storage)?;
+
+    if acquired_challenge || backtest_database != rd_database {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "backtest read capability is not bound to the R&D Owner database".into(),
+        ));
+    }
+
+    let function_ok: bool = sqlx::query_scalar(
+        "SELECT procedure.prosecdef
+             AND procedure.provolatile='v'
+             AND procedure.proparallel='u'
+             AND procedure.proisstrict
+             AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
+             AND procedure.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
+             AND procedure.proargtypes='25 25 25'::pg_catalog.oidvector
+             AND owner.rolname='rd_owner'
+             AND language.lanname='plpgsql'
+             AND backtest.rolcanlogin
+             AND NOT (backtest.rolsuper OR backtest.rolcreatedb OR backtest.rolcreaterole OR backtest.rolreplication OR backtest.rolbypassrls)
+             AND EXISTS (
+               SELECT 1 FROM pg_catalog.aclexplode(procedure.proacl) acl
+                WHERE acl.grantee=backtest.oid
+                  AND acl.grantor=owner.oid
+                  AND acl.privilege_type='EXECUTE'
+                  AND NOT acl.is_grantable
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM pg_catalog.aclexplode(procedure.proacl) acl
+                WHERE acl.privilege_type='EXECUTE'
+                  AND acl.grantee NOT IN (owner.oid,backtest.oid)
+             )
+           FROM pg_catalog.pg_proc procedure
+           JOIN pg_catalog.pg_roles owner ON owner.oid=procedure.proowner
+           JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
+           JOIN pg_catalog.pg_roles backtest ON backtest.rolname='backtest_owner'
+          WHERE procedure.oid=pg_catalog.to_regprocedure($1)",
+    )
+    .bind(LOCK_FUNCTION)
+    .fetch_optional(backtest_pool)
+    .await
+    .map_err(storage)?
+    .unwrap_or(false);
+
+    if !function_ok {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "sealed R&D lock API unavailable".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_available_envelope(
+    envelope: LockedEnvelopeV1,
+    locator: &ExploratoryReplayRequestLocatorV1,
+) -> Result<SealedExploratoryReplayReadbackV1, ExploratoryReplayOwnerError> {
+    let frozen_json = envelope.frozen.ok_or_else(|| {
+        ExploratoryReplayOwnerError::Unavailable("sealed frozen request missing".into())
+    })?;
+    let receipt_json = envelope
+        .receipt
+        .ok_or_else(|| ExploratoryReplayOwnerError::Unavailable("sealed receipt missing".into()))?;
+    let frozen = decode_frozen(&frozen_json)?;
+    let receipt = decode_receipt(&receipt_json)?;
+    let outbox = envelope
+        .outbox
+        .ok_or_else(|| ExploratoryReplayOwnerError::Unavailable("sealed outbox missing".into()))?;
+    verify_frozen(&frozen)?;
+    verify_receipt(&receipt, &frozen)?;
+    verify_outbox(&outbox, &frozen, &receipt)?;
+    if locator.request_identity != frozen.proposal.request_identity
+        || locator.request_digest != frozen.request_digest
+        || locator.receipt_identity != receipt.receipt_identity
+    {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "sealed locator mismatch".into(),
+        ));
+    }
+    let owner_cut_epoch_ms = envelope
+        .owner_cut_epoch_ms
+        .ok_or_else(|| ExploratoryReplayOwnerError::Unavailable("Owner cut missing".into()))?;
+    Ok(SealedExploratoryReplayReadbackV1 {
+        frozen: into_frozen(frozen),
+        receipt: into_receipt(receipt),
+        owner_cut_epoch_ms,
+    })
+}
+
+fn validate_proposal(
+    proposal: &ExploratoryReplayRequestProposalV1,
+) -> Result<(), ExploratoryReplayOwnerError> {
+    let identities = [
+        proposal.request_identity.as_str(),
+        proposal.build_request_identity.as_str(),
+        proposal.attempt_identity.as_str(),
+        proposal.intent_identity.as_str(),
+        proposal.trial_family_identity.as_str(),
+        proposal.artifact_identity.as_str(),
+        proposal.build_receipt_identity.as_str(),
+        proposal.artifact_family_binding_identity.as_str(),
+        proposal.census_frontier_identity.as_str(),
+        proposal.requested_pit_scope.identity.as_str(),
+        proposal.dataset.identity.as_str(),
+        proposal.feature_set.identity.as_str(),
+        proposal.strategy_spec.identity.as_str(),
+        proposal.replay_config.identity.as_str(),
+        proposal.runtime_kernel.identity.as_str(),
+        proposal.runtime_kernel.version.as_str(),
+        proposal.simulator.identity.as_str(),
+        proposal.simulator.version.as_str(),
+        proposal.backtest_engine.identity.as_str(),
+        proposal.backtest_engine.version.as_str(),
+        proposal.cost_model_identity.as_str(),
+        proposal.slippage_model_identity.as_str(),
+        proposal.capacity_model_identity.as_str(),
+        proposal.calendar_identity.as_str(),
+        proposal.time_zone_identity.as_str(),
+    ];
+
+    if identities
+        .iter()
+        .any(|value| value.is_empty() || value.len() > 512 || value.trim() != *value)
+    {
+        return Err(ExploratoryReplayOwnerError::InvalidProposal("identity"));
+    }
+
+    for digest in [
+        &proposal.requested_pit_scope.digest,
+        &proposal.dataset.digest,
+        &proposal.feature_set.digest,
+        &proposal.strategy_spec.digest,
+        &proposal.replay_config.digest,
+    ] {
+        if !valid_sha256(digest) {
+            return Err(ExploratoryReplayOwnerError::InvalidProposal("digest"));
+        }
+    }
+
+    if !valid_blake3(&proposal.exact_code_bytes_digest) {
+        return Err(ExploratoryReplayOwnerError::InvalidProposal("digest"));
+    }
+
+    if proposal.range_start_epoch_ms >= proposal.range_end_epoch_ms {
+        return Err(ExploratoryReplayOwnerError::InvalidProposal("time range"));
+    }
+    Ok(())
+}
+
+fn same_precommit_meaning(left: &StoredFrozenV1, right: &StoredFrozenV1) -> bool {
+    left.schema_version == right.schema_version
+        && left.proposal == right.proposal
+        && left.research_receipt_identity == right.research_receipt_identity
+        && left.intent_semantic_digest == right.intent_semantic_digest
+        && left.trial_family_root_digest == right.trial_family_root_digest
+        && left.census_frontier_digest == right.census_frontier_digest
+        && left.artifact_family_binding_digest == right.artifact_family_binding_digest
+        && left.artifact_family_binding_receipt_identity
+            == right.artifact_family_binding_receipt_identity
+        && left.artifact_review_identity == right.artifact_review_identity
+        && left.exact_code_bytes_sha256_digest == right.exact_code_bytes_sha256_digest
+        && left.source_capsule_digest == right.source_capsule_digest
+        && left.build_recipe_digest == right.build_recipe_digest
+        && left.dependency_identity == right.dependency_identity
+        && left.trial_family_outbox_digest == right.trial_family_outbox_digest
+        && left.artifact_family_outbox_digest == right.artifact_family_outbox_digest
+}
+
+fn frozen_digest(frozen: &StoredFrozenV1) -> Result<String, ExploratoryReplayOwnerError> {
+    canonical_digest(
+        "rd.exploratory-replay-request.v1",
+        &FrozenMeaningV1 {
+            schema_version: frozen.schema_version,
+            proposal: &frozen.proposal,
+            research_receipt_identity: &frozen.research_receipt_identity,
+            intent_semantic_digest: &frozen.intent_semantic_digest,
+            trial_family_root_digest: &frozen.trial_family_root_digest,
+            census_frontier_digest: &frozen.census_frontier_digest,
+            artifact_family_binding_digest: &frozen.artifact_family_binding_digest,
+            artifact_family_binding_receipt_identity: &frozen
+                .artifact_family_binding_receipt_identity,
+            artifact_review_identity: &frozen.artifact_review_identity,
+            exact_code_bytes_sha256_digest: &frozen.exact_code_bytes_sha256_digest,
+            source_capsule_digest: &frozen.source_capsule_digest,
+            build_recipe_digest: &frozen.build_recipe_digest,
+            dependency_identity: &frozen.dependency_identity,
+            trial_family_outbox_digest: &frozen.trial_family_outbox_digest,
+            artifact_family_outbox_digest: &frozen.artifact_family_outbox_digest,
+            committed_at_epoch_ms: frozen.committed_at_epoch_ms,
+        },
+    )
+}
+
+fn verify_frozen(frozen: &StoredFrozenV1) -> Result<(), ExploratoryReplayOwnerError> {
+    validate_proposal(&frozen.proposal)?;
+    if frozen.schema_version != 1
+        || !valid_sha256(&frozen.exact_code_bytes_sha256_digest)
+        || frozen.request_digest != frozen_digest(frozen)?
+    {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "frozen request digest mismatch".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn verify_receipt(
+    receipt: &StoredReceiptV1,
+    frozen: &StoredFrozenV1,
+) -> Result<(), ExploratoryReplayOwnerError> {
+    let digest = canonical_digest(
+        "rd.exploratory-replay-request-receipt.v1",
+        &(
+            1_u32,
+            &frozen.proposal.request_identity,
+            &frozen.request_digest,
+            frozen.committed_at_epoch_ms,
+        ),
+    )?;
+
+    if receipt.schema_version != 1
+        || receipt.receipt_identity != identity("rd-exploratory-replay-receipt-v1", &digest)
+        || receipt.request_identity != frozen.proposal.request_identity
+        || receipt.request_digest != frozen.request_digest
+        || receipt.committed_at_epoch_ms != frozen.committed_at_epoch_ms
+    {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "commit receipt mismatch".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn verify_outbox(
+    outbox: &LockedOutboxRowV1,
+    frozen: &StoredFrozenV1,
+    receipt: &StoredReceiptV1,
+) -> Result<(), ExploratoryReplayOwnerError> {
+    let payload: StoredOutboxV1 = decode_exact(&outbox.payload_json)?;
+    let expected = StoredOutboxV1 {
+        schema_version: 1,
+        request_identity: frozen.proposal.request_identity.clone(),
+        request_digest: frozen.request_digest.clone(),
+        receipt_identity: receipt.receipt_identity.clone(),
+        intent_identity: frozen.proposal.intent_identity.clone(),
+        trial_family_identity: frozen.proposal.trial_family_identity.clone(),
+        artifact_identity: frozen.proposal.artifact_identity.clone(),
+        census_frontier_identity: frozen.proposal.census_frontier_identity.clone(),
+        committed_at_epoch_ms: frozen.committed_at_epoch_ms,
+    };
+    let digest = canonical_digest("rd.owner-outbox.payload.v1", &expected)?;
+    if payload != expected
+        || outbox.event_identity != identity("rd-owner-event-v1", &digest)
+        || outbox.aggregate_identity != expected.request_identity
+        || outbox.event_kind != EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V1
+        || outbox.payload_digest != digest
+        || outbox.committed_at_epoch_ms != frozen.committed_at_epoch_ms
+    {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "exploratory request outbox mismatch".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn locked_outbox_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<LockedOutboxRowV1, ExploratoryReplayOwnerError> {
+    Ok(LockedOutboxRowV1 {
+        event_identity: row.try_get("event_identity").map_err(storage)?,
+        aggregate_identity: row.try_get("aggregate_identity").map_err(storage)?,
+        event_kind: row.try_get("event_kind").map_err(storage)?,
+        payload_digest: row.try_get("payload_digest").map_err(storage)?,
+        payload_json: row.try_get("payload_json").map_err(storage)?,
+        committed_at_epoch_ms: u64::try_from(
+            row.try_get::<i64, _>("committed_at_epoch_ms")
+                .map_err(storage)?,
+        )
+        .map_err(unavailable)?,
+    })
+}
+
+fn assemble(frozen: StoredFrozenV1, receipt: StoredReceiptV1) -> ExploratoryReplayCommitResultV1 {
+    let locator = ExploratoryReplayRequestLocatorV1 {
+        request_identity: frozen.proposal.request_identity.clone(),
+        request_digest: frozen.request_digest.clone(),
+        receipt_identity: receipt.receipt_identity.clone(),
+    };
+    ExploratoryReplayCommitResultV1 {
+        projection: projection(
+            &frozen.proposal.request_identity,
+            ExploratoryReplayAvailabilityV1::Available,
+        ),
+        locator,
+        frozen: into_frozen(frozen),
+        receipt: into_receipt(receipt),
+    }
+}
+
+fn into_frozen(stored: StoredFrozenV1) -> FrozenExploratoryReplayRequestV1 {
+    FrozenExploratoryReplayRequestV1 {
+        schema_version: stored.schema_version,
+        proposal: stored.proposal,
+        research_receipt_identity: stored.research_receipt_identity,
+        intent_semantic_digest: stored.intent_semantic_digest,
+        trial_family_root_digest: stored.trial_family_root_digest,
+        census_frontier_digest: stored.census_frontier_digest,
+        artifact_family_binding_digest: stored.artifact_family_binding_digest,
+        artifact_family_binding_receipt_identity: stored.artifact_family_binding_receipt_identity,
+        artifact_review_identity: stored.artifact_review_identity,
+        source_capsule_digest: stored.source_capsule_digest,
+        build_recipe_digest: stored.build_recipe_digest,
+        dependency_identity: stored.dependency_identity,
+        trial_family_outbox_digest: stored.trial_family_outbox_digest,
+        artifact_family_outbox_digest: stored.artifact_family_outbox_digest,
+        committed_at_epoch_ms: stored.committed_at_epoch_ms,
+        request_digest: stored.request_digest,
+    }
+}
+
+fn into_receipt(stored: StoredReceiptV1) -> ExploratoryReplayCommitReceiptV1 {
+    ExploratoryReplayCommitReceiptV1 {
+        schema_version: stored.schema_version,
+        receipt_identity: stored.receipt_identity,
+        request_identity: stored.request_identity,
+        request_digest: stored.request_digest,
+        committed_at_epoch_ms: stored.committed_at_epoch_ms,
+    }
+}
+
+fn projection(
+    request_identity: &str,
+    availability: ExploratoryReplayAvailabilityV1,
+) -> ExploratoryReplayRequestProjectionV1 {
+    ExploratoryReplayRequestProjectionV1 {
+        schema_version: 1,
+        request_identity: request_identity.to_string(),
+        availability,
+        next_legal_action: match availability {
+            ExploratoryReplayAvailabilityV1::Available => {
+                ExploratoryReplayNextLegalActionV1::LockByLocator
+            }
+            ExploratoryReplayAvailabilityV1::Stale => {
+                ExploratoryReplayNextLegalActionV1::CreateSuccessorRequest
+            }
+            ExploratoryReplayAvailabilityV1::Unavailable => {
+                ExploratoryReplayNextLegalActionV1::ResolveOwnerCustody
+            }
+        },
+    }
+}
+
+fn unavailable_result(request_identity: &str) -> ExploratoryReplayReadResultV1 {
+    ExploratoryReplayReadResultV1 {
+        projection: projection(
+            request_identity,
+            ExploratoryReplayAvailabilityV1::Unavailable,
+        ),
+        readback: None,
+    }
+}
+
+fn decode_frozen(value: &serde_json::Value) -> Result<StoredFrozenV1, ExploratoryReplayOwnerError> {
+    decode_exact(value)
+}
+
+fn decode_receipt(
+    value: &serde_json::Value,
+) -> Result<StoredReceiptV1, ExploratoryReplayOwnerError> {
+    decode_exact(value)
+}
+
+fn decode_exact<T>(value: &serde_json::Value) -> Result<T, ExploratoryReplayOwnerError>
+where
+    T: serde::de::DeserializeOwned + Serialize,
+{
+    let decoded: T = serde_json::from_value(value.clone()).map_err(unavailable)?;
+    if serde_json::to_value(&decoded).map_err(unavailable)? != *value {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "stored JSON is not canonical".into(),
+        ));
+    }
+    Ok(decoded)
+}
+
+fn canonical_digest<T: Serialize + ?Sized>(
+    domain: &str,
+    value: &T,
+) -> Result<String, ExploratoryReplayOwnerError> {
+    let bytes = serde_json::to_vec(&serde_json::json!({"domain": domain, "value": value}))
+        .map_err(unavailable)?;
+    Ok(format!("sha256:{:x}", Sha256::digest(bytes)))
+}
+
+fn identity(prefix: &str, digest: &str) -> String {
+    format!("{prefix}-{}", digest.trim_start_matches("sha256:"))
+}
+
+fn valid_sha256(value: &str) -> bool {
+    value.strip_prefix("sha256:").is_some_and(|hex| {
+        hex.len() == 64
+            && hex
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    })
+}
+
+fn valid_blake3(value: &str) -> bool {
+    value.strip_prefix("blake3:").is_some_and(|hex| {
+        hex.len() == 64
+            && hex
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    })
+}
+
+fn storage(error: impl Display) -> ExploratoryReplayOwnerError {
+    ExploratoryReplayOwnerError::Unavailable(error.to_string())
+}
+
+fn unavailable(error: impl Display) -> ExploratoryReplayOwnerError {
+    ExploratoryReplayOwnerError::Unavailable(error.to_string())
+}

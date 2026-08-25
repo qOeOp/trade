@@ -408,6 +408,11 @@ pub enum ResearchNextLegalAction {
     ReviewArtifact,
 }
 
+pub use crate::exploratory_replay::{
+    ExploratoryReplayAvailabilityV1, ExploratoryReplayNextLegalActionV1,
+    ExploratoryReplayRequestProjectionV1,
+};
+
 /// Owner-assembled V1 result.
 ///
 /// Positive results are serialize-only and cannot be reconstructed by a caller:

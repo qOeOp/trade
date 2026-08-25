@@ -1428,7 +1428,6 @@ mod tests {
     fn owner_action_projection_fails_closed_for_unknown_and_legacy_actions() {
         let projection = artifact_review_action_projection(&[
             "REVIEW_ARTIFACT".to_string(),
-            "REQUEST_EXPLORATORY_REPLAY_NOT_IMPLEMENTED_IN_S2".to_string(),
             "UNKNOWN_FUTURE_ACTION".to_string(),
         ]);
 
@@ -1441,7 +1440,6 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![
                 ArtifactReviewActionAdmissionV1::Admitted,
-                ArtifactReviewActionAdmissionV1::NotAdmitted,
                 ArtifactReviewActionAdmissionV1::NotAdmitted,
             ]
         );

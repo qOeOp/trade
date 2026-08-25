@@ -6,7 +6,8 @@ psql --set=ON_ERROR_STOP=1 --host "${POSTGRES_HOST:-postgres}" --username postgr
   --set=rd_password="$RD_OWNER_DB_PASSWORD" \
   --set=issuer_password="$OPERATOR_AUTHORIZATION_DB_PASSWORD" \
   --set=qualification_password="$QUALIFICATION_OWNER_DB_PASSWORD" \
-  --set=edge_password="$PRODUCT_EDGE_DB_PASSWORD" << 'SQL'
+  --set=edge_password="$PRODUCT_EDGE_DB_PASSWORD" \
+  --set=backtest_password="$BACKTEST_OWNER_DB_PASSWORD" << 'SQL'
 BEGIN;
 DO $roles$
 BEGIN
@@ -16,6 +17,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'qualification_owner') THEN CREATE ROLE qualification_owner NOLOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'qualification_writer') THEN CREATE ROLE qualification_writer LOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'product_edge_owner') THEN CREATE ROLE product_edge_owner LOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'backtest_owner') THEN CREATE ROLE backtest_owner LOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'portfolio_owner') THEN CREATE ROLE portfolio_owner NOLOGIN; END IF;
 END
 $roles$;
@@ -25,11 +27,13 @@ ALTER ROLE operator_authorization_writer LOGIN PASSWORD :'issuer_password';
 ALTER ROLE qualification_owner NOLOGIN;
 ALTER ROLE qualification_writer LOGIN PASSWORD :'qualification_password';
 ALTER ROLE product_edge_owner PASSWORD :'edge_password';
+ALTER ROLE backtest_owner LOGIN PASSWORD :'backtest_password';
 ALTER ROLE portfolio_owner NOLOGIN;
 GRANT operator_authorization_owner TO operator_authorization_writer;
 REVOKE portfolio_owner FROM product_edge_owner;
 REVOKE operator_authorization_owner FROM product_edge_owner, rd_owner;
 REVOKE qualification_owner FROM qualification_writer, product_edge_owner, rd_owner, operator_authorization_writer;
+REVOKE rd_owner, product_edge_owner, qualification_owner, operator_authorization_owner, portfolio_owner FROM backtest_owner;
 
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 DO $database_grants$
@@ -39,7 +43,7 @@ BEGIN
     pg_catalog.current_database()
   );
   EXECUTE pg_catalog.format(
-    'GRANT CONNECT ON DATABASE %I TO rd_owner, operator_authorization_writer, qualification_writer, product_edge_owner',
+    'GRANT CONNECT ON DATABASE %I TO rd_owner, operator_authorization_writer, qualification_writer, product_edge_owner, backtest_owner',
     pg_catalog.current_database()
   );
 END
@@ -61,6 +65,8 @@ CREATE SCHEMA IF NOT EXISTS rd_owner_api AUTHORIZATION rd_owner;
 ALTER SCHEMA rd_owner_api OWNER TO rd_owner;
 REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC, operator_authorization_writer, qualification_writer;
 GRANT USAGE ON SCHEMA rd_owner_api TO product_edge_owner, qualification_writer;
+REVOKE ALL ON SCHEMA public FROM backtest_owner;
+GRANT USAGE ON SCHEMA public TO backtest_owner;
 
 CREATE SCHEMA IF NOT EXISTS qualification_api AUTHORIZATION qualification_owner;
 ALTER SCHEMA qualification_api OWNER TO qualification_owner;
