@@ -9,7 +9,8 @@ use tokio::{
 };
 use vibe_operator_authorization::{
     OperationManifestBindingV1, OperatorAuthorizationIssuanceProposalV1,
-    OperatorAuthorizationIssuerPostgresV1, OperatorAuthorizationScopeV1,
+    OperatorAuthorizationIssuerPostgresV1, OperatorAuthorizationLocatorV1,
+    OperatorAuthorizationRevocationProposalV1, OperatorAuthorizationScopeV1,
 };
 use vibe_product_edge::{
     AgentOperationManifestProposalV1, ProductEdgeAdmissionRequestV1,
@@ -217,10 +218,11 @@ async fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owne
         .commit_exploratory_replay_request_v1(proposal.clone())
         .await
         .expect("frozen exploratory request");
+    edge.revoke_authorization().await;
     let replay = owner
         .commit_exploratory_replay_request_v1(proposal.clone())
         .await
-        .expect("byte-identical replay");
+        .expect("response-loss retry after authority revocation");
     assert_eq!(
         serde_json::to_value(&first).unwrap(),
         serde_json::to_value(&replay).unwrap()
@@ -240,6 +242,22 @@ async fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owne
         owner.commit_exploratory_replay_request_v1(changed).await,
         Err(ExploratoryReplayOwnerError::ConflictingReplay)
     ));
+    let mut fresh = proposal.clone();
+    fresh.request_identity.push_str("-fresh-after-revoke");
+    assert!(matches!(
+        owner
+            .commit_exploratory_replay_request_v1(fresh.clone())
+            .await,
+        Err(ExploratoryReplayOwnerError::Unavailable(_))
+    ));
+    assert_eq!(
+        request_counts(
+            mutation.pool(CanonicalOwnerTestRoleV1::RdOwner),
+            &fresh.request_identity
+        )
+        .await,
+        [0, 0]
+    );
     let mut foreign = proposal.clone();
     foreign.request_identity.push_str("-foreign");
     foreign.intent_identity.push_str("-foreign");
@@ -581,6 +599,9 @@ fn build_recipe() -> Vec<u8> {
 
 struct TestProductEdge {
     owner: ProductEdgePostgresOwnerV1,
+    issuer: OperatorAuthorizationIssuerPostgresV1,
+    authorization: OperatorAuthorizationLocatorV1,
+    authorization_frontier_identity: String,
     proof: String,
 }
 
@@ -669,7 +690,27 @@ impl TestProductEdge {
             })
             .await
             .unwrap();
-        Self { owner, proof }
+        Self {
+            owner,
+            issuer,
+            authorization: authorization.locator(),
+            authorization_frontier_identity: authorization
+                .frontier()
+                .frontier_identity()
+                .to_string(),
+            proof,
+        }
+    }
+
+    async fn revoke_authorization(&self) {
+        self.issuer
+            .revoke(OperatorAuthorizationRevocationProposalV1 {
+                authorization: self.authorization.clone(),
+                expected_frontier_identity: self.authorization_frontier_identity.clone(),
+                reason_code: "RESPONSE_LOSS_RETRY_TEST".into(),
+            })
+            .await
+            .expect("revoke original Product Edge authorization");
     }
 
     async fn admit_research(

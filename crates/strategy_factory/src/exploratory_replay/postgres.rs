@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Postgres, Row, Transaction};
 use vibe_product_edge::DownstreamAdmissionModeV1;
 
 use crate::{
@@ -341,6 +341,11 @@ pub(crate) async fn commit(
         .await
         .map_err(storage)?;
 
+    if let Some(existing) = resolve_existing(&mut transaction, &proposal).await? {
+        transaction.commit().await.map_err(storage)?;
+        return Ok(existing);
+    }
+
     let now: i64 = sqlx::query_scalar(
         "SELECT pg_catalog.floor(extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint",
     )
@@ -452,38 +457,6 @@ pub(crate) async fn commit(
         request_digest: String::new(),
     };
 
-    if let Some(row) = sqlx::query(
-        "SELECT frozen_json, receipt_json FROM public.rd_exploratory_replay_requests_v1 WHERE request_identity=$1 FOR UPDATE",
-    )
-    .bind(&proposal.request_identity)
-    .fetch_optional(&mut *transaction)
-    .await
-    .map_err(storage)?
-    {
-        let frozen_json = row.try_get("frozen_json").map_err(storage)?;
-        let receipt_json = row.try_get("receipt_json").map_err(storage)?;
-        let stored = decode_frozen(&frozen_json)?;
-        let stored_receipt = decode_receipt(&receipt_json)?;
-
-        if !same_precommit_meaning(&stored, &expected) {
-            return Err(ExploratoryReplayOwnerError::ConflictingReplay);
-        }
-        verify_frozen(&stored)?;
-        verify_receipt(&stored_receipt, &stored)?;
-        let outbox_row = sqlx::query(
-            "SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2 FOR SHARE",
-        )
-        .bind(&proposal.request_identity)
-        .bind(EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V1)
-        .fetch_one(&mut *transaction)
-        .await
-        .map_err(storage)?;
-        let outbox = locked_outbox_from_row(&outbox_row)?;
-        verify_outbox(&outbox, &stored, &stored_receipt)?;
-        transaction.commit().await.map_err(storage)?;
-        return Ok(assemble(stored, stored_receipt));
-    }
-
     let mut frozen = expected;
     frozen.request_digest = frozen_digest(&frozen)?;
     let receipt_digest = canonical_digest(
@@ -542,6 +515,206 @@ pub(crate) async fn commit(
     verify_receipt(&stored_receipt, &frozen)?;
     transaction.commit().await.map_err(storage)?;
     Ok(assemble(frozen, stored_receipt))
+}
+
+async fn resolve_existing(
+    transaction: &mut Transaction<'_, Postgres>,
+    proposal: &ExploratoryReplayRequestProposalV1,
+) -> Result<Option<ExploratoryReplayCommitResultV1>, ExploratoryReplayOwnerError> {
+    let Some(row) = sqlx::query(
+        "SELECT request_identity,request_digest,build_request_identity,attempt_identity,intent_identity,trial_family_identity,artifact_identity,build_receipt_identity,artifact_family_binding_identity,census_frontier_identity,frozen_json,receipt_json,lifecycle_state,committed_at_epoch_ms FROM public.rd_exploratory_replay_requests_v1 WHERE request_identity=$1 FOR UPDATE",
+    )
+    .bind(&proposal.request_identity)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(storage)?
+    else {
+        return Ok(None);
+    };
+
+    let frozen_json = row.try_get("frozen_json").map_err(storage)?;
+    let receipt_json = row.try_get("receipt_json").map_err(storage)?;
+    let frozen = decode_frozen(&frozen_json)?;
+    let receipt = decode_receipt(&receipt_json)?;
+    verify_frozen(&frozen)?;
+    verify_receipt(&receipt, &frozen)?;
+
+    let committed_at_epoch_ms = u64::try_from(
+        row.try_get::<i64, _>("committed_at_epoch_ms")
+            .map_err(storage)?,
+    )
+    .map_err(unavailable)?;
+
+    if row
+        .try_get::<String, _>("request_identity")
+        .map_err(storage)?
+        != frozen.proposal.request_identity
+        || row
+            .try_get::<String, _>("request_digest")
+            .map_err(storage)?
+            != frozen.request_digest
+        || row
+            .try_get::<String, _>("build_request_identity")
+            .map_err(storage)?
+            != frozen.proposal.build_request_identity
+        || row
+            .try_get::<String, _>("attempt_identity")
+            .map_err(storage)?
+            != frozen.proposal.attempt_identity
+        || row
+            .try_get::<String, _>("intent_identity")
+            .map_err(storage)?
+            != frozen.proposal.intent_identity
+        || row
+            .try_get::<String, _>("trial_family_identity")
+            .map_err(storage)?
+            != frozen.proposal.trial_family_identity
+        || row
+            .try_get::<String, _>("artifact_identity")
+            .map_err(storage)?
+            != frozen.proposal.artifact_identity
+        || row
+            .try_get::<String, _>("build_receipt_identity")
+            .map_err(storage)?
+            != frozen.proposal.build_receipt_identity
+        || row
+            .try_get::<String, _>("artifact_family_binding_identity")
+            .map_err(storage)?
+            != frozen.proposal.artifact_family_binding_identity
+        || row
+            .try_get::<String, _>("census_frontier_identity")
+            .map_err(storage)?
+            != frozen.proposal.census_frontier_identity
+        || row
+            .try_get::<String, _>("lifecycle_state")
+            .map_err(storage)?
+            != "FROZEN"
+        || committed_at_epoch_ms != frozen.committed_at_epoch_ms
+    {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "stored exploratory request columns mismatch".into(),
+        ));
+    }
+
+    let outbox_row = sqlx::query(
+        "SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2 FOR SHARE",
+    )
+    .bind(&proposal.request_identity)
+    .bind(EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V1)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    let outbox = locked_outbox_from_row(&outbox_row)?;
+    verify_outbox(&outbox, &frozen, &receipt)?;
+    verify_historical_lineage(transaction, &frozen).await?;
+
+    if frozen.proposal != *proposal {
+        return Err(ExploratoryReplayOwnerError::ConflictingReplay);
+    }
+    Ok(Some(assemble(frozen, receipt)))
+}
+
+async fn verify_historical_lineage(
+    transaction: &mut Transaction<'_, Postgres>,
+    frozen: &StoredFrozenV1,
+) -> Result<(), ExploratoryReplayOwnerError> {
+    let frozen_json = serde_json::to_value(frozen).map_err(unavailable)?;
+    let valid: bool = sqlx::query_scalar(
+        "
+        WITH expected AS (SELECT $1::jsonb AS frozen),
+        research AS MATERIALIZED (
+          SELECT 1 FROM public.rd_research_request_receipts_v1 research, expected
+           WHERE research.intent_json->>'intent_identity'=expected.frozen->'proposal'->>'intent_identity'
+             AND research.intent_json->>'semantic_digest'=expected.frozen->>'intent_semantic_digest'
+             AND research.receipt_json->>'receipt_identity'=expected.frozen->>'research_receipt_identity'
+             AND research.receipt_json->>'disposition'='ACCEPTED'
+             AND research.view_json->>'availability'='AVAILABLE'
+             AND research.view_json->>'phase'='ARTIFACT_AVAILABLE'
+             AND research.view_json->>'attempt_identity'=expected.frozen->'proposal'->>'attempt_identity'
+             AND research.view_json->>'artifact_identity'=expected.frozen->'proposal'->>'artifact_identity'
+             AND research.view_json->>'build_receipt_identity'=expected.frozen->'proposal'->>'build_receipt_identity'
+             AND research.view_json->>'artifact_review_identity'=expected.frozen->>'artifact_review_identity'
+           FOR SHARE OF research
+        ),
+        family AS MATERIALIZED (
+          SELECT 1 FROM public.rd_trial_families_v1 family
+          JOIN public.rd_trial_family_heads_v1 head USING (trial_family_identity), expected
+           WHERE family.trial_family_identity=expected.frozen->'proposal'->>'trial_family_identity'
+             AND family.intent_identity=expected.frozen->'proposal'->>'intent_identity'
+             AND family.root_digest=expected.frozen->>'trial_family_root_digest'
+             AND head.frontier_identity=expected.frozen->'proposal'->>'census_frontier_identity'
+             AND head.frontier_digest=expected.frozen->>'census_frontier_digest'
+           FOR SHARE OF family, head
+        ),
+        binding AS MATERIALIZED (
+          SELECT 1 FROM public.rd_artifact_trial_family_bindings_v1 binding, expected
+           WHERE binding.binding_identity=expected.frozen->'proposal'->>'artifact_family_binding_identity'
+             AND binding.artifact_identity=expected.frozen->'proposal'->>'artifact_identity'
+             AND binding.build_receipt_identity=expected.frozen->'proposal'->>'build_receipt_identity'
+             AND binding.intent_identity=expected.frozen->'proposal'->>'intent_identity'
+             AND binding.trial_family_identity=expected.frozen->'proposal'->>'trial_family_identity'
+             AND binding.binding_digest=expected.frozen->>'artifact_family_binding_digest'
+             AND binding.binding_receipt_json->>'receipt_identity'=expected.frozen->>'artifact_family_binding_receipt_identity'
+           FOR SHARE OF binding
+        ),
+        attempt AS MATERIALIZED (
+          SELECT 1 FROM public.rd_artifact_build_attempts_v1 attempt, expected
+           WHERE attempt.build_request_identity=expected.frozen->'proposal'->>'build_request_identity'
+             AND attempt.attempt_identity=expected.frozen->'proposal'->>'attempt_identity'
+             AND attempt.attempt_json->>'state'='TERMINAL'
+             AND attempt.attempt_json->'receipt'->>'disposition'='SUCCESS'
+             AND attempt.attempt_json->'receipt'->>'artifact_identity'=expected.frozen->'proposal'->>'artifact_identity'
+             AND attempt.attempt_json->'receipt'->>'build_receipt_identity'=expected.frozen->'proposal'->>'build_receipt_identity'
+           FOR SHARE OF attempt
+        ),
+        artifact AS MATERIALIZED (
+          SELECT 1 FROM public.rd_strategy_artifacts_v1 artifact, expected
+           WHERE artifact.artifact_digest=expected.frozen->'proposal'->>'artifact_identity'
+             AND artifact.intent_identity=expected.frozen->'proposal'->>'intent_identity'
+             AND artifact.attempt_identity=expected.frozen->'proposal'->>'attempt_identity'
+             AND artifact.build_receipt_json->>'build_receipt_identity'=expected.frozen->'proposal'->>'build_receipt_identity'
+             AND artifact.build_receipt_json->>'wasm_digest'=expected.frozen->'proposal'->>'exact_code_bytes_digest'
+             AND ('sha256:' || pg_catalog.encode(pg_catalog.sha256(artifact.wasm_bytes),'hex'))=expected.frozen->>'exact_code_bytes_sha256_digest'
+             AND artifact.build_receipt_json->>'source_capsule_digest'=expected.frozen->>'source_capsule_digest'
+             AND artifact.build_receipt_json->>'build_recipe_digest'=expected.frozen->>'build_recipe_digest'
+             AND artifact.build_receipt_json->>'dependency_identity'=expected.frozen->>'dependency_identity'
+             AND artifact.artifact_review_json->>'review_identity'=expected.frozen->>'artifact_review_identity'
+           FOR SHARE OF artifact
+        ),
+        family_outbox AS MATERIALIZED (
+          SELECT 1 FROM public.rd_owner_outbox_v1 outbox, expected
+           WHERE outbox.aggregate_identity=expected.frozen->'proposal'->>'trial_family_identity'
+             AND outbox.event_kind='TRIAL_FAMILY_FROZEN_V1'
+             AND outbox.payload_digest=expected.frozen->>'trial_family_outbox_digest'
+           FOR SHARE OF outbox
+        ),
+        artifact_outbox AS MATERIALIZED (
+          SELECT 1 FROM public.rd_owner_outbox_v1 outbox, expected
+           WHERE outbox.aggregate_identity=expected.frozen->'proposal'->>'artifact_identity'
+             AND outbox.event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'
+             AND outbox.payload_digest=expected.frozen->>'artifact_family_outbox_digest'
+           FOR SHARE OF outbox
+        )
+        SELECT EXISTS(SELECT 1 FROM research)
+           AND EXISTS(SELECT 1 FROM family)
+           AND EXISTS(SELECT 1 FROM binding)
+           AND EXISTS(SELECT 1 FROM attempt)
+           AND EXISTS(SELECT 1 FROM artifact)
+           AND EXISTS(SELECT 1 FROM family_outbox)
+           AND EXISTS(SELECT 1 FROM artifact_outbox)
+        ",
+    )
+    .bind(frozen_json)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(storage)?;
+
+    if !valid {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "historical R&D lineage custody unavailable".into(),
+        ));
+    }
+    Ok(())
 }
 
 pub(crate) async fn bind_backtest_read(
@@ -805,25 +978,6 @@ fn validate_proposal(
         return Err(ExploratoryReplayOwnerError::InvalidProposal("time range"));
     }
     Ok(())
-}
-
-fn same_precommit_meaning(left: &StoredFrozenV1, right: &StoredFrozenV1) -> bool {
-    left.schema_version == right.schema_version
-        && left.proposal == right.proposal
-        && left.research_receipt_identity == right.research_receipt_identity
-        && left.intent_semantic_digest == right.intent_semantic_digest
-        && left.trial_family_root_digest == right.trial_family_root_digest
-        && left.census_frontier_digest == right.census_frontier_digest
-        && left.artifact_family_binding_digest == right.artifact_family_binding_digest
-        && left.artifact_family_binding_receipt_identity
-            == right.artifact_family_binding_receipt_identity
-        && left.artifact_review_identity == right.artifact_review_identity
-        && left.exact_code_bytes_sha256_digest == right.exact_code_bytes_sha256_digest
-        && left.source_capsule_digest == right.source_capsule_digest
-        && left.build_recipe_digest == right.build_recipe_digest
-        && left.dependency_identity == right.dependency_identity
-        && left.trial_family_outbox_digest == right.trial_family_outbox_digest
-        && left.artifact_family_outbox_digest == right.artifact_family_outbox_digest
 }
 
 fn frozen_digest(frozen: &StoredFrozenV1) -> Result<String, ExploratoryReplayOwnerError> {
