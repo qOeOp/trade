@@ -260,6 +260,11 @@ cargo test --locked --package vibe-strategy-factory \
   frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner \
   -- --ignored --exact
 
+cargo test --locked --package vibe-strategy-factory \
+  --test exploratory_replay_request_owner \
+  replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox \
+  -- --ignored --exact
+
 # This test deliberately leaves its Research view historically mismatched to
 # prove post-claim retry does not re-admit live Research. Run it last so that
 # the intentionally poisoned disposable row cannot contaminate another test's

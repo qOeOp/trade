@@ -596,36 +596,29 @@ pub(crate) async fn commit(
     .await
     .map_err(storage)?;
     let final_cut = u64::try_from(final_cut).map_err(unavailable)?;
-    let (final_replay_admission, final_artifact_admission) = Box::pin(
-        VerifiedAttemptCustodyV1::lock_exploratory_replay_admissions_in_transaction(
-            &mut transaction,
-            &proposal.admission,
-            &custody.attempt.request.admission,
-            final_cut,
-        ),
-    )
-    .await
-    .map_err(|e| ExploratoryReplayOwnerError::Unavailable(e.to_string()))?;
-    verify_replay_admission(&final_replay_admission, &proposal)?;
-    verify_artifact_build_admission(&final_artifact_admission, &custody.attempt.request)
+    // Replay and Artifact admission rows were locked before any R&D custody row.
+    // With every dependency lock/read now complete, revalidate those exact
+    // readbacks at one final cut without issuing another admission query.
+    verify_replay_admission(&replay_admission, &proposal)?;
+    verify_artifact_build_admission(&custody.product_edge_admission, &custody.attempt.request)
         .map_err(|e| ExploratoryReplayOwnerError::Unavailable(e.to_string()))?;
     let research_admission = custody.research.product_edge_admission().ok_or_else(|| {
         ExploratoryReplayOwnerError::Unavailable("research Product Edge admission missing".into())
     })?;
 
     if !custody.research.authority_available_at(final_cut)
-        || !final_replay_admission.authorizes_first_mutation_at(final_cut)
-        || !final_artifact_admission.authorizes_first_mutation_at(final_cut)
-        || !same_product_edge_authority(&replay_admission, &final_replay_admission)
-        || !same_product_edge_authority(&custody.product_edge_admission, &final_artifact_admission)
-        || !same_product_edge_authority(&final_replay_admission, &final_artifact_admission)
-        || !same_product_edge_authority(&final_replay_admission, research_admission)
+        || !replay_admission.authorizes_first_mutation_at(final_cut)
+        || !custody
+            .product_edge_admission
+            .authorizes_first_mutation_at(final_cut)
+        || !same_product_edge_authority(&replay_admission, &custody.product_edge_admission)
+        || !same_product_edge_authority(&replay_admission, research_admission)
     {
         return Err(ExploratoryReplayOwnerError::Unavailable(
             "Product Edge authority changed before final Replay custody".into(),
         ));
     }
-    let product_edge_request_semantic_digest = final_replay_admission
+    let product_edge_request_semantic_digest = replay_admission
         .request()
         .semantic_digest()
         .map_err(unavailable)?;
@@ -651,7 +644,7 @@ pub(crate) async fn commit(
         artifact_family_outbox_event_identity: artifact_family_outbox.event_identity.clone(),
         artifact_family_outbox_digest: artifact_family_outbox.payload_digest.clone(),
         artifact_family_outbox_committed_at_epoch_ms: artifact_family_outbox.committed_at_epoch_ms,
-        committed_at_epoch_ms: now,
+        committed_at_epoch_ms: final_cut,
         request_digest: String::new(),
     };
 

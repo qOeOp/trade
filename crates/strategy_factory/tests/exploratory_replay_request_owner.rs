@@ -21,8 +21,8 @@ use vibe_product_edge::{
 use vibe_strategy_factory::{
     artifact_build::{
         ARTIFACT_BUILD_OPERATION_V1, ARTIFACT_BUILD_SCHEMA_V1, ArtifactBuildCandidateV1,
-        ArtifactBuildOwnerPort, ArtifactBuildRequestV1, ArtifactBuildResolution,
-        GeneratedDirectionV1, GeneratedSignalV1, GeneratedStrategyLogicV1,
+        ArtifactBuildDisposition, ArtifactBuildOwnerPort, ArtifactBuildRequestV1,
+        ArtifactBuildResolution, GeneratedDirectionV1, GeneratedSignalV1, GeneratedStrategyLogicV1,
     },
     artifact_build_postgres::PostgresArtifactBuildOwnerV1,
     exploratory_replay::{
@@ -64,183 +64,90 @@ struct TestArtifactBoundOutboxV1 {
     binding_receipt_identity: String,
 }
 
+struct ReplayFixture {
+    database: CanonicalOwnerPostgresTestDatabaseV1,
+    owner: PostgresResearchGoalOwnerV1,
+    edge: TestProductEdge,
+    rd_url: String,
+    qualification_url: String,
+    backtest_url: String,
+    edge_url: String,
+    proposal: ExploratoryReplayRequestProposalV1,
+    valid_through_epoch_ms: u64,
+}
+
+#[tokio::test]
+#[ignore = "requires the canonical disposable five-role PostgreSQL route"]
+async fn replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox() {
+    let fixture = prepare_replay_fixture(60_000).await;
+    let blocker_pool = PgPool::connect(&fixture.edge_url)
+        .await
+        .expect("Product Edge blocker pool");
+    let mut blocker = blocker_pool.begin().await.expect("blocker transaction");
+    sqlx::query(
+        "SELECT request_identity FROM product_edge_request_admissions_v1 WHERE request_identity IN ($1,$2) ORDER BY request_identity FOR UPDATE",
+    )
+    .bind(&fixture.proposal.admission.request_identity)
+    .bind(&fixture.proposal.build_request_identity)
+    .fetch_all(&mut *blocker)
+    .await
+    .expect("locked Replay and Artifact admission rows");
+
+    let owner = fixture.owner.clone();
+    let proposal = fixture.proposal.clone();
+    let request_identity = proposal.request_identity.clone();
+
+    let commit_future = async move { owner.commit_exploratory_replay_request_v1(proposal).await };
+
+    let commit = tokio::spawn(commit_future);
+
+    loop {
+        let database_cut: i64 = sqlx::query_scalar(
+            "SELECT pg_catalog.floor(extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint",
+        )
+        .fetch_one(&blocker_pool)
+        .await
+        .expect("database clock");
+
+        if u64::try_from(database_cut).unwrap() >= fixture.valid_through_epoch_ms {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    blocker.commit().await.expect("release admission row locks");
+
+    assert!(matches!(
+        commit.await.expect("Replay commit task"),
+        Err(ExploratoryReplayOwnerError::Unavailable(_))
+    ));
+    assert_eq!(
+        request_counts(
+            fixture
+                .database
+                .mutation()
+                .pool(CanonicalOwnerTestRoleV1::RdOwner),
+            &request_identity,
+        )
+        .await,
+        [0, 0]
+    );
+}
+
 #[tokio::test]
 #[ignore = "requires the canonical disposable five-role PostgreSQL route"]
 async fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner() {
-    let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
-        .await
-        .expect("canonical disposable topology");
+    let fixture = prepare_replay_fixture(3_600_000).await;
+    let ReplayFixture {
+        database,
+        owner,
+        edge,
+        rd_url,
+        qualification_url,
+        backtest_url,
+        proposal,
+        ..
+    } = fixture;
     let mutation = database.mutation();
-    let rd_url = database
-        .database_url(CanonicalOwnerTestRoleV1::RdOwner)
-        .to_string();
-    let qualification_url = database
-        .database_url(CanonicalOwnerTestRoleV1::QualificationWriter)
-        .to_string();
-    let backtest_url = database
-        .database_url(CanonicalOwnerTestRoleV1::BacktestOwner)
-        .to_string();
-    let edge_url = database
-        .database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner)
-        .to_string();
-    let issuer_url = database
-        .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter)
-        .to_string();
-    let suffix = unique_suffix();
-    let edge = TestProductEdge::bootstrap(&issuer_url, &edge_url, &suffix).await;
-    let owner = PostgresResearchGoalOwnerV1::connect_with_backtest(
-        &rd_url,
-        &qualification_url,
-        &backtest_url,
-    )
-    .await
-    .expect("R&D Owner");
-
-    let research_identity = format!("research-exploratory-{suffix}");
-    let research = edge
-        .admit_research(research_request(&research_identity))
-        .await;
-    let accepted = owner.submit_v2(research).await.expect("frozen Research");
-    let research_receipt = accepted.owner_receipt().expect("research receipt");
-    let intent_identity = research_receipt
-        .resulting_research_intent_identity
-        .as_deref()
-        .expect("intent")
-        .to_string();
-    let intent_digest = research_receipt.semantic_digest.clone();
-
-    let build_request = edge
-        .admit_artifact(ArtifactBuildRequestV1 {
-            build_request_identity: format!("artifact-request-exploratory-{suffix}"),
-            attempt_identity: format!("artifact-attempt-exploratory-{suffix}"),
-            intent_identity: intent_identity.clone(),
-            channel: ProductEdgeChannel::WindmillProductEdge,
-            admission: placeholder_admission(&format!("artifact-request-exploratory-{suffix}")),
-        })
-        .await;
-    let socket = format!("/tmp/rd-exploratory-sandbox-{suffix}.sock");
-    let _ = std::fs::remove_file(&socket);
-    let listener = UnixListener::bind(&socket).expect("sandbox listener");
-    let sandbox = tokio::spawn(serve_one_verified_sandbox(listener, socket.clone()));
-    let artifact_owner = PostgresArtifactBuildOwnerV1::connect(&rd_url, &socket, u64::MAX)
-        .await
-        .expect("artifact Owner");
-    assert_eq!(
-        artifact_owner
-            .prepare(build_request.clone())
-            .await
-            .expect("prepared artifact request")
-            .resolution(),
-        ArtifactBuildResolution::Prepared
-    );
-    let invocation_claim = edge
-        .owner
-        .claim_provider_invocation(ProductEdgeInvocationClaimRequestV1 {
-            admission: build_request.admission.clone(),
-            attempt_identity: build_request.attempt_identity.clone(),
-        })
-        .await
-        .expect("Product Edge invocation claim");
-    let reserved_invocation = artifact_owner
-        .reserve_provider_invocation_custody(
-            &build_request.build_request_identity,
-            &build_request.attempt_identity,
-            invocation_claim,
-        )
-        .await
-        .expect("R&D invocation reservation");
-    let (start_reservation, _invocation_custody) = reserved_invocation.into_parts();
-    edge.owner
-        .start_provider_invocation(start_reservation)
-        .await
-        .expect("Product Edge invocation start");
-    let started_claim = edge
-        .owner
-        .resolve_provider_invocation_claim(
-            &build_request.admission,
-            &build_request.attempt_identity,
-        )
-        .await
-        .expect("Product Edge invocation resolution")
-        .expect("started Product Edge invocation claim");
-    let terminal = artifact_owner
-        .submit_candidate(
-            build_request.clone(),
-            ArtifactBuildCandidateV1 {
-                schema_version: 1,
-                candidate_identity: format!("agent-program-candidate-v1-exploratory-{suffix}"),
-                intent_identity: intent_identity.clone(),
-                intent_semantic_digest: intent_digest,
-                logic: GeneratedStrategyLogicV1 {
-                    signal: GeneratedSignalV1::Momentum,
-                    direction: GeneratedDirectionV1::LongOnly,
-                    lookback_bars: 24,
-                    entry_threshold_bps: 50,
-                    exit_threshold_bps: 10,
-                },
-                structured_logic_summary: "bounded deterministic exploratory candidate".into(),
-                agent_change_explanation: "test-only deterministic artifact generation".into(),
-            },
-            Some(&started_claim),
-        )
-        .await
-        .expect("artifact terminal");
-    sandbox
-        .await
-        .expect("sandbox task")
-        .expect("sandbox response");
-    let artifact_receipt = terminal.owner_receipt().expect("artifact receipt");
-    let review = terminal.artifact_review().expect("artifact review");
-    let artifact_family = terminal
-        .artifact_trial_family()
-        .expect("artifact family binding");
-    let artifact_identity = artifact_receipt
-        .artifact_identity
-        .as_deref()
-        .expect("artifact identity");
-    let build_receipt_identity = artifact_receipt
-        .build_receipt_identity
-        .as_deref()
-        .expect("build receipt");
-
-    let mut proposal = ExploratoryReplayRequestProposalV1 {
-        request_identity: format!("exploratory-replay-request-{suffix}"),
-        admission: placeholder_admission(&format!("exploratory-replay-request-{suffix}")),
-        build_request_identity: build_request.build_request_identity.clone(),
-        attempt_identity: build_request.attempt_identity.clone(),
-        intent_identity,
-        trial_family_identity: artifact_family
-            .trial_family()
-            .root()
-            .trial_family_identity()
-            .to_string(),
-        artifact_identity: artifact_identity.to_string(),
-        build_receipt_identity: build_receipt_identity.to_string(),
-        artifact_family_binding_identity: artifact_family.binding().binding_identity().to_string(),
-        census_frontier_identity: artifact_family
-            .trial_family()
-            .census_frontier()
-            .frontier_identity()
-            .to_string(),
-        requested_pit_scope: binding("pit-scope-v1", '1'),
-        dataset: binding("dataset-v1", '2'),
-        feature_set: binding("feature-set-v1", '3'),
-        strategy_spec: binding("strategy-spec-v1", '4'),
-        exact_code_bytes_digest: review.build_receipt.wasm_digest.clone(),
-        replay_config: binding("replay-config-v1", '5'),
-        runtime_kernel: versioned("runtime-kernel", "1.0.0"),
-        simulator: versioned("simulator", "1.0.0"),
-        backtest_engine: versioned("backtest-engine", "1.0.0"),
-        cost_model_identity: "cost-model-v1".into(),
-        slippage_model_identity: "slippage-model-v1".into(),
-        capacity_model_identity: "capacity-model-v1".into(),
-        deterministic_seed: 42,
-        range_start_epoch_ms: 1_704_067_200_000,
-        range_end_epoch_ms: 1_735_689_600_000,
-        calendar_identity: "calendar-utc-continuous-v1".into(),
-        time_zone_identity: "UTC".into(),
-    };
-    proposal = edge.admit_replay(proposal).await;
 
     let mut mismatched_meaning = proposal.clone();
     mismatched_meaning.request_identity.push_str("-mismatched");
@@ -905,6 +812,202 @@ async fn assert_impersonator_rejected(
     );
 }
 
+async fn prepare_replay_fixture(validity_ms: u64) -> ReplayFixture {
+    let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+        .await
+        .expect("canonical disposable topology");
+    let rd_url = database
+        .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+        .to_string();
+    let qualification_url = database
+        .database_url(CanonicalOwnerTestRoleV1::QualificationWriter)
+        .to_string();
+    let backtest_url = database
+        .database_url(CanonicalOwnerTestRoleV1::BacktestOwner)
+        .to_string();
+    let edge_url = database
+        .database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner)
+        .to_string();
+    let issuer_url = database
+        .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter)
+        .to_string();
+    let suffix = format!("expiry-{}", unique_suffix());
+    let edge =
+        TestProductEdge::bootstrap_with_validity(&issuer_url, &edge_url, &suffix, validity_ms)
+            .await;
+    let owner = PostgresResearchGoalOwnerV1::connect_with_backtest(
+        &rd_url,
+        &qualification_url,
+        &backtest_url,
+    )
+    .await
+    .expect("R&D Owner");
+
+    let research = edge
+        .admit_research(research_request(&format!("research-{suffix}")))
+        .await;
+    let accepted = owner.submit_v2(research).await.expect("frozen Research");
+    let research_receipt = accepted.owner_receipt().expect("research receipt");
+    let intent_identity = research_receipt
+        .resulting_research_intent_identity
+        .as_deref()
+        .expect("intent")
+        .to_string();
+    let build_request = edge
+        .admit_artifact(ArtifactBuildRequestV1 {
+            build_request_identity: format!("artifact-request-{suffix}"),
+            attempt_identity: format!("artifact-attempt-{suffix}"),
+            intent_identity: intent_identity.clone(),
+            channel: ProductEdgeChannel::WindmillProductEdge,
+            admission: placeholder_admission(&format!("artifact-request-{suffix}")),
+        })
+        .await;
+    let socket = format!("/tmp/rd-exploratory-sandbox-{suffix}.sock");
+    let _ = std::fs::remove_file(&socket);
+    let listener = UnixListener::bind(&socket).expect("sandbox listener");
+    let sandbox = tokio::spawn(serve_one_verified_sandbox(listener, socket.clone()));
+    let artifact_owner = PostgresArtifactBuildOwnerV1::connect(&rd_url, &socket, u64::MAX)
+        .await
+        .expect("artifact Owner");
+    assert_eq!(
+        artifact_owner
+            .prepare(build_request.clone())
+            .await
+            .expect("prepared artifact request")
+            .resolution(),
+        ArtifactBuildResolution::Prepared
+    );
+    let invocation_claim = edge
+        .owner
+        .claim_provider_invocation(ProductEdgeInvocationClaimRequestV1 {
+            admission: build_request.admission.clone(),
+            attempt_identity: build_request.attempt_identity.clone(),
+        })
+        .await
+        .expect("Product Edge invocation claim");
+    let reserved_invocation = artifact_owner
+        .reserve_provider_invocation_custody(
+            &build_request.build_request_identity,
+            &build_request.attempt_identity,
+            invocation_claim,
+        )
+        .await
+        .expect("R&D invocation reservation");
+    let (start_reservation, _invocation_custody) = reserved_invocation.into_parts();
+    edge.owner
+        .start_provider_invocation(start_reservation)
+        .await
+        .expect("Product Edge invocation start");
+    let started_claim = edge
+        .owner
+        .resolve_provider_invocation_claim(
+            &build_request.admission,
+            &build_request.attempt_identity,
+        )
+        .await
+        .expect("Product Edge invocation resolution")
+        .expect("started Product Edge invocation claim");
+    let terminal = artifact_owner
+        .submit_candidate(
+            build_request.clone(),
+            ArtifactBuildCandidateV1 {
+                schema_version: 1,
+                candidate_identity: format!("agent-program-candidate-v1-{suffix}"),
+                intent_identity: intent_identity.clone(),
+                intent_semantic_digest: research_receipt.semantic_digest.clone(),
+                logic: GeneratedStrategyLogicV1 {
+                    signal: GeneratedSignalV1::Momentum,
+                    direction: GeneratedDirectionV1::LongOnly,
+                    lookback_bars: 24,
+                    entry_threshold_bps: 50,
+                    exit_threshold_bps: 10,
+                },
+                structured_logic_summary: "bounded deterministic exploratory candidate".into(),
+                agent_change_explanation: "test-only deterministic artifact generation".into(),
+            },
+            Some(&started_claim),
+        )
+        .await
+        .expect("artifact terminal");
+    let artifact_receipt = terminal.owner_receipt().expect("artifact receipt");
+    assert_eq!(
+        artifact_receipt.disposition,
+        ArtifactBuildDisposition::Success,
+        "fixture candidate must produce a successful Artifact before awaiting sandbox completion"
+    );
+    let artifact_identity = artifact_receipt
+        .artifact_identity
+        .as_deref()
+        .expect("successful artifact identity")
+        .to_string();
+    let build_receipt_identity = artifact_receipt
+        .build_receipt_identity
+        .as_deref()
+        .expect("successful build receipt identity")
+        .to_string();
+    sandbox
+        .await
+        .expect("sandbox task")
+        .expect("sandbox response");
+    let review = terminal.artifact_review().expect("artifact review");
+    let artifact_family = terminal
+        .artifact_trial_family()
+        .expect("artifact family binding");
+
+    let request_identity = format!("exploratory-replay-request-{suffix}");
+    let mut proposal = ExploratoryReplayRequestProposalV1 {
+        request_identity: request_identity.clone(),
+        admission: placeholder_admission(&request_identity),
+        build_request_identity: build_request.build_request_identity.clone(),
+        attempt_identity: build_request.attempt_identity.clone(),
+        intent_identity,
+        trial_family_identity: artifact_family
+            .trial_family()
+            .root()
+            .trial_family_identity()
+            .to_string(),
+        artifact_identity,
+        build_receipt_identity,
+        artifact_family_binding_identity: artifact_family.binding().binding_identity().to_string(),
+        census_frontier_identity: artifact_family
+            .trial_family()
+            .census_frontier()
+            .frontier_identity()
+            .to_string(),
+        requested_pit_scope: binding("pit-scope-v1", '1'),
+        dataset: binding("dataset-v1", '2'),
+        feature_set: binding("feature-set-v1", '3'),
+        strategy_spec: binding("strategy-spec-v1", '4'),
+        exact_code_bytes_digest: review.build_receipt.wasm_digest.clone(),
+        replay_config: binding("replay-config-v1", '5'),
+        runtime_kernel: versioned("runtime-kernel", "1.0.0"),
+        simulator: versioned("simulator", "1.0.0"),
+        backtest_engine: versioned("backtest-engine", "1.0.0"),
+        cost_model_identity: "cost-model-v1".into(),
+        slippage_model_identity: "slippage-model-v1".into(),
+        capacity_model_identity: "capacity-model-v1".into(),
+        deterministic_seed: 42,
+        range_start_epoch_ms: 1_704_067_200_000,
+        range_end_epoch_ms: 1_735_689_600_000,
+        calendar_identity: "calendar-utc-continuous-v1".into(),
+        time_zone_identity: "UTC".into(),
+    };
+    proposal = edge.admit_replay(proposal).await;
+
+    let valid_through_epoch_ms = edge.valid_through_epoch_ms;
+    ReplayFixture {
+        database,
+        owner,
+        edge,
+        rd_url,
+        qualification_url,
+        backtest_url,
+        edge_url,
+        proposal,
+        valid_through_epoch_ms,
+    }
+}
+
 async fn request_counts(pool: &PgPool, identity: &str) -> [i64; 2] {
     [
         sqlx::query_scalar("SELECT COUNT(*) FROM public.rd_exploratory_replay_requests_v1 WHERE request_identity=$1")
@@ -1008,13 +1111,19 @@ struct TestProductEdge {
     issuer: OperatorAuthorizationIssuerPostgresV1,
     authorization: OperatorAuthorizationLocatorV1,
     authorization_frontier_identity: String,
+    valid_through_epoch_ms: u64,
     proof: String,
 }
 
 impl TestProductEdge {
-    async fn bootstrap(issuer_url: &str, edge_url: &str, suffix: &str) -> Self {
+    async fn bootstrap_with_validity(
+        issuer_url: &str,
+        edge_url: &str,
+        suffix: &str,
+        validity_ms: u64,
+    ) -> Self {
         let now = now();
-        let valid_through = now + 3_600_000;
+        let valid_through = now + validity_ms;
         let mut manifests = vec![
             manifest(
                 RESEARCH_GOAL_OPERATION_V2,
@@ -1112,6 +1221,7 @@ impl TestProductEdge {
                 .frontier()
                 .frontier_identity()
                 .to_string(),
+            valid_through_epoch_ms: valid_through,
             proof,
         }
     }
