@@ -208,8 +208,7 @@ impl From<AccountState> for AccountAny {
     /// Panics if the account type is `Wallet` (unsupported in Rust).
     /// Use [`AccountAny::try_from_state`] for fallible conversion.
     fn from(event: AccountState) -> Self {
-        Self::try_from_state(event)
-            .unwrap_or_else(|error| panic!("Unsupported account type: {error:?}"))
+        Self::try_from_state(event).unwrap_or_else(|e| panic!("Unsupported account type: {e:?}"))
     }
 }
 

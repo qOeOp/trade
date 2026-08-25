@@ -415,10 +415,9 @@ impl Quantity {
     )]
     pub(crate) fn raw_as_decimal(raw: QuantityRaw) -> Decimal {
         let whole = i128::try_from(raw / FIXED_SCALAR_RAW)
-            .unwrap_or_else(|error| panic!("Whole raw quantity must fit in Decimal: {error:?}"));
-        let fractional = i128::try_from(raw % FIXED_SCALAR_RAW).unwrap_or_else(|error| {
-            panic!("Fractional raw quantity must fit in Decimal: {error:?}")
-        });
+            .unwrap_or_else(|e| panic!("Whole raw quantity must fit in Decimal: {e:?}"));
+        let fractional = i128::try_from(raw % FIXED_SCALAR_RAW)
+            .unwrap_or_else(|e| panic!("Fractional raw quantity must fit in Decimal: {e:?}"));
 
         Decimal::from(whole) + Decimal::from_i128_with_scale(fractional, u32::from(FIXED_PRECISION))
     }
@@ -506,14 +505,10 @@ impl Quantity {
         }
 
         let raw_i128 = mantissa_exponent_to_fixed_i128(i128::from(mantissa), exponent, precision)
-            .unwrap_or_else(|error| {
-                panic!("Overflow in Quantity::from_mantissa_exponent: {error:?}")
-            });
+            .unwrap_or_else(|e| panic!("Overflow in Quantity::from_mantissa_exponent: {e:?}"));
 
-        let raw: QuantityRaw = raw_i128.try_into().unwrap_or_else(|error| {
-            panic!(
-                "Raw value exceeds QuantityRaw range in Quantity::from_mantissa_exponent: {error:?}"
-            )
+        let raw: QuantityRaw = raw_i128.try_into().unwrap_or_else(|e| {
+            panic!("Raw value exceeds QuantityRaw range in Quantity::from_mantissa_exponent: {e:?}")
         });
         assert!(
             raw <= QUANTITY_RAW_MAX,
@@ -836,19 +831,19 @@ impl FromStr for Quantity {
 
 impl From<&str> for Quantity {
     fn from(value: &str) -> Self {
-        Self::from_str(value).unwrap_or_else(|error| panic!("{FAILED}: {error:?}"))
+        Self::from_str(value).unwrap_or_else(|e| panic!("{FAILED}: {e:?}"))
     }
 }
 
 impl From<String> for Quantity {
     fn from(value: String) -> Self {
-        Self::from_str(&value).unwrap_or_else(|error| panic!("{FAILED}: {error:?}"))
+        Self::from_str(&value).unwrap_or_else(|e| panic!("{FAILED}: {e:?}"))
     }
 }
 
 impl From<&String> for Quantity {
     fn from(value: &String) -> Self {
-        Self::from_str(value).unwrap_or_else(|error| panic!("{FAILED}: {error:?}"))
+        Self::from_str(value).unwrap_or_else(|e| panic!("{FAILED}: {e:?}"))
     }
 }
 

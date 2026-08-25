@@ -180,7 +180,7 @@ pub unsafe extern "C" fn synthetic_instrument_change_formula(
     let formula = unsafe { cstr_as_str(formula_ptr) };
     synth
         .change_formula(formula)
-        .unwrap_or_else(|error| panic!("{error}"));
+        .unwrap_or_else(|e| panic!("{e}"));
 }
 
 #[unsafe(no_mangle)]

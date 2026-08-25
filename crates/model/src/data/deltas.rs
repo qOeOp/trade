@@ -50,8 +50,7 @@ impl OrderBookDeltas {
     /// Panics if `deltas` is empty.
     #[must_use]
     pub fn new(instrument_id: InstrumentId, deltas: Vec<OrderBookDelta>) -> Self {
-        Self::new_checked(instrument_id, deltas)
-            .unwrap_or_else(|error| panic!("{FAILED}: {error:?}"))
+        Self::new_checked(instrument_id, deltas).unwrap_or_else(|e| panic!("{FAILED}: {e:?}"))
     }
 
     /// Creates a new [`OrderBookDeltas`] instance with correctness checking.

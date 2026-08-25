@@ -40,9 +40,7 @@ impl<T> FailLoud<T> for Option<T> {
 impl<T, E: std::fmt::Debug> FailLoud<T> for Result<T, E> {
     #[track_caller]
     fn fail_loud(self) -> T {
-        self.unwrap_or_else(|error| {
-            panic!("called `Result::unwrap()` on an `Err` value: {error:?}")
-        })
+        self.unwrap_or_else(|e| panic!("called `Result::unwrap()` on an `Err` value: {e:?}"))
     }
 }
 

@@ -163,7 +163,7 @@ impl BaseAccount {
     /// use [`Self::try_update_commissions`] when the input is not already known to fit.
     pub fn update_commissions(&mut self, commission: Money) {
         self.try_update_commissions(commission)
-            .unwrap_or_else(|error| panic!("commission total exceeded Money bounds: {error:?}"));
+            .unwrap_or_else(|e| panic!("commission total exceeded Money bounds: {e:?}"));
     }
 
     /// Updates the account commissions with the provided amount.
@@ -207,7 +207,7 @@ impl BaseAccount {
     /// Panics if `event.account_id` does not match this account's ID.
     pub fn base_apply(&mut self, event: AccountState) {
         check_equal(&event.account_id, &self.id, "event.account_id", "self.id")
-            .unwrap_or_else(|error| panic!("{FAILED}: {error:?}"));
+            .unwrap_or_else(|e| panic!("{FAILED}: {e:?}"));
         self.update_balances(&event.balances);
         self.events.push(event);
     }

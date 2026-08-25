@@ -73,7 +73,7 @@ pub type MoneyRaw = i64;
 
 fn effective_raw_scale(precision: u8) -> MoneyRaw {
     MoneyRaw::try_from(raw_scale(precision))
-        .unwrap_or_else(|error| panic!("effective raw scale should fit in MoneyRaw: {error:?}"))
+        .unwrap_or_else(|e| panic!("effective raw scale should fit in MoneyRaw: {e:?}"))
 }
 
 // -----------------------------------------------------------------------------
@@ -257,9 +257,7 @@ impl Money {
 
         let raw_i128 =
             mantissa_exponent_to_fixed_i128(i128::from(mantissa), exponent, currency.precision)
-                .unwrap_or_else(|error| {
-                    panic!("Overflow in Money::from_mantissa_exponent: {error:?}")
-                });
+                .unwrap_or_else(|e| panic!("Overflow in Money::from_mantissa_exponent: {e:?}"));
 
         #[allow(
             clippy::useless_conversion,
@@ -511,7 +509,7 @@ impl FromStr for Money {
 
 impl<T: AsRef<str>> From<T> for Money {
     fn from(value: T) -> Self {
-        Self::from_str(value.as_ref()).unwrap_or_else(|error| panic!("{FAILED}: {error:?}"))
+        Self::from_str(value.as_ref()).unwrap_or_else(|e| panic!("{FAILED}: {e:?}"))
     }
 }
 

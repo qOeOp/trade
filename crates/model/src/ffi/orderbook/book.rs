@@ -365,7 +365,7 @@ pub extern "C" fn orderbook_get_quantity_at_level(
 #[unsafe(no_mangle)]
 pub extern "C" fn orderbook_update_quote_tick(book: &mut OrderBook_API, quote: &QuoteTick) {
     book.update_quote_tick(quote)
-        .unwrap_or_else(|error| panic!("{error}"));
+        .unwrap_or_else(|e| panic!("{e}"));
 }
 
 /// Updates the order book with a trade tick.
@@ -376,7 +376,7 @@ pub extern "C" fn orderbook_update_quote_tick(book: &mut OrderBook_API, quote: &
 #[unsafe(no_mangle)]
 pub extern "C" fn orderbook_update_trade_tick(book: &mut OrderBook_API, trade: &TradeTick) {
     book.update_trade_tick(trade)
-        .unwrap_or_else(|error| panic!("{error}"));
+        .unwrap_or_else(|e| panic!("{e}"));
 }
 
 #[unsafe(no_mangle)]

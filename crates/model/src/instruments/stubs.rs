@@ -23,11 +23,11 @@ use crate::{
 
 fn timestamp(year: i16, month: i8, day: i8, hour: i8, minute: i8, second: i8) -> Timestamp {
     let datetime = Date::new(year, month, day)
-        .unwrap_or_else(|error| panic!("valid date: {error:?}"))
+        .unwrap_or_else(|e| panic!("valid date: {e:?}"))
         .at(hour, minute, second, 0);
     Offset::UTC
         .to_timestamp(datetime)
-        .unwrap_or_else(|error| panic!("valid timestamp: {error:?}"))
+        .unwrap_or_else(|e| panic!("valid timestamp: {e:?}"))
 }
 
 impl Default for SyntheticInstrument {

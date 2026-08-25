@@ -40,7 +40,7 @@ pub unsafe extern "C" fn venue_code_exists(code_ptr: *const c_char) -> u8 {
     u8::from(
         VENUE_MAP
             .lock()
-            .unwrap_or_else(|error| panic!("{MUTEX_POISONED}: {error:?}"))
+            .unwrap_or_else(|e| panic!("{MUTEX_POISONED}: {e:?}"))
             .contains_key(code),
     )
 }
@@ -57,5 +57,5 @@ pub unsafe extern "C" fn venue_code_exists(code_ptr: *const c_char) -> u8 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn venue_from_cstr_code(code_ptr: *const c_char) -> Venue {
     let code = unsafe { cstr_as_str(code_ptr) };
-    Venue::from_code(code).unwrap_or_else(|error| panic!("{error}"))
+    Venue::from_code(code).unwrap_or_else(|e| panic!("{e}"))
 }

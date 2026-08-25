@@ -76,9 +76,7 @@ pub fn bench_eval(c: &mut Criterion) {
             black_box(
                 synth_avg
                     .calculate(black_box(&[50000.0, 100.0]))
-                    .unwrap_or_else(|error| {
-                        panic!("benchmark expression must evaluate: {error:?}")
-                    }),
+                    .unwrap_or_else(|e| panic!("benchmark expression must evaluate: {e:?}")),
             )
         });
     });
@@ -92,9 +90,7 @@ pub fn bench_eval(c: &mut Criterion) {
             black_box(
                 synth_weighted
                     .calculate(black_box(&[50000.0, 3000.0, 150.0, 0.5]))
-                    .unwrap_or_else(|error| {
-                        panic!("benchmark expression must evaluate: {error:?}")
-                    }),
+                    .unwrap_or_else(|e| panic!("benchmark expression must evaluate: {e:?}")),
             )
         });
     });
@@ -108,9 +104,7 @@ pub fn bench_eval(c: &mut Criterion) {
             black_box(
                 synth_cond
                     .calculate(black_box(&[50000.0, 3000.0]))
-                    .unwrap_or_else(|error| {
-                        panic!("benchmark expression must evaluate: {error:?}")
-                    }),
+                    .unwrap_or_else(|e| panic!("benchmark expression must evaluate: {e:?}")),
             )
         });
     });
@@ -124,9 +118,7 @@ pub fn bench_eval(c: &mut Criterion) {
             black_box(
                 synth_locals
                     .calculate(black_box(&[50000.0, 3000.0]))
-                    .unwrap_or_else(|error| {
-                        panic!("benchmark expression must evaluate: {error:?}")
-                    }),
+                    .unwrap_or_else(|e| panic!("benchmark expression must evaluate: {e:?}")),
             )
         });
     });
@@ -140,9 +132,7 @@ pub fn bench_eval(c: &mut Criterion) {
             black_box(
                 synth_nested
                     .calculate(black_box(&[50000.0, 3000.0]))
-                    .unwrap_or_else(|error| {
-                        panic!("benchmark expression must evaluate: {error:?}")
-                    }),
+                    .unwrap_or_else(|e| panic!("benchmark expression must evaluate: {e:?}")),
             )
         });
     });
@@ -168,9 +158,11 @@ pub fn bench_eval_scaling(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("weighted_sum", n), &inputs, |b, inputs| {
             b.iter(|| {
-                black_box(synth.calculate(black_box(inputs)).unwrap_or_else(|error| {
-                    panic!("benchmark expression must evaluate: {error:?}")
-                }))
+                black_box(
+                    synth
+                        .calculate(black_box(inputs))
+                        .unwrap_or_else(|e| panic!("benchmark expression must evaluate: {e:?}")),
+                )
             });
         });
     }

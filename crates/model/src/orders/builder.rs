@@ -705,7 +705,7 @@ impl OrderTestBuilder {
                 .build();
             order
                 .apply(OrderEventAny::Submitted(submit_event))
-                .unwrap_or_else(|error| panic!("{error}"));
+                .unwrap_or_else(|e| panic!("{e}"));
         }
 
         order

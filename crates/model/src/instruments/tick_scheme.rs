@@ -156,9 +156,8 @@ const BETFAIR_PRICE_TIERS: [(f64, f64, f64); 10] = [
 ];
 
 pub static BETFAIR_TICK_SCHEME: LazyLock<TieredTickScheme> = LazyLock::new(|| {
-    TieredTickScheme::new(&BETFAIR_PRICE_TIERS, 2, 100).unwrap_or_else(|error| {
-        panic!("BETFAIR tick scheme tiers are valid by construction: {error:?}")
-    })
+    TieredTickScheme::new(&BETFAIR_PRICE_TIERS, 2, 100)
+        .unwrap_or_else(|e| panic!("BETFAIR tick scheme tiers are valid by construction: {e:?}"))
 });
 
 pub static TOPIX100_TICK_SCHEME: LazyLock<TieredTickScheme> = LazyLock::new(|| {
@@ -179,19 +178,15 @@ pub static TOPIX100_TICK_SCHEME: LazyLock<TieredTickScheme> = LazyLock::new(|| {
         4,
         10_000,
     )
-    .unwrap_or_else(|error| {
-        panic!("TOPIX100 tick scheme tiers are valid by construction: {error:?}")
-    })
+    .unwrap_or_else(|e| panic!("TOPIX100 tick scheme tiers are valid by construction: {e:?}"))
 });
 
 static FIXED_TICK_SCHEME: LazyLock<FixedTickScheme> = LazyLock::new(|| {
-    FixedTickScheme::new(1.0)
-        .unwrap_or_else(|error| panic!("fixed tick scheme is valid: {error:?}"))
+    FixedTickScheme::new(1.0).unwrap_or_else(|e| panic!("fixed tick scheme is valid: {e:?}"))
 });
 
 static CRYPTO_0_01_TICK_SCHEME: LazyLock<FixedTickScheme> = LazyLock::new(|| {
-    FixedTickScheme::new(0.01)
-        .unwrap_or_else(|error| panic!("crypto tick scheme is valid: {error:?}"))
+    FixedTickScheme::new(0.01).unwrap_or_else(|e| panic!("crypto tick scheme is valid: {e:?}"))
 });
 
 static FIXED_PRECISION_TICK_SCHEMES: LazyLock<Vec<FixedTickScheme>> = LazyLock::new(|| {
@@ -199,7 +194,7 @@ static FIXED_PRECISION_TICK_SCHEMES: LazyLock<Vec<FixedTickScheme>> = LazyLock::
         .map(|precision| {
             let tick = 10_f64.powi(-i32::from(precision));
             FixedTickScheme::new(tick)
-                .unwrap_or_else(|error| panic!("fixed precision tick scheme is valid: {error:?}"))
+                .unwrap_or_else(|e| panic!("fixed precision tick scheme is valid: {e:?}"))
         })
         .collect()
 });

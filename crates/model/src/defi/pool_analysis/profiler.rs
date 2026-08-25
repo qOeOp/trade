@@ -1598,6 +1598,7 @@ impl PoolProfiler {
             .pool
             .tick_spacing
             .unwrap_or_else(|| unreachable!("called `Option::unwrap()` on a `None` value"));
+
         if tick_lower % tick_spacing as i32 != 0 || tick_upper % tick_spacing as i32 != 0 {
             anyhow::bail!(
                 "Ticks {tick_lower} and {tick_upper} must be multiples of the tick spacing"

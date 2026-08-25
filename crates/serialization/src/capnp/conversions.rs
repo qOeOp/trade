@@ -134,22 +134,22 @@ fn decimal_to_parts(value: &Decimal) -> (u64, u64, u64, u32) {
     let flags = u32::from_le_bytes(
         bytes[0..4]
             .try_into()
-            .unwrap_or_else(|error| panic!("flags slice: {error}")),
+            .unwrap_or_else(|e| panic!("flags slice: {e}")),
     );
     let lo = u32::from_le_bytes(
         bytes[4..8]
             .try_into()
-            .unwrap_or_else(|error| panic!("lo slice: {error}")),
+            .unwrap_or_else(|e| panic!("lo slice: {e}")),
     );
     let mid = u32::from_le_bytes(
         bytes[8..12]
             .try_into()
-            .unwrap_or_else(|error| panic!("mid slice: {error}")),
+            .unwrap_or_else(|e| panic!("mid slice: {e}")),
     );
     let hi = u32::from_le_bytes(
         bytes[12..16]
             .try_into()
-            .unwrap_or_else(|error| panic!("hi slice: {error}")),
+            .unwrap_or_else(|e| panic!("hi slice: {e}")),
     );
     (lo as u64, mid as u64, hi as u64, flags)
 }
@@ -313,7 +313,7 @@ impl<'a> ToCapnp<'a> for TradeId {
         builder.set_value(
             self.as_cstr()
                 .to_str()
-                .unwrap_or_else(|error| panic!("Valid UTF-8: {error}")),
+                .unwrap_or_else(|e| panic!("Valid UTF-8: {e}")),
         );
     }
 }

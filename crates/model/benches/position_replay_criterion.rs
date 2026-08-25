@@ -112,8 +112,8 @@ fn bench_fill_void_replay(c: &mut Criterion) {
                             .unwrap_or_else(|| panic!("benchmark fill-void event must be present"));
                         let result = position
                             .apply_fill_void(fill_voided, Quantity::from(1), None)
-                            .unwrap_or_else(|error| {
-                                panic!("benchmark fill-void event must apply: {error:?}")
+                            .unwrap_or_else(|e| {
+                                panic!("benchmark fill-void event must apply: {e:?}")
                             });
                         black_box(result);
                         black_box(&*position);
@@ -144,7 +144,7 @@ fn position_after_fill_void(count: usize) -> Position {
         .clone();
     position
         .apply_fill_void(fill_void(&last), Quantity::from(1), None)
-        .unwrap_or_else(|error| panic!("benchmark fill-void event must apply: {error:?}"));
+        .unwrap_or_else(|e| panic!("benchmark fill-void event must apply: {e:?}"));
     position
 }
 
