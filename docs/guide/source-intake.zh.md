@@ -224,8 +224,8 @@ correlation binding。含义改变必须创建后继请求；传输成功 静默
   Owner claim/start 与生命周期、R&D PostgreSQL transaction、终态 receipt，以及默认 Windmill
   `RUN`/`RESOLVE` 传输。即使取得，该证据也仅适用于验收，绝不证明 `CURRENT` 生产、网络、credential、
   权利、DNS、政策、Time Evidence 或 live-provider readiness。
-- 目标 A2 composition 部署固定链 `Source Intake RUN/RESOLVE -> typed Research RUN/RESOLVE -> Composer
-  RUN/RESOLVE`，使用编译期 sealed adapter、固定 Source Intake corpus、固定 A0 build corpus，以及唯一内部
+- 目标 A2 composition 部署固定链 `Source Intake RUN/RESOLVE -> typed Research RUN/RESOLVE ->
+  Composer RUN/RESOLVE`，使用编译期 sealed adapter、固定 Source Intake corpus、固定 A0 build corpus，以及唯一内部
   PostgreSQL、Windmill、network、ingress 与 volume state。它没有 runtime provider selector。
 - A1 正向 transaction 把私有规范 A0 Build Receipt bytes 与 Artifact、Composer receipts 和 outbox 原子持久化，
   同时让不透明、不可序列化的 verified token 保持 move-only 且仅存在于进程内。

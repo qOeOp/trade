@@ -19,8 +19,8 @@ R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt�
 这是把任意已接纳 Research 转换为可执行策略的顶层契约，不是第二个 Strategy Owner 或 runtime。唯一
 正向形态是：
 
-`Research Intent -> StrategyDesignV2 -> StrategyPlanV2 -> StrategyArtifactV2 package -> 通用 ProgramHostV2 ->`
-`共享生命周期内核`。
+`Research Intent -> StrategyDesignV2 -> StrategyPlanV2 -> StrategyArtifactV2 package -> generic ProgramHostV2 ->`
+`shared lifecycle kernel`。
 
 成熟度边界必须明确：
 
@@ -173,8 +173,8 @@ verified multi-field observation batch，且所选 rows 共享 snapshot/fact/bat
 time、provider-available time、correction-publication time、非零 correction sequence 与 event class 时，
 才能签发 trigger。同一个 reaction 共同消费的所有 role 还必须共享同一个 Source Binding lineage root、
 correction stream 与 Market Semantics identity，作为 frame anchor；不同 reaction 可以使用不同 lineage
-root。trigger 保留这些身份，并绑定排序后的 `(input-role identity, original binding digest,
-selection identity, dynamic canonical-row digest)` 集合。确定性映射为 `BAR -> BAR`、
+root。trigger 保留这些身份，并绑定排序后的 `(input-role identity, original binding
+digest, selection identity, dynamic canonical-row digest)` 集合。确定性映射为 `BAR -> BAR`、
 `QUOTE|TRADE|REFERENCE|ECONOMIC|SCALAR -> EVENT`；`logical_time` 为
 `max(provider_available, correction_publication)`，`event_time` 为 `event_effective`，`owner_sequence` 为
 correction sequence。`event_identity` 是对规范 domain `VIBE_STRATEGY_INPUT_EVENT_FRAME_V1` 与完整 frame
