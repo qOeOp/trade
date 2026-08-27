@@ -1,0 +1,12 @@
+error[E0599]: the method `product_edge_terminal_receipts` exists for reference `&Scanner<L, S, M, P, R>`, but its trait bounds were not satisfied
+  --> tests/ui/caller_store_cannot_issue_product_edge_reader.rs:13:13
+   |
+13 |     scanner.product_edge_terminal_receipts();
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method cannot be called on `&Scanner<L, S, M, P, R>` due to unsatisfied trait bounds
+   |
+   = note: the following trait bounds were not satisfied:
+           `R: ProductEdgeTerminalReceiptReadSource`
+help: consider restricting the type parameter to satisfy the trait bound
+   |
+11 |     R: TerminalReceiptStore, R: ProductEdgeTerminalReceiptReadSource
+   |                              +++++++++++++++++++++++++++++++++++++++
