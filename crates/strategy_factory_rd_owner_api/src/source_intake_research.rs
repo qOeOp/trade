@@ -10,13 +10,14 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use vibe_product_edge::{
-    ProductEdgeAdmissionRequestV1, ProductEdgeError, ProductEdgePostgresOwnerV1,
+    ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionRequestV1, ProductEdgeError,
+    ProductEdgePostgresOwnerV1,
 };
 use vibe_strategy_factory::{
     product_edge::{
         ProductEdgeChannel, RESEARCH_GOAL_OPERATION_V2, RESEARCH_GOAL_SCHEMA_V2, RESEARCH_OWNER_V1,
         ResearchGoalOwnerError, TrialFamilyProposalV1, UnsourcedResearchGoalV1,
-        UnsourcedResearchProposalV1, identity_conflict_result_v2,
+        UnsourcedResearchProposalV1, identity_conflict_result_v2, unresolved_result_v2,
     },
     product_edge_postgres::PostgresResearchGoalOwnerV1,
     source_intake::{SourceIntakePolicyEvidenceQueryV1, SourceIntakeResearchAncestryProposalV1},
@@ -78,7 +79,7 @@ async fn run(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    execute(state, headers, None, body).await
+    execute_run(state, headers, body).await
 }
 
 async fn resolve(
@@ -87,47 +88,52 @@ async fn resolve(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    execute(state, headers, Some(request_identity), body).await
+    let (request_identity, operation) =
+        match parse_operation(&state, &headers, Some(&request_identity), &body) {
+            Ok(parsed) => parsed,
+            Err(response) => return *response,
+        };
+    let admission = match state
+        .product_edge
+        .resolve_admission(&request_identity, &state.request_proof_digest)
+        .await
+    {
+        Ok(Some(admission)) => admission,
+        Ok(None) => {
+            return (
+                StatusCode::ACCEPTED,
+                Json(unresolved_result_v2(&request_identity)),
+            )
+                .into_response();
+        }
+        Err(e) => return product_edge_error(&e, &request_identity),
+    };
+    let proposal = admitted_proposal(operation.proposal, admission.locator().clone());
+
+    match state
+        .owner
+        .resolve_source_intake_research_v1(proposal, operation.ancestry, operation.policy_query)
+        .await
+    {
+        Ok(Some(result)) => (StatusCode::OK, Json(result)).into_response(),
+        Ok(None) => (
+            StatusCode::ACCEPTED,
+            Json(unresolved_result_v2(&request_identity)),
+        )
+            .into_response(),
+        Err(e) => source_research_owner_error(&e, &request_identity),
+    }
 }
 
-async fn execute(
+async fn execute_run(
     state: SourceIntakeResearchApiState,
     headers: HeaderMap,
-    path_request_identity: Option<String>,
     body: Bytes,
 ) -> Response {
-    if !super::authorized(&headers, &state.token_digest) {
-        return super::rejection_v2(
-            StatusCode::FORBIDDEN,
-            "UNAUTHORIZED_PRODUCT_EDGE",
-            path_request_identity.as_deref().unwrap_or("unbound"),
-        );
-    }
-
-    let operation: SourceIntakeResearchOperationV1 = match serde_json::from_slice(&body) {
-        Ok(operation) => operation,
-        Err(_) => {
-            return super::rejection_v2(
-                StatusCode::BAD_REQUEST,
-                "MALFORMED_TYPED_REQUEST",
-                path_request_identity.as_deref().unwrap_or("unbound"),
-            );
-        }
+    let (request_identity, operation) = match parse_operation(&state, &headers, None, &body) {
+        Ok(parsed) => parsed,
+        Err(response) => return *response,
     };
-    let request_identity = operation.proposal.request_identity.clone();
-    if operation.ancestry.request_identity != operation.policy_query.request_identity
-        || path_request_identity
-            .as_deref()
-            .is_some_and(|path| path != request_identity)
-    {
-        let mut response = (
-            StatusCode::CONFLICT,
-            Json(identity_conflict_result_v2(&request_identity)),
-        )
-            .into_response();
-        super::insert_rejection_code(&mut response, "CONFLICTING_SEMANTICS_FOR_REQUEST_IDENTITY");
-        return response;
-    }
 
     let admission = match state
         .product_edge
@@ -155,13 +161,7 @@ async fn execute(
         Ok(admission) => admission,
         Err(e) => return product_edge_error(&e, &request_identity),
     };
-    let proposal = UnsourcedResearchProposalV1 {
-        request_identity: operation.proposal.request_identity,
-        channel: operation.proposal.channel,
-        admission: admission.locator().clone(),
-        goal: operation.proposal.goal,
-        trial_family_proposal: operation.proposal.trial_family_proposal,
-    };
+    let proposal = admitted_proposal(operation.proposal, admission.locator().clone());
 
     let response = match state
         .owner
@@ -185,6 +185,57 @@ async fn execute(
         }
     }
     response
+}
+
+fn parse_operation(
+    state: &SourceIntakeResearchApiState,
+    headers: &HeaderMap,
+    path_request_identity: Option<&str>,
+    body: &[u8],
+) -> Result<(String, SourceIntakeResearchOperationV1), Box<Response>> {
+    if !super::authorized(headers, &state.token_digest) {
+        return Err(Box::new(super::rejection_v2(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            path_request_identity.unwrap_or("unbound"),
+        )));
+    }
+
+    let operation: SourceIntakeResearchOperationV1 =
+        serde_json::from_slice(body).map_err(|_| {
+            Box::new(super::rejection_v2(
+                StatusCode::BAD_REQUEST,
+                "MALFORMED_TYPED_REQUEST",
+                path_request_identity.unwrap_or("unbound"),
+            ))
+        })?;
+    let request_identity = operation.proposal.request_identity.clone();
+    if operation.ancestry.request_identity != operation.policy_query.request_identity
+        || path_request_identity.is_some_and(|path| path != request_identity)
+    {
+        let mut response = (
+            StatusCode::CONFLICT,
+            Json(identity_conflict_result_v2(&request_identity)),
+        )
+            .into_response();
+        super::insert_rejection_code(&mut response, "CONFLICTING_SEMANTICS_FOR_REQUEST_IDENTITY");
+        return Err(Box::new(response));
+    }
+
+    Ok((request_identity, operation))
+}
+
+fn admitted_proposal(
+    proposal: SourceIntakeResearchProposalV1,
+    admission: ProductEdgeAdmissionLocatorV1,
+) -> UnsourcedResearchProposalV1 {
+    UnsourcedResearchProposalV1 {
+        request_identity: proposal.request_identity,
+        channel: proposal.channel,
+        admission,
+        goal: proposal.goal,
+        trial_family_proposal: proposal.trial_family_proposal,
+    }
 }
 
 fn source_research_owner_error(error: &ResearchGoalOwnerError, request_identity: &str) -> Response {
@@ -308,6 +359,28 @@ mod tests {
         assert!(source.contains("SourceIntakePolicyEvidenceQueryV1"));
         assert!(!source.contains(&["verified", "_evidence:"].concat()));
         assert!(!source.contains(&["verified", "_policy:"].concat()));
+    }
+
+    #[rstest]
+    fn resolve_cannot_enter_the_first_submission_path() {
+        let source = include_str!("source_intake_research.rs");
+        let production = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production module precedes tests");
+        let resolve = production
+            .split("async fn resolve(")
+            .nth(1)
+            .expect("resolve entrypoint exists")
+            .split("async fn execute")
+            .next()
+            .expect("RUN entrypoint follows resolve");
+
+        assert!(!resolve.contains("execute("));
+        assert!(!resolve.contains("admit_request("));
+        assert!(!resolve.contains("submit_source_intake_research_v1("));
+        assert!(resolve.contains("resolve_admission("));
+        assert!(resolve.contains("resolve_source_intake_research_v1("));
     }
 
     #[rstest]

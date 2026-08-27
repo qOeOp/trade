@@ -293,6 +293,36 @@ impl PostgresResearchGoalOwnerV1 {
         owner.submit_v2(request).await
     }
 
+    /// Resolves only an already committed Source Intake-bound Research request.
+    /// A missing receipt or an in-progress basis stage remains unresolved; this
+    /// path never resumes the first Research mutation.
+    pub async fn resolve_source_intake_research_v1(
+        &self,
+        proposal: UnsourcedResearchProposalV1,
+        ancestry: crate::source_intake::SourceIntakeResearchAncestryProposalV1,
+        policy_query: SourceIntakePolicyEvidenceQueryV1,
+    ) -> Result<Option<ResearchGoalOwnerResultV2>, ResearchGoalOwnerError> {
+        if policy_query.request_identity != ancestry.request_identity {
+            return Err(ResearchGoalOwnerError::Unauthorized(
+                "Source Intake policy locator mismatch",
+            ));
+        }
+        let policy = self
+            .source_policy
+            .clone()
+            .ok_or(ResearchGoalOwnerError::Unauthorized(
+                "Source Intake policy Owner unavailable",
+            ))?;
+
+        Box::pin(self.resolve_accepted_source_submission(
+            &proposal,
+            &ancestry,
+            policy.as_ref(),
+            &policy_query,
+        ))
+        .await
+    }
+
     async fn resolve_accepted_source_submission(
         &self,
         proposal: &UnsourcedResearchProposalV1,
