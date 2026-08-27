@@ -183,17 +183,10 @@ impl DevelopPluginBuildReceiptV2 {
         let Ok(validated) = validate_capsule(manifest, &capsule) else {
             return false;
         };
-        let expected_config = BindingDigest::from_untrusted_bytes(frozen_config_digest(
-            manifest.max_linear_memory_bytes,
-        ));
         self.validates()
-            && self.manifest_digest == plugin_manifest_digest(manifest)
+            && self.binds_manifest_and_frozen_profile(manifest)
             && self.implementation_capsule_digest == validated.capsule_digest
             && self.source_entry_digest == validated.source_digest
-            && self
-                .executions
-                .iter()
-                .all(|execution| execution.config_digest == expected_config)
     }
 
     pub(crate) fn validates_for_restart(
@@ -202,9 +195,21 @@ impl DevelopPluginBuildReceiptV2 {
         expected_receipt_digest: BindingDigest,
         expected_module_digest: BindingDigest,
     ) -> bool {
-        self.validates_for_manifest(manifest)
+        self.validates()
+            && self.binds_manifest_and_frozen_profile(manifest)
             && self.receipt_digest == expected_receipt_digest
             && self.module_digest == expected_module_digest
+    }
+
+    fn binds_manifest_and_frozen_profile(&self, manifest: &PluginManifestV2) -> bool {
+        let expected_config = BindingDigest::from_untrusted_bytes(frozen_config_digest(
+            manifest.max_linear_memory_bytes,
+        ));
+        self.manifest_digest == plugin_manifest_digest(manifest)
+            && self
+                .executions
+                .iter()
+                .all(|execution| execution.config_digest == expected_config)
     }
 }
 

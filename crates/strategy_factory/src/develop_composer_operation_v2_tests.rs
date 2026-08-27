@@ -193,6 +193,20 @@ fn build_receipt_roundtrips_and_every_critical_field_mutation_fails_closed() {
         bytes
     );
 
+    let mut reordered_manifest = manifest.clone();
+    reordered_manifest.capability_ids.reverse();
+    assert_ne!(reordered_manifest.capability_ids, manifest.capability_ids);
+    assert!(
+        DevelopPluginBuildReceiptV2::parse_canonical(&bytes)
+            .expect("canonical restart receipt")
+            .validates_for_restart(
+                &reordered_manifest,
+                expected_receipt_digest,
+                expected_module_digest,
+            ),
+        "restart validation must bind canonical manifest meaning rather than collection order"
+    );
+
     for mutation in mutated_build_receipt_bytes_for_test(&bytes) {
         let remains_valid =
             DevelopPluginBuildReceiptV2::parse_canonical(&mutation).is_some_and(|candidate| {
