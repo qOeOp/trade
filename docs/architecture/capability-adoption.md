@@ -111,7 +111,7 @@ strategy source code do not exist.
 ### Current sealed boundaries
 
 - `crates/deployment_attestation` → **Strategy Factory deployment verification.** Reuse the sealed, fixed-policy verifier only at the executable use boundary. Its evidence is a consumer input, not deployment authority or a business fact.
-- `crates/deployment_store_admission` → **Deployment Store Admission custody.** `CURRENT` is the fail-closed, non-business PostgreSQL admission seam for the fixed Market Data / `rd-owner-api` consumer; production resolver, signer, anti-rollback witness, credential resolver, and direct measurer remain `UNAVAILABLE`. It owns no business fact or deployment-service authority; production writes and trading remain `NOT_ADMITTED`.
+- `crates/data/src/owner/store_admission` → **Market Data-private Deployment Store Admission custody.** `CURRENT` is the fail-closed, non-business PostgreSQL admission and pre/post revalidation seam for the fixed `rd-owner-api` consumer. Market Data alone retains its raw receipt, measurement, credential, PIT, Source Binding, and clock evidence, performs current-head validation, and seals `ResearchPitTerminal`; the ordinary consumer receives only the sealed terminal resolver. Production resolver, signer, anti-rollback witness, credential resolver, and direct measurer remain `UNAVAILABLE`. The private seam owns no business fact or deployment-service authority; production writes and trading remain `NOT_ADMITTED`.
 - `crates/observability` → **Observability non-authoritative boundary.** Keep the read-only, rebuildable projection over canonical Owner records. It owns no source fact, command, retry, terminal decision, or trading authority.
 - `crates/runtime` → **Runtime foundation.** Keep the non-authoritative `NOT_READY` status and exact revalidation dependencies. Canonical Runtime custody, generation, checkpoint, readiness, deployment, and effects remain `TARGET`.
 - `crates/scanner` → **Scanner Owner.** Adopt the fail-closed Scanner core for sealed attempt admission and receipt production. Unavailable time or source authority fails before attempt admission. Unavailable membership after sealed admission commits a terminal `Failed(MembershipUnresolved)` receipt while suppressing matcher, proposal, and downstream effects.
@@ -136,31 +136,33 @@ strategy source code do not exist.
 
 ### Deployment Store Admission
 
-- **CURRENT:** `crates/deployment_attestation` is fixed Strategy Factory binary verification only. Product Edge owns
-  operation and deployment-request custody. Market Data PostgreSQL constructors are crate-private and exercised only
-  by disposable tests; `product/rd-workbench` does not compose them. The generic S3 catalog accepts caller URI and
-  storage options and supplies mechanism, not authority. No signed store manifest/head, direct canonical measurement,
-  opaque credential resolution, or real admitted store consumer exists.
-- **TARGET:** one non-business Deployment Store Admission Custodian owns only signed append-only manifest/history, one
+- **CURRENT:** `crates/data/src/owner/store_admission` keeps the non-business PostgreSQL admission mechanism and its
+  pre/post revalidation private to Market Data. The `rd-owner-api` bootstrap can request the fixed admission, but
+  unavailable production resolver, signer, witness, credential resolver, or direct measurer fails closed before a
+  repository is constructed. After admission, Market Data alone reads and validates current PIT, Source Binding, and
+  clock heads and seals `ResearchPitTerminal`; Strategy Factory receives no raw receipt, capability, query, DTO, or
+  evidence accessor. The generic S3 catalog still supplies mechanism, not authority.
+- **TARGET:** the private non-business Deployment Store Admission Custodian owns only signed append-only manifest/history, one
   unique signed current head, direct target measurements, immutable admission receipts, rotation fencing, and custody
   incidents. It is not a business `authorityOwner`, Flow or Dashboard node. Its first exact deployment/bootstrap
   consumer is `product/rd-workbench/docker-compose.yml#services.rd-owner-api`, rooted at
-  `crates/strategy_factory_rd_owner_api/src/main.rs::main`. Before that default composition constructs the governed
-  Market Data PostgreSQL repository, it must consume a sealed receipt bound to the exact environment, deployment,
+  `crates/strategy_factory_rd_owner_api/src/main.rs::main`. Before Market Data constructs the governed PostgreSQL
+  repository, its private seam must consume a sealed receipt bound to the exact environment, deployment,
   Market Data Owner, `rd-owner-api` consumer, PostgreSQL backend, endpoint/TLS/server/database identities,
   schema/migration/function/role/ACL measurements, opaque credential-handle identity/audience/version,
   predecessor/generation/validity/recovery, signature, head, anti-rollback witness, direct measurement, credential
   lease, and closed rotation fence. Restart or cache loss repeats signature/head verification and direct measurement;
-  ambiguity constructs no Owner repository and triggers no business retry.
+  ambiguity constructs no Owner repository and triggers no business retry. The receipt and raw store evidence remain
+  private; the first ordinary-consumer value is the Market Data-sealed `ResearchPitTerminal`.
 - **TARGET / UNAVAILABLE:** S3 fan-out waits for a real catalog consumer and a pinned disposable S3-compatible test
   authority. Production signer, resolver, and anti-rollback witness adapters remain unavailable without evidence.
 - **NOT_ADMITTED:** no business fact or receipt, global registry, scheduler, deployment service, caller-authored
   positive evidence, raw DSN/secret/private key in artifacts or logs, automatic DDL/role/credential/bucket mutation,
   provider probe, production write, Dashboard implementation, or trading.
 
-After this D0 contract is merged, D1 Shared Time producer work precedes its Portfolio consumer. D1 Deployment Store
-Admission ports/test doubles, disposable PostgreSQL measurement, and the RD Workbench bootstrap consumer are parallel
-after D0. Both must revalidate against merged D0; S3 fan-out remains later and conditional.
+Shared Time producer work precedes its Portfolio consumer. Disposable PostgreSQL acceptance must exercise the private
+admission, its pre/post revalidation, Market Data current-head checks, and the sealed RD Workbench consumer boundary;
+fixture proof is not production adapter evidence. S3 fan-out remains later and conditional.
 
 ## Provider typed-port evidence
 

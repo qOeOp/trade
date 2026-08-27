@@ -107,10 +107,12 @@ trigger；在真实 Time/Scheduler 与 Execution Owner contract 分别存在前�
 
 ## 输出交接
 
-- 向 [R&D](./rd/) 提供关联准确初始请求身份 内容摘要 scope cut provenance license correction
-  和稳定 correlation 的 PIT Market Snapshot disposition，以及准确 Universe Selection Record 身份与
+- 向 [R&D](./rd/) 提供 move-only、由 Market Data 密封的 `ResearchPitTerminal`；其规范六状态 disposition
+  关联准确初始请求身份 内容摘要 scope cut provenance license correction 和稳定 correlation，并附准确 Universe Selection Record 身份与
   摘要用于假设检验。修复请求另以同一关联请求身份返回携带已修复 snapshot 的 `AVAILABLE`，或携带
   有界决定性来源类别的终态 `UNAVAILABLE`。
+  Strategy Factory 不能 import、construct、deserialize 或 implement terminal authority，也得不到 raw store
+  receipt、PIT lineage row、Source Binding lineage row 或 clock row。
 - 向 [Backtest](./backtest/) 提供绑定请求 PIT 范围和快照修订规则的准确 PIT Market Snapshot 与 Universe Selection Record，Run Result 必须重复两者身份和每个冻结执行身份。
 - 向 [Scanner](./scanner/) 提供已发布激活条件请求的准确 PIT Market Snapshot。
 - 向 [Runtime](./runtime/) 提供携带同一 Market Semantics Compatibility 身份的实时行情流和标的更新；
@@ -133,8 +135,9 @@ trigger；在真实 Time/Scheduler 与 Execution Owner contract 分别存在前�
   已变化时复用旧 snapshot。
 - 不成为 global Time Owner，也不替其他 Owner 决定 clock transition。
 - 不仅凭 DSN、secret、caller assertion 或含糊 store state 构造受治理 Market Data PostgreSQL repository。
-  未来默认 RD Workbench `rd-owner-api` bootstrap 必须先消费其准确 sealed Deployment Store Admission receipt；
-  该要求是 TARGET，不声称当前 product composition 已存在。
+  Market Data 私有 store-admission seam 必须消费并 revalidate 准确 receipt；随后 Market Data 必须校验当前
+  PIT、Source Binding 与 clock head，才能密封 `ResearchPitTerminal`。普通 consumer 永远得不到 receipt、
+  capability、raw evidence 或 caller-selected snapshot query。
 
 ## 失败与恢复
 

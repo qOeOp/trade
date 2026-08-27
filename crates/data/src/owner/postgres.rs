@@ -15,6 +15,11 @@ use super::research_pit_terminal::{
     ResearchPitTerminal, ResearchPitTerminalResolver, UntrustedResearchPitTerminalRequest,
     seal_research_pit_terminal,
 };
+#[cfg(not(test))]
+use super::store_admission::{
+    AdmittedMarketDataSnapshotPort, MarketDataPitEvaluationStorageEvidence,
+    MarketDataPitTerminalStorageEvidence, MarketDataSourceBindingStorageEvidence,
+};
 use super::{
     pit_snapshot::{
         PitSnapshotCommitAggregate, PitSnapshotError, UntrustedPitObservationBatchProposal,
@@ -46,11 +51,6 @@ use super::{
 };
 use serde_json::Value;
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
-#[cfg(not(test))]
-use vibe_deployment_store_admission::{
-    AdmittedMarketDataSourceBindingSnapshotPort, MarketDataPitEvaluationStorageEvidence,
-    MarketDataPitTerminalStorageEvidence, MarketDataSourceBindingStorageEvidence,
-};
 
 #[cfg(test)]
 use super::{
@@ -125,7 +125,7 @@ pub(crate) struct MarketDataReadPostgres {
     #[cfg(test)]
     pub(crate) pool: PgPool,
     #[cfg(not(test))]
-    admitted_port: AdmittedMarketDataSourceBindingSnapshotPort,
+    admitted_port: AdmittedMarketDataSnapshotPort,
 }
 
 impl MarketDataOwnerPostgres {
@@ -624,7 +624,7 @@ enum PostgresCommitFault {
 
 impl MarketDataReadPostgres {
     #[cfg(not(test))]
-    pub(crate) const fn from_admitted(port: AdmittedMarketDataSourceBindingSnapshotPort) -> Self {
+    pub(crate) const fn from_admitted(port: AdmittedMarketDataSnapshotPort) -> Self {
         Self {
             admitted_port: port,
         }
@@ -2829,6 +2829,8 @@ impl ResearchPitTerminalResolver for MarketDataReadPostgres {
         verify_admitted_pit_terminal_evidence(request, &evidence)
     }
 }
+
+impl super::research_pit_terminal::sealed::Sealed for MarketDataReadPostgres {}
 
 #[cfg(test)]
 #[async_trait::async_trait]

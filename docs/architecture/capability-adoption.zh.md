@@ -108,7 +108,7 @@ link，不是两种能力。Research 仍是 TrialFamily/Census 唯一 writer，Q
 ### 当前密封边界
 
 - `crates/deployment_attestation` → **Strategy Factory 部署验证。** 只在 executable 使用边界复用密封的固定策略 verifier。其 evidence 是 consumer 输入，不是部署权威或业务事实。
-- `crates/deployment_store_admission` → **Deployment Store Admission 托管。** `CURRENT` 是面向固定 Market Data / `rd-owner-api` consumer 的 fail-closed、非业务 PostgreSQL 准入 seam；production resolver、signer、anti-rollback witness、credential resolver 与 direct measurer 保持 `UNAVAILABLE`。它不拥有业务事实或 deployment-service 权威；production write 与 trading 保持 `NOT_ADMITTED`。
+- `crates/data/src/owner/store_admission` → **Market Data 私有 Deployment Store Admission 托管。** `CURRENT` 是面向固定 `rd-owner-api` consumer 的 fail-closed、非业务 PostgreSQL 准入和前后 revalidation seam。只有 Market Data 保留 raw receipt、measurement、credential、PIT、Source Binding 与 clock evidence，执行 current-head 校验并密封 `ResearchPitTerminal`；普通 consumer 只能获得 sealed terminal resolver。production resolver、signer、anti-rollback witness、credential resolver 与 direct measurer 保持 `UNAVAILABLE`。该私有 seam 不拥有业务事实或 deployment-service 权威；production write 与 trading 保持 `NOT_ADMITTED`。
 - `crates/observability` → **Observability 非权威边界。** 保留基于规范 Owner 记录的只读、可重建投影。它不拥有来源事实、command、retry、终态决策或交易权威。
 - `crates/runtime` → **Runtime foundation。** 保留非权威的 `NOT_READY` 状态与精确 revalidation dependencies。规范 Runtime custody、generation、checkpoint、readiness、deployment 与 effects 仍为 `TARGET`。
 - `crates/scanner` → **Scanner Owner。** 采用 fail-closed Scanner core 生成密封的 attempt admission 与 receipt。time 或 source authority 不可用时在 attempt admission 前失败；sealed admission 后 membership 不可用时提交终态 `Failed(MembershipUnresolved)` receipt，并抑制 matcher、proposal 与下游效果。
@@ -133,31 +133,32 @@ link，不是两种能力。Research 仍是 TrialFamily/Census 唯一 writer，Q
 
 ### Deployment Store Admission
 
-- **CURRENT：** `crates/deployment_attestation` 只做固定 Strategy Factory binary verification。Product Edge
-  拥有 operation 与 deployment-request custody。Market Data PostgreSQL constructor 为 crate-private 且只由
-  disposable test 使用；`product/rd-workbench` 未组合它。通用 S3 catalog 接受 caller URI 与 storage options，
-  只提供机制而非权威。当前不存在 signed store manifest/head、direct canonical measurement、opaque credential
-  resolution 或真实已准入 store consumer。
-- **TARGET：** 一个非业务 Deployment Store Admission Custodian 只拥有 signed append-only manifest/history、
+- **CURRENT：** `crates/data/src/owner/store_admission` 将非业务 PostgreSQL admission 机制及其前后 revalidation
+  保留在 Market Data 私有边界内。`rd-owner-api` bootstrap 可以请求固定 admission；production resolver、signer、
+  witness、credential resolver 或 direct measurer 不可用时，在构造 repository 前 fail closed。准入后只有 Market
+  Data 读取并校验当前 PIT、Source Binding 与 clock head，再密封 `ResearchPitTerminal`；Strategy Factory 得不到
+  raw receipt、capability、query、DTO 或 evidence accessor。通用 S3 catalog 仍只提供机制而非权威。
+- **TARGET：** 私有的非业务 Deployment Store Admission Custodian 只拥有 signed append-only manifest/history、
   唯一 signed current head、direct target measurement、immutable admission receipt、rotation fence 与 custody
   incident。它不是业务 `authorityOwner`、Flow 或 Dashboard node。其首个准确 deployment/bootstrap consumer 是
   `product/rd-workbench/docker-compose.yml#services.rd-owner-api`，根为
-  `crates/strategy_factory_rd_owner_api/src/main.rs::main`。该默认 composition 在构造受治理 Market Data
-  PostgreSQL repository 前，必须消费一个 sealed receipt，绑定准确 environment、deployment、Market Data Owner、
+  `crates/strategy_factory_rd_owner_api/src/main.rs::main`。Market Data 在构造受治理 PostgreSQL repository 前，
+  其私有 seam 必须消费一个 sealed receipt，绑定准确 environment、deployment、Market Data Owner、
   `rd-owner-api` consumer、PostgreSQL backend、endpoint/TLS/server/database identity、schema/migration/function/
   role/ACL measurement、opaque credential-handle identity/audience/version、predecessor/generation/validity/recovery、
   signature、head、anti-rollback witness、direct measurement、credential lease 与 closed rotation fence。restart
   或 cache loss 必须重复 signature/head verification 与 direct measurement；歧义不构造 Owner repository，也不
-  触发 business retry。
+  触发 business retry。receipt 与 raw store evidence 保持私有；普通 consumer 首个可见值是 Market Data 密封的
+  `ResearchPitTerminal`。
 - **TARGET / UNAVAILABLE：** S3 fan-out 等待真实 catalog consumer 与 pinned disposable S3-compatible test
   authority。production signer、resolver 与 anti-rollback witness adapter 在有证据前保持 unavailable。
 - **NOT_ADMITTED：** 不创建 business fact/receipt、global registry、scheduler、deployment service、caller-authored
   positive evidence；artifact/log 不保存 raw DSN/secret/private key；不自动执行 DDL/role/credential/bucket
   mutation、provider probe、production write、Dashboard implementation 或 trading。
 
-本 D0 合同合并后，D1 Shared Time producer 先于其 Portfolio consumer。D1 Deployment Store Admission port/
-test double、disposable PostgreSQL measurement 与 RD Workbench bootstrap consumer 在 D0 后并行。两者都必须
-对 merged D0 重新验证；S3 fan-out 保持更后且有条件。
+Shared Time producer 先于其 Portfolio consumer。disposable PostgreSQL acceptance 必须贯穿私有 admission、
+前后 revalidation、Market Data current-head 校验与 sealed RD Workbench consumer 边界；fixture proof 不是
+production adapter evidence。S3 fan-out 保持更后且有条件。
 
 ## Provider 有类型端口证据
 

@@ -1,3 +1,8 @@
+#![allow(
+    dead_code,
+    reason = "private direct measurement remains tested while production store authorities are unavailable"
+)]
+
 use std::fmt::Debug;
 
 use serde::Serialize;
@@ -12,7 +17,7 @@ use zeroize::Zeroizing;
 
 /// TLS identity observed for the exact PostgreSQL session.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct PostgresTlsIdentity {
+pub(super) struct PostgresTlsIdentity {
     pub(crate) enabled: bool,
     pub(crate) server_name: String,
     pub(crate) protocol: String,
@@ -39,14 +44,14 @@ impl PostgresTlsIdentity {
 
     /// Returns whether the measured session used TLS.
     #[must_use]
-    pub const fn enabled(&self) -> bool {
+    pub(super) const fn enabled(&self) -> bool {
         self.enabled
     }
 }
 
 /// Exact catalog surfaces directly measured through the credential lease.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct PostgresMeasurementSpec {
+pub(super) struct PostgresMeasurementSpec {
     schema_name: String,
     migration_relation: String,
     function_signatures: Vec<String>,
@@ -61,7 +66,7 @@ impl PostgresMeasurementSpec {
     /// # Errors
     ///
     /// Returns an error for empty or unbounded catalog selections.
-    pub fn new(
+    pub(super) fn new(
         schema_name: impl Into<String>,
         migration_relation: impl Into<String>,
         function_signatures: Vec<String>,
@@ -105,7 +110,7 @@ impl PostgresMeasurementSpec {
 /// Secret-bearing credential lease resolved from one opaque handle.
 ///
 /// The URL is zeroized on drop, excluded from serialization, and redacted from `Debug`.
-pub struct PostgresCredentialLease {
+pub(super) struct PostgresCredentialLease {
     handle_identity: String,
     audience: String,
     version: String,
@@ -119,7 +124,7 @@ impl PostgresCredentialLease {
     /// # Errors
     ///
     /// Returns an error for an empty binding, lease, or URL.
-    pub fn from_resolved_secret(
+    pub(super) fn from_resolved_secret(
         handle_identity: impl Into<String>,
         audience: impl Into<String>,
         version: impl Into<String>,
@@ -268,9 +273,13 @@ pub(crate) struct RawPitEvaluationSnapshot {
     pub(crate) batch_source_binding_lineage_version: u64,
     pub(crate) batch_digest: [u8; 32],
     pub(crate) batch_bytes: Vec<u8>,
-    pub(crate) batch_rows: Vec<crate::MarketDataPitObservationNativeRow>,
+    pub(crate) batch_rows: Vec<super::MarketDataPitObservationNativeRow>,
 }
 
+#[allow(
+    clippy::struct_field_names,
+    reason = "the three private vectors distinguish canonical evidence row families"
+)]
 pub(crate) struct RawPitTerminalSnapshot {
     pub(crate) pit_lineage_rows: Vec<Vec<u8>>,
     pub(crate) source_lineage_rows: Vec<Vec<u8>>,
@@ -578,7 +587,7 @@ pub(crate) async fn read_market_data_pit_evaluation_snapshot(
             let ordinal: i64 = row
                 .try_get("ordinal")
                 .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
-            Ok(crate::MarketDataPitObservationNativeRow {
+            Ok(super::MarketDataPitObservationNativeRow {
                 ordinal: u64::try_from(ordinal)
                     .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?,
                 symbolic_key: row
@@ -616,7 +625,11 @@ pub(crate) async fn read_market_data_pit_evaluation_snapshot(
 
 /// Canonical direct measurement of one PostgreSQL target and its governed catalog surface.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct PostgresMeasurement {
+#[allow(
+    clippy::struct_field_names,
+    reason = "each field is an independently content-addressed measured identity"
+)]
+pub(super) struct PostgresMeasurement {
     pub(crate) endpoint_identity: String,
     pub(crate) tls_identity: PostgresTlsIdentity,
     pub(crate) server_identity: String,
@@ -631,32 +644,32 @@ pub struct PostgresMeasurement {
 impl PostgresMeasurement {
     /// Returns the directly observed endpoint identity without credentials.
     #[must_use]
-    pub fn endpoint_identity(&self) -> &str {
+    pub(super) fn endpoint_identity(&self) -> &str {
         &self.endpoint_identity
     }
 
     /// Returns the direct server-system identity.
     #[must_use]
-    pub fn server_identity(&self) -> &str {
+    pub(super) fn server_identity(&self) -> &str {
         &self.server_identity
     }
 
     /// Returns the direct database name/OID identity.
     #[must_use]
-    pub fn database_identity(&self) -> &str {
+    pub(super) fn database_identity(&self) -> &str {
         &self.database_identity
     }
 
     /// Returns the exact session role fingerprint.
     #[must_use]
-    pub fn role_identity(&self) -> &str {
+    pub(super) fn role_identity(&self) -> &str {
         &self.role_identity
     }
 }
 
 /// Secret-free direct-measurement failure.
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
-pub enum PostgresMeasurementError {
+pub(super) enum PostgresMeasurementError {
     #[error("invalid PostgreSQL measurement specification")]
     InvalidSpecification,
     #[error("invalid PostgreSQL credential lease")]
@@ -689,7 +702,7 @@ pub enum PostgresMeasurementError {
 
 /// Read-only direct PostgreSQL target measurer for a pinned disposable loopback authority.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct PostgresDirectMeasurer;
+pub(super) struct PostgresDirectMeasurer;
 
 impl PostgresDirectMeasurer {
     /// Connects with the resolved lease and measures the target in one read-only transaction.
@@ -701,7 +714,7 @@ impl PostgresDirectMeasurer {
     /// # Errors
     ///
     /// Returns a redacted failure when the connection or any exact catalog identity is unavailable.
-    pub async fn measure(
+    pub(super) async fn measure(
         &self,
         lease: &PostgresCredentialLease,
         spec: &PostgresMeasurementSpec,
@@ -711,7 +724,7 @@ impl PostgresDirectMeasurer {
         if ambient_pg_configuration_present() {
             return Err(PostgresMeasurementError::InvalidTarget);
         }
-        let options = connect_options(&target, "vibe-deployment-store-admission-disposable-v1");
+        let options = connect_options(&target, "vibe-market-data-store-admission-disposable-v1");
         let mut connection = PgConnection::connect_with(&options)
             .await
             .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
@@ -770,9 +783,26 @@ impl PostgresDirectMeasurer {
             identity.try_get::<bool, _>("rolbypassrls"),
         );
         let role_record = match role_attributes {
-            (Ok(a), Ok(b), Ok(c), Ok(d), Ok(e), Ok(f), Ok(g), Ok(h)) => {
-                (role_name.clone(), a, b, c, d, e, f, g, h)
-            }
+            (
+                Ok(role_oid),
+                Ok(superuser),
+                Ok(inherit),
+                Ok(create_role),
+                Ok(create_database),
+                Ok(can_login),
+                Ok(replication),
+                Ok(bypass_rls),
+            ) => (
+                role_name.clone(),
+                role_oid,
+                superuser,
+                inherit,
+                create_role,
+                create_database,
+                can_login,
+                replication,
+                bypass_rls,
+            ),
             _ => return Err(PostgresMeasurementError::IdentityDecodeUnavailable),
         };
 
@@ -1087,6 +1117,10 @@ fn parse_target(database_url: &str) -> Result<ParsedTarget, PostgresMeasurementE
 }
 
 fn ambient_pg_configuration_present() -> bool {
+    ambient_pg_configuration_present_with(|name| std::env::var_os(name).is_some())
+}
+
+pub(super) fn ambient_pg_configuration_present_with(mut present: impl FnMut(&str) -> bool) -> bool {
     const PG_ENVIRONMENT: [&str; 15] = [
         "PGPORT",
         "PGHOSTADDR",
@@ -1104,9 +1138,7 @@ fn ambient_pg_configuration_present() -> bool {
         "PGSERVICE",
         "PGSERVICEFILE",
     ];
-    PG_ENVIRONMENT
-        .iter()
-        .any(|name| std::env::var_os(name).is_some())
+    PG_ENVIRONMENT.iter().any(|name| present(name))
 }
 
 fn safe_opaque_identity(value: &str) -> bool {

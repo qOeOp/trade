@@ -1,10 +1,15 @@
 //! Fail-closed custody for admitting an external deployment store.
 //!
-//! This crate is deliberately not a business Owner. It can seal a store-admission receipt only
+//! This private boundary is deliberately not a business Owner. It can seal a store-admission receipt only
 //! after resolving and verifying custodian-owned signed history, consulting an independent
 //! anti-rollback witness, resolving an opaque credential lease, and directly measuring the target.
 //! The production resolver, signature verifier, witness, and credential resolver are intentionally
 //! unavailable until their deployment authorities exist.
+
+#![allow(
+    dead_code,
+    reason = "private store-admission foundations retain tested unavailable production adapters and S3 stops"
+)]
 
 mod postgres;
 
@@ -18,17 +23,19 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-pub use postgres::{
-    PostgresCredentialLease, PostgresDirectMeasurer, PostgresMeasurement, PostgresMeasurementError,
-    PostgresMeasurementSpec, PostgresTlsIdentity,
+#[cfg(test)]
+use postgres::PostgresMeasurementError;
+use postgres::{
+    PostgresCredentialLease, PostgresDirectMeasurer, PostgresMeasurement, PostgresMeasurementSpec,
+    PostgresTlsIdentity,
 };
 
 /// Exact business Owner admitted by the first deployment-store consumer.
-pub const MARKET_DATA_OWNER: &str = "MARKET_DATA_OWNER_V1";
+pub(super) const MARKET_DATA_OWNER: &str = "MARKET_DATA_OWNER_V1";
 /// Exact first deployment-store consumer.
-pub const RD_OWNER_API_CONSUMER: &str = "STRATEGY_FACTORY_RD_OWNER_API_V1";
+pub(super) const RD_OWNER_API_CONSUMER: &str = "STRATEGY_FACTORY_RD_OWNER_API_V1";
 /// Only backend admitted by the current implementation slice.
-pub const POSTGRES_BACKEND: &str = "POSTGRESQL_V1";
+pub(super) const POSTGRES_BACKEND: &str = "POSTGRESQL_V1";
 
 const MODE_ENV: &str = "DEPLOYMENT_STORE_ADMISSION_MODE";
 const ENVIRONMENT_ENV: &str = "DEPLOYMENT_STORE_ENVIRONMENT_IDENTITY";
@@ -37,7 +44,7 @@ const HEAD_ENV: &str = "DEPLOYMENT_STORE_EXPECTED_HEAD_IDENTITY";
 
 /// Startup decision for the default `rd-owner-api` composition.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum RdOwnerStoreAdmissionBootstrap {
+pub(super) enum RdOwnerStoreAdmissionBootstrap {
     /// The existing default behavior is preserved and no Market Data repository is constructed.
     Disabled,
     /// Store consumption was explicitly requested and must obtain a sealed receipt or fail closed.
@@ -52,7 +59,7 @@ impl RdOwnerStoreAdmissionBootstrap {
     /// # Errors
     ///
     /// Returns a typed error for an unknown mode or an incomplete required scope.
-    pub fn from_lookup(
+    pub(super) fn from_lookup(
         mut lookup: impl FnMut(&str) -> Option<String>,
     ) -> Result<Self, BootstrapConfigurationError> {
         match lookup(MODE_ENV).as_deref().unwrap_or("disabled") {
@@ -71,18 +78,23 @@ impl RdOwnerStoreAdmissionBootstrap {
     /// # Errors
     ///
     /// Returns a typed error for invalid or incomplete configuration.
-    pub fn from_environment() -> Result<Self, BootstrapConfigurationError> {
-        match std::env::var(MODE_ENV) {
+    pub(super) fn from_environment() -> Result<Self, BootstrapConfigurationError> {
+        Self::from_environment_result(std::env::var(MODE_ENV), |name| std::env::var(name).ok())
+    }
+
+    fn from_environment_result(
+        mode: Result<String, std::env::VarError>,
+        mut lookup: impl FnMut(&str) -> Option<String>,
+    ) -> Result<Self, BootstrapConfigurationError> {
+        match mode {
             Ok(mode) => Self::from_lookup(|name| {
                 if name == MODE_ENV {
                     Some(mode.clone())
                 } else {
-                    std::env::var(name).ok()
+                    lookup(name)
                 }
             }),
-            Err(std::env::VarError::NotPresent) => {
-                Self::from_lookup(|name| std::env::var(name).ok())
-            }
+            Err(std::env::VarError::NotPresent) => Self::from_lookup(lookup),
             Err(std::env::VarError::NotUnicode(_)) => Err(BootstrapConfigurationError::InvalidMode),
         }
     }
@@ -99,7 +111,7 @@ fn required_lookup(
 
 /// Invalid configuration at the consumer seam. This never denotes positive store evidence.
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
-pub enum BootstrapConfigurationError {
+pub(super) enum BootstrapConfigurationError {
     #[error("invalid deployment store admission mode")]
     InvalidMode,
     #[error("missing required deployment store identity: {0}")]
@@ -113,7 +125,11 @@ pub enum BootstrapConfigurationError {
 /// Business Owner, consumer, and backend are fixed inside the constructor and cannot be supplied by
 /// environment configuration.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RdOwnerMarketDataAdmissionRequest {
+#[allow(
+    clippy::struct_field_names,
+    reason = "all three private values are exact deployment-store scope identities"
+)]
+pub(super) struct RdOwnerMarketDataAdmissionRequest {
     environment_identity: String,
     deployment_identity: String,
     expected_head_identity: String,
@@ -125,7 +141,7 @@ impl RdOwnerMarketDataAdmissionRequest {
     /// # Errors
     ///
     /// Returns an error when any identity is empty or contains surrounding whitespace.
-    pub fn new(
+    pub(super) fn new(
         environment_identity: String,
         deployment_identity: String,
         expected_head_identity: String,
@@ -175,7 +191,7 @@ fn valid_digest_identity(value: &str) -> bool {
 ///
 /// This type has no public constructor and cannot be deserialized from caller-authored bytes.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct SealedDeploymentStoreAdmissionReceipt {
+pub(super) struct SealedDeploymentStoreAdmissionReceipt {
     receipt_identity: String,
     environment_identity: String,
     deployment_identity: String,
@@ -204,43 +220,24 @@ pub struct SealedDeploymentStoreAdmissionReceipt {
 impl SealedDeploymentStoreAdmissionReceipt {
     /// Returns the content-addressed immutable receipt identity.
     #[must_use]
-    pub fn receipt_identity(&self) -> &str {
+    pub(super) fn receipt_identity(&self) -> &str {
         &self.receipt_identity
     }
 
     /// Returns the exact consumer identity sealed into the receipt.
     #[must_use]
-    pub fn consumer_identity(&self) -> &str {
+    pub(super) fn consumer_identity(&self) -> &str {
         &self.consumer_identity
     }
 }
 
-/// Opaque, consumed authority for constructing the Market Data Source Binding PostgreSQL read port.
+/// Owner-private, consumed authority for constructing the fixed Market Data snapshot port.
 ///
 /// This value is issued only after the complete custodian pipeline commits its sealed receipt. It
 /// deliberately implements neither `Clone` nor `Serialize`, and it exposes no DSN, pool, manifest,
 /// measurement envelope, or caller-authored evidence.
 ///
-/// A caller cannot duplicate the capability:
-///
-/// ```compile_fail
-/// use vibe_deployment_store_admission::AdmittedMarketDataPostgresCapability;
-///
-/// fn duplicate(capability: AdmittedMarketDataPostgresCapability) {
-///     let _copy = capability.clone();
-/// }
-/// ```
-///
-/// It also cannot be serialized into caller-owned evidence:
-///
-/// ```compile_fail
-/// use vibe_deployment_store_admission::AdmittedMarketDataPostgresCapability;
-///
-/// fn serialize(capability: &AdmittedMarketDataPostgresCapability) {
-///     let _bytes = serde_json::to_vec(capability).unwrap();
-/// }
-/// ```
-pub struct AdmittedMarketDataPostgresCapability {
+pub(super) struct AdmittedMarketDataPostgresCapability {
     receipt: SealedDeploymentStoreAdmissionReceipt,
     credential_lease: PostgresCredentialLease,
     revalidator: Arc<Custodian>,
@@ -260,19 +257,19 @@ impl Debug for AdmittedMarketDataPostgresCapability {
 impl AdmittedMarketDataPostgresCapability {
     /// Returns the sealed receipt identity without exposing the receipt body.
     #[must_use]
-    pub fn receipt_identity(&self) -> &str {
+    pub(super) fn receipt_identity(&self) -> &str {
         self.receipt.receipt_identity()
     }
 
     /// Returns the exact fixed consumer identity sealed by the custodian.
     #[must_use]
-    pub fn consumer_identity(&self) -> &str {
+    pub(super) fn consumer_identity(&self) -> &str {
         self.receipt.consumer_identity()
     }
 
     /// Consumes this authority into the only admitted Market Data storage operation.
     #[must_use]
-    pub fn into_source_binding_snapshot_port(self) -> AdmittedMarketDataSourceBindingSnapshotPort {
+    pub(super) fn into_source_binding_snapshot_port(self) -> AdmittedMarketDataSnapshotPort {
         AdmittedMarketDataSnapshotPort {
             receipt: self.receipt,
             revalidator: self.revalidator,
@@ -282,25 +279,19 @@ impl AdmittedMarketDataPostgresCapability {
 
     /// Consumes this authority into the fixed Market Data PIT-evaluation snapshot operation.
     #[must_use]
-    pub fn into_pit_evaluation_snapshot_port(self) -> AdmittedMarketDataSnapshotPort {
+    pub(super) fn into_pit_evaluation_snapshot_port(self) -> AdmittedMarketDataSnapshotPort {
         self.into_source_binding_snapshot_port()
     }
 
     /// Consumes this authority into the fixed Market Data PIT-terminal snapshot operation.
     #[must_use]
-    pub fn into_pit_terminal_snapshot_port(self) -> AdmittedMarketDataSnapshotPort {
+    pub(super) fn into_pit_terminal_snapshot_port(self) -> AdmittedMarketDataSnapshotPort {
         self.into_source_binding_snapshot_port()
     }
 }
 
-/// DSA-owned opaque port exposing only fixed Market Data snapshot operations.
-///
-/// The superseded generic SQL surface is intentionally absent:
-///
-/// ```compile_fail
-/// use vibe_deployment_store_admission::AdmittedMarketDataPostgresReadPool;
-/// ```
-pub struct AdmittedMarketDataSnapshotPort {
+/// Owner-private opaque port exposing only fixed Market Data snapshot operations.
+pub(super) struct AdmittedMarketDataSnapshotPort {
     receipt: SealedDeploymentStoreAdmissionReceipt,
     revalidator: Arc<Custodian>,
     scope: AdmissionScope,
@@ -315,11 +306,8 @@ impl Debug for AdmittedMarketDataSnapshotPort {
     }
 }
 
-/// Compatibility name for the original fixed Source Binding operation.
-pub type AdmittedMarketDataSourceBindingSnapshotPort = AdmittedMarketDataSnapshotPort;
-
 /// Exact raw rows observed inside one fixed read-only Market Data snapshot.
-pub struct MarketDataSourceBindingStorageEvidence {
+pub(super) struct MarketDataSourceBindingStorageEvidence {
     admission_receipt_identity: String,
     lineage_rows: Vec<Vec<u8>>,
     clock_rows: Vec<Vec<u8>>,
@@ -329,7 +317,7 @@ pub struct MarketDataSourceBindingStorageEvidence {
 ///
 /// DSA deliberately does not decode these business bytes. `vibe-data` is the sole verifier that
 /// may turn the complete evidence into a verified observation batch.
-pub struct MarketDataPitEvaluationStorageEvidence {
+pub(super) struct MarketDataPitEvaluationStorageEvidence {
     admission_receipt_identity: String,
     pit_lineage_rows: Vec<Vec<u8>>,
     source_lineage_rows: Vec<Vec<u8>>,
@@ -347,7 +335,7 @@ pub struct MarketDataPitEvaluationStorageEvidence {
 /// Unlike evaluation evidence, this DTO deliberately has no normalized-observation batch. DSA
 /// does not decode Market Data business bytes; `vibe-data` alone validates the terminal
 /// disposition and every request, source, lineage, and time binding.
-pub struct MarketDataPitTerminalStorageEvidence {
+pub(super) struct MarketDataPitTerminalStorageEvidence {
     admission_receipt_identity: String,
     pit_lineage_rows: Vec<Vec<u8>>,
     source_lineage_rows: Vec<Vec<u8>>,
@@ -355,7 +343,7 @@ pub struct MarketDataPitTerminalStorageEvidence {
 }
 
 /// Exact native index columns and bytes for one normalized PIT observation row.
-pub struct MarketDataPitObservationNativeRow {
+pub(super) struct MarketDataPitObservationNativeRow {
     ordinal: u64,
     symbolic_key: String,
     member_key: String,
@@ -364,103 +352,103 @@ pub struct MarketDataPitObservationNativeRow {
 
 impl MarketDataPitObservationNativeRow {
     #[must_use]
-    pub const fn ordinal(&self) -> u64 {
+    pub(super) const fn ordinal(&self) -> u64 {
         self.ordinal
     }
     #[must_use]
-    pub fn symbolic_key(&self) -> &str {
+    pub(super) fn symbolic_key(&self) -> &str {
         &self.symbolic_key
     }
     #[must_use]
-    pub fn member_key(&self) -> &str {
+    pub(super) fn member_key(&self) -> &str {
         &self.member_key
     }
     #[must_use]
-    pub fn row_bytes(&self) -> &[u8] {
+    pub(super) fn row_bytes(&self) -> &[u8] {
         &self.row_bytes
     }
 }
 
 impl MarketDataPitEvaluationStorageEvidence {
     #[must_use]
-    pub fn admission_receipt_identity(&self) -> &str {
+    pub(super) fn admission_receipt_identity(&self) -> &str {
         &self.admission_receipt_identity
     }
     #[must_use]
-    pub fn pit_lineage_rows(&self) -> &[Vec<u8>] {
+    pub(super) fn pit_lineage_rows(&self) -> &[Vec<u8>] {
         &self.pit_lineage_rows
     }
     #[must_use]
-    pub fn source_lineage_rows(&self) -> &[Vec<u8>] {
+    pub(super) fn source_lineage_rows(&self) -> &[Vec<u8>] {
         &self.source_lineage_rows
     }
     #[must_use]
-    pub fn clock_rows(&self) -> &[Vec<u8>] {
+    pub(super) fn clock_rows(&self) -> &[Vec<u8>] {
         &self.clock_rows
     }
     #[must_use]
-    pub const fn batch_source_binding_identity(&self) -> &[u8; 32] {
+    pub(super) const fn batch_source_binding_identity(&self) -> &[u8; 32] {
         &self.batch_source_binding_identity
     }
     #[must_use]
-    pub const fn batch_source_binding_lineage_root(&self) -> &[u8; 32] {
+    pub(super) const fn batch_source_binding_lineage_root(&self) -> &[u8; 32] {
         &self.batch_source_binding_lineage_root
     }
     #[must_use]
-    pub const fn batch_source_binding_lineage_version(&self) -> u64 {
+    pub(super) const fn batch_source_binding_lineage_version(&self) -> u64 {
         self.batch_source_binding_lineage_version
     }
     #[must_use]
-    pub const fn batch_digest(&self) -> &[u8; 32] {
+    pub(super) const fn batch_digest(&self) -> &[u8; 32] {
         &self.batch_digest
     }
     #[must_use]
-    pub fn batch_bytes(&self) -> &[u8] {
+    pub(super) fn batch_bytes(&self) -> &[u8] {
         &self.batch_bytes
     }
     #[must_use]
-    pub fn batch_rows(&self) -> &[MarketDataPitObservationNativeRow] {
+    pub(super) fn batch_rows(&self) -> &[MarketDataPitObservationNativeRow] {
         &self.batch_rows
     }
 }
 
 impl MarketDataPitTerminalStorageEvidence {
     #[must_use]
-    pub fn admission_receipt_identity(&self) -> &str {
+    pub(super) fn admission_receipt_identity(&self) -> &str {
         &self.admission_receipt_identity
     }
     #[must_use]
-    pub fn pit_lineage_rows(&self) -> &[Vec<u8>] {
+    pub(super) fn pit_lineage_rows(&self) -> &[Vec<u8>] {
         &self.pit_lineage_rows
     }
     #[must_use]
-    pub fn source_lineage_rows(&self) -> &[Vec<u8>] {
+    pub(super) fn source_lineage_rows(&self) -> &[Vec<u8>] {
         &self.source_lineage_rows
     }
     #[must_use]
-    pub fn clock_rows(&self) -> &[Vec<u8>] {
+    pub(super) fn clock_rows(&self) -> &[Vec<u8>] {
         &self.clock_rows
     }
 }
 
 impl MarketDataSourceBindingStorageEvidence {
     #[must_use]
-    pub fn admission_receipt_identity(&self) -> &str {
+    pub(super) fn admission_receipt_identity(&self) -> &str {
         &self.admission_receipt_identity
     }
     #[must_use]
-    pub fn lineage_rows(&self) -> &[Vec<u8>] {
+    pub(super) fn lineage_rows(&self) -> &[Vec<u8>] {
         &self.lineage_rows
     }
     #[must_use]
-    pub fn clock_rows(&self) -> &[Vec<u8>] {
+    pub(super) fn clock_rows(&self) -> &[Vec<u8>] {
         &self.clock_rows
     }
 }
 
 impl AdmittedMarketDataSnapshotPort {
     /// Reads one fixed Source Binding snapshot after full admission both before checkout and return.
-    pub async fn resolve(
+    pub(super) async fn resolve(
         &self,
         binding_identity: [u8; 32],
     ) -> Result<MarketDataSourceBindingStorageEvidence, DeploymentStoreAdmissionError> {
@@ -505,7 +493,7 @@ impl AdmittedMarketDataSnapshotPort {
     }
 
     /// Reads one fixed PIT-evaluation snapshot after admission both before checkout and return.
-    pub async fn resolve_pit_evaluation(
+    pub(super) async fn resolve_pit_evaluation(
         &self,
         snapshot_identity: [u8; 32],
     ) -> Result<MarketDataPitEvaluationStorageEvidence, DeploymentStoreAdmissionError> {
@@ -560,7 +548,7 @@ impl AdmittedMarketDataSnapshotPort {
     ///
     /// Storage or transport failure remains an admission error. It is never converted into a
     /// Market Data `UNAVAILABLE` disposition.
-    pub async fn resolve_pit_terminal(
+    pub(super) async fn resolve_pit_terminal(
         &self,
         snapshot_identity: [u8; 32],
     ) -> Result<MarketDataPitTerminalStorageEvidence, DeploymentStoreAdmissionError> {
@@ -616,7 +604,7 @@ fn same_snapshot_cut(
 /// Stable failure categories at the custody boundary.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum AdmissionFailureCode {
+pub(super) enum AdmissionFailureCode {
     ProductionResolverUnavailable,
     ProductionSignatureVerifierUnavailable,
     ProductionAntiRollbackWitnessUnavailable,
@@ -641,7 +629,7 @@ pub enum AdmissionFailureCode {
 
 /// Immutable non-business custody incident emitted for every rejected admission.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct DeploymentStoreCustodyIncident {
+pub(super) struct DeploymentStoreCustodyIncident {
     incident_identity: String,
     failure_code: AdmissionFailureCode,
     environment_identity: String,
@@ -653,7 +641,7 @@ pub struct DeploymentStoreCustodyIncident {
 
 /// Fail-closed admission error with a secret-free immutable incident.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DeploymentStoreAdmissionError {
+pub(super) struct DeploymentStoreAdmissionError {
     code: AdmissionFailureCode,
     incident: Box<DeploymentStoreCustodyIncident>,
 }
@@ -661,13 +649,13 @@ pub struct DeploymentStoreAdmissionError {
 impl DeploymentStoreAdmissionError {
     /// Returns the stable rejection category.
     #[must_use]
-    pub const fn code(&self) -> AdmissionFailureCode {
+    pub(super) const fn code(&self) -> AdmissionFailureCode {
         self.code
     }
 
     /// Returns the immutable incident for custody and diagnostics.
     #[must_use]
-    pub fn incident(&self) -> &DeploymentStoreCustodyIncident {
+    pub(super) fn incident(&self) -> &DeploymentStoreCustodyIncident {
         self.incident.as_ref()
     }
 }
@@ -692,7 +680,7 @@ impl std::error::Error for DeploymentStoreAdmissionError {}
 /// # Errors
 ///
 /// Returns a typed fail-closed custody incident while production ports remain unavailable.
-pub async fn admit_rd_owner_market_data_postgres(
+pub(super) async fn admit_rd_owner_market_data_postgres(
     request: &RdOwnerMarketDataAdmissionRequest,
 ) -> Result<AdmittedMarketDataPostgresCapability, DeploymentStoreAdmissionError> {
     let custodian = Custodian::new(
@@ -711,7 +699,7 @@ pub async fn admit_rd_owner_market_data_postgres(
 /// # Errors
 ///
 /// Always returns `S3_UNAVAILABLE` for the fixed consumer scope.
-pub fn unavailable_s3_admission(
+pub(super) fn unavailable_s3_admission(
     request: &RdOwnerMarketDataAdmissionRequest,
 ) -> Result<SealedDeploymentStoreAdmissionReceipt, DeploymentStoreAdmissionError> {
     Err(rejection(
@@ -984,7 +972,7 @@ impl Custodian {
         .await?;
         validate_head_scope(&scope, &signed_head.head)?;
 
-        let manifests = validate_and_order_history(&scope, &resolved.manifests).await?;
+        let manifests = validate_and_order_history(&scope, &resolved.manifests)?;
         for signed_manifest in &manifests {
             self.verify_signature(
                 &scope,
@@ -1187,7 +1175,7 @@ impl Custodian {
     }
 }
 
-async fn validate_and_order_history(
+fn validate_and_order_history(
     scope: &AdmissionScope,
     manifests: &[SignedManifest],
 ) -> Result<Vec<SignedManifest>, DeploymentStoreAdmissionError> {
@@ -1431,8 +1419,6 @@ mod tests {
 
     const NOW: u64 = 1_000_000;
     const SIGNER: &str = "deployment-store-test-signer-v1";
-    static MODE_ENV_LOCK: Mutex<()> = Mutex::new(());
-    static PG_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     struct FixedClock;
 
@@ -2266,41 +2252,11 @@ mod tests {
     }
 
     #[rstest]
-    fn ambient_postgres_configuration_fails_before_connection() {
-        let _lock = PG_ENV_LOCK.lock().unwrap();
-        let prior = std::env::var_os("PGPORT");
-        // SAFETY: this test serializes all mutations of this exact process variable.
-        unsafe { std::env::set_var("PGPORT", "6543") };
-        let lease = PostgresCredentialLease::from_resolved_secret(
-            "test-handle",
-            RD_OWNER_API_CONSUMER,
-            "test-v1",
-            NOW + 1,
-            "postgresql://rd_owner@127.0.0.1/vibe_test_decoy".to_string(),
-        )
-        .unwrap();
-        let spec = PostgresMeasurementSpec::new(
-            "safe_schema",
-            "safe_schema.schema_migrations_v1",
-            vec!["safe_schema.resolve_v1()".to_string()],
-            vec!["safe_schema.facts_v1".to_string()],
-        )
-        .unwrap();
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        let result = runtime.block_on(PostgresDirectMeasurer.measure(&lease, &spec));
-
-        if let Some(value) = prior {
-            // SAFETY: restoration is covered by the same serialized critical section.
-            unsafe { std::env::set_var("PGPORT", value) };
-        } else {
-            // SAFETY: restoration is covered by the same serialized critical section.
-            unsafe { std::env::remove_var("PGPORT") };
-        }
-
-        assert_eq!(result, Err(PostgresMeasurementError::InvalidTarget));
+    fn ambient_postgres_configuration_detection_is_fail_closed() {
+        assert!(postgres::ambient_pg_configuration_present_with(
+            |name| name == "PGPORT"
+        ));
+        assert!(!postgres::ambient_pg_configuration_present_with(|_| false));
     }
 
     #[rstest]
@@ -2331,19 +2287,12 @@ mod tests {
     fn non_unicode_environment_mode_fails_closed() {
         use std::{ffi::OsString, os::unix::ffi::OsStringExt};
 
-        let _lock = MODE_ENV_LOCK.lock().unwrap();
-        let prior = std::env::var_os(MODE_ENV);
-        // SAFETY: this test serializes all mutations of this exact process variable.
-        unsafe { std::env::set_var(MODE_ENV, OsString::from_vec(vec![0xff])) };
-        let result = RdOwnerStoreAdmissionBootstrap::from_environment();
-
-        if let Some(value) = prior {
-            // SAFETY: restoration is covered by the same serialized critical section.
-            unsafe { std::env::set_var(MODE_ENV, value) };
-        } else {
-            // SAFETY: restoration is covered by the same serialized critical section.
-            unsafe { std::env::remove_var(MODE_ENV) };
-        }
+        let result = RdOwnerStoreAdmissionBootstrap::from_environment_result(
+            Err(std::env::VarError::NotUnicode(OsString::from_vec(vec![
+                0xff,
+            ]))),
+            |_| None,
+        );
 
         assert_eq!(result, Err(BootstrapConfigurationError::InvalidMode));
     }

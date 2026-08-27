@@ -2,6 +2,22 @@
 //!
 //! Callers supply comparison facts only. Market Data rereads canonical durable PIT, Source Binding,
 //! and Shared Time evidence before issuing the move-only terminal carrier.
+//!
+//! Raw store-admission evidence is not part of the public type graph:
+//!
+//! ```compile_fail
+//! use vibe_data::owner::store_admission::MarketDataPitTerminalStorageEvidence;
+//! ```
+//!
+//! The former raw capability bridge and standalone crate are not compatibility surfaces:
+//!
+//! ```compile_fail
+//! let _raw_bridge = vibe_data::owner::research_pit_terminal_resolver_from_admitted_postgres;
+//! ```
+//!
+//! ```compile_fail
+//! use vibe_deployment_store_admission::AdmittedMarketDataSnapshotPort;
+//! ```
 
 use serde::Serialize;
 
@@ -109,6 +125,20 @@ impl AvailableResearchPitSnapshot {
 /// fn duplicate(terminal: ResearchPitTerminal) {
 ///     requires_clone(&terminal);
 /// }
+/// ```
+///
+/// A caller cannot construct a terminal from caller-authored fields:
+///
+/// ```compile_fail
+/// use vibe_data::owner::research_pit_terminal::ResearchPitTerminal;
+/// let _forged = ResearchPitTerminal {};
+/// ```
+///
+/// A caller also cannot deserialize a terminal from bytes:
+///
+/// ```compile_fail
+/// use vibe_data::owner::research_pit_terminal::ResearchPitTerminal;
+/// let _forged: ResearchPitTerminal = serde_json::from_str("{}").unwrap();
 /// ```
 #[derive(Debug, Eq, PartialEq, Serialize)]
 pub struct ResearchPitTerminal {
@@ -224,9 +254,21 @@ impl ResearchPitTerminal {
     }
 }
 
+pub(crate) mod sealed {
+    pub trait Sealed {}
+}
+
 /// Read-only Market Data resolver for the ordinary Research terminal.
+///
+/// The implementation authority is sealed inside Market Data:
+///
+/// ```compile_fail
+/// struct ForgedResolver;
+/// impl vibe_data::owner::research_pit_terminal::sealed::Sealed for ForgedResolver {}
+/// ```
 #[async_trait::async_trait]
-pub trait ResearchPitTerminalResolver: Send + Sync {
+#[allow(private_bounds)]
+pub trait ResearchPitTerminalResolver: sealed::Sealed + Send + Sync {
     async fn resolve_research_pit_terminal(
         &self,
         request: &UntrustedResearchPitTerminalRequest,

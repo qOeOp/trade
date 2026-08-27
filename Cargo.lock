@@ -10064,6 +10064,7 @@ dependencies = [
  "blake3",
  "bon",
  "criterion",
+ "ed25519-dalek",
  "futures",
  "indexmap 2.14.0",
  "jiff",
@@ -10075,15 +10076,18 @@ dependencies = [
  "rust_decimal",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "sqlx",
+ "thiserror 2.0.19",
  "tokio",
+ "url",
  "ustr",
  "vibe-common",
  "vibe-core",
- "vibe-deployment-store-admission",
  "vibe-model",
  "vibe-persistence",
  "vibe-serialization",
+ "zeroize",
 ]
 
 [[package]]
@@ -10139,24 +10143,6 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "trybuild",
-]
-
-[[package]]
-name = "vibe-deployment-store-admission"
-version = "0.62.0"
-dependencies = [
- "async-trait",
- "ed25519-dalek",
- "rstest",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "sqlx",
- "thiserror 2.0.19",
- "tokio",
- "url",
- "vibe-testkit",
- "zeroize",
 ]
 
 [[package]]
@@ -11256,7 +11242,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "vibe-data",
- "vibe-deployment-store-admission",
  "vibe-operator-authorization",
  "vibe-product-edge",
  "vibe-rd-artifact-invocation-custody",

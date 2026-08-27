@@ -32,7 +32,6 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 vibe-data = { workspace = true }
-vibe-deployment-store-admission = { workspace = true }
 vibe-product-edge = { workspace = true }
 vibe-strategy-factory = { workspace = true }
 

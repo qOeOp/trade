@@ -484,8 +484,21 @@ async fn consume_direct(
         pit_readback.source_binding_identity(),
         source.fact().binding_id()
     );
+    let request = research_terminal_request(source, pit);
+    let terminal = research_resolver
+        .resolve_research_pit_terminal(&request)
+        .await
+        .unwrap();
+    assert_eq!(terminal.disposition(), ResearchPitDisposition::Available);
+    assert!(terminal.available().is_some());
+}
+
+fn research_terminal_request(
+    source: &SourceBindingCommit,
+    pit: &PitSnapshotCommitAggregate,
+) -> UntrustedResearchPitTerminalRequest {
     let fact = pit.fact();
-    let request = UntrustedResearchPitTerminalRequest {
+    UntrustedResearchPitTerminalRequest {
         consumer_role: "RESEARCH_OWNER".into(),
         locator: pit.receipt().locator().clone(),
         requester_identity: fact.request().requester_identity,
@@ -507,13 +520,7 @@ async fn consume_direct(
         .unwrap(),
         provenance_binding_digest: derive_provenance_binding_digest(source.fact()).unwrap(),
         license_binding_digest: derive_license_binding_digest(source.fact()).unwrap(),
-    };
-    let terminal = research_resolver
-        .resolve_research_pit_terminal(&request)
-        .await
-        .unwrap();
-    assert_eq!(terminal.disposition(), ResearchPitDisposition::Available);
-    assert!(terminal.available().is_some());
+    }
 }
 
 async fn assert_exact_owner_replays_unavailable(
@@ -1068,6 +1075,12 @@ async fn run_postgres_owner_scenario() {
     ))
     .await
     .unwrap();
+    assert_eq!(
+        reader
+            .resolve_research_pit_terminal(&research_terminal_request(&source, &pit))
+            .await,
+        Err(PitSnapshotError::SourceBindingUnavailable),
+    );
     let correction_value = pit_correction(&pit_value, &source_successor);
     let correction_basis = basis_at(&correction_value, &clock(50, 2));
     let correction = restarted
@@ -1089,6 +1102,12 @@ async fn run_postgres_owner_scenario() {
         .await
         .unwrap();
     assert_eq!(correction_replay, correction);
+    assert_eq!(
+        reader
+            .resolve_research_pit_terminal(&research_terminal_request(&source, &pit))
+            .await,
+        Err(PitSnapshotError::CorrectionHeadMismatch),
+    );
     drop(reader);
     drop(restarted);
     let restarted_again = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
@@ -1118,6 +1137,15 @@ async fn run_postgres_owner_scenario() {
     assert_eq!(
         reader_again
             .resolve_pit_snapshot(correction.receipt().locator())
+            .await,
+        Err(PitSnapshotError::PersistenceUnavailable),
+    );
+    assert_eq!(
+        reader_again
+            .resolve_research_pit_terminal(&research_terminal_request(
+                &source_successor,
+                &correction,
+            ))
             .await,
         Err(PitSnapshotError::PersistenceUnavailable),
     );
