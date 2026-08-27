@@ -1,6 +1,13 @@
 use rstest::rstest;
 use sqlx::Row;
 use vibe_strategy_factory::develop_composer_postgres_v2::PostgresDevelopComposerStoreV2;
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_strategy_factory::{
+    develop_composer_operation_v2::DevelopComposerOperationDispositionV2,
+    develop_composer_sealed_acceptance_v2::{
+        SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2, SealedDevelopComposerAcceptanceV2,
+    },
+};
 use vibe_testkit::postgres::DedicatedPostgresTestDatabase;
 
 #[rstest]
@@ -94,4 +101,37 @@ async fn postgres_migration_materializes_only_private_binary_authority() {
         rows.iter()
             .all(|row| row.get::<String, _>("data_type") == "bytea")
     );
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[tokio::test]
+#[ignore = "requires an admitted disposable RD_OWNER_TEST_DATABASE_URL and local Rust toolchain"]
+async fn sealed_run_and_restarted_resolve_return_the_same_public_receipt() {
+    let database = DedicatedPostgresTestDatabase::admit("RD_OWNER_TEST_DATABASE_URL")
+        .await
+        .expect("dedicated local PostgreSQL admission");
+    let first_owner = SealedDevelopComposerAcceptanceV2::connect(database.database_url())
+        .await
+        .expect("first sealed Composer owner");
+    let run = first_owner.run().await.expect("sealed Composer RUN");
+    assert_eq!(
+        run.disposition,
+        DevelopComposerOperationDispositionV2::Success
+    );
+    assert_eq!(
+        run.request_identity,
+        SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2
+    );
+    assert!(run.receipt_identity.is_some());
+    assert!(run.artifact.is_some());
+
+    drop(first_owner);
+    let restarted_owner = SealedDevelopComposerAcceptanceV2::connect(database.database_url())
+        .await
+        .expect("restarted sealed Composer owner");
+    let resolved = restarted_owner
+        .resolve(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2)
+        .await
+        .expect("restarted durable RESOLVE");
+    assert_eq!(resolved, run);
 }

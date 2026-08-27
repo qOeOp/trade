@@ -363,6 +363,34 @@ impl CurrentResearchDevelopCustodyV2 {
     }
 }
 
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+impl CurrentResearchDevelopCustodyV2 {
+    pub(crate) fn sealed_acceptance(request_locator: &str) -> Result<Self, serde_json::Error> {
+        let mut value = Self {
+            request_locator: request_locator.to_owned(),
+            research_request_identity: BindingDigest::from_untrusted_bytes([1; 32]),
+            intent_identity: BindingDigest::from_untrusted_bytes([2; 32]),
+            intent_digest: BindingDigest::from_untrusted_bytes([3; 32]),
+            falsifier: "trend state does not improve the frozen next-return decision".to_owned(),
+            research_receipt_identity: "sealed-develop-research-receipt-v2".to_owned(),
+            research_receipt_semantic_digest: "sha256:sealed-develop-research-v2".to_owned(),
+            research_view_identity: "sealed-develop-research-view-v2".to_owned(),
+            research_view_source_cut: "sealed-develop-source-cut-v2".to_owned(),
+            trial_family_identity: "sealed-develop-trial-family-v2".to_owned(),
+            trial_family_root_digest: "sha256:sealed-develop-family-root-v2".to_owned(),
+            trial_family_frontier_identity: "sealed-develop-family-frontier-v2".to_owned(),
+            trial_family_frontier_digest: "sha256:sealed-develop-family-frontier-v2".to_owned(),
+            custody_digest: BindingDigest::from_untrusted_bytes([0; 32]),
+        };
+        let canonical_bytes = serde_json::to_vec(&value)?;
+        value.custody_digest = domain_digest(
+            b"rd.develop.current-research-custody.v2\0",
+            &canonical_bytes,
+        );
+        Ok(value)
+    }
+}
+
 pub(crate) trait DevelopComposerEvidencePortV2 {
     fn read_current_research(
         &self,

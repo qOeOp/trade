@@ -39,6 +39,7 @@ mod develop_composer_operation_v2_tests;
     reason = "durable Composer PostgreSQL RUN is reachable only from the sealed acceptance composition"
 )]
 pub mod develop_composer_postgres_v2;
+pub mod develop_composer_sealed_acceptance_v2;
 #[allow(
     dead_code,
     reason = "crate-local Develop Composer awaits an admitted durable composition root"
