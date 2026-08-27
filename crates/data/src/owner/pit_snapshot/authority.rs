@@ -9,9 +9,10 @@ use super::{
     BindingDigest, PitSnapshotBlocker, PitSnapshotCommitAggregate, PitSnapshotDisposition,
     PitSnapshotError, PitSnapshotFact, PitSnapshotOutboxRecord, PitSnapshotPersistencePort,
     PitSnapshotPersistenceResult, PitSnapshotReceipt, UntrustedCorrectionPublicationTime,
-    UntrustedEventEffectiveTime, UntrustedPitSnapshotLocator, UntrustedPitSnapshotLocatorFields,
-    UntrustedPitSnapshotProposal, UntrustedPitSnapshotRequest, UntrustedPitSnapshotTimeEvidence,
-    UntrustedProviderAvailableTime, UntrustedRetrievalTime, UntrustedSnapshotDecisionCut,
+    UntrustedEventEffectiveTime, UntrustedPitObservationBatchProposal, UntrustedPitSnapshotLocator,
+    UntrustedPitSnapshotLocatorFields, UntrustedPitSnapshotProposal, UntrustedPitSnapshotRequest,
+    UntrustedPitSnapshotTimeEvidence, UntrustedProviderAvailableTime, UntrustedRetrievalTime,
+    UntrustedSnapshotDecisionCut, VerifiedPitObservation, VerifiedPitObservationBatch,
 };
 use crate::owner::source_binding::{
     MarketDataClockAdmission, MarketDataClockComparisonRule, MarketDataClockCutKind,
@@ -1110,6 +1111,539 @@ const fn disposition_code(disposition: PitSnapshotDisposition) -> u8 {
     }
 }
 
+const OBSERVATION_BATCH_DOMAIN: &[u8] = b"VIBE_PIT_OBSERVATION_BATCH_V1";
+const OBSERVATION_ROW_DOMAIN: &[u8] = b"VIBE_PIT_OBSERVATION_ROW_V1";
+const OBSERVATION_CHANNELS: &[&str] = &["MARKET", "REFERENCE", "ECONOMIC"];
+const OBSERVATION_DATA_KINDS: &[&str] = &["BAR", "QUOTE", "TRADE", "SCALAR"];
+const MAX_OBSERVATIONS: usize = 10_000;
+const MAX_CANONICAL_COMPONENT: usize = 128;
+const MAX_CANONICAL_BYTES: usize = 64 * 1024 * 1024;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PreparedPitObservationBatch {
+    digest: BindingDigest,
+    bytes: Vec<u8>,
+    row_bytes: Vec<Vec<u8>>,
+    rows: Vec<VerifiedPitObservation>,
+}
+
+impl PreparedPitObservationBatch {
+    pub(crate) const fn digest(&self) -> BindingDigest {
+        self.digest
+    }
+
+    pub(crate) fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    pub(crate) fn row_bytes(&self) -> &[Vec<u8>] {
+        &self.row_bytes
+    }
+
+    pub(crate) fn rows(&self) -> &[VerifiedPitObservation] {
+        &self.rows
+    }
+
+    pub(crate) fn native_rows(
+        &self,
+    ) -> Result<Vec<ObservedPitObservationNativeRow>, PitSnapshotError> {
+        self.rows
+            .iter()
+            .zip(&self.row_bytes)
+            .enumerate()
+            .map(|(offset, (row, row_bytes))| {
+                Ok(ObservedPitObservationNativeRow {
+                    ordinal: u64::try_from(offset)
+                        .ok()
+                        .and_then(|value| value.checked_add(1))
+                        .ok_or(PitSnapshotError::InvalidObservationBatch)?,
+                    symbolic_key: row.symbolic_key.clone(),
+                    member_key: row.member_key.clone(),
+                    row_bytes: row_bytes.clone(),
+                })
+            })
+            .collect()
+    }
+}
+
+pub(crate) fn prepare_observation_batch(
+    snapshot: &UntrustedPitSnapshotProposal,
+    proposal: &UntrustedPitObservationBatchProposal,
+) -> Result<PreparedPitObservationBatch, PitSnapshotError> {
+    let prepared = prepare_canonical_observation_rows(proposal)?;
+    for row in &prepared.rows {
+        validate_observation_against_claims(
+            row,
+            &snapshot.request,
+            &snapshot.evidence,
+            snapshot.request.source_binding.binding_id,
+        )?;
+    }
+
+    if prepared.digest != snapshot.evidence.normalized_records_digest {
+        return Err(PitSnapshotError::ReplayConflict);
+    }
+    Ok(prepared)
+}
+
+pub(crate) fn derive_observation_batch_digest(
+    proposal: &UntrustedPitObservationBatchProposal,
+) -> Result<BindingDigest, PitSnapshotError> {
+    prepare_canonical_observation_rows(proposal).map(|prepared| prepared.digest)
+}
+
+fn prepare_canonical_observation_rows(
+    proposal: &UntrustedPitObservationBatchProposal,
+) -> Result<PreparedPitObservationBatch, PitSnapshotError> {
+    let rows = proposal
+        .rows
+        .iter()
+        .map(|row| VerifiedPitObservation {
+            symbolic_key: row.symbolic_key.clone(),
+            member_key: row.member_key.clone(),
+            instrument: row.instrument.clone(),
+            channel: row.channel.clone(),
+            data_kind: row.data_kind.clone(),
+            timeframe: row.timeframe.clone(),
+            field: row.field.clone(),
+            value_mantissa: row.value_mantissa,
+            value_scale: row.value_scale,
+            event_effective: row.event_effective,
+            provider_available: row.provider_available,
+            retrieval: row.retrieval,
+            correction_publication: row.correction_publication,
+            source_binding_identity: row.source_binding_identity,
+            source_frontier_digest: row.source_frontier_digest,
+            instrument_master_digest: row.instrument_master_digest,
+            universe_selection_digest: row.universe_selection_digest,
+            market_semantics_identity: row.market_semantics_identity,
+            correction_stream_identity: row.correction_stream_identity.clone(),
+            correction_sequence: row.correction_sequence,
+            correction_frontier_digest: row.correction_frontier_digest,
+        })
+        .collect::<Vec<_>>();
+    let row_bytes = rows
+        .iter()
+        .map(canonical_observation_bytes)
+        .collect::<Vec<_>>();
+    let bytes = canonical_batch_bytes(&rows);
+    let decoded = decode_canonical_observation_batch(&bytes, &row_bytes)?;
+    if decoded != rows {
+        return Err(PitSnapshotError::InvalidObservationBatch);
+    }
+    let digest = digest(&bytes);
+    Ok(PreparedPitObservationBatch {
+        digest,
+        bytes,
+        row_bytes,
+        rows,
+    })
+}
+
+pub(crate) fn verify_observation_batch(
+    aggregate: &PitSnapshotCommitAggregate,
+    observed_source_binding_identity: BindingDigest,
+    observed_source_binding_lineage_root: BindingDigest,
+    observed_source_binding_lineage_version: u64,
+    observed_digest: BindingDigest,
+    batch_bytes: &[u8],
+    stored_rows: &[ObservedPitObservationNativeRow],
+) -> Result<VerifiedPitObservationBatch, PitSnapshotError> {
+    if !verify_aggregate(aggregate)
+        || aggregate.fact().disposition() != PitSnapshotDisposition::Available
+        || batch_bytes.is_empty()
+        || batch_bytes.len() > MAX_CANONICAL_BYTES
+        || stored_rows.is_empty()
+        || stored_rows.len() > MAX_OBSERVATIONS
+        || observed_source_binding_identity != aggregate.fact().source_binding_identity()
+        || observed_source_binding_lineage_root != aggregate.fact().source_binding_lineage_root()
+        || observed_source_binding_lineage_version
+            != aggregate.fact().source_binding_lineage_version()
+    {
+        return Err(PitSnapshotError::ObservationBatchUnavailable);
+    }
+    let canonical_digest = digest(batch_bytes);
+    if canonical_digest != observed_digest
+        || canonical_digest != aggregate.fact().evidence().normalized_records_digest
+    {
+        return Err(PitSnapshotError::ObservationBatchUnavailable);
+    }
+
+    let row_bytes = stored_rows
+        .iter()
+        .map(|row| row.row_bytes.clone())
+        .collect::<Vec<_>>();
+    let observations = decode_canonical_observation_batch(batch_bytes, &row_bytes)?;
+    for (offset, (native, observation)) in stored_rows.iter().zip(&observations).enumerate() {
+        let expected_ordinal = u64::try_from(offset)
+            .ok()
+            .and_then(|value| value.checked_add(1))
+            .ok_or(PitSnapshotError::ObservationBatchUnavailable)?;
+
+        if native.ordinal != expected_ordinal
+            || native.symbolic_key != observation.symbolic_key
+            || native.member_key != observation.member_key
+        {
+            return Err(PitSnapshotError::ObservationBatchUnavailable);
+        }
+    }
+
+    for observation in &observations {
+        validate_observation_against_fact(observation, aggregate.fact())?;
+    }
+    let fact = aggregate.fact();
+    Ok(VerifiedPitObservationBatch {
+        request_identity: fact.request_identity(),
+        request_digest: fact.request_digest(),
+        snapshot_identity: fact.snapshot_identity(),
+        fact_digest: fact.digest(),
+        source_binding_identity: fact.source_binding_identity(),
+        source_binding_lineage_root: fact.source_binding_lineage_root(),
+        source_binding_lineage_version: fact.source_binding_lineage_version(),
+        source_frontier_digest: fact.evidence().source_frontier.digest,
+        correction_frontier_digest: fact.evidence().correction_frontier.digest,
+        instrument_master_digest: fact.request().instrument_master_digest,
+        universe_selection_digest: fact.request().universe_selection_digest,
+        market_semantics_identity: fact.request().market_semantics_identity,
+        time_evidence: fact.request().time_evidence.clone(),
+        digest: canonical_digest,
+        observations: observations.into_boxed_slice(),
+    })
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ObservedPitObservationNativeRow {
+    pub(crate) ordinal: u64,
+    pub(crate) symbolic_key: String,
+    pub(crate) member_key: String,
+    pub(crate) row_bytes: Vec<u8>,
+}
+
+pub(crate) fn decode_canonical_observation_batch(
+    batch_bytes: &[u8],
+    stored_rows: &[Vec<u8>],
+) -> Result<Vec<VerifiedPitObservation>, PitSnapshotError> {
+    let mut decoder = Decoder::new(batch_bytes);
+    decoder.expect_bytes(OBSERVATION_BATCH_DOMAIN)?;
+    let count = decoder.usize()?;
+    if count == 0 || count > MAX_OBSERVATIONS || count != stored_rows.len() {
+        return Err(PitSnapshotError::InvalidObservationBatch);
+    }
+    let mut observations = Vec::with_capacity(count);
+    let mut prior_key: Option<(String, String)> = None;
+
+    for stored_row in stored_rows {
+        let embedded = decoder.bytes()?;
+        if embedded != stored_row.as_slice() {
+            return Err(PitSnapshotError::InvalidObservationBatch);
+        }
+        let observation = decode_observation(stored_row)?;
+        let key = (
+            observation.symbolic_key.clone(),
+            observation.member_key.clone(),
+        );
+
+        if prior_key.as_ref().is_some_and(|prior| prior >= &key) {
+            return Err(PitSnapshotError::InvalidObservationBatch);
+        }
+        prior_key = Some(key);
+        observations.push(observation);
+    }
+    decoder.finish()?;
+
+    if canonical_batch_bytes(&observations) != batch_bytes {
+        return Err(PitSnapshotError::InvalidObservationBatch);
+    }
+    Ok(observations)
+}
+
+fn validate_observation_against_fact(
+    row: &VerifiedPitObservation,
+    fact: &PitSnapshotFact,
+) -> Result<(), PitSnapshotError> {
+    validate_observation_against_claims(
+        row,
+        fact.request(),
+        fact.evidence(),
+        fact.source_binding_identity(),
+    )
+}
+
+fn validate_observation_against_claims(
+    row: &VerifiedPitObservation,
+    request: &UntrustedPitSnapshotRequest,
+    evidence: &super::UntrustedPitSnapshotEvidence,
+    source_binding_identity: BindingDigest,
+) -> Result<(), PitSnapshotError> {
+    let time = &request.time_evidence;
+    let correction_publication = time
+        .correction_publication
+        .as_ref()
+        .ok_or(PitSnapshotError::InvalidObservationBatch)?;
+    let common_clock = time.event_effective.clock_identity == time.decision_cut.clock_identity
+        && time.event_effective.clock_epoch == time.decision_cut.clock_epoch
+        && time.provider_available.clock_identity == time.decision_cut.clock_identity
+        && time.provider_available.clock_epoch == time.decision_cut.clock_epoch
+        && time.retrieval.clock_identity == time.decision_cut.clock_identity
+        && time.retrieval.clock_epoch == time.decision_cut.clock_epoch
+        && correction_publication.clock_identity == time.decision_cut.clock_identity
+        && correction_publication.clock_epoch == time.decision_cut.clock_epoch;
+    let ordered_times = row.event_effective <= row.provider_available
+        && row.provider_available <= row.correction_publication
+        && row.correction_publication <= row.retrieval
+        && row.retrieval <= time.decision_cut.value
+        && time.decision_cut.value < time.valid_through;
+    let exact = row.source_binding_identity == source_binding_identity
+        && row.source_frontier_digest == evidence.source_frontier.digest
+        && row.instrument_master_digest == request.instrument_master_digest
+        && row.universe_selection_digest == request.universe_selection_digest
+        && row.market_semantics_identity == request.market_semantics_identity
+        && row.correction_stream_identity == evidence.correction_frontier.stream_identity
+        && row.correction_sequence == evidence.correction_frontier.sequence
+        && row.correction_frontier_digest == evidence.correction_frontier.digest
+        && row.event_effective == time.event_effective.value
+        && row.provider_available == time.provider_available.value
+        && row.retrieval == time.retrieval.value
+        && row.correction_publication == correction_publication.value;
+
+    if common_clock && ordered_times && exact {
+        Ok(())
+    } else {
+        Err(PitSnapshotError::InvalidObservationBatch)
+    }
+}
+
+fn decode_observation(bytes: &[u8]) -> Result<VerifiedPitObservation, PitSnapshotError> {
+    let mut decoder = Decoder::new(bytes);
+    decoder.expect_bytes(OBSERVATION_ROW_DOMAIN)?;
+    let row = VerifiedPitObservation {
+        symbolic_key: decoder.canonical_key()?,
+        member_key: decoder.canonical_key()?,
+        instrument: decoder.canonical_instrument()?,
+        channel: decoder.known(OBSERVATION_CHANNELS)?,
+        data_kind: decoder.known(OBSERVATION_DATA_KINDS)?,
+        timeframe: decoder.canonical_timeframe()?,
+        field: decoder.known(&[
+            "OPEN",
+            "HIGH",
+            "LOW",
+            "CLOSE",
+            "VOLUME",
+            "BID_PRICE",
+            "ASK_PRICE",
+            "BID_SIZE",
+            "ASK_SIZE",
+            "LAST_PRICE",
+            "LAST_SIZE",
+            "VALUE",
+        ])?,
+        value_mantissa: decoder.i128()?,
+        value_scale: decoder.u8()?,
+        event_effective: decoder.u64()?,
+        provider_available: decoder.u64()?,
+        retrieval: decoder.u64()?,
+        correction_publication: decoder.u64()?,
+        source_binding_identity: decoder.digest()?,
+        source_frontier_digest: decoder.digest()?,
+        instrument_master_digest: decoder.digest()?,
+        universe_selection_digest: decoder.digest()?,
+        market_semantics_identity: decoder.digest()?,
+        correction_stream_identity: decoder.canonical_key()?,
+        correction_sequence: decoder.u64()?,
+        correction_frontier_digest: decoder.digest()?,
+    };
+    decoder.finish()?;
+
+    if row.value_scale > 18
+        || (row.value_scale > 0 && row.value_mantissa % 10 == 0)
+        || row.event_effective == 0
+        || row.provider_available == 0
+        || row.retrieval == 0
+        || row.correction_publication == 0
+        || row.event_effective > row.provider_available
+        || row.provider_available > row.correction_publication
+        || row.correction_publication > row.retrieval
+        || row.correction_sequence == 0
+        || canonical_observation_bytes(&row) != bytes
+    {
+        return Err(PitSnapshotError::InvalidObservationBatch);
+    }
+    Ok(row)
+}
+
+pub(crate) fn canonical_batch_bytes(rows: &[VerifiedPitObservation]) -> Vec<u8> {
+    let mut encoder = Encoder::new(OBSERVATION_BATCH_DOMAIN);
+    encoder.u64(rows.len() as u64);
+    for row in rows {
+        encoder.bytes(&canonical_observation_bytes(row));
+    }
+    encoder.finish()
+}
+
+pub(crate) fn canonical_observation_bytes(row: &VerifiedPitObservation) -> Vec<u8> {
+    let mut encoder = Encoder::new(OBSERVATION_ROW_DOMAIN);
+    encoder.string(&row.symbolic_key);
+    encoder.string(&row.member_key);
+    encoder.string(&row.instrument);
+    encoder.string(&row.channel);
+    encoder.string(&row.data_kind);
+    encoder.string(&row.timeframe);
+    encoder.string(&row.field);
+    encoder.i128(row.value_mantissa);
+    encoder.u8(row.value_scale);
+    encoder.u64(row.event_effective);
+    encoder.u64(row.provider_available);
+    encoder.u64(row.retrieval);
+    encoder.u64(row.correction_publication);
+    encoder.digest(row.source_binding_identity);
+    encoder.digest(row.source_frontier_digest);
+    encoder.digest(row.instrument_master_digest);
+    encoder.digest(row.universe_selection_digest);
+    encoder.digest(row.market_semantics_identity);
+    encoder.string(&row.correction_stream_identity);
+    encoder.u64(row.correction_sequence);
+    encoder.digest(row.correction_frontier_digest);
+    encoder.finish()
+}
+
+struct Decoder<'a> {
+    remaining: &'a [u8],
+}
+
+impl<'a> Decoder<'a> {
+    const fn new(bytes: &'a [u8]) -> Self {
+        Self { remaining: bytes }
+    }
+
+    fn take(&mut self, len: usize) -> Result<&'a [u8], PitSnapshotError> {
+        if len > self.remaining.len() {
+            return Err(PitSnapshotError::InvalidObservationBatch);
+        }
+        let (value, remaining) = self.remaining.split_at(len);
+        self.remaining = remaining;
+        Ok(value)
+    }
+
+    fn u8(&mut self) -> Result<u8, PitSnapshotError> {
+        Ok(*self
+            .take(1)?
+            .first()
+            .ok_or(PitSnapshotError::InvalidObservationBatch)?)
+    }
+
+    fn u64(&mut self) -> Result<u64, PitSnapshotError> {
+        let bytes: [u8; 8] = self
+            .take(8)?
+            .try_into()
+            .map_err(|_| PitSnapshotError::InvalidObservationBatch)?;
+        Ok(u64::from_be_bytes(bytes))
+    }
+
+    fn usize(&mut self) -> Result<usize, PitSnapshotError> {
+        usize::try_from(self.u64()?).map_err(|_| PitSnapshotError::InvalidObservationBatch)
+    }
+
+    fn i128(&mut self) -> Result<i128, PitSnapshotError> {
+        let bytes: [u8; 16] = self
+            .take(16)?
+            .try_into()
+            .map_err(|_| PitSnapshotError::InvalidObservationBatch)?;
+        Ok(i128::from_be_bytes(bytes))
+    }
+
+    fn bytes(&mut self) -> Result<&'a [u8], PitSnapshotError> {
+        let len = self.usize()?;
+        if len > MAX_CANONICAL_BYTES {
+            return Err(PitSnapshotError::InvalidObservationBatch);
+        }
+        self.take(len)
+    }
+
+    fn expect_bytes(&mut self, expected: &[u8]) -> Result<(), PitSnapshotError> {
+        if self.bytes()? == expected {
+            Ok(())
+        } else {
+            Err(PitSnapshotError::InvalidObservationBatch)
+        }
+    }
+
+    fn string(&mut self) -> Result<String, PitSnapshotError> {
+        let bytes = self.bytes()?;
+        if bytes.is_empty() || bytes.len() > MAX_CANONICAL_COMPONENT {
+            return Err(PitSnapshotError::InvalidObservationBatch);
+        }
+        std::str::from_utf8(bytes)
+            .map(str::to_owned)
+            .map_err(|_| PitSnapshotError::InvalidObservationBatch)
+    }
+
+    fn canonical_key(&mut self) -> Result<String, PitSnapshotError> {
+        let value = self.string()?;
+        if value.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-' | b'/')
+        }) {
+            Ok(value)
+        } else {
+            Err(PitSnapshotError::InvalidObservationBatch)
+        }
+    }
+
+    fn canonical_instrument(&mut self) -> Result<String, PitSnapshotError> {
+        let value = self.canonical_key()?;
+        if value.bytes().any(|byte| byte.is_ascii_lowercase()) {
+            Err(PitSnapshotError::InvalidObservationBatch)
+        } else {
+            Ok(value)
+        }
+    }
+
+    fn known(&mut self, known: &[&str]) -> Result<String, PitSnapshotError> {
+        let value = self.string()?;
+        if known.contains(&value.as_str()) {
+            Ok(value)
+        } else {
+            Err(PitSnapshotError::InvalidObservationBatch)
+        }
+    }
+
+    fn canonical_timeframe(&mut self) -> Result<String, PitSnapshotError> {
+        let value = self.string()?;
+        if value == "TICK" {
+            return Ok(value);
+        }
+        let digit_count = value.bytes().take_while(u8::is_ascii_digit).count();
+        let (count, unit) = value.split_at(digit_count);
+        let valid_count = !count.is_empty()
+            && !count.starts_with('0')
+            && count.parse::<u64>().is_ok_and(|count| count > 0);
+        if valid_count && matches!(unit, "NS" | "US" | "MS" | "S" | "M" | "H" | "D") {
+            Ok(value)
+        } else {
+            Err(PitSnapshotError::InvalidObservationBatch)
+        }
+    }
+
+    fn digest(&mut self) -> Result<BindingDigest, PitSnapshotError> {
+        let bytes: [u8; 32] = self
+            .bytes()?
+            .try_into()
+            .map_err(|_| PitSnapshotError::InvalidObservationBatch)?;
+        if bytes == [0; 32] {
+            Err(PitSnapshotError::InvalidObservationBatch)
+        } else {
+            Ok(BindingDigest::from_untrusted_bytes(bytes))
+        }
+    }
+
+    fn finish(self) -> Result<(), PitSnapshotError> {
+        if self.remaining.is_empty() {
+            Ok(())
+        } else {
+            Err(PitSnapshotError::InvalidObservationBatch)
+        }
+    }
+}
+
 fn digest(bytes: &[u8]) -> BindingDigest {
     BindingDigest::from_untrusted_bytes(*blake3::hash(bytes).as_bytes())
 }
@@ -1141,6 +1675,10 @@ impl Encoder {
     }
 
     fn u64(&mut self, value: u64) {
+        self.0.extend_from_slice(&value.to_be_bytes());
+    }
+
+    fn i128(&mut self, value: i128) {
         self.0.extend_from_slice(&value.to_be_bytes());
     }
 

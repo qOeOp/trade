@@ -8,7 +8,8 @@ use vibe_operator_authorization::{
 };
 use vibe_product_edge::{
     AgentOperationManifestProposalV1, ProductEdgeAuthorizationTrustV1,
-    ProductEdgeBootstrapProposalV1, ProductEdgePostgresOwnerV1,
+    ProductEdgeBootstrapProposalV1, ProductEdgePostgresOwnerV1, SOURCE_INTAKE_OPERATION_SCHEMA_V1,
+    SOURCE_INTAKE_OPERATION_V1, SOURCE_INTAKE_REQUIRED_EFFECTS_V1, SOURCE_INTAKE_TARGET_OWNER_V1,
 };
 
 #[derive(Deserialize)]
@@ -55,16 +56,28 @@ async fn main() -> anyhow::Result<()> {
         manifest(
             "research_goal.submit_or_resolve.v2",
             "sourced-research-goal-v2",
+            "R_AND_D",
             vec!["R_AND_D_RESEARCH_MUTATION_V1".to_string()],
             &config,
         ),
         manifest(
             "artifact_build.submit_or_resolve.v1",
             "rd-artifact-build-request-v1",
+            "R_AND_D",
             vec![
                 "R_AND_D_ARTIFACT_BUILD_MUTATION_V1".to_string(),
                 "R_AND_D_PROVIDER_INVOCATION_V1".to_string(),
             ],
+            &config,
+        ),
+        manifest(
+            SOURCE_INTAKE_OPERATION_V1,
+            SOURCE_INTAKE_OPERATION_SCHEMA_V1,
+            SOURCE_INTAKE_TARGET_OWNER_V1,
+            SOURCE_INTAKE_REQUIRED_EFFECTS_V1
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
             &config,
         ),
     ];
@@ -90,6 +103,7 @@ async fn main() -> anyhow::Result<()> {
                 audience: config.authorization_audience,
                 permissions: vec![
                     "research:artifact-build".to_string(),
+                    "research:source-intake".to_string(),
                     "research:submit".to_string(),
                     "research:view".to_string(),
                 ],
@@ -127,13 +141,14 @@ async fn main() -> anyhow::Result<()> {
 fn manifest(
     operation: &str,
     operation_schema: &str,
+    target_owner: &str,
     allowed_effects: Vec<String>,
     config: &BootstrapConfigV1,
 ) -> AgentOperationManifestProposalV1 {
     AgentOperationManifestProposalV1 {
         operation: operation.to_string(),
         operation_schema: operation_schema.to_string(),
-        target_owner: "R_AND_D".to_string(),
+        target_owner: target_owner.to_string(),
         allowed_effects,
         prohibited_effects: vec![
             "LIVE_TRADING_V1".to_string(),

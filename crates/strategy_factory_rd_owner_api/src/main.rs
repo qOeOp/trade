@@ -11,6 +11,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
+use vibe_data::owner::{
+    source_binding::SourceBindingOwnerResolver, source_binding_resolver_from_admitted_postgres,
+};
 use vibe_deployment_store_admission::{
     RdOwnerStoreAdmissionBootstrap, admit_rd_owner_market_data_postgres,
 };
@@ -40,6 +43,8 @@ use vibe_strategy_factory::{
     trial_family::{TrialFamilyDirectResultV1, TrialFamilyError},
 };
 
+mod source_intake;
+
 #[derive(Clone)]
 struct ApiState {
     product_edge: Arc<ProductEdgePostgresOwnerV1>,
@@ -48,6 +53,7 @@ struct ApiState {
     token_digest: [u8; 32],
     request_proof_digest: String,
     allow_acceptance_faults: bool,
+    _market_data_source_binding: Option<Arc<dyn SourceBindingOwnerResolver>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -121,7 +127,7 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .init();
-    bootstrap_deployment_store_admission().await?;
+    let market_data_source_binding = bootstrap_deployment_store_admission().await?;
     let database_url = required_env("RD_OWNER_DATABASE_URL")?;
     let qualification_database_url = required_env("QUALIFICATION_OWNER_DATABASE_URL")?;
     let product_edge_database_url = required_env("PRODUCT_EDGE_DATABASE_URL")?;
@@ -152,14 +158,31 @@ async fn main() -> anyhow::Result<()> {
         .await?,
     );
     let state = ApiState {
-        product_edge,
+        product_edge: product_edge.clone(),
         owner,
         artifact_owner,
         token_digest,
-        request_proof_digest,
+        request_proof_digest: request_proof_digest.clone(),
         allow_acceptance_faults: env::var("RD_OWNER_ENABLE_ACCEPTANCE_FAULTS").as_deref()
             == Ok("1"),
+        _market_data_source_binding: market_data_source_binding,
     };
+    #[cfg(not(feature = "sealed-source-intake-acceptance"))]
+    let source_intake = source_intake::production_router(
+        product_edge.clone(),
+        &database_url,
+        token_digest,
+        request_proof_digest.clone(),
+    )
+    .await?;
+    #[cfg(feature = "sealed-source-intake-acceptance")]
+    let source_intake = source_intake::sealed_acceptance_router(
+        product_edge.clone(),
+        &database_url,
+        token_digest,
+        request_proof_digest.clone(),
+    )
+    .await?;
     let app = Router::new()
         .route("/health", get(health))
         .route(
@@ -197,7 +220,8 @@ async fn main() -> anyhow::Result<()> {
             "/v1/artifact-builds/{build_request_identity}/attempts/{attempt_identity}/resolve",
             post(resolve_artifact_build),
         )
-        .with_state(state);
+        .with_state(state)
+        .merge(source_intake);
     let address = env_or("RD_OWNER_LISTEN", "0.0.0.0:8080");
     let listener = TcpListener::bind(&address).await?;
     tracing::info!(listen = %address, "R&D Owner API ready");
@@ -205,30 +229,34 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn bootstrap_deployment_store_admission() -> anyhow::Result<()> {
+async fn bootstrap_deployment_store_admission()
+-> anyhow::Result<Option<Arc<dyn SourceBindingOwnerResolver>>> {
     enforce_deployment_store_admission(RdOwnerStoreAdmissionBootstrap::from_environment()?).await
 }
 
 #[cfg(test)]
 async fn bootstrap_deployment_store_admission_from_lookup(
     lookup: impl FnMut(&str) -> Option<String>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<Arc<dyn SourceBindingOwnerResolver>>> {
     enforce_deployment_store_admission(RdOwnerStoreAdmissionBootstrap::from_lookup(lookup)?).await
 }
 
 async fn enforce_deployment_store_admission(
     bootstrap: RdOwnerStoreAdmissionBootstrap,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<Arc<dyn SourceBindingOwnerResolver>>> {
     match bootstrap {
-        RdOwnerStoreAdmissionBootstrap::Disabled => Ok(()),
+        RdOwnerStoreAdmissionBootstrap::Disabled => Ok(None),
         RdOwnerStoreAdmissionBootstrap::Required(request) => {
-            let receipt = admit_rd_owner_market_data_postgres(&request).await?;
+            let capability = admit_rd_owner_market_data_postgres(&request).await?;
+            let receipt_identity = capability.receipt_identity().to_owned();
+            let consumer_identity = capability.consumer_identity().to_owned();
+            let resolver = source_binding_resolver_from_admitted_postgres(capability).await?;
             tracing::info!(
-                receipt_identity = receipt.receipt_identity(),
-                consumer = receipt.consumer_identity(),
-                "sealed Deployment Store Admission receipt consumed; governed Market Data repository remains uncomposed"
+                receipt_identity,
+                consumer = consumer_identity,
+                "sealed Deployment Store Admission capability consumed by Market Data Source Binding read port"
             );
-            Ok(())
+            Ok(Some(resolver))
         }
     }
 }
@@ -1351,7 +1379,8 @@ mod tests {
             (name == "DEPLOYMENT_STORE_ADMISSION_MODE").then(|| "positive".to_string())
         })
         .await
-        .unwrap_err();
+        .err()
+        .expect("invalid mode must fail closed");
         assert!(
             invalid_mode
                 .downcast_ref::<vibe_deployment_store_admission::BootstrapConfigurationError>()
@@ -1362,7 +1391,8 @@ mod tests {
             (name == "DEPLOYMENT_STORE_ADMISSION_MODE").then(String::new)
         })
         .await
-        .unwrap_err();
+        .err()
+        .expect("empty mode must fail closed");
         assert!(
             empty_mode
                 .downcast_ref::<vibe_deployment_store_admission::BootstrapConfigurationError>()
@@ -1377,7 +1407,8 @@ mod tests {
             _ => None,
         })
         .await
-        .unwrap_err();
+        .err()
+        .expect("missing head must fail closed");
         assert!(
             missing_head
                 .downcast_ref::<vibe_deployment_store_admission::BootstrapConfigurationError>()
@@ -1397,7 +1428,8 @@ mod tests {
             _ => None,
         })
         .await
-        .unwrap_err();
+        .err()
+        .expect("unavailable production admission must fail closed");
         assert!(
             unavailable
                 .downcast_ref::<vibe_deployment_store_admission::DeploymentStoreAdmissionError>()
@@ -1614,6 +1646,7 @@ mod tests {
             token_digest,
             request_proof_digest,
             allow_acceptance_faults: false,
+            _market_data_source_binding: None,
         };
         let headers = bearer_headers(token);
         let research_request_identity = format!("rd-api-retry-research-{suffix}");

@@ -10,23 +10,30 @@ publish = false
 [lints]
 workspace = true
 
+[features]
+default = []
+sealed-source-intake-acceptance = [
+  "vibe-strategy-factory/sealed-source-intake-acceptance",
+]
+
 [dependencies]
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 axum = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
+sqlx = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+vibe-data = { workspace = true }
 vibe-deployment-store-admission = { workspace = true }
 vibe-product-edge = { workspace = true }
 vibe-strategy-factory = { workspace = true }
 
 [dev-dependencies]
-async-trait = { workspace = true }
 rstest = { workspace = true }
-sqlx = { workspace = true }
 vibe-operator-authorization = { workspace = true }
 vibe-rd-artifact-invocation-custody = { workspace = true }
 vibe-testkit = { workspace = true, features = ["postgres"] }

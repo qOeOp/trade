@@ -20,6 +20,8 @@ pub use invocation::{
 pub use postgres::{
     ProductEdgePostgresOwnerV1, resolve_admission_for_downstream_in_transaction,
     resolve_portfolio_read_policy_in_transaction,
+    resolve_source_invocation_claim_for_downstream_in_transaction,
+    resolve_source_invocation_started_for_downstream_in_transaction,
 };
 
 pub const PRODUCT_EDGE_SCHEMA_V1: u32 = 1;
@@ -35,6 +37,15 @@ pub const PORTFOLIO_READ_ONLY_EFFECT_POLICY_V1: &str = "READ_ONLY_NO_WRITES_NO_E
 pub const ARTIFACT_BUILD_REQUIRED_EFFECTS_V1: [&str; 2] = [
     "R_AND_D_ARTIFACT_BUILD_MUTATION_V1",
     "R_AND_D_PROVIDER_INVOCATION_V1",
+];
+pub const SOURCE_INTAKE_OPERATION_V1: &str =
+    "source_intake.openalex_work_by_doi.submit_or_resolve.v1";
+pub const SOURCE_INTAKE_OPERATION_SCHEMA_V1: &str =
+    "rd-source-intake-openalex-work-by-doi-request-v1";
+pub const SOURCE_INTAKE_TARGET_OWNER_V1: &str = "R_AND_D";
+pub const SOURCE_INTAKE_REQUIRED_EFFECTS_V1: [&str; 2] = [
+    "R_AND_D_SOURCE_ACQUISITION_MUTATION_V1",
+    "R_AND_D_SOURCE_PROVIDER_INVOCATION_V1",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -334,6 +345,28 @@ pub struct ProductEdgeAdmissionReadbackV1 {
     current_policy_evidence: Option<ProductEdgeCurrentPolicyEvidenceV1>,
 }
 
+/// Immutable authority lineage shared by historical and current admission
+/// observations. The observation cut and current evidence remain outside this
+/// identity and must be checked separately at the consuming effect boundary.
+#[derive(Debug, PartialEq, Eq, Serialize)]
+pub struct ProductEdgeAdmissionLineageV1<'a> {
+    locator: &'a ProductEdgeAdmissionLocatorV1,
+    receipt: &'a ProductEdgeAdmissionReceiptV1,
+    request: &'a ProductEdgeAdmissionRequestV1,
+    deployment_identity: &'a str,
+    binding_identity: &'a str,
+    binding_generation: u64,
+    history_head_identity: &'a str,
+    effective_principal: &'a str,
+    authorized_scope: &'a [String],
+    scope_policy_version: &'a str,
+    capability_policy_version: &'a str,
+    audit_policy_version: &'a str,
+    authorization: &'a UntrustedCanonicalAuthorizationEvidenceV1,
+    manifest_identity: &'a str,
+    manifest_digest: &'a str,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ProductEdgeCurrentPolicyEvidenceV1 {
     binding_identity: String,
@@ -352,6 +385,25 @@ struct ProductEdgeCurrentPolicyEvidenceV1 {
 pub struct ProductEdgeInvocationClaimRequestV1 {
     pub admission: ProductEdgeAdmissionLocatorV1,
     pub attempt_identity: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProductEdgeSourceInvocationClaimRequestV1 {
+    pub admission: ProductEdgeAdmissionLocatorV1,
+    pub attempt_identity: String,
+    pub binding_identity: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProductEdgeSourceInvocationStartRequestV1 {
+    pub request_identity: String,
+    pub admission_identity: String,
+    pub attempt_identity: String,
+    pub claim_identity: String,
+    pub reservation_identity: String,
+    pub reservation_digest: String,
 }
 
 impl ProductEdgeAdmissionReadbackV1 {
@@ -394,23 +446,27 @@ impl ProductEdgeAdmissionReadbackV1 {
     pub fn authorization(&self) -> &UntrustedCanonicalAuthorizationEvidenceV1 {
         &self.authorization
     }
+    pub fn immutable_lineage(&self) -> ProductEdgeAdmissionLineageV1<'_> {
+        ProductEdgeAdmissionLineageV1 {
+            locator: &self.locator,
+            receipt: &self.receipt,
+            request: &self.request,
+            deployment_identity: &self.deployment_identity,
+            binding_identity: &self.binding_identity,
+            binding_generation: self.binding_generation,
+            history_head_identity: &self.history_head_identity,
+            effective_principal: &self.effective_principal,
+            authorized_scope: &self.authorized_scope,
+            scope_policy_version: &self.scope_policy_version,
+            capability_policy_version: &self.capability_policy_version,
+            audit_policy_version: &self.audit_policy_version,
+            authorization: &self.authorization,
+            manifest_identity: &self.manifest_identity,
+            manifest_digest: &self.manifest_digest,
+        }
+    }
     pub fn has_same_admission_lineage(&self, other: &Self) -> bool {
-        self.locator == other.locator
-            && self.receipt == other.receipt
-            && self.request == other.request
-            && self.deployment_identity == other.deployment_identity
-            && self.binding_identity == other.binding_identity
-            && self.binding_generation == other.binding_generation
-            && self.history_head_identity == other.history_head_identity
-            && self.effective_principal == other.effective_principal
-            && self.authorized_scope == other.authorized_scope
-            && self.scope_policy_version == other.scope_policy_version
-            && self.capability_policy_version == other.capability_policy_version
-            && self.audit_policy_version == other.audit_policy_version
-            && self.authorization == other.authorization
-            && self.manifest_identity == other.manifest_identity
-            && self.manifest_digest == other.manifest_digest
-            && self.read_cut_epoch_ms == other.read_cut_epoch_ms
+        self.immutable_lineage() == other.immutable_lineage()
     }
     /// Revalidates both the admission's original authorization and the
     /// directly resolved current policy evidence held by the Product Edge

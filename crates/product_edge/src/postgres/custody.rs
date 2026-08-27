@@ -29,6 +29,7 @@ pub(super) async fn verify_invocation_admission_lineage(
     transaction: &mut Transaction<'_, Postgres>,
     admission: &ProductEdgeAdmissionReadbackV1,
     claim: &StoredInvocationClaimV1,
+    expected_effect: &str,
 ) -> Result<(), ProductEdgeError> {
     let receipt = load_invocation_admission_receipt(transaction, &claim.claim_identity)
         .await?
@@ -53,7 +54,7 @@ pub(super) async fn verify_invocation_admission_lineage(
         || receipt.manifest_identity != admission.manifest_identity()
         || receipt.manifest_digest != admission.manifest_digest()
         || receipt.attempt_identity != claim.attempt_identity
-        || receipt.effect != "R_AND_D_PROVIDER_INVOCATION_V1"
+        || receipt.effect != expected_effect
         || receipt.claim_identity != claim.claim_identity
         || receipt.receipt_identity != claim.invocation_admission_receipt_identity
         || receipt.receipt_digest != claim.invocation_admission_receipt_digest
@@ -67,6 +68,7 @@ pub(super) async fn load_invocation_admission_for_locator(
     transaction: &mut Transaction<'_, Postgres>,
     locator: &ProductEdgeAdmissionLocatorV1,
     claim: &StoredInvocationClaimV1,
+    expected_effect: &str,
 ) -> Result<StoredInvocationAdmissionReceiptV1, ProductEdgeError> {
     let receipt = load_invocation_admission_receipt(transaction, &claim.claim_identity)
         .await?
@@ -79,7 +81,7 @@ pub(super) async fn load_invocation_admission_for_locator(
         || receipt.claim_identity != claim.claim_identity
         || receipt.receipt_identity != claim.invocation_admission_receipt_identity
         || receipt.receipt_digest != claim.invocation_admission_receipt_digest
-        || receipt.effect != "R_AND_D_PROVIDER_INVOCATION_V1"
+        || receipt.effect != expected_effect
     {
         return Err(ProductEdgeError::Unavailable);
     }

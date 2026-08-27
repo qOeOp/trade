@@ -1,0 +1,167 @@
+name: ${SEALED_ACCEPTANCE_PROJECT:?set SEALED_ACCEPTANCE_PROJECT}
+# yamllint disable rule:line-length
+
+services:
+  postgres:
+    image: postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297
+    pull_policy: never
+    restart: "no"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${SEALED_POSTGRES_PASSWORD:?set SEALED_POSTGRES_PASSWORD}
+      POSTGRES_DB: ${SEALED_WINDMILL_DATABASE:?set SEALED_WINDMILL_DATABASE}
+      RD_OWNER_DB_PASSWORD: ${SEALED_RD_OWNER_DB_PASSWORD:?set SEALED_RD_OWNER_DB_PASSWORD}
+      OPERATOR_AUTHORIZATION_DB_PASSWORD: ${SEALED_OPERATOR_AUTHORIZATION_DB_PASSWORD:?set SEALED_OPERATOR_AUTHORIZATION_DB_PASSWORD}
+      PRODUCT_EDGE_DB_PASSWORD: ${SEALED_PRODUCT_EDGE_DB_PASSWORD:?set SEALED_PRODUCT_EDGE_DB_PASSWORD}
+    volumes:
+      - sealed-postgres-data:/var/lib/postgresql/data
+      - ./postgres-init/00-create-rd-owner.sh:/docker-entrypoint-initdb.d/00-create-rd-owner.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 2s
+      retries: 60
+    networks:
+      - sealed-internal
+    security_opt:
+      - no-new-privileges:true
+
+  authority-custody-migrate:
+    image: postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297
+    pull_policy: never
+    restart: "no"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DATABASE: rd_owner
+      POSTGRES_PASSWORD: ${SEALED_POSTGRES_PASSWORD:?set SEALED_POSTGRES_PASSWORD}
+      RD_OWNER_DB_PASSWORD: ${SEALED_RD_OWNER_DB_PASSWORD:?set SEALED_RD_OWNER_DB_PASSWORD}
+      OPERATOR_AUTHORIZATION_DB_PASSWORD: ${SEALED_OPERATOR_AUTHORIZATION_DB_PASSWORD:?set SEALED_OPERATOR_AUTHORIZATION_DB_PASSWORD}
+      QUALIFICATION_OWNER_DB_PASSWORD: ${SEALED_QUALIFICATION_OWNER_DB_PASSWORD:?set SEALED_QUALIFICATION_OWNER_DB_PASSWORD}
+      PRODUCT_EDGE_DB_PASSWORD: ${SEALED_PRODUCT_EDGE_DB_PASSWORD:?set SEALED_PRODUCT_EDGE_DB_PASSWORD}
+      BACKTEST_OWNER_DB_PASSWORD: ${SEALED_BACKTEST_OWNER_DB_PASSWORD:?set SEALED_BACKTEST_OWNER_DB_PASSWORD}
+    entrypoint: ["/bin/sh", "/opt/trade/10-migrate-authority-custody.sh"]
+    volumes:
+      - ./postgres-init/10-migrate-authority-custody.sh:/opt/trade/10-migrate-authority-custody.sh:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - sealed-internal
+    security_opt:
+      - no-new-privileges:true
+
+  authority-bootstrap:
+    image: ${SEALED_ACCEPTANCE_OWNER_IMAGE:?set SEALED_ACCEPTANCE_OWNER_IMAGE}
+    pull_policy: never
+    restart: "no"
+    entrypoint: ["/usr/local/bin/product-edge-authority-bootstrap"]
+    command: ["/run/secrets/product-edge-bootstrap.json"]
+    environment:
+      OPERATOR_AUTHORIZATION_DATABASE_URL: ${SEALED_OPERATOR_AUTHORIZATION_DATABASE_URL:?set SEALED_OPERATOR_AUTHORIZATION_DATABASE_URL}
+      PRODUCT_EDGE_DATABASE_URL: ${SEALED_PRODUCT_EDGE_DATABASE_URL:?set SEALED_PRODUCT_EDGE_DATABASE_URL}
+      RD_OWNER_API_TOKEN: ${SEALED_RD_OWNER_API_TOKEN:?set SEALED_RD_OWNER_API_TOKEN}
+      PRODUCT_EDGE_TRUSTED_ISSUER_IDENTITY: ${SEALED_ISSUER_IDENTITY:?set SEALED_ISSUER_IDENTITY}
+      PRODUCT_EDGE_TRUSTED_ISSUER_KEY_VERSION: ${SEALED_ISSUER_KEY_VERSION:?set SEALED_ISSUER_KEY_VERSION}
+      PRODUCT_EDGE_TRUSTED_AUTHORIZATION_AUDIENCE: R_AND_D
+    volumes:
+      - ${SEALED_BOOTSTRAP_CONFIG:?set SEALED_BOOTSTRAP_CONFIG}:/run/secrets/product-edge-bootstrap.json:ro
+    depends_on:
+      authority-custody-migrate:
+        condition: service_completed_successfully
+    networks:
+      - sealed-internal
+    security_opt:
+      - no-new-privileges:true
+
+  rd-owner-api:
+    image: ${SEALED_ACCEPTANCE_OWNER_IMAGE:?set SEALED_ACCEPTANCE_OWNER_IMAGE}
+    pull_policy: never
+    restart: "no"
+    read_only: true
+    environment:
+      RD_OWNER_DATABASE_URL: ${SEALED_RD_OWNER_DATABASE_URL:?set SEALED_RD_OWNER_DATABASE_URL}
+      QUALIFICATION_OWNER_DATABASE_URL: ${SEALED_QUALIFICATION_OWNER_DATABASE_URL:?set SEALED_QUALIFICATION_OWNER_DATABASE_URL}
+      PRODUCT_EDGE_DATABASE_URL: ${SEALED_PRODUCT_EDGE_DATABASE_URL:?set SEALED_PRODUCT_EDGE_DATABASE_URL}
+      PRODUCT_EDGE_DEPLOYMENT_IDENTITY: ${SEALED_DEPLOYMENT_IDENTITY:?set SEALED_DEPLOYMENT_IDENTITY}
+      PRODUCT_EDGE_TRUSTED_ISSUER_IDENTITY: ${SEALED_ISSUER_IDENTITY:?set SEALED_ISSUER_IDENTITY}
+      PRODUCT_EDGE_TRUSTED_ISSUER_KEY_VERSION: ${SEALED_ISSUER_KEY_VERSION:?set SEALED_ISSUER_KEY_VERSION}
+      PRODUCT_EDGE_TRUSTED_AUTHORIZATION_AUDIENCE: R_AND_D
+      RD_OWNER_API_TOKEN: ${SEALED_RD_OWNER_API_TOKEN:?set SEALED_RD_OWNER_API_TOKEN}
+      DEPLOYMENT_STORE_ADMISSION_MODE: disabled
+      RD_SANDBOX_SOCKET: /run/trade-rd-sandbox/unavailable.sock
+      RUST_LOG: warn
+    depends_on:
+      authority-bootstrap:
+        condition: service_completed_successfully
+    expose:
+      - 8080
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=16m,uid=10001,gid=10001,mode=0700
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080'"]
+      interval: 2s
+      timeout: 2s
+      retries: 60
+    networks:
+      - sealed-internal
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  windmill-server:
+    image: ghcr.io/windmill-labs/windmill:1.791.0@sha256:1e9ec20f5a99235ccce18e4a4879a8c14ff1738af37fd23c18d87594dcee5916
+    pull_policy: never
+    restart: "no"
+    environment:
+      DATABASE_URL: ${SEALED_WINDMILL_DATABASE_URL:?set SEALED_WINDMILL_DATABASE_URL}
+      MODE: server
+      BASE_URL: http://windmill-server:8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:8000/api/version >/dev/null"]
+      interval: 2s
+      timeout: 2s
+      retries: 60
+    networks:
+      - sealed-internal
+    security_opt:
+      - no-new-privileges:true
+
+  windmill-worker:
+    image: ghcr.io/windmill-labs/windmill:1.791.0@sha256:1e9ec20f5a99235ccce18e4a4879a8c14ff1738af37fd23c18d87594dcee5916
+    pull_policy: never
+    restart: "no"
+    environment:
+      DATABASE_URL: ${SEALED_WINDMILL_DATABASE_URL:?set SEALED_WINDMILL_DATABASE_URL}
+      MODE: worker
+      WORKER_GROUP: rd-product-edge-sealed-acceptance
+      WORKER_TAGS: rd-product-edge
+      RD_OWNER_API_TOKEN: ${SEALED_RD_OWNER_API_TOKEN:?set SEALED_RD_OWNER_API_TOKEN}
+      WHITELIST_ENVS: RD_OWNER_API_TOKEN
+      RUST_LOG: warn
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rd-owner-api:
+        condition: service_healthy
+    volumes:
+      - sealed-worker-cache:/tmp/windmill/cache
+      - sealed-worker-logs:/tmp/windmill/logs
+    networks:
+      - sealed-internal
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  sealed-postgres-data:
+  sealed-worker-cache:
+  sealed-worker-logs:
+
+networks:
+  sealed-internal:
+    internal: true

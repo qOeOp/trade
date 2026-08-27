@@ -48,6 +48,7 @@ python = [
   "streaming",
 ]
 [dependencies]
+strategy-factory-program-sdk = { workspace = true }
 vibe-analysis = { workspace = true }
 vibe-common = { workspace = true }
 vibe-core = { workspace = true }

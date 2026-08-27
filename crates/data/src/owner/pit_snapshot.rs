@@ -44,6 +44,9 @@ use super::source_binding::{
     UntrustedSourceBindingLocator,
 };
 
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub mod sealed_acceptance;
+
 macro_rules! untrusted_time_coordinate {
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*
@@ -363,6 +366,226 @@ pub trait PitSnapshotOwnerResolver: Send + Sync {
     ) -> Result<PitSnapshotOwnerReadback, PitSnapshotError>;
 }
 
+/// Crate-private untrusted normalized observation input for the Market Data Owner.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct UntrustedPitObservation {
+    pub(crate) symbolic_key: String,
+    pub(crate) member_key: String,
+    pub(crate) instrument: String,
+    pub(crate) channel: String,
+    pub(crate) data_kind: String,
+    pub(crate) timeframe: String,
+    pub(crate) field: String,
+    pub(crate) value_mantissa: i128,
+    pub(crate) value_scale: u8,
+    pub(crate) event_effective: u64,
+    pub(crate) provider_available: u64,
+    pub(crate) retrieval: u64,
+    pub(crate) correction_publication: u64,
+    pub(crate) source_binding_identity: BindingDigest,
+    pub(crate) source_frontier_digest: BindingDigest,
+    pub(crate) instrument_master_digest: BindingDigest,
+    pub(crate) universe_selection_digest: BindingDigest,
+    pub(crate) market_semantics_identity: BindingDigest,
+    pub(crate) correction_stream_identity: String,
+    pub(crate) correction_sequence: u64,
+    pub(crate) correction_frontier_digest: BindingDigest,
+}
+
+/// Explicit crate-private untrusted batch input. Existing PIT proposal methods do not consume it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct UntrustedPitObservationBatchProposal {
+    pub(crate) rows: Vec<UntrustedPitObservation>,
+}
+
+/// One canonical observation whose bytes were verified as a member of the complete PIT batch.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VerifiedPitObservation {
+    pub(crate) symbolic_key: String,
+    pub(crate) member_key: String,
+    pub(crate) instrument: String,
+    pub(crate) channel: String,
+    pub(crate) data_kind: String,
+    pub(crate) timeframe: String,
+    pub(crate) field: String,
+    pub(crate) value_mantissa: i128,
+    pub(crate) value_scale: u8,
+    pub(crate) event_effective: u64,
+    pub(crate) provider_available: u64,
+    pub(crate) retrieval: u64,
+    pub(crate) correction_publication: u64,
+    pub(crate) source_binding_identity: BindingDigest,
+    pub(crate) source_frontier_digest: BindingDigest,
+    pub(crate) instrument_master_digest: BindingDigest,
+    pub(crate) universe_selection_digest: BindingDigest,
+    pub(crate) market_semantics_identity: BindingDigest,
+    pub(crate) correction_stream_identity: String,
+    pub(crate) correction_sequence: u64,
+    pub(crate) correction_frontier_digest: BindingDigest,
+}
+
+impl VerifiedPitObservation {
+    pub fn symbolic_key(&self) -> &str {
+        &self.symbolic_key
+    }
+    pub fn member_key(&self) -> &str {
+        &self.member_key
+    }
+    pub fn instrument(&self) -> &str {
+        &self.instrument
+    }
+    pub fn channel(&self) -> &str {
+        &self.channel
+    }
+    pub fn data_kind(&self) -> &str {
+        &self.data_kind
+    }
+    pub fn timeframe(&self) -> &str {
+        &self.timeframe
+    }
+    pub fn field(&self) -> &str {
+        &self.field
+    }
+    pub const fn value_mantissa(&self) -> i128 {
+        self.value_mantissa
+    }
+    pub const fn value_scale(&self) -> u8 {
+        self.value_scale
+    }
+    pub const fn event_effective(&self) -> u64 {
+        self.event_effective
+    }
+    pub const fn provider_available(&self) -> u64 {
+        self.provider_available
+    }
+    pub const fn retrieval(&self) -> u64 {
+        self.retrieval
+    }
+    pub const fn correction_publication(&self) -> u64 {
+        self.correction_publication
+    }
+    pub const fn source_binding_identity(&self) -> BindingDigest {
+        self.source_binding_identity
+    }
+    pub const fn source_frontier_digest(&self) -> BindingDigest {
+        self.source_frontier_digest
+    }
+    pub const fn instrument_master_digest(&self) -> BindingDigest {
+        self.instrument_master_digest
+    }
+    pub const fn universe_selection_digest(&self) -> BindingDigest {
+        self.universe_selection_digest
+    }
+    pub const fn market_semantics_identity(&self) -> BindingDigest {
+        self.market_semantics_identity
+    }
+    pub fn correction_stream_identity(&self) -> &str {
+        &self.correction_stream_identity
+    }
+    pub const fn correction_sequence(&self) -> u64 {
+        self.correction_sequence
+    }
+    pub const fn correction_frontier_digest(&self) -> BindingDigest {
+        self.correction_frontier_digest
+    }
+}
+
+/// Owner-verified complete normalized observation batch for one exact PIT snapshot.
+///
+/// Private fields and the absence of `Deserialize` make this value unconstructible from caller
+/// bytes. Member selection is safe only after the complete canonical batch has been verified.
+///
+/// ```compile_fail
+/// use vibe_data::owner::pit_snapshot::VerifiedPitObservationBatch;
+///
+/// let forged: VerifiedPitObservationBatch = serde_json::from_slice(b"{}").unwrap();
+/// ```
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VerifiedPitObservationBatch {
+    pub(crate) request_identity: BindingDigest,
+    pub(crate) request_digest: BindingDigest,
+    pub(crate) snapshot_identity: BindingDigest,
+    pub(crate) fact_digest: BindingDigest,
+    pub(crate) source_binding_identity: BindingDigest,
+    pub(crate) source_binding_lineage_root: BindingDigest,
+    pub(crate) source_binding_lineage_version: u64,
+    pub(crate) source_frontier_digest: BindingDigest,
+    pub(crate) correction_frontier_digest: BindingDigest,
+    pub(crate) instrument_master_digest: BindingDigest,
+    pub(crate) universe_selection_digest: BindingDigest,
+    pub(crate) market_semantics_identity: BindingDigest,
+    pub(crate) time_evidence: UntrustedPitSnapshotTimeEvidence,
+    pub(crate) digest: BindingDigest,
+    pub(crate) observations: Box<[VerifiedPitObservation]>,
+}
+
+impl VerifiedPitObservationBatch {
+    pub const fn request_identity(&self) -> BindingDigest {
+        self.request_identity
+    }
+    pub const fn request_digest(&self) -> BindingDigest {
+        self.request_digest
+    }
+    pub const fn snapshot_identity(&self) -> BindingDigest {
+        self.snapshot_identity
+    }
+    pub const fn fact_digest(&self) -> BindingDigest {
+        self.fact_digest
+    }
+    pub const fn source_binding_identity(&self) -> BindingDigest {
+        self.source_binding_identity
+    }
+    pub const fn source_binding_lineage_root(&self) -> BindingDigest {
+        self.source_binding_lineage_root
+    }
+    pub const fn source_binding_lineage_version(&self) -> u64 {
+        self.source_binding_lineage_version
+    }
+    pub const fn source_frontier_digest(&self) -> BindingDigest {
+        self.source_frontier_digest
+    }
+    pub const fn correction_frontier_digest(&self) -> BindingDigest {
+        self.correction_frontier_digest
+    }
+    pub const fn instrument_master_digest(&self) -> BindingDigest {
+        self.instrument_master_digest
+    }
+    pub const fn universe_selection_digest(&self) -> BindingDigest {
+        self.universe_selection_digest
+    }
+    pub const fn market_semantics_identity(&self) -> BindingDigest {
+        self.market_semantics_identity
+    }
+    pub const fn time_evidence(&self) -> &UntrustedPitSnapshotTimeEvidence {
+        &self.time_evidence
+    }
+    pub const fn digest(&self) -> BindingDigest {
+        self.digest
+    }
+    pub fn observations(&self) -> &[VerifiedPitObservation] {
+        &self.observations
+    }
+    pub fn select(&self, symbolic_key: &str, member_key: &str) -> Option<&VerifiedPitObservation> {
+        self.observations
+            .binary_search_by(|row| {
+                (row.symbolic_key.as_str(), row.member_key.as_str())
+                    .cmp(&(symbolic_key, member_key))
+            })
+            .ok()
+            .map(|index| &self.observations[index])
+    }
+}
+
+/// Read-only direct PIT-evaluation Owner consumer port.
+#[async_trait::async_trait]
+pub trait PitObservationBatchOwnerResolver: Send + Sync {
+    /// Resolves and verifies the complete canonical observation batch for one immutable snapshot.
+    async fn resolve_pit_observation_batch(
+        &self,
+        locator: &UntrustedPitSnapshotLocator,
+    ) -> Result<VerifiedPitObservationBatch, PitSnapshotError>;
+}
+
 /// Rejected untrusted proposal or test-only Owner operation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PitSnapshotError {
@@ -394,6 +617,10 @@ pub enum PitSnapshotError {
     ResponseLost,
     /// Locator does not exactly match native persisted readback.
     LocatorMismatch,
+    /// Normalized observation-batch custody was missing or contradicted native PIT meaning.
+    ObservationBatchUnavailable,
+    /// Normalized observation bytes were non-canonical, malformed, or incomplete.
+    InvalidObservationBatch,
 }
 
 impl Display for PitSnapshotError {

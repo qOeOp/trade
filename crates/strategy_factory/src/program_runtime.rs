@@ -11,6 +11,7 @@ use wasmi::{
 use wasmparser::{Encoding, ExternalKind, Operator, Parser, Payload, Validator, WasmFeatures};
 
 use crate::artifact::StrategyArtifact;
+use crate::strategy_design_v2::PluginManifestV2;
 
 const MEMORY_EXPORT: &str = "memory";
 const FRAME_PTR_EXPORT: &str = "strategy_factory_frame_ptr_v1";
@@ -18,6 +19,13 @@ const FRAME_CAPACITY_EXPORT: &str = "strategy_factory_frame_capacity_v1";
 const PROPOSAL_PTR_EXPORT: &str = "strategy_factory_proposal_ptr_v1";
 const PROPOSAL_CAPACITY_EXPORT: &str = "strategy_factory_proposal_capacity_v1";
 const ON_EVENT_EXPORT: &str = "strategy_factory_on_event_v1";
+pub(crate) const PLUGIN_INPUT_PTR_EXPORT_V2: &str = "strategy_factory_plugin_input_ptr_v2";
+pub(crate) const PLUGIN_INPUT_CAPACITY_EXPORT_V2: &str =
+    "strategy_factory_plugin_input_capacity_v2";
+pub(crate) const PLUGIN_OUTPUT_PTR_EXPORT_V2: &str = "strategy_factory_plugin_output_ptr_v2";
+pub(crate) const PLUGIN_OUTPUT_CAPACITY_EXPORT_V2: &str =
+    "strategy_factory_plugin_output_capacity_v2";
+pub(crate) const PLUGIN_INVOKE_EXPORT_V2: &str = "strategy_factory_plugin_invoke_v2";
 const MAX_FUNCTIONS: u32 = 512;
 const MAX_TYPES: u32 = 64;
 const MAX_GLOBALS: u32 = 128;
@@ -165,6 +173,199 @@ pub(crate) fn validate_candidate_for_artifact(
     budget: ProgramRuntimeBudget,
 ) -> Result<(), ProgramRuntimeError> {
     StrategyProgramV1::new(wasm, budget).map(drop)
+}
+
+/// Validates only the sealed V2 plugin module envelope. Invocation ownership remains with ProgramHost.
+pub(crate) fn validate_plugin_candidate_v2(
+    wasm: &[u8],
+    manifest: &PluginManifestV2,
+) -> Result<(), ProgramRuntimeError> {
+    limit(wasm.len(), 64 * 1024, "module bytes")?;
+    let mut exports = Vec::new();
+    let mut memory_seen = false;
+
+    for payload in Parser::new(0).parse_all(wasm) {
+        match payload.map_err(invalid_module)? {
+            Payload::Version {
+                num: 1,
+                encoding: Encoding::Module,
+                ..
+            } => {}
+            Payload::Version { .. } => return Err(ProgramRuntimeError::Abi("Wasm1 module")),
+            Payload::TypeSection(section) => limit(section.count(), MAX_TYPES, "types")?,
+            Payload::FunctionSection(section) => {
+                limit(section.count(), MAX_FUNCTIONS, "functions")?;
+            }
+            Payload::TableSection(section) => {
+                limit(section.count(), MAX_TABLES, "tables")?;
+                let mut elements = 0_u64;
+
+                for table in section {
+                    let table = table.map_err(invalid_module)?;
+                    let maximum = table
+                        .ty
+                        .maximum
+                        .ok_or(ProgramRuntimeError::ResourceLimit("table elements"))?;
+                    elements = elements
+                        .checked_add(maximum)
+                        .ok_or(ProgramRuntimeError::ResourceLimit("table elements"))?;
+                }
+                limit(elements, MAX_TABLE_ELEMENTS, "table elements")?;
+            }
+            Payload::MemorySection(section) => {
+                if memory_seen || section.count() != 1 {
+                    return Err(ProgramRuntimeError::Abi("one memory"));
+                }
+                let memory = section
+                    .into_iter()
+                    .next()
+                    .ok_or(ProgramRuntimeError::Abi("one memory"))?
+                    .map_err(invalid_module)?;
+                let maximum = memory
+                    .maximum
+                    .ok_or(ProgramRuntimeError::ResourceLimit("linear memory"))?;
+                let maximum_bytes = maximum
+                    .checked_mul(65_536)
+                    .ok_or(ProgramRuntimeError::ResourceLimit("linear memory"))?;
+                if memory.memory64
+                    || memory.shared
+                    || memory.initial == 0
+                    || memory.initial > maximum
+                    || maximum_bytes > u64::from(manifest.max_linear_memory_bytes)
+                    || memory.page_size_log2.is_some()
+                {
+                    return Err(ProgramRuntimeError::ResourceLimit("linear memory"));
+                }
+                memory_seen = true;
+            }
+            Payload::GlobalSection(section) => limit(section.count(), MAX_GLOBALS, "globals")?,
+            Payload::ExportSection(section) => {
+                for export in section {
+                    let export = export.map_err(invalid_module)?;
+                    exports.push((export.name.to_owned(), export.kind, export.index));
+                }
+            }
+            Payload::DataSection(section) => {
+                limit(section.count(), MAX_DATA_SEGMENTS, "data segments")?;
+            }
+            Payload::CodeSectionEntry(body) => {
+                limit(
+                    body.range().len(),
+                    MAX_FUNCTION_BODY_BYTES,
+                    "function body bytes",
+                )?;
+                let mut operators = body.get_operators_reader().map_err(invalid_module)?;
+                while !operators.eof() {
+                    if matches!(
+                        operators.read().map_err(invalid_module)?,
+                        Operator::MemoryGrow { .. }
+                    ) {
+                        return Err(ProgramRuntimeError::Forbidden("memory.grow"));
+                    }
+                }
+            }
+            Payload::ImportSection(_) => return Err(ProgramRuntimeError::Forbidden("imports")),
+            Payload::StartSection { .. } => return Err(ProgramRuntimeError::Forbidden("start")),
+            _ => {}
+        }
+    }
+    Validator::new_with_features(WasmFeatures::WASM1)
+        .validate_all(wasm)
+        .map_err(invalid_module)?;
+
+    if !memory_seen {
+        return Err(ProgramRuntimeError::Abi("one memory"));
+    }
+    validate_plugin_exports_v2(&exports)?;
+
+    let engine = engine();
+    let module = Module::new(&engine, wasm)
+        .map_err(|e| ProgramRuntimeError::InvalidModule(e.to_string()))?;
+    let mut store = Store::new(&engine, ());
+    let instance = Linker::new(&engine)
+        .instantiate_and_start(&mut store, &module)
+        .map_err(execution_error)?;
+    let memory = instance
+        .get_memory(&store, MEMORY_EXPORT)
+        .ok_or(ProgramRuntimeError::Abi("memory export"))?;
+    let input_ptr = abi_i32(instance, &store, PLUGIN_INPUT_PTR_EXPORT_V2)?;
+    let input_capacity = abi_i32(instance, &store, PLUGIN_INPUT_CAPACITY_EXPORT_V2)?;
+    let output_ptr = abi_i32(instance, &store, PLUGIN_OUTPUT_PTR_EXPORT_V2)?;
+    let output_capacity = abi_i32(instance, &store, PLUGIN_OUTPUT_CAPACITY_EXPORT_V2)?;
+    instance
+        .get_typed_func::<i32, i32>(&store, PLUGIN_INVOKE_EXPORT_V2)
+        .map_err(|_| ProgramRuntimeError::Abi("plugin invoke signature"))?;
+    store.set_fuel(manifest.max_fuel).map_err(execution_error)?;
+    let input = checked_range(
+        input_ptr.call(&mut store, ()).map_err(execution_error)?,
+        input_capacity
+            .call(&mut store, ())
+            .map_err(execution_error)?,
+        memory.data_size(&store),
+    )?;
+    let output = checked_range(
+        output_ptr.call(&mut store, ()).map_err(execution_error)?,
+        output_capacity
+            .call(&mut store, ())
+            .map_err(execution_error)?,
+        memory.data_size(&store),
+    )?;
+
+    if input.start < output.end && output.start < input.end {
+        return Err(ProgramRuntimeError::MemoryLayout("buffers overlap"));
+    }
+    let input_payload_bound = manifest
+        .input_ports
+        .iter()
+        .try_fold(manifest.state.max_bytes, |total, port| {
+            total.checked_add(port.max_bytes)
+        })
+        .ok_or(ProgramRuntimeError::ResourceLimit("input bytes"))?;
+    let output_payload_bound = manifest
+        .output_ports
+        .iter()
+        .try_fold(manifest.state.max_bytes, |total, port| {
+            total.checked_add(port.max_bytes)
+        })
+        .ok_or(ProgramRuntimeError::ResourceLimit("output bytes"))?;
+    let input_bound = 96_usize
+        .checked_add((manifest.input_ports.len() + 1) * 8)
+        .and_then(|value| value.checked_add(input_payload_bound as usize))
+        .ok_or(ProgramRuntimeError::ResourceLimit("input bytes"))?;
+    let output_bound = 96_usize
+        .checked_add((manifest.output_ports.len() + 1) * 8)
+        .and_then(|value| value.checked_add(output_payload_bound as usize))
+        .ok_or(ProgramRuntimeError::ResourceLimit("output bytes"))?;
+    if input.len() > input_bound {
+        return Err(ProgramRuntimeError::ResourceLimit("input bytes"));
+    }
+
+    if output.len() > output_bound {
+        return Err(ProgramRuntimeError::ResourceLimit("output bytes"));
+    }
+    Ok(())
+}
+
+fn validate_plugin_exports_v2(
+    exports: &[(String, ExternalKind, u32)],
+) -> Result<(), ProgramRuntimeError> {
+    let mut seen = 0_u8;
+    for (name, kind, index) in exports {
+        seen |= match (name.as_str(), kind, index) {
+            (MEMORY_EXPORT, ExternalKind::Memory, 0) => 1,
+            (PLUGIN_INPUT_PTR_EXPORT_V2, ExternalKind::Func, _) => 2,
+            (PLUGIN_INPUT_CAPACITY_EXPORT_V2, ExternalKind::Func, _) => 4,
+            (PLUGIN_OUTPUT_PTR_EXPORT_V2, ExternalKind::Func, _) => 8,
+            (PLUGIN_OUTPUT_CAPACITY_EXPORT_V2, ExternalKind::Func, _) => 16,
+            (PLUGIN_INVOKE_EXPORT_V2, ExternalKind::Func, _) => 32,
+            _ => 0,
+        };
+    }
+
+    if exports.len() != 6 || seen != 63 {
+        return Err(ProgramRuntimeError::Abi("exact plugin V2 exports"));
+    }
+    Ok(())
 }
 
 fn checked_range(ptr: i32, cap: i32, size: usize) -> Result<Range<usize>, ProgramRuntimeError> {

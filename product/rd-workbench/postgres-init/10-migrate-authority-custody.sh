@@ -488,6 +488,142 @@ ALTER FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) OWN
 REVOKE ALL ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) FROM PUBLIC, operator_authorization_writer, portfolio_owner;
 GRANT EXECUTE ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) TO rd_owner, product_edge_owner;
 
+CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_state_v1(
+  requested_request_identity text,
+  requested_admission_identity text,
+  requested_attempt_identity text,
+  requested_state text
+)
+RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+DECLARE
+  locked_admission record;
+  locked_claim record;
+  locked_state record;
+  admission_outbox jsonb;
+  claim_outbox jsonb;
+  claimed_state_outbox jsonb;
+  current_state_outbox jsonb;
+BEGIN
+  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed'
+     OR requested_state NOT IN ('CLAIMED','INVOCATION_STARTED')
+  THEN RETURN NULL; END IF;
+
+  SELECT receipt_identity, receipt_digest, admission_identity, attempt_identity,
+         claim_identity, receipt_json, write_cut_epoch_ms
+    INTO locked_admission
+    FROM public.product_edge_effect_invocation_admissions_v1
+   WHERE admission_identity = requested_admission_identity
+     AND attempt_identity = requested_attempt_identity
+     AND receipt_json->>'request_identity' = requested_request_identity
+     AND receipt_json->>'effect' = 'R_AND_D_SOURCE_PROVIDER_INVOCATION_V1'
+   FOR SHARE;
+  IF NOT FOUND THEN RETURN NULL; END IF;
+
+  SELECT admission_identity, claim_identity, attempt_identity, claim_digest,
+         claim_json, committed_at_epoch_ms
+    INTO locked_claim
+    FROM public.product_edge_effect_invocation_claims_v1
+   WHERE admission_identity = requested_admission_identity
+     AND attempt_identity = requested_attempt_identity
+     AND claim_identity = locked_admission.claim_identity
+   FOR SHARE;
+  IF NOT FOUND THEN RETURN NULL; END IF;
+
+  SELECT claim_identity, admission_identity, attempt_identity, claim_digest,
+         state_digest, state_json, updated_at_epoch_ms
+    INTO locked_state
+    FROM public.product_edge_effect_invocation_states_v1
+   WHERE claim_identity = locked_claim.claim_identity
+     AND admission_identity = requested_admission_identity
+     AND attempt_identity = requested_attempt_identity
+     AND state_json->>'state' = requested_state
+   FOR SHARE;
+  IF NOT FOUND THEN RETURN NULL; END IF;
+
+  PERFORM event_identity
+    FROM public.product_edge_owner_outbox_v1
+   WHERE (aggregate_identity = requested_admission_identity
+          AND event_kind IN ('PRODUCT_EDGE_PROVIDER_INVOCATION_ADMITTED_V1','PRODUCT_EDGE_PROVIDER_INVOCATION_CLAIMED_V1'))
+      OR (aggregate_identity = locked_claim.claim_identity
+          AND event_kind IN ('PRODUCT_EDGE_PROVIDER_INVOCATION_CLAIM_STATE_V1','PRODUCT_EDGE_PROVIDER_INVOCATION_STARTED_V1'))
+   ORDER BY event_identity
+   FOR SHARE;
+
+  SELECT CASE WHEN pg_catalog.count(*) = 1
+              THEN (pg_catalog.jsonb_agg(pg_catalog.to_jsonb(outbox) ORDER BY event_identity))->0 END
+    INTO admission_outbox
+    FROM public.product_edge_owner_outbox_v1 outbox
+   WHERE aggregate_identity = requested_admission_identity
+     AND event_kind = 'PRODUCT_EDGE_PROVIDER_INVOCATION_ADMITTED_V1';
+  SELECT CASE WHEN pg_catalog.count(*) = 1
+              THEN (pg_catalog.jsonb_agg(pg_catalog.to_jsonb(outbox) ORDER BY event_identity))->0 END
+    INTO claim_outbox
+    FROM public.product_edge_owner_outbox_v1 outbox
+   WHERE aggregate_identity = requested_admission_identity
+     AND event_kind = 'PRODUCT_EDGE_PROVIDER_INVOCATION_CLAIMED_V1';
+  SELECT CASE WHEN pg_catalog.count(*) = 1
+              THEN (pg_catalog.jsonb_agg(pg_catalog.to_jsonb(outbox) ORDER BY event_identity))->0 END
+    INTO claimed_state_outbox
+    FROM public.product_edge_owner_outbox_v1 outbox
+   WHERE aggregate_identity = locked_claim.claim_identity
+     AND event_kind = 'PRODUCT_EDGE_PROVIDER_INVOCATION_CLAIM_STATE_V1';
+  SELECT CASE WHEN pg_catalog.count(*) = 1
+              THEN (pg_catalog.jsonb_agg(pg_catalog.to_jsonb(outbox) ORDER BY event_identity))->0 END
+    INTO current_state_outbox
+    FROM public.product_edge_owner_outbox_v1 outbox
+   WHERE aggregate_identity = locked_claim.claim_identity
+     AND event_kind = CASE requested_state
+       WHEN 'CLAIMED' THEN 'PRODUCT_EDGE_PROVIDER_INVOCATION_CLAIM_STATE_V1'
+       ELSE 'PRODUCT_EDGE_PROVIDER_INVOCATION_STARTED_V1' END;
+  IF admission_outbox IS NULL OR claim_outbox IS NULL
+     OR claimed_state_outbox IS NULL OR current_state_outbox IS NULL
+  THEN RETURN NULL; END IF;
+
+  RETURN pg_catalog.jsonb_build_object(
+    'schema_version', 1,
+    'admission', pg_catalog.to_jsonb(locked_admission),
+    'claim', pg_catalog.to_jsonb(locked_claim),
+    'state', pg_catalog.to_jsonb(locked_state),
+    'admission_outbox', admission_outbox,
+    'claim_outbox', claim_outbox,
+    'claimed_state_outbox', claimed_state_outbox,
+    'current_state_outbox', current_state_outbox
+  );
+END
+$function$;
+ALTER FUNCTION product_edge_api.lock_source_invocation_state_v1(text,text,text,text) OWNER TO product_edge_owner;
+REVOKE ALL ON FUNCTION product_edge_api.lock_source_invocation_state_v1(text,text,text,text) FROM PUBLIC, rd_owner, operator_authorization_writer, qualification_owner, qualification_writer, portfolio_owner;
+
+CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_claim_v1(
+  requested_request_identity text,
+  requested_admission_identity text,
+  requested_attempt_identity text
+)
+RETURNS jsonb LANGUAGE sql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+  SELECT product_edge_api.lock_source_invocation_state_v1($1,$2,$3,'CLAIMED')
+$function$;
+ALTER FUNCTION product_edge_api.lock_source_invocation_claim_v1(text,text,text) OWNER TO product_edge_owner;
+REVOKE ALL ON FUNCTION product_edge_api.lock_source_invocation_claim_v1(text,text,text) FROM PUBLIC, operator_authorization_writer, qualification_owner, qualification_writer, portfolio_owner;
+GRANT EXECUTE ON FUNCTION product_edge_api.lock_source_invocation_claim_v1(text,text,text) TO rd_owner, product_edge_owner;
+
+CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_started_v1(
+  requested_request_identity text,
+  requested_admission_identity text,
+  requested_attempt_identity text
+)
+RETURNS jsonb LANGUAGE sql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+  SELECT product_edge_api.lock_source_invocation_state_v1($1,$2,$3,'INVOCATION_STARTED')
+$function$;
+ALTER FUNCTION product_edge_api.lock_source_invocation_started_v1(text,text,text) OWNER TO product_edge_owner;
+REVOKE ALL ON FUNCTION product_edge_api.lock_source_invocation_started_v1(text,text,text) FROM PUBLIC, operator_authorization_writer, qualification_owner, qualification_writer, portfolio_owner;
+GRANT EXECUTE ON FUNCTION product_edge_api.lock_source_invocation_started_v1(text,text,text) TO rd_owner, product_edge_owner;
+
 CREATE OR REPLACE FUNCTION product_edge_api.lock_portfolio_read_policy_v1(
   requested_grant_identity text,
   requested_grant_receipt_identity text,

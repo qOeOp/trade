@@ -5,6 +5,7 @@ set -euo pipefail
 readonly guarded_roots=(
   crates/operator_authorization
   crates/product_edge
+  crates/rd_source_intake_invocation_custody
   crates/qualification
   crates/strategy_factory
   crates/strategy_factory_rd_owner_api
@@ -244,6 +245,16 @@ export VIBE_POSTGRES_TEST_INSTANCE_MARKER="$test_marker"
 # before the real qualification_writer role validates its custody.
 cargo test --locked --package vibe-strategy-factory --lib \
   product_edge_postgres::tests::fresh_rd_owner_migrates_before_qualification_writer_validates \
+  -- --ignored --exact
+
+cargo test --locked --package vibe-strategy-factory \
+  --test source_intake \
+  postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sealed \
+  -- --ignored --exact
+
+cargo test --locked --package vibe-strategy-factory \
+  --test source_intake \
+  postgres_readback_rejects_tampered_raw_payload \
   -- --ignored --exact
 
 cargo test --locked --package vibe-product-edge --lib \

@@ -1,0 +1,74 @@
+summary: Run or resolve one bounded R&D Source Intake request
+description: >-
+  Routes a DOI and bounded interpretation to the R&D Owner. Only a complete
+  terminal Owner receipt is authoritative; transport success is not retrieval.
+lock: "!inline f/trade/product_edge/source_intake_v1.script.lock"
+kind: script
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  additionalProperties: false
+  order:
+    - action
+    - request_identity
+    - normalized_doi
+    - interpretation
+  properties:
+    action:
+      type: string
+      enum:
+        - RUN
+        - RESOLVE
+    request_identity:
+      type: string
+      minLength: 1
+      maxLength: 192
+      pattern: "^[A-Za-z0-9._:/-]+$"
+    normalized_doi:
+      type: string
+      minLength: 4
+      maxLength: 256
+      pattern: "^10\\.[a-z0-9./\\-_;():]+/[a-z0-9./\\-_;():]+$"
+    interpretation:
+      type: object
+      additionalProperties: false
+      properties:
+        bounded_explanation:
+          type: string
+          minLength: 1
+          maxLength: 8192
+        plausible_alternatives:
+          type: array
+          minItems: 1
+          maxItems: 16
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 8192
+        differentiating_prediction:
+          type: string
+          minLength: 1
+          maxLength: 8192
+        falsifier:
+          type: string
+          minLength: 1
+          maxLength: 8192
+      required:
+        - bounded_explanation
+        - plausible_alternatives
+        - differentiating_prediction
+        - falsifier
+  required:
+    - action
+    - request_identity
+  allOf:
+    - if:
+        properties:
+          action:
+            const: RUN
+      then:
+        required:
+          - normalized_doi
+          - interpretation
+tag: rd-product-edge

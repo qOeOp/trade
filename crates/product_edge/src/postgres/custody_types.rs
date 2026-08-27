@@ -130,6 +130,24 @@ pub(super) struct ArtifactBuildAdmissionPayloadV1 {
     pub(super) channel: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct SourceIntakeAdmissionPayloadV1 {
+    pub(super) request_identity: String,
+    pub(super) gateway: String,
+    pub(super) normalized_doi: String,
+    pub(super) interpretation: SourceInterpretationPayloadV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct SourceInterpretationPayloadV1 {
+    pub(super) bounded_explanation: String,
+    pub(super) plausible_alternatives: Vec<String>,
+    pub(super) differentiating_prediction: String,
+    pub(super) falsifier: String,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct PeekCurrentResearchEnvelopeV1 {

@@ -439,6 +439,29 @@ impl UntrustedSourceBindingLocator {
             time_evidence: fields.time_evidence,
         }
     }
+
+    /// Returns the claimed canonical lineage root. The locator remains untrusted until exact
+    /// Owner resolution.
+    pub const fn lineage_root(&self) -> BindingDigest {
+        self.lineage_root
+    }
+
+    /// Returns the claimed lineage version. The locator remains untrusted until exact Owner
+    /// resolution.
+    pub const fn lineage_version(&self) -> u64 {
+        self.lineage_version
+    }
+
+    /// Returns the claimed binding identity. The locator remains untrusted until exact Owner
+    /// resolution.
+    pub const fn binding_id(&self) -> BindingDigest {
+        self.binding_id
+    }
+
+    /// Returns the claimed fact digest. The locator remains untrusted until exact Owner resolution.
+    pub const fn fact_digest(&self) -> BindingDigest {
+        self.fact_digest
+    }
 }
 
 /// Owner-sealed immutable Source Binding readback.

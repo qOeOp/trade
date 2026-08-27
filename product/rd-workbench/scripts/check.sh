@@ -9,6 +9,7 @@ env_example="$package_dir/.env.example"
 readme="$package_dir/README.md"
 rd_owner_api="$package_dir/../../crates/strategy_factory_rd_owner_api/src/main.rs"
 store_admission="$package_dir/../../crates/deployment_store_admission/src/lib.rs"
+sealed_acceptance_runner="$package_dir/../../scripts/ci/test-source-intake-sealed-acceptance.bash"
 
 grep -Fq 'ghcr.io/windmill-labs/windmill:1.791.0@sha256:1e9ec20f5a99235ccce18e4a4879a8c14ff1738af37fd23c18d87594dcee5916' "$compose_file"
 test "$(grep -c 'ghcr.io/windmill-labs/windmill:1.791.0@sha256:' "$compose_file")" -eq 2
@@ -36,7 +37,7 @@ grep -Fq 'mode the three store identities may remain empty' "$readme"
 grep -Fq 'only fail closed during startup.' "$readme"
 grep -Fq 'It does not claim that a governed Market Data' "$readme"
 grep -Fq 'A raw DSN, password, secret, private key, or caller-authored' "$readme"
-bootstrap_line=$(grep -n '^    bootstrap_deployment_store_admission().await?;$' "$rd_owner_api" | cut -d: -f1)
+bootstrap_line=$(grep -nF 'bootstrap_deployment_store_admission().await?;' "$rd_owner_api" | cut -d: -f1)
 listener_line=$(grep -n '^    let listener = TcpListener::bind' "$rd_owner_api" | cut -d: -f1)
 [ "$bootstrap_line" -lt "$listener_line" ] || {
   echo "store admission must fail closed before rd-owner-api listens" >&2
@@ -183,8 +184,14 @@ grep -Fq 'CREATE OR REPLACE FUNCTION product_edge_api.lock_downstream_admission_
 grep -Fq 'RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'SET search_path = pg_catalog' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT EXECUTE ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) TO rd_owner, product_edge_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_claim_v1(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_started_v1(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'GRANT EXECUTE ON FUNCTION product_edge_api.lock_source_invocation_claim_v1(text,text,text) TO rd_owner, product_edge_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'GRANT EXECUTE ON FUNCTION product_edge_api.lock_source_invocation_started_v1(text,text,text) TO rd_owner, product_edge_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE SCHEMA IF NOT EXISTS rd_owner_api AUTHORIZATION rd_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT USAGE ON SCHEMA rd_owner_api TO product_edge_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE OR REPLACE FUNCTION rd_owner_api.lock_source_acquisition_binding_v1(' "$package_dir/../../crates/strategy_factory/src/source_intake/postgres.rs"
+grep -Fq 'CREATE OR REPLACE FUNCTION rd_owner_api.lock_source_invocation_reservation_v1(' "$package_dir/../../crates/strategy_factory/src/source_intake/postgres.rs"
 grep -Fq 'CREATE OR REPLACE FUNCTION rd_owner_api.lock_current_research_for_artifact_v1(' "$package_dir/../../crates/strategy_factory/src/product_edge_postgres.rs"
 grep -Fq 'RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER' "$package_dir/../../crates/strategy_factory/src/product_edge_postgres.rs"
 grep -Fq 'SET search_path = pg_catalog' "$package_dir/../../crates/strategy_factory/src/product_edge_postgres.rs"
@@ -203,9 +210,12 @@ pe_lock_line=$(grep -n "pg_advisory_xact_lock_shared(pg_catalog.hashtextextended
 test "$oa_lock_line" -lt "$pe_lock_line"
 node --test "$package_dir/f/trade/rd_workbench.raw_app/control-policy.test.mjs"
 node --test "$package_dir/f/trade/product_edge/artifact_build_v1.metadata.test.mjs"
+node --test "$package_dir/f/trade/product_edge/source_intake_v1.metadata.test.mjs"
+bash "$sealed_acceptance_runner" --static-only
 node --experimental-strip-types --test \
   "$package_dir/f/trade/product_edge/consumer_projection_v1.test.mjs" \
-  "$package_dir/f/trade/product_edge/artifact_build_v1.test.mjs"
+  "$package_dir/f/trade/product_edge/artifact_build_v1.test.mjs" \
+  "$package_dir/f/trade/product_edge/source_intake_v1.test.mjs"
 
 python3 - "$profile" << 'PY'
 import json

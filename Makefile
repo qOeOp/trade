@@ -224,7 +224,7 @@ CORE_CRATES := vibe-analysis vibe-backtest vibe-common vibe-core \
     vibe-cryptography vibe-data vibe-deployment-attestation vibe-deployment-store-admission vibe-event-store vibe-execution \
     vibe-indicators vibe-indicators-kernel vibe-infrastructure vibe-live vibe-model vibe-scanner \
     vibe-network vibe-observability vibe-persistence vibe-persistence-macros \
-    vibe-operator-authorization vibe-plugin vibe-portfolio vibe-product-edge vibe-product-edge-claim-custody vibe-qualification vibe-risk vibe-rd-artifact-invocation-custody vibe-runtime vibe-serialization \
+    vibe-operator-authorization vibe-plugin vibe-portfolio vibe-product-edge vibe-product-edge-claim-custody vibe-qualification vibe-risk vibe-rd-artifact-invocation-custody vibe-rd-source-intake-invocation-custody vibe-runtime vibe-serialization \
     strategy-factory-program-sdk vibe-strategy-factory vibe-strategy-factory-rd-owner-api vibe-strategy-governance vibe-system vibe-testkit vibe-trader vibe-trading
 
 # Crates tested in the workspace-compiled adapter lane
@@ -1175,9 +1175,16 @@ docs-site-check:  #-- Type-check and build the static documentation site
 
 #== R&D Workbench
 
-.PHONY: rd-workbench-check
+.PHONY: rd-workbench-check rd-workbench-source-intake-sealed-acceptance-check \
+	rd-workbench-source-intake-sealed-acceptance
 rd-workbench-check:  #-- Validate the pinned non-live Windmill R&D Workbench package
 	$Q bash product/rd-workbench/scripts/check.sh
+
+rd-workbench-source-intake-sealed-acceptance-check:  #-- Statically validate the isolated Source Intake acceptance runner
+	$Q bash scripts/ci/test-source-intake-sealed-acceptance.bash --static-only
+
+rd-workbench-source-intake-sealed-acceptance:  #-- Run isolated Source Intake SEALED_ACCEPTANCE (local effects only)
+	$Q bash scripts/ci/test-source-intake-sealed-acceptance.bash
 
 #== CLI Tools
 

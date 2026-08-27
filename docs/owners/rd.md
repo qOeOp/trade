@@ -17,6 +17,8 @@ Unify Research and Develop under one business-fact Owner. The Research capabilit
 - Content-addressed Strategy Artifact and Build Receipt bound to intent, TrialFamily, exact code bytes, dependency
   provenance and lock identity, toolchain and runtime identity, Market Semantics Compatibility identity, sandbox
   policy, capability manifest, and Artifact Security Admission result.
+- **TARGET:** content-addressed `StrategyDesignV2`, deterministic `StrategyPlanV2`, exact Owner input-binding
+  receipt set, compiler disposition and lowering digest under the shared lifecycle-kernel contract.
 - Frozen Exploratory Replay Request binding the exact intent, TrialFamily, artifact, requested PIT data scope, replay configuration, and cost-capacity model.
 - Exploratory request-result equality across Strategy Artifact, requested PIT scope, PIT Market Snapshot,
   Universe Selection Record and correction rule, replay configuration, Runtime kernel, simulator, and cost,
@@ -53,6 +55,75 @@ Unify Research and Develop under one business-fact Owner. The Research capabilit
 - **Development Sandbox** - build and diagnose generated strategy code with explicit input and output mounts and no
   ambient filesystem, network, subprocess or process-tree escape, inherited capability, secret, account,
   deployment, or effect-port authority.
+
+## Strategy design and Develop compilation
+
+The [StrategyDesignV2 contract](../architecture/strategy-factory.md#strategydesignv2-and-the-shared-lifecycle-kernel)
+governs how arbitrary admitted Research becomes executable. R&D alone freezes the typed, content-addressed
+`StrategyDesignV2`, including its stable primitive semantic IDs, declared input roles, lifecycle/state/target/
+protection meaning, optional bounded-plugin manifest, and Research Intent binding. Develop deterministically
+canonicalizes, closes capabilities, consumes exact Owner binding receipts, and lowers it to `StrategyPlanV2` and
+the sole Wasm Strategy Artifact/`ProgramHost` path. It may not generate unrestricted strategy code, invent a core
+opcode, infer a source through heuristic strings, or create another interpreter or runtime.
+
+The CURRENT ComplexStrategy V1 pre-Artifact Develop Evaluation is an R&D-internal fact only when current accepted
+Research custody, the complete TrialFamily frontier, canonical bounded IR, exact predecessor and an Owner-sealed
+PIT readback are all bound and revalidated at commit. It is neither an Artifact nor Backtest Replay, Qualification,
+Candidate, Eligibility, Governance or Runtime evidence. Its positive result cannot enter Research Selection. V1
+canonicalization, bounds, frozen-Intent checks and Owner binding are migration inputs to V2; the duplicate V1
+interpreter and toy renderer must be removed only after corpus equivalence is proven through the Wasm path.
+
+Develop returns a content-addressed Plan and Artifact only after every input role has a typed fact-Owner binding,
+capability closure is complete and the lifecycle/checkpoint/plugin bounds are supported. Otherwise it returns
+structured `UNSUPPORTED` or `NEEDS_RESEARCH_REFINEMENT` with the exact failing coordinate and creates no Plan,
+Artifact, Replay Request, Candidate or downstream effect. `NEEDS_RESEARCH_REFINEMENT` may inform only a successor
+Research decision; Develop cannot silently complete research meaning.
+
+**CURRENT/PARTIAL - crate-local Develop Composer V2:** R&D can reread one current accepted V2 Research custody
+projection, rederive the Design's Research-controlled request/Intent identities and falsifier, resolve exact sealed
+input-binding and verified bounded-plugin build evidence, and invoke the existing V2 compiler and
+`StrategyArtifactV2` issuer. One in-memory Owner join returns the same byte-identical Design/Plan/Artifact receipt
+for an exact replay and rejects a different proposal for the same Intent. Every custody, coverage, build,
+compiler, or Artifact failure returns one structured terminal carrying no partial Plan or Artifact. The emitted
+Artifact is dynamically accepted by `ProgramHostV2`; this proves only the crate-local contract and isolated
+consumer path. Durable PostgreSQL custody, restart recovery across processes, provider/API/Windmill composition,
+and deployed Owner readiness remain unavailable and are not inferred from the in-memory join.
+
+**CURRENT/PARTIAL - local bounded-plugin build producer:** for exactly one current `PluginManifestV2`, R&D admits
+only one content-bounded `src/lib.rs` in the fixed `rust.no_std.fixed-abi-source.v2` language and rejects every
+other path, symlink, file, dependency, build script, toolchain, target, or command. It materializes two separate
+private temporary Cargo projects. Before locating any tool, it selects one frozen host profile that binds the exact
+host, all three executable digests, and the sole `wasm32v1-none` target admission together. The CURRENT macOS arm64
+profile binds canonical Cargo 1.97.1 (`c980f486…bf5`, SHA-256 `7672ead3…bbf5`), rustc 1.97.1
+(`8bab26f…452`, SHA-256 `210df679…a4da`), rust-lld (SHA-256 `8f5fe507…548d`), and
+`aarch64-apple-darwin`. A TARGET Linux arm64 pin profile records the same exact releases and commits for
+`aarch64-unknown-linux-gnu` with Cargo SHA-256 `c5dcff70…1808`, rustc SHA-256 `a3d4dfcd…e78`, and rust-lld
+SHA-256 `533dffee…eb7`. Each admitted build rejects ambient ancestor Cargo configuration and requires each tool's
+`-Vv` host to match the selected profile. `RUSTUP_HOME` or `HOME/.rustup` only locates that profile's candidate
+exact-release toolchain; path bytes are non-authoritative and absent from semantic identity.
+It then runs the fixed `wasm32v1-none --offline --locked` command and requires two
+finished zero-status receipts and byte-identical Wasm, excludes process diagnostics from semantic receipt identity,
+and then invokes the sole existing plugin ABI/resource verifier. The move-bound verified build/read result can
+supply the crate-local Develop Composer evidence port; exact in-process replay joins the receipt without rebuilding,
+while a conflicting capsule for the same plugin identity fails closed. Both temporary roots are explicitly closed
+on every terminal path, and cleanup failure dominates the original terminal. This proves only the local isolated
+deterministic producer and consumer contract; Cargo offline mode and the fixed dependency-free source do not prove
+kernel-level network confinement. It does not prove durable PostgreSQL custody, provider/API/Windmill execution,
+deployment, or production readiness.
+The Linux pins were generated by one isolated Linux/arm64 BuildKit readback: index
+`sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8`, platform manifest
+`sha256:5a8cd84cb3fcfd082789a08f92bd36f8e745c6231edd78e24a3bf34fd471a823`, and normalized exact
+`lib/rustlib/wasm32v1-none` sysroot tar SHA-256
+`92fcee2e35330d22e879b640064e2e4b4e47157af1a7e05fc942dc6cc12b8faf`. These are pin-generation evidence only. The
+sysroot tar normalization is not reproduced by the local pure-Rust runtime, so that digest is not a runtime content
+check or receipt field. The base Rust image remains pinned in its Dockerfile; the timestamp-bearing local OCI
+manifest is not a registry, deployment, or reproducible-image pin. The Linux profile is pin-ready but runtime
+unavailable: production selection returns `ToolchainUnavailable` before tool discovery because the executable pins
+do not bind the target sysroot contents that can affect Wasm output. It may become CURRENT only after a future
+pure-Rust canonical sysroot content verifier reproduces the frozen normalization and rereads the sysroot before and
+after each build. No external `tar` command or second Docker run substitutes for that runtime authority. Dynamic
+positive proof remains host-local only for exact `aarch64-apple-darwin`; every other host, including Linux arm64,
+must execute the same capsule as an expected fail-closed negative, never substitute a generic toolchain.
 
 ## Lineage and protected-feedback admission
 

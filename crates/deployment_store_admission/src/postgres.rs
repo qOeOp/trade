@@ -182,6 +182,289 @@ impl Debug for PostgresCredentialLease {
     }
 }
 
+pub(crate) async fn read_market_data_source_binding_snapshot(
+    lease: &PostgresCredentialLease,
+    binding_identity: &[u8; 32],
+) -> Result<(Vec<Vec<u8>>, Vec<Vec<u8>>), PostgresMeasurementError> {
+    let target = parse_target(lease.database_url())?;
+
+    if ambient_pg_configuration_present() {
+        return Err(PostgresMeasurementError::InvalidTarget);
+    }
+    let options = connect_options(&target, "vibe-market-data-source-binding-v1");
+    let mut connection = PgConnection::connect_with(&options)
+        .await
+        .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
+    let mut transaction = connection
+        .begin()
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+    let custody: bool = sqlx::query_scalar(
+            "SELECT market_data_private.resolve_owner_history_census_custody_v1() AND market_data_private.resolve_source_lineage_custody_v1((SELECT lineage_root FROM market_data_private.source_binding_facts_v1 WHERE binding_id=$1)) AND EXISTS(SELECT 1 FROM market_data_private.resolve_clock_custody_state_v1())",
+        )
+        .bind(binding_identity.as_slice())
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    if !custody {
+        return Err(PostgresMeasurementError::SnapshotUnavailable);
+    }
+    let member_identities: Vec<Vec<u8>> = sqlx::query_scalar(
+            "SELECT member_identity FROM market_data_private.resolve_source_lineage_members_v1((SELECT lineage_root FROM market_data_private.source_binding_facts_v1 WHERE binding_id=$1))",
+        )
+        .bind(binding_identity.as_slice())
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    if member_identities.is_empty() || member_identities.len() > 10_000 {
+        return Err(PostgresMeasurementError::SnapshotUnavailable);
+    }
+    let mut lineage = Vec::with_capacity(member_identities.len());
+    for identity in member_identities {
+        let evidence: serde_json::Value = sqlx::query_scalar(
+            "SELECT to_jsonb(e) FROM market_data_private.resolve_source_binding_v1($1) AS e",
+        )
+        .bind(identity)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+        lineage.push(
+            serde_json::to_vec(&evidence)
+                .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?,
+        );
+    }
+    let clocks: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT to_jsonb(h) FROM market_data_private.clock_handoffs_v1 AS h ORDER BY h.head_identity LIMIT 10001",
+        )
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    if clocks.len() > 10_000 {
+        return Err(PostgresMeasurementError::SnapshotUnavailable);
+    }
+    let clocks = clocks
+        .into_iter()
+        .map(|value| {
+            serde_json::to_vec(&value).map_err(|_| PostgresMeasurementError::SnapshotUnavailable)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    transaction
+        .commit()
+        .await
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    Ok((lineage, clocks))
+}
+
+pub(crate) struct RawPitEvaluationSnapshot {
+    pub(crate) pit_lineage_rows: Vec<Vec<u8>>,
+    pub(crate) source_lineage_rows: Vec<Vec<u8>>,
+    pub(crate) clock_rows: Vec<Vec<u8>>,
+    pub(crate) batch_source_binding_identity: [u8; 32],
+    pub(crate) batch_source_binding_lineage_root: [u8; 32],
+    pub(crate) batch_source_binding_lineage_version: u64,
+    pub(crate) batch_digest: [u8; 32],
+    pub(crate) batch_bytes: Vec<u8>,
+    pub(crate) batch_rows: Vec<crate::MarketDataPitObservationNativeRow>,
+}
+
+pub(crate) async fn read_market_data_pit_evaluation_snapshot(
+    lease: &PostgresCredentialLease,
+    snapshot_identity: &[u8; 32],
+) -> Result<RawPitEvaluationSnapshot, PostgresMeasurementError> {
+    let target = parse_target(lease.database_url())?;
+
+    if ambient_pg_configuration_present() {
+        return Err(PostgresMeasurementError::InvalidTarget);
+    }
+    let options = connect_options(&target, "vibe-market-data-pit-evaluation-v1");
+    let mut connection = PgConnection::connect_with(&options)
+        .await
+        .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
+    let mut transaction = connection
+        .begin()
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+
+    let header = sqlx::query(
+        "SELECT source_binding_identity,source_binding_lineage_root,source_binding_lineage_version,batch_digest,batch_bytes,row_count FROM market_data_private.resolve_pit_observation_batch_v1($1)",
+    )
+    .bind(snapshot_identity.as_slice())
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    let source_binding_identity: Vec<u8> = header
+        .try_get("source_binding_identity")
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    let source_lineage_root: Vec<u8> = header
+        .try_get("source_binding_lineage_root")
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    let source_binding_lineage_version: i64 = header
+        .try_get("source_binding_lineage_version")
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    let batch_digest: Vec<u8> = header
+        .try_get("batch_digest")
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    let batch_bytes: Vec<u8> = header
+        .try_get("batch_bytes")
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    let row_count: i64 = header
+        .try_get("row_count")
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    let batch_digest: [u8; 32] = batch_digest
+        .try_into()
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    let batch_source_binding_identity: [u8; 32] = source_binding_identity
+        .try_into()
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    let batch_source_binding_lineage_root: [u8; 32] = source_lineage_root
+        .clone()
+        .try_into()
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    let batch_source_binding_lineage_version = u64::try_from(source_binding_lineage_version)
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+
+    if batch_source_binding_lineage_version == 0
+        || batch_bytes.is_empty()
+        || !(1..=10_000).contains(&row_count)
+    {
+        return Err(PostgresMeasurementError::SnapshotUnavailable);
+    }
+
+    let custody: bool = sqlx::query_scalar(
+        "SELECT market_data_private.resolve_owner_history_census_custody_v1() AND market_data_private.resolve_pit_lineage_custody_v1((SELECT lineage_root FROM market_data_private.pit_snapshot_facts_v1 WHERE snapshot_identity=$1)) AND market_data_private.resolve_source_lineage_custody_v1($2) AND EXISTS(SELECT 1 FROM market_data_private.resolve_clock_custody_state_v1())",
+    )
+    .bind(snapshot_identity.as_slice())
+    .bind(&source_lineage_root)
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    if !custody {
+        return Err(PostgresMeasurementError::SnapshotUnavailable);
+    }
+
+    let pit_member_identities: Vec<Vec<u8>> = sqlx::query_scalar(
+        "SELECT member_identity FROM market_data_private.resolve_pit_lineage_members_v1((SELECT lineage_root FROM market_data_private.pit_snapshot_facts_v1 WHERE snapshot_identity=$1))",
+    )
+    .bind(snapshot_identity.as_slice())
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    let source_member_identities: Vec<Vec<u8>> = sqlx::query_scalar(
+        "SELECT member_identity FROM market_data_private.resolve_source_lineage_members_v1($1)",
+    )
+    .bind(&source_lineage_root)
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+
+    if pit_member_identities.is_empty()
+        || pit_member_identities.len() > 10_000
+        || source_member_identities.is_empty()
+        || source_member_identities.len() > 10_000
+    {
+        return Err(PostgresMeasurementError::SnapshotUnavailable);
+    }
+
+    let mut pit_lineage_rows = Vec::with_capacity(pit_member_identities.len());
+    for identity in pit_member_identities {
+        let evidence: serde_json::Value = sqlx::query_scalar(
+            "SELECT to_jsonb(e) FROM market_data_private.resolve_pit_snapshot_v1($1) AS e",
+        )
+        .bind(identity)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+        pit_lineage_rows.push(
+            serde_json::to_vec(&evidence)
+                .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?,
+        );
+    }
+    let mut source_lineage_rows = Vec::with_capacity(source_member_identities.len());
+    for identity in source_member_identities {
+        let evidence: serde_json::Value = sqlx::query_scalar(
+            "SELECT to_jsonb(e) FROM market_data_private.resolve_source_binding_v1($1) AS e",
+        )
+        .bind(identity)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+        source_lineage_rows.push(
+            serde_json::to_vec(&evidence)
+                .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?,
+        );
+    }
+    let clocks: Vec<serde_json::Value> = sqlx::query_scalar(
+        "SELECT to_jsonb(h) FROM market_data_private.clock_handoffs_v1 AS h ORDER BY h.head_identity LIMIT 10001",
+    )
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    if clocks.len() > 10_000 {
+        return Err(PostgresMeasurementError::SnapshotUnavailable);
+    }
+    let clock_rows = clocks
+        .into_iter()
+        .map(|value| {
+            serde_json::to_vec(&value).map_err(|_| PostgresMeasurementError::SnapshotUnavailable)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let native_rows = sqlx::query(
+        "SELECT ordinal,symbolic_key,member_key,row_bytes FROM market_data_private.resolve_pit_observation_rows_v1($1) LIMIT 10001",
+    )
+    .bind(snapshot_identity.as_slice())
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    let batch_rows = native_rows
+        .into_iter()
+        .map(|row| {
+            let ordinal: i64 = row
+                .try_get("ordinal")
+                .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+            Ok(crate::MarketDataPitObservationNativeRow {
+                ordinal: u64::try_from(ordinal)
+                    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?,
+                symbolic_key: row
+                    .try_get("symbolic_key")
+                    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?,
+                member_key: row
+                    .try_get("member_key")
+                    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?,
+                row_bytes: row
+                    .try_get("row_bytes")
+                    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    if i64::try_from(batch_rows.len()).ok() != Some(row_count) {
+        return Err(PostgresMeasurementError::SnapshotUnavailable);
+    }
+    transaction
+        .commit()
+        .await
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    Ok(RawPitEvaluationSnapshot {
+        pit_lineage_rows,
+        source_lineage_rows,
+        clock_rows,
+        batch_source_binding_identity,
+        batch_source_binding_lineage_root,
+        batch_source_binding_lineage_version,
+        batch_digest,
+        batch_bytes,
+        batch_rows,
+    })
+}
+
 /// Canonical direct measurement of one PostgreSQL target and its governed catalog surface.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PostgresMeasurement {
@@ -251,6 +534,8 @@ pub enum PostgresMeasurementError {
     AclIdentityUnavailable,
     #[error("PostgreSQL catalog target is absent or ambiguous")]
     CatalogTargetMismatch,
+    #[error("Market Data Source Binding storage snapshot is unavailable")]
+    SnapshotUnavailable,
 }
 
 /// Read-only direct PostgreSQL target measurer for a pinned disposable loopback authority.
@@ -277,14 +562,7 @@ impl PostgresDirectMeasurer {
         if ambient_pg_configuration_present() {
             return Err(PostgresMeasurementError::InvalidTarget);
         }
-        let options = PgConnectOptions::new_without_pgpass()
-            .host(&target.host)
-            .port(target.port)
-            .username(&target.role)
-            .password(target.password.as_str())
-            .database(&target.database)
-            .ssl_mode(PgSslMode::Disable)
-            .application_name("vibe-deployment-store-admission-disposable-v1");
+        let options = connect_options(&target, "vibe-deployment-store-admission-disposable-v1");
         let mut connection = PgConnection::connect_with(&options)
             .await
             .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
@@ -610,6 +888,17 @@ struct ParsedTarget {
     database: String,
     role: String,
     password: Zeroizing<String>,
+}
+
+fn connect_options(target: &ParsedTarget, application_name: &str) -> PgConnectOptions {
+    PgConnectOptions::new_without_pgpass()
+        .host(&target.host)
+        .port(target.port)
+        .username(&target.role)
+        .password(target.password.as_str())
+        .database(&target.database)
+        .ssl_mode(PgSslMode::Disable)
+        .application_name(application_name)
 }
 
 fn parse_target(database_url: &str) -> Result<ParsedTarget, PostgresMeasurementError> {

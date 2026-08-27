@@ -18,6 +18,8 @@
   不可变且永不增加 Recovery Case 反向引用；Execution 只在 case 原因集合中记录 incident 身份
 - Runtime Readiness Fact，绑定实例 generation checkpoint 影响范围 原因前沿 `READY` 或 `NOT_READY`
   本地抑制回执和 `valid-through`
+- **TARGET：** generation-scoped shared-kernel semantic trace 与版本化 strategy checkpoint，绑定准确 Plan、
+  Artifact、ordered lifecycle frontier、strategy/plugin state、target、protection 与 fill reconciliation
 - Runtime Kernel Repair Result，绑定一个 R&D-owned `native-repair-request`、稳定 correlation、前驱
   `REPAIR_INPUTS` 决定、原始 proof digest、旧 kernel version、决定性证据、repair policy 与新鲜 Time
   Evidence；只有 Runtime 能为该 attempt 提交 `REPAIRED` `UNAVAILABLE` 或 `OUTCOME_UNKNOWN`
@@ -32,6 +34,21 @@
 
 checkpoint 与 readiness 持久化属于 Runtime 内部关注点，不是第二个可见能力或权威。实现可以变化，
 但重启必须加入相同身份并保留以上事实。
+
+## 共享策略生命周期契约
+
+Runtime 只能应用 governed generation 携带的准确 [StrategyDesignV2 共享内核路径](../architecture/strategy-factory.zh.md#strategydesignv2-与共享生命周期内核)：
+`StrategyPlanV2`、内容寻址 Wasm Artifact、Owner binding、`ProgramHost`、lifecycle/checkpoint/kernel/plugin
+版本及 Market Semantics Compatibility 身份。只有共享内核能消费全序 `START` `BAR` `EVENT` `FILL`
+`TIMER` `STOP` envelope，并拥有 `ENTER` `ADD` `REDUCE` `EXIT` `HOLD`、target position/weight/rebalance、
+protection adjustment 和 fill reconciliation。plugin 只能返回其有界 typed value 或 state proposal；它没有
+raw-order、Risk、Execution、Portfolio、account 或 external-effect 权威。
+
+在 Paper 与 Live adapter 存在并被另行接纳前，二者等价性均为 **TARGET / NOT_ADMITTED**。获准后，两种
+mode 必须消费相同 Plan、Artifact、ordering、checkpoint 与 kernel，并对相同 normalized event prefix 在
+Risk/Execution adapter boundary 之前产生相同 semantic trace。只能替换 adapter、account namespace 与
+effect namespace。Risk 仍是最终 intent admission，Execution 拥有 order/fill/effect，Portfolio 拥有 position
+与 account truth；Runtime 绝不能把 kernel target 或 plugin output 直接提升为 order 或 account state。
 
 ## 输入交接
 

@@ -17,6 +17,7 @@ crate-type = ["rlib"]
 
 [features]
 default = []
+sealed-strategy-input-acceptance = []
 streaming = ["vibe-persistence"]
 high-precision = [
   "vibe-model/high-precision",
@@ -43,6 +44,7 @@ defi = [
 [dependencies]
 vibe-common = { workspace = true }
 vibe-core = { workspace = true }
+vibe-deployment-store-admission = { workspace = true }
 vibe-model = { workspace = true, features = ["stubs"] }
 vibe-persistence = { workspace = true, optional = true }
 
