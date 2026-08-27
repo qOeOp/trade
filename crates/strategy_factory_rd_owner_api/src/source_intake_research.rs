@@ -15,8 +15,8 @@ use vibe_product_edge::{
 use vibe_strategy_factory::{
     product_edge::{
         ProductEdgeChannel, RESEARCH_GOAL_OPERATION_V2, RESEARCH_GOAL_SCHEMA_V2, RESEARCH_OWNER_V1,
-        TrialFamilyProposalV1, UnsourcedResearchGoalV1, UnsourcedResearchProposalV1,
-        identity_conflict_result_v2,
+        ResearchGoalOwnerError, TrialFamilyProposalV1, UnsourcedResearchGoalV1,
+        UnsourcedResearchProposalV1, identity_conflict_result_v2,
     },
     product_edge_postgres::PostgresResearchGoalOwnerV1,
     source_intake::{SourceIntakePolicyEvidenceQueryV1, SourceIntakeResearchAncestryProposalV1},
@@ -153,7 +153,7 @@ async fn execute(
         .await
     {
         Ok(admission) => admission,
-        Err(error) => return product_edge_error(&error, &request_identity),
+        Err(e) => return product_edge_error(&e, &request_identity),
     };
     let proposal = UnsourcedResearchProposalV1 {
         request_identity: operation.proposal.request_identity,
@@ -169,8 +169,9 @@ async fn execute(
         .await
     {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(error) => source_research_owner_error(&error, &request_identity),
+        Err(e) => source_research_owner_error(&e, &request_identity),
     };
+
     if state.allow_acceptance_faults {
         let delay = headers
             .get("x-rd-acceptance-delay-after-commit-ms")
@@ -178,6 +179,7 @@ async fn execute(
             .and_then(|value| value.parse::<u64>().ok())
             .unwrap_or(0)
             .min(30_000);
+
         if delay > 0 {
             tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
         }
@@ -185,15 +187,12 @@ async fn execute(
     response
 }
 
-fn source_research_owner_error(
-    error: &vibe_strategy_factory::product_edge::ResearchGoalOwnerError,
-    request_identity: &str,
-) -> Response {
-    let mut response = super::owner_error_v2(error, request_identity);
+fn source_research_owner_error(error: &ResearchGoalOwnerError, request_identity: &str) -> Response {
+    let response = super::owner_error_v2(error, request_identity);
     #[cfg(feature = "sealed-source-intake-acceptance")]
-    if let vibe_strategy_factory::product_edge::ResearchGoalOwnerError::Unauthorized(message) =
-        error
-    {
+    let mut response = response;
+    #[cfg(feature = "sealed-source-intake-acceptance")]
+    if let ResearchGoalOwnerError::Unauthorized(message) = error {
         let stage = match *message {
             "Source Intake policy locator mismatch" => Some("POLICY_LOCATOR"),
             "Source Intake policy Owner unavailable" => Some("POLICY_OWNER_BINDING"),
@@ -214,6 +213,7 @@ fn source_research_owner_error(
             }
             _ => None,
         };
+
         if let Some(stage) = stage
             && let Ok(value) = stage.parse()
         {
@@ -243,7 +243,7 @@ fn product_edge_error(error: &ProductEdgeError, request_identity: &str) -> Respo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vibe_strategy_factory::product_edge::ResearchGoalOwnerError;
+    use rstest::rstest;
 
     fn operation_fixture() -> SourceIntakeResearchOperationV1 {
         serde_json::from_value(serde_json::json!({
@@ -299,7 +299,7 @@ mod tests {
         .expect("fixture is the exact caller-safe operation")
     }
 
-    #[test]
+    #[rstest]
     fn request_is_exact_and_rejects_caller_supplied_verified_evidence() {
         let source = include_str!("source_intake_research.rs");
         assert!(source.contains("submit_source_intake_research_v1("));
@@ -310,7 +310,7 @@ mod tests {
         assert!(!source.contains(&["verified", "_policy:"].concat()));
     }
 
-    #[test]
+    #[rstest]
     fn conflicting_replay_uses_the_existing_canonical_v2_projection() {
         let response = super::super::owner_error_v2(
             &ResearchGoalOwnerError::ConflictingReplay,
@@ -324,7 +324,7 @@ mod tests {
     }
 
     #[cfg(feature = "sealed-source-intake-acceptance")]
-    #[test]
+    #[rstest]
     fn sealed_diagnostic_maps_only_known_static_unauthorized_stages() {
         for (message, expected) in [
             (
@@ -359,7 +359,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn admitted_payload_is_exactly_the_unsourced_proposal_contract() {
         let operation = operation_fixture();
         assert_eq!(

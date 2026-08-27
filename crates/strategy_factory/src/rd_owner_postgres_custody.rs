@@ -1479,6 +1479,7 @@ async fn admit_preloaded_research_row_in_transaction(
             source_ancestry_locator_json.as_ref(),
             source_ancestry_evidence_digest.as_deref(),
         )?;
+
         if source_ancestry_locator_json.is_some() {
             verify_source_bound_research_admission_v2(&product_edge_admission, &request)?;
         } else {

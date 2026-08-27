@@ -507,6 +507,7 @@ fn verify_current_owner_policy(
     #[cfg(feature = "sealed-source-intake-research-acceptance")]
     let current = {
         let mut current = current;
+
         if binding.authority.authority_class
             == super::SourceAcquisitionAuthorityClassV1::SealedAcceptance
         {

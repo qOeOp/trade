@@ -34,11 +34,14 @@ use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwne
 use vibe_strategy_factory::{
     product_edge::{
         ProductEdgeChannel, ProductEdgeResolution, RESEARCH_GOAL_OPERATION_V2,
-        RESEARCH_GOAL_SCHEMA_V2, RESEARCH_OWNER_V1, TrialFamilyProposalV1, UnsourcedResearchGoalV1,
-        UnsourcedResearchProposalV1,
+        RESEARCH_GOAL_SCHEMA_V2, RESEARCH_OWNER_V1, ResearchGoalOwnerError, TrialFamilyProposalV1,
+        UnsourcedResearchGoalV1, UnsourcedResearchProposalV1,
     },
     product_edge_postgres::PostgresResearchGoalOwnerV1,
-    source_intake::{SourceIntakePolicyEvidenceQueryV1, SourceIntakeResearchAncestryProposalV1},
+    source_intake::{
+        ProductEdgeGatewayV1 as CanonicalProductEdgeGatewayV1, SourceIntakePolicyEvidenceQueryV1,
+        SourceIntakeResearchAncestryProposalV1,
+    },
 };
 
 use source_intake::{
@@ -1655,7 +1658,7 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
         let url = std::env::var(environment).expect("canonical role URL");
         let pool = sqlx::PgPool::connect(&url)
             .await
-            .unwrap_or_else(|error| panic!("{role} disposable role is unreachable: {error}"));
+            .unwrap_or_else(|e| panic!("{role} disposable role is unreachable: {e}"));
         pool.close().await;
     }
     let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
@@ -1905,7 +1908,7 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
     };
     let policy_query = SourceIntakePolicyEvidenceQueryV1 {
         request_identity: request_identity.clone(),
-        gateway: vibe_strategy_factory::source_intake::ProductEdgeGatewayV1::WindmillProductEdge,
+        gateway: CanonicalProductEdgeGatewayV1::WindmillProductEdge,
         admission: source_admission,
         operation_manifest_identity: stored.0["operation_manifest_identity"]
             .as_str()
@@ -2079,7 +2082,7 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
         restarted_research_owner
             .submit_source_intake_research_v1(changed, ancestry, policy_query)
             .await,
-        Err(vibe_strategy_factory::product_edge::ResearchGoalOwnerError::ConflictingReplay)
+        Err(ResearchGoalOwnerError::ConflictingReplay)
     ));
 
     let admission: CanonicalProductEdgeAdmissionLocatorV1 =

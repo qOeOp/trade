@@ -13,8 +13,11 @@ postgres_image='postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75
 rust_image='public.ecr.aws/docker/library/rust:1.97.1-slim-bookworm@sha256:99e09cb2284e2ddbb73a995deee3e91783fd04d177602ccf6eab326d778ee777'
 buildkit_image='docker.io/moby/buildkit:v0.26.2@sha256:de10faf919fc71ba4eb1dd7bd6449566d012b0c9436b1c61bfee21d621b009aa'
 
-die() { printf 'Source Intake -> Research sealed acceptance: %s\n' "$*" >&2; exit 1; }
-require_command() { command -v "$1" >/dev/null 2>&1 || die "$1 is required"; }
+die() {
+  printf 'Source Intake -> Research sealed acceptance: %s\n' "$*" >&2
+  exit 1
+}
+require_command() { command -v "$1" > /dev/null 2>&1 || die "$1 is required"; }
 random_hex() { python3 -c 'import secrets; print(secrets.token_hex(24))'; }
 current_phase=bootstrap
 phase() {
@@ -22,9 +25,12 @@ phase() {
   printf 'Source Intake -> Research sealed acceptance phase=%s\n' "$current_phase" >&2
 }
 
-if command -v timeout >/dev/null 2>&1; then timeout_command=timeout
-elif command -v gtimeout >/dev/null 2>&1; then timeout_command=gtimeout
-else timeout_command=
+if command -v timeout > /dev/null 2>&1; then
+  timeout_command=timeout
+elif command -v gtimeout > /dev/null 2>&1; then
+  timeout_command=gtimeout
+else
+  timeout_command=
 fi
 with_deadline() {
   local seconds=$1
@@ -47,6 +53,8 @@ static_check() {
   grep -Fq 'RD_OWNER_ENABLE_ACCEPTANCE_FAULTS: "1"' "$overlay_compose"
   grep -Fq 'source-research-probe:' "$overlay_compose"
   grep -Fq 'pull_policy: never' "$overlay_compose"
+  # The acceptance contract intentionally matches the literal script expression.
+  # shellcheck disable=SC2016
   grep -Fq 'consumer_run RESOLVE "$run_dir/research.json" "$run_dir/restart.json"' "$runner_file"
   if grep -Eq 'ports:|127\.0\.0\.1' "$overlay_compose"; then
     die 'host-published acceptance traffic is forbidden'
@@ -71,9 +79,9 @@ for command_name in bash docker jq openssl python3; do require_command "$command
 
 docker_context=desktop-linux
 docker_local=(docker --context "$docker_context")
-with_deadline 15 "${docker_local[@]}" info >/dev/null || die 'local Docker daemon is unavailable'
+with_deadline 15 "${docker_local[@]}" info > /dev/null || die 'local Docker daemon is unavailable'
 for image in "$windmill_image" "$postgres_image" "$rust_image" "$buildkit_image"; do
-  with_deadline 15 "${docker_local[@]}" image inspect "$image" >/dev/null 2>&1 ||
+  with_deadline 15 "${docker_local[@]}" image inspect "$image" > /dev/null 2>&1 ||
     die "required local image is absent: $image"
 done
 
@@ -96,10 +104,10 @@ cleanup() {
   set +e
   printf 'Source Intake -> Research sealed acceptance phase=cleanup after=%s\n' "$failed_phase" >&2
   if [[ $compose_touched -eq 1 ]]; then
-    with_deadline 90 "${compose[@]}" down --volumes --remove-orphans --timeout 20 >/dev/null 2>&1 || cleanup_failed=1
+    with_deadline 90 "${compose[@]}" down --volumes --remove-orphans --timeout 20 > /dev/null 2>&1 || cleanup_failed=1
   fi
   if [[ $builder_touched -eq 1 ]]; then
-    with_deadline 90 "${docker_local[@]}" buildx rm --force "$builder_name" >/dev/null 2>&1 || cleanup_failed=1
+    with_deadline 90 "${docker_local[@]}" buildx rm --force "$builder_name" > /dev/null 2>&1 || cleanup_failed=1
   fi
   residue=$(with_deadline 30 "${docker_local[@]}" ps -aq --filter "label=com.docker.compose.project=$project") || cleanup_failed=1
   [[ -z $residue ]] || cleanup_failed=1
@@ -107,10 +115,10 @@ cleanup() {
   [[ -z $residue ]] || cleanup_failed=1
   residue=$(with_deadline 30 "${docker_local[@]}" network ls -q --filter "label=com.docker.compose.project=$project") || cleanup_failed=1
   [[ -z $residue ]] || cleanup_failed=1
-  "${docker_local[@]}" container rm --force "$builder_container" >/dev/null 2>&1 || true
-  "${docker_local[@]}" volume rm "$builder_state_volume" >/dev/null 2>&1 || true
-  "${docker_local[@]}" image rm "$owner_image" >/dev/null 2>&1 || true
-  if "${docker_local[@]}" image inspect "$owner_image" >/dev/null 2>&1; then cleanup_failed=1; fi
+  "${docker_local[@]}" container rm --force "$builder_container" > /dev/null 2>&1 || true
+  "${docker_local[@]}" volume rm "$builder_state_volume" > /dev/null 2>&1 || true
+  "${docker_local[@]}" image rm "$owner_image" > /dev/null 2>&1 || true
+  if "${docker_local[@]}" image inspect "$owner_image" > /dev/null 2>&1; then cleanup_failed=1; fi
   rm -rf -- "$run_dir" || cleanup_failed=1
   if [[ $cleanup_failed -eq 0 ]]; then
     printf '%s\n' 'Source Intake -> Research sealed acceptance cleanup/readback passed'
@@ -133,10 +141,10 @@ issuer_identity="sealed-issuer-$(random_hex | cut -c1-20)"
 issuer_key_version="sealed-key-$(random_hex | cut -c1-20)"
 deployment_identity="sealed-deployment-$(random_hex | cut -c1-20)"
 
-cat > "$bootstrap_config" <<EOF
+cat > "$bootstrap_config" << EOF
 {"authorization_identity":"sealed-authorization-$(random_hex | cut -c1-20)","issuer_identity":"$issuer_identity","issuer_key_version":"$issuer_key_version","authorization_audience":"R_AND_D","deployment_identity":"$deployment_identity","binding_identity":"sealed-binding-$(random_hex | cut -c1-20)","effective_principal":"sealed-acceptance-runner","scope_policy_version":"sealed-acceptance-v1","capability_policy_digest":"sha256:$(random_hex)$(random_hex | cut -c1-16)","audit_policy_version":"sealed-acceptance-v1","valid_from_epoch_ms":1700000000000,"valid_through_epoch_ms":1900000000000}
 EOF
-cat > "$env_file" <<EOF
+cat > "$env_file" << EOF
 SEALED_ACCEPTANCE_PROJECT=$project
 SEALED_ACCEPTANCE_OWNER_IMAGE=$owner_image
 SEALED_POSTGRES_PASSWORD=$postgres_password
@@ -158,12 +166,12 @@ SEALED_ISSUER_KEY_VERSION=$issuer_key_version
 SEALED_DEPLOYMENT_IDENTITY=$deployment_identity
 EOF
 
-compose=("${docker_local[@]}" compose --project-directory "$package_dir" \
+compose=("${docker_local[@]}" compose --project-directory "$package_dir"
   --file "$base_compose" --file "$overlay_compose" --env-file "$env_file" --project-name "$project")
 
 builder_touched=1
 with_deadline 60 "${docker_local[@]}" buildx create --name "$builder_name" --node "$builder_node" \
-  --driver docker-container --driver-opt "image=$buildkit_image" >/dev/null
+  --driver docker-container --driver-opt "image=$buildkit_image" > /dev/null
 with_deadline 1800 "${docker_local[@]}" buildx build --builder "$builder_name" --load --pull=false \
   --no-cache --tag "$owner_image" --file "$dockerfile" "$repo_root"
 compose_touched=1
@@ -203,7 +211,7 @@ source_run() {
 source_context() {
   local request=$1 output=$2
   db_scalar "SELECT json_build_object('admission',binding_json->'product_edge_admission','operation_manifest_identity',binding_json->>'operation_manifest_identity','operation_manifest_digest',binding_json->>'operation_manifest_digest') FROM public.rd_source_intake_bindings_v1 WHERE request_identity='$request' AND state='TERMINAL';" > "$output"
-  jq -e '.admission and .operation_manifest_identity and .operation_manifest_digest' "$output" >/dev/null
+  jq -e '.admission and .operation_manifest_identity and .operation_manifest_digest' "$output" > /dev/null
 }
 
 research_payload() {
@@ -250,7 +258,7 @@ owner_diagnostic_run() {
 }
 
 assert_accepted() {
-  jq -e '.schema_version==2 and .resolution=="ACCEPTED" and .owner_receipt and .research_view and .independence_basis and .protected_feedback and .trial_family_resolution=="AVAILABLE" and .trial_family' "$1" >/dev/null || die "$2"
+  jq -e '.schema_version==2 and .resolution=="ACCEPTED" and .owner_receipt and .research_view and .independence_basis and .protected_feedback and .trial_family_resolution=="AVAILABLE" and .trial_family' "$1" > /dev/null || die "$2"
 }
 research_projection_class() {
   jq -r '
@@ -290,7 +298,7 @@ assert_zero_research() {
 phase source
 source_request="sealed-source-$(random_hex | cut -c1-16)"
 source_run "$source_request" 10.5555/sealed-success "$run_dir/source-success.json"
-jq -e '.terminal=="RETRIEVED" and .receipt.terminal=="RETRIEVED"' "$run_dir/source-success.json" >/dev/null || die 'source was not RETRIEVED'
+jq -e '.terminal=="RETRIEVED" and .receipt.terminal=="RETRIEVED"' "$run_dir/source-success.json" > /dev/null || die 'source was not RETRIEVED'
 source_context "$source_request" "$run_dir/source-context.json"
 
 phase negative-ancestry
@@ -302,7 +310,7 @@ assert_zero_research "$wrong_request"
 
 rejected_source="sealed-rejected-$(random_hex | cut -c1-16)"
 source_run "$rejected_source" 10.5555/sealed-rejected "$run_dir/source-rejected.json"
-jq -e '.terminal=="TERMS_OR_LICENSE_BLOCKED" and .receipt.terminal=="TERMS_OR_LICENSE_BLOCKED"' "$run_dir/source-rejected.json" >/dev/null || die 'negative source was not a genuine non-RETRIEVED terminal'
+jq -e '.terminal=="TERMS_OR_LICENSE_BLOCKED" and .receipt.terminal=="TERMS_OR_LICENSE_BLOCKED"' "$run_dir/source-rejected.json" > /dev/null || die 'negative source was not a genuine non-RETRIEVED terminal'
 source_context "$rejected_source" "$run_dir/rejected-source-context.json"
 nonretrieved_request="research-nonretrieved-$(random_hex | cut -c1-16)"
 research_payload "$nonretrieved_request" "$rejected_source" "$run_dir/source-rejected.json" "$run_dir/rejected-source-context.json" "$run_dir/nonretrieved.json"
@@ -312,17 +320,17 @@ assert_zero_research "$nonretrieved_request"
 canonical_provenance=$(db_scalar "SELECT provenance_json::text FROM public.rd_research_source_provenance_v1 WHERE receipt_identity='$(jq -er '.receipt.receipt_identity' "$run_dir/source-success.json")';")
 stale_request="research-stale-$(random_hex | cut -c1-16)"
 research_payload "$stale_request" "$source_request" "$run_dir/source-success.json" "$run_dir/source-context.json" "$run_dir/stale.json"
-db_scalar "ALTER TABLE public.rd_research_source_provenance_v1 DISABLE TRIGGER rd_research_source_provenance_immutable_v1; UPDATE public.rd_research_source_provenance_v1 SET provenance_json=jsonb_set(provenance_json,'{valid_through_epoch_ms}','1800000000002'::jsonb) WHERE receipt_identity='$(jq -er '.receipt.receipt_identity' "$run_dir/source-success.json")'; ALTER TABLE public.rd_research_source_provenance_v1 ENABLE TRIGGER rd_research_source_provenance_immutable_v1;" >/dev/null
+db_scalar "ALTER TABLE public.rd_research_source_provenance_v1 DISABLE TRIGGER rd_research_source_provenance_immutable_v1; UPDATE public.rd_research_source_provenance_v1 SET provenance_json=jsonb_set(provenance_json,'{valid_through_epoch_ms}','1800000000002'::jsonb) WHERE receipt_identity='$(jq -er '.receipt.receipt_identity' "$run_dir/source-success.json")'; ALTER TABLE public.rd_research_source_provenance_v1 ENABLE TRIGGER rd_research_source_provenance_immutable_v1;" > /dev/null
 owner_post /v1/source-intake-research "$run_dir/stale.json" "$run_dir/stale.response" 403
 assert_zero_research "$stale_request"
-db_scalar "ALTER TABLE public.rd_research_source_provenance_v1 DISABLE TRIGGER rd_research_source_provenance_immutable_v1; UPDATE public.rd_research_source_provenance_v1 SET provenance_json=\$\$$canonical_provenance\$\$::jsonb WHERE receipt_identity='$(jq -er '.receipt.receipt_identity' "$run_dir/source-success.json")'; ALTER TABLE public.rd_research_source_provenance_v1 ENABLE TRIGGER rd_research_source_provenance_immutable_v1;" >/dev/null
+db_scalar "ALTER TABLE public.rd_research_source_provenance_v1 DISABLE TRIGGER rd_research_source_provenance_immutable_v1; UPDATE public.rd_research_source_provenance_v1 SET provenance_json=\$\$$canonical_provenance\$\$::jsonb WHERE receipt_identity='$(jq -er '.receipt.receipt_identity' "$run_dir/source-success.json")'; ALTER TABLE public.rd_research_source_provenance_v1 ENABLE TRIGGER rd_research_source_provenance_immutable_v1;" > /dev/null
 
 phase canonical-research
 research_request="research-success-$(random_hex | cut -c1-16)"
 research_payload "$research_request" "$source_request" "$run_dir/source-success.json" "$run_dir/source-context.json" "$run_dir/research.json"
 owner_diagnostic_run "$run_dir/research.json" "$run_dir/research-owner.json"
 consumer_run RUN "$run_dir/research.json" "$run_dir/research-first.json"
-if ! jq -e '.schema_version==2 and .resolution=="ACCEPTED" and .owner_receipt and .research_view and .independence_basis and .protected_feedback and .trial_family_resolution=="AVAILABLE" and .trial_family' "$run_dir/research-first.json" >/dev/null; then
+if ! jq -e '.schema_version==2 and .resolution=="ACCEPTED" and .owner_receipt and .research_view and .independence_basis and .protected_feedback and .trial_family_resolution=="AVAILABLE" and .trial_family' "$run_dir/research-first.json" > /dev/null; then
   consumer_resolution=$(jq -r '.resolution // "UNAVAILABLE"' "$run_dir/research-first.json")
   consumer_next_action=$(jq -r '.next_legal_action // "UNAVAILABLE"' "$run_dir/research-first.json")
   die "Windmill consumer did not admit canonical Research (owner_status=$OWNER_DIAGNOSTIC_STATUS owner_resolution=$OWNER_DIAGNOSTIC_RESOLUTION owner_rejection=$OWNER_DIAGNOSTIC_REJECTION owner_stage=$OWNER_DIAGNOSTIC_STAGE consumer_resolution=$consumer_resolution consumer_next_action=$consumer_next_action)"
@@ -344,7 +352,7 @@ with_deadline 30 "${compose[@]}" exec -T source-research-probe sh -eu -c '
     --header "Authorization: Bearer $RD_OWNER_API_TOKEN" --header "Content-Type: application/json" \
     --header "x-rd-acceptance-delay-after-commit-ms: 10000" --data-binary @- \
     http://rd-owner-api:8080/v1/source-intake-research
-' < "$run_dir/loss.json" > "$run_dir/loss-dropped.response" 2>/dev/null
+' < "$run_dir/loss.json" > "$run_dir/loss-dropped.response" 2> /dev/null
 loss_status=$?
 set -e
 [[ $loss_status -ne 0 ]] || die 'response-loss probe unexpectedly received a response'
@@ -364,19 +372,19 @@ assert_accepted "$run_dir/loss-resolved.json" 'same-request RESOLVE did not reco
 [[ $(db_scalar "SELECT count(*) FROM public.rd_research_request_receipts_v1 WHERE request_identity='$loss_request';") == 1 ]] || die 'response-loss resolution duplicated Research'
 
 phase restart
-with_deadline 60 "${compose[@]}" restart rd-owner-api source-research-probe >/dev/null
+with_deadline 60 "${compose[@]}" restart rd-owner-api source-research-probe > /dev/null
 restart_ready=0
 for _ in $(seq 1 60); do
   if "${compose[@]}" exec -T source-research-probe sh -c \
-    'curl --fail --silent http://rd-owner-api:8080/health >/dev/null' 2>/dev/null; then
+    'curl --fail --silent http://rd-owner-api:8080/health >/dev/null' 2> /dev/null; then
     restart_ready=1
     break
   fi
   sleep 1
 done
 if [[ $restart_ready -ne 1 ]]; then
-  "${compose[@]}" logs --no-color --tail 50 rd-owner-api 2>&1 \
-    | sed -E 's#postgres(ql)?://[^[:space:]]+#postgresql://REDACTED#g' >&2 || true
+  "${compose[@]}" logs --no-color --tail 50 rd-owner-api 2>&1 |
+    sed -E 's#postgres(ql)?://[^[:space:]]+#postgresql://REDACTED#g' >&2 || true
   die 'restart health did not recover through the isolated probe'
 fi
 consumer_run RESOLVE "$run_dir/research.json" "$run_dir/restart.json"
