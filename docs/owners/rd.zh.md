@@ -52,7 +52,7 @@
 
 ## 策略设计与 Develop 编译
 
-[StrategyDesignV2 契约](../architecture/strategy-factory.md#strategydesignv2-and-the-shared-lifecycle-kernel)治理任意已
+[StrategyDesignV2 契约](../architecture/strategy-factory#strategydesignv2-and-the-shared-lifecycle-kernel)治理任意已
 接纳 Research 如何变为可执行策略。只有 R&D 能冻结类型化且内容寻址的 `StrategyDesignV2`，包括稳定
 primitive semantic ID、已声明 input role、lifecycle/state/target/protection 含义、可选有界 plugin manifest
 和 Research Intent binding。Develop 确定性执行 canonicalization、capability closure、消费准确 Owner

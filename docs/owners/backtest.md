@@ -46,7 +46,7 @@ Replay frozen strategy artifacts against admitted historical facts with producti
 
 ## Shared strategy lifecycle contract
 
-Backtest consumes only the [StrategyDesignV2 shared-kernel path](../architecture/strategy-factory.md#strategydesignv2-and-the-shared-lifecycle-kernel):
+Backtest consumes only the [StrategyDesignV2 shared-kernel path](../architecture/strategy-factory#strategydesignv2-and-the-shared-lifecycle-kernel):
 an exact `StrategyPlanV2`, its content-addressed Wasm Artifact, resolved Owner input bindings, `ProgramHost`, and
 versioned lifecycle/checkpoint/kernel identities. Native Replay supplies the deterministic `START`, `BAR`,
 `EVENT`, `FILL`, `TIMER`, `STOP` envelope stream; the shared kernel owns position actions, portfolio targets,

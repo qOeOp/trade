@@ -41,7 +41,7 @@ above.
 
 ## Shared strategy lifecycle contract
 
-Runtime may apply only the exact [StrategyDesignV2 shared-kernel path](../architecture/strategy-factory.md#strategydesignv2-and-the-shared-lifecycle-kernel)
+Runtime may apply only the exact [StrategyDesignV2 shared-kernel path](../architecture/strategy-factory#strategydesignv2-and-the-shared-lifecycle-kernel)
 carried by the governed generation: `StrategyPlanV2`, content-addressed Wasm Artifact, Owner bindings,
 `ProgramHost`, lifecycle/checkpoint/kernel/plugin versions, and Market Semantics Compatibility identity. The shared
 kernel alone consumes totally ordered `START`, `BAR`, `EVENT`, `FILL`, `TIMER`, `STOP` envelopes and owns
