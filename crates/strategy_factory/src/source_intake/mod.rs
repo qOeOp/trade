@@ -36,6 +36,9 @@ pub use policy_evidence::{
     SourceIntakePolicyEvidenceResultV1, SourceIntakePolicyEvidenceV1,
     SourceIntakePolicyUnavailableReasonV1, SourceIntakeRetrievalTimeEvidenceV1,
 };
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
+#[allow(unused_imports)]
+pub(crate) use research_handoff::SealedSourceIntakeResearchPolicyV1;
 #[cfg(test)]
 #[allow(
     unused_imports,

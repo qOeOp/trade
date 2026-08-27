@@ -3,10 +3,14 @@ pub mod source_intake;
 
 use std::net::{IpAddr, Ipv4Addr};
 
-#[cfg(feature = "sealed-source-intake-acceptance")]
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
 use std::sync::Arc;
 
 use rstest::rstest;
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
+use vibe_data::owner::{
+    shared_time_evidence::UntrustedClockHeadLocator, source_binding::BindingDigest,
+};
 use vibe_operator_authorization::{
     OperationManifestBindingV1, OperatorAuthorizationIssuanceProposalV1,
     OperatorAuthorizationIssuerPostgresV1, OperatorAuthorizationScopeV1,
@@ -26,6 +30,17 @@ use vibe_rd_source_intake_invocation_custody::{
 };
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
+use vibe_strategy_factory::{
+    product_edge::{
+        ProductEdgeChannel, ProductEdgeResolution, RESEARCH_GOAL_OPERATION_V2,
+        RESEARCH_GOAL_SCHEMA_V2, RESEARCH_OWNER_V1, TrialFamilyProposalV1, UnsourcedResearchGoalV1,
+        UnsourcedResearchProposalV1,
+    },
+    product_edge_postgres::PostgresResearchGoalOwnerV1,
+    source_intake::{SourceIntakePolicyEvidenceQueryV1, SourceIntakeResearchAncestryProposalV1},
+};
+
 use source_intake::{
     AcquisitionTerminalV1, InvocationPermitV1, MAX_RESPONSE_BYTES, OpenAlexResponseObservationV1,
     OpenAlexWorkByDoiRequestV1, ProductEdgeAdmissionLocatorV1, ProductEdgeGatewayV1,
@@ -40,7 +55,7 @@ use source_intake::{
     prepare_source_invocation_in_transaction, reserve_started_source_invocation_in_transaction,
 };
 
-#[cfg(feature = "sealed-source-intake-acceptance")]
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
 use source_intake::{
     SealedSourceIntakeEnvironmentV1, SourceAcquisitionAuthorityClassV1,
     SourceIntakeOperationRequestV1, SourceIntakeOwnerV1,
@@ -1622,11 +1637,27 @@ async fn postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sea
     assert_eq!(acl, (false, true, false, true, false));
 }
 
-#[cfg(feature = "sealed-source-intake-acceptance")]
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
 #[tokio::test]
 #[ignore = "requires the canonical isolated R&D Owner PostgreSQL harness"]
 async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_rejects_mismatches()
 {
+    for (role, environment) in [
+        (
+            "operator authorization",
+            "OPERATOR_AUTHORIZATION_TEST_DATABASE_URL",
+        ),
+        ("Product Edge", "PRODUCT_EDGE_TEST_DATABASE_URL"),
+        ("R&D", "RD_OWNER_TEST_DATABASE_URL"),
+        ("Qualification", "QUALIFICATION_TEST_DATABASE_URL"),
+        ("Backtest", "BACKTEST_TEST_DATABASE_URL"),
+    ] {
+        let url = std::env::var(environment).expect("canonical role URL");
+        let pool = sqlx::PgPool::connect(&url)
+            .await
+            .unwrap_or_else(|error| panic!("{role} disposable role is unreachable: {error}"));
+        pool.close().await;
+    }
     let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
         .await
         .expect("canonical disposable Owner database");
@@ -1665,6 +1696,16 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
         effective_from_epoch_ms: now.saturating_sub(1_000),
         valid_through_epoch_ms: now.saturating_add(600_000),
     };
+    let research_manifest = AgentOperationManifestProposalV1 {
+        operation: RESEARCH_GOAL_OPERATION_V2.into(),
+        operation_schema: RESEARCH_GOAL_SCHEMA_V2.into(),
+        target_owner: RESEARCH_OWNER_V1.into(),
+        allowed_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".into()],
+        prohibited_effects: vec!["ORDER_V1".into(), "REAL_TRADING_V1".into()],
+        capability_policy_digest: format!("sha256:{}", "9".repeat(64)),
+        effective_from_epoch_ms: now.saturating_sub(1_000),
+        valid_through_epoch_ms: now.saturating_add(600_000),
+    };
     let issuer = OperatorAuthorizationIssuerPostgresV1::connect(
         database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
     )
@@ -1678,13 +1719,23 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
             scope: OperatorAuthorizationScopeV1 {
                 principal: principal.clone(),
                 audience: "PRODUCT_EDGE".into(),
-                permissions: vec!["research:source-intake".into()],
+                permissions: vec![
+                    "research:source-intake".into(),
+                    "research:submit".into(),
+                    "research:view".into(),
+                ],
             },
             request_proof_digest: proof_digest.clone(),
-            operation_manifests: vec![OperationManifestBindingV1 {
-                manifest_identity: manifest.manifest_identity().unwrap(),
-                manifest_digest: manifest.manifest_digest().unwrap(),
-            }],
+            operation_manifests: vec![
+                OperationManifestBindingV1 {
+                    manifest_identity: manifest.manifest_identity().unwrap(),
+                    manifest_digest: manifest.manifest_digest().unwrap(),
+                },
+                OperationManifestBindingV1 {
+                    manifest_identity: research_manifest.manifest_identity().unwrap(),
+                    manifest_digest: research_manifest.manifest_digest().unwrap(),
+                },
+            ],
             not_before_epoch_ms: now.saturating_sub(1_000),
             valid_through_epoch_ms: now.saturating_add(600_000),
             expected_revocation_head: "EMPTY".into(),
@@ -1717,13 +1768,17 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
             valid_from_epoch_ms: now.saturating_sub(1_000),
             valid_through_epoch_ms: now.saturating_add(600_000),
             authorization: authorization.locator(),
-            manifests: vec![manifest],
+            manifests: vec![manifest, research_manifest.clone()],
         })
         .await
         .unwrap();
 
-    let environment =
-        SealedSourceIntakeEnvironmentV1::new(product_edge, rd_owner.clone(), proof_digest).unwrap();
+    let environment = SealedSourceIntakeEnvironmentV1::new(
+        product_edge.clone(),
+        rd_owner.clone(),
+        proof_digest.clone(),
+    )
+    .unwrap();
     let audit = environment.audit();
     let owner = SourceIntakeOwnerV1::sealed_acceptance(environment);
     let terminal = owner
@@ -1804,6 +1859,228 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
         Some(terminal.clone())
     );
     assert_eq!(audit.physical_provider_invocations(), 1);
+
+    let source_admission: CanonicalProductEdgeAdmissionLocatorV1 =
+        serde_json::from_value(stored.0["product_edge_admission"].clone()).unwrap();
+    let research_request_identity = format!("sealed-source-research-{suffix}");
+    let research_typed_payload = serde_json::json!({
+        "request_identity": research_request_identity,
+        "channel": "WINDMILL_PRODUCT_EDGE",
+        "goal": {
+            "hypothesis": "The sealed source supports one bounded hypothesis.",
+            "mechanism": "The reported mechanism survives the fixed control.",
+            "falsification_question": "Does the fixed control erase the effect?",
+            "expected_observation": "The effect remains directionally stable.",
+            "required_data": ["sealed-source-v1"],
+            "cost_assumption": "Fixed sealed cost model.",
+            "capacity_assumption": "Fixed sealed capacity model."
+        },
+        "trial_family_proposal": {
+            "trial_budget": 1,
+            "stop_rule": "Stop after the fixed sealed trial.",
+            "pit_rule_identity": "sealed-pit-rule-v1",
+            "cost_model_identity": "sealed-cost-model-v1",
+            "slippage_model_identity": "sealed-slippage-model-v1",
+            "capacity_model_identity": "sealed-capacity-model-v1",
+            "independence_rationale": "Genesis has no semantic predecessor."
+        }
+    });
+    let research_admission = product_edge
+        .admit_request(ProductEdgeAdmissionRequestV1 {
+            request_identity: research_request_identity.clone(),
+            typed_payload: research_typed_payload,
+            operation: RESEARCH_GOAL_OPERATION_V2.into(),
+            operation_schema: RESEARCH_GOAL_SCHEMA_V2.into(),
+            target_owner: RESEARCH_OWNER_V1.into(),
+            requested_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".into()],
+            request_proof_digest: proof_digest.clone(),
+            audit_correlation: format!("source-research:{suffix}"),
+        })
+        .await
+        .unwrap();
+    let ancestry = SourceIntakeResearchAncestryProposalV1 {
+        request_identity: request_identity.clone(),
+        attempt_identity: terminal.binding_identity.clone(),
+        terminal_receipt_identity: terminal.receipt.receipt_identity.clone(),
+    };
+    let policy_query = SourceIntakePolicyEvidenceQueryV1 {
+        request_identity: request_identity.clone(),
+        gateway: vibe_strategy_factory::source_intake::ProductEdgeGatewayV1::WindmillProductEdge,
+        admission: source_admission,
+        operation_manifest_identity: stored.0["operation_manifest_identity"]
+            .as_str()
+            .unwrap()
+            .into(),
+        operation_manifest_digest: stored.0["operation_manifest_digest"]
+            .as_str()
+            .unwrap()
+            .into(),
+        connector_policy_locator: "sealed-source-intake-connector-policy-v1".into(),
+        network_policy_locator: "sealed-source-intake-network-policy-v1".into(),
+        rights_policy_locator: "sealed-source-intake-rights-policy-v1".into(),
+        retention_policy_locator: "sealed-source-intake-retention-policy-v1".into(),
+        dns_observation_locator: "sealed-source-intake-dns-observation-v1".into(),
+        shared_time_head: UntrustedClockHeadLocator::from_untrusted(
+            BindingDigest::from_untrusted_bytes([1; 32]),
+            BindingDigest::from_untrusted_bytes([2; 32]),
+        ),
+        shared_time_successor: None,
+    };
+    let proposal = UnsourcedResearchProposalV1 {
+        request_identity: research_request_identity.clone(),
+        channel: ProductEdgeChannel::WindmillProductEdge,
+        admission: research_admission.locator().clone(),
+        goal: UnsourcedResearchGoalV1 {
+            hypothesis: "The sealed source supports one bounded hypothesis.".into(),
+            mechanism: "The reported mechanism survives the fixed control.".into(),
+            falsification_question: "Does the fixed control erase the effect?".into(),
+            expected_observation: "The effect remains directionally stable.".into(),
+            required_data: vec!["sealed-source-v1".into()],
+            cost_assumption: "Fixed sealed cost model.".into(),
+            capacity_assumption: "Fixed sealed capacity model.".into(),
+        },
+        trial_family_proposal: TrialFamilyProposalV1 {
+            trial_budget: 1,
+            stop_rule: "Stop after the fixed sealed trial.".into(),
+            pit_rule_identity: "sealed-pit-rule-v1".into(),
+            cost_model_identity: "sealed-cost-model-v1".into(),
+            slippage_model_identity: "sealed-slippage-model-v1".into(),
+            capacity_model_identity: "sealed-capacity-model-v1".into(),
+            independence_rationale: "Genesis has no semantic predecessor.".into(),
+        },
+    };
+    let research_owner = PostgresResearchGoalOwnerV1::connect(
+        database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+        database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+    )
+    .await
+    .unwrap()
+    .bind_sealed_source_intake_research_policy();
+
+    let mut wrong_ancestry = ancestry.clone();
+    wrong_ancestry
+        .terminal_receipt_identity
+        .push_str("-mutated");
+    assert!(
+        research_owner
+            .submit_source_intake_research_v1(
+                proposal.clone(),
+                wrong_ancestry,
+                policy_query.clone(),
+            )
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM public.rd_research_request_receipts_v1 WHERE request_identity=$1",
+        )
+        .bind(&research_request_identity)
+        .fetch_one(rd_owner)
+        .await
+        .unwrap(),
+        0
+    );
+
+    let canonical_receipt_json: serde_json::Value = sqlx::query_scalar(
+        "SELECT receipt_json FROM public.rd_source_intake_receipts_v1 WHERE request_identity=$1",
+    )
+    .bind(&request_identity)
+    .fetch_one(rd_owner)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE public.rd_source_intake_receipts_v1 SET receipt_json=jsonb_set(receipt_json,'{terminal}','\"NOT_FOUND\"'::jsonb) WHERE request_identity=$1",
+    )
+    .bind(&request_identity)
+    .execute(rd_owner)
+    .await
+    .unwrap();
+    assert!(
+        research_owner
+            .submit_source_intake_research_v1(
+                proposal.clone(),
+                ancestry.clone(),
+                policy_query.clone(),
+            )
+            .await
+            .is_err()
+    );
+    sqlx::query(
+        "UPDATE public.rd_source_intake_receipts_v1 SET receipt_json=$2 WHERE request_identity=$1",
+    )
+    .bind(&request_identity)
+    .bind(canonical_receipt_json)
+    .execute(rd_owner)
+    .await
+    .unwrap();
+
+    let canonical_provenance_json = stored.1.clone();
+    sqlx::query(
+        "UPDATE public.rd_research_source_provenance_v1 SET provenance_json=jsonb_set(provenance_json,'{valid_through_epoch_ms}','1800000000002'::jsonb) WHERE receipt_identity=$1",
+    )
+    .bind(&terminal.receipt.receipt_identity)
+    .execute(rd_owner)
+    .await
+    .unwrap();
+    assert!(
+        research_owner
+            .submit_source_intake_research_v1(
+                proposal.clone(),
+                ancestry.clone(),
+                policy_query.clone(),
+            )
+            .await
+            .is_err()
+    );
+    sqlx::query(
+        "UPDATE public.rd_research_source_provenance_v1 SET provenance_json=$2 WHERE receipt_identity=$1",
+    )
+    .bind(&terminal.receipt.receipt_identity)
+    .bind(canonical_provenance_json)
+    .execute(rd_owner)
+    .await
+    .unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM public.rd_research_request_receipts_v1 WHERE request_identity=$1",
+        )
+        .bind(&research_request_identity)
+        .fetch_one(rd_owner)
+        .await
+        .unwrap(),
+        0
+    );
+
+    let accepted = research_owner
+        .submit_source_intake_research_v1(proposal.clone(), ancestry.clone(), policy_query.clone())
+        .await
+        .unwrap();
+    assert_eq!(accepted.resolution(), ProductEdgeResolution::Accepted);
+    assert_eq!(accepted.request_identity(), research_request_identity);
+    assert!(accepted.owner_receipt().is_some());
+    assert!(accepted.research_view().is_some());
+    drop(research_owner);
+    let restarted_research_owner = PostgresResearchGoalOwnerV1::connect(
+        database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+        database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+    )
+    .await
+    .unwrap()
+    .bind_sealed_source_intake_research_policy();
+    let replay = restarted_research_owner
+        .submit_source_intake_research_v1(proposal.clone(), ancestry.clone(), policy_query.clone())
+        .await
+        .unwrap();
+    assert_eq!(replay.owner_receipt(), accepted.owner_receipt());
+    let mut changed = proposal;
+    changed.goal.hypothesis.push_str(" changed meaning");
+    assert!(matches!(
+        restarted_research_owner
+            .submit_source_intake_research_v1(changed, ancestry, policy_query)
+            .await,
+        Err(vibe_strategy_factory::product_edge::ResearchGoalOwnerError::ConflictingReplay)
+    ));
 
     let admission: CanonicalProductEdgeAdmissionLocatorV1 =
         serde_json::from_value(stored.0["product_edge_admission"].clone()).unwrap();

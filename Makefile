@@ -1176,7 +1176,9 @@ docs-site-check:  #-- Type-check and build the static documentation site
 #== R&D Workbench
 
 .PHONY: rd-workbench-check rd-workbench-source-intake-sealed-acceptance-check \
-	rd-workbench-source-intake-sealed-acceptance
+	rd-workbench-source-intake-sealed-acceptance \
+	rd-workbench-source-research-sealed-acceptance-check \
+	rd-workbench-source-research-sealed-acceptance
 rd-workbench-check:  #-- Validate the pinned non-live Windmill R&D Workbench package
 	$Q bash product/rd-workbench/scripts/check.sh
 
@@ -1185,6 +1187,12 @@ rd-workbench-source-intake-sealed-acceptance-check:  #-- Statically validate the
 
 rd-workbench-source-intake-sealed-acceptance:  #-- Run isolated Source Intake SEALED_ACCEPTANCE (local effects only)
 	$Q bash scripts/ci/test-source-intake-sealed-acceptance.bash
+
+rd-workbench-source-research-sealed-acceptance-check:  #-- Statically validate isolated Source Intake -> Research acceptance
+	$Q bash scripts/ci/test-source-research-sealed-acceptance.bash --static-only
+
+rd-workbench-source-research-sealed-acceptance:  #-- Run isolated Source Intake -> Research acceptance (local effects only)
+	$Q bash scripts/ci/test-source-research-sealed-acceptance.bash
 
 #== CLI Tools
 

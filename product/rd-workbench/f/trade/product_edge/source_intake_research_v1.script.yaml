@@ -1,0 +1,37 @@
+summary: Run or resolve Source Intake ancestry into canonical Research custody
+description: >-
+  Sends only an untrusted Research proposal, exact Source Intake ancestry
+  references, and a current-policy query to the R&D Owner.
+lock: "!inline f/trade/product_edge/source_intake_research_v1.script.lock"
+kind: script
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  additionalProperties: false
+  order:
+    - action
+    - operation
+  properties:
+    action:
+      type: string
+      enum:
+        - RUN
+        - RESOLVE
+    operation:
+      type: object
+      additionalProperties: false
+      properties:
+        proposal:
+          type: object
+        ancestry:
+          type: object
+        policy_query:
+          type: object
+      required:
+        - proposal
+        - ancestry
+        - policy_query
+  required:
+    - action
+    - operation
+tag: rd-product-edge

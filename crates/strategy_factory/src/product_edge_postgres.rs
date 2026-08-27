@@ -31,6 +31,7 @@ use crate::product_edge::{
     assemble_partial_source_intake_research_admission_input, decide_commit_v2,
     decide_rejected_commit_v2, semantic_digest_v2, unresolved_result, unresolved_result_v2,
     validate_goal_request_v2, verify_research_admission_v2,
+    verify_source_bound_research_admission_v2,
 };
 use crate::rd_owner_postgres_custody::{
     ResearchCustodyLookupV1, admit_all_research_custodies_in_transaction,
@@ -196,6 +197,18 @@ pub(crate) fn reseal_current_research_artifact_evidence_for_test(
 }
 
 impl PostgresResearchGoalOwnerV1 {
+    fn verify_admission_v2(
+        &self,
+        admission: &ProductEdgeAdmissionReadbackV1,
+        request: &ProductEdgeResearchGoalRequestV2,
+    ) -> Result<(), ResearchGoalOwnerError> {
+        if self.source_submission.is_some() {
+            verify_source_bound_research_admission_v2(admission, request)
+        } else {
+            verify_research_admission_v2(admission, request)
+        }
+    }
+
     /// Binds the sole current Source Intake policy resolver. Without this
     /// explicit Owner port, only source-bound Research operations fail closed.
     #[must_use]
@@ -209,6 +222,16 @@ impl PostgresResearchGoalOwnerV1 {
     ) -> Self {
         self.source_policy = Some(policy);
         self
+    }
+
+    /// Compile-time-only fixed policy composition for the disposable sealed
+    /// Source Intake-to-Research acceptance. The generic binder stays private.
+    #[cfg(feature = "sealed-source-intake-research-acceptance")]
+    #[must_use]
+    pub fn bind_sealed_source_intake_research_policy(self) -> Self {
+        self.bind_source_intake_policy_evidence_port(Arc::new(
+            crate::source_intake::SealedSourceIntakeResearchPolicyV1,
+        ))
     }
 
     /// Durable Source Intake ancestry to canonical Research V2 admission.
@@ -249,7 +272,7 @@ impl PostgresResearchGoalOwnerV1 {
             .peek_source_intake_research_handoff_v1(&mut preparation, verification_policy)
             .await
             .map_err(|_| {
-                ResearchGoalOwnerError::Unauthorized("Source Intake ancestry unavailable")
+                ResearchGoalOwnerError::Unauthorized("Source Intake ancestry peek unavailable")
             })?;
         preparation.rollback().await.map_err(|e| storage(&e))?;
         let evidence_digest = fields.0.clone();
@@ -1757,7 +1780,7 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         )
         .await
         .map_err(|_| ResearchGoalOwnerError::Unauthorized("Product Edge admission unavailable"))?;
-        verify_research_admission_v2(&product_edge_admission, request)?;
+        self.verify_admission_v2(&product_edge_admission, request)?;
 
         if basis_stage.as_ref().is_some_and(|custody| {
             canonical_digest(
@@ -1826,7 +1849,7 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                     transaction.rollback().await.map_err(|e| storage(&e))?;
                     return Ok(unresolved_result_v2(&request_identity));
                 }
-                verify_research_admission_v2(&product_edge_admission, &request)?;
+                self.verify_admission_v2(&product_edge_admission, &request)?;
                 let stored_request = StoredRejectedResearchRequestV2 {
                     schema_version: 1,
                     request: request.clone(),
@@ -1865,7 +1888,7 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                 transaction.rollback().await.map_err(|e| storage(&e))?;
                 return Ok(unresolved_result_v2(&request_identity));
             }
-            verify_research_admission_v2(&product_edge_admission, validated.request())?;
+            self.verify_admission_v2(&product_edge_admission, validated.request())?;
 
             match load_or_create_basis_in_transaction(
                 &mut transaction,
@@ -1923,7 +1946,7 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                 "Product Edge admission lineage changed before final R&D custody",
             ));
         }
-        verify_research_admission_v2(&final_admission, validated.request())?;
+        self.verify_admission_v2(&final_admission, validated.request())?;
         let principal_scope_key =
             lock_principal_scope(&mut transaction, &principal, &scope).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
@@ -2102,7 +2125,7 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return Ok(unresolved_result_v2(&request_identity));
         }
-        verify_research_admission_v2(&final_admission, validated.request())?;
+        self.verify_admission_v2(&final_admission, validated.request())?;
         let request = validated.request();
         let proposal = &request.trial_family_proposal;
         let canonical_policy = TrialFamilyPolicyV1 {
