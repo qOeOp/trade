@@ -326,6 +326,7 @@ async fn run_develop_composer(
                 default_unavailable_response(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2),
             );
         }
+
         match state.develop_composer.run().await {
             Ok(response) => composer_operation_response(response),
             Err(_) => composer_response(
@@ -366,6 +367,7 @@ async fn resolve_develop_composer(
                 default_unavailable_response(&request_identity),
             );
         }
+
         match state.develop_composer.resolve(&request_identity).await {
             Ok(response) => composer_operation_response(response),
             Err(_) => composer_response(
@@ -402,9 +404,11 @@ fn develop_composer_body_injects_evidence(body: &[u8]) -> bool {
 
 #[cfg(test)]
 mod develop_composer_api_contract_tests {
+    use rstest::rstest;
+
     use super::*;
 
-    #[test]
+    #[rstest]
     fn default_unavailable_contract_maps_to_service_unavailable_without_positive_projection() {
         let contract = default_unavailable_response("request-1");
         assert!(contract.receipt_identity.is_none());
@@ -415,7 +419,7 @@ mod develop_composer_api_contract_tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn caller_evidence_body_is_detected_while_an_empty_command_is_not() {
         assert!(!develop_composer_body_injects_evidence(b" \n\t"));
         assert!(develop_composer_body_injects_evidence(
@@ -424,7 +428,7 @@ mod develop_composer_api_contract_tests {
     }
 
     #[cfg(feature = "sealed-develop-composer-acceptance")]
-    #[test]
+    #[rstest]
     fn public_success_contract_maps_to_ok() {
         let response = DevelopComposerOperationResponseV2 {
             schema_version: 2,

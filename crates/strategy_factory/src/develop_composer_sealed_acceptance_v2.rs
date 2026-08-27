@@ -140,6 +140,7 @@ mod sealed {
             } => design_identity,
             other => anyhow::bail!("sealed Design did not prepare: {other:?}"),
         };
+
         if frame.role_bindings().iter().any(|role| {
             role.research_request_identity() != design.research_request_identity
                 || role.strategy_design_identity() != design_identity
@@ -540,9 +541,11 @@ mod sealed {
 
     #[cfg(test)]
     mod tests {
+        use rstest::rstest;
+
         use super::*;
 
-        #[test]
+        #[rstest]
         fn fixed_corpus_matches_the_owner_sealed_aapl_msft_frame() {
             let (request, _) = fixed_corpus().expect("fixed corpus");
             assert_eq!(
@@ -561,9 +564,11 @@ pub use sealed::SealedDevelopComposerAcceptanceV2;
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
 
-    #[test]
+    #[rstest]
     fn default_response_is_always_receiptless_and_unavailable() {
         let response = default_unavailable_response("caller-request");
         assert_eq!(
