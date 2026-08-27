@@ -18,6 +18,7 @@ use super::{
         DevelopComposerFinalEvidencePortV2, DevelopComposerLockedEvidenceV2,
         DevelopComposerOperationDispositionV2, DevelopComposerRunRequestV2,
         LocalDevelopComposerOperationV2, positive_write_boundary_count, request_digest,
+        rewrite_outbox_request_identity_for_test,
     },
     develop_composer_postgres_v2::resolve_loaded_record_with_evidence,
     develop_composer_v2::{
@@ -394,7 +395,7 @@ fn current_binding_drift_blocks_existing_run_replay_and_resolve() {
 #[rstest]
 fn every_private_canonical_member_mutation_fails_resolve_without_successor() {
     type Mutation = fn(&mut super::develop_composer_operation_v2::StoredDevelopComposerPositiveV2);
-    let mutations: [Mutation; 14] = [
+    let mutations: [Mutation; 15] = [
         |record| record.research_request_identity = digest(0xdf),
         |record| record.intent_identity = digest(0xe0),
         |record| record.design_identity = digest(0xe1),
@@ -408,6 +409,10 @@ fn every_private_canonical_member_mutation_fails_resolve_without_successor() {
         |record| record.host_receipt_bytes[0] ^= 1,
         |record| record.operation_receipt_bytes[0] ^= 1,
         |record| record.outbox_bytes[0] ^= 1,
+        |record| {
+            record.outbox_bytes =
+                rewrite_outbox_request_identity_for_test(&record.outbox_bytes, "other-request")
+        },
         |record| record.response_bytes[0] ^= 1,
     ];
 

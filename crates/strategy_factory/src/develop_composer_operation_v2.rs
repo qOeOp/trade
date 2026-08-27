@@ -261,21 +261,41 @@ impl DevelopComposerOutboxV2 {
     }
 
     fn validates(&self) -> bool {
+        let payload_digest = self.expected_payload_digest();
+        self.schema_version == OPERATION_SCHEMA_V2
+            && self.payload_digest == payload_digest
+            && self.event_identity
+                == domain_digest(
+                    b"rd.develop.composer-outbox.identity.v2\0",
+                    payload_digest.as_bytes(),
+                )
+    }
+
+    fn expected_payload_digest(&self) -> BindingDigest {
         let payload = durable_encode(&(
             self.schema_version,
             self.request_identity.as_str(),
             self.operation_receipt_identity,
             self.artifact_identity,
         ));
-        self.schema_version == OPERATION_SCHEMA_V2
-            && self.payload_digest
-                == domain_digest(b"rd.develop.composer-outbox.payload.v2\0", &payload)
-            && self.event_identity
-                == domain_digest(
-                    b"rd.develop.composer-outbox.identity.v2\0",
-                    self.payload_digest.as_bytes(),
-                )
+        domain_digest(b"rd.develop.composer-outbox.payload.v2\0", &payload)
     }
+}
+
+#[cfg(test)]
+pub(crate) fn rewrite_outbox_request_identity_for_test(
+    bytes: &[u8],
+    request_identity: &str,
+) -> Vec<u8> {
+    let mut outbox: DevelopComposerOutboxV2 =
+        durable_decode(bytes).expect("test outbox must decode");
+    outbox.request_identity = request_identity.to_owned();
+    outbox.payload_digest = outbox.expected_payload_digest();
+    outbox.event_identity = domain_digest(
+        b"rd.develop.composer-outbox.identity.v2\0",
+        outbox.payload_digest.as_bytes(),
+    );
+    outbox.canonical_bytes()
 }
 
 #[derive(Clone)]
@@ -959,6 +979,7 @@ pub(crate) fn resolve_positive_record_v2(
     }
     let outbox: DevelopComposerOutboxV2 = strict_decode(&record.outbox_bytes, "outbox")?;
     if !outbox.validates()
+        || outbox.request_identity != record.request_identity
         || outbox.operation_receipt_identity != operation.receipt_identity
         || outbox.artifact_identity != artifact.identity()
     {
