@@ -59,6 +59,7 @@ pub(crate) enum ResearchCustodyLookupV1<'a> {
 }
 
 pub(crate) struct VerifiedResearchCustodyV1 {
+    request_json: Option<serde_json::Value>,
     receipt: ResearchRequestReceiptV1,
     intent: Option<FrozenResearchGoalIntent>,
     view: Option<ResearchViewV1>,
@@ -882,7 +883,40 @@ fn is_sha256_digest(value: &str) -> bool {
         .is_some_and(|hex| hex.len() == 64 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
 }
 
+fn validate_source_ancestry_custody_v1(
+    request: &crate::product_edge::ProductEdgeResearchGoalRequestV2,
+    locator_json: Option<&serde_json::Value>,
+    evidence_digest: Option<&str>,
+) -> Result<(), ResearchGoalOwnerError> {
+    match (locator_json, evidence_digest) {
+        (None, None) => Ok(()),
+        (Some(locator_json), Some(evidence_digest)) => {
+            let locator: crate::source_intake::SourceIntakeResearchAncestryProposalV1 =
+                decode_exact(locator_json)?;
+
+            if !is_sha256_digest(evidence_digest)
+                || locator.request_identity.trim().is_empty()
+                || locator.attempt_identity.trim().is_empty()
+                || locator.terminal_receipt_identity.trim().is_empty()
+                || request.goal.sources.len() != 1
+                || request.goal.sources[0].source_cut != evidence_digest
+            {
+                return Err(ResearchGoalOwnerError::Storage(
+                    "stored Source Intake ancestry custody mismatch".into(),
+                ));
+            }
+            Ok(())
+        }
+        _ => Err(ResearchGoalOwnerError::Storage(
+            "stored Source Intake ancestry custody is incomplete".into(),
+        )),
+    }
+}
+
 impl VerifiedResearchCustodyV1 {
+    pub(crate) fn request_json(&self) -> Option<&serde_json::Value> {
+        self.request_json.as_ref()
+    }
     pub(crate) fn receipt(&self) -> &ResearchRequestReceiptV1 {
         &self.receipt
     }
@@ -1105,12 +1139,12 @@ pub(crate) async fn admit_research_custody_in_transaction(
 pub(crate) async fn admit_all_research_custodies_in_transaction(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<Vec<VerifiedResearchCustodyV1>, ResearchGoalOwnerError> {
-    let hint_rows = sqlx::query("SELECT request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, committed_at_epoch_ms FROM rd_research_request_receipts_v1 ORDER BY request_identity")
+    let hint_rows = sqlx::query("SELECT request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, source_ancestry_locator_json, source_ancestry_evidence_digest, committed_at_epoch_ms FROM rd_research_request_receipts_v1 ORDER BY request_identity")
         .fetch_all(&mut **transaction)
         .await
         .map_err(|e| storage(&e))?;
     let admissions = resolve_research_admission_hints(transaction, &hint_rows).await?;
-    let rows = sqlx::query("SELECT request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, committed_at_epoch_ms FROM rd_research_request_receipts_v1 ORDER BY request_identity FOR SHARE")
+    let rows = sqlx::query("SELECT request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, source_ancestry_locator_json, source_ancestry_evidence_digest, committed_at_epoch_ms FROM rd_research_request_receipts_v1 ORDER BY request_identity FOR SHARE")
         .fetch_all(&mut **transaction)
         .await
         .map_err(|e| storage(&e))?;
@@ -1145,25 +1179,25 @@ async fn admit_research_row_in_transaction(
 ) -> Result<Option<VerifiedResearchCustodyV1>, ResearchGoalOwnerError> {
     let hint_rows = match lookup {
         ResearchCustodyLookupV1::RequestAny(request_identity) | ResearchCustodyLookupV1::RequestV1(request_identity) | ResearchCustodyLookupV1::RequestV2(request_identity) => {
-            sqlx::query("SELECT request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, committed_at_epoch_ms FROM rd_research_request_receipts_v1 WHERE request_identity = $1")
+            sqlx::query("SELECT request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, source_ancestry_locator_json, source_ancestry_evidence_digest, committed_at_epoch_ms FROM rd_research_request_receipts_v1 WHERE request_identity = $1")
                 .bind(request_identity).fetch_all(&mut **transaction).await.map_err(|e| storage(&e))?
         }
         ResearchCustodyLookupV1::Intent(_) => {
-            sqlx::query("SELECT request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, committed_at_epoch_ms FROM rd_research_request_receipts_v1 ORDER BY request_identity")
+            sqlx::query("SELECT request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, source_ancestry_locator_json, source_ancestry_evidence_digest, committed_at_epoch_ms FROM rd_research_request_receipts_v1 ORDER BY request_identity")
                 .fetch_all(&mut **transaction).await.map_err(|e| storage(&e))?
         }
     };
     let admissions = resolve_research_admission_hints(transaction, &hint_rows).await?;
     let rows = match lookup {
         ResearchCustodyLookupV1::RequestAny(request_identity) | ResearchCustodyLookupV1::RequestV1(request_identity) | ResearchCustodyLookupV1::RequestV2(request_identity) => {
-            sqlx::query("SELECT request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, committed_at_epoch_ms FROM rd_research_request_receipts_v1 WHERE request_identity = $1 FOR UPDATE")
+            sqlx::query("SELECT request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, source_ancestry_locator_json, source_ancestry_evidence_digest, committed_at_epoch_ms FROM rd_research_request_receipts_v1 WHERE request_identity = $1 FOR UPDATE")
                 .bind(request_identity)
                 .fetch_all(&mut **transaction)
                 .await
                 .map_err(|e| storage(&e))?
         }
         ResearchCustodyLookupV1::Intent(_) => {
-            sqlx::query("SELECT request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, committed_at_epoch_ms FROM rd_research_request_receipts_v1 ORDER BY request_identity FOR UPDATE")
+            sqlx::query("SELECT request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, source_ancestry_locator_json, source_ancestry_evidence_digest, committed_at_epoch_ms FROM rd_research_request_receipts_v1 ORDER BY request_identity FOR UPDATE")
                 .fetch_all(&mut **transaction)
                 .await
                 .map_err(|e| storage(&e))?
@@ -1240,6 +1274,12 @@ async fn admit_preloaded_research_row_in_transaction(
     let intent_json: Option<serde_json::Value> =
         row.try_get("intent_json").map_err(|e| storage(&e))?;
     let view_json: Option<serde_json::Value> = row.try_get("view_json").map_err(|e| storage(&e))?;
+    let source_ancestry_locator_json: Option<serde_json::Value> = row
+        .try_get("source_ancestry_locator_json")
+        .map_err(|e| storage(&e))?;
+    let source_ancestry_evidence_digest: Option<String> = row
+        .try_get("source_ancestry_evidence_digest")
+        .map_err(|e| storage(&e))?;
 
     if receipt.request_identity != row_request_identity
         || receipt.semantic_digest != row_semantic_digest
@@ -1251,6 +1291,12 @@ async fn admit_preloaded_research_row_in_transaction(
     }
 
     if request_json.is_none() {
+        if source_ancestry_locator_json.is_some() || source_ancestry_evidence_digest.is_some() {
+            return Err(ResearchGoalOwnerError::Storage(
+                "legacy research custody carries source ancestry".into(),
+            ));
+        }
+
         if !matches!(
             preadmitted_authority,
             PreadmittedResearchAuthorityV1::LegacyQuarantined
@@ -1290,6 +1336,7 @@ async fn admit_preloaded_research_row_in_transaction(
         let intent = commit.intent.clone().map(FrozenResearchGoalIntent::V1);
         let request_schema_version = commit.request_schema_version;
         return Ok(VerifiedResearchCustodyV1 {
+            request_json: None,
             receipt,
             intent,
             view: None,
@@ -1310,6 +1357,11 @@ async fn admit_preloaded_research_row_in_transaction(
         preadmitted_authority,
         PreadmittedResearchAuthorityV1::LegacyQuarantined
     ) {
+        if source_ancestry_locator_json.is_some() || source_ancestry_evidence_digest.is_some() {
+            return Err(ResearchGoalOwnerError::Storage(
+                "legacy research custody carries source ancestry".into(),
+            ));
+        }
         let self_authorized =
             decode_exact::<LegacySelfAuthorizedResearchRequestV2>(&request_json).ok();
         let candidate_wrapped =
@@ -1340,6 +1392,7 @@ async fn admit_preloaded_research_row_in_transaction(
             .await?
         };
         return Ok(VerifiedResearchCustodyV1 {
+            request_json: Some(request_json.clone()),
             receipt,
             intent: None,
             view: None,
@@ -1385,6 +1438,11 @@ async fn admit_preloaded_research_row_in_transaction(
         protected_feedback,
         request_schema_version,
     ) = if let Some(request) = v1 {
+        if source_ancestry_locator_json.is_some() || source_ancestry_evidence_digest.is_some() {
+            return Err(ResearchGoalOwnerError::Storage(
+                "V1 research custody carries source ancestry".into(),
+            ));
+        }
         let digest = semantic_digest(&request)?;
         if request.request_identity != row_request_identity || digest != row_semantic_digest {
             return Err(ResearchGoalOwnerError::Storage(
@@ -1415,6 +1473,11 @@ async fn admit_preloaded_research_row_in_transaction(
             ));
         }
         let request = stored.request.clone();
+        validate_source_ancestry_custody_v1(
+            &request,
+            source_ancestry_locator_json.as_ref(),
+            source_ancestry_evidence_digest.as_deref(),
+        )?;
         verify_research_admission_v2(&product_edge_admission, &request)?;
         let effective_principal = product_edge_admission.effective_principal().to_string();
         let authorized_scope = product_edge_admission.authorized_scope().to_vec();
@@ -1489,6 +1552,11 @@ async fn admit_preloaded_research_row_in_transaction(
             2,
         )
     } else {
+        if source_ancestry_locator_json.is_some() || source_ancestry_evidence_digest.is_some() {
+            return Err(ResearchGoalOwnerError::Storage(
+                "rejected V2 custody carries source ancestry".into(),
+            ));
+        }
         let stored = rejected_v2.expect("unique rejected V2 representation");
         if stored.schema_version != 1 {
             return Err(ResearchGoalOwnerError::Storage(
@@ -1575,6 +1643,7 @@ async fn admit_preloaded_research_row_in_transaction(
                 ));
             }
             Ok(VerifiedResearchCustodyV1 {
+                request_json: Some(request_json.clone()),
                 receipt,
                 intent: None,
                 view: None,
@@ -1623,6 +1692,7 @@ async fn admit_preloaded_research_row_in_transaction(
                 }
             };
             Ok(VerifiedResearchCustodyV1 {
+                request_json: Some(request_json.clone()),
                 receipt,
                 intent: Some(intent),
                 view,

@@ -26,6 +26,8 @@ Provide canonical, time-correct market, reference, and instrument facts to every
   availability.
 - Market Semantics Compatibility identity shared by historical snapshots and live streams: normalization,
   adjustment, timestamp interpretation, instrument/reference mapping, and input-meaning versions.
+- **TARGET:** typed Strategy Input Binding Receipt resolving one Research-declared market/reference role to exact
+  instrument/universe, field, timeframe, units, PIT/live cut, source and Market Semantics identities.
 - Immutable Market Data Source Binding binding source implementation and configuration digests, authenticated
   endpoint and dataset/account mapping, trust and normalization policies, license and redistribution scope,
   and an opaque least-privilege credential handle.
@@ -51,6 +53,56 @@ Provide canonical, time-correct market, reference, and instrument facts to every
   evaluate supplied universe-selection rules without admitting future information.
 - **Instrument Master** - own effective-dated instrument identities, venue mappings, contract terms, sessions,
   time zones, lifecycle and corporate-action facts; it does not choose a run universe.
+
+## Strategy input-role binding
+
+For the [StrategyDesignV2 compiler](../architecture/strategy-factory#strategy-design-v2-shared-lifecycle-kernel),
+Research declares a typed input role and Market Data alone resolves market/reference roles to an exact sealed
+binding receipt. The receipt binds the role to a role-independent stable selection identity covering field
+semantics, instrument or stable Universe Selection Record scope, timeframe/bar specification, units and scaling,
+Source Binding lineage root, correction stream, and Market Semantics Compatibility identity. Renewable PIT,
+snapshot, batch, frontier/version, time, sequence, row and value facts are excluded. It grants data consumption only; it does not choose a strategy universe,
+mechanism, target, lifecycle action or order.
+
+Missing, stale, ambiguous, incompatible or non-unique role resolution is an unavailable binding and produces no
+`StrategyPlanV2` or replay/runtime input. Market Data, R&D and the compiler must not infer a binding from ticker,
+free-form label, alias, substring, naming similarity, list position or arrival order. Historical Backtest and later
+admitted Runtime adapters must preserve the same role and Market Semantics identities; a mismatch fails closed
+rather than being normalized by the consumer.
+
+**CURRENT/PARTIAL, Owner-binding M1:** Market Data can derive one exactly-two-member universe only
+from a complete `VerifiedPitObservationBatch` and atomically seal its canonically sorted member keys,
+distinct canonical instruments, Owner-derived static selection identity/digest, Instrument Master digest,
+batch/snapshot facts, Source Binding lineage, Market Semantics identity, and every requested `(member, role)`
+value. The static selection authority binds the one-to-one member/instrument set plus Instrument Master,
+Source Binding lineage-root and Market Semantics cuts; the original PIT-request universe digest is dynamic
+provenance only. Caller arrival order is irrelevant. Missing, duplicate, third or inconsistent members;
+cross-key instrument aliasing; missing or ambiguous member-role rows; any selection/master/semantics/lineage
+splice; and caller `InstrumentSet` scope produce no positive
+selection or frame. This is a current Owner-local binding contract only; it does not claim compiler,
+shared-kernel, ProgramHost, Backtest, Paper, Live, or production maturity.
+
+**SEALED_ACCEPTANCE only:** enabling the non-default compile-time Cargo feature
+`sealed-strategy-input-acceptance` exposes one zero-argument fixture adapter for the fixed AAPL/MSFT,
+OPEN/CLOSE corpus. The adapter drives the crate-private Source Binding admission and PIT
+prepare/aggregate/verify authorities, then calls the normal universe-frame binder; it accepts no caller-selected
+rows, requests, locators, digests, clocks, providers, persistence, or runtime selector. Default and production
+manifests omit the feature. A release build that explicitly enables it remains an isolated acceptance artifact,
+never a production build. This fixture proves only the compile-time acceptance topology: it provides no PostgreSQL
+custody, provider connectivity, deployed Windmill readiness, production composition, or trading authority.
+
+The runtime handoff consumes the existing static receipts plus one verified batch and re-resolves each selection;
+the frame contains only its trigger and dynamic value receipts. Market Data issues its trigger only from selected rows
+in one Owner-verified observation batch with identical snapshot/fact/batch identities, event-effective,
+provider-available and correction-publication times, non-zero correction sequence, and event class. Bars map to
+`BAR`; quote, trade, reference, economic and scalar frames map to `EVENT`; logical time is the greater of
+provider-available and correction-publication time; event time is event-effective time; and Owner sequence is the
+correction sequence. Stable event identity is the first 16 bytes of domain-separated BLAKE3 over those coordinates
+and the sorted role/binding/row-digest set. Each ordered role-value receipt preserves its original binding digest
+and role identity, seals the explicit fixed-i128 semantic, exact little-endian bytes, scale and row digest, and
+cross-binds the trigger and observation-batch digest. Consumers derive the lifecycle envelope from the trigger;
+they cannot mint it from caller-selected values or order keys. Market Data never issues `TIMER` or `FILL` triggers:
+those remain unavailable pending real Time/Scheduler and Execution Owner contracts respectively.
 
 ## Input handoffs
 

@@ -99,6 +99,14 @@ The profile intentionally omits `mcp:all`, favorites, folder wildcards, flows, p
 
 The versioned profile declares the same `research_goal_v2` operation used by the default Web backend. This repository change modifies only the profile declaration; it does not mint, use, rotate, revoke, or otherwise broaden any actual credential.
 
+The `source_intake.openalex_work_by_doi.submit_or_resolve.v1` script is a bounded
+Windmill transport in this slice. `RUN` accepts only a canonical DOI and bounded
+interpretation, while `RESOLVE` queries the same request identity without a new
+provider instruction. The script calls only the fixed internal R&D Owner endpoint;
+it never calls OpenAlex or another provider directly. Only a complete terminal
+Owner receipt can project `RETRIEVED`, and every transport ambiguity exposes only
+same-request resolution.
+
 ## Status boundary
 
 An HTTP or Windmill job success is not business acceptance. S1 V2 `ACCEPTED` additionally requires direct Owner readback of the root receipt, INTENT membership receipt, and Census frontier. S2 `SUCCESS` additionally requires the durable ArtifactTrialFamilyBinding receipt. Missing or corrupt root/member/head/digest/outbox/binding state stays `SUBMITTED_OR_UNKNOWN`; the only legal recovery is `RESOLVE` with the same request and attempt identities. Commit-before-response-loss resolves to the exact Owner bytes. A pre-commit timeout closes without an Artifact.

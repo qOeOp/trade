@@ -2303,6 +2303,16 @@
         "noAuthorityBasis": "Verification evidence is a consumer input and grants no deployment business Owner provider effect or trading authority"
       },
       {
+        "inventoryId": "deployment-store-admission-custody",
+        "memberPaths": ["crates/deployment_store_admission"],
+        "disposition": "NON_AUTHORITATIVE_INFRASTRUCTURE",
+        "destinationIds": ["market-data"],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Keep the fixed Market Data rd-owner-api PostgreSQL admission seam fail closed while production resolution signature anti-rollback credential and direct-measurement authorities remain unavailable",
+        "noAuthorityBasis": "Deployment Store Admission owns no business fact deployment-service provider-effect production-write or trading authority"
+      },
+      {
         "inventoryId": "observability-projection",
         "memberPaths": ["crates/observability"],
         "disposition": "NON_AUTHORITATIVE_INFRASTRUCTURE",
@@ -2381,6 +2391,16 @@
         "providerMemberPortEvidence": [],
         "adoptionRule": "Store and resolve Product Edge provider-invocation claim and start custody only through the canonical locked Owner boundary",
         "noAuthorityBasis": "Caller records are proposals and cannot construct positive custody or transfer R&D provider effect production-write or trading authority"
+      },
+      {
+        "inventoryId": "rd-source-intake-invocation-custody",
+        "memberPaths": ["crates/rd_source_intake_invocation_custody"],
+        "disposition": "OWNER_NATIVE_IMPLEMENTATION",
+        "destinationIds": ["rd"],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Lock and verify exact Product Edge Source Intake claim and start evidence and seal one R&D-owned invocation reservation through canonical custody",
+        "noAuthorityBasis": "The custody seam cannot transfer either Owner authority authorize provider execution production writes or trading or construct positive custody from caller input"
       },
       {
         "inventoryId": "rd-artifact-invocation-custody",

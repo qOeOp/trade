@@ -16,6 +16,8 @@
 - 绑定意图 TrialFamily 准确代码字节 依赖来源与 lock 身份 工具链与运行环境身份 Market Semantics
   Compatibility 身份 sandbox policy capability manifest 和 Artifact Security Admission 结果的 Strategy Artifact
   与 Build Receipt。
+- **TARGET：** 共享生命周期内核契约下内容寻址的 `StrategyDesignV2`、确定性 `StrategyPlanV2`、准确
+  Owner input-binding receipt set、compiler disposition 与 lowering digest。
 - 冻结 Exploratory Replay Request，绑定准确意图 TrialFamily 工件 请求 PIT 数据范围 重放配置和成本容量模型。
 - 探索请求与结果必须在 Strategy Artifact 请求 PIT 范围 PIT Market Snapshot Universe Selection Record
   与修订规则 重放配置 Runtime 内核 模拟器 成本 滑点和容量模型身份上完全相等。只有请求相等的
@@ -47,6 +49,71 @@
   Artifact Security Admission，供重放 资格与治理应用原样消费。
 - **Development Sandbox** - 只通过显式输入输出 mount 构建并诊断策略代码，没有环境 filesystem network
   subprocess 或 process-tree escape inherited capability secret 账户 部署或 effect-port 权威。
+
+## 策略设计与 Develop 编译
+
+[StrategyDesignV2 契约](../architecture/strategy-factory#strategy-design-v2-shared-lifecycle-kernel)治理任意已
+接纳 Research 如何变为可执行策略。只有 R&D 能冻结类型化且内容寻址的 `StrategyDesignV2`，包括稳定
+primitive semantic ID、已声明 input role、lifecycle/state/target/protection 含义、可选有界 plugin manifest
+和 Research Intent binding。Develop 确定性执行 canonicalization、capability closure、消费准确 Owner
+binding receipt，并 lowering 到 `StrategyPlanV2` 及唯一 Wasm Strategy Artifact/`ProgramHost` 路径。它不得
+生成无限制策略代码、发明 core opcode、通过启发式字符串推断来源，或创建另一个 interpreter/runtime。
+
+CURRENT ComplexStrategy V1 pre-Artifact Develop Evaluation 只有在 current accepted Research custody、完整
+TrialFamily frontier、规范有界 IR、准确 predecessor 与 Owner-sealed PIT readback 全部绑定且在提交时重新
+校验后，才是一项 R&D 内部事实。它不是 Artifact，也不是 Backtest Replay、Qualification、Candidate、
+Eligibility、Governance 或 Runtime 证据；其正向结果不能进入 Research Selection。V1 canonicalization、
+bounds、frozen-Intent 校验和 Owner binding 只是 V2 迁移输入；只有经 Wasm 路径证明 corpus 等价后才能
+删除重复 V1 interpreter 与 toy renderer。
+
+只有每个 input role 都有类型化 fact-Owner binding、capability closure 完整且 lifecycle/checkpoint/plugin
+上限受支持时，Develop 才返回内容寻址 Plan 与 Artifact。否则它返回指出准确失败坐标的结构化
+`UNSUPPORTED` 或 `NEEDS_RESEARCH_REFINEMENT`，且不创建 Plan、Artifact、Replay Request、Candidate 或
+下游 effect。`NEEDS_RESEARCH_REFINEMENT` 只能为后继 Research decision 提供信息；Develop 不能静默补全
+Research 含义。
+
+**CURRENT/PARTIAL - crate-local Develop Composer V2：** R&D 可以重读一份当前已接纳 V2 Research custody
+投影，重新推导 Design 中由 Research 控制的 request/Intent 身份与 falsifier，解析准确密封 input-binding
+和已验证有界 plugin build 证据，并调用现有 V2 compiler 与 `StrategyArtifactV2` issuer。一个内存 Owner
+join 对准确重放返回字节一致的 Design/Plan/Artifact receipt，并拒绝同一 Intent 的不同 proposal。任何
+custody、覆盖、build、compiler 或 Artifact 失败只返回一个不携带部分 Plan/Artifact 的结构化终态。产生的
+Artifact 已由 `ProgramHostV2` 动态接纳；这只证明 crate-local 合约与隔离 consumer 路径。持久 PostgreSQL
+custody、跨进程重启恢复、provider/API/Windmill composition 和已部署 Owner readiness 仍不可用，不能从内存
+join 推断。
+
+**CURRENT/PARTIAL - 本地 bounded-plugin build producer：** 对准确一个当前 `PluginManifestV2`，R&D 只接纳
+固定 `rust.no_std.fixed-abi-source.v2` 语言中一份有内容上限的 `src/lib.rs`，拒绝其他路径、symlink、文件、
+dependency、build script、toolchain、target 或 command。它物化两个相互独立的私有临时 Cargo project；
+每次构建在定位任何 tool 之前先选择一个 frozen host profile，把准确 host、三项 executable digest 与唯一
+`wasm32v1-none` target admission 一次性绑定。CURRENT macOS arm64 profile 绑定 canonical Cargo 1.97.1
+（`c980f486…bf5`，SHA-256 `7672ead3…bbf5`）、rustc 1.97.1（`8bab26f…452`，SHA-256
+`210df679…a4da`）、rust-lld（SHA-256 `8f5fe507…548d`）及 `aarch64-apple-darwin`。一个 TARGET Linux arm64
+pin profile 记录了 `aarch64-unknown-linux-gnu` 的相同准确 release/commit，Cargo SHA-256 为
+`c5dcff70…1808`、rustc SHA-256 为 `a3d4dfcd…e78`、rust-lld SHA-256 为 `533dffee…eb7`。每次已接纳构建
+都拒绝 ambient ancestor Cargo 配置，并要求每个 tool 的 `-Vv` host 与所选 profile 一致。`RUSTUP_HOME` 或
+`HOME/.rustup` 只定位该 profile 的准确 release 候选 toolchain；路径字节不具 authority 且不进入
+semantic identity。随后执行固定的
+`wasm32v1-none --offline --locked` command。它要求两份 finished zero-status receipt 与字节一致的 Wasm，
+process diagnostic 不进入 semantic receipt identity，然后调用唯一现有 plugin ABI/resource verifier。
+move-bound verified build/read 结果可供应 crate-local Develop Composer evidence port；进程内准确重放复用
+receipt 且不重新构建，同一 plugin identity 的冲突 capsule fail closed。每个终态路径都显式关闭两个临时
+root，cleanup failure 优先于原始终态。这只证明本地隔离确定性 producer 与 consumer contract；Cargo
+offline mode 与固定的无依赖 source 不证明 kernel-level network confinement，也不证明持久 PostgreSQL
+custody、provider/API/Windmill 执行、部署或生产 readiness。
+Linux pins 来自一次隔离的 Linux/arm64 BuildKit readback：index
+`sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8`、platform manifest
+`sha256:5a8cd84cb3fcfd082789a08f92bd36f8e745c6231edd78e24a3bf34fd471a823`，以及 normalized exact
+`lib/rustlib/wasm32v1-none` sysroot tar SHA-256
+`92fcee2e35330d22e879b640064e2e4b4e47157af1a7e05fc942dc6cc12b8faf`。这些仅是 pin-generation evidence。
+本地 pure-Rust runtime 不复现该 sysroot tar normalization，因此该 digest 不是 runtime content check 或
+receipt field。基础 Rust image 仍由 Dockerfile pin；带 created timestamp 的 local OCI manifest 不是
+registry、deployment 或 reproducible-image pin。Linux profile 已 pin-ready 但 runtime unavailable：三项
+executable pin 未绑定会影响 Wasm 输出的 target sysroot 内容，因此 production selection 在 tool discovery
+之前返回 `ToolchainUnavailable`。只有未来 pure-Rust canonical sysroot content verifier 能复现 frozen
+normalization，并在每次 build 前后重读 sysroot 后，Linux profile 才可成为 CURRENT。外部 `tar` command
+或第二次 Docker 运行都不能替代该 runtime authority。动态正向证明仍只对准确的
+`aarch64-apple-darwin` host 本地成立；其他所有 host（包括 Linux arm64）都必须让同一 capsule 以预期的
+fail-closed negative 执行，绝不替换为 generic toolchain。
 
 ## 血缘与保护反馈准入
 

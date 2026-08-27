@@ -21,6 +21,8 @@
   Research 侧的 `PREPARED` 或 `SUBMITTED_OR_UNKNOWN` 都不能证明数据可用。
 - 历史 snapshot 与 live stream 共享的 Market Semantics Compatibility 身份，绑定 normalization adjustment
   timestamp interpretation instrument/reference mapping 与输入含义版本。
+- **TARGET：** 类型化 Strategy Input Binding Receipt，把一个 Research 声明的 market/reference role 解析到
+  准确 instrument/universe、field、timeframe、unit、PIT/live cut、source 与 Market Semantics 身份。
 - 不可变 Market Data Source Binding 绑定来源实现与配置摘要、已认证 endpoint 与 dataset/account mapping、
   trust 与 normalization policy、license 与 redistribution scope 和不透明最小权限 credential handle。
 - 每个 Source Binding 保留完整 supported failure-category set。版本化稳定优先级与证据到达顺序无关地
@@ -43,6 +45,53 @@
   提供的 universe-selection rule，防止未来信息进入历史研究或重放。
 - **Instrument Master** - 拥有按生效时间版本化的标的身份 场所映射 合约条款 session time zone
   lifecycle 与 corporate-action 事实，不选择本轮运行标的。
+
+## 策略 input-role binding
+
+对于 [StrategyDesignV2 compiler](../architecture/strategy-factory#strategy-design-v2-shared-lifecycle-kernel)，
+Research 声明类型化 input role，且只有 Market Data 能把 market/reference role 解析为准确 sealed binding
+receipt。receipt 把 role 绑定到与 role 无关的稳定 selection identity；后者覆盖 field semantics、instrument
+或稳定 Universe Selection Record scope、timeframe/bar specification、unit、scale、Source Binding lineage
+root、correction stream 与 Market Semantics identity。可更新的 PIT、snapshot、batch、frontier/version、
+time、sequence、row 与 value 不进入静态 digest。它只授予数据消费，不选择策略 universe、mechanism、target、lifecycle action 或 order。
+
+role 解析缺失、过期、含糊、不兼容或不唯一时，binding 必须 unavailable，且不生成 `StrategyPlanV2` 或
+replay/runtime input。Market Data、R&D 与 compiler 均不得从 ticker、自由文本 label、alias、substring、
+名称相似度、列表位置或到达顺序推断 binding。历史 Backtest 与未来获准 Runtime adapter 必须保留相同
+role 与 Market Semantics 身份；不匹配时 fail closed，不能由 consumer 静默 normalize。
+
+**CURRENT/PARTIAL，Owner-binding M1：** Market Data 只能从完整 `VerifiedPitObservationBatch`
+派生一个准确含两个成员的 universe，并原子封存按规范顺序排列的 member key、不同的规范 instrument、
+Owner 派生 selection identity/digest、Instrument Master digest、batch/snapshot fact、Source Binding
+lineage、Market Semantics identity 以及每个请求的 `(member, role)` value。Owner 派生的静态 selection identity/digest 绑定一一对应的
+member/instrument 集合、Instrument Master、Source Binding lineage root 与 Market Semantics cut；原 PIT
+request universe digest 仅为动态 provenance。caller 到达顺序不影响结果。成员缺失、重复、出现第三个成员、
+同一 member 对应不一致 instrument 或不同 member 复用同一 instrument，member-role row 缺失或含糊，
+selection/master/semantics/lineage 任一拼接，
+以及 caller `InstrumentSet` scope 都不产生 positive selection 或 frame。该状态仅表示当前 Owner-local
+binding contract，不声称 compiler、shared kernel、ProgramHost、Backtest、Paper、Live 或生产成熟度。
+
+**仅限 SEALED_ACCEPTANCE：** 非默认编译期 Cargo feature
+`sealed-strategy-input-acceptance` 只暴露一个零参数 fixture adapter，语料固定为 AAPL/MSFT 与
+OPEN/CLOSE。adapter 先经过 crate-private Source Binding admission 和 PIT
+prepare/aggregate/verify 权威路径，再调用正常 universe-frame binder；它不接受 caller 选择的 row、
+request、locator、digest、clock、provider、persistence 或 runtime selector。默认与生产 manifest 均不
+启用该 feature；即使 release build 显式启用它，该 build 也仍是隔离 acceptance artifact，绝不是生产
+build。此 fixture 只证明编译期验收拓扑，不证明 PostgreSQL custody、provider 连通性、已部署 Windmill
+readiness、生产 composition 或任何交易权威。
+
+runtime handoff 使用既有静态 receipts 与一个 verified batch 重新解析每个 selection；frame 只携带
+trigger 与动态 value receipts，不复制静态 receipt。Market Data 只有在同一个 Owner-verified
+observation batch 中所选 rows 具有完全相同的 snapshot/fact/batch identity、event-effective、
+provider-available 与 correction-publication time、非零 correction sequence 及 event class 时，才能签发
+trigger。bar 映射为 `BAR`；quote、trade、reference、economic 与 scalar frame 映射为 `EVENT`；logical
+time 取 provider-available 与 correction-publication time 的较大值；event time 取 event-effective time；
+Owner sequence 取 correction sequence。stable event identity 是对这些坐标及排序后的
+role/binding/row-digest 集合做 domain-separated BLAKE3 后的前 16 bytes。每份按 role 排序的 value receipt
+保留原 binding digest 与 role identity，封存明确 fixed-i128 semantic、准确 little-endian bytes、scale 与
+row digest，并交叉绑定 trigger 和 observation-batch digest。consumer 必须从 trigger 派生 lifecycle
+envelope，不能从 caller 选择的 value 或 order key 铸造。Market Data 绝不签发 `TIMER` 或 `FILL`
+trigger；在真实 Time/Scheduler 与 Execution Owner contract 分别存在前，两者都保持 unavailable。
 
 ## 输入交接
 

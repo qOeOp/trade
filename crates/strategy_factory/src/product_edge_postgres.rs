@@ -1,4 +1,7 @@
-use std::fmt::Display;
+use std::{
+    fmt::{Debug, Display},
+    sync::Arc,
+};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -10,6 +13,10 @@ use vibe_product_edge::{
 };
 use vibe_qualification::PostgresQualificationOwnerV1;
 
+use crate::complex_strategy_develop_evaluation::{
+    ComplexStrategyDevelopEvaluationError, ComplexStrategyDevelopEvaluationReadbackV1,
+    UntrustedComplexStrategyDevelopEvaluationProposalV1,
+};
 use crate::exploratory_replay::{
     ExploratoryReplayCommitResultV1, ExploratoryReplayOwnerError, ExploratoryReplayReadResultV1,
     ExploratoryReplayRequestLocatorV1, ExploratoryReplayRequestProposalV1,
@@ -20,7 +27,8 @@ use crate::product_edge::{
     ResearchGoalOwnerPortV2, ResearchGoalOwnerResultV1, ResearchGoalOwnerResultV2,
     ResearchLineageResolutionV1, ResearchRequestReceiptV1, StoredAdmittedResearchRequestV2,
     StoredIndependenceBasisV1, StoredProtectedFeedbackProjectionV1,
-    StoredRejectedResearchRequestV2, ValidatedResearchGoalRequestV2, decide_commit_v2,
+    StoredRejectedResearchRequestV2, UnsourcedResearchProposalV1, ValidatedResearchGoalRequestV2,
+    assemble_partial_source_intake_research_admission_input, decide_commit_v2,
     decide_rejected_commit_v2, semantic_digest_v2, unresolved_result, unresolved_result_v2,
     validate_goal_request_v2, verify_research_admission_v2,
 };
@@ -36,12 +44,39 @@ use crate::{
     },
     trial_family_postgres::{migrate as migrate_trial_family, persist_initial_family},
 };
+use vibe_data::owner::pit_snapshot::PitSnapshotOwnerReadback;
 
-#[derive(Debug, Clone)]
+use crate::source_intake::{
+    SourceIntakePolicyEvidencePort, SourceIntakePolicyEvidenceQueryV1,
+    SourceIntakePolicyEvidenceResultV1,
+};
+
+#[derive(Clone)]
 pub struct PostgresResearchGoalOwnerV1 {
     pool: PgPool,
     qualification: PostgresQualificationOwnerV1,
     backtest: Option<crate::exploratory_replay::postgres::BoundBacktestReadV1>,
+    source_policy: Option<Arc<dyn SourceIntakePolicyEvidencePort>>,
+    source_submission: Option<Arc<SourceBoundResearchSubmissionV1>>,
+}
+
+impl Debug for PostgresResearchGoalOwnerV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(PostgresResearchGoalOwnerV1))
+            .field("source_policy_bound", &self.source_policy.is_some())
+            .field("source_submission_bound", &self.source_submission.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone)]
+struct SourceBoundResearchSubmissionV1 {
+    proposal: UnsourcedResearchProposalV1,
+    ancestry: crate::source_intake::SourceIntakeResearchAncestryProposalV1,
+    policy_query: SourceIntakePolicyEvidenceQueryV1,
+    policy: Arc<dyn SourceIntakePolicyEvidencePort>,
+    evidence_digest: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,11 +100,73 @@ struct CurrentResearchArtifactEvidenceV1 {
     view_identity: String,
     projection_at_epoch_ms: u64,
     valid_through_epoch_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_ancestry_locator: Option<crate::source_intake::SourceIntakeResearchAncestryProposalV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_ancestry_evidence_digest: Option<String>,
+}
+
+fn current_research_artifact_evidence_identity(
+    receipt_identity: &str,
+    intent_identity: &str,
+    view_identity: &str,
+    source_ancestry_locator: Option<&crate::source_intake::SourceIntakeResearchAncestryProposalV1>,
+    source_ancestry_evidence_digest: Option<&str>,
+) -> Result<String, ResearchGoalOwnerError> {
+    let (source_request, source_attempt, source_receipt, source_digest) =
+        match (source_ancestry_locator, source_ancestry_evidence_digest) {
+            (None, None) => {
+                return Ok(identity(
+                    "rd-current-research-artifact-evidence-v1",
+                    &format!("{receipt_identity}:{intent_identity}:{view_identity}"),
+                ));
+            }
+            (Some(locator), Some(digest)) => (
+                locator.request_identity.as_str(),
+                locator.attempt_identity.as_str(),
+                locator.terminal_receipt_identity.as_str(),
+                digest,
+            ),
+            _ => {
+                return Err(ResearchGoalOwnerError::Storage(
+                    "Source ancestry artifact evidence is incomplete".into(),
+                ));
+            }
+        };
+    let digest = crate::source_intake::domain_identity(
+        "rd.current-research-artifact-evidence-identity.v1",
+        &[
+            receipt_identity,
+            intent_identity,
+            view_identity,
+            source_request,
+            source_attempt,
+            source_receipt,
+            source_digest,
+        ],
+    );
+    Ok(identity(
+        "rd-current-research-artifact-evidence-v1",
+        &digest,
+    ))
 }
 
 fn current_research_artifact_evidence_digest(
     evidence: &CurrentResearchArtifactEvidenceV1,
 ) -> Result<String, ResearchGoalOwnerError> {
+    let expected_identity = current_research_artifact_evidence_identity(
+        &evidence.receipt_identity,
+        &evidence.intent_identity,
+        &evidence.view_identity,
+        evidence.source_ancestry_locator.as_ref(),
+        evidence.source_ancestry_evidence_digest.as_deref(),
+    )?;
+
+    if evidence.evidence_identity != expected_identity {
+        return Err(ResearchGoalOwnerError::Storage(
+            "current Research artifact evidence identity mismatch".into(),
+        ));
+    }
     let bytes = serde_json::to_vec(&serde_json::json!({
         "domain": "rd-owner.current-research-artifact-evidence.v1",
         "evidence": evidence,
@@ -99,6 +196,227 @@ pub(crate) fn reseal_current_research_artifact_evidence_for_test(
 }
 
 impl PostgresResearchGoalOwnerV1 {
+    /// Binds the sole current Source Intake policy resolver. Without this
+    /// explicit Owner port, only source-bound Research operations fail closed.
+    #[must_use]
+    #[allow(
+        dead_code,
+        reason = "trusted Source policy composition is intentionally absent from this isolated slice"
+    )]
+    pub(crate) fn bind_source_intake_policy_evidence_port(
+        mut self,
+        policy: Arc<dyn SourceIntakePolicyEvidencePort>,
+    ) -> Self {
+        self.source_policy = Some(policy);
+        self
+    }
+
+    /// Durable Source Intake ancestry to canonical Research V2 admission.
+    /// Preparation performs only a canonical peek; both Research mutation
+    /// transactions independently lock and revalidate the exact ancestry.
+    pub async fn submit_source_intake_research_v1(
+        &self,
+        proposal: UnsourcedResearchProposalV1,
+        ancestry: crate::source_intake::SourceIntakeResearchAncestryProposalV1,
+        policy_query: SourceIntakePolicyEvidenceQueryV1,
+    ) -> Result<ResearchGoalOwnerResultV2, ResearchGoalOwnerError> {
+        if policy_query.request_identity != ancestry.request_identity {
+            return Err(ResearchGoalOwnerError::Unauthorized(
+                "Source Intake policy locator mismatch",
+            ));
+        }
+        let policy = self
+            .source_policy
+            .clone()
+            .ok_or(ResearchGoalOwnerError::Unauthorized(
+                "Source Intake policy Owner unavailable",
+            ))?;
+
+        if let Some(result) = Box::pin(self.resolve_accepted_source_submission(
+            &proposal,
+            &ancestry,
+            policy.as_ref(),
+            &policy_query,
+        ))
+        .await?
+        {
+            return Ok(result);
+        }
+        let mut preparation = self.pool.begin().await.map_err(|e| storage(&e))?;
+        let verification_policy =
+            resolve_current_source_policy_v1(policy.as_ref(), &policy_query).await?;
+        let fields = ancestry
+            .peek_source_intake_research_handoff_v1(&mut preparation, verification_policy)
+            .await
+            .map_err(|_| {
+                ResearchGoalOwnerError::Unauthorized("Source Intake ancestry unavailable")
+            })?;
+        preparation.rollback().await.map_err(|e| storage(&e))?;
+        let evidence_digest = fields.0.clone();
+        let request = assemble_peeked_source_intake_research_request_v1(proposal.clone(), fields);
+        let owner = Self {
+            pool: self.pool.clone(),
+            qualification: self.qualification.clone(),
+            backtest: self.backtest.clone(),
+            source_policy: self.source_policy.clone(),
+            source_submission: Some(Arc::new(SourceBoundResearchSubmissionV1 {
+                proposal,
+                ancestry,
+                policy_query,
+                policy,
+                evidence_digest,
+            })),
+        };
+        owner.submit_v2(request).await
+    }
+
+    async fn resolve_accepted_source_submission(
+        &self,
+        proposal: &UnsourcedResearchProposalV1,
+        ancestry: &crate::source_intake::SourceIntakeResearchAncestryProposalV1,
+        policy: &dyn SourceIntakePolicyEvidencePort,
+        policy_query: &SourceIntakePolicyEvidenceQueryV1,
+    ) -> Result<Option<ResearchGoalOwnerResultV2>, ResearchGoalOwnerError> {
+        let mut transaction = self.pool.begin().await.map_err(|e| storage(&e))?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(&proposal.request_identity)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|e| storage(&e))?;
+        let custody = Box::pin(admit_research_custody_in_transaction(
+            &mut transaction,
+            ResearchCustodyLookupV1::RequestV2(&proposal.request_identity),
+        ))
+        .await?;
+        let Some(custody) = custody else {
+            let staged = load_basis_stage_custody_for_request_in_transaction(
+                &mut transaction,
+                &proposal.request_identity,
+            )
+            .await?;
+
+            if let Some(staged) = staged {
+                let exact = staged.source_ancestry.as_ref() == Some(ancestry)
+                    && staged.source_ancestry_evidence_digest.as_deref()
+                        == staged
+                            .request
+                            .goal
+                            .sources
+                            .first()
+                            .map(|source| source.source_cut.as_str())
+                    && unsourced_proposal_matches_request_v1(proposal, &staged.request);
+
+                if !exact {
+                    transaction.rollback().await.map_err(|e| storage(&e))?;
+                    return Err(ResearchGoalOwnerError::ConflictingReplay);
+                }
+            }
+
+            transaction.commit().await.map_err(|e| storage(&e))?;
+            return Ok(None);
+        };
+
+        if custody.receipt().disposition
+            != crate::product_edge::ResearchRequestDisposition::Accepted
+        {
+            transaction.commit().await.map_err(|e| storage(&e))?;
+            return Ok(None);
+        }
+        let stored: StoredAdmittedResearchRequestV2 =
+            serde_json::from_value(custody.request_json().cloned().ok_or_else(|| {
+                ResearchGoalOwnerError::Storage("accepted request missing".into())
+            })?)
+            .map_err(json_storage)?;
+        let row = sqlx::query("SELECT source_ancestry_locator_json, source_ancestry_evidence_digest FROM rd_research_request_receipts_v1 WHERE request_identity=$1")
+            .bind(&proposal.request_identity)
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(|e| storage(&e))?;
+        let stored_ancestry: Option<crate::source_intake::SourceIntakeResearchAncestryProposalV1> =
+            row.try_get::<Option<serde_json::Value>, _>("source_ancestry_locator_json")
+                .map_err(|e| storage(&e))?
+                .map(serde_json::from_value)
+                .transpose()
+                .map_err(json_storage)?;
+        let stored_digest: Option<String> = row
+            .try_get("source_ancestry_evidence_digest")
+            .map_err(|e| storage(&e))?;
+        let exact = stored_ancestry.as_ref() == Some(ancestry)
+            && stored_digest.as_deref()
+                == stored
+                    .request
+                    .goal
+                    .sources
+                    .first()
+                    .map(|source| source.source_cut.as_str())
+            && unsourced_proposal_matches_request_v1(proposal, &stored.request);
+
+        if !exact {
+            transaction.rollback().await.map_err(|e| storage(&e))?;
+            return Err(ResearchGoalOwnerError::ConflictingReplay);
+        }
+        let evidence_digest = stored_digest.ok_or({
+            ResearchGoalOwnerError::Unauthorized("Source Intake ancestry unavailable")
+        })?;
+        let verification_policy = resolve_current_source_policy_v1(policy, policy_query).await?;
+        let current_ancestry = ancestry
+            .lock_source_intake_research_handoff_v1(
+                &mut transaction,
+                verification_policy,
+                &evidence_digest,
+            )
+            .await
+            .map_err(|_| {
+                ResearchGoalOwnerError::Unauthorized("Source Intake ancestry unavailable")
+            })?;
+
+        if current_ancestry.evidence_identity() != evidence_digest {
+            transaction.rollback().await.map_err(|e| storage(&e))?;
+            return Err(ResearchGoalOwnerError::Unauthorized(
+                "Source Intake ancestry changed",
+            ));
+        }
+        let read_cut = current_epoch_ms()?;
+        let product_edge_policy_current = resolve_admission_for_downstream_in_transaction(
+            &mut transaction,
+            &proposal.admission,
+            DownstreamAdmissionModeV1::FirstMutation {
+                read_cut_epoch_ms: read_cut,
+            },
+        )
+        .await
+        .ok()
+        .is_some_and(|current| current.authorizes_first_mutation_at(read_cut));
+        if custody
+            .product_edge_admission()
+            .map(ProductEdgeAdmissionReadbackV1::locator)
+            != Some(&proposal.admission)
+        {
+            transaction.rollback().await.map_err(|e| storage(&e))?;
+            return Err(ResearchGoalOwnerError::ConflictingReplay);
+        }
+        transaction.commit().await.map_err(|e| storage(&e))?;
+        Ok(Some(custody.into_v2_result_with_policy_current(
+            read_cut,
+            product_edge_policy_current,
+        )?))
+    }
+
+    /// Freezes one R&D-internal pre-Artifact develop evaluation from exact Owner custody.
+    pub async fn freeze_complex_strategy_develop_evaluation(
+        &self,
+        proposal: UntrustedComplexStrategyDevelopEvaluationProposalV1,
+        pit_readback: PitSnapshotOwnerReadback,
+    ) -> Result<ComplexStrategyDevelopEvaluationReadbackV1, ComplexStrategyDevelopEvaluationError>
+    {
+        Box::pin(crate::complex_strategy_develop_evaluation::freeze(
+            &self.pool,
+            proposal,
+            pit_readback,
+        ))
+        .await
+    }
+
     pub async fn connect(
         database_url: &str,
         qualification_database_url: &str,
@@ -116,6 +434,8 @@ impl PostgresResearchGoalOwnerV1 {
             pool,
             qualification,
             backtest: None,
+            source_policy: None,
+            source_submission: None,
         })
     }
 
@@ -164,6 +484,8 @@ impl PostgresResearchGoalOwnerV1 {
         for statement in [
             "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS artifact_evidence_digest TEXT",
             "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS artifact_evidence_json JSONB",
+            "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS source_ancestry_locator_json JSONB",
+            "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS source_ancestry_evidence_digest TEXT",
             "CREATE UNIQUE INDEX IF NOT EXISTS rd_research_intent_identity_v1 ON rd_research_request_receipts_v1 ((intent_json->>'intent_identity')) WHERE intent_json IS NOT NULL",
             "REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC",
             "GRANT USAGE ON SCHEMA rd_owner_api TO product_edge_owner, qualification_writer",
@@ -180,14 +502,52 @@ impl PostgresResearchGoalOwnerV1 {
             RETURNS jsonb LANGUAGE plpgsql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
             SET search_path = pg_catalog
             AS $function$
-            DECLARE sealed record;
+            DECLARE sealed record; source_handoff jsonb;
             BEGIN
               SELECT request_identity, semantic_digest, request_json, receipt_json, intent_json,
-                     view_json, artifact_evidence_digest, artifact_evidence_json
+                     view_json, artifact_evidence_digest, artifact_evidence_json,
+                     source_ancestry_locator_json, source_ancestry_evidence_digest
                 INTO sealed
                 FROM public.rd_research_request_receipts_v1
                WHERE intent_json->>'intent_identity' = requested_intent_identity;
               IF NOT FOUND OR sealed.artifact_evidence_json IS NULL OR sealed.artifact_evidence_digest IS NULL
+                 OR (sealed.source_ancestry_locator_json IS NULL) <> (sealed.source_ancestry_evidence_digest IS NULL)
+              THEN RETURN NULL; END IF;
+              IF sealed.source_ancestry_evidence_digest IS NOT NULL THEN
+                SELECT rd_owner_api.peek_source_intake_research_handoff_v1(
+                  sealed.source_ancestry_locator_json->>'request_identity',
+                  sealed.source_ancestry_locator_json->>'attempt_identity',
+                  sealed.source_ancestry_locator_json->>'terminal_receipt_identity'
+                ) INTO source_handoff;
+                IF source_handoff IS NULL THEN RETURN NULL; END IF;
+              END IF;
+              IF (sealed.source_ancestry_evidence_digest IS NOT NULL AND (
+                      sealed.source_ancestry_evidence_digest !~ '^sha256:[0-9a-f]{64}$'
+                      OR (SELECT pg_catalog.array_agg(key ORDER BY key)
+                          FROM pg_catalog.jsonb_object_keys(sealed.source_ancestry_locator_json) keys(key))
+                         <> ARRAY['attempt_identity','request_identity','terminal_receipt_identity']::text[]
+                      OR sealed.source_ancestry_locator_json->>'attempt_identity' = ''
+                      OR sealed.source_ancestry_locator_json->>'request_identity' = ''
+                      OR sealed.source_ancestry_locator_json->>'terminal_receipt_identity' = ''
+                      OR pg_catalog.jsonb_array_length(sealed.request_json#>'{request,goal,sources}') <> 1
+                      OR sealed.request_json#>>'{request,goal,sources,0,source_cut}'
+                         <> sealed.source_ancestry_evidence_digest
+                      OR source_handoff->>'request_identity'
+                         <> sealed.source_ancestry_locator_json->>'request_identity'
+                      OR source_handoff->>'attempt_identity'
+                         <> sealed.source_ancestry_locator_json->>'attempt_identity'
+                      OR source_handoff->>'terminal_receipt_identity'
+                         <> sealed.source_ancestry_locator_json->>'terminal_receipt_identity'
+                      OR sealed.request_json#>>'{request,goal,sources,0,locator}'
+                         <> 'urn:doi:' || source_handoff#>>'{binding,normalized_doi}'
+                      OR sealed.request_json#>>'{request,goal,sources,0,content_digest}'
+                         <> source_handoff#>>'{provenance,content_digest}'
+                      OR sealed.request_json#>>'{request,goal,sources,0,observed_at}'
+                         <> 'epoch-ms:' || source_handoff#>>'{provenance,retrieval_time,decision_cut_epoch_ms}'
+                      OR sealed.request_json#>>'{request,goal,sources,0,license_basis}'
+                         <> source_handoff#>>'{provenance,license_basis}'
+                      OR sealed.request_json#>>'{request,goal,sources,0,interpretation}'
+                         <> source_handoff#>>'{provenance,interpretation,bounded_explanation}'))
                  OR sealed.artifact_evidence_json->>'schema_version' <> '1'
                  OR sealed.request_json->>'schema_version' <> '1'
                  OR sealed.request_json->'request'->>'request_identity' <> sealed.request_identity
@@ -208,6 +568,29 @@ impl PostgresResearchGoalOwnerV1 {
                  OR sealed.artifact_evidence_json->>'projection_at_epoch_ms' <> sealed.view_json->>'projection_at_epoch_ms'
                  OR sealed.artifact_evidence_json->>'valid_through_epoch_ms' <> sealed.view_json->>'valid_through_epoch_ms'
                  OR sealed.artifact_evidence_json->'source_admission' <> sealed.request_json->'request'->'admission'
+                 OR sealed.artifact_evidence_json->'source_ancestry_locator'
+                    IS DISTINCT FROM sealed.source_ancestry_locator_json
+                 OR sealed.artifact_evidence_json->>'source_ancestry_evidence_digest'
+                    IS DISTINCT FROM sealed.source_ancestry_evidence_digest
+                 OR sealed.artifact_evidence_json->>'evidence_identity' <> CASE
+                      WHEN sealed.source_ancestry_evidence_digest IS NULL THEN
+                        'rd-current-research-artifact-evidence-v1-' ||
+                        sealed.receipt_json->>'receipt_identity' || ':' ||
+                        sealed.intent_json->>'intent_identity' || ':' ||
+                        sealed.view_json->>'projection_identity'
+                      ELSE 'rd-current-research-artifact-evidence-v1-' || pg_catalog.substr(
+                        rd_owner_api.derive_source_intake_identity_v1(
+                          'rd.current-research-artifact-evidence-identity.v1', ARRAY[
+                            sealed.receipt_json->>'receipt_identity',
+                            sealed.intent_json->>'intent_identity',
+                            sealed.view_json->>'projection_identity',
+                            sealed.source_ancestry_locator_json->>'request_identity',
+                            sealed.source_ancestry_locator_json->>'attempt_identity',
+                            sealed.source_ancestry_locator_json->>'terminal_receipt_identity',
+                            sealed.source_ancestry_evidence_digest
+                          ]::text[]
+                        ), 8)
+                    END
               THEN RETURN NULL; END IF;
               RETURN pg_catalog.jsonb_build_object(
                 'evidence_digest', sealed.artifact_evidence_digest,
@@ -227,16 +610,54 @@ impl PostgresResearchGoalOwnerV1 {
             ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
             SET search_path = pg_catalog
             AS $function$
-            DECLARE sealed record;
+            DECLARE sealed record; source_handoff jsonb;
             BEGIN
               IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
               SELECT request_identity, semantic_digest, request_json, receipt_json, intent_json,
-                     view_json, artifact_evidence_digest, artifact_evidence_json
+                     view_json, artifact_evidence_digest, artifact_evidence_json,
+                     source_ancestry_locator_json, source_ancestry_evidence_digest
                 INTO sealed
                 FROM public.rd_research_request_receipts_v1
                WHERE intent_json->>'intent_identity' = requested_intent_identity
                FOR SHARE;
               IF NOT FOUND OR sealed.artifact_evidence_json IS NULL
+                 OR (sealed.source_ancestry_locator_json IS NULL) <> (sealed.source_ancestry_evidence_digest IS NULL)
+              THEN RETURN NULL; END IF;
+              IF sealed.source_ancestry_evidence_digest IS NOT NULL THEN
+                SELECT rd_owner_api.lock_source_intake_research_handoff_v1(
+                  sealed.source_ancestry_locator_json->>'request_identity',
+                  sealed.source_ancestry_locator_json->>'attempt_identity',
+                  sealed.source_ancestry_locator_json->>'terminal_receipt_identity'
+                ) INTO source_handoff;
+                IF source_handoff IS NULL THEN RETURN NULL; END IF;
+              END IF;
+              IF (sealed.source_ancestry_evidence_digest IS NOT NULL AND (
+                      sealed.source_ancestry_evidence_digest !~ '^sha256:[0-9a-f]{64}$'
+                      OR (SELECT pg_catalog.array_agg(key ORDER BY key)
+                          FROM pg_catalog.jsonb_object_keys(sealed.source_ancestry_locator_json) keys(key))
+                         <> ARRAY['attempt_identity','request_identity','terminal_receipt_identity']::text[]
+                      OR sealed.source_ancestry_locator_json->>'attempt_identity' = ''
+                      OR sealed.source_ancestry_locator_json->>'request_identity' = ''
+                      OR sealed.source_ancestry_locator_json->>'terminal_receipt_identity' = ''
+                      OR pg_catalog.jsonb_array_length(sealed.request_json#>'{request,goal,sources}') <> 1
+                      OR sealed.request_json#>>'{request,goal,sources,0,source_cut}'
+                         <> sealed.source_ancestry_evidence_digest
+                      OR source_handoff->>'request_identity'
+                         <> sealed.source_ancestry_locator_json->>'request_identity'
+                      OR source_handoff->>'attempt_identity'
+                         <> sealed.source_ancestry_locator_json->>'attempt_identity'
+                      OR source_handoff->>'terminal_receipt_identity'
+                         <> sealed.source_ancestry_locator_json->>'terminal_receipt_identity'
+                      OR sealed.request_json#>>'{request,goal,sources,0,locator}'
+                         <> 'urn:doi:' || source_handoff#>>'{binding,normalized_doi}'
+                      OR sealed.request_json#>>'{request,goal,sources,0,content_digest}'
+                         <> source_handoff#>>'{provenance,content_digest}'
+                      OR sealed.request_json#>>'{request,goal,sources,0,observed_at}'
+                         <> 'epoch-ms:' || source_handoff#>>'{provenance,retrieval_time,decision_cut_epoch_ms}'
+                      OR sealed.request_json#>>'{request,goal,sources,0,license_basis}'
+                         <> source_handoff#>>'{provenance,license_basis}'
+                      OR sealed.request_json#>>'{request,goal,sources,0,interpretation}'
+                         <> source_handoff#>>'{provenance,interpretation,bounded_explanation}'))
                  OR sealed.artifact_evidence_json->>'schema_version' <> '1'
                  OR sealed.request_json->>'schema_version' <> '1'
                  OR sealed.artifact_evidence_digest <> requested_evidence_digest
@@ -259,6 +680,29 @@ impl PostgresResearchGoalOwnerV1 {
                  OR sealed.artifact_evidence_json->>'projection_at_epoch_ms' <> sealed.view_json->>'projection_at_epoch_ms'
                  OR sealed.artifact_evidence_json->>'valid_through_epoch_ms' <> sealed.view_json->>'valid_through_epoch_ms'
                  OR sealed.artifact_evidence_json->'source_admission' <> sealed.request_json->'request'->'admission'
+                 OR sealed.artifact_evidence_json->'source_ancestry_locator'
+                    IS DISTINCT FROM sealed.source_ancestry_locator_json
+                 OR sealed.artifact_evidence_json->>'source_ancestry_evidence_digest'
+                    IS DISTINCT FROM sealed.source_ancestry_evidence_digest
+                 OR sealed.artifact_evidence_json->>'evidence_identity' <> CASE
+                      WHEN sealed.source_ancestry_evidence_digest IS NULL THEN
+                        'rd-current-research-artifact-evidence-v1-' ||
+                        sealed.receipt_json->>'receipt_identity' || ':' ||
+                        sealed.intent_json->>'intent_identity' || ':' ||
+                        sealed.view_json->>'projection_identity'
+                      ELSE 'rd-current-research-artifact-evidence-v1-' || pg_catalog.substr(
+                        rd_owner_api.derive_source_intake_identity_v1(
+                          'rd.current-research-artifact-evidence-identity.v1', ARRAY[
+                            sealed.receipt_json->>'receipt_identity',
+                            sealed.intent_json->>'intent_identity',
+                            sealed.view_json->>'projection_identity',
+                            sealed.source_ancestry_locator_json->>'request_identity',
+                            sealed.source_ancestry_locator_json->>'attempt_identity',
+                            sealed.source_ancestry_locator_json->>'terminal_receipt_identity',
+                            sealed.source_ancestry_evidence_digest
+                          ]::text[]
+                        ), 8)
+                    END
               THEN RETURN NULL; END IF;
               RETURN pg_catalog.jsonb_build_object(
                 'owner_cut_epoch_ms', pg_catalog.floor(extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint,
@@ -301,6 +745,9 @@ impl PostgresResearchGoalOwnerV1 {
             .await
             .map_err(|e| trial_family_storage(&e))?;
         crate::exploratory_replay::postgres::migrate(pool)
+            .await
+            .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
+        crate::complex_strategy_develop_evaluation::migrate(pool)
             .await
             .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
         let mut publication = pool.begin().await.map_err(|e| storage(&e))?;
@@ -580,6 +1027,121 @@ impl PostgresResearchGoalOwnerV1 {
     }
 }
 
+fn assemble_peeked_source_intake_research_request_v1(
+    proposal: UnsourcedResearchProposalV1,
+    fields: (String, String, String, String, String, String, String),
+) -> ProductEdgeResearchGoalRequestV2 {
+    let (
+        evidence_digest,
+        locator,
+        content_digest,
+        observed_at,
+        source_cut,
+        license_basis,
+        interpretation,
+    ) = fields;
+    debug_assert_eq!(evidence_digest, source_cut);
+    ProductEdgeResearchGoalRequestV2 {
+        request_identity: proposal.request_identity,
+        channel: proposal.channel,
+        admission: proposal.admission,
+        goal: crate::product_edge::SourcedResearchGoalV2 {
+            hypothesis: proposal.goal.hypothesis,
+            mechanism: proposal.goal.mechanism,
+            falsification_question: proposal.goal.falsification_question,
+            expected_observation: proposal.goal.expected_observation,
+            required_data: proposal.goal.required_data,
+            cost_assumption: proposal.goal.cost_assumption,
+            capacity_assumption: proposal.goal.capacity_assumption,
+            sources: vec![crate::product_edge::ResearchSourceV1 {
+                locator,
+                content_digest,
+                observed_at,
+                source_cut,
+                license_basis,
+                interpretation,
+            }],
+        },
+        trial_family_proposal: proposal.trial_family_proposal,
+    }
+}
+
+fn unsourced_proposal_matches_request_v1(
+    proposal: &UnsourcedResearchProposalV1,
+    request: &ProductEdgeResearchGoalRequestV2,
+) -> bool {
+    proposal
+        == &UnsourcedResearchProposalV1 {
+            request_identity: request.request_identity.clone(),
+            channel: request.channel,
+            admission: request.admission.clone(),
+            goal: crate::product_edge::UnsourcedResearchGoalV1 {
+                hypothesis: request.goal.hypothesis.clone(),
+                mechanism: request.goal.mechanism.clone(),
+                falsification_question: request.goal.falsification_question.clone(),
+                expected_observation: request.goal.expected_observation.clone(),
+                required_data: request.goal.required_data.clone(),
+                cost_assumption: request.goal.cost_assumption.clone(),
+                capacity_assumption: request.goal.capacity_assumption.clone(),
+            },
+            trial_family_proposal: request.trial_family_proposal.clone(),
+        }
+}
+
+async fn resolve_current_source_policy_v1(
+    policy: &dyn SourceIntakePolicyEvidencePort,
+    query: &SourceIntakePolicyEvidenceQueryV1,
+) -> Result<crate::source_intake::SourceIntakePolicyEvidenceV1, ResearchGoalOwnerError> {
+    match policy.resolve_source_intake_policy_evidence(query).await {
+        SourceIntakePolicyEvidenceResultV1::Sealed { evidence } => Ok(*evidence),
+        SourceIntakePolicyEvidenceResultV1::Unavailable { .. } => Err(
+            ResearchGoalOwnerError::Unauthorized("Source Intake current policy unavailable"),
+        ),
+    }
+}
+
+async fn lock_source_submission_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    source: &SourceBoundResearchSubmissionV1,
+    expected_request: &ProductEdgeResearchGoalRequestV2,
+) -> Result<(), ResearchGoalOwnerError> {
+    let verification_policy =
+        resolve_current_source_policy_v1(source.policy.as_ref(), &source.policy_query).await?;
+    let ancestry = source
+        .ancestry
+        .lock_source_intake_research_handoff_v1(
+            transaction,
+            verification_policy,
+            &source.evidence_digest,
+        )
+        .await
+        .map_err(|_| ResearchGoalOwnerError::Unauthorized("Source Intake ancestry unavailable"))?;
+    if ancestry.evidence_identity() != source.evidence_digest {
+        return Err(ResearchGoalOwnerError::Unauthorized(
+            "Source Intake ancestry changed",
+        ));
+    }
+    let assembled = match assemble_partial_source_intake_research_admission_input(
+        source.proposal.clone(),
+        ancestry,
+    ) {
+        Ok(partial) => {
+            if partial.ancestry_evidence_identity() != source.evidence_digest {
+                return Err(ResearchGoalOwnerError::Unauthorized(
+                    "Source Intake ancestry changed",
+                ));
+            }
+            partial.into_canonical_request()
+        }
+        Err(rejected) => rejected.into_parts().0,
+    };
+
+    if &assembled != expected_request {
+        return Err(ResearchGoalOwnerError::ConflictingReplay);
+    }
+    Ok(())
+}
+
 #[derive(Serialize)]
 struct BasisMeaningV1<'a> {
     schema_version: u32,
@@ -623,6 +1185,10 @@ struct StoredBasisStageCustodyV1 {
     request: ProductEdgeResearchGoalRequestV2,
     admission: ProductEdgeAdmissionLocatorV1,
     admission_lineage_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_ancestry: Option<crate::source_intake::SourceIntakeResearchAncestryProposalV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_ancestry_evidence_digest: Option<String>,
     committed_at_epoch_ms: u64,
     custody_digest: String,
 }
@@ -637,6 +1203,10 @@ struct BasisStageCustodyMeaningV1<'a> {
     request: &'a ProductEdgeResearchGoalRequestV2,
     admission: &'a ProductEdgeAdmissionLocatorV1,
     admission_lineage_digest: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_ancestry: Option<&'a crate::source_intake::SourceIntakeResearchAncestryProposalV1>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_ancestry_evidence_digest: Option<&'a str>,
     committed_at_epoch_ms: u64,
 }
 
@@ -647,6 +1217,8 @@ struct VerifiedBasisStageCustodyV1 {
     request: ProductEdgeResearchGoalRequestV2,
     admission: ProductEdgeAdmissionLocatorV1,
     admission_lineage_digest: String,
+    source_ancestry: Option<crate::source_intake::SourceIntakeResearchAncestryProposalV1>,
+    source_ancestry_evidence_digest: Option<String>,
 }
 
 async fn lock_principal_scope(
@@ -723,6 +1295,7 @@ async fn load_or_create_basis_in_transaction(
     request: &ProductEdgeResearchGoalRequestV2,
     request_semantic_digest: &str,
     admission: &ProductEdgeAdmissionReadbackV1,
+    source_submission: Option<&SourceBoundResearchSubmissionV1>,
     now_epoch_ms: u64,
 ) -> Result<IndependenceBasisReadbackV1, ResearchGoalOwnerError> {
     let principal = admission.effective_principal();
@@ -751,6 +1324,9 @@ async fn load_or_create_basis_in_transaction(
             || stored.request_scope != *scope
             || existing.request_semantic_digest != request_semantic_digest
             || &existing.admission != admission.locator()
+            || existing.source_ancestry.as_ref() != source_submission.map(|source| &source.ancestry)
+            || existing.source_ancestry_evidence_digest.as_deref()
+                != source_submission.map(|source| source.evidence_digest.as_str())
             || existing.basis.basis_identity() != basis_identity
             || stored.rationale_digest
                 != canonical_digest(
@@ -799,6 +1375,10 @@ async fn load_or_create_basis_in_transaction(
                 || existing.basis.stored().request_identity != request.request_identity
                 || existing.request_semantic_digest != request_semantic_digest
                 || &existing.admission != admission.locator()
+                || existing.source_ancestry.as_ref()
+                    != source_submission.map(|source| &source.ancestry)
+                || existing.source_ancestry_evidence_digest.as_deref()
+                    != source_submission.map(|source| source.evidence_digest.as_str())
                 || existing.basis.stored().rationale_digest
                     != canonical_digest(
                         "rd.independence-rationale.v1",
@@ -873,8 +1453,11 @@ async fn load_or_create_basis_in_transaction(
         admission: admission.locator().clone(),
         admission_lineage_digest: canonical_digest(
             "rd.product-edge-admission-lineage.v1",
-            admission,
+            &admission.immutable_lineage(),
         )?,
+        source_ancestry: source_submission.map(|source| source.ancestry.clone()),
+        source_ancestry_evidence_digest: source_submission
+            .map(|source| source.evidence_digest.clone()),
         committed_at_epoch_ms: now_epoch_ms,
         custody_digest: String::new(),
     };
@@ -889,6 +1472,10 @@ async fn load_or_create_basis_in_transaction(
             request: &stage_custody.request,
             admission: &stage_custody.admission,
             admission_lineage_digest: &stage_custody.admission_lineage_digest,
+            source_ancestry: stage_custody.source_ancestry.as_ref(),
+            source_ancestry_evidence_digest: stage_custody
+                .source_ancestry_evidence_digest
+                .as_deref(),
             committed_at_epoch_ms: stage_custody.committed_at_epoch_ms,
         },
     )?;
@@ -988,6 +1575,8 @@ async fn load_basis_stage_custody_for_request_in_transaction(
             request: &stored.request,
             admission: &stored.admission,
             admission_lineage_digest: &stored.admission_lineage_digest,
+            source_ancestry: stored.source_ancestry.as_ref(),
+            source_ancestry_evidence_digest: stored.source_ancestry_evidence_digest.as_deref(),
             committed_at_epoch_ms: stored.committed_at_epoch_ms,
         },
     )?;
@@ -1002,6 +1591,16 @@ async fn load_basis_stage_custody_for_request_in_transaction(
         || stored.request.request_identity != stored.request_identity
         || stored.request.admission != stored.admission
         || semantic_digest_v2(&stored.request)? != stored.request_semantic_digest
+        || (stored.source_ancestry.is_none()) != (stored.source_ancestry_evidence_digest.is_none())
+        || stored
+            .source_ancestry_evidence_digest
+            .as_ref()
+            .is_some_and(|digest| {
+                !digest.strip_prefix("sha256:").is_some_and(|hex| {
+                    hex.len() == 64 && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
+                }) || stored.request.goal.sources.len() != 1
+                    || stored.request.goal.sources[0].source_cut != *digest
+            })
         || stored.committed_at_epoch_ms != basis.receipt().committed_at_epoch_ms()
         || admission_json != stored.admission
         || row
@@ -1036,6 +1635,8 @@ async fn load_basis_stage_custody_for_request_in_transaction(
         request: stored.request,
         admission: stored.admission,
         admission_lineage_digest: stored.admission_lineage_digest,
+        source_ancestry: stored.source_ancestry,
+        source_ancestry_evidence_digest: stored.source_ancestry_evidence_digest,
     }))
 }
 
@@ -1071,6 +1672,17 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             |rejected| rejected.request(),
             ValidatedResearchGoalRequestV2::request,
         );
+
+        if let Some(source) = self.source_submission.as_deref()
+            && let Err(e) =
+                lock_source_submission_in_transaction(&mut transaction, source, request).await
+        {
+            transaction.rollback().await.map_err(|e| storage(&e))?;
+            return match e {
+                ResearchGoalOwnerError::ConflictingReplay => Err(e),
+                _ => Ok(unresolved_result_v2(&request_identity)),
+            };
+        }
         let existing_row = sqlx::query(
             "SELECT semantic_digest, receipt_json, committed_at_epoch_ms FROM rd_research_request_receipts_v1 WHERE request_identity = $1",
         )
@@ -1126,7 +1738,12 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return Err(ResearchGoalOwnerError::ConflictingReplay);
         }
-        let admission_mode = if existing_hint || basis_stage.is_some() {
+        let source_bound = self.source_submission.is_some();
+        let admission_mode = if source_bound {
+            DownstreamAdmissionModeV1::FirstMutation {
+                read_cut_epoch_ms: now,
+            }
+        } else if existing_hint || basis_stage.is_some() {
             DownstreamAdmissionModeV1::Historical
         } else {
             DownstreamAdmissionModeV1::FirstMutation {
@@ -1145,7 +1762,7 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         if basis_stage.as_ref().is_some_and(|custody| {
             canonical_digest(
                 "rd.product-edge-admission-lineage.v1",
-                &product_edge_admission,
+                &product_edge_admission.immutable_lineage(),
             )
             .map_or(true, |digest| digest != custody.admission_lineage_digest)
         }) {
@@ -1178,8 +1795,26 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                 transaction.rollback().await.map_err(|e| storage(&e))?;
                 return Err(ResearchGoalOwnerError::ConflictingReplay);
             }
-            transaction.commit().await.map_err(|e| storage(&e))?;
-            return custody.into_v2_result(current_epoch_ms()?);
+
+            if source_bound
+                && custody
+                    .product_edge_admission()
+                    .map(ProductEdgeAdmissionReadbackV1::locator)
+                    != Some(&request.admission)
+            {
+                transaction.rollback().await.map_err(|e| storage(&e))?;
+                return Err(ResearchGoalOwnerError::ConflictingReplay);
+            }
+            return if source_bound {
+                let return_cut = current_epoch_ms()?;
+                let product_edge_policy_current =
+                    product_edge_admission.authorizes_first_mutation_at(return_cut);
+                transaction.commit().await.map_err(|e| storage(&e))?;
+                custody.into_v2_result_with_policy_current(return_cut, product_edge_policy_current)
+            } else {
+                transaction.commit().await.map_err(|e| storage(&e))?;
+                custody.into_v2_result(current_epoch_ms()?)
+            };
         }
 
         let validated = match validation {
@@ -1237,6 +1872,7 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                 validated.request(),
                 &digest,
                 &product_edge_admission,
+                self.source_submission.as_deref(),
                 basis_cut,
             )
             .await
@@ -1313,8 +1949,30 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                 transaction.rollback().await.map_err(|e| storage(&e))?;
                 return Err(ResearchGoalOwnerError::ConflictingReplay);
             }
+
+            if let Some(source) = self.source_submission.as_deref()
+                && let Err(e) = lock_source_submission_in_transaction(
+                    &mut transaction,
+                    source,
+                    validated.request(),
+                )
+                .await
+            {
+                transaction.rollback().await.map_err(|e| storage(&e))?;
+                return match e {
+                    ResearchGoalOwnerError::ConflictingReplay => Err(e),
+                    _ => Ok(unresolved_result_v2(&request_identity)),
+                };
+            }
+            let return_cut = current_epoch_ms()?;
+            let product_edge_policy_current =
+                source_bound && final_admission.authorizes_first_mutation_at(return_cut);
             transaction.commit().await.map_err(|e| storage(&e))?;
-            return custody.into_v2_result(current_epoch_ms()?);
+            return if source_bound {
+                custody.into_v2_result_with_policy_current(return_cut, product_edge_policy_current)
+            } else {
+                custody.into_v2_result(return_cut)
+            };
         }
 
         let admitted_basis_stage = match load_basis_stage_custody_for_request_in_transaction(
@@ -1332,13 +1990,28 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
 
         if admitted_basis_stage.request_semantic_digest != digest
             || admitted_basis_stage.admission != validated.request().admission
+            || admitted_basis_stage.source_ancestry.as_ref()
+                != self
+                    .source_submission
+                    .as_deref()
+                    .map(|source| &source.ancestry)
+            || admitted_basis_stage
+                .source_ancestry_evidence_digest
+                .as_deref()
+                != self
+                    .source_submission
+                    .as_deref()
+                    .map(|source| source.evidence_digest.as_str())
         {
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return Err(ResearchGoalOwnerError::ConflictingReplay);
         }
 
         if admitted_basis_stage.admission_lineage_digest
-            != canonical_digest("rd.product-edge-admission-lineage.v1", &final_admission)?
+            != canonical_digest(
+                "rd.product-edge-admission-lineage.v1",
+                &final_admission.immutable_lineage(),
+            )?
         {
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return Ok(unresolved_result_v2(&request_identity));
@@ -1404,6 +2077,18 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         if refreshed_feedback.as_ref() != Some(&admitted_feedback) {
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return Ok(unresolved_result_v2(&request_identity));
+        }
+
+        if let Some(source) = self.source_submission.as_deref()
+            && let Err(e) =
+                lock_source_submission_in_transaction(&mut transaction, source, validated.request())
+                    .await
+        {
+            transaction.rollback().await.map_err(|e| storage(&e))?;
+            return match e {
+                ResearchGoalOwnerError::ConflictingReplay => Err(e),
+                _ => Ok(unresolved_result_v2(&request_identity)),
+            };
         }
 
         // The sealed historical admission, R&D basis/lineage, and Qualification
@@ -1477,13 +2162,21 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         let view = commit.view.as_ref().ok_or_else(|| {
             ResearchGoalOwnerError::Storage("accepted S1 Research View missing".to_string())
         })?;
-        let evidence_identity = identity(
-            "rd-current-research-artifact-evidence-v1",
-            &format!(
-                "{}:{}:{}",
-                commit.receipt.receipt_identity, intent.intent_identity, view.projection_identity
-            ),
-        );
+        let source_ancestry_locator = self
+            .source_submission
+            .as_ref()
+            .map(|source| source.ancestry.clone());
+        let source_ancestry_evidence_digest = self
+            .source_submission
+            .as_ref()
+            .map(|source| source.evidence_digest.clone());
+        let evidence_identity = current_research_artifact_evidence_identity(
+            &commit.receipt.receipt_identity,
+            &intent.intent_identity,
+            &view.projection_identity,
+            source_ancestry_locator.as_ref(),
+            source_ancestry_evidence_digest.as_deref(),
+        )?;
         let artifact_evidence = CurrentResearchArtifactEvidenceV1 {
             schema_version: 1,
             evidence_identity,
@@ -1497,12 +2190,19 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             view_identity: view.projection_identity.clone(),
             projection_at_epoch_ms: view.projection_at_epoch_ms,
             valid_through_epoch_ms: view.valid_through_epoch_ms,
+            source_ancestry_locator: source_ancestry_locator.clone(),
+            source_ancestry_evidence_digest: source_ancestry_evidence_digest.clone(),
         };
         let artifact_evidence_digest =
             current_research_artifact_evidence_digest(&artifact_evidence)?;
         let artifact_evidence_json =
             serde_json::to_value(&artifact_evidence).map_err(json_storage)?;
-        sqlx::query("INSERT INTO rd_research_request_receipts_v1 (request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, artifact_evidence_digest, artifact_evidence_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)")
+        let source_ancestry_locator_json = source_ancestry_locator
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(json_storage)?;
+        sqlx::query("INSERT INTO rd_research_request_receipts_v1 (request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, artifact_evidence_digest, artifact_evidence_json, source_ancestry_locator_json, source_ancestry_evidence_digest, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)")
             .bind(&commit.receipt.request_identity)
             .bind(&commit.receipt.semantic_digest)
             .bind(request_json)
@@ -1511,6 +2211,8 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             .bind(view_json)
             .bind(artifact_evidence_digest)
             .bind(artifact_evidence_json)
+            .bind(source_ancestry_locator_json)
+            .bind(source_ancestry_evidence_digest.as_deref())
             .bind(i64::try_from(commit.receipt.committed_at_epoch_ms).map_err(json_storage)?)
             .execute(&mut *transaction)
             .await
@@ -1574,6 +2276,11 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return Err(ResearchGoalOwnerError::ConflictingReplay);
         }
+
+        if stage.source_ancestry.is_some() {
+            transaction.rollback().await.map_err(|e| storage(&e))?;
+            return Ok(terminal);
+        }
         let request = stage.request;
         transaction.commit().await.map_err(|e| storage(&e))?;
         let completed = self.submit_v2(request).await?;
@@ -1608,9 +2315,17 @@ fn trial_family_storage(error: &TrialFamilyError) -> ResearchGoalOwnerError {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::{
+        collections::VecDeque,
+        net::{IpAddr, Ipv4Addr},
+        sync::Mutex,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     use rstest::rstest;
+    use vibe_data::owner::{
+        shared_time_evidence::UntrustedClockHeadLocator, source_binding::BindingDigest,
+    };
 
     use super::*;
     use crate::product_edge::{
@@ -1628,6 +2343,344 @@ mod tests {
         ProductEdgePostgresOwnerV1,
     };
     use vibe_testkit::postgres::DedicatedPostgresTestDatabase;
+
+    struct SequencedSourcePolicyV1 {
+        outcomes: Mutex<VecDeque<SourceIntakePolicyEvidenceResultV1>>,
+    }
+
+    #[async_trait]
+    impl SourceIntakePolicyEvidencePort for SequencedSourcePolicyV1 {
+        async fn resolve_source_intake_policy_evidence(
+            &self,
+            _query: &SourceIntakePolicyEvidenceQueryV1,
+        ) -> SourceIntakePolicyEvidenceResultV1 {
+            self.outcomes
+                .lock()
+                .expect("source policy outcome lock")
+                .pop_front()
+                .expect("source policy outcome")
+        }
+    }
+
+    fn source_policy_fixture() -> (
+        SourceIntakePolicyEvidenceQueryV1,
+        crate::source_intake::SourceIntakePolicyEvidenceV1,
+    ) {
+        let admission = ProductEdgeAdmissionLocatorV1 {
+            request_identity: "source-policy-request-1".into(),
+            admission_identity: "source-policy-admission-1".into(),
+            admission_digest: format!("sha256:{}", "1".repeat(64)),
+        };
+        let request = crate::source_intake::OpenAlexWorkByDoiRequestV1 {
+            request_identity: admission.request_identity.clone(),
+            gateway: crate::source_intake::ProductEdgeGatewayV1::WindmillProductEdge,
+            admission: admission.clone(),
+            operation_manifest_identity: "source-policy-manifest-1".into(),
+            operation_manifest_digest: format!("sha256:{}", "2".repeat(64)),
+            normalized_doi: "10.1/current-policy".into(),
+        };
+        let evidence = crate::source_intake::SourceIntakePolicyEvidenceV1::fixture(
+            &request,
+            vec![IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))],
+            0,
+            0,
+            1_048_576,
+            5_000,
+            crate::source_intake::SourceAcquisitionAdmissionV1::Admitted,
+        );
+        let head = UntrustedClockHeadLocator::from_untrusted(
+            BindingDigest::from_untrusted_bytes([3; 32]),
+            BindingDigest::from_untrusted_bytes([4; 32]),
+        );
+        let query = SourceIntakePolicyEvidenceQueryV1 {
+            request_identity: request.request_identity,
+            gateway: request.gateway,
+            admission,
+            operation_manifest_identity: request.operation_manifest_identity,
+            operation_manifest_digest: request.operation_manifest_digest,
+            connector_policy_locator: "connector-current".into(),
+            network_policy_locator: "network-current".into(),
+            rights_policy_locator: "rights-current".into(),
+            retention_policy_locator: "retention-current".into(),
+            dns_observation_locator: "dns-current".into(),
+            shared_time_head: head,
+            shared_time_successor: None,
+        };
+        (query, evidence)
+    }
+
+    #[tokio::test]
+    async fn source_policy_revocation_preempts_an_accepted_source_replay() {
+        let (query, evidence) = source_policy_fixture();
+        let policy = SequencedSourcePolicyV1 {
+            outcomes: Mutex::new(VecDeque::from([
+                SourceIntakePolicyEvidenceResultV1::Sealed {
+                    evidence: Box::new(evidence),
+                },
+                SourceIntakePolicyEvidenceResultV1::Unavailable {
+                    reason: crate::source_intake::SourceIntakePolicyUnavailableReasonV1::RightsPolicyUnavailable,
+                },
+            ])),
+        };
+        assert!(
+            resolve_current_source_policy_v1(&policy, &query)
+                .await
+                .is_ok()
+        );
+        assert!(
+            resolve_current_source_policy_v1(&policy, &query)
+                .await
+                .is_err()
+        );
+        assert!(policy.outcomes.lock().expect("policy outcomes").is_empty());
+
+        let source = include_str!("product_edge_postgres.rs");
+        let replay = source
+            .split("async fn resolve_accepted_source_submission")
+            .nth(1)
+            .unwrap()
+            .split("pub async fn freeze_complex_strategy_develop_evaluation")
+            .next()
+            .unwrap();
+        assert!(replay.contains("resolve_current_source_policy_v1(policy, policy_query).await?"));
+        assert!(replay.contains("lock_source_intake_research_handoff_v1("));
+        assert!(replay.contains("custody.into_v2_result_with_policy_current("));
+        assert!(
+            replay.find("resolve_current_source_policy_v1").unwrap()
+                < replay.rfind("transaction.commit()").unwrap()
+        );
+        let entry = source
+            .split("pub async fn submit_source_intake_research_v1")
+            .nth(1)
+            .unwrap()
+            .split("async fn resolve_accepted_source_submission")
+            .next()
+            .unwrap();
+        assert!(entry.contains("return Ok(result)"));
+        assert!(!entry.contains("resolve_v2_at("));
+
+        let submission = source
+            .split("impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1")
+            .nth(1)
+            .unwrap();
+        let initial_existing = submission.split("let protected_feedback").next().unwrap();
+        assert!(initial_existing.contains("let source_bound = self.source_submission.is_some()"));
+        assert!(
+            initial_existing.contains(
+                "if source_bound {\n            DownstreamAdmissionModeV1::FirstMutation"
+            )
+        );
+        assert!(initial_existing.contains("custody.into_v2_result_with_policy_current("));
+        let existing_custody = initial_existing
+            .find("if let Some(custody) = existing {")
+            .unwrap();
+        let existing_return = &initial_existing[existing_custody..];
+        assert!(existing_return.contains("let return_cut = current_epoch_ms()?;"));
+        assert!(
+            existing_return
+                .contains("product_edge_admission.authorizes_first_mutation_at(return_cut)")
+        );
+        assert!(existing_return.contains(
+            "custody.into_v2_result_with_policy_current(return_cut, product_edge_policy_current)"
+        ));
+        assert!(existing_return.contains(
+            "transaction.commit().await.map_err(|e| storage(&e))?;\n                custody.into_v2_result(current_epoch_ms()?)"
+        ));
+        assert!(
+            !existing_return.contains("product_edge_admission.authorizes_first_mutation_at(now)")
+        );
+        assert!(submission.contains("&product_edge_admission.immutable_lineage()"));
+        assert!(submission.contains("&final_admission.immutable_lineage()"));
+    }
+
+    #[rstest]
+    fn source_ancestry_locator_tamper_cannot_reseal_artifact_evidence_digest() {
+        let locator = crate::source_intake::SourceIntakeResearchAncestryProposalV1 {
+            request_identity: "source-artifact-request-1".into(),
+            attempt_identity: "source-artifact-attempt-1".into(),
+            terminal_receipt_identity: "source-artifact-receipt-1".into(),
+        };
+        let source_digest = format!("sha256:{}", "5".repeat(64));
+        let evidence_identity = current_research_artifact_evidence_identity(
+            "research-receipt-1",
+            "research-intent-1",
+            "research-view-1",
+            Some(&locator),
+            Some(&source_digest),
+        )
+        .unwrap();
+        let mut evidence = CurrentResearchArtifactEvidenceV1 {
+            schema_version: 1,
+            evidence_identity,
+            request_identity: "research-request-1".into(),
+            semantic_digest: format!("sha256:{}", "6".repeat(64)),
+            source_admission: ProductEdgeAdmissionLocatorV1 {
+                request_identity: "research-request-1".into(),
+                admission_identity: "research-admission-1".into(),
+                admission_digest: format!("sha256:{}", "7".repeat(64)),
+            },
+            effective_principal: "rd-owner".into(),
+            authorized_scope: vec!["research".into()],
+            receipt_identity: "research-receipt-1".into(),
+            intent_identity: "research-intent-1".into(),
+            view_identity: "research-view-1".into(),
+            projection_at_epoch_ms: 10,
+            valid_through_epoch_ms: 20,
+            source_ancestry_locator: Some(locator),
+            source_ancestry_evidence_digest: Some(source_digest),
+        };
+        assert!(current_research_artifact_evidence_digest(&evidence).is_ok());
+        evidence
+            .source_ancestry_locator
+            .as_mut()
+            .unwrap()
+            .attempt_identity
+            .push_str("-tampered");
+        assert!(current_research_artifact_evidence_digest(&evidence).is_err());
+
+        let source = include_str!("product_edge_postgres.rs");
+        assert!(source.contains("SELECT rd_owner_api.peek_source_intake_research_handoff_v1("));
+        assert!(source.contains("SELECT rd_owner_api.lock_source_intake_research_handoff_v1("));
+        assert!(source.contains(
+            "artifact_evidence_json->'source_ancestry_locator'\n                    IS DISTINCT FROM sealed.source_ancestry_locator_json"
+        ));
+    }
+
+    #[rstest]
+    fn source_bound_research_relocks_before_stage_and_terminal_and_persists_ancestry() {
+        let source = include_str!("product_edge_postgres.rs");
+        let source_submission = source
+            .split("struct SourceBoundResearchSubmissionV1")
+            .nth(1)
+            .unwrap()
+            .split("enum ResearchRequestIdentityPreflightV1")
+            .next()
+            .unwrap();
+        assert!(source_submission.contains("policy_query: SourceIntakePolicyEvidenceQueryV1"));
+        assert!(source_submission.contains("policy: Arc<dyn SourceIntakePolicyEvidencePort>"));
+        assert!(!source_submission.contains("verification_policy"));
+        let submission = source
+            .split("impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1")
+            .nth(1)
+            .unwrap();
+        assert_eq!(
+            submission
+                .matches("lock_source_submission_in_transaction(")
+                .count(),
+            3
+        );
+        let first_lock = submission
+            .find("lock_source_submission_in_transaction(")
+            .unwrap();
+        let first_basis_write = submission
+            .find("load_or_create_basis_in_transaction(")
+            .unwrap();
+        let second_lock = submission[first_lock + 1..]
+            .find("lock_source_submission_in_transaction(")
+            .map(|offset| offset + first_lock + 1)
+            .unwrap();
+        let concurrent_positive_return = submission[second_lock..]
+            .find("return if source_bound {")
+            .map(|offset| offset + second_lock)
+            .unwrap();
+        let third_lock = submission[second_lock + 1..]
+            .find("lock_source_submission_in_transaction(")
+            .map(|offset| offset + second_lock + 1)
+            .unwrap();
+        let terminal_insert = submission
+            .find("source_ancestry_locator_json, source_ancestry_evidence_digest")
+            .unwrap();
+        assert!(first_lock < first_basis_write);
+        assert!(second_lock < concurrent_positive_return);
+        assert!(third_lock < terminal_insert);
+        let concurrent_return = &submission[second_lock..third_lock];
+        assert!(
+            concurrent_return.contains("final_admission.authorizes_first_mutation_at(return_cut)")
+        );
+        assert!(concurrent_return.contains("custody.into_v2_result_with_policy_current("));
+        assert!(source.contains(
+            "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS source_ancestry_locator_json JSONB"
+        ));
+        assert!(source.contains(
+            "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS source_ancestry_evidence_digest TEXT"
+        ));
+    }
+
+    #[rstest]
+    fn source_bound_request_identity_joins_exact_source_and_proposal_only() {
+        let admission = ProductEdgeAdmissionLocatorV1 {
+            request_identity: "source-bound-research-1".into(),
+            admission_identity: "source-bound-admission-1".into(),
+            admission_digest: "sha256:source-bound-admission-1".into(),
+        };
+        let seeded = request("source-bound-research-1", admission.clone());
+        let proposal = UnsourcedResearchProposalV1 {
+            request_identity: seeded.request_identity.clone(),
+            channel: seeded.channel,
+            admission,
+            goal: crate::product_edge::UnsourcedResearchGoalV1 {
+                hypothesis: seeded.goal.hypothesis.clone(),
+                mechanism: seeded.goal.mechanism.clone(),
+                falsification_question: seeded.goal.falsification_question.clone(),
+                expected_observation: seeded.goal.expected_observation.clone(),
+                required_data: seeded.goal.required_data.clone(),
+                cost_assumption: seeded.goal.cost_assumption.clone(),
+                capacity_assumption: seeded.goal.capacity_assumption.clone(),
+            },
+            trial_family_proposal: seeded.trial_family_proposal,
+        };
+        let first = assemble_peeked_source_intake_research_request_v1(
+            proposal.clone(),
+            (
+                "sha256:source-evidence-a".into(),
+                "urn:doi:10.1/a".into(),
+                "sha256:content-a".into(),
+                "epoch-ms:1".into(),
+                "sha256:source-evidence-a".into(),
+                "rights-a".into(),
+                "interpretation-a".into(),
+            ),
+        );
+        let same = first.clone();
+        let mut different_proposal = proposal.clone();
+        different_proposal.goal.hypothesis.push_str(" changed");
+        let changed_proposal = assemble_peeked_source_intake_research_request_v1(
+            different_proposal,
+            (
+                "sha256:source-evidence-a".into(),
+                "urn:doi:10.1/a".into(),
+                "sha256:content-a".into(),
+                "epoch-ms:1".into(),
+                "sha256:source-evidence-a".into(),
+                "rights-a".into(),
+                "interpretation-a".into(),
+            ),
+        );
+        let changed_source = assemble_peeked_source_intake_research_request_v1(
+            proposal,
+            (
+                "sha256:source-evidence-b".into(),
+                "urn:doi:10.1/b".into(),
+                "sha256:content-b".into(),
+                "epoch-ms:2".into(),
+                "sha256:source-evidence-b".into(),
+                "rights-b".into(),
+                "interpretation-b".into(),
+            ),
+        );
+        assert_eq!(
+            semantic_digest_v2(&first).unwrap(),
+            semantic_digest_v2(&same).unwrap()
+        );
+        assert_ne!(
+            semantic_digest_v2(&first).unwrap(),
+            semantic_digest_v2(&changed_source).unwrap()
+        );
+        assert_ne!(
+            semantic_digest_v2(&first).unwrap(),
+            semantic_digest_v2(&changed_proposal).unwrap()
+        );
+    }
 
     #[rstest]
     fn basis_stage_custody_seals_complete_request_meaning_and_rejects_extensions() {
@@ -1647,6 +2700,8 @@ mod tests {
             request,
             admission,
             admission_lineage_digest: "sha256:admission-lineage-stage-1".into(),
+            source_ancestry: None,
+            source_ancestry_evidence_digest: None,
             committed_at_epoch_ms: 100,
             custody_digest: "sha256:custody-stage-1".into(),
         };

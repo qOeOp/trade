@@ -84,6 +84,32 @@ Credentials remain opaque and never enter source content, logs, prompts, receipt
 changed connector, method, endpoint, query, header/body digest, origin, resolution, redirect sequence, credential audience, response bound, rights policy, or
 time cut requires a successor binding; conflicting replay is rejected.
 
+### Acquisition authority classes
+
+Every Source Acquisition Binding names exactly one non-interchangeable authority class:
+
+- `LIVE_EXTERNAL` is the production class. It requires current real policy, Time Evidence, DNS and resolved-address
+  evidence, rights, credential, egress, and provider authorities. Production remains unavailable when any required
+  authority is absent; it cannot fall back to a fixture, loopback service, test credential, or acceptance policy.
+- `SEALED_ACCEPTANCE` is an acceptance-only class for a fixed DOI corpus, fixed provider responses, and
+  deterministic rejection cases. It binds an isolated environment identity, provider-profile digest, fixture-corpus
+  digest, sealed policy and Time Evidence, request binding, and retrieval evidence. It permits no external network
+  and accepts no caller-supplied URL, header, credential, DSN, provider selection, or fixture mutation.
+
+The authority class and all class-specific evidence are cross-bound into the acquisition binding, durable
+invocation claim and start, terminal receipt, and readback. A class mismatch is an identity conflict, not an exact
+replay. An acceptance endpoint must use a non-public fixture identity and must never masquerade as
+`api.openalex.org`; a fixture result is never live-provider evidence.
+
+One Source Intake Owner orchestrator owns the complete lifecycle:
+
+`admission → sealed/live policy → binding commit → durable claim/start → move-only permit → provider execution → retrieval time → atomic terminal`
+
+The Product Edge API remains authentication, typed DTO, and projection only. Windmill remains transport only. No
+API handler, script, flow, fixture adapter, or caller may split or reproduce Owner custody. Only the Owner may
+commit the R&D PostgreSQL claim, raw payload, terminal receipt, provenance, Source Candidate, and outbox; positive
+records commit atomically only for `ADMITTED` plus `RETRIEVED`.
+
 ## Internal capability sequence
 
 The following are capabilities inside Source Intake, not new Flow nodes or Owners:
@@ -136,6 +162,33 @@ Use the existing Research Source Provenance Record; do not create a second regis
 A change to content, retrieval cut, license basis, or interpretation produces a successor record. A Source Candidate
 without its record is not handoffable.
 
+## Typed Source Intake-to-Research custody
+
+The target composition has one typed R&D-owned ancestry operation between Source Intake and Research. It accepts
+an untrusted reference to a Source Intake attempt, then locks and rereads the exact `RETRIEVED` terminal receipt,
+Research Source Provenance Record, Source Candidate, and matching transition outbox from Owner custody. It verifies
+their shared request and attempt identities, canonical source and content digest, retrieval cut, connector and
+acquisition-class identity, policy/Time Evidence, and rights/retention basis, then returns sealed ancestry evidence
+only. Source content remains untrusted and never confers accepted Research custody.
+
+The typed Research `RUN` separately consumes an untrusted Research proposal and that verified ancestry evidence
+through canonical R&D Research admission. R&D is the sole Intent owner: only that admission may resolve the
+Independence Basis, current Qualification frontier, and local semantic-predecessor lineage, then freeze the Intent,
+falsifier, permanent TrialFamily authority, receipts, and current Research custody that Develop Composer may
+consume. A Source Intake attempt alone can never derive `CurrentResearchDevelopCustodyV2`.
+
+The caller cannot supply or repair any verified member. Copying receipt fields into a Research DTO, trusting a
+locator without Owner reread, reading JSON projections as canonical records, or co-deploying Source Intake and
+Composer is not a handoff. A missing, mismatched, stale, non-`RETRIEVED`, negative, or unavailable ancestry member,
+or a failed canonical Research admission, produces no accepted Research custody, Research Intent, Design, Plan,
+Artifact, or successor authority. Same request and meaning join the byte-identical R&D operation receipt; identity
+reuse with changed meaning conflicts with zero positive writes, and response loss resolves only the same attempt.
+
+This operation and its durable PostgreSQL custody are `TARGET`, not current. Crate-local Source Intake contract and
+regression evidence and the crate-local Composer proof remain separate `CURRENT/PARTIAL` evidence. No current
+evidence establishes the isolated PostgreSQL/Windmill Source Intake runner; the composed dynamic gates in the
+Product Edge D0 contract remain unpassed.
+
 ## Triage and admission
 
 Triage orders reading and experimentation; it never measures strategy quality. A policy may compare falsifiability,
@@ -181,3 +234,22 @@ Source Intake never repairs or stores those market facts itself.
 - Handoff tests prove an initial PIT Market Snapshot response is correlated to the exact frozen Research request;
   submission, transport success, mismatched response, or an earlier snapshot cannot stand in for that terminal.
 - End-to-end proof shows one admitted source becomes a traceable Source Candidate and only Research can freeze its successor Intent.
+- The required `SEALED_ACCEPTANCE` topology must exercise the same Product Edge admission, Source Intake Owner
+  claim/start and lifecycle, R&D PostgreSQL transaction, terminal receipt, and default Windmill `RUN`/`RESOLVE`
+  transport intended for production. If obtained, this evidence is acceptance-only and never proves `CURRENT`
+  production, network, credential, rights, DNS, policy, Time Evidence, or live-provider readiness.
+- The target A2 composition deploys the fixed chain `Source Intake RUN/RESOLVE -> typed Research RUN/RESOLVE ->
+  Composer RUN/RESOLVE` with compile-time sealed adapters, a fixed Source Intake corpus, a fixed A0 build corpus,
+  and unique internal PostgreSQL, Windmill, network, ingress, and volume state. It has no runtime provider selector.
+- The A1 positive transaction atomically persists the private canonical A0 Build Receipt bytes with the Artifact,
+  Composer receipts, and outbox while the opaque non-serializable verified token remains move-only and in-process.
+- The composed runner must prove concurrent same-request join and changed-meaning conflict, zero partial rows at every
+  atomic write fault, post-commit response-loss resolution, restart byte-identical `RESOLVE` after private canonical
+  A0 Build Receipt reread and validation of its capsule/toolchain/linker/configuration/two-build provenance,
+  Artifact/Composer receipt rebinding, canonical-byte parse/hash, and `ProgramHostV2` readmission. It also proves
+  every required single-field mutation negative, including a separate single-field mutation of the canonical A0
+  Build Receipt, deployed golden-path replay, and cleanup to exact baseline equality with zero residue or
+  shared-target change.
+- Until that runner passes, typed Research handoff, durable Composer/API custody, and the isolated Windmill chain
+  remain `TARGET`. Production Market Data binding resolution, live OpenAlex authority, `PRODUCT_CURRENT`, Dashboard,
+  Paper, Live, deployment, and trading remain unavailable.

@@ -9,24 +9,24 @@
     reason = "private durable Owner composition is exercised by disposable PostgreSQL tests until product composition exists"
 )]
 
-use serde_json::Value;
-use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
-
+#[cfg(not(test))]
+use super::pit_snapshot::{PitObservationBatchOwnerResolver, VerifiedPitObservationBatch};
 use super::{
     pit_snapshot::{
-        PitSnapshotCommitAggregate, PitSnapshotError, PitSnapshotOwnerReadback,
-        PitSnapshotOwnerResolver, UntrustedPitSnapshotLocator, UntrustedPitSnapshotProposal,
+        PitSnapshotCommitAggregate, PitSnapshotError, UntrustedPitObservationBatchProposal,
+        UntrustedPitSnapshotLocator, UntrustedPitSnapshotProposal,
         authority::{
+            ObservedPitObservationNativeRow, PreparedPitObservationBatch,
             TestOnlyCanonicalBasisResolver, prepare_correction_aggregate,
-            prepare_initial_aggregate, verify_aggregate as verify_pit_aggregate,
+            prepare_initial_aggregate, prepare_observation_batch,
+            verify_aggregate as verify_pit_aggregate, verify_observation_batch,
         },
     },
     shared_time_evidence::{
         ClockHeadFact, ClockHeadHandoff, ClockHeadSuccessorReadback, EpochSuccessorProof,
-        SharedTimeEvidenceError, SharedTimeEvidenceResolver, UntrustedClockHeadLocator,
-        build_epoch_successor_proof, build_head_fact, successor_readback,
-        validate_new_epoch_successor, validate_same_epoch_successor, verify_epoch_successor_proof,
-        verify_head_fact,
+        SharedTimeEvidenceError, UntrustedClockHeadLocator, build_epoch_successor_proof,
+        build_head_fact, successor_readback, validate_new_epoch_successor,
+        validate_same_epoch_successor, verify_epoch_successor_proof, verify_head_fact,
     },
     source_binding::{
         BindingDigest, MarketDataClockAdmission, MarketDataClockComparisonRule, SourceBindingError,
@@ -39,6 +39,19 @@ use super::{
             verify_stored_aggregate as verify_source_aggregate,
         },
     },
+};
+use serde_json::Value;
+use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
+#[cfg(not(test))]
+use vibe_deployment_store_admission::{
+    AdmittedMarketDataSourceBindingSnapshotPort, MarketDataPitEvaluationStorageEvidence,
+    MarketDataSourceBindingStorageEvidence,
+};
+
+#[cfg(test)]
+use super::{
+    pit_snapshot::{PitSnapshotOwnerReadback, PitSnapshotOwnerResolver},
+    shared_time_evidence::SharedTimeEvidenceResolver,
 };
 
 const MIGRATION_ID: &str = "market-data-owner-postgres-v1";
@@ -62,11 +75,15 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_snapshot_facts_v1 (snapshot_identity BYTEA PRIMARY KEY CHECK (octet_length(snapshot_identity) = 32), fact_digest BYTEA NOT NULL CHECK (octet_length(fact_digest) = 32), request_identity BYTEA NOT NULL CHECK (octet_length(request_identity) = 32), request_digest BYTEA NOT NULL CHECK (octet_length(request_digest) = 32), correction_stream_identity TEXT NOT NULL, correction_sequence BIGINT NOT NULL CHECK (correction_sequence > 0), lineage_root BYTEA NOT NULL CHECK (octet_length(lineage_root) = 32), lineage_version BIGINT NOT NULL CHECK (lineage_version > 0), aggregate_json JSONB NOT NULL, UNIQUE(request_identity, correction_stream_identity, correction_sequence), UNIQUE(lineage_root, lineage_version))",
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_snapshot_heads_v1 (lineage_root BYTEA PRIMARY KEY CHECK (octet_length(lineage_root) = 32), snapshot_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity), fact_digest BYTEA NOT NULL CHECK (octet_length(fact_digest) = 32), lineage_version BIGINT NOT NULL CHECK (lineage_version > 0))",
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_snapshot_outbox_v1 (event_identity BYTEA PRIMARY KEY CHECK (octet_length(event_identity) = 32), aggregate_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity), payload_digest BYTEA NOT NULL CHECK (octet_length(payload_digest) = 32), payload BYTEA NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS market_data_private.pit_observation_batches_v1 (snapshot_identity BYTEA PRIMARY KEY REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity), source_binding_identity BYTEA NOT NULL CHECK (octet_length(source_binding_identity) = 32), source_binding_lineage_root BYTEA NOT NULL CHECK (octet_length(source_binding_lineage_root) = 32), source_binding_lineage_version BIGINT NOT NULL CHECK (source_binding_lineage_version > 0), batch_digest BYTEA NOT NULL CHECK (octet_length(batch_digest) = 32), batch_bytes BYTEA NOT NULL CHECK (octet_length(batch_bytes) > 0), row_count BIGINT NOT NULL CHECK (row_count > 0 AND row_count <= 10000))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.pit_observation_rows_v1 (snapshot_identity BYTEA NOT NULL REFERENCES market_data_private.pit_observation_batches_v1(snapshot_identity), ordinal BIGINT NOT NULL CHECK (ordinal > 0), symbolic_key TEXT NOT NULL CHECK (symbolic_key <> ''), member_key TEXT NOT NULL CHECK (member_key <> ''), row_bytes BYTEA NOT NULL CHECK (octet_length(row_bytes) > 0), PRIMARY KEY(snapshot_identity,ordinal), UNIQUE(snapshot_identity,symbolic_key,member_key))",
     "CREATE TABLE IF NOT EXISTS market_data_private.source_binding_lineage_census_v1 (lineage_root BYTEA PRIMARY KEY CHECK (octet_length(lineage_root) = 32))",
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_snapshot_lineage_census_v1 (lineage_root BYTEA PRIMARY KEY CHECK (octet_length(lineage_root) = 32))",
     "CREATE TABLE IF NOT EXISTS market_data_private.owner_history_census_state_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), source_lineage_count BIGINT NOT NULL CHECK (source_lineage_count >= 0), pit_lineage_count BIGINT NOT NULL CHECK (pit_lineage_count >= 0))",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_source_binding_v1(p_binding_id BYTEA) RETURNS TABLE(row_identity BYTEA, fact_digest BYTEA, request_identity BYTEA, request_digest BYTEA, correction_stream_identity TEXT, correction_sequence BIGINT, fact_lineage_root BYTEA, fact_lineage_version BIGINT, aggregate_json JSONB, outbox_event_identity BYTEA, outbox_aggregate_identity BYTEA, outbox_payload BYTEA, outbox_digest BYTEA, head_lineage_root BYTEA, head_identity BYTEA, head_digest BYTEA, head_version BIGINT, clock_identity TEXT, clock_epoch TEXT, monotonic_sequence BIGINT, wall_observed BIGINT, decision_cut BIGINT, valid_through BIGINT, restart_continuity_digest BYTEA, uncertainty_bound BIGINT, skew_bound BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT f.binding_id, f.fact_digest, NULL::BYTEA, NULL::BYTEA, NULL::TEXT, NULL::BIGINT, f.lineage_root, f.lineage_version, f.aggregate_json, o.event_identity, o.aggregate_identity, o.payload, o.payload_digest, h.lineage_root, h.binding_id, h.fact_digest, h.lineage_version, NULL::TEXT, NULL::TEXT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BYTEA, NULL::BIGINT, NULL::BIGINT, NULL::SMALLINT FROM market_data_private.source_binding_facts_v1 AS f JOIN market_data_private.source_binding_outbox_v1 AS o ON o.aggregate_identity = f.binding_id JOIN market_data_private.source_binding_heads_v1 AS h ON h.lineage_root = f.lineage_root WHERE f.binding_id = p_binding_id $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_snapshot_v1(p_snapshot_identity BYTEA) RETURNS TABLE(row_identity BYTEA, fact_digest BYTEA, request_identity BYTEA, request_digest BYTEA, correction_stream_identity TEXT, correction_sequence BIGINT, fact_lineage_root BYTEA, fact_lineage_version BIGINT, aggregate_json JSONB, outbox_event_identity BYTEA, outbox_aggregate_identity BYTEA, outbox_payload BYTEA, outbox_digest BYTEA, head_lineage_root BYTEA, head_identity BYTEA, head_digest BYTEA, head_version BIGINT, clock_identity TEXT, clock_epoch TEXT, monotonic_sequence BIGINT, wall_observed BIGINT, decision_cut BIGINT, valid_through BIGINT, restart_continuity_digest BYTEA, uncertainty_bound BIGINT, skew_bound BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT f.snapshot_identity, f.fact_digest, f.request_identity, f.request_digest, f.correction_stream_identity, f.correction_sequence, f.lineage_root, f.lineage_version, f.aggregate_json, o.event_identity, o.aggregate_identity, o.payload, o.payload_digest, h.lineage_root, h.snapshot_identity, h.fact_digest, h.lineage_version, NULL::TEXT, NULL::TEXT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT, NULL::BYTEA, NULL::BIGINT, NULL::BIGINT, NULL::SMALLINT FROM market_data_private.pit_snapshot_facts_v1 AS f JOIN market_data_private.pit_snapshot_outbox_v1 AS o ON o.aggregate_identity = f.snapshot_identity JOIN market_data_private.pit_snapshot_heads_v1 AS h ON h.lineage_root = f.lineage_root WHERE f.snapshot_identity = p_snapshot_identity $function$",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_observation_batch_v1(p_snapshot_identity BYTEA) RETURNS TABLE(source_binding_identity BYTEA, source_binding_lineage_root BYTEA, source_binding_lineage_version BIGINT, batch_digest BYTEA, batch_bytes BYTEA, row_count BIGINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT b.source_binding_identity,b.source_binding_lineage_root,b.source_binding_lineage_version,b.batch_digest,b.batch_bytes,b.row_count FROM market_data_private.pit_observation_batches_v1 AS b WHERE b.snapshot_identity=p_snapshot_identity AND b.row_count=(SELECT COUNT(*) FROM market_data_private.pit_observation_rows_v1 AS r WHERE r.snapshot_identity=b.snapshot_identity) $function$",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_observation_rows_v1(p_snapshot_identity BYTEA) RETURNS TABLE(ordinal BIGINT,symbolic_key TEXT,member_key TEXT,row_bytes BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT r.ordinal,r.symbolic_key,r.member_key,r.row_bytes FROM market_data_private.pit_observation_rows_v1 AS r WHERE r.snapshot_identity=p_snapshot_identity ORDER BY r.ordinal $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_source_lineage_custody_v1(p_lineage_root BYTEA) RETURNS BOOLEAN LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT EXISTS(SELECT 1 FROM market_data_private.source_binding_heads_v1 AS h WHERE h.lineage_root=p_lineage_root AND h.lineage_version=(SELECT COUNT(*) FROM market_data_private.source_binding_facts_v1 AS f WHERE f.lineage_root=p_lineage_root) AND h.lineage_version=(SELECT COUNT(*) FROM market_data_private.source_binding_outbox_v1 AS o JOIN market_data_private.source_binding_facts_v1 AS f ON f.binding_id=o.aggregate_identity WHERE f.lineage_root=p_lineage_root) AND h.lineage_version=(SELECT MAX(f.lineage_version) FROM market_data_private.source_binding_facts_v1 AS f WHERE f.lineage_root=p_lineage_root)) $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_lineage_custody_v1(p_lineage_root BYTEA) RETURNS BOOLEAN LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT EXISTS(SELECT 1 FROM market_data_private.pit_snapshot_heads_v1 AS h WHERE h.lineage_root=p_lineage_root AND h.lineage_version=(SELECT COUNT(*) FROM market_data_private.pit_snapshot_facts_v1 AS f WHERE f.lineage_root=p_lineage_root) AND h.lineage_version=(SELECT COUNT(*) FROM market_data_private.pit_snapshot_outbox_v1 AS o JOIN market_data_private.pit_snapshot_facts_v1 AS f ON f.snapshot_identity=o.aggregate_identity WHERE f.lineage_root=p_lineage_root) AND h.lineage_version=(SELECT MAX(f.lineage_version) FROM market_data_private.pit_snapshot_facts_v1 AS f WHERE f.lineage_root=p_lineage_root)) $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_source_lineage_members_v1(p_lineage_root BYTEA) RETURNS TABLE(member_identity BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT f.binding_id FROM market_data_private.source_binding_facts_v1 AS f WHERE f.lineage_root=p_lineage_root ORDER BY f.lineage_version $function$",
@@ -81,6 +98,8 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "REVOKE ALL ON ALL TABLES IN SCHEMA market_data_private FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_source_binding_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_snapshot_v1(BYTEA) FROM PUBLIC",
+    "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_observation_batch_v1(BYTEA) FROM PUBLIC",
+    "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_observation_rows_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_source_lineage_custody_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_lineage_custody_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_source_lineage_members_v1(BYTEA) FROM PUBLIC",
@@ -99,7 +118,10 @@ pub(crate) struct MarketDataOwnerPostgres {
 }
 
 pub(crate) struct MarketDataReadPostgres {
-    pool: PgPool,
+    #[cfg(test)]
+    pub(crate) pool: PgPool,
+    #[cfg(not(test))]
+    admitted_port: AdmittedMarketDataSourceBindingSnapshotPort,
 }
 
 impl MarketDataOwnerPostgres {
@@ -382,7 +404,70 @@ impl MarketDataOwnerPostgres {
         }
         let aggregate =
             prepare_initial_aggregate(proposal, canonical_basis, source.commit().fact(), clock)?;
-        Box::pin(persist_pit(transaction, aggregate, clock, fault)).await
+        Box::pin(persist_pit(transaction, aggregate, None, clock, fault)).await
+    }
+
+    pub(crate) async fn commit_pit_initial_with_observation_batch(
+        &self,
+        proposal: UntrustedPitSnapshotProposal,
+        batch: UntrustedPitObservationBatchProposal,
+        canonical_basis: &TestOnlyCanonicalBasisResolver,
+        clock: &MarketDataClockAdmission,
+    ) -> Result<PitSnapshotCommitAggregate, PitSnapshotError> {
+        Box::pin(self.commit_pit_initial_with_observation_batch_and_fault(
+            proposal,
+            batch,
+            canonical_basis,
+            clock,
+            PostgresCommitFault::None,
+        ))
+        .await
+    }
+
+    async fn commit_pit_initial_with_observation_batch_and_fault(
+        &self,
+        proposal: UntrustedPitSnapshotProposal,
+        batch: UntrustedPitObservationBatchProposal,
+        canonical_basis: &TestOnlyCanonicalBasisResolver,
+        clock: &MarketDataClockAdmission,
+        fault: PostgresCommitFault,
+    ) -> Result<PitSnapshotCommitAggregate, PitSnapshotError> {
+        let prepared = prepare_observation_batch(&proposal, &batch)?;
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+        let source = load_source_for_update(
+            &mut transaction,
+            proposal.request.source_binding.binding_id,
+            false,
+        )
+        .await
+        .map_err(|_| PitSnapshotError::SourceBindingUnavailable)?
+        .ok_or(PitSnapshotError::SourceBindingUnavailable)?;
+        if source.commit().receipt().locator() != &proposal.request.source_binding {
+            return Err(PitSnapshotError::SourceBindingUnavailable);
+        }
+        let aggregate =
+            prepare_initial_aggregate(proposal, canonical_basis, source.commit().fact(), clock)?;
+        verify_observation_batch(
+            &aggregate,
+            aggregate.fact().source_binding_identity(),
+            aggregate.fact().source_binding_lineage_root(),
+            aggregate.fact().source_binding_lineage_version(),
+            prepared.digest(),
+            prepared.bytes(),
+            &prepared.native_rows()?,
+        )?;
+        Box::pin(persist_pit(
+            transaction,
+            aggregate,
+            Some(prepared),
+            clock,
+            fault,
+        ))
+        .await
     }
 
     pub(crate) async fn commit_pit_correction(
@@ -435,6 +520,64 @@ impl MarketDataOwnerPostgres {
         Box::pin(persist_pit(
             transaction,
             aggregate,
+            None,
+            clock,
+            PostgresCommitFault::None,
+        ))
+        .await
+    }
+
+    pub(crate) async fn commit_pit_correction_with_observation_batch(
+        &self,
+        predecessor: &UntrustedPitSnapshotLocator,
+        proposal: UntrustedPitSnapshotProposal,
+        batch: UntrustedPitObservationBatchProposal,
+        canonical_basis: &TestOnlyCanonicalBasisResolver,
+        clock: &MarketDataClockAdmission,
+    ) -> Result<PitSnapshotCommitAggregate, PitSnapshotError> {
+        let prepared = prepare_observation_batch(&proposal, &batch)?;
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+        let prior = load_pit_for_update(&mut transaction, predecessor.snapshot_identity, false)
+            .await?
+            .ok_or(PitSnapshotError::CorrectionHeadMismatch)?;
+        if prior.receipt().locator() != predecessor {
+            return Err(PitSnapshotError::CorrectionHeadMismatch);
+        }
+        let source = load_source_for_update(
+            &mut transaction,
+            proposal.request.source_binding.binding_id,
+            false,
+        )
+        .await
+        .map_err(|_| PitSnapshotError::SourceBindingUnavailable)?
+        .ok_or(PitSnapshotError::SourceBindingUnavailable)?;
+        if source.commit().receipt().locator() != &proposal.request.source_binding {
+            return Err(PitSnapshotError::SourceBindingUnavailable);
+        }
+        let aggregate = prepare_correction_aggregate(
+            prior.fact(),
+            proposal,
+            canonical_basis,
+            source.commit().fact(),
+            clock,
+        )?;
+        verify_observation_batch(
+            &aggregate,
+            aggregate.fact().source_binding_identity(),
+            aggregate.fact().source_binding_lineage_root(),
+            aggregate.fact().source_binding_lineage_version(),
+            prepared.digest(),
+            prepared.bytes(),
+            &prepared.native_rows()?,
+        )?;
+        Box::pin(persist_pit(
+            transaction,
+            aggregate,
+            Some(prepared),
             clock,
             PostgresCommitFault::None,
         ))
@@ -470,10 +613,20 @@ enum PostgresCommitFault {
     None,
     AfterFactBeforeOutbox,
     AfterClockHeadBeforeEpochProof,
+    AfterPitOutboxBeforeBatch,
+    AfterPitBatchBeforeRows,
     ResponseLoss,
 }
 
 impl MarketDataReadPostgres {
+    #[cfg(not(test))]
+    pub(crate) const fn from_admitted(port: AdmittedMarketDataSourceBindingSnapshotPort) -> Self {
+        Self {
+            admitted_port: port,
+        }
+    }
+
+    #[cfg(test)]
     pub(crate) async fn connect(database_url: &str) -> Result<Self, SourceBindingError> {
         let pool = PgPoolOptions::new()
             .max_connections(4)
@@ -481,6 +634,22 @@ impl MarketDataReadPostgres {
             .await
             .map_err(|_| SourceBindingError::StoreUnavailable)?;
         Ok(Self { pool })
+    }
+
+    #[cfg(test)]
+    async fn begin_read_snapshot(
+        &self,
+    ) -> Result<Transaction<'_, Postgres>, SharedTimeEvidenceError> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+        Ok(transaction)
     }
 }
 
@@ -1010,6 +1179,7 @@ async fn shared_time_migration_is_installed(
 async fn persist_pit(
     mut transaction: Transaction<'_, Postgres>,
     aggregate: PitSnapshotCommitAggregate,
+    batch: Option<PreparedPitObservationBatch>,
     clock: &MarketDataClockAdmission,
     fault: PostgresCommitFault,
 ) -> Result<PitSnapshotCommitAggregate, PitSnapshotError> {
@@ -1036,11 +1206,32 @@ async fn persist_pit(
         )
         .await
         .map_err(|_| PitSnapshotError::SourceBindingUnavailable)?;
-        return if stored == aggregate {
-            Ok(stored)
-        } else {
-            Err(PitSnapshotError::ReplayConflict)
-        };
+        if stored != aggregate {
+            return Err(PitSnapshotError::ReplayConflict);
+        }
+
+        if let Some(expected) = batch.as_ref() {
+            let observed = load_pit_observation_batch_for_update(&mut transaction, &stored)
+                .await?
+                .ok_or(PitSnapshotError::ReplayConflict)?;
+
+            if observed.digest != expected.digest()
+                || observed.bytes != expected.bytes()
+                || observed.rows != expected.native_rows()?
+            {
+                return Err(PitSnapshotError::ReplayConflict);
+            }
+            verify_observation_batch(
+                &stored,
+                observed.source_binding_identity,
+                observed.source_binding_lineage_root,
+                observed.source_binding_lineage_version,
+                observed.digest,
+                &observed.bytes,
+                &observed.rows,
+            )?;
+        }
+        return Ok(stored);
     }
     let source_head = source_head_for_update(&mut transaction, fact.source_binding_lineage_root())
         .await
@@ -1065,6 +1256,13 @@ async fn persist_pit(
             _ => PitSnapshotError::TrustedClockMismatch,
         })?;
     insert_pit(&mut transaction, &aggregate, fault).await?;
+    if fault == PostgresCommitFault::AfterPitOutboxBeforeBatch {
+        return Err(PitSnapshotError::CommitInterrupted);
+    }
+
+    if let Some(batch) = batch.as_ref() {
+        insert_pit_observation_batch(&mut transaction, &aggregate, batch, fault).await?;
+    }
     transaction
         .commit()
         .await
@@ -1328,6 +1526,147 @@ async fn insert_pit(
     .execute(&mut **transaction)
     .await
     .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    Ok(())
+}
+
+struct StoredPitObservationBatch {
+    source_binding_identity: BindingDigest,
+    source_binding_lineage_root: BindingDigest,
+    source_binding_lineage_version: u64,
+    digest: BindingDigest,
+    bytes: Vec<u8>,
+    rows: Vec<ObservedPitObservationNativeRow>,
+}
+
+async fn load_pit_observation_batch_for_update(
+    transaction: &mut Transaction<'_, Postgres>,
+    aggregate: &PitSnapshotCommitAggregate,
+) -> Result<Option<StoredPitObservationBatch>, PitSnapshotError> {
+    let fact = aggregate.fact();
+    let Some(header) = sqlx::query(
+        "SELECT source_binding_identity,source_binding_lineage_root,source_binding_lineage_version,batch_digest,batch_bytes,row_count FROM market_data_private.pit_observation_batches_v1 WHERE snapshot_identity=$1 FOR UPDATE",
+    )
+    .bind(fact.snapshot_identity().as_bytes().as_slice())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|_| PitSnapshotError::PersistenceUnavailable)?
+    else {
+        return Ok(None);
+    };
+    let source_binding_identity = row_digest(&header, "source_binding_identity")
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    let source_binding_lineage_root = row_digest(&header, "source_binding_lineage_root")
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    let source_binding_lineage_version: i64 = header
+        .try_get("source_binding_lineage_version")
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    let row_count: i64 = header
+        .try_get("row_count")
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+
+    if source_binding_identity != fact.source_binding_identity()
+        || source_binding_lineage_root != fact.source_binding_lineage_root()
+        || u64::try_from(source_binding_lineage_version).ok()
+            != Some(fact.source_binding_lineage_version())
+        || row_count <= 0
+        || row_count > 10_000
+    {
+        return Err(PitSnapshotError::PersistenceUnavailable);
+    }
+    let digest = row_digest(&header, "batch_digest")
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    let bytes: Vec<u8> = header
+        .try_get("batch_bytes")
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    let native_rows = sqlx::query(
+        "SELECT ordinal,symbolic_key,member_key,row_bytes FROM market_data_private.pit_observation_rows_v1 WHERE snapshot_identity=$1 ORDER BY ordinal FOR UPDATE",
+    )
+    .bind(fact.snapshot_identity().as_bytes().as_slice())
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    let rows = native_rows
+        .into_iter()
+        .map(|row| {
+            Ok(ObservedPitObservationNativeRow {
+                ordinal: u64::try_from(
+                    row.try_get::<i64, _>("ordinal")
+                        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?,
+                )
+                .map_err(|_| PitSnapshotError::PersistenceUnavailable)?,
+                symbolic_key: row
+                    .try_get("symbolic_key")
+                    .map_err(|_| PitSnapshotError::PersistenceUnavailable)?,
+                member_key: row
+                    .try_get("member_key")
+                    .map_err(|_| PitSnapshotError::PersistenceUnavailable)?,
+                row_bytes: row
+                    .try_get("row_bytes")
+                    .map_err(|_| PitSnapshotError::PersistenceUnavailable)?,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    if i64::try_from(rows.len()).ok() != Some(row_count) {
+        return Err(PitSnapshotError::PersistenceUnavailable);
+    }
+    Ok(Some(StoredPitObservationBatch {
+        source_binding_identity,
+        source_binding_lineage_root,
+        source_binding_lineage_version: u64::try_from(source_binding_lineage_version)
+            .map_err(|_| PitSnapshotError::PersistenceUnavailable)?,
+        digest,
+        bytes,
+        rows,
+    }))
+}
+
+async fn insert_pit_observation_batch(
+    transaction: &mut Transaction<'_, Postgres>,
+    aggregate: &PitSnapshotCommitAggregate,
+    batch: &PreparedPitObservationBatch,
+    fault: PostgresCommitFault,
+) -> Result<(), PitSnapshotError> {
+    let fact = aggregate.fact();
+    let row_count =
+        i64::try_from(batch.rows().len()).map_err(|_| PitSnapshotError::InvalidObservationBatch)?;
+    sqlx::query(
+        "INSERT INTO market_data_private.pit_observation_batches_v1(snapshot_identity,source_binding_identity,source_binding_lineage_root,source_binding_lineage_version,batch_digest,batch_bytes,row_count) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+    )
+    .bind(fact.snapshot_identity().as_bytes().as_slice())
+    .bind(fact.source_binding_identity().as_bytes().as_slice())
+    .bind(fact.source_binding_lineage_root().as_bytes().as_slice())
+    .bind(
+        i64::try_from(fact.source_binding_lineage_version())
+            .map_err(|_| PitSnapshotError::PersistenceUnavailable)?,
+    )
+    .bind(batch.digest().as_bytes().as_slice())
+    .bind(batch.bytes())
+    .bind(row_count)
+    .execute(&mut **transaction)
+    .await
+    .map_err(|e| map_pit_insert_error(&e))?;
+    if fault == PostgresCommitFault::AfterPitBatchBeforeRows {
+        return Err(PitSnapshotError::CommitInterrupted);
+    }
+
+    for (offset, (row, row_bytes)) in batch.rows().iter().zip(batch.row_bytes()).enumerate() {
+        let ordinal = i64::try_from(offset)
+            .ok()
+            .and_then(|value| value.checked_add(1))
+            .ok_or(PitSnapshotError::InvalidObservationBatch)?;
+        sqlx::query(
+            "INSERT INTO market_data_private.pit_observation_rows_v1(snapshot_identity,ordinal,symbolic_key,member_key,row_bytes) VALUES ($1,$2,$3,$4,$5)",
+        )
+        .bind(fact.snapshot_identity().as_bytes().as_slice())
+        .bind(ordinal)
+        .bind(row.symbolic_key())
+        .bind(row.member_key())
+        .bind(row_bytes)
+        .execute(&mut **transaction)
+        .await
+        .map_err(|e| map_pit_insert_error(&e))?;
+    }
     Ok(())
 }
 
@@ -2168,20 +2507,6 @@ async fn load_epoch_proof_for_read(
     row.map(|row| decode_epoch_proof(&row)).transpose()
 }
 
-async fn begin_read_snapshot(
-    pool: &PgPool,
-) -> Result<Transaction<'_, Postgres>, SharedTimeEvidenceError> {
-    let mut transaction = pool
-        .begin()
-        .await
-        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-        .execute(&mut *transaction)
-        .await
-        .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
-    Ok(transaction)
-}
-
 #[cfg(test)]
 type ReadSnapshotTestHook = (
     std::sync::Arc<tokio::sync::Barrier>,
@@ -2341,13 +2666,14 @@ async fn validate_read_custody(
     Ok(())
 }
 
+#[cfg(test)]
 #[async_trait::async_trait]
 impl SharedTimeEvidenceResolver for MarketDataReadPostgres {
     async fn resolve_clock_head(
         &self,
         locator: &UntrustedClockHeadLocator,
     ) -> Result<ClockHeadHandoff, SharedTimeEvidenceError> {
-        let mut transaction = begin_read_snapshot(&self.pool).await?;
+        let mut transaction = self.begin_read_snapshot().await?;
         validate_read_custody(&mut transaction).await?;
         let handoff = load_clock_fact_for_read(&mut transaction, locator)
             .await?
@@ -2364,7 +2690,7 @@ impl SharedTimeEvidenceResolver for MarketDataReadPostgres {
         prior: &ClockHeadHandoff,
         successor: &UntrustedClockHeadLocator,
     ) -> Result<ClockHeadSuccessorReadback, SharedTimeEvidenceError> {
-        let mut transaction = begin_read_snapshot(&self.pool).await?;
+        let mut transaction = self.begin_read_snapshot().await?;
         validate_read_custody(&mut transaction).await?;
         #[cfg(test)]
         pause_after_read_custody_for_test().await;
@@ -2404,13 +2730,15 @@ impl SharedTimeEvidenceResolver for MarketDataReadPostgres {
     }
 }
 
+#[cfg(test)]
 #[async_trait::async_trait]
 impl SourceBindingOwnerResolver for MarketDataReadPostgres {
     async fn resolve_source_binding(
         &self,
         locator: &UntrustedSourceBindingLocator,
     ) -> Result<SourceBindingOwnerReadback, SourceBindingError> {
-        let mut transaction = begin_read_snapshot(&self.pool)
+        let mut transaction = self
+            .begin_read_snapshot()
             .await
             .map_err(|_| SourceBindingError::StoreUnavailable)?;
         validate_read_custody(&mut transaction)
@@ -2450,13 +2778,47 @@ impl SourceBindingOwnerResolver for MarketDataReadPostgres {
     }
 }
 
+#[cfg(not(test))]
+#[async_trait::async_trait]
+impl SourceBindingOwnerResolver for MarketDataReadPostgres {
+    async fn resolve_source_binding(
+        &self,
+        locator: &UntrustedSourceBindingLocator,
+    ) -> Result<SourceBindingOwnerReadback, SourceBindingError> {
+        let evidence = self
+            .admitted_port
+            .resolve(*locator.binding_id().as_bytes())
+            .await
+            .map_err(|_| SourceBindingError::StoreUnavailable)?;
+        verify_admitted_source_evidence(locator, &evidence)
+    }
+}
+
+#[cfg(not(test))]
+#[async_trait::async_trait]
+impl PitObservationBatchOwnerResolver for MarketDataReadPostgres {
+    async fn resolve_pit_observation_batch(
+        &self,
+        locator: &UntrustedPitSnapshotLocator,
+    ) -> Result<VerifiedPitObservationBatch, PitSnapshotError> {
+        let evidence = self
+            .admitted_port
+            .resolve_pit_evaluation(*locator.snapshot_identity.as_bytes())
+            .await
+            .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+        verify_admitted_pit_evidence(locator, &evidence)
+    }
+}
+
+#[cfg(test)]
 #[async_trait::async_trait]
 impl PitSnapshotOwnerResolver for MarketDataReadPostgres {
     async fn resolve_pit_snapshot(
         &self,
         locator: &UntrustedPitSnapshotLocator,
     ) -> Result<PitSnapshotOwnerReadback, PitSnapshotError> {
-        let mut transaction = begin_read_snapshot(&self.pool)
+        let mut transaction = self
+            .begin_read_snapshot()
             .await
             .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
         validate_read_custody(&mut transaction)
@@ -2506,6 +2868,397 @@ impl PitSnapshotOwnerResolver for MarketDataReadPostgres {
 struct StoredEnvelope {
     aggregate: Value,
     native: NativeIndex,
+}
+
+#[cfg(not(test))]
+fn verify_admitted_source_evidence(
+    locator: &UntrustedSourceBindingLocator,
+    evidence: &MarketDataSourceBindingStorageEvidence,
+) -> Result<SourceBindingOwnerReadback, SourceBindingError> {
+    if !evidence.admission_receipt_identity().starts_with("sha256:") {
+        return Err(SourceBindingError::StoreUnavailable);
+    }
+    verify_admitted_source_rows(
+        locator,
+        evidence.lineage_rows(),
+        evidence.clock_rows(),
+        true,
+    )
+}
+
+#[cfg(not(test))]
+fn verify_admitted_source_rows(
+    locator: &UntrustedSourceBindingLocator,
+    lineage_rows: &[Vec<u8>],
+    clock_rows: &[Vec<u8>],
+    require_current_head: bool,
+) -> Result<SourceBindingOwnerReadback, SourceBindingError> {
+    let mut prior = None;
+    let mut selected = None;
+    let mut terminal_aggregate = None;
+
+    for (offset, raw) in lineage_rows.iter().enumerate() {
+        let envelope = decode_raw_source_envelope(raw)?;
+        let aggregate: SourceBindingStoredAggregate = serde_json::from_value(envelope.aggregate)
+            .map_err(|_| SourceBindingError::StoreUnavailable)?;
+        let fact = aggregate.commit().fact();
+        let expected_version = u64::try_from(offset)
+            .ok()
+            .and_then(|value| value.checked_add(1))
+            .ok_or(SourceBindingError::StoreUnavailable)?;
+
+        if !verify_source_native(&aggregate, &envelope.native, false)
+            || fact.lineage_version() != expected_version
+        {
+            return Err(SourceBindingError::StoreUnavailable);
+        }
+
+        match prior {
+            None if fact.binding_id() == fact.lineage_root()
+                && fact.predecessor_binding_id().is_none()
+                && fact.predecessor_fact_digest().is_none() => {}
+            Some((identity, digest))
+                if fact.predecessor_binding_id() == Some(identity)
+                    && fact.predecessor_fact_digest() == Some(digest) => {}
+            _ => return Err(SourceBindingError::StoreUnavailable),
+        }
+
+        if aggregate.commit().receipt().locator() == locator {
+            selected = Some(aggregate.clone());
+        }
+        prior = Some((fact.binding_id(), fact.digest()));
+        terminal_aggregate = Some(aggregate);
+    }
+    let aggregate = selected.ok_or(SourceBindingError::LocatorMismatch)?;
+    let terminal = lineage_rows
+        .last()
+        .ok_or(SourceBindingError::StoreUnavailable)?;
+    let terminal = decode_raw_source_envelope(terminal)?;
+    let terminal_aggregate = terminal_aggregate.ok_or(SourceBindingError::StoreUnavailable)?;
+
+    if !terminal
+        .native
+        .head
+        .matches_source(terminal_aggregate.commit().fact())
+        || (require_current_head
+            && aggregate.commit().fact().binding_id()
+                != terminal_aggregate.commit().fact().binding_id())
+        || aggregate.commit().receipt().locator() != locator
+    {
+        return Err(SourceBindingError::LocatorMismatch);
+    }
+    let expected_clock = clock_for_source_time(aggregate.commit().fact().time_evidence());
+    let historical_clock = clock_rows
+        .iter()
+        .find_map(|raw| {
+            decode_raw_clock(raw)
+                .ok()
+                .filter(|clock| clock == &expected_clock)
+        })
+        .ok_or(SourceBindingError::TrustedClockMismatch)?;
+    validate_clock_for_readback(aggregate.commit().fact().time_evidence(), &historical_clock)?;
+    Ok(SourceBindingOwnerReadback::from_verified(&aggregate))
+}
+
+#[cfg(not(test))]
+fn verify_admitted_pit_evidence(
+    locator: &UntrustedPitSnapshotLocator,
+    evidence: &MarketDataPitEvaluationStorageEvidence,
+) -> Result<VerifiedPitObservationBatch, PitSnapshotError> {
+    if !evidence.admission_receipt_identity().starts_with("sha256:") {
+        return Err(PitSnapshotError::PersistenceUnavailable);
+    }
+    let mut prior = None;
+    let mut selected = None;
+    let mut terminal = None;
+
+    for (offset, raw) in evidence.pit_lineage_rows().iter().enumerate() {
+        let envelope = decode_raw_pit_envelope(raw)?;
+        let aggregate: PitSnapshotCommitAggregate = serde_json::from_value(envelope.aggregate)
+            .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+        let fact = aggregate.fact();
+        let expected_version = u64::try_from(offset)
+            .ok()
+            .and_then(|value| value.checked_add(1))
+            .ok_or(PitSnapshotError::PersistenceUnavailable)?;
+
+        if !verify_pit_native(&aggregate, &envelope.native, false)
+            || fact.lineage_version() != expected_version
+        {
+            return Err(PitSnapshotError::PersistenceUnavailable);
+        }
+
+        match prior {
+            None if fact.snapshot_identity() == fact.lineage_root()
+                && fact.predecessor_snapshot_identity().is_none()
+                && fact.predecessor_fact_digest().is_none() => {}
+            Some((identity, digest))
+                if fact.predecessor_snapshot_identity() == Some(identity)
+                    && fact.predecessor_fact_digest() == Some(digest) => {}
+            _ => return Err(PitSnapshotError::PersistenceUnavailable),
+        }
+
+        if aggregate.receipt().locator() == locator {
+            selected = Some(aggregate.clone());
+        }
+        prior = Some((fact.snapshot_identity(), fact.digest()));
+        terminal = Some((aggregate, envelope.native.head));
+    }
+    let (terminal, head) = terminal.ok_or(PitSnapshotError::PersistenceUnavailable)?;
+    if head.lineage_root != terminal.fact().lineage_root()
+        || head.identity != terminal.fact().snapshot_identity()
+        || head.fact_digest != terminal.fact().digest()
+        || head.lineage_version != terminal.fact().lineage_version()
+    {
+        return Err(PitSnapshotError::PersistenceUnavailable);
+    }
+    let aggregate = selected.ok_or(PitSnapshotError::LocatorMismatch)?;
+    verify_admitted_source_rows(
+        &aggregate.fact().request().source_binding,
+        evidence.source_lineage_rows(),
+        evidence.clock_rows(),
+        false,
+    )
+    .map_err(|_| PitSnapshotError::SourceBindingUnavailable)?;
+    let expected_clock = clock_for_pit_time(&aggregate.fact().request().time_evidence);
+    let historical_clock = evidence
+        .clock_rows()
+        .iter()
+        .find_map(|raw| {
+            decode_raw_clock(raw)
+                .ok()
+                .filter(|clock| clock == &expected_clock)
+        })
+        .ok_or(PitSnapshotError::TrustedClockMismatch)?;
+    super::pit_snapshot::authority::validate_read_clock(
+        &aggregate.fact().request().time_evidence,
+        &historical_clock,
+    )?;
+    verify_observation_batch(
+        &aggregate,
+        BindingDigest::from_untrusted_bytes(*evidence.batch_source_binding_identity()),
+        BindingDigest::from_untrusted_bytes(*evidence.batch_source_binding_lineage_root()),
+        evidence.batch_source_binding_lineage_version(),
+        BindingDigest::from_untrusted_bytes(*evidence.batch_digest()),
+        evidence.batch_bytes(),
+        &evidence
+            .batch_rows()
+            .iter()
+            .map(|row| ObservedPitObservationNativeRow {
+                ordinal: row.ordinal(),
+                symbolic_key: row.symbolic_key().to_string(),
+                member_key: row.member_key().to_string(),
+                row_bytes: row.row_bytes().to_vec(),
+            })
+            .collect::<Vec<_>>(),
+    )
+}
+
+#[cfg(not(test))]
+fn decode_raw_source_envelope(raw: &[u8]) -> Result<StoredEnvelope, SourceBindingError> {
+    let value: Value =
+        serde_json::from_slice(raw).map_err(|_| SourceBindingError::StoreUnavailable)?;
+    let object = value
+        .as_object()
+        .ok_or(SourceBindingError::StoreUnavailable)?;
+    let digest = |name| {
+        raw_digest(
+            object
+                .get(name)
+                .ok_or(SourceBindingError::StoreUnavailable)?,
+        )
+    };
+    let positive = |name| {
+        raw_positive(
+            object
+                .get(name)
+                .ok_or(SourceBindingError::StoreUnavailable)?,
+        )
+    };
+    Ok(StoredEnvelope {
+        aggregate: object
+            .get("aggregate_json")
+            .cloned()
+            .ok_or(SourceBindingError::StoreUnavailable)?,
+        native: NativeIndex {
+            row_identity: digest("row_identity")?,
+            fact_digest: digest("fact_digest")?,
+            request_identity: None,
+            request_digest: None,
+            correction_stream_identity: None,
+            correction_sequence: None,
+            fact_lineage_root: digest("fact_lineage_root")?,
+            fact_lineage_version: positive("fact_lineage_version")?,
+            outbox_event_identity: digest("outbox_event_identity")?,
+            outbox_aggregate_identity: digest("outbox_aggregate_identity")?,
+            outbox_payload: raw_bytes(
+                object
+                    .get("outbox_payload")
+                    .ok_or(SourceBindingError::StoreUnavailable)?,
+            )?,
+            outbox_digest: digest("outbox_digest")?,
+            head: NativeHead {
+                lineage_root: digest("head_lineage_root")?,
+                identity: digest("head_identity")?,
+                fact_digest: digest("head_digest")?,
+                lineage_version: positive("head_version")?,
+            },
+        },
+    })
+}
+
+#[cfg(not(test))]
+fn decode_raw_pit_envelope(raw: &[u8]) -> Result<StoredEnvelope, PitSnapshotError> {
+    let value: Value =
+        serde_json::from_slice(raw).map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    let object = value
+        .as_object()
+        .ok_or(PitSnapshotError::PersistenceUnavailable)?;
+    let required = |name| {
+        object
+            .get(name)
+            .ok_or(PitSnapshotError::PersistenceUnavailable)
+    };
+    let digest =
+        |name| raw_digest(required(name)?).map_err(|_| PitSnapshotError::PersistenceUnavailable);
+    let positive =
+        |name| raw_positive(required(name)?).map_err(|_| PitSnapshotError::PersistenceUnavailable);
+    Ok(StoredEnvelope {
+        aggregate: required("aggregate_json")?.clone(),
+        native: NativeIndex {
+            row_identity: digest("row_identity")?,
+            fact_digest: digest("fact_digest")?,
+            request_identity: Some(digest("request_identity")?),
+            request_digest: Some(digest("request_digest")?),
+            correction_stream_identity: Some(
+                required("correction_stream_identity")?
+                    .as_str()
+                    .map(str::to_owned)
+                    .ok_or(PitSnapshotError::PersistenceUnavailable)?,
+            ),
+            correction_sequence: Some(positive("correction_sequence")?),
+            fact_lineage_root: digest("fact_lineage_root")?,
+            fact_lineage_version: positive("fact_lineage_version")?,
+            outbox_event_identity: digest("outbox_event_identity")?,
+            outbox_aggregate_identity: digest("outbox_aggregate_identity")?,
+            outbox_payload: raw_bytes(required("outbox_payload")?)
+                .map_err(|_| PitSnapshotError::PersistenceUnavailable)?,
+            outbox_digest: digest("outbox_digest")?,
+            head: NativeHead {
+                lineage_root: digest("head_lineage_root")?,
+                identity: digest("head_identity")?,
+                fact_digest: digest("head_digest")?,
+                lineage_version: positive("head_version")?,
+            },
+        },
+    })
+}
+
+#[cfg(not(test))]
+fn decode_raw_clock(raw: &[u8]) -> Result<MarketDataClockAdmission, SourceBindingError> {
+    let value: Value =
+        serde_json::from_slice(raw).map_err(|_| SourceBindingError::StoreUnavailable)?;
+    let object = value
+        .as_object()
+        .ok_or(SourceBindingError::StoreUnavailable)?;
+    let string = |name| {
+        object
+            .get(name)
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or(SourceBindingError::StoreUnavailable)
+    };
+    let positive = |name| {
+        raw_positive(
+            object
+                .get(name)
+                .ok_or(SourceBindingError::StoreUnavailable)?,
+        )
+    };
+
+    if object.get("comparison_rule").and_then(Value::as_i64) != Some(1) {
+        return Err(SourceBindingError::StoreUnavailable);
+    }
+    let clock = MarketDataClockAdmission {
+        cut_kind: super::source_binding::MarketDataClockCutKind::MarketDataAsOf,
+        clock_identity: string("clock_identity")?,
+        clock_epoch: string("clock_epoch")?,
+        monotonic_sequence: positive("monotonic_sequence")?,
+        wall_observed: positive("wall_observed")?,
+        decision_cut: positive("decision_cut")?,
+        valid_through: positive("valid_through")?,
+        restart_continuity_digest: raw_digest(
+            object
+                .get("restart_continuity_digest")
+                .ok_or(SourceBindingError::StoreUnavailable)?,
+        )?,
+        uncertainty_bound: object
+            .get("uncertainty_bound")
+            .and_then(Value::as_u64)
+            .ok_or(SourceBindingError::StoreUnavailable)?,
+        skew_bound: positive("skew_bound")?,
+        comparison_rule: MarketDataClockComparisonRule::ExclusiveValidThrough,
+    };
+    let predecessor = object
+        .get("predecessor_head_digest")
+        .filter(|value| !value.is_null())
+        .map(raw_digest)
+        .transpose()?;
+    let fact = build_head_fact(&clock, predecessor)
+        .map_err(|_| SourceBindingError::TrustedClockMismatch)?;
+
+    if fact.handoff.head_identity()
+        != raw_digest(
+            object
+                .get("head_identity")
+                .ok_or(SourceBindingError::StoreUnavailable)?,
+        )?
+        || fact.handoff.head_digest()
+            != raw_digest(
+                object
+                    .get("head_digest")
+                    .ok_or(SourceBindingError::StoreUnavailable)?,
+            )?
+        || !verify_head_fact(&fact)
+    {
+        return Err(SourceBindingError::TrustedClockMismatch);
+    }
+    Ok(clock)
+}
+
+#[cfg(not(test))]
+fn raw_positive(value: &Value) -> Result<u64, SourceBindingError> {
+    value
+        .as_u64()
+        .filter(|value| *value != 0)
+        .ok_or(SourceBindingError::StoreUnavailable)
+}
+
+#[cfg(not(test))]
+fn raw_digest(value: &Value) -> Result<BindingDigest, SourceBindingError> {
+    let bytes = raw_bytes(value)?;
+    let bytes: [u8; 32] = bytes
+        .try_into()
+        .map_err(|_| SourceBindingError::StoreUnavailable)?;
+    Ok(BindingDigest::from_untrusted_bytes(bytes))
+}
+
+#[cfg(not(test))]
+fn raw_bytes(value: &Value) -> Result<Vec<u8>, SourceBindingError> {
+    let encoded = value
+        .as_str()
+        .and_then(|value| value.strip_prefix("\\x"))
+        .ok_or(SourceBindingError::StoreUnavailable)?;
+    if encoded.len() % 2 != 0 {
+        return Err(SourceBindingError::StoreUnavailable);
+    }
+    (0..encoded.len())
+        .step_by(2)
+        .map(|offset| {
+            u8::from_str_radix(&encoded[offset..offset + 2], 16)
+                .map_err(|_| SourceBindingError::StoreUnavailable)
+        })
+        .collect()
 }
 
 async fn validate_source_read_custody(

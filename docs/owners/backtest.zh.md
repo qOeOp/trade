@@ -8,6 +8,8 @@
 
 - 重放身份 确定性时钟 冻结输入 运行与模拟版本和配置摘要。
 - 重放产生的规范订单 成交 持仓 成本和结果。
+- **TARGET：** 完整有序 shared-kernel semantic trace，把 normalized lifecycle event、checkpoint、primitive
+  与 plugin result、target/protection transition 和 fill reconciliation 绑定到规范 replay。
 - 探索运行与 Qualification 请求的保护运行之间的完整隔离。
 - Exploratory Run Result 逐项重复实际消费的 Strategy Artifact 请求 PIT 范围 PIT Market Snapshot
   Universe Selection Record 与修订规则 重放配置 Runtime 内核 模拟器 成本 滑点和容量模型身份，
@@ -37,6 +39,28 @@
 - **Native Replay** - 使用确定性时间重放历史事件，并在适用处复用原生 Runtime Risk 和订单语义。
 - **Sim Exchange** - 模拟场所接纳 延迟 成交 手续费和账户效果，不产生外部写入。
 - **Run Result** - 把实际消费的数据 工件 配置 订单 成交 成本和终态结果绑定为规范回执。
+
+## 共享策略生命周期契约
+
+Backtest 只消费 [StrategyDesignV2 共享内核路径](../architecture/strategy-factory#strategy-design-v2-shared-lifecycle-kernel)：
+准确 `StrategyPlanV2`、其内容寻址 Wasm Artifact、已解析 Owner input binding、`ProgramHost` 以及版本化
+lifecycle/checkpoint/kernel 身份。Native Replay 提供确定性 `START` `BAR` `EVENT` `FILL` `TIMER` `STOP`
+envelope stream；共享内核拥有 position action、portfolio target、protection adjustment 和 fill reconciliation。
+Sim Exchange 提供事实性的模拟 acceptance、fill、rejection 与 account effect。Design、plugin 或 Backtest
+adapter 均不能提交 raw order 或实现平行 action state machine。
+
+Backtest 拥有结果 ordered semantic trace 与规范 replay fact，但不拥有其 research 或 deployment 含义。
+trace 绑定每个 normalized event order key、前后 checkpoint digest、plugin invocation 与有界 result、kernel
+primitive semantic ID、target/protection transition、模拟 order/fill reconciliation、position、cost 和终态
+result。首个已接纳纵向切片是确定性 stateful-trend corpus；cross-sectional rebalance 与 multi-leg/
+multi-timeframe regime 是必需验收 corpus，不授权编造缺失 binding 或实现第三个 runtime。
+
+正向 Run Result 的实际消费记录只能由 Backtest 在内部根据 Native Replay、`ProgramHost`、共享内核与
+Sim Exchange 实际接纳的准确输入生成。caller 或 R&D request 可以提出 requested meaning，但不能提供、
+反序列化构造或证明 consumed side。engine-produced record 必须绑定 Design、Plan、Artifact、已解析 Owner
+input receipt 与 cut、replay configuration、runtime/kernel/simulator identity、cost/slippage/capacity model、
+seed、range、calendar/time-zone 含义和 semantic-trace digest。消费证据缺失或不匹配时不得生成正向
+receipt；两个 caller-authored DTO 相等绝不构成 request-result correlation。
 
 ## 输入交接
 

@@ -9638,6 +9638,7 @@ dependencies = [
  "rust_decimal",
  "serde",
  "serde_json",
+ "strategy-factory-program-sdk",
  "tempfile",
  "ustr",
  "vibe-analysis",
@@ -10079,6 +10080,7 @@ dependencies = [
  "ustr",
  "vibe-common",
  "vibe-core",
+ "vibe-deployment-store-admission",
  "vibe-model",
  "vibe-persistence",
  "vibe-serialization",
@@ -10957,6 +10959,7 @@ dependencies = [
  "vibe-operator-authorization",
  "vibe-product-edge-claim-custody",
  "vibe-rd-artifact-invocation-custody",
+ "vibe-rd-source-intake-invocation-custody",
  "vibe-testkit",
 ]
 
@@ -11048,6 +11051,19 @@ dependencies = [
 
 [[package]]
 name = "vibe-rd-artifact-invocation-custody"
+version = "0.62.0"
+dependencies = [
+ "rstest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "thiserror 2.0.19",
+ "vibe-product-edge-claim-custody",
+]
+
+[[package]]
+name = "vibe-rd-source-intake-invocation-custody"
 version = "0.62.0"
 dependencies = [
  "rstest",
@@ -11178,6 +11194,7 @@ dependencies = [
  "base64 0.23.1",
  "blake3",
  "jiff",
+ "reqwest 0.13.4",
  "rstest",
  "rust_decimal",
  "serde",
@@ -11205,6 +11222,7 @@ dependencies = [
  "vibe-product-edge",
  "vibe-qualification",
  "vibe-rd-artifact-invocation-custody",
+ "vibe-rd-source-intake-invocation-custody",
  "vibe-scheduled-events",
  "vibe-testkit",
  "vibe-trading",
@@ -11227,6 +11245,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "vibe-data",
  "vibe-deployment-store-admission",
  "vibe-operator-authorization",
  "vibe-product-edge",

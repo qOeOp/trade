@@ -74,6 +74,130 @@ Product Edge 只有在规范 authorization、deployment binding、manifest 与 a
 
 Provider invocation claim 本身是持久且一次性的 custody。若 claim 已提交但响应丢失，同 attempt 解析必须返回准确 `CLAIMED` claim 与唯一动作 `RUN_BOUNDED_EXECUTION_AGENT`。App 与脚本随后只能启动这一个既有 claim 一次；不得创建 successor claim 或第二次调用 provider。进入 `INVOCATION_STARTED` 后，除非已有权威终态 Owner receipt，否则唯一安全投影是人工 provider 对账。
 
+### Sealed Source Intake 验收拓扑
+
+Source Intake 只有一个明确分离、编译期选择的 `SEALED_ACCEPTANCE` composition。它不属于生产工件，
+默认禁用，且普通 Product Edge request、通用生产环境变量、runtime provider 名称、URL、header、
+credential 或 DSN 都不能选择它。生产工件不包含 acceptance adapter；其唯一 acquisition 类别是
+`LIVE_EXTERNAL`，并在全部真实政策、时间、DNS、权利、credential、egress 和 provider 权威已配置且
+current 之前保持失败关闭。
+
+验收 composition 只在 provider 边界换入 sealed adapter，输入限于固定 DOI corpus、固定 response bytes
+和确定性拒绝案例。它使用非公开 provider 身份，没有外部网络能力，也不与生产或其他验收 run 共享
+database、volume、workspace 或可变状态。它仍经过生产 Product Edge admission gateway、同一个 Source
+Intake Owner orchestrator、持久 claim/start、move-only permit、R&D PostgreSQL 原子终态 transaction、
+终态 receipt、readback，以及默认 Windmill `RUN` 与 `RESOLVE` 传输。API 只执行认证、DTO 校验与
+projection；Windmill 只调度或传输调用，二者都不拥有或重建该生命周期。
+
+每次验收部署都从准确 script content 及其 lock 与 content hash 创建 fresh unique Windmill
+project/workspace、ingress port、database 和 volume。环境身份、provider-profile digest、fixture-corpus
+digest、sealed policy 与 Time Evidence、binding evidence 和 retrieval evidence 必须交叉绑定进 admission、
+acquisition binding、终态 receipt 和 readback。runner 必须：
+
+1. 部署该准确身份，并依次调用已部署的 `RUN`、相同 `RUN` 和同请求 `RESOLVE`；
+2. 验证一个完整 `RETRIEVED` receipt 及其 content-addressed locator、content digest、acquisition
+   provenance、Source Candidate 与 outbox record；
+3. 验证 sealed policy rejection 产生零 provider invocation 和零 positive record；
+4. 在 provider execution 与原子终态 commit 之后注入第一次 `RUN` 的 response loss，解析同一 attempt，
+   并证明 provider invocation count 准确为一；以及
+5. 删除该唯一 project/workspace、port allocation、database 与 volume，再 read back 证明全部隔离工件
+   均不存在，且没有 shared target 发生变化。
+
+该 runner 通过只构成 `SEALED_ACCEPTANCE` 证据，绝不证明 Workbench 为 `CURRENT`，也不证明生产政策、
+时间、DNS、权利、credential、egress、PostgreSQL、Windmill 或 live provider 已就绪。
+
+### Source Intake-to-Composer D0 合同
+
+本节冻结下一实现 DAG 的顶层合同，不会让任何目标能力成为当前能力。成熟度边界必须准确区分：
+
+- **CURRENT/PARTIAL：** crate-local Source Intake 合同/回归证据与 Develop Composer V2，后者包含本地
+  确定性 bounded-plugin build producer 与 `ProgramHostV2` consumer 证明。它们是相互分离的本地证明；
+  当前没有证据建立隔离 PostgreSQL/Windmill Source Intake runner 或组合后的
+  Source Intake-to-Research-to-Composer 路径。
+- **TARGET A1 - 持久 Composer Owner operation：** 一个公开 Composer `RUN`/`RESOLVE` 合同、进程内消费
+  A0 build，以及下文规定的私有规范 A0 Build Receipt bytes 原子 R&D PostgreSQL custody 与重启回读。
+- **TARGET A2 - 类型化 ancestry 与隔离 transport：** 一个由 R&D 拥有的 Source Intake-to-Research
+  operation，随后通过下文隔离 Windmill 拓扑调用 A1 Composer operation。
+- **SEALED_ACCEPTANCE：** 只有完成所有动态 gate 的 A2 runner 才能宣称组合验收拓扑。该证据仍仅用于
+  验收，不能建立 `PRODUCT_CURRENT` 或生产 readiness。
+
+公开 Composer `RUN` 只接收不受信的 request identity、Research custody reference、Design proposal、
+binding request 和有界 plugin-source capsule。这些值只能是 proposal 与 locator，绝不是 verified fact。
+operation 必须在同一进程调用已接纳的 A0 确定性 build 边界，在进程内保留其不透明 verified build，并以
+move 消费该 token。该正向类型既不可 `Clone`，也不可序列化或反序列化。私有规范 A0 Build Receipt bytes
+是另一项持久事实，不是 token representation。不存在公开 verified-build locator、verified-build read port、
+数据库或 API token representation；provider、caller、Windmill flow 或重启路径都不得从 bytes、digest、
+receipt 或 label 重建 verified token。
+
+A0 完成后且正向提交前，A1 锁定并重读最终已接纳 Research custody 与每份准确 fact-Owner binding。一个
+R&D transaction 原子存储规范 `StrategyDesignV2`、`StrategyPlanV2`、`StrategyArtifactV2` package 与私有
+module bytes、私有规范 A0 Build Receipt bytes，以及 Composer receipt、host-admission receipt、operation
+receipt 和 R&D outbox。JSON 仅为 projection，不能作为规范回读或 hash 来源。重启和 `RESOLVE` 重读并解析
+规范 Build Receipt，校验其 capsule、toolchain、linker、configuration 与确定性 two-build provenance，
+把该 receipt 与 Artifact 和 Composer receipts 绑定，再重新计算并比较每个 content 与 binding digest，
+然后把 Artifact 重新接纳到 `ProgramHostV2`。该校验绝不重建 move-only verified token。raw Wasm 与规范
+Build Receipt bytes 保持私有；公开正向 Artifact projection 只包含 immutable Artifact locator 与 public
+digest。operation envelope 单独携带 terminal disposition 与 receipt identity。
+
+持久 operation 只序列化一个 semantic attempt。并发的准确相同 request 与 meaning 加入同一份字节一致
+终态 receipt。request、Research/Intent、build-attempt 或 artifact identity 中任一 identity 被用于不同
+meaning 或规范 byte 时都返回 `CONFLICT` 且零写入。只有一个 transaction 提交全部规范 bytes、receipts 与
+outbox 后才可见正向终态；任何 rejection、unsupported/refinement、evidence unavailable、A0 failure、
+reread drift、host rejection、serialization/storage failure 或 rollback 都留下零 partial positive row，且
+不授予 successor authority。`REJECTED_NO_WRITE`、`UNSUPPORTED` 与 `NEEDS_RESEARCH_REFINEMENT` 只能返回
+证明该缺失状态的权威 negative operation receipt；必需 evidence 缺失、过期或不可用时返回
+`UNAVAILABLE`，只允许 same-attempt resolution，且不授予 successor authority。提交后 response 丢失保持
+`SUBMITTED_OR_UNKNOWN`；同 request `RESOLVE` 直接返回已提交 receipt，不重新 build、不重新调用
+provider，也不创建 successor attempt。无法证明 commit 的 storage uncertainty 保持 unresolved，绝不能
+伪造 rejection 或 success。
+
+来源 ancestry 是另一个由 R&D 拥有的类型化 operation。它锁定并重读准确 Source Intake `RETRIEVED`
+terminal receipt、acquisition provenance record、Source Candidate 和匹配的 transition outbox，校验它们共享
+request/attempt/content/retrieval/policy/rights lineage，并且只返回 sealed ancestry evidence。Source content
+保持不受信，绝不授予 accepted Research custody。后续类型化 Research `RUN` 把不受信 Research proposal
+与单独验证的 ancestry evidence 交给规范 R&D Research admission。R&D 仍是唯一 Intent owner：只有该
+admission 可以解析 Independence Basis、当前 Qualification frontier 与本地 semantic-predecessor lineage，
+再冻结 Intent、falsifier、永久 TrialFamily authority、receipts 和 Composer 消费的 current Research
+custody。仅凭 Source attempt 绝不能派生 `CurrentResearchDevelopCustodyV2`。复制 caller 字段、只接收
+provenance locator 而不执行 Owner 重读，或仅把 Source Intake 与 Composer 部署在一起，都不构成
+composition。任一 ancestry member 缺失、不匹配、过期、不是 `RETRIEVED` 或不可用，或规范 Research
+admission 失败时，都不得创建 accepted Research custody，并使该 ancestry 的 Composer 保持不可用。
+
+A2 只把 Windmill 用作以下固定顺序的 transport：
+
+`Source Intake RUN/RESOLVE -> typed Research RUN/RESOLVE -> Composer RUN/RESOLVE`。
+
+每个已部署 script 只解析类型化 request 或 receipt 并调用下一个 Owner operation；它不拥有 lifecycle、
+verified build、规范 bytes 或业务结果。验收 binary 在编译期选择 sealed adapter，使用固定 Source Intake
+corpus 与固定 A0 source/build corpus，并且不暴露 runtime provider selector、provider URL、credential、
+fixture path、DSN、header 或 environment switch。每次 run 都获得唯一内部 PostgreSQL instance/schema、
+Windmill project/workspace、network、ingress allocation 与 volumes，不能与生产或另一 run 共享 route 或
+mutable state。
+
+组合 runner 必须针对已部署 operation 与规范 Owner 回读证明以下全部事项：
+
+1. 并发相同 meaning 的 `RUN` 加入一份字节一致 receipt；并发相同 identity 但 changed meaning 的请求发生
+   conflict，且没有 changed-meaning 或 partial row；
+2. 在每个 A1 write boundary 注入失败，都留下零 partial Design、Plan、Artifact/module、receipt、
+   host-admission、operation 或 outbox row；
+3. 原子 commit 后丢失 response，仍能解析到准确终态，且只执行一次 A0、不创建 successor attempt；
+4. process 与 database 重启后调用 `RESOLVE`，重读并解析私有规范 A0 Build Receipt，校验其
+   capsule/toolchain/linker/configuration/two-build provenance 与 Artifact/Composer receipt binding，再完成
+   其余规范 byte parse/hash 校验并成功重新接纳到 `ProgramHostV2` 后，返回字节一致的公开 evidence；
+5. 对每个 Source Intake ancestry member、Research proposal/Design/binding/source-capsule input、A0
+   identity、已存储规范 object、module byte、receipt 或 outbox binding 做单字段 mutation，都必须失败关闭
+   且不创建正向 successor；另对私有规范 A0 Build Receipt 做一次单字段 mutation，也必须得到相同结果；
+6. 已部署 Windmill golden path 达到 `RETRIEVED`、规范 Research admission 及其类型化 accepted Research
+   custody 与持久 Composer terminal；准确 replay 使用三个 same-request `RESOLVE` path 并加入相同
+   receipts；以及
+7. cleanup 删除唯一 Windmill project/workspace、PostgreSQL state、network、ingress allocation 与所有
+   volume，然后证明 byte-for-byte 或枚举 baseline equality、零隔离 residue 与零 shared-target change。
+
+在这些 gate 全部通过前，持久 Composer custody、公开 API composition、类型化 Source
+Intake-to-Research handoff 与 Windmill A2 topology 都保持 `TARGET`。生产 Market Data binding resolver、
+live OpenAlex policy/rights/DNS/credentials/egress、`PRODUCT_CURRENT`、Dashboard implementation、Paper、
+Live、deployment 与任何 trading effect 都保持不可用，也不在本验收权威内。
+
 外部对话 client 与 Windmill 内部 AI 是两个 credential plane。client 可以先使用自己的 model provider
 key 再调用 MCP；内部 AI Agent step 使用单独 scoped Windmill AI resource。两种 model credential 都不能
 认证 Trade；复用同一 provider account 是 operator 选择，不是架构依赖。

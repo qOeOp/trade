@@ -3,8 +3,15 @@ use std::path::{Component, Path};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
+use vibe_data::owner::source_binding::BindingDigest;
 
-use crate::program_runtime::{ProgramRuntimeBudget, validate_candidate_for_artifact};
+use crate::{
+    program_runtime::{
+        ProgramRuntimeBudget, validate_candidate_for_artifact, validate_plugin_candidate_v2,
+    },
+    strategy_design_v2::PluginManifestV2,
+    strategy_plan_v2::plugin_manifest_digest,
+};
 
 const PROFILE_SCHEMA_VERSION: u32 = 1;
 const SDK_ABI_VERSION: u32 = 3;
@@ -58,6 +65,26 @@ pub(crate) struct VerifiedCargoBuild {
     pub(crate) build_recipe: Box<[u8]>,
     pub(crate) profile: ProgramProfileV1,
     pub(crate) build_recipe_locator: &'static str,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct PluginCargoBuildEvidenceV2<'a> {
+    pub(crate) wasm_one: &'a [u8],
+    pub(crate) wasm_two: &'a [u8],
+    pub(crate) implementation_capsule_digest: BindingDigest,
+    pub(crate) source_entry_digest: BindingDigest,
+    pub(crate) verified_build_receipt_digest: BindingDigest,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct VerifiedPluginCargoBuildV2 {
+    plugin_semantic_id: String,
+    manifest_digest: BindingDigest,
+    wasm: Box<[u8]>,
+    module_digest: BindingDigest,
+    implementation_capsule_digest: BindingDigest,
+    source_entry_digest: BindingDigest,
+    verified_build_receipt_digest: BindingDigest,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -176,6 +203,85 @@ impl VerifiedCargoBuild {
             },
             build_recipe_locator: SANDBOX_BUILD_RECIPE_LOCATOR,
         })
+    }
+}
+
+impl VerifiedPluginCargoBuildV2 {
+    pub(crate) fn verify(
+        manifest: &PluginManifestV2,
+        evidence: PluginCargoBuildEvidenceV2<'_>,
+    ) -> Result<Self, CargoArtifactError> {
+        if evidence.wasm_one != evidence.wasm_two {
+            return Err(CargoArtifactError::NonReproducible);
+        }
+        let zero = BindingDigest::from_untrusted_bytes([0; 32]);
+
+        if [
+            evidence.implementation_capsule_digest,
+            evidence.source_entry_digest,
+            evidence.verified_build_receipt_digest,
+        ]
+        .contains(&zero)
+        {
+            return Err(CargoArtifactError::Recipe(
+                "plugin build provenance digest is zero".to_owned(),
+            ));
+        }
+        validate_plugin_candidate_v2(evidence.wasm_one, manifest)
+            .map_err(|e| CargoArtifactError::RuntimeProfile(e.to_string()))?;
+        Ok(Self {
+            plugin_semantic_id: manifest.semantic_id.clone(),
+            manifest_digest: plugin_manifest_digest(manifest),
+            wasm: evidence.wasm_one.into(),
+            module_digest: BindingDigest::from_untrusted_bytes(
+                Sha256::digest(evidence.wasm_one).into(),
+            ),
+            implementation_capsule_digest: evidence.implementation_capsule_digest,
+            source_entry_digest: evidence.source_entry_digest,
+            verified_build_receipt_digest: evidence.verified_build_receipt_digest,
+        })
+    }
+
+    pub(crate) fn plugin_semantic_id(&self) -> &str {
+        &self.plugin_semantic_id
+    }
+
+    pub(crate) const fn manifest_digest(&self) -> BindingDigest {
+        self.manifest_digest
+    }
+
+    pub(crate) fn wasm(&self) -> &[u8] {
+        &self.wasm
+    }
+
+    pub(crate) const fn module_digest(&self) -> BindingDigest {
+        self.module_digest
+    }
+
+    pub(crate) const fn implementation_capsule_digest(&self) -> BindingDigest {
+        self.implementation_capsule_digest
+    }
+
+    pub(crate) const fn source_entry_digest(&self) -> BindingDigest {
+        self.source_entry_digest
+    }
+
+    pub(crate) const fn verified_build_receipt_digest(&self) -> BindingDigest {
+        self.verified_build_receipt_digest
+    }
+
+    pub(crate) fn into_wasm(self) -> Box<[u8]> {
+        self.wasm
+    }
+
+    #[cfg(test)]
+    pub(crate) fn corrupt_wasm_for_test(&mut self) {
+        self.wasm[0] ^= 1;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn corrupt_source_entry_digest_for_test(&mut self) {
+        self.source_entry_digest = BindingDigest::from_untrusted_bytes([199; 32]);
     }
 }
 

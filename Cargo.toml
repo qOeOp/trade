@@ -52,6 +52,7 @@ members = [
   "crates/pyo3",
   "crates/qualification",
   "crates/rd_artifact_invocation_custody",
+  "crates/rd_source_intake_invocation_custody",
   "crates/runtime",
   "crates/risk",
   "crates/scanner",
@@ -75,6 +76,7 @@ description = "Rust-native event-driven trading engine"
 repository = "https://github.com/qOeOp/trade"
 
 [workspace.dependencies]
+strategy-factory-program-sdk = { path = "crates/strategy_factory/programs/sdk", version = "0.1.0" }
 vibe-analysis = { path = "crates/analysis", version = "0.62.0" }
 vibe-backtest = { path = "crates/backtest", version = "0.62.0" }
 vibe-cli = { path = "crates/cli", version = "0.62.0" }
@@ -100,6 +102,7 @@ vibe-product-edge-claim-custody = { path = "crates/product_edge_claim_custody", 
 vibe-pyo3 = { path = "crates/pyo3", version = "0.62.0" }
 vibe-qualification = { path = "crates/qualification", version = "0.62.0" }
 vibe-rd-artifact-invocation-custody = { path = "crates/rd_artifact_invocation_custody", version = "0.62.0" }
+vibe-rd-source-intake-invocation-custody = { path = "crates/rd_source_intake_invocation_custody", version = "0.62.0" }
 vibe-risk = { path = "crates/risk", version = "0.62.0" }
 vibe-scanner = { path = "crates/scanner", version = "0.62.0" }
 vibe-serialization = { path = "crates/serialization", version = "0.62.0" }

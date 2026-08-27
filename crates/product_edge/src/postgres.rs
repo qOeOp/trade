@@ -20,6 +20,14 @@ use vibe_product_edge_claim_custody::{
 use vibe_rd_artifact_invocation_custody::{
     ArtifactInvocationStartReservationV1, verify_invocation_start_reservation_in_transaction,
 };
+use vibe_rd_source_intake_invocation_custody::{
+    SourceInvocationClaimCustodyV1, SourceInvocationStartedCustodyV1,
+    resolve_source_acquisition_binding_in_transaction,
+    resolve_source_invocation_claim_in_transaction,
+    resolve_source_invocation_start_reservation_in_transaction,
+    resolve_source_invocation_started_in_transaction,
+    verify_source_invocation_start_reservation_in_transaction,
+};
 
 use crate::{
     ARTIFACT_BUILD_REQUIRED_EFFECTS_V1, AgentOperationManifestProposalV1,
@@ -34,8 +42,10 @@ use crate::{
     ProductEdgeBootstrapReadbackV1, ProductEdgeCurrentPolicyEvidenceV1, ProductEdgeError,
     ProductEdgeInvocationClaimDispositionV1, ProductEdgeInvocationClaimReadbackV1,
     ProductEdgeInvocationClaimRequestV1, ProductEdgeInvocationStartDispositionV1,
-    ProductEdgeInvocationStartReadbackV1, ProductEdgeSuccessorProposalV1, canonical_digest,
-    identity,
+    ProductEdgeInvocationStartReadbackV1, ProductEdgeSourceInvocationClaimRequestV1,
+    ProductEdgeSourceInvocationStartRequestV1, ProductEdgeSuccessorProposalV1,
+    SOURCE_INTAKE_OPERATION_SCHEMA_V1, SOURCE_INTAKE_OPERATION_V1,
+    SOURCE_INTAKE_REQUIRED_EFFECTS_V1, SOURCE_INTAKE_TARGET_OWNER_V1, canonical_digest, identity,
 };
 
 const MANIFEST_EVENT: &str = "PRODUCT_EDGE_OPERATION_MANIFEST_APPROVED_V1";
@@ -48,12 +58,51 @@ const INVOCATION_CLAIM_STATE_EVENT: &str = "PRODUCT_EDGE_PROVIDER_INVOCATION_CLA
 const INVOCATION_STARTED_EVENT: &str = "PRODUCT_EDGE_PROVIDER_INVOCATION_STARTED_V1";
 const ARTIFACT_BUILD_OPERATION_V1: &str = "artifact_build.submit_or_resolve.v1";
 const ARTIFACT_BUILD_SCHEMA_V1: &str = "rd-artifact-build-request-v1";
+const ARTIFACT_PROVIDER_EFFECT_V1: &str = "R_AND_D_PROVIDER_INVOCATION_V1";
+const SOURCE_PROVIDER_EFFECT_V1: &str = "R_AND_D_SOURCE_PROVIDER_INVOCATION_V1";
 
 fn has_exact_artifact_build_effects(requested_effects: &[String]) -> bool {
     requested_effects
         .iter()
         .map(String::as_str)
         .eq(ARTIFACT_BUILD_REQUIRED_EFFECTS_V1)
+}
+
+fn has_exact_source_intake_effects(requested_effects: &[String]) -> bool {
+    requested_effects
+        .iter()
+        .map(String::as_str)
+        .eq(SOURCE_INTAKE_REQUIRED_EFFECTS_V1)
+}
+
+fn valid_source_doi(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 256
+        && value == value.trim()
+        && value.starts_with("10.")
+        && value.contains('/')
+        && value.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"./-_;():".contains(&byte)
+        })
+}
+
+fn valid_source_text(value: &str) -> bool {
+    !value.trim().is_empty() && value.len() <= 8_192 && !value.chars().any(char::is_control)
+}
+
+fn valid_source_interpretation(value: &SourceInterpretationPayloadV1) -> bool {
+    valid_source_text(&value.bounded_explanation)
+        && valid_source_text(&value.differentiating_prediction)
+        && valid_source_text(&value.falsifier)
+        && (1..=16).contains(&value.plausible_alternatives.len())
+        && value
+            .plausible_alternatives
+            .iter()
+            .all(|item| valid_source_text(item))
+        && value
+            .plausible_alternatives
+            .windows(2)
+            .all(|pair| pair[0] < pair[1])
 }
 
 mod custody;
@@ -1528,7 +1577,9 @@ impl ProductEdgePostgresOwnerV1 {
         &self,
         request: ProductEdgeAdmissionRequestV1,
     ) -> Result<ProductEdgeAdmissionReadbackV1, ProductEdgeError> {
-        if request.operation == ARTIFACT_BUILD_OPERATION_V1 {
+        if request.operation == ARTIFACT_BUILD_OPERATION_V1
+            || request.operation == SOURCE_INTAKE_OPERATION_V1
+        {
             return Err(ProductEdgeError::Unavailable);
         }
         Box::pin(self.admit_request_inner(request, None)).await
@@ -1557,6 +1608,31 @@ impl ProductEdgePostgresOwnerV1 {
             return Err(ProductEdgeError::Unavailable);
         }
         Box::pin(self.admit_request_inner(request, Some(payload.intent_identity))).await
+    }
+
+    pub async fn admit_source_intake_request(
+        &self,
+        request: ProductEdgeAdmissionRequestV1,
+    ) -> Result<ProductEdgeAdmissionReadbackV1, ProductEdgeError> {
+        if request.operation != SOURCE_INTAKE_OPERATION_V1
+            || request.operation_schema != SOURCE_INTAKE_OPERATION_SCHEMA_V1
+            || request.target_owner != SOURCE_INTAKE_TARGET_OWNER_V1
+            || !has_exact_source_intake_effects(&request.requested_effects)
+        {
+            return Err(ProductEdgeError::Unavailable);
+        }
+        let payload: SourceIntakeAdmissionPayloadV1 =
+            serde_json::from_value(request.typed_payload.clone())
+                .map_err(|_| ProductEdgeError::Unavailable)?;
+
+        if payload.request_identity != request.request_identity
+            || payload.gateway != "WINDMILL_PRODUCT_EDGE"
+            || !valid_source_doi(&payload.normalized_doi)
+            || !valid_source_interpretation(&payload.interpretation)
+        {
+            return Err(ProductEdgeError::Unavailable);
+        }
+        Box::pin(self.admit_request_inner(request, None)).await
     }
 
     async fn admit_request_inner(
@@ -1894,8 +1970,13 @@ impl ProductEdgePostgresOwnerV1 {
             if existing.attempt_identity != request.attempt_identity {
                 return Err(ProductEdgeError::ConflictingReplay);
             }
-            load_invocation_admission_for_locator(&mut transaction, &request.admission, &existing)
-                .await?;
+            load_invocation_admission_for_locator(
+                &mut transaction,
+                &request.admission,
+                &existing,
+                ARTIFACT_PROVIDER_EFFECT_V1,
+            )
+            .await?;
             load_invocation_state(&mut transaction, &existing.claim_identity)
                 .await?
                 .ok_or(ProductEdgeError::Unavailable)?;
@@ -2107,7 +2188,7 @@ impl ProductEdgePostgresOwnerV1 {
             manifest_effective_from_epoch_ms: current_policy.manifest_effective_from_epoch_ms,
             manifest_valid_through_epoch_ms: current_policy.manifest_valid_through_epoch_ms,
             attempt_identity: request.attempt_identity.clone(),
-            effect: "R_AND_D_PROVIDER_INVOCATION_V1".to_string(),
+            effect: ARTIFACT_PROVIDER_EFFECT_V1.to_string(),
             claim_identity: claim_identity.clone(),
             write_cut_epoch_ms: write_cut,
         };
@@ -2184,7 +2265,13 @@ impl ProductEdgePostgresOwnerV1 {
         let verified = load_invocation_claim(&mut transaction, &stored.admission_identity)
             .await?
             .ok_or(ProductEdgeError::Unavailable)?;
-        verify_invocation_admission_lineage(&mut transaction, &admission, &verified).await?;
+        verify_invocation_admission_lineage(
+            &mut transaction,
+            &admission,
+            &verified,
+            ARTIFACT_PROVIDER_EFFECT_V1,
+        )
+        .await?;
         load_invocation_state(&mut transaction, &verified.claim_identity)
             .await?
             .ok_or(ProductEdgeError::Unavailable)?;
@@ -2192,6 +2279,248 @@ impl ProductEdgePostgresOwnerV1 {
             &mut transaction,
             &verified.admission_identity,
             ProductEdgeInvocationClaimDispositionV1::ClaimedNew,
+        )
+        .await?;
+        transaction.commit().await.map_err(storage)?;
+        Ok(readback)
+    }
+
+    pub async fn claim_source_intake_invocation(
+        &self,
+        request: ProductEdgeSourceInvocationClaimRequestV1,
+    ) -> Result<ProductEdgeInvocationClaimReadbackV1, ProductEdgeError> {
+        if request.attempt_identity.trim().is_empty()
+            || request.binding_identity.trim().is_empty()
+            || request.attempt_identity != request.binding_identity
+        {
+            return Err(ProductEdgeError::InvalidProposal(
+                "source invocation attempt",
+            ));
+        }
+        let mut transaction = begin_read_committed(&self.pool).await?;
+        let existing_hint: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM product_edge_effect_invocation_claims_v1 WHERE admission_identity=$1)",
+        )
+        .bind(&request.admission.admission_identity)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(storage)?;
+        let admission = resolve_admission_for_downstream_in_transaction(
+            &mut transaction,
+            &request.admission,
+            if existing_hint {
+                DownstreamAdmissionModeV1::Historical
+            } else {
+                DownstreamAdmissionModeV1::FirstMutation {
+                    read_cut_epoch_ms: now_ms()?,
+                }
+            },
+        )
+        .await?;
+        let payload: SourceIntakeAdmissionPayloadV1 =
+            serde_json::from_value(admission.request().typed_payload.clone())
+                .map_err(|_| ProductEdgeError::Unavailable)?;
+
+        if admission.request().operation != SOURCE_INTAKE_OPERATION_V1
+            || admission.request().operation_schema != SOURCE_INTAKE_OPERATION_SCHEMA_V1
+            || admission.request().target_owner != SOURCE_INTAKE_TARGET_OWNER_V1
+            || !has_exact_source_intake_effects(&admission.request().requested_effects)
+            || payload.request_identity != admission.request().request_identity
+            || !valid_source_doi(&payload.normalized_doi)
+            || !valid_source_interpretation(&payload.interpretation)
+        {
+            return Err(ProductEdgeError::Unavailable);
+        }
+        // Product Edge locks and verifies its complete admission first. The
+        // final cross-owner lock is the exact R&D binding that this claim uses.
+        let binding = resolve_source_acquisition_binding_in_transaction(
+            &mut transaction,
+            &request.admission.request_identity,
+            &request.binding_identity,
+        )
+        .await
+        .map_err(source_invocation_custody_error)?;
+
+        if binding.request_identity() != request.admission.request_identity
+            || binding.admission_identity() != request.admission.admission_identity
+            || binding.admission_digest() != request.admission.admission_digest
+            || binding.operation_manifest_identity() != admission.manifest_identity()
+            || binding.operation_manifest_digest() != admission.manifest_digest()
+            || binding.normalized_doi() != payload.normalized_doi
+        {
+            return Err(ProductEdgeError::Unavailable);
+        }
+
+        if existing_hint {
+            let existing =
+                load_invocation_claim(&mut transaction, &request.admission.admission_identity)
+                    .await?
+                    .ok_or(ProductEdgeError::Unavailable)?;
+            if existing.attempt_identity != request.attempt_identity {
+                return Err(ProductEdgeError::ConflictingReplay);
+            }
+            load_invocation_admission_for_locator(
+                &mut transaction,
+                &request.admission,
+                &existing,
+                SOURCE_PROVIDER_EFFECT_V1,
+            )
+            .await?;
+            load_invocation_state(&mut transaction, &existing.claim_identity)
+                .await?
+                .ok_or(ProductEdgeError::Unavailable)?;
+            let readback = resolve_invocation_claim_readback(
+                &mut transaction,
+                &request.admission.admission_identity,
+                ProductEdgeInvocationClaimDispositionV1::AlreadyClaimed,
+            )
+            .await?;
+            transaction.commit().await.map_err(storage)?;
+            return Ok(readback);
+        }
+
+        let write_cut = now_ms()?;
+        if !admission.authorizes_first_mutation_at(write_cut) {
+            return Err(ProductEdgeError::Unavailable);
+        }
+        let readback =
+            commit_source_invocation_claim(&mut transaction, &admission, &request, write_cut)
+                .await?;
+        transaction.commit().await.map_err(storage)?;
+        Ok(readback)
+    }
+
+    pub async fn start_source_intake_invocation(
+        &self,
+        request: ProductEdgeSourceInvocationStartRequestV1,
+    ) -> Result<ProductEdgeInvocationStartReadbackV1, ProductEdgeError> {
+        if request.request_identity.trim().is_empty()
+            || request.admission_identity.trim().is_empty()
+            || request.attempt_identity.trim().is_empty()
+            || request.claim_identity.trim().is_empty()
+            || request.reservation_identity.trim().is_empty()
+            || request.reservation_digest.trim().is_empty()
+        {
+            return Err(ProductEdgeError::InvalidProposal(
+                "source invocation start locator",
+            ));
+        }
+        let admission_identity = request.admission_identity.clone();
+        let mut transaction = begin_read_committed(&self.pool).await?;
+        let hinted_state_json: Option<serde_json::Value> = sqlx::query_scalar(
+            "SELECT state_json FROM product_edge_effect_invocation_states_v1 WHERE admission_identity=$1",
+        )
+        .bind(&admission_identity)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(storage)?;
+        let hinted_state: StoredInvocationStateV1 =
+            from_json(hinted_state_json.ok_or(ProductEdgeError::Unavailable)?)?;
+        if invocation_state_digest(&hinted_state)? != hinted_state.state_digest {
+            return Err(ProductEdgeError::Unavailable);
+        }
+        let claim = load_invocation_claim(&mut transaction, &admission_identity)
+            .await?
+            .ok_or(ProductEdgeError::Unavailable)?;
+
+        if claim.claim_identity != request.claim_identity
+            || claim.attempt_identity != request.attempt_identity
+        {
+            return Err(ProductEdgeError::ConflictingReplay);
+        }
+        let admission_receipt =
+            load_invocation_admission_receipt(&mut transaction, &claim.claim_identity)
+                .await?
+                .ok_or(ProductEdgeError::Unavailable)?;
+        let receipt = load_invocation_admission_for_locator(
+            &mut transaction,
+            &ProductEdgeAdmissionLocatorV1 {
+                request_identity: request.request_identity.clone(),
+                admission_identity: admission_identity.clone(),
+                admission_digest: admission_receipt.admission_digest,
+            },
+            &claim,
+            SOURCE_PROVIDER_EFFECT_V1,
+        )
+        .await?;
+
+        if receipt.request_identity != request.request_identity {
+            return Err(ProductEdgeError::Unavailable);
+        }
+        let state = load_invocation_state(&mut transaction, &claim.claim_identity)
+            .await?
+            .ok_or(ProductEdgeError::Unavailable)?;
+        if state != hinted_state {
+            return Err(ProductEdgeError::Unavailable);
+        }
+        // All Product Edge claim and state locks precede the final R&D Owner
+        // reservation lock, matching the claim path's PE -> R&D order.
+        let reservation = resolve_source_invocation_start_reservation_in_transaction(
+            &mut transaction,
+            &request.request_identity,
+            &request.attempt_identity,
+            &request.claim_identity,
+            &request.reservation_identity,
+            &request.reservation_digest,
+        )
+        .await
+        .map_err(source_invocation_custody_error)?;
+
+        if claim.claim_identity != reservation.claim_identity()
+            || claim.claim_digest != reservation.claim_digest()
+            || claim.attempt_identity != reservation.attempt_identity()
+        {
+            return Err(ProductEdgeError::ConflictingReplay);
+        }
+        // The R&D reservation is re-resolved under lock immediately before the
+        // one-way Product Edge start transition.
+        verify_source_invocation_start_reservation_in_transaction(&mut transaction, &reservation)
+            .await
+            .map_err(source_invocation_custody_error)?;
+
+        if state.state == StoredInvocationStateKindV1::InvocationStarted {
+            let readback = resolve_invocation_start_readback(
+                &mut transaction,
+                &admission_identity,
+                ProductEdgeInvocationStartDispositionV1::OutcomeUnknown,
+            )
+            .await?;
+            transaction.commit().await.map_err(storage)?;
+            return Ok(readback);
+        }
+        let started_at = now_ms()?;
+        let mut started = state.clone();
+        started.state = StoredInvocationStateKindV1::InvocationStarted;
+        started.state_digest.clear();
+        started.updated_at_epoch_ms = started_at;
+        started.state_digest = invocation_state_digest(&started)?;
+        let updated = sqlx::query("UPDATE product_edge_effect_invocation_states_v1 SET state_digest=$1, state_json=$2, updated_at_epoch_ms=$3 WHERE claim_identity=$4 AND state_digest=$5 AND state_json=$6")
+            .bind(&started.state_digest).bind(json(&started)?).bind(to_i64(started_at)?)
+            .bind(&started.claim_identity).bind(&state.state_digest).bind(json(&state)?)
+            .execute(&mut *transaction).await.map_err(storage)?;
+
+        if updated.rows_affected() != 1 {
+            return Err(ProductEdgeError::Unavailable);
+        }
+        insert_outbox(
+            &mut transaction,
+            &started.state_digest,
+            &started.claim_identity,
+            INVOCATION_STARTED_EVENT,
+            &started,
+            started_at,
+        )
+        .await?;
+        let verified = load_invocation_state(&mut transaction, &started.claim_identity)
+            .await?
+            .ok_or(ProductEdgeError::Unavailable)?;
+        if verified != started {
+            return Err(ProductEdgeError::Unavailable);
+        }
+        let readback = resolve_invocation_start_readback(
+            &mut transaction,
+            &admission_identity,
+            ProductEdgeInvocationStartDispositionV1::StartedNew,
         )
         .await?;
         transaction.commit().await.map_err(storage)?;
@@ -2311,7 +2640,13 @@ impl ProductEdgePostgresOwnerV1 {
         if claim.attempt_identity != attempt_identity {
             return Err(ProductEdgeError::ConflictingReplay);
         }
-        load_invocation_admission_for_locator(&mut transaction, admission, &claim).await?;
+        load_invocation_admission_for_locator(
+            &mut transaction,
+            admission,
+            &claim,
+            ARTIFACT_PROVIDER_EFFECT_V1,
+        )
+        .await?;
         load_invocation_state(&mut transaction, &claim.claim_identity)
             .await?
             .ok_or(ProductEdgeError::Unavailable)?;
@@ -2354,7 +2689,13 @@ impl ProductEdgePostgresOwnerV1 {
         if claim.attempt_identity != attempt_identity {
             return Err(ProductEdgeError::ConflictingReplay);
         }
-        load_invocation_admission_for_locator(&mut transaction, &locator, &claim).await?;
+        load_invocation_admission_for_locator(
+            &mut transaction,
+            &locator,
+            &claim,
+            ARTIFACT_PROVIDER_EFFECT_V1,
+        )
+        .await?;
         load_invocation_state(&mut transaction, &claim.claim_identity)
             .await?
             .ok_or(ProductEdgeError::Unavailable)?;
@@ -2472,6 +2813,180 @@ fn require_successor_head(
     Ok(())
 }
 
+async fn commit_source_invocation_claim(
+    transaction: &mut Transaction<'_, Postgres>,
+    admission: &ProductEdgeAdmissionReadbackV1,
+    request: &ProductEdgeSourceInvocationClaimRequestV1,
+    write_cut: u64,
+) -> Result<ProductEdgeInvocationClaimReadbackV1, ProductEdgeError> {
+    if load_invocation_claim(transaction, &request.admission.admission_identity)
+        .await?
+        .is_some()
+    {
+        return Err(ProductEdgeError::Unavailable);
+    }
+    let current_policy = admission
+        .current_policy_evidence
+        .as_ref()
+        .ok_or(ProductEdgeError::Unavailable)?;
+    let receipt_identity = identity(
+        "product-edge-provider-invocation-admission-receipt-v1",
+        &[
+            &request.admission.admission_identity,
+            &request.attempt_identity,
+            &current_policy.binding_identity,
+            current_policy.authorization.frontier().frontier_identity(),
+            &write_cut.to_string(),
+        ],
+    );
+    let claim_identity = identity(
+        "product-edge-provider-invocation-claim-v1",
+        &[
+            &request.admission.admission_identity,
+            &request.attempt_identity,
+            &receipt_identity,
+        ],
+    );
+    let historical_authorization = admission.authorization().locator();
+    let current_authorization = current_policy.authorization.locator();
+    let mut invocation_admission = StoredInvocationAdmissionReceiptV1 {
+        schema_version: PRODUCT_EDGE_SCHEMA_V1,
+        receipt_identity,
+        receipt_digest: String::new(),
+        request_identity: admission.request().request_identity.clone(),
+        admission_identity: request.admission.admission_identity.clone(),
+        admission_digest: request.admission.admission_digest.clone(),
+        historical_binding_identity: admission.binding_identity().to_string(),
+        historical_binding_generation: admission.binding_generation(),
+        historical_authorization_identity: historical_authorization.authorization_identity,
+        historical_issuance_receipt_identity: historical_authorization.issuance_receipt_identity,
+        historical_authorization_frontier_identity: admission
+            .authorization()
+            .frontier()
+            .frontier_identity()
+            .to_string(),
+        current_binding_identity: current_policy.binding_identity.clone(),
+        current_binding_generation: current_policy.binding_generation,
+        current_authorization_identity: current_authorization.authorization_identity,
+        current_issuance_receipt_identity: current_authorization.issuance_receipt_identity,
+        current_authorization_frontier_identity: current_policy
+            .authorization
+            .frontier()
+            .frontier_identity()
+            .to_string(),
+        current_authorization_not_before_epoch_ms: current_policy
+            .authorization
+            .not_before_epoch_ms(),
+        current_authorization_valid_through_epoch_ms: current_policy
+            .authorization
+            .valid_through_epoch_ms(),
+        current_binding_valid_from_epoch_ms: current_policy.binding_valid_from_epoch_ms,
+        current_binding_valid_through_epoch_ms: current_policy.binding_valid_through_epoch_ms,
+        effective_principal: admission.effective_principal().to_string(),
+        authorized_scope: admission.authorized_scope().to_vec(),
+        scope_policy_version: admission.scope_policy_version().to_string(),
+        capability_policy_version: admission.capability_policy_version().to_string(),
+        audit_policy_version: admission.audit_policy_version().to_string(),
+        manifest_identity: admission.manifest_identity().to_string(),
+        manifest_digest: admission.manifest_digest().to_string(),
+        manifest_effective_from_epoch_ms: current_policy.manifest_effective_from_epoch_ms,
+        manifest_valid_through_epoch_ms: current_policy.manifest_valid_through_epoch_ms,
+        attempt_identity: request.attempt_identity.clone(),
+        effect: SOURCE_PROVIDER_EFFECT_V1.to_string(),
+        claim_identity: claim_identity.clone(),
+        write_cut_epoch_ms: write_cut,
+    };
+    invocation_admission.receipt_digest =
+        invocation_admission_receipt_digest(&invocation_admission)?;
+    sqlx::query("INSERT INTO product_edge_effect_invocation_admissions_v1 (receipt_identity, receipt_digest, admission_identity, attempt_identity, claim_identity, receipt_json, write_cut_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7)")
+        .bind(&invocation_admission.receipt_identity)
+        .bind(&invocation_admission.receipt_digest)
+        .bind(&invocation_admission.admission_identity)
+        .bind(&invocation_admission.attempt_identity)
+        .bind(&invocation_admission.claim_identity)
+        .bind(json(&invocation_admission)?)
+        .bind(to_i64(write_cut)?)
+        .execute(&mut **transaction).await.map_err(storage)?;
+    insert_outbox(
+        transaction,
+        &invocation_admission.receipt_identity,
+        &invocation_admission.admission_identity,
+        INVOCATION_ADMISSION_EVENT,
+        &invocation_admission,
+        write_cut,
+    )
+    .await?;
+    let mut claim = StoredInvocationClaimV1 {
+        schema_version: PRODUCT_EDGE_SCHEMA_V1,
+        claim_identity,
+        admission_identity: request.admission.admission_identity.clone(),
+        attempt_identity: request.attempt_identity.clone(),
+        invocation_admission_receipt_identity: invocation_admission.receipt_identity,
+        invocation_admission_receipt_digest: invocation_admission.receipt_digest,
+        claim_digest: String::new(),
+        committed_at_epoch_ms: write_cut,
+    };
+    claim.claim_digest = invocation_claim_digest(&claim)?;
+    sqlx::query("INSERT INTO product_edge_effect_invocation_claims_v1 (admission_identity, claim_identity, attempt_identity, claim_digest, claim_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6)")
+        .bind(&claim.admission_identity).bind(&claim.claim_identity)
+        .bind(&claim.attempt_identity).bind(&claim.claim_digest)
+        .bind(json(&claim)?).bind(to_i64(write_cut)?)
+        .execute(&mut **transaction).await.map_err(storage)?;
+    insert_outbox(
+        transaction,
+        &claim.claim_identity,
+        &claim.admission_identity,
+        INVOCATION_CLAIM_EVENT,
+        &claim,
+        write_cut,
+    )
+    .await?;
+    let mut state = StoredInvocationStateV1 {
+        schema_version: PRODUCT_EDGE_SCHEMA_V1,
+        claim_identity: claim.claim_identity.clone(),
+        admission_identity: claim.admission_identity.clone(),
+        attempt_identity: claim.attempt_identity.clone(),
+        claim_digest: claim.claim_digest.clone(),
+        state: StoredInvocationStateKindV1::Claimed,
+        state_digest: String::new(),
+        updated_at_epoch_ms: write_cut,
+    };
+    state.state_digest = invocation_state_digest(&state)?;
+    sqlx::query("INSERT INTO product_edge_effect_invocation_states_v1 (claim_identity, admission_identity, attempt_identity, claim_digest, state_digest, state_json, updated_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7)")
+        .bind(&state.claim_identity).bind(&state.admission_identity)
+        .bind(&state.attempt_identity).bind(&state.claim_digest)
+        .bind(&state.state_digest).bind(json(&state)?).bind(to_i64(write_cut)?)
+        .execute(&mut **transaction).await.map_err(storage)?;
+    insert_outbox(
+        transaction,
+        &state.state_digest,
+        &state.claim_identity,
+        INVOCATION_CLAIM_STATE_EVENT,
+        &state,
+        write_cut,
+    )
+    .await?;
+    let verified = load_invocation_claim(transaction, &claim.admission_identity)
+        .await?
+        .ok_or(ProductEdgeError::Unavailable)?;
+    verify_invocation_admission_lineage(
+        transaction,
+        admission,
+        &verified,
+        SOURCE_PROVIDER_EFFECT_V1,
+    )
+    .await?;
+    load_invocation_state(transaction, &verified.claim_identity)
+        .await?
+        .ok_or(ProductEdgeError::Unavailable)?;
+    resolve_invocation_claim_readback(
+        transaction,
+        &verified.admission_identity,
+        ProductEdgeInvocationClaimDispositionV1::ClaimedNew,
+    )
+    .await
+}
+
 fn supersession_digest(fence: &StoredSupersessionV1) -> Result<String, ProductEdgeError> {
     canonical_digest(
         "product-edge.deployment-supersession.v1",
@@ -2519,6 +3034,38 @@ pub async fn resolve_admission_for_downstream_in_transaction(
         locator,
         mode,
     )
+}
+
+pub async fn resolve_source_invocation_claim_for_downstream_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    request_identity: &str,
+    admission_identity: &str,
+    attempt_identity: &str,
+) -> Result<SourceInvocationClaimCustodyV1, ProductEdgeError> {
+    resolve_source_invocation_claim_in_transaction(
+        transaction,
+        request_identity,
+        admission_identity,
+        attempt_identity,
+    )
+    .await
+    .map_err(source_invocation_custody_error)
+}
+
+pub async fn resolve_source_invocation_started_for_downstream_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    request_identity: &str,
+    admission_identity: &str,
+    attempt_identity: &str,
+) -> Result<SourceInvocationStartedCustodyV1, ProductEdgeError> {
+    resolve_source_invocation_started_in_transaction(
+        transaction,
+        request_identity,
+        admission_identity,
+        attempt_identity,
+    )
+    .await
+    .map_err(source_invocation_custody_error)
 }
 
 /// Resolves only Product Edge-owned read-policy custody for a later Portfolio
@@ -3855,6 +4402,18 @@ fn invocation_reservation_error(
         }
     }
 }
+fn source_invocation_custody_error(
+    error: vibe_rd_source_intake_invocation_custody::SourceInvocationCustodyError,
+) -> ProductEdgeError {
+    match error {
+        vibe_rd_source_intake_invocation_custody::SourceInvocationCustodyError::Unavailable => {
+            ProductEdgeError::Unavailable
+        }
+        vibe_rd_source_intake_invocation_custody::SourceInvocationCustodyError::Storage(
+            message,
+        ) => ProductEdgeError::Storage(message),
+    }
+}
 fn authority(error: OperatorAuthorizationError) -> ProductEdgeError {
     match error {
         OperatorAuthorizationError::ConflictingReplay => ProductEdgeError::ConflictingReplay,
@@ -3974,6 +4533,30 @@ mod tests {
             let mut forged = payload.clone();
             forged[field] = serde_json::json!(true);
             assert!(serde_json::from_value::<ArtifactBuildAdmissionPayloadV1>(forged).is_err());
+        }
+    }
+
+    #[rstest]
+    fn source_intake_gateway_is_one_fixed_product_edge_authority() {
+        let payload = serde_json::json!({
+            "request_identity": "source-request-1",
+            "gateway": "WINDMILL_PRODUCT_EDGE",
+            "normalized_doi": "10.1234/source",
+            "interpretation": {
+                "bounded_explanation": "bounded",
+                "plausible_alternatives": ["alternative"],
+                "differentiating_prediction": "prediction",
+                "falsifier": "falsifier"
+            }
+        });
+        assert!(serde_json::from_value::<SourceIntakeAdmissionPayloadV1>(payload.clone()).is_ok());
+        for legacy in ["WORKBENCH_WEB", "WORKBENCH_MCP"] {
+            let mut legacy_payload = payload.clone();
+            legacy_payload.as_object_mut().unwrap().remove("gateway");
+            legacy_payload["channel"] = serde_json::json!(legacy);
+            assert!(
+                serde_json::from_value::<SourceIntakeAdmissionPayloadV1>(legacy_payload).is_err()
+            );
         }
     }
 

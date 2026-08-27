@@ -89,6 +89,139 @@ same-attempt resolution returns the exact `CLAIMED` claim and the sole action
 successor claim or invoke the provider a second time; after `INVOCATION_STARTED`, the only safe projection is
 manual provider reconciliation unless an authoritative terminal Owner receipt exists.
 
+### Sealed Source Intake acceptance topology
+
+Source Intake has one explicitly separate, compile-time `SEALED_ACCEPTANCE` composition. It is not part of the
+production artifact, is disabled by default, and cannot be selected by an ordinary Product Edge request, generic
+production environment variable, runtime provider name, URL, header, credential, or DSN. The production artifact
+contains no acceptance adapter. Its only acquisition class is `LIVE_EXTERNAL`, and it fails closed until all real
+policy, time, DNS, rights, credential, egress, and provider authorities are configured and current.
+
+The acceptance composition replaces only the provider boundary with a sealed adapter over a fixed DOI corpus,
+fixed response bytes, and deterministic rejection cases. It uses a non-public provider identity, has no external
+network capability, and shares no database, volume, workspace, or mutable state with production or another
+acceptance run. It still traverses the production Product Edge admission gateway, the same Source Intake Owner
+orchestrator, durable claim/start, move-only permit, R&D PostgreSQL atomic terminal transaction, terminal receipt,
+readback, and the default Windmill `RUN` and `RESOLVE` transport. The API performs authentication, DTO validation,
+and projection only; Windmill schedules or transports calls only. Neither owns or reconstructs the lifecycle.
+
+Each acceptance deployment is created from exact script content plus its lock and content hash in a fresh unique
+Windmill project/workspace, ingress port, database, and volume. Its environment identity, provider-profile digest,
+fixture-corpus digest, sealed policy and Time Evidence, binding evidence, and retrieval evidence are cross-bound
+into the admission, acquisition binding, terminal receipt, and readback. The runner must:
+
+1. deploy that exact identity and invoke deployed `RUN`, the same `RUN` again, and same-request `RESOLVE`;
+2. verify one full `RETRIEVED` receipt and its content-addressed locator, content digest, acquisition provenance,
+   Source Candidate, and outbox records;
+3. verify a sealed policy rejection causes zero provider invocations and zero positive records;
+4. induce loss of the first `RUN` response after provider execution and the atomic terminal commit, resolve the
+   same attempt, and prove provider invocation count is exactly one; and
+5. remove the unique project/workspace, port allocation, database, and volume, then read back that every isolated
+   artifact is absent and no shared target changed.
+
+Passing this runner is `SEALED_ACCEPTANCE` evidence only. It is never evidence that the Workbench is `CURRENT` or
+that production policy, time, DNS, rights, credentials, egress, PostgreSQL, Windmill, or a live provider is ready.
+
+### Source Intake-to-Composer D0 contract
+
+This section freezes the top-level contract for the next implementation DAG; it does not make any target
+capability current. The maturity split is exact:
+
+- **CURRENT/PARTIAL:** crate-local Source Intake contract/regression evidence and Develop Composer V2, including
+  its local deterministic bounded-plugin build producer and `ProgramHostV2` consumer proof. These are separate
+  local proofs. No current evidence establishes the isolated PostgreSQL/Windmill Source Intake runner or a
+  composed Source Intake-to-Research-to-Composer path.
+- **TARGET A1 - durable Composer Owner operation:** one public Composer `RUN`/`RESOLVE` contract, in-process A0
+  build consumption, and atomic R&D PostgreSQL custody of the private canonical A0 Build Receipt bytes plus restart
+  readback as specified below.
+- **TARGET A2 - typed ancestry and isolated transport:** one R&D-owned Source Intake-to-Research operation followed
+  by the A1 Composer operation through the isolated Windmill topology specified below.
+- **SEALED_ACCEPTANCE:** only a completed A2 runner with all listed dynamic gates may claim the composed acceptance
+  topology. It remains acceptance-only and cannot establish `PRODUCT_CURRENT` or production readiness.
+
+The public Composer `RUN` accepts only an untrusted request identity, Research custody reference, Design proposal,
+binding requests, and bounded plugin-source capsule. These values are proposals and locators, never verified facts.
+In the same process, the operation must invoke the accepted A0 deterministic build boundary, preserve its opaque
+verified build in-process, and consume that token by move. That positive type is neither `Clone` nor
+serializable/deserializable. The private canonical A0 Build Receipt bytes are a separate durable fact, not a token
+representation. There is no public verified-build locator, verified-build read port, database or API token
+representation, and no provider, caller, Windmill flow, or restart path may reconstruct a verified token from
+bytes, digests, receipts, or labels.
+
+After A0 and immediately before its positive commit, A1 locks and rereads the final accepted Research custody and
+every exact fact-Owner binding. One R&D transaction atomically stores the canonical `StrategyDesignV2`,
+`StrategyPlanV2`, `StrategyArtifactV2` package and private module bytes, private canonical A0 Build Receipt bytes,
+the Composer receipt, host-admission receipt, operation receipt, and R&D outbox. JSON is a projection only and
+cannot be the canonical readback or hash source. Restart and `RESOLVE` reread and parse the canonical Build Receipt,
+validate its capsule, toolchain, linker, configuration, and deterministic two-build provenance, bind that receipt to
+the Artifact and Composer receipts, then recompute and compare every content and binding digest before readmitting
+the Artifact to `ProgramHostV2`. This validation never recreates the move-only verified token. Raw Wasm and the
+canonical Build Receipt bytes remain private; the public positive Artifact projection contains only the immutable
+Artifact locator and public digests. The operation envelope separately carries its terminal disposition and receipt
+identity.
+
+The durable operation serializes one semantic attempt. Concurrent exact request and meaning join the same
+byte-identical terminal receipt. Reuse of the request, Research/Intent, build-attempt, or artifact identity with any
+changed meaning or canonical byte is `CONFLICT` and writes nothing. A positive terminal is visible only after the
+single transaction commits all canonical bytes, receipts, and outbox; any rejection, unsupported/refinement,
+unavailable evidence, A0 failure, reread drift, host rejection, serialization/storage failure, or rollback leaves
+zero partial positive rows and grants no successor authority. `REJECTED_NO_WRITE`, `UNSUPPORTED`, and
+`NEEDS_RESEARCH_REFINEMENT` may return only an authoritative negative operation receipt proving that absence;
+missing, stale, or unavailable required evidence returns `UNAVAILABLE` with only same-attempt resolution and no
+successor authority. Loss of the response after commit remains `SUBMITTED_OR_UNKNOWN`; same-request `RESOLVE`
+returns the committed receipt without rebuilding, reinvoking a provider, or minting a successor attempt. Storage
+uncertainty that cannot prove commit remains unresolved, never a fabricated rejection or success.
+
+Source ancestry is a separate typed R&D-owned operation. It locks and rereads the exact Source Intake `RETRIEVED`
+terminal receipt, acquisition provenance record, Source Candidate, and matching transition outbox, verifies their
+shared request/attempt/content/retrieval/policy/rights lineage, and returns sealed ancestry evidence only. Source
+content remains untrusted and never confers accepted Research custody. The following typed Research `RUN` consumes
+an untrusted Research proposal and that separately verified ancestry evidence through the canonical R&D Research
+admission. R&D remains the sole Intent owner: only that admission may resolve the Independence Basis, current
+Qualification frontier, and local semantic-predecessor lineage, then freeze the Intent, falsifier, permanent
+TrialFamily authority, receipts, and the current Research custody that Composer consumes. A Source attempt alone
+can never derive `CurrentResearchDevelopCustodyV2`. Copying caller-supplied fields, accepting a provenance locator
+without Owner reread, or merely deploying Source Intake and Composer together is not composition. A missing,
+mismatched, stale, non-`RETRIEVED`, or unavailable ancestry member, or any failed canonical Research admission,
+creates no accepted Research custody and makes Composer unavailable for that ancestry.
+
+A2 uses Windmill only as transport in this fixed order:
+
+`Source Intake RUN/RESOLVE -> typed Research RUN/RESOLVE -> Composer RUN/RESOLVE`.
+
+Each deployed script parses a typed request or receipt and calls the next Owner operation; it owns no lifecycle,
+verified build, canonical bytes, or business result. The acceptance binary selects sealed adapters at compile time,
+uses the fixed Source Intake corpus and fixed A0 source/build corpus, and exposes no runtime provider selector,
+provider URL, credential, fixture path, DSN, header, or environment switch. Every run receives a unique internal
+PostgreSQL instance/schema, Windmill project/workspace, network, ingress allocation, and volumes, with no route or
+mutable state shared with production or another run.
+
+The composed runner must prove all of the following against the deployed operations and canonical Owner readback:
+
+1. concurrent same-meaning `RUN`s join one byte-identical receipt, while concurrent same-identity changed meaning
+   conflicts with zero changed-meaning or partial rows;
+2. injected failure at each A1 write boundary leaves zero partial Design, Plan, Artifact/module, receipt,
+   host-admission, operation, or outbox rows;
+3. response loss after atomic commit resolves the exact terminal with one A0 execution and no successor attempt;
+4. process and database restart followed by `RESOLVE` rereads and parses the private canonical A0 Build Receipt,
+   validates its capsule/toolchain/linker/configuration/two-build provenance and Artifact/Composer receipt bindings,
+   then returns byte-identical public evidence after remaining canonical-byte parse/hash verification and successful
+   `ProgramHostV2` readmission;
+5. a single-field mutation of every Source Intake ancestry member, Research proposal/Design/binding/source-capsule
+   input, A0 identity, stored canonical object, module byte, receipt, or outbox binding fails closed and creates no
+   positive successor; a separate single-field mutation of the private canonical A0 Build Receipt does the same;
+6. the deployed Windmill golden path reaches `RETRIEVED`, canonical Research admission with typed accepted Research
+   custody, and the durable Composer terminal; exact replay uses all three same-request `RESOLVE` paths and joins
+   the same receipts; and
+7. cleanup removes the unique Windmill project/workspace, PostgreSQL state, network, ingress allocation, and every
+   volume, then proves byte-for-byte or enumerated baseline equality, zero isolated residue, and zero shared-target
+   change.
+
+Until those gates pass, durable Composer custody, public API composition, typed Source Intake-to-Research handoff,
+and the Windmill A2 topology remain `TARGET`. A production Market Data binding resolver, live OpenAlex
+policy/rights/DNS/credentials/egress, `PRODUCT_CURRENT`, Dashboard implementation, Paper, Live, deployment, and any
+trading effect remain unavailable and outside this acceptance authority.
+
 The external conversation client and Windmill internal AI are separate credential planes. A client may use its
 own model provider key before calling MCP; an internal AI Agent step uses an independently scoped Windmill AI
 resource. Neither model credential authenticates to Trade, and sharing one provider account is an operator choice,

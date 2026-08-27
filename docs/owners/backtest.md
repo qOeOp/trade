@@ -8,6 +8,8 @@ Replay frozen strategy artifacts against admitted historical facts with producti
 
 - Replay identity, deterministic clock, frozen inputs, runtime and simulation versions, and configuration digest.
 - Canonical orders, fills, positions, costs, and outcome produced by a replay.
+- **TARGET:** the complete ordered shared-kernel semantic trace, binding normalized lifecycle events, checkpoints,
+  primitive and plugin results, target/protection transitions and fill reconciliation to the canonical replay.
 - Complete separation between exploratory runs and Qualification-requested protected runs.
 - Exploratory Run Result repeats the consumed Strategy Artifact, requested PIT scope, PIT Market Snapshot,
   Universe Selection Record and correction rule, replay configuration, Runtime kernel, simulator, and cost,
@@ -41,6 +43,31 @@ Replay frozen strategy artifacts against admitted historical facts with producti
 - **Native Replay** - replay historical events with deterministic time while reusing the native Runtime, Risk, and order semantics where applicable.
 - **Sim Exchange** - model venue acceptance, latency, fills, fees, and account effects without external writes.
 - **Run Result** - bind consumed data, artifact, configuration, orders, fills, costs, and terminal outcome into one canonical receipt.
+
+## Shared strategy lifecycle contract
+
+Backtest consumes only the [StrategyDesignV2 shared-kernel path](../architecture/strategy-factory#strategy-design-v2-shared-lifecycle-kernel):
+an exact `StrategyPlanV2`, its content-addressed Wasm Artifact, resolved Owner input bindings, `ProgramHost`, and
+versioned lifecycle/checkpoint/kernel identities. Native Replay supplies the deterministic `START`, `BAR`,
+`EVENT`, `FILL`, `TIMER`, `STOP` envelope stream; the shared kernel owns position actions, portfolio targets,
+protection adjustment and fill reconciliation. Sim Exchange supplies factual simulated acceptance, fill, rejection
+and account effects. A Design, plugin or Backtest adapter cannot submit raw orders or implement a parallel action
+state machine.
+
+Backtest owns the resulting ordered semantic trace and canonical replay facts, not their research or deployment
+meaning. The trace binds every normalized event order key, before/after checkpoint digest, plugin invocation and
+bounded result, kernel primitive semantic ID, target/protection transition, simulated order/fill reconciliation,
+position, cost and terminal result. The first admitted vertical is the deterministic stateful-trend corpus;
+cross-sectional rebalance and multi-leg/multi-timeframe regime are required acceptance corpora, not permission to
+fabricate absent bindings or implement a third runtime.
+
+A positive Run Result derives its actual-consumption record inside Backtest from the exact inputs admitted by
+Native Replay, `ProgramHost`, the shared kernel and Sim Exchange. A caller or R&D request may propose requested
+meaning but cannot supply, deserialize, or attest the consumed side. The engine-produced record binds the Design,
+Plan, Artifact, resolved Owner input receipts and cuts, replay configuration, runtime/kernel/simulator identities,
+cost/slippage/capacity models, seed, range, calendar/time-zone meaning and semantic-trace digest. Missing or
+unmatched consumption evidence produces no positive receipt; equality between two caller-authored DTOs is never
+request-result correlation.
 
 ## Input handoffs
 

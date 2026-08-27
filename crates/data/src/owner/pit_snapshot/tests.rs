@@ -5,12 +5,15 @@ use rstest::rstest;
 use super::{
     BindingDigest, PitSnapshotBlocker, PitSnapshotCommitAggregate, PitSnapshotDisposition,
     PitSnapshotError, UntrustedCorrectionPublicationTime, UntrustedEventEffectiveTime,
-    UntrustedPitSnapshotEvidence, UntrustedPitSnapshotLocator, UntrustedPitSnapshotProposal,
-    UntrustedPitSnapshotRequest, UntrustedPitSnapshotTimeEvidence, UntrustedProviderAvailableTime,
-    UntrustedRetrievalTime, UntrustedSnapshotDecisionCut,
+    UntrustedPitObservation, UntrustedPitObservationBatchProposal, UntrustedPitSnapshotEvidence,
+    UntrustedPitSnapshotLocator, UntrustedPitSnapshotProposal, UntrustedPitSnapshotRequest,
+    UntrustedPitSnapshotTimeEvidence, UntrustedProviderAvailableTime, UntrustedRetrievalTime,
+    UntrustedSnapshotDecisionCut, VerifiedPitObservation,
     authority::{
-        CommitFault, TestOnlyCanonicalBasisResolver, TestOnlyPitSnapshotOwner,
-        derive_request_digest, derive_request_identity, refresh_request_claims,
+        CommitFault, ObservedPitObservationNativeRow, TestOnlyCanonicalBasisResolver,
+        TestOnlyPitSnapshotOwner, canonical_batch_bytes, canonical_observation_bytes,
+        decode_canonical_observation_batch, derive_request_digest, derive_request_identity,
+        prepare_observation_batch, refresh_request_claims, verify_observation_batch,
     },
 };
 use crate::owner::source_binding::{
@@ -1234,4 +1237,301 @@ fn every_locator_field_is_exact_native_readback() {
     for locator in forged {
         assert!(owner.resolve(&locator, &pit_read_clock(40, 90, 2)).is_err());
     }
+}
+
+fn observation_batch_fixture() -> (
+    PitSnapshotCommitAggregate,
+    VerifiedPitObservation,
+    Vec<u8>,
+    Vec<ObservedPitObservationNativeRow>,
+) {
+    let (source_owner, source) = source_fixture([]);
+    let mut value = proposal(source.receipt().locator());
+    let request = &value.request;
+    let evidence = &value.evidence;
+    let row = VerifiedPitObservation {
+        symbolic_key: "AAPL.CLOSE".to_owned(),
+        member_key: "AAPL.XNAS".to_owned(),
+        instrument: "AAPL.XNAS".to_owned(),
+        channel: "MARKET".to_owned(),
+        data_kind: "BAR".to_owned(),
+        timeframe: "1M".to_owned(),
+        field: "CLOSE".to_owned(),
+        value_mantissa: 12_345,
+        value_scale: 2,
+        event_effective: request.time_evidence.event_effective.value,
+        provider_available: request.time_evidence.provider_available.value,
+        retrieval: request.time_evidence.retrieval.value,
+        correction_publication: request
+            .time_evidence
+            .correction_publication
+            .as_ref()
+            .expect("correction time")
+            .value,
+        source_binding_identity: source.receipt().locator().binding_id,
+        source_frontier_digest: evidence.source_frontier.digest,
+        instrument_master_digest: request.instrument_master_digest,
+        universe_selection_digest: request.universe_selection_digest,
+        market_semantics_identity: request.market_semantics_identity,
+        correction_stream_identity: evidence.correction_frontier.stream_identity.clone(),
+        correction_sequence: evidence.correction_frontier.sequence,
+        correction_frontier_digest: evidence.correction_frontier.digest,
+    };
+    let row_bytes = canonical_observation_bytes(&row);
+    let batch_bytes = canonical_batch_bytes(std::slice::from_ref(&row));
+    value.evidence.normalized_records_digest =
+        BindingDigest::from_untrusted_bytes(*blake3::hash(&batch_bytes).as_bytes());
+    let basis = canonical_basis(&value, &source);
+    let aggregate = TestOnlyPitSnapshotOwner::default()
+        .commit_initial(value, &basis, &source_owner, &source_read_clock(40, 40, 1))
+        .expect("snapshot");
+    (
+        aggregate,
+        row.clone(),
+        batch_bytes,
+        vec![ObservedPitObservationNativeRow {
+            ordinal: 1,
+            symbolic_key: row.symbolic_key.clone(),
+            member_key: row.member_key,
+            row_bytes,
+        }],
+    )
+}
+
+fn untrusted_observation(row: &VerifiedPitObservation) -> UntrustedPitObservation {
+    UntrustedPitObservation {
+        symbolic_key: row.symbolic_key.clone(),
+        member_key: row.member_key.clone(),
+        instrument: row.instrument.clone(),
+        channel: row.channel.clone(),
+        data_kind: row.data_kind.clone(),
+        timeframe: row.timeframe.clone(),
+        field: row.field.clone(),
+        value_mantissa: row.value_mantissa,
+        value_scale: row.value_scale,
+        event_effective: row.event_effective,
+        provider_available: row.provider_available,
+        retrieval: row.retrieval,
+        correction_publication: row.correction_publication,
+        source_binding_identity: row.source_binding_identity,
+        source_frontier_digest: row.source_frontier_digest,
+        instrument_master_digest: row.instrument_master_digest,
+        universe_selection_digest: row.universe_selection_digest,
+        market_semantics_identity: row.market_semantics_identity,
+        correction_stream_identity: row.correction_stream_identity.clone(),
+        correction_sequence: row.correction_sequence,
+        correction_frontier_digest: row.correction_frontier_digest,
+    }
+}
+
+#[rstest]
+fn explicit_untrusted_batch_is_prepared_only_when_complete_owner_claims_match() {
+    let (aggregate, row, batch_bytes, _) = observation_batch_fixture();
+    let snapshot = UntrustedPitSnapshotProposal {
+        request: aggregate.fact().request().clone(),
+        evidence: aggregate.fact().evidence().clone(),
+    };
+    let prepared = prepare_observation_batch(
+        &snapshot,
+        &UntrustedPitObservationBatchProposal {
+            rows: vec![untrusted_observation(&row)],
+        },
+    )
+    .expect("prepared batch");
+    assert_eq!(prepared.bytes(), batch_bytes);
+    assert_eq!(
+        prepared.digest(),
+        snapshot.evidence.normalized_records_digest
+    );
+
+    let mut forged = untrusted_observation(&row);
+    forged.market_semantics_identity = d(99);
+    assert_eq!(
+        prepare_observation_batch(
+            &snapshot,
+            &UntrustedPitObservationBatchProposal { rows: vec![forged] },
+        ),
+        Err(PitSnapshotError::InvalidObservationBatch)
+    );
+    assert_eq!(
+        prepare_observation_batch(
+            &snapshot,
+            &UntrustedPitObservationBatchProposal {
+                rows: vec![untrusted_observation(&row), untrusted_observation(&row)],
+            },
+        ),
+        Err(PitSnapshotError::InvalidObservationBatch)
+    );
+}
+
+#[rstest]
+fn complete_canonical_observation_batch_is_verified_before_selection() {
+    let (aggregate, _, batch_bytes, rows) = observation_batch_fixture();
+    let digest = BindingDigest::from_untrusted_bytes(*blake3::hash(&batch_bytes).as_bytes());
+    let verified = verify_observation_batch(
+        &aggregate,
+        aggregate.fact().source_binding_identity(),
+        aggregate.fact().source_binding_lineage_root(),
+        aggregate.fact().source_binding_lineage_version(),
+        digest,
+        &batch_bytes,
+        &rows,
+    )
+    .expect("verified batch");
+
+    assert_eq!(verified.digest(), digest);
+    assert_eq!(
+        verified.snapshot_identity(),
+        aggregate.fact().snapshot_identity()
+    );
+    assert_eq!(verified.observations().len(), 1);
+    assert_eq!(
+        verified
+            .select("AAPL.CLOSE", "AAPL.XNAS")
+            .expect("member")
+            .value_mantissa(),
+        12_345
+    );
+}
+
+#[rstest]
+fn batch_rejects_digest_row_count_order_duplicate_and_unknown_bytes() {
+    let (aggregate, row, batch_bytes, rows) = observation_batch_fixture();
+    let digest = BindingDigest::from_untrusted_bytes(*blake3::hash(&batch_bytes).as_bytes());
+
+    assert_eq!(
+        verify_observation_batch(
+            &aggregate,
+            aggregate.fact().source_binding_identity(),
+            aggregate.fact().source_binding_lineage_root(),
+            aggregate.fact().source_binding_lineage_version(),
+            d(99),
+            &batch_bytes,
+            &rows,
+        ),
+        Err(PitSnapshotError::ObservationBatchUnavailable)
+    );
+    assert_eq!(
+        verify_observation_batch(
+            &aggregate,
+            aggregate.fact().source_binding_identity(),
+            aggregate.fact().source_binding_lineage_root(),
+            aggregate.fact().source_binding_lineage_version(),
+            digest,
+            &batch_bytes,
+            &[],
+        ),
+        Err(PitSnapshotError::ObservationBatchUnavailable)
+    );
+
+    let duplicate_rows = [row.clone(), row.clone()];
+    let duplicate_bytes = canonical_batch_bytes(&duplicate_rows);
+    assert_eq!(
+        decode_canonical_observation_batch(
+            &duplicate_bytes,
+            &[
+                canonical_observation_bytes(&row),
+                canonical_observation_bytes(&row)
+            ],
+        ),
+        Err(PitSnapshotError::InvalidObservationBatch)
+    );
+
+    let mut unknown = rows[0].row_bytes.clone();
+    unknown.push(1);
+    let domain = b"VIBE_PIT_OBSERVATION_BATCH_V1";
+    let mut unknown_batch = Vec::new();
+    unknown_batch.extend_from_slice(&(domain.len() as u64).to_be_bytes());
+    unknown_batch.extend_from_slice(domain);
+    unknown_batch.extend_from_slice(&1_u64.to_be_bytes());
+    unknown_batch.extend_from_slice(&(unknown.len() as u64).to_be_bytes());
+    unknown_batch.extend_from_slice(&unknown);
+    assert_eq!(
+        decode_canonical_observation_batch(&unknown_batch, &[unknown]),
+        Err(PitSnapshotError::InvalidObservationBatch)
+    );
+}
+
+#[rstest]
+fn batch_rejects_every_native_header_and_row_index_mutation() {
+    let (aggregate, _, batch_bytes, rows) = observation_batch_fixture();
+    let digest = BindingDigest::from_untrusted_bytes(*blake3::hash(&batch_bytes).as_bytes());
+    let verify = |source_identity,
+                  source_root,
+                  source_version,
+                  native_rows: &[ObservedPitObservationNativeRow]| {
+        verify_observation_batch(
+            &aggregate,
+            source_identity,
+            source_root,
+            source_version,
+            digest,
+            &batch_bytes,
+            native_rows,
+        )
+    };
+    assert_eq!(
+        verify(
+            d(91),
+            aggregate.fact().source_binding_lineage_root(),
+            aggregate.fact().source_binding_lineage_version(),
+            &rows,
+        ),
+        Err(PitSnapshotError::ObservationBatchUnavailable)
+    );
+    assert_eq!(
+        verify(
+            aggregate.fact().source_binding_identity(),
+            d(92),
+            aggregate.fact().source_binding_lineage_version(),
+            &rows,
+        ),
+        Err(PitSnapshotError::ObservationBatchUnavailable)
+    );
+    assert_eq!(
+        verify(
+            aggregate.fact().source_binding_identity(),
+            aggregate.fact().source_binding_lineage_root(),
+            aggregate.fact().source_binding_lineage_version() + 1,
+            &rows,
+        ),
+        Err(PitSnapshotError::ObservationBatchUnavailable)
+    );
+
+    for mutate in [
+        |row: &mut ObservedPitObservationNativeRow| row.ordinal += 1,
+        |row: &mut ObservedPitObservationNativeRow| row.symbolic_key.push_str(".FORGED"),
+        |row: &mut ObservedPitObservationNativeRow| row.member_key.push_str(".FORGED"),
+    ] {
+        let mut forged = rows.clone();
+        mutate(&mut forged[0]);
+        assert_eq!(
+            verify(
+                aggregate.fact().source_binding_identity(),
+                aggregate.fact().source_binding_lineage_root(),
+                aggregate.fact().source_binding_lineage_version(),
+                &forged,
+            ),
+            Err(PitSnapshotError::ObservationBatchUnavailable)
+        );
+    }
+}
+
+#[rstest]
+fn batch_rejects_invalid_scale_and_four_time_custody() {
+    let (_, mut row, _, _) = observation_batch_fixture();
+    row.value_scale = 19;
+    let invalid_scale = canonical_batch_bytes(std::slice::from_ref(&row));
+    assert_eq!(
+        decode_canonical_observation_batch(&invalid_scale, &[canonical_observation_bytes(&row)],),
+        Err(PitSnapshotError::InvalidObservationBatch)
+    );
+
+    row.value_scale = 2;
+    row.correction_publication = row.retrieval + 1;
+    let invalid_time = canonical_batch_bytes(std::slice::from_ref(&row));
+    assert_eq!(
+        decode_canonical_observation_batch(&invalid_time, &[canonical_observation_bytes(&row)],),
+        Err(PitSnapshotError::InvalidObservationBatch)
+    );
 }

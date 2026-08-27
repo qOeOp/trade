@@ -8,7 +8,10 @@
 
 mod postgres;
 
-use std::{fmt::Display, sync::Arc};
+use std::{
+    fmt::{Debug, Display},
+    sync::Arc,
+};
 
 use async_trait::async_trait;
 use serde::Serialize;
@@ -212,6 +215,318 @@ impl SealedDeploymentStoreAdmissionReceipt {
     }
 }
 
+/// Opaque, consumed authority for constructing the Market Data Source Binding PostgreSQL read port.
+///
+/// This value is issued only after the complete custodian pipeline commits its sealed receipt. It
+/// deliberately implements neither `Clone` nor `Serialize`, and it exposes no DSN, pool, manifest,
+/// measurement envelope, or caller-authored evidence.
+///
+/// A caller cannot duplicate the capability:
+///
+/// ```compile_fail
+/// use vibe_deployment_store_admission::AdmittedMarketDataPostgresCapability;
+///
+/// fn duplicate(capability: AdmittedMarketDataPostgresCapability) {
+///     let _copy = capability.clone();
+/// }
+/// ```
+///
+/// It also cannot be serialized into caller-owned evidence:
+///
+/// ```compile_fail
+/// use vibe_deployment_store_admission::AdmittedMarketDataPostgresCapability;
+///
+/// fn serialize(capability: &AdmittedMarketDataPostgresCapability) {
+///     let _bytes = serde_json::to_vec(capability).unwrap();
+/// }
+/// ```
+pub struct AdmittedMarketDataPostgresCapability {
+    receipt: SealedDeploymentStoreAdmissionReceipt,
+    credential_lease: PostgresCredentialLease,
+    revalidator: Arc<Custodian>,
+    scope: AdmissionScope,
+}
+
+impl Debug for AdmittedMarketDataPostgresCapability {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(AdmittedMarketDataPostgresCapability))
+            .field("receipt_identity", &self.receipt.receipt_identity)
+            .field("consumer_identity", &self.receipt.consumer_identity)
+            .finish_non_exhaustive()
+    }
+}
+
+impl AdmittedMarketDataPostgresCapability {
+    /// Returns the sealed receipt identity without exposing the receipt body.
+    #[must_use]
+    pub fn receipt_identity(&self) -> &str {
+        self.receipt.receipt_identity()
+    }
+
+    /// Returns the exact fixed consumer identity sealed by the custodian.
+    #[must_use]
+    pub fn consumer_identity(&self) -> &str {
+        self.receipt.consumer_identity()
+    }
+
+    /// Consumes this authority into the only admitted Market Data storage operation.
+    #[must_use]
+    pub fn into_source_binding_snapshot_port(self) -> AdmittedMarketDataSourceBindingSnapshotPort {
+        AdmittedMarketDataSnapshotPort {
+            receipt: self.receipt,
+            revalidator: self.revalidator,
+            scope: self.scope,
+        }
+    }
+
+    /// Consumes this authority into the fixed Market Data PIT-evaluation snapshot operation.
+    #[must_use]
+    pub fn into_pit_evaluation_snapshot_port(self) -> AdmittedMarketDataSnapshotPort {
+        self.into_source_binding_snapshot_port()
+    }
+}
+
+/// DSA-owned opaque port exposing only fixed Market Data snapshot operations.
+///
+/// The superseded generic SQL surface is intentionally absent:
+///
+/// ```compile_fail
+/// use vibe_deployment_store_admission::AdmittedMarketDataPostgresReadPool;
+/// ```
+pub struct AdmittedMarketDataSnapshotPort {
+    receipt: SealedDeploymentStoreAdmissionReceipt,
+    revalidator: Arc<Custodian>,
+    scope: AdmissionScope,
+}
+
+impl Debug for AdmittedMarketDataSnapshotPort {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(AdmittedMarketDataSnapshotPort))
+            .field("receipt_identity", &self.receipt.receipt_identity)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Compatibility name for the original fixed Source Binding operation.
+pub type AdmittedMarketDataSourceBindingSnapshotPort = AdmittedMarketDataSnapshotPort;
+
+/// Exact raw rows observed inside one fixed read-only Market Data snapshot.
+pub struct MarketDataSourceBindingStorageEvidence {
+    admission_receipt_identity: String,
+    lineage_rows: Vec<Vec<u8>>,
+    clock_rows: Vec<Vec<u8>>,
+}
+
+/// Exact raw PIT, Source Binding, clock, and normalized-batch custody observed in one snapshot.
+///
+/// DSA deliberately does not decode these business bytes. `vibe-data` is the sole verifier that
+/// may turn the complete evidence into a verified observation batch.
+pub struct MarketDataPitEvaluationStorageEvidence {
+    admission_receipt_identity: String,
+    pit_lineage_rows: Vec<Vec<u8>>,
+    source_lineage_rows: Vec<Vec<u8>>,
+    clock_rows: Vec<Vec<u8>>,
+    batch_source_binding_identity: [u8; 32],
+    batch_source_binding_lineage_root: [u8; 32],
+    batch_source_binding_lineage_version: u64,
+    batch_digest: [u8; 32],
+    batch_bytes: Vec<u8>,
+    batch_rows: Vec<MarketDataPitObservationNativeRow>,
+}
+
+/// Exact native index columns and bytes for one normalized PIT observation row.
+pub struct MarketDataPitObservationNativeRow {
+    ordinal: u64,
+    symbolic_key: String,
+    member_key: String,
+    row_bytes: Vec<u8>,
+}
+
+impl MarketDataPitObservationNativeRow {
+    #[must_use]
+    pub const fn ordinal(&self) -> u64 {
+        self.ordinal
+    }
+    #[must_use]
+    pub fn symbolic_key(&self) -> &str {
+        &self.symbolic_key
+    }
+    #[must_use]
+    pub fn member_key(&self) -> &str {
+        &self.member_key
+    }
+    #[must_use]
+    pub fn row_bytes(&self) -> &[u8] {
+        &self.row_bytes
+    }
+}
+
+impl MarketDataPitEvaluationStorageEvidence {
+    #[must_use]
+    pub fn admission_receipt_identity(&self) -> &str {
+        &self.admission_receipt_identity
+    }
+    #[must_use]
+    pub fn pit_lineage_rows(&self) -> &[Vec<u8>] {
+        &self.pit_lineage_rows
+    }
+    #[must_use]
+    pub fn source_lineage_rows(&self) -> &[Vec<u8>] {
+        &self.source_lineage_rows
+    }
+    #[must_use]
+    pub fn clock_rows(&self) -> &[Vec<u8>] {
+        &self.clock_rows
+    }
+    #[must_use]
+    pub const fn batch_source_binding_identity(&self) -> &[u8; 32] {
+        &self.batch_source_binding_identity
+    }
+    #[must_use]
+    pub const fn batch_source_binding_lineage_root(&self) -> &[u8; 32] {
+        &self.batch_source_binding_lineage_root
+    }
+    #[must_use]
+    pub const fn batch_source_binding_lineage_version(&self) -> u64 {
+        self.batch_source_binding_lineage_version
+    }
+    #[must_use]
+    pub const fn batch_digest(&self) -> &[u8; 32] {
+        &self.batch_digest
+    }
+    #[must_use]
+    pub fn batch_bytes(&self) -> &[u8] {
+        &self.batch_bytes
+    }
+    #[must_use]
+    pub fn batch_rows(&self) -> &[MarketDataPitObservationNativeRow] {
+        &self.batch_rows
+    }
+}
+
+impl MarketDataSourceBindingStorageEvidence {
+    #[must_use]
+    pub fn admission_receipt_identity(&self) -> &str {
+        &self.admission_receipt_identity
+    }
+    #[must_use]
+    pub fn lineage_rows(&self) -> &[Vec<u8>] {
+        &self.lineage_rows
+    }
+    #[must_use]
+    pub fn clock_rows(&self) -> &[Vec<u8>] {
+        &self.clock_rows
+    }
+}
+
+impl AdmittedMarketDataSnapshotPort {
+    /// Reads one fixed Source Binding snapshot after full admission both before checkout and return.
+    pub async fn resolve(
+        &self,
+        binding_identity: [u8; 32],
+    ) -> Result<MarketDataSourceBindingStorageEvidence, DeploymentStoreAdmissionError> {
+        let before = self
+            .revalidator
+            .admit_capability(self.scope.clone())
+            .await?;
+
+        if !same_snapshot_cut(&self.receipt, &before.receipt) {
+            return Err(rejection(
+                &self.scope,
+                AdmissionFailureCode::AdmissionCutExpired,
+            ));
+        }
+        let (lineage_rows, clock_rows) = postgres::read_market_data_source_binding_snapshot(
+            &before.credential_lease,
+            &binding_identity,
+        )
+        .await
+        .map_err(|_| {
+            rejection(
+                &self.scope,
+                AdmissionFailureCode::DirectMeasurementUnavailable,
+            )
+        })?;
+        let after = self
+            .revalidator
+            .admit_capability(self.scope.clone())
+            .await?;
+
+        if !same_snapshot_cut(&self.receipt, &after.receipt) {
+            return Err(rejection(
+                &self.scope,
+                AdmissionFailureCode::AdmissionCutExpired,
+            ));
+        }
+        Ok(MarketDataSourceBindingStorageEvidence {
+            admission_receipt_identity: self.receipt.receipt_identity.clone(),
+            lineage_rows,
+            clock_rows,
+        })
+    }
+
+    /// Reads one fixed PIT-evaluation snapshot after admission both before checkout and return.
+    pub async fn resolve_pit_evaluation(
+        &self,
+        snapshot_identity: [u8; 32],
+    ) -> Result<MarketDataPitEvaluationStorageEvidence, DeploymentStoreAdmissionError> {
+        let before = self
+            .revalidator
+            .admit_capability(self.scope.clone())
+            .await?;
+
+        if !same_snapshot_cut(&self.receipt, &before.receipt) {
+            return Err(rejection(
+                &self.scope,
+                AdmissionFailureCode::AdmissionCutExpired,
+            ));
+        }
+        let raw = postgres::read_market_data_pit_evaluation_snapshot(
+            &before.credential_lease,
+            &snapshot_identity,
+        )
+        .await
+        .map_err(|_| {
+            rejection(
+                &self.scope,
+                AdmissionFailureCode::DirectMeasurementUnavailable,
+            )
+        })?;
+        let after = self
+            .revalidator
+            .admit_capability(self.scope.clone())
+            .await?;
+
+        if !same_snapshot_cut(&self.receipt, &after.receipt) {
+            return Err(rejection(
+                &self.scope,
+                AdmissionFailureCode::AdmissionCutExpired,
+            ));
+        }
+        Ok(MarketDataPitEvaluationStorageEvidence {
+            admission_receipt_identity: self.receipt.receipt_identity.clone(),
+            pit_lineage_rows: raw.pit_lineage_rows,
+            source_lineage_rows: raw.source_lineage_rows,
+            clock_rows: raw.clock_rows,
+            batch_source_binding_identity: raw.batch_source_binding_identity,
+            batch_source_binding_lineage_root: raw.batch_source_binding_lineage_root,
+            batch_source_binding_lineage_version: raw.batch_source_binding_lineage_version,
+            batch_digest: raw.batch_digest,
+            batch_bytes: raw.batch_bytes,
+            batch_rows: raw.batch_rows,
+        })
+    }
+}
+
+fn same_snapshot_cut(
+    expected: &SealedDeploymentStoreAdmissionReceipt,
+    observed: &SealedDeploymentStoreAdmissionReceipt,
+) -> bool {
+    expected == observed
+}
+
 /// Stable failure categories at the custody boundary.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -293,7 +608,7 @@ impl std::error::Error for DeploymentStoreAdmissionError {}
 /// Returns a typed fail-closed custody incident while production ports remain unavailable.
 pub async fn admit_rd_owner_market_data_postgres(
     request: &RdOwnerMarketDataAdmissionRequest,
-) -> Result<SealedDeploymentStoreAdmissionReceipt, DeploymentStoreAdmissionError> {
+) -> Result<AdmittedMarketDataPostgresCapability, DeploymentStoreAdmissionError> {
     let custodian = Custodian::new(
         Arc::new(UnavailableCustodyStore),
         Arc::new(UnavailableSignatureVerifier),
@@ -302,7 +617,7 @@ pub async fn admit_rd_owner_market_data_postgres(
         Arc::new(UnavailableDirectMeasurer),
         Arc::new(SystemClock),
     );
-    custodian.admit(request.scope()).await
+    custodian.admit_capability(request.scope()).await
 }
 
 /// Makes the intentionally unavailable S3 boundary explicit without adding an adapter.
@@ -504,6 +819,19 @@ struct Custodian {
 }
 
 impl Custodian {
+    fn revalidator(&self) -> Arc<Self> {
+        Arc::new(Self::new(
+            Arc::clone(&self.custody),
+            Arc::clone(&self.signatures),
+            Arc::clone(&self.witness),
+            Arc::clone(&self.credentials),
+            Arc::clone(&self.measurer),
+            Arc::clone(&self.clock),
+        ))
+    }
+}
+
+impl Custodian {
     fn new(
         custody: Arc<dyn CustodyStore>,
         signatures: Arc<dyn SignatureVerifier>,
@@ -522,10 +850,20 @@ impl Custodian {
         }
     }
 
+    #[cfg(test)]
     async fn admit(
         &self,
         scope: AdmissionScope,
     ) -> Result<SealedDeploymentStoreAdmissionReceipt, DeploymentStoreAdmissionError> {
+        self.admit_capability(scope)
+            .await
+            .map(|capability| capability.receipt)
+    }
+
+    async fn admit_capability(
+        &self,
+        scope: AdmissionScope,
+    ) -> Result<AdmittedMarketDataPostgresCapability, DeploymentStoreAdmissionError> {
         let resolved =
             self.custody.resolve_history(&scope).await.map_err(|()| {
                 rejection(&scope, AdmissionFailureCode::ProductionResolverUnavailable)
@@ -708,7 +1046,8 @@ impl Custodian {
             valid_through_epoch_ms,
         };
 
-        self.custody
+        let receipt = self
+            .custody
             .commit_receipt_if_current(&scope, &commit_cut, receipt)
             .await
             .map_err(|e| match e {
@@ -725,7 +1064,13 @@ impl Custodian {
                 ReceiptCommitError::Expired => {
                     rejection(&scope, AdmissionFailureCode::AdmissionCutExpired)
                 }
-            })
+            })?;
+        Ok(AdmittedMarketDataPostgresCapability {
+            receipt,
+            credential_lease: lease,
+            revalidator: self.revalidator(),
+            scope,
+        })
     }
 
     async fn verify_signature<T: Serialize + Sync>(
@@ -1797,6 +2142,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn complete_custodian_pipeline_privately_issues_consumed_market_data_capability() {
+        let fixture = Fixture::new();
+        let capability = fixture
+            .custodian(Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)))
+            .admit_capability(fixture.request.scope())
+            .await
+            .expect("complete sealed admission");
+
+        assert!(capability.receipt_identity().starts_with("sha256:"));
+        assert_eq!(capability.consumer_identity(), RD_OWNER_API_CONSUMER);
+        assert!(!format!("{capability:?}").contains("password"));
+    }
+
+    #[tokio::test]
     async fn postgres_target_override_parameters_fail_before_connection() {
         let lease = PostgresCredentialLease::from_resolved_secret(
             "test-handle",
@@ -1949,5 +2308,29 @@ mod tests {
             ),
             Err(PostgresMeasurementError::InvalidSpecification)
         );
+    }
+
+    #[tokio::test]
+    async fn snapshot_cut_expiry_or_rotation_drift_discards_evidence() {
+        let fixture = Fixture::new();
+        let receipt = fixture
+            .custodian(Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)))
+            .admit(fixture.request.scope())
+            .await
+            .expect("sealed cut");
+
+        let mut expired_between_checkout_and_return = receipt.clone();
+        expired_between_checkout_and_return.valid_through_epoch_ms -= 1;
+        assert!(!same_snapshot_cut(
+            &receipt,
+            &expired_between_checkout_and_return
+        ));
+
+        let mut rotated_between_checkout_and_return = receipt.clone();
+        rotated_between_checkout_and_return.rotation_fence_identity = "rotation:new".to_string();
+        assert!(!same_snapshot_cut(
+            &receipt,
+            &rotated_between_checkout_and_return
+        ));
     }
 }

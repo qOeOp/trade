@@ -79,7 +79,7 @@ struct ReplayFixture {
 #[tokio::test]
 #[ignore = "requires the canonical disposable five-role PostgreSQL route"]
 async fn replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox() {
-    let fixture = prepare_replay_fixture(60_000).await;
+    let fixture = Box::pin(prepare_replay_fixture(60_000)).await;
     let blocker_pool = PgPool::connect(&fixture.edge_url)
         .await
         .expect("Product Edge blocker pool");
@@ -136,7 +136,7 @@ async fn replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox() {
 #[tokio::test]
 #[ignore = "requires the canonical disposable five-role PostgreSQL route"]
 async fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner() {
-    let fixture = prepare_replay_fixture(3_600_000).await;
+    let fixture = Box::pin(prepare_replay_fixture(3_600_000)).await;
     let ReplayFixture {
         database,
         owner,

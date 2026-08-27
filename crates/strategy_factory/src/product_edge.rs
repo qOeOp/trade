@@ -38,6 +38,18 @@ pub struct ProductEdgeResearchGoalRequestV2 {
     pub trial_family_proposal: TrialFamilyProposalV1,
 }
 
+/// Untrusted Research V2 proposal whose source frontier is intentionally
+/// absent. Source fields are assembled only from sealed R&D ancestry evidence.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct UnsourcedResearchProposalV1 {
+    pub request_identity: String,
+    pub channel: ProductEdgeChannel,
+    pub admission: ProductEdgeAdmissionLocatorV1,
+    pub goal: UnsourcedResearchGoalV1,
+    pub trial_family_proposal: TrialFamilyProposalV1,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ProductEdgeChannel {
@@ -70,6 +82,19 @@ pub struct SourcedResearchGoalV2 {
     pub cost_assumption: String,
     pub capacity_assumption: String,
     pub sources: Vec<ResearchSourceV1>,
+}
+
+/// Caller-supplied Research meaning without caller-supplied source authority.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct UnsourcedResearchGoalV1 {
+    pub hypothesis: String,
+    pub mechanism: String,
+    pub falsification_question: String,
+    pub expected_observation: String,
+    pub required_data: Vec<String>,
+    pub cost_assumption: String,
+    pub capacity_assumption: String,
 }
 
 /// Caller-safe TrialFamily proposal. R&D resolves every lineage field itself.
@@ -559,6 +584,80 @@ impl ValidatedResearchGoalRequestV2 {
     pub(crate) fn request(&self) -> &ProductEdgeResearchGoalRequestV2 {
         &self.request
     }
+
+    pub(crate) fn into_request(self) -> ProductEdgeResearchGoalRequestV2 {
+        self.request
+    }
+}
+
+/// Crate-private `PARTIAL` output that has passed the existing canonical
+/// Research V2 field validator. It contains no accepted Research fact.
+#[allow(
+    dead_code,
+    reason = "PARTIAL Source Intake ancestry awaits durable R&D Owner composition"
+)]
+pub(crate) struct PartialSourceIntakeResearchAdmissionInputV1 {
+    validated: ValidatedResearchGoalRequestV2,
+    ancestry_evidence_identity: String,
+}
+
+#[allow(
+    dead_code,
+    reason = "PARTIAL Source Intake ancestry awaits durable R&D Owner composition"
+)]
+impl PartialSourceIntakeResearchAdmissionInputV1 {
+    pub(crate) fn request(&self) -> &ProductEdgeResearchGoalRequestV2 {
+        self.validated.request()
+    }
+
+    pub(crate) fn ancestry_evidence_identity(&self) -> &str {
+        &self.ancestry_evidence_identity
+    }
+
+    pub(crate) fn into_canonical_request(self) -> ProductEdgeResearchGoalRequestV2 {
+        self.validated.into_request()
+    }
+}
+
+/// Assemble sealed Source Intake ancestry through the existing canonical
+/// Research V2 validator. This performs no Research admission or write.
+#[allow(
+    dead_code,
+    reason = "PARTIAL Source Intake ancestry awaits durable R&D Owner composition"
+)]
+pub(crate) fn assemble_partial_source_intake_research_admission_input(
+    proposal: UnsourcedResearchProposalV1,
+    ancestry: crate::source_intake::VerifiedSourceIntakeResearchAncestryV1,
+) -> Result<PartialSourceIntakeResearchAdmissionInputV1, RejectedResearchGoalRequestV2> {
+    let ancestry_evidence_identity = ancestry.evidence_identity().to_string();
+    let source = ancestry.into_research_source_projection();
+    let request = ProductEdgeResearchGoalRequestV2 {
+        request_identity: proposal.request_identity,
+        channel: proposal.channel,
+        admission: proposal.admission,
+        goal: SourcedResearchGoalV2 {
+            hypothesis: proposal.goal.hypothesis,
+            mechanism: proposal.goal.mechanism,
+            falsification_question: proposal.goal.falsification_question,
+            expected_observation: proposal.goal.expected_observation,
+            required_data: proposal.goal.required_data,
+            cost_assumption: proposal.goal.cost_assumption,
+            capacity_assumption: proposal.goal.capacity_assumption,
+            sources: vec![ResearchSourceV1 {
+                locator: source.locator,
+                content_digest: source.content_digest,
+                observed_at: source.observed_at,
+                source_cut: source.source_cut,
+                license_basis: source.license_basis,
+                interpretation: source.interpretation,
+            }],
+        },
+        trial_family_proposal: proposal.trial_family_proposal,
+    };
+    validate_goal_request_v2(request).map(|validated| PartialSourceIntakeResearchAdmissionInputV1 {
+        validated,
+        ancestry_evidence_identity,
+    })
 }
 
 impl RejectedResearchGoalRequestV2 {
@@ -1405,6 +1504,94 @@ mod v2_sealing_tests {
             canonical_research_view_identity_v2(&foreign_source),
             identity
         );
+    }
+
+    #[rstest]
+    fn unsourced_proposal_shape_has_no_research_source_fields() {
+        let proposal = unsourced_proposal();
+        let UnsourcedResearchProposalV1 {
+            request_identity: _,
+            channel: _,
+            admission: _,
+            goal,
+            trial_family_proposal: _,
+        } = proposal.clone();
+        let UnsourcedResearchGoalV1 {
+            hypothesis: _,
+            mechanism: _,
+            falsification_question: _,
+            expected_observation: _,
+            required_data: _,
+            cost_assumption: _,
+            capacity_assumption: _,
+        } = goal;
+        let json = serde_json::to_value(&proposal).unwrap();
+        assert!(json["goal"].get("sources").is_none());
+        let mut forged = json;
+        forged["goal"]["sources"] = serde_json::json!([]);
+        assert!(serde_json::from_value::<UnsourcedResearchProposalV1>(forged).is_err());
+    }
+
+    #[rstest]
+    fn sealed_ancestry_assembles_only_a_partial_canonical_research_input() {
+        let (ancestry, content_digest) = crate::source_intake::verified_research_ancestry_fixture();
+        let ancestry_identity = ancestry.evidence_identity().to_string();
+        let partial =
+            assemble_partial_source_intake_research_admission_input(unsourced_proposal(), ancestry)
+                .unwrap_or_else(|_| panic!("canonical Research validator rejected valid assembly"));
+        assert_eq!(partial.ancestry_evidence_identity(), ancestry_identity);
+        assert_eq!(partial.request().goal.sources.len(), 1);
+        assert_eq!(
+            partial.request().goal.sources[0].content_digest,
+            content_digest
+        );
+        let canonical = partial.into_canonical_request();
+        assert_eq!(
+            canonical.goal.sources[0].locator,
+            "urn:doi:10.1234/ancestry"
+        );
+    }
+
+    #[rstest]
+    fn invalid_unsourced_meaning_is_rejected_by_canonical_research_validator() {
+        let mut proposal = unsourced_proposal();
+        proposal.goal.hypothesis = "short".into();
+        let (ancestry, _) = crate::source_intake::verified_research_ancestry_fixture();
+        match assemble_partial_source_intake_research_admission_input(proposal, ancestry) {
+            Err(rejected) => assert_eq!(rejected.into_parts().1, "HYPOTHESIS_INVALID"),
+            Ok(_) => panic!("invalid Research meaning reached partial admission input"),
+        }
+    }
+
+    fn unsourced_proposal() -> UnsourcedResearchProposalV1 {
+        UnsourcedResearchProposalV1 {
+            request_identity: "research-request-ancestry-001".into(),
+            channel: ProductEdgeChannel::WindmillProductEdge,
+            admission: ProductEdgeAdmissionLocatorV1 {
+                request_identity: "research-request-ancestry-001".into(),
+                admission_identity: "research-admission-ancestry-001".into(),
+                admission_digest: format!("sha256:{}", "7".repeat(64)),
+            },
+            goal: UnsourcedResearchGoalV1 {
+                hypothesis: "A testable research hypothesis with bounded meaning.".into(),
+                mechanism: "A causal mechanism that is distinct from source popularity.".into(),
+                falsification_question: "Does the mechanism fail on the frozen untouched cut?"
+                    .into(),
+                expected_observation: "The signed effect persists after costs.".into(),
+                required_data: vec!["point-in-time market observations".into()],
+                cost_assumption: "Frozen conservative cost model".into(),
+                capacity_assumption: "Frozen conservative capacity model".into(),
+            },
+            trial_family_proposal: TrialFamilyProposalV1 {
+                trial_budget: 16,
+                stop_rule: "Stop at the frozen family budget or first terminal falsifier.".into(),
+                pit_rule_identity: "pit-rule-v1".into(),
+                cost_model_identity: "cost-model-v1".into(),
+                slippage_model_identity: "slippage-model-v1".into(),
+                capacity_model_identity: "capacity-model-v1".into(),
+                independence_rationale: "No protected feedback informed this proposal.".into(),
+            },
+        }
     }
 
     fn request_v2(request_identity: &str) -> ProductEdgeResearchGoalRequestV2 {

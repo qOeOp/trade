@@ -21,6 +21,8 @@ an approved Risk permit into an order command but owns no order, fill, account e
   in the case cause set.
 - Runtime Readiness Fact bound to instance, generation, checkpoint, affected scope, cause frontier, `READY` or
   `NOT_READY`, local suppression receipt, and `valid-through`.
+- **TARGET:** generation-scoped shared-kernel semantic trace and versioned strategy checkpoint binding the exact
+  Plan, Artifact, ordered lifecycle frontier, strategy/plugin state, targets, protection and fill reconciliation.
 - Runtime Kernel Repair Result bound to one R&D-owned `native-repair-request`, stable correlation, predecessor
   `REPAIR_INPUTS` decision, original proof digest, old kernel version, decisive evidence, repair policy, and fresh
   Time Evidence. Runtime alone commits `REPAIRED`, `UNAVAILABLE`, or `OUTCOME_UNKNOWN` for that attempt.
@@ -36,6 +38,23 @@ an approved Risk permit into an order command but owns no order, fill, account e
 Checkpoint and readiness persistence are internal Runtime concerns rather than a second visible capability or
 authority. Their implementation may change as long as restart joins the same identities and preserves the facts
 above.
+
+## Shared strategy lifecycle contract
+
+Runtime may apply only the exact [StrategyDesignV2 shared-kernel path](../architecture/strategy-factory#strategy-design-v2-shared-lifecycle-kernel)
+carried by the governed generation: `StrategyPlanV2`, content-addressed Wasm Artifact, Owner bindings,
+`ProgramHost`, lifecycle/checkpoint/kernel/plugin versions, and Market Semantics Compatibility identity. The shared
+kernel alone consumes totally ordered `START`, `BAR`, `EVENT`, `FILL`, `TIMER`, `STOP` envelopes and owns
+`ENTER`, `ADD`, `REDUCE`, `EXIT`, `HOLD`, target position/weight/rebalance, protection adjustment and fill
+reconciliation. A plugin can return only its bounded typed value or state proposal; it has no raw-order, Risk,
+Execution, Portfolio, account or external-effect authority.
+
+Paper and Live equivalence is **TARGET / NOT_ADMITTED** until their adapters exist and are separately admitted.
+When admitted, both modes must consume the same Plan, Artifact, ordering, checkpoint and kernel and produce the
+same semantic trace for the same normalized event prefix up to the Risk/Execution adapter boundary. Only the
+adapter, account namespace and effect namespace may differ. Risk remains final intent admission, Execution owns
+orders/fills/effects, and Portfolio owns position and account truth; Runtime never promotes a kernel target or
+plugin output directly into an order or account state.
 
 ## Input handoffs
 

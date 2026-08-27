@@ -76,6 +76,31 @@ audience 响应边界 egress 和权利。loopback private link-local 禁止或�
 method endpoint query header/body digest origin 解析结果 redirect 序列 credential audience 响应边界 权利政策或时间截面改变时必须创建后继
 binding；冲突重放必须拒绝。
 
+### 获取权威类别
+
+每个 Source Acquisition Binding 必须且只能声明一种不可互换的权威类别：
+
+- `LIVE_EXTERNAL` 是生产类别。它要求当前真实的政策、Time Evidence、DNS 与解析地址证据、权利、
+  credential、egress 和 provider 权威。缺少任何必需权威时生产保持不可用，且不得回退到 fixture、
+  loopback 服务、测试 credential 或验收政策。
+- `SEALED_ACCEPTANCE` 是仅供验收的类别，只允许固定 DOI corpus、固定 provider response 与确定性拒绝
+  案例。它绑定隔离环境身份、provider-profile digest、fixture-corpus digest、sealed policy 与 Time
+  Evidence、request binding 和 retrieval evidence。它禁止外部网络，也不接受 caller 提供的 URL、header、
+  credential、DSN、provider 选择或 fixture 变更。
+
+权威类别及其全部类别专属证据必须交叉绑定到 acquisition binding、持久 invocation claim 与 start、终态
+receipt 和 readback。类别不匹配是 identity conflict，不是准确重放。验收 endpoint 必须使用非公开 fixture
+身份，绝不能伪装成 `api.openalex.org`；fixture 结果永远不是 live-provider 证据。
+
+一个 Source Intake Owner orchestrator 拥有完整生命周期：
+
+`admission → sealed/live policy → binding commit → durable claim/start → move-only permit → provider execution → retrieval time → atomic terminal`
+
+Product Edge API 仍只负责认证、类型化 DTO 与 projection；Windmill 仍只负责传输。API handler、script、
+flow、fixture adapter 或 caller 都不得拆分或复制 Owner custody。只有 Owner 可以提交 R&D PostgreSQL 中的
+claim、raw payload、终态 receipt、provenance、Source Candidate 与 outbox；只有 `ADMITTED` 加
+`RETRIEVED` 才能原子提交 positive record。
+
 ## 内部能力序列
 
 以下是 Source Intake 内部能力，不是新的 Flow 节点或 Owner：
@@ -127,6 +152,32 @@ connector policy retrieval cut 或内容摘要变化时创建新 attempt 身份�
 
 内容 retrieval cut license basis 或解释变化时创建后继记录。没有关联记录的 Source Candidate 不能交接。
 
+## 类型化 Source Intake-to-Research custody
+
+目标 composition 在 Source Intake 与 Research 之间只有一个由 R&D 拥有的类型化 ancestry operation。
+它接收不受信的 Source Intake attempt reference，然后从 Owner custody 锁定并重读准确 `RETRIEVED`
+terminal receipt、Research Source Provenance Record、Source Candidate 与匹配的 transition outbox。它校验
+这些成员共享的 request 与 attempt identity、规范 source 与 content digest、retrieval cut、connector 与
+acquisition-class identity、policy/Time Evidence 以及 rights/retention basis，然后只返回 sealed ancestry
+evidence。Source content 保持不受信，绝不授予 accepted Research custody。
+
+类型化 Research `RUN` 另行把不受信 Research proposal 与该 verified ancestry evidence 交给规范 R&D
+Research admission。R&D 是唯一 Intent owner：只有该 admission 可以解析 Independence Basis、当前
+Qualification frontier 与本地 semantic-predecessor lineage，再冻结 Intent、falsifier、永久 TrialFamily
+authority、receipts 和 Develop Composer 可消费的 current Research custody。仅凭 Source Intake attempt
+绝不能派生 `CurrentResearchDevelopCustodyV2`。
+
+caller 不能提供或修复任何 verified member。把 receipt 字段复制到 Research DTO、信任未经 Owner 重读的
+locator、把 JSON projection 当作规范 record，或把 Source Intake 与 Composer 共同部署，都不构成
+handoff。任一 ancestry member 缺失、不匹配、过期、不是 `RETRIEVED`、为负面终态或不可用，或规范
+Research admission 失败时，都不得创建 accepted Research custody、Research Intent、Design、Plan、
+Artifact 或 successor authority。相同 request 与 meaning 加入字节一致的 R&D operation receipt；identity
+被用于 changed meaning 时发生 conflict 且零正向写入，response loss 只能解析同一 attempt。
+
+该 operation 及其持久 PostgreSQL custody 是 `TARGET`，不是当前能力。crate-local Source Intake 合同与
+回归证据和 crate-local Composer 证明继续作为相互分离的 `CURRENT/PARTIAL` evidence。当前没有证据建立
+隔离 PostgreSQL/Windmill Source Intake runner；Product Edge D0 合同的组合动态 gate 仍未通过。
+
 ## Triage 与准入
 
 Triage 只安排阅读和实验顺序，不衡量策略质量。政策可以比较可证伪性 预期决策价值 数据可得性
@@ -169,3 +220,21 @@ correlation binding。含义改变必须创建后继请求；传输成功 静默
 - 交接测试证明初始 PIT Market Snapshot 响应关联准确冻结 Research 请求；提交 传输成功 不匹配响应或
   旧 snapshot 都不能替代该终态。
 - 端到端证明一个已接纳来源成为可追溯 Source Candidate，并且只有 Research 能冻结其后继 Intent。
+- 必须构建的 `SEALED_ACCEPTANCE` 拓扑应使用与生产预期相同的 Product Edge admission、Source Intake
+  Owner claim/start 与生命周期、R&D PostgreSQL transaction、终态 receipt，以及默认 Windmill
+  `RUN`/`RESOLVE` 传输。即使取得，该证据也仅适用于验收，绝不证明 `CURRENT` 生产、网络、credential、
+  权利、DNS、政策、Time Evidence 或 live-provider readiness。
+- 目标 A2 composition 部署固定链 `Source Intake RUN/RESOLVE -> typed Research RUN/RESOLVE ->
+  Composer RUN/RESOLVE`，使用编译期 sealed adapter、固定 Source Intake corpus、固定 A0 build corpus，以及唯一内部
+  PostgreSQL、Windmill、network、ingress 与 volume state。它没有 runtime provider selector。
+- A1 正向 transaction 把私有规范 A0 Build Receipt bytes 与 Artifact、Composer receipts 和 outbox 原子持久化，
+  同时让不透明、不可序列化的 verified token 保持 move-only 且仅存在于进程内。
+- 组合 runner 必须证明并发相同 request join 与 changed-meaning conflict、每个 atomic write fault 都零 partial
+  row、commit 后 response-loss resolution、重启后重读私有规范 A0 Build Receipt，并校验其 capsule、
+  toolchain、linker、configuration 与 two-build provenance，重新绑定 Artifact/Composer receipts，完成规范
+  byte parse/hash 与 `ProgramHostV2` readmission 后得到字节一致 `RESOLVE`。它还证明每个必需 single-field
+  mutation negative，包括另对规范 A0 Build Receipt 做一次单字段 mutation、已部署 golden-path replay，
+  以及 cleanup 到准确 baseline equality，且零 residue、零 shared-target change。
+- 在 runner 通过前，类型化 Research handoff、持久 Composer/API custody 与隔离 Windmill chain 都保持
+  `TARGET`。生产 Market Data binding resolution、live OpenAlex authority、`PRODUCT_CURRENT`、Dashboard、
+  Paper、Live、deployment 与 trading 都保持不可用。
