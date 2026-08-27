@@ -23,6 +23,7 @@ pub use postgres::{
     resolve_source_invocation_claim_for_downstream_in_transaction,
     resolve_source_invocation_started_for_downstream_in_transaction,
 };
+pub use vibe_product_edge_contracts::ProductEdgeAdmissionLocatorV1;
 
 pub const PRODUCT_EDGE_SCHEMA_V1: u32 = 1;
 pub const PORTFOLIO_READ_POLICY_SCHEMA_V1: u32 = 1;
@@ -285,14 +286,6 @@ impl ProductEdgeAdmissionRequestV1 {
     pub fn semantic_digest(&self) -> Result<String, ProductEdgeError> {
         canonical_digest("product-edge.admission-request.v1", self)
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProductEdgeAdmissionLocatorV1 {
-    pub request_identity: String,
-    pub admission_identity: String,
-    pub admission_digest: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

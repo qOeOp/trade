@@ -1,0 +1,18 @@
+[package]
+name = "vibe-product-edge-contracts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Pure Product Edge owner contracts"
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+
+[dev-dependencies]
+rstest = { workspace = true }
+serde_json = { workspace = true }
