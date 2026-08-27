@@ -14,6 +14,8 @@ Qualification 投影构成一条按 principal/scope 绑定、只追加且无环�
 
 R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt，Research 能力再冻结一个 Exploratory Replay Request，绑定准确工件 数据范围 重放配置和模型身份后，独立 Backtest 服务才接收。探索事实只返回 R&D 并可形成后继 Intent。R&D 维护只追加 TrialFamily Census Frontier，且只有 R&D 能提交 Iteration Decision；终态停止不创建 Selection。只有 `READY_FOR_SELECTION` 决定才能产生仅选择 `SELECTED_FOR_QUALIFICATION` disposition 并提交 Qualification Candidate。
 
+<a id="strategy-design-v2-shared-lifecycle-kernel"></a>
+
 ## StrategyDesignV2 与共享生命周期内核
 
 这是把任意已接纳 Research 转换为可执行策略的顶层契约，不是第二个 Strategy Owner 或 runtime。唯一

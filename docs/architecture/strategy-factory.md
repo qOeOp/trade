@@ -14,6 +14,8 @@ Qualification projections form one append-only, acyclic principal/scope chain. I
 
 R&D's Develop capability returns one content-addressed Strategy Artifact and Build Receipt, then its Research capability freezes one Exploratory Replay Request binding that exact artifact, data scope, replay configuration, and model identities before the separate Backtest service accepts it. Exploratory facts return only to R&D and can create a successor Intent. R&D maintains the append-only TrialFamily Census Frontier and alone commits Iteration Decision. A terminal stop ends there with no Selection. Only a `READY_FOR_SELECTION` decision may produce the selected-only `SELECTED_FOR_QUALIFICATION` disposition and submit the Qualification Candidate.
 
+<a id="strategy-design-v2-shared-lifecycle-kernel"></a>
+
 ## StrategyDesignV2 and the shared lifecycle kernel
 
 This is the top-level contract for turning arbitrary admitted Research into an executable strategy. It is not a

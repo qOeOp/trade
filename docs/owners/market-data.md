@@ -56,7 +56,7 @@ Provide canonical, time-correct market, reference, and instrument facts to every
 
 ## Strategy input-role binding
 
-For the [StrategyDesignV2 compiler](../architecture/strategy-factory#strategydesignv2-and-the-shared-lifecycle-kernel),
+For the [StrategyDesignV2 compiler](../architecture/strategy-factory#strategy-design-v2-shared-lifecycle-kernel),
 Research declares a typed input role and Market Data alone resolves market/reference roles to an exact sealed
 binding receipt. The receipt binds the role to a role-independent stable selection identity covering field
 semantics, instrument or stable Universe Selection Record scope, timeframe/bar specification, units and scaling,

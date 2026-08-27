@@ -58,7 +58,7 @@ Unify Research and Develop under one business-fact Owner. The Research capabilit
 
 ## Strategy design and Develop compilation
 
-The [StrategyDesignV2 contract](../architecture/strategy-factory#strategydesignv2-and-the-shared-lifecycle-kernel)
+The [StrategyDesignV2 contract](../architecture/strategy-factory#strategy-design-v2-shared-lifecycle-kernel)
 governs how arbitrary admitted Research becomes executable. R&D alone freezes the typed, content-addressed
 `StrategyDesignV2`, including its stable primitive semantic IDs, declared input roles, lifecycle/state/target/
 protection meaning, optional bounded-plugin manifest, and Research Intent binding. Develop deterministically
