@@ -572,7 +572,7 @@ impl PostgresResearchGoalOwnerV1 {
                     IS DISTINCT FROM sealed.source_ancestry_locator_json
                  OR sealed.artifact_evidence_json->>'source_ancestry_evidence_digest'
                     IS DISTINCT FROM sealed.source_ancestry_evidence_digest
-                 OR sealed.artifact_evidence_json->>'evidence_identity' <> CASE
+                 OR sealed.artifact_evidence_json->>'evidence_identity' <> (CASE
                       WHEN sealed.source_ancestry_evidence_digest IS NULL THEN
                         'rd-current-research-artifact-evidence-v1-' ||
                         sealed.receipt_json->>'receipt_identity' || ':' ||
@@ -590,7 +590,7 @@ impl PostgresResearchGoalOwnerV1 {
                             sealed.source_ancestry_evidence_digest
                           ]::text[]
                         ), 8)
-                    END
+                    END)
               THEN RETURN NULL; END IF;
               RETURN pg_catalog.jsonb_build_object(
                 'evidence_digest', sealed.artifact_evidence_digest,
@@ -684,7 +684,7 @@ impl PostgresResearchGoalOwnerV1 {
                     IS DISTINCT FROM sealed.source_ancestry_locator_json
                  OR sealed.artifact_evidence_json->>'source_ancestry_evidence_digest'
                     IS DISTINCT FROM sealed.source_ancestry_evidence_digest
-                 OR sealed.artifact_evidence_json->>'evidence_identity' <> CASE
+                 OR sealed.artifact_evidence_json->>'evidence_identity' <> (CASE
                       WHEN sealed.source_ancestry_evidence_digest IS NULL THEN
                         'rd-current-research-artifact-evidence-v1-' ||
                         sealed.receipt_json->>'receipt_identity' || ':' ||
@@ -702,7 +702,7 @@ impl PostgresResearchGoalOwnerV1 {
                             sealed.source_ancestry_evidence_digest
                           ]::text[]
                         ), 8)
-                    END
+                    END)
               THEN RETURN NULL; END IF;
               RETURN pg_catalog.jsonb_build_object(
                 'owner_cut_epoch_ms', pg_catalog.floor(extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint,
