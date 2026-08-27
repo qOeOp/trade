@@ -20,6 +20,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 vibe-operator-authorization = { workspace = true }
 vibe-product-edge-claim-custody = { workspace = true }
+vibe-product-edge-contracts = { workspace = true }
 vibe-rd-artifact-invocation-custody = { workspace = true }
 vibe-rd-source-intake-invocation-custody = { workspace = true }
 

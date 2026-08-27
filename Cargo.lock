@@ -10958,6 +10958,7 @@ dependencies = [
  "tokio",
  "vibe-operator-authorization",
  "vibe-product-edge-claim-custody",
+ "vibe-product-edge-contracts",
  "vibe-rd-artifact-invocation-custody",
  "vibe-rd-source-intake-invocation-custody",
  "vibe-testkit",
@@ -10986,6 +10987,15 @@ dependencies = [
  "sha2 0.10.9",
  "sqlx",
  "thiserror 2.0.19",
+]
+
+[[package]]
+name = "vibe-product-edge-contracts"
+version = "0.62.0"
+dependencies = [
+ "rstest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

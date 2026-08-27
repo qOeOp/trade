@@ -47,6 +47,7 @@ members = [
   "crates/plugin",
   "crates/portfolio",
   "crates/product_edge",
+  "crates/product_edge_contracts",
   "crates/product_edge_claim_custody",
   "crates/product_edge_admin",
   "crates/pyo3",
@@ -99,6 +100,7 @@ vibe-persistence-macros = { path = "crates/persistence/macros", version = "0.62.
 vibe-portfolio = { path = "crates/portfolio", version = "0.62.0" }
 vibe-product-edge = { path = "crates/product_edge", version = "0.62.0" }
 vibe-product-edge-claim-custody = { path = "crates/product_edge_claim_custody", version = "0.62.0" }
+vibe-product-edge-contracts = { path = "crates/product_edge_contracts", version = "0.62.0" }
 vibe-pyo3 = { path = "crates/pyo3", version = "0.62.0" }
 vibe-qualification = { path = "crates/qualification", version = "0.62.0" }
 vibe-rd-artifact-invocation-custody = { path = "crates/rd_artifact_invocation_custody", version = "0.62.0" }
