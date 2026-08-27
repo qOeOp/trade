@@ -285,6 +285,12 @@ impl AdmittedMarketDataPostgresCapability {
     pub fn into_pit_evaluation_snapshot_port(self) -> AdmittedMarketDataSnapshotPort {
         self.into_source_binding_snapshot_port()
     }
+
+    /// Consumes this authority into the fixed Market Data PIT-terminal snapshot operation.
+    #[must_use]
+    pub fn into_pit_terminal_snapshot_port(self) -> AdmittedMarketDataSnapshotPort {
+        self.into_source_binding_snapshot_port()
+    }
 }
 
 /// DSA-owned opaque port exposing only fixed Market Data snapshot operations.
@@ -334,6 +340,18 @@ pub struct MarketDataPitEvaluationStorageEvidence {
     batch_digest: [u8; 32],
     batch_bytes: Vec<u8>,
     batch_rows: Vec<MarketDataPitObservationNativeRow>,
+}
+
+/// Exact raw PIT, Source Binding, and clock custody observed for one terminal read.
+///
+/// Unlike evaluation evidence, this DTO deliberately has no normalized-observation batch. DSA
+/// does not decode Market Data business bytes; `vibe-data` alone validates the terminal
+/// disposition and every request, source, lineage, and time binding.
+pub struct MarketDataPitTerminalStorageEvidence {
+    admission_receipt_identity: String,
+    pit_lineage_rows: Vec<Vec<u8>>,
+    source_lineage_rows: Vec<Vec<u8>>,
+    clock_rows: Vec<Vec<u8>>,
 }
 
 /// Exact native index columns and bytes for one normalized PIT observation row.
@@ -403,6 +421,25 @@ impl MarketDataPitEvaluationStorageEvidence {
     #[must_use]
     pub fn batch_rows(&self) -> &[MarketDataPitObservationNativeRow] {
         &self.batch_rows
+    }
+}
+
+impl MarketDataPitTerminalStorageEvidence {
+    #[must_use]
+    pub fn admission_receipt_identity(&self) -> &str {
+        &self.admission_receipt_identity
+    }
+    #[must_use]
+    pub fn pit_lineage_rows(&self) -> &[Vec<u8>] {
+        &self.pit_lineage_rows
+    }
+    #[must_use]
+    pub fn source_lineage_rows(&self) -> &[Vec<u8>] {
+        &self.source_lineage_rows
+    }
+    #[must_use]
+    pub fn clock_rows(&self) -> &[Vec<u8>] {
+        &self.clock_rows
     }
 }
 
@@ -516,6 +553,55 @@ impl AdmittedMarketDataSnapshotPort {
             batch_digest: raw.batch_digest,
             batch_bytes: raw.batch_bytes,
             batch_rows: raw.batch_rows,
+        })
+    }
+
+    /// Reads one fixed PIT-terminal snapshot after admission both before checkout and return.
+    ///
+    /// Storage or transport failure remains an admission error. It is never converted into a
+    /// Market Data `UNAVAILABLE` disposition.
+    pub async fn resolve_pit_terminal(
+        &self,
+        snapshot_identity: [u8; 32],
+    ) -> Result<MarketDataPitTerminalStorageEvidence, DeploymentStoreAdmissionError> {
+        let before = self
+            .revalidator
+            .admit_capability(self.scope.clone())
+            .await?;
+
+        if !same_snapshot_cut(&self.receipt, &before.receipt) {
+            return Err(rejection(
+                &self.scope,
+                AdmissionFailureCode::AdmissionCutExpired,
+            ));
+        }
+        let raw = postgres::read_market_data_pit_terminal_snapshot(
+            &before.credential_lease,
+            &snapshot_identity,
+        )
+        .await
+        .map_err(|_| {
+            rejection(
+                &self.scope,
+                AdmissionFailureCode::DirectMeasurementUnavailable,
+            )
+        })?;
+        let after = self
+            .revalidator
+            .admit_capability(self.scope.clone())
+            .await?;
+
+        if !same_snapshot_cut(&self.receipt, &after.receipt) {
+            return Err(rejection(
+                &self.scope,
+                AdmissionFailureCode::AdmissionCutExpired,
+            ));
+        }
+        Ok(MarketDataPitTerminalStorageEvidence {
+            admission_receipt_identity: self.receipt.receipt_identity.clone(),
+            pit_lineage_rows: raw.pit_lineage_rows,
+            source_lineage_rows: raw.source_lineage_rows,
+            clock_rows: raw.clock_rows,
         })
     }
 }

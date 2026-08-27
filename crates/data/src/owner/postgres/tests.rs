@@ -12,6 +12,11 @@ use crate::owner::{
         UntrustedSnapshotDecisionCut,
         authority::{TestOnlyCanonicalBasisResolver, refresh_request_claims},
     },
+    research_pit_terminal::{
+        ResearchPitDisposition, ResearchPitTerminalResolver, UntrustedResearchPitTerminalRequest,
+        derive_license_binding_digest, derive_provenance_binding_digest,
+        derive_snapshot_correction_rule_digest,
+    },
     source_binding::{
         SourceBindingBlocker, SourceBindingOwnerResolver, UntrustedAdapterBinding,
         UntrustedCompleteFrontier, UntrustedCredentialAudienceClaim,
@@ -459,6 +464,7 @@ async fn assert_legacy_sequence_five_migrates(owner_url: &str) {
 async fn consume_direct(
     source_resolver: &impl SourceBindingOwnerResolver,
     pit_resolver: &impl PitSnapshotOwnerResolver,
+    research_resolver: &impl ResearchPitTerminalResolver,
     source: &SourceBindingCommit,
     pit: &PitSnapshotCommitAggregate,
 ) {
@@ -478,6 +484,36 @@ async fn consume_direct(
         pit_readback.source_binding_identity(),
         source.fact().binding_id()
     );
+    let fact = pit.fact();
+    let request = UntrustedResearchPitTerminalRequest {
+        consumer_role: "RESEARCH_OWNER".into(),
+        locator: pit.receipt().locator().clone(),
+        requester_identity: fact.request().requester_identity,
+        request_identity: fact.request_identity(),
+        request_digest: fact.request_digest(),
+        scope_digest: fact.request().scope_digest,
+        correlation_identity: fact.correlation_identity(),
+        source_binding_identity: fact.source_binding_identity(),
+        source_binding_fact_digest: source.fact().digest(),
+        source_binding_lineage_root: fact.source_binding_lineage_root(),
+        source_binding_lineage_version: fact.source_binding_lineage_version(),
+        source_frontier: fact.evidence().source_frontier.clone(),
+        correction_frontier: fact.evidence().correction_frontier.clone(),
+        time_evidence: fact.request().time_evidence.clone(),
+        snapshot_correction_rule_digest: derive_snapshot_correction_rule_digest(
+            fact.request(),
+            fact.evidence().correction_frontier.clone(),
+        )
+        .unwrap(),
+        provenance_binding_digest: derive_provenance_binding_digest(source.fact()).unwrap(),
+        license_binding_digest: derive_license_binding_digest(source.fact()).unwrap(),
+    };
+    let terminal = research_resolver
+        .resolve_research_pit_terminal(&request)
+        .await
+        .unwrap();
+    assert_eq!(terminal.disposition(), ResearchPitDisposition::Available);
+    assert!(terminal.available().is_some());
 }
 
 async fn assert_exact_owner_replays_unavailable(
@@ -867,7 +903,7 @@ async fn run_postgres_owner_scenario() {
     drop(owner);
     let restarted = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
     let reader = MarketDataReadPostgres::connect(&reader_url).await.unwrap();
-    consume_direct(&reader, &reader, &source, &pit).await;
+    consume_direct(&reader, &reader, &reader, &source, &pit).await;
     assert_eq!(owner_counts(restarted.pool()).await, before_upgrade);
     assert_eq!(shared_time_counts(restarted.pool()).await, (1, 0));
     let recovered_again = restarted
@@ -1057,7 +1093,14 @@ async fn run_postgres_owner_scenario() {
     drop(restarted);
     let restarted_again = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
     let reader_again = MarketDataReadPostgres::connect(&reader_url).await.unwrap();
-    consume_direct(&reader_again, &reader_again, &source_successor, &correction).await;
+    consume_direct(
+        &reader_again,
+        &reader_again,
+        &reader_again,
+        &source_successor,
+        &correction,
+    )
+    .await;
     assert_eq!(
         reader_again
             .resolve_source_binding(source.receipt().locator())
@@ -1548,7 +1591,14 @@ async fn run_postgres_owner_scenario() {
         .await
         .unwrap();
     assert_eq!(pit_second_replay, correction);
-    consume_direct(&final_reader, &final_reader, &source_third, &pit_third).await;
+    consume_direct(
+        &final_reader,
+        &final_reader,
+        &final_reader,
+        &source_third,
+        &pit_third,
+    )
+    .await;
 
     assert_eq!(owner_counts(final_owner.pool()).await, (4, 4, 4, 4));
 
@@ -1682,7 +1732,14 @@ async fn run_postgres_owner_scenario() {
         .await
         .unwrap();
     assert_eq!(same_epoch_readback, same_epoch);
-    consume_direct(&final_reader, &final_reader, &source_third, &pit_third).await;
+    consume_direct(
+        &final_reader,
+        &final_reader,
+        &final_reader,
+        &source_third,
+        &pit_third,
+    )
+    .await;
 
     let before_same_epoch_rejections = shared_time_counts(final_owner.pool()).await;
     let mut rejected_same_epoch = Vec::new();
@@ -2595,7 +2652,14 @@ async fn run_postgres_owner_scenario() {
         *recovered_proof_store.handoff()
     );
     assert!(MarketDataOwnerPostgres::connect(&owner_url).await.is_ok());
-    consume_direct(&epoch_reader, &epoch_reader, &source_third, &pit_third).await;
+    consume_direct(
+        &epoch_reader,
+        &epoch_reader,
+        &epoch_reader,
+        &source_third,
+        &pit_third,
+    )
+    .await;
     assert_eq!(shared_time_counts(epoch_owner.pool()).await, (8, 2));
 
     let before_partial_loss_owner = owner_counts(epoch_owner.pool()).await;
@@ -2675,7 +2739,14 @@ async fn run_postgres_owner_scenario() {
         .await
         .unwrap();
     restore.commit().await.unwrap();
-    consume_direct(&epoch_reader, &epoch_reader, &source_third, &pit_third).await;
+    consume_direct(
+        &epoch_reader,
+        &epoch_reader,
+        &epoch_reader,
+        &source_third,
+        &pit_third,
+    )
+    .await;
 
     let before_lineage_head_loss = owner_counts(epoch_owner.pool()).await;
     sqlx::query("DELETE FROM market_data_private.source_binding_heads_v1 WHERE lineage_root=$1")
@@ -2712,7 +2783,14 @@ async fn run_postgres_owner_scenario() {
             .unwrap(),
         *winner.handoff()
     );
-    consume_direct(&epoch_reader, &epoch_reader, &source_third, &pit_third).await;
+    consume_direct(
+        &epoch_reader,
+        &epoch_reader,
+        &epoch_reader,
+        &source_third,
+        &pit_third,
+    )
+    .await;
     assert!(MarketDataOwnerPostgres::connect(&owner_url).await.is_ok());
     sqlx::query("DELETE FROM market_data_private.pit_snapshot_heads_v1 WHERE lineage_root=$1")
         .bind(pit_third.fact().lineage_root().as_bytes().as_slice())
@@ -2748,7 +2826,14 @@ async fn run_postgres_owner_scenario() {
             .unwrap(),
         *winner.handoff()
     );
-    consume_direct(&epoch_reader, &epoch_reader, &source_third, &pit_third).await;
+    consume_direct(
+        &epoch_reader,
+        &epoch_reader,
+        &epoch_reader,
+        &source_third,
+        &pit_third,
+    )
+    .await;
     assert!(MarketDataOwnerPostgres::connect(&owner_url).await.is_ok());
 
     assert!(

@@ -621,6 +621,10 @@ pub enum PitSnapshotError {
     ObservationBatchUnavailable,
     /// Normalized observation bytes were non-canonical, malformed, or incomplete.
     InvalidObservationBatch,
+    /// The caller did not identify the canonical Research Owner consumer.
+    ConsumerRoleMismatch,
+    /// A caller comparison binding differs from canonical native Market Data facts.
+    ConsumerBindingMismatch,
 }
 
 impl Display for PitSnapshotError {

@@ -16,6 +16,11 @@ use super::{
         prepare_observation_batch, refresh_request_claims, verify_observation_batch,
     },
 };
+use crate::owner::research_pit_terminal::{
+    ResearchPitBlocker, ResearchPitDisposition, UntrustedResearchPitTerminalRequest,
+    derive_license_binding_digest, derive_provenance_binding_digest,
+    derive_snapshot_correction_rule_digest, seal_research_pit_terminal,
+};
 use crate::owner::source_binding::{
     MarketDataClockAdmission, SourceBindingBlocker, UntrustedAdapterBinding,
     UntrustedCompleteFrontier, UntrustedCredentialAudienceClaim,
@@ -23,8 +28,9 @@ use crate::owner::source_binding::{
     UntrustedMarketSemantics, UntrustedOpaqueCredentialHandle, UntrustedSourceBindingLocator,
     UntrustedSourceBindingProposal, UntrustedTrustPolicy,
     authority::{
-        OwnerSourceBindingDecision, SourceBindingCommit, TestOnlyInMemorySourceBindingOwner,
-        derive_binding_id, derive_time_evidence_identity,
+        OwnerLineage, OwnerSourceBindingDecision, SourceBindingCommit,
+        TestOnlyInMemorySourceBindingOwner, build_stored_aggregate, derive_binding_id,
+        derive_time_evidence_identity,
     },
 };
 
@@ -1533,5 +1539,114 @@ fn batch_rejects_invalid_scale_and_four_time_custody() {
     assert_eq!(
         decode_canonical_observation_batch(&invalid_time, &[canonical_observation_bytes(&row)],),
         Err(PitSnapshotError::InvalidObservationBatch)
+    );
+}
+
+fn research_terminal_fixture(
+    coverage_complete: bool,
+) -> (
+    PitSnapshotCommitAggregate,
+    crate::owner::source_binding::authority::SourceBindingStoredAggregate,
+    UntrustedResearchPitTerminalRequest,
+) {
+    let source_proposal = source_proposal(10, 40);
+    let source_identity = derive_binding_id(&source_proposal);
+    let source = build_stored_aggregate(
+        source_proposal,
+        OwnerSourceBindingDecision {
+            blockers: BTreeSet::new(),
+        },
+        OwnerLineage {
+            root: source_identity,
+            version: 1,
+            predecessor_binding_id: None,
+            predecessor_fact_digest: None,
+        },
+    );
+    let mut proposal = proposal(source.commit().receipt().locator());
+    proposal.evidence.coverage_complete = coverage_complete;
+    let basis = canonical_basis_with_clock(&proposal, &source_clock(40, 1));
+    let pit = super::authority::prepare_initial_aggregate(
+        proposal,
+        &basis,
+        source.commit().fact(),
+        &source_clock(40, 1),
+    )
+    .expect("canonical PIT terminal");
+    let fact = pit.fact();
+    let request = UntrustedResearchPitTerminalRequest {
+        consumer_role: "RESEARCH_OWNER".into(),
+        locator: pit.receipt().locator().clone(),
+        requester_identity: fact.request().requester_identity,
+        request_identity: fact.request_identity(),
+        request_digest: fact.request_digest(),
+        scope_digest: fact.request().scope_digest,
+        correlation_identity: fact.correlation_identity(),
+        source_binding_identity: fact.source_binding_identity(),
+        source_binding_fact_digest: source.commit().fact().digest(),
+        source_binding_lineage_root: fact.source_binding_lineage_root(),
+        source_binding_lineage_version: fact.source_binding_lineage_version(),
+        source_frontier: fact.evidence().source_frontier.clone(),
+        correction_frontier: fact.evidence().correction_frontier.clone(),
+        time_evidence: fact.request().time_evidence.clone(),
+        snapshot_correction_rule_digest: derive_snapshot_correction_rule_digest(
+            fact.request(),
+            fact.evidence().correction_frontier.clone(),
+        )
+        .expect("snapshot rule"),
+        provenance_binding_digest: derive_provenance_binding_digest(source.commit().fact())
+            .expect("provenance"),
+        license_binding_digest: derive_license_binding_digest(source.commit().fact())
+            .expect("license"),
+    };
+    (pit, source, request)
+}
+
+#[rstest]
+fn research_terminal_exposes_positive_only_for_complete_available() {
+    let (pit, source, request) = research_terminal_fixture(true);
+    let persisted = serde_json::to_value(&pit).expect("persisted PIT envelope");
+    assert_eq!(
+        persisted["fact"]["source_binding_identity"],
+        serde_json::to_value(pit.fact().source_binding_identity()).expect("source identity")
+    );
+    let terminal = seal_research_pit_terminal(&pit, &source, &request).expect("terminal");
+
+    assert_eq!(terminal.disposition(), ResearchPitDisposition::Available);
+    assert!(terminal.blockers().is_empty());
+    assert_eq!(terminal.primary_blocker(), None);
+    assert_eq!(terminal.request_identity(), request.request_identity);
+    assert_eq!(terminal.scope_digest(), request.scope_digest);
+    assert_eq!(terminal.source_frontier(), &request.source_frontier);
+    assert_eq!(terminal.correction_frontier(), &request.correction_frontier);
+    assert_eq!(terminal.time_evidence(), &request.time_evidence);
+    assert_eq!(
+        terminal.available().map(
+            crate::owner::research_pit_terminal::AvailableResearchPitSnapshot::snapshot_identity
+        ),
+        Some(pit.fact().snapshot_identity())
+    );
+}
+
+#[rstest]
+fn research_terminal_keeps_negative_explicit_and_rejects_comparison_splice() {
+    let (pit, source, mut request) = research_terminal_fixture(false);
+    let terminal = seal_research_pit_terminal(&pit, &source, &request).expect("terminal");
+
+    assert_eq!(terminal.disposition(), ResearchPitDisposition::Insufficient);
+    assert_eq!(
+        terminal.blockers(),
+        &[ResearchPitBlocker::CoverageInsufficient]
+    );
+    assert_eq!(
+        terminal.primary_blocker(),
+        Some(ResearchPitBlocker::CoverageInsufficient)
+    );
+    assert!(terminal.available().is_none());
+
+    request.snapshot_correction_rule_digest = d(99);
+    assert_eq!(
+        seal_research_pit_terminal(&pit, &source, &request),
+        Err(PitSnapshotError::ConsumerBindingMismatch)
     );
 }

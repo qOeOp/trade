@@ -1,7 +1,17 @@
+use rstest::rstest;
 use vibe_deployment_store_admission::{
-    PostgresCredentialLease, PostgresDirectMeasurer, PostgresMeasurementSpec,
+    AdmittedMarketDataSnapshotPort, MarketDataPitTerminalStorageEvidence, PostgresCredentialLease,
+    PostgresDirectMeasurer, PostgresMeasurementSpec,
 };
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+
+#[rstest]
+fn pit_terminal_port_and_raw_evidence_are_thread_safe_without_business_decoding() {
+    fn assert_send_sync<T: Send + Sync>() {}
+
+    assert_send_sync::<AdmittedMarketDataSnapshotPort>();
+    assert_send_sync::<MarketDataPitTerminalStorageEvidence>();
+}
 
 #[tokio::test]
 #[ignore = "requires the pinned disposable canonical PostgreSQL topology"]
