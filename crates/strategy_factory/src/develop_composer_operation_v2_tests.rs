@@ -411,7 +411,7 @@ fn every_private_canonical_member_mutation_fails_resolve_without_successor() {
         |record| record.outbox_bytes[0] ^= 1,
         |record| {
             record.outbox_bytes =
-                rewrite_outbox_request_identity_for_test(&record.outbox_bytes, "other-request")
+                rewrite_outbox_request_identity_for_test(&record.outbox_bytes, "other-request");
         },
         |record| record.response_bytes[0] ^= 1,
     ];
