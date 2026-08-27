@@ -18,6 +18,7 @@ use super::{
         DevelopComposerFinalEvidencePortV2, DevelopComposerLockedEvidenceV2,
         DevelopComposerOperationDispositionV2, DevelopComposerRunRequestV2,
         LocalDevelopComposerOperationV2, positive_write_boundary_count, request_digest,
+        rewrite_outbox_request_identity_for_test,
     },
     develop_composer_postgres_v2::resolve_loaded_record_with_evidence,
     develop_composer_v2::{
@@ -191,6 +192,20 @@ fn build_receipt_roundtrips_and_every_critical_field_mutation_fails_closed() {
             .expect("canonical roundtrip")
             .canonical_bytes(),
         bytes
+    );
+
+    let mut reordered_manifest = manifest.clone();
+    reordered_manifest.capability_ids.reverse();
+    assert_ne!(reordered_manifest.capability_ids, manifest.capability_ids);
+    assert!(
+        DevelopPluginBuildReceiptV2::parse_canonical(&bytes)
+            .expect("canonical restart receipt")
+            .validates_for_restart(
+                &reordered_manifest,
+                expected_receipt_digest,
+                expected_module_digest,
+            ),
+        "restart validation must bind canonical manifest meaning rather than collection order"
     );
 
     for mutation in mutated_build_receipt_bytes_for_test(&bytes) {
@@ -380,7 +395,7 @@ fn current_binding_drift_blocks_existing_run_replay_and_resolve() {
 #[rstest]
 fn every_private_canonical_member_mutation_fails_resolve_without_successor() {
     type Mutation = fn(&mut super::develop_composer_operation_v2::StoredDevelopComposerPositiveV2);
-    let mutations: [Mutation; 14] = [
+    let mutations: [Mutation; 15] = [
         |record| record.research_request_identity = digest(0xdf),
         |record| record.intent_identity = digest(0xe0),
         |record| record.design_identity = digest(0xe1),
@@ -394,6 +409,10 @@ fn every_private_canonical_member_mutation_fails_resolve_without_successor() {
         |record| record.host_receipt_bytes[0] ^= 1,
         |record| record.operation_receipt_bytes[0] ^= 1,
         |record| record.outbox_bytes[0] ^= 1,
+        |record| {
+            record.outbox_bytes =
+                rewrite_outbox_request_identity_for_test(&record.outbox_bytes, "other-request");
+        },
         |record| record.response_bytes[0] ^= 1,
     ];
 

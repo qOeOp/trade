@@ -12,7 +12,7 @@ workspace = true
 
 [features]
 default = []
-sealed-develop-composer-acceptance = []
+sealed-develop-composer-acceptance = ["sealed-strategy-input-acceptance"]
 sealed-source-intake-acceptance = []
 sealed-strategy-input-acceptance = [
   "vibe-data/sealed-strategy-input-acceptance",
