@@ -37,7 +37,7 @@ checkpoint 与 readiness 持久化属于 Runtime 内部关注点，不是第二�
 
 ## 共享策略生命周期契约
 
-Runtime 只能应用 governed generation 携带的准确 [StrategyDesignV2 共享内核路径](../architecture/strategy-factory.zh.md#strategydesignv2-与共享生命周期内核)：
+Runtime 只能应用 governed generation 携带的准确 [StrategyDesignV2 共享内核路径](../architecture/strategy-factory.md#strategydesignv2-and-the-shared-lifecycle-kernel)：
 `StrategyPlanV2`、内容寻址 Wasm Artifact、Owner binding、`ProgramHost`、lifecycle/checkpoint/kernel/plugin
 版本及 Market Semantics Compatibility 身份。只有共享内核能消费全序 `START` `BAR` `EVENT` `FILL`
 `TIMER` `STOP` envelope，并拥有 `ENTER` `ADD` `REDUCE` `EXIT` `HOLD`、target position/weight/rebalance、

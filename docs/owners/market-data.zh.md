@@ -48,7 +48,7 @@
 
 ## 策略 input-role binding
 
-对于 [StrategyDesignV2 compiler](../architecture/strategy-factory.zh.md#strategydesignv2-与共享生命周期内核)，
+对于 [StrategyDesignV2 compiler](../architecture/strategy-factory.md#strategydesignv2-and-the-shared-lifecycle-kernel)，
 Research 声明类型化 input role，且只有 Market Data 能把 market/reference role 解析为准确 sealed binding
 receipt。receipt 把 role 绑定到与 role 无关的稳定 selection identity；后者覆盖 field semantics、instrument
 或稳定 Universe Selection Record scope、timeframe/bar specification、unit、scale、Source Binding lineage

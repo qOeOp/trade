@@ -42,7 +42,7 @@
 
 ## 共享策略生命周期契约
 
-Backtest 只消费 [StrategyDesignV2 共享内核路径](../architecture/strategy-factory.zh.md#strategydesignv2-与共享生命周期内核)：
+Backtest 只消费 [StrategyDesignV2 共享内核路径](../architecture/strategy-factory.md#strategydesignv2-and-the-shared-lifecycle-kernel)：
 准确 `StrategyPlanV2`、其内容寻址 Wasm Artifact、已解析 Owner input binding、`ProgramHost` 以及版本化
 lifecycle/checkpoint/kernel 身份。Native Replay 提供确定性 `START` `BAR` `EVENT` `FILL` `TIMER` `STOP`
 envelope stream；共享内核拥有 position action、portfolio target、protection adjustment 和 fill reconciliation。
