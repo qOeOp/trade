@@ -389,6 +389,35 @@ impl TerminalReceiptStore for MemoryReceiptStore {
     }
 }
 
+impl crate::product_edge::sealed::ScannerOwnedTerminalReceiptStore for MemoryReceiptStore {}
+impl ProductEdgeTerminalReceiptReadSource for MemoryReceiptStore {}
+
+#[derive(Clone)]
+enum ProductEdgeReadStore {
+    Missing,
+    Unavailable(OpaqueId),
+    Returned(Box<ScannerReceipt>),
+}
+
+impl TerminalReceiptStore for ProductEdgeReadStore {
+    fn find(&self, _: &AttemptId) -> Result<Option<ScannerReceipt>, ReceiptStoreError> {
+        match self {
+            Self::Missing => Ok(None),
+            Self::Unavailable(evidence) => Err(ReceiptStoreError::Unavailable {
+                evidence: evidence.clone(),
+            }),
+            Self::Returned(receipt) => Ok(Some(receipt.as_ref().clone())),
+        }
+    }
+
+    fn commit_or_join(&self, _: ScannerReceipt) -> Result<CommitOutcome, ReceiptStoreError> {
+        unreachable!("the Product Edge read capability cannot reach the store write path")
+    }
+}
+
+impl crate::product_edge::sealed::ScannerOwnedTerminalReceiptStore for ProductEdgeReadStore {}
+impl ProductEdgeTerminalReceiptReadSource for ProductEdgeReadStore {}
+
 fn frontier(names: &[&str]) -> StrategyFrontier {
     StrategyFrontier::new(id("registry-v9"), names.iter().map(|name| binding(name))).unwrap()
 }
@@ -435,6 +464,36 @@ fn terminal(outcome: ScanOutcome) -> CommitOutcome {
         ScanOutcome::Terminal(outcome) => *outcome,
         ScanOutcome::Skipped => panic!("expected terminal receipt"),
     }
+}
+
+fn terminal_through_product_edge(
+    loader: LoaderResult,
+    evaluations: &[(&str, Evaluation)],
+    failure: Option<BatchOperationalFailure>,
+) -> ScannerReceipt {
+    let store = MemoryReceiptStore::default();
+    let (matcher, _) = matcher(evaluations, None);
+    let (proposal_builder, _) = builder(failure);
+    let scanner = Scanner::new_with_source_owner_fixture(
+        FixtureLoader(loader),
+        FixtureSnapshots::default(),
+        matcher,
+        proposal_builder,
+        store,
+        policy(),
+    );
+    let committed = terminal(
+        scanner
+            .scan(&schedule(), candidate(), Delivery::OnTime, clock(1))
+            .unwrap(),
+    )
+    .receipt;
+    let reader = scanner.product_edge_terminal_receipts();
+    let first = reader.read(committed.attempt_id()).unwrap();
+    let second = reader.read(committed.attempt_id()).unwrap();
+    assert_eq!(first, committed);
+    assert_eq!(second, committed);
+    first
 }
 
 fn scan_with_snapshot(
@@ -914,6 +973,175 @@ fn unresolved_membership_never_invents_expected_or_missing_members() {
     assert!(receipt.proposal().is_none());
     assert_eq!(*calls.lock().unwrap(), 0);
     assert_eq!(*builder_calls.lock().unwrap(), 0);
+}
+
+#[rstest]
+fn product_edge_reads_every_terminal_state_without_losing_owner_meaning() {
+    let proposed = terminal_through_product_edge(
+        LoaderResult::Resolved(frontier(&["matched", "negative", "insufficient"])),
+        &[
+            ("matched", Evaluation::Matched),
+            ("negative", Evaluation::NoMatch),
+            ("insufficient", Evaluation::Insufficient),
+        ],
+        None,
+    );
+    assert_eq!(proposed.status(), &ReceiptStatus::Proposed);
+    assert_eq!(
+        proposed.dispositions()[&id("negative")].outcome(),
+        StrategyOutcome::NoMatch
+    );
+    assert_eq!(
+        proposed.dispositions()[&id("insufficient")].outcome(),
+        StrategyOutcome::InsufficientData
+    );
+    assert_eq!(
+        proposed
+            .proposal()
+            .unwrap()
+            .members()
+            .keys()
+            .cloned()
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([id("matched")])
+    );
+
+    let no_match = terminal_through_product_edge(
+        LoaderResult::Resolved(frontier(&["negative"])),
+        &[("negative", Evaluation::NoMatch)],
+        None,
+    );
+    let insufficient = terminal_through_product_edge(
+        LoaderResult::Resolved(frontier(&["insufficient"])),
+        &[("insufficient", Evaluation::Insufficient)],
+        None,
+    );
+    let completed_no_proposal = terminal_through_product_edge(
+        LoaderResult::Resolved(frontier(&["condition"])),
+        &[("condition", Evaluation::ConditionFailed)],
+        None,
+    );
+
+    for (receipt, status) in [
+        (no_match, ReceiptStatus::NoMatch),
+        (insufficient, ReceiptStatus::InsufficientData),
+        (completed_no_proposal, ReceiptStatus::CompletedNoProposal),
+    ] {
+        assert_eq!(receipt.status(), &status);
+        assert!(receipt.proposal().is_none());
+        assert!(matches!(
+            receipt.membership(),
+            MembershipBranch::Resolved {
+                expected,
+                observed,
+                missing,
+            } if expected == observed && missing.is_empty()
+        ));
+    }
+
+    let operational_failure = BatchOperationalFailure {
+        category: BatchFailureCategory::ScannerServiceFailure,
+        failure_identity: id("product-edge-operational-failure"),
+        evidence_source_cut: id("product-edge-operational-cut"),
+        time_evidence: id("product-edge-operational-time"),
+    };
+    let failed_known = terminal_through_product_edge(
+        LoaderResult::Resolved(frontier(&["matched"])),
+        &[("matched", Evaluation::Matched)],
+        Some(operational_failure.clone()),
+    );
+    assert_eq!(
+        failed_known.status(),
+        &ReceiptStatus::Failed(FailedReason::BatchOperational(operational_failure))
+    );
+    assert!(matches!(
+        failed_known.membership(),
+        MembershipBranch::Resolved {
+            expected,
+            observed,
+            missing,
+        } if expected == observed && missing.is_empty()
+    ));
+    assert!(failed_known.proposal().is_none());
+
+    let failed_unresolved = terminal_through_product_edge(
+        LoaderResult::Unresolved(MembershipUnavailable {
+            disposition: id("product-edge-membership-unresolved"),
+            source_cut: id("product-edge-membership-cut"),
+            terminal_reason: id("product-edge-membership-reason"),
+            observed: vec![ObservedMemberFact::new(
+                id("observed-member"),
+                EvidenceSet::singleton(id("observed-member-evidence")),
+            )],
+        }),
+        &[],
+        None,
+    );
+    assert!(matches!(
+        failed_unresolved.status(),
+        ReceiptStatus::Failed(FailedReason::MembershipUnresolved { terminal_reason })
+            if terminal_reason == &id("product-edge-membership-reason")
+    ));
+    assert!(matches!(
+        failed_unresolved.membership(),
+        MembershipBranch::Unresolved {
+            observed,
+            missing_members_unavailable: MissingMembersUnavailable,
+            ..
+        } if observed.keys().cloned().collect::<BTreeSet<_>>()
+            == BTreeSet::from([id("observed-member")])
+    ));
+    assert!(failed_unresolved.proposal().is_none());
+}
+
+#[rstest]
+fn product_edge_read_fails_closed_for_missing_unavailable_or_wrong_identity() {
+    let requested = schedule()
+        .resolve_due_slot(candidate(), Delivery::OnTime, clock(1))
+        .unwrap()
+        .unwrap()
+        .attempt_id;
+
+    let missing = ProductEdgeTerminalReceiptReader::new(&ProductEdgeReadStore::Missing)
+        .read(&requested)
+        .unwrap_err();
+    assert_eq!(
+        missing,
+        ProductEdgeReceiptReadError::NotFound {
+            attempt_id: requested.clone()
+        }
+    );
+
+    let unavailable_evidence = id("product-edge-store-unavailable");
+    let unavailable_store = ProductEdgeReadStore::Unavailable(unavailable_evidence.clone());
+    let unavailable = ProductEdgeTerminalReceiptReader::new(&unavailable_store)
+        .read(&requested)
+        .unwrap_err();
+    assert_eq!(
+        unavailable,
+        ProductEdgeReceiptReadError::Unavailable {
+            evidence: unavailable_evidence
+        }
+    );
+
+    let receipt = terminal_through_product_edge(
+        LoaderResult::Resolved(frontier(&["foreign"])),
+        &[("foreign", Evaluation::NoMatch)],
+        None,
+    );
+    let mut foreign_identity = requested;
+    foreign_identity.scan_scope.identity = id("foreign-scope");
+    let wrong_store = ProductEdgeReadStore::Returned(Box::new(receipt.clone()));
+    let conflict = ProductEdgeTerminalReceiptReader::new(&wrong_store)
+        .read(&foreign_identity)
+        .unwrap_err();
+    assert_eq!(
+        conflict,
+        ProductEdgeReceiptReadError::IdentityConflict {
+            requested: Box::new(foreign_identity),
+            returned: Box::new(receipt.attempt_id().clone()),
+        }
+    );
 }
 
 #[rstest]

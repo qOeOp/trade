@@ -297,6 +297,22 @@ where
     }
 }
 
+impl<L, S, M, P, R> Scanner<L, S, M, P, R>
+where
+    R: crate::ProductEdgeTerminalReceiptReadSource,
+{
+    /// Returns the Scanner-owned read capability exposed to Product Edge.
+    ///
+    /// The handle is available only when the Scanner owner has sealed the composition's terminal
+    /// store as its canonical Product Edge read source. It exposes no write operation or store
+    /// access.
+    pub const fn product_edge_terminal_receipts(
+        &self,
+    ) -> crate::ProductEdgeTerminalReceiptReader<'_, R> {
+        crate::ProductEdgeTerminalReceiptReader::new(&self.receipts)
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ScanOutcome {
     Skipped,

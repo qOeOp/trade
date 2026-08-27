@@ -1,0 +1,5 @@
+error[E0451]: field `receipts` of struct `ProductEdgeTerminalReceiptReader` is private
+ --> tests/ui/product_edge_reader_has_no_raw_store.rs:6:40
+  |
+6 |     ProductEdgeTerminalReceiptReader { receipts: store }
+  |                                        ^^^^^^^^ private field

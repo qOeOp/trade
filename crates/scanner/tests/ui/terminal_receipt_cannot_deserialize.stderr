@@ -1,0 +1,5 @@
+error[E0599]: no associated function or constant named `deserialize` found for struct `ScannerReceipt` in the current scope
+ --> tests/ui/terminal_receipt_cannot_deserialize.rs:4:36
+  |
+4 |     let _receipt = ScannerReceipt::deserialize(());
+  |                                    ^^^^^^^^^^^ associated function or constant not found in `ScannerReceipt`

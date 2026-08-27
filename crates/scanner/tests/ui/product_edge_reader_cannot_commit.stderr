@@ -1,0 +1,5 @@
+error[E0599]: no method named `commit_or_join` found for struct `ProductEdgeTerminalReceiptReader<'a, R>` in the current scope
+ --> tests/ui/product_edge_reader_cannot_commit.rs:8:12
+  |
+8 |     reader.commit_or_join(panic!("receipt is irrelevant to the capability check"));
+  |            ^^^^^^^^^^^^^^ method not found in `ProductEdgeTerminalReceiptReader<'_, R>`
