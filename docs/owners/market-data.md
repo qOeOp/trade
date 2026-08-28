@@ -148,9 +148,11 @@ those remain unavailable pending real Time/Scheduler and Execution Owner contrac
   snapshot under a changed request identity, content digest, scope, decision cut, or policy binding.
 - Never become a global Time Owner or decide another Owner's clock transition.
 - Never construct the governed Market Data PostgreSQL repository from a DSN, secret, caller assertion, or ambiguous
-  store state alone. The private Market Data store-admission seam must consume and revalidate its exact receipt, then
+  store state alone. The private Market Data store-admission seam must consume and revalidate its exact sealed
+  Deployment Store Admission receipt, then
   Market Data must validate current PIT, Source Binding, and clock heads before sealing `ResearchPitTerminal`.
   Ordinary consumers never receive the receipt, capability, raw evidence, or a caller-selected snapshot query.
+  Production resolution and dynamic product composition remain `TARGET / UNAVAILABLE`.
 
 ## Failure and recovery
 

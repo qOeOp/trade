@@ -135,9 +135,11 @@ trigger；在真实 Time/Scheduler 与 Execution Owner contract 分别存在前�
   已变化时复用旧 snapshot。
 - 不成为 global Time Owner，也不替其他 Owner 决定 clock transition。
 - 不仅凭 DSN、secret、caller assertion 或含糊 store state 构造受治理 Market Data PostgreSQL repository。
-  Market Data 私有 store-admission seam 必须消费并 revalidate 准确 receipt；随后 Market Data 必须校验当前
+  Market Data 私有 store-admission seam 必须消费并 revalidate 准确 sealed Deployment Store Admission receipt；
+  随后 Market Data 必须校验当前
   PIT、Source Binding 与 clock head，才能密封 `ResearchPitTerminal`。普通 consumer 永远得不到 receipt、
   capability、raw evidence 或 caller-selected snapshot query。
+  production resolution 与动态 product composition 保持 `TARGET / UNAVAILABLE`。
 
 ## 失败与恢复
 
