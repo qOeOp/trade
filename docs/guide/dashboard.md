@@ -25,6 +25,38 @@ or that the capability inventory is final while the observed backend programme r
 - `NOT_ADMITTED` means a UI, green job, chart, log, or this document does not prove the capability or authorize a
   related business transition.
 
+### 2026-08-28 merged Source, Windmill, Scanner, and Market Data readback
+
+Current Trade main `e12adde09754e20953ac81ce86ffa5e7b3a05c99` contains the completed Source Intake,
+Windmill, and Scanner cuts. PR #356, merged as `82c4f59fc600a1d5d0a9bc94eac83234c531e490`, restored the isolated
+Source Intake acceptance through the real Windmill entry, PostgreSQL Owner custody, and cleanup/readback. PR #361,
+merged as `a7260f6563fbdf1c1b497087d638c0c406e4cefb`, made the checked-in Windmill workspace lock a deterministic,
+read-only-verifiable projection; that is repository tooling evidence, not deployment evidence. PR #360, merged as
+`67d31f5398922680714827206ceb2583437a869b`, added a sealed Scanner terminal-receipt read boundary for Product Edge;
+it remains a static Owner contract and does not establish a Scanner operation or Windmill journey.
+
+PR #362 is the current Source Intake-to-Research cut. The default Windmill operation now sends the admitted Source
+terminal to the canonical R&D Owner API: `RUN` owns the first mutation, while `RESOLVE` is read-only and returns
+submitted-or-unknown unless the exact durable receipt already exists. On its final tree, focused Source/Windmill
+checks passed `5/5`, Workbench default checks passed `164/164`, and focused API checks passed `5/5`. The disposable
+Windmill/PostgreSQL sealed acceptance passed on the pre-final tree, but was not rerun after the final `RESOLVE`
+correction and disjoint main-only changes. Its maturity is therefore
+`CURRENT/PARTIAL · EXACT_HEAD_COLD_ACCEPTANCE_NOT_ADMITTED`: the future Dashboard may preserve these fail-closed
+action and recovery semantics, but it must not render a positive Source-to-Research result from transport success
+alone. A deployed
+default Windmill workspace, authenticated browser or native MCP acceptance, Dashboard implementation, provider or
+network execution, production writes, and trading all remain `NOT_ADMITTED`.
+
+PR #364, merged as `e12adde09754e20953ac81ce86ffa5e7b3a05c99`, additionally moves deployment-store
+admission and revalidation behind the Market Data Owner boundary and exposes only a move-only sealed
+`ResearchPitTerminal` to Strategy Factory. Capability Adoption now places the pure
+`crates/product_edge_contracts` representations under Product Edge without granting them fact or authority
+ownership. This is `CURRENT/PARTIAL · DYNAMIC_POSTGRES_PRODUCT_COMPOSITION_NOT_ADMITTED`: downstream code cannot
+construct the terminal or read raw store, PIT, Source Binding, or clock rows, and the disposable PostgreSQL
+acceptance remains unavailable on the observed Darwin cut. The future Dashboard may show this sealed handoff as
+Owner evidence, but it cannot infer Market Data availability, default Windmill readiness, production resolution,
+or a positive Source-to-Research result from it.
+
 ### 2026-08-23 merged H1 readback
 
 PR #326 is merged on Trade main as `81c519fade16810c3d9694226092c83f1f886b07`. Its merge tree
