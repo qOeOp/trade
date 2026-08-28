@@ -1617,6 +1617,11 @@ Artifact-to-TrialFamily binding receipt 与 bound Census frontier。BFF 暴露�
 与 build-attempt resolve operation；二者都不能派发 replacement job，也不能从 caller-provided identifier
 推导 family。
 
+Replay action admission 必须消费完整的 selected S2 Owner projection，并针对 Replay request 验证每个必需的
+identity、receipt/binding、locator、availability 与 currentness 字段。`selectedS2Available` 之类的 UI/display
+boolean 只能描述派生的展示状态，绝不能授权 `RUN` 或替代 Owner projection。Projection missing、malformed、
+mismatched、stale 或 unavailable 时必须禁用 `RUN`，且 Replay dispatch 与 business write 均为零。
+
 S1 chain 首先完成纯 V2 validation。Invalid input 只可提交一张独立 rejection receipt；independence basis、
 Qualification projection、Research receipt、Intent、family、member、head 与 outbox 必须零写入。只有由此产生的
 opaque validated marker 可以进入 positive formation。随后 R&D 写入或复用 write-once basis fact；Qualification
