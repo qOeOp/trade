@@ -44,7 +44,6 @@ defi = [
 [dependencies]
 vibe-common = { workspace = true }
 vibe-core = { workspace = true }
-vibe-deployment-store-admission = { workspace = true }
 vibe-model = { workspace = true, features = ["stubs"] }
 vibe-persistence = { workspace = true, optional = true }
 
@@ -60,8 +59,12 @@ log = { workspace = true }
 rust_decimal = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 sqlx = { workspace = true }
+thiserror = { workspace = true }
+url = { workspace = true }
 ustr = { workspace = true }
+zeroize = { workspace = true }
 
 alloy-primitives = { workspace = true, optional = true }
 pyo3 = { workspace = true, optional = true }
@@ -71,6 +74,7 @@ pyo3-stub-gen = { workspace = true, optional = true }
 vibe-serialization = { workspace = true, features = ["arrow"] }
 
 criterion = { workspace = true }
+ed25519-dalek = { workspace = true }
 proptest = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "macros", "rt"] }

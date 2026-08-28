@@ -401,6 +401,33 @@ pub(crate) fn verify_aggregate(value: &PitSnapshotCommitAggregate) -> bool {
     &expected == value
 }
 
+pub(crate) fn verify_terminal_basis(
+    aggregate: &PitSnapshotCommitAggregate,
+    source: &crate::owner::source_binding::authority::SourceBindingFact,
+) -> bool {
+    let fact = aggregate.fact();
+    if validate_request(fact.request()).is_err()
+        || validate_evidence(fact.evidence()).is_err()
+        || validate_commit_clock(&fact.request().time_evidence, fact.clock_admission()).is_err()
+        || source.binding_id() != fact.source_binding_identity()
+        || source.lineage_root() != fact.source_binding_lineage_root()
+        || source.lineage_version() != fact.source_binding_lineage_version()
+        || source.source_frontier() != &fact.evidence().source_frontier
+        || source.correction_frontier() != &fact.evidence().correction_frontier
+    {
+        return false;
+    }
+    let basis = OwnerResolvedCanonicalBasis {
+        request: fact.request().clone(),
+        evidence: fact.evidence().clone(),
+        clock_admission: fact.clock_admission().clone(),
+    };
+    let blockers = derive_blockers(&fact.request().time_evidence, source, &basis);
+    blockers == *fact.blockers()
+        && primary_blocker(&blockers) == fact.primary_blocker()
+        && disposition(primary_blocker(&blockers)) == fact.disposition()
+}
+
 fn validate_and_resolve<'a>(
     proposal: &UntrustedPitSnapshotProposal,
     canonical_basis: &'a TestOnlyCanonicalBasisResolver,

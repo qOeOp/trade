@@ -35,3 +35,8 @@ grep -Fq 'Arc::new(UnavailableSignatureVerifier)' "$store_admission"
 grep -Fq 'Arc::new(UnavailableAntiRollbackWitness)' "$store_admission"
 grep -Fq 'Arc::new(UnavailableCredentialResolver)' "$store_admission"
 grep -Fq 'Arc::new(UnavailableDirectMeasurer)' "$store_admission"
+if rg -n 'vibe[_-]deployment[_-]store[_-]admission|MarketDataPitTerminalStorageEvidence|into_pit_terminal_snapshot_port|resolve_pit_terminal' \
+  "$package_dir/../../crates/strategy_factory_rd_owner_api"; then
+  echo "rd-owner-api must receive only the Market Data sealed Research PIT terminal resolver" >&2
+  exit 1
+fi

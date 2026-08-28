@@ -11,6 +11,15 @@
 
 #[cfg(not(test))]
 use super::pit_snapshot::{PitObservationBatchOwnerResolver, VerifiedPitObservationBatch};
+use super::research_pit_terminal::{
+    ResearchPitTerminal, ResearchPitTerminalResolver, UntrustedResearchPitTerminalRequest,
+    seal_research_pit_terminal,
+};
+#[cfg(not(test))]
+use super::store_admission::{
+    AdmittedMarketDataSnapshotPort, MarketDataPitEvaluationStorageEvidence,
+    MarketDataPitTerminalStorageEvidence, MarketDataSourceBindingStorageEvidence,
+};
 use super::{
     pit_snapshot::{
         PitSnapshotCommitAggregate, PitSnapshotError, UntrustedPitObservationBatchProposal,
@@ -42,11 +51,6 @@ use super::{
 };
 use serde_json::Value;
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
-#[cfg(not(test))]
-use vibe_deployment_store_admission::{
-    AdmittedMarketDataSourceBindingSnapshotPort, MarketDataPitEvaluationStorageEvidence,
-    MarketDataSourceBindingStorageEvidence,
-};
 
 #[cfg(test)]
 use super::{
@@ -121,7 +125,7 @@ pub(crate) struct MarketDataReadPostgres {
     #[cfg(test)]
     pub(crate) pool: PgPool,
     #[cfg(not(test))]
-    admitted_port: AdmittedMarketDataSourceBindingSnapshotPort,
+    admitted_port: AdmittedMarketDataSnapshotPort,
 }
 
 impl MarketDataOwnerPostgres {
@@ -620,7 +624,7 @@ enum PostgresCommitFault {
 
 impl MarketDataReadPostgres {
     #[cfg(not(test))]
-    pub(crate) const fn from_admitted(port: AdmittedMarketDataSourceBindingSnapshotPort) -> Self {
+    pub(crate) const fn from_admitted(port: AdmittedMarketDataSnapshotPort) -> Self {
         Self {
             admitted_port: port,
         }
@@ -2810,6 +2814,24 @@ impl PitObservationBatchOwnerResolver for MarketDataReadPostgres {
     }
 }
 
+#[cfg(not(test))]
+#[async_trait::async_trait]
+impl ResearchPitTerminalResolver for MarketDataReadPostgres {
+    async fn resolve_research_pit_terminal(
+        &self,
+        request: &UntrustedResearchPitTerminalRequest,
+    ) -> Result<ResearchPitTerminal, PitSnapshotError> {
+        let evidence = self
+            .admitted_port
+            .resolve_pit_terminal(*request.locator.snapshot_identity.as_bytes())
+            .await
+            .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+        verify_admitted_pit_terminal_evidence(request, &evidence)
+    }
+}
+
+impl super::research_pit_terminal::sealed::Sealed for MarketDataReadPostgres {}
+
 #[cfg(test)]
 #[async_trait::async_trait]
 impl PitSnapshotOwnerResolver for MarketDataReadPostgres {
@@ -2862,6 +2884,74 @@ impl PitSnapshotOwnerResolver for MarketDataReadPostgres {
             .await
             .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
         Ok(readback)
+    }
+}
+
+#[cfg(test)]
+#[async_trait::async_trait]
+impl ResearchPitTerminalResolver for MarketDataReadPostgres {
+    async fn resolve_research_pit_terminal(
+        &self,
+        request: &UntrustedResearchPitTerminalRequest,
+    ) -> Result<ResearchPitTerminal, PitSnapshotError> {
+        let mut transaction = self
+            .begin_read_snapshot()
+            .await
+            .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+        validate_read_custody(&mut transaction)
+            .await
+            .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+        let envelope = load_envelope(
+            &mut transaction,
+            "SELECT * FROM market_data_private.resolve_pit_snapshot_v1($1)",
+            request.locator.snapshot_identity,
+        )
+        .await
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?
+        .ok_or(PitSnapshotError::LocatorMismatch)?;
+        let pit: PitSnapshotCommitAggregate = serde_json::from_value(envelope.aggregate)
+            .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+        validate_pit_lineage_shape(&mut transaction, pit.fact().lineage_root()).await?;
+        if !verify_pit_native(&pit, &envelope.native, true)
+            || pit.receipt().locator() != &request.locator
+        {
+            return Err(PitSnapshotError::LocatorMismatch);
+        }
+        validate_source_read_custody(&mut transaction, &pit.fact().request().source_binding)
+            .await?;
+        let source_envelope = load_envelope(
+            &mut transaction,
+            "SELECT * FROM market_data_private.resolve_source_binding_v1($1)",
+            pit.fact().source_binding_identity(),
+        )
+        .await
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?
+        .ok_or(PitSnapshotError::SourceBindingUnavailable)?;
+        let source: SourceBindingStoredAggregate =
+            serde_json::from_value(source_envelope.aggregate)
+                .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+        if !verify_source_native(&source, &source_envelope.native, true) {
+            return Err(PitSnapshotError::SourceBindingUnavailable);
+        }
+        let expected_clock = clock_for_pit_time(&pit.fact().request().time_evidence);
+        let historical_clock = load_historical_clock(&mut transaction, &expected_clock)
+            .await
+            .map_err(|e| match e {
+                SharedTimeEvidenceError::StoreUnavailable => {
+                    PitSnapshotError::PersistenceUnavailable
+                }
+                _ => PitSnapshotError::TrustedClockMismatch,
+            })?;
+        super::pit_snapshot::authority::validate_read_clock(
+            &pit.fact().request().time_evidence,
+            &historical_clock,
+        )?;
+        let terminal = seal_research_pit_terminal(&pit, &source, request)?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+        Ok(terminal)
     }
 }
 
@@ -3052,6 +3142,162 @@ fn verify_admitted_pit_evidence(
             })
             .collect::<Vec<_>>(),
     )
+}
+
+#[cfg(not(test))]
+fn verify_admitted_pit_terminal_evidence(
+    request: &UntrustedResearchPitTerminalRequest,
+    evidence: &MarketDataPitTerminalStorageEvidence,
+) -> Result<ResearchPitTerminal, PitSnapshotError> {
+    if !evidence.admission_receipt_identity().starts_with("sha256:") {
+        return Err(PitSnapshotError::PersistenceUnavailable);
+    }
+    let mut prior = None;
+    let mut selected = None;
+    let mut terminal = None;
+
+    for (offset, raw) in evidence.pit_lineage_rows().iter().enumerate() {
+        let envelope = decode_raw_pit_envelope(raw)?;
+        let aggregate: PitSnapshotCommitAggregate = serde_json::from_value(envelope.aggregate)
+            .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+        let fact = aggregate.fact();
+        let expected_version = u64::try_from(offset)
+            .ok()
+            .and_then(|value| value.checked_add(1))
+            .ok_or(PitSnapshotError::PersistenceUnavailable)?;
+
+        if !verify_pit_native(&aggregate, &envelope.native, false)
+            || fact.lineage_version() != expected_version
+        {
+            return Err(PitSnapshotError::PersistenceUnavailable);
+        }
+
+        match prior {
+            None if fact.snapshot_identity() == fact.lineage_root()
+                && fact.predecessor_snapshot_identity().is_none()
+                && fact.predecessor_fact_digest().is_none() => {}
+            Some((identity, digest))
+                if fact.predecessor_snapshot_identity() == Some(identity)
+                    && fact.predecessor_fact_digest() == Some(digest) => {}
+            _ => return Err(PitSnapshotError::PersistenceUnavailable),
+        }
+
+        if aggregate.receipt().locator() == &request.locator {
+            selected = Some(aggregate.clone());
+        }
+        prior = Some((fact.snapshot_identity(), fact.digest()));
+        terminal = Some((aggregate, envelope.native.head));
+    }
+    let (terminal, head) = terminal.ok_or(PitSnapshotError::PersistenceUnavailable)?;
+    if head.lineage_root != terminal.fact().lineage_root()
+        || head.identity != terminal.fact().snapshot_identity()
+        || head.fact_digest != terminal.fact().digest()
+        || head.lineage_version != terminal.fact().lineage_version()
+    {
+        return Err(PitSnapshotError::PersistenceUnavailable);
+    }
+    let selected = selected.ok_or(PitSnapshotError::LocatorMismatch)?;
+    if selected.fact().snapshot_identity() != terminal.fact().snapshot_identity() {
+        return Err(PitSnapshotError::CorrectionHeadMismatch);
+    }
+    let source = verify_terminal_source_rows(
+        &selected.fact().request().source_binding,
+        evidence.source_lineage_rows(),
+        evidence.clock_rows(),
+    )?;
+    let expected_clock = clock_for_pit_time(&selected.fact().request().time_evidence);
+    let historical_clock = evidence
+        .clock_rows()
+        .iter()
+        .find_map(|raw| {
+            decode_raw_clock(raw)
+                .ok()
+                .filter(|clock| clock == &expected_clock)
+        })
+        .ok_or(PitSnapshotError::TrustedClockMismatch)?;
+    super::pit_snapshot::authority::validate_read_clock(
+        &selected.fact().request().time_evidence,
+        &historical_clock,
+    )?;
+    seal_research_pit_terminal(&selected, &source, request)
+}
+
+#[cfg(not(test))]
+fn verify_terminal_source_rows(
+    locator: &UntrustedSourceBindingLocator,
+    rows: &[Vec<u8>],
+    clock_rows: &[Vec<u8>],
+) -> Result<SourceBindingStoredAggregate, PitSnapshotError> {
+    let mut lineage = rows
+        .iter()
+        .map(|raw| {
+            let envelope = decode_raw_source_envelope(raw)
+                .map_err(|_| PitSnapshotError::SourceBindingUnavailable)?;
+            let aggregate: SourceBindingStoredAggregate =
+                serde_json::from_value(envelope.aggregate)
+                    .map_err(|_| PitSnapshotError::SourceBindingUnavailable)?;
+            Ok((aggregate, envelope.native))
+        })
+        .collect::<Result<Vec<_>, PitSnapshotError>>()?;
+    lineage
+        .retain(|(aggregate, _)| aggregate.commit().fact().lineage_root() == locator.lineage_root);
+    lineage.sort_by_key(|(aggregate, _)| aggregate.commit().fact().lineage_version());
+    if lineage.is_empty() {
+        return Err(PitSnapshotError::SourceBindingUnavailable);
+    }
+    let mut prior = None;
+    let mut selected = None;
+
+    for (offset, (aggregate, native)) in lineage.iter().enumerate() {
+        let fact = aggregate.commit().fact();
+        let expected_version = u64::try_from(offset)
+            .ok()
+            .and_then(|value| value.checked_add(1))
+            .ok_or(PitSnapshotError::SourceBindingUnavailable)?;
+
+        if !verify_source_native(aggregate, native, false)
+            || fact.lineage_version() != expected_version
+        {
+            return Err(PitSnapshotError::SourceBindingUnavailable);
+        }
+
+        match prior {
+            None if fact.binding_id() == fact.lineage_root()
+                && fact.predecessor_binding_id().is_none()
+                && fact.predecessor_fact_digest().is_none() => {}
+            Some((identity, digest))
+                if fact.predecessor_binding_id() == Some(identity)
+                    && fact.predecessor_fact_digest() == Some(digest) => {}
+            _ => return Err(PitSnapshotError::SourceBindingUnavailable),
+        }
+
+        if aggregate.commit().receipt().locator() == locator {
+            selected = Some(aggregate.clone());
+        }
+        prior = Some((fact.binding_id(), fact.digest()));
+    }
+    let selected = selected.ok_or(PitSnapshotError::SourceBindingUnavailable)?;
+    let (terminal, native) = lineage
+        .last()
+        .ok_or(PitSnapshotError::SourceBindingUnavailable)?;
+
+    if selected.commit().fact().binding_id() != terminal.commit().fact().binding_id()
+        || !native.head.matches_source(terminal.commit().fact())
+    {
+        return Err(PitSnapshotError::SourceBindingUnavailable);
+    }
+    let expected_clock = clock_for_source_time(selected.commit().fact().time_evidence());
+    let historical_clock = clock_rows
+        .iter()
+        .find_map(|raw| {
+            decode_raw_clock(raw)
+                .ok()
+                .filter(|clock| clock == &expected_clock)
+        })
+        .ok_or(PitSnapshotError::TrustedClockMismatch)?;
+    validate_clock_for_readback(selected.commit().fact().time_evidence(), &historical_clock)
+        .map_err(|_| PitSnapshotError::TrustedClockMismatch)?;
+    Ok(selected)
 }
 
 #[cfg(not(test))]

@@ -118,10 +118,13 @@ those remain unavailable pending real Time/Scheduler and Execution Owner contrac
 
 ## Output handoffs
 
-- To [R&D](./rd/): one identified PIT Market Snapshot disposition correlated to the exact initial
+- To [R&D](./rd/): one move-only, Market Data-sealed `ResearchPitTerminal` whose canonical six-state
+  disposition is correlated to the exact initial
   request identity, content digest, scope, cut, provenance, license, correction, and stable correlation, plus the
   exact Universe Selection Record identity and digest for hypothesis testing. A repair request resolves separately to the same correlated request identity
   as `AVAILABLE` with the repaired snapshot, or terminal `UNAVAILABLE` with a bounded decisive source category.
+  Strategy Factory cannot import, construct, deserialize, or implement the terminal authority and receives no raw
+  store receipt, PIT lineage rows, Source Binding lineage rows, or clock rows.
 - To [Backtest](./backtest/): the exact PIT Market Snapshot and Universe Selection Record for the request-bound PIT scope and snapshot/correction rule; actual consumption must repeat both identities and every frozen execution identity in Run Result.
 - To [Scanner](./scanner/): the exact PIT Market Snapshot requested by published activation conditions.
 - To [Runtime](./runtime/): live market streams and instrument updates carrying the same Market Semantics
@@ -145,8 +148,11 @@ those remain unavailable pending real Time/Scheduler and Execution Owner contrac
   snapshot under a changed request identity, content digest, scope, decision cut, or policy binding.
 - Never become a global Time Owner or decide another Owner's clock transition.
 - Never construct the governed Market Data PostgreSQL repository from a DSN, secret, caller assertion, or ambiguous
-  store state alone. The future default RD Workbench `rd-owner-api` bootstrap must first consume its exact sealed
-  Deployment Store Admission receipt; this requirement is TARGET and does not claim current product composition.
+  store state alone. The private Market Data store-admission seam must consume and revalidate its exact sealed
+  Deployment Store Admission receipt, then
+  Market Data must validate current PIT, Source Binding, and clock heads before sealing `ResearchPitTerminal`.
+  Ordinary consumers never receive the receipt, capability, raw evidence, or a caller-selected snapshot query.
+  Production resolution and dynamic product composition remain `TARGET / UNAVAILABLE`.
 
 ## Failure and recovery
 

@@ -11,11 +11,14 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
+#[cfg(test)]
 use vibe_data::owner::{
-    source_binding::SourceBindingOwnerResolver, source_binding_resolver_from_admitted_postgres,
+    ResearchPitTerminalBootstrapError, ResearchPitTerminalBootstrapFailure,
+    research_pit_terminal_resolver_from_store_admission_lookup,
 };
-use vibe_deployment_store_admission::{
-    RdOwnerStoreAdmissionBootstrap, admit_rd_owner_market_data_postgres,
+use vibe_data::owner::{
+    research_pit_terminal::ResearchPitTerminalResolver,
+    research_pit_terminal_resolver_from_store_admission_environment,
 };
 use vibe_product_edge::{
     ARTIFACT_BUILD_REQUIRED_EFFECTS_V1, ProductEdgeAdmissionLocatorV1,
@@ -66,7 +69,7 @@ struct ApiState {
     token_digest: [u8; 32],
     request_proof_digest: String,
     allow_acceptance_faults: bool,
-    _market_data_source_binding: Option<Arc<dyn SourceBindingOwnerResolver>>,
+    _market_data_research_pit: Option<Arc<dyn ResearchPitTerminalResolver>>,
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     develop_composer: Arc<SealedDevelopComposerAcceptanceV2>,
 }
@@ -142,7 +145,7 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .init();
-    let market_data_source_binding = bootstrap_deployment_store_admission().await?;
+    let market_data_research_pit = bootstrap_deployment_store_admission().await?;
     let database_url = required_env("RD_OWNER_DATABASE_URL")?;
     let qualification_database_url = required_env("QUALIFICATION_OWNER_DATABASE_URL")?;
     let product_edge_database_url = required_env("PRODUCT_EDGE_DATABASE_URL")?;
@@ -186,7 +189,7 @@ async fn main() -> anyhow::Result<()> {
         token_digest,
         request_proof_digest: request_proof_digest.clone(),
         allow_acceptance_faults,
-        _market_data_source_binding: market_data_source_binding,
+        _market_data_research_pit: market_data_research_pit,
         #[cfg(feature = "sealed-develop-composer-acceptance")]
         develop_composer,
     };
@@ -265,35 +268,15 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn bootstrap_deployment_store_admission()
--> anyhow::Result<Option<Arc<dyn SourceBindingOwnerResolver>>> {
-    enforce_deployment_store_admission(RdOwnerStoreAdmissionBootstrap::from_environment()?).await
+-> anyhow::Result<Option<Arc<dyn ResearchPitTerminalResolver>>> {
+    Ok(research_pit_terminal_resolver_from_store_admission_environment().await?)
 }
 
 #[cfg(test)]
 async fn bootstrap_deployment_store_admission_from_lookup(
     lookup: impl FnMut(&str) -> Option<String>,
-) -> anyhow::Result<Option<Arc<dyn SourceBindingOwnerResolver>>> {
-    enforce_deployment_store_admission(RdOwnerStoreAdmissionBootstrap::from_lookup(lookup)?).await
-}
-
-async fn enforce_deployment_store_admission(
-    bootstrap: RdOwnerStoreAdmissionBootstrap,
-) -> anyhow::Result<Option<Arc<dyn SourceBindingOwnerResolver>>> {
-    match bootstrap {
-        RdOwnerStoreAdmissionBootstrap::Disabled => Ok(None),
-        RdOwnerStoreAdmissionBootstrap::Required(request) => {
-            let capability = admit_rd_owner_market_data_postgres(&request).await?;
-            let receipt_identity = capability.receipt_identity().to_owned();
-            let consumer_identity = capability.consumer_identity().to_owned();
-            let resolver = source_binding_resolver_from_admitted_postgres(capability).await?;
-            tracing::info!(
-                receipt_identity,
-                consumer = consumer_identity,
-                "sealed Deployment Store Admission capability consumed by Market Data Source Binding read port"
-            );
-            Ok(Some(resolver))
-        }
-    }
+) -> anyhow::Result<Option<Arc<dyn ResearchPitTerminalResolver>>> {
+    Ok(research_pit_terminal_resolver_from_store_admission_lookup(lookup).await?)
 }
 
 async fn health() -> &'static str {
@@ -1575,9 +1558,8 @@ mod tests {
         .expect("invalid mode must fail closed");
         assert!(
             invalid_mode
-                .downcast_ref::<vibe_deployment_store_admission::BootstrapConfigurationError>()
-                .is_some_and(|e| *e
-                    == vibe_deployment_store_admission::BootstrapConfigurationError::InvalidMode)
+                .downcast_ref::<ResearchPitTerminalBootstrapError>()
+                .is_some_and(|e| e.failure() == ResearchPitTerminalBootstrapFailure::InvalidMode)
         );
         let empty_mode = bootstrap_deployment_store_admission_from_lookup(|name| {
             (name == "DEPLOYMENT_STORE_ADMISSION_MODE").then(String::new)
@@ -1587,9 +1569,8 @@ mod tests {
         .expect("empty mode must fail closed");
         assert!(
             empty_mode
-                .downcast_ref::<vibe_deployment_store_admission::BootstrapConfigurationError>()
-                .is_some_and(|e| *e
-                    == vibe_deployment_store_admission::BootstrapConfigurationError::InvalidMode)
+                .downcast_ref::<ResearchPitTerminalBootstrapError>()
+                .is_some_and(|e| e.failure() == ResearchPitTerminalBootstrapFailure::InvalidMode)
         );
 
         let missing_head = bootstrap_deployment_store_admission_from_lookup(|name| match name {
@@ -1603,13 +1584,10 @@ mod tests {
         .expect("missing head must fail closed");
         assert!(
             missing_head
-                .downcast_ref::<vibe_deployment_store_admission::BootstrapConfigurationError>()
-                .is_some_and(|e| matches!(
-            e,
-            vibe_deployment_store_admission::BootstrapConfigurationError::MissingRequiredIdentity(
-                "DEPLOYMENT_STORE_EXPECTED_HEAD_IDENTITY"
-            )
-        ))
+                .downcast_ref::<ResearchPitTerminalBootstrapError>()
+                .is_some_and(|e| {
+                    e.failure() == ResearchPitTerminalBootstrapFailure::MissingRequiredIdentity
+                })
         );
 
         let unavailable = bootstrap_deployment_store_admission_from_lookup(|name| match name {
@@ -1624,10 +1602,9 @@ mod tests {
         .expect("unavailable production admission must fail closed");
         assert!(
             unavailable
-                .downcast_ref::<vibe_deployment_store_admission::DeploymentStoreAdmissionError>()
+                .downcast_ref::<ResearchPitTerminalBootstrapError>()
                 .is_some_and(|e| {
-                    e.code()
-            == vibe_deployment_store_admission::AdmissionFailureCode::ProductionResolverUnavailable
+                    e.failure() == ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected
                 })
         );
     }
@@ -1838,7 +1815,7 @@ mod tests {
             token_digest,
             request_proof_digest,
             allow_acceptance_faults: false,
-            _market_data_source_binding: None,
+            _market_data_research_pit: None,
             #[cfg(feature = "sealed-develop-composer-acceptance")]
             develop_composer: Arc::new(
                 SealedDevelopComposerAcceptanceV2::connect(

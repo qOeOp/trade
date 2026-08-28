@@ -2303,16 +2303,6 @@
         "noAuthorityBasis": "Verification evidence is a consumer input and grants no deployment business Owner provider effect or trading authority"
       },
       {
-        "inventoryId": "deployment-store-admission-custody",
-        "memberPaths": ["crates/deployment_store_admission"],
-        "disposition": "NON_AUTHORITATIVE_INFRASTRUCTURE",
-        "destinationIds": ["market-data"],
-        "capabilityPortIds": [],
-        "providerMemberPortEvidence": [],
-        "adoptionRule": "Keep the fixed Market Data rd-owner-api PostgreSQL admission seam fail closed while production resolution signature anti-rollback credential and direct-measurement authorities remain unavailable",
-        "noAuthorityBasis": "Deployment Store Admission owns no business fact deployment-service provider-effect production-write or trading authority"
-      },
-      {
         "inventoryId": "observability-projection",
         "memberPaths": ["crates/observability"],
         "disposition": "NON_AUTHORITATIVE_INFRASTRUCTURE",
@@ -2364,13 +2354,13 @@
       },
       {
         "inventoryId": "product-edge-authority",
-        "memberPaths": ["crates/product_edge"],
+        "memberPaths": ["crates/product_edge", "crates/product_edge_contracts"],
         "disposition": "OWNER_NATIVE_IMPLEMENTATION",
         "destinationIds": ["product-edge"],
         "capabilityPortIds": [],
         "providerMemberPortEvidence": [],
-        "adoptionRule": "Own only content-addressed operation manifests deployment bindings and history head immutable request admissions and their outbox while consuming the Operator Authorization Issuer read contract in one direction",
-        "noAuthorityBasis": "Product Edge grants no R&D or business Owner authority and Strategy Factory Windmill restart recovery and product acceptance remain not admitted until real-consumer dynamic gates pass"
+        "adoptionRule": "Own only content-addressed operation manifests deployment bindings and history head immutable request admissions and their outbox while the pure contracts crate defines shared representations and Product Edge consumes the Operator Authorization Issuer read contract in one direction",
+        "noAuthorityBasis": "The pure contracts crate owns no facts and grants no authority; Product Edge grants no R&D or business Owner authority and Strategy Factory Windmill restart recovery and product acceptance remain not admitted until real-consumer dynamic gates pass"
       },
       {
         "inventoryId": "product-edge-authority-admin-composition",
