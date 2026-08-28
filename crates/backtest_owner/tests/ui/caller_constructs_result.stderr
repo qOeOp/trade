@@ -1,0 +1,5 @@
+error[E0599]: no associated function or constant named `from_owner_observations` found for struct `SealedReplayResultV2` in the current scope
+ --> tests/ui/caller_constructs_result.rs:4:41
+  |
+4 |     let _result = SealedReplayResultV2::from_owner_observations();
+  |                                         ^^^^^^^^^^^^^^^^^^^^^^^ associated function or constant not found in `SealedReplayResultV2`

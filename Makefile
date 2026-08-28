@@ -220,7 +220,7 @@ $(NEXTEST_ENV_TARGETS): export NEXTEST_TEST_THREADS=$(NEXTEST_TEST_THREADS_FOR_R
 endif
 
 # Core crates (excludes adapters/* and workspace members without tests)
-CORE_CRATES := vibe-analysis vibe-backtest vibe-common vibe-core \
+CORE_CRATES := vibe-analysis vibe-backtest vibe-backtest-owner vibe-backtest-owner-contracts vibe-common vibe-core \
     vibe-cryptography vibe-data vibe-deployment-attestation vibe-event-store vibe-execution \
     vibe-indicators vibe-indicators-kernel vibe-infrastructure vibe-live vibe-model vibe-scanner \
     vibe-network vibe-observability vibe-persistence vibe-persistence-macros \

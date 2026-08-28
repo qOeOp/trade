@@ -9657,6 +9657,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "vibe-backtest-owner"
+version = "0.62.0"
+dependencies = [
+ "blake3",
+ "rstest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "trybuild",
+ "vibe-backtest-owner-contracts",
+]
+
+[[package]]
+name = "vibe-backtest-owner-contracts"
+version = "0.62.0"
+dependencies = [
+ "blake3",
+ "rstest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "vibe-betfair"
 version = "0.62.0"
 dependencies = [

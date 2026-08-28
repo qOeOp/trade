@@ -1,0 +1,5 @@
+error[E0599]: no associated function or constant named `from_caller_claim` found for struct `DiagnosticEvidenceV2` in the current scope
+ --> tests/ui/caller_constructs_diagnostic.rs:4:45
+  |
+4 |     let _diagnostic = DiagnosticEvidenceV2::from_caller_claim();
+  |                                             ^^^^^^^^^^^^^^^^^ associated function or constant not found in `DiagnosticEvidenceV2`
