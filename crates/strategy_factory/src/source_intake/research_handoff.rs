@@ -7,6 +7,9 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
+use std::net::{IpAddr, Ipv4Addr};
+
 use super::{
     AcquisitionTerminalV1, OpenAlexWorkByDoiRequestV1, ResearchSourceProvenanceV1,
     SharedTimeEvidenceBindingV1, SourceAcquisitionAdmissionV1, SourceAcquisitionBindingV1,
@@ -15,6 +18,85 @@ use super::{
     openalex_http, source_acquisition_receipt_content_address_matches, validate_current_policy,
     validate_digest, validate_identity, validate_retrieval_time,
 };
+
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
+use super::{
+    ProductEdgeGatewayV1, SourceIntakePolicyEvidencePort, SourceIntakePolicyEvidenceQueryV1,
+    SourceIntakePolicyEvidenceResultV1,
+};
+
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
+#[allow(dead_code)]
+const SEALED_CONNECTOR_POLICY_LOCATOR: &str = "sealed-source-intake-connector-policy-v1";
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
+#[allow(dead_code)]
+const SEALED_NETWORK_POLICY_LOCATOR: &str = "sealed-source-intake-network-policy-v1";
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
+#[allow(dead_code)]
+const SEALED_RIGHTS_POLICY_LOCATOR: &str = "sealed-source-intake-rights-policy-v1";
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
+#[allow(dead_code)]
+const SEALED_RETENTION_POLICY_LOCATOR: &str = "sealed-source-intake-retention-policy-v1";
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
+#[allow(dead_code)]
+const SEALED_DNS_OBSERVATION_LOCATOR: &str = "sealed-source-intake-dns-observation-v1";
+
+/// Fixed, compile-time-only current-policy resolver for the disposable sealed
+/// Source Intake-to-Research acceptance. It has no provider, DSN, environment,
+/// or evidence injection surface.
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
+#[derive(Debug, Default)]
+#[allow(dead_code)]
+pub(crate) struct SealedSourceIntakeResearchPolicyV1;
+
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
+#[async_trait::async_trait]
+impl SourceIntakePolicyEvidencePort for SealedSourceIntakeResearchPolicyV1 {
+    async fn resolve_source_intake_policy_evidence(
+        &self,
+        query: &SourceIntakePolicyEvidenceQueryV1,
+    ) -> SourceIntakePolicyEvidenceResultV1 {
+        if query.gateway != ProductEdgeGatewayV1::WindmillProductEdge
+            || query.request_identity != query.admission.request_identity
+            || query.connector_policy_locator != SEALED_CONNECTOR_POLICY_LOCATOR
+            || query.network_policy_locator != SEALED_NETWORK_POLICY_LOCATOR
+            || query.rights_policy_locator != SEALED_RIGHTS_POLICY_LOCATOR
+            || query.retention_policy_locator != SEALED_RETENTION_POLICY_LOCATOR
+            || query.dns_observation_locator != SEALED_DNS_OBSERVATION_LOCATOR
+            || query.shared_time_successor.is_some()
+        {
+            return SourceIntakePolicyEvidenceResultV1::Unavailable {
+                reason: super::SourceIntakePolicyUnavailableReasonV1::EvidenceMismatch,
+            };
+        }
+        let request = OpenAlexWorkByDoiRequestV1 {
+            request_identity: query.request_identity.clone(),
+            gateway: query.gateway,
+            admission: query.admission.clone(),
+            operation_manifest_identity: query.operation_manifest_identity.clone(),
+            operation_manifest_digest: query.operation_manifest_digest.clone(),
+            normalized_doi: "10.5555/sealed-success".into(),
+        };
+        let mut evidence = SourceIntakePolicyEvidenceV1::fixture(
+            &request,
+            vec![IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))],
+            0,
+            0,
+            openalex_http::MAX_RESPONSE_BYTES,
+            5_000,
+            SourceAcquisitionAdmissionV1::Admitted,
+        );
+        evidence.shared_time.head_identity = format!("sha256:{}", "d".repeat(64));
+        evidence.shared_time.head_digest = format!("sha256:{}", "e".repeat(64));
+        evidence.shared_time.monotonic_sequence = 4;
+        evidence.shared_time.wall_observed_epoch_ms = 1_800_000_000_003;
+        evidence.shared_time.decision_cut_epoch_ms = 1_800_000_000_003;
+        evidence.shared_time.valid_through_epoch_ms = 1_800_000_030_003;
+        SourceIntakePolicyEvidenceResultV1::Sealed {
+            evidence: Box::new(evidence),
+        }
+    }
+}
 
 const RETRIEVED_EVENT_KIND_V1: &str = "SOURCE_INTAKE_TERMINATED_V1";
 const UNTRUSTED_SOURCE_CLASS_V1: &str = "UNTRUSTED_EXTERNAL_DATA";
@@ -422,6 +504,17 @@ fn verify_current_owner_policy(
     }
     let current = openalex_http::build_binding(request, verification_policy.clone())
         .map_err(|_| SourceIntakeResearchHandoffErrorV1::AncestryMismatch)?;
+    #[cfg(feature = "sealed-source-intake-research-acceptance")]
+    let current = {
+        let mut current = current;
+
+        if binding.authority.authority_class
+            == super::SourceAcquisitionAuthorityClassV1::SealedAcceptance
+        {
+            bind_sealed_acceptance_current_policy(&mut current);
+        }
+        current
+    };
 
     if current.admission != SourceAcquisitionAdmissionV1::Admitted
         || current.authority != binding.authority
@@ -449,6 +542,20 @@ fn verify_current_owner_policy(
         return Err(SourceIntakeResearchHandoffErrorV1::AncestryMismatch);
     }
     Ok(())
+}
+
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
+fn bind_sealed_acceptance_current_policy(current: &mut SourceAcquisitionBindingV1) {
+    current.authority = super::SourceAcquisitionAuthorityBindingV1 {
+        authority_class: super::SourceAcquisitionAuthorityClassV1::SealedAcceptance,
+        environment_identity: "source-intake-sealed-acceptance-environment-v1".into(),
+        provider_profile_digest:
+            "sha256:20e4901e7b97516edbaa744c0e866b0c509595386357c1b973e48beac1657f15".into(),
+        fixture_corpus_digest: Some(
+            "sha256:b8cf806629fbb7baa2e38707b4d246a17e44d9841509701530cbd97558ddad18".into(),
+        ),
+    };
+    current.connector_identity = "rd.openalex-work-by-doi.sealed-acceptance".into();
 }
 
 fn verify_reference(

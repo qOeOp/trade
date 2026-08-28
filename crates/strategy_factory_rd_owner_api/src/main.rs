@@ -56,6 +56,7 @@ use vibe_strategy_factory::develop_composer_sealed_acceptance_v2::{
 };
 
 mod source_intake;
+mod source_intake_research;
 
 #[derive(Clone)]
 struct ApiState {
@@ -160,9 +161,11 @@ async fn main() -> anyhow::Result<()> {
         )
         .await?,
     );
-    let owner = Arc::new(
-        PostgresResearchGoalOwnerV1::connect(&database_url, &qualification_database_url).await?,
-    );
+    let owner =
+        PostgresResearchGoalOwnerV1::connect(&database_url, &qualification_database_url).await?;
+    #[cfg(feature = "sealed-source-intake-acceptance")]
+    let owner = owner.bind_sealed_source_intake_research_policy();
+    let owner = Arc::new(owner);
     let artifact_owner = Arc::new(
         PostgresArtifactBuildOwnerV1::connect(
             &database_url,
@@ -174,14 +177,15 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     let develop_composer =
         Arc::new(SealedDevelopComposerAcceptanceV2::connect(&database_url).await?);
+    let allow_acceptance_faults =
+        env::var("RD_OWNER_ENABLE_ACCEPTANCE_FAULTS").as_deref() == Ok("1");
     let state = ApiState {
         product_edge: product_edge.clone(),
-        owner,
+        owner: owner.clone(),
         artifact_owner,
         token_digest,
         request_proof_digest: request_proof_digest.clone(),
-        allow_acceptance_faults: env::var("RD_OWNER_ENABLE_ACCEPTANCE_FAULTS").as_deref()
-            == Ok("1"),
+        allow_acceptance_faults,
         _market_data_source_binding: market_data_source_binding,
         #[cfg(feature = "sealed-develop-composer-acceptance")]
         develop_composer,
@@ -245,7 +249,14 @@ async fn main() -> anyhow::Result<()> {
             post(resolve_develop_composer),
         )
         .with_state(state)
-        .merge(source_intake);
+        .merge(source_intake)
+        .merge(source_intake_research::router(
+            product_edge,
+            owner,
+            token_digest,
+            request_proof_digest,
+            allow_acceptance_faults,
+        ));
     let address = env_or("RD_OWNER_LISTEN", "0.0.0.0:8080");
     let listener = TcpListener::bind(&address).await?;
     tracing::info!(listen = %address, "R&D Owner API ready");

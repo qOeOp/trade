@@ -109,18 +109,33 @@ pub(super) async fn sealed_acceptance_router(
 
 #[cfg(feature = "sealed-source-intake-acceptance")]
 async fn install_sealed_source_intake_schema(owner_pool: &sqlx::PgPool) -> anyhow::Result<()> {
-    // Each acceptance run owns one disposable database. Atomic installation makes a failed
-    // bootstrap retryable without treating this non-idempotent corpus as a production migrator.
+    // Each acceptance run owns one disposable database. The transaction lock and sentinel make
+    // process restart safe without treating this non-idempotent corpus as a production migrator.
     let mut transaction = owner_pool
         .begin()
         .await
         .context("begin sealed Source Intake schema bootstrap")?;
-
-    for (index, statement) in SOURCE_INTAKE_MIGRATION_SQL_V1.iter().enumerate() {
-        sqlx::query(*statement)
-            .execute(&mut *transaction)
+    sqlx::query(
+        "SELECT pg_advisory_xact_lock(hashtextextended('vibe.sealed-source-intake-schema-v1', 0))",
+    )
+    .execute(&mut *transaction)
+    .await
+    .context("lock sealed Source Intake schema bootstrap")?;
+    let installed: bool =
+        sqlx::query_scalar("SELECT to_regclass('public.rd_source_intake_bindings_v1') IS NOT NULL")
+            .fetch_one(&mut *transaction)
             .await
-            .with_context(|| format!("apply sealed Source Intake migration statement {index}"))?;
+            .context("inspect sealed Source Intake schema bootstrap")?;
+
+    if !installed {
+        for (index, statement) in SOURCE_INTAKE_MIGRATION_SQL_V1.iter().enumerate() {
+            sqlx::query(*statement)
+                .execute(&mut *transaction)
+                .await
+                .with_context(|| {
+                    format!("apply sealed Source Intake migration statement {index}")
+                })?;
+        }
     }
     transaction
         .commit()
@@ -411,6 +426,9 @@ mod tests {
             .expect("acceptance environment construction");
         assert!(install_call < environment);
         assert!(source.contains("let mut transaction = owner_pool"));
+        assert!(source.contains("pg_advisory_xact_lock"));
+        assert!(source.contains("to_regclass('public.rd_source_intake_bindings_v1') IS NOT NULL"));
+        assert!(source.contains("if !installed"));
         assert!(source.contains("for (index, statement) in SOURCE_INTAKE_MIGRATION_SQL_V1"));
         assert!(source.contains(".execute(&mut *transaction)"));
         assert!(source.contains("transaction\n        .commit()"));

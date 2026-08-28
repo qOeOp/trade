@@ -25,6 +25,7 @@ use crate::{
         decide_commit, decide_commit_v2, decide_rejected_commit_v2, semantic_digest,
         semantic_digest_v2, terminal_research_view_identity, validate_goal_request_v2,
         validate_legacy_goal_meaning, verify_research_admission_v1, verify_research_admission_v2,
+        verify_source_bound_research_admission_v2,
     },
     trial_family::{
         TrialFamilyPolicyV1, TrialFamilyReadbackV1, TrialFamilyResolutionV1, form_initial_family,
@@ -1478,7 +1479,12 @@ async fn admit_preloaded_research_row_in_transaction(
             source_ancestry_locator_json.as_ref(),
             source_ancestry_evidence_digest.as_deref(),
         )?;
-        verify_research_admission_v2(&product_edge_admission, &request)?;
+
+        if source_ancestry_locator_json.is_some() {
+            verify_source_bound_research_admission_v2(&product_edge_admission, &request)?;
+        } else {
+            verify_research_admission_v2(&product_edge_admission, &request)?;
+        }
         let effective_principal = product_edge_admission.effective_principal().to_string();
         let authorized_scope = product_edge_admission.authorized_scope().to_vec();
         let digest = semantic_digest_v2(&request)?;

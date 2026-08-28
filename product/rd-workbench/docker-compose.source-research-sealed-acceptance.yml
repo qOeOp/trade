@@ -1,0 +1,28 @@
+name: ${SEALED_ACCEPTANCE_PROJECT:?set SEALED_ACCEPTANCE_PROJECT}
+
+x-windmill-image: &windmill-image >-
+  ghcr.io/windmill-labs/windmill:1.791.0@sha256:1e9ec20f5a99235ccce18e4a4879a8c14ff1738af37fd23c18d87594dcee5916
+
+services:
+  rd-owner-api:
+    environment:
+      RD_OWNER_ENABLE_ACCEPTANCE_FAULTS: "1"
+
+  source-research-probe:
+    image: *windmill-image
+    pull_policy: never
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c", "trap : TERM INT; sleep infinity & wait"]
+    environment:
+      RD_OWNER_API_TOKEN: ${SEALED_RD_OWNER_API_TOKEN:?set SEALED_RD_OWNER_API_TOKEN}
+    depends_on:
+      rd-owner-api:
+        condition: service_healthy
+    volumes:
+      - ./f:/opt/source-research/f:ro
+    networks:
+      - sealed-internal
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

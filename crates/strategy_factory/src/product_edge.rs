@@ -778,6 +778,48 @@ pub(crate) fn verify_research_admission_v2(
         &payload,
     )?;
 
+    verify_research_admission_v2_authority(admission)
+}
+
+pub(crate) fn verify_source_bound_research_admission_v2(
+    admission: &ProductEdgeAdmissionReadbackV1,
+    request: &ProductEdgeResearchGoalRequestV2,
+) -> Result<(), ResearchGoalOwnerError> {
+    let goal = &request.goal;
+    let payload = serde_json::json!({
+        "request_identity": request.request_identity,
+        "channel": request.channel,
+        "goal": {
+            "hypothesis": goal.hypothesis,
+            "mechanism": goal.mechanism,
+            "falsification_question": goal.falsification_question,
+            "expected_observation": goal.expected_observation,
+            "required_data": goal.required_data,
+            "cost_assumption": goal.cost_assumption,
+            "capacity_assumption": goal.capacity_assumption,
+        },
+        "trial_family_proposal": request.trial_family_proposal,
+    });
+    verify_research_admission(
+        admission,
+        &request.admission,
+        &request.request_identity,
+        RESEARCH_GOAL_OPERATION_V2,
+        RESEARCH_GOAL_SCHEMA_V2,
+        &payload,
+    )
+    .map_err(|_| {
+        ResearchGoalOwnerError::Unauthorized(
+            "canonical source-bound Product Edge admission mismatch",
+        )
+    })?;
+
+    verify_research_admission_v2_authority(admission)
+}
+
+fn verify_research_admission_v2_authority(
+    admission: &ProductEdgeAdmissionReadbackV1,
+) -> Result<(), ResearchGoalOwnerError> {
     if !has_research_submit_scope(admission.authorized_scope())
         || !has_exact_research_mutation_effect(admission.request().requested_effects.as_slice())
     {
