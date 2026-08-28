@@ -1692,6 +1692,12 @@ requires the Artifact, Build Receipt, Artifact Review, Artifact-to-TrialFamily b
 frontier from the same Owner transaction. The BFF exposes separate same-identity request and build-attempt resolve
 operations; neither operation dispatches a replacement job or derives a family from caller-provided identifiers.
 
+Replay action admission consumes the complete selected S2 Owner projection and verifies every required identity,
+receipt/binding, locator, availability, and currentness field against the Replay request. A UI/display boolean such
+as `selectedS2Available` may describe derived display state, but it must never authorize `RUN` or substitute for the
+Owner projection. A missing, malformed, mismatched, stale, or unavailable projection disables `RUN` and produces
+zero Replay dispatch or business write.
+
 The S1 chain first performs complete pure V2 validation. Invalid input may commit only one independent rejection
 receipt; it writes no independence basis, Qualification projection, Research receipt, Intent, family, member, head,
 or outbox. Only the resulting opaque validated marker can enter positive formation. R&D then writes or reuses its
