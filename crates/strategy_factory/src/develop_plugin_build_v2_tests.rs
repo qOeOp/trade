@@ -39,7 +39,10 @@ fn capsule() -> UntrustedDevelopPluginCapsuleV2 {
 }
 
 #[rstest]
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "aarch64")
+))]
 fn real_bounded_plugin_builds_twice_and_exact_replay_joins() {
     let capsule = capsule();
     let manifest = capsule.manifest.clone();
@@ -67,7 +70,10 @@ fn real_bounded_plugin_builds_twice_and_exact_replay_joins() {
 }
 
 #[rstest]
-#[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+#[cfg(not(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "aarch64")
+)))]
 fn unsupported_host_returns_toolchain_unavailable_without_a_positive() {
     let capsule = capsule();
     let manifest = capsule.manifest.clone();
@@ -78,9 +84,6 @@ fn unsupported_host_returns_toolchain_unavailable_without_a_positive() {
                 terminal.kind,
                 DevelopPluginBuildTerminalKindV2::ToolchainUnavailable
             );
-            #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-            assert_eq!(terminal.coordinate, "toolchain.target_sysroot");
-            #[cfg(not(all(target_os = "linux", target_arch = "aarch64")))]
             assert_eq!(terminal.coordinate, "toolchain.host");
         }
         DevelopPluginBuildResultV2::Verified(_) => {
@@ -90,9 +93,10 @@ fn unsupported_host_returns_toolchain_unavailable_without_a_positive() {
 }
 
 #[rstest]
-fn frozen_host_profiles_preserve_exact_pins_but_admit_only_complete_authority() {
+fn frozen_host_profiles_preserve_exact_pins_and_complete_authority() {
     use super::develop_plugin_build_v2_sandbox::{
-        TARGET, host_profile_for_test, pinned_host_profile_for_test,
+        TARGET, host_profile_for_test, matches_frozen_execution_profile,
+        pinned_host_profile_for_test,
     };
 
     let macos = pinned_host_profile_for_test("macos", "aarch64")
@@ -117,6 +121,10 @@ fn frozen_host_profiles_preserve_exact_pins_but_admit_only_complete_authority() 
     assert_eq!(linux.host, "aarch64-unknown-linux-gnu");
     assert_eq!(linux.target, TARGET);
     assert_eq!(
+        linux.target_sysroot_digest,
+        Some(super::develop_plugin_build_v2_sandbox::LINUX_TARGET_SYSROOT_SHA256)
+    );
+    assert_eq!(
         linux.cargo_digest,
         hex_digest("c5dcff701935f50505c9c5df7ee941a9de4f29d84ab91627c396848accef1808")
     );
@@ -129,13 +137,84 @@ fn frozen_host_profiles_preserve_exact_pins_but_admit_only_complete_authority() 
         hex_digest("533dffee7995258d3de4f995b0c926f18a5245a0aef09896901deee6ef144eb7")
     );
 
-    let terminal = host_profile_for_test("linux", "aarch64")
-        .expect_err("executable pins cannot substitute for target sysroot authority");
+    assert_eq!(
+        host_profile_for_test("linux", "aarch64")
+            .expect("the canonical sysroot verifier completes Linux authority"),
+        linux
+    );
+    assert!(matches_frozen_execution_profile(
+        macos.host,
+        macos.cargo_digest,
+        macos.rustc_digest,
+        macos.linker_digest,
+        macos.target_sysroot_digest,
+    ));
+    assert!(matches_frozen_execution_profile(
+        linux.host,
+        linux.cargo_digest,
+        linux.rustc_digest,
+        linux.linker_digest,
+        linux.target_sysroot_digest,
+    ));
+    assert!(!matches_frozen_execution_profile(
+        "x86_64-unknown-linux-gnu",
+        macos.cargo_digest,
+        macos.rustc_digest,
+        macos.linker_digest,
+        macos.target_sysroot_digest,
+    ));
+    assert!(!matches_frozen_execution_profile(
+        linux.host,
+        linux.cargo_digest,
+        linux.rustc_digest,
+        linux.linker_digest,
+        None,
+    ));
+}
+
+#[rstest]
+fn canonical_sysroot_reread_fails_closed_after_mutation() {
+    use super::develop_plugin_build_v2_sandbox::{
+        target_sysroot_digest_for_test, verify_target_sysroot_for_test,
+    };
+
+    let root = tempfile::tempdir().expect("private sysroot fixture is available");
+    let lib = root.path().join("lib");
+    std::fs::create_dir(&lib).expect("fixture lib directory is materialized");
+    let artifact = lib.join("libcore-fixture.rlib");
+    std::fs::write(&artifact, b"frozen sysroot bytes").expect("fixture artifact is materialized");
+    let expected =
+        target_sysroot_digest_for_test(root.path()).expect("fixture has canonical GNU tar bytes");
+    verify_target_sysroot_for_test(root.path(), expected)
+        .expect("the unchanged pre-build reread is admitted");
+
+    std::fs::write(&artifact, b"mutated sysroot bytes").expect("fixture mutation is materialized");
+    let terminal = verify_target_sysroot_for_test(root.path(), expected)
+        .expect_err("the post-build reread must reject changed sysroot bytes");
     assert_eq!(
         terminal.kind,
         DevelopPluginBuildTerminalKindV2::ToolchainUnavailable
     );
-    assert_eq!(terminal.coordinate, "toolchain.target_sysroot");
+    assert_eq!(terminal.coordinate, "toolchain.target_sysroot_digest");
+}
+
+#[rstest]
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+fn canonical_linux_sysroot_matches_the_frozen_generator_digest() {
+    use super::develop_plugin_build_v2_sandbox::{
+        LINUX_TARGET_SYSROOT_SHA256, RUSTC_RELEASE, TARGET, target_sysroot_digest_for_test,
+    };
+
+    let rustup_home = std::env::var_os("RUSTUP_HOME").expect("Linux gate binds RUSTUP_HOME");
+    let root = std::path::PathBuf::from(rustup_home)
+        .join("toolchains")
+        .join(format!("{RUSTC_RELEASE}-aarch64-unknown-linux-gnu"))
+        .join("lib/rustlib")
+        .join(TARGET);
+    assert_eq!(
+        target_sysroot_digest_for_test(&root).expect("the pinned sysroot is canonical-readable"),
+        LINUX_TARGET_SYSROOT_SHA256
+    );
 }
 
 #[rstest]
@@ -263,7 +342,10 @@ fn invalid_capsule_profiles_return_zero_verified_builds() {
 }
 
 #[rstest]
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "aarch64")
+))]
 fn conflicting_capsule_after_a_positive_returns_zero_verified_builds() {
     let base = capsule();
     let manifest = base.manifest.clone();
@@ -279,7 +361,10 @@ fn conflicting_capsule_after_a_positive_returns_zero_verified_builds() {
     );
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "aarch64")
+))]
 fn verified(
     result: DevelopPluginBuildResultV2,
 ) -> super::develop_plugin_build_v2::VerifiedDevelopPluginBuildReadV2 {
