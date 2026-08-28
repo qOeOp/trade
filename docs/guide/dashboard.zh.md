@@ -19,6 +19,37 @@
 - `TARGET_DRAFT` 表示当前设计预期未来 Dashboard 提供该能力；相关真实消费者流程终结前仍可修订。
 - `NOT_ADMITTED` 表示 UI、绿色 job、图表、日志或本章都不能证明能力存在，也不能授权相关业务迁移。
 
+### 2026-08-28 已合并 Source、Windmill、Scanner 与 Market Data 回读
+
+当前 Trade main `e12adde09754e20953ac81ce86ffa5e7b3a05c99` 已包含完成的 Source Intake、Windmill 与
+Scanner 切面。PR #356 以 `82c4f59fc600a1d5d0a9bc94eac83234c531e490` 合并，恢复了经过真实 Windmill
+entry、PostgreSQL Owner custody 与 cleanup/readback 的隔离 Source Intake 验收。PR #361 以
+`a7260f6563fbdf1c1b497087d638c0c406e4cefb` 合并，使检入的 Windmill workspace lock 成为 deterministic、
+read-only-verifiable projection；这是仓库 tooling 证据，不是 deployment 证据。PR #360 以
+`67d31f5398922680714827206ceb2583437a869b` 合并，为 Product Edge 添加 sealed Scanner terminal-receipt
+read boundary；它仍是 static Owner contract，不能建立 Scanner operation 或 Windmill journey。
+
+PR #362 是当前 Source Intake-to-Research 切面。默认 Windmill operation 现在把已准入的 Source terminal
+发送到 canonical R&D Owner API：`RUN` 拥有第一次 mutation，`RESOLVE` 保持 read-only，且只有在精确 durable
+receipt 已存在时才不返回 submitted-or-unknown。其 final tree 的 focused Source/Windmill check 通过
+`5/5`，Workbench default check 通过 `164/164`，focused API check 通过 `5/5`。Disposable
+Windmill/PostgreSQL sealed acceptance 在 pre-final tree 通过，但在最终 `RESOLVE` correction 与不相交的
+main-only 变更后未重跑。因此其 maturity 是 `CURRENT/PARTIAL · EXACT_HEAD_COLD_ACCEPTANCE_NOT_ADMITTED`：
+未来 Dashboard 可以保留这些 fail-closed action 与 recovery semantics，但不得仅根据 transport success
+渲染正向 Source-to-Research 结果。Deployed default Windmill workspace、authenticated browser 或 native MCP
+acceptance、Dashboard implementation、provider 或 network execution、production write 与 trading 全部仍为
+`NOT_ADMITTED`。
+
+PR #364 以 `e12adde09754e20953ac81ce86ffa5e7b3a05c99` 合并，进一步把 deployment-store admission 与
+revalidation 收入 Market Data Owner boundary，并只向 Strategy Factory 暴露 move-only sealed
+`ResearchPitTerminal`。Capability Adoption 现在把 pure `crates/product_edge_contracts` representation 收入
+Product Edge，但不授予其 fact 或 authority ownership。这是
+`CURRENT/PARTIAL · DYNAMIC_POSTGRES_PRODUCT_COMPOSITION_NOT_ADMITTED`：downstream code 无法构造 terminal，
+也无法读取 raw store、PIT、Source Binding 或 clock row；在已观察的 Darwin 切面上，disposable
+PostgreSQL acceptance 仍 unavailable。未来 Dashboard 可以把该 sealed handoff 显示为 Owner evidence，
+但不得由此推断 Market Data availability、default Windmill readiness、production resolution 或正向
+Source-to-Research 结果。
+
 ### 2026-08-23 已合并 H1 回读
 
 PR #326 已作为 `81c519fade16810c3d9694226092c83f1f886b07` 合并到 Trade main。它的 merge tree
