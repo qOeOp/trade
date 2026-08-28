@@ -660,6 +660,15 @@ impl AuthorizedGenerationDecision {
         &self.contender_generation_ids
     }
     #[must_use]
+    pub fn contender_membership_digest(&self) -> Digest {
+        let members = self
+            .contender_generation_ids
+            .iter()
+            .map(GenerationId::as_str)
+            .collect::<Vec<_>>();
+        Digest::of_domain_fields("governance-contender-set-v1", &members)
+    }
+    #[must_use]
     pub fn economic_conditions_version(&self) -> &EconomicConditionsVersion {
         &self.economic_conditions_version
     }

@@ -28,10 +28,14 @@
 
 mod authority;
 mod digest;
+mod lifecycle_receipt_read;
 mod model;
 mod store;
 
 pub use digest::Digest;
+pub use lifecycle_receipt_read::{
+    CurrentLifecycleReceiptReadback, LifecycleReceiptReadError, UntrustedLifecycleReceiptLocator,
+};
 pub use model::{
     AccountId, ActivationCondition, AdapterBindingId, AllowedIntentClass, ApplicationStatus,
     ArtifactId, AuthorizationMode, AuthorizedGenerationDecision, CandidateId, CapacityScopeId,

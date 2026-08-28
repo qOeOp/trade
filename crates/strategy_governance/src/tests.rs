@@ -1,4 +1,10 @@
-use std::{collections::VecDeque, sync::Mutex};
+use std::{
+    collections::VecDeque,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 
 use rstest::rstest;
 
@@ -6,13 +12,15 @@ use crate::{
     AccountId, ActivationCondition, AdapterBindingId, AllowedIntentClass, ApplicationStatus,
     ArtifactId, AuthorizationMode, CandidateId, CapacityScopeId, DecisionFrontierId, Digest,
     EconomicConditionsVersion, EligibilityState, ExecutionMode, ExecutionScope, FactRef,
-    GenerationId, GovernanceCore, LifecycleAction, LifecycleRequest, LifecycleRequestId,
-    ManifestId, PrincipalId, QualificationSourceFrontier, ReceiptStatus, RejectionReason,
-    RequestScopeId, RuntimeApplicationDisposition, RuntimeReceiptId, ShellBindingId, StoreError,
-    TimeEvidence, TimeSourceFrontierId, UntrustedAdapterBindingReadback, UntrustedArtifactReadback,
+    GenerationId, GovernanceCore, LifecycleAction, LifecycleReceiptReadError, LifecycleRequest,
+    LifecycleRequestId, ManifestId, PrincipalId, QualificationSourceFrontier, ReceiptStatus,
+    RejectionReason, RequestScopeId, RuntimeApplicationDisposition, RuntimeReceiptId,
+    ShellBindingId, StoreError, TimeEvidence, TimeSourceFrontierId,
+    UntrustedAdapterBindingReadback, UntrustedArtifactReadback,
     UntrustedAuthorizationLineageReadback, UntrustedAutonomousPolicyReadback,
     UntrustedCapacityViewReadback, UntrustedDecisionEvidence, UntrustedEligibilityReadback,
-    UntrustedRuntimeApplicationReadback, ViewAvailability, ViewFreshness,
+    UntrustedLifecycleReceiptLocator, UntrustedRuntimeApplicationReadback, ViewAvailability,
+    ViewFreshness,
     authority::{OwnerAdmission, qualification_frontiers_match},
     store::GovernanceClock,
 };
@@ -241,6 +249,23 @@ impl Fixture {
             .expect("fixture resolves to a receipt")
             .remove(0)
     }
+
+    fn gated_core(&self, clock_values: Vec<TimeEvidence>) -> (GovernanceCore, Arc<AtomicBool>) {
+        let available = Arc::new(AtomicBool::new(true));
+        let admission = FixtureAdmission {
+            request_time: self.request.submitted_time.clone(),
+            evidence: self.evidence.clone(),
+            runtime_available: false,
+        };
+        let core = GovernanceCore::with_dependencies(
+            Box::new(GatedAdmission {
+                inner: admission,
+                available: Arc::clone(&available),
+            }),
+            Box::new(FixedClock::new(clock_values)),
+        );
+        (core, available)
+    }
 }
 
 #[rstest]
@@ -323,6 +348,49 @@ impl OwnerAdmission for FixtureAdmission {
 
     fn runtime_application(&self, _readback: &UntrustedRuntimeApplicationReadback) -> bool {
         self.runtime_available
+    }
+}
+
+struct GatedAdmission {
+    inner: FixtureAdmission,
+    available: Arc<AtomicBool>,
+}
+
+impl OwnerAdmission for GatedAdmission {
+    fn available(&self) -> bool {
+        self.available.load(Ordering::SeqCst)
+    }
+
+    fn request_time(&self, evidence: &TimeEvidence) -> bool {
+        self.available() && self.inner.request_time(evidence)
+    }
+
+    fn artifact(&self, readback: &UntrustedArtifactReadback) -> bool {
+        self.available() && self.inner.artifact(readback)
+    }
+
+    fn eligibility(&self, readback: &UntrustedEligibilityReadback) -> bool {
+        self.available() && self.inner.eligibility(readback)
+    }
+
+    fn capacity(&self, readback: &UntrustedCapacityViewReadback) -> bool {
+        self.available() && self.inner.capacity(readback)
+    }
+
+    fn adapter_binding(&self, readback: &UntrustedAdapterBindingReadback) -> bool {
+        self.available() && self.inner.adapter_binding(readback)
+    }
+
+    fn authorization_lineage(&self, readback: &UntrustedAuthorizationLineageReadback) -> bool {
+        self.available() && self.inner.authorization_lineage(readback)
+    }
+
+    fn autonomous_policy(&self, readback: &UntrustedAutonomousPolicyReadback) -> bool {
+        self.available() && self.inner.autonomous_policy(readback)
+    }
+
+    fn runtime_application(&self, readback: &UntrustedRuntimeApplicationReadback) -> bool {
+        self.available() && self.inner.runtime_application(readback)
     }
 }
 
@@ -416,6 +484,113 @@ fn sealed_complete_chain_authorizes_paper_but_runtime_stays_unknown() {
     assert_eq!(json["availability"], "UNAVAILABLE");
     assert!(json["source_frontier"].is_null());
     assert!(json.get("projection_source_frontier").is_none());
+}
+
+#[rstest]
+fn canonical_current_lifecycle_receipt_drives_existing_read_port() {
+    let fixture = Fixture::new();
+    let mut core = fixture.core(
+        vec![time(1_000, 20), time(1_050, 30), time(1_060, 31)],
+        false,
+    );
+    let receipt = core
+        .resolve_frontier(&[(fixture.request, fixture.evidence)])
+        .expect("sealed admission resolves")
+        .remove(0);
+    let locator = UntrustedLifecycleReceiptLocator::from_decision(
+        receipt.decision().expect("accepted decision"),
+    );
+
+    let readback = core
+        .read_current_lifecycle_receipt(&locator)
+        .expect("canonical current receipt readback");
+    assert_eq!(readback.request_id(), receipt.request_id());
+    assert_eq!(readback.generation_id().as_str(), "generation/A");
+    assert_eq!(readback.receipt_status(), ReceiptStatus::Accepted);
+    assert_eq!(
+        readback.decision_digest(),
+        receipt
+            .decision()
+            .expect("accepted decision")
+            .decision_digest()
+    );
+    assert_eq!(readback.membership_digest(), locator.membership_digest);
+    assert_eq!(readback.projected_at(), 1_050);
+
+    let view = core.view(&receipt, None);
+    assert_eq!(view.freshness(), ViewFreshness::Unavailable);
+    assert_eq!(view.availability(), ViewAvailability::Unavailable);
+    assert_eq!(view.source_frontier(), None);
+    assert_eq!(view.projected_at(), 1_060);
+    assert_eq!(
+        view.application_status(),
+        ApplicationStatus::ApplicationUnknown
+    );
+}
+
+#[rstest]
+fn lifecycle_receipt_read_fails_closed_for_unknown_stale_and_mismatched_coordinates() {
+    let fixture = Fixture::new();
+    let mut core = fixture.core(vec![time(1_000, 20), time(1_800, 40)], false);
+    let receipt = core
+        .resolve_frontier(&[(fixture.request, fixture.evidence)])
+        .expect("sealed admission resolves")
+        .remove(0);
+    let locator = UntrustedLifecycleReceiptLocator::from_decision(
+        receipt.decision().expect("accepted decision"),
+    );
+
+    let mut unknown = locator.clone();
+    unknown.request_id = id("unknown-request", LifecycleRequestId::new);
+    assert!(matches!(
+        core.read_current_lifecycle_receipt(&unknown),
+        Err(LifecycleReceiptReadError::UnknownReceipt)
+    ));
+
+    let mut generation = locator.clone();
+    generation.generation_id = id("generation/B", GenerationId::new);
+    assert!(matches!(
+        core.read_current_lifecycle_receipt(&generation),
+        Err(LifecycleReceiptReadError::GenerationMismatch)
+    ));
+
+    let mut membership = locator.clone();
+    membership.membership_digest = digest("forged-membership");
+    assert!(matches!(
+        core.read_current_lifecycle_receipt(&membership),
+        Err(LifecycleReceiptReadError::MembershipMismatch)
+    ));
+
+    let mut authority = locator.clone();
+    authority.authorization_lineage_ref = fact("forged-lineage");
+    assert!(matches!(
+        core.read_current_lifecycle_receipt(&authority),
+        Err(LifecycleReceiptReadError::AuthorityMismatch)
+    ));
+
+    assert!(matches!(
+        core.read_current_lifecycle_receipt(&locator),
+        Err(LifecycleReceiptReadError::Stale)
+    ));
+}
+
+#[rstest]
+fn lifecycle_receipt_read_withdraws_when_owner_admission_becomes_unavailable() {
+    let fixture = Fixture::new();
+    let (mut core, available) = fixture.gated_core(vec![time(1_000, 20)]);
+    let receipt = core
+        .resolve_frontier(&[(fixture.request, fixture.evidence)])
+        .expect("sealed admission resolves")
+        .remove(0);
+    let locator = UntrustedLifecycleReceiptLocator::from_decision(
+        receipt.decision().expect("accepted decision"),
+    );
+    available.store(false, Ordering::SeqCst);
+
+    assert!(matches!(
+        core.read_current_lifecycle_receipt(&locator),
+        Err(LifecycleReceiptReadError::OwnerAdmissionUnavailable)
+    ));
 }
 
 #[rstest]
