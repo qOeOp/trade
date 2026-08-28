@@ -50,19 +50,13 @@ const LINUX_ARM64_PROFILE: FrozenHostProfileV2 = FrozenHostProfileV2 {
     target_sysroot_digest: Some(LINUX_TARGET_SYSROOT_SHA256),
 };
 
-// Durable receipt fixtures remain bound to the profile selected by the compiling host.
-#[cfg(not(all(target_os = "linux", target_arch = "aarch64")))]
+// Portable sealed test evidence remains bound to the original macOS profile.
+#[cfg(test)]
 pub(super) const CARGO_SHA256: [u8; 32] = MACOS_ARM64_PROFILE.cargo_digest;
-#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-pub(super) const CARGO_SHA256: [u8; 32] = LINUX_ARM64_PROFILE.cargo_digest;
-#[cfg(not(all(target_os = "linux", target_arch = "aarch64")))]
+#[cfg(test)]
 pub(super) const RUSTC_SHA256: [u8; 32] = MACOS_ARM64_PROFILE.rustc_digest;
-#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-pub(super) const RUSTC_SHA256: [u8; 32] = LINUX_ARM64_PROFILE.rustc_digest;
-#[cfg(not(all(target_os = "linux", target_arch = "aarch64")))]
+#[cfg(test)]
 pub(super) const LINKER_SHA256: [u8; 32] = MACOS_ARM64_PROFILE.linker_digest;
-#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-pub(super) const LINKER_SHA256: [u8; 32] = LINUX_ARM64_PROFILE.linker_digest;
 pub(super) const BUILD_COMMAND: [&str; 8] = [
     "cargo",
     "build",
@@ -79,9 +73,11 @@ const MAX_DIAGNOSTIC_BYTES: usize = 16 * 1024;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct SandboxExecutionReceiptV2 {
     pub(super) status_code: i32,
+    pub(super) host: &'static str,
     pub(super) cargo_digest: [u8; 32],
     pub(super) rustc_digest: [u8; 32],
     pub(super) linker_digest: [u8; 32],
+    pub(super) target_sysroot_digest: Option<[u8; 32]>,
     pub(super) config_digest: [u8; 32],
 }
 
@@ -186,9 +182,11 @@ pub(super) fn build_once(
         wasm,
         execution: SandboxExecutionReceiptV2 {
             status_code,
+            host: profile.host,
             cargo_digest: cargo.observed_digest,
             rustc_digest: rustc.observed_digest,
             linker_digest: linker.observed_digest,
+            target_sysroot_digest: profile.target_sysroot_digest,
             config_digest,
         },
     })
@@ -231,6 +229,24 @@ pub(super) fn pinned_host_profile_for_test(
         ("linux", "aarch64") => Some(&LINUX_ARM64_PROFILE),
         _ => None,
     }
+}
+
+pub(super) fn matches_frozen_execution_profile(
+    host: &str,
+    cargo_digest: [u8; 32],
+    rustc_digest: [u8; 32],
+    linker_digest: [u8; 32],
+    target_sysroot_digest: Option<[u8; 32]>,
+) -> bool {
+    [MACOS_ARM64_PROFILE, LINUX_ARM64_PROFILE]
+        .into_iter()
+        .any(|profile| {
+            profile.host == host
+                && profile.cargo_digest == cargo_digest
+                && profile.rustc_digest == rustc_digest
+                && profile.linker_digest == linker_digest
+                && profile.target_sysroot_digest == target_sysroot_digest
+        })
 }
 
 fn verify_target_sysroot(

@@ -95,7 +95,8 @@ fn unsupported_host_returns_toolchain_unavailable_without_a_positive() {
 #[rstest]
 fn frozen_host_profiles_preserve_exact_pins_and_complete_authority() {
     use super::develop_plugin_build_v2_sandbox::{
-        TARGET, host_profile_for_test, pinned_host_profile_for_test,
+        TARGET, host_profile_for_test, matches_frozen_execution_profile,
+        pinned_host_profile_for_test,
     };
 
     let macos = pinned_host_profile_for_test("macos", "aarch64")
@@ -141,6 +142,34 @@ fn frozen_host_profiles_preserve_exact_pins_and_complete_authority() {
             .expect("the canonical sysroot verifier completes Linux authority"),
         linux
     );
+    assert!(matches_frozen_execution_profile(
+        macos.host,
+        macos.cargo_digest,
+        macos.rustc_digest,
+        macos.linker_digest,
+        macos.target_sysroot_digest,
+    ));
+    assert!(matches_frozen_execution_profile(
+        linux.host,
+        linux.cargo_digest,
+        linux.rustc_digest,
+        linux.linker_digest,
+        linux.target_sysroot_digest,
+    ));
+    assert!(!matches_frozen_execution_profile(
+        "x86_64-unknown-linux-gnu",
+        macos.cargo_digest,
+        macos.rustc_digest,
+        macos.linker_digest,
+        macos.target_sysroot_digest,
+    ));
+    assert!(!matches_frozen_execution_profile(
+        linux.host,
+        linux.cargo_digest,
+        linux.rustc_digest,
+        linux.linker_digest,
+        None,
+    ));
 }
 
 #[rstest]

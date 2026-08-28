@@ -17,8 +17,8 @@ use crate::{
 };
 
 use super::develop_plugin_build_v2_sandbox::{
-    BUILD_COMMAND, CARGO_SHA256, LINKER_SHA256, RUSTC_COMMIT, RUSTC_RELEASE, RUSTC_SHA256,
-    SandboxExecutionReceiptV2, TARGET, build_once, frozen_config_digest,
+    BUILD_COMMAND, RUSTC_COMMIT, RUSTC_RELEASE, SandboxExecutionReceiptV2, TARGET, build_once,
+    frozen_config_digest, matches_frozen_execution_profile,
 };
 
 const CAPSULE_SCHEMA_VERSION: u16 = 2;
@@ -111,9 +111,11 @@ struct DevelopPluginBuildExecutionReceiptV2 {
     ordinal: u8,
     rustc_release: String,
     rustc_commit: String,
+    host: String,
     cargo_digest: BindingDigest,
     rustc_digest: BindingDigest,
     linker_digest: BindingDigest,
+    target_sysroot_digest: Option<BindingDigest>,
     config_digest: BindingDigest,
     target: String,
     build_command: Vec<String>,
@@ -164,12 +166,15 @@ impl DevelopPluginBuildReceiptV2 {
                     execution.ordinal == (index + 1) as u8
                         && execution.rustc_release == RUSTC_RELEASE
                         && execution.rustc_commit == RUSTC_COMMIT
-                        && execution.cargo_digest
-                            == BindingDigest::from_untrusted_bytes(CARGO_SHA256)
-                        && execution.rustc_digest
-                            == BindingDigest::from_untrusted_bytes(RUSTC_SHA256)
-                        && execution.linker_digest
-                            == BindingDigest::from_untrusted_bytes(LINKER_SHA256)
+                        && matches_frozen_execution_profile(
+                            &execution.host,
+                            *execution.cargo_digest.as_bytes(),
+                            *execution.rustc_digest.as_bytes(),
+                            *execution.linker_digest.as_bytes(),
+                            execution
+                                .target_sysroot_digest
+                                .map(|digest| *digest.as_bytes()),
+                        )
                         && execution.target == TARGET
                         && execution.build_command == BUILD_COMMAND
                         && execution.status == 0
@@ -250,6 +255,7 @@ pub(crate) fn mutated_build_receipt_bytes_for_test(bytes: &[u8]) -> Vec<Vec<u8>>
         Box::new(|value| value.executions[0].ordinal = 9),
         Box::new(|value| value.executions[0].rustc_release.push('x')),
         Box::new(|value| value.executions[0].rustc_commit.push('x')),
+        Box::new(|value| value.executions[0].host.push('x')),
         Box::new(|value| {
             value.executions[0].cargo_digest = BindingDigest::from_untrusted_bytes([0xa5; 32]);
         }),
@@ -258,6 +264,10 @@ pub(crate) fn mutated_build_receipt_bytes_for_test(bytes: &[u8]) -> Vec<Vec<u8>>
         }),
         Box::new(|value| {
             value.executions[0].linker_digest = BindingDigest::from_untrusted_bytes([0xa7; 32]);
+        }),
+        Box::new(|value| {
+            value.executions[0].target_sysroot_digest =
+                Some(BindingDigest::from_untrusted_bytes([0xaa; 32]));
         }),
         Box::new(|value| {
             value.executions[0].config_digest = BindingDigest::from_untrusted_bytes([0xa8; 32]);
@@ -275,6 +285,7 @@ pub(crate) fn mutated_build_receipt_bytes_for_test(bytes: &[u8]) -> Vec<Vec<u8>>
         Box::new(|value| value.executions[1].ordinal = 1),
         Box::new(|value| value.executions[1].rustc_release.push('x')),
         Box::new(|value| value.executions[1].rustc_commit.push('x')),
+        Box::new(|value| value.executions[1].host.push('x')),
         Box::new(|value| {
             value.executions[1].cargo_digest = BindingDigest::from_untrusted_bytes([0xb1; 32]);
         }),
@@ -283,6 +294,10 @@ pub(crate) fn mutated_build_receipt_bytes_for_test(bytes: &[u8]) -> Vec<Vec<u8>>
         }),
         Box::new(|value| {
             value.executions[1].linker_digest = BindingDigest::from_untrusted_bytes([0xb3; 32]);
+        }),
+        Box::new(|value| {
+            value.executions[1].target_sysroot_digest =
+                Some(BindingDigest::from_untrusted_bytes([0xba; 32]));
         }),
         Box::new(|value| {
             value.executions[1].config_digest = BindingDigest::from_untrusted_bytes([0xb4; 32]);
@@ -487,6 +502,9 @@ impl DevelopPluginBuildProducerV2 {
             if build_one.execution.cargo_digest != build_two.execution.cargo_digest
                 || build_one.execution.rustc_digest != build_two.execution.rustc_digest
                 || build_one.execution.linker_digest != build_two.execution.linker_digest
+                || build_one.execution.host != build_two.execution.host
+                || build_one.execution.target_sysroot_digest
+                    != build_two.execution.target_sysroot_digest
                 || build_one.execution.config_digest != build_two.execution.config_digest
             {
                 return Err(DevelopPluginBuildTerminalV2::new(
@@ -715,9 +733,13 @@ fn make_receipt(
                 ordinal: (index + 1) as u8,
                 rustc_release: RUSTC_RELEASE.to_owned(),
                 rustc_commit: RUSTC_COMMIT.to_owned(),
+                host: execution.host.to_owned(),
                 cargo_digest: BindingDigest::from_untrusted_bytes(execution.cargo_digest),
                 rustc_digest: BindingDigest::from_untrusted_bytes(execution.rustc_digest),
                 linker_digest: BindingDigest::from_untrusted_bytes(execution.linker_digest),
+                target_sysroot_digest: execution
+                    .target_sysroot_digest
+                    .map(BindingDigest::from_untrusted_bytes),
                 config_digest: BindingDigest::from_untrusted_bytes(execution.config_digest),
                 target: TARGET.to_owned(),
                 build_command: BUILD_COMMAND
@@ -816,9 +838,11 @@ pub(crate) fn portable_sealed_composer_test_evidence() -> VerifiedDevelopPluginB
         .expect("fixed portable Composer-test Wasm corpus is valid");
     let execution = SandboxExecutionReceiptV2 {
         status_code: 0,
+        host: "aarch64-apple-darwin",
         cargo_digest: super::develop_plugin_build_v2_sandbox::CARGO_SHA256,
         rustc_digest: super::develop_plugin_build_v2_sandbox::RUSTC_SHA256,
         linker_digest: super::develop_plugin_build_v2_sandbox::LINKER_SHA256,
+        target_sysroot_digest: None,
         config_digest: super::develop_plugin_build_v2_sandbox::frozen_config_digest_for_test(
             manifest.max_linear_memory_bytes,
         ),
