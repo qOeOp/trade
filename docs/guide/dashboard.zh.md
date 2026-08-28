@@ -539,6 +539,15 @@ App/script hash 与 Owner compatibility 交叉绑定。Dashboard 因此把该 de
 `unavailable`，而不是 runtime success。TARGET 使用一个 content-addressed compatibility envelope；它可以有意
 绑定多个 service artifact，但没有该 envelope 的 mixed runtime 不能变为 available。
 
+`TARGET_DRAFT` 本地入口拓扑让所有 Owner、Windmill 与 PostgreSQL container 只连接同一个 sealed internal
+network，不发布端口，也不具备外部路由。唯一入口是一个同时连接该网络与独立 bridge 的 TCP sidecar；该
+bridge 关闭 IP masquerade，sidecar 不含凭据、使用只读文件系统、drop 全部 Linux capability，并以固定命令
+只把宿主 `127.0.0.1:<port>` 转发到内部 Windmill。验收必须动态证明宿主可通过该 loopback 端口访问
+Windmill，同时每个业务 container 仍无外部路由；出现额外 published address、forwarding target、credential、
+capability 或业务 container bridge attachment 时一律 fail close。隔离拓扑实验已经通过这条边界，但它仍
+只是设计证据：不证明 default deployment、Dashboard implementation、provider/network execution、production
+write 或 trading authority。
+
 | 原生表面 / 当前 backend                    | 精确已观察状态                                                                                                                                            | Dashboard route 与固定 UI                                                                                                                                                                                                                | 替代 service/store 与 disposition                                                                                                                                                                                                                                                                           |
 | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Home / App 与 script catalog               | 一个 Raw App `f/trade/rd_workbench`；当前 TrialFamily sync 部署 S1 V2 research 与 S2 Artifact operation，但已归档 remote S3 replay entry                  | Domain route 拥有四阶段 journey；Backtest route 保留但渲染 `DEPLOYMENT_UNAVAILABLE`；没有通用 Home catalog                                                                                                                               | Versioned `OperationRegistry` 加 `available/archived/unavailable` deployment state 与内建 frontend route；archive 禁止派发但不删除 Owner history。`KEEP_SEMANTICS`，排除任意 catalog                                                                                                                        |
