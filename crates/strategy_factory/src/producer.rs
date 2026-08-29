@@ -27,7 +27,7 @@ pub(crate) struct NativeProducerEvidence {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
 enum NativeProducerRecord {
-    Attested(StrategyFactoryFormationEvidence),
+    Attested(Box<StrategyFactoryFormationEvidence>),
     #[cfg(test)]
     TestOnly {
         status: &'static str,
@@ -83,7 +83,9 @@ pub(crate) fn verify_native_producer(
 ) -> NativeProducerEvidence {
     let NativeProducerVerificationRequest { bundle_path } = request;
     NativeProducerEvidence {
-        record: NativeProducerRecord::Attested(verify_strategy_factory_formation(&bundle_path)),
+        record: NativeProducerRecord::Attested(Box::new(verify_strategy_factory_formation(
+            &bundle_path,
+        ))),
     }
 }
 
@@ -106,5 +108,18 @@ mod tests {
                 "reason": "FULL_CHAIN_TEST_EXECUTION_ONLY_NO_PUBLIC_RECEIPT_AUTHORITY",
             })
         );
+    }
+
+    #[rstest]
+    fn attested_evidence_preserves_the_verifier_receipt_shape() {
+        let bundle_path = PathBuf::from("missing-attestation-bundle.json");
+        let expected =
+            serde_json::to_value(verify_strategy_factory_formation(&bundle_path)).unwrap();
+        let actual = serde_json::to_value(verify_native_producer(
+            NativeProducerVerificationRequest::from_bundle(bundle_path),
+        ))
+        .unwrap();
+
+        assert_eq!(actual, expected);
     }
 }
