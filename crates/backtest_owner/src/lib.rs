@@ -20,6 +20,8 @@ pub use vibe_backtest_owner_contracts::{
 };
 use vibe_backtest_owner_contracts::{ReplayModelProfilesV2, ReplayWindowV2};
 
+pub mod postgres;
+
 mod sealed {
     pub trait Sealed {}
 }

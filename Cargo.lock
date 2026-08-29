@@ -9664,10 +9664,13 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
+ "sqlx",
  "thiserror 2.0.19",
+ "tokio",
  "trybuild",
  "vibe-backtest-owner-contracts",
  "vibe-strategy-factory",
+ "vibe-testkit",
 ]
 
 [[package]]

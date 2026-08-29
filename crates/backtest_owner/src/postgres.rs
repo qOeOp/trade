@@ -1,0 +1,679 @@
+//! Durable PostgreSQL custody for sealed Backtest Replay V2 results.
+
+use sqlx::{PgPool, Row};
+use thiserror::Error;
+use vibe_strategy_factory::{
+    exploratory_replay::{ExploratoryReplayAvailabilityV1, ExploratoryReplayRequestLocatorV2},
+    product_edge_postgres::PostgresResearchGoalOwnerV1,
+};
+
+use crate::{
+    CanonicalDigestV2, OpaqueIdentityV2, ReplayNamespaceV2, ReplayRequestDtoV2, ReplayRequestV2,
+    ReplayTerminalV2, SealedReplayResultV2,
+};
+
+const RESULT_STORAGE_DOMAIN: &str = "vibe.backtest.replay-result-storage.v2";
+const REQUEST_STORAGE_DOMAIN: &str = "vibe.backtest.replay-request-storage.v2";
+const READBACK_COLUMNS_V2: &str = "SELECT stored_result.result_identity,stored_result.result_digest,stored_result.request_identity,stored_result.request_meaning_digest,stored_result.attempt_identity,stored_result.terminal,stored_result.canonical_bytes,stored_result.canonical_bytes_blake3,stored_run.request_identity AS run_request_identity,stored_run.request_meaning_digest AS run_request_meaning_digest,stored_run.attempt_identity AS run_attempt_identity,stored_run.result_digest AS run_result_digest,stored_run.terminal AS run_terminal,stored_run.request_seal_digest,stored_run.rd_receipt_identity,stored_run.request_canonical_bytes,stored_run.request_canonical_bytes_blake3 FROM public.backtest_replay_results_v2 stored_result JOIN public.backtest_replay_runs_v2 stored_run USING(result_identity)";
+
+/// Durable readback of one sealed Replay V2 request/result pair.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplayResultReadbackV2 {
+    result_identity: OpaqueIdentityV2,
+    result_digest: CanonicalDigestV2,
+    request_identity: OpaqueIdentityV2,
+    request_meaning_digest: CanonicalDigestV2,
+    attempt_identity: OpaqueIdentityV2,
+    terminal: ReplayTerminalV2,
+    request_canonical_bytes: Vec<u8>,
+    result_canonical_bytes: Vec<u8>,
+}
+
+impl ReplayResultReadbackV2 {
+    #[must_use]
+    pub fn result_identity(&self) -> &OpaqueIdentityV2 {
+        &self.result_identity
+    }
+
+    #[must_use]
+    pub fn result_digest(&self) -> &CanonicalDigestV2 {
+        &self.result_digest
+    }
+
+    #[must_use]
+    pub fn request_identity(&self) -> &OpaqueIdentityV2 {
+        &self.request_identity
+    }
+
+    #[must_use]
+    pub fn request_meaning_digest(&self) -> &CanonicalDigestV2 {
+        &self.request_meaning_digest
+    }
+
+    #[must_use]
+    pub fn attempt_identity(&self) -> &OpaqueIdentityV2 {
+        &self.attempt_identity
+    }
+
+    #[must_use]
+    pub const fn terminal(&self) -> ReplayTerminalV2 {
+        self.terminal
+    }
+
+    /// Returns the exact U1 Owner-sealed request bytes retained with the run.
+    #[must_use]
+    pub fn request_canonical_bytes(&self) -> &[u8] {
+        &self.request_canonical_bytes
+    }
+
+    /// Returns the exact U2 sealed-result bytes retained by Backtest.
+    #[must_use]
+    pub fn result_canonical_bytes(&self) -> &[u8] {
+        &self.result_canonical_bytes
+    }
+}
+
+/// Fail-closed durable Replay V2 Owner errors.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum PostgresReplayOwnerErrorV2 {
+    #[error("canonical backtest_owner PostgreSQL custody is unavailable")]
+    CustodyUnavailable,
+    #[error("sealed exploratory Replay V2 request is unavailable")]
+    RequestUnavailable,
+    #[error("sealed Replay V2 request and result disagree")]
+    RequestBindingMismatch,
+    #[error("only exploratory terminal Replay V2 results are admitted")]
+    ResultNotAdmitted,
+    #[error("Replay V2 request attempt is already bound to a different result")]
+    ConflictingReplay,
+    #[error("durable Replay V2 storage is unavailable")]
+    StorageUnavailable,
+    #[error("durable Replay V2 readback failed integrity verification")]
+    CorruptReadback,
+}
+
+/// The sole durable Backtest Replay V2 result writer.
+#[derive(Debug, Clone)]
+pub struct PostgresReplayResultOwnerV2 {
+    pool: PgPool,
+}
+
+impl PostgresReplayResultOwnerV2 {
+    /// Materializes Backtest-owned storage under an explicit one-shot DDL grant.
+    ///
+    /// Runtime composition must use [`Self::connect`] after deployment bootstrap revokes that
+    /// grant. This function returns no result-writing capability.
+    ///
+    /// # Errors
+    ///
+    /// Returns a fail-closed error when canonical custody or DDL is unavailable.
+    pub async fn bootstrap_storage(database_url: &str) -> Result<(), PostgresReplayOwnerErrorV2> {
+        let pool = canonical_pool(database_url).await?;
+        migrate(&pool).await
+    }
+
+    /// Connects and admits only a least-privilege canonical `backtest_owner` runtime session.
+    ///
+    /// # Errors
+    ///
+    /// Returns a fail-closed error when custody or migration is unavailable.
+    pub async fn connect(database_url: &str) -> Result<Self, PostgresReplayOwnerErrorV2> {
+        let pool = canonical_pool(database_url).await?;
+        validate_runtime_storage(&pool).await?;
+        Ok(Self { pool })
+    }
+
+    /// Locks the exact U1 V2 request and atomically retains it with one U2 sealed terminal result.
+    ///
+    /// This is a storage port only. It neither runs Native Replay nor constructs consumption
+    /// evidence. The future parameterized runner must supply the already sealed result.
+    ///
+    /// # Errors
+    ///
+    /// Returns without a run or result write when the V2 locator is wrong, stale, unavailable, or
+    /// unequal to the sealed result. Same-attempt conflicting results also fail closed.
+    pub async fn commit_exploratory_replay_result_v2(
+        &self,
+        request_owner: &PostgresResearchGoalOwnerV1,
+        locator: &ExploratoryReplayRequestLocatorV2,
+        result: &SealedReplayResultV2,
+    ) -> Result<ReplayResultReadbackV2, PostgresReplayOwnerErrorV2> {
+        let locked = request_owner
+            .lock_exploratory_replay_request_for_backtest_v2(locator)
+            .await
+            .map_err(|_| PostgresReplayOwnerErrorV2::RequestUnavailable)?;
+
+        if locked.projection().availability != ExploratoryReplayAvailabilityV1::Available {
+            return Err(PostgresReplayOwnerErrorV2::RequestUnavailable);
+        }
+        let readback = locked
+            .readback()
+            .ok_or(PostgresReplayOwnerErrorV2::RequestUnavailable)?;
+        let request = readback.request();
+        let request_canonical_bytes = request
+            .to_canonical_bytes()
+            .map_err(|_| PostgresReplayOwnerErrorV2::RequestUnavailable)?;
+
+        if request_canonical_bytes != readback.canonical_request_bytes() {
+            return Err(PostgresReplayOwnerErrorV2::RequestUnavailable);
+        }
+        let request_meaning_digest = request
+            .meaning_digest()
+            .map_err(|_| PostgresReplayOwnerErrorV2::RequestUnavailable)?;
+
+        if request.request_identity().as_str() != locator.request_identity
+            || request_meaning_digest.as_str() != locator.meaning_digest
+            || readback.meaning_digest() != locator.meaning_digest
+        {
+            return Err(PostgresReplayOwnerErrorV2::RequestUnavailable);
+        }
+        validate_result_binding(request, &request_meaning_digest, result)?;
+        let result_canonical_bytes = result
+            .to_canonical_bytes()
+            .map_err(|_| PostgresReplayOwnerErrorV2::ResultNotAdmitted)?;
+        persist_result(
+            &self.pool,
+            locator,
+            result,
+            request_canonical_bytes,
+            result_canonical_bytes,
+        )
+        .await
+    }
+
+    /// Rereads one durable request/result pair and verifies both exact byte streams.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when storage is unavailable or retained bytes fail integrity checks.
+    pub async fn read_result_v2(
+        &self,
+        result_identity: &OpaqueIdentityV2,
+    ) -> Result<Option<ReplayResultReadbackV2>, PostgresReplayOwnerErrorV2> {
+        let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "{READBACK_COLUMNS_V2} WHERE stored_result.result_identity=$1"
+        )))
+        .bind(result_identity.as_str())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?;
+        row.as_ref().map(decode_row).transpose()
+    }
+}
+
+async fn canonical_pool(database_url: &str) -> Result<PgPool, PostgresReplayOwnerErrorV2> {
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(4)
+        .connect(database_url)
+        .await
+        .map_err(|_| PostgresReplayOwnerErrorV2::CustodyUnavailable)?;
+    let current_user: String = sqlx::query_scalar("SELECT current_user")
+        .fetch_one(&pool)
+        .await
+        .map_err(|_| PostgresReplayOwnerErrorV2::CustodyUnavailable)?;
+
+    if current_user != "backtest_owner" {
+        return Err(PostgresReplayOwnerErrorV2::CustodyUnavailable);
+    }
+    Ok(pool)
+}
+
+async fn validate_runtime_storage(pool: &PgPool) -> Result<(), PostgresReplayOwnerErrorV2> {
+    let admitted: bool = sqlx::query_scalar(
+        "SELECT NOT pg_catalog.has_schema_privilege('backtest_owner','public','CREATE') AND COALESCE((SELECT pg_catalog.pg_get_userbyid(class.relowner)='backtest_owner' FROM pg_catalog.pg_class class WHERE class.oid='public.backtest_replay_runs_v2'::pg_catalog.regclass),false) AND COALESCE((SELECT pg_catalog.pg_get_userbyid(class.relowner)='backtest_owner' FROM pg_catalog.pg_class class WHERE class.oid='public.backtest_replay_results_v2'::pg_catalog.regclass),false)",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?;
+
+    if admitted {
+        Ok(())
+    } else {
+        Err(PostgresReplayOwnerErrorV2::CustodyUnavailable)
+    }
+}
+
+fn validate_result_binding(
+    request: &ReplayRequestV2,
+    request_meaning_digest: &CanonicalDigestV2,
+    result: &SealedReplayResultV2,
+) -> Result<(), PostgresReplayOwnerErrorV2> {
+    if request.namespace() != ReplayNamespaceV2::Exploratory
+        || result.namespace() != ReplayNamespaceV2::Exploratory
+        || result.terminal() == ReplayTerminalV2::InProgressOrUnknown
+    {
+        return Err(PostgresReplayOwnerErrorV2::ResultNotAdmitted);
+    }
+
+    if result.request_identity() != request.request_identity()
+        || result.request_meaning_digest() != request_meaning_digest
+    {
+        return Err(PostgresReplayOwnerErrorV2::RequestBindingMismatch);
+    }
+    Ok(())
+}
+
+async fn migrate(pool: &PgPool) -> Result<(), PostgresReplayOwnerErrorV2> {
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?;
+
+    for statement in [
+        "CREATE TABLE IF NOT EXISTS public.backtest_replay_runs_v2 (request_identity TEXT NOT NULL,request_meaning_digest TEXT NOT NULL,request_seal_digest TEXT NOT NULL,rd_receipt_identity TEXT NOT NULL,request_canonical_bytes BYTEA NOT NULL,request_canonical_bytes_blake3 TEXT NOT NULL,attempt_identity TEXT NOT NULL,result_identity TEXT PRIMARY KEY,result_digest TEXT NOT NULL,terminal TEXT NOT NULL,UNIQUE(request_identity,attempt_identity))",
+        "CREATE TABLE IF NOT EXISTS public.backtest_replay_results_v2 (result_identity TEXT PRIMARY KEY REFERENCES public.backtest_replay_runs_v2(result_identity),result_digest TEXT NOT NULL,request_identity TEXT NOT NULL,request_meaning_digest TEXT NOT NULL,attempt_identity TEXT NOT NULL,terminal TEXT NOT NULL,canonical_bytes BYTEA NOT NULL,canonical_bytes_blake3 TEXT NOT NULL)",
+        "ALTER TABLE public.backtest_replay_runs_v2 OWNER TO backtest_owner",
+        "ALTER TABLE public.backtest_replay_results_v2 OWNER TO backtest_owner",
+        "REVOKE ALL ON TABLE public.backtest_replay_runs_v2,public.backtest_replay_results_v2 FROM PUBLIC",
+    ] {
+        sqlx::query(statement)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?;
+    }
+    transaction
+        .commit()
+        .await
+        .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)
+}
+
+async fn persist_result(
+    pool: &PgPool,
+    locator: &ExploratoryReplayRequestLocatorV2,
+    result: &SealedReplayResultV2,
+    request_canonical_bytes: Vec<u8>,
+    result_canonical_bytes: Vec<u8>,
+) -> Result<ReplayResultReadbackV2, PostgresReplayOwnerErrorV2> {
+    let request_bytes_digest =
+        canonical_bytes_digest(REQUEST_STORAGE_DOMAIN, &request_canonical_bytes);
+    let result_bytes_digest =
+        canonical_bytes_digest(RESULT_STORAGE_DOMAIN, &result_canonical_bytes);
+    let terminal = terminal_text(result.terminal());
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?;
+    let existing = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "{READBACK_COLUMNS_V2} WHERE stored_run.request_identity=$1 AND stored_run.attempt_identity=$2 FOR UPDATE"
+    )))
+    .bind(result.request_identity().as_str())
+    .bind(result.attempt_identity().as_str())
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?;
+
+    if let Some(row) = existing {
+        let identical = exact_existing_commit(
+            &row,
+            locator,
+            result,
+            &request_canonical_bytes,
+            &result_canonical_bytes,
+        )?;
+        let readback = decode_row(&row)?;
+        transaction
+            .rollback()
+            .await
+            .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?;
+        return if identical {
+            Ok(readback)
+        } else {
+            Err(PostgresReplayOwnerErrorV2::ConflictingReplay)
+        };
+    }
+
+    let run = sqlx::query(
+        "INSERT INTO public.backtest_replay_runs_v2(request_identity,request_meaning_digest,request_seal_digest,rd_receipt_identity,request_canonical_bytes,request_canonical_bytes_blake3,attempt_identity,result_identity,result_digest,terminal) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+    )
+    .bind(result.request_identity().as_str())
+    .bind(result.request_meaning_digest().as_str())
+    .bind(&locator.seal_digest)
+    .bind(&locator.receipt_identity)
+    .bind(&request_canonical_bytes)
+    .bind(&request_bytes_digest)
+    .bind(result.attempt_identity().as_str())
+    .bind(result.result_identity().as_str())
+    .bind(result.result_digest().as_str())
+    .bind(terminal)
+    .execute(&mut *transaction)
+    .await;
+
+    if let Err(e) = run {
+        let unique = e
+            .as_database_error()
+            .is_some_and(sqlx::error::DatabaseError::is_unique_violation);
+        transaction
+            .rollback()
+            .await
+            .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?;
+        return if unique {
+            resolve_after_unique_conflict(
+                pool,
+                locator,
+                result,
+                &request_canonical_bytes,
+                &result_canonical_bytes,
+            )
+            .await
+        } else {
+            Err(PostgresReplayOwnerErrorV2::StorageUnavailable)
+        };
+    }
+    sqlx::query(
+        "INSERT INTO public.backtest_replay_results_v2(result_identity,result_digest,request_identity,request_meaning_digest,attempt_identity,terminal,canonical_bytes,canonical_bytes_blake3) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+    )
+    .bind(result.result_identity().as_str())
+    .bind(result.result_digest().as_str())
+    .bind(result.request_identity().as_str())
+    .bind(result.request_meaning_digest().as_str())
+    .bind(result.attempt_identity().as_str())
+    .bind(terminal)
+    .bind(&result_canonical_bytes)
+    .bind(&result_bytes_digest)
+    .execute(&mut *transaction)
+    .await
+    .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?;
+    transaction
+        .commit()
+        .await
+        .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?;
+    Ok(readback_from_result(
+        result,
+        request_canonical_bytes,
+        result_canonical_bytes,
+    ))
+}
+
+async fn resolve_after_unique_conflict(
+    pool: &PgPool,
+    locator: &ExploratoryReplayRequestLocatorV2,
+    result: &SealedReplayResultV2,
+    request_canonical_bytes: &[u8],
+    result_canonical_bytes: &[u8],
+) -> Result<ReplayResultReadbackV2, PostgresReplayOwnerErrorV2> {
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "{READBACK_COLUMNS_V2} WHERE stored_run.request_identity=$1 AND stored_run.attempt_identity=$2"
+    )))
+    .bind(result.request_identity().as_str())
+    .bind(result.attempt_identity().as_str())
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?
+    .ok_or(PostgresReplayOwnerErrorV2::ConflictingReplay)?;
+
+    if exact_existing_commit(
+        &row,
+        locator,
+        result,
+        request_canonical_bytes,
+        result_canonical_bytes,
+    )? {
+        decode_row(&row)
+    } else {
+        Err(PostgresReplayOwnerErrorV2::ConflictingReplay)
+    }
+}
+
+fn exact_existing_commit(
+    row: &sqlx::postgres::PgRow,
+    locator: &ExploratoryReplayRequestLocatorV2,
+    result: &SealedReplayResultV2,
+    request_canonical_bytes: &[u8],
+    result_canonical_bytes: &[u8],
+) -> Result<bool, PostgresReplayOwnerErrorV2> {
+    let readback = decode_row(row)?;
+    let request_seal_digest: String = row.try_get("request_seal_digest")?;
+    let rd_receipt_identity: String = row.try_get("rd_receipt_identity")?;
+    Ok(readback.result_identity() == result.result_identity()
+        && readback.result_digest() == result.result_digest()
+        && readback.request_identity() == result.request_identity()
+        && readback.request_meaning_digest() == result.request_meaning_digest()
+        && readback.attempt_identity() == result.attempt_identity()
+        && readback.terminal() == result.terminal()
+        && readback.request_canonical_bytes() == request_canonical_bytes
+        && readback.result_canonical_bytes() == result_canonical_bytes
+        && request_seal_digest == locator.seal_digest
+        && rd_receipt_identity == locator.receipt_identity)
+}
+
+fn decode_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<ReplayResultReadbackV2, PostgresReplayOwnerErrorV2> {
+    let result_identity = typed_identity(row.try_get("result_identity")?)?;
+    let result_digest = typed_digest(row.try_get("result_digest")?)?;
+    let request_identity = typed_identity(row.try_get("request_identity")?)?;
+    let request_meaning_digest = typed_digest(row.try_get("request_meaning_digest")?)?;
+    let attempt_identity = typed_identity(row.try_get("attempt_identity")?)?;
+    let terminal_value: String = row.try_get("terminal")?;
+    let terminal = parse_terminal(&terminal_value)?;
+    let request_canonical_bytes: Vec<u8> = row.try_get("request_canonical_bytes")?;
+    let request_bytes_digest: String = row.try_get("request_canonical_bytes_blake3")?;
+    let result_canonical_bytes: Vec<u8> = row.try_get("canonical_bytes")?;
+    let result_bytes_digest: String = row.try_get("canonical_bytes_blake3")?;
+
+    if canonical_bytes_digest(REQUEST_STORAGE_DOMAIN, &request_canonical_bytes)
+        != request_bytes_digest
+        || canonical_bytes_digest(RESULT_STORAGE_DOMAIN, &result_canonical_bytes)
+            != result_bytes_digest
+    {
+        return Err(PostgresReplayOwnerErrorV2::CorruptReadback);
+    }
+    let run_request_identity: String = row.try_get("run_request_identity")?;
+    let run_request_meaning_digest: String = row.try_get("run_request_meaning_digest")?;
+    let run_attempt_identity: String = row.try_get("run_attempt_identity")?;
+    let run_result_digest: String = row.try_get("run_result_digest")?;
+    let run_terminal: String = row.try_get("run_terminal")?;
+
+    if run_request_identity != request_identity.as_str()
+        || run_request_meaning_digest != request_meaning_digest.as_str()
+        || run_attempt_identity != attempt_identity.as_str()
+        || run_result_digest != result_digest.as_str()
+        || run_terminal != terminal_value
+    {
+        return Err(PostgresReplayOwnerErrorV2::CorruptReadback);
+    }
+    validate_stored_request(
+        &request_canonical_bytes,
+        &request_identity,
+        &request_meaning_digest,
+    )?;
+    validate_stored_result(
+        &result_canonical_bytes,
+        &result_identity,
+        &result_digest,
+        &request_identity,
+        &request_meaning_digest,
+        &attempt_identity,
+        &terminal_value,
+    )?;
+    Ok(ReplayResultReadbackV2 {
+        result_identity,
+        result_digest,
+        request_identity,
+        request_meaning_digest,
+        attempt_identity,
+        terminal,
+        request_canonical_bytes,
+        result_canonical_bytes,
+    })
+}
+
+fn validate_stored_request(
+    canonical_bytes: &[u8],
+    request_identity: &OpaqueIdentityV2,
+    request_meaning_digest: &CanonicalDigestV2,
+) -> Result<(), PostgresReplayOwnerErrorV2> {
+    let request_dto: ReplayRequestDtoV2 = serde_json::from_slice(canonical_bytes)
+        .map_err(|_| PostgresReplayOwnerErrorV2::CorruptReadback)?;
+    let request = ReplayRequestV2::try_from(request_dto)
+        .map_err(|_| PostgresReplayOwnerErrorV2::CorruptReadback)?;
+    let digest = request
+        .meaning_digest()
+        .map_err(|_| PostgresReplayOwnerErrorV2::CorruptReadback)?;
+
+    if request.request_identity() != request_identity || &digest != request_meaning_digest {
+        return Err(PostgresReplayOwnerErrorV2::CorruptReadback);
+    }
+    Ok(())
+}
+
+fn validate_stored_result(
+    canonical_bytes: &[u8],
+    result_identity: &OpaqueIdentityV2,
+    result_digest: &CanonicalDigestV2,
+    request_identity: &OpaqueIdentityV2,
+    request_meaning_digest: &CanonicalDigestV2,
+    attempt_identity: &OpaqueIdentityV2,
+    terminal_value: &str,
+) -> Result<(), PostgresReplayOwnerErrorV2> {
+    let value: serde_json::Value = serde_json::from_slice(canonical_bytes)
+        .map_err(|_| PostgresReplayOwnerErrorV2::CorruptReadback)?;
+    let matches = value
+        .get("schema_version")
+        .and_then(serde_json::Value::as_u64)
+        == Some(2)
+        && value
+            .get("result_identity")
+            .and_then(serde_json::Value::as_str)
+            == Some(result_identity.as_str())
+        && value
+            .get("result_digest")
+            .and_then(serde_json::Value::as_str)
+            == Some(result_digest.as_str())
+        && value
+            .get("request_identity")
+            .and_then(serde_json::Value::as_str)
+            == Some(request_identity.as_str())
+        && value
+            .get("request_meaning_digest")
+            .and_then(serde_json::Value::as_str)
+            == Some(request_meaning_digest.as_str())
+        && value
+            .get("attempt_identity")
+            .and_then(serde_json::Value::as_str)
+            == Some(attempt_identity.as_str())
+        && value.get("terminal").and_then(serde_json::Value::as_str) == Some(terminal_value)
+        && value.get("namespace").and_then(serde_json::Value::as_str) == Some("EXPLORATORY")
+        && value
+            .get("replay_authority")
+            .and_then(|authority| authority.get("namespace"))
+            .and_then(serde_json::Value::as_str)
+            == Some("EXPLORATORY")
+        && value
+            .get("reconciliation")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|atoms| atoms.len() == 28)
+        && value
+            .get("diagnostic_census")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|diagnostics| !diagnostics.is_empty())
+        && (terminal_value != "TERMINAL_RESULT"
+            || value
+                .get("semantic_trace")
+                .is_some_and(serde_json::Value::is_object));
+
+    if !matches || !stored_result_digest_matches(canonical_bytes, result_identity, result_digest) {
+        return Err(PostgresReplayOwnerErrorV2::CorruptReadback);
+    }
+    Ok(())
+}
+
+fn stored_result_digest_matches(
+    canonical_bytes: &[u8],
+    result_identity: &OpaqueIdentityV2,
+    result_digest: &CanonicalDigestV2,
+) -> bool {
+    let Ok(encoded_identity) = serde_json::to_string(result_identity.as_str()) else {
+        return false;
+    };
+    let Ok(encoded_digest) = serde_json::to_string(result_digest.as_str()) else {
+        return false;
+    };
+    let sealed_prefix = format!(
+        "{{\"schema_version\":2,\"result_identity\":{encoded_identity},\"result_digest\":{encoded_digest},"
+    );
+    let Some(remainder) = canonical_bytes.strip_prefix(sealed_prefix.as_bytes()) else {
+        return false;
+    };
+    let mut provisional_bytes = b"{\"schema_version\":2,".to_vec();
+    provisional_bytes.extend_from_slice(remainder);
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"vibe.backtest.replay-result.v2\0");
+    hasher.update(&provisional_bytes);
+    let computed = format!("blake3:{}", hasher.finalize().to_hex());
+    result_digest.as_str() == computed
+        && result_identity.as_str()
+            == format!(
+                "backtest-replay-result-v2-{}",
+                computed.trim_start_matches("blake3:")
+            )
+}
+
+fn readback_from_result(
+    result: &SealedReplayResultV2,
+    request_canonical_bytes: Vec<u8>,
+    result_canonical_bytes: Vec<u8>,
+) -> ReplayResultReadbackV2 {
+    ReplayResultReadbackV2 {
+        result_identity: result.result_identity().clone(),
+        result_digest: result.result_digest().clone(),
+        request_identity: result.request_identity().clone(),
+        request_meaning_digest: result.request_meaning_digest().clone(),
+        attempt_identity: result.attempt_identity().clone(),
+        terminal: result.terminal(),
+        request_canonical_bytes,
+        result_canonical_bytes,
+    }
+}
+
+fn typed_identity(value: String) -> Result<OpaqueIdentityV2, PostgresReplayOwnerErrorV2> {
+    value
+        .try_into()
+        .map_err(|_| PostgresReplayOwnerErrorV2::CorruptReadback)
+}
+
+fn typed_digest(value: String) -> Result<CanonicalDigestV2, PostgresReplayOwnerErrorV2> {
+    value
+        .try_into()
+        .map_err(|_| PostgresReplayOwnerErrorV2::CorruptReadback)
+}
+
+fn canonical_bytes_digest(domain: &str, bytes: &[u8]) -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(domain.as_bytes());
+    hasher.update(&[0]);
+    hasher.update(bytes);
+    format!("blake3:{}", hasher.finalize().to_hex())
+}
+
+const fn terminal_text(terminal: ReplayTerminalV2) -> &'static str {
+    match terminal {
+        ReplayTerminalV2::TerminalResult => "TERMINAL_RESULT",
+        ReplayTerminalV2::InvalidReplayEvidence => "INVALID_REPLAY_EVIDENCE",
+        ReplayTerminalV2::RunRejected => "RUN_REJECTED",
+        ReplayTerminalV2::InProgressOrUnknown => "IN_PROGRESS_OR_UNKNOWN",
+    }
+}
+
+fn parse_terminal(value: &str) -> Result<ReplayTerminalV2, PostgresReplayOwnerErrorV2> {
+    match value {
+        "TERMINAL_RESULT" => Ok(ReplayTerminalV2::TerminalResult),
+        "INVALID_REPLAY_EVIDENCE" => Ok(ReplayTerminalV2::InvalidReplayEvidence),
+        "RUN_REJECTED" => Ok(ReplayTerminalV2::RunRejected),
+        "IN_PROGRESS_OR_UNKNOWN" => Ok(ReplayTerminalV2::InProgressOrUnknown),
+        _ => Err(PostgresReplayOwnerErrorV2::CorruptReadback),
+    }
+}
+
+impl From<sqlx::Error> for PostgresReplayOwnerErrorV2 {
+    fn from(_: sqlx::Error) -> Self {
+        Self::CorruptReadback
+    }
+}
+
+#[cfg(test)]
+#[path = "../tests/postgres_replay_v2.rs"]
+mod postgres_replay_v2;
+
+#[cfg(test)]
+crate::postgres_replay_v2_tests!();
