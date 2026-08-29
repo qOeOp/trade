@@ -18,12 +18,15 @@ pub use invocation::{
     ProductEdgeInvocationStartReadbackV1, ProductEdgeInvocationStateV1,
 };
 pub use postgres::{
-    ProductEdgePostgresOwnerV1, resolve_admission_for_downstream_in_transaction,
-    resolve_portfolio_read_policy_in_transaction,
+    ProductEdgePostgresAdmissionReadPortV1, ProductEdgePostgresOwnerV1,
+    resolve_admission_for_downstream_in_transaction, resolve_portfolio_read_policy_in_transaction,
     resolve_source_invocation_claim_for_downstream_in_transaction,
     resolve_source_invocation_started_for_downstream_in_transaction,
 };
-pub use vibe_product_edge_contracts::ProductEdgeAdmissionLocatorV1;
+pub use vibe_product_edge_contracts::{
+    PRODUCT_EDGE_ADMISSION_EVENT_STREAM_V1, ProductEdgeAdmissionEventCursorV1,
+    ProductEdgeAdmissionEventLocatorV1, ProductEdgeAdmissionLocatorV1,
+};
 
 pub const PRODUCT_EDGE_SCHEMA_V1: u32 = 1;
 pub const PORTFOLIO_READ_POLICY_SCHEMA_V1: u32 = 1;
@@ -336,6 +339,73 @@ pub struct ProductEdgeAdmissionReadbackV1 {
     original_current_authorization_evidence: Option<UntrustedCanonicalAuthorizationEvidenceV1>,
     #[serde(skip)]
     current_policy_evidence: Option<ProductEdgeCurrentPolicyEvidenceV1>,
+}
+
+/// Sealed read-only observation of one committed admission event.
+///
+/// This value carries no request payload, principal, authorization, or
+/// business-terminal disposition. Callers can serialize Owner output but
+/// cannot deserialize a positive observation.
+///
+/// ```compile_fail
+/// use vibe_product_edge::ProductEdgeAdmissionObservationV1;
+/// let _: ProductEdgeAdmissionObservationV1 = serde_json::from_str("{}").unwrap();
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ProductEdgeAdmissionObservationV1 {
+    schema_version: u32,
+    observation_identity: String,
+    observation_digest: String,
+    event: ProductEdgeAdmissionEventLocatorV1,
+    receipt_identity: String,
+    committed_at_epoch_ms: u64,
+}
+
+impl ProductEdgeAdmissionObservationV1 {
+    pub fn observation_identity(&self) -> &str {
+        &self.observation_identity
+    }
+
+    pub fn observation_digest(&self) -> &str {
+        &self.observation_digest
+    }
+
+    pub fn event(&self) -> &ProductEdgeAdmissionEventLocatorV1 {
+        &self.event
+    }
+
+    pub fn receipt_identity(&self) -> &str {
+        &self.receipt_identity
+    }
+
+    pub fn committed_at_epoch_ms(&self) -> u64 {
+        self.committed_at_epoch_ms
+    }
+
+    pub fn next_cursor(&self) -> ProductEdgeAdmissionEventCursorV1 {
+        ProductEdgeAdmissionEventCursorV1::after_owner_observation(
+            &self.event,
+            self.observation_identity.clone(),
+            self.observation_digest.clone(),
+        )
+    }
+
+    pub(crate) fn from_owner_fact(
+        observation_identity: String,
+        observation_digest: String,
+        event: ProductEdgeAdmissionEventLocatorV1,
+        receipt_identity: String,
+        committed_at_epoch_ms: u64,
+    ) -> Self {
+        Self {
+            schema_version: PRODUCT_EDGE_SCHEMA_V1,
+            observation_identity,
+            observation_digest,
+            event,
+            receipt_identity,
+            committed_at_epoch_ms,
+        }
+    }
 }
 
 /// Immutable authority lineage shared by historical and current admission
