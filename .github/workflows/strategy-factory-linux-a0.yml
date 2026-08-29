@@ -1,0 +1,145 @@
+name: strategy-factory-linux-a0
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: strategy-factory-linux-a0
+  cancel-in-progress: false
+
+jobs:
+  native-linux-arm64-a0:
+    name: strategy factory A0 native gate (linux arm64)
+    if: >-
+      github.repository == 'qOeOp/trade' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-22.04-arm
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # https://github.com/step-security/harden-runner
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: ${{ vars.STEP_SECURITY_EGRESS_POLICY || 'block' }}
+          allowed-endpoints: >-
+            ${{ vars.COMMON_ALLOWED_ENDPOINTS }}
+            ${{ vars.CI_ALLOWED_ENDPOINTS }}
+
+      - name: Checkout repository
+        # https://github.com/actions/checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Verify immutable CI inputs
+        run: bash scripts/ci/verify-ci-inputs.sh post-checkout
+
+      - name: Bind native GitHub-hosted Linux ARM64 runner
+        env:
+          RUNNER_ARCH: ${{ runner.arch }}
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          RUNNER_OS: ${{ runner.os }}
+        run: |
+          set -euo pipefail
+          kernel_arch="$(uname -m)"
+          if [[ "$RUNNER_ENVIRONMENT" != github-hosted ||
+                "$RUNNER_OS" != Linux ||
+                "$RUNNER_ARCH" != ARM64 ||
+                "$kernel_arch" != aarch64 ]]; then
+            printf '%s; got %s/%s/%s/%s\n' \
+              '::error title=UNAVAILABLE::Expected github-hosted/Linux/ARM64/aarch64' \
+              "$RUNNER_ENVIRONMENT" "$RUNNER_OS" "$RUNNER_ARCH" "$kernel_arch"
+            exit 1
+          fi
+          cargo_target_dir="${RUNNER_TEMP}/strategy-factory-linux-a0"
+          cargo_target_dir+="-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rustup_home="${RUNNER_TEMP}/rustup-strategy-factory-linux-a0"
+          rustup_home+="-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          {
+            echo "CARGO_TARGET_DIR=${cargo_target_dir}"
+            echo "RUSTUP_HOME=${rustup_home}"
+          } >> "$GITHUB_ENV"
+
+      - name: Common setup without Actions caches
+        uses: ./.github/actions/common-setup
+        with:
+          python-version: "3.13"
+          uv-cache-enabled: "false"
+          prek-cache-enabled: "false"
+          capnp-cache-enabled: "false"
+          rust-cache-enabled: "false"
+          rust-cache-save-if: "false"
+
+      - name: Bind exact Rust toolchain and target
+        run: |
+          set -euo pipefail
+
+          unavailable() {
+            echo "::error title=UNAVAILABLE::$1"
+            exit 1
+          }
+
+          require_field() {
+            local output="$1"
+            local field="$2"
+            local expected="$3"
+            local actual
+            actual="$(awk -F ': ' -v field="$field" '$1 == field { print $2 }' <<< "$output")"
+            [[ "$actual" == "$expected" ]] || \
+              unavailable "Expected ${field}=${expected}; got ${actual:-missing}"
+          }
+
+          rustc_version="$(rustc -vV)"
+          cargo_version="$(cargo -vV)"
+          require_field "$rustc_version" release 1.97.1
+          require_field "$rustc_version" commit-hash \
+            8bab26f4f68e0e26f0bb7960be334d5b520ea452
+          require_field "$rustc_version" host aarch64-unknown-linux-gnu
+          require_field "$cargo_version" release 1.97.1
+          require_field "$cargo_version" commit-hash \
+            c980f4866141969fab6254a680546a277789d6f0
+          require_field "$cargo_version" host aarch64-unknown-linux-gnu
+
+          toolchain=1.97.1-aarch64-unknown-linux-gnu
+          active_toolchain="$(rustup show active-toolchain)"
+          [[ "$active_toolchain" == "$toolchain "* ]] || \
+            unavailable "Expected active toolchain ${toolchain}; got ${active_toolchain}"
+          target_count="$(rustup target list --installed --toolchain "$toolchain" | \
+            grep -Fxc wasm32v1-none || true)"
+          [[ "$target_count" == 1 ]] || \
+            unavailable "Expected exactly one installed wasm32v1-none target; got ${target_count}"
+
+      - name: Run exact Strategy Factory A0 consumers
+        run: |-
+          set -euo pipefail
+
+          run_exact_test() {
+            local test_name="$1"
+            local listing
+            local match_count
+
+            listing="$(cargo test --locked -p vibe-strategy-factory --lib \
+              "$test_name" -- --exact --list)"
+            match_count="$(printf '%s\n' "$listing" | awk \
+              -v expected="${test_name}: test" \
+              '$0 == expected { count++ } END { print count + 0 }')"
+            if [[ "$match_count" != 1 ]]; then
+              echo "::error title=UNAVAILABLE::Expected exactly one ${test_name} test; got ${match_count}"
+              exit 1
+            fi
+            cargo test --locked -p vibe-strategy-factory --lib \
+              "$test_name" -- --exact
+          }
+
+          run_exact_test \
+            develop_plugin_build_v2_tests::canonical_linux_sysroot_matches_the_frozen_generator_digest
+          run_exact_test \
+            develop_plugin_build_v2_tests::real_bounded_plugin_builds_twice_and_exact_replay_joins
+          run_exact_test \
+            develop_composer_v2_tests::real_local_plugin_builder_supplies_composer_and_program_host
