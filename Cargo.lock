@@ -9667,6 +9667,7 @@ dependencies = [
  "thiserror 2.0.19",
  "trybuild",
  "vibe-backtest-owner-contracts",
+ "vibe-strategy-factory",
 ]
 
 [[package]]

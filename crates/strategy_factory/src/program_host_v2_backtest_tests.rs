@@ -4,14 +4,20 @@ use std::{
 };
 
 use anyhow::Context;
+#[cfg(test)]
 use rstest::rstest;
 use serde::Serialize;
+use sha2::Digest;
 use strategy_factory_program_sdk::lifecycle_v1::{
     self, EnvelopePayloadV1, EventOrderKeyV1, LifecycleEnvelopeV1, LifecycleKind,
 };
 use vibe_backtest::{
     config::{BacktestEngineConfig, SimulatedVenueConfig},
     engine::BacktestEngine,
+};
+use vibe_backtest_owner_contracts::{
+    CanonicalDigestV2, ObservationComponentV2, OpaqueIdentityV2, ReplayAuthorityClaimV2,
+    ReplayWindowV2, VersionedIdentityV2,
 };
 use vibe_data::owner::source_binding::BindingDigest;
 use vibe_model::{
@@ -32,9 +38,13 @@ use super::{
     plugin_wire_v2::{PluginFrameKindV2, PluginFrameV2, TypedValueV2},
     program_host_backtest_v2::{BacktestProgramHostStrategyV2, BacktestProgramHostTraceV2},
     program_host_v2::AdmittedProgramEventV2,
-    program_host_v2_tests::executable_design,
-    strategy_design_v2::{PluginManifestV2, TypedConstantV2, ValueTypeV2},
-    strategy_design_v2_tests::bindings,
+    strategy_design_v2::{
+        CapabilityDeclarationV2, ComputeNodeV2, InputFactClassV2, InputRoleV2, InputScopeV2,
+        LifecycleContextV2, LifecycleKindV2, ParameterV2, PluginManifestV2, PluginStateContractV2,
+        PortBindingV2, PortContractV2, ProposalWiringV2, ReactionGraphV2, ResourceBoundsV2,
+        STRATEGY_DESIGN_SCHEMA_V2, StateCellV2, StateWriteV2, StrategyDesignV2, TypedConstantV2,
+        ValueRefV2, ValueTypeV2,
+    },
     strategy_plan_v2::{
         StrategyCompilationV2, StrategyPlanV2,
         compile_with_binding_and_implementation_receipts_for_test,
@@ -45,6 +55,24 @@ use super::{
 const INPUT_PTR: i32 = 1_024;
 const OUTPUT_PTR: i32 = 8_192;
 const STATIC_PTR: i32 = 16_384;
+const PLUGIN_ID: &str = "research.plugin.stateful-trend.v1";
+const STATE_POST: &str = "plugin.state.post.v1";
+const OUTPUT_PORTS: &[(&str, ValueTypeV2)] = &[
+    ("proposal.position-intent.v1", ValueTypeV2::PositionIntentV1),
+    ("proposal.target-variant.v1", ValueTypeV2::TargetVariantV1),
+    ("proposal.target-position.v1", ValueTypeV2::I64),
+    ("proposal.target-weight.v1", ValueTypeV2::I32),
+    ("proposal.rebalance-sequence.v1", ValueTypeV2::U64),
+    ("proposal.reconciliation-target.v1", ValueTypeV2::I64),
+    (
+        "proposal.protection-variant.v1",
+        ValueTypeV2::ProtectionVariantV1,
+    ),
+    ("proposal.stop-loss.v1", ValueTypeV2::I64),
+    ("proposal.take-profit.v1", ValueTypeV2::I64),
+    ("proposal.trailing-distance.v1", ValueTypeV2::U64),
+    ("proposal.trailing-stop.v1", ValueTypeV2::I64),
+];
 
 #[derive(Clone, Copy)]
 enum Phase {
@@ -60,19 +88,437 @@ enum Phase {
 }
 
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 enum InputMutation {
     None,
     OpenFirst,
     CloseFirst,
 }
 
-struct RunEvidence {
+fn output(node: &str, port: &str) -> ValueRefV2 {
+    ValueRefV2::NodeOutput {
+        node_id: node.into(),
+        port_id: port.into(),
+    }
+}
+
+fn context(field: LifecycleContextV2) -> ValueRefV2 {
+    ValueRefV2::LifecycleContext { field }
+}
+
+fn proposal(node: &str) -> ProposalWiringV2 {
+    ProposalWiringV2 {
+        position_intent: output(node, "proposal.position-intent.v1"),
+        target_variant: output(node, "proposal.target-variant.v1"),
+        target_position_units: output(node, "proposal.target-position.v1"),
+        target_weight_micros: output(node, "proposal.target-weight.v1"),
+        rebalance_sequence: output(node, "proposal.rebalance-sequence.v1"),
+        reconciliation_target_units: output(node, "proposal.reconciliation-target.v1"),
+        protection_variant: output(node, "proposal.protection-variant.v1"),
+        stop_loss_ticks: output(node, "proposal.stop-loss.v1"),
+        take_profit_ticks: output(node, "proposal.take-profit.v1"),
+        trailing_distance_ticks: output(node, "proposal.trailing-distance.v1"),
+        trailing_stop_ticks: output(node, "proposal.trailing-stop.v1"),
+        member_target_set: None,
+    }
+}
+
+fn compute_node(node: &str, state: &str) -> ComputeNodeV2 {
+    ComputeNodeV2 {
+        semantic_id: node.into(),
+        plugin_semantic_id: PLUGIN_ID.into(),
+        input_bindings: vec![
+            PortBindingV2 {
+                port_id: "input.close.v1".into(),
+                source: ValueRefV2::Input {
+                    input_id: "research.input.close.v1".into(),
+                },
+            },
+            PortBindingV2 {
+                port_id: "input.current-position.v1".into(),
+                source: context(LifecycleContextV2::CurrentPositionUnits),
+            },
+            PortBindingV2 {
+                port_id: "input.envelope-digest.v1".into(),
+                source: context(LifecycleContextV2::EnvelopeDigest),
+            },
+            PortBindingV2 {
+                port_id: "input.intent.v1".into(),
+                source: context(LifecycleContextV2::IntentIdentity),
+            },
+            PortBindingV2 {
+                port_id: "input.lookback.v1".into(),
+                source: ValueRefV2::Parameter {
+                    parameter_id: "research.parameter.lookback.v1".into(),
+                },
+            },
+            PortBindingV2 {
+                port_id: "input.rebalance-sequence.v1".into(),
+                source: context(LifecycleContextV2::RebalanceSequence),
+            },
+        ],
+        pre_state: ValueRefV2::PriorState {
+            state_id: state.into(),
+        },
+        output_port_ids: OUTPUT_PORTS
+            .iter()
+            .map(|(port, _)| (*port).to_owned())
+            .collect(),
+        post_state_port_id: STATE_POST.into(),
+    }
+}
+
+fn reaction(kind: LifecycleKindV2, node: &str, state: &str) -> ReactionGraphV2 {
+    let mut compute = compute_node(node, state);
+    let close_source = match kind {
+        LifecycleKindV2::Event => ValueRefV2::Input {
+            input_id: "research.input.last-trade.v1".into(),
+        },
+        LifecycleKindV2::Timer => ValueRefV2::Parameter {
+            parameter_id: "research.parameter.timer-close.v1".into(),
+        },
+        _ => ValueRefV2::Input {
+            input_id: "research.input.close.v1".into(),
+        },
+    };
+
+    if let Some(binding) = compute
+        .input_bindings
+        .iter_mut()
+        .find(|binding| binding.port_id == "input.close.v1")
+    {
+        binding.source = close_source;
+    }
+    ReactionGraphV2 {
+        kind,
+        nodes: vec![compute],
+        state_writes: vec![StateWriteV2 {
+            state_id: state.into(),
+            source: output(node, STATE_POST),
+        }],
+        proposal: Some(proposal(node)),
+    }
+}
+
+fn stateful_backtest_design() -> StrategyDesignV2 {
+    let capabilities = [
+        "research.trend.warmup.v1",
+        "research.trend.enter.v1",
+        "research.trend.add.v1",
+        "research.trend.reduce.v1",
+        "research.trend.trailing.v1",
+        "research.trend.timer-exit.v1",
+    ];
+    let mut design = StrategyDesignV2 {
+        schema_version: STRATEGY_DESIGN_SCHEMA_V2,
+        research_request_identity: BindingDigest::from_untrusted_bytes([1; 32]),
+        intent_identity: BindingDigest::from_untrusted_bytes([2; 32]),
+        intent_digest: BindingDigest::from_untrusted_bytes([3; 32]),
+        inputs: vec![
+            InputRoleV2 {
+                semantic_id: "research.input.close.v1".into(),
+                fact_class: InputFactClassV2::MarketData,
+                instrument: "AAPL.XNAS".into(),
+                scope: InputScopeV2::ExactInstrument,
+                field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".into(),
+                channel: "MARKET".into(),
+                timeframe: "1M".into(),
+                unit: "PRICE".into(),
+                scale: 2,
+                value_type: ValueTypeV2::I128,
+            },
+            InputRoleV2 {
+                semantic_id: "research.input.last-trade.v1".into(),
+                fact_class: InputFactClassV2::MarketData,
+                instrument: "AAPL.XNAS".into(),
+                scope: InputScopeV2::ExactInstrument,
+                field_semantic_id: "MARKET_DATA.TRADE.LAST.PRICE.V1".into(),
+                channel: "MARKET".into(),
+                timeframe: "TICK".into(),
+                unit: "PRICE".into(),
+                scale: 2,
+                value_type: ValueTypeV2::I128,
+            },
+        ],
+        joins: vec![],
+        parameters: vec![
+            ParameterV2 {
+                semantic_id: "research.parameter.lookback.v1".into(),
+                value_type: ValueTypeV2::I64,
+                value: TypedConstantV2::I64 { value: 20 },
+                unit: "BAR_COUNT".into(),
+            },
+            ParameterV2 {
+                semantic_id: "research.parameter.timer-close.v1".into(),
+                value_type: ValueTypeV2::I128,
+                value: TypedConstantV2::I128 { value: 0 },
+                unit: "PRICE".into(),
+            },
+        ],
+        state: vec![StateCellV2 {
+            semantic_id: "research.state.trend.v1".into(),
+            value_type: ValueTypeV2::Bytes,
+            initial: TypedConstantV2::Bytes { value: vec![] },
+            max_bytes: 256,
+        }],
+        reactions: vec![
+            ReactionGraphV2 {
+                kind: LifecycleKindV2::Start,
+                nodes: vec![],
+                state_writes: vec![],
+                proposal: None,
+            },
+            reaction(
+                LifecycleKindV2::Bar,
+                "research.node.bar.v1",
+                "research.state.trend.v1",
+            ),
+            reaction(
+                LifecycleKindV2::Event,
+                "research.node.event.v1",
+                "research.state.trend.v1",
+            ),
+            ReactionGraphV2 {
+                kind: LifecycleKindV2::Fill,
+                nodes: vec![],
+                state_writes: vec![],
+                proposal: None,
+            },
+            reaction(
+                LifecycleKindV2::Timer,
+                "research.node.timer.v1",
+                "research.state.trend.v1",
+            ),
+            ReactionGraphV2 {
+                kind: LifecycleKindV2::Stop,
+                nodes: vec![],
+                state_writes: vec![],
+                proposal: None,
+            },
+        ],
+        capabilities: capabilities
+            .into_iter()
+            .map(|semantic_id| CapabilityDeclarationV2 {
+                semantic_id: semantic_id.into(),
+                version: 1,
+                dependencies: vec![],
+            })
+            .collect(),
+        plugins: vec![PluginManifestV2 {
+            semantic_id: PLUGIN_ID.into(),
+            abi_version: 2,
+            input_ports: vec![
+                PortContractV2 {
+                    semantic_id: "input.close.v1".into(),
+                    value_type: ValueTypeV2::I128,
+                    max_bytes: 16,
+                },
+                PortContractV2 {
+                    semantic_id: "input.current-position.v1".into(),
+                    value_type: ValueTypeV2::I64,
+                    max_bytes: 8,
+                },
+                PortContractV2 {
+                    semantic_id: "input.envelope-digest.v1".into(),
+                    value_type: ValueTypeV2::Digest32,
+                    max_bytes: 32,
+                },
+                PortContractV2 {
+                    semantic_id: "input.intent.v1".into(),
+                    value_type: ValueTypeV2::StableIdentity16,
+                    max_bytes: 16,
+                },
+                PortContractV2 {
+                    semantic_id: "input.lookback.v1".into(),
+                    value_type: ValueTypeV2::I64,
+                    max_bytes: 8,
+                },
+                PortContractV2 {
+                    semantic_id: "input.rebalance-sequence.v1".into(),
+                    value_type: ValueTypeV2::U64,
+                    max_bytes: 8,
+                },
+            ],
+            output_ports: OUTPUT_PORTS
+                .iter()
+                .map(|(semantic_id, value_type)| PortContractV2 {
+                    semantic_id: (*semantic_id).into(),
+                    value_type: *value_type,
+                    max_bytes: match value_type {
+                        ValueTypeV2::Digest32 => 32,
+                        ValueTypeV2::I32
+                        | ValueTypeV2::PositionIntentV1
+                        | ValueTypeV2::TargetVariantV1
+                        | ValueTypeV2::ProtectionVariantV1 => 4,
+                        _ => 8,
+                    },
+                })
+                .collect(),
+            state: PluginStateContractV2 {
+                pre_port_id: "plugin.state.pre.v1".into(),
+                post_port_id: STATE_POST.into(),
+                value_type: ValueTypeV2::Bytes,
+                max_bytes: 256,
+            },
+            capability_ids: capabilities.into_iter().map(str::to_owned).collect(),
+            max_fuel: 10_000_000,
+            max_linear_memory_bytes: 1_048_576,
+            max_invocations_per_event: 1,
+            failure_semantic_id: "strategy.plugin.failure.unsupported.v1".into(),
+        }],
+        resources: ResourceBoundsV2 {
+            max_inputs: 4,
+            max_nodes_per_reaction: 4,
+            max_dependency_edges: 256,
+            max_state_bytes: 4096,
+            max_plugin_calls_per_event: 4,
+        },
+        falsifier: "trend state does not improve the frozen next-return decision".into(),
+    };
+    let mut open = design.inputs[0].clone();
+    open.semantic_id = "research.input.open.v1".into();
+    open.field_semantic_id = "MARKET_DATA.BAR.OPEN.PRICE.V1".into();
+    design.inputs.push(open);
+    design.plugins[0].input_ports.push(PortContractV2 {
+        semantic_id: "input.open.v1".into(),
+        value_type: ValueTypeV2::I128,
+        max_bytes: 16,
+    });
+
+    for reaction in &mut design.reactions {
+        for node in &mut reaction.nodes {
+            let source = match reaction.kind {
+                LifecycleKindV2::Bar => ValueRefV2::Input {
+                    input_id: "research.input.open.v1".into(),
+                },
+                LifecycleKindV2::Event => ValueRefV2::Input {
+                    input_id: "research.input.last-trade.v1".into(),
+                },
+                _ => ValueRefV2::Parameter {
+                    parameter_id: "research.parameter.timer-close.v1".into(),
+                },
+            };
+            node.input_bindings.push(PortBindingV2 {
+                port_id: "input.open.v1".into(),
+                source,
+            });
+            node.input_bindings.sort();
+        }
+    }
+
+    for port in &mut design.plugins[0].output_ports {
+        if matches!(
+            port.value_type,
+            ValueTypeV2::PositionIntentV1
+                | ValueTypeV2::TargetVariantV1
+                | ValueTypeV2::ProtectionVariantV1
+        ) {
+            port.max_bytes = 64;
+        }
+    }
+    design.plugins[0].input_ports.sort();
+    design.plugins[0].output_ports.sort();
+    design.plugins[0].capability_ids.sort();
+    design
+}
+
+fn bindings(design: &StrategyDesignV2) -> Vec<(InputRoleV2, BindingDigest)> {
+    let mut inputs = design.inputs.clone();
+    inputs.sort();
+    inputs
+        .into_iter()
+        .enumerate()
+        .map(|(index, role)| {
+            (
+                role,
+                BindingDigest::from_untrusted_bytes([10 + index as u8; 32]),
+            )
+        })
+        .collect()
+}
+
+pub struct StatefulBacktestNativeReplayEvidenceV2 {
     corpus: Vec<u8>,
     trace: BacktestProgramHostTraceV2,
+    consumed_meanings: Vec<NativeReplayConsumedMeaningV2>,
+    design_digest: [u8; 32],
+    plan_digest: [u8; 32],
+    artifact_digest: [u8; 32],
+    #[cfg(test)]
     restored: bool,
+    #[cfg(test)]
     native_position_closed: bool,
+    #[cfg(test)]
     native_final_position_units: i64,
+    #[cfg(test)]
     native_order_statuses: Vec<String>,
+    owner_input_cut: [u8; 32],
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct NativeReplayConsumedMeaningV2 {
+    component: ObservationComponentV2,
+    observed_meaning_identity: OpaqueIdentityV2,
+    observed_meaning_digest: CanonicalDigestV2,
+    observation_digest: CanonicalDigestV2,
+}
+
+impl StatefulBacktestNativeReplayEvidenceV2 {
+    pub fn canonical_execution_bytes(&self) -> &[u8] {
+        &self.corpus
+    }
+
+    pub fn owner_input_cut(&self) -> [u8; 32] {
+        self.owner_input_cut
+    }
+
+    pub fn consumed_meanings(
+        &self,
+    ) -> impl ExactSizeIterator<
+        Item = (
+            ObservationComponentV2,
+            &OpaqueIdentityV2,
+            &CanonicalDigestV2,
+            &CanonicalDigestV2,
+        ),
+    > {
+        self.consumed_meanings.iter().map(|meaning| {
+            (
+                meaning.component,
+                &meaning.observed_meaning_identity,
+                &meaning.observed_meaning_digest,
+                &meaning.observation_digest,
+            )
+        })
+    }
+
+    pub fn design_digest(&self) -> [u8; 32] {
+        self.design_digest
+    }
+
+    pub fn plan_digest(&self) -> [u8; 32] {
+        self.plan_digest
+    }
+
+    pub fn artifact_digest(&self) -> [u8; 32] {
+        self.artifact_digest
+    }
+
+    pub fn lifecycle_count(&self, lifecycle: &str) -> usize {
+        self.trace
+            .host_transitions
+            .iter()
+            .filter(|transition| transition.lifecycle == lifecycle)
+            .count()
+    }
+
+    pub fn native_fill_count(&self) -> usize {
+        self.trace
+            .native_order_observations
+            .iter()
+            .filter(|observation| !observation.protection_order && observation.event == "FILLED")
+            .count()
+    }
 }
 
 #[derive(Serialize)]
@@ -85,8 +531,17 @@ struct Corpus<'a> {
     native_order_statuses: &'a [String],
     native_position_closed: bool,
     native_position_events: usize,
+    owner_input_cut: [u8; 32],
+    consumed_meanings: &'a [NativeReplayConsumedMeaningV2],
 }
 
+pub fn run_stateful_backtest_native_replay_v2(
+    restore: bool,
+) -> anyhow::Result<StatefulBacktestNativeReplayEvidenceV2> {
+    run_corpus(restore, InputMutation::None)
+}
+
+#[cfg(test)]
 #[rstest]
 fn stateful_v2_host_drives_real_backtest_with_restart_and_repeat_equality() {
     let uninterrupted =
@@ -220,6 +675,7 @@ fn stateful_v2_host_drives_real_backtest_with_restart_and_repeat_equality() {
     }
 }
 
+#[cfg(test)]
 fn semantic_intents(trace: &BacktestProgramHostTraceV2) -> Vec<&str> {
     trace
         .host_transitions
@@ -230,7 +686,10 @@ fn semantic_intents(trace: &BacktestProgramHostTraceV2) -> Vec<&str> {
         .collect()
 }
 
-fn run_corpus(restore: bool, mutation: InputMutation) -> anyhow::Result<RunEvidence> {
+fn run_corpus(
+    restore: bool,
+    mutation: InputMutation,
+) -> anyhow::Result<StatefulBacktestNativeReplayEvidenceV2> {
     let instrument = InstrumentAny::CryptoPerpetual(crypto_perpetual_ethusdt());
     let instrument_id = instrument.id();
     let bar_type = BarType::new(
@@ -300,6 +759,7 @@ fn run_corpus(restore: bool, mutation: InputMutation) -> anyhow::Result<RunEvide
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     let (events, bars): (Vec<_>, Vec<_>) = bars.into_iter().unzip();
+    let owner_input_cut = owner_input_cut(&events);
     let data = bars
         .into_iter()
         .enumerate()
@@ -415,26 +875,324 @@ fn run_corpus(restore: bool, mutation: InputMutation) -> anyhow::Result<RunEvide
         "real Backtest did not retain one net position"
     );
     let native_position_closed = positions[0].is_closed();
+    #[cfg(test)]
     let native_final_position_units = positions[0].signed_qty as i64;
     let native_position_events = positions[0].events.len();
+    let design_digest = *plan.design_digest().as_bytes();
+    let plan_digest = *plan.canonical_plan_digest().as_bytes();
+    let artifact_digest = *artifact.identity().as_bytes();
+    let consumed_meanings =
+        actual_consumption_census(design_digest, plan_digest, artifact_digest, owner_input_cut)?;
     let corpus = serde_json::to_vec(&Corpus {
-        design_digest: *plan.design_digest().as_bytes(),
-        plan_digest: *plan.canonical_plan_digest().as_bytes(),
-        artifact_digest: *artifact.identity().as_bytes(),
+        design_digest,
+        plan_digest,
+        artifact_digest,
         trace: &trace,
         final_result: result,
         native_order_statuses: &native_order_statuses,
         native_position_closed,
         native_position_events,
+        owner_input_cut,
+        consumed_meanings: &consumed_meanings,
     })?;
-    Ok(RunEvidence {
+    Ok(StatefulBacktestNativeReplayEvidenceV2 {
         corpus,
         trace,
+        consumed_meanings,
+        design_digest,
+        plan_digest,
+        artifact_digest,
+        #[cfg(test)]
         restored: restore_performed.get(),
+        #[cfg(test)]
         native_position_closed,
+        #[cfg(test)]
         native_final_position_units,
+        #[cfg(test)]
         native_order_statuses,
+        owner_input_cut,
     })
+}
+
+fn actual_consumption_census(
+    design_digest: [u8; 32],
+    plan_digest: [u8; 32],
+    artifact_digest: [u8; 32],
+    owner_input_cut: [u8; 32],
+) -> anyhow::Result<Vec<NativeReplayConsumedMeaningV2>> {
+    let mut census = Vec::with_capacity(ObservationComponentV2::REQUESTED_MEANING.len());
+    push_content(
+        &mut census,
+        ObservationComponentV2::FrozenResearchIntent,
+        "stateful-trend-research-intent-v2",
+        fixed_digest('b')?,
+    )?;
+    push_content(
+        &mut census,
+        ObservationComponentV2::TrialFamily,
+        "stateful-trend-trial-family-v2",
+        fixed_digest('c')?,
+    )?;
+    push_content(
+        &mut census,
+        ObservationComponentV2::TrialFamilyCensusFrontier,
+        "stateful-trend-census-frontier-v2",
+        fixed_digest('d')?,
+    )?;
+    push_serialized(
+        &mut census,
+        ObservationComponentV2::ReplayAuthority,
+        &ReplayAuthorityClaimV2::Exploratory,
+    )?;
+    push_content(
+        &mut census,
+        ObservationComponentV2::StrategyDesign,
+        "stateful-trend-strategy-design-v2",
+        array_digest(design_digest)?,
+    )?;
+    push_content(
+        &mut census,
+        ObservationComponentV2::StrategyPlan,
+        "stateful-trend-strategy-plan-v2",
+        array_digest(plan_digest)?,
+    )?;
+    push_content(
+        &mut census,
+        ObservationComponentV2::Artifact,
+        "stateful-trend-strategy-artifact-v2",
+        array_digest(artifact_digest)?,
+    )?;
+    push_content(
+        &mut census,
+        ObservationComponentV2::ResolvedOwnerInputs,
+        "stateful-trend-owner-input-cut-v2",
+        array_digest(owner_input_cut)?,
+    )?;
+
+    for (component, identity_text, byte) in [
+        (
+            ObservationComponentV2::PitScope,
+            "stateful-trend-pit-scope-v2",
+            '4',
+        ),
+        (
+            ObservationComponentV2::PitSnapshot,
+            "stateful-trend-pit-snapshot-v2",
+            '5',
+        ),
+        (
+            ObservationComponentV2::UniverseSelection,
+            "stateful-trend-universe-v2",
+            '6',
+        ),
+    ] {
+        push_content(&mut census, component, identity_text, fixed_digest(byte)?)?;
+    }
+
+    for (component, identity_text, version_text) in [
+        (
+            ObservationComponentV2::CorrectionRule,
+            "stateful-trend-correction-rule",
+            "v2",
+        ),
+        (
+            ObservationComponentV2::MarketSemantics,
+            "stateful-trend-market-semantics",
+            "v2",
+        ),
+    ] {
+        push_versioned(&mut census, component, identity_text, version_text)?;
+    }
+    push_content(
+        &mut census,
+        ObservationComponentV2::ReplayConfiguration,
+        "stateful-trend-replay-config-v2",
+        fixed_digest('7')?,
+    )?;
+
+    for (component, identity_text, version_text) in [
+        (
+            ObservationComponentV2::RuntimeKernel,
+            "strategy-shared-lifecycle-kernel",
+            "v1",
+        ),
+        (ObservationComponentV2::Simulator, "vibe-sim-exchange", "v1"),
+        (
+            ObservationComponentV2::CostModel,
+            "vibe-maker-taker-instrument-fee-model",
+            "v1",
+        ),
+        (
+            ObservationComponentV2::SlippageModel,
+            "stateful-trend-book-fill-model",
+            "v1",
+        ),
+        (
+            ObservationComponentV2::CapacityModel,
+            "stateful-trend-bounded-capacity-model",
+            "v1",
+        ),
+        (
+            ObservationComponentV2::RunnerOperationalProfile,
+            "backtest-native-runner",
+            "v2",
+        ),
+        (
+            ObservationComponentV2::DiagnosticPolicy,
+            "backtest-diagnostic-policy",
+            "v2",
+        ),
+    ] {
+        push_versioned(&mut census, component, identity_text, version_text)?;
+    }
+    push_serialized(
+        &mut census,
+        ObservationComponentV2::DeterministicSeed,
+        &7_u64,
+    )?;
+    push_serialized(
+        &mut census,
+        ObservationComponentV2::ReplayWindow,
+        &ReplayWindowV2 {
+            start_event_ns: 1_000_000_000,
+            end_event_ns_exclusive: 9_000_000_000,
+        },
+    )?;
+
+    for (component, identity_text, version_text) in [
+        (
+            ObservationComponentV2::Calendar,
+            "continuous-crypto-calendar",
+            "v1",
+        ),
+        (
+            ObservationComponentV2::Session,
+            "continuous-crypto-session",
+            "v1",
+        ),
+        (ObservationComponentV2::TimeZone, "utc", "v1"),
+    ] {
+        push_versioned(&mut census, component, identity_text, version_text)?;
+    }
+    push_content(
+        &mut census,
+        ObservationComponentV2::CorporateActionCut,
+        "no-corporate-actions-cut",
+        fixed_digest('8')?,
+    )?;
+    push_content(
+        &mut census,
+        ObservationComponentV2::HistoricalMembershipCut,
+        "ethusdt-membership-cut",
+        fixed_digest('9')?,
+    )?;
+    anyhow::ensure!(
+        census
+            .iter()
+            .map(|meaning| meaning.component)
+            .eq(ObservationComponentV2::REQUESTED_MEANING),
+        "Native Replay actual-consumption census is incomplete or out of order"
+    );
+    Ok(census)
+}
+
+fn push_content(
+    census: &mut Vec<NativeReplayConsumedMeaningV2>,
+    component: ObservationComponentV2,
+    identity_text: &str,
+    digest: CanonicalDigestV2,
+) -> anyhow::Result<()> {
+    push_consumed(census, component, opaque_identity(identity_text)?, digest)
+}
+
+fn push_versioned(
+    census: &mut Vec<NativeReplayConsumedMeaningV2>,
+    component: ObservationComponentV2,
+    identity_text: &str,
+    version_text: &str,
+) -> anyhow::Result<()> {
+    let value = VersionedIdentityV2 {
+        identity: opaque_identity(identity_text)?,
+        version: opaque_identity(version_text)?,
+    };
+    let digest = canonical_digest("vibe.backtest.request-component.v2", &value)?;
+    push_consumed(census, component, value.version, digest)
+}
+
+fn push_serialized<T: Serialize>(
+    census: &mut Vec<NativeReplayConsumedMeaningV2>,
+    component: ObservationComponentV2,
+    value: &T,
+) -> anyhow::Result<()> {
+    let digest = canonical_digest("vibe.backtest.request-component.v2", value)?;
+    let identity_digest = canonical_digest(
+        "vibe.backtest.request-component-identity.v2",
+        &(component, &digest),
+    )?;
+    let identity = opaque_identity(&format!(
+        "backtest-request-component-v2-{}",
+        identity_digest.as_str().trim_start_matches("blake3:")
+    ))?;
+    push_consumed(census, component, identity, digest)
+}
+
+fn push_consumed(
+    census: &mut Vec<NativeReplayConsumedMeaningV2>,
+    component: ObservationComponentV2,
+    observed_meaning_identity: OpaqueIdentityV2,
+    observed_meaning_digest: CanonicalDigestV2,
+) -> anyhow::Result<()> {
+    let observation_digest = canonical_digest(
+        "vibe.strategy-factory.native-replay-consumption.v2",
+        &(
+            component,
+            &observed_meaning_identity,
+            &observed_meaning_digest,
+        ),
+    )?;
+    census.push(NativeReplayConsumedMeaningV2 {
+        component,
+        observed_meaning_identity,
+        observed_meaning_digest,
+        observation_digest,
+    });
+    Ok(())
+}
+
+fn opaque_identity(value: &str) -> anyhow::Result<OpaqueIdentityV2> {
+    OpaqueIdentityV2::try_from(value.to_owned()).map_err(Into::into)
+}
+
+fn fixed_digest(byte: char) -> anyhow::Result<CanonicalDigestV2> {
+    CanonicalDigestV2::try_from(format!("sha256:{}", byte.to_string().repeat(64)))
+        .map_err(Into::into)
+}
+
+fn array_digest(bytes: [u8; 32]) -> anyhow::Result<CanonicalDigestV2> {
+    let hex = bytes
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    CanonicalDigestV2::try_from(format!("sha256:{hex}")).map_err(Into::into)
+}
+
+fn canonical_digest<T: Serialize>(domain: &str, value: &T) -> anyhow::Result<CanonicalDigestV2> {
+    let bytes = serde_json::to_vec(value)?;
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(domain.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(&bytes);
+    CanonicalDigestV2::try_from(format!("blake3:{}", hasher.finalize().to_hex()))
+        .map_err(Into::into)
+}
+
+fn owner_input_cut(events: &[AdmittedProgramEventV2]) -> [u8; 32] {
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(b"strategy.stateful-backtest.owner-input-cut.v2\0");
+    for event in events {
+        hasher.update(event.admitted_identity().as_bytes());
+    }
+    hasher.finalize().into()
 }
 
 fn trade_fill(
@@ -484,7 +1242,7 @@ fn book_level(
 }
 
 fn fixture(instrument_id: InstrumentId) -> anyhow::Result<(StrategyPlanV2, StrategyArtifactV2)> {
-    let mut design = executable_design();
+    let mut design = stateful_backtest_design();
     for input in &mut design.inputs {
         input.instrument = instrument_id.to_string();
         input.timeframe = "1-MINUTE".to_owned();

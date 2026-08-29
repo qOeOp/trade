@@ -18,10 +18,15 @@ pub use vibe_backtest_owner_contracts::{
     ObservationComponentV2, OpaqueIdentityV2, ReplayAuthorityClaimV2, ReplayNamespaceV2,
     ReplayRequestDtoV2, ReplayRequestV2, ReplayTerminalV2, VersionedIdentityV2,
 };
+use vibe_backtest_owner_contracts::{ReplayModelProfilesV2, ReplayWindowV2};
 
 mod sealed {
     pub trait Sealed {}
 }
+
+mod native_replay;
+
+pub use native_replay::run_stateful_trend_native_replay_v2;
 
 /// Read-only view of an observation created by Backtest's internal composition boundary.
 ///
@@ -283,6 +288,12 @@ impl SealedReplayResultV2 {
 /// Typed failures from Backtest's internal Replay V2 composition boundary.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ReplayOwnerErrorV2 {
+    #[error("Native Replay omitted required lifecycle event: {0}")]
+    MissingLifecycle(&'static str),
+    #[error("Native Replay produced no factual Sim Exchange fill")]
+    MissingNativeFill,
+    #[error("Native Replay omitted its Owner-admitted input cut")]
+    MissingOwnerInputCut,
     #[error("Replay V2 observation census is incomplete")]
     IncompleteObservationCensus,
     #[error("Replay V2 observation component is duplicated: {0:?}")]
