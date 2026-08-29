@@ -44,13 +44,15 @@ pub fn submitted_or_unknown_response(request_identity: &str) -> DevelopComposerO
 mod sealed {
     use crate::{
         develop_composer_operation_v2::{
-            DevelopComposerRunRequestV2, SealedDevelopComposerAcceptanceEvidenceV2,
+            DevelopComposerA0BuildPortV2, DevelopComposerRunRequestV2,
+            SealedDevelopComposerAcceptanceEvidenceV2,
         },
         develop_composer_postgres_v2::PostgresDevelopComposerStoreV2,
         develop_composer_v2::{CurrentResearchDevelopCustodyV2, DevelopComposerTerminalV2},
         develop_plugin_build_v2::{
-            DevelopPluginBuildProducerV2, UntrustedDevelopPluginCapsuleV2,
-            UntrustedDevelopPluginSourceFileV2, bounded_source,
+            DevelopPluginBuildTerminalKindV2, UntrustedDevelopPluginCapsuleV2,
+            UntrustedDevelopPluginSourceFileV2, VerifiedDevelopPluginBuildReadV2, bounded_source,
+            sealed_corpus_verified_build_v2,
         },
         develop_plugin_build_v2_sandbox::{BUILD_COMMAND, RUSTC_COMMIT, RUSTC_RELEASE, TARGET},
         strategy_design_v2::*,
@@ -100,6 +102,28 @@ mod sealed {
         evidence: SealedDevelopComposerAcceptanceEvidenceV2,
     }
 
+    struct SealedDevelopComposerA0BuildV2;
+
+    impl DevelopComposerA0BuildPortV2 for SealedDevelopComposerA0BuildV2 {
+        fn build(
+            &mut self,
+            manifest: &PluginManifestV2,
+            capsule: &UntrustedDevelopPluginCapsuleV2,
+        ) -> Result<VerifiedDevelopPluginBuildReadV2, DevelopComposerTerminalV2> {
+            sealed_corpus_verified_build_v2(manifest, capsule).map_err(|terminal| {
+                DevelopComposerTerminalV2 {
+                    kind: if terminal.kind == DevelopPluginBuildTerminalKindV2::Conflict {
+                        crate::develop_composer_v2::DevelopComposerTerminalKindV2::Conflict
+                    } else {
+                        crate::develop_composer_v2::DevelopComposerTerminalKindV2::Unavailable
+                    },
+                    coordinate: terminal.coordinate,
+                    reason: terminal.reason,
+                }
+            })
+        }
+    }
+
     impl SealedDevelopComposerAcceptanceV2 {
         pub async fn connect(database_url: &str) -> anyhow::Result<Self> {
             let store = PostgresDevelopComposerStoreV2::connect(database_url).await?;
@@ -112,7 +136,7 @@ mod sealed {
         }
 
         pub async fn run(&self) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-            let mut builder = DevelopPluginBuildProducerV2::default();
+            let mut builder = SealedDevelopComposerA0BuildV2;
             self.store
                 .run(&mut builder, &self.evidence, self.request, 1)
                 .await
@@ -196,7 +220,10 @@ mod sealed {
     }
 
     fn terminal_error(terminal: DevelopComposerTerminalV2) -> anyhow::Error {
-        anyhow::anyhow!("{}: {}", terminal.coordinate, terminal.reason)
+        let DevelopComposerTerminalV2 {
+            coordinate, reason, ..
+        } = terminal;
+        anyhow::anyhow!("{coordinate}: {reason}")
     }
 
     fn fixed_binding_request(
@@ -393,7 +420,7 @@ mod sealed {
             .map(|(semantic_id, value_type)| PortContractV2 {
                 semantic_id: (*semantic_id).to_owned(),
                 value_type: *value_type,
-                max_bytes: match semantic_id.as_ref() {
+                max_bytes: match *semantic_id {
                     "proposal.member-target-set.v2" => TARGET_SET_BYTES as u32,
                     _ if matches!(
                         value_type,
@@ -555,6 +582,82 @@ mod sealed {
             assert_eq!(request.design.inputs.len(), 2);
             assert_eq!(request.binding_requests.len(), 2);
             assert_eq!(request.plugin_source_capsules.len(), 1);
+        }
+
+        #[rstest]
+        fn sealed_a0_accepts_only_the_exact_fixed_manifest_and_capsule() {
+            let (request, _) = fixed_corpus().expect("fixed corpus");
+            let manifest = &request.design.plugins[0];
+            let capsule = &request.plugin_source_capsules[0];
+            let mut builder = SealedDevelopComposerA0BuildV2;
+            let exact = builder
+                .build(manifest, capsule)
+                .expect("exact sealed A0 corpus");
+            exact
+                .into_composer_build()
+                .into_verified_for_composer(manifest)
+                .expect("sealed A0 corpus passes move-bound consumption");
+
+            let mut changed_manifest = manifest.clone();
+            changed_manifest.max_fuel -= 1;
+            assert!(builder.build(&changed_manifest, capsule).is_err());
+
+            let mut changed_capsule = capsule.clone();
+            changed_capsule.files[0].bytes.push(b' ');
+            assert!(builder.build(manifest, &changed_capsule).is_err());
+        }
+
+        #[rstest]
+        fn sealed_a0_rejects_changed_embedded_module_or_receipt_bytes() {
+            let (request, _) = fixed_corpus().expect("fixed corpus");
+            let manifest = &request.design.plugins[0];
+            let capsule = &request.plugin_source_capsules[0];
+            let module = include_bytes!("../fixtures/develop_composer_sealed_a0_v2/module.wasm");
+            let receipt =
+                include_bytes!("../fixtures/develop_composer_sealed_a0_v2/build_receipt.bin");
+
+            let mut changed_module = module.to_vec();
+            changed_module[0] ^= 1;
+            assert!(
+                crate::develop_plugin_build_v2::verify_sealed_corpus_artifacts_for_test_v2(
+                    manifest,
+                    capsule,
+                    &changed_module,
+                    receipt,
+                )
+                .is_err()
+            );
+
+            let mut changed_receipt = receipt.to_vec();
+            changed_receipt[0] ^= 1;
+            assert!(
+                crate::develop_plugin_build_v2::verify_sealed_corpus_artifacts_for_test_v2(
+                    manifest,
+                    capsule,
+                    module,
+                    &changed_receipt,
+                )
+                .is_err()
+            );
+        }
+
+        #[rstest]
+        #[ignore = "regenerates the sealed A0 corpus from the exact admitted Darwin producer"]
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        fn regenerate_sealed_a0_corpus_from_real_producer() {
+            let (request, _) = fixed_corpus().expect("fixed corpus");
+            let (module, receipt) =
+                crate::develop_plugin_build_v2::generate_sealed_corpus_artifacts_v2(
+                    &request.design.plugins[0],
+                    &request.plugin_source_capsules[0],
+                )
+                .expect("real fixed-corpus A0 build");
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("fixtures/develop_composer_sealed_a0_v2");
+            std::fs::create_dir_all(&root).expect("sealed A0 fixture directory");
+            std::fs::write(root.join("module.wasm"), module).expect("sealed A0 module fixture");
+            std::fs::write(root.join("build_receipt.bin"), receipt)
+                .expect("sealed A0 receipt fixture");
         }
     }
 }

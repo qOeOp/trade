@@ -54,11 +54,21 @@ impl PostgresDevelopComposerStoreV2 {
         evidence: &impl DevelopComposerFinalEvidencePortV2,
         read_cut_epoch_ms: u64,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        let Some(record) = load_record(&self.pool, request_identity).await? else {
-            return Ok(unavailable_response(
-                request_identity,
-                "terminal is unavailable",
-            ));
+        let record = match load_record(&self.pool, request_identity).await {
+            Ok(Some(record)) => record,
+            Ok(None) => {
+                return Ok(unavailable_response(
+                    request_identity,
+                    "terminal is unavailable",
+                ));
+            }
+            Err(e) if is_record_integrity_error(&e) => {
+                return Ok(unavailable_response(
+                    request_identity,
+                    "stored terminal custody is incomplete or malformed",
+                ));
+            }
+            Err(e) => return Err(e),
         };
         Ok(resolve_loaded_record_with_evidence(
             &record,
@@ -93,9 +103,20 @@ impl PostgresDevelopComposerStoreV2 {
         )
         .await?;
 
-        if let Some(existing) =
-            load_record_in_transaction(&mut transaction, &request.request_identity).await?
-        {
+        let existing =
+            match load_record_in_transaction(&mut transaction, &request.request_identity).await {
+                Ok(existing) => existing,
+                Err(e) if is_record_integrity_error(&e) => {
+                    transaction.rollback().await?;
+                    return Ok(unavailable_response(
+                        &request.request_identity,
+                        "stored terminal custody is incomplete or malformed",
+                    ));
+                }
+                Err(e) => return Err(e),
+            };
+
+        if let Some(existing) = existing {
             let response = if existing.request_digest == request_digest(request) {
                 evidence
                     .lock_and_reread(request, existing.design_identity, read_cut_epoch_ms)
@@ -706,5 +727,16 @@ fn unavailable_response(
         artifact: None,
         coordinate: Some("operation".to_owned()),
         reason: Some(reason.to_owned()),
+    }
+}
+
+fn is_record_integrity_error(error: &sqlx::Error) -> bool {
+    match error {
+        sqlx::Error::RowNotFound => true,
+        sqlx::Error::Protocol(message) => {
+            message.starts_with("Composer ordinal mismatch:")
+                || message.ends_with(" is not an exact 32-byte digest")
+        }
+        _ => false,
     }
 }
