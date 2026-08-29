@@ -13,13 +13,17 @@ use super::{
         CommitFault, ObservedPitObservationNativeRow, TestOnlyCanonicalBasisResolver,
         TestOnlyPitSnapshotOwner, canonical_batch_bytes, canonical_observation_bytes,
         decode_canonical_observation_batch, derive_request_digest, derive_request_identity,
-        prepare_observation_batch, refresh_request_claims, verify_observation_batch,
+        prepare_initial_aggregate, prepare_observation_batch, refresh_request_claims,
+        verify_observation_batch,
     },
 };
 use crate::owner::research_pit_terminal::{
     ResearchPitBlocker, ResearchPitDisposition, UntrustedResearchPitTerminalRequest,
     derive_license_binding_digest, derive_provenance_binding_digest,
     derive_snapshot_correction_rule_digest, seal_research_pit_terminal,
+};
+use crate::owner::sealed_replay_input::{
+    SealedReplayInput, UntrustedSealedReplayInputRequest, seal_replay_input,
 };
 use crate::owner::source_binding::{
     MarketDataClockAdmission, SourceBindingBlocker, UntrustedAdapterBinding,
@@ -1600,6 +1604,220 @@ fn research_terminal_fixture(
             .expect("license"),
     };
     (pit, source, request)
+}
+
+fn sealed_replay_fixture(
+    identity_byte: u8,
+    event_effective: u64,
+    cut: u64,
+    source_sequence: u64,
+) -> (
+    PitSnapshotCommitAggregate,
+    crate::owner::source_binding::authority::SourceBindingStoredAggregate,
+    super::VerifiedPitObservationBatch,
+    UntrustedSealedReplayInputRequest,
+) {
+    let mut source_value = source_proposal(source_sequence, cut);
+    source_value.time_evidence.event_effective = event_effective;
+    source_value.time_evidence.claimed_evidence_identity =
+        derive_time_evidence_identity(&source_value.time_evidence);
+    source_value.claimed_binding_id = derive_binding_id(&source_value);
+    let source_identity = source_value.claimed_binding_id;
+    let source = build_stored_aggregate(
+        source_value,
+        OwnerSourceBindingDecision {
+            blockers: BTreeSet::new(),
+        },
+        OwnerLineage {
+            root: source_identity,
+            version: 1,
+            predecessor_binding_id: None,
+            predecessor_fact_digest: None,
+        },
+    );
+
+    let mut value = proposal(source.commit().receipt().locator());
+    value.request.correlation_identity = d(identity_byte);
+    value.request.scope_digest = d(identity_byte.wrapping_add(1));
+    value.request.time_evidence = typed_time(cut, if cut == 40 { 1 } else { 2 });
+    value.request.time_evidence.event_effective =
+        UntrustedEventEffectiveTime::from_untrusted(event_effective, "market-clock", "epoch-1");
+    value.evidence.source_frontier = source.commit().fact().source_frontier().clone();
+    value.evidence.correction_frontier = source.commit().fact().correction_frontier().clone();
+    refresh_request_claims(&mut value.request);
+
+    let close_row = VerifiedPitObservation {
+        symbolic_key: format!("ASSET{identity_byte}.CLOSE"),
+        member_key: format!("ASSET{identity_byte}.XNAS"),
+        instrument: format!("ASSET{identity_byte}.XNAS"),
+        channel: "MARKET".to_owned(),
+        data_kind: "BAR".to_owned(),
+        timeframe: "1M".to_owned(),
+        field: "CLOSE".to_owned(),
+        value_mantissa: i128::from(identity_byte) * 100 + 1,
+        value_scale: 2,
+        event_effective,
+        provider_available: value.request.time_evidence.provider_available.value,
+        retrieval: value.request.time_evidence.retrieval.value,
+        correction_publication: value
+            .request
+            .time_evidence
+            .correction_publication
+            .as_ref()
+            .expect("correction time")
+            .value,
+        source_binding_identity: source.commit().fact().binding_id(),
+        source_frontier_digest: value.evidence.source_frontier.digest,
+        instrument_master_digest: value.request.instrument_master_digest,
+        universe_selection_digest: value.request.universe_selection_digest,
+        market_semantics_identity: value.request.market_semantics_identity,
+        correction_stream_identity: value.evidence.correction_frontier.stream_identity.clone(),
+        correction_sequence: value.evidence.correction_frontier.sequence,
+        correction_frontier_digest: value.evidence.correction_frontier.digest,
+    };
+    let mut open_row = close_row.clone();
+    open_row.symbolic_key = format!("ASSET{identity_byte}.OPEN");
+    open_row.field = "OPEN".to_owned();
+    open_row.value_mantissa -= 10;
+    let rows = [close_row, open_row];
+    let batch_bytes = canonical_batch_bytes(&rows);
+    let batch_digest = BindingDigest::from_untrusted_bytes(*blake3::hash(&batch_bytes).as_bytes());
+    value.evidence.normalized_records_digest = batch_digest;
+    let basis =
+        canonical_basis_with_clock(&value, &source_clock(cut, if cut == 40 { 1 } else { 2 }));
+    let pit = prepare_initial_aggregate(
+        value,
+        &basis,
+        source.commit().fact(),
+        &source_clock(cut, if cut == 40 { 1 } else { 2 }),
+    )
+    .expect("PIT replay fixture");
+    let batch = verify_observation_batch(
+        &pit,
+        pit.fact().source_binding_identity(),
+        pit.fact().source_binding_lineage_root(),
+        pit.fact().source_binding_lineage_version(),
+        batch_digest,
+        &batch_bytes,
+        &rows
+            .iter()
+            .enumerate()
+            .map(|(offset, row)| ObservedPitObservationNativeRow {
+                ordinal: u64::try_from(offset + 1).expect("bounded fixture ordinal"),
+                symbolic_key: row.symbolic_key.clone(),
+                member_key: row.member_key.clone(),
+                row_bytes: canonical_observation_bytes(row),
+            })
+            .collect::<Vec<_>>(),
+    )
+    .expect("verified replay batch");
+    let fact = pit.fact();
+    let semantics = &source.commit().fact().proposal().semantics;
+    let request = UntrustedSealedReplayInputRequest {
+        consumer_role: "STRATEGY_FACTORY_RD_OWNER_API_V1".to_owned(),
+        locator: pit.receipt().locator().clone(),
+        request_identity: fact.request_identity(),
+        request_digest: fact.request_digest(),
+        scope_digest: fact.request().scope_digest,
+        source_binding_identity: fact.source_binding_identity(),
+        source_binding_lineage_root: fact.source_binding_lineage_root(),
+        source_binding_lineage_version: fact.source_binding_lineage_version(),
+        source_frontier: fact.evidence().source_frontier.clone(),
+        correction_frontier: fact.evidence().correction_frontier.clone(),
+        instrument_master_digest: fact.request().instrument_master_digest,
+        universe_selection_digest: fact.request().universe_selection_digest,
+        market_semantics_identity: fact.request().market_semantics_identity,
+        snapshot_correction_rule_digest: derive_snapshot_correction_rule_digest(
+            fact.request(),
+            fact.evidence().correction_frontier.clone(),
+        )
+        .expect("correction rule"),
+        calendar_rules: semantics.calendar_rules.clone(),
+        session_rules: semantics.session_rules.clone(),
+        time_zone_rules: semantics.timezone_rules.clone(),
+        corporate_action_rules: semantics.corporate_action_rules.clone(),
+        historical_membership_rules: semantics.membership_rules.clone(),
+    };
+    (pit, source, batch, request)
+}
+
+fn seal_fixture(
+    pit: &PitSnapshotCommitAggregate,
+    source: &crate::owner::source_binding::authority::SourceBindingStoredAggregate,
+    batch: &super::VerifiedPitObservationBatch,
+    request: &UntrustedSealedReplayInputRequest,
+) -> Result<SealedReplayInput, PitSnapshotError> {
+    seal_replay_input(pit, source, batch, request)
+}
+
+#[rstest]
+fn sealed_replay_input_is_repeatable_and_distinguishes_real_snapshot_cuts() {
+    let first = sealed_replay_fixture(40, 10, 40, 10);
+    let second = sealed_replay_fixture(60, 11, 50, 12);
+    let first_input = seal_fixture(&first.0, &first.1, &first.2, &first.3).unwrap();
+    let first_repeat = seal_fixture(&first.0, &first.1, &first.2, &first.3).unwrap();
+    let second_input = seal_fixture(&second.0, &second.1, &second.2, &second.3).unwrap();
+
+    assert_eq!(
+        serde_json::to_vec(&first_input).unwrap(),
+        serde_json::to_vec(&first_repeat).unwrap()
+    );
+    assert_ne!(
+        first_input.frame_census_digest(),
+        second_input.frame_census_digest()
+    );
+    assert_ne!(
+        first_input.normalized_records_digest(),
+        second_input.normalized_records_digest()
+    );
+    assert_eq!(first_input.frames().len(), 2);
+    assert_eq!(second_input.frames().len(), 2);
+    assert_eq!(first_input.frames()[0].field(), "CLOSE");
+    assert_eq!(first_input.frames()[1].field(), "OPEN");
+    assert_eq!(first_input.observation_start_event_time(), 10);
+    assert_eq!(first_input.observation_end_event_time(), 10);
+    assert!(first_input.frames()[0].event_effective() < second_input.frames()[0].event_effective());
+
+    let mut old_request_for_new_locator = first.3;
+    old_request_for_new_locator.locator = second.3.locator.clone();
+    assert!(
+        seal_fixture(
+            &second.0,
+            &second.1,
+            &second.2,
+            &old_request_for_new_locator
+        )
+        .is_err()
+    );
+}
+
+#[rstest]
+fn sealed_replay_input_fails_closed_for_every_market_data_authority_cut() {
+    let (pit, source, batch, request) = sealed_replay_fixture(40, 10, 40, 10);
+    let mutations: [fn(&mut UntrustedSealedReplayInputRequest); 12] = [
+        |value| value.calendar_rules.push('x'),
+        |value| value.session_rules.push('x'),
+        |value| value.time_zone_rules.push('x'),
+        |value| value.corporate_action_rules.push('x'),
+        |value| value.historical_membership_rules.push('x'),
+        |value| value.source_frontier.sequence += 1,
+        |value| value.correction_frontier.sequence += 1,
+        |value| value.snapshot_correction_rule_digest = d(99),
+        |value| value.scope_digest = d(98),
+        |value| value.universe_selection_digest = d(97),
+        |value| value.market_semantics_identity = d(96),
+        |value| value.source_binding_lineage_version += 1,
+    ];
+
+    for mutation in mutations {
+        let mut changed = request.clone();
+        mutation(&mut changed);
+        assert!(matches!(
+            seal_fixture(&pit, &source, &batch, &changed),
+            Err(PitSnapshotError::ConsumerBindingMismatch
+                | PitSnapshotError::ObservationBatchUnavailable)
+        ));
+    }
 }
 
 #[rstest]

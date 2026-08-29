@@ -16,6 +16,11 @@ use super::research_pit_terminal::{
     seal_research_pit_terminal,
 };
 #[cfg(not(test))]
+use super::sealed_replay_input::{
+    SealedReplayInput, SealedReplayInputResolver, UntrustedSealedReplayInputRequest,
+    seal_replay_input,
+};
+#[cfg(not(test))]
 use super::store_admission::{
     AdmittedMarketDataSnapshotPort, MarketDataPitEvaluationStorageEvidence,
     MarketDataPitTerminalStorageEvidence, MarketDataSourceBindingStorageEvidence,
@@ -2830,7 +2835,26 @@ impl ResearchPitTerminalResolver for MarketDataReadPostgres {
     }
 }
 
+#[cfg(not(test))]
+#[async_trait::async_trait]
+impl SealedReplayInputResolver for MarketDataReadPostgres {
+    async fn resolve_sealed_replay_input(
+        &self,
+        request: &UntrustedSealedReplayInputRequest,
+    ) -> Result<SealedReplayInput, PitSnapshotError> {
+        let evidence = self
+            .admitted_port
+            .resolve_pit_evaluation(*request.locator.snapshot_identity.as_bytes())
+            .await
+            .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+        let (pit, source, batch) =
+            verify_admitted_current_pit_evidence(&request.locator, &evidence)?;
+        seal_replay_input(&pit, &source, &batch, request)
+    }
+}
+
 impl super::research_pit_terminal::sealed::Sealed for MarketDataReadPostgres {}
+impl super::sealed_replay_input::sealed::Sealed for MarketDataReadPostgres {}
 
 #[cfg(test)]
 #[async_trait::async_trait]
@@ -3142,6 +3166,110 @@ fn verify_admitted_pit_evidence(
             })
             .collect::<Vec<_>>(),
     )
+}
+
+#[cfg(not(test))]
+fn verify_admitted_current_pit_evidence(
+    locator: &UntrustedPitSnapshotLocator,
+    evidence: &MarketDataPitEvaluationStorageEvidence,
+) -> Result<
+    (
+        PitSnapshotCommitAggregate,
+        SourceBindingStoredAggregate,
+        VerifiedPitObservationBatch,
+    ),
+    PitSnapshotError,
+> {
+    if !evidence.admission_receipt_identity().starts_with("sha256:") {
+        return Err(PitSnapshotError::PersistenceUnavailable);
+    }
+    let mut prior = None;
+    let mut selected = None;
+    let mut terminal = None;
+
+    for (offset, raw) in evidence.pit_lineage_rows().iter().enumerate() {
+        let envelope = decode_raw_pit_envelope(raw)?;
+        let aggregate: PitSnapshotCommitAggregate = serde_json::from_value(envelope.aggregate)
+            .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+        let fact = aggregate.fact();
+        let expected_version = u64::try_from(offset)
+            .ok()
+            .and_then(|value| value.checked_add(1))
+            .ok_or(PitSnapshotError::PersistenceUnavailable)?;
+
+        if !verify_pit_native(&aggregate, &envelope.native, false)
+            || fact.lineage_version() != expected_version
+        {
+            return Err(PitSnapshotError::PersistenceUnavailable);
+        }
+
+        match prior {
+            None if fact.snapshot_identity() == fact.lineage_root()
+                && fact.predecessor_snapshot_identity().is_none()
+                && fact.predecessor_fact_digest().is_none() => {}
+            Some((identity, digest))
+                if fact.predecessor_snapshot_identity() == Some(identity)
+                    && fact.predecessor_fact_digest() == Some(digest) => {}
+            _ => return Err(PitSnapshotError::PersistenceUnavailable),
+        }
+
+        if aggregate.receipt().locator() == locator {
+            selected = Some(aggregate.clone());
+        }
+        prior = Some((fact.snapshot_identity(), fact.digest()));
+        terminal = Some((aggregate, envelope.native.head));
+    }
+
+    let (terminal, head) = terminal.ok_or(PitSnapshotError::PersistenceUnavailable)?;
+    if head.lineage_root != terminal.fact().lineage_root()
+        || head.identity != terminal.fact().snapshot_identity()
+        || head.fact_digest != terminal.fact().digest()
+        || head.lineage_version != terminal.fact().lineage_version()
+    {
+        return Err(PitSnapshotError::PersistenceUnavailable);
+    }
+    let selected = selected.ok_or(PitSnapshotError::LocatorMismatch)?;
+    if selected.fact().snapshot_identity() != terminal.fact().snapshot_identity() {
+        return Err(PitSnapshotError::CorrectionHeadMismatch);
+    }
+    let source = verify_terminal_source_rows(
+        &selected.fact().request().source_binding,
+        evidence.source_lineage_rows(),
+        evidence.clock_rows(),
+    )?;
+    let expected_clock = clock_for_pit_time(&selected.fact().request().time_evidence);
+    let historical_clock = evidence
+        .clock_rows()
+        .iter()
+        .find_map(|raw| {
+            decode_raw_clock(raw)
+                .ok()
+                .filter(|clock| clock == &expected_clock)
+        })
+        .ok_or(PitSnapshotError::TrustedClockMismatch)?;
+    super::pit_snapshot::authority::validate_read_clock(
+        &selected.fact().request().time_evidence,
+        &historical_clock,
+    )?;
+    let batch = verify_observation_batch(
+        &selected,
+        BindingDigest::from_untrusted_bytes(*evidence.batch_source_binding_identity()),
+        BindingDigest::from_untrusted_bytes(*evidence.batch_source_binding_lineage_root()),
+        evidence.batch_source_binding_lineage_version(),
+        BindingDigest::from_untrusted_bytes(*evidence.batch_digest()),
+        evidence.batch_bytes(),
+        &evidence
+            .batch_rows()
+            .iter()
+            .map(|row| ObservedPitObservationNativeRow {
+                ordinal: row.ordinal(),
+                symbolic_key: row.symbolic_key().to_string(),
+                member_key: row.member_key().to_string(),
+                row_bytes: row.row_bytes().to_vec(),
+            })
+            .collect::<Vec<_>>(),
+    )?;
+    Ok((selected, source, batch))
 }
 
 #[cfg(not(test))]
