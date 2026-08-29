@@ -20,8 +20,9 @@ use crate::complex_strategy_develop_evaluation::{
 use crate::exploratory_replay::{
     ExploratoryReplayCommitResultV1, ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError,
     ExploratoryReplayReadResultV1, ExploratoryReplayReadResultV2,
-    ExploratoryReplayRequestLocatorV1, ExploratoryReplayRequestLocatorV2,
-    ExploratoryReplayRequestProposalV1, ExploratoryReplayRequestProposalV2,
+    ExploratoryReplayRecoverySelectorV2, ExploratoryReplayRequestLocatorV1,
+    ExploratoryReplayRequestLocatorV2, ExploratoryReplayRequestProposalV1,
+    ExploratoryReplayRequestProposalV2,
 };
 use crate::product_edge::{
     FrozenResearchGoalIntent, IndependenceBasisReadbackV1, IndependenceBasisReceiptV1,
@@ -930,9 +931,9 @@ impl PostgresResearchGoalOwnerV1 {
     /// Missing or mismatched custody remains unavailable and this path performs no admission.
     pub async fn resolve_exploratory_replay_request_v2(
         &self,
-        locator: &ExploratoryReplayRequestLocatorV2,
+        selector: &ExploratoryReplayRecoverySelectorV2,
     ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
-        crate::exploratory_replay::postgres::resolve_for_rd_v2(&self.pool, locator).await
+        crate::exploratory_replay::postgres::resolve_for_rd_v2(&self.pool, selector).await
     }
 
     /// Uses the canonical `backtest_owner` capability to consume only the V2 sealed handoff.

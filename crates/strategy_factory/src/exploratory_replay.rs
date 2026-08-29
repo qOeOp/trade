@@ -141,6 +141,15 @@ pub struct ExploratoryReplayRequestLocatorV2 {
     pub seal_digest: String,
 }
 
+/// Pre-send-known identity for recovering an already committed Replay V2 response.
+/// R&D resolves the receipt and seal only from its own stored custody.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExploratoryReplayRecoverySelectorV2 {
+    pub request_identity: String,
+    pub meaning_digest: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ExploratoryReplayAvailabilityV1 {
@@ -336,6 +345,16 @@ impl SealedExploratoryReplayReadbackV2 {
 
     pub fn seal_digest(&self) -> &str {
         &self.receipt.seal_digest
+    }
+
+    #[must_use]
+    pub fn locator(&self) -> ExploratoryReplayRequestLocatorV2 {
+        ExploratoryReplayRequestLocatorV2 {
+            request_identity: self.request_identity().to_string(),
+            meaning_digest: self.meaning_digest.clone(),
+            receipt_identity: self.receipt.receipt_identity.clone(),
+            seal_digest: self.receipt.seal_digest.clone(),
+        }
     }
 
     pub fn owner_cut_epoch_ms(&self) -> u64 {
