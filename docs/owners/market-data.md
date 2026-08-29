@@ -54,6 +54,237 @@ Provide canonical, time-correct market, reference, and instrument facts to every
 - **Instrument Master** - own effective-dated instrument identities, venue mappings, contract terms, sessions,
   time zones, lifecycle and corporate-action facts; it does not choose a run universe.
 
+## Instrument Master Owner contract
+
+### Status and fixed consumer
+
+**CURRENT/PARTIAL:** the PIT and Strategy Input paths carry an `instrument_master_digest` supplied on the
+request and compare it with the digest carried by an Owner-verified batch. That digest is provenance for the
+current bounded path, but it is not a native Instrument Master fact, cut, write receipt, or sealed readback.
+The representative Strategy Factory path also freezes a data-Owner role string and an AAPL/MSFT fixture. Those
+hard-coded role and mapping choices are an implementation target, not Instrument Master authority. No current
+code or dynamic acceptance establishes the TARGET contract below.
+
+**TARGET:** Market Data is the sole writer and resolver of the native Instrument Master state path. Its fixed
+cross-Owner consumer role is the exact ASCII identity `BACKTEST_OWNER_V1`. R&D declares research scope and the
+Strategy compiler consumes Owner-sealed resolutions, but neither may query Instrument Master storage directly,
+maintain a symbol-to-instrument or venue mapping, or synthesize a resolution. Replacing the current hard-coded
+Strategy Factory role/mapping path with direct Owner resolution is required implementation work.
+
+**NOT_ADMITTED:** this contract does not admit Rust implementation, a schema migration, provider ingestion,
+production/default database writes, Dashboard work, dynamic product acceptance, or trading. A caller-carried
+digest, canonical-looking string, static fixture, transport success, or documentation check cannot claim native
+Instrument Master custody.
+
+### Native immutable records
+
+`InstrumentMasterFactV1` is an immutable effective-dated fact. It contains all of the following, with no
+consumer-owned substitution:
+
+- its canonical instrument identity and optional exact predecessor fact digest;
+- venue and source mappings; instrument class; base, quote, settlement and margin currencies as applicable;
+- price increment, quantity increment and contract multiplier, each encoded as signed `i128` mantissa plus an
+  explicit decimal scale, with no floating-point representation;
+- trading calendar, session and time-zone identities;
+- lifecycle, corporate-action, historical-membership, Market Semantics Compatibility, source and correction
+  frontiers;
+- one half-open effective interval `[effective_from, effective_until)`, where an absent upper bound means open,
+  not latest; and
+- provider-available, retrieval, correction-publication and Owner-observation coordinates, plus the exact clock
+  identity/epoch/sequence, decision cut and complete sealed clock-head projection used to admit the observation.
+
+`InstrumentMasterFactV1` and `InstrumentMasterCutV1` each declare the existing canonical
+`timeEvidenceCutKind` `MARKET_DATA_AS_OF`; no new Time Evidence kind is created. Each fact and cut binds the complete
+projection of the existing sealed clock-head handoff that admitted it: head identity and digest, clock identity and
+epoch, monotonic sequence, wall observation, decision cut, exclusive `valid-through`, restart-continuity digest,
+uncertainty and skew bounds, and the comparison rule. A new epoch additionally binds the one direct immutable Epoch
+Successor Proof identity and digest resolved with that head; absence is canonical only when no epoch transition was
+consumed. These fields remain inside the fact and cut domains and create no fifth identity domain.
+
+Within a fact, provider-available, retrieval, correction-publication and Owner-observation coordinates all bind its
+one exact sealed head. Within a cut, Owner-observation time and decision cut bind its one exact sealed head. The only
+comparison rule is `SAME_CLOCK_EPOCH_SEQUENCE_AND_CUT_V1`: the cut head must be the exact current Owner-resolved head
+at commit, its identity/digest and optional Epoch Successor Proof must verify, its restart continuity must be proven,
+the cut Owner-observation time must be strictly before its exclusive `valid-through`, and its uncertainty and skew
+must be within the admitted bounds. A fact is observable at that cut only when fact and cut clock identity and epoch
+are byte-equal, the fact monotonic sequence is not greater than the cut sequence, the fact decision cut is not
+greater than the requested decision cut, and each fact availability, retrieval, correction and observation
+coordinate is not greater than the cut Owner-observation time. Consumers cannot walk a head or epoch-proof chain,
+skip a predecessor, or compare sequences across epochs. An unavailable, mismatched, expired or discontinuous head,
+an unproved epoch transition, mixed or unknown clock/epoch, excess uncertainty or skew, sequence or decision-cut
+regression, and correction or observation after the cut produce no positive result. Effective-time containment
+remains the independent second predicate.
+
+Effective time and observation/decision-cut time are independent axes. A fact may be effective before it became
+observable. Resolution requires both that the requested effective instant is inside the half-open interval and
+that the fact was observable at the bound decision cut. A late correction creates only an immutable successor
+whose predecessor is the corrected fact; it never rewrites the predecessor or makes the correction available at
+an earlier cut.
+
+`InstrumentMasterCutV1` is a content-addressed immutable resolution cut for `BACKTEST_OWNER_V1`. It binds the
+consumer role, requested instrument or Universe Selection Record scope, effective instant, observation/decision
+cut, complete sealed clock-head projection, exact expected canonical member set, ordered resolved canonical
+identities and `InstrumentMasterFactV1` digests, all required frontier identities, and an explicit complete gap set.
+A cut with any gap or conflict is not positive.
+
+Every admitted resolution atomically appends one write-once receipt and its outbox entry under Market Data write
+authority. The receipt binds request identity and meaning, `BACKTEST_OWNER_V1`, fact and cut digests, canonical
+bytes, store commit coordinate, stable correlation and outbox identity. Neither receipt nor outbox entry may be
+updated, replaced, reordered into a different identity, or treated as positive before durable commit.
+
+`InstrumentMasterReadbackV1` is move-only and sealed by Market Data. It carries the complete exact canonical
+`InstrumentMasterFactV1` record bytes and `InstrumentMasterCutV1` record bytes needed by the consumer, and repeats
+the exact request identity and meaning, consumer role, derived fact and cut identities/digests, stable correlation
+and durable receipt/outbox coordinates. Ordinary consumers cannot construct, clone, deserialize, implement or
+mint it. It is the only recovery path after response loss; transport acknowledgement, retry success, a digest-only
+existence proof or a caller copy of prior fields is not readback.
+
+### Canonical identity and codec
+
+The native records use one domain-separated canonical binary codec and BLAKE3-256. The exact four ASCII domains
+are:
+
+1. `VIBE_INSTRUMENT_MASTER_FACT_V1`
+1. `VIBE_INSTRUMENT_MASTER_CUT_V1`
+1. `VIBE_INSTRUMENT_MASTER_RECEIPT_V1`
+1. `VIBE_INSTRUMENT_MASTER_READBACK_V1`
+
+Each identity is `BLAKE3-256(domain_utf8 || 0x00 || canonical_record_bytes)`, where `domain_utf8` is exactly one
+of the four strings above with no length or terminator inside it. The record codec has this one wire grammar:
+
+- `codec_version` is exactly `0x0001`; unsigned integers are big-endian `u8`, `u16`, `u32` or `u64` at the width
+  named by the field; signed decimal
+  mantissas and time coordinates are two's-complement big-endian `i128`; decimal scale is `u8`;
+- every content identity, digest, request identity, correlation, clock identity, store-generation identity and
+  clock epoch and frontier is exactly 32 bytes; every enum discriminant is `u16`; optional absence/presence is
+  exactly `0x00`/`0x01` followed by the value only when present; no other value is valid;
+- a UTF-8 or opaque byte string is `u32` big-endian byte length followed by those exact bytes; a list is `u32`
+  big-endian element count followed by its elements; and
+- a time coordinate is signed `i128` Unix-epoch nanoseconds. Clock sequence and the decision cut are `u64`; store
+  append sequence is also `u64`. Uncertainty and skew bounds are non-negative `u64` nanoseconds. Intervals compare
+  their decoded time coordinates, not their bytewise signed representation.
+
+For price increment, quantity increment and contract multiplier, the represented value is exactly
+`mantissa * 10^(-scale)`. The mantissa must be greater than zero and scale must be in `0..=38`. The only canonical
+normal form has `scale == 0` or `mantissa % 10 != 0`; therefore redundant fractional trailing zeroes are invalid.
+Zero, a negative value, scale above 38, and a non-minimal scale are rejected before canonical bytes are hashed.
+
+The only instrument-class discriminants are `0x0001 EQUITY`, `0x0002 FUTURE`, `0x0003 OPTION`, `0x0004 FX_PAIR`,
+`0x0005 CRYPTO_SPOT`, `0x0006 CRYPTO_PERPETUAL`, `0x0007 FIXED_INCOME`, `0x0008 FUND`, `0x0009 INDEX`,
+`0x000a COMMODITY`, `0x000b BETTING` and `0x000c SYNTHETIC`; every other value is unsupported and yields no
+positive record. A canonical instrument identity, venue identity, source identity, source instrument, currency,
+calendar identity, session identity, time-zone identity and consumer role is an exact
+case-sensitive UTF-8 byte string under the string rule above, with no normalization. The consumer role bytes must
+equal ASCII `BACKTEST_OWNER_V1`. Currency bytes are the Market Data-owned currency semantic identity, not a
+consumer-parsed display code.
+
+Within `InstrumentMasterFactV1`, fields occur exactly in this order: `codec_version:u16`, the exact UTF-8 string
+`MARKET_DATA_AS_OF`, canonical identity, optional predecessor fact digest, venue/source mappings,
+instrument-class discriminant, optional base, quote,
+settlement and margin currencies in that order, price-increment mantissa/scale, quantity-increment
+mantissa/scale, contract-multiplier mantissa/scale, calendar identity, session identity, time-zone identity,
+lifecycle frontier, corporate-action frontier, historical-membership frontier, Market Semantics identity,
+source frontier, correction frontier, effective-from time, optional effective-until time, provider-available
+time, retrieval time, correction-publication time, Owner-observation time, clock identity, clock epoch, clock
+sequence, decision cut, clock-head identity, clock-head digest, clock-head wall observation, exclusive
+`valid-through`, restart-continuity digest, uncertainty bound, skew bound, optional Epoch Successor Proof identity,
+optional Epoch Successor Proof digest, and the exact UTF-8 string `SAME_CLOCK_EPOCH_SEQUENCE_AND_CUT_V1`. The two
+optional proof fields must both be absent or both be present. Venue/source mappings are one count-prefixed list.
+Each mapping is the tuple
+`(venue identity, source identity, source instrument bytes)`; mappings are strictly increasing by their complete
+canonical tuple bytes and duplicates are invalid.
+
+The only scope discriminants are `0x0001 EXACT_INSTRUMENT`, followed by one canonical instrument identity string,
+and `0x0002 UNIVERSE_SELECTION_RECORD`, followed by one 32-byte Universe Selection Record identity. Within
+`InstrumentMasterCutV1`, fields occur exactly in this order: `codec_version:u16`, consumer role, request identity,
+the exact UTF-8 string `MARKET_DATA_AS_OF`, request-meaning digest, scope discriminant and its defined payload,
+the exact expected canonical member identities, effective instant, Owner-observation time, decision cut, clock
+identity, clock epoch, clock sequence, clock-head identity, clock-head digest, clock-head wall observation,
+exclusive `valid-through`, restart-continuity digest, uncertainty bound, skew bound, optional Epoch Successor Proof
+identity, optional Epoch Successor Proof digest, the exact UTF-8 string
+`SAME_CLOCK_EPOCH_SEQUENCE_AND_CUT_V1`, ordered resolutions, lifecycle frontier, corporate-action frontier,
+historical-membership frontier, Market Semantics identity, source frontier, correction frontier, and ordered gaps.
+Expected members, resolutions and gaps are separate count-prefixed lists. Expected members are canonical identity
+strings strictly increasing by their exact bytes. For `EXACT_INSTRUMENT(A)`, that list is exactly `[A]`. For a
+Universe Selection Record, it must be byte-equal to the complete canonical membership set obtained by direct Owner
+resolution of the bound record identity; a caller-carried list or digest cannot establish it. Each resolution is
+`(canonical identity, fact digest)` and is strictly increasing by canonical identity bytes; each gap is
+`(gap-kind:u16, canonical scope bytes)` and is strictly increasing by the complete tuple bytes. The only gap kinds
+are `0x0001 UNKNOWN_IDENTITY`, `0x0002 AMBIGUOUS_IDENTITY`, `0x0003 OVERLAP`,
+`0x0004 STALE`, `0x0005 WRONG_ROLE`, `0x0006 WRONG_CUT`, `0x0007 DIGEST_MISMATCH`, `0x0008 CODEC_MISMATCH`,
+`0x0009 COVERAGE_GAP`, `0x000a STORE_UNAVAILABLE`, `0x000b STORE_UNTRUSTED` and `0x000c FRONTIER_MISMATCH`.
+Canonical scope bytes are the exact scope discriminant followed by its defined payload, wrapped once by the opaque
+byte-string rule. Every other scope or gap discriminant and duplicate resolution or gap is invalid.
+
+The identity and digest of a fact are the same 32-byte result under the fact domain; the identity and digest of a
+cut are the same 32-byte result under the cut domain. Within the receipt-domain record, fields occur exactly in
+this order: `codec_version:u16`, request identity, request-meaning digest, consumer role, a count-prefixed list of
+complete length-prefixed canonical fact record bytes in the cut resolution order, complete length-prefixed canonical cut
+record bytes, store-generation identity, store append sequence, and stable correlation. The receipt identity and
+digest are the same 32-byte result under the receipt domain. The outbox identity is defined to be exactly that
+receipt identity; it is derived after hashing, is not encoded inside the receipt record, and the outbox stores the
+exact receipt bytes.
+
+Within `InstrumentMasterReadbackV1`, fields occur exactly in this order: `codec_version:u16`, request identity,
+request-meaning digest, consumer role, the same count-prefixed list of complete length-prefixed canonical fact record bytes in cut order,
+the same complete length-prefixed canonical cut record bytes, stable correlation, store-generation identity,
+store append sequence, receipt identity and outbox identity. Receipt and outbox identity must be byte-equal. The
+readback identity and digest are the same 32-byte result under the readback domain. This nested encoding is the
+Owner-sealed atomic retrieval result. The expected-member list and ordered resolutions must have exactly the same
+identities, with one resolution per member and no missing or extra entry. Every resolution identity must be
+byte-equal to its nested fact canonical identity and every resolution digest must equal the fact-domain hash of
+those exact nested fact bytes. Consumers verify these equalities and every nested record under its own domain before
+use.
+
+Decoding must consume all bytes, validate every reserved value and canonical order, and re-encoding must reproduce
+byte-for-byte equality before any identity is accepted. JSON, maps or map iteration, locale, display formatting,
+symbol or alias normalization, database row order, and evidence arrival order never define bytes or identity. The
+receipt and readback domains bind their record payloads; the outbox stores the exact receipt identity and canonical
+receipt bytes and does not introduce a fifth identity domain.
+
+### Resolution, failure and recovery
+
+A request resolves positively only through the current Market Data Owner store for `BACKTEST_OWNER_V1`. For each
+requested effective coordinate, Market Data first keeps facts whose half-open effective interval covers that
+coordinate and whose typed `MARKET_DATA_AS_OF` evidence satisfies the exact same-clock/epoch, sequence, decision-cut
+and complete sealed clock-head comparison above. Every predecessor in a correction chain must have the same
+canonical instrument identity as its successor. Corrections may overlap their predecessors only when they form one
+unbroken predecessor chain. Resolution selects the unique maximal
+observable fact in that chain: the eligible fact that is not the predecessor of another eligible fact. No eligible
+fact, more than one maximal fact, a branch, a predecessor cycle, a missing predecessor, or overlap between facts
+outside one chain is a gap or conflict and produces no positive result. A successor first observed after the cut is
+ignored for that cut and can never displace its predecessor retroactively.
+
+A positive `EXACT_INSTRUMENT(A)` cut contains exactly the one expected member A and exactly one resolution for A. A
+positive Universe Selection Record cut contains exactly the complete Owner-resolved membership set bound by that
+record identity and exactly one resolution for every member. In both cases the gap set is empty, every resolution
+identity and digest equals its nested fact identity and bytes, and every nested predecessor chain keeps that same
+canonical identity. Any missing or extra member, empty exact-instrument resolution, membership mismatch, nested
+identity or digest mismatch, or cross-identity predecessor produces no positive cut, receipt or readback.
+
+Unknown or ambiguous identity, any invalid overlap or chain, stale facts or frontiers, wrong consumer role, wrong
+decision cut, fact, cut or digest mismatch, codec/version mismatch, membership or coverage gap, unavailable,
+mismatched, expired or discontinuous clock-head evidence, excess uncertainty or skew, and unavailable or untrusted
+store all produce no positive cut, receipt or readback.
+
+The same request identity with byte-identical meaning joins the durable receipt and may obtain its native sealed
+readback. The same identity with changed meaning is a conflict and creates no state transition. A changed effective
+scope, observation cut, consumer role, frontier or codec meaning requires a successor request identity. Response
+loss never authorizes a second write: recovery is exact receipt lookup and issuance of the corresponding move-only
+`InstrumentMasterReadbackV1` only.
+
+### Required consumption and preservation
+
+PIT snapshot creation, Universe Selection Record evaluation, Strategy input binding and Backtest input admission
+must each resolve Instrument Master facts directly through this Owner contract. Symbol, ticker, alias, latest-row,
+nearest-effective, venue-default and consumer-maintained mapping fallback are forbidden. R&D and Strategy
+compiler artifacts may carry sealed fact/cut projections, but cannot become a mapping authority.
+
+Every Backtest result must preserve the exact consumed `InstrumentMasterFactV1` identities/digests and
+`InstrumentMasterCutV1` identity/digest. A result with only a symbol, alias, latest Instrument Master digest, or a
+different cut is not the result for that admitted input. Runtime, Portfolio, Scanner and Execution adoption remains
+separate future work and cannot weaken the fixed Backtest consumer contract.
+
 ## Strategy input-role binding
 
 For the [StrategyDesignV2 compiler](../architecture/strategy-factory#strategy-design-v2-shared-lifecycle-kernel),
@@ -125,7 +356,10 @@ those remain unavailable pending real Time/Scheduler and Execution Owner contrac
   as `AVAILABLE` with the repaired snapshot, or terminal `UNAVAILABLE` with a bounded decisive source category.
   Strategy Factory cannot import, construct, deserialize, or implement the terminal authority and receives no raw
   store receipt, PIT lineage rows, Source Binding lineage rows, or clock rows.
-- To [Backtest](./backtest/): the exact PIT Market Snapshot and Universe Selection Record for the request-bound PIT scope and snapshot/correction rule; actual consumption must repeat both identities and every frozen execution identity in Run Result.
+- To [Backtest](./backtest/): the exact PIT Market Snapshot and Universe Selection Record for the request-bound PIT
+  scope and snapshot/correction rule. **TARGET:** direct `BACKTEST_OWNER_V1` Instrument Master resolution supplies
+  the sealed fact/cut readback; actual consumption and Run Result must repeat the exact snapshot, selection,
+  Instrument Master fact/cut and every frozen execution identity.
 - To [Scanner](./scanner/): the exact PIT Market Snapshot requested by published activation conditions.
 - To [Runtime](./runtime/): live market streams and instrument updates carrying the same Market Semantics
   Compatibility identity consumed by the generation's Strategy Artifact and historical evidence.
@@ -211,6 +445,9 @@ fact, and retrieval after the cut never backfills an earlier decision.
 - Same-epoch handoff replay joins exact bytes; advancement strictly advances required cuts without changing epoch
   semantics. A new epoch fails closed unless its new head and direct immutable proof commit atomically and both remain
   exactly resolvable by digest.
+- Native Instrument Master resolution for `BACKTEST_OWNER_V1` returns the same fact/cut identities and canonical
+  bytes for the same request identity and meaning; wrong-role, overlap, late-correction, gap, stale, unavailable-store,
+  response-loss and changed-meaning cases all demonstrate the fail-closed and successor-only rules above.
 
 ## Observability and persistence
 

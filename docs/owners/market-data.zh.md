@@ -46,6 +46,230 @@
 - **Instrument Master** - 拥有按生效时间版本化的标的身份 场所映射 合约条款 session time zone
   lifecycle 与 corporate-action 事实，不选择本轮运行标的。
 
+## Instrument Master Owner 契约
+
+### 状态与固定消费者
+
+**CURRENT/PARTIAL：** PIT 与 Strategy Input 路径携带 request 提供的 `instrument_master_digest`，并将其与
+Owner-verified batch 携带的 digest 比对。该 digest 是当前有界路径的 provenance，但不是原生 Instrument
+Master fact、cut、write receipt 或 sealed readback。代表性 Strategy Factory 路径还冻结了一个 data-Owner
+role 字符串以及 AAPL/MSFT fixture。这些硬编码 role 与 mapping 是 implementation target，不是 Instrument
+Master 权威。当前代码或动态验收均未建立下述 TARGET 契约。
+
+**TARGET：** Market Data 是原生 Instrument Master 状态路径的唯一 writer 与 resolver。其固定跨 Owner
+consumer role 是准确 ASCII 身份 `BACKTEST_OWNER_V1`。R&D 声明研究 scope，Strategy compiler 消费
+Owner-sealed resolution，但两者均不得直接查询 Instrument Master storage、维护 symbol-to-instrument 或
+venue mapping，也不得合成 resolution。用直接 Owner resolution 替换当前硬编码 Strategy Factory
+role/mapping 路径是必需的后续实现工作。
+
+**NOT_ADMITTED：** 本契约不准入 Rust 实现、schema migration、provider ingestion、production/default
+database write、Dashboard 工作、动态产品验收或交易。caller-carried digest、看似规范的字符串、静态
+fixture、transport success 或文档检查都不能声称原生 Instrument Master custody。
+
+### 原生不可变记录
+
+`InstrumentMasterFactV1` 是按生效时间版本化的不可变 fact。它包含以下全部字段，consumer 不得替换：
+
+- 规范 instrument identity 与可选的准确 predecessor fact digest；
+- venue 与 source mapping；instrument class；以及适用的 base、quote、settlement 与 margin currency；
+- price increment、quantity increment 与 contract multiplier；每项均编码为 signed `i128` mantissa 加明确
+  decimal scale，不得使用 floating-point representation；
+- trading calendar、session 与 time-zone identity；
+- lifecycle、corporate-action、historical-membership、Market Semantics Compatibility、source 与 correction
+  frontier；
+- 一个半开 effective interval `[effective_from, effective_until)`；upper bound 缺失表示 open，并不表示
+  latest；以及
+- provider-available、retrieval、correction-publication 与 Owner-observation coordinate，并附接纳该
+  observation 使用的准确 clock identity/epoch/sequence、decision cut 与完整 sealed clock-head projection。
+
+`InstrumentMasterFactV1` 与 `InstrumentMasterCutV1` 都声明既有规范 `timeEvidenceCutKind`
+`MARKET_DATA_AS_OF`，不创建新的 Time Evidence kind。每个 fact 与 cut 都绑定接纳它的既有 sealed
+clock-head handoff 的完整 projection：head identity 与 digest、clock identity 与 epoch、monotonic sequence、
+wall observation、decision cut、排他的 `valid-through`、restart-continuity digest、uncertainty 与 skew bound，
+以及 comparison rule。新 epoch 还绑定随该 head 一同解析的唯一 direct immutable Epoch Successor Proof
+identity 与 digest；只有未消费 epoch transition 时 absence 才是规范值。这些字段仍位于 fact 与 cut domain
+内，不创建第五个 identity domain。
+
+fact 内的 provider-available、retrieval、correction-publication 与 Owner-observation coordinate 都绑定其唯一
+准确 sealed head。cut 内的 Owner-observation time 与 decision cut 绑定其唯一准确 sealed head。唯一
+comparison rule 是 `SAME_CLOCK_EPOCH_SEQUENCE_AND_CUT_V1`：cut head 必须是 commit 时从 Owner 直接解析的
+准确 current head，其 identity/digest 与 optional Epoch Successor Proof 必须验证，restart continuity 必须已
+证明，cut Owner-observation time 必须严格早于其排他 `valid-through`，且 uncertainty 与 skew 必须位于获准
+bound 内。只有 fact 与 cut 的 clock identity 和 epoch 逐字节相等、fact monotonic sequence 不大于 cut
+sequence、fact decision cut 不大于请求 decision cut，且 fact 的每个 availability、retrieval、correction 与
+observation coordinate 都不晚于 cut Owner-observation time 时，该 fact 才在 cut 可观察。consumer 不得遍历
+head 或 epoch-proof chain、跳过 predecessor 或跨 epoch 比较 sequence。head 不可用、不匹配、过期或不连续，
+epoch transition 未证明，clock/epoch 混合或未知，uncertainty 或 skew 超限，sequence 或 decision-cut 回退，
+以及 cut 后的 correction 或 observation 都不产生 positive result。effective-time containment 是独立的第二个
+predicate。
+
+effective time 与 observation/decision-cut time 是相互独立的双时间轴。fact 可以早于其可观察时间生效。
+resolution 必须同时证明请求的 effective instant 位于半开 interval 内，且 fact 在绑定 decision cut 已可观察。
+late correction 只能创建以被修正 fact 为 predecessor 的不可变 successor；它不得改写 predecessor，也不得
+让 correction 在更早 cut 可用。
+
+`InstrumentMasterCutV1` 是面向 `BACKTEST_OWNER_V1` 的 content-addressed 不可变 resolution cut。它绑定
+consumer role、请求的 instrument 或 Universe Selection Record scope、effective instant、
+observation/decision cut、完整 sealed clock-head projection、准确 expected canonical member set、按契约排序的
+已解析 canonical identity 与 `InstrumentMasterFactV1` digest、全部必需 frontier identity，以及明确完整的 gap
+set。任何带 gap 或 conflict 的 cut 都不是 positive。
+
+每次获准 resolution 都在 Market Data write authority 下原子 append 一份 write-once receipt 及其 outbox
+entry。receipt 绑定 request identity 与 meaning、`BACKTEST_OWNER_V1`、fact 与 cut digest、canonical bytes、
+store commit coordinate、stable correlation 和 outbox identity。receipt 与 outbox entry 均不得 update、
+replace、通过重排获得另一 identity，也不得在 durable commit 前被视为 positive。
+
+`InstrumentMasterReadbackV1` 是 move-only 且由 Market Data 密封的记录。它携带 consumer 所需的完整准确
+canonical `InstrumentMasterFactV1` record bytes 与 `InstrumentMasterCutV1` record bytes，并重复准确 request
+identity 与 meaning、consumer role、派生的 fact 与 cut identity/digest、stable correlation 与 durable
+receipt/outbox coordinate。普通 consumer 不能 construct、clone、deserialize、implement 或 mint 它。
+response loss 后只能通过它恢复；transport acknowledgement、retry success、digest-only existence proof 或
+caller 复制的旧字段都不是 readback。
+
+### 规范身份与 codec
+
+原生记录统一使用 domain-separated canonical binary codec 与 BLAKE3-256。准确四个 ASCII domain 为：
+
+1. `VIBE_INSTRUMENT_MASTER_FACT_V1`
+1. `VIBE_INSTRUMENT_MASTER_CUT_V1`
+1. `VIBE_INSTRUMENT_MASTER_RECEIPT_V1`
+1. `VIBE_INSTRUMENT_MASTER_READBACK_V1`
+
+每个 identity 都是
+`BLAKE3-256(domain_utf8 || 0x00 || canonical_record_bytes)`；其中 `domain_utf8` 准确等于上述四个字符串
+之一，其内部不加 length 或 terminator。record codec 只有以下一种 wire grammar：
+
+- `codec_version` 准确为 `0x0001`；unsigned integer 按字段指定的宽度编码为 big-endian `u8`、`u16`、
+  `u32` 或 `u64`；signed decimal
+  mantissa 与 time coordinate 编码为 two's-complement big-endian `i128`；decimal scale 为 `u8`；
+- 每个 content identity、digest、request identity、correlation、clock identity、store-generation identity、
+  clock epoch 与 frontier 准确为 32 bytes；每个 enum discriminant 为 `u16`；optional absence/presence
+  准确为 `0x00`/`0x01`，只有 present 时才后接 value；其他值均无效；
+- UTF-8 或 opaque byte string 是 big-endian `u32` byte length 后接准确 bytes；list 是 big-endian `u32`
+  element count 后接各 element；以及
+- time coordinate 是 signed `i128` Unix-epoch nanoseconds。clock sequence 与 decision cut 都是 `u64`；
+  store append sequence 也是 `u64`。Uncertainty 与 skew bound 是非负 `u64` nanoseconds。interval 比较
+  decoded time coordinate，不按 signed representation 的 bytes 排序。
+
+price increment、quantity increment 与 contract multiplier 的准确数值是
+`mantissa * 10^(-scale)`。mantissa 必须大于零，scale 必须位于 `0..=38`。唯一 canonical normal form 要求
+`scale == 0` 或 `mantissa % 10 != 0`；因此多余的小数尾零无效。zero、negative value、超过 38 的 scale 与
+non-minimal scale 都必须在 canonical bytes 进入 hash 前拒绝。
+
+instrument-class discriminant 只能是 `0x0001 EQUITY`、`0x0002 FUTURE`、`0x0003 OPTION`、`0x0004 FX_PAIR`、
+`0x0005 CRYPTO_SPOT`、`0x0006 CRYPTO_PERPETUAL`、`0x0007 FIXED_INCOME`、`0x0008 FUND`、`0x0009 INDEX`、
+`0x000a COMMODITY`、`0x000b BETTING` 或 `0x000c SYNTHETIC`；其他值均 unsupported，不产生 positive
+record。canonical instrument identity、venue identity、source identity、source instrument、currency、calendar
+identity、session identity、time-zone identity 与 consumer role 都是按上述 string rule
+编码的准确 case-sensitive UTF-8 byte string，不做 normalization。consumer role bytes 必须准确等于 ASCII
+`BACKTEST_OWNER_V1`。currency bytes 是 Market Data 拥有的 currency semantic identity，不是 consumer 解析的
+display code。
+
+`InstrumentMasterFactV1` 的 field order 准确为：`codec_version:u16`、准确 UTF-8 string
+`MARKET_DATA_AS_OF`、canonical identity、optional predecessor fact digest、venue/source mapping、
+instrument-class discriminant、依次为 optional base、quote、
+settlement 与 margin currency、price-increment mantissa/scale、quantity-increment mantissa/scale、
+contract-multiplier mantissa/scale、calendar identity、session identity、time-zone identity、lifecycle
+frontier、corporate-action frontier、historical-membership frontier、Market Semantics identity、source
+frontier、correction frontier、effective-from time、optional effective-until time、provider-available time、
+retrieval time、correction-publication time、Owner-observation time、clock identity、clock epoch、clock
+sequence、decision cut、clock-head identity、clock-head digest、clock-head wall observation、排他的
+`valid-through`、restart-continuity digest、uncertainty bound、skew bound、optional Epoch Successor Proof
+identity、optional Epoch Successor Proof digest，以及准确 UTF-8 string
+`SAME_CLOCK_EPOCH_SEQUENCE_AND_CUT_V1`。两个 optional proof field 必须同时 absent 或同时 present。
+venue/source mapping 是一个 count-prefixed list。每项 mapping 是 tuple
+`(venue identity, source identity, source instrument bytes)`；mapping 必须按完整 canonical tuple bytes 严格递增，
+duplicate 无效。
+
+scope discriminant 只能是 `0x0001 EXACT_INSTRUMENT` 后接一个 canonical instrument identity string，或
+`0x0002 UNIVERSE_SELECTION_RECORD` 后接一个 32-byte Universe Selection Record identity。
+`InstrumentMasterCutV1` 的 field order 准确为：`codec_version:u16`、consumer role、request identity、
+准确 UTF-8 string `MARKET_DATA_AS_OF`、request-meaning digest、scope discriminant 与其规定 payload、
+准确 expected canonical member identity、effective instant、Owner-observation time、decision cut、clock
+identity、clock epoch、clock sequence、clock-head identity、clock-head digest、clock-head wall observation、
+排他的 `valid-through`、restart-continuity digest、uncertainty bound、skew bound、optional Epoch Successor Proof
+identity、optional Epoch Successor Proof digest、准确 UTF-8 string
+`SAME_CLOCK_EPOCH_SEQUENCE_AND_CUT_V1`、ordered resolution、lifecycle frontier、corporate-action frontier、
+historical-membership frontier、Market Semantics identity、source frontier、correction frontier 与 ordered gap。
+expected member、resolution 与 gap 是三个独立 count-prefixed list。expected member 是按准确 bytes 严格递增
+的 canonical identity string。对于 `EXACT_INSTRUMENT(A)`，该 list 准确等于 `[A]`。对于 Universe Selection
+Record，它必须逐字节等于通过绑定 record identity 直接从 Owner 解析的完整 canonical membership set；
+caller-carried list 或 digest 不能建立该集合。每项 resolution 是
+`(canonical identity, fact digest)`，并按 canonical identity bytes 严格递增；每项 gap 是
+`(gap-kind:u16, canonical scope bytes)`，并按完整 tuple bytes 严格递增。duplicate resolution 或
+gap 无效。gap kind 只能是 `0x0001 UNKNOWN_IDENTITY`、`0x0002 AMBIGUOUS_IDENTITY`、`0x0003 OVERLAP`、
+`0x0004 STALE`、`0x0005 WRONG_ROLE`、`0x0006 WRONG_CUT`、`0x0007 DIGEST_MISMATCH`、
+`0x0008 CODEC_MISMATCH`、`0x0009 COVERAGE_GAP`、`0x000a STORE_UNAVAILABLE`、
+`0x000b STORE_UNTRUSTED` 或 `0x000c FRONTIER_MISMATCH`。其他 scope 或 gap discriminant 以及 duplicate
+resolution 或 gap 均无效。canonical scope bytes 是准确 scope discriminant 后接其规定 payload，再按 opaque
+byte-string rule 包裹一次。
+
+fact identity 与 digest 都是 fact domain 下同一份 32-byte result；cut identity 与 digest 都是 cut domain 下
+同一份 32-byte result。receipt-domain record 的 field order 准确为：`codec_version:u16`、request identity、
+request-meaning digest、consumer role、按 cut resolution order 排列的完整 length-prefixed canonical fact
+record bytes 的 count-prefixed list、完整 length-prefixed canonical cut record bytes、store-generation identity、store append
+sequence 与 stable correlation。receipt identity 与 digest 都是 receipt domain 下同一份 32-byte result。
+outbox identity 定义为与该 receipt identity 完全相同；它在 hash 后派生，不编码进 receipt record，且 outbox
+保存准确 receipt bytes。
+
+`InstrumentMasterReadbackV1` 的 field order 准确为：`codec_version:u16`、request identity、request-meaning
+digest、consumer role、按 cut order 排列的同一个完整 length-prefixed canonical fact record bytes 的
+count-prefixed list、同一份完整
+length-prefixed canonical cut record bytes、stable correlation、store-generation identity、store append
+sequence、receipt identity 与 outbox identity。receipt 与 outbox identity 必须逐字节相等。readback identity
+与 digest 都是 readback domain 下同一份 32-byte result。该 nested encoding 是 Owner-sealed atomic retrieval
+result。expected-member list 与 ordered resolution 必须具有完全相同的 identity，每个 member 准确对应一个
+resolution，不得缺失或额外存在。每个 resolution identity 必须逐字节等于 nested fact 的 canonical identity，
+且每个 resolution digest 必须等于这些准确 nested fact bytes 的 fact-domain hash。consumer 使用前必须验证
+这些等式，并按每个 nested record 自己的 domain 验证。
+
+decode 必须消费全部 bytes、校验每个 reserved value 与 canonical order；任何 identity 获准前，重新 encode
+必须与原 bytes 逐字节相等。JSON、map 或 map iteration、locale、display formatting、symbol 或 alias
+normalization、database row order 与 evidence arrival order 都不能定义 bytes 或 identity。receipt 与
+readback domain 绑定各自 record payload；outbox 保存准确 receipt identity 与 canonical receipt bytes，
+不引入第五个 identity domain。
+
+### 解析、失败与恢复
+
+request 只有通过面向 `BACKTEST_OWNER_V1` 的当前 Market Data Owner store 才能 positive resolution。对每个
+请求 effective coordinate，Market Data 先保留 half-open effective interval 覆盖该 coordinate，且类型化
+`MARKET_DATA_AS_OF` evidence 满足上述准确 same-clock/epoch、sequence、decision-cut 与 Owner-observation
+以及完整 sealed clock-head 比较的 fact。correction chain 中每个 predecessor 的 canonical instrument identity
+必须与 successor 相同。correction 只有在形成一条完整 predecessor chain 时才可与其 predecessor overlap。
+resolution 选择该 chain 中唯一 maximal observable fact，即不再是另一 eligible fact 的
+predecessor 的 eligible fact。无 eligible fact、存在多个 maximal fact、branch、predecessor cycle、缺失
+predecessor，或不属于同一 chain 的 fact overlap 都是 gap 或 conflict，不产生 positive result。在 cut 后才
+观察到的 successor 对该 cut 必须忽略，且绝不能追溯替换 predecessor。
+
+positive `EXACT_INSTRUMENT(A)` cut 准确包含唯一 expected member A 与唯一一项 A 的 resolution。positive
+Universe Selection Record cut 准确包含该 record identity 绑定的完整 Owner-resolved membership set，并为每个
+member 准确包含一项 resolution。两种情形的 gap set 都为空，每个 resolution identity 与 digest 都等于其
+nested fact 的 identity 与 bytes，且每条 nested predecessor chain 都保持同一 canonical identity。member
+缺失或额外存在、exact-instrument resolution 为空、membership mismatch、nested identity 或 digest mismatch，
+或跨 identity predecessor 都不产生 positive cut、receipt 或 readback。
+
+未知或含糊 identity、任何无效 overlap 或 chain、过期 fact 或 frontier、错误 consumer role、错误 decision
+cut、fact/cut/digest mismatch、codec/version mismatch、membership 或 coverage gap、clock-head evidence
+不可用、不匹配、过期或不连续、uncertainty 或 skew 超限，以及 store unavailable 或 untrusted 都不产生
+positive cut、receipt 或 readback。
+
+相同 request identity 加逐字节相同 meaning 会 join durable receipt，并可取得其原生 sealed readback。相同
+identity 但 meaning 改变属于 conflict，不创建状态转换。effective scope、observation cut、consumer role、
+frontier 或 codec meaning 任一改变都要求 successor request identity。response loss 不授权第二次 write：
+恢复只能准确查找 receipt 并签发对应的 move-only `InstrumentMasterReadbackV1`。
+
+### 必需消费与保留
+
+PIT snapshot 创建、Universe Selection Record 求值、Strategy input binding 与 Backtest input admission 都必须
+通过本 Owner 契约直接解析 Instrument Master fact。禁止 symbol、ticker、alias、latest-row、
+nearest-effective、venue-default 或 consumer-maintained mapping fallback。R&D 与 Strategy compiler artifact
+可以携带 sealed fact/cut projection，但不能成为 mapping authority。
+
+每个 Backtest result 必须保留实际消费的准确 `InstrumentMasterFactV1` identity/digest 与
+`InstrumentMasterCutV1` identity/digest。只携带 symbol、alias、latest Instrument Master digest 或另一 cut
+的 result 不是该 admitted input 的 result。Runtime、Portfolio、Scanner 与 Execution adoption 属于独立后续
+工作，不得弱化固定 Backtest consumer 契约。
+
 ## 策略 input-role binding
 
 对于 [StrategyDesignV2 compiler](../architecture/strategy-factory#strategy-design-v2-shared-lifecycle-kernel)，
@@ -113,7 +337,10 @@ trigger；在真实 Time/Scheduler 与 Execution Owner contract 分别存在前�
   有界决定性来源类别的终态 `UNAVAILABLE`。
   Strategy Factory 不能 import、construct、deserialize 或 implement terminal authority，也得不到 raw store
   receipt、PIT lineage row、Source Binding lineage row 或 clock row。
-- 向 [Backtest](./backtest/) 提供绑定请求 PIT 范围和快照修订规则的准确 PIT Market Snapshot 与 Universe Selection Record，Run Result 必须重复两者身份和每个冻结执行身份。
+- 向 [Backtest](./backtest/) 提供绑定请求 PIT 范围和 snapshot/correction rule 的准确 PIT Market Snapshot
+  与 Universe Selection Record。**TARGET：** 直接 `BACKTEST_OWNER_V1` Instrument Master resolution 提供
+  sealed fact/cut readback；实际消费与 Run Result 必须重复准确 snapshot、selection、Instrument Master
+  fact/cut 以及每个冻结 execution identity。
 - 向 [Scanner](./scanner/) 提供已发布激活条件请求的准确 PIT Market Snapshot。
 - 向 [Runtime](./runtime/) 提供携带同一 Market Semantics Compatibility 身份的实时行情流和标的更新；
   generation 的 Strategy Artifact 与历史证据必须消费该身份。
@@ -194,6 +421,9 @@ rights evidence，绝不能跨 Owner 复制该终态。
 - Qualification 冻结保护请求后，重放不能替换 PIT 范围 Universe Selection Record 身份或摘要 快照规则 修订前沿或快照身份。
 - 同 epoch handoff replay 合并准确 bytes；前进必须严格推进必需 cut 且不改变 epoch 语义。新 epoch 的新 head
   与 direct immutable proof 若未原子提交并可按 digest 准确回读，必须失败关闭。
+- 面向 `BACKTEST_OWNER_V1` 的原生 Instrument Master resolution 对相同 request identity 与 meaning 返回相同
+  fact/cut identity 和 canonical bytes；wrong-role、overlap、late-correction、gap、stale、unavailable-store、
+  response-loss 与 changed-meaning case 都证明上述 fail-closed 与 successor-only rule。
 
 ## 可观测性与持久化
 
