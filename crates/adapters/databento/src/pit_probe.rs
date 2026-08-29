@@ -1286,9 +1286,10 @@ mod tests {
 
     fn encode<R: dbn::encode::DbnEncodable>(metadata: &Metadata, record: &R) -> Vec<u8> {
         let mut bytes = Vec::new();
-        let mut encoder = DbnEncoder::new(&mut bytes, metadata).unwrap();
-        encoder.encode_record(record).unwrap();
-        drop(encoder);
+        {
+            let mut encoder = DbnEncoder::new(&mut bytes, metadata).unwrap();
+            encoder.encode_record(record).unwrap();
+        }
         bytes
     }
 
