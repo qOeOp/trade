@@ -40,6 +40,10 @@ use crate::{
     strategy_plan_v2::StrategyPlanV2,
 };
 
+pub use crate::program_host_v2_backtest_tests::{
+    StatefulBacktestNativeReplayEvidenceV2, run_stateful_backtest_native_replay_v2,
+};
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub(crate) struct BacktestHostTransitionV2 {
     pub(crate) lifecycle: String,
