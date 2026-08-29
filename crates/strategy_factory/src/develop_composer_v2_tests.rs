@@ -23,14 +23,20 @@ use super::{
     },
 };
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "aarch64")
+))]
 use super::develop_plugin_build_v2::{
     DevelopPluginBuildProducerV2, DevelopPluginBuildResultV2, UntrustedDevelopPluginCapsuleV2,
     UntrustedDevelopPluginSourceFileV2, VerifiedDevelopPluginBuildReadV2, bounded_source,
 };
 
 #[rstest]
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "aarch64")
+))]
 fn real_local_plugin_builder_supplies_composer_and_program_host() {
     let (mut proposal, mut evidence) = fixture();
     let manifest = proposal.design.plugins[0].clone();
@@ -43,7 +49,10 @@ fn real_local_plugin_builder_supplies_composer_and_program_host() {
         .expect("the real locally built module reaches the sole Composer and ProgramHostV2 path");
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "aarch64")
+))]
 fn real_plugin_build(manifest: &PluginManifestV2) -> VerifiedDevelopPluginBuildReadV2 {
     let capsule = UntrustedDevelopPluginCapsuleV2 {
         schema_version: 2,
