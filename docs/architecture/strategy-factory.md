@@ -33,12 +33,19 @@ The maturity boundary is explicit:
   one combination checkpoint only after exact-set validation succeeds. A non-default, zero-argument sealed
   acceptance corpus exercises the real Market Data Owner issuance path, exact Plan compilation, one guest call,
   member-causal targets, atomic malformed-output rejection, replay, and restore. This is bounded crate-local
-  acceptance evidence only. The local bounded-plugin producer currently admits only its exact, fail-closed macOS
-  arm64 host profile. Linux arm64 is TARGET and pin-ready but runtime unavailable: its BuildKit and normalized
-  sysroot digests are pin-generation evidence rather than image, deployment, or runtime sysroot-content proof. It
-  requires a future pure-Rust canonical sysroot verifier with pre/post-build rereads before becoming CURRENT. There
-  is no kernel network confinement, durable/deployed/Windmill readiness, Paper, Live, deployed-runtime, or
-  production maturity. The bounded Backtest target-set slice below is the only current member fill-routing,
+  acceptance evidence only. The local bounded-plugin producer admits exact, fail-closed macOS arm64 and Linux ARM64
+  host profiles. Linux ARM64 is **CURRENT/PARTIAL** only at a main-bound hosted native A0 evidence boundary: exact
+  workflow [`strategy-factory-linux-a0`](https://github.com/qOeOp/trade/blob/9e5149d4293a800be3a35e6b747a9f3dba304e1f/.github/workflows/strategy-factory-linux-a0.yml),
+  `workflow_dispatch` [run 33250411708](https://github.com/qOeOp/trade/actions/runs/33250411708) at head
+  `9e5149d4293a800be3a35e6b747a9f3dba304e1f`, and job
+  [`strategy factory A0 native gate (linux arm64)`](https://github.com/qOeOp/trade/actions/runs/33250411708/job/99095016988)
+  succeeded on GitHub-hosted `ubuntu-22.04-arm`, bound as `github-hosted/Linux/ARM64/aarch64`. That gate verifies
+  immutable CI inputs, exact Rust 1.97.1 Cargo/rustc commits and host, the sole `wasm32v1-none` target, the pure-Rust
+  canonical sysroot digest, deterministic double build/exact replay, and delivery of the real build into the sole
+  Composer and `ProgramHostV2` consumer path. The builder rereads its exact tools and canonical target sysroot before
+  and after each build. This hosted job success is not an R&D Owner business receipt. There is no kernel network
+  confinement, durable/deployed/Windmill readiness, Paper, Live, deployed-runtime, or production maturity. The
+  bounded Backtest target-set slice below is the only current member fill-routing,
   account/equity, and price-conversion evidence.
   ComplexStrategy V1 supplies the migration/equivalence baseline. R&D can also freeze a fully bound,
   Owner-sealed PIT pre-Artifact Develop
