@@ -1102,11 +1102,17 @@ async fn run_postgres_owner_scenario() {
         .await
         .unwrap();
     assert_eq!(correction_replay, correction);
+    let before_replaced_terminal = owner_counts(restarted.pool()).await;
+    let replaced_terminal = reader
+        .resolve_research_pit_terminal(&research_terminal_request(&source, &pit))
+        .await;
     assert_eq!(
-        reader
-            .resolve_research_pit_terminal(&research_terminal_request(&source, &pit))
-            .await,
+        replaced_terminal,
         Err(PitSnapshotError::CorrectionHeadMismatch),
+    );
+    assert_eq!(
+        owner_counts(restarted.pool()).await,
+        before_replaced_terminal
     );
     drop(reader);
     drop(restarted);
