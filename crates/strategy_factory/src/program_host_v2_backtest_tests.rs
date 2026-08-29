@@ -52,11 +52,22 @@ use super::{
     },
 };
 
+#[cfg(test)]
+use super::strategy_plan_v2::{
+    VerifiedStrategyInputBindingsV2, verified_strategy_input_bindings_for_test,
+};
+
 const INPUT_PTR: i32 = 1_024;
 const OUTPUT_PTR: i32 = 8_192;
 const STATIC_PTR: i32 = 16_384;
 const PLUGIN_ID: &str = "research.plugin.stateful-trend.v1";
 const STATE_POST: &str = "plugin.state.post.v1";
+type BacktestFixtureParts = (
+    StrategyPlanV2,
+    StrategyArtifactV2,
+    StrategyDesignV2,
+    Vec<(InputRoleV2, BindingDigest)>,
+);
 const OUTPUT_PORTS: &[(&str, ValueTypeV2)] = &[
     ("proposal.position-intent.v1", ValueTypeV2::PositionIntentV1),
     ("proposal.target-variant.v1", ValueTypeV2::TargetVariantV1),
@@ -1242,7 +1253,36 @@ fn book_level(
 }
 
 fn fixture(instrument_id: InstrumentId) -> anyhow::Result<(StrategyPlanV2, StrategyArtifactV2)> {
+    let (plan, artifact, _, _) = fixture_parts(instrument_id, None)?;
+    Ok((plan, artifact))
+}
+
+#[cfg(test)]
+pub(crate) fn preparation_fixture(
+    instrument_id: InstrumentId,
+    meaning: u8,
+) -> anyhow::Result<(
+    StrategyPlanV2,
+    StrategyArtifactV2,
+    VerifiedStrategyInputBindingsV2,
+)> {
+    let (plan, artifact, design, owner_bindings) = fixture_parts(instrument_id, Some(meaning))?;
+    let verified_bindings = verified_strategy_input_bindings_for_test(&design, owner_bindings);
+    Ok((plan, artifact, verified_bindings))
+}
+
+fn fixture_parts(
+    instrument_id: InstrumentId,
+    meaning: Option<u8>,
+) -> anyhow::Result<BacktestFixtureParts> {
     let mut design = stateful_backtest_design();
+
+    if let Some(meaning) = meaning {
+        design.research_request_identity = BindingDigest::from_untrusted_bytes([meaning; 32]);
+        design.intent_identity = BindingDigest::from_untrusted_bytes([meaning.wrapping_add(1); 32]);
+        design.intent_digest = BindingDigest::from_untrusted_bytes([meaning.wrapping_add(2); 32]);
+    }
+
     for input in &mut design.inputs {
         input.instrument = instrument_id.to_string();
         input.timeframe = "1-MINUTE".to_owned();
@@ -1275,10 +1315,11 @@ fn fixture(instrument_id: InstrumentId) -> anyhow::Result<(StrategyPlanV2, Strat
             .map(|id| (id.clone(), 1))
             .collect(),
     );
+    let owner_bindings = bindings(&design);
     let StrategyCompilationV2::Compiled(plan) =
         compile_with_binding_and_implementation_receipts_for_test(
             design.clone(),
-            bindings(&design),
+            owner_bindings.clone(),
             vec![receipt],
         )
     else {
@@ -1286,7 +1327,7 @@ fn fixture(instrument_id: InstrumentId) -> anyhow::Result<(StrategyPlanV2, Strat
     };
     let artifact = StrategyArtifactV2::issue(&plan, vec![build])
         .map_err(|error: StrategyArtifactV2Error| anyhow::anyhow!(error))?;
-    Ok((*plan, artifact))
+    Ok((*plan, artifact, design, owner_bindings))
 }
 
 pub(crate) fn stateful_plugin_module(manifest: &PluginManifestV2) -> anyhow::Result<Vec<u8>> {
