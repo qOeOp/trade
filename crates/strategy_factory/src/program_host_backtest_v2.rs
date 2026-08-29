@@ -189,9 +189,8 @@ impl BacktestProgramHostStrategyV2 {
             .remove(&now)
             .context("missing Owner-admitted Backtest V2 BAR frame")?;
         anyhow::ensure!(
-            event.fixed_i128_input("research.input.open.v1") == Some(raw_to_i128(bar.open.raw))
-                && event.fixed_i128_input("research.input.close.v1")
-                    == Some(raw_to_i128(bar.close.raw)),
+            self.owner_price_input_matches(&event, "research.input.open.v1", bar.open)
+                && self.owner_price_input_matches(&event, "research.input.close.v1", bar.close),
             "Owner-admitted Backtest V2 BAR values do not match replay data"
         );
         let trace = self.apply_host_event(&event)?;
@@ -199,6 +198,32 @@ impl BacktestProgramHostStrategyV2 {
         self.apply_position_transition(trace, bar.close)?;
         self.drain_native_fills(now)?;
         Ok(())
+    }
+
+    fn owner_price_input_matches(
+        &self,
+        event: &AdmittedProgramEventV2,
+        role_id: &str,
+        price: Price,
+    ) -> bool {
+        let Some(value) = event.fixed_i128_input(role_id) else {
+            return false;
+        };
+
+        if !event.is_joined_input() {
+            return value == raw_to_i128(price.raw);
+        }
+        let Some(role) = self
+            .plan
+            .input_roles()
+            .iter()
+            .find(|role| role.semantic_id == role_id)
+        else {
+            return false;
+        };
+        let mut decimal = price.as_decimal();
+        decimal.rescale(u32::from(role.scale));
+        decimal.mantissa() == value
     }
 
     fn on_order_event_checked(&mut self, event: &OrderEventAny) -> anyhow::Result<()> {

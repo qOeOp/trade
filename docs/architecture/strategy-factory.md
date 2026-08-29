@@ -57,6 +57,16 @@ The maturity boundary is explicit:
   partial/full order fills, cache/position transitions, `ENTER -> ADD -> REDUCE -> EXIT`, protection
   replace/adjust/clear, uninterrupted/checkpoint-restored suffix equality, and repeat-run equality. This is an
   isolated dynamic Backtest proof only, not Paper, Live, production Owner readiness, or trading authority.
+- **CURRENT/PARTIAL, isolated multi-leg/multi-timeframe input join:** the third immutable corpus binds four exact
+  Research-declared roles (two AAPL 1-minute fields, one MSFT 1-hour field and one QQQ 1-day field) to their
+  compile-time-sealed Market Data Owner receipts. The generic `ProgramHostV2` and shared kernel consume the
+  complete joined frame through the ordinary typed plugin path, preserve regime state, and emit one atomic target
+  intent per trigger. The real `BacktestEngine`/Sim Exchange consumer proves deterministic joined ordering,
+  `ENTER -> ADD -> REDUCE`, native submissions/fills, repeat equality and checkpoint/restore suffix equality.
+  Missing, stale, future, mismatched, cross-Design/role or conflicting-lineage input is rejected before guest,
+  plugin-state, lifecycle-state, target or checkpoint mutation. This is a parallel complex-strategy substrate and
+  isolated Backtest acceptance only; it is not the default R&D path, product readiness, Paper, Live, production
+  Owner readiness or trading authority.
 - **CURRENT/DYNAMIC, bounded exactly-two-member Backtest target-set vertical:** one complete Owner-sealed
   universe frame is prepared on a cloned `ProgramHostV2`, produces one canonical target set and one plugin
   invocation, and is committed only after one account-scoped `Portfolio::equity` snapshot, both exact instrument
@@ -109,6 +119,21 @@ The compiler has one fail-closed pipeline:
    string mapping, aliases, naming similarity or arrival order.
 1. **Lowering** produces one canonical `StrategyPlanV2` and one content-addressed `StrategyArtifactV2` package for
    `ProgramHostV2`. The same inputs must produce byte-identical plan, Artifact and binding digests.
+
+`InputJoinV2` version 1 has one admitted alignment semantic,
+`strategy.input-join.latest-not-after-trigger.v1`. Research must declare a non-empty unique join ID, at least two
+unique raw typed input-role IDs, one explicit trigger role from that exact set, and a positive finite
+`max_staleness_ns` no greater than 31 days. Join-to-join edges (including cycles), duplicate/unknown roles, a role
+shared by two joins, and incompatible fact class, scope, value type, unit or scale are `UNSUPPORTED`. Every joined
+role is an exact-instrument Market Data Owner role with its own explicit instrument and timeframe; a reaction
+consumes either the complete canonical role set or none of it. At admission, the trigger fixes the joined event
+lifecycle and logical time. Every component must have the same lifecycle, be no later than the trigger, and have
+`trigger_time - component_time <= max_staleness_ns`. The Host reconstructs and verifies every Owner-sealed
+single-role envelope, then orders components by the canonical lifecycle order key and role identity; caller order
+has no authority. Missing, duplicate, stale, future, receipt/role/Plan mismatch, cross-lineage version regression,
+same-root conflicting versions, or conflicting component/event identity fails before scratch execution or any
+guest, state, target or checkpoint mutation. The join is canonical Plan data consumed by the one generic Host and
+shared lifecycle kernel; it introduces no feature opcode, second interpreter, heuristic binding or raw-order path.
 
 `StrategyArtifactV2` is one package containing the canonical `StrategyPlanV2` bytes and exactly one independently
 built Wasm module for each plugin declared by that Plan. Modules cannot be shared between plugin declarations.

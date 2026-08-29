@@ -45,6 +45,8 @@ use super::source_binding::{
 };
 
 #[cfg(feature = "sealed-strategy-input-acceptance")]
+pub mod joined_input_sealed_acceptance;
+#[cfg(feature = "sealed-strategy-input-acceptance")]
 pub mod sealed_acceptance;
 
 macro_rules! untrusted_time_coordinate {

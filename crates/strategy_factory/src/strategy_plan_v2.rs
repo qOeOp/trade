@@ -24,6 +24,7 @@ const MAX_PLUGIN_PORT_BYTES: u32 = 65_536;
 const MAX_PLUGIN_MEMORY_BYTES: u32 = 16 * 1024 * 1024;
 const MAX_PLUGIN_FUEL: u64 = 10_000_000;
 const MAX_PLUGIN_INVOCATIONS: u16 = 32;
+const MAX_INPUT_JOIN_STALENESS_NS: u64 = 31 * 24 * 60 * 60 * 1_000_000_000;
 const PLUGIN_ABI_V2: u16 = 2;
 const PLUGIN_FAILURE_V1: &str = "strategy.plugin.failure.unsupported.v1";
 const PLUGIN_EXPORT_V2: &str = "strategy.plugin.compute.v2";
@@ -545,6 +546,10 @@ impl StrategyPlanV2 {
 
     pub fn input_roles(&self) -> &[InputRoleV2] {
         &self.canonical_design.inputs
+    }
+
+    pub(crate) fn input_joins(&self) -> &[InputJoinV2] {
+        &self.canonical_design.joins
     }
 
     pub(crate) fn universe_selection(&self) -> Option<&UniverseSelectionProjectionV2> {
@@ -1088,6 +1093,7 @@ fn read_exact<'a>(bytes: &'a [u8], cursor: &mut usize, length: usize) -> Result<
 
 #[allow(dead_code)] // Consumed by the admitted Artifact/Host successor module.
 pub(crate) struct StrategyPlanExecutionViewV2<'a> {
+    pub(crate) joins: &'a [InputJoinV2],
     pub(crate) parameters: &'a [ParameterV2],
     pub(crate) initial_state: &'a [StateCellV2],
     pub(crate) reactions: &'a [ReactionGraphV2],
@@ -1101,6 +1107,7 @@ impl StrategyPlanV2 {
     #[allow(dead_code)] // Consumed by the admitted Artifact/Host successor module.
     pub(crate) fn execution_view(&self) -> StrategyPlanExecutionViewV2<'_> {
         StrategyPlanExecutionViewV2 {
+            joins: &self.canonical_design.joins,
             parameters: &self.canonical_design.parameters,
             initial_state: &self.canonical_design.state,
             reactions: &self.canonical_design.reactions,
@@ -1637,11 +1644,77 @@ fn validate_declarations(design: &StrategyDesignV2) -> Result<(), StrategyCompil
 }
 
 fn validate_joins(design: &StrategyDesignV2) -> Result<(), StrategyCompilationV2> {
-    if !design.joins.is_empty() {
-        return Err(unsupported(
-            "joins",
-            "StrategyDesignV2 joins are not lowered by this compiler profile",
-        ));
+    let inputs = design
+        .inputs
+        .iter()
+        .map(|input| (input.semantic_id.as_str(), input))
+        .collect::<BTreeMap<_, _>>();
+    let join_ids = design
+        .joins
+        .iter()
+        .map(|join| join.semantic_id.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut joined_roles = BTreeSet::new();
+
+    for join in &design.joins {
+        if join.semantic_id.is_empty()
+            || join.inputs.len() < 2
+            || join.alignment_semantic_id != INPUT_JOIN_LATEST_NOT_AFTER_TRIGGER_V1
+            || join.trigger_input_id.is_empty()
+            || join.max_staleness_ns == 0
+            || join.max_staleness_ns > MAX_INPUT_JOIN_STALENESS_NS
+            || join.inputs.windows(2).any(|pair| pair[0] == pair[1])
+            || !join
+                .inputs
+                .iter()
+                .any(|input| input == &join.trigger_input_id)
+        {
+            return Err(unsupported(
+                &format!("joins.{}", join.semantic_id),
+                "join identity, exact input set, trigger, alignment, or finite staleness bound is invalid",
+            ));
+        }
+
+        let roles = join
+            .inputs
+            .iter()
+            .map(|input_id| {
+                if join_ids.contains(input_id.as_str()) {
+                    return Err(unsupported(
+                        &format!("joins.{}.inputs", join.semantic_id),
+                        "join inputs must be raw typed roles; join-to-join edges and cycles are forbidden",
+                    ));
+                }
+                inputs.get(input_id.as_str()).copied().ok_or_else(|| {
+                    unsupported(
+                        &format!("joins.{}.inputs", join.semantic_id),
+                        "join references an unknown input role",
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let first = roles[0];
+        if roles.iter().any(|role| {
+            role.fact_class != InputFactClassV2::MarketData
+                || role.scope != InputScopeV2::ExactInstrument
+                || role.value_type != first.value_type
+                || role.unit != first.unit
+                || role.scale != first.scale
+        }) {
+            return Err(unsupported(
+                &format!("joins.{}.inputs", join.semantic_id),
+                "joined roles require Market Data Owner authority, exact leg/timeframe coordinates, and compatible type/unit/scale",
+            ));
+        }
+
+        for role in roles {
+            if !joined_roles.insert(role.semantic_id.as_str()) {
+                return Err(unsupported(
+                    &format!("joins.{}.inputs", join.semantic_id),
+                    "one input role cannot belong to multiple joins",
+                ));
+            }
+        }
     }
     Ok(())
 }
@@ -1912,6 +1985,20 @@ fn validate_reaction_graphs(design: &StrategyDesignV2) -> Result<(), StrategyCom
         validate_reaction(reaction, &mut validation)?;
     }
 
+    for reaction in &design.reactions {
+        let consumed = reaction_input_ids_v2(reaction);
+
+        for join in &design.joins {
+            let declared = join.inputs.iter().cloned().collect::<BTreeSet<_>>();
+            if !consumed.is_disjoint(&declared) && consumed != declared {
+                return Err(unsupported(
+                    &format!("reactions.{:?}.inputs", reaction.kind),
+                    "a reaction must consume either the complete canonical join or none of it",
+                ));
+            }
+        }
+    }
+
     if validation.produced_outputs != validation.consumed_outputs {
         return Err(unsupported(
             "reactions.nodes.outputs",
@@ -1949,6 +2036,34 @@ fn validate_reaction_graphs(design: &StrategyDesignV2) -> Result<(), StrategyCom
         ));
     }
     Ok(())
+}
+
+fn reaction_input_ids_v2(reaction: &ReactionGraphV2) -> BTreeSet<String> {
+    let mut ids = BTreeSet::new();
+    let mut add = |reference: &ValueRefV2| match reference {
+        ValueRefV2::Input { input_id } | ValueRefV2::UniverseMemberInput { input_id, .. } => {
+            ids.insert(input_id.clone());
+        }
+        _ => {}
+    };
+
+    for node in &reaction.nodes {
+        for binding in &node.input_bindings {
+            add(&binding.source);
+        }
+        add(&node.pre_state);
+    }
+
+    for write in &reaction.state_writes {
+        add(&write.source);
+    }
+
+    if let Some(proposal) = &reaction.proposal {
+        for (_, reference, _) in proposal.fields() {
+            add(reference);
+        }
+    }
+    ids
 }
 
 fn validate_reaction(
@@ -2513,21 +2628,28 @@ fn compile_canonical(
         .map(BindingProjectionV2::instrument)
         .collect::<BTreeSet<_>>()
         .len();
+    let joined_input_ids = canonical
+        .joins
+        .iter()
+        .flat_map(|join| join.inputs.iter().map(String::as_str))
+        .collect::<BTreeSet<_>>();
+    let all_exact_roles_joined = canonical
+        .inputs
+        .iter()
+        .filter(|input| input.scope == InputScopeV2::ExactInstrument)
+        .all(|input| joined_input_ids.contains(input.semantic_id.as_str()));
 
-    if has_exact_roles
-        && (bound_instrument_count == 0
-            || bound_instrument_count > lifecycle_v2::TARGET_SET_MEMBER_COUNT)
-    {
+    if has_exact_roles && bound_instrument_count == 0 {
         return unsupported(
             "bindings.instrument",
-            "V2 currently admits one canonical instrument or the exact two-member universe vertical",
+            "exact Owner bindings contain no canonical instrument",
         );
     }
 
-    if bound_instrument_count > 1 {
+    if bound_instrument_count > 1 && !all_exact_roles_joined {
         return unsupported(
             "bindings.instrument",
-            "multiple instruments require an Owner-sealed UniverseSelection receipt",
+            "multiple instruments require one complete canonical InputJoin or an Owner-sealed UniverseSelection receipt",
         );
     }
 
@@ -2755,30 +2877,11 @@ fn validate_binding_trigger_reachability(
     bindings: &[BindingProjectionV2],
 ) -> Result<(), StrategyCompilationV2> {
     for reaction in &design.reactions {
-        let mut input_ids = BTreeSet::new();
-        let mut add = |reference: &ValueRefV2| match reference {
-            ValueRefV2::Input { input_id } | ValueRefV2::UniverseMemberInput { input_id, .. } => {
-                input_ids.insert(input_id.clone());
-            }
-            _ => {}
-        };
-
-        for node in &reaction.nodes {
-            for binding in &node.input_bindings {
-                add(&binding.source);
-            }
-            add(&node.pre_state);
-        }
-
-        for write in &reaction.state_writes {
-            add(&write.source);
-        }
-
-        if let Some(proposal) = &reaction.proposal {
-            for (_, reference, _) in proposal.fields() {
-                add(reference);
-            }
-        }
+        let input_ids = reaction_input_ids_v2(reaction);
+        let joined = design
+            .joins
+            .iter()
+            .find(|join| join.inputs.iter().cloned().collect::<BTreeSet<_>>() == input_ids);
         let mut selections = BTreeSet::new();
         let mut frame_anchor = None;
 
@@ -2792,7 +2895,7 @@ fn validate_binding_trigger_reachability(
                 .iter()
                 .find(|binding| binding.input_role_identity == role_identity(input))
                 .expect("exact binding coverage was already validated");
-            if !selections.insert(binding.selection_identity()) {
+            if joined.is_none() && !selections.insert(binding.selection_identity()) {
                 return Err(unsupported(
                     &format!("reactions.{:?}.inputs", reaction.kind),
                     "one reaction cannot consume the same static Owner selection twice",
@@ -2804,7 +2907,7 @@ fn validate_binding_trigger_reachability(
                 binding.market_semantics_identity(),
             );
 
-            if frame_anchor.is_some_and(|prior| prior != anchor) {
+            if joined.is_none() && frame_anchor.is_some_and(|prior| prior != anchor) {
                 return Err(unsupported(
                     &format!("reactions.{:?}.inputs", reaction.kind),
                     "one reaction must consume one common Owner frame anchor",
@@ -2826,6 +2929,35 @@ fn validate_binding_trigger_reachability(
                 return Err(unsupported(
                     &format!("reactions.{:?}.inputs", reaction.kind),
                     "Owner data kind cannot issue this reaction trigger",
+                ));
+            }
+        }
+
+        if let Some(join) = joined {
+            let trigger = design
+                .inputs
+                .iter()
+                .find(|input| input.semantic_id == join.trigger_input_id)
+                .expect("join validation resolved the trigger role");
+            let trigger_binding = bindings
+                .iter()
+                .find(|binding| binding.input_role_identity == role_identity(trigger))
+                .expect("binding coverage resolved the trigger role");
+            let expected = match trigger_binding.data_kind.as_str() {
+                "BAR" => LifecycleKindV2::Bar,
+                "QUOTE" | "TRADE" | "REFERENCE" | "ECONOMIC" | "SCALAR" => LifecycleKindV2::Event,
+                _ => {
+                    return Err(unsupported(
+                        &format!("bindings.{}.data_kind", trigger.semantic_id),
+                        "join trigger data kind cannot issue an admitted runtime trigger",
+                    ));
+                }
+            };
+
+            if reaction.kind != expected {
+                return Err(unsupported(
+                    &format!("reactions.{:?}.inputs", reaction.kind),
+                    "join reaction kind must equal its explicit trigger role lifecycle kind",
                 ));
             }
         }
