@@ -1,8 +1,10 @@
 //! Backtest-bound, Owner-sealed replay-input read contract.
 //!
-//! Callers provide only exact comparison claims and one immutable PIT locator. Market Data rereads
-//! and verifies the canonical PIT, Source Binding, Shared Time, and normalized observation batch
-//! before returning ordered frames. No caller can submit frame bytes or a records/census digest.
+//! Callers provide only exact Market Data comparison claims and one immutable PIT locator. Market
+//! Data rereads and verifies the canonical PIT, Source Binding, Shared Time, and complete normalized
+//! observation batch before returning ordered frames. Replay-window authority remains outside this
+//! Owner boundary: no caller can select a window, submit frame bytes, or supply a records/census
+//! digest when minting this value.
 
 use serde::Serialize;
 
@@ -36,13 +38,10 @@ pub struct UntrustedSealedReplayInputRequest {
     pub consumer_role: String,
     /// Exact immutable PIT locator.
     pub locator: UntrustedPitSnapshotLocator,
-    /// Request and scope facts repeated by the admitted replay request.
+    /// Exact Market Data snapshot-request and scope facts.
     pub request_identity: BindingDigest,
     pub request_digest: BindingDigest,
     pub scope_digest: BindingDigest,
-    /// Exact requested inclusive-start/exclusive-end event-time window.
-    pub window_start_event_time: u64,
-    pub window_end_event_time_exclusive: u64,
     /// Exact source lineage and requested frontiers.
     pub source_binding_identity: BindingDigest,
     pub source_binding_lineage_root: BindingDigest,
@@ -133,7 +132,7 @@ impl SealedReplayFrame {
     }
 }
 
-/// Move-only Market Data-sealed replay input for one exact locator and replay window.
+/// Move-only Market Data-sealed replay input for one exact PIT locator.
 ///
 /// This type deliberately implements neither `Clone` nor `Deserialize`, and has no public
 /// constructor.
@@ -174,8 +173,8 @@ pub struct SealedReplayInput {
     frame_census_digest: BindingDigest,
     snapshot_correction_rule_digest: BindingDigest,
     time_evidence: UntrustedPitSnapshotTimeEvidence,
-    window_start_event_time: u64,
-    window_end_event_time_exclusive: u64,
+    observation_start_event_time: u64,
+    observation_end_event_time: u64,
     calendar_rules: String,
     session_rules: String,
     time_zone_rules: String,
@@ -242,11 +241,13 @@ impl SealedReplayInput {
     pub const fn time_evidence(&self) -> &UntrustedPitSnapshotTimeEvidence {
         &self.time_evidence
     }
-    pub const fn window_start_event_time(&self) -> u64 {
-        self.window_start_event_time
+    /// Earliest event time in the complete Owner-normalized frame census.
+    pub const fn observation_start_event_time(&self) -> u64 {
+        self.observation_start_event_time
     }
-    pub const fn window_end_event_time_exclusive(&self) -> u64 {
-        self.window_end_event_time_exclusive
+    /// Latest event time in the complete Owner-normalized frame census.
+    pub const fn observation_end_event_time(&self) -> u64 {
+        self.observation_end_event_time
     }
     pub fn calendar_rules(&self) -> &str {
         &self.calendar_rules
@@ -308,7 +309,6 @@ pub(crate) fn seal_replay_input(
         || !fact.blockers().is_empty()
         || fact.primary_blocker().is_some()
         || source_fact.disposition() != SourceBindingDisposition::Admitted
-        || comparison.window_start_event_time >= comparison.window_end_event_time_exclusive
     {
         return Err(PitSnapshotError::ConsumerBindingMismatch);
     }
@@ -356,10 +356,6 @@ pub(crate) fn seal_replay_input(
     frames.sort_by(|left, right| replay_order(left).cmp(&replay_order(right)));
 
     if frames.is_empty()
-        || frames.iter().any(|frame| {
-            frame.event_effective < comparison.window_start_event_time
-                || frame.event_effective >= comparison.window_end_event_time_exclusive
-        })
         || frames
             .windows(2)
             .any(|pair| replay_order(&pair[0]) >= replay_order(&pair[1]))
@@ -367,6 +363,14 @@ pub(crate) fn seal_replay_input(
         return Err(PitSnapshotError::ObservationBatchUnavailable);
     }
 
+    let observation_start_event_time = frames
+        .first()
+        .ok_or(PitSnapshotError::ObservationBatchUnavailable)?
+        .event_effective;
+    let observation_end_event_time = frames
+        .last()
+        .ok_or(PitSnapshotError::ObservationBatchUnavailable)?
+        .event_effective;
     let frame_digests = frames.iter().map(|frame| frame.digest).collect::<Vec<_>>();
     let frame_census_digest = derive_digest(
         FRAME_CENSUS_DOMAIN,
@@ -374,8 +378,8 @@ pub(crate) fn seal_replay_input(
             fact.snapshot_identity(),
             fact.digest(),
             batch.digest(),
-            comparison.window_start_event_time,
-            comparison.window_end_event_time_exclusive,
+            observation_start_event_time,
+            observation_end_event_time,
             &frame_digests,
         ),
     )?;
@@ -400,8 +404,8 @@ pub(crate) fn seal_replay_input(
         frame_census_digest,
         snapshot_correction_rule_digest: correction_rule,
         time_evidence: fact.request().time_evidence.clone(),
-        window_start_event_time: comparison.window_start_event_time,
-        window_end_event_time_exclusive: comparison.window_end_event_time_exclusive,
+        observation_start_event_time,
+        observation_end_event_time,
         calendar_rules: semantics.calendar_rules.clone(),
         session_rules: semantics.session_rules.clone(),
         time_zone_rules: semantics.timezone_rules.clone(),

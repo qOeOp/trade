@@ -1719,8 +1719,6 @@ fn sealed_replay_fixture(
         request_identity: fact.request_identity(),
         request_digest: fact.request_digest(),
         scope_digest: fact.request().scope_digest,
-        window_start_event_time: event_effective,
-        window_end_event_time_exclusive: event_effective + 1,
         source_binding_identity: fact.source_binding_identity(),
         source_binding_lineage_root: fact.source_binding_lineage_root(),
         source_binding_lineage_version: fact.source_binding_lineage_version(),
@@ -1753,7 +1751,7 @@ fn seal_fixture(
 }
 
 #[rstest]
-fn sealed_replay_input_is_repeatable_and_distinguishes_real_snapshot_window_cuts() {
+fn sealed_replay_input_is_repeatable_and_distinguishes_real_snapshot_cuts() {
     let first = sealed_replay_fixture(40, 10, 40, 10);
     let second = sealed_replay_fixture(60, 11, 50, 12);
     let first_input = seal_fixture(&first.0, &first.1, &first.2, &first.3).unwrap();
@@ -1776,6 +1774,8 @@ fn sealed_replay_input_is_repeatable_and_distinguishes_real_snapshot_window_cuts
     assert_eq!(second_input.frames().len(), 2);
     assert_eq!(first_input.frames()[0].field(), "CLOSE");
     assert_eq!(first_input.frames()[1].field(), "OPEN");
+    assert_eq!(first_input.observation_start_event_time(), 10);
+    assert_eq!(first_input.observation_end_event_time(), 10);
     assert!(first_input.frames()[0].event_effective() < second_input.frames()[0].event_effective());
 
     let mut old_request_for_new_locator = first.3;
@@ -1792,10 +1792,9 @@ fn sealed_replay_input_is_repeatable_and_distinguishes_real_snapshot_window_cuts
 }
 
 #[rstest]
-fn sealed_replay_input_fails_closed_for_every_replay_authority_cut() {
+fn sealed_replay_input_fails_closed_for_every_market_data_authority_cut() {
     let (pit, source, batch, request) = sealed_replay_fixture(40, 10, 40, 10);
-    let mutations: [fn(&mut UntrustedSealedReplayInputRequest); 13] = [
-        |value| value.window_start_event_time += 1,
+    let mutations: [fn(&mut UntrustedSealedReplayInputRequest); 12] = [
         |value| value.calendar_rules.push('x'),
         |value| value.session_rules.push('x'),
         |value| value.time_zone_rules.push('x'),
