@@ -2,8 +2,9 @@
 //!
 //! Every authoritative value is private BYTEA. No JSON column participates in readback or hashing.
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, fmt::Display};
 
+use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use vibe_data::owner::source_binding::BindingDigest;
@@ -15,6 +16,443 @@ use crate::develop_composer_operation_v2::{
     StoredDevelopComposerPositiveV2, build_positive_record_from_preflight_v2, conflict_response,
     preflight_develop_composer_v2, request_digest, resolve_positive_record_v2,
 };
+
+const SEALED_READ_SCHEMA_V2: u16 = 2;
+
+/// Untrusted exact claim for one accepted durable Composer operation.
+///
+/// Constructing or changing this locator grants no authority. The R&D-owned read port resolves the
+/// complete claim against one persisted positive operation and returns only a sealed readback.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DevelopComposerSealedReadLocatorV2 {
+    pub schema_version: u16,
+    pub request_identity: String,
+    pub operation_receipt_identity: BindingDigest,
+    pub artifact_locator: String,
+    pub artifact_identity: BindingDigest,
+    pub canonical_plan_digest: BindingDigest,
+    pub design_digest: BindingDigest,
+}
+
+impl DevelopComposerSealedReadLocatorV2 {
+    /// Projects an untrusted locator from a public positive operation response.
+    ///
+    /// The returned value becomes authoritative only after exact R&D Owner resolution.
+    pub fn from_accepted_response(
+        response: &DevelopComposerOperationResponseV2,
+    ) -> Result<Self, DevelopComposerSealedReadErrorV2> {
+        let receipt_identity = response
+            .receipt_identity
+            .ok_or(DevelopComposerSealedReadErrorV2::Unavailable)?;
+        let artifact = response
+            .artifact
+            .as_ref()
+            .ok_or(DevelopComposerSealedReadErrorV2::Unavailable)?;
+
+        if response.schema_version != SEALED_READ_SCHEMA_V2
+            || response.disposition != DevelopComposerOperationDispositionV2::Success
+            || response.coordinate.is_some()
+            || response.reason.is_some()
+            || response.request_identity.is_empty()
+            || artifact.artifact_locator.is_empty()
+        {
+            return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        }
+        Ok(Self {
+            schema_version: SEALED_READ_SCHEMA_V2,
+            request_identity: response.request_identity.clone(),
+            operation_receipt_identity: receipt_identity,
+            artifact_locator: artifact.artifact_locator.clone(),
+            artifact_identity: artifact.artifact_digest,
+            canonical_plan_digest: artifact.canonical_plan_digest,
+            design_digest: artifact.design_digest,
+        })
+    }
+}
+
+/// Uniform fail-closed result for missing, mismatched, corrupt, or unreadable R&D custody.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DevelopComposerSealedReadErrorV2 {
+    Unavailable,
+}
+
+impl Display for DevelopComposerSealedReadErrorV2 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("sealed Composer readback is unavailable")
+    }
+}
+
+impl std::error::Error for DevelopComposerSealedReadErrorV2 {}
+
+/// R&D-sealed canonical Composer package readback.
+///
+/// Private fields and the absence of `Deserialize` or a public constructor prevent callers from
+/// upgrading arbitrary DTOs or bytes into an R&D Owner fact. The bytes remain immutable historical
+/// Composer custody; they are not Backtest actual-consumption or replay-result evidence.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SealedDevelopComposerReadbackV2 {
+    locator: DevelopComposerSealedReadLocatorV2,
+    request_digest: BindingDigest,
+    research_request_identity: BindingDigest,
+    intent_identity: BindingDigest,
+    design_identity: BindingDigest,
+    design_bytes: Box<[u8]>,
+    design_bytes_digest: BindingDigest,
+    plan_bytes: Box<[u8]>,
+    plan_bytes_digest: BindingDigest,
+    artifact_package_bytes: Box<[u8]>,
+    artifact_package_bytes_digest: BindingDigest,
+    module_bytes: Vec<Box<[u8]>>,
+    module_bytes_digests: Vec<BindingDigest>,
+    build_receipt_identities: Vec<BindingDigest>,
+    build_receipt_bytes: Vec<Box<[u8]>>,
+    build_receipt_bytes_digests: Vec<BindingDigest>,
+    composer_receipt_bytes: Box<[u8]>,
+    composer_receipt_bytes_digest: BindingDigest,
+    host_receipt_bytes: Box<[u8]>,
+    host_receipt_bytes_digest: BindingDigest,
+}
+
+impl SealedDevelopComposerReadbackV2 {
+    pub const fn locator(&self) -> &DevelopComposerSealedReadLocatorV2 {
+        &self.locator
+    }
+
+    pub const fn request_digest(&self) -> BindingDigest {
+        self.request_digest
+    }
+
+    pub const fn research_request_identity(&self) -> BindingDigest {
+        self.research_request_identity
+    }
+
+    pub const fn intent_identity(&self) -> BindingDigest {
+        self.intent_identity
+    }
+
+    pub const fn design_identity(&self) -> BindingDigest {
+        self.design_identity
+    }
+
+    pub fn design_bytes(&self) -> &[u8] {
+        &self.design_bytes
+    }
+
+    pub const fn design_bytes_digest(&self) -> BindingDigest {
+        self.design_bytes_digest
+    }
+
+    pub fn plan_bytes(&self) -> &[u8] {
+        &self.plan_bytes
+    }
+
+    pub const fn plan_bytes_digest(&self) -> BindingDigest {
+        self.plan_bytes_digest
+    }
+
+    pub fn artifact_package_bytes(&self) -> &[u8] {
+        &self.artifact_package_bytes
+    }
+
+    pub const fn artifact_package_bytes_digest(&self) -> BindingDigest {
+        self.artifact_package_bytes_digest
+    }
+
+    pub fn module_bytes(&self) -> impl ExactSizeIterator<Item = &[u8]> {
+        self.module_bytes.iter().map(|bytes| bytes.as_ref())
+    }
+
+    pub fn module_bytes_digests(&self) -> &[BindingDigest] {
+        &self.module_bytes_digests
+    }
+
+    pub fn build_receipt_identities(&self) -> &[BindingDigest] {
+        &self.build_receipt_identities
+    }
+
+    pub fn build_receipt_bytes(&self) -> impl ExactSizeIterator<Item = &[u8]> {
+        self.build_receipt_bytes.iter().map(|bytes| bytes.as_ref())
+    }
+
+    pub fn build_receipt_bytes_digests(&self) -> &[BindingDigest] {
+        &self.build_receipt_bytes_digests
+    }
+
+    pub fn composer_receipt_bytes(&self) -> &[u8] {
+        &self.composer_receipt_bytes
+    }
+
+    pub const fn composer_receipt_bytes_digest(&self) -> BindingDigest {
+        self.composer_receipt_bytes_digest
+    }
+
+    pub fn host_receipt_bytes(&self) -> &[u8] {
+        &self.host_receipt_bytes
+    }
+
+    pub const fn host_receipt_bytes_digest(&self) -> BindingDigest {
+        self.host_receipt_bytes_digest
+    }
+}
+
+mod sealed_read_port {
+    pub trait RdOwned {}
+}
+
+/// Query-only boundary that only an R&D-owned implementation can provide.
+#[async_trait]
+pub trait DevelopComposerSealedReadPortV2: sealed_read_port::RdOwned + Send + Sync {
+    /// Resolves one exact accepted Composer locator without creating or mutating custody.
+    async fn read_accepted(
+        &self,
+        locator: &DevelopComposerSealedReadLocatorV2,
+    ) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2>;
+}
+
+/// R&D composition-root implementation. Its evidence seam and constructor remain crate-private so
+/// a downstream caller cannot substitute its own current-custody authority.
+#[allow(
+    dead_code,
+    reason = "the future R&D composition root injects this port into the Backtest-owned runner"
+)]
+pub(crate) struct PostgresDevelopComposerSealedReadPortV2<E> {
+    store: PostgresDevelopComposerStoreV2,
+    evidence: E,
+    read_cut_epoch_ms: u64,
+}
+
+#[allow(
+    dead_code,
+    reason = "the future R&D composition root owns construction of the sealed read port"
+)]
+impl<E> PostgresDevelopComposerSealedReadPortV2<E> {
+    pub(crate) const fn new(
+        store: PostgresDevelopComposerStoreV2,
+        evidence: E,
+        read_cut_epoch_ms: u64,
+    ) -> Self {
+        Self {
+            store,
+            evidence,
+            read_cut_epoch_ms,
+        }
+    }
+}
+
+impl<E> sealed_read_port::RdOwned for PostgresDevelopComposerSealedReadPortV2<E> {}
+
+#[async_trait]
+impl<E> DevelopComposerSealedReadPortV2 for PostgresDevelopComposerSealedReadPortV2<E>
+where
+    E: DevelopComposerFinalEvidencePortV2 + Send + Sync,
+{
+    async fn read_accepted(
+        &self,
+        locator: &DevelopComposerSealedReadLocatorV2,
+    ) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
+        let record = load_record(&self.store.pool, &locator.request_identity)
+            .await
+            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?
+            .ok_or(DevelopComposerSealedReadErrorV2::Unavailable)?;
+        if !locator_matches_record_keys(locator, &record) {
+            return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        }
+        let current = self
+            .evidence
+            .lock_and_reread_durable(
+                &DevelopComposerDurableEvidenceLocatorV2::from_record(&record),
+                self.read_cut_epoch_ms,
+            )
+            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        let response = resolve_positive_record_v2(&record, current)
+            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        seal_readback(locator, record, &response)
+    }
+}
+
+fn locator_matches_record_keys(
+    locator: &DevelopComposerSealedReadLocatorV2,
+    record: &StoredDevelopComposerPositiveV2,
+) -> bool {
+    locator.schema_version == SEALED_READ_SCHEMA_V2
+        && !locator.request_identity.is_empty()
+        && locator.request_identity == record.request_identity
+        && locator.artifact_identity == record.artifact_identity
+        && locator.canonical_plan_digest == record.plan_digest
+}
+
+fn accepted_response_matches_locator(
+    locator: &DevelopComposerSealedReadLocatorV2,
+    response: &DevelopComposerOperationResponseV2,
+) -> bool {
+    response.schema_version == SEALED_READ_SCHEMA_V2
+        && response.disposition == DevelopComposerOperationDispositionV2::Success
+        && response.request_identity == locator.request_identity
+        && response.receipt_identity == Some(locator.operation_receipt_identity)
+        && response.coordinate.is_none()
+        && response.reason.is_none()
+        && response.artifact.as_ref().is_some_and(|artifact| {
+            artifact.artifact_locator == locator.artifact_locator
+                && artifact.artifact_digest == locator.artifact_identity
+                && artifact.canonical_plan_digest == locator.canonical_plan_digest
+                && artifact.design_digest == locator.design_digest
+        })
+}
+
+fn seal_readback(
+    locator: &DevelopComposerSealedReadLocatorV2,
+    record: StoredDevelopComposerPositiveV2,
+    response: &DevelopComposerOperationResponseV2,
+) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
+    if !locator_matches_record_keys(locator, &record)
+        || !accepted_response_matches_locator(locator, response)
+        || record.response_bytes != response.canonical_bytes()
+    {
+        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+    }
+
+    let module_bytes_digests = record
+        .module_bytes
+        .iter()
+        .map(|bytes| {
+            canonical_blob_digest(b"rd.develop.artifact-module.canonical-bytes.v2\0", bytes)
+        })
+        .collect();
+    let build_receipt_bytes_digests = record
+        .build_receipt_bytes
+        .iter()
+        .map(|bytes| canonical_blob_digest(b"rd.develop.build-receipt.canonical-bytes.v2\0", bytes))
+        .collect();
+
+    Ok(SealedDevelopComposerReadbackV2 {
+        locator: locator.clone(),
+        request_digest: record.request_digest,
+        research_request_identity: record.research_request_identity,
+        intent_identity: record.intent_identity,
+        design_identity: record.design_identity,
+        design_bytes_digest: canonical_blob_digest(
+            b"rd.develop.design.canonical-bytes.v2\0",
+            &record.design_bytes,
+        ),
+        design_bytes: record.design_bytes.into_boxed_slice(),
+        plan_bytes_digest: canonical_blob_digest(
+            b"rd.develop.plan.canonical-bytes.v2\0",
+            &record.plan_bytes,
+        ),
+        plan_bytes: record.plan_bytes.into_boxed_slice(),
+        artifact_package_bytes_digest: canonical_blob_digest(
+            b"rd.develop.artifact-package.canonical-bytes.v2\0",
+            &record.artifact_package_bytes,
+        ),
+        artifact_package_bytes: record.artifact_package_bytes.into_boxed_slice(),
+        module_bytes: record.module_bytes,
+        module_bytes_digests,
+        build_receipt_identities: record.build_receipt_identities,
+        build_receipt_bytes: record
+            .build_receipt_bytes
+            .into_iter()
+            .map(Vec::into_boxed_slice)
+            .collect(),
+        build_receipt_bytes_digests,
+        composer_receipt_bytes_digest: canonical_blob_digest(
+            b"rd.develop.composer-receipt.canonical-bytes.v2\0",
+            &record.composer_receipt_bytes,
+        ),
+        composer_receipt_bytes: record.composer_receipt_bytes.into_boxed_slice(),
+        host_receipt_bytes_digest: canonical_blob_digest(
+            b"rd.develop.host-receipt.canonical-bytes.v2\0",
+            &record.host_receipt_bytes,
+        ),
+        host_receipt_bytes: record.host_receipt_bytes.into_boxed_slice(),
+    })
+}
+
+fn canonical_blob_digest(domain: &[u8], bytes: &[u8]) -> BindingDigest {
+    let mut hasher = Sha256::new();
+    hasher.update(domain);
+    hasher.update(bytes);
+    BindingDigest::from_untrusted_bytes(hasher.finalize().into())
+}
+
+/// Fixed-corpus dynamic acceptance adapter for the sealed read port. It exists only under the
+/// repository's non-default Composer acceptance feature and supplies no runtime-selectable R&D
+/// evidence authority.
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+pub struct SealedDevelopComposerAcceptanceReadPortV2 {
+    owner: crate::develop_composer_sealed_acceptance_v2::SealedDevelopComposerAcceptanceV2,
+    store: PostgresDevelopComposerStoreV2,
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+impl SealedDevelopComposerAcceptanceReadPortV2 {
+    pub async fn connect(database_url: &str) -> anyhow::Result<Self> {
+        let owner = crate::develop_composer_sealed_acceptance_v2::SealedDevelopComposerAcceptanceV2::connect(database_url).await?;
+        let store = PostgresDevelopComposerStoreV2::connect(database_url).await?;
+        Ok(Self { owner, store })
+    }
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+impl sealed_read_port::RdOwned for SealedDevelopComposerAcceptanceReadPortV2 {}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[async_trait]
+impl DevelopComposerSealedReadPortV2 for SealedDevelopComposerAcceptanceReadPortV2 {
+    async fn read_accepted(
+        &self,
+        locator: &DevelopComposerSealedReadLocatorV2,
+    ) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
+        let mut transaction = self
+            .store
+            .pool
+            .begin()
+            .await
+            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        lock_composer_tables_for_consistent_read(&mut transaction).await?;
+        let record = load_record_in_transaction(&mut transaction, &locator.request_identity)
+            .await
+            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?
+            .ok_or(DevelopComposerSealedReadErrorV2::Unavailable)?;
+        let response = self
+            .owner
+            .resolve(&locator.request_identity)
+            .await
+            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        if !accepted_response_matches_locator(locator, &response) {
+            return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        }
+
+        let readback = seal_readback(locator, record, &response)?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        Ok(readback)
+    }
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+async fn lock_composer_tables_for_consistent_read(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), DevelopComposerSealedReadErrorV2> {
+    sqlx::query(
+        "LOCK TABLE
+           rd_develop_designs_v2,
+           rd_develop_plans_v2,
+           rd_develop_artifacts_v2,
+           rd_develop_artifact_modules_v2,
+           rd_develop_build_receipts_v2,
+           rd_develop_composer_receipts_v2,
+           rd_develop_host_receipts_v2,
+           rd_develop_operations_v2,
+           rd_develop_outbox_v2
+         IN SHARE MODE",
+    )
+    .execute(&mut **transaction)
+    .await
+    .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    Ok(())
+}
 
 #[derive(Clone)]
 pub struct PostgresDevelopComposerStoreV2 {
