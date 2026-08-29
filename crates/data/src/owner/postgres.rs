@@ -26,6 +26,21 @@ use super::store_admission::{
     MarketDataPitTerminalStorageEvidence, MarketDataSourceBindingStorageEvidence,
 };
 use super::{
+    instrument_master::{
+        InstrumentMasterError, InstrumentMasterFactProposalV1, InstrumentMasterFactV1,
+        InstrumentMasterIdentity, InstrumentMasterReadbackV1, InstrumentMasterResolver,
+        InstrumentMasterScopeV1, InstrumentMasterUniverseMembershipResolver,
+        UntrustedInstrumentMasterRequestV1,
+        authority::{
+            build_cut as build_instrument_cut, build_fact as build_instrument_fact,
+            build_readback as build_instrument_readback, build_receipt as build_instrument_receipt,
+            clock_projection as instrument_clock_projection,
+            cut_matches_request as instrument_cut_matches_request,
+            decode_cut as decode_instrument_cut, decode_fact as decode_instrument_fact,
+            decode_receipt as decode_instrument_receipt, select_facts as select_instrument_facts,
+            validate_fact_graph as validate_instrument_fact_graph,
+        },
+    },
     pit_snapshot::{
         PitSnapshotCommitAggregate, PitSnapshotError, UntrustedPitObservationBatchProposal,
         UntrustedPitSnapshotLocator, UntrustedPitSnapshotProposal,
@@ -73,6 +88,12 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.owner_migrations_v1 (migration_id TEXT PRIMARY KEY, installed_at TIMESTAMPTZ NOT NULL DEFAULT transaction_timestamp())",
     "CREATE TABLE IF NOT EXISTS market_data_private.clock_head_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), clock_identity TEXT NOT NULL, clock_epoch TEXT NOT NULL, monotonic_sequence BIGINT NOT NULL CHECK (monotonic_sequence > 0), wall_observed BIGINT NOT NULL CHECK (wall_observed > 0), decision_cut BIGINT NOT NULL CHECK (decision_cut > 0), valid_through BIGINT NOT NULL, restart_continuity_digest BYTEA NOT NULL CHECK (octet_length(restart_continuity_digest) = 32), uncertainty_bound BIGINT NOT NULL CHECK (uncertainty_bound >= 0), skew_bound BIGINT NOT NULL CHECK (skew_bound > 0), comparison_rule SMALLINT NOT NULL CHECK (comparison_rule = 1), shared_time_materialized BOOLEAN NOT NULL DEFAULT FALSE, CHECK (uncertainty_bound <= skew_bound), CHECK (decision_cut <= wall_observed), CHECK (wall_observed < valid_through))",
     "ALTER TABLE market_data_private.clock_head_v1 ADD COLUMN IF NOT EXISTS shared_time_materialized BOOLEAN NOT NULL DEFAULT FALSE",
+    "CREATE TABLE IF NOT EXISTS market_data_private.instrument_master_facts_v1 (fact_digest BYTEA PRIMARY KEY CHECK (octet_length(fact_digest)=32), canonical_identity TEXT NOT NULL CHECK (canonical_identity<>''), predecessor_fact_digest BYTEA NULL REFERENCES market_data_private.instrument_master_facts_v1(fact_digest), fact_bytes BYTEA NOT NULL CHECK (octet_length(fact_bytes)>0), UNIQUE(canonical_identity,predecessor_fact_digest))",
+    "CREATE INDEX IF NOT EXISTS instrument_master_facts_identity_v1 ON market_data_private.instrument_master_facts_v1(canonical_identity)",
+    "CREATE TABLE IF NOT EXISTS market_data_private.instrument_master_state_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), store_generation_identity BYTEA NOT NULL CHECK (octet_length(store_generation_identity)=32), append_sequence BIGINT NOT NULL CHECK (append_sequence>=0))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.instrument_master_cuts_v1 (cut_identity BYTEA PRIMARY KEY CHECK (octet_length(cut_identity)=32), request_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(request_identity)=32), cut_bytes BYTEA NOT NULL CHECK (octet_length(cut_bytes)>0))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.instrument_master_receipts_v1 (request_identity BYTEA PRIMARY KEY CHECK (octet_length(request_identity)=32), request_meaning_digest BYTEA NOT NULL CHECK (octet_length(request_meaning_digest)=32), cut_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.instrument_master_cuts_v1(cut_identity), receipt_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(receipt_identity)=32), receipt_bytes BYTEA NOT NULL CHECK (octet_length(receipt_bytes)>0), append_sequence BIGINT UNIQUE NOT NULL CHECK (append_sequence>0))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.instrument_master_outbox_v1 (outbox_identity BYTEA PRIMARY KEY CHECK (octet_length(outbox_identity)=32), request_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.instrument_master_receipts_v1(request_identity), receipt_bytes BYTEA NOT NULL CHECK (octet_length(receipt_bytes)>0))",
     "CREATE TABLE IF NOT EXISTS market_data_private.clock_handoffs_v1 (head_identity BYTEA PRIMARY KEY CHECK (octet_length(head_identity) = 32), head_digest BYTEA NOT NULL UNIQUE CHECK (octet_length(head_digest) = 32), predecessor_head_digest BYTEA NULL UNIQUE REFERENCES market_data_private.clock_handoffs_v1(head_digest) CHECK (predecessor_head_digest IS NULL OR octet_length(predecessor_head_digest) = 32), clock_identity TEXT NOT NULL, clock_epoch TEXT NOT NULL, monotonic_sequence BIGINT NOT NULL CHECK (monotonic_sequence > 0), wall_observed BIGINT NOT NULL CHECK (wall_observed > 0), decision_cut BIGINT NOT NULL CHECK (decision_cut > 0), valid_through BIGINT NOT NULL, restart_continuity_digest BYTEA NOT NULL CHECK (octet_length(restart_continuity_digest) = 32), uncertainty_bound BIGINT NOT NULL CHECK (uncertainty_bound >= 0), skew_bound BIGINT NOT NULL CHECK (skew_bound > 0), comparison_rule SMALLINT NOT NULL CHECK (comparison_rule = 1), CHECK (uncertainty_bound <= skew_bound), CHECK (decision_cut <= wall_observed), CHECK (wall_observed < valid_through))",
     "CREATE TABLE IF NOT EXISTS market_data_private.clock_handoff_head_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), head_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.clock_handoffs_v1(head_identity))",
     "CREATE TABLE IF NOT EXISTS market_data_private.clock_handoff_state_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), materialized BOOLEAN NOT NULL, handoff_count BIGINT NOT NULL CHECK (handoff_count >= 0), epoch_transition_count BIGINT NOT NULL CHECK (epoch_transition_count >= 0), CHECK ((NOT materialized AND handoff_count = 0 AND epoch_transition_count = 0) OR (materialized AND handoff_count > 0 AND epoch_transition_count < handoff_count)))",
@@ -104,6 +125,7 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_epoch_successor_proof_v1(p_successor_head_digest BYTEA) RETURNS TABLE(proof_identity BYTEA, predecessor_head_digest BYTEA, successor_head_digest BYTEA, prior_clock_identity TEXT, prior_clock_epoch TEXT, successor_clock_identity TEXT, successor_clock_epoch TEXT, successor_continuity_digest BYTEA, commit_cut BIGINT, comparison_rule SMALLINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT p.proof_identity,p.predecessor_head_digest,p.successor_head_digest,p.prior_clock_identity,p.prior_clock_epoch,p.successor_clock_identity,p.successor_clock_epoch,p.successor_continuity_digest,p.commit_cut,p.comparison_rule FROM market_data_private.epoch_successor_proofs_v1 AS p WHERE p.successor_head_digest=p_successor_head_digest $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_clock_membership_custody_v1() RETURNS TABLE(handoff_count BIGINT, head_identity BYTEA, root_head_identity BYTEA, ordinal BIGINT, prior_head_identity BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT state.handoff_count,edge.head_identity,edge.root_head_identity,edge.ordinal,edge.prior_head_identity FROM market_data_private.clock_handoff_state_v1 AS state LEFT JOIN LATERAL (SELECT membership.head_identity,membership.root_head_identity,membership.ordinal,prior.head_identity AS prior_head_identity FROM market_data_private.clock_handoff_membership_v1 AS membership JOIN market_data_private.clock_handoffs_v1 AS handoff ON handoff.head_identity=membership.head_identity LEFT JOIN market_data_private.clock_handoffs_v1 AS prior ON prior.head_digest=handoff.predecessor_head_digest) AS edge ON TRUE WHERE state.singleton $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_clock_custody_state_v1() RETURNS TABLE(head_identity BYTEA, head_digest BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT h.head_identity,h.head_digest FROM market_data_private.clock_handoff_state_v1 AS s JOIN market_data_private.clock_head_v1 AS c ON c.singleton AND c.shared_time_materialized JOIN market_data_private.clock_handoff_head_v1 AS p ON p.singleton JOIN market_data_private.clock_handoffs_v1 AS h ON h.head_identity=p.head_identity JOIN market_data_private.clock_handoff_membership_v1 AS current_membership ON current_membership.head_identity=h.head_identity AND current_membership.ordinal=s.handoff_count WHERE s.singleton AND s.materialized AND s.handoff_count=(SELECT COUNT(*) FROM market_data_private.clock_handoffs_v1) AND s.handoff_count=(SELECT COUNT(*) FROM market_data_private.clock_handoff_membership_v1) AND s.epoch_transition_count=(SELECT COUNT(*) FROM market_data_private.epoch_successor_proofs_v1) AND s.epoch_transition_count=(SELECT COUNT(*) FROM market_data_private.clock_handoffs_v1 AS successor JOIN market_data_private.clock_handoffs_v1 AS prior ON prior.head_digest=successor.predecessor_head_digest WHERE successor.clock_epoch<>prior.clock_epoch) AND 1=(SELECT COUNT(*) FROM market_data_private.clock_handoff_membership_v1 AS root_membership JOIN market_data_private.clock_handoffs_v1 AS root_handoff ON root_handoff.head_identity=root_membership.head_identity WHERE root_membership.ordinal=1 AND root_membership.root_head_identity=root_membership.head_identity AND root_handoff.predecessor_head_digest IS NULL) AND NOT EXISTS (SELECT 1 FROM market_data_private.clock_handoff_membership_v1 AS membership JOIN market_data_private.clock_handoffs_v1 AS handoff ON handoff.head_identity=membership.head_identity LEFT JOIN market_data_private.clock_handoffs_v1 AS prior ON prior.head_digest=handoff.predecessor_head_digest LEFT JOIN market_data_private.clock_handoff_membership_v1 AS prior_membership ON prior_membership.head_identity=prior.head_identity WHERE (membership.ordinal=1 AND (membership.root_head_identity<>membership.head_identity OR handoff.predecessor_head_digest IS NOT NULL)) OR (membership.ordinal>1 AND (prior_membership.head_identity IS NULL OR membership.root_head_identity<>prior_membership.root_head_identity OR membership.ordinal<>prior_membership.ordinal+1))) AND EXISTS (SELECT 1 FROM market_data_private.owner_migrations_v1 AS m WHERE m.migration_id='market-data-owner-shared-time-v1') AND h.clock_identity=c.clock_identity AND h.clock_epoch=c.clock_epoch AND h.monotonic_sequence=c.monotonic_sequence AND h.wall_observed=c.wall_observed AND h.decision_cut=c.decision_cut AND h.valid_through=c.valid_through AND h.restart_continuity_digest=c.restart_continuity_digest AND h.uncertainty_bound=c.uncertainty_bound AND h.skew_bound=c.skew_bound AND h.comparison_rule=c.comparison_rule $function$",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_instrument_master_receipt_v1(p_request_identity BYTEA) RETURNS TABLE(request_identity BYTEA,request_meaning_digest BYTEA,cut_identity BYTEA,cut_bytes BYTEA,receipt_identity BYTEA,receipt_bytes BYTEA,outbox_identity BYTEA,outbox_receipt_bytes BYTEA,store_generation_identity BYTEA,append_sequence BIGINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT r.request_identity,r.request_meaning_digest,c.cut_identity,c.cut_bytes,r.receipt_identity,r.receipt_bytes,o.outbox_identity,o.receipt_bytes,s.store_generation_identity,r.append_sequence FROM market_data_private.instrument_master_receipts_v1 AS r JOIN market_data_private.instrument_master_cuts_v1 AS c ON c.request_identity=r.request_identity AND c.cut_identity=r.cut_identity JOIN market_data_private.instrument_master_outbox_v1 AS o ON o.request_identity=r.request_identity AND o.outbox_identity=r.receipt_identity AND o.receipt_bytes=r.receipt_bytes JOIN market_data_private.instrument_master_state_v1 AS s ON s.singleton AND s.append_sequence=(SELECT COUNT(*) FROM market_data_private.instrument_master_receipts_v1) AND s.append_sequence=(SELECT COUNT(*) FROM market_data_private.instrument_master_cuts_v1) AND s.append_sequence=(SELECT COUNT(*) FROM market_data_private.instrument_master_outbox_v1) WHERE r.request_identity=p_request_identity $function$",
     "REVOKE ALL ON ALL TABLES IN SCHEMA market_data_private FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_source_binding_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_snapshot_v1(BYTEA) FROM PUBLIC",
@@ -120,6 +142,7 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "REVOKE ALL ON FUNCTION market_data_private.resolve_epoch_successor_proof_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_clock_membership_custody_v1() FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_clock_custody_state_v1() FROM PUBLIC",
+    "REVOKE ALL ON FUNCTION market_data_private.resolve_instrument_master_receipt_v1(BYTEA) FROM PUBLIC",
 ];
 
 pub(crate) struct MarketDataOwnerPostgres {
@@ -627,6 +650,265 @@ enum PostgresCommitFault {
     ResponseLoss,
 }
 
+impl MarketDataOwnerPostgres {
+    pub(crate) async fn append_instrument_master_fact(
+        &self,
+        proposal: InstrumentMasterFactProposalV1,
+        clock_locator: &UntrustedClockHeadLocator,
+    ) -> Result<InstrumentMasterFactV1, InstrumentMasterError> {
+        self.append_instrument_master_fact_inner(proposal, clock_locator, false)
+            .await
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn append_instrument_master_fact_with_rollback(
+        &self,
+        proposal: InstrumentMasterFactProposalV1,
+        clock_locator: &UntrustedClockHeadLocator,
+    ) -> Result<InstrumentMasterFactV1, InstrumentMasterError> {
+        self.append_instrument_master_fact_inner(proposal, clock_locator, true)
+            .await
+    }
+
+    async fn append_instrument_master_fact_inner(
+        &self,
+        proposal: InstrumentMasterFactProposalV1,
+        clock_locator: &UntrustedClockHeadLocator,
+        interrupt_before_commit: bool,
+    ) -> Result<InstrumentMasterFactV1, InstrumentMasterError> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+        let lock = instrument_string_lock(&proposal.canonical_identity);
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(lock)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+        let (handoff, proof) = current_instrument_clock(&mut transaction, clock_locator).await?;
+        let fact = build_instrument_fact(proposal, &handoff, proof.as_ref())?;
+        let mut facts = load_instrument_facts(
+            &mut transaction,
+            &[fact.canonical_identity().to_owned()],
+            true,
+        )
+        .await?;
+
+        if let Some(stored) = facts.iter().find(|stored| stored.digest() == fact.digest()) {
+            if stored == &fact {
+                return Ok(stored.clone());
+            }
+            return Err(InstrumentMasterError::DigestMismatch);
+        }
+        facts.push(fact.clone());
+        validate_instrument_fact_graph(&facts)?;
+        sqlx::query("INSERT INTO market_data_private.instrument_master_facts_v1(fact_digest,canonical_identity,predecessor_fact_digest,fact_bytes) VALUES ($1,$2,$3,$4)")
+            .bind(fact.digest().as_bytes().as_slice())
+            .bind(fact.canonical_identity())
+            .bind(fact.predecessor_fact_digest().map(|digest| digest.as_bytes().to_vec()))
+            .bind(fact.canonical_bytes())
+            .execute(&mut *transaction).await.map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+        if interrupt_before_commit {
+            return Err(InstrumentMasterError::CommitInterrupted);
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+        Ok(fact)
+    }
+
+    async fn resolve_instrument_master_inner(
+        &self,
+        request: &UntrustedInstrumentMasterRequestV1,
+        universe: Option<&dyn InstrumentMasterUniverseMembershipResolver>,
+        response_loss: bool,
+        interrupt_before_outbox: bool,
+    ) -> Result<InstrumentMasterReadbackV1, InstrumentMasterError> {
+        if request.consumer_role != super::instrument_master::BACKTEST_OWNER_V1 {
+            return Err(InstrumentMasterError::WrongRole);
+        }
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(advisory_key(request.request_identity))
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+
+        if let Some(readback) =
+            load_durable_instrument_readback(&mut transaction, request.request_identity, true)
+                .await?
+        {
+            if !instrument_cut_matches_request(readback.cut(), request)
+                || readback.stable_correlation != request.stable_correlation
+            {
+                return Err(InstrumentMasterError::RequestConflict);
+            }
+            transaction
+                .commit()
+                .await
+                .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+            return Ok(readback);
+        }
+
+        let members = match (&request.scope, universe) {
+            (InstrumentMasterScopeV1::ExactInstrument(identity), None) if !identity.is_empty() => {
+                vec![identity.clone()]
+            }
+            (InstrumentMasterScopeV1::UniverseSelectionRecord(identity), Some(resolver)) => {
+                let membership = resolver.resolve_instrument_master_membership(*identity)?;
+                if membership.selection_identity != *identity {
+                    return Err(InstrumentMasterError::MembershipMismatch);
+                }
+                membership.members
+            }
+            _ => return Err(InstrumentMasterError::MembershipMismatch),
+        };
+        let (handoff, proof) =
+            current_instrument_clock(&mut transaction, &request.clock_head).await?;
+        let clock = instrument_clock_projection(&handoff, proof.as_ref())?;
+        let facts = load_instrument_facts(&mut transaction, &members, true).await?;
+        validate_instrument_fact_graph(&facts)?;
+        let selected = select_instrument_facts(
+            &facts,
+            &members,
+            request.effective_instant,
+            request.owner_observation,
+            request.decision_cut,
+            &clock,
+        )?;
+        let cut = build_instrument_cut(request, members, &selected, clock)?;
+
+        let database_name: String = sqlx::query_scalar("SELECT current_database()")
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+        let generation = instrument_store_generation(&database_name);
+        sqlx::query("INSERT INTO market_data_private.instrument_master_state_v1(singleton,store_generation_identity,append_sequence) VALUES (TRUE,$1,0) ON CONFLICT (singleton) DO NOTHING")
+            .bind(generation.as_bytes().as_slice()).execute(&mut *transaction).await.map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+        let state = sqlx::query("UPDATE market_data_private.instrument_master_state_v1 SET append_sequence=append_sequence+1 WHERE singleton AND store_generation_identity=$1 RETURNING store_generation_identity,append_sequence")
+            .bind(generation.as_bytes().as_slice()).fetch_optional(&mut *transaction).await.map_err(|_| InstrumentMasterError::StoreUnavailable)?.ok_or(InstrumentMasterError::StoreUntrusted)?;
+        let stored_generation: Vec<u8> = state
+            .try_get("store_generation_identity")
+            .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+        let append_sequence = positive_u64(
+            state
+                .try_get("append_sequence")
+                .map_err(|_| InstrumentMasterError::StoreUntrusted)?,
+        )
+        .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+        let receipt = build_instrument_receipt(
+            request,
+            &selected,
+            &cut,
+            digest_from_bytes(&stored_generation)
+                .map_err(|_| InstrumentMasterError::StoreUntrusted)?,
+            append_sequence,
+        )?;
+        sqlx::query("INSERT INTO market_data_private.instrument_master_cuts_v1(cut_identity,request_identity,cut_bytes) VALUES ($1,$2,$3)")
+            .bind(cut.identity().as_bytes().as_slice())
+            .bind(request.request_identity.as_bytes().as_slice())
+            .bind(cut.canonical_bytes())
+            .execute(&mut *transaction).await.map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+        sqlx::query("INSERT INTO market_data_private.instrument_master_receipts_v1(request_identity,request_meaning_digest,cut_identity,receipt_identity,receipt_bytes,append_sequence) VALUES ($1,$2,$3,$4,$5,$6)")
+            .bind(request.request_identity.as_bytes().as_slice()).bind(request.request_meaning_digest.as_bytes().as_slice()).bind(cut.identity().as_bytes().as_slice()).bind(receipt.identity.as_bytes().as_slice()).bind(&receipt.canonical_bytes).bind(i64::try_from(append_sequence).map_err(|_| InstrumentMasterError::StoreUnavailable)?)
+            .execute(&mut *transaction).await.map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+        if interrupt_before_outbox {
+            return Err(InstrumentMasterError::CommitInterrupted);
+        }
+        sqlx::query("INSERT INTO market_data_private.instrument_master_outbox_v1(outbox_identity,request_identity,receipt_bytes) VALUES ($1,$2,$3)")
+            .bind(receipt.identity.as_bytes().as_slice()).bind(request.request_identity.as_bytes().as_slice()).bind(&receipt.canonical_bytes)
+            .execute(&mut *transaction).await.map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+        if response_loss {
+            Err(InstrumentMasterError::ResponseLost)
+        } else {
+            build_instrument_readback(&receipt)
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn resolve_instrument_master_with_response_loss(
+        &self,
+        request: &UntrustedInstrumentMasterRequestV1,
+        universe: Option<&dyn InstrumentMasterUniverseMembershipResolver>,
+    ) -> Result<InstrumentMasterReadbackV1, InstrumentMasterError> {
+        self.resolve_instrument_master_inner(request, universe, true, false)
+            .await
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn resolve_instrument_master_with_rollback(
+        &self,
+        request: &UntrustedInstrumentMasterRequestV1,
+        universe: Option<&dyn InstrumentMasterUniverseMembershipResolver>,
+    ) -> Result<InstrumentMasterReadbackV1, InstrumentMasterError> {
+        self.resolve_instrument_master_inner(request, universe, false, true)
+            .await
+    }
+}
+
+impl super::instrument_master::resolver_seal::Sealed for MarketDataOwnerPostgres {}
+
+#[async_trait::async_trait]
+impl InstrumentMasterResolver for MarketDataOwnerPostgres {
+    async fn resolve_instrument_master(
+        &self,
+        request: &UntrustedInstrumentMasterRequestV1,
+        universe: Option<&dyn InstrumentMasterUniverseMembershipResolver>,
+    ) -> Result<InstrumentMasterReadbackV1, InstrumentMasterError> {
+        self.resolve_instrument_master_inner(request, universe, false, false)
+            .await
+    }
+
+    async fn recover_instrument_master(
+        &self,
+        request_identity: InstrumentMasterIdentity,
+        request_meaning_digest: InstrumentMasterIdentity,
+    ) -> Result<InstrumentMasterReadbackV1, InstrumentMasterError> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+        validate_read_custody(&mut transaction)
+            .await
+            .map_err(|_| InstrumentMasterError::ClockDiscontinuous)?;
+        let readback = load_durable_instrument_readback(&mut transaction, request_identity, false)
+            .await?
+            .ok_or(InstrumentMasterError::UnknownIdentity)?;
+        if readback.request_meaning_digest != request_meaning_digest {
+            return Err(InstrumentMasterError::RequestConflict);
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+        Ok(readback)
+    }
+}
+
 impl MarketDataReadPostgres {
     #[cfg(not(test))]
     pub(crate) const fn from_admitted(port: AdmittedMarketDataSnapshotPort) -> Self {
@@ -671,6 +953,223 @@ fn exact_source_replay(
     } else {
         Err(SourceBindingError::ReplayConflict)
     }
+}
+
+fn instrument_store_generation(database_name: &str) -> InstrumentMasterIdentity {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"VIBE_INSTRUMENT_MASTER_STORE_GENERATION_V1\0");
+    hasher.update(database_name.as_bytes());
+    InstrumentMasterIdentity::from_untrusted_bytes(*hasher.finalize().as_bytes())
+}
+
+fn instrument_string_lock(value: &str) -> i64 {
+    let digest = blake3::hash(value.as_bytes());
+    i64::from_be_bytes(digest.as_bytes()[..8].try_into().expect("fixed digest"))
+}
+
+async fn load_durable_instrument_readback(
+    transaction: &mut Transaction<'_, Postgres>,
+    request_identity: InstrumentMasterIdentity,
+    lock: bool,
+) -> Result<Option<InstrumentMasterReadbackV1>, InstrumentMasterError> {
+    let presence: (bool, bool, bool) = sqlx::query_as(
+        "SELECT EXISTS(SELECT 1 FROM market_data_private.instrument_master_receipts_v1 WHERE request_identity=$1),EXISTS(SELECT 1 FROM market_data_private.instrument_master_cuts_v1 WHERE request_identity=$1),EXISTS(SELECT 1 FROM market_data_private.instrument_master_outbox_v1 WHERE request_identity=$1)",
+    )
+    .bind(request_identity.as_bytes().as_slice())
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+
+    if presence == (false, false, false) {
+        return Ok(None);
+    }
+
+    if presence != (true, true, true) {
+        return Err(InstrumentMasterError::StoreUntrusted);
+    }
+
+    let query = if lock {
+        "SELECT r.request_identity,r.request_meaning_digest,r.receipt_identity,r.receipt_bytes,r.append_sequence,c.cut_identity,c.cut_bytes,o.outbox_identity,o.receipt_bytes AS outbox_receipt_bytes,s.store_generation_identity,s.append_sequence AS state_append_sequence,(SELECT COUNT(*) FROM market_data_private.instrument_master_cuts_v1) AS cut_count,(SELECT COUNT(*) FROM market_data_private.instrument_master_receipts_v1) AS receipt_count,(SELECT COUNT(*) FROM market_data_private.instrument_master_outbox_v1) AS outbox_count FROM market_data_private.instrument_master_receipts_v1 AS r JOIN market_data_private.instrument_master_cuts_v1 AS c ON c.request_identity=r.request_identity AND c.cut_identity=r.cut_identity JOIN market_data_private.instrument_master_outbox_v1 AS o ON o.request_identity=r.request_identity AND o.outbox_identity=r.receipt_identity CROSS JOIN market_data_private.instrument_master_state_v1 AS s WHERE s.singleton AND r.request_identity=$1 FOR UPDATE OF r,c,o,s"
+    } else {
+        "SELECT r.request_identity,r.request_meaning_digest,r.receipt_identity,r.receipt_bytes,r.append_sequence,c.cut_identity,c.cut_bytes,o.outbox_identity,o.receipt_bytes AS outbox_receipt_bytes,s.store_generation_identity,s.append_sequence AS state_append_sequence,(SELECT COUNT(*) FROM market_data_private.instrument_master_cuts_v1) AS cut_count,(SELECT COUNT(*) FROM market_data_private.instrument_master_receipts_v1) AS receipt_count,(SELECT COUNT(*) FROM market_data_private.instrument_master_outbox_v1) AS outbox_count FROM market_data_private.instrument_master_receipts_v1 AS r JOIN market_data_private.instrument_master_cuts_v1 AS c ON c.request_identity=r.request_identity AND c.cut_identity=r.cut_identity JOIN market_data_private.instrument_master_outbox_v1 AS o ON o.request_identity=r.request_identity AND o.outbox_identity=r.receipt_identity CROSS JOIN market_data_private.instrument_master_state_v1 AS s WHERE s.singleton AND r.request_identity=$1"
+    };
+    let row = sqlx::query(query)
+        .bind(request_identity.as_bytes().as_slice())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| InstrumentMasterError::StoreUnavailable)?
+        .ok_or(InstrumentMasterError::StoreUntrusted)?;
+    let row_digest =
+        |column: &'static str| -> Result<InstrumentMasterIdentity, InstrumentMasterError> {
+            let bytes: Vec<u8> = row
+                .try_get(column)
+                .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+            digest_from_bytes(&bytes).map_err(|_| InstrumentMasterError::StoreUntrusted)
+        };
+    let receipt_bytes: Vec<u8> = row
+        .try_get("receipt_bytes")
+        .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+    let outbox_bytes: Vec<u8> = row
+        .try_get("outbox_receipt_bytes")
+        .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+    let cut_bytes: Vec<u8> = row
+        .try_get("cut_bytes")
+        .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+    let receipt = decode_instrument_receipt(&receipt_bytes)?;
+    let append_sequence = positive_u64(
+        row.try_get("append_sequence")
+            .map_err(|_| InstrumentMasterError::StoreUntrusted)?,
+    )
+    .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+    let state_append_sequence = nonnegative_u64(
+        row.try_get("state_append_sequence")
+            .map_err(|_| InstrumentMasterError::StoreUntrusted)?,
+    )
+    .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+    let cut_count = nonnegative_u64(
+        row.try_get("cut_count")
+            .map_err(|_| InstrumentMasterError::StoreUntrusted)?,
+    )
+    .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+    let receipt_count = nonnegative_u64(
+        row.try_get("receipt_count")
+            .map_err(|_| InstrumentMasterError::StoreUntrusted)?,
+    )
+    .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+    let outbox_count = nonnegative_u64(
+        row.try_get("outbox_count")
+            .map_err(|_| InstrumentMasterError::StoreUntrusted)?,
+    )
+    .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+
+    if row_digest("request_identity")? != request_identity
+        || receipt.request_identity != request_identity
+        || row_digest("request_meaning_digest")? != receipt.request_meaning_digest
+        || row_digest("receipt_identity")? != receipt.identity
+        || row_digest("outbox_identity")? != receipt.identity
+        || receipt_bytes != outbox_bytes
+        || row_digest("cut_identity")? != decode_instrument_cut(&receipt.cut_bytes)?.identity()
+        || cut_bytes != receipt.cut_bytes
+        || row_digest("store_generation_identity")? != receipt.store_generation_identity
+        || append_sequence != receipt.store_append_sequence
+        || state_append_sequence != cut_count
+        || state_append_sequence != receipt_count
+        || state_append_sequence != outbox_count
+    {
+        return Err(InstrumentMasterError::StoreUntrusted);
+    }
+    build_instrument_readback(&receipt).map(Some)
+}
+
+async fn current_instrument_clock(
+    transaction: &mut Transaction<'_, Postgres>,
+    locator: &UntrustedClockHeadLocator,
+) -> Result<(ClockHeadHandoff, Option<EpochSuccessorProof>), InstrumentMasterError> {
+    validate_read_custody(transaction)
+        .await
+        .map_err(|_| InstrumentMasterError::ClockDiscontinuous)?;
+    let row = sqlx::query("SELECT * FROM market_data_private.resolve_clock_custody_state_v1()")
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| InstrumentMasterError::ClockUnavailable)?
+        .ok_or(InstrumentMasterError::ClockUnavailable)?;
+    let identity: Vec<u8> = row
+        .try_get("head_identity")
+        .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+    let digest: Vec<u8> = row
+        .try_get("head_digest")
+        .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+    let current_locator = UntrustedClockHeadLocator::from_untrusted(
+        digest_from_bytes(&identity).map_err(|_| InstrumentMasterError::StoreUntrusted)?,
+        digest_from_bytes(&digest).map_err(|_| InstrumentMasterError::StoreUntrusted)?,
+    );
+
+    if &current_locator != locator {
+        return Err(InstrumentMasterError::ClockMismatch);
+    }
+    let fact = load_clock_fact_for_read(transaction, locator)
+        .await
+        .map_err(|_| InstrumentMasterError::ClockUnavailable)?;
+    let proof = load_epoch_proof_for_read(transaction, fact.handoff.head_digest())
+        .await
+        .map_err(|_| InstrumentMasterError::ClockDiscontinuous)?;
+    if fact.predecessor_head_digest.is_none() && proof.is_some() {
+        return Err(InstrumentMasterError::ClockDiscontinuous);
+    }
+
+    if let Some(predecessor_digest) = fact.predecessor_head_digest {
+        let prior_row = sqlx::query(
+            "SELECT head_identity FROM market_data_private.clock_handoffs_v1 WHERE head_digest=$1",
+        )
+        .bind(predecessor_digest.as_bytes().as_slice())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| InstrumentMasterError::ClockDiscontinuous)?
+        .ok_or(InstrumentMasterError::ClockDiscontinuous)?;
+        let prior_identity: Vec<u8> = prior_row
+            .try_get("head_identity")
+            .map_err(|_| InstrumentMasterError::ClockDiscontinuous)?;
+        let prior = load_clock_fact_for_read_by_identity(
+            transaction,
+            digest_from_bytes(&prior_identity)
+                .map_err(|_| InstrumentMasterError::ClockDiscontinuous)?,
+        )
+        .await
+        .map_err(|_| InstrumentMasterError::ClockDiscontinuous)?;
+        let changed_epoch = prior.handoff.clock_epoch() != fact.handoff.clock_epoch();
+        if changed_epoch != proof.is_some() {
+            return Err(InstrumentMasterError::ClockDiscontinuous);
+        }
+    }
+    Ok((fact.handoff, proof))
+}
+
+async fn load_instrument_facts(
+    transaction: &mut Transaction<'_, Postgres>,
+    members: &[String],
+    lock: bool,
+) -> Result<Vec<InstrumentMasterFactV1>, InstrumentMasterError> {
+    let query = if lock {
+        "SELECT fact_digest,canonical_identity,predecessor_fact_digest,fact_bytes FROM market_data_private.instrument_master_facts_v1 WHERE canonical_identity=ANY($1) ORDER BY canonical_identity,fact_digest FOR UPDATE"
+    } else {
+        "SELECT fact_digest,canonical_identity,predecessor_fact_digest,fact_bytes FROM market_data_private.instrument_master_facts_v1 WHERE canonical_identity=ANY($1) ORDER BY canonical_identity,fact_digest"
+    };
+    let rows = sqlx::query(query)
+        .bind(members)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+    rows.into_iter()
+        .map(|row| {
+            let bytes: Vec<u8> = row
+                .try_get("fact_bytes")
+                .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+            let fact = decode_instrument_fact(&bytes)?;
+            let digest: Vec<u8> = row
+                .try_get("fact_digest")
+                .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+            let identity: String = row
+                .try_get("canonical_identity")
+                .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+            let predecessor: Option<Vec<u8>> = row
+                .try_get("predecessor_fact_digest")
+                .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+            let predecessor = predecessor
+                .map(|value| {
+                    digest_from_bytes(&value).map_err(|_| InstrumentMasterError::StoreUntrusted)
+                })
+                .transpose()?;
+
+            if digest_from_bytes(&digest).map_err(|_| InstrumentMasterError::StoreUntrusted)?
+                != fact.digest()
+                || identity != fact.canonical_identity()
+                || predecessor != fact.predecessor_fact_digest()
+            {
+                return Err(InstrumentMasterError::StoreUntrusted);
+            }
+            Ok(fact)
+        })
+        .collect()
 }
 
 async fn lock_digests(

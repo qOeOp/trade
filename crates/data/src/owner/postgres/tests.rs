@@ -5,6 +5,12 @@ use sqlx::{PgPool, Row, postgres::PgPoolOptions};
 
 use super::*;
 use crate::owner::{
+    instrument_master::{
+        BACKTEST_OWNER_V1, InstrumentClass, InstrumentDecimal, InstrumentMasterError,
+        InstrumentMasterFactProposalV1, InstrumentMasterResolver, InstrumentMasterScopeV1,
+        InstrumentMasterUniverseMembershipResolver, InstrumentMasterUniverseMembershipV1,
+        InstrumentVenueSourceMapping, UntrustedInstrumentMasterRequestV1, membership_seal,
+    },
     pit_snapshot::{
         PitSnapshotOwnerResolver, UntrustedCorrectionPublicationTime, UntrustedEventEffectiveTime,
         UntrustedPitSnapshotEvidence, UntrustedPitSnapshotProposal, UntrustedPitSnapshotRequest,
@@ -377,6 +383,398 @@ async fn grant_reader(admin: &PgPool) {
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_epoch_successor_proof_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_clock_membership_custody_v1() TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_clock_custody_state_v1() TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_instrument_master_receipt_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+}
+
+struct TestUniverseMembership {
+    identity: BindingDigest,
+    members: Vec<String>,
+}
+
+impl membership_seal::Sealed for TestUniverseMembership {}
+
+impl InstrumentMasterUniverseMembershipResolver for TestUniverseMembership {
+    fn resolve_instrument_master_membership(
+        &self,
+        selection_identity: BindingDigest,
+    ) -> Result<InstrumentMasterUniverseMembershipV1, InstrumentMasterError> {
+        if selection_identity != self.identity {
+            return Err(InstrumentMasterError::MembershipMismatch);
+        }
+        super::super::instrument_master::authority::validate_members(&self.members)?;
+        Ok(InstrumentMasterUniverseMembershipV1 {
+            selection_identity,
+            members: self.members.clone(),
+        })
+    }
+}
+
+fn instrument_clock() -> MarketDataClockAdmission {
+    shared_clock(
+        "12345678901234567890123456789012",
+        "abcdefghijklmnopqrstuvwxyzABCDEF",
+        1,
+        100,
+        d(90),
+        1,
+        2,
+    )
+}
+
+fn instrument_fact(
+    identity: &str,
+    predecessor: Option<BindingDigest>,
+    correction: u8,
+) -> InstrumentMasterFactProposalV1 {
+    InstrumentMasterFactProposalV1 {
+        canonical_identity: identity.into(),
+        predecessor_fact_digest: predecessor,
+        mappings: vec![InstrumentVenueSourceMapping {
+            venue_identity: "XNAS".into(),
+            source_identity: "SIP".into(),
+            source_instrument: identity.as_bytes().to_vec(),
+        }],
+        instrument_class: InstrumentClass::Equity,
+        base_currency: Some("USD".into()),
+        quote_currency: None,
+        settlement_currency: Some("USD".into()),
+        margin_currency: None,
+        price_increment: InstrumentDecimal {
+            mantissa: 1,
+            scale: 2,
+        },
+        quantity_increment: InstrumentDecimal {
+            mantissa: 1,
+            scale: 0,
+        },
+        contract_multiplier: InstrumentDecimal {
+            mantissa: 1,
+            scale: 0,
+        },
+        calendar_identity: "XNYS-CALENDAR-V1".into(),
+        session_identity: "XNYS-REGULAR-V1".into(),
+        time_zone_identity: "America/New_York".into(),
+        lifecycle_frontier: d(81),
+        corporate_action_frontier: d(82),
+        historical_membership_frontier: d(83),
+        market_semantics_identity: d(84),
+        source_frontier: d(85),
+        correction_frontier: d(correction),
+        effective_from: 10,
+        effective_until: Some(200),
+        provider_available: 90,
+        retrieval: 91,
+        correction_publication: 92,
+        owner_observation: 99,
+    }
+}
+
+fn instrument_request(
+    identity: u8,
+    scope: InstrumentMasterScopeV1,
+    locator: UntrustedClockHeadLocator,
+) -> UntrustedInstrumentMasterRequestV1 {
+    UntrustedInstrumentMasterRequestV1 {
+        request_identity: d(identity),
+        request_meaning_digest: d(identity.wrapping_add(1)),
+        consumer_role: BACKTEST_OWNER_V1.into(),
+        scope,
+        effective_instant: 50,
+        owner_observation: 99,
+        decision_cut: 100,
+        clock_head: locator,
+        lifecycle_frontier: d(81),
+        corporate_action_frontier: d(82),
+        historical_membership_frontier: d(83),
+        market_semantics_identity: d(84),
+        source_frontier: d(85),
+        correction_frontier: d(86),
+        stable_correlation: d(identity.wrapping_add(2)),
+    }
+}
+
+async fn instrument_master_postgres_oracle(owner_url: &str, reader_url: &str, admin: &PgPool) {
+    let owner = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
+    grant_reader(admin).await;
+    let clock = instrument_clock();
+    let mut source_value = source_proposal(10, 100);
+    source_value.time_evidence.clock_identity = clock.clock_identity.clone();
+    source_value.time_evidence.clock_epoch = clock.clock_epoch.clone();
+    source_value.time_evidence.monotonic_sequence = 1;
+    source_value.time_evidence.restart_continuity_digest = d(90);
+    source_value.time_evidence.skew_bound = 2;
+    source_value.time_evidence.uncertainty_bound = 1;
+    source_value.time_evidence.observed_at = 100;
+    source_value.time_evidence.effective_at = 100;
+    source_value.time_evidence.valid_through = 160;
+    source_value.time_evidence.provider_available = 90;
+    source_value.time_evidence.retrieval = 92;
+    source_value.time_evidence.correction_publication = 91;
+    source_value.time_evidence.claimed_evidence_identity =
+        derive_time_evidence_identity(&source_value.time_evidence);
+    source_value.claimed_binding_id = derive_binding_id(&source_value);
+    owner
+        .commit_source_initial(
+            source_value,
+            OwnerSourceBindingDecision {
+                blockers: BTreeSet::new(),
+            },
+            &clock,
+        )
+        .await
+        .unwrap();
+    let read = MarketDataReadPostgres::connect(reader_url).await.unwrap();
+    let handoff = read
+        .resolve_clock_head(build_head_fact(&clock, None).unwrap().handoff.locator())
+        .await
+        .unwrap();
+
+    let facts_before: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM market_data_private.instrument_master_facts_v1")
+            .fetch_one(owner.pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        owner
+            .append_instrument_master_fact_with_rollback(
+                instrument_fact("GOOG", None, 86),
+                handoff.locator()
+            )
+            .await,
+        Err(InstrumentMasterError::CommitInterrupted)
+    );
+    let facts_after: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM market_data_private.instrument_master_facts_v1")
+            .fetch_one(owner.pool())
+            .await
+            .unwrap();
+    assert_eq!(facts_after, facts_before);
+
+    let aapl_proposal = instrument_fact("AAPL", None, 86);
+    let (first, replay) = tokio::join!(
+        owner.append_instrument_master_fact(aapl_proposal.clone(), handoff.locator()),
+        owner.append_instrument_master_fact(aapl_proposal, handoff.locator())
+    );
+    let aapl = first.unwrap();
+    assert_eq!(replay.unwrap(), aapl);
+    let msft = owner
+        .append_instrument_master_fact(instrument_fact("MSFT", None, 86), handoff.locator())
+        .await
+        .unwrap();
+    assert_ne!(aapl.digest(), msft.digest());
+
+    let exact = instrument_request(
+        110,
+        InstrumentMasterScopeV1::ExactInstrument("AAPL".into()),
+        handoff.locator().clone(),
+    );
+    let before: (i64, i64, i64, i64) = sqlx::query_as("SELECT (SELECT COUNT(*) FROM market_data_private.instrument_master_cuts_v1),(SELECT COUNT(*) FROM market_data_private.instrument_master_receipts_v1),(SELECT COUNT(*) FROM market_data_private.instrument_master_outbox_v1),COALESCE((SELECT append_sequence FROM market_data_private.instrument_master_state_v1 WHERE singleton),0)").fetch_one(owner.pool()).await.unwrap();
+    let readback = owner.resolve_instrument_master(&exact, None).await.unwrap();
+    assert!(crate::owner::instrument_master::verify_instrument_master_readback(&readback));
+    let joined = owner.resolve_instrument_master(&exact, None).await.unwrap();
+    assert_eq!(joined.canonical_bytes(), readback.canonical_bytes());
+    let after: (i64, i64, i64, i64) = sqlx::query_as("SELECT (SELECT COUNT(*) FROM market_data_private.instrument_master_cuts_v1),(SELECT COUNT(*) FROM market_data_private.instrument_master_receipts_v1),(SELECT COUNT(*) FROM market_data_private.instrument_master_outbox_v1),(SELECT append_sequence FROM market_data_private.instrument_master_state_v1 WHERE singleton)").fetch_one(owner.pool()).await.unwrap();
+    assert_eq!(
+        (
+            after.0 - before.0,
+            after.1 - before.1,
+            after.2 - before.2,
+            after.3 - before.3
+        ),
+        (1, 1, 1, 1)
+    );
+
+    let mut conflict = exact.clone();
+    conflict.effective_instant = 51;
+    assert_eq!(
+        owner.resolve_instrument_master(&conflict, None).await,
+        Err(InstrumentMasterError::RequestConflict)
+    );
+    let unchanged: (i64, i64, i64, i64) = sqlx::query_as("SELECT (SELECT COUNT(*) FROM market_data_private.instrument_master_cuts_v1),(SELECT COUNT(*) FROM market_data_private.instrument_master_receipts_v1),(SELECT COUNT(*) FROM market_data_private.instrument_master_outbox_v1),(SELECT append_sequence FROM market_data_private.instrument_master_state_v1 WHERE singleton)").fetch_one(owner.pool()).await.unwrap();
+    assert_eq!(unchanged, after);
+
+    let rollback = instrument_request(
+        120,
+        InstrumentMasterScopeV1::ExactInstrument("AAPL".into()),
+        handoff.locator().clone(),
+    );
+    assert_eq!(
+        owner
+            .resolve_instrument_master_with_rollback(&rollback, None)
+            .await,
+        Err(InstrumentMasterError::CommitInterrupted)
+    );
+    let rollback_counts: (i64, i64, i64, i64) = sqlx::query_as("SELECT (SELECT COUNT(*) FROM market_data_private.instrument_master_cuts_v1),(SELECT COUNT(*) FROM market_data_private.instrument_master_receipts_v1),(SELECT COUNT(*) FROM market_data_private.instrument_master_outbox_v1),(SELECT append_sequence FROM market_data_private.instrument_master_state_v1 WHERE singleton)").fetch_one(owner.pool()).await.unwrap();
+    assert_eq!(rollback_counts, after);
+
+    let loss = instrument_request(
+        130,
+        InstrumentMasterScopeV1::ExactInstrument("MSFT".into()),
+        handoff.locator().clone(),
+    );
+    assert_eq!(
+        owner
+            .resolve_instrument_master_with_response_loss(&loss, None)
+            .await,
+        Err(InstrumentMasterError::ResponseLost)
+    );
+    let recovered = owner
+        .recover_instrument_master(loss.request_identity, loss.request_meaning_digest)
+        .await
+        .unwrap();
+    drop(owner);
+    let restarted = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
+    let restarted_readback = restarted
+        .recover_instrument_master(loss.request_identity, loss.request_meaning_digest)
+        .await
+        .unwrap();
+    assert_eq!(
+        recovered.canonical_bytes(),
+        restarted_readback.canonical_bytes()
+    );
+
+    let universe = TestUniverseMembership {
+        identity: d(140),
+        members: vec!["AAPL".into(), "MSFT".into()],
+    };
+    let universe_request = instrument_request(
+        141,
+        InstrumentMasterScopeV1::UniverseSelectionRecord(d(140)),
+        handoff.locator().clone(),
+    );
+    let universe_readback = restarted
+        .resolve_instrument_master(&universe_request, Some(&universe))
+        .await
+        .unwrap();
+    assert_eq!(
+        universe_readback.cut().expected_members(),
+        &["AAPL".to_owned(), "MSFT".to_owned()]
+    );
+    let joined_universe = restarted
+        .resolve_instrument_master(&universe_request, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        joined_universe.canonical_bytes(),
+        universe_readback.canonical_bytes()
+    );
+
+    let mut expired = instrument_request(
+        150,
+        InstrumentMasterScopeV1::ExactInstrument("AAPL".into()),
+        handoff.locator().clone(),
+    );
+    expired.owner_observation = 160;
+    assert_eq!(
+        restarted.resolve_instrument_master(&expired, None).await,
+        Err(InstrumentMasterError::ClockExpired)
+    );
+    let reader = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(reader_url)
+        .await
+        .unwrap();
+    assert!(
+        sqlx::query("SELECT * FROM market_data_private.instrument_master_facts_v1")
+            .fetch_all(&reader)
+            .await
+            .is_err()
+    );
+    assert!(
+        sqlx::query("DELETE FROM market_data_private.instrument_master_receipts_v1")
+            .execute(&reader)
+            .await
+            .is_err()
+    );
+    let public_execute: bool = sqlx::query_scalar("SELECT has_function_privilege('public','market_data_private.resolve_instrument_master_receipt_v1(bytea)','EXECUTE')").fetch_one(admin).await.unwrap();
+    assert!(!public_execute);
+    let receipt_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM market_data_private.resolve_instrument_master_receipt_v1($1)",
+    )
+    .bind(loss.request_identity.as_bytes().as_slice())
+    .fetch_one(&reader)
+    .await
+    .unwrap();
+    assert_eq!(receipt_count, 1);
+
+    let next_clock = shared_clock(
+        "12345678901234567890123456789012",
+        "abcdefghijklmnopqrstuvwxyzABCDEF",
+        2,
+        120,
+        d(90),
+        1,
+        2,
+    );
+    restarted
+        .commit_clock_successor(&handoff, &next_clock)
+        .await
+        .unwrap();
+    let joined_after_head_advance = restarted
+        .resolve_instrument_master(&exact, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        joined_after_head_advance.canonical_bytes(),
+        readback.canonical_bytes()
+    );
+
+    let (outbox_identity, outbox_receipt_bytes): (Vec<u8>, Vec<u8>) = sqlx::query_as(
+        "SELECT outbox_identity,receipt_bytes FROM market_data_private.instrument_master_outbox_v1 WHERE request_identity=$1",
+    )
+    .bind(exact.request_identity.as_bytes().as_slice())
+    .fetch_one(restarted.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "DELETE FROM market_data_private.instrument_master_outbox_v1 WHERE request_identity=$1",
+    )
+    .bind(exact.request_identity.as_bytes().as_slice())
+    .execute(restarted.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        restarted.resolve_instrument_master(&exact, None).await,
+        Err(InstrumentMasterError::StoreUntrusted)
+    );
+    sqlx::query("INSERT INTO market_data_private.instrument_master_outbox_v1(request_identity,outbox_identity,receipt_bytes) VALUES($1,$2,$3)")
+        .bind(exact.request_identity.as_bytes().as_slice())
+        .bind(outbox_identity)
+        .bind(outbox_receipt_bytes)
+        .execute(restarted.pool())
+        .await
+        .unwrap();
+
+    sqlx::query(
+        "UPDATE market_data_private.instrument_master_receipts_v1 SET request_meaning_digest=$2 WHERE request_identity=$1",
+    )
+    .bind(loss.request_identity.as_bytes().as_slice())
+    .bind(d(200).as_bytes().as_slice())
+    .execute(restarted.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        restarted
+            .recover_instrument_master(loss.request_identity, d(200))
+            .await,
+        Err(InstrumentMasterError::StoreUntrusted)
+    );
+    sqlx::query(
+        "UPDATE market_data_private.instrument_master_receipts_v1 SET request_meaning_digest=$2 WHERE request_identity=$1",
+    )
+    .bind(loss.request_identity.as_bytes().as_slice())
+    .bind(loss.request_meaning_digest.as_bytes().as_slice())
+    .execute(restarted.pool())
+    .await
+    .unwrap();
+
+    sqlx::query("UPDATE market_data_private.instrument_master_outbox_v1 SET receipt_bytes=receipt_bytes || decode('00','hex') WHERE request_identity=$1").bind(loss.request_identity.as_bytes().as_slice()).execute(restarted.pool()).await.unwrap();
+    assert!(
+        restarted
+            .recover_instrument_master(loss.request_identity, loss.request_meaning_digest)
+            .await
+            .is_err()
+    );
 }
 
 async fn shared_time_counts(pool: &PgPool) -> (i64, i64) {
@@ -2968,5 +3366,15 @@ async fn run_postgres_owner_scenario() {
         MarketDataOwnerPostgres::connect(&owner_url).await,
         Err(SourceBindingError::StoreUnavailable)
     ));
+    sqlx::query("DROP SCHEMA market_data_private CASCADE")
+        .execute(epoch_owner.pool())
+        .await
+        .unwrap();
+    Box::pin(instrument_master_postgres_oracle(
+        &owner_url,
+        &reader_url,
+        &admin,
+    ))
+    .await;
     admin.close().await;
 }
