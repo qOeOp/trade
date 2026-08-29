@@ -18,8 +18,10 @@ use crate::complex_strategy_develop_evaluation::{
     UntrustedComplexStrategyDevelopEvaluationProposalV1,
 };
 use crate::exploratory_replay::{
-    ExploratoryReplayCommitResultV1, ExploratoryReplayOwnerError, ExploratoryReplayReadResultV1,
-    ExploratoryReplayRequestLocatorV1, ExploratoryReplayRequestProposalV1,
+    ExploratoryReplayCommitResultV1, ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError,
+    ExploratoryReplayReadResultV1, ExploratoryReplayReadResultV2,
+    ExploratoryReplayRequestLocatorV1, ExploratoryReplayRequestLocatorV2,
+    ExploratoryReplayRequestProposalV1, ExploratoryReplayRequestProposalV2,
 };
 use crate::product_edge::{
     FrozenResearchGoalIntent, IndependenceBasisReadbackV1, IndependenceBasisReceiptV1,
@@ -911,6 +913,31 @@ impl PostgresResearchGoalOwnerV1 {
             )
         })?;
         crate::exploratory_replay::postgres::lock_for_backtest(&self.pool, backtest, locator).await
+    }
+
+    /// Freezes the complete canonical Replay V2 meaning under the same R&D lineage transaction.
+    pub async fn commit_exploratory_replay_request_v2(
+        &self,
+        proposal: ExploratoryReplayRequestProposalV2,
+    ) -> Result<ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError> {
+        Box::pin(crate::exploratory_replay::postgres::commit_v2(
+            &self.pool, proposal,
+        ))
+        .await
+    }
+
+    /// Uses the canonical `backtest_owner` capability to consume only the V2 sealed handoff.
+    pub async fn lock_exploratory_replay_request_for_backtest_v2(
+        &self,
+        locator: &ExploratoryReplayRequestLocatorV2,
+    ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
+        let backtest = self.backtest.as_ref().ok_or_else(|| {
+            ExploratoryReplayOwnerError::Unavailable(
+                "R&D Owner has no bound Backtest read capability".into(),
+            )
+        })?;
+        crate::exploratory_replay::postgres::lock_for_backtest_v2(&self.pool, backtest, locator)
+            .await
     }
 
     pub async fn preflight_request_identity(

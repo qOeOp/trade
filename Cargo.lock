@@ -11229,6 +11229,7 @@ dependencies = [
  "tokio",
  "vibe-analysis",
  "vibe-backtest",
+ "vibe-backtest-owner-contracts",
  "vibe-binance",
  "vibe-common",
  "vibe-core",
