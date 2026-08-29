@@ -7,6 +7,10 @@ use std::{
 use crate::{
     Digest,
     authority::{OwnerAdmission, UnavailableOwnerAdmission},
+    lifecycle_receipt_read::{
+        CurrentLifecycleReceiptReadback, LifecycleReceiptReadError,
+        UntrustedLifecycleReceiptLocator,
+    },
     model::{
         AllowedIntentClass, ApplicationStatus, AuthorizationMode, AuthorizedGenerationDecision,
         CandidateId, DecisionFrontierId, EligibilityState, ExecutionMode, GenerationId,
@@ -83,6 +87,7 @@ pub struct GovernanceCore {
     accepted_aliases: BTreeMap<Digest, LifecycleRequestId>,
     accepted_candidate_actions: BTreeMap<(CandidateId, LifecycleAction), LifecycleRequestId>,
     accepted_generation_actions: BTreeMap<(GenerationId, LifecycleAction), LifecycleRequestId>,
+    generation_lifecycle_heads: BTreeMap<GenerationId, LifecycleRequestId>,
     closed_frontiers: BTreeMap<DecisionFrontierId, ClosedFrontier>,
     rejected_attempts: BTreeMap<DecisionFrontierId, Vec<RejectedAttempt>>,
 }
@@ -113,6 +118,7 @@ impl GovernanceCore {
             accepted_aliases: BTreeMap::new(),
             accepted_candidate_actions: BTreeMap::new(),
             accepted_generation_actions: BTreeMap::new(),
+            generation_lifecycle_heads: BTreeMap::new(),
             closed_frontiers: BTreeMap::new(),
             rejected_attempts: BTreeMap::new(),
         }
@@ -373,6 +379,11 @@ impl GovernanceCore {
             };
             self.receipts
                 .insert(request.request_id.clone(), receipt.clone());
+
+            if index == winner_index {
+                self.generation_lifecycle_heads
+                    .insert(request.generation_id.clone(), request.request_id.clone());
+            }
             receipts.push(receipt);
         }
         self.closed_frontiers.insert(
@@ -402,6 +413,91 @@ impl GovernanceCore {
         runtime_readback: Option<&UntrustedRuntimeApplicationReadback>,
     ) -> GovernanceDecisionView {
         self.project_runtime(receipt, runtime_readback)
+    }
+
+    /// Rereads a current canonical lifecycle receipt from Governance custody.
+    ///
+    /// Caller coordinates are untrusted. Unknown, stale, non-head, generation,
+    /// membership, or authority mismatch fails closed.
+    ///
+    /// # Errors
+    ///
+    /// Returns a bounded read error when the canonical receipt or any current
+    /// authority predicate cannot be established.
+    pub fn read_current_lifecycle_receipt(
+        &self,
+        locator: &UntrustedLifecycleReceiptLocator,
+    ) -> Result<CurrentLifecycleReceiptReadback<'_>, LifecycleReceiptReadError> {
+        let receipt = self
+            .receipts
+            .get(&locator.request_id)
+            .ok_or(LifecycleReceiptReadError::UnknownReceipt)?;
+        let decision = receipt
+            .decision()
+            .ok_or(LifecycleReceiptReadError::ReceiptNotAccepted)?;
+
+        if decision.generation_id() != &locator.generation_id {
+            return Err(LifecycleReceiptReadError::GenerationMismatch);
+        }
+
+        if self.generation_lifecycle_heads.get(&locator.generation_id) != Some(&locator.request_id)
+        {
+            return Err(LifecycleReceiptReadError::NotCurrentGenerationHead);
+        }
+
+        if decision.contender_membership_digest() != locator.membership_digest {
+            return Err(LifecycleReceiptReadError::MembershipMismatch);
+        }
+
+        if decision.decision_digest() != locator.decision_digest
+            || decision.principal_id() != &locator.principal_id
+            || decision.request_scope_id() != &locator.request_scope_id
+            || decision.authorization_lineage_ref() != &locator.authorization_lineage_ref
+            || decision.autonomous_policy_ref() != &locator.autonomous_policy_ref
+        {
+            return Err(LifecycleReceiptReadError::AuthorityMismatch);
+        }
+
+        if !self.admission.available() {
+            return Err(LifecycleReceiptReadError::OwnerAdmissionUnavailable);
+        }
+
+        let now = self
+            .clock
+            .now()
+            .filter(valid_decision_time)
+            .ok_or(LifecycleReceiptReadError::Stale)?;
+        if !current_decision_time(decision, &now) {
+            return Err(LifecycleReceiptReadError::Stale);
+        }
+
+        if !current_decision_cuts_are_fresh(decision, now.observed_at) {
+            return Err(LifecycleReceiptReadError::Stale);
+        }
+
+        if !self.current_decision_authority(decision) {
+            return Err(LifecycleReceiptReadError::OwnerAdmissionUnavailable);
+        }
+
+        let readback_digest = Digest::of_domain_fields(
+            "governance-current-lifecycle-receipt-readback-v1",
+            &[
+                receipt.request_id().as_str(),
+                &receipt.semantic_digest().to_hex(),
+                decision.generation_id().as_str(),
+                &decision.decision_digest().to_hex(),
+                &decision.contender_membership_digest().to_hex(),
+                &decision.authorization_lineage_ref().digest.to_hex(),
+                &decision.autonomous_policy_ref().digest.to_hex(),
+                &now.semantic_digest().to_hex(),
+            ],
+        );
+        Ok(CurrentLifecycleReceiptReadback {
+            receipt,
+            decision,
+            readback_digest,
+            projection_time: now,
+        })
     }
 
     fn project_runtime(
@@ -444,6 +540,27 @@ impl GovernanceCore {
             ViewAvailability::Unavailable,
             revalidate_after,
         )
+    }
+
+    fn current_decision_authority(&self, decision: &AuthorizedGenerationDecision) -> bool {
+        let request_time = decision.request_time();
+        let artifact = decision.artifact().readback();
+        let eligibility = decision.eligibility().readback();
+        let capacity = decision.capacity().readback();
+        let adapter = decision.adapter_binding().readback();
+        let lineage = decision.authorization_lineage().readback();
+        let policy = decision.autonomous_policy().readback();
+
+        self.admission.request_time(request_time)
+            && self.admission.artifact(artifact)
+            && self.admission.eligibility(eligibility)
+            && self.admission.capacity(capacity)
+            && self.admission.adapter_binding(adapter)
+            && self.admission.authorization_lineage(lineage)
+            && self.admission.autonomous_policy(policy)
+            && !lineage.revoked
+            && !policy.revoked
+            && eligibility.state == EligibilityState::Qualified
     }
 
     fn verify_runtime_readback(
@@ -817,6 +934,31 @@ fn valid_decision_time(evidence: &TimeEvidence) -> bool {
     !evidence.clock_epoch.is_empty()
         && evidence.monotonic_sequence != 0
         && evidence.observed_at < evidence.valid_through
+}
+
+fn current_decision_time(decision: &AuthorizedGenerationDecision, now: &TimeEvidence) -> bool {
+    let issued = decision.decision_time();
+    issued.clock_epoch == now.clock_epoch
+        && issued.monotonic_sequence <= now.monotonic_sequence
+        && issued.observed_at <= now.observed_at
+        && issued.is_current_at(now.observed_at)
+        && now.observed_at < decision.revalidate_after()
+}
+
+fn current_decision_cuts_are_fresh(
+    decision: &AuthorizedGenerationDecision,
+    observed_at: u64,
+) -> bool {
+    [
+        decision.request_time(),
+        &decision.eligibility().readback().time,
+        &decision.capacity().readback().time,
+        &decision.adapter_binding().readback().time,
+        &decision.authorization_lineage().readback().time,
+        &decision.autonomous_policy().readback().time,
+    ]
+    .into_iter()
+    .all(|time| time.is_current_at(observed_at))
 }
 
 fn has_duplicate_complete_comparator_key(
