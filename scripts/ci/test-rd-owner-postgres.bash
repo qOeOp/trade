@@ -416,6 +416,20 @@ cargo test --locked --package vibe-strategy-factory \
   replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox \
   -- --ignored --exact
 
+readonly decision_selection_foundation_test='research_iteration_decision::tests::postgres_atomic_recovery_concurrency_conflict_selection_and_malformed_fail_close'
+decision_selection_foundation_selection="$(
+  cargo test --locked --package vibe-strategy-factory --lib \
+    "$decision_selection_foundation_test" \
+    -- --ignored --exact --list
+)"
+if [[ "$decision_selection_foundation_selection" != "${decision_selection_foundation_test}: test"$'\n\n1 test, 0 benchmarks' ]]; then
+  echo "ERROR: expected exactly one R&D Decision/Selection foundation PostgreSQL test." >&2
+  exit 1
+fi
+cargo test --locked --package vibe-strategy-factory --lib \
+  "$decision_selection_foundation_test" \
+  -- --ignored --exact
+
 # This test deliberately leaves a raw Source Intake row corrupt. Run it only
 # after every positive consumer that must observe healthy Owner lineage.
 cargo test --locked --package vibe-strategy-factory \

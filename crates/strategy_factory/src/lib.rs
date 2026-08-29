@@ -89,6 +89,11 @@ mod rd_owner_postgres_custody;
 pub mod receipt;
 mod representative;
 mod research;
+#[allow(
+    dead_code,
+    reason = "R&D decision/selection foundation awaits the separate sealed Backtest composition successor"
+)]
+pub mod research_iteration_decision;
 mod robustness;
 mod software_control;
 pub mod source_intake;
