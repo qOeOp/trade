@@ -1874,6 +1874,17 @@ mod tests {
             })
             .to_string();
 
+        let peeked_research: Option<serde_json::Value> =
+            sqlx::query_scalar("SELECT rd_owner_api.peek_current_research_for_artifact_v1($1)")
+                .bind(&intent_identity)
+                .fetch_one(product_edge_pool)
+                .await
+                .unwrap_or_else(|e| panic!("artifact research peek failed: {e:?}"));
+        assert!(
+            peeked_research.is_some(),
+            "artifact research peek returned unavailable"
+        );
+
         let build_request_identity = format!("rd-api-retry-build-{suffix}");
         let attempt_identity = format!("rd-api-retry-attempt-{suffix}");
         let build = ArtifactBuildOperationRequestV1 {
@@ -1885,7 +1896,19 @@ mod tests {
         let build_body = Bytes::from(serde_json::to_vec(&build).unwrap());
         let prepared =
             prepare_artifact_build(State(state.clone()), headers.clone(), build_body.clone()).await;
-        assert_eq!(prepared.status(), StatusCode::OK);
+        let prepared_status = prepared.status();
+        let prepared_rejection_code = prepared
+            .headers()
+            .get("x-rd-rejection-code")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("none")
+            .to_string();
+        let prepared_json = response_json(prepared).await;
+        assert_eq!(
+            prepared_status,
+            StatusCode::OK,
+            "artifact preparation failed: rejection_code={prepared_rejection_code}, body={prepared_json}"
+        );
         let claimed =
             claim_provider_invocation(State(state.clone()), headers.clone(), build_body).await;
         assert_eq!(claimed.status(), StatusCode::OK);

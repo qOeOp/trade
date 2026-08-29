@@ -87,6 +87,37 @@ impl SourceIntakeAttemptFixtureExt for SourceIntakeAttemptV1 {
 
 const DOI: &str = "10.1234/source-intake";
 
+async fn install_source_intake_schema(pool: &sqlx::PgPool) {
+    let mut transaction = pool
+        .begin()
+        .await
+        .expect("begin Source Intake schema bootstrap");
+    sqlx::query(
+        "SELECT pg_advisory_xact_lock(hashtextextended('vibe.sealed-source-intake-schema-v1', 0))",
+    )
+    .execute(&mut *transaction)
+    .await
+    .expect("lock Source Intake schema bootstrap");
+    let installed: bool =
+        sqlx::query_scalar("SELECT to_regclass('public.rd_source_intake_bindings_v1') IS NOT NULL")
+            .fetch_one(&mut *transaction)
+            .await
+            .expect("inspect Source Intake schema bootstrap");
+
+    if !installed {
+        for (index, statement) in SOURCE_INTAKE_MIGRATION_SQL_V1.iter().enumerate() {
+            sqlx::query(*statement)
+                .execute(&mut *transaction)
+                .await
+                .unwrap_or_else(|e| panic!("Source Intake migration statement {index}: {e}"));
+        }
+    }
+    transaction
+        .commit()
+        .await
+        .expect("commit Source Intake schema bootstrap");
+}
+
 fn request() -> OpenAlexWorkByDoiRequestV1 {
     OpenAlexWorkByDoiRequestV1 {
         request_identity: "source-request-001".into(),
@@ -681,12 +712,7 @@ async fn postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sea
     let rd_owner = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
     let pe_pool = mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
 
-    for (index, statement) in SOURCE_INTAKE_MIGRATION_SQL_V1.iter().enumerate() {
-        sqlx::query(*statement)
-            .execute(rd_owner)
-            .await
-            .unwrap_or_else(|e| panic!("Source Intake migration statement {index}: {e}"));
-    }
+    install_source_intake_schema(rd_owner).await;
 
     let now = u64::try_from(
         std::time::SystemTime::now()
@@ -1667,12 +1693,7 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
     let mutation = database.mutation();
     let rd_owner = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
 
-    for (index, statement) in SOURCE_INTAKE_MIGRATION_SQL_V1.iter().enumerate() {
-        sqlx::query(*statement)
-            .execute(rd_owner)
-            .await
-            .unwrap_or_else(|e| panic!("Source Intake migration statement {index}: {e}"));
-    }
+    install_source_intake_schema(rd_owner).await;
 
     let now = u64::try_from(
         std::time::SystemTime::now()
@@ -2135,84 +2156,203 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
         .expect("canonical disposable Owner database");
     let mutation = database.mutation();
     let rd_owner = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
-    let product_edge = rd_owner;
 
-    for (index, statement) in SOURCE_INTAKE_MIGRATION_SQL_V1.iter().enumerate() {
-        sqlx::query(*statement)
-            .execute(rd_owner)
-            .await
-            .unwrap_or_else(|e| panic!("Source Intake migration statement {index}: {e}"));
-    }
+    install_source_intake_schema(rd_owner).await;
 
-    let binding_commit_identity = "binding-commit-postgres-tamper-001";
-    let started = TestStartedCustodyV1::fixture(
-        "source-request-001",
-        "product-edge-admission-001",
-        "product-edge-started-postgres-tamper-001",
-        interpretation(),
+    let now = u64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis(),
     )
     .unwrap();
-    let mut attempt = SourceIntakeAttemptV1::close_binding(request(), evidence()).unwrap();
-    let binding = attempt.binding().clone();
-    attempt
-        .prepare(binding_commit_identity, started.clone())
+    let suffix = format!("{}-{now}", std::process::id());
+    let request_identity = format!("source-tamper-request-{suffix}");
+    let deployment_identity = format!("source-tamper-deployment-{suffix}");
+    let principal = format!("source-tamper-principal-{suffix}");
+    let proof_digest = format!("sha256:{}", "7".repeat(64));
+    let manifest = AgentOperationManifestProposalV1 {
+        operation: SOURCE_INTAKE_OPERATION_V1.into(),
+        operation_schema: SOURCE_INTAKE_OPERATION_SCHEMA_V1.into(),
+        target_owner: SOURCE_INTAKE_TARGET_OWNER_V1.into(),
+        allowed_effects: SOURCE_INTAKE_REQUIRED_EFFECTS_V1
+            .into_iter()
+            .map(ToString::to_string)
+            .collect(),
+        prohibited_effects: vec!["ORDER_V1".into(), "REAL_TRADING_V1".into()],
+        capability_policy_digest: format!("sha256:{}", "8".repeat(64)),
+        effective_from_epoch_ms: now.saturating_sub(1_000),
+        valid_through_epoch_ms: now.saturating_add(600_000),
+    };
+    let issuer = OperatorAuthorizationIssuerPostgresV1::connect(
+        database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+    )
+    .await
+    .unwrap();
+    let authorization = issuer
+        .issue_genesis(OperatorAuthorizationIssuanceProposalV1 {
+            authorization_identity: format!("source-tamper-authorization-{suffix}"),
+            issuer_identity: "operator-authorization-issuer-test-v1".into(),
+            issuer_key_version: "test-key-v1".into(),
+            scope: OperatorAuthorizationScopeV1 {
+                principal: principal.clone(),
+                audience: "PRODUCT_EDGE".into(),
+                permissions: vec!["research:source-intake".into()],
+            },
+            request_proof_digest: proof_digest.clone(),
+            operation_manifests: vec![OperationManifestBindingV1 {
+                manifest_identity: manifest.manifest_identity().unwrap(),
+                manifest_digest: manifest.manifest_digest().unwrap(),
+            }],
+            not_before_epoch_ms: now.saturating_sub(1_000),
+            valid_through_epoch_ms: now.saturating_add(600_000),
+            expected_revocation_head: "EMPTY".into(),
+        })
+        .await
         .unwrap();
-    let permit = attempt.reserve_invocation_fixture().unwrap();
+    let product_edge = ProductEdgePostgresOwnerV1::connect(
+        database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+        &deployment_identity,
+        ProductEdgeAuthorizationTrustV1 {
+            issuer_identity: "operator-authorization-issuer-test-v1".into(),
+            issuer_key_version: "test-key-v1".into(),
+            audience: "PRODUCT_EDGE".into(),
+        },
+    )
+    .await
+    .unwrap();
+    product_edge
+        .bootstrap_genesis(ProductEdgeBootstrapProposalV1 {
+            deployment_identity,
+            binding_identity: format!("source-tamper-edge-binding-{suffix}"),
+            expected_history_head: "EMPTY".into(),
+            generation: 1,
+            effective_principal: principal,
+            scope_policy_version: "source-tamper-scope-v1".into(),
+            capability_policy_version: "source-tamper-capability-v1".into(),
+            audit_policy_version: "source-tamper-audit-v1".into(),
+            valid_from_epoch_ms: now.saturating_sub(1_000),
+            valid_through_epoch_ms: now.saturating_add(600_000),
+            authorization: authorization.locator(),
+            manifests: vec![manifest],
+        })
+        .await
+        .unwrap();
+    let admission = product_edge
+        .admit_source_intake_request(ProductEdgeAdmissionRequestV1 {
+            request_identity: request_identity.clone(),
+            typed_payload: serde_json::json!({
+                "request_identity": request_identity,
+                "gateway": "WINDMILL_PRODUCT_EDGE",
+                "normalized_doi": DOI,
+                "interpretation": interpretation(),
+            }),
+            operation: SOURCE_INTAKE_OPERATION_V1.into(),
+            operation_schema: SOURCE_INTAKE_OPERATION_SCHEMA_V1.into(),
+            target_owner: SOURCE_INTAKE_TARGET_OWNER_V1.into(),
+            requested_effects: SOURCE_INTAKE_REQUIRED_EFFECTS_V1
+                .into_iter()
+                .map(ToString::to_string)
+                .collect(),
+            request_proof_digest: proof_digest,
+            audit_correlation: format!("source-tamper:{suffix}"),
+        })
+        .await
+        .unwrap();
+    let source_request = OpenAlexWorkByDoiRequestV1 {
+        request_identity: request_identity.clone(),
+        gateway: ProductEdgeGatewayV1::WindmillProductEdge,
+        admission: admission.locator().clone(),
+        operation_manifest_identity: admission.manifest_identity().to_string(),
+        operation_manifest_digest: admission.manifest_digest().to_string(),
+        normalized_doi: DOI.into(),
+    };
+    let source_evidence = evidence_for(&source_request);
+    let mut attempt =
+        SourceIntakeAttemptV1::close_binding(source_request, source_evidence).unwrap();
+    let binding = attempt.binding().clone();
+    let binding_commit_identity = format!("source-tamper-binding-commit-{suffix}");
+
+    let mut transaction = rd_owner.begin().await.unwrap();
+    sqlx::query("INSERT INTO public.rd_source_intake_bindings_v1 (request_identity,binding_identity,binding_commit_identity,binding_json,state,binding_committed_at_epoch_ms) VALUES ($1,$2,$3,$4,'BINDING_CLOSED',$5)")
+        .bind(&binding.request_identity)
+        .bind(&binding.binding_identity)
+        .bind(&binding_commit_identity)
+        .bind(serde_json::to_value(&binding).unwrap())
+        .bind(i64::try_from(now).unwrap())
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    transaction.commit().await.unwrap();
+
+    product_edge
+        .claim_source_intake_invocation(ProductEdgeSourceInvocationClaimRequestV1 {
+            admission: admission.locator().clone(),
+            attempt_identity: binding.binding_identity.clone(),
+            binding_identity: binding.binding_identity.clone(),
+        })
+        .await
+        .unwrap();
+    let mut prepare = rd_owner.begin().await.unwrap();
+    let start_request = prepare_source_invocation_in_transaction(
+        &mut prepare,
+        admission.locator(),
+        &binding.binding_identity,
+        now.saturating_add(1),
+    )
+    .await
+    .unwrap();
+    prepare.commit().await.unwrap();
+    let started = product_edge
+        .start_source_intake_invocation(start_request)
+        .await
+        .unwrap();
+    let mut reserve = rd_owner.begin().await.unwrap();
+    let owner_permit = reserve_started_source_invocation_in_transaction(
+        &mut reserve,
+        admission.locator(),
+        &binding.binding_identity,
+        SourceIntakeInvocationPolicyEvidenceV1::fixture(
+            &binding,
+            binding.shared_time.decision_cut_epoch_ms + 1,
+            SourceAcquisitionAdmissionV1::Admitted,
+        ),
+    )
+    .await
+    .unwrap();
+    reserve.commit().await.unwrap();
+    attempt
+        .prepare(
+            &binding_commit_identity,
+            TestStartedCustodyV1::fixture(
+                &request_identity,
+                &admission.locator().admission_identity,
+                started.state_digest(),
+                interpretation(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let local_permit = attempt.reserve_invocation_fixture().unwrap();
+    assert_eq!(
+        owner_permit.invocation_identity(),
+        local_permit.invocation_identity()
+    );
     let raw_payload = success_body(DOI);
     let readback = attempt
         .resolve_fixture(
-            permit,
+            local_permit,
             http(200, "application/json", vec![raw_payload.clone()]),
-            1_800_000_000_100,
+            now.saturating_add(3),
         )
         .unwrap();
     let receipt = readback.receipt.as_ref().unwrap();
     let provenance = attempt.committed_provenance().unwrap();
     let candidate = attempt.committed_candidate().unwrap();
     let outbox = attempt.committed_outbox().unwrap();
-    let invocation_identity = receipt.invocation_identity.as_deref().unwrap();
     let content_digest = receipt.content_digest.as_deref().unwrap();
 
     let mut transaction = rd_owner.begin().await.unwrap();
-    sqlx::query("INSERT INTO public.rd_source_intake_bindings_v1 (request_identity,binding_identity,binding_commit_identity,binding_json,state,binding_committed_at_epoch_ms) VALUES ($1,$2,$3,$4,'BINDING_CLOSED',$5)")
-        .bind(&binding.request_identity)
-        .bind(&binding.binding_identity)
-        .bind(binding_commit_identity)
-        .bind(serde_json::to_value(&binding).unwrap())
-        .bind(1_800_000_000_000_i64)
-        .execute(&mut *transaction)
-        .await
-        .unwrap();
-    sqlx::query("SAVEPOINT invalid_product_edge_started")
-        .execute(&mut *transaction)
-        .await
-        .unwrap();
-    let mut invalid_started = serde_json::to_value(&started).unwrap();
-    invalid_started["request_identity"] = serde_json::Value::String("other-request".into());
-    let invalid_prepare = sqlx::query("UPDATE public.rd_source_intake_bindings_v1 SET state='PREPARED',product_edge_started_receipt_identity=$2,product_edge_started_json=$3 WHERE request_identity=$1")
-        .bind(&binding.request_identity)
-        .bind("product-edge-started-postgres-tamper-001")
-        .bind(invalid_started)
-        .execute(&mut *transaction)
-        .await;
-    assert!(invalid_prepare.is_err());
-    sqlx::query("ROLLBACK TO SAVEPOINT invalid_product_edge_started")
-        .execute(&mut *transaction)
-        .await
-        .unwrap();
-    sqlx::query("UPDATE public.rd_source_intake_bindings_v1 SET state='PREPARED',product_edge_started_receipt_identity=$2,product_edge_started_json=$3 WHERE request_identity=$1")
-        .bind(&binding.request_identity)
-        .bind("product-edge-started-postgres-tamper-001")
-        .bind(serde_json::to_value(&started).unwrap())
-        .execute(&mut *transaction)
-        .await
-        .unwrap();
-    sqlx::query("UPDATE public.rd_source_intake_bindings_v1 SET state='INVOCATION_RESERVED',invocation_identity=$2 WHERE request_identity=$1")
-        .bind(&binding.request_identity)
-        .bind(invocation_identity)
-        .execute(&mut *transaction)
-        .await
-        .unwrap();
     let raw_acl: (String, String, bool, bool) = sqlx::query_as(
         "SELECT current_user::text, pg_catalog.pg_get_userbyid(class.relowner)::text, pg_catalog.has_table_privilege(current_user, class.oid, 'SELECT'), pg_catalog.has_table_privilege(current_user, class.oid, 'REFERENCES') FROM pg_catalog.pg_class AS class WHERE class.oid='public.rd_source_raw_payloads_v1'::regclass",
     )
@@ -2220,30 +2360,28 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
     .await
     .unwrap();
     assert_eq!(raw_acl, ("rd_owner".into(), "rd_owner".into(), true, true));
-    sqlx::query(TERMINAL_SUCCESS_TRANSACTION_SQL_V1)
-        .bind(&binding.request_identity)
-        .bind(invocation_identity)
-        .bind(&receipt.receipt_identity)
-        .bind(serde_json::to_value(receipt).unwrap())
-        .bind(i64::try_from(receipt.committed_at_epoch_ms).unwrap())
-        .bind(content_digest)
-        .bind(&raw_payload)
-        .bind(&provenance.provenance_identity)
-        .bind(serde_json::to_value(provenance).unwrap())
-        .bind(&candidate.candidate_identity)
-        .bind(serde_json::to_value(candidate).unwrap())
-        .bind(&outbox.event_identity)
-        .bind(&outbox.payload_digest)
-        .bind(serde_json::to_value(outbox).unwrap())
-        .execute(&mut *transaction)
-        .await
-        .unwrap();
+    let committed = SourceIntakeAttemptV1::replay_success_terminal_in_transaction_for_test(
+        &mut transaction,
+        admission.locator(),
+        &binding.binding_identity,
+        (
+            owner_permit.invocation_identity(),
+            receipt,
+            &raw_payload,
+            provenance,
+            candidate,
+            outbox,
+        ),
+    )
+    .await
+    .unwrap();
+    assert_eq!(committed.content_digest.as_deref(), Some(content_digest));
     transaction.commit().await.unwrap();
 
     let sealed: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
             .bind(&binding.request_identity)
-            .fetch_one(product_edge)
+            .fetch_one(rd_owner)
             .await
             .unwrap();
     assert_eq!(
@@ -2252,6 +2390,15 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
             .and_then(|value| value["content_digest"].as_str()),
         Some(content_digest)
     );
+
+    let canonical_started: (String, serde_json::Value) = sqlx::query_as(
+        "SELECT product_edge_started_receipt_identity,product_edge_started_json FROM public.rd_source_intake_bindings_v1 WHERE request_identity=$1",
+    )
+    .bind(&binding.request_identity)
+    .fetch_one(rd_owner)
+    .await
+    .unwrap();
+    assert_eq!(canonical_started.0, started.state_digest());
 
     sqlx::query(
         "ALTER TABLE public.rd_source_intake_bindings_v1 DISABLE TRIGGER rd_source_intake_binding_guard_v1",
@@ -2276,7 +2423,7 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
     let rejected: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
             .bind(&binding.request_identity)
-            .fetch_one(product_edge)
+            .fetch_one(rd_owner)
             .await
             .unwrap();
     assert!(rejected.is_none());
@@ -2291,8 +2438,8 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
         "UPDATE public.rd_source_intake_bindings_v1 SET product_edge_started_receipt_identity=$2,product_edge_started_json=$3 WHERE request_identity=$1",
     )
     .bind(&binding.request_identity)
-    .bind("product-edge-started-postgres-tamper-001")
-    .bind(serde_json::to_value(&started).unwrap())
+    .bind(&canonical_started.0)
+    .bind(&canonical_started.1)
     .execute(rd_owner)
     .await
     .unwrap();
@@ -2305,7 +2452,7 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
     let restored: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
             .bind(&binding.request_identity)
-            .fetch_one(product_edge)
+            .fetch_one(rd_owner)
             .await
             .unwrap();
     assert_eq!(
@@ -2337,7 +2484,7 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
     let rejected: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
             .bind(&binding.request_identity)
-            .fetch_one(product_edge)
+            .fetch_one(rd_owner)
             .await
             .unwrap();
     assert!(rejected.is_none());
@@ -2365,7 +2512,7 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
     let restored: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
             .bind(&binding.request_identity)
-            .fetch_one(product_edge)
+            .fetch_one(rd_owner)
             .await
             .unwrap();
     assert_eq!(
@@ -2385,7 +2532,7 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
     let rejected: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
             .bind(&binding.request_identity)
-            .fetch_one(product_edge)
+            .fetch_one(rd_owner)
             .await
             .unwrap();
     assert!(rejected.is_none());
@@ -2399,7 +2546,7 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
     let restored: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
             .bind(&binding.request_identity)
-            .fetch_one(product_edge)
+            .fetch_one(rd_owner)
             .await
             .unwrap();
     assert_eq!(
@@ -2419,7 +2566,7 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
     let rejected: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
             .bind(&binding.request_identity)
-            .fetch_one(product_edge)
+            .fetch_one(rd_owner)
             .await
             .unwrap();
     assert!(rejected.is_none());
@@ -2435,7 +2582,7 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
     let restored: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
             .bind(&binding.request_identity)
-            .fetch_one(product_edge)
+            .fetch_one(rd_owner)
             .await
             .unwrap();
     assert_eq!(
@@ -2467,7 +2614,7 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
     let rejected: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
             .bind(&binding.request_identity)
-            .fetch_one(product_edge)
+            .fetch_one(rd_owner)
             .await
             .unwrap();
     assert!(rejected.is_none());
@@ -2495,7 +2642,7 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
     let restored: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
             .bind(&binding.request_identity)
-            .fetch_one(product_edge)
+            .fetch_one(rd_owner)
             .await
             .unwrap();
     assert_eq!(
@@ -2528,7 +2675,7 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
     let rejected: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
             .bind(&binding.request_identity)
-            .fetch_one(product_edge)
+            .fetch_one(rd_owner)
             .await
             .unwrap();
     assert!(rejected.is_none());
