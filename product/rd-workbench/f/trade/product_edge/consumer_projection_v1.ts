@@ -730,6 +730,33 @@ async function canonicalDigest(domain: string, value: unknown): Promise<string> 
   return `sha256:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")}`
 }
 
+function canonicalResearchSourceV1(source: Json): Json {
+  return {
+    locator: source.locator,
+    content_digest: source.content_digest,
+    observed_at: source.observed_at,
+    source_cut: source.source_cut,
+    license_basis: source.license_basis,
+    interpretation: source.interpretation,
+  }
+}
+
+function canonicalTrialFamilyPolicyV1(policy: Json): Json {
+  return {
+    trial_budget: policy.trial_budget,
+    stop_rule: policy.stop_rule,
+    pit_rule_identity: policy.pit_rule_identity,
+    cost_model_identity: policy.cost_model_identity,
+    slippage_model_identity: policy.slippage_model_identity,
+    capacity_model_identity: policy.capacity_model_identity,
+    semantic_predecessor_frontier: policy.semantic_predecessor_frontier,
+    protected_feedback_frontier: policy.protected_feedback_frontier,
+    independence_disposition: policy.independence_disposition,
+    independence_basis_identity: policy.independence_basis_identity,
+    frozen_falsifier_binding: policy.frozen_falsifier_binding,
+  }
+}
+
 async function canonicalResearchViewIdentityV2(view: Json): Promise<string> {
   const digest = await canonicalDigest("rd.research-view.identity.v2", {
     schema_version: view.schema_version,
@@ -741,7 +768,7 @@ async function canonicalResearchViewIdentityV2(view: Json): Promise<string> {
     source_cut: view.source_cut,
     phase: view.phase,
     intent_identity: view.intent_identity,
-    source_frontier: view.source_frontier,
+    source_frontier: view.source_frontier.map(canonicalResearchSourceV1),
     attempt_identity: view.attempt_identity ?? null,
     artifact_identity: view.artifact_identity ?? null,
     build_receipt_identity: view.build_receipt_identity ?? null,
@@ -824,7 +851,8 @@ async function canonicalTrialFamilyV1(
     || member.fact_digest !== intentDigest || ![member.fact_digest, intentDigest].every(
     (digest) => typeof digest === "string" && /^sha256:[0-9a-f]{64}$/.test(digest),
   )) return null
-  const policyDigest = await canonicalDigest("rd.trial-family.policy.v1", root.policy)
+  const policy = canonicalTrialFamilyPolicyV1(root.policy)
+  const policyDigest = await canonicalDigest("rd.trial-family.policy.v1", policy)
   const familyIdentityDigest = await canonicalDigest("rd.trial-family.identity.v1", {
     intent_identity: intentIdentity,
     intent_digest: intentDigest,
@@ -834,7 +862,7 @@ async function canonicalTrialFamilyV1(
   const rootDigest = await canonicalDigest("rd.trial-family.root.v1", {
     schema_version: 1,
     trial_family_identity: familyIdentity,
-    policy: root.policy,
+    policy,
     policy_digest: policyDigest,
     created_at_epoch_ms: root.created_at_epoch_ms,
   })
