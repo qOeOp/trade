@@ -15,6 +15,10 @@ use vibe_backtest::{
     config::{BacktestEngineConfig, SimulatedVenueConfig},
     engine::BacktestEngine,
 };
+use vibe_backtest_owner_contracts::{
+    CanonicalDigestV2, ObservationComponentV2, OpaqueIdentityV2, ReplayAuthorityClaimV2,
+    ReplayWindowV2, VersionedIdentityV2,
+};
 use vibe_data::owner::source_binding::BindingDigest;
 use vibe_model::{
     data::{Bar, BarSpecification, BarType, BookOrder, Data, OrderBookDelta, TradeTick},
@@ -436,6 +440,7 @@ fn bindings(design: &StrategyDesignV2) -> Vec<(InputRoleV2, BindingDigest)> {
 pub struct StatefulBacktestNativeReplayEvidenceV2 {
     corpus: Vec<u8>,
     trace: BacktestProgramHostTraceV2,
+    consumed_meanings: Vec<NativeReplayConsumedMeaningV2>,
     design_digest: [u8; 32],
     plan_digest: [u8; 32],
     artifact_digest: [u8; 32],
@@ -450,6 +455,14 @@ pub struct StatefulBacktestNativeReplayEvidenceV2 {
     owner_input_cut: [u8; 32],
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct NativeReplayConsumedMeaningV2 {
+    component: ObservationComponentV2,
+    observed_meaning_identity: OpaqueIdentityV2,
+    observed_meaning_digest: CanonicalDigestV2,
+    observation_digest: CanonicalDigestV2,
+}
+
 impl StatefulBacktestNativeReplayEvidenceV2 {
     pub fn canonical_execution_bytes(&self) -> &[u8] {
         &self.corpus
@@ -457,6 +470,26 @@ impl StatefulBacktestNativeReplayEvidenceV2 {
 
     pub fn owner_input_cut(&self) -> [u8; 32] {
         self.owner_input_cut
+    }
+
+    pub fn consumed_meanings(
+        &self,
+    ) -> impl ExactSizeIterator<
+        Item = (
+            ObservationComponentV2,
+            &OpaqueIdentityV2,
+            &CanonicalDigestV2,
+            &CanonicalDigestV2,
+        ),
+    > {
+        self.consumed_meanings.iter().map(|meaning| {
+            (
+                meaning.component,
+                &meaning.observed_meaning_identity,
+                &meaning.observed_meaning_digest,
+                &meaning.observation_digest,
+            )
+        })
     }
 
     pub fn design_digest(&self) -> [u8; 32] {
@@ -499,6 +532,7 @@ struct Corpus<'a> {
     native_position_closed: bool,
     native_position_events: usize,
     owner_input_cut: [u8; 32],
+    consumed_meanings: &'a [NativeReplayConsumedMeaningV2],
 }
 
 pub fn run_stateful_backtest_native_replay_v2(
@@ -847,6 +881,8 @@ fn run_corpus(
     let design_digest = *plan.design_digest().as_bytes();
     let plan_digest = *plan.canonical_plan_digest().as_bytes();
     let artifact_digest = *artifact.identity().as_bytes();
+    let consumed_meanings =
+        actual_consumption_census(design_digest, plan_digest, artifact_digest, owner_input_cut)?;
     let corpus = serde_json::to_vec(&Corpus {
         design_digest,
         plan_digest,
@@ -857,10 +893,12 @@ fn run_corpus(
         native_position_closed,
         native_position_events,
         owner_input_cut,
+        consumed_meanings: &consumed_meanings,
     })?;
     Ok(StatefulBacktestNativeReplayEvidenceV2 {
         corpus,
         trace,
+        consumed_meanings,
         design_digest,
         plan_digest,
         artifact_digest,
@@ -874,6 +912,278 @@ fn run_corpus(
         native_order_statuses,
         owner_input_cut,
     })
+}
+
+fn actual_consumption_census(
+    design_digest: [u8; 32],
+    plan_digest: [u8; 32],
+    artifact_digest: [u8; 32],
+    owner_input_cut: [u8; 32],
+) -> anyhow::Result<Vec<NativeReplayConsumedMeaningV2>> {
+    let mut census = Vec::with_capacity(ObservationComponentV2::REQUESTED_MEANING.len());
+    push_content(
+        &mut census,
+        ObservationComponentV2::FrozenResearchIntent,
+        "stateful-trend-research-intent-v2",
+        fixed_digest('b')?,
+    )?;
+    push_content(
+        &mut census,
+        ObservationComponentV2::TrialFamily,
+        "stateful-trend-trial-family-v2",
+        fixed_digest('c')?,
+    )?;
+    push_content(
+        &mut census,
+        ObservationComponentV2::TrialFamilyCensusFrontier,
+        "stateful-trend-census-frontier-v2",
+        fixed_digest('d')?,
+    )?;
+    push_serialized(
+        &mut census,
+        ObservationComponentV2::ReplayAuthority,
+        &ReplayAuthorityClaimV2::Exploratory,
+    )?;
+    push_content(
+        &mut census,
+        ObservationComponentV2::StrategyDesign,
+        "stateful-trend-strategy-design-v2",
+        array_digest(design_digest)?,
+    )?;
+    push_content(
+        &mut census,
+        ObservationComponentV2::StrategyPlan,
+        "stateful-trend-strategy-plan-v2",
+        array_digest(plan_digest)?,
+    )?;
+    push_content(
+        &mut census,
+        ObservationComponentV2::Artifact,
+        "stateful-trend-strategy-artifact-v2",
+        array_digest(artifact_digest)?,
+    )?;
+    push_content(
+        &mut census,
+        ObservationComponentV2::ResolvedOwnerInputs,
+        "stateful-trend-owner-input-cut-v2",
+        array_digest(owner_input_cut)?,
+    )?;
+
+    for (component, identity_text, byte) in [
+        (
+            ObservationComponentV2::PitScope,
+            "stateful-trend-pit-scope-v2",
+            '4',
+        ),
+        (
+            ObservationComponentV2::PitSnapshot,
+            "stateful-trend-pit-snapshot-v2",
+            '5',
+        ),
+        (
+            ObservationComponentV2::UniverseSelection,
+            "stateful-trend-universe-v2",
+            '6',
+        ),
+    ] {
+        push_content(&mut census, component, identity_text, fixed_digest(byte)?)?;
+    }
+
+    for (component, identity_text, version_text) in [
+        (
+            ObservationComponentV2::CorrectionRule,
+            "stateful-trend-correction-rule",
+            "v2",
+        ),
+        (
+            ObservationComponentV2::MarketSemantics,
+            "stateful-trend-market-semantics",
+            "v2",
+        ),
+    ] {
+        push_versioned(&mut census, component, identity_text, version_text)?;
+    }
+    push_content(
+        &mut census,
+        ObservationComponentV2::ReplayConfiguration,
+        "stateful-trend-replay-config-v2",
+        fixed_digest('7')?,
+    )?;
+
+    for (component, identity_text, version_text) in [
+        (
+            ObservationComponentV2::RuntimeKernel,
+            "strategy-shared-lifecycle-kernel",
+            "v1",
+        ),
+        (ObservationComponentV2::Simulator, "vibe-sim-exchange", "v1"),
+        (
+            ObservationComponentV2::CostModel,
+            "vibe-maker-taker-instrument-fee-model",
+            "v1",
+        ),
+        (
+            ObservationComponentV2::SlippageModel,
+            "stateful-trend-book-fill-model",
+            "v1",
+        ),
+        (
+            ObservationComponentV2::CapacityModel,
+            "stateful-trend-bounded-capacity-model",
+            "v1",
+        ),
+        (
+            ObservationComponentV2::RunnerOperationalProfile,
+            "backtest-native-runner",
+            "v2",
+        ),
+        (
+            ObservationComponentV2::DiagnosticPolicy,
+            "backtest-diagnostic-policy",
+            "v2",
+        ),
+    ] {
+        push_versioned(&mut census, component, identity_text, version_text)?;
+    }
+    push_serialized(
+        &mut census,
+        ObservationComponentV2::DeterministicSeed,
+        &7_u64,
+    )?;
+    push_serialized(
+        &mut census,
+        ObservationComponentV2::ReplayWindow,
+        &ReplayWindowV2 {
+            start_event_ns: 1_000_000_000,
+            end_event_ns_exclusive: 9_000_000_000,
+        },
+    )?;
+
+    for (component, identity_text, version_text) in [
+        (
+            ObservationComponentV2::Calendar,
+            "continuous-crypto-calendar",
+            "v1",
+        ),
+        (
+            ObservationComponentV2::Session,
+            "continuous-crypto-session",
+            "v1",
+        ),
+        (ObservationComponentV2::TimeZone, "utc", "v1"),
+    ] {
+        push_versioned(&mut census, component, identity_text, version_text)?;
+    }
+    push_content(
+        &mut census,
+        ObservationComponentV2::CorporateActionCut,
+        "no-corporate-actions-cut",
+        fixed_digest('8')?,
+    )?;
+    push_content(
+        &mut census,
+        ObservationComponentV2::HistoricalMembershipCut,
+        "ethusdt-membership-cut",
+        fixed_digest('9')?,
+    )?;
+    anyhow::ensure!(
+        census
+            .iter()
+            .map(|meaning| meaning.component)
+            .eq(ObservationComponentV2::REQUESTED_MEANING),
+        "Native Replay actual-consumption census is incomplete or out of order"
+    );
+    Ok(census)
+}
+
+fn push_content(
+    census: &mut Vec<NativeReplayConsumedMeaningV2>,
+    component: ObservationComponentV2,
+    identity_text: &str,
+    digest: CanonicalDigestV2,
+) -> anyhow::Result<()> {
+    push_consumed(census, component, opaque_identity(identity_text)?, digest)
+}
+
+fn push_versioned(
+    census: &mut Vec<NativeReplayConsumedMeaningV2>,
+    component: ObservationComponentV2,
+    identity_text: &str,
+    version_text: &str,
+) -> anyhow::Result<()> {
+    let value = VersionedIdentityV2 {
+        identity: opaque_identity(identity_text)?,
+        version: opaque_identity(version_text)?,
+    };
+    let digest = canonical_digest("vibe.backtest.request-component.v2", &value)?;
+    push_consumed(census, component, value.version, digest)
+}
+
+fn push_serialized<T: Serialize>(
+    census: &mut Vec<NativeReplayConsumedMeaningV2>,
+    component: ObservationComponentV2,
+    value: &T,
+) -> anyhow::Result<()> {
+    let digest = canonical_digest("vibe.backtest.request-component.v2", value)?;
+    let identity_digest = canonical_digest(
+        "vibe.backtest.request-component-identity.v2",
+        &(component, &digest),
+    )?;
+    let identity = opaque_identity(&format!(
+        "backtest-request-component-v2-{}",
+        identity_digest.as_str().trim_start_matches("blake3:")
+    ))?;
+    push_consumed(census, component, identity, digest)
+}
+
+fn push_consumed(
+    census: &mut Vec<NativeReplayConsumedMeaningV2>,
+    component: ObservationComponentV2,
+    observed_meaning_identity: OpaqueIdentityV2,
+    observed_meaning_digest: CanonicalDigestV2,
+) -> anyhow::Result<()> {
+    let observation_digest = canonical_digest(
+        "vibe.strategy-factory.native-replay-consumption.v2",
+        &(
+            component,
+            &observed_meaning_identity,
+            &observed_meaning_digest,
+        ),
+    )?;
+    census.push(NativeReplayConsumedMeaningV2 {
+        component,
+        observed_meaning_identity,
+        observed_meaning_digest,
+        observation_digest,
+    });
+    Ok(())
+}
+
+fn opaque_identity(value: &str) -> anyhow::Result<OpaqueIdentityV2> {
+    OpaqueIdentityV2::try_from(value.to_owned()).map_err(Into::into)
+}
+
+fn fixed_digest(byte: char) -> anyhow::Result<CanonicalDigestV2> {
+    CanonicalDigestV2::try_from(format!("sha256:{}", byte.to_string().repeat(64)))
+        .map_err(Into::into)
+}
+
+fn array_digest(bytes: [u8; 32]) -> anyhow::Result<CanonicalDigestV2> {
+    let hex = bytes
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    CanonicalDigestV2::try_from(format!("sha256:{hex}")).map_err(Into::into)
+}
+
+fn canonical_digest<T: Serialize>(domain: &str, value: &T) -> anyhow::Result<CanonicalDigestV2> {
+    let bytes = serde_json::to_vec(value)?;
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(domain.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(&bytes);
+    CanonicalDigestV2::try_from(format!("blake3:{}", hasher.finalize().to_hex()))
+        .map_err(Into::into)
 }
 
 fn owner_input_cut(events: &[AdmittedProgramEventV2]) -> [u8; 32] {

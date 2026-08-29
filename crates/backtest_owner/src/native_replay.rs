@@ -9,7 +9,7 @@ use crate::{
     ContentIdentityV2, DiagnosticCategoryV2, DiagnosticEvidenceV2, ObservationComponentV2,
     OpaqueIdentityV2, OwnerResultDraftV2, ReplayAuthorityClaimV2, ReplayModelProfilesV2,
     ReplayOwnerErrorV2, ReplayRequestDtoV2, ReplayRequestV2, ReplayTerminalV2, ReplayWindowV2,
-    SealedReplayResultV2, VersionedIdentityV2, commit_owner_result, requested_component_meanings,
+    SealedReplayResultV2, VersionedIdentityV2, commit_owner_result,
 };
 
 struct NativeReplayExecutionV2 {
@@ -45,8 +45,6 @@ fn execute_native_replay(
             "stateful Native Replay unavailable: {e:#}"
         ))
     })?;
-    let expected = admitted_request(&evidence)?;
-    let actual = requested_component_meanings(&expected)?;
     let request_meaning_digest = request
         .meaning_digest()
         .map_err(|e| super::contract_error(&e))?;
@@ -58,20 +56,22 @@ fn execute_native_replay(
         "backtest-native-replay-attempt-v2-{}",
         execution_digest.as_str().trim_start_matches("blake3:")
     ))?;
-    let mut observations = actual
-        .into_iter()
-        .map(|(component, meaning)| {
-            let locator = locator(component, meaning.digest.clone())?;
-            Ok(ConsumedComponentObservationV2 {
-                request_identity: request.request_identity().clone(),
-                request_meaning_digest: request_meaning_digest.clone(),
-                attempt_identity: attempt_identity.clone(),
-                component,
-                locator,
-                observed_meaning_identity: meaning.identity,
-                observed_meaning_digest: meaning.digest,
-            })
-        })
+    let mut observations = evidence
+        .consumed_meanings()
+        .map(
+            |(component, observed_identity, observed_digest, observation_digest)| {
+                let locator = locator(component, observation_digest.clone())?;
+                Ok(ConsumedComponentObservationV2 {
+                    request_identity: request.request_identity().clone(),
+                    request_meaning_digest: request_meaning_digest.clone(),
+                    attempt_identity: attempt_identity.clone(),
+                    component,
+                    locator,
+                    observed_meaning_identity: observed_identity.clone(),
+                    observed_meaning_digest: observed_digest.clone(),
+                })
+            },
+        )
         .collect::<Result<Vec<_>, ReplayOwnerErrorV2>>()?;
     let semantic_trace_digest = digest_bytes(
         "vibe.backtest.native-replay.semantic-trace.v2",
@@ -314,6 +314,20 @@ mod tests {
         assert_eq!(
             commit_execution(&changed, execution).expect_err("stale execution must fail"),
             ReplayOwnerErrorV2::ObservationRequestBindingMismatch
+        );
+    }
+
+    #[rstest]
+    fn changed_request_meaning_cannot_override_fresh_execution_evidence() {
+        let mut changed = request().as_dto().clone();
+        changed.models.cost.version = identity("v2").expect("version identity");
+        let changed = ReplayRequestV2::try_from(changed).expect("changed request remains valid");
+        let execution = execute_native_replay(&changed, false)
+            .expect("fresh engine evidence remains independently available");
+        assert_eq!(
+            commit_execution(&changed, execution)
+                .expect_err("request meaning cannot substitute for execution evidence"),
+            ReplayOwnerErrorV2::ConsumptionMismatch(ObservationComponentV2::CostModel)
         );
     }
 
