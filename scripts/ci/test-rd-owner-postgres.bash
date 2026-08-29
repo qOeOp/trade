@@ -28,6 +28,10 @@ destructive = re.compile(
     r'["\']\s*(?:DROP\s+(?:TABLE|SCHEMA|DATABASE)|TRUNCATE\s+TABLE|DELETE\s+FROM)\b',
     re.I,
 )
+isolated_test_database_guards = (
+    "DedicatedPostgresTestDatabase",
+    "CanonicalOwnerPostgresTestDatabaseV1",
+)
 failures = []
 for root in map(Path, sys.argv[1:]):
     for path in root.rglob("*.rs"):
@@ -43,7 +47,10 @@ for root in map(Path, sys.argv[1:]):
             and "QUALIFICATION_OWNER_RECOVERY_TEST_DATABASE_URL" in text
         ):
             continue
-        if "DedicatedPostgresTestDatabase" not in text or ".mutation()" not in text:
+        if (
+            not any(guard in text for guard in isolated_test_database_guards)
+            or ".mutation()" not in text
+        ):
             failures.append(str(path))
 if failures:
     print("ERROR: destructive PostgreSQL test SQL lacks dedicated-database admission:", file=sys.stderr)
@@ -358,6 +365,12 @@ export VIBE_POSTGRES_TEST_INSTANCE_MARKER="$test_marker"
 # before the real qualification_writer role validates its custody.
 cargo test --locked --package vibe-strategy-factory --lib \
   product_edge_postgres::tests::fresh_rd_owner_migrates_before_qualification_writer_validates \
+  -- --ignored --exact
+
+cargo test --locked --package vibe-strategy-factory \
+  --features sealed-develop-composer-acceptance \
+  --test develop_composer_owner_v2 \
+  durable_owner_is_atomic_restart_exact_and_fail_closed \
   -- --ignored --exact
 
 cargo test --locked --package vibe-strategy-factory \

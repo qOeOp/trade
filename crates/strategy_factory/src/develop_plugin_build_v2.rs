@@ -563,6 +563,38 @@ impl DevelopPluginBuildProducerV2 {
     }
 }
 
+#[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
+pub(crate) fn generate_sealed_corpus_artifacts_v2(
+    manifest: &PluginManifestV2,
+    capsule: &UntrustedDevelopPluginCapsuleV2,
+) -> Result<(Vec<u8>, Vec<u8>), DevelopPluginBuildTerminalV2> {
+    match DevelopPluginBuildProducerV2::default().build(manifest, capsule) {
+        DevelopPluginBuildResultV2::Verified(build) => {
+            let module = build.build.build.wasm().to_vec();
+            let receipt = build.canonical_receipt_bytes();
+            for (label, digest) in [
+                ("manifest", build.receipt().manifest_digest),
+                ("capsule", build.receipt().implementation_capsule_digest),
+                ("source", build.receipt().source_entry_digest),
+                ("module", build.receipt().module_digest),
+                ("receipt", build.receipt().receipt_digest),
+                ("receipt_bytes", digest(&receipt)),
+            ] {
+                eprintln!(
+                    "{label}={}",
+                    digest
+                        .as_bytes()
+                        .iter()
+                        .map(|byte| format!("{byte:02x}"))
+                        .collect::<String>()
+                );
+            }
+            Ok((module, receipt))
+        }
+        DevelopPluginBuildResultV2::Terminal(terminal) => Err(terminal),
+    }
+}
+
 struct PendingBuildV2 {
     receipt: DevelopPluginBuildReceiptV2,
     verified: VerifiedPluginCargoBuildV2,
@@ -824,6 +856,102 @@ fn verify_existing(
     })
 }
 
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+const SEALED_A0_MANIFEST_DIGEST_V2: [u8; 32] =
+    hex_digest_v2("6eb061e68e31eda0488fa76b57cc6992b0d80c7b08ea62c711e23aff3d2192ad");
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+const SEALED_A0_CAPSULE_DIGEST_V2: [u8; 32] =
+    hex_digest_v2("c8b25ba67ae8bc0542381ff6641fdf94f78862553578fc2e83ef5f374735a475");
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+const SEALED_A0_SOURCE_DIGEST_V2: [u8; 32] =
+    hex_digest_v2("fe174c795cebae2bf218ec329026fad0dfebde0bf76210a00f1e477d4e82bc57");
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+const SEALED_A0_MODULE_DIGEST_V2: [u8; 32] =
+    hex_digest_v2("ece334467363f04a0308f1c312c5f2917124d2464c8abf93b0f35c340073c5ec");
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+const SEALED_A0_RECEIPT_DIGEST_V2: [u8; 32] =
+    hex_digest_v2("23d11565c257b0c9904fd1ec685434e966d7e286137d5e3de8cda6b41c838e97");
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+const SEALED_A0_RECEIPT_BYTES_DIGEST_V2: [u8; 32] =
+    hex_digest_v2("bd66d4b9266ec8578d0e0f90c7515f2df548e4104c193701bb7764060433b58e");
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+pub(crate) fn sealed_corpus_verified_build_v2(
+    manifest: &PluginManifestV2,
+    capsule: &UntrustedDevelopPluginCapsuleV2,
+) -> Result<VerifiedDevelopPluginBuildReadV2, DevelopPluginBuildTerminalV2> {
+    verify_sealed_corpus_artifacts_v2(
+        manifest,
+        capsule,
+        include_bytes!("../fixtures/develop_composer_sealed_a0_v2/module.wasm"),
+        include_bytes!("../fixtures/develop_composer_sealed_a0_v2/build_receipt.bin"),
+    )
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+fn verify_sealed_corpus_artifacts_v2(
+    manifest: &PluginManifestV2,
+    capsule: &UntrustedDevelopPluginCapsuleV2,
+    module: &[u8],
+    receipt_bytes: &[u8],
+) -> Result<VerifiedDevelopPluginBuildReadV2, DevelopPluginBuildTerminalV2> {
+    let validated = validate_capsule(manifest, capsule)?;
+    if plugin_manifest_digest(manifest).as_bytes() != &SEALED_A0_MANIFEST_DIGEST_V2
+        || validated.capsule_digest.as_bytes() != &SEALED_A0_CAPSULE_DIGEST_V2
+        || validated.source_digest.as_bytes() != &SEALED_A0_SOURCE_DIGEST_V2
+    {
+        return Err(DevelopPluginBuildTerminalV2::new(
+            DevelopPluginBuildTerminalKindV2::Conflict,
+            "sealed_acceptance.a0_corpus",
+            "manifest or capsule does not match the fixed sealed A0 corpus",
+        ));
+    }
+
+    if digest(module).as_bytes() != &SEALED_A0_MODULE_DIGEST_V2
+        || digest(receipt_bytes).as_bytes() != &SEALED_A0_RECEIPT_BYTES_DIGEST_V2
+    {
+        return Err(DevelopPluginBuildTerminalV2::new(
+            DevelopPluginBuildTerminalKindV2::VerificationFailed,
+            "sealed_acceptance.a0_artifacts",
+            "embedded sealed A0 artifact bytes do not match their fixed digests",
+        ));
+    }
+    let receipt = DevelopPluginBuildReceiptV2::parse_canonical(receipt_bytes).ok_or_else(|| {
+        DevelopPluginBuildTerminalV2::new(
+            DevelopPluginBuildTerminalKindV2::VerificationFailed,
+            "sealed_acceptance.a0_receipt",
+            "embedded sealed A0 build receipt is not canonical and valid",
+        )
+    })?;
+
+    if receipt.manifest_digest.as_bytes() != &SEALED_A0_MANIFEST_DIGEST_V2
+        || receipt.implementation_capsule_digest.as_bytes() != &SEALED_A0_CAPSULE_DIGEST_V2
+        || receipt.source_entry_digest.as_bytes() != &SEALED_A0_SOURCE_DIGEST_V2
+        || receipt.module_digest.as_bytes() != &SEALED_A0_MODULE_DIGEST_V2
+        || receipt.receipt_digest.as_bytes() != &SEALED_A0_RECEIPT_DIGEST_V2
+    {
+        return Err(DevelopPluginBuildTerminalV2::new(
+            DevelopPluginBuildTerminalKindV2::VerificationFailed,
+            "sealed_acceptance.a0_receipt",
+            "embedded sealed A0 receipt does not bind the fixed corpus and module",
+        ));
+    }
+    let verified = verify_existing(manifest, &receipt, module)?;
+    Ok(VerifiedDevelopPluginBuildReadV2 {
+        build: VerifiedDevelopPluginBuildV2::new(receipt, verified),
+    })
+}
+
+#[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
+pub(crate) fn verify_sealed_corpus_artifacts_for_test_v2(
+    manifest: &PluginManifestV2,
+    capsule: &UntrustedDevelopPluginCapsuleV2,
+    module: &[u8],
+    receipt_bytes: &[u8],
+) -> Result<(), DevelopPluginBuildTerminalV2> {
+    verify_sealed_corpus_artifacts_v2(manifest, capsule, module, receipt_bytes).map(drop)
+}
+
 /// Portable sealed Composer-test evidence for one fixed repository corpus.
 ///
 /// This is not A0 producer proof: it accepts no caller manifest, source, digest, path, or command,
@@ -882,4 +1010,26 @@ fn domain_digest(domain: &[u8], bytes: &[u8]) -> BindingDigest {
     hasher.update(domain);
     hasher.update(bytes);
     BindingDigest::from_untrusted_bytes(hasher.finalize().into())
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+const fn hex_digest_v2(value: &str) -> [u8; 32] {
+    let bytes = value.as_bytes();
+    let mut output = [0; 32];
+    let mut index = 0;
+    while index < output.len() {
+        output[index] =
+            (hex_nibble_v2(bytes[index * 2]) << 4) | hex_nibble_v2(bytes[index * 2 + 1]);
+        index += 1;
+    }
+    output
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+const fn hex_nibble_v2(value: u8) -> u8 {
+    match value {
+        b'0'..=b'9' => value - b'0',
+        b'a'..=b'f' => value - b'a' + 10,
+        _ => panic!("invalid sealed A0 digest"),
+    }
 }
