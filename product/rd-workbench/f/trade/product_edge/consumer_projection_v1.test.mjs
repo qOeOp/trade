@@ -242,6 +242,34 @@ function acceptedResearch() {
   }
 }
 
+function transportRoundTrippedAcceptedResearch() {
+  const value = acceptedResearch()
+  const sourceValue = value.research_view.source_frontier[0]
+  value.research_view.source_frontier[0] = {
+    locator: sourceValue.locator,
+    source_cut: sourceValue.source_cut,
+    observed_at: sourceValue.observed_at,
+    license_basis: sourceValue.license_basis,
+    content_digest: sourceValue.content_digest,
+    interpretation: sourceValue.interpretation,
+  }
+  const policy = value.trial_family.root.policy
+  value.trial_family.root.policy = {
+    stop_rule: policy.stop_rule,
+    trial_budget: policy.trial_budget,
+    pit_rule_identity: policy.pit_rule_identity,
+    cost_model_identity: policy.cost_model_identity,
+    capacity_model_identity: policy.capacity_model_identity,
+    slippage_model_identity: policy.slippage_model_identity,
+    frozen_falsifier_binding: policy.frozen_falsifier_binding,
+    independence_disposition: policy.independence_disposition,
+    independence_basis_identity: policy.independence_basis_identity,
+    protected_feedback_frontier: policy.protected_feedback_frontier,
+    semantic_predecessor_frontier: policy.semantic_predecessor_frontier,
+  }
+  return value
+}
+
 const sealedS1Context = await deriveVerifiedS1ConsumerContextV1(acceptedResearch(), "request-1")
 assert.ok(sealedS1Context)
 function s1Context() { return sealedS1Context }
@@ -609,6 +637,22 @@ test("complete native research rejection and acceptance project; single-field mu
   for (const mutate of acceptedMutations) {
     const value = acceptedResearch(); mutate(value); await assertResearchUnknown(value)
   }
+})
+
+test("transport key order preserves the exact canonical accepted projection", async () => {
+  const nativeProjection = await deriveResearchConsumerProjectionV1(acceptedResearch(), "request-1")
+  const reordered = transportRoundTrippedAcceptedResearch()
+  const projection = await deriveResearchConsumerProjectionV1(reordered, "request-1")
+  assert.deepEqual(projection, nativeProjection)
+  assert.deepEqual(await verifyResearchConsumerProjectionV1(projection, "request-1"), projection)
+
+  const tamperedView = clone(projection)
+  tamperedView.research_view.projection_identity = "caller-chosen-research-view"
+  await assertResearchUnknown(tamperedView)
+
+  const noncanonicalFamily = clone(reordered)
+  noncanonicalFamily.trial_family.root.policy_digest = "sha256:wrong"
+  await assertResearchUnknown(noncanonicalFamily)
 })
 
 test("a re-sealed TrialFamily cannot launder a forged upstream Owner receipt", async () => {
