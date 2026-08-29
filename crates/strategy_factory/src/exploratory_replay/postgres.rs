@@ -31,6 +31,8 @@ use crate::{
 const LOCK_FUNCTION: &str = "rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)";
 const INTERNAL_VERIFY_FUNCTION: &str =
     "rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)";
+const INTERNAL_VERIFY_FUNCTION_V2: &str =
+    "rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)";
 const LOCK_FUNCTION_V2: &str =
     "rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)";
 
@@ -246,6 +248,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
 
     for statement in [
         "DROP FUNCTION IF EXISTS rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)",
+        "DROP FUNCTION IF EXISTS rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)",
         "DROP FUNCTION IF EXISTS rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)",
         "DROP FUNCTION IF EXISTS rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)",
     ] {
@@ -496,12 +499,12 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
     .map_err(storage)?;
     sqlx::query(
         "
-        CREATE FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(
+        CREATE FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(
           requested_request_identity text,
           requested_meaning_digest text,
           requested_receipt_identity text,
           requested_seal_digest text
-        ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+        ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER
         SET search_path = pg_catalog
         AS $function$
         DECLARE base jsonb;
@@ -585,6 +588,30 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
     .execute(&mut *publication)
     .await
     .map_err(storage)?;
+    sqlx::query(
+        "
+        CREATE FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(
+          requested_request_identity text,
+          requested_meaning_digest text,
+          requested_receipt_identity text,
+          requested_seal_digest text
+        ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+        SET search_path = pg_catalog
+        AS $function$
+        BEGIN
+          RETURN rd_owner_api.verify_exploratory_replay_request_internal_v2(
+            requested_request_identity,
+            requested_meaning_digest,
+            requested_receipt_identity,
+            requested_seal_digest
+          );
+        END
+        $function$
+        ",
+    )
+    .execute(&mut *publication)
+    .await
+    .map_err(storage)?;
 
     for statement in [
         "ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) OWNER TO rd_owner",
@@ -593,6 +620,9 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
         "GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) TO rd_owner",
         "REVOKE ALL ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, rd_owner",
         "GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text) TO backtest_owner",
+        "ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) OWNER TO rd_owner",
+        "REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner",
+        "GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) TO rd_owner",
         "ALTER FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) OWNER TO rd_owner",
         "REVOKE ALL ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, rd_owner",
         "GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) TO backtest_owner",
@@ -1152,6 +1182,31 @@ pub(crate) async fn lock_for_backtest_v2(
             .fetch_one(&backtest.pool)
             .await
             .map_err(storage)?;
+    decode_v2_read_result(locator, value)
+}
+
+pub(crate) async fn resolve_for_rd_v2(
+    rd_pool: &PgPool,
+    locator: &ExploratoryReplayRequestLocatorV2,
+) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
+    validate_rd_resolution_binding_v2(rd_pool).await?;
+    let value: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT rd_owner_api.verify_exploratory_replay_request_internal_v2($1,$2,$3,$4)",
+    )
+    .bind(&locator.request_identity)
+    .bind(&locator.meaning_digest)
+    .bind(&locator.receipt_identity)
+    .bind(&locator.seal_digest)
+    .fetch_one(rd_pool)
+    .await
+    .map_err(storage)?;
+    decode_v2_read_result(locator, value)
+}
+
+fn decode_v2_read_result(
+    locator: &ExploratoryReplayRequestLocatorV2,
+    value: Option<serde_json::Value>,
+) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
     let Some(value) = value else {
         return Ok(unavailable_result_v2(&locator.request_identity));
     };
@@ -1238,6 +1293,46 @@ pub(crate) async fn lock_for_backtest_v2(
     })
 }
 
+async fn validate_rd_resolution_binding_v2(
+    rd_pool: &PgPool,
+) -> Result<(), ExploratoryReplayOwnerError> {
+    let function_ok: bool = sqlx::query_scalar(
+        "SELECT current_user='rd_owner'
+             AND NOT procedure.prosecdef
+             AND procedure.provolatile='v'
+             AND procedure.proparallel='u'
+             AND procedure.proisstrict
+             AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
+             AND procedure.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
+             AND procedure.proargtypes='25 25 25 25'::pg_catalog.oidvector
+             AND owner.rolname='rd_owner'
+             AND language.lanname='plpgsql'
+             AND pg_catalog.strpos(procedure.prosrc,'verify_exploratory_replay_request_internal_v1') > 0
+             AND pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE')
+             AND NOT EXISTS (
+               SELECT 1 FROM pg_catalog.aclexplode(procedure.proacl) acl
+                WHERE acl.privilege_type='EXECUTE'
+                  AND acl.grantee <> owner.oid
+             )
+           FROM pg_catalog.pg_proc procedure
+           JOIN pg_catalog.pg_roles owner ON owner.oid=procedure.proowner
+           JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
+          WHERE procedure.oid=pg_catalog.to_regprocedure($1)",
+    )
+    .bind(INTERNAL_VERIFY_FUNCTION_V2)
+    .fetch_optional(rd_pool)
+    .await
+    .map_err(storage)?
+    .unwrap_or(false);
+
+    if !function_ok {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "sealed R&D Replay V2 resolve API unavailable".into(),
+        ));
+    }
+    Ok(())
+}
+
 async fn validate_backtest_binding_v2(
     backtest_pool: &PgPool,
 ) -> Result<(), ExploratoryReplayOwnerError> {
@@ -1251,7 +1346,7 @@ async fn validate_backtest_binding_v2(
              AND procedure.proargtypes='25 25 25 25'::pg_catalog.oidvector
              AND owner.rolname='rd_owner'
              AND language.lanname='plpgsql'
-             AND pg_catalog.strpos(procedure.prosrc,'verify_exploratory_replay_request_internal_v1') > 0
+             AND pg_catalog.strpos(procedure.prosrc,'verify_exploratory_replay_request_internal_v2') > 0
              AND pg_catalog.has_function_privilege('backtest_owner',procedure.oid,'EXECUTE')
              AND NOT pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE')
              AND NOT EXISTS (

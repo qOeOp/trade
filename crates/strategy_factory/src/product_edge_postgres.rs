@@ -926,6 +926,15 @@ impl PostgresResearchGoalOwnerV1 {
         .await
     }
 
+    /// Re-reads only already committed Replay V2 custody through the R&D Owner session.
+    /// Missing or mismatched custody remains unavailable and this path performs no admission.
+    pub async fn resolve_exploratory_replay_request_v2(
+        &self,
+        locator: &ExploratoryReplayRequestLocatorV2,
+    ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
+        crate::exploratory_replay::postgres::resolve_for_rd_v2(&self.pool, locator).await
+    }
+
     /// Uses the canonical `backtest_owner` capability to consume only the V2 sealed handoff.
     pub async fn lock_exploratory_replay_request_for_backtest_v2(
         &self,

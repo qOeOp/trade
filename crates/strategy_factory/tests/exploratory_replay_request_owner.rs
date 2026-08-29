@@ -142,9 +142,221 @@ async fn replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox() {
     );
 }
 
+async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
+    let fixture = Box::pin(prepare_replay_fixture(3_600_000)).await;
+    let mutation = fixture.database.mutation();
+    let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+    let rd_only_owner =
+        PostgresResearchGoalOwnerV1::connect(&fixture.rd_url, &fixture.qualification_url)
+            .await
+            .expect("R&D Owner without Backtest capability");
+    let v2_catalog_is_exact: bool = sqlx::query_scalar(
+        "SELECT facade_owner.rolname='rd_owner'
+             AND facade.prosecdef
+             AND facade.provolatile='v'
+             AND facade.proparallel='u'
+             AND facade.proisstrict
+             AND facade.proconfig=ARRAY['search_path=pg_catalog']::text[]
+             AND pg_catalog.strpos(facade.prosrc,'verify_exploratory_replay_request_internal_v2') > 0
+             AND pg_catalog.has_function_privilege('backtest_owner',facade.oid,'EXECUTE')
+             AND NOT pg_catalog.has_function_privilege('rd_owner',facade.oid,'EXECUTE')
+             AND helper_owner.rolname='rd_owner'
+             AND NOT helper.prosecdef
+             AND helper.provolatile='v'
+             AND helper.proparallel='u'
+             AND helper.proisstrict
+             AND helper.proconfig=ARRAY['search_path=pg_catalog']::text[]
+             AND pg_catalog.has_function_privilege('rd_owner',helper.oid,'EXECUTE')
+             AND NOT pg_catalog.has_function_privilege('backtest_owner',helper.oid,'EXECUTE')
+             AND NOT EXISTS (
+               SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) acl
+                WHERE acl.privilege_type='EXECUTE'
+                  AND acl.grantee<>helper_owner.oid
+             )
+          FROM pg_catalog.pg_proc facade
+          JOIN pg_catalog.pg_roles facade_owner ON facade_owner.oid=facade.proowner
+          JOIN pg_catalog.pg_proc helper
+            ON helper.oid=pg_catalog.to_regprocedure(
+              'rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)'
+            )
+          JOIN pg_catalog.pg_roles helper_owner ON helper_owner.oid=helper.proowner
+         WHERE facade.oid=pg_catalog.to_regprocedure(
+           'rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)'
+         )",
+    )
+    .fetch_one(rd_pool)
+    .await
+    .expect("Replay V2 resolve and Backtest facade catalog");
+    assert!(v2_catalog_is_exact);
+
+    for role in [
+        CanonicalOwnerTestRoleV1::BacktestOwner,
+        CanonicalOwnerTestRoleV1::ProductEdgeOwner,
+        CanonicalOwnerTestRoleV1::QualificationWriter,
+        CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter,
+    ] {
+        assert!(
+            sqlx::query_scalar::<_, Option<serde_json::Value>>(
+                "SELECT rd_owner_api.verify_exploratory_replay_request_internal_v2($1,$2,$3,$4)",
+            )
+            .bind("unknown")
+            .bind("unknown")
+            .bind("unknown")
+            .bind("unknown")
+            .fetch_one(mutation.pool(role))
+            .await
+            .is_err()
+        );
+    }
+    let request_identity = fixture
+        .proposal_v2
+        .request
+        .request_identity
+        .as_str()
+        .to_string();
+    let unknown = ExploratoryReplayRequestLocatorV2 {
+        request_identity: format!("{request_identity}-unknown"),
+        meaning_digest: format!("sha256:{}", "1".repeat(64)),
+        receipt_identity: "unknown-replay-v2-receipt".into(),
+        seal_digest: format!("sha256:{}", "2".repeat(64)),
+    };
+    let unavailable = rd_only_owner
+        .resolve_exploratory_replay_request_v2(&unknown)
+        .await
+        .expect("unknown Replay V2 resolve");
+    assert_eq!(
+        unavailable.projection().availability,
+        ExploratoryReplayAvailabilityV1::Unavailable
+    );
+    assert_eq!(
+        unavailable.projection().request_identity.as_str(),
+        unknown.request_identity.as_str()
+    );
+    assert!(unavailable.readback().is_none());
+    assert_eq!(
+        request_counts_v2(rd_pool, &unknown.request_identity).await,
+        [0, 0, 0]
+    );
+
+    let sealed = fixture
+        .owner
+        .commit_exploratory_replay_request_v2(fixture.proposal_v2.clone())
+        .await
+        .expect("prior committed Replay V2 custody");
+    let counts_after_commit = request_counts_v2(rd_pool, &request_identity).await;
+    let resolved = rd_only_owner
+        .resolve_exploratory_replay_request_v2(sealed.locator())
+        .await
+        .expect("same-identity R&D resolve");
+    let readback = resolved.readback().expect("sealed R&D readback");
+    assert_eq!(
+        readback.request_identity(),
+        sealed.locator().request_identity.as_str()
+    );
+    assert_eq!(
+        readback.meaning_digest(),
+        sealed.locator().meaning_digest.as_str()
+    );
+    assert_eq!(
+        readback.receipt_identity(),
+        sealed.locator().receipt_identity.as_str()
+    );
+    assert_eq!(
+        readback.seal_digest(),
+        sealed.locator().seal_digest.as_str()
+    );
+    assert_eq!(
+        readback.canonical_request_bytes(),
+        sealed.canonical_request_bytes()
+    );
+
+    let (resolved_one, resolved_two, resolved_three) = tokio::join!(
+        rd_only_owner.resolve_exploratory_replay_request_v2(sealed.locator()),
+        rd_only_owner.resolve_exploratory_replay_request_v2(sealed.locator()),
+        rd_only_owner.resolve_exploratory_replay_request_v2(sealed.locator()),
+    );
+
+    for replay in [resolved_one, resolved_two, resolved_three] {
+        let replay = replay.expect("concurrent R&D resolve");
+        let replay_readback = replay.readback().expect("concurrent sealed readback");
+        assert_eq!(
+            replay_readback.canonical_request_bytes(),
+            sealed.canonical_request_bytes()
+        );
+        assert_eq!(
+            replay_readback.receipt_identity(),
+            sealed.locator().receipt_identity.as_str()
+        );
+    }
+    assert_eq!(
+        request_counts_v2(rd_pool, &request_identity).await,
+        counts_after_commit
+    );
+
+    for changed in [
+        ExploratoryReplayRequestLocatorV2 {
+            request_identity: unknown.request_identity.clone(),
+            ..sealed.locator().clone()
+        },
+        ExploratoryReplayRequestLocatorV2 {
+            meaning_digest: unknown.meaning_digest.clone(),
+            ..sealed.locator().clone()
+        },
+        ExploratoryReplayRequestLocatorV2 {
+            receipt_identity: unknown.receipt_identity.clone(),
+            ..sealed.locator().clone()
+        },
+        ExploratoryReplayRequestLocatorV2 {
+            seal_digest: unknown.seal_digest.clone(),
+            ..sealed.locator().clone()
+        },
+    ] {
+        let unavailable = rd_only_owner
+            .resolve_exploratory_replay_request_v2(&changed)
+            .await
+            .expect("cross-spliced locator resolve");
+        assert_eq!(
+            unavailable.projection().availability,
+            ExploratoryReplayAvailabilityV1::Unavailable
+        );
+        assert!(unavailable.readback().is_none());
+    }
+    assert_eq!(
+        request_counts_v2(rd_pool, &request_identity).await,
+        counts_after_commit
+    );
+
+    let legacy = fixture
+        .owner
+        .commit_exploratory_replay_request_v1(fixture.proposal.clone())
+        .await
+        .expect("prior committed Replay V1 custody");
+    let v1_as_v2 = ExploratoryReplayRequestLocatorV2 {
+        request_identity: legacy.locator().request_identity.clone(),
+        meaning_digest: sealed.locator().meaning_digest.clone(),
+        receipt_identity: sealed.locator().receipt_identity.clone(),
+        seal_digest: sealed.locator().seal_digest.clone(),
+    };
+    let unavailable = rd_only_owner
+        .resolve_exploratory_replay_request_v2(&v1_as_v2)
+        .await
+        .expect("V1 custody through V2 namespace");
+    assert_eq!(
+        unavailable.projection().availability,
+        ExploratoryReplayAvailabilityV1::Unavailable
+    );
+    assert!(unavailable.readback().is_none());
+    assert_eq!(
+        request_counts_v2(rd_pool, &legacy.locator().request_identity).await,
+        [1, 1, 0]
+    );
+}
+
 #[tokio::test]
 #[ignore = "requires the canonical disposable five-role PostgreSQL route"]
 async fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner() {
+    assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody().await;
+
     let fixture = Box::pin(prepare_replay_fixture(3_600_000)).await;
     let ReplayFixture {
         database,
@@ -677,6 +889,7 @@ async fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owne
             .await
             .unwrap();
         assert_unavailable(&owner, first.locator()).await;
+        assert_unavailable_v2(&owner, sealed_v2.locator()).await;
         sqlx::query(restore_sql)
             .bind(&proposal.request_identity)
             .execute(rd_pool)
@@ -686,6 +899,7 @@ async fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owne
     sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,dataset,digest}',to_jsonb('sha256:tampered'::text)) WHERE request_identity=$1")
         .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
     assert_unavailable(&owner, first.locator()).await;
+    assert_unavailable_v2(&owner, sealed_v2.locator()).await;
     sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,dataset,digest}',to_jsonb($2::text)) WHERE request_identity=$1")
         .bind(&proposal.request_identity).bind(&proposal.dataset.digest).execute(rd_pool).await.unwrap();
     sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,admission,admission_digest}',to_jsonb('sha256:tampered'::text)) WHERE request_identity=$1")
@@ -705,12 +919,14 @@ async fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owne
     sqlx::query("UPDATE public.rd_owner_outbox_v1 SET event_kind='MISSING_FOR_TEST' WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V1'")
         .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
     assert_unavailable(&owner, first.locator()).await;
+    assert_unavailable_v2(&owner, sealed_v2.locator()).await;
     sqlx::query("UPDATE public.rd_owner_outbox_v1 SET event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V1' WHERE aggregate_identity=$1 AND event_kind='MISSING_FOR_TEST'")
         .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
 
     sqlx::query("UPDATE public.rd_artifact_trial_family_bindings_v1 SET binding_digest=binding_digest||'-tampered' WHERE binding_identity=$1")
         .bind(&proposal.artifact_family_binding_identity).execute(rd_pool).await.unwrap();
     assert_unavailable(&owner, first.locator()).await;
+    assert_unavailable_v2(&owner, sealed_v2.locator()).await;
     sqlx::query("UPDATE public.rd_artifact_trial_family_bindings_v1 SET binding_digest=binding_json->>'binding_digest' WHERE binding_identity=$1")
         .bind(&proposal.artifact_family_binding_identity).execute(rd_pool).await.unwrap();
 
@@ -758,6 +974,7 @@ async fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owne
             Err(ExploratoryReplayOwnerError::Unavailable(_))
         ));
         assert_unavailable(&owner, first.locator()).await;
+        assert_unavailable_v2(&owner, sealed_v2.locator()).await;
         assert_eq!(
             request_counts(rd_pool, &proposal.request_identity).await,
             [1, 1]
@@ -852,6 +1069,7 @@ async fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owne
         Err(ExploratoryReplayOwnerError::Unavailable(_))
     ));
     assert_unavailable(&owner, first.locator()).await;
+    assert_unavailable_v2(&owner, sealed_v2.locator()).await;
     assert_raw_lock_not_available(
         mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner),
         first.locator(),
@@ -919,6 +1137,7 @@ async fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owne
     sqlx::query("UPDATE public.rd_strategy_artifacts_v1 SET wasm_bytes=wasm_bytes||decode('00','hex') WHERE artifact_digest=$1")
         .bind(&proposal.artifact_identity).execute(rd_pool).await.unwrap();
     assert_unavailable(&owner, first.locator()).await;
+    assert_unavailable_v2(&owner, sealed_v2.locator()).await;
     sqlx::query(
         "UPDATE public.rd_strategy_artifacts_v1 SET wasm_bytes=$2 WHERE artifact_digest=$1",
     )
@@ -995,6 +1214,15 @@ async fn assert_unavailable_v2(
         ExploratoryReplayAvailabilityV1::Unavailable
     );
     assert!(result.readback().is_none());
+    let resolved = owner
+        .resolve_exploratory_replay_request_v2(locator)
+        .await
+        .unwrap();
+    assert_eq!(
+        resolved.projection().availability,
+        ExploratoryReplayAvailabilityV1::Unavailable
+    );
+    assert!(resolved.readback().is_none());
 }
 
 async fn assert_raw_lock_not_available(

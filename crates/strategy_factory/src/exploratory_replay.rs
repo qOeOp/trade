@@ -314,6 +314,10 @@ pub struct SealedExploratoryReplayReadbackV2 {
 }
 
 impl SealedExploratoryReplayReadbackV2 {
+    pub fn request_identity(&self) -> &str {
+        self.request.as_dto().request_identity.as_str()
+    }
+
     pub fn request(&self) -> &ReplayRequestV2 {
         &self.request
     }
@@ -324,6 +328,14 @@ impl SealedExploratoryReplayReadbackV2 {
 
     pub fn meaning_digest(&self) -> &str {
         &self.meaning_digest
+    }
+
+    pub fn receipt_identity(&self) -> &str {
+        &self.receipt.receipt_identity
+    }
+
+    pub fn seal_digest(&self) -> &str {
+        &self.receipt.seal_digest
     }
 
     pub fn owner_cut_epoch_ms(&self) -> u64 {
