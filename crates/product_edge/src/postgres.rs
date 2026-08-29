@@ -33,10 +33,12 @@ use crate::{
     ARTIFACT_BUILD_REQUIRED_EFFECTS_V1, AgentOperationManifestProposalV1,
     DownstreamAdmissionModeV1, PORTFOLIO_READ_ONLY_EFFECT_POLICY_V1,
     PORTFOLIO_READ_POLICY_OPERATION_SCHEMA_V1, PORTFOLIO_READ_POLICY_OPERATION_V1,
-    PORTFOLIO_READ_POLICY_SCHEMA_V1, PORTFOLIO_READ_POLICY_TARGET_OWNER_V1, PRODUCT_EDGE_SCHEMA_V1,
-    PortfolioReadPolicyCustodyV1, PortfolioReadPolicyPayloadV1, PortfolioReadPolicyRequestV1,
-    PortfolioReadPolicyResolutionV1, PortfolioReadPolicyUnavailableReasonV1,
-    PortfolioSourceOwnerResolveResultV1, ProductEdgeAdmissionLocatorV1,
+    PORTFOLIO_READ_POLICY_SCHEMA_V1, PORTFOLIO_READ_POLICY_TARGET_OWNER_V1,
+    PRODUCT_EDGE_ADMISSION_EVENT_STREAM_V1, PRODUCT_EDGE_SCHEMA_V1, PortfolioReadPolicyCustodyV1,
+    PortfolioReadPolicyPayloadV1, PortfolioReadPolicyRequestV1, PortfolioReadPolicyResolutionV1,
+    PortfolioReadPolicyUnavailableReasonV1, PortfolioSourceOwnerResolveResultV1,
+    ProductEdgeAdmissionEventCursorV1, ProductEdgeAdmissionEventLocatorV1,
+    ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionObservationV1,
     ProductEdgeAdmissionReadbackV1, ProductEdgeAdmissionReceiptV1, ProductEdgeAdmissionRequestV1,
     ProductEdgeAuthorizationTrustV1, ProductEdgeBootstrapProposalV1,
     ProductEdgeBootstrapReadbackV1, ProductEdgeCurrentPolicyEvidenceV1, ProductEdgeError,
@@ -46,6 +48,7 @@ use crate::{
     ProductEdgeSourceInvocationStartRequestV1, ProductEdgeSuccessorProposalV1,
     SOURCE_INTAKE_OPERATION_SCHEMA_V1, SOURCE_INTAKE_OPERATION_V1,
     SOURCE_INTAKE_REQUIRED_EFFECTS_V1, SOURCE_INTAKE_TARGET_OWNER_V1, canonical_digest, identity,
+    is_sha256_digest,
 };
 
 const MANIFEST_EVENT: &str = "PRODUCT_EDGE_OPERATION_MANIFEST_APPROVED_V1";
@@ -60,6 +63,7 @@ const ARTIFACT_BUILD_OPERATION_V1: &str = "artifact_build.submit_or_resolve.v1";
 const ARTIFACT_BUILD_SCHEMA_V1: &str = "rd-artifact-build-request-v1";
 const ARTIFACT_PROVIDER_EFFECT_V1: &str = "R_AND_D_PROVIDER_INVOCATION_V1";
 const SOURCE_PROVIDER_EFFECT_V1: &str = "R_AND_D_SOURCE_PROVIDER_INVOCATION_V1";
+const MAX_ADMISSION_EVENT_PAGE_V1: u32 = 100;
 
 fn has_exact_artifact_build_effects(requested_effects: &[String]) -> bool {
     requested_effects
@@ -447,6 +451,18 @@ struct LockedOutboxRowV1 {
     payload_digest: String,
     payload_json: serde_json::Value,
     committed_at_epoch_ms: i64,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct AdmissionEventStreamStateRowV1 {
+    last_owner_sequence: i64,
+    event_count: i64,
+    minimum_owner_sequence: Option<i64>,
+    maximum_owner_sequence: Option<i64>,
+    admission_count: i64,
+    wrong_kind_count: i64,
+    broken_predecessor_count: i64,
+    broken_assignment_count: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -1073,6 +1089,54 @@ pub struct ProductEdgePostgresOwnerV1 {
     authorization_trust: ProductEdgeAuthorizationTrustV1,
 }
 
+#[derive(Clone)]
+/// Read-only PostgreSQL capability for the Product Edge admission event stream.
+///
+/// Construction performs no migration and the capability exposes neither the
+/// underlying pool nor any Product Edge mutation API:
+/// ```compile_fail
+/// use vibe_product_edge::ProductEdgePostgresAdmissionReadPortV1;
+/// fn consumer_cannot_write(port: &ProductEdgePostgresAdmissionReadPortV1) {
+///     let _ = port.admit_request;
+///     let _ = port.pool();
+/// }
+/// ```
+pub struct ProductEdgePostgresAdmissionReadPortV1 {
+    pool: PgPool,
+}
+
+impl ProductEdgePostgresAdmissionReadPortV1 {
+    pub async fn connect(database_url: &str) -> Result<Self, ProductEdgeError> {
+        let pool = PgPool::connect(database_url).await.map_err(storage)?;
+        let mut transaction = begin_repeatable_read(&pool)
+            .await
+            .map_err(|_| ProductEdgeError::Unavailable)?;
+        verify_admission_event_stream(&mut transaction)
+            .await
+            .map_err(|_| ProductEdgeError::Unavailable)?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| ProductEdgeError::Unavailable)?;
+        Ok(Self { pool })
+    }
+
+    pub async fn follow_admission_events_after(
+        &self,
+        cursor: &ProductEdgeAdmissionEventCursorV1,
+        page_size: u32,
+    ) -> Result<Vec<ProductEdgeAdmissionEventLocatorV1>, ProductEdgeError> {
+        follow_admission_events_after(&self.pool, cursor, page_size).await
+    }
+
+    pub async fn resolve_admission_observation(
+        &self,
+        locator: &ProductEdgeAdmissionEventLocatorV1,
+    ) -> Result<ProductEdgeAdmissionObservationV1, ProductEdgeError> {
+        resolve_admission_observation(&self.pool, locator).await
+    }
+}
+
 impl ProductEdgePostgresOwnerV1 {
     pub async fn connect(
         database_url: &str,
@@ -1095,6 +1159,16 @@ impl ProductEdgePostgresOwnerV1 {
     }
 
     async fn migrate(&self) -> Result<(), ProductEdgeError> {
+        self.migrate_observing(|_| std::future::ready(())).await
+    }
+
+    async fn migrate_observing<F, Fut>(&self, mut observe: F) -> Result<(), ProductEdgeError>
+    where
+        F: FnMut(&str) -> Fut,
+        Fut: std::future::Future<Output = ()>,
+    {
+        let mut transaction = self.pool.begin().await.map_err(storage)?;
+
         for statement in [
             "CREATE TABLE IF NOT EXISTS product_edge_operation_manifests_v1 (manifest_identity TEXT PRIMARY KEY, operation TEXT NOT NULL, operation_schema TEXT NOT NULL, target_owner TEXT NOT NULL, manifest_digest TEXT NOT NULL, manifest_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
             "ALTER TABLE product_edge_operation_manifests_v1 DROP CONSTRAINT IF EXISTS product_edge_operation_manifests_v1_operation_operation_schema_target_owner_key",
@@ -1119,13 +1193,32 @@ impl ProductEdgePostgresOwnerV1 {
             "CREATE TABLE IF NOT EXISTS product_edge_effect_invocation_claims_v1 (admission_identity TEXT PRIMARY KEY, claim_identity TEXT NOT NULL UNIQUE, attempt_identity TEXT NOT NULL UNIQUE, claim_digest TEXT NOT NULL, claim_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS product_edge_effect_invocation_states_v1 (claim_identity TEXT PRIMARY KEY REFERENCES product_edge_effect_invocation_claims_v1(claim_identity), admission_identity TEXT NOT NULL UNIQUE, attempt_identity TEXT NOT NULL UNIQUE, claim_digest TEXT NOT NULL, state_digest TEXT NOT NULL, state_json JSONB NOT NULL, updated_at_epoch_ms BIGINT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS product_edge_owner_outbox_v1 (event_identity TEXT PRIMARY KEY, aggregate_identity TEXT NOT NULL, event_kind TEXT NOT NULL, payload_digest TEXT NOT NULL, payload_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+            "CREATE OR REPLACE FUNCTION product_edge_reject_admission_event_mutation_v1() RETURNS trigger LANGUAGE plpgsql AS $function$ BEGIN IF OLD.event_kind = 'PRODUCT_EDGE_REQUEST_ADMITTED_V1' OR (TG_OP = 'UPDATE' AND NEW.event_kind = 'PRODUCT_EDGE_REQUEST_ADMITTED_V1') THEN RAISE EXCEPTION 'product edge admission events are immutable' USING ERRCODE = '55000'; END IF; IF TG_OP = 'DELETE' THEN RETURN OLD; END IF; RETURN NEW; END $function$",
+            "REVOKE ALL ON FUNCTION product_edge_reject_admission_event_mutation_v1() FROM PUBLIC",
+            "DROP TRIGGER IF EXISTS product_edge_admission_event_immutable_v1 ON product_edge_owner_outbox_v1",
+            "CREATE TRIGGER product_edge_admission_event_immutable_v1 BEFORE UPDATE OR DELETE ON product_edge_owner_outbox_v1 FOR EACH ROW EXECUTE FUNCTION product_edge_reject_admission_event_mutation_v1()",
+            "CREATE TABLE IF NOT EXISTS product_edge_admission_event_stream_v1 (stream_identity TEXT PRIMARY KEY, last_owner_sequence BIGINT NOT NULL CHECK (last_owner_sequence >= 0))",
+            "INSERT INTO product_edge_admission_event_stream_v1 (stream_identity, last_owner_sequence) VALUES ('product-edge.admission-events.v1', 0) ON CONFLICT (stream_identity) DO NOTHING",
+            "CREATE TABLE IF NOT EXISTS product_edge_admission_events_v1 (owner_sequence BIGINT PRIMARY KEY CHECK (owner_sequence > 0), event_identity TEXT NOT NULL UNIQUE REFERENCES product_edge_owner_outbox_v1(event_identity), predecessor_event_identity TEXT, assignment_mode TEXT NOT NULL)",
+            "ALTER TABLE product_edge_admission_events_v1 ADD COLUMN IF NOT EXISTS predecessor_event_identity TEXT",
+            "ALTER TABLE product_edge_admission_events_v1 ADD COLUMN IF NOT EXISTS assignment_mode TEXT",
+            "UPDATE product_edge_admission_events_v1 SET assignment_mode = 'REBUILT' WHERE assignment_mode IS NULL",
+            "WITH baseline AS (SELECT COALESCE(MAX(owner_sequence), 0) AS value, (ARRAY_AGG(event_identity ORDER BY owner_sequence DESC))[1] AS predecessor_event_identity FROM product_edge_admission_events_v1), ranked AS (SELECT outbox.event_identity, baseline.value + ROW_NUMBER() OVER (ORDER BY outbox.committed_at_epoch_ms, outbox.event_identity) AS value, COALESCE(LAG(outbox.event_identity) OVER (ORDER BY outbox.committed_at_epoch_ms, outbox.event_identity), baseline.predecessor_event_identity) AS predecessor_event_identity FROM product_edge_owner_outbox_v1 AS outbox CROSS JOIN baseline LEFT JOIN product_edge_admission_events_v1 AS event ON event.event_identity = outbox.event_identity WHERE outbox.event_kind = 'PRODUCT_EDGE_REQUEST_ADMITTED_V1' AND event.event_identity IS NULL) INSERT INTO product_edge_admission_events_v1 (owner_sequence, event_identity, predecessor_event_identity, assignment_mode) SELECT value, event_identity, predecessor_event_identity, 'REBUILT' FROM ranked ON CONFLICT (event_identity) DO NOTHING",
+            "WITH linked AS (SELECT owner_sequence, LAG(event_identity) OVER (ORDER BY owner_sequence) AS predecessor_event_identity FROM product_edge_admission_events_v1) UPDATE product_edge_admission_events_v1 AS event SET predecessor_event_identity = linked.predecessor_event_identity FROM linked WHERE event.owner_sequence = linked.owner_sequence AND event.owner_sequence > 1 AND event.predecessor_event_identity IS NULL",
+            "UPDATE product_edge_admission_event_stream_v1 SET last_owner_sequence = GREATEST(last_owner_sequence, COALESCE((SELECT MAX(owner_sequence) FROM product_edge_admission_events_v1), 0)) WHERE stream_identity = 'product-edge.admission-events.v1'",
+            "CREATE OR REPLACE FUNCTION product_edge_reject_admission_assignment_mutation_v1() RETURNS trigger LANGUAGE plpgsql AS $function$ BEGIN RAISE EXCEPTION 'product edge admission event assignments are immutable' USING ERRCODE = '55000'; RETURN OLD; END $function$",
+            "REVOKE ALL ON FUNCTION product_edge_reject_admission_assignment_mutation_v1() FROM PUBLIC",
+            "DROP TRIGGER IF EXISTS product_edge_admission_assignment_immutable_v1 ON product_edge_admission_events_v1",
+            "CREATE TRIGGER product_edge_admission_assignment_immutable_v1 BEFORE UPDATE OR DELETE ON product_edge_admission_events_v1 FOR EACH ROW EXECUTE FUNCTION product_edge_reject_admission_assignment_mutation_v1()",
             "CREATE INDEX IF NOT EXISTS product_edge_outbox_aggregate_v1 ON product_edge_owner_outbox_v1(aggregate_identity, event_kind)",
         ] {
             sqlx::query(statement)
-                .execute(&self.pool)
+                .execute(&mut *transaction)
                 .await
                 .map_err(storage)?;
+            observe(statement).await;
         }
+        transaction.commit().await.map_err(storage)?;
         Ok(())
     }
 
@@ -1891,11 +1984,10 @@ impl ProductEdgePostgresOwnerV1 {
             .bind(&stored.authorization_frontier_identity).bind(&stored.request_semantic_digest)
             .bind(&stored.admission_digest).bind(json(&stored)?).bind(json(&receipt)?).bind(to_i64(committed_at)?)
             .execute(&mut *transaction).await.map_err(storage)?;
-        insert_outbox(
+        insert_admission_outbox(
             &mut transaction,
             &receipt.receipt_identity,
             &stored.admission_identity,
-            ADMISSION_EVENT,
             &receipt,
             committed_at,
         )
@@ -1939,6 +2031,21 @@ impl ProductEdgePostgresOwnerV1 {
         }
         transaction.commit().await.map_err(storage)?;
         Ok(Some(result))
+    }
+
+    pub async fn follow_admission_events_after(
+        &self,
+        cursor: &ProductEdgeAdmissionEventCursorV1,
+        page_size: u32,
+    ) -> Result<Vec<ProductEdgeAdmissionEventLocatorV1>, ProductEdgeError> {
+        follow_admission_events_after(&self.pool, cursor, page_size).await
+    }
+
+    pub async fn resolve_admission_observation(
+        &self,
+        locator: &ProductEdgeAdmissionEventLocatorV1,
+    ) -> Result<ProductEdgeAdmissionObservationV1, ProductEdgeError> {
+        resolve_admission_observation(&self.pool, locator).await
     }
 
     pub async fn claim_provider_invocation(
@@ -3979,12 +4086,43 @@ async fn load_admission_row(
     Ok(Some(stored))
 }
 
+async fn load_admission_row_by_identity(
+    transaction: &mut Transaction<'_, Postgres>,
+    admission_identity: &str,
+) -> Result<Option<(StoredAdmissionV1, StoredAdmissionReceiptV1)>, ProductEdgeError> {
+    let rows = sqlx::query(
+        "SELECT request_identity, admission_identity, deployment_identity, binding_identity, authorization_identity, issuance_receipt_identity, authorization_frontier_identity, request_semantic_digest, admission_digest, admission_json, receipt_json, committed_at_epoch_ms FROM product_edge_request_admissions_v1 WHERE admission_identity = $1",
+    )
+    .bind(admission_identity)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(storage)?;
+
+    if rows.len() > 1 {
+        return Err(ProductEdgeError::Unavailable);
+    }
+    rows.first().map(decode_admission_row).transpose()
+}
+
 fn decode_admission_row(
     row: &sqlx::postgres::PgRow,
 ) -> Result<(StoredAdmissionV1, StoredAdmissionReceiptV1), ProductEdgeError> {
     let stored: StoredAdmissionV1 = from_json(row.try_get("admission_json").map_err(storage)?)?;
     let receipt: StoredAdmissionReceiptV1 =
         from_json(row.try_get("receipt_json").map_err(storage)?)?;
+
+    stored
+        .request
+        .validate()
+        .map_err(|_| ProductEdgeError::Unavailable)?;
+
+    if stored.schema_version != PRODUCT_EDGE_SCHEMA_V1
+        || stored.request.semantic_digest()? != stored.request_semantic_digest
+        || admission_digest(&stored)? != stored.admission_digest
+    {
+        return Err(ProductEdgeError::Unavailable);
+    }
+
     if row
         .try_get::<String, _>("request_identity")
         .map_err(storage)?
@@ -4232,7 +4370,68 @@ async fn insert_outbox<T: Serialize>(
     kind: &str,
     payload: &T,
     committed_at: u64,
+) -> Result<String, ProductEdgeError> {
+    insert_outbox_record(transaction, seed, aggregate, kind, payload, committed_at).await
+}
+
+async fn insert_admission_outbox<T: Serialize>(
+    transaction: &mut Transaction<'_, Postgres>,
+    seed: &str,
+    aggregate: &str,
+    payload: &T,
+    committed_at: u64,
 ) -> Result<(), ProductEdgeError> {
+    let owner_sequence: i64 = sqlx::query_scalar(
+        "UPDATE product_edge_admission_event_stream_v1 SET last_owner_sequence = last_owner_sequence + 1 WHERE stream_identity = $1 RETURNING last_owner_sequence",
+    )
+    .bind(PRODUCT_EDGE_ADMISSION_EVENT_STREAM_V1)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(storage)?
+    .ok_or(ProductEdgeError::Unavailable)?;
+    let event_identity = insert_outbox_record(
+        transaction,
+        seed,
+        aggregate,
+        ADMISSION_EVENT,
+        payload,
+        committed_at,
+    )
+    .await?;
+    let predecessor_event_identity: Option<String> = if owner_sequence == 1 {
+        None
+    } else {
+        Some(
+            sqlx::query_scalar(
+                "SELECT event_identity FROM product_edge_admission_events_v1 WHERE owner_sequence = $1 FOR SHARE",
+            )
+            .bind(owner_sequence - 1)
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(storage)?
+            .ok_or(ProductEdgeError::Unavailable)?,
+        )
+    };
+    sqlx::query(
+        "INSERT INTO product_edge_admission_events_v1 (owner_sequence, event_identity, predecessor_event_identity, assignment_mode) VALUES ($1,$2,$3,'TRANSACTIONAL')",
+    )
+    .bind(owner_sequence)
+    .bind(event_identity)
+    .bind(predecessor_event_identity)
+    .execute(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    Ok(())
+}
+
+async fn insert_outbox_record<T: Serialize>(
+    transaction: &mut Transaction<'_, Postgres>,
+    seed: &str,
+    aggregate: &str,
+    kind: &str,
+    payload: &T,
+    committed_at: u64,
+) -> Result<String, ProductEdgeError> {
     let payload_digest = canonical_digest("product-edge.outbox-payload.v1", payload)?;
     let event_identity = identity(
         "product-edge-owner-event-v1",
@@ -4255,7 +4454,7 @@ async fn insert_outbox<T: Serialize>(
     sqlx::query("INSERT INTO product_edge_owner_outbox_v1 (event_identity, aggregate_identity, event_kind, payload_digest, payload_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6)")
         .bind(&event_identity).bind(aggregate).bind(kind).bind(&payload_digest).bind(json(&record)?).bind(to_i64(committed_at)?)
         .execute(&mut **transaction).await.map_err(storage)?;
-    Ok(())
+    Ok(event_identity)
 }
 
 async fn verify_outbox<T: Serialize>(
@@ -4265,6 +4464,47 @@ async fn verify_outbox<T: Serialize>(
     kind: &str,
     payload: &T,
     committed_at: u64,
+) -> Result<(), ProductEdgeError> {
+    verify_outbox_with_lock(
+        transaction,
+        seed,
+        aggregate,
+        kind,
+        payload,
+        committed_at,
+        true,
+    )
+    .await
+}
+
+async fn verify_outbox_read_only<T: Serialize>(
+    transaction: &mut Transaction<'_, Postgres>,
+    seed: &str,
+    aggregate: &str,
+    kind: &str,
+    payload: &T,
+    committed_at: u64,
+) -> Result<(), ProductEdgeError> {
+    verify_outbox_with_lock(
+        transaction,
+        seed,
+        aggregate,
+        kind,
+        payload,
+        committed_at,
+        false,
+    )
+    .await
+}
+
+async fn verify_outbox_with_lock<T: Serialize>(
+    transaction: &mut Transaction<'_, Postgres>,
+    seed: &str,
+    aggregate: &str,
+    kind: &str,
+    payload: &T,
+    committed_at: u64,
+    lock_rows: bool,
 ) -> Result<(), ProductEdgeError> {
     let payload_digest = canonical_digest("product-edge.outbox-payload.v1", payload)?;
     let event_identity = identity(
@@ -4277,8 +4517,16 @@ async fn verify_outbox<T: Serialize>(
             &committed_at.to_string(),
         ],
     );
-    let rows = sqlx::query("SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json, committed_at_epoch_ms FROM product_edge_owner_outbox_v1 WHERE aggregate_identity = $1 FOR SHARE")
-        .bind(aggregate).fetch_all(&mut **transaction).await.map_err(storage)?;
+    let query = if lock_rows {
+        "SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json, committed_at_epoch_ms FROM product_edge_owner_outbox_v1 WHERE aggregate_identity = $1 FOR SHARE"
+    } else {
+        "SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json, committed_at_epoch_ms FROM product_edge_owner_outbox_v1 WHERE aggregate_identity = $1"
+    };
+    let rows = sqlx::query(query)
+        .bind(aggregate)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
     let matches: Vec<_> = rows
         .iter()
         .filter(|row| row.try_get::<String, _>("event_kind").ok().as_deref() == Some(kind))
@@ -4347,6 +4595,260 @@ async fn verify_outbox_kinds(
     Ok(())
 }
 
+async fn verify_admission_event_stream(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<u64, ProductEdgeError> {
+    let row: Option<AdmissionEventStreamStateRowV1> = sqlx::query_as(
+        "SELECT last_owner_sequence, (SELECT COUNT(*) FROM product_edge_admission_events_v1) AS event_count, (SELECT MIN(owner_sequence) FROM product_edge_admission_events_v1) AS minimum_owner_sequence, (SELECT MAX(owner_sequence) FROM product_edge_admission_events_v1) AS maximum_owner_sequence, (SELECT COUNT(*) FROM product_edge_owner_outbox_v1 WHERE event_kind = $1) AS admission_count, (SELECT COUNT(*) FROM product_edge_admission_events_v1 AS event JOIN product_edge_owner_outbox_v1 AS outbox ON outbox.event_identity = event.event_identity WHERE outbox.event_kind <> $1) AS wrong_kind_count, (SELECT COUNT(*) FROM (SELECT owner_sequence, predecessor_event_identity, LAG(event_identity) OVER (ORDER BY owner_sequence) AS expected_predecessor_event_identity FROM product_edge_admission_events_v1) AS chain WHERE (owner_sequence = 1 AND predecessor_event_identity IS NOT NULL) OR (owner_sequence > 1 AND predecessor_event_identity IS DISTINCT FROM expected_predecessor_event_identity)) AS broken_predecessor_count, ((SELECT COUNT(*) FROM product_edge_admission_events_v1 AS event JOIN product_edge_owner_outbox_v1 AS outbox ON outbox.event_identity = event.event_identity WHERE event.assignment_mode NOT IN ('TRANSACTIONAL','REBUILT') OR (event.assignment_mode = 'TRANSACTIONAL' AND event.xmin <> outbox.xmin)) + (SELECT COUNT(*) FROM (SELECT event.owner_sequence, MIN(event.owner_sequence) OVER () - 1 + ROW_NUMBER() OVER (ORDER BY outbox.committed_at_epoch_ms, outbox.event_identity) AS expected_owner_sequence FROM product_edge_admission_events_v1 AS event JOIN product_edge_owner_outbox_v1 AS outbox ON outbox.event_identity = event.event_identity WHERE event.assignment_mode = 'REBUILT') AS rebuilt WHERE owner_sequence <> expected_owner_sequence)) AS broken_assignment_count FROM product_edge_admission_event_stream_v1 WHERE stream_identity = $2",
+    )
+    .bind(ADMISSION_EVENT)
+    .bind(PRODUCT_EDGE_ADMISSION_EVENT_STREAM_V1)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    let row = row.ok_or(ProductEdgeError::Unavailable)?;
+    let last = from_i64(row.last_owner_sequence)?;
+    let count = from_i64(row.event_count)?;
+    let admission_count = from_i64(row.admission_count)?;
+    let wrong_kind_count = from_i64(row.wrong_kind_count)?;
+    let broken_predecessor_count = from_i64(row.broken_predecessor_count)?;
+    let broken_assignment_count = from_i64(row.broken_assignment_count)?;
+    let minimum = row.minimum_owner_sequence.map(from_i64).transpose()?;
+    let maximum = row.maximum_owner_sequence.map(from_i64).transpose()?;
+
+    if count != admission_count
+        || wrong_kind_count != 0
+        || broken_predecessor_count != 0
+        || broken_assignment_count != 0
+        || (last == 0 && (count != 0 || minimum.is_some() || maximum.is_some()))
+        || (last > 0 && (count != last || minimum != Some(1) || maximum != Some(last)))
+    {
+        return Err(ProductEdgeError::Unavailable);
+    }
+    Ok(last)
+}
+
+async fn follow_admission_events_after(
+    pool: &PgPool,
+    cursor: &ProductEdgeAdmissionEventCursorV1,
+    page_size: u32,
+) -> Result<Vec<ProductEdgeAdmissionEventLocatorV1>, ProductEdgeError> {
+    if page_size == 0 || page_size > MAX_ADMISSION_EVENT_PAGE_V1 {
+        return Err(ProductEdgeError::InvalidProposal("admission event cursor"));
+    }
+    let cursor_has_no_anchor = cursor.event_identity().is_none()
+        && cursor.fact_identity().is_none()
+        && cursor.fact_digest().is_none()
+        && cursor.observation_identity().is_none()
+        && cursor.observation_digest().is_none();
+    let cursor_has_complete_anchor = cursor
+        .event_identity()
+        .is_some_and(|value| !value.trim().is_empty())
+        && cursor
+            .fact_identity()
+            .is_some_and(|value| !value.trim().is_empty())
+        && cursor.fact_digest().is_some_and(is_sha256_digest)
+        && cursor
+            .observation_identity()
+            .is_some_and(|value| !value.trim().is_empty())
+        && cursor.observation_digest().is_some_and(is_sha256_digest);
+    if cursor.stream_identity() != PRODUCT_EDGE_ADMISSION_EVENT_STREAM_V1
+        || (cursor.owner_sequence() == 0 && !cursor_has_no_anchor)
+        || (cursor.owner_sequence() > 0 && !cursor_has_complete_anchor)
+    {
+        return Err(ProductEdgeError::Unavailable);
+    }
+    let mut transaction = begin_repeatable_read(pool).await?;
+    let last_owner_sequence = verify_admission_event_stream(&mut transaction).await?;
+    if cursor.owner_sequence() > last_owner_sequence {
+        return Err(ProductEdgeError::Unavailable);
+    }
+
+    if cursor.owner_sequence() > 0 {
+        let anchor =
+            load_admission_event_locator_by_sequence(&mut transaction, cursor.owner_sequence())
+                .await?
+                .ok_or(ProductEdgeError::Unavailable)?;
+        let observation =
+            resolve_admission_observation_in_transaction(&mut transaction, &anchor).await?;
+        if cursor.event_identity() != Some(anchor.event_identity())
+            || cursor.fact_identity() != Some(anchor.fact_identity())
+            || cursor.fact_digest() != Some(anchor.fact_digest())
+            || cursor.observation_identity() != Some(observation.observation_identity())
+            || cursor.observation_digest() != Some(observation.observation_digest())
+        {
+            return Err(ProductEdgeError::Unavailable);
+        }
+    }
+
+    let rows = sqlx::query(
+        "SELECT event.owner_sequence, outbox.event_identity, outbox.aggregate_identity FROM product_edge_admission_events_v1 AS event JOIN product_edge_owner_outbox_v1 AS outbox ON outbox.event_identity = event.event_identity WHERE outbox.event_kind = $1 AND event.owner_sequence > $2 ORDER BY event.owner_sequence LIMIT $3",
+    )
+    .bind(ADMISSION_EVENT)
+    .bind(to_i64(cursor.owner_sequence())?)
+    .bind(i64::from(page_size))
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(storage)?;
+    let mut locators = Vec::with_capacity(rows.len());
+    let mut previous_sequence = cursor.owner_sequence();
+
+    for row in rows {
+        let locator = admission_event_locator_from_row(&mut transaction, &row).await?;
+        if locator.owner_sequence() <= previous_sequence {
+            return Err(ProductEdgeError::Unavailable);
+        }
+        resolve_admission_observation_in_transaction(&mut transaction, &locator).await?;
+        previous_sequence = locator.owner_sequence();
+        locators.push(locator);
+    }
+    transaction.commit().await.map_err(storage)?;
+    Ok(locators)
+}
+
+async fn resolve_admission_observation(
+    pool: &PgPool,
+    locator: &ProductEdgeAdmissionEventLocatorV1,
+) -> Result<ProductEdgeAdmissionObservationV1, ProductEdgeError> {
+    let mut transaction = begin_repeatable_read(pool).await?;
+    verify_admission_event_stream(&mut transaction).await?;
+    let observation =
+        resolve_admission_observation_in_transaction(&mut transaction, locator).await?;
+    transaction.commit().await.map_err(storage)?;
+    Ok(observation)
+}
+
+async fn load_admission_event_locator_by_sequence(
+    transaction: &mut Transaction<'_, Postgres>,
+    owner_sequence: u64,
+) -> Result<Option<ProductEdgeAdmissionEventLocatorV1>, ProductEdgeError> {
+    let rows = sqlx::query(
+        "SELECT event.owner_sequence, outbox.event_identity, outbox.aggregate_identity FROM product_edge_admission_events_v1 AS event JOIN product_edge_owner_outbox_v1 AS outbox ON outbox.event_identity = event.event_identity WHERE outbox.event_kind = $1 AND event.owner_sequence = $2",
+    )
+    .bind(ADMISSION_EVENT)
+    .bind(to_i64(owner_sequence)?)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(storage)?;
+
+    if rows.len() > 1 {
+        return Err(ProductEdgeError::Unavailable);
+    }
+
+    match rows.first() {
+        Some(row) => Ok(Some(
+            admission_event_locator_from_row(transaction, row).await?,
+        )),
+        None => Ok(None),
+    }
+}
+
+async fn admission_event_locator_from_row(
+    transaction: &mut Transaction<'_, Postgres>,
+    row: &sqlx::postgres::PgRow,
+) -> Result<ProductEdgeAdmissionEventLocatorV1, ProductEdgeError> {
+    let owner_sequence = from_i64(row.try_get("owner_sequence").map_err(storage)?)?;
+    let event_identity: String = row.try_get("event_identity").map_err(storage)?;
+    let fact_identity: String = row.try_get("aggregate_identity").map_err(storage)?;
+    let (admission, _) = load_admission_row_by_identity(transaction, &fact_identity)
+        .await?
+        .ok_or(ProductEdgeError::Unavailable)?;
+    if owner_sequence == 0 || admission.admission_identity != fact_identity {
+        return Err(ProductEdgeError::Unavailable);
+    }
+    Ok(ProductEdgeAdmissionEventLocatorV1::from_owner_fact(
+        owner_sequence,
+        event_identity,
+        fact_identity,
+        admission.admission_digest,
+    ))
+}
+
+async fn resolve_admission_observation_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    locator: &ProductEdgeAdmissionEventLocatorV1,
+) -> Result<ProductEdgeAdmissionObservationV1, ProductEdgeError> {
+    if locator.stream_identity() != PRODUCT_EDGE_ADMISSION_EVENT_STREAM_V1
+        || locator.owner_sequence() == 0
+        || locator.event_identity().trim().is_empty()
+        || locator.fact_identity().trim().is_empty()
+        || !is_sha256_digest(locator.fact_digest())
+    {
+        return Err(ProductEdgeError::Unavailable);
+    }
+    let (admission, receipt) = load_admission_row_by_identity(transaction, locator.fact_identity())
+        .await?
+        .ok_or(ProductEdgeError::Unavailable)?;
+
+    if admission.admission_identity != locator.fact_identity()
+        || admission.admission_digest != locator.fact_digest()
+        || receipt.admission_identity != locator.fact_identity()
+        || receipt.admission_digest != locator.fact_digest()
+        || receipt.committed_at_epoch_ms != admission.committed_at_epoch_ms
+    {
+        return Err(ProductEdgeError::Unavailable);
+    }
+    let rows = sqlx::query(
+        "SELECT event.owner_sequence, outbox.event_identity, outbox.aggregate_identity, outbox.event_kind, outbox.payload_digest, outbox.payload_json, outbox.committed_at_epoch_ms FROM product_edge_admission_events_v1 AS event JOIN product_edge_owner_outbox_v1 AS outbox ON outbox.event_identity = event.event_identity WHERE outbox.event_identity = $1",
+    )
+    .bind(locator.event_identity())
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(storage)?;
+
+    if rows.len() != 1 {
+        return Err(ProductEdgeError::Unavailable);
+    }
+    let row = &rows[0];
+    let owner_sequence: i64 = row.try_get("owner_sequence").map_err(storage)?;
+
+    if from_i64(owner_sequence)? != locator.owner_sequence()
+        || row
+            .try_get::<String, _>("aggregate_identity")
+            .map_err(storage)?
+            != locator.fact_identity()
+        || row.try_get::<String, _>("event_kind").map_err(storage)? != ADMISSION_EVENT
+        || from_i64(row.try_get("committed_at_epoch_ms").map_err(storage)?)?
+            != admission.committed_at_epoch_ms
+    {
+        return Err(ProductEdgeError::Unavailable);
+    }
+    verify_outbox_read_only(
+        transaction,
+        &receipt.receipt_identity,
+        &admission.admission_identity,
+        ADMISSION_EVENT,
+        &receipt,
+        admission.committed_at_epoch_ms,
+    )
+    .await?;
+    let observation_digest = canonical_digest(
+        "product-edge.admission-observation.v1",
+        &(
+            PRODUCT_EDGE_SCHEMA_V1,
+            locator,
+            &receipt.receipt_identity,
+            admission.committed_at_epoch_ms,
+        ),
+    )?;
+    let observation_identity = identity(
+        "product-edge-admission-observation-v1",
+        &[
+            locator.event_identity(),
+            locator.fact_identity(),
+            locator.fact_digest(),
+            &observation_digest,
+        ],
+    );
+    Ok(ProductEdgeAdmissionObservationV1::from_owner_fact(
+        observation_identity,
+        observation_digest,
+        locator.clone(),
+        receipt.receipt_identity,
+        admission.committed_at_epoch_ms,
+    ))
+}
+
 fn now_ms() -> Result<u64, ProductEdgeError> {
     let duration = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -4382,6 +4884,16 @@ async fn begin_read_committed(
 ) -> Result<Transaction<'_, Postgres>, ProductEdgeError> {
     let mut transaction = pool.begin().await.map_err(storage)?;
     sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+        .execute(&mut *transaction)
+        .await
+        .map_err(storage)?;
+    Ok(transaction)
+}
+async fn begin_repeatable_read(
+    pool: &PgPool,
+) -> Result<Transaction<'_, Postgres>, ProductEdgeError> {
+    let mut transaction = pool.begin().await.map_err(storage)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
         .execute(&mut *transaction)
         .await
         .map_err(storage)?;
@@ -5353,6 +5865,47 @@ mod tests {
         )
         .await
         .unwrap();
+        let pe_pool = mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
+        let read_database_url = test_database.database_url(CanonicalOwnerTestRoleV1::BacktestOwner);
+        assert!(matches!(
+            ProductEdgePostgresAdmissionReadPortV1::connect(read_database_url).await,
+            Err(ProductEdgeError::Unavailable)
+        ));
+        sqlx::query(
+            "GRANT SELECT ON TABLE product_edge_request_admissions_v1, product_edge_owner_outbox_v1, product_edge_admission_event_stream_v1, product_edge_admission_events_v1 TO backtest_owner",
+        )
+        .execute(pe_pool)
+        .await
+        .unwrap();
+        let read_role_boundary: (bool, bool, bool, bool, bool, bool, bool, bool) =
+            sqlx::query_as(
+                "SELECT
+                   (SELECT bool_and(has_table_privilege('backtest_owner', table_name, 'SELECT')) FROM unnest(ARRAY['product_edge_request_admissions_v1','product_edge_owner_outbox_v1','product_edge_admission_event_stream_v1','product_edge_admission_events_v1']) AS table_name),
+                   (SELECT bool_or(has_table_privilege('backtest_owner', table_name, privilege_name)) FROM unnest(ARRAY['product_edge_request_admissions_v1','product_edge_owner_outbox_v1','product_edge_admission_event_stream_v1','product_edge_admission_events_v1']) AS table_name CROSS JOIN unnest(ARRAY['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) AS privilege_name),
+                   has_schema_privilege('backtest_owner', 'public', 'CREATE'),
+                   pg_has_role('backtest_owner', 'product_edge_owner', 'MEMBER'),
+                   rolsuper, rolcreatedb, rolcreaterole, rolbypassrls
+                 FROM pg_roles WHERE rolname='backtest_owner'",
+            )
+            .fetch_one(pe_pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            read_role_boundary,
+            (true, false, false, false, false, false, false, false)
+        );
+        let admission_reader = ProductEdgePostgresAdmissionReadPortV1::connect(read_database_url)
+            .await
+            .unwrap();
+        let read_role_pool = PgPool::connect(read_database_url).await.unwrap();
+        assert!(
+            sqlx::query(
+                "INSERT INTO product_edge_admission_event_stream_v1 (stream_identity, last_owner_sequence) VALUES ('forged', 0)",
+            )
+            .execute(&read_role_pool)
+            .await
+            .is_err()
+        );
         let bootstrap = ProductEdgeBootstrapProposalV1 {
             deployment_identity: deployment.clone(),
             binding_identity: first_binding.clone(),
@@ -5381,7 +5934,6 @@ mod tests {
             request_proof_digest: "sha256:test-proof".to_string(),
             audit_correlation: format!("test:{suffix}"),
         };
-        let pe_pool = mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
         let invalid_counts_before: (i64, i64) = sqlx::query_as(
             "SELECT (SELECT COUNT(*) FROM product_edge_request_admissions_v1), (SELECT COUNT(*) FROM product_edge_owner_outbox_v1)",
         )
@@ -5421,7 +5973,376 @@ mod tests {
         .fetch_one(pe_pool).await.unwrap();
         assert_eq!(invalid_counts_after, invalid_counts_before);
         let admission = owner.admit_request(request.clone()).await.unwrap();
-        assert_eq!(owner.admit_request(request).await.unwrap(), admission);
+        assert_eq!(
+            owner.admit_request(request.clone()).await.unwrap(),
+            admission
+        );
+        let admission_event_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM product_edge_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2",
+        )
+        .bind(admission.locator().admission_identity.as_str())
+        .bind(ADMISSION_EVENT)
+        .fetch_one(pe_pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            admission_event_count, 1,
+            "semantic replay must join one event"
+        );
+
+        let second_request_identity = format!("generic-request-second-{suffix}");
+        let mut second_request = request.clone();
+        second_request.request_identity = second_request_identity.clone();
+        second_request.typed_payload =
+            serde_json::json!({"request_identity": second_request_identity});
+        second_request.audit_correlation = format!("test-second:{suffix}");
+        let second_admission = owner.admit_request(second_request).await.unwrap();
+        let wakes = admission_reader
+            .follow_admission_events_after(&ProductEdgeAdmissionEventCursorV1::origin(), 100)
+            .await
+            .unwrap();
+        let first_wake = wakes
+            .iter()
+            .find(|wake| wake.fact_identity() == admission.locator().admission_identity)
+            .unwrap()
+            .clone();
+        let second_wake = wakes
+            .iter()
+            .find(|wake| wake.fact_identity() == second_admission.locator().admission_identity)
+            .unwrap()
+            .clone();
+        assert!(first_wake.owner_sequence() < second_wake.owner_sequence());
+        let first_observation = admission_reader
+            .resolve_admission_observation(&first_wake)
+            .await
+            .unwrap();
+        let second_page = admission_reader
+            .follow_admission_events_after(&first_observation.next_cursor(), 1)
+            .await
+            .unwrap();
+        assert_eq!(second_page, vec![second_wake.clone()]);
+        let second_observation = admission_reader
+            .resolve_admission_observation(&second_wake)
+            .await
+            .unwrap();
+        assert!(
+            admission_reader
+                .follow_admission_events_after(&second_observation.next_cursor(), 1)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+
+        let reconnected_reader = ProductEdgePostgresAdmissionReadPortV1::connect(read_database_url)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::to_vec(
+                &reconnected_reader
+                    .resolve_admission_observation(&first_wake)
+                    .await
+                    .unwrap()
+            )
+            .unwrap(),
+            serde_json::to_vec(&first_observation).unwrap(),
+            "reconnect must rebuild the byte-identical sealed observation"
+        );
+        assert_eq!(
+            reconnected_reader
+                .follow_admission_events_after(&ProductEdgeAdmissionEventCursorV1::origin(), 100)
+                .await
+                .unwrap(),
+            wakes,
+            "reconnect must rebuild the byte-identical wake stream"
+        );
+
+        sqlx::query(
+            "DROP TRIGGER product_edge_admission_assignment_immutable_v1 ON product_edge_admission_events_v1",
+        )
+        .execute(pe_pool)
+        .await
+        .unwrap();
+        let mut wrong_historical_mapping = pe_pool.begin().await.unwrap();
+        sqlx::query("DELETE FROM product_edge_admission_events_v1 WHERE event_identity = $1")
+            .bind(second_wake.event_identity())
+            .execute(&mut *wrong_historical_mapping)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO product_edge_admission_events_v1 (owner_sequence, event_identity, predecessor_event_identity, assignment_mode) VALUES ($1,$2,NULL,'REBUILT')",
+        )
+        .bind(second_wake.owner_sequence() as i64)
+        .bind(second_wake.event_identity())
+        .execute(&mut *wrong_historical_mapping)
+        .await
+        .unwrap();
+        assert!(matches!(
+            verify_admission_event_stream(&mut wrong_historical_mapping).await,
+            Err(ProductEdgeError::Unavailable)
+        ));
+        wrong_historical_mapping.rollback().await.unwrap();
+        sqlx::query("DELETE FROM product_edge_admission_events_v1 WHERE event_identity = $1")
+            .bind(second_wake.event_identity())
+            .execute(pe_pool)
+            .await
+            .unwrap();
+        let rebuilt = ProductEdgePostgresOwnerV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+            &deployment,
+            ProductEdgeAuthorizationTrustV1 {
+                issuer_identity: "operator-authorization-issuer-test-v1".to_string(),
+                issuer_key_version: "test-key-v1".to_string(),
+                audience: "R_AND_D".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            rebuilt
+                .follow_admission_events_after(&ProductEdgeAdmissionEventCursorV1::origin(), 100)
+                .await
+                .unwrap(),
+            wakes,
+            "a missing historical assignment must be inserted once without changing locators"
+        );
+        assert_eq!(
+            serde_json::to_vec(
+                &rebuilt
+                    .resolve_admission_observation(&second_wake)
+                    .await
+                    .unwrap()
+            )
+            .unwrap(),
+            serde_json::to_vec(&second_observation).unwrap(),
+            "a rebuilt historical assignment must preserve the sealed observation bytes"
+        );
+        let rebuilt_mapping: (i64, String, Option<String>, String) = sqlx::query_as(
+            "SELECT owner_sequence, event_identity, predecessor_event_identity, assignment_mode FROM product_edge_admission_events_v1 WHERE event_identity = $1",
+        )
+        .bind(second_wake.event_identity())
+        .fetch_one(pe_pool)
+        .await
+        .unwrap();
+        assert_eq!(rebuilt_mapping.0, second_wake.owner_sequence() as i64);
+        assert_eq!(rebuilt_mapping.1, second_wake.event_identity());
+        assert_eq!(
+            rebuilt_mapping.2.as_deref(),
+            Some(first_wake.event_identity())
+        );
+        assert_eq!(rebuilt_mapping.3, "REBUILT");
+        let rebuilt_reconnected = ProductEdgePostgresOwnerV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+            &deployment,
+            ProductEdgeAuthorizationTrustV1 {
+                issuer_identity: "operator-authorization-issuer-test-v1".to_string(),
+                issuer_key_version: "test-key-v1".to_string(),
+                audience: "R_AND_D".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            rebuilt_reconnected
+                .follow_admission_events_after(&ProductEdgeAdmissionEventCursorV1::origin(), 100)
+                .await
+                .unwrap(),
+            wakes,
+            "reconnect must not remint or rewrite a rebuilt assignment"
+        );
+
+        let frontier_before_failure = first_observation.next_cursor();
+        let mut missing_event = serde_json::to_value(&first_wake).unwrap();
+        missing_event["event_identity"] = serde_json::json!("missing-event");
+        let missing_event =
+            serde_json::from_value::<ProductEdgeAdmissionEventLocatorV1>(missing_event).unwrap();
+        assert!(matches!(
+            admission_reader
+                .resolve_admission_observation(&missing_event)
+                .await,
+            Err(ProductEdgeError::Unavailable)
+        ));
+        let mut wrong_sequence = serde_json::to_value(&first_wake).unwrap();
+        wrong_sequence["owner_sequence"] = serde_json::json!(second_wake.owner_sequence());
+        let wrong_sequence =
+            serde_json::from_value::<ProductEdgeAdmissionEventLocatorV1>(wrong_sequence).unwrap();
+        assert!(matches!(
+            admission_reader
+                .resolve_admission_observation(&wrong_sequence)
+                .await,
+            Err(ProductEdgeError::Unavailable)
+        ));
+        let mut wrong_digest = serde_json::to_value(&first_wake).unwrap();
+        let mut forged_digest = first_wake.fact_digest().to_string();
+        mutate_sha256(&mut forged_digest);
+        wrong_digest["fact_digest"] = serde_json::json!(forged_digest);
+        let wrong_digest =
+            serde_json::from_value::<ProductEdgeAdmissionEventLocatorV1>(wrong_digest).unwrap();
+        assert!(matches!(
+            admission_reader
+                .resolve_admission_observation(&wrong_digest)
+                .await,
+            Err(ProductEdgeError::Unavailable)
+        ));
+        let mut stale_cursor = serde_json::to_value(second_observation.next_cursor()).unwrap();
+        stale_cursor["owner_sequence"] =
+            serde_json::json!(second_wake.owner_sequence().saturating_add(1));
+        let stale_cursor =
+            serde_json::from_value::<ProductEdgeAdmissionEventCursorV1>(stale_cursor).unwrap();
+        assert!(matches!(
+            admission_reader
+                .follow_admission_events_after(&stale_cursor, 1)
+                .await,
+            Err(ProductEdgeError::Unavailable)
+        ));
+        let mut skipped_cursor = serde_json::to_value(first_observation.next_cursor()).unwrap();
+        skipped_cursor["owner_sequence"] = serde_json::json!(second_wake.owner_sequence());
+        let skipped_cursor =
+            serde_json::from_value::<ProductEdgeAdmissionEventCursorV1>(skipped_cursor).unwrap();
+        assert!(matches!(
+            admission_reader
+                .follow_admission_events_after(&skipped_cursor, 1)
+                .await,
+            Err(ProductEdgeError::Unavailable)
+        ));
+        assert_eq!(frontier_before_failure, first_observation.next_cursor());
+
+        let mut mapping_update = pe_pool.begin().await.unwrap();
+        assert!(sqlx::query(
+            "UPDATE product_edge_admission_events_v1 SET event_identity = CASE WHEN event_identity = $1 THEN $2 ELSE $1 END WHERE event_identity = $1 OR event_identity = $2",
+        )
+        .bind(first_wake.event_identity())
+        .bind(second_wake.event_identity())
+        .execute(&mut *mapping_update)
+        .await
+        .is_err());
+        mapping_update.rollback().await.unwrap();
+
+        let mut mapping_delete_reinsert = pe_pool.begin().await.unwrap();
+        assert!(sqlx::query(
+            "WITH removed AS (DELETE FROM product_edge_admission_events_v1 WHERE event_identity = $1 OR event_identity = $2 RETURNING owner_sequence, event_identity, predecessor_event_identity, assignment_mode) INSERT INTO product_edge_admission_events_v1 (owner_sequence, event_identity, predecessor_event_identity, assignment_mode) SELECT owner_sequence, event_identity, predecessor_event_identity, assignment_mode FROM removed",
+        )
+        .bind(first_wake.event_identity())
+        .bind(second_wake.event_identity())
+        .execute(&mut *mapping_delete_reinsert)
+        .await
+        .is_err());
+        mapping_delete_reinsert.rollback().await.unwrap();
+        assert_eq!(
+            admission_reader
+                .follow_admission_events_after(&ProductEdgeAdmissionEventCursorV1::origin(), 100)
+                .await
+                .unwrap(),
+            wakes,
+            "rejected assignment rewrites must not alter or advance the stream"
+        );
+
+        let trigger_drop_reached = std::sync::Arc::new(tokio::sync::Notify::new());
+        let release_trigger_replacement = std::sync::Arc::new(tokio::sync::Notify::new());
+        let migrating_owner = owner.clone();
+        let migrating_reached = std::sync::Arc::clone(&trigger_drop_reached);
+        let migrating_release = std::sync::Arc::clone(&release_trigger_replacement);
+
+        let migration = tokio::spawn(async move {
+            migrating_owner
+                .migrate_observing(move |statement| {
+                    let pause_after_trigger_drop = statement
+                        == "DROP TRIGGER IF EXISTS product_edge_admission_assignment_immutable_v1 ON product_edge_admission_events_v1";
+                    let reached = std::sync::Arc::clone(&migrating_reached);
+                    let release = std::sync::Arc::clone(&migrating_release);
+                    async move {
+                        if pause_after_trigger_drop {
+                            reached.notify_one();
+                            release.notified().await;
+                        }
+                    }
+                })
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(5), trigger_drop_reached.notified())
+            .await
+            .unwrap();
+
+        let rewrite_pool = pe_pool.clone();
+        let rewrite_first_event = first_wake.event_identity().to_string();
+        let rewrite_second_event = second_wake.event_identity().to_string();
+
+        let mut concurrent_rewrite = tokio::spawn(async move {
+            let mut transaction = rewrite_pool.begin().await.unwrap();
+            let result = sqlx::query(
+                "WITH removed AS (DELETE FROM product_edge_admission_events_v1 WHERE event_identity = $1 OR event_identity = $2 RETURNING owner_sequence, event_identity, predecessor_event_identity, assignment_mode) INSERT INTO product_edge_admission_events_v1 (owner_sequence, event_identity, predecessor_event_identity, assignment_mode) SELECT owner_sequence, event_identity, predecessor_event_identity, assignment_mode FROM removed",
+            )
+            .bind(rewrite_first_event)
+            .bind(rewrite_second_event)
+            .execute(&mut *transaction)
+            .await;
+            transaction.rollback().await.unwrap();
+            result
+        });
+        let rewrite_blocked_before_commit =
+            tokio::time::timeout(Duration::from_millis(100), &mut concurrent_rewrite)
+                .await
+                .is_err();
+        release_trigger_replacement.notify_one();
+        assert!(
+            rewrite_blocked_before_commit,
+            "a concurrent reconnect migration must never expose the dropped trigger"
+        );
+        tokio::time::timeout(Duration::from_secs(5), migration)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(5), &mut concurrent_rewrite)
+                .await
+                .unwrap()
+                .unwrap()
+                .is_err(),
+            "the waiting rewrite must observe the restored immutable trigger after commit"
+        );
+        assert_eq!(
+            admission_reader
+                .follow_admission_events_after(&ProductEdgeAdmissionEventCursorV1::origin(), 100)
+                .await
+                .unwrap(),
+            wakes,
+            "a concurrent reconnect must preserve the byte-identical event stream"
+        );
+
+        let original_admission_json: serde_json::Value = sqlx::query_scalar(
+            "SELECT admission_json FROM product_edge_request_admissions_v1 WHERE request_identity=$1",
+        )
+        .bind(&request_identity)
+        .fetch_one(pe_pool)
+        .await
+        .unwrap();
+        let mut tampered_admission_json = original_admission_json.clone();
+        tampered_admission_json["request"]["typed_payload"]["review_tamper"] =
+            serde_json::json!(true);
+        sqlx::query(
+            "UPDATE product_edge_request_admissions_v1 SET admission_json=$1 WHERE request_identity=$2",
+        )
+        .bind(&tampered_admission_json)
+        .bind(&request_identity)
+        .execute(pe_pool)
+        .await
+        .unwrap();
+        assert!(matches!(
+            admission_reader
+                .resolve_admission_observation(&first_wake)
+                .await,
+            Err(ProductEdgeError::Unavailable)
+        ));
+        assert_eq!(frontier_before_failure, first_observation.next_cursor());
+        sqlx::query(
+            "UPDATE product_edge_request_admissions_v1 SET admission_json=$1 WHERE request_identity=$2",
+        )
+        .bind(&original_admission_json)
+        .bind(&request_identity)
+        .execute(pe_pool)
+        .await
+        .unwrap();
+
         let original_admission_digest: String = sqlx::query_scalar(
             "SELECT admission_digest FROM product_edge_request_admissions_v1 WHERE request_identity=$1",
         )
@@ -5434,6 +6355,10 @@ mod tests {
                 .await,
             Err(ProductEdgeError::Unavailable)
         ));
+        assert!(matches!(
+            owner.resolve_admission_observation(&first_wake).await,
+            Err(ProductEdgeError::Unavailable)
+        ));
         sqlx::query("UPDATE product_edge_request_admissions_v1 SET admission_digest=$1 WHERE request_identity=$2")
             .bind(&original_admission_digest).bind(&request_identity).execute(pe_pool).await.unwrap();
         let admission_event_identity: String = sqlx::query_scalar(
@@ -5441,27 +6366,27 @@ mod tests {
         )
         .bind(admission.locator().admission_identity.as_str()).bind(ADMISSION_EVENT)
         .fetch_one(pe_pool).await.unwrap();
-        sqlx::query(
+        assert!(sqlx::query(
+            "UPDATE product_edge_owner_outbox_v1 SET event_kind=event_kind WHERE event_identity=$1",
+        )
+        .bind(&admission_event_identity)
+        .execute(pe_pool)
+        .await
+        .is_err());
+        assert!(sqlx::query(
             "UPDATE product_edge_owner_outbox_v1 SET event_kind='CORRUPT' WHERE event_identity=$1",
         )
         .bind(&admission_event_identity)
         .execute(pe_pool)
         .await
-        .unwrap();
-        assert!(matches!(
+        .is_err());
+        assert_eq!(
             owner
-                .resolve_admission(&request_identity, "sha256:test-proof")
-                .await,
-            Err(ProductEdgeError::Unavailable)
-        ));
-        sqlx::query(
-            "UPDATE product_edge_owner_outbox_v1 SET event_kind=$1 WHERE event_identity=$2",
-        )
-        .bind(ADMISSION_EVENT)
-        .bind(&admission_event_identity)
-        .execute(pe_pool)
-        .await
-        .unwrap();
+                .resolve_admission_observation(&first_wake)
+                .await
+                .unwrap(),
+            first_observation
+        );
         assert_eq!(
             owner
                 .resolve_admission(&request_identity, "sha256:test-proof")
