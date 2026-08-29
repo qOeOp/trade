@@ -8,6 +8,11 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::UnixListener,
 };
+use vibe_backtest_owner_contracts::{
+    CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayAuthorityClaimV2,
+    ReplayModelProfilesV2, ReplayRequestDtoV2, ReplayRequestV2, ReplayWindowV2,
+    VersionedIdentityV2,
+};
 use vibe_operator_authorization::{
     OperationManifestBindingV1, OperatorAuthorizationIssuanceProposalV1,
     OperatorAuthorizationIssuerPostgresV1, OperatorAuthorizationLocatorV1,
@@ -26,9 +31,12 @@ use vibe_strategy_factory::{
     },
     artifact_build_postgres::PostgresArtifactBuildOwnerV1,
     exploratory_replay::{
-        EXPLORATORY_REPLAY_MUTATION_EFFECT_V1, EXPLORATORY_REPLAY_OPERATION_V1,
-        EXPLORATORY_REPLAY_SCHEMA_V1, ExploratoryReplayAvailabilityV1, ExploratoryReplayOwnerError,
-        ExploratoryReplayRequestLocatorV1, ExploratoryReplayRequestProposalV1, IdentityDigestV1,
+        EXPLORATORY_REPLAY_MUTATION_EFFECT_V1, EXPLORATORY_REPLAY_MUTATION_EFFECT_V2,
+        EXPLORATORY_REPLAY_OPERATION_V1, EXPLORATORY_REPLAY_OPERATION_V2,
+        EXPLORATORY_REPLAY_SCHEMA_V1, EXPLORATORY_REPLAY_SCHEMA_V2,
+        ExploratoryReplayAvailabilityV1, ExploratoryReplayOwnerError,
+        ExploratoryReplayRequestLocatorV1, ExploratoryReplayRequestLocatorV2,
+        ExploratoryReplayRequestProposalV1, ExploratoryReplayRequestProposalV2, IdentityDigestV1,
         VersionedIdentityV1,
     },
     product_edge::{
@@ -73,6 +81,7 @@ struct ReplayFixture {
     backtest_url: String,
     edge_url: String,
     proposal: ExploratoryReplayRequestProposalV1,
+    proposal_v2: ExploratoryReplayRequestProposalV2,
     valid_through_epoch_ms: u64,
 }
 
@@ -145,6 +154,7 @@ async fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owne
         qualification_url,
         backtest_url,
         proposal,
+        proposal_v2,
         ..
     } = fixture;
     let mutation = database.mutation();
@@ -217,6 +227,227 @@ async fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owne
         [0, 0]
     );
 
+    for (index, pointer) in [
+        "/frozen_research_intent/digest",
+        "/trial_family/digest",
+        "/trial_family_census_frontier/digest",
+        "/artifact/digest",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let false_lineage_identity = format!(
+            "{}-false-owner-lineage-{index}",
+            proposal_v2.request.request_identity.as_str()
+        );
+        let mut false_lineage = proposal_v2.clone();
+        false_lineage.request.request_identity = opaque(&false_lineage_identity);
+        let mut request_json = serde_json::to_value(&false_lineage.request).unwrap();
+        let digest = request_json
+            .pointer(pointer)
+            .and_then(serde_json::Value::as_str)
+            .unwrap();
+        let mut changed_digest = digest.to_string();
+        let last = changed_digest.pop().unwrap();
+        changed_digest.push(if last == 'f' { 'e' } else { 'f' });
+        *request_json.pointer_mut(pointer).unwrap() = serde_json::json!(changed_digest);
+        false_lineage.request = serde_json::from_value(request_json).unwrap();
+        false_lineage.admission = placeholder_admission(&false_lineage_identity);
+        false_lineage = edge.admit_replay_v2(false_lineage).await;
+        assert!(matches!(
+            owner
+                .commit_exploratory_replay_request_v2(false_lineage)
+                .await,
+            Err(ExploratoryReplayOwnerError::Unavailable(_))
+        ));
+        assert_eq!(
+            request_counts_v2(
+                mutation.pool(CanonicalOwnerTestRoleV1::RdOwner),
+                &false_lineage_identity,
+            )
+            .await,
+            [0, 0, 0]
+        );
+    }
+
+    let sealed_v2 = owner
+        .commit_exploratory_replay_request_v2(proposal_v2.clone())
+        .await
+        .expect("frozen Replay V2 request");
+    let expected_v2 = ReplayRequestV2::try_from(proposal_v2.request.clone()).unwrap();
+    assert_eq!(
+        sealed_v2.canonical_request_bytes(),
+        expected_v2.to_canonical_bytes().unwrap()
+    );
+    assert_eq!(
+        sealed_v2.locator().meaning_digest,
+        expected_v2.meaning_digest().unwrap().as_str()
+    );
+    assert_eq!(
+        request_counts_v2(
+            mutation.pool(CanonicalOwnerTestRoleV1::RdOwner),
+            proposal_v2.request.request_identity.as_str(),
+        )
+        .await,
+        [1, 1, 1]
+    );
+    let locked_v2 = owner
+        .lock_exploratory_replay_request_for_backtest_v2(sealed_v2.locator())
+        .await
+        .expect("canonical Replay V2 Backtest lock");
+    assert_eq!(
+        locked_v2.projection().availability,
+        ExploratoryReplayAvailabilityV1::Available
+    );
+    assert_eq!(
+        locked_v2.readback().unwrap().canonical_request_bytes(),
+        sealed_v2.canonical_request_bytes()
+    );
+    let committed_v2_cut: i64 = sqlx::query_scalar(
+        "SELECT committed_at_epoch_ms FROM public.rd_exploratory_replay_requests_v1 WHERE request_identity=$1",
+    )
+    .bind(proposal_v2.request.request_identity.as_str())
+    .fetch_one(mutation.pool(CanonicalOwnerTestRoleV1::RdOwner))
+    .await
+    .unwrap();
+    assert!(locked_v2.readback().unwrap().owner_cut_epoch_ms() >= committed_v2_cut as u64);
+
+    let (legacy_projection_json, lineage_request_digest, lineage_receipt_identity): (
+        serde_json::Value,
+        String,
+        String,
+    ) = sqlx::query_as(
+        "SELECT frozen_json->'proposal',request_digest,receipt_json->>'receipt_identity' FROM public.rd_exploratory_replay_requests_v1 WHERE request_identity=$1",
+    )
+    .bind(proposal_v2.request.request_identity.as_str())
+    .fetch_one(mutation.pool(CanonicalOwnerTestRoleV1::RdOwner))
+    .await
+    .unwrap();
+    let legacy_projection: ExploratoryReplayRequestProposalV1 =
+        serde_json::from_value(legacy_projection_json).unwrap();
+    let legacy_v1_locator = ExploratoryReplayRequestLocatorV1 {
+        request_identity: proposal_v2.request.request_identity.as_str().to_string(),
+        request_digest: lineage_request_digest,
+        receipt_identity: lineage_receipt_identity,
+    };
+    assert!(matches!(
+        owner
+            .commit_exploratory_replay_request_v1(legacy_projection.clone())
+            .await,
+        Err(ExploratoryReplayOwnerError::Unavailable(_))
+    ));
+    assert_unavailable(&owner, &legacy_v1_locator).await;
+    assert_eq!(
+        request_counts_v2(
+            mutation.pool(CanonicalOwnerTestRoleV1::RdOwner),
+            proposal_v2.request.request_identity.as_str(),
+        )
+        .await,
+        [1, 1, 1]
+    );
+
+    for (index, (pointer, replacement)) in replay_v2_tamper_cases(&proposal_v2.request)
+        .into_iter()
+        .enumerate()
+    {
+        let identity = format!(
+            "{}-tamper-{index}",
+            proposal_v2.request.request_identity.as_str()
+        );
+        let mut changed = proposal_v2.clone();
+        changed.request.request_identity = opaque(&identity);
+        changed.admission = placeholder_admission(&identity);
+        changed = edge.admit_replay_v2(changed).await;
+        let mut value = serde_json::to_value(&changed.request).unwrap();
+        *value
+            .pointer_mut(&pointer)
+            .expect("Replay V2 tamper pointer") = replacement;
+        changed.request = serde_json::from_value(value).expect("valid tampered Replay V2 DTO");
+        assert!(matches!(
+            owner.commit_exploratory_replay_request_v2(changed).await,
+            Err(ExploratoryReplayOwnerError::Unavailable(_))
+        ));
+        assert_eq!(
+            request_counts_v2(mutation.pool(CanonicalOwnerTestRoleV1::RdOwner), &identity).await,
+            [0, 0, 0]
+        );
+    }
+
+    let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+    let (original_v2_bytes, original_v2_meaning, original_v2_seal, original_v2_receipt): (
+        Vec<u8>,
+        String,
+        String,
+        serde_json::Value,
+    ) = sqlx::query_as(
+        "SELECT v2_canonical_request_bytes,v2_meaning_digest,v2_seal_digest,v2_receipt_json FROM public.rd_exploratory_replay_requests_v1 WHERE request_identity=$1",
+    )
+    .bind(proposal_v2.request.request_identity.as_str())
+    .fetch_one(rd_pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=v2_canonical_request_bytes||decode('20','hex') WHERE request_identity=$1")
+        .bind(proposal_v2.request.request_identity.as_str()).execute(rd_pool).await.unwrap();
+    assert_unavailable_v2(&owner, sealed_v2.locator()).await;
+    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=$2 WHERE request_identity=$1")
+        .bind(proposal_v2.request.request_identity.as_str()).bind(&original_v2_bytes).execute(rd_pool).await.unwrap();
+
+    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=NULL,v2_meaning_digest=NULL,v2_seal_digest=NULL,v2_receipt_json=NULL,request_schema_version=1 WHERE request_identity=$1")
+        .bind(proposal_v2.request.request_identity.as_str()).execute(rd_pool).await.unwrap();
+    assert!(matches!(
+        owner
+            .commit_exploratory_replay_request_v1(legacy_projection)
+            .await,
+        Err(ExploratoryReplayOwnerError::Unavailable(_))
+    ));
+    assert_unavailable(&owner, &legacy_v1_locator).await;
+    assert_unavailable_v2(&owner, sealed_v2.locator()).await;
+    assert_eq!(
+        request_counts_v2(
+            mutation.pool(CanonicalOwnerTestRoleV1::RdOwner),
+            proposal_v2.request.request_identity.as_str(),
+        )
+        .await,
+        [1, 1, 1]
+    );
+    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=$2,v2_meaning_digest=$3,v2_seal_digest=$4,v2_receipt_json=$5,request_schema_version=2 WHERE request_identity=$1")
+        .bind(proposal_v2.request.request_identity.as_str())
+        .bind(&original_v2_bytes)
+        .bind(original_v2_meaning)
+        .bind(original_v2_seal)
+        .bind(original_v2_receipt)
+        .execute(rd_pool).await.unwrap();
+
+    let legacy_only = ExploratoryReplayRequestLocatorV2 {
+        request_identity: proposal.request_identity.clone(),
+        meaning_digest: format!("sha256:{}", "1".repeat(64)),
+        receipt_identity: "legacy-v1-receipt-only".into(),
+        seal_digest: format!("sha256:{}", "2".repeat(64)),
+    };
+    assert_unavailable_v2(&owner, &legacy_only).await;
+
+    let mut wrong_revoked_locator = sealed_v2.locator().clone();
+    wrong_revoked_locator.seal_digest = format!("sha256:{}", "0".repeat(64));
+    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET lifecycle_state='REVOKED' WHERE request_identity=$1")
+        .bind(proposal_v2.request.request_identity.as_str()).execute(rd_pool).await.unwrap();
+    assert_unavailable_v2(&owner, &wrong_revoked_locator).await;
+    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=v2_canonical_request_bytes||decode('20','hex') WHERE request_identity=$1")
+        .bind(proposal_v2.request.request_identity.as_str()).execute(rd_pool).await.unwrap();
+    assert_unavailable_v2(&owner, sealed_v2.locator()).await;
+    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=$2 WHERE request_identity=$1")
+        .bind(proposal_v2.request.request_identity.as_str()).bind(&original_v2_bytes).execute(rd_pool).await.unwrap();
+    let stale_v2 = owner
+        .lock_exploratory_replay_request_for_backtest_v2(sealed_v2.locator())
+        .await
+        .unwrap();
+    assert_eq!(
+        stale_v2.projection().availability,
+        ExploratoryReplayAvailabilityV1::Stale
+    );
+    assert!(stale_v2.readback().is_none());
+    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET lifecycle_state='FROZEN' WHERE request_identity=$1")
+        .bind(proposal_v2.request.request_identity.as_str()).execute(rd_pool).await.unwrap();
+
     let first = owner
         .commit_exploratory_replay_request_v1(proposal.clone())
         .await
@@ -226,9 +457,17 @@ async fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owne
         .commit_exploratory_replay_request_v1(proposal.clone())
         .await
         .expect("response-loss retry after authority revocation");
+    let replay_v2 = owner
+        .commit_exploratory_replay_request_v2(proposal_v2.clone())
+        .await
+        .expect("Replay V2 response-loss retry after authority revocation");
     assert_eq!(
         serde_json::to_value(&first).unwrap(),
         serde_json::to_value(&replay).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(&sealed_v2).unwrap(),
+        serde_json::to_value(&replay_v2).unwrap()
     );
     assert_eq!(
         request_counts(
@@ -718,6 +957,14 @@ async fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owne
         recovered.readback().unwrap().request_digest(),
         first.locator().request_digest
     );
+    let recovered_v2 = restarted
+        .lock_exploratory_replay_request_for_backtest_v2(sealed_v2.locator())
+        .await
+        .unwrap();
+    assert_eq!(
+        recovered_v2.readback().unwrap().canonical_request_bytes(),
+        sealed_v2.canonical_request_bytes()
+    );
 }
 
 async fn assert_unavailable(
@@ -726,6 +973,21 @@ async fn assert_unavailable(
 ) {
     let result = owner
         .lock_exploratory_replay_request_for_backtest_v1(locator)
+        .await
+        .unwrap();
+    assert_eq!(
+        result.projection().availability,
+        ExploratoryReplayAvailabilityV1::Unavailable
+    );
+    assert!(result.readback().is_none());
+}
+
+async fn assert_unavailable_v2(
+    owner: &PostgresResearchGoalOwnerV1,
+    locator: &ExploratoryReplayRequestLocatorV2,
+) {
+    let result = owner
+        .lock_exploratory_replay_request_for_backtest_v2(locator)
         .await
         .unwrap();
     assert_eq!(
@@ -993,6 +1255,68 @@ async fn prepare_replay_fixture(validity_ms: u64) -> ReplayFixture {
         time_zone_identity: "UTC".into(),
     };
     proposal = edge.admit_replay(proposal).await;
+    let request_identity_v2 = format!("exploratory-replay-request-v2-{suffix}");
+    let proposal_v2 = edge
+        .admit_replay_v2(ExploratoryReplayRequestProposalV2 {
+            admission: placeholder_admission(&request_identity_v2),
+            build_request_identity: build_request.build_request_identity.clone(),
+            attempt_identity: build_request.attempt_identity.clone(),
+            build_receipt_identity: proposal.build_receipt_identity.clone(),
+            artifact_family_binding_identity: proposal.artifact_family_binding_identity.clone(),
+            request: ReplayRequestDtoV2 {
+                schema_version: 2,
+                request_identity: opaque(&request_identity_v2),
+                frozen_research_intent: content_v2(
+                    &proposal.intent_identity,
+                    &research_receipt.semantic_digest,
+                ),
+                trial_family: content_v2(
+                    &proposal.trial_family_identity,
+                    artifact_family.trial_family().root().root_digest(),
+                ),
+                trial_family_census_frontier: content_v2(
+                    &proposal.census_frontier_identity,
+                    artifact_family
+                        .trial_family()
+                        .census_frontier()
+                        .frontier_digest(),
+                ),
+                replay_authority: ReplayAuthorityClaimV2::Exploratory,
+                strategy_design: content_v2_hex("strategy-design-v2", '1'),
+                strategy_plan: content_v2_hex("strategy-plan-v2", '2'),
+                artifact: content_v2(
+                    &proposal.artifact_identity,
+                    &proposal.exact_code_bytes_digest,
+                ),
+                resolved_owner_inputs: content_v2_hex("resolved-owner-inputs-v2", '3'),
+                pit_scope: content_v2_hex("pit-scope-v2", '4'),
+                pit_snapshot: content_v2_hex("pit-snapshot-v2", '5'),
+                universe_selection: content_v2_hex("universe-selection-v2", '6'),
+                correction_rule: version_v2("correction-rule-v2", "v1"),
+                market_semantics: version_v2("market-semantics-v2", "v1"),
+                replay_configuration: content_v2_hex("replay-configuration-v2", '7'),
+                models: ReplayModelProfilesV2 {
+                    runtime_kernel: version_v2("runtime-kernel", "1.0.0"),
+                    simulator: version_v2("simulator", "1.0.0"),
+                    cost: version_v2("cost-model-v1", "v1"),
+                    slippage: version_v2("slippage-model-v1", "v1"),
+                    capacity: version_v2("capacity-model-v1", "v1"),
+                },
+                runner_operational_profile: version_v2("backtest-engine", "1.0.0"),
+                diagnostic_policy: version_v2("diagnostic-policy-v2", "v1"),
+                deterministic_seed: 42,
+                window: ReplayWindowV2 {
+                    start_event_ns: 1_704_067_200_000_000_000,
+                    end_event_ns_exclusive: 1_735_689_600_000_000_000,
+                },
+                calendar: version_v2("calendar-utc-continuous-v1", "v1"),
+                session: version_v2("continuous-session-v1", "v1"),
+                time_zone: version_v2("UTC", "iana-2026a"),
+                corporate_action_cut: content_v2_hex("corporate-action-cut-v2", '8'),
+                historical_membership_cut: content_v2_hex("historical-membership-cut-v2", '9'),
+            },
+        })
+        .await;
 
     let valid_through_epoch_ms = edge.valid_through_epoch_ms;
     ReplayFixture {
@@ -1004,6 +1328,7 @@ async fn prepare_replay_fixture(validity_ms: u64) -> ReplayFixture {
         backtest_url,
         edge_url,
         proposal,
+        proposal_v2,
         valid_through_epoch_ms,
     }
 }
@@ -1015,6 +1340,64 @@ async fn request_counts(pool: &PgPool, identity: &str) -> [i64; 2] {
         sqlx::query_scalar("SELECT COUNT(*) FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V1'")
             .bind(identity).fetch_one(pool).await.unwrap(),
     ]
+}
+
+async fn request_counts_v2(pool: &PgPool, identity: &str) -> [i64; 3] {
+    [
+        sqlx::query_scalar("SELECT COUNT(*) FROM public.rd_exploratory_replay_requests_v1 WHERE request_identity=$1")
+            .bind(identity).fetch_one(pool).await.unwrap(),
+        sqlx::query_scalar("SELECT COUNT(*) FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V1'")
+            .bind(identity).fetch_one(pool).await.unwrap(),
+        sqlx::query_scalar("SELECT COUNT(*) FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2'")
+            .bind(identity).fetch_one(pool).await.unwrap(),
+    ]
+}
+
+fn replay_v2_tamper_cases(request: &ReplayRequestDtoV2) -> Vec<(String, serde_json::Value)> {
+    fn visit(value: &serde_json::Value, path: &str, cases: &mut Vec<(String, serde_json::Value)>) {
+        if path == "/replay_authority" {
+            cases.push((
+                path.to_string(),
+                serde_json::json!({
+                    "namespace":"PROTECTED",
+                    "qualification_candidate_intake":{"identity":"tampered-intake","digest":format!("sha256:{}", "a".repeat(64))},
+                    "holdout_reservation":{"identity":"tampered-holdout","digest":format!("sha256:{}", "b".repeat(64))},
+                    "protected_replay_plan":{"identity":"tampered-plan","digest":format!("sha256:{}", "c".repeat(64))},
+                    "protected_plan_cell":{"identity":"tampered-cell","digest":format!("sha256:{}", "d".repeat(64))}
+                }),
+            ));
+            return;
+        }
+
+        match value {
+            serde_json::Value::Object(object) => {
+                for (key, child) in object {
+                    visit(child, &format!("{path}/{key}"), cases);
+                }
+            }
+            serde_json::Value::String(text) => {
+                let replacement = if text.starts_with("sha256:") || text.starts_with("blake3:") {
+                    let mut changed = text.clone();
+                    let last = changed.pop().unwrap();
+                    changed.push(if last == 'f' { 'e' } else { 'f' });
+                    changed
+                } else {
+                    format!("{text}-tampered")
+                };
+                cases.push((path.to_string(), serde_json::Value::String(replacement)));
+            }
+            serde_json::Value::Number(number) => {
+                let changed = number.as_u64().unwrap() + 1;
+                cases.push((path.to_string(), serde_json::json!(changed)));
+            }
+            _ => panic!("Replay V2 request has an unsupported leaf at {path}"),
+        }
+    }
+
+    let value = serde_json::to_value(request).unwrap();
+    let mut cases = Vec::new();
+    visit(&value, "", &mut cases);
+    cases
 }
 
 async fn serve_one_verified_sandbox(listener: UnixListener, socket: String) -> anyhow::Result<()> {
@@ -1146,6 +1529,13 @@ impl TestProductEdge {
                 EXPLORATORY_REPLAY_OPERATION_V1,
                 EXPLORATORY_REPLAY_SCHEMA_V1,
                 vec![EXPLORATORY_REPLAY_MUTATION_EFFECT_V1.into()],
+                now,
+                valid_through,
+            ),
+            manifest(
+                EXPLORATORY_REPLAY_OPERATION_V2,
+                EXPLORATORY_REPLAY_SCHEMA_V2,
+                vec![EXPLORATORY_REPLAY_MUTATION_EFFECT_V2.into()],
                 now,
                 valid_through,
             ),
@@ -1291,6 +1681,24 @@ impl TestProductEdge {
         proposal
     }
 
+    async fn admit_replay_v2(
+        &self,
+        mut proposal: ExploratoryReplayRequestProposalV2,
+    ) -> ExploratoryReplayRequestProposalV2 {
+        let mut payload = serde_json::to_value(&proposal).unwrap();
+        payload.as_object_mut().unwrap().remove("admission");
+        proposal.admission = self
+            .admit(
+                proposal.request.request_identity.as_str(),
+                payload,
+                EXPLORATORY_REPLAY_OPERATION_V2,
+                EXPLORATORY_REPLAY_SCHEMA_V2,
+                vec![EXPLORATORY_REPLAY_MUTATION_EFFECT_V2.into()],
+            )
+            .await;
+        proposal
+    }
+
     async fn admit(
         &self,
         identity: &str,
@@ -1388,6 +1796,30 @@ fn versioned(identity: &str, version: &str) -> VersionedIdentityV1 {
     VersionedIdentityV1 {
         identity: identity.into(),
         version: version.into(),
+    }
+}
+fn opaque(value: &str) -> OpaqueIdentityV2 {
+    OpaqueIdentityV2::try_from(value.to_string()).unwrap()
+}
+fn digest_v2(value: &str) -> CanonicalDigestV2 {
+    CanonicalDigestV2::try_from(value.to_string()).unwrap()
+}
+fn content_v2(identity: &str, digest: &str) -> ContentIdentityV2 {
+    ContentIdentityV2 {
+        identity: opaque(identity),
+        digest: digest_v2(digest),
+    }
+}
+fn content_v2_hex(identity: &str, digit: char) -> ContentIdentityV2 {
+    content_v2(
+        identity,
+        &format!("sha256:{}", digit.to_string().repeat(64)),
+    )
+}
+fn version_v2(identity: &str, version: &str) -> VersionedIdentityV2 {
+    VersionedIdentityV2 {
+        identity: opaque(identity),
+        version: opaque(version),
     }
 }
 fn unique_suffix() -> String {

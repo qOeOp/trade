@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
+use vibe_backtest_owner_contracts::{ReplayRequestDtoV2, ReplayRequestV2};
 use vibe_product_edge::ProductEdgeAdmissionLocatorV1;
 
 pub mod postgres;
@@ -16,6 +17,11 @@ pub const EXPLORATORY_REPLAY_SCHEMA_V1: &str = "rd-exploratory-replay-request-v1
 pub const EXPLORATORY_REPLAY_SCOPE_V1: &str = "research:replay";
 pub const EXPLORATORY_REPLAY_MUTATION_EFFECT_V1: &str =
     "R_AND_D_EXPLORATORY_REPLAY_REQUEST_MUTATION_V1";
+pub const EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V2: &str = "EXPLORATORY_REPLAY_REQUEST_FROZEN_V2";
+pub const EXPLORATORY_REPLAY_OPERATION_V2: &str = "exploratory_replay.submit_or_resolve.v2";
+pub const EXPLORATORY_REPLAY_SCHEMA_V2: &str = "rd-exploratory-replay-request-v2";
+pub const EXPLORATORY_REPLAY_MUTATION_EFFECT_V2: &str =
+    "R_AND_D_EXPLORATORY_REPLAY_REQUEST_MUTATION_V2";
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -64,6 +70,33 @@ pub struct ExploratoryReplayRequestProposalV1 {
     pub time_zone_identity: String,
 }
 
+/// Caller-safe Replay V2 proposal. R&D re-reads every lineage locator and
+/// cross-binds the complete request before sealing its canonical bytes.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExploratoryReplayRequestProposalV2 {
+    pub admission: ProductEdgeAdmissionLocatorV1,
+    pub build_request_identity: String,
+    pub attempt_identity: String,
+    pub build_receipt_identity: String,
+    pub artifact_family_binding_identity: String,
+    pub request: ReplayRequestDtoV2,
+}
+
+pub(crate) fn exploratory_replay_admission_payload_v2(
+    proposal: &ExploratoryReplayRequestProposalV2,
+) -> Result<serde_json::Value, serde_json::Error> {
+    let mut payload = serde_json::to_value(proposal)?;
+    let removed = payload
+        .as_object_mut()
+        .and_then(|object| object.remove("admission"));
+    debug_assert!(
+        removed.is_some(),
+        "proposal schema includes admission locator"
+    );
+    Ok(payload)
+}
+
 pub(crate) fn exploratory_replay_admission_payload_v1(
     proposal: &ExploratoryReplayRequestProposalV1,
 ) -> Result<serde_json::Value, serde_json::Error> {
@@ -95,6 +128,17 @@ pub struct ExploratoryReplayRequestLocatorV1 {
     pub request_identity: String,
     pub request_digest: String,
     pub receipt_identity: String,
+}
+
+/// Opaque V2 locator. All four fields are required by the sealed Backtest API;
+/// a legacy V1 locator therefore cannot resolve V2 custody.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExploratoryReplayRequestLocatorV2 {
+    pub request_identity: String,
+    pub meaning_digest: String,
+    pub receipt_identity: String,
+    pub seal_digest: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -186,6 +230,40 @@ pub struct ExploratoryReplayCommitResultV1 {
     pub(crate) receipt: ExploratoryReplayCommitReceiptV1,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ExploratoryReplayCommitReceiptV2 {
+    pub(crate) schema_version: u16,
+    pub(crate) receipt_identity: String,
+    pub(crate) request_identity: String,
+    pub(crate) meaning_digest: String,
+    pub(crate) seal_digest: String,
+    pub(crate) committed_at_epoch_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExploratoryReplayCommitResultV2 {
+    pub(crate) projection: ExploratoryReplayRequestProjectionV1,
+    pub(crate) locator: ExploratoryReplayRequestLocatorV2,
+    pub(crate) canonical_request_bytes: Vec<u8>,
+    pub(crate) receipt: ExploratoryReplayCommitReceiptV2,
+}
+
+impl ExploratoryReplayCommitResultV2 {
+    pub fn projection(&self) -> &ExploratoryReplayRequestProjectionV1 {
+        &self.projection
+    }
+
+    pub fn locator(&self) -> &ExploratoryReplayRequestLocatorV2 {
+        &self.locator
+    }
+
+    pub fn canonical_request_bytes(&self) -> &[u8] {
+        &self.canonical_request_bytes
+    }
+}
+
 impl ExploratoryReplayCommitResultV1 {
     pub fn projection(&self) -> &ExploratoryReplayRequestProjectionV1 {
         &self.projection
@@ -223,6 +301,51 @@ impl SealedExploratoryReplayReadbackV1 {
 pub struct ExploratoryReplayReadResultV1 {
     pub(crate) projection: ExploratoryReplayRequestProjectionV1,
     pub(crate) readback: Option<SealedExploratoryReplayReadbackV1>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SealedExploratoryReplayReadbackV2 {
+    pub(crate) request: ReplayRequestV2,
+    pub(crate) canonical_request_bytes: Vec<u8>,
+    pub(crate) meaning_digest: String,
+    pub(crate) receipt: ExploratoryReplayCommitReceiptV2,
+    pub(crate) owner_cut_epoch_ms: u64,
+}
+
+impl SealedExploratoryReplayReadbackV2 {
+    pub fn request(&self) -> &ReplayRequestV2 {
+        &self.request
+    }
+
+    pub fn canonical_request_bytes(&self) -> &[u8] {
+        &self.canonical_request_bytes
+    }
+
+    pub fn meaning_digest(&self) -> &str {
+        &self.meaning_digest
+    }
+
+    pub fn owner_cut_epoch_ms(&self) -> u64 {
+        self.owner_cut_epoch_ms
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExploratoryReplayReadResultV2 {
+    pub(crate) projection: ExploratoryReplayRequestProjectionV1,
+    pub(crate) readback: Option<SealedExploratoryReplayReadbackV2>,
+}
+
+impl ExploratoryReplayReadResultV2 {
+    pub fn projection(&self) -> &ExploratoryReplayRequestProjectionV1 {
+        &self.projection
+    }
+
+    pub fn readback(&self) -> Option<&SealedExploratoryReplayReadbackV2> {
+        self.readback.as_ref()
+    }
 }
 
 impl ExploratoryReplayReadResultV1 {

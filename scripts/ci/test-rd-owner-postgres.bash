@@ -272,6 +272,23 @@ $function$;
 ALTER FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text) OWNER TO rd_owner;
 REVOKE ALL ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text) TO backtest_owner;
+CREATE FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)
+RETURNS jsonb
+LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path=pg_catalog
+AS $function$
+DECLARE encoded text;
+BEGIN
+  encoded := pg_catalog.current_setting('vibe.fake_envelope_base64', true);
+  IF encoded IS NULL OR encoded = '' THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',2,'availability','STALE');
+  END IF;
+  RETURN pg_catalog.convert_from(pg_catalog.decode(encoded,'base64'),'UTF8')::pg_catalog.jsonb;
+END
+$function$;
+ALTER FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) OWNER TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) TO backtest_owner;
 SQL
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
@@ -554,6 +571,29 @@ BEGIN
     RAISE EXCEPTION 'sealed exploratory replay Backtest API metadata or ACL mismatch';
   END IF;
 
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_proc procedure
+    JOIN pg_catalog.pg_roles role ON role.oid = procedure.proowner
+    WHERE procedure.oid = pg_catalog.to_regprocedure(
+      'rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)'
+    )
+      AND role.rolname = 'rd_owner'
+      AND procedure.prosecdef
+      AND procedure.proisstrict
+      AND procedure.provolatile = 'v'
+      AND procedure.proparallel = 'u'
+      AND procedure.proconfig = ARRAY['search_path=pg_catalog']
+  )
+     OR NOT pg_catalog.has_function_privilege(
+       'backtest_owner',
+       'rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)',
+       'EXECUTE'
+     )
+  THEN
+    RAISE EXCEPTION 'sealed exploratory Replay V2 Backtest API metadata or ACL mismatch';
+  END IF;
+
   FOREACH role_name IN ARRAY ARRAY[
     'public',
     'rd_owner',
@@ -569,6 +609,13 @@ BEGIN
       'EXECUTE'
     ) THEN
       RAISE EXCEPTION '% can execute the sealed exploratory replay API', role_name;
+    END IF;
+    IF pg_catalog.has_function_privilege(
+      role_name,
+      'rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)',
+      'EXECUTE'
+    ) THEN
+      RAISE EXCEPTION '% can execute the sealed exploratory Replay V2 API', role_name;
     END IF;
   END LOOP;
 

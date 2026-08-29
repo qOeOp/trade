@@ -39,6 +39,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 vibe-analysis = { workspace = true }
 vibe-backtest = { workspace = true, features = ["streaming"] }
+vibe-backtest-owner-contracts = { workspace = true }
 vibe-binance = { workspace = true }
 vibe-common = { workspace = true }
 vibe-core = { workspace = true }
