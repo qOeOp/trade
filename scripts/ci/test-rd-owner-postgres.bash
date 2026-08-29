@@ -80,20 +80,121 @@ test_password="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
 readonly test_password
 impersonator_password="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
 readonly impersonator_password
+volume_created=false
+impersonator_volume_created=false
+container_created=false
+impersonator_container_created=false
+
+remove_docker_object_for_cleanup() {
+  local object_type="$1"
+  local object_name="$2"
+  local max_attempts="$3"
+  local attempt=1
+  local -a remove_command=(docker volume rm "$object_name")
+  if [[ "$object_type" == container ]]; then
+    remove_command=(docker container rm --force "$object_name")
+  fi
+
+  while [[ "$attempt" -le "$max_attempts" ]]; do
+    if "${remove_command[@]}" > /dev/null 2>&1; then
+      return 0
+    fi
+    if [[ "$attempt" -lt "$max_attempts" ]]; then
+      sleep 1
+    fi
+    attempt=$((attempt + 1))
+  done
+  echo "ERROR: cleanup could not remove ${object_type} ${object_name}." >&2
+  return 1
+}
 
 cleanup() {
-  docker rm --force "$container" > /dev/null 2>&1 || true
-  docker rm --force "$impersonator_container" > /dev/null 2>&1 || true
-  docker volume rm "$volume" > /dev/null 2>&1 || true
-  docker volume rm "$impersonator_volume" > /dev/null 2>&1 || true
+  local primary_status="$?"
+  local cleanup_failed=false
+  trap - EXIT
+  set +e
+
+  if [[ "$container_created" == true ]] &&
+    ! remove_docker_object_for_cleanup container "$container" 3; then
+    cleanup_failed=true
+  fi
+  if [[ "$impersonator_container_created" == true ]] &&
+    ! remove_docker_object_for_cleanup container "$impersonator_container" 3; then
+    cleanup_failed=true
+  fi
+  if [[ "$volume_created" == true ]] &&
+    ! remove_docker_object_for_cleanup volume "$volume" 5; then
+    cleanup_failed=true
+  fi
+  if [[ "$impersonator_volume_created" == true ]] &&
+    ! remove_docker_object_for_cleanup volume "$impersonator_volume" 5; then
+    cleanup_failed=true
+  fi
+
+  if [[ "$primary_status" -ne 0 ]]; then
+    exit "$primary_status"
+  fi
+  if [[ "$cleanup_failed" == true ]]; then
+    exit 1
+  fi
+  exit 0
 }
 trap cleanup EXIT
+
+probe_tcp_endpoint() {
+  local host="$1"
+  local port="$2"
+  python3 - "$host" "$port" << 'PY'
+import socket
+import sys
+import time
+
+host, port = sys.argv[1], int(sys.argv[2])
+deadline = time.monotonic() + 15
+while time.monotonic() < deadline:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        break
+    try:
+        with socket.create_connection((host, port), timeout=min(0.25, remaining)):
+            raise SystemExit(0)
+    except OSError:
+        pass
+    time.sleep(min(0.5, max(0, deadline - time.monotonic())))
+raise SystemExit(1)
+PY
+}
+
+select_reachable_postgres_endpoint() {
+  local object_name="$1"
+  local published_port="$2"
+  local endpoint_label="$3"
+  local host="127.0.0.1"
+  local port="$published_port"
+
+  if [[ -f /.dockerenv ]]; then
+    if ! host="$(docker inspect --format '{{with index .NetworkSettings.Networks "bridge"}}{{.IPAddress}}{{end}}' "$object_name")" ||
+      [[ -z "$host" ]]; then
+      echo "ERROR: could not resolve ${endpoint_label} PostgreSQL sibling-container endpoint." >&2
+      return 1
+    fi
+    port=5432
+  fi
+
+  if ! probe_tcp_endpoint "$host" "$port"; then
+    echo "ERROR: ${endpoint_label} PostgreSQL endpoint is unreachable from the caller after 15 seconds." >&2
+    return 1
+  fi
+  printf '%s %s\n' "$host" "$port"
+}
 
 if ! docker image inspect "$postgres_image" > /dev/null 2>&1; then
   bash scripts/ci/docker-pull-retry.sh "$postgres_image" 3
 fi
 docker volume create "$volume" > /dev/null
+volume_created=true
 docker volume create "$impersonator_volume" > /dev/null
+impersonator_volume_created=true
 docker run \
   --detach \
   --name "$container" \
@@ -103,6 +204,7 @@ docker run \
   --env "POSTGRES_PASSWORD=${test_password}" \
   --env POSTGRES_DB=postgres \
   "$postgres_image" > /dev/null
+container_created=true
 docker run \
   --detach \
   --name "$impersonator_container" \
@@ -112,6 +214,7 @@ docker run \
   --env "POSTGRES_PASSWORD=${impersonator_password}" \
   --env "POSTGRES_DB=${impersonator_database}" \
   "$postgres_image" > /dev/null
+impersonator_container_created=true
 
 attempt=1
 until docker exec "$container" pg_isready --username postgres --dbname postgres > /dev/null 2>&1; do
@@ -229,14 +332,24 @@ case "$impersonator_port" in
     ;;
 esac
 
-export RD_OWNER_FRESH_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@127.0.0.1:${postgres_port}/${test_database}"
-export QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@127.0.0.1:${postgres_port}/${test_database}"
-export OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@127.0.0.1:${postgres_port}/${test_database}"
-export PRODUCT_EDGE_TEST_DATABASE_URL="postgresql://product_edge_owner:${test_password}@127.0.0.1:${postgres_port}/${test_database}"
-export RD_OWNER_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@127.0.0.1:${postgres_port}/${test_database}"
-export QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@127.0.0.1:${postgres_port}/${test_database}"
-export BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@127.0.0.1:${postgres_port}/${test_database}"
-export BACKTEST_IMPERSONATOR_TEST_DATABASE_URL="postgresql://backtest_owner:${impersonator_password}@127.0.0.1:${impersonator_port}/${impersonator_database}"
+postgres_endpoint="$(
+  select_reachable_postgres_endpoint "$container" "$postgres_port" "isolated"
+)"
+read -r postgres_host postgres_port <<< "$postgres_endpoint"
+impersonator_endpoint="$(
+  select_reachable_postgres_endpoint \
+    "$impersonator_container" "$impersonator_port" "impersonating"
+)"
+read -r impersonator_host impersonator_port <<< "$impersonator_endpoint"
+
+export RD_OWNER_FRESH_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export PRODUCT_EDGE_TEST_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export RD_OWNER_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export BACKTEST_IMPERSONATOR_TEST_DATABASE_URL="postgresql://backtest_owner:${impersonator_password}@${impersonator_host}:${impersonator_port}/${impersonator_database}"
 export VIBE_POSTGRES_TEST_DATABASE_NAME="$test_database"
 export VIBE_POSTGRES_TEST_INSTANCE_MARKER="$test_marker"
 
@@ -252,18 +365,15 @@ cargo test --locked --package vibe-strategy-factory \
   postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sealed \
   -- --ignored --exact
 
-cargo test --locked --package vibe-strategy-factory \
-  --test source_intake \
-  postgres_readback_rejects_tampered_raw_payload \
+# Exercise the first positive R&D Owner API artifact consumer only after its
+# Source Intake schema dependency exists and before any test corrupts Owner rows.
+cargo test --locked --package vibe-strategy-factory-rd-owner-api \
+  --bin strategy-factory-rd-owner-api \
+  tests::same_identity_started_retry_returns_http_ok_with_exact_custody_once \
   -- --ignored --exact
 
 cargo test --locked --package vibe-product-edge --lib \
   postgres::tests::genesis_admission_claim_cutover_and_revocation_are_canonical \
-  -- --ignored --exact
-
-cargo test --locked --package vibe-strategy-factory-rd-owner-api \
-  --bin strategy-factory-rd-owner-api \
-  tests::same_identity_started_retry_returns_http_ok_with_exact_custody_once \
   -- --ignored --exact
 
 cargo test --locked --package vibe-strategy-factory \
@@ -276,10 +386,17 @@ cargo test --locked --package vibe-strategy-factory \
   replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox \
   -- --ignored --exact
 
+# This test deliberately leaves a raw Source Intake row corrupt. Run it only
+# after every positive consumer that must observe healthy Owner lineage.
+cargo test --locked --package vibe-strategy-factory \
+  --test source_intake \
+  postgres_readback_rejects_tampered_raw_payload \
+  -- --ignored --exact
+
 # This test deliberately leaves its Research view historically mismatched to
-# prove post-claim retry does not re-admit live Research. Run it last so that
-# the intentionally poisoned disposable row cannot contaminate another test's
-# global lineage verification.
+# prove post-claim retry does not re-admit live Research. It must remain the
+# absolute last test so its poisoned row cannot contaminate another test's
+# global lineage verification. The catalog-only ACL oracle follows safely.
 cargo test --locked --package vibe-strategy-factory --lib \
   artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut \
   -- --ignored --exact

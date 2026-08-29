@@ -585,22 +585,22 @@ impl PostgresResearchGoalOwnerV1 {
                       OR pg_catalog.jsonb_array_length(sealed.request_json#>'{request,goal,sources}') <> 1
                       OR sealed.request_json#>>'{request,goal,sources,0,source_cut}'
                          <> sealed.source_ancestry_evidence_digest
-                      OR source_handoff->>'request_identity'
+                      OR (source_handoff->>'request_identity')
                          <> sealed.source_ancestry_locator_json->>'request_identity'
-                      OR source_handoff->>'attempt_identity'
+                      OR (source_handoff->>'attempt_identity')
                          <> sealed.source_ancestry_locator_json->>'attempt_identity'
-                      OR source_handoff->>'terminal_receipt_identity'
+                      OR (source_handoff->>'terminal_receipt_identity')
                          <> sealed.source_ancestry_locator_json->>'terminal_receipt_identity'
                       OR sealed.request_json#>>'{request,goal,sources,0,locator}'
-                         <> 'urn:doi:' || source_handoff#>>'{binding,normalized_doi}'
+                         <> 'urn:doi:' || (source_handoff#>>'{binding,normalized_doi}')
                       OR sealed.request_json#>>'{request,goal,sources,0,content_digest}'
-                         <> source_handoff#>>'{provenance,content_digest}'
+                         <> (source_handoff#>>'{provenance,content_digest}')
                       OR sealed.request_json#>>'{request,goal,sources,0,observed_at}'
-                         <> 'epoch-ms:' || source_handoff#>>'{provenance,retrieval_time,decision_cut_epoch_ms}'
+                         <> 'epoch-ms:' || (source_handoff#>>'{provenance,retrieval_time,decision_cut_epoch_ms}')
                       OR sealed.request_json#>>'{request,goal,sources,0,license_basis}'
-                         <> source_handoff#>>'{provenance,license_basis}'
+                         <> (source_handoff#>>'{provenance,license_basis}')
                       OR sealed.request_json#>>'{request,goal,sources,0,interpretation}'
-                         <> source_handoff#>>'{provenance,interpretation,bounded_explanation}'))
+                         <> (source_handoff#>>'{provenance,interpretation,bounded_explanation}')))
                  OR sealed.artifact_evidence_json->>'schema_version' <> '1'
                  OR sealed.request_json->>'schema_version' <> '1'
                  OR sealed.request_json->'request'->>'request_identity' <> sealed.request_identity
@@ -628,9 +628,9 @@ impl PostgresResearchGoalOwnerV1 {
                  OR sealed.artifact_evidence_json->>'evidence_identity' <> (CASE
                       WHEN sealed.source_ancestry_evidence_digest IS NULL THEN
                         'rd-current-research-artifact-evidence-v1-' ||
-                        sealed.receipt_json->>'receipt_identity' || ':' ||
-                        sealed.intent_json->>'intent_identity' || ':' ||
-                        sealed.view_json->>'projection_identity'
+                        (sealed.receipt_json->>'receipt_identity') || ':' ||
+                        (sealed.intent_json->>'intent_identity') || ':' ||
+                        (sealed.view_json->>'projection_identity')
                       ELSE 'rd-current-research-artifact-evidence-v1-' || pg_catalog.substr(
                         rd_owner_api.derive_source_intake_identity_v1(
                           'rd.current-research-artifact-evidence-identity.v1', ARRAY[
@@ -695,22 +695,22 @@ impl PostgresResearchGoalOwnerV1 {
                       OR pg_catalog.jsonb_array_length(sealed.request_json#>'{request,goal,sources}') <> 1
                       OR sealed.request_json#>>'{request,goal,sources,0,source_cut}'
                          <> sealed.source_ancestry_evidence_digest
-                      OR source_handoff->>'request_identity'
+                      OR (source_handoff->>'request_identity')
                          <> sealed.source_ancestry_locator_json->>'request_identity'
-                      OR source_handoff->>'attempt_identity'
+                      OR (source_handoff->>'attempt_identity')
                          <> sealed.source_ancestry_locator_json->>'attempt_identity'
-                      OR source_handoff->>'terminal_receipt_identity'
+                      OR (source_handoff->>'terminal_receipt_identity')
                          <> sealed.source_ancestry_locator_json->>'terminal_receipt_identity'
                       OR sealed.request_json#>>'{request,goal,sources,0,locator}'
-                         <> 'urn:doi:' || source_handoff#>>'{binding,normalized_doi}'
+                         <> 'urn:doi:' || (source_handoff#>>'{binding,normalized_doi}')
                       OR sealed.request_json#>>'{request,goal,sources,0,content_digest}'
-                         <> source_handoff#>>'{provenance,content_digest}'
+                         <> (source_handoff#>>'{provenance,content_digest}')
                       OR sealed.request_json#>>'{request,goal,sources,0,observed_at}'
-                         <> 'epoch-ms:' || source_handoff#>>'{provenance,retrieval_time,decision_cut_epoch_ms}'
+                         <> 'epoch-ms:' || (source_handoff#>>'{provenance,retrieval_time,decision_cut_epoch_ms}')
                       OR sealed.request_json#>>'{request,goal,sources,0,license_basis}'
-                         <> source_handoff#>>'{provenance,license_basis}'
+                         <> (source_handoff#>>'{provenance,license_basis}')
                       OR sealed.request_json#>>'{request,goal,sources,0,interpretation}'
-                         <> source_handoff#>>'{provenance,interpretation,bounded_explanation}'))
+                         <> (source_handoff#>>'{provenance,interpretation,bounded_explanation}')))
                  OR sealed.artifact_evidence_json->>'schema_version' <> '1'
                  OR sealed.request_json->>'schema_version' <> '1'
                  OR sealed.artifact_evidence_digest <> requested_evidence_digest
@@ -740,9 +740,9 @@ impl PostgresResearchGoalOwnerV1 {
                  OR sealed.artifact_evidence_json->>'evidence_identity' <> (CASE
                       WHEN sealed.source_ancestry_evidence_digest IS NULL THEN
                         'rd-current-research-artifact-evidence-v1-' ||
-                        sealed.receipt_json->>'receipt_identity' || ':' ||
-                        sealed.intent_json->>'intent_identity' || ':' ||
-                        sealed.view_json->>'projection_identity'
+                        (sealed.receipt_json->>'receipt_identity') || ':' ||
+                        (sealed.intent_json->>'intent_identity') || ':' ||
+                        (sealed.view_json->>'projection_identity')
                       ELSE 'rd-current-research-artifact-evidence-v1-' || pg_catalog.substr(
                         rd_owner_api.derive_source_intake_identity_v1(
                           'rd.current-research-artifact-evidence-identity.v1', ARRAY[
