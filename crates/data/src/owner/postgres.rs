@@ -2936,10 +2936,17 @@ impl ResearchPitTerminalResolver for MarketDataReadPostgres {
         let pit: PitSnapshotCommitAggregate = serde_json::from_value(envelope.aggregate)
             .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
         validate_pit_lineage_shape(&mut transaction, pit.fact().lineage_root()).await?;
-        if !verify_pit_native(&pit, &envelope.native, true)
+        if !verify_pit_native(&pit, &envelope.native, false)
             || pit.receipt().locator() != &request.locator
         {
             return Err(PitSnapshotError::LocatorMismatch);
+        }
+
+        if envelope.native.head.identity != pit.fact().snapshot_identity()
+            || envelope.native.head.fact_digest != pit.fact().digest()
+            || envelope.native.head.lineage_version != pit.fact().lineage_version()
+        {
+            return Err(PitSnapshotError::CorrectionHeadMismatch);
         }
         validate_source_read_custody(&mut transaction, &pit.fact().request().source_binding)
             .await?;
