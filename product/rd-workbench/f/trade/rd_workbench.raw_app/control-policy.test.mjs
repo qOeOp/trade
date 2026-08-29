@@ -105,6 +105,47 @@ test("projected unknown permits only same-identity resolution", () => {
   })
 })
 
+test("S1 controls fail closed across recovery and terminal projection states", () => {
+  const unknown = {
+    consumer_projection: researchProjection,
+    request_identity: "request-1",
+    resolution: "SUBMITTED_OR_UNKNOWN",
+    next_legal_action: "RESOLVE_SAME_REQUEST_IDENTITY",
+  }
+  assert.deepEqual(actionControls(unknown, "request-1"), {
+    canSubmit: false, canResolve: true, canCreateSuccessor: false,
+  })
+
+  for (const malformed of [
+    { ...unknown, consumer_projection: null },
+    { ...unknown, consumer_projection: { ...researchProjection, extra_stamp: "forbidden" } },
+    { ...unknown, consumer_projection: { ...researchProjection, owner_schema: "wrong" } },
+    { ...unknown, request_identity: "request-2" },
+    { ...unknown, next_legal_action: "SUBMIT_AGAIN" },
+  ]) assert.deepEqual(actionControls(malformed, "request-1"), {
+    canSubmit: false, canResolve: false, canCreateSuccessor: false,
+  })
+
+  assert.deepEqual(actionControls({
+    consumer_projection: researchProjection,
+    request_identity: "request-1",
+    resolution: "ACCEPTED",
+    next_legal_action: "BUILD_STRATEGY_ARTIFACT",
+    owner_receipt: { request_identity: "request-1", disposition: "ACCEPTED" },
+  }, "request-1"), {
+    canSubmit: false, canResolve: false, canCreateSuccessor: false,
+  })
+  assert.deepEqual(actionControls({
+    consumer_projection: researchProjection,
+    request_identity: "request-1",
+    resolution: "REJECTED_NO_WRITE",
+    next_legal_action: "CORRECT_INPUT_AND_CREATE_SUCCESSOR_REQUEST",
+    owner_receipt: { request_identity: "request-1", disposition: "REJECTED_NO_WRITE" },
+  }, "request-1"), {
+    canSubmit: false, canResolve: false, canCreateSuccessor: true,
+  })
+})
+
 test("only a complete receipt-backed rejection permits a successor", () => {
   const rejection = {
     consumer_projection: researchProjection,
