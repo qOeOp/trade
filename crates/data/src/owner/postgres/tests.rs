@@ -416,6 +416,7 @@ fn prepared_sample(
         logical_time,
         series_sequence,
         sample_digest(projection),
+        sample_digest(199),
         vec![projection, 1, 2, 3],
         vec![sample, 4, 5, 6],
         sample_digest(sample.wrapping_add(80)),
@@ -436,20 +437,43 @@ async fn sample_counts(pool: &PgPool) -> (i64, i64, i64, i64, i64, i64) {
 async fn sample_custody_postgres_oracle(owner_url: &str, reader_url: &str, admin: &PgPool) {
     let owner = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
     let projection_digest = sample_digest(200);
+    let projection_binding_digest = sample_digest(199);
     let projection_bytes = [200, 1, 2, 3];
     owner
-        .store_timeframe_projection_receipt_v1(projection_digest, &projection_bytes)
+        .store_timeframe_projection_receipt_v1(
+            projection_digest,
+            projection_binding_digest,
+            &projection_bytes,
+        )
         .await
         .unwrap();
     let after_projection = sample_counts(owner.pool()).await;
     owner
-        .store_timeframe_projection_receipt_v1(projection_digest, &projection_bytes)
+        .store_timeframe_projection_receipt_v1(
+            projection_digest,
+            projection_binding_digest,
+            &projection_bytes,
+        )
         .await
         .unwrap();
     assert_eq!(sample_counts(owner.pool()).await, after_projection);
     assert_eq!(
         owner
-            .store_timeframe_projection_receipt_v1(projection_digest, &[200, 9])
+            .store_timeframe_projection_receipt_v1(
+                projection_digest,
+                projection_binding_digest,
+                &[200, 9],
+            )
+            .await,
+        Err(SampleCustodyErrorV1::ProjectionConflict)
+    );
+    assert_eq!(
+        owner
+            .store_timeframe_projection_receipt_v1(
+                sample_digest(201),
+                projection_binding_digest,
+                &[201, 1, 2, 3],
+            )
             .await,
         Err(SampleCustodyErrorV1::ProjectionConflict)
     );
@@ -536,6 +560,16 @@ async fn sample_custody_postgres_oracle(owner_url: &str, reader_url: &str, admin
             .await,
         Err(SampleCustodyErrorV1::ResponseLost)
     );
+    let contract_prepared = crate::owner::sample_fact::tests::prepared_point_event_fixture_v1();
+    let contract_receipt_digest = contract_prepared.sample_receipt_digest();
+    let contract_readback = owner
+        .commit_prepared_sample_v1(&contract_prepared)
+        .await
+        .unwrap();
+    assert_eq!(
+        contract_readback.receipt().digest(),
+        contract_receipt_digest
+    );
     let after_loss = sample_counts(owner.pool()).await;
     drop(owner);
 
@@ -551,6 +585,14 @@ async fn sample_custody_postgres_oracle(owner_url: &str, reader_url: &str, admin
         .await
         .unwrap();
     assert_eq!(recovered.exact_receipt_bytes(), rollback.receipt_bytes);
+    let contract_historical = restarted
+        .resolve_prepared_sample_v1(contract_receipt_digest)
+        .await
+        .unwrap();
+    assert_eq!(
+        contract_historical.receipt().digest(),
+        contract_receipt_digest
+    );
 
     let reader = MarketDataReadPostgres::connect(reader_url).await.unwrap();
     assert_eq!(

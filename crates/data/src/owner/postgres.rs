@@ -98,7 +98,7 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.instrument_master_cuts_v1 (cut_identity BYTEA PRIMARY KEY CHECK (octet_length(cut_identity)=32), request_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(request_identity)=32), cut_bytes BYTEA NOT NULL CHECK (octet_length(cut_bytes)>0))",
     "CREATE TABLE IF NOT EXISTS market_data_private.instrument_master_receipts_v1 (request_identity BYTEA PRIMARY KEY CHECK (octet_length(request_identity)=32), request_meaning_digest BYTEA NOT NULL CHECK (octet_length(request_meaning_digest)=32), cut_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.instrument_master_cuts_v1(cut_identity), receipt_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(receipt_identity)=32), receipt_bytes BYTEA NOT NULL CHECK (octet_length(receipt_bytes)>0), append_sequence BIGINT UNIQUE NOT NULL CHECK (append_sequence>0))",
     "CREATE TABLE IF NOT EXISTS market_data_private.instrument_master_outbox_v1 (outbox_identity BYTEA PRIMARY KEY CHECK (octet_length(outbox_identity)=32), request_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.instrument_master_receipts_v1(request_identity), receipt_bytes BYTEA NOT NULL CHECK (octet_length(receipt_bytes)>0))",
-    "CREATE TABLE IF NOT EXISTS market_data_private.timeframe_projection_receipts_v1 (receipt_digest BYTEA PRIMARY KEY CHECK (octet_length(receipt_digest)=32), receipt_bytes BYTEA NOT NULL CHECK (octet_length(receipt_bytes)>0), custody_digest BYTEA NOT NULL CHECK (octet_length(custody_digest)=32))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.timeframe_projection_receipts_v1 (receipt_digest BYTEA PRIMARY KEY CHECK (octet_length(receipt_digest)=32), binding_receipt_digest BYTEA UNIQUE NOT NULL CHECK (octet_length(binding_receipt_digest)=32), receipt_bytes BYTEA NOT NULL CHECK (octet_length(receipt_bytes)>0), custody_digest BYTEA NOT NULL CHECK (octet_length(custody_digest)=32))",
     "CREATE TABLE IF NOT EXISTS market_data_private.sample_facts_v1 (sample_identity BYTEA PRIMARY KEY CHECK (octet_length(sample_identity)=32), fact_digest BYTEA UNIQUE NOT NULL CHECK (octet_length(fact_digest)=32), series_identity BYTEA NOT NULL CHECK (octet_length(series_identity)=32), series_predecessor_identity BYTEA NULL REFERENCES market_data_private.sample_facts_v1(sample_identity), series_sequence BIGINT NOT NULL CHECK (series_sequence>0), correction_slot_identity BYTEA NOT NULL CHECK (octet_length(correction_slot_identity)=32), correction_predecessor_identity BYTEA NULL REFERENCES market_data_private.sample_facts_v1(sample_identity), correction_sequence BIGINT NOT NULL CHECK (correction_sequence>0), logical_time BIGINT NOT NULL CHECK (logical_time>0), lineage_version BIGINT NOT NULL CHECK (lineage_version>0), projection_receipt_digest BYTEA NOT NULL REFERENCES market_data_private.timeframe_projection_receipts_v1(receipt_digest), fact_bytes BYTEA NOT NULL CHECK (octet_length(fact_bytes)>0), custody_digest BYTEA NOT NULL CHECK (octet_length(custody_digest)=32), CHECK (series_predecessor_identity IS NULL OR series_predecessor_identity<>sample_identity), CHECK (correction_predecessor_identity IS NULL OR correction_predecessor_identity<>sample_identity), UNIQUE(series_identity,series_sequence), UNIQUE(series_identity,series_predecessor_identity), UNIQUE(correction_slot_identity,correction_sequence), UNIQUE(correction_slot_identity,correction_predecessor_identity))",
     "CREATE TABLE IF NOT EXISTS market_data_private.sample_series_heads_v1 (series_identity BYTEA PRIMARY KEY CHECK (octet_length(series_identity)=32), sample_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.sample_facts_v1(sample_identity))",
     "CREATE TABLE IF NOT EXISTS market_data_private.sample_correction_heads_v1 (correction_slot_identity BYTEA PRIMARY KEY CHECK (octet_length(correction_slot_identity)=32), series_identity BYTEA NOT NULL CHECK (octet_length(series_identity)=32), sample_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.sample_facts_v1(sample_identity))",
@@ -136,8 +136,8 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_clock_membership_custody_v1() RETURNS TABLE(handoff_count BIGINT, head_identity BYTEA, root_head_identity BYTEA, ordinal BIGINT, prior_head_identity BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT state.handoff_count,edge.head_identity,edge.root_head_identity,edge.ordinal,edge.prior_head_identity FROM market_data_private.clock_handoff_state_v1 AS state LEFT JOIN LATERAL (SELECT membership.head_identity,membership.root_head_identity,membership.ordinal,prior.head_identity AS prior_head_identity FROM market_data_private.clock_handoff_membership_v1 AS membership JOIN market_data_private.clock_handoffs_v1 AS handoff ON handoff.head_identity=membership.head_identity LEFT JOIN market_data_private.clock_handoffs_v1 AS prior ON prior.head_digest=handoff.predecessor_head_digest) AS edge ON TRUE WHERE state.singleton $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_clock_custody_state_v1() RETURNS TABLE(head_identity BYTEA, head_digest BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ SELECT h.head_identity,h.head_digest FROM market_data_private.clock_handoff_state_v1 AS s JOIN market_data_private.clock_head_v1 AS c ON c.singleton AND c.shared_time_materialized JOIN market_data_private.clock_handoff_head_v1 AS p ON p.singleton JOIN market_data_private.clock_handoffs_v1 AS h ON h.head_identity=p.head_identity JOIN market_data_private.clock_handoff_membership_v1 AS current_membership ON current_membership.head_identity=h.head_identity AND current_membership.ordinal=s.handoff_count WHERE s.singleton AND s.materialized AND s.handoff_count=(SELECT COUNT(*) FROM market_data_private.clock_handoffs_v1) AND s.handoff_count=(SELECT COUNT(*) FROM market_data_private.clock_handoff_membership_v1) AND s.epoch_transition_count=(SELECT COUNT(*) FROM market_data_private.epoch_successor_proofs_v1) AND s.epoch_transition_count=(SELECT COUNT(*) FROM market_data_private.clock_handoffs_v1 AS successor JOIN market_data_private.clock_handoffs_v1 AS prior ON prior.head_digest=successor.predecessor_head_digest WHERE successor.clock_epoch<>prior.clock_epoch) AND 1=(SELECT COUNT(*) FROM market_data_private.clock_handoff_membership_v1 AS root_membership JOIN market_data_private.clock_handoffs_v1 AS root_handoff ON root_handoff.head_identity=root_membership.head_identity WHERE root_membership.ordinal=1 AND root_membership.root_head_identity=root_membership.head_identity AND root_handoff.predecessor_head_digest IS NULL) AND NOT EXISTS (SELECT 1 FROM market_data_private.clock_handoff_membership_v1 AS membership JOIN market_data_private.clock_handoffs_v1 AS handoff ON handoff.head_identity=membership.head_identity LEFT JOIN market_data_private.clock_handoffs_v1 AS prior ON prior.head_digest=handoff.predecessor_head_digest LEFT JOIN market_data_private.clock_handoff_membership_v1 AS prior_membership ON prior_membership.head_identity=prior.head_identity WHERE (membership.ordinal=1 AND (membership.root_head_identity<>membership.head_identity OR handoff.predecessor_head_digest IS NOT NULL)) OR (membership.ordinal>1 AND (prior_membership.head_identity IS NULL OR membership.root_head_identity<>prior_membership.root_head_identity OR membership.ordinal<>prior_membership.ordinal+1))) AND EXISTS (SELECT 1 FROM market_data_private.owner_migrations_v1 AS m WHERE m.migration_id='market-data-owner-shared-time-v1') AND h.clock_identity=c.clock_identity AND h.clock_epoch=c.clock_epoch AND h.monotonic_sequence=c.monotonic_sequence AND h.wall_observed=c.wall_observed AND h.decision_cut=c.decision_cut AND h.valid_through=c.valid_through AND h.restart_continuity_digest=c.restart_continuity_digest AND h.uncertainty_bound=c.uncertainty_bound AND h.skew_bound=c.skew_bound AND h.comparison_rule=c.comparison_rule $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_instrument_master_receipt_v1(p_request_identity BYTEA) RETURNS TABLE(request_identity BYTEA,request_meaning_digest BYTEA,cut_identity BYTEA,cut_bytes BYTEA,receipt_identity BYTEA,receipt_bytes BYTEA,outbox_identity BYTEA,outbox_receipt_bytes BYTEA,store_generation_identity BYTEA,append_sequence BIGINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT r.request_identity,r.request_meaning_digest,c.cut_identity,c.cut_bytes,r.receipt_identity,r.receipt_bytes,o.outbox_identity,o.receipt_bytes,s.store_generation_identity,r.append_sequence FROM market_data_private.instrument_master_receipts_v1 AS r JOIN market_data_private.instrument_master_cuts_v1 AS c ON c.request_identity=r.request_identity AND c.cut_identity=r.cut_identity JOIN market_data_private.instrument_master_outbox_v1 AS o ON o.request_identity=r.request_identity AND o.outbox_identity=r.receipt_identity AND o.receipt_bytes=r.receipt_bytes JOIN market_data_private.instrument_master_state_v1 AS s ON s.singleton AND s.append_sequence=(SELECT COUNT(*) FROM market_data_private.instrument_master_receipts_v1) AND s.append_sequence=(SELECT COUNT(*) FROM market_data_private.instrument_master_cuts_v1) AND s.append_sequence=(SELECT COUNT(*) FROM market_data_private.instrument_master_outbox_v1) WHERE r.request_identity=p_request_identity $function$",
-    "CREATE OR REPLACE FUNCTION market_data_private.resolve_timeframe_projection_receipt_v1(p_receipt_digest BYTEA) RETURNS TABLE(receipt_digest BYTEA,receipt_bytes BYTEA,custody_digest BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT p.receipt_digest,p.receipt_bytes,p.custody_digest FROM market_data_private.timeframe_projection_receipts_v1 AS p WHERE p.receipt_digest=p_receipt_digest $function$",
-    "CREATE OR REPLACE FUNCTION market_data_private.resolve_sample_receipt_v1(p_receipt_digest BYTEA) RETURNS TABLE(sample_identity BYTEA,fact_digest BYTEA,series_identity BYTEA,series_predecessor_identity BYTEA,series_sequence BIGINT,correction_slot_identity BYTEA,correction_predecessor_identity BYTEA,correction_sequence BIGINT,logical_time BIGINT,lineage_version BIGINT,projection_receipt_digest BYTEA,projection_receipt_bytes BYTEA,projection_custody_digest BYTEA,fact_bytes BYTEA,fact_custody_digest BYTEA,receipt_digest BYTEA,receipt_bytes BYTEA,receipt_custody_digest BYTEA,outbox_identity BYTEA,outbox_payload_digest BYTEA,outbox_payload_bytes BYTEA,outbox_custody_digest BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT f.sample_identity,f.fact_digest,f.series_identity,f.series_predecessor_identity,f.series_sequence,f.correction_slot_identity,f.correction_predecessor_identity,f.correction_sequence,f.logical_time,f.lineage_version,f.projection_receipt_digest,p.receipt_bytes,p.custody_digest,f.fact_bytes,f.custody_digest,r.receipt_digest,r.receipt_bytes,r.custody_digest,o.outbox_identity,o.payload_digest,o.payload_bytes,o.custody_digest FROM market_data_private.sample_receipts_v1 AS r JOIN market_data_private.sample_facts_v1 AS f ON f.sample_identity=r.sample_identity JOIN market_data_private.timeframe_projection_receipts_v1 AS p ON p.receipt_digest=f.projection_receipt_digest JOIN market_data_private.sample_outbox_v1 AS o ON o.sample_identity=f.sample_identity WHERE r.receipt_digest=p_receipt_digest $function$",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_timeframe_projection_receipt_v1(p_receipt_digest BYTEA) RETURNS TABLE(receipt_digest BYTEA,binding_receipt_digest BYTEA,receipt_bytes BYTEA,custody_digest BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT p.receipt_digest,p.binding_receipt_digest,p.receipt_bytes,p.custody_digest FROM market_data_private.timeframe_projection_receipts_v1 AS p WHERE p.receipt_digest=p_receipt_digest $function$",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_sample_receipt_v1(p_receipt_digest BYTEA) RETURNS TABLE(sample_identity BYTEA,fact_digest BYTEA,series_identity BYTEA,series_predecessor_identity BYTEA,series_sequence BIGINT,correction_slot_identity BYTEA,correction_predecessor_identity BYTEA,correction_sequence BIGINT,logical_time BIGINT,lineage_version BIGINT,projection_receipt_digest BYTEA,projection_binding_receipt_digest BYTEA,projection_receipt_bytes BYTEA,projection_custody_digest BYTEA,fact_bytes BYTEA,fact_custody_digest BYTEA,receipt_digest BYTEA,receipt_bytes BYTEA,receipt_custody_digest BYTEA,outbox_identity BYTEA,outbox_payload_digest BYTEA,outbox_payload_bytes BYTEA,outbox_custody_digest BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT f.sample_identity,f.fact_digest,f.series_identity,f.series_predecessor_identity,f.series_sequence,f.correction_slot_identity,f.correction_predecessor_identity,f.correction_sequence,f.logical_time,f.lineage_version,f.projection_receipt_digest,p.binding_receipt_digest,p.receipt_bytes,p.custody_digest,f.fact_bytes,f.custody_digest,r.receipt_digest,r.receipt_bytes,r.custody_digest,o.outbox_identity,o.payload_digest,o.payload_bytes,o.custody_digest FROM market_data_private.sample_receipts_v1 AS r JOIN market_data_private.sample_facts_v1 AS f ON f.sample_identity=r.sample_identity JOIN market_data_private.timeframe_projection_receipts_v1 AS p ON p.receipt_digest=f.projection_receipt_digest JOIN market_data_private.sample_outbox_v1 AS o ON o.sample_identity=f.sample_identity WHERE r.receipt_digest=p_receipt_digest $function$",
     "REVOKE ALL ON ALL TABLES IN SCHEMA market_data_private FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_source_binding_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_snapshot_v1(BYTEA) FROM PUBLIC",
@@ -682,6 +682,7 @@ pub(super) struct PreparedSampleCustodyV1 {
     logical_time: u64,
     lineage_version: u64,
     projection_receipt_digest: [u8; 32],
+    projection_binding_receipt_digest: [u8; 32],
     projection_receipt_bytes: Vec<u8>,
     fact_bytes: Vec<u8>,
     receipt_digest: [u8; 32],
@@ -705,6 +706,7 @@ impl PreparedSampleCustodyV1 {
             logical_time: value.logical_time(),
             lineage_version: value.lineage_version(),
             projection_receipt_digest: value.timeframe_projection_receipt_digest(),
+            projection_binding_receipt_digest: value.timeframe_projection_binding_receipt_digest(),
             projection_receipt_bytes: value.timeframe_projection_receipt_bytes().to_vec(),
             fact_bytes: value.fact_canonical_bytes().to_vec(),
             receipt_digest: value.sample_receipt_digest(),
@@ -715,7 +717,8 @@ impl PreparedSampleCustodyV1 {
         }
     }
 
-    /// Adapts contract-verified opaque values into the Owner-private PostgreSQL boundary.
+    /// Test-only synthetic adapter for exercising PostgreSQL custody refuters.
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub(super) fn from_verified_contract(
         sample_identity: [u8; 32],
@@ -729,6 +732,7 @@ impl PreparedSampleCustodyV1 {
         logical_time: u64,
         lineage_version: u64,
         projection_receipt_digest: [u8; 32],
+        projection_binding_receipt_digest: [u8; 32],
         projection_receipt_bytes: Vec<u8>,
         fact_bytes: Vec<u8>,
         receipt_digest: [u8; 32],
@@ -749,6 +753,7 @@ impl PreparedSampleCustodyV1 {
             logical_time,
             lineage_version,
             projection_receipt_digest,
+            projection_binding_receipt_digest,
             projection_receipt_bytes,
             fact_bytes,
             receipt_digest,
@@ -816,6 +821,7 @@ impl MarketDataOwnerPostgres {
     ) -> Result<StoredSampleReadbackV1, SampleCustodyErrorV1> {
         self.store_timeframe_projection_receipt_v1(
             prepared.timeframe_projection_receipt_digest(),
+            prepared.timeframe_projection_binding_receipt_digest(),
             prepared.timeframe_projection_receipt_bytes(),
         )
         .await?;
@@ -866,15 +872,20 @@ impl MarketDataOwnerPostgres {
     }
 
     /// Stores one already-validated timeframe projection receipt without interpreting its label.
-    pub(super) async fn store_timeframe_projection_receipt_v1(
+    async fn store_timeframe_projection_receipt_v1(
         &self,
         receipt_digest: [u8; 32],
+        binding_receipt_digest: [u8; 32],
         receipt_bytes: &[u8],
     ) -> Result<(), SampleCustodyErrorV1> {
-        if zero_digest(receipt_digest) || receipt_bytes.is_empty() {
+        if zero_digest(receipt_digest)
+            || zero_digest(binding_receipt_digest)
+            || receipt_bytes.is_empty()
+        {
             return Err(SampleCustodyErrorV1::InvalidInput);
         }
-        let custody_digest = projection_custody_digest(receipt_digest, receipt_bytes);
+        let custody_digest =
+            projection_custody_digest(receipt_digest, binding_receipt_digest, receipt_bytes);
         let mut transaction = self
             .pool
             .begin()
@@ -885,26 +896,31 @@ impl MarketDataOwnerPostgres {
             .await
             .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
         sqlx::query("SELECT pg_advisory_xact_lock($1)")
-            .bind(sample_advisory_key(receipt_digest))
+            .bind(sample_advisory_key(binding_receipt_digest))
             .execute(&mut *transaction)
             .await
             .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
-        if let Some(row) = sqlx::query("SELECT receipt_bytes,custody_digest FROM market_data_private.timeframe_projection_receipts_v1 WHERE receipt_digest=$1")
-            .bind(receipt_digest.as_slice())
+        if let Some(row) = sqlx::query("SELECT receipt_digest,receipt_bytes,custody_digest FROM market_data_private.timeframe_projection_receipts_v1 WHERE binding_receipt_digest=$1")
+            .bind(binding_receipt_digest.as_slice())
             .fetch_optional(&mut *transaction)
             .await
             .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?
         {
             let stored_bytes: Vec<u8> = row.try_get("receipt_bytes").map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
             let stored_custody = sample_digest_column(&row, "custody_digest")?;
-            if stored_bytes != receipt_bytes || stored_custody != custody_digest {
+            let stored_digest = sample_digest_column(&row, "receipt_digest")?;
+            if stored_digest != receipt_digest
+                || stored_bytes != receipt_bytes
+                || stored_custody != custody_digest
+            {
                 return Err(SampleCustodyErrorV1::ProjectionConflict);
             }
             transaction.commit().await.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
             return Ok(());
         }
-        sqlx::query("INSERT INTO market_data_private.timeframe_projection_receipts_v1(receipt_digest,receipt_bytes,custody_digest) VALUES ($1,$2,$3)")
+        sqlx::query("INSERT INTO market_data_private.timeframe_projection_receipts_v1(receipt_digest,binding_receipt_digest,receipt_bytes,custody_digest) VALUES ($1,$2,$3,$4)")
             .bind(receipt_digest.as_slice())
+            .bind(binding_receipt_digest.as_slice())
             .bind(receipt_bytes)
             .bind(custody_digest.as_slice())
             .execute(&mut *transaction)
@@ -917,7 +933,7 @@ impl MarketDataOwnerPostgres {
     }
 
     /// Atomically persists one sample and compare-and-swap advances both of its heads.
-    pub(super) async fn commit_sample_custody_v1(
+    async fn commit_sample_custody_v1(
         &self,
         prepared: &PreparedSampleCustodyV1,
     ) -> Result<SampleCustodyReadbackV1, SampleCustodyErrorV1> {
@@ -1028,6 +1044,7 @@ impl MarketDataOwnerPostgres {
     }
 
     /// Resolves one exact historical receipt and rejects any broken custody join or digest.
+    #[cfg(test)]
     pub(super) async fn resolve_sample_receipt_custody_v1(
         &self,
         receipt_digest: [u8; 32],
@@ -1352,6 +1369,7 @@ fn validate_prepared_sample(value: &PreparedSampleCustodyV1) -> Result<(), Sampl
         value.series_identity,
         value.correction_slot_identity,
         value.projection_receipt_digest,
+        value.projection_binding_receipt_digest,
         value.receipt_digest,
         value.outbox_identity,
         value.outbox_payload_digest,
@@ -1377,7 +1395,7 @@ async fn validate_projection_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     prepared: &PreparedSampleCustodyV1,
 ) -> Result<(), SampleCustodyErrorV1> {
-    let row = sqlx::query("SELECT receipt_bytes,custody_digest FROM market_data_private.timeframe_projection_receipts_v1 WHERE receipt_digest=$1 FOR SHARE")
+    let row = sqlx::query("SELECT binding_receipt_digest,receipt_bytes,custody_digest FROM market_data_private.timeframe_projection_receipts_v1 WHERE receipt_digest=$1 FOR SHARE")
         .bind(prepared.projection_receipt_digest.as_slice())
         .fetch_optional(&mut **transaction).await.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?
         .ok_or(SampleCustodyErrorV1::ProjectionConflict)?;
@@ -1385,8 +1403,15 @@ async fn validate_projection_in_transaction(
         .try_get("receipt_bytes")
         .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
     let custody = sample_digest_column(&row, "custody_digest")?;
-    if bytes != prepared.projection_receipt_bytes
-        || custody != projection_custody_digest(prepared.projection_receipt_digest, &bytes)
+    let binding_receipt_digest = sample_digest_column(&row, "binding_receipt_digest")?;
+    if binding_receipt_digest != prepared.projection_binding_receipt_digest
+        || bytes != prepared.projection_receipt_bytes
+        || custody
+            != projection_custody_digest(
+                prepared.projection_receipt_digest,
+                prepared.projection_binding_receipt_digest,
+                &bytes,
+            )
     {
         return Err(SampleCustodyErrorV1::ProjectionConflict);
     }
@@ -1554,6 +1579,10 @@ async fn load_sample_custody(
         logical_time: sample_u64_column(&row, "logical_time")?,
         lineage_version: sample_u64_column(&row, "lineage_version")?,
         projection_receipt_digest: sample_digest_column(&row, "projection_receipt_digest")?,
+        projection_binding_receipt_digest: sample_digest_column(
+            &row,
+            "projection_binding_receipt_digest",
+        )?,
         projection_receipt_bytes: row
             .try_get("projection_receipt_bytes")
             .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?,
@@ -1578,6 +1607,7 @@ async fn load_sample_custody(
     if projection_custody
         != projection_custody_digest(
             prepared.projection_receipt_digest,
+            prepared.projection_binding_receipt_digest,
             &prepared.projection_receipt_bytes,
         )
         || fact_custody != sample_fact_custody_digest(&prepared)
@@ -1662,10 +1692,14 @@ fn optional_digest_bytes(value: &Option<[u8; 32]>) -> &[u8] {
     value.as_ref().map_or(&[], |digest| digest.as_slice())
 }
 
-fn projection_custody_digest(identity: [u8; 32], bytes: &[u8]) -> [u8; 32] {
+fn projection_custody_digest(
+    identity: [u8; 32],
+    binding_receipt_digest: [u8; 32],
+    bytes: &[u8],
+) -> [u8; 32] {
     sample_hash(
         b"market-data.postgres.projection-custody.v1\0",
-        &[&identity, bytes],
+        &[&identity, &binding_receipt_digest, bytes],
     )
 }
 

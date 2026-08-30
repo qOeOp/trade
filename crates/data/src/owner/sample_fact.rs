@@ -438,6 +438,11 @@ impl PreparedSampleCommitV1 {
     pub(crate) const fn timeframe_projection_receipt_digest(&self) -> Identity {
         self.timeframe_projection_digest
     }
+    pub(crate) fn timeframe_projection_binding_receipt_digest(&self) -> Identity {
+        let mut identity = [0_u8; 32];
+        identity.copy_from_slice(&self.timeframe_projection_bytes[4..36]);
+        identity
+    }
     pub(crate) const fn timeframe_projection_receipt_bytes(
         &self,
     ) -> &[u8; TIMEFRAME_PROJECTION_LEN] {
@@ -1189,7 +1194,7 @@ impl<'a> Decoder<'a> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::owner::{
         pit_snapshot::{
@@ -1307,6 +1312,23 @@ mod tests {
             commit.sample_receipt_digest(),
         )
         .expect("exact stored bytes verify")
+    }
+
+    pub(crate) fn prepared_point_event_fixture_v1() -> PreparedSampleCommitV1 {
+        let batch = batch(row(10, 1), 30);
+        let binding =
+            bind_strategy_input_role(&request(&batch), &batch).expect("sealed V1 binding");
+        let timeframe = prepare_point_event_timeframe_projection_v1(&binding);
+        prepare_sample_commit_v1(
+            &binding,
+            &batch,
+            &timeframe,
+            SampleFactHeadsV1 {
+                series: None,
+                slot: None,
+            },
+        )
+        .expect("contract-verified point event sample")
     }
 
     #[test]
