@@ -23,6 +23,9 @@ env:
     || github.event.pull_request.head.repo.full_name != github.repository) }}
   CARGO_BUILD_JOBS: "2"
   CARGO_TARGET_DIR: ${{ github.workspace }}/target/rd-owner-postgres
+  RUST_TEST_EXTRA_FEATURES: >-
+    capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,
+    vibe-strategy-factory/sealed-develop-composer-acceptance
 
 jobs:
   rd-owner-postgres:
@@ -71,7 +74,9 @@ jobs:
         run: bash scripts/ci/report-disk-space.bash "before Rust tests"
 
       - name: Run isolated R&D Owner PostgreSQL tests
-        run: make cargo-test-rd-owner-postgres-isolated
+        run: >-
+          make cargo-test-rd-owner-postgres-isolated NEXTEST_PROFILE=ci
+          EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
 
       - name: Report disk space after Rust tests
         if: always()
