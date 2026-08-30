@@ -384,6 +384,248 @@ async fn grant_reader(admin: &PgPool) {
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_clock_membership_custody_v1() TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_clock_custody_state_v1() TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_instrument_master_receipt_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_timeframe_projection_receipt_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_sample_receipt_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+}
+
+fn sample_digest(byte: u8) -> [u8; 32] {
+    [byte; 32]
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prepared_sample(
+    sample: u8,
+    series: u8,
+    series_predecessor: Option<u8>,
+    series_sequence: u64,
+    slot: u8,
+    correction_predecessor: Option<u8>,
+    correction_sequence: u64,
+    logical_time: u64,
+    projection: u8,
+) -> PreparedSampleCustodyV1 {
+    PreparedSampleCustodyV1::from_verified_contract(
+        sample_digest(sample),
+        sample_digest(sample.wrapping_add(40)),
+        sample_digest(series),
+        series_predecessor.map(sample_digest),
+        series_sequence,
+        sample_digest(slot),
+        correction_predecessor.map(sample_digest),
+        correction_sequence,
+        logical_time,
+        series_sequence,
+        sample_digest(projection),
+        vec![projection, 1, 2, 3],
+        vec![sample, 4, 5, 6],
+        sample_digest(sample.wrapping_add(80)),
+        vec![sample, 7, 8, 9],
+        sample_digest(sample.wrapping_add(100)),
+        sample_digest(sample.wrapping_add(120)),
+        vec![sample, 10, 11, 12],
+    )
+}
+
+async fn sample_counts(pool: &PgPool) -> (i64, i64, i64, i64, i64, i64) {
+    sqlx::query_as("SELECT (SELECT COUNT(*) FROM market_data_private.sample_facts_v1),(SELECT COUNT(*) FROM market_data_private.sample_receipts_v1),(SELECT COUNT(*) FROM market_data_private.sample_outbox_v1),(SELECT COUNT(*) FROM market_data_private.sample_series_heads_v1),(SELECT COUNT(*) FROM market_data_private.sample_correction_heads_v1),(SELECT COUNT(*) FROM market_data_private.timeframe_projection_receipts_v1)")
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn sample_custody_postgres_oracle(owner_url: &str, reader_url: &str, admin: &PgPool) {
+    let owner = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
+    let projection_digest = sample_digest(200);
+    let projection_bytes = [200, 1, 2, 3];
+    owner
+        .store_timeframe_projection_receipt_v1(projection_digest, &projection_bytes)
+        .await
+        .unwrap();
+    let after_projection = sample_counts(owner.pool()).await;
+    owner
+        .store_timeframe_projection_receipt_v1(projection_digest, &projection_bytes)
+        .await
+        .unwrap();
+    assert_eq!(sample_counts(owner.pool()).await, after_projection);
+    assert_eq!(
+        owner
+            .store_timeframe_projection_receipt_v1(projection_digest, &[200, 9])
+            .await,
+        Err(SampleCustodyErrorV1::ProjectionConflict)
+    );
+
+    let missing_projection = prepared_sample(1, 20, None, 1, 30, None, 1, 10, 201);
+    assert_eq!(
+        owner.commit_sample_custody_v1(&missing_projection).await,
+        Err(SampleCustodyErrorV1::ProjectionConflict)
+    );
+    assert_eq!(sample_counts(owner.pool()).await, after_projection);
+
+    let first = prepared_sample(1, 20, None, 1, 30, None, 1, 10, 200);
+    let first_readback = owner.commit_sample_custody_v1(&first).await.unwrap();
+    assert_eq!(first_readback.receipt_digest(), first.receipt_digest);
+    assert_eq!(first_readback.exact_receipt_bytes(), first.receipt_bytes);
+    let after_first = sample_counts(owner.pool()).await;
+    let replay = owner.commit_sample_custody_v1(&first).await.unwrap();
+    assert_eq!(replay.exact_receipt_bytes(), first.receipt_bytes);
+    assert_eq!(sample_counts(owner.pool()).await, after_first);
+
+    let mut identity_conflict = first.clone();
+    identity_conflict.receipt_digest = sample_digest(82);
+    identity_conflict.receipt_bytes.push(99);
+    assert_eq!(
+        owner.commit_sample_custody_v1(&identity_conflict).await,
+        Err(SampleCustodyErrorV1::IdentityConflict)
+    );
+    assert_eq!(sample_counts(owner.pool()).await, after_first);
+    let cycle = prepared_sample(9, 20, Some(9), 2, 31, None, 1, 20, 200);
+    assert_eq!(
+        owner.commit_sample_custody_v1(&cycle).await,
+        Err(SampleCustodyErrorV1::InvalidInput)
+    );
+
+    let gap = prepared_sample(2, 20, Some(1), 3, 31, None, 1, 20, 200);
+    assert_eq!(
+        owner.commit_sample_custody_v1(&gap).await,
+        Err(SampleCustodyErrorV1::SeriesHeadConflict)
+    );
+    let regression = prepared_sample(2, 20, Some(1), 2, 31, None, 1, 10, 200);
+    assert_eq!(
+        owner.commit_sample_custody_v1(&regression).await,
+        Err(SampleCustodyErrorV1::SeriesHeadConflict)
+    );
+
+    let second = prepared_sample(2, 20, Some(1), 2, 31, None, 1, 20, 200);
+    owner.commit_sample_custody_v1(&second).await.unwrap();
+    let branch = prepared_sample(3, 20, Some(1), 2, 32, None, 1, 21, 200);
+    assert_eq!(
+        owner.commit_sample_custody_v1(&branch).await,
+        Err(SampleCustodyErrorV1::SeriesHeadConflict)
+    );
+
+    let other_series = prepared_sample(10, 21, None, 1, 40, None, 1, 11, 200);
+    owner.commit_sample_custody_v1(&other_series).await.unwrap();
+    let cross_series = prepared_sample(3, 20, Some(10), 2, 32, None, 1, 22, 200);
+    assert_eq!(
+        owner.commit_sample_custody_v1(&cross_series).await,
+        Err(SampleCustodyErrorV1::SeriesHeadConflict)
+    );
+    let cross_slot = prepared_sample(3, 20, Some(2), 3, 31, Some(1), 2, 30, 200);
+    assert_eq!(
+        owner.commit_sample_custody_v1(&cross_slot).await,
+        Err(SampleCustodyErrorV1::CorrectionHeadConflict)
+    );
+
+    let correction = prepared_sample(3, 20, Some(2), 3, 31, Some(2), 2, 30, 200);
+    owner.commit_sample_custody_v1(&correction).await.unwrap();
+    let before_rollback = sample_counts(owner.pool()).await;
+    let rollback = prepared_sample(4, 20, Some(3), 4, 32, None, 1, 40, 200);
+    assert_eq!(
+        owner
+            .commit_sample_custody_with_fault_v1(
+                &rollback,
+                SampleCustodyFaultV1::RollbackBeforeHeads,
+            )
+            .await,
+        Err(SampleCustodyErrorV1::CommitInterrupted)
+    );
+    assert_eq!(sample_counts(owner.pool()).await, before_rollback);
+    assert_eq!(
+        owner
+            .commit_sample_custody_with_fault_v1(&rollback, SampleCustodyFaultV1::ResponseLoss)
+            .await,
+        Err(SampleCustodyErrorV1::ResponseLost)
+    );
+    let after_loss = sample_counts(owner.pool()).await;
+    drop(owner);
+
+    let restarted = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
+    assert_eq!(sample_counts(restarted.pool()).await, after_loss);
+    let historical = restarted
+        .resolve_sample_receipt_custody_v1(first.receipt_digest)
+        .await
+        .unwrap();
+    assert_eq!(historical.exact_receipt_bytes(), first.receipt_bytes);
+    let recovered = restarted
+        .resolve_sample_receipt_custody_v1(rollback.receipt_digest)
+        .await
+        .unwrap();
+    assert_eq!(recovered.exact_receipt_bytes(), rollback.receipt_bytes);
+
+    let reader = MarketDataReadPostgres::connect(reader_url).await.unwrap();
+    assert_eq!(
+        reader
+            .resolve_sample_receipt_custody_v1(first.receipt_digest)
+            .await
+            .unwrap()
+            .exact_receipt_bytes(),
+        first.receipt_bytes
+    );
+    assert!(
+        sqlx::query("SELECT * FROM market_data_private.sample_facts_v1")
+            .fetch_all(&reader.pool)
+            .await
+            .is_err()
+    );
+    for (table, denied_delete) in [
+        (
+            "timeframe_projection_receipts_v1",
+            "DELETE FROM market_data_private.timeframe_projection_receipts_v1",
+        ),
+        (
+            "sample_facts_v1",
+            "DELETE FROM market_data_private.sample_facts_v1",
+        ),
+        (
+            "sample_series_heads_v1",
+            "DELETE FROM market_data_private.sample_series_heads_v1",
+        ),
+        (
+            "sample_correction_heads_v1",
+            "DELETE FROM market_data_private.sample_correction_heads_v1",
+        ),
+        (
+            "sample_receipts_v1",
+            "DELETE FROM market_data_private.sample_receipts_v1",
+        ),
+        (
+            "sample_outbox_v1",
+            "DELETE FROM market_data_private.sample_outbox_v1",
+        ),
+    ] {
+        for privilege in ["INSERT", "UPDATE", "DELETE"] {
+            let admitted: bool = sqlx::query_scalar("SELECT has_table_privilege($1,$2,$3)")
+                .bind(READER_ROLE)
+                .bind(format!("market_data_private.{table}"))
+                .bind(privilege)
+                .fetch_one(admin)
+                .await
+                .unwrap();
+            assert!(!admitted);
+        }
+        assert!(
+            sqlx::query(denied_delete)
+                .execute(&reader.pool)
+                .await
+                .is_err()
+        );
+    }
+    let public_execute: bool = sqlx::query_scalar("SELECT has_function_privilege('public','market_data_private.resolve_sample_receipt_v1(bytea)','EXECUTE')")
+        .fetch_one(admin).await.unwrap();
+    assert!(!public_execute);
+
+    sqlx::query("UPDATE market_data_private.sample_receipts_v1 SET receipt_bytes=$1 WHERE receipt_digest=$2")
+        .bind([1_u8, 2, 3].as_slice()).bind(first.receipt_digest.as_slice())
+        .execute(restarted.pool()).await.unwrap();
+    assert_eq!(
+        restarted
+            .resolve_sample_receipt_custody_v1(first.receipt_digest)
+            .await,
+        Err(SampleCustodyErrorV1::StoreUnavailable)
+    );
+    sqlx::query("UPDATE market_data_private.sample_receipts_v1 SET receipt_bytes=$1 WHERE receipt_digest=$2")
+        .bind(&first.receipt_bytes).bind(first.receipt_digest.as_slice())
+        .execute(restarted.pool()).await.unwrap();
 }
 
 struct TestUniverseMembership {
@@ -1084,6 +1326,7 @@ async fn run_postgres_owner_scenario() {
     assert_legacy_sequence_five_migrates(&owner_url).await;
     let owner = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
     grant_reader(&admin).await;
+    sample_custody_postgres_oracle(&owner_url, &reader_url, &admin).await;
 
     let decision = OwnerSourceBindingDecision {
         blockers: BTreeSet::new(),
