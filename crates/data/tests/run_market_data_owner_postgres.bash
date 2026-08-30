@@ -11,11 +11,17 @@ reader_password="md_d1_reader_test_only"
 cleanup() {
   local primary_status="${1:-0}"
   local cleanup_status=0
+  local matching_containers=""
 
-  if docker ps -aq --filter "name=^/${container}$" | grep -q .; then
+  if ! matching_containers="$(docker ps -aq --filter "name=^/${container}$")"; then
+    cleanup_status=1
+  elif [[ -n "$matching_containers" ]]; then
     docker rm -f "$container" > /dev/null 2>&1 || cleanup_status=$?
   fi
-  if docker ps -aq --filter "name=^/${container}$" | grep -q .; then
+
+  if ! matching_containers="$(docker ps -aq --filter "name=^/${container}$")"; then
+    cleanup_status=1
+  elif [[ -n "$matching_containers" ]]; then
     cleanup_status=1
   fi
 
