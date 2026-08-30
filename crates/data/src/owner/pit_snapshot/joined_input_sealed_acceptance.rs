@@ -31,9 +31,14 @@ use crate::owner::{
     },
     strategy_input_binding::{
         MarketDataFieldSemantic, StrategyInputBindingReceipt, StrategyInputBindingUnavailable,
-        StrategyInputChannel, StrategyInputEventFrameReceipt, StrategyInputUnit,
-        UntrustedStrategyInputBindingRequest, UntrustedStrategyInputScope,
-        bind_strategy_input_event_frame, bind_strategy_input_role,
+        StrategyInputChannel, StrategyInputUnit, UntrustedStrategyInputBindingRequest,
+        UntrustedStrategyInputScope, bind_strategy_input_event_frame, bind_strategy_input_role,
+    },
+    strategy_input_joined_cut::{
+        StrategyInputJoinRoleClaimV1, StrategyInputJoinedCutReceiptV1,
+        StrategyInputJoinedCutUnavailable, UntrustedStrategyInputJoinClaimV1,
+        derive_strategy_input_join_identity_v2, issue_strategy_input_joined_cut_v1,
+        seal_strategy_input_join_census_v1,
     },
 };
 
@@ -71,6 +76,7 @@ pub enum JoinedInputSealedAcceptanceError {
     SourceBinding(SourceBindingError),
     PitSnapshot(PitSnapshotError),
     StrategyInput(StrategyInputBindingUnavailable),
+    JoinedCut(StrategyInputJoinedCutUnavailable),
 }
 
 impl Display for JoinedInputSealedAcceptanceError {
@@ -99,23 +105,20 @@ impl From<StrategyInputBindingUnavailable> for JoinedInputSealedAcceptanceError 
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SealedAcceptanceStrategyInputJoinEvent {
-    frames: Box<[StrategyInputEventFrameReceipt]>,
-}
-
-impl SealedAcceptanceStrategyInputJoinEvent {
-    pub fn frames(&self) -> &[StrategyInputEventFrameReceipt] {
-        &self.frames
+impl From<StrategyInputJoinedCutUnavailable> for JoinedInputSealedAcceptanceError {
+    fn from(value: StrategyInputJoinedCutUnavailable) -> Self {
+        Self::JoinedCut(value)
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SealedAcceptanceStrategyInputJoinCorpus {
     bindings: Box<[StrategyInputBindingReceipt]>,
-    events: Box<[SealedAcceptanceStrategyInputJoinEvent]>,
-    stale: SealedAcceptanceStrategyInputJoinEvent,
-    cross_splice: SealedAcceptanceStrategyInputJoinEvent,
+    events: Box<[StrategyInputJoinedCutReceiptV1]>,
+    repeated_first: StrategyInputJoinedCutReceiptV1,
+    missing: StrategyInputJoinedCutUnavailable,
+    stale: StrategyInputJoinedCutUnavailable,
+    cross_splice: StrategyInputJoinedCutUnavailable,
 }
 
 impl SealedAcceptanceStrategyInputJoinCorpus {
@@ -123,16 +126,24 @@ impl SealedAcceptanceStrategyInputJoinCorpus {
         &self.bindings
     }
 
-    pub fn events(&self) -> &[SealedAcceptanceStrategyInputJoinEvent] {
+    pub fn events(&self) -> &[StrategyInputJoinedCutReceiptV1] {
         &self.events
     }
 
-    pub const fn stale(&self) -> &SealedAcceptanceStrategyInputJoinEvent {
-        &self.stale
+    pub const fn repeated_first(&self) -> &StrategyInputJoinedCutReceiptV1 {
+        &self.repeated_first
     }
 
-    pub const fn cross_splice(&self) -> &SealedAcceptanceStrategyInputJoinEvent {
-        &self.cross_splice
+    pub const fn stale(&self) -> StrategyInputJoinedCutUnavailable {
+        self.stale
+    }
+
+    pub const fn missing(&self) -> StrategyInputJoinedCutUnavailable {
+        self.missing
+    }
+
+    pub const fn cross_splice(&self) -> StrategyInputJoinedCutUnavailable {
+        self.cross_splice
     }
 }
 
@@ -270,22 +281,100 @@ pub fn issue_strategy_input_join_corpus()
         bindings.push(role_binding.expect("role binding exists"));
     }
 
+    let claim = join_claim();
+    let mut cumulative = Vec::new();
+    let mut events = Vec::with_capacity(event_times.len());
+    let mut repeated_first = None;
+
+    for (event_index, frames) in by_event.into_iter().enumerate() {
+        cumulative.extend(frames);
+        let census = seal_strategy_input_join_census_v1(cumulative.clone())?;
+        let receipt = issue_strategy_input_joined_cut_v1(
+            &claim,
+            &bindings,
+            &census,
+            event_times[event_index],
+        )?;
+
+        if event_index == 0 {
+            repeated_first = Some(issue_strategy_input_joined_cut_v1(
+                &claim,
+                &bindings,
+                &census,
+                event_times[event_index],
+            )?);
+        }
+        events.push(receipt);
+    }
+    let missing_census = seal_strategy_input_join_census_v1(
+        cumulative
+            .iter()
+            .filter(|frame| {
+                frame.values()[0].input_role_identity()
+                    != BindingDigest::from_untrusted_bytes(JOIN_ROLE_IDENTITIES[3])
+            })
+            .cloned()
+            .collect(),
+    )?;
+    let missing =
+        issue_strategy_input_joined_cut_v1(&claim, &bindings, &missing_census, event_times[2])
+            .expect_err("fixed incomplete census must fail closed");
+    let stale_census = seal_strategy_input_join_census_v1(stale)?;
+    let stale = issue_strategy_input_joined_cut_v1(&claim, &bindings, &stale_census, 7_000_000_000)
+        .expect_err("fixed stale census must fail closed");
+    let cross_census = seal_strategy_input_join_census_v1(cross_splice)?;
+    let cross_splice =
+        issue_strategy_input_joined_cut_v1(&claim, &bindings, &cross_census, 9_000_000_000)
+            .expect_err("fixed cross-Design census must fail closed");
+
     Ok(SealedAcceptanceStrategyInputJoinCorpus {
         bindings: bindings.into_boxed_slice(),
-        events: by_event
-            .into_iter()
-            .map(|frames| SealedAcceptanceStrategyInputJoinEvent {
-                frames: frames.into_boxed_slice(),
-            })
-            .collect::<Vec<_>>()
-            .into_boxed_slice(),
-        stale: SealedAcceptanceStrategyInputJoinEvent {
-            frames: stale.into_boxed_slice(),
-        },
-        cross_splice: SealedAcceptanceStrategyInputJoinEvent {
-            frames: cross_splice.into_boxed_slice(),
-        },
+        events: events.into_boxed_slice(),
+        repeated_first: repeated_first.expect("fixed corpus has a first event"),
+        missing,
+        stale,
+        cross_splice,
     })
+}
+
+fn join_claim() -> UntrustedStrategyInputJoinClaimV1 {
+    let mut roles = [
+        "research.input.open.v1",
+        "research.input.close.v1",
+        "research.input.msft-hour-close.v1",
+        "research.input.qqq-day-close.v1",
+    ]
+    .into_iter()
+    .zip(JOIN_ROLE_IDENTITIES)
+    .map(|(semantic_id, identity)| StrategyInputJoinRoleClaimV1 {
+        semantic_id: semantic_id.into(),
+        input_role_identity: BindingDigest::from_untrusted_bytes(identity),
+    })
+    .collect::<Vec<_>>();
+    roles.sort_by(|left, right| left.semantic_id.cmp(&right.semantic_id));
+    let inputs = roles
+        .iter()
+        .map(|role| role.semantic_id.clone())
+        .collect::<Vec<_>>();
+    let join_semantic_id = "research.input-join.cross-leg-regime.v1";
+    let alignment_semantic_id = "strategy.input-join.latest-not-after-trigger.v1";
+    let trigger_input_id = "research.input.close.v1";
+    let max_staleness_ns = 500;
+    UntrustedStrategyInputJoinClaimV1 {
+        strategy_design_identity: BindingDigest::from_untrusted_bytes(JOIN_DESIGN_IDENTITY),
+        join_semantic_id: join_semantic_id.into(),
+        join_identity: derive_strategy_input_join_identity_v2(
+            join_semantic_id,
+            &inputs,
+            alignment_semantic_id,
+            trigger_input_id,
+            max_staleness_ns,
+        ),
+        alignment_semantic_id: alignment_semantic_id.into(),
+        trigger_input_id: trigger_input_id.into(),
+        max_staleness_ns,
+        roles,
+    }
 }
 
 fn clock() -> MarketDataClockAdmission {

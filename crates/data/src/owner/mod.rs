@@ -10,6 +10,7 @@ pub mod sealed_replay_input;
 pub mod shared_time_evidence;
 pub mod source_binding;
 pub mod strategy_input_binding;
+pub mod strategy_input_joined_cut;
 
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 pub use pit_snapshot::sealed_acceptance;

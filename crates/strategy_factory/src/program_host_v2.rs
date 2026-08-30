@@ -18,6 +18,9 @@ use vibe_data::owner::{
         STRATEGY_INPUT_FIXED_I128_LE_V1, StrategyInputEventFrameReceipt, StrategyInputEventKind,
         StrategyInputUniverseFrameReceipt,
     },
+    strategy_input_joined_cut::{
+        StrategyInputJoinedCutReceiptV1, derive_strategy_input_join_identity_v2,
+    },
 };
 
 use crate::{
@@ -622,32 +625,76 @@ pub(crate) fn admit_market_data_program_event_v2(
 
 pub(crate) fn admit_market_data_joined_program_event_v2(
     plan: &StrategyPlanV2,
-    frames: &[&StrategyInputEventFrameReceipt],
+    receipt: &StrategyInputJoinedCutReceiptV1,
 ) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
-    if frames.len() < 2 {
+    if !receipt.has_valid_digest()
+        || receipt.strategy_design_identity() != plan.design_identity()
+        || receipt.components().len() < 2
+        || receipt.market_semantics_identity() != plan.market_semantics_identity()
+        || receipt.selection_basis_digest() == BindingDigest::from_untrusted_bytes([0; 32])
+        || receipt.frontier_digest() == BindingDigest::from_untrusted_bytes([0; 32])
+    {
         return Err(ProgramHostV2Error::InputCoverage);
     }
-    let mut components = Vec::with_capacity(frames.len());
+    let join = plan
+        .input_joins()
+        .iter()
+        .find(|join| input_join_identity_v2(join) == receipt.join_identity())
+        .ok_or(ProgramHostV2Error::InputCoverage)?;
+
+    if join.alignment_semantic_id != INPUT_JOIN_LATEST_NOT_AFTER_TRIGGER_V1
+        || receipt.alignment_semantic_id() != join.alignment_semantic_id
+        || receipt.trigger_input_id() != join.trigger_input_id
+        || receipt.max_staleness_ns() != join.max_staleness_ns
+        || receipt.components().len() != join.inputs.len()
+        || receipt
+            .components()
+            .iter()
+            .zip(&join.inputs)
+            .any(|(component, expected)| component.role_semantic_id() != expected)
+    {
+        return Err(ProgramHostV2Error::InputCoverage);
+    }
+
+    let mut components = Vec::with_capacity(receipt.components().len());
     let mut role_ids = std::collections::BTreeSet::new();
 
-    for frame in frames {
+    for component in receipt.components() {
+        let frame = component.frame();
         let [value] = frame.values() else {
             return Err(ProgramHostV2Error::InputCoverage);
         };
-        let role = plan
-            .input_roles()
-            .iter()
-            .find(|role| strategy_input_role_identity_v2(role) == value.input_role_identity())
-            .ok_or(ProgramHostV2Error::InputCoverage)?;
+        let Some(role) = plan.input_roles().iter().find(|role| {
+            role.semantic_id == component.role_semantic_id()
+                && strategy_input_role_identity_v2(role) == value.input_role_identity()
+        }) else {
+            return Err(ProgramHostV2Error::InputCoverage);
+        };
+
         if !role_ids.insert(role.semantic_id.clone()) {
             return Err(ProgramHostV2Error::InputCoverage);
         }
-        let binding = plan
+        let Some(binding) = plan
             .input_bindings()
             .iter()
             .find(|binding| binding.input_role_identity() == value.input_role_identity())
-            .ok_or(ProgramHostV2Error::InputCoverage)?;
+        else {
+            return Err(ProgramHostV2Error::InputCoverage);
+        };
         let trigger = frame.trigger();
+
+        let mut frame_bytes = Vec::new();
+        frame_bytes.extend(trigger.digest().as_bytes());
+        frame_bytes.extend(value.digest().as_bytes());
+
+        if component.frame_digest()
+            != domain_digest(
+                b"vibe.market-data.strategy-input-join.component.v1\0",
+                &frame_bytes,
+            )
+        {
+            return Err(ProgramHostV2Error::InputCoverage);
+        }
 
         if value.binding_receipt_digest() != binding.receipt_digest()
             || value.value_type_semantic_id() != STRATEGY_INPUT_FIXED_I128_LE_V1
@@ -719,18 +766,8 @@ pub(crate) fn admit_market_data_joined_program_event_v2(
             },
         ));
     }
-    let join = plan
-        .input_joins()
-        .iter()
-        .find(|join| {
-            join.inputs
-                .iter()
-                .cloned()
-                .collect::<std::collections::BTreeSet<_>>()
-                == role_ids
-        })
-        .ok_or(ProgramHostV2Error::InputCoverage)?;
-    if join.alignment_semantic_id != INPUT_JOIN_LATEST_NOT_AFTER_TRIGGER_V1 {
+
+    if role_ids != join.inputs.iter().cloned().collect() {
         return Err(ProgramHostV2Error::InputCoverage);
     }
     let driver = components
@@ -738,6 +775,14 @@ pub(crate) fn admit_market_data_joined_program_event_v2(
         .find(|(role, _, _, _)| role.semantic_id == join.trigger_input_id)
         .map(|(_, envelope, _, _)| *envelope)
         .ok_or(ProgramHostV2Error::InputCoverage)?;
+    let trigger_component = receipt
+        .components()
+        .iter()
+        .find(|component| component.role_semantic_id() == join.trigger_input_id)
+        .ok_or(ProgramHostV2Error::InputCoverage)?;
+    if trigger_component.frame().trigger().digest() != receipt.trigger_digest() {
+        return Err(ProgramHostV2Error::InputCoverage);
+    }
     let driver_time = driver.order_key.logical_time_ns;
     if components.iter().any(|(_, envelope, _, _)| {
         envelope.order_key.kind != driver.order_key.kind
@@ -747,17 +792,19 @@ pub(crate) fn admit_market_data_joined_program_event_v2(
     }) {
         return Err(ProgramHostV2Error::InputCoverage);
     }
-    components.sort_by_key(|(_, envelope, input, _)| {
-        (
-            envelope.order_key.logical_time_ns,
-            envelope.order_key.event_time_ns,
-            envelope.order_key.kind as u8,
-            envelope.order_key.owner_sequence,
-            envelope.order_key.event_identity,
-            input.owner_event.input_role_identity,
-        )
-    });
 
+    if receipt
+        .components()
+        .iter()
+        .zip(&components)
+        .any(|(component, (_, envelope, _, _))| {
+            component.staleness_ns()
+                != driver_time.saturating_sub(envelope.order_key.logical_time_ns)
+        })
+    {
+        return Err(ProgramHostV2Error::InputCoverage);
+    }
+    // Owner canonical component order is the sole ordering authority. The Host only verifies it.
     if components.windows(2).any(|pair| {
         pair[0].1.order_key == pair[1].1.order_key
             || pair[0].1.order_key.event_identity == pair[1].1.order_key.event_identity
@@ -780,7 +827,7 @@ pub(crate) fn admit_market_data_joined_program_event_v2(
     {
         return Err(ProgramHostV2Error::InputCoverage);
     }
-    let input_join_identity = Some(input_join_identity_v2(join));
+    let input_join_identity = Some(receipt.join_identity());
     let identity = admitted_event_identity(
         plan,
         driver,
@@ -1145,12 +1192,12 @@ impl ProgramHostV2 {
         self.apply_event(&event)
     }
 
-    /// Admits and applies one complete canonical join of Owner-sealed single-role frames.
-    pub fn apply_market_data_joined_event(
+    /// Admits and applies one complete Market Data Owner-sealed joined cut.
+    pub fn apply_market_data_joined_cut(
         &mut self,
-        frames: &[&StrategyInputEventFrameReceipt],
+        receipt: &StrategyInputJoinedCutReceiptV1,
     ) -> Result<SemanticTraceV1, ProgramHostV2Error> {
-        let event = admit_market_data_joined_program_event_v2(&self.plan, frames)?;
+        let event = admit_market_data_joined_program_event_v2(&self.plan, receipt)?;
         self.apply_event(&event)
     }
 
@@ -2808,9 +2855,12 @@ fn join_for_roles<'a>(
 }
 
 fn input_join_identity_v2(join: &InputJoinV2) -> BindingDigest {
-    domain_digest(
-        b"strategy.input-join.identity.v2\0",
-        &serde_json::to_vec(join).expect("canonical input join serialization"),
+    derive_strategy_input_join_identity_v2(
+        &join.semantic_id,
+        &join.inputs,
+        &join.alignment_semantic_id,
+        &join.trigger_input_id,
+        join.max_staleness_ns,
     )
 }
 fn rebalance_sequence(target: TargetStateV1) -> u64 {

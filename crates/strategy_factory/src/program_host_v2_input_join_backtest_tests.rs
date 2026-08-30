@@ -16,6 +16,7 @@ use vibe_data::owner::{
         SealedAcceptanceStrategyInputJoinCorpus, issue_strategy_input_join_corpus,
     },
     source_binding::BindingDigest,
+    strategy_input_joined_cut::StrategyInputJoinedCutUnavailable,
 };
 use vibe_model::{
     data::{Bar, BarSpecification, BarType, BookOrder, Data, OrderBookDelta, TradeTick},
@@ -83,69 +84,66 @@ fn owner_join_corpus_is_bound_to_the_exact_canonical_design_and_roles() {
             "the zero-argument corpus must stay bound to every canonical role identity"
         );
     }
+    let receipt = &corpus.events()[0];
+    assert_eq!(receipt.strategy_design_identity(), design_identity);
+    assert_eq!(receipt.components().len(), design.inputs.len());
+    let mut canonical_inputs = design.joins[0].inputs.clone();
+    canonical_inputs.sort();
+    for (component, input) in receipt.components().iter().zip(&canonical_inputs) {
+        assert_eq!(component.role_semantic_id(), input);
+    }
+    assert_eq!(receipt, corpus.repeated_first());
+    assert_eq!(receipt.digest(), corpus.repeated_first().digest());
 }
 
 #[rstest]
-fn joined_host_orders_owner_frames_and_failures_are_pre_guest_atomic() {
+fn owner_join_uses_complete_census_argmax_and_frontier_identity() {
+    let corpus = issue_strategy_input_join_corpus().expect("Owner-sealed joined corpus");
+    let first = &corpus.events()[0];
+    let second = &corpus.events()[1];
+
+    for (older, selected) in first.components().iter().zip(second.components()) {
+        assert!(
+            selected.frame().trigger().lifecycle().logical_time()
+                > older.frame().trigger().lifecycle().logical_time(),
+            "a later eligible Owner frame in the complete census must win the argmax"
+        );
+    }
+    assert_ne!(
+        first.selection_basis_digest(),
+        second.selection_basis_digest()
+    );
+    assert_ne!(first.frontier_digest(), second.frontier_digest());
+    assert_ne!(first.digest(), second.digest());
+}
+
+#[rstest]
+fn joined_host_consumes_only_owner_cut_and_unavailable_inputs_are_pre_guest_atomic() {
     let (plan, artifact, corpus) = fixture();
-    let mut ordered = started_host(&plan, &artifact);
-    let mut reversed = started_host(&plan, &artifact);
+    let mut host = started_host(&plan, &artifact);
 
     for event in corpus.events() {
-        let forward = event.frames().iter().collect::<Vec<_>>();
-        let backward = event.frames().iter().rev().collect::<Vec<_>>();
-        let forward_trace = ordered
-            .apply_market_data_joined_event(&forward)
-            .expect("complete Owner join executes");
-        let backward_trace = reversed
-            .apply_market_data_joined_event(&backward)
-            .expect("caller frame order is not authority");
-        assert_eq!(forward_trace, backward_trace);
-        assert_eq!(ordered.checkpoint(), reversed.checkpoint());
+        host.apply_market_data_joined_cut(event)
+            .expect("complete Owner cut executes");
     }
-    assert_eq!(ordered.plugin_calls(), 3);
+    assert_eq!(host.plugin_calls(), 3);
 
-    let checkpoint = ordered.checkpoint().clone();
-    let kernel = ordered.kernel_checkpoint();
-    let calls = ordered.plugin_calls();
-    let event = &corpus.events()[0];
-    let missing = event.frames()[..3].iter().collect::<Vec<_>>();
-    assert!(ordered.apply_market_data_joined_event(&missing).is_err());
-    assert_unchanged(&ordered, &checkpoint, kernel, calls);
-
-    let stale = corpus.stale().frames().iter().collect::<Vec<_>>();
-    assert!(ordered.apply_market_data_joined_event(&stale).is_err());
-    assert_unchanged(&ordered, &checkpoint, kernel, calls);
-
-    let future = vec![
-        &event.frames()[0],
-        &event.frames()[1],
-        &event.frames()[2],
-        &corpus.events()[1].frames()[3],
-    ];
-    assert!(ordered.apply_market_data_joined_event(&future).is_err());
-    assert_unchanged(&ordered, &checkpoint, kernel, calls);
-
-    let cross_splice = corpus.cross_splice().frames().iter().collect::<Vec<_>>();
-    assert!(
-        ordered
-            .apply_market_data_joined_event(&cross_splice)
-            .is_err()
+    let checkpoint = host.checkpoint().clone();
+    let kernel = host.kernel_checkpoint();
+    let calls = host.plugin_calls();
+    assert_eq!(
+        corpus.missing(),
+        StrategyInputJoinedCutUnavailable::IncompleteCensus
     );
-    assert_unchanged(&ordered, &checkpoint, kernel, calls);
-
-    let conflicting = vec![
-        &event.frames()[0],
-        &event.frames()[1],
-        &event.frames()[2],
-        &event.frames()[2],
-    ];
-    assert!(
-        ordered
-            .apply_market_data_joined_event(&conflicting)
-            .is_err()
+    assert_eq!(
+        corpus.stale(),
+        StrategyInputJoinedCutUnavailable::StaleComponent
     );
-    assert_unchanged(&ordered, &checkpoint, kernel, calls);
+    assert_eq!(
+        corpus.cross_splice(),
+        StrategyInputJoinedCutUnavailable::CrossCensus
+    );
+    assert_unchanged(&host, &checkpoint, kernel, calls);
 }
 
 #[rstest]
@@ -153,10 +151,9 @@ fn joined_host_checkpoint_restore_has_an_equal_execution_suffix() {
     let (plan, artifact, corpus) = fixture();
     let mut uninterrupted = started_host(&plan, &artifact);
     let mut restored = started_host(&plan, &artifact);
-    let first = corpus.events()[0].frames().iter().collect::<Vec<_>>();
     assert_eq!(
-        uninterrupted.apply_market_data_joined_event(&first),
-        restored.apply_market_data_joined_event(&first)
+        uninterrupted.apply_market_data_joined_cut(&corpus.events()[0]),
+        restored.apply_market_data_joined_cut(&corpus.events()[0])
     );
     let checkpoint = restored.checkpoint().clone();
     restored = ProgramHostV2::restore(plan, artifact, &checkpoint)
@@ -164,16 +161,16 @@ fn joined_host_checkpoint_restore_has_an_equal_execution_suffix() {
 
     let mut uninterrupted_suffix = Vec::new();
     let mut restored_suffix = Vec::new();
+
     for event in &corpus.events()[1..] {
-        let frames = event.frames().iter().collect::<Vec<_>>();
         uninterrupted_suffix.push(
             uninterrupted
-                .apply_market_data_joined_event(&frames)
+                .apply_market_data_joined_cut(event)
                 .expect("uninterrupted joined suffix"),
         );
         restored_suffix.push(
             restored
-                .apply_market_data_joined_event(&frames)
+                .apply_market_data_joined_cut(event)
                 .expect("restored joined suffix"),
         );
     }
@@ -200,8 +197,7 @@ fn run_backtest_join_corpus() -> anyhow::Result<Vec<u8>> {
     let mut events = Vec::with_capacity(corpus.events().len());
     let mut data = Vec::with_capacity(corpus.events().len() * 6);
     for (offset, joined) in corpus.events().iter().enumerate() {
-        let frames = joined.frames().iter().collect::<Vec<_>>();
-        let event = super::admit_market_data_joined_program_event_v2(&plan, &frames)?;
+        let event = super::admit_market_data_joined_program_event_v2(&plan, joined)?;
         let open = event
             .fixed_i128_input(AAPL_OPEN)
             .ok_or_else(|| anyhow::anyhow!("joined event omitted AAPL open"))?;
