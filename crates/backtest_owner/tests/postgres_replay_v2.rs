@@ -57,7 +57,7 @@ macro_rules! postgres_replay_v2_tests {
             }
 
             #[tokio::test]
-            #[ignore = "requires a disposable topology with a deterministic revocation trigger"]
+            #[ignore = "requires a disposable topology with a controlled pre-persist revocation function"]
             async fn revocation_between_validation_and_insert_writes_nothing() {
                 let (backtest_url, request_owner, locator, result) =
                     seeded_storage_context('a').await;
@@ -66,13 +66,17 @@ macro_rules! postgres_replay_v2_tests {
                     .expect("Backtest result Owner");
 
                 let commit = owner
-                    .commit_exploratory_replay_result_v2(&request_owner, &locator, &result)
+                    .commit_with_pre_persist_revocation_for_test(
+                        &request_owner,
+                        &locator,
+                        &result,
+                    )
                     .await;
 
                 assert_eq!(
                     total_counts(&backtest_url).await,
                     [0, 0],
-                    "revocation triggered immediately before the run insert must win"
+                    "revocation immediately before the run insert must win"
                 );
                 assert_eq!(
                     commit.expect_err("revoked request must not commit"),
@@ -137,6 +141,74 @@ macro_rules! postgres_replay_v2_tests {
                 PostgresReplayResultOwnerV2::connect(&backtest_url)
                     .await
                     .expect_err("runtime connect must reject a named-role ACL regrant");
+            }
+
+            #[tokio::test]
+            #[ignore = "requires a disposable topology with a clean runtime followed by ACL drift"]
+            async fn existing_handle_rejects_post_connect_named_role_acl() {
+                let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+                    .await
+                    .expect("canonical disposable topology");
+                let backtest_url = database
+                    .database_url(CanonicalOwnerTestRoleV1::BacktestOwner)
+                    .to_string();
+                let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect("clean Backtest runtime handle");
+                let backtest_pool = database
+                    .mutation()
+                    .pool(CanonicalOwnerTestRoleV1::BacktestOwner);
+
+                sqlx::query("GRANT SELECT ON public.backtest_replay_runs_v2 TO rd_owner")
+                    .execute(backtest_pool)
+                    .await
+                    .expect("inject post-connect ACL drift");
+                let result = owner.read_result_v2(&identity("absent-result-v2")).await;
+                sqlx::query("REVOKE ALL ON public.backtest_replay_runs_v2 FROM rd_owner")
+                    .execute(backtest_pool)
+                    .await
+                    .expect("clear post-connect ACL drift");
+
+                assert_eq!(
+                    result.expect_err("existing handle must revalidate ACL before read"),
+                    PostgresReplayOwnerErrorV2::CustodyUnavailable
+                );
+            }
+
+            #[tokio::test]
+            #[ignore = "requires a disposable topology with a post-connect undeclared trigger"]
+            async fn existing_handle_rejects_post_connect_storage_trigger() {
+                let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+                    .await
+                    .expect("canonical disposable topology");
+                let backtest_url = database
+                    .database_url(CanonicalOwnerTestRoleV1::BacktestOwner)
+                    .to_string();
+                let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect("clean Backtest runtime handle");
+                let backtest_pool = database
+                    .mutation()
+                    .pool(CanonicalOwnerTestRoleV1::BacktestOwner);
+
+                sqlx::query(
+                    "CREATE TRIGGER aaa_test_undeclared_backtest_trigger BEFORE INSERT ON public.backtest_replay_runs_v2 FOR EACH STATEMENT EXECUTE FUNCTION vibe_test_admin.noop_backtest_trigger_v2()",
+                )
+                .execute(backtest_pool)
+                .await
+                .expect("inject post-connect storage trigger");
+                let result = owner.read_result_v2(&identity("absent-result-v2")).await;
+                sqlx::query(
+                    "DROP TRIGGER aaa_test_undeclared_backtest_trigger ON public.backtest_replay_runs_v2",
+                )
+                .execute(backtest_pool)
+                .await
+                .expect("clear post-connect storage trigger");
+
+                assert_eq!(
+                    result.expect_err("existing handle must reject undeclared storage trigger"),
+                    PostgresReplayOwnerErrorV2::CustodyUnavailable
+                );
             }
 
             #[tokio::test]

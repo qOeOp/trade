@@ -242,7 +242,8 @@ CREATE TABLE public.backtest_replay_runs_v2 (
   attempt_identity TEXT NOT NULL,
   result_identity TEXT PRIMARY KEY,
   result_digest TEXT NOT NULL,
-  terminal TEXT NOT NULL
+  terminal TEXT NOT NULL,
+  UNIQUE(request_identity,attempt_identity)
 );
 CREATE TABLE public.backtest_replay_results_v2 (
   result_identity TEXT PRIMARY KEY REFERENCES public.backtest_replay_runs_v2(result_identity),
@@ -254,6 +255,8 @@ CREATE TABLE public.backtest_replay_results_v2 (
   canonical_bytes BYTEA NOT NULL,
   canonical_bytes_blake3 TEXT NOT NULL
 );
+CREATE INDEX undeclared_backtest_request_digest_v2
+ON public.backtest_replay_runs_v2(request_meaning_digest);
 RESET ROLE;
 SQL
 cargo test --locked --profile "$cargo_ci_profile" --package vibe-backtest-owner --lib \
@@ -308,6 +311,37 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" \
   --command "REVOKE ALL ON public.backtest_replay_runs_v2,public.backtest_replay_results_v2 FROM rd_owner"
 
+stage="Backtest existing-handle ACL revalidation"
+if ! cargo test --locked --profile "$cargo_ci_profile" --package vibe-backtest-owner --lib \
+  postgres::durable_postgres_replay_v2::existing_handle_rejects_post_connect_named_role_acl \
+  -- --ignored --exact; then
+  oracle_failed=true
+fi
+
+stage="Backtest existing-handle exact-schema revalidation"
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" << 'SQL'
+CREATE FUNCTION vibe_test_admin.noop_backtest_trigger_v2()
+RETURNS trigger LANGUAGE plpgsql
+SET search_path=pg_catalog
+AS $function$
+BEGIN
+  RETURN NEW;
+END
+$function$;
+REVOKE ALL ON FUNCTION vibe_test_admin.noop_backtest_trigger_v2() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION vibe_test_admin.noop_backtest_trigger_v2() TO backtest_owner;
+SQL
+if ! cargo test --locked --profile "$cargo_ci_profile" --package vibe-backtest-owner --lib \
+  postgres::durable_postgres_replay_v2::existing_handle_rejects_post_connect_storage_trigger \
+  -- --ignored --exact; then
+  oracle_failed=true
+fi
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" \
+  --command "DROP TRIGGER IF EXISTS aaa_test_undeclared_backtest_trigger ON public.backtest_replay_runs_v2" \
+  --command "DROP FUNCTION vibe_test_admin.noop_backtest_trigger_v2()"
+
 stage="Backtest SET-only role impersonation rejection"
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" \
@@ -358,24 +392,21 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" \
   --command "REVOKE backtest_owner FROM product_edge_owner"
 
-stage="Backtest Replay V2 revocation-before-insert oracle"
+stage="Backtest Replay V2 controlled revocation-before-insert oracle"
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" << 'SQL'
-CREATE FUNCTION vibe_test_admin.revoke_replay_request_before_backtest_insert_v2()
-RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+CREATE FUNCTION vibe_test_admin.revoke_replay_request_before_backtest_persist_v2(p_request_identity text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER
 SET search_path=pg_catalog
 AS $function$
 BEGIN
   UPDATE public.rd_exploratory_replay_requests_v1
   SET lifecycle_state='REVOKED'
-  WHERE request_identity=NEW.request_identity;
-  RETURN NEW;
+  WHERE request_identity=p_request_identity;
 END
 $function$;
-REVOKE ALL ON FUNCTION vibe_test_admin.revoke_replay_request_before_backtest_insert_v2() FROM PUBLIC;
-CREATE TRIGGER aaa_test_revoke_replay_request_before_backtest_insert_v2
-BEFORE INSERT ON public.backtest_replay_runs_v2
-FOR EACH ROW EXECUTE FUNCTION vibe_test_admin.revoke_replay_request_before_backtest_insert_v2();
+REVOKE ALL ON FUNCTION vibe_test_admin.revoke_replay_request_before_backtest_persist_v2(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION vibe_test_admin.revoke_replay_request_before_backtest_persist_v2(text) TO backtest_owner;
 SQL
 if ! cargo test --locked --profile "$cargo_ci_profile" --package vibe-backtest-owner --lib \
   postgres::durable_postgres_replay_v2::revocation_between_validation_and_insert_writes_nothing \
@@ -384,8 +415,7 @@ if ! cargo test --locked --profile "$cargo_ci_profile" --package vibe-backtest-o
 fi
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" << 'SQL'
-DROP TRIGGER aaa_test_revoke_replay_request_before_backtest_insert_v2 ON public.backtest_replay_runs_v2;
-DROP FUNCTION vibe_test_admin.revoke_replay_request_before_backtest_insert_v2();
+DROP FUNCTION vibe_test_admin.revoke_replay_request_before_backtest_persist_v2(text);
 SQL
 
 stage="Backtest Replay V2 durable binding tamper oracles"
