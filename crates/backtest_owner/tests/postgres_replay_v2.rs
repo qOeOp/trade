@@ -152,6 +152,63 @@ macro_rules! postgres_replay_v2_tests {
             }
 
             #[tokio::test]
+            #[ignore = "requires a seeded Replay V2 request and replaceable R&D internal helper"]
+            async fn existing_handle_rejects_forged_internal_v1_helper_before_rows() {
+                assert_forged_internal_helper_fails_closed(
+                    "rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)",
+                    r#"
+CREATE OR REPLACE FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(
+  requested_request_identity text,
+  requested_request_digest text,
+  requested_receipt_identity text
+) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER
+SET search_path = pg_catalog
+AS $function$
+BEGIN
+  RETURN pg_catalog.jsonb_build_object(
+    'schema_version', 1,
+    'availability', 'AVAILABLE',
+    'forged_helper_source', 'FORGED_INTERNAL_V1'
+  );
+END
+$function$
+"#,
+                    "FORGED_INTERNAL_V1",
+                    'e',
+                )
+                .await;
+            }
+
+            #[tokio::test]
+            #[ignore = "requires a seeded Replay V2 request and replaceable R&D internal helper"]
+            async fn existing_handle_rejects_forged_internal_v2_helper_before_rows() {
+                assert_forged_internal_helper_fails_closed(
+                    "rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)",
+                    r#"
+CREATE OR REPLACE FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(
+  requested_request_identity text,
+  requested_meaning_digest text,
+  requested_receipt_identity text,
+  requested_seal_digest text
+) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER
+SET search_path = pg_catalog
+AS $function$
+BEGIN
+  RETURN pg_catalog.jsonb_build_object(
+    'schema_version', 2,
+    'availability', 'AVAILABLE',
+    'forged_helper_source', 'FORGED_INTERNAL_V2'
+  );
+END
+$function$
+"#,
+                    "FORGED_INTERNAL_V2",
+                    'f',
+                )
+                .await;
+            }
+
+            #[tokio::test]
             #[ignore = "requires a disposable topology with a committed Replay V2 result"]
             async fn tampered_request_seal_digest_fails_closed_after_restart() {
                 assert_binding_tamper_fails_closed(
@@ -845,6 +902,66 @@ macro_rules! postgres_replay_v2_tests {
                         .expect_err("tampered request binding must fail closed after restart"),
                     PostgresReplayOwnerErrorV2::CorruptReadback
                 );
+            }
+
+            async fn assert_forged_internal_helper_fails_closed(
+                helper_regprocedure: &str,
+                forged_definition: &'static str,
+                forged_marker: &str,
+                trace_byte: char,
+            ) {
+                let (backtest_url, rd_url, request_owner, locator, result) =
+                    seeded_storage_context(trace_byte).await;
+                let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect("clean Backtest runtime handle before R&D helper drift");
+                let rd_pool = PgPool::connect(&rd_url)
+                    .await
+                    .expect("R&D helper replacement pool");
+                let rd_role: (String, bool) = sqlx::query_as(
+                    "SELECT role.rolname,role.rolsuper FROM pg_catalog.pg_roles role WHERE role.rolname=current_user",
+                )
+                .fetch_one(&rd_pool)
+                .await
+                .expect("R&D replacement role readback");
+                assert_eq!(rd_role, ("rd_owner".into(), false));
+                let canonical_definition: String = sqlx::query_scalar(
+                    "SELECT pg_catalog.pg_get_functiondef(pg_catalog.to_regprocedure($1))",
+                )
+                .bind(helper_regprocedure)
+                .fetch_one(&rd_pool)
+                .await
+                .expect("capture canonical internal helper definition");
+
+                sqlx::query(forged_definition)
+                    .execute(&rd_pool)
+                    .await
+                    .expect("current non-superuser R&D Owner replaces its internal helper");
+                let observed_forged_source = sqlx::query_scalar::<_, String>(
+                    "SELECT procedure.prosrc FROM pg_catalog.pg_proc procedure WHERE procedure.oid=pg_catalog.to_regprocedure($1)",
+                )
+                .bind(helper_regprocedure)
+                .fetch_one(&rd_pool)
+                .await;
+                let commit = owner
+                    .commit_exploratory_replay_result_v2(&request_owner, &locator, &result)
+                    .await;
+
+                sqlx::query(sqlx::AssertSqlSafe(canonical_definition.as_str()))
+                    .execute(&rd_pool)
+                    .await
+                    .expect("restore canonical internal helper definition");
+                let observed_forged_source = observed_forged_source
+                    .expect("forged internal helper source readback before restoration");
+                assert!(
+                    observed_forged_source.contains(forged_marker),
+                    "fixture must replace the selected helper body"
+                );
+                assert_eq!(
+                    commit.expect_err("forged internal helper must reject before persistence"),
+                    PostgresReplayOwnerErrorV2::RequestUnavailable
+                );
+                assert_eq!(total_counts(&backtest_url).await, [0, 0]);
             }
 
             // Storage fixture only: it deliberately uses U2's private constructor so the adapter

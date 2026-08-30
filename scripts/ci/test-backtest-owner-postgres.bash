@@ -438,10 +438,6 @@ cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factor
   --test source_intake \
   postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sealed \
   -- --ignored --exact
-cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factory-rd-owner-api \
-  --bin strategy-factory-rd-owner-api \
-  tests::same_identity_started_retry_returns_http_ok_with_exact_custody_once \
-  -- --ignored --exact
 cargo test --locked --profile "$cargo_ci_profile" --package vibe-product-edge --lib \
   postgres::tests::genesis_admission_claim_cutover_and_revocation_are_canonical \
   -- --ignored --exact
@@ -450,6 +446,24 @@ stage="real sealed R&D V2 request seed"
 cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factory \
   --test exploratory_replay_request_owner \
   frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner \
+  -- --ignored --exact
+
+stage="Backtest Replay V2 R&D internal helper source-drift rejection"
+if ! cargo test --locked --profile "$cargo_ci_profile" --package vibe-backtest-owner --lib \
+  postgres::durable_postgres_replay_v2::existing_handle_rejects_forged_internal_v1_helper_before_rows \
+  -- --ignored --exact; then
+  oracle_failed=true
+fi
+if ! cargo test --locked --profile "$cargo_ci_profile" --package vibe-backtest-owner --lib \
+  postgres::durable_postgres_replay_v2::existing_handle_rejects_forged_internal_v2_helper_before_rows \
+  -- --ignored --exact; then
+  oracle_failed=true
+fi
+
+stage="native R&D API same-identity recovery"
+cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factory-rd-owner-api \
+  --bin strategy-factory-rd-owner-api \
+  tests::same_identity_started_retry_returns_http_ok_with_exact_custody_once \
   -- --ignored --exact
 
 stage="Backtest bounded conflicting-lock rejection"
