@@ -492,6 +492,8 @@ jobs:
         && (github.ref_name == 'main' || github.ref_name == 'test-ci')
         && 'target/rust-tests-linux-x86'
         || '/home/runner/.cache/cargo-target/rust-tests-linux-x86' }}
+      # yamllint disable-line rule:line-length
+      RUST_TEST_EXTRA_FEATURES: capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,vibe-strategy-factory/sealed-develop-composer-acceptance
       RUST_BACKTRACE: 1
       VIBE_TEST_DATA_BASE_URL: ${{ vars.VIBE_TEST_DATA_BASE_URL }}
     # yamllint disable rule:line-length
@@ -585,12 +587,18 @@ jobs:
         run: bash scripts/ci/report-disk-space.bash "before Rust tests"
 
       - name: Run Rust tests
+        id: rust-tests
         run: >-
           make cargo-test NEXTEST_PROFILE=ci
-          EXTRA_FEATURES="capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres"
+          EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
 
       - name: Run isolated R&D Owner PostgreSQL tests
-        run: make cargo-test-rd-owner-postgres-isolated
+        if: >-
+          ${{ (steps.rust-tests.outcome == 'success' ||
+          steps.rust-tests.outcome == 'failure') && !cancelled() }}
+        run: >-
+          make cargo-test-rd-owner-postgres-isolated NEXTEST_PROFILE=ci
+          EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
 
       - name: Report disk space after Rust tests
         if: always()
@@ -621,6 +629,7 @@ jobs:
           RUN_RUST_TESTS: ${{ needs.plan.outputs.run-rust-tests }}
           RUN_GENERATED_DRIFT: ${{ needs.plan.outputs.run-generated-drift }}
           PUBLISH_R2: ${{ needs.plan.outputs.publish_r2 }}
+          REF: ${{ github.ref }}
           REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
@@ -639,7 +648,8 @@ jobs:
           if [[ "$RUN_GENERATED_DRIFT" == true ]]; then
             test "$RUN_TESTS" = true
           fi
-          if [[ "$RUN_TESTS" == true ]] &&
+          if [[ "$REF" != refs/heads/test-pre-commit ]] &&
+             [[ "$RUN_TESTS" == true ]] &&
              { [[ "$RUN_RUST_TESTS" == true ]] ||
                [[ "$PUBLISH_R2" == true ]] ||
                [[ "$REF_NAME" == master ]]; }; then
