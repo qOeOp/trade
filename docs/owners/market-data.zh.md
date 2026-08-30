@@ -317,6 +317,202 @@ row digest，并交叉绑定 trigger 和 observation-batch digest。consumer 必
 envelope，不能从 caller 选择的 value 或 order key 铸造。Market Data 绝不签发 `TIMER` 或 `FILL`
 trigger；在真实 Time/Scheduler 与 Execution Owner contract 分别存在前，两者都保持 unavailable。
 
+### TARGET sample-fact 与 sample-receipt 权威
+
+这是增量架构合同，不代表 executable readiness。Market Data 仍是版本化 `TimeframeSpecV1`、
+`TimeframeProjectionReceiptV1`、`SampleFactV1` 与 `SampleReceiptV1` 的唯一 writer，也只有它实现这些
+原生 exact-receipt resolver。所有既有 V1
+binding、event、value、frame、joined-cut、row、digest 与 byte 含义继续保持权威且逐字节不变；不得删除、
+合成、backfill、garbage-collect、reinterpret 或 promote 任何 V1 record。新增的
+`StrategyInputSampleProjectionReceiptV2` 是 Owner fact 之上的唯一 canonical frame/join projection，不是替代
+权威。不存在独立的 V2 event/value/frame/joined-cut codec；未改变的 V1 event/value/frame/join receipt 仍是其
+准确 evidence input。
+
+`TimeframeSpecV1` 只有一种 fixed canonical codec，字段顺序是：schema `u16LE = 1`、reserved-zero `u16LE`、
+kind `u8`、正 step `u32LE`、unit `u8`、anchor identity `[u8; 32]`、calendar identity `[u8; 32]`、session
+identity `[u8; 32]`、time-zone identity `[u8; 32]`、label-rule `u8`、partial-bar-rule `u8`；禁止 trailing
+bytes。其 identity 是 `market-data.timeframe.identity.v1\0 || canonical TimeframeSpecV1 bytes` 的 SHA-256。
+尤其是 `1d`
+表示绑定 calendar、session 与 time zone 下的一个命名 exchange-session day，绝不表示 UTC-duration day 或
+无 anchor 的 24 小时间隔。已接纳组合要求的任一字段缺失或含糊时，timeframe 必须 unavailable，consumer
+不得填入 default。
+
+tag registry 是封闭的。kind 只能是 `0x01 POINT_EVENT`、`0x02 FIXED_INTERVAL_BAR` 或
+`0x03 EXCHANGE_SESSION_BAR`。unit 只能是 `0x00 NOT_APPLICABLE`、`0x01 SECOND`、`0x02 MINUTE`、
+`0x03 HOUR` 或 `0x04 EXCHANGE_SESSION_DAY`。label rule 只能是 `0x00 EVENT_EFFECTIVE`、
+`0x01 INTERVAL_OPEN` 或 `0x02 INTERVAL_CLOSE`。partial-bar rule 只能是 `0x00 NOT_APPLICABLE`、
+`0x01 COMPLETE_ONLY` 或 `0x02 ADMIT_PARTIAL_AS_DISTINCT_SLOT`。全零 32-byte value 是唯一的
+not-applicable identity；每个 applicable identity 都必须非零。
+
+只有以下组合是 canonical：
+
+- `POINT_EVENT` 要求 `step = 1`、`unit = NOT_APPLICABLE`、四个 identity 全零、
+  `label = EVENT_EFFECTIVE`、`partial = NOT_APPLICABLE`；
+- `FIXED_INTERVAL_BAR` 要求 `step > 0`，unit 为 `SECOND`、`MINUTE` 或 `HOUR`，anchor/time-zone identity
+  非零；continuous clock 的 calendar/session identity 同时为零，schedule-bounded clock 的二者同时非零；
+  label 为 `INTERVAL_OPEN` 或 `INTERVAL_CLOSE`，partial 为 `COMPLETE_ONLY` 或
+  `ADMIT_PARTIAL_AS_DISTINCT_SLOT`；以及
+- `EXCHANGE_SESSION_BAR` 要求 `step = 1`、`unit = EXCHANGE_SESSION_DAY`、四个 identity 均非零，label
+  为 `INTERVAL_OPEN` 或 `INTERVAL_CLOSE`，partial 为 `COMPLETE_ONLY` 或
+  `ADMIT_PARTIAL_AS_DISTINCT_SLOT`。
+
+其他 tag、identity 零值组合、step/unit pair 或组合都 unsupported，且不生成 timeframe identity。
+`ADMIT_PARTIAL_AS_DISTINCT_SLOT` 要求 partial observation 获得自己的 root slot identity，绝不能 replace
+或 alias completed slot。每个 bar interval 都是在绑定 anchor/schedule 下的 half-open `[open, close)`；
+`INTERVAL_OPEN` 使用 `open` 作为 event-effective time，`INTERVAL_CLOSE` 使用 `close`；`POINT_EVENT` 使用
+source event-effective time。
+
+既有 V1 binding 的 free-form timeframe string 仅是 provenance，绝不决定这些 bytes。Market Data 签发一份
+以准确 V1 binding-receipt digest 为键的新增 immutable `TimeframeProjectionReceiptV1`。其 canonical bytes
+是 schema `u16LE = 1`、reserved-zero
+`u16LE`、V1 binding-receipt digest `[u8; 32]`、timeframe identity `[u8; 32]` 与完整 fixed-width canonical
+`TimeframeSpecV1` bytes；receipt identity 是
+`market-data.timeframe-projection-receipt.v1\0 || canonical receipt bytes` 的 SHA-256。spec 的四个 identity
+就是准确 Owner-admitted calendar/session/time-zone/anchor evidence identity。同一 V1 digest 加逐字节相同
+projection 是 idempotent；同一
+digest 对应不同 bytes 或 identity 是 conflict。projection 缺失、含糊或不唯一时 unavailable。consumer
+不得把 `1D`、`1h`、其他 label、venue convention 或 default 解析成 spec。后续 Owner mapping 或 calendar
+改变后，准确 historical projection 仍可回读；不同 mapping 必须使用 successor V1 binding receipt。
+
+`SampleFactV1`、`SampleReceiptV1` 与 308-byte coordinate 携带的 `Owner event identity` 是新增的
+role-independent Market Data identity，并非既有 V1 frame-trigger event identity。其 canonical preimage 按顺序
+为：schema `u16LE = 1`、reserved-zero `u16LE`、source snapshot identity `[u8; 32]`、source-snapshot fact
+digest `[u8; 32]`、observation-batch digest `[u8; 32]`、canonical-row digest `[u8; 32]`、logical time
+`u64LE`、event-effective time `u64LE`、provider-available time `u64LE`、retrieval time `u64LE`、
+correction-publication time `u64LE`、Owner sequence `u64LE`、correction-stream
+`u16LE length || bytes` 与 correction-frontier digest `[u8; 32]`。identity 是
+`market-data.sample-event.identity.v1\0 || canonical preimage` 的 SHA-256 前 16 bytes；全零结果、其他
+encoding 或不等于所引用 historical Owner row 的 coordinate 都 unsupported。Design、role、static binding、
+trigger、frame、join 与 consumer field 均不进入该 preimage。
+
+`SampleFactV1` 是一个 series slot 的 immutable Owner fact。其 canonical bytes 先是 schema `u16LE = 1` 与
+reserved-zero `u16LE`，随后按顺序绑定：series identity、slot identity、series-predecessor sample identity、
+可选 correction-predecessor sample identity、source snapshot identity、source-snapshot fact digest、
+observation-batch digest、canonical instrument bytes、channel、data kind、field-semantic bytes、timeframe
+identity、Owner event identity、logical time、
+event-effective、provider-available、retrieval、
+correction-publication、Owner sequence、value-semantic bytes、准确 value bytes、scale、canonical-row digest、
+Source Binding identity、Source Binding lineage root、lineage version、source-frontier digest、correction-stream
+bytes、correction-frontier digest、Instrument Master digest、Universe Selection digest 与 Market Semantics
+identity。固定 identity/digest 是 32 bytes，Owner event identity 是 16 bytes，time/sequence/version 字段是
+`u64LE`，channel/data-kind/scale 是 `u8`，optional absence/presence 是 `0x00`/`0x01`，variable bytes 是
+`u16LE length || bytes`；reserved/trailing bytes、超长 value 与其他 encoding 均被禁止。
+
+version 1 channel tag registry 是穷尽闭集：`0x01 MARKET`、`0x02 REFERENCE`、`0x03 ECONOMIC`。version 1
+data-kind tag registry 也是穷尽闭集：`0x01 BAR`、`0x02 QUOTE`、`0x03 TRADE`、`0x04 SCALAR`。这些 tag 是
+未改变的 V1 Owner `StrategyInputChannel` 与 `MarketDataFieldSemantic.data_kind` 返回字符串的唯一 canonical
+encoding；tag 只能由准确 historical V1 binding/event value 选择，consumer 不能自行选择。`0x00`、任何未列出的
+tag 或字符串、tag/string 不匹配，以及在 schema version 1 下出现的后续 registry value 都 unsupported，且不生成
+fact、series identity、receipt 或 V2 coordinate。扩展任一 registry 都必须使用 successor schema version，不得
+重新解释已存储的 version-1 bytes。
+
+version 1 series projection 只有一个有序的 Owner-derived codec。其 bytes 按顺序为：schema `u16LE = 1`、
+reserved-zero `u16LE`、canonical instrument variable bytes、channel tag `u8`、data-kind tag `u8`、canonical
+field-semantic variable bytes、timeframe identity `[u8; 32]`、准确
+`strategy.input.fixed-i128-le.v1` value-semantic variable bytes、准确 V1 unit variable bytes（`PRICE`、
+`QUANTITY` 或 `SCALAR`）、scale `u8`、Source Binding lineage root `[u8; 32]`、correction-stream variable bytes
+与 Market Semantics identity `[u8; 32]`。每个 variable field 使用与 `SampleFactV1` 相同的
+`u16LE length || bytes` encoding。每个成员都复制自准确 historical V1 Owner binding/event 或其 historical
+timeframe projection；consumer 不提供任何成员。准确 value bytes、slot/predecessor、snapshot/fact/batch、
+Owner event/time/sequence、canonical-row digest、Source Binding identity/lineage version、source/correction
+frontier 及其他所有可更新的 per-fact field 明确排除在外。因此 value/time 更新仍属于同一 series，而
+correction stream、unit、scale、lineage root 或其他已列 static member 改变时必须形成不同 series。series
+identity 是
+`market-data.sample-series.identity.v1\0 || canonical version-1 series projection bytes` 的 SHA-256。
+
+root slot identity 是对 `market-data.sample-slot.identity.v1\0` 加 series identity、event-effective time 与
+source-snapshot fact digest 的 SHA-256；已接纳 correction 必须保留 predecessor 的 slot identity，不能重新计算。
+`fact_digest` 是 `market-data.sample-fact.v1\0 || canonical SampleFactV1 bytes` 的 SHA-256，`sample_identity` 是
+`market-data.sample.identity.v1\0 || fact_digest` 的 SHA-256。因此，即使 value bytes 相同，sample identity
+也不同于且不得替换为既有 BLAKE3 canonical-row digest。全零 series predecessor 只对 series 首个 fact
+canonical；correction predecessor absence 只对 slot 首个 fact canonical。每个 correction 都必须有 present
+predecessor，之后每个 fact 都必须命名当前对应 head。
+
+`SampleReceiptV1` 与 trigger、consumer、Design、role 均无关。其 canonical bytes 恰好是 244 bytes，按顺序为：
+schema `u16LE = 1`、reserved-zero `u16LE`、sample identity `[u8; 32]`、fact digest `[u8; 32]`、timeframe
+identity `[u8; 32]`、Owner event identity `[u8; 16]`、logical time `u64LE`、event-effective time `u64LE`、
+Owner sequence `u64LE`、canonical-row digest `[u8; 32]`、Source Binding lineage root `[u8; 32]`、lineage
+version `u64LE` 与 Market Semantics identity `[u8; 32]`；其中不含 input-role identity 或 static binding
+digest。任何其他 width、endianness、order、reserved value、缺失 byte 或 trailing byte 都 unsupported，且不生成
+receipt identity 或 V2 coordinate。其 stable digest 是
+`market-data.sample-receipt.v1\0 || canonical SampleReceiptV1 bytes` 的 SHA-256；这些 bytes 准确等于上述
+role-independent fact projection；该 digest 同时是 receipt identity，并提供既有准确 308-byte coordinate
+的最后一个 sample-receipt-digest 字段。原生 resolver 只接受该准确 Owner-authorized stable digest，并返回历史
+存储的 canonical receipt bytes；绝不从 row、frame、trigger、value、latest head、role、binding 或 caller
+coordinate 重建它们。
+
+`StrategyInputFrameEvidenceIdentityV2` 是覆盖一份完整、未改变 V1 frame 的 additive identity；它不改变或
+替换任何 V1 receipt。其 canonical preimage 按顺序为：schema `u16LE = 2`、reserved-zero `u16LE`、准确 V1
+frame-trigger receipt digest `[u8; 32]`、正 value count `u32LE`，以及 V1 frame 每个 value 对应的一份 96-byte
+entry。每份 entry 是 input-role identity `[u8; 32]`、static V1 binding-receipt digest `[u8; 32]` 与 V1
+value-receipt digest `[u8; 32]`。entry 按 input-role identity 严格排序，重复 role unsupported；总长度恰好是
+`40 + 96 * count`。其 identity 是
+`market-data.strategy-input-frame-evidence.identity.v2\0 || canonical preimage bytes` 的 SHA-256。缺失、多余、
+乱序或不匹配的 trigger/value evidence 都不生成 identity。该 identity 不是 V1 frame receipt，不替换 joined-cut
+receipt 的 private single-value component digest，也不能只从一个 trigger 或一个 value 派生。
+
+只有 `StrategyInputSampleProjectionReceiptV2` 形成 role-bound coordinate projection。其 canonical bytes 是
+一个 header 后接 fixed component entry。header 按顺序为：schema `u16LE = 2`、reserved-zero `u16LE`、kind
+`u8`（`0x01 FRAME` 或 `0x02 JOINED_CUT`）、准确 subject identity/digest `[u8; 32]` 与正 component count
+`u32LE`。每个 entry 恰好是 612 bytes，按顺序为：input-role identity `[u8; 32]`、static V1 binding-receipt
+digest `[u8; 32]`、frame-evidence identity `[u8; 32]`、V1 frame-trigger receipt digest `[u8; 32]`、V1
+role-bound trigger event identity `[u8; 16]`、V1 value-receipt digest `[u8; 32]`、historical timeframe-
+projection-receipt digest `[u8; 32]`、sample identity `[u8; 32]`、native `SampleReceiptV1` digest `[u8; 32]`、
+coordinate digest `[u8; 32]` 与准确 308 coordinate bytes。entry 按 input-role identity bytes 严格排序，重复 role
+unsupported；总长度恰好是 `41 + 612 * count`。reserved、未知 kind、zero count、其他 order/width、缺失或
+trailing byte 都不生成 receipt。
+
+对于 `FRAME`，subject identity 是 additive frame-evidence identity，entry 穷尽同一有序 role value。对于
+`JOINED_CUT`，subject digest 命名准确未改变的 V1 joined-cut receipt，entry 穷尽该 cut 展平后的 selected role
+set；每个 entry 命名其实际 component frame-evidence identity、trigger 与 value receipt。flattening 不改变 V1 cut 的 component/staleness
+含义。每个 entry 解析准确 binding 及其 historical `TimeframeProjectionReceiptV1`；coordinate 的 role、binding、
+timeframe、row digest、lineage、Market Semantics、sample identity、native receipt digest 与 coordinate digest
+必须等于这些 resolved bytes。V1 frame/value row 与 batch evidence 必须等于被引用 `SampleFactV1`，且该 fact
+的 source snapshot/correction census 必须验证其 lineage version。V1 trigger 的 logical/event time 与 Owner
+sequence 必须等于 component coordinate；其 role-bound event identity 只作为单独存储的 V1 evidence，绝不复制
+进 role-independent native event identity 或与之判等。current/latest lookup、partial component set、cross-
+frame/cut splice 或 caller-derived field 都 unsupported。
+
+V2 receipt identity 与 digest 是
+`market-data.sample-projection-receipt.v2\0 || canonical receipt bytes` 的同一 SHA-256。Market Data 按该 digest
+存储并解析准确 bytes；逐字节相同 replay idempotent，同 digest 不同 bytes conflict。因此，一个 Owner sample
+保持一份 native receipt，并在同一 role/binding 下被后续 trigger 携带时保持逐字节相同 coordinate，而 enclosing
+V2 projection 随其 V1 frame 或 joined cut 正确改变。任何 projection 都不能 mint 或改写 Owner sample receipt。
+
+已接纳 correction 是 immutable successor，同时具有准确 series predecessor 与 correction predecessor。
+它创建新的 `SampleFactV1`、`SampleReceiptV1`、`sample_identity` 与 coordinate，并让 sample clock 准确推进
+一次，即使其 value bytes 与 predecessor 相等。它绝不 rewrite、replace、mask、replay 或追溯推进 predecessor
+state。普通的等值新 slot 同样是新 sample，并准确推进一次。同一 1-hour 或 exchange-session `1d` sample 被
+后续 1-minute trigger 携带时，返回相同 receipt/coordinate bytes，且不会第二次推进 sample clock。
+
+增量 PostgreSQL TARGET 包含 Owner-owned timeframe-projection-receipt、sample-fact、series-head、per-slot
+correction-head、sample-receipt、outbox table 与 exact native resolver。一个 Market Data transaction 插入 fact、receipt、outbox row，并从 fact
+绑定的 predecessor 对 series/correction head 执行 compare-and-swap 前进；普通新 slot 从规范 absence 把其
+correction head 推进到首个 fact。逐字节相同的 replay 执行零次
+write，并返回准确历史 receipt bytes。identity/content mismatch、time/version regression、predecessor 或
+sequence gap、competing branch、cycle、cross-lineage splice、head mismatch、缺失/冲突 timeframe projection
+或非规范 bytes 都必须 fail closed，且两个 head 均不前进。successor 与 correction 之后仍可读取历史 exact receipt。caller、Strategy
+Factory、ProgramHost、Backtest、fixture、migration 与 reconciliation process 都不获得 insert/update/delete、
+head-advance、synthesis、backfill 或 garbage-collection 权威。
+
+单一 V2 projection receipt 交叉绑定每个 selected component 的准确 `sample_identity`、`SampleReceiptV1`
+digest、已接纳 V1 role/binding evidence 与既有 308-byte coordinate bytes/digest。它保留所有 V1 trigger、
+value、frame、join 与 row identity，而不从这些 identity 派生 sample 权威。因此，同一个 sample 被后续
+event 或 join 在同一 role/binding 下选中时，native receipt 与 coordinate bytes 保持逐字节相同。从
+row/frame/trigger digest、caller
+timestamp 或 `1d` 的 UTC 24 小时解释计算 coordinate digest 均不具备权威，并在 consumer state mutation
+之前失败。
+
+规范 acceptance 必须复用仓库既有 disposable PostgreSQL harness 以及仓库权威的 Makefile、pre-commit 与
+CI wiring。它覆盖每个规范 identity/fact field 的逐字段 mutation、逐字节 idempotency 与 same-identity
+conflict、普通/correction predecessor topology、response loss、restart、transaction rollback、历史 exact
+readback、receipt/coordinate tamper 与 cross-splice、predecessor gap/branch/cycle/regression/cross-lineage
+rejection、V1 byte/meaning preservation，以及所有 non-Owner write path 的数据库 ACL denial。consumer
+oracle 在 1-minute trigger 间重复同一 1-hour 与 exchange-session `1d` sample 而不 double advance；等值新
+sample 与已接纳 correction 各推进一次；restart 后返回相同 native receipt bytes。在具备该 dynamic evidence
+前，本合同不声称 provider authenticity、production migration/deployment、Dashboard、Paper、Live、BFP
+executable maturity 或 trading authority。
+
 ## 输入交接
 
 - 数据商和交易场所通过 Data Clients 提供原始行情和参考记录。
